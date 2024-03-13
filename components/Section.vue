@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { useSlots, Transition } from "vue";
+import { useSlots } from "vue";
 
 const props = defineProps<{
   title?: string;

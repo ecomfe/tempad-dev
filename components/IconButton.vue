@@ -3,7 +3,6 @@ import { computed } from "vue";
 
 const props = defineProps<{
   type?: "button" | "submit" | "reset";
-  selected?: boolean;
   toggle?: boolean | "normal" | "subtle";
   variant?: "normal" | "secondary";
   title?: string;
