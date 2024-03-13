@@ -1,0 +1,48 @@
+tempad {
+  display: block;
+  position: absolute;
+
+  font-family: var(--font-family-ui);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+tempad *,
+tempad *::before,
+tempad *::after {
+  box-sizing: border-box;
+}
+
+/** Tiny utility classes */
+tempad .tp-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+tempad .tp-row-justify {
+  justify-content: space-between;
+}
+
+tempad ::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+  background-color: transparent;
+  border: 0 solid var(--color-border);
+}
+
+tempad ::-webkit-scrollbar:horizontal {
+  border-top-width: 1px;
+}
+
+tempad ::-webkit-scrollbar:vertical {
+  border-left-width: 1px;
+}
+
+tempad ::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  border: solid transparent;
+  border-width: 3px 2px 2px 3px;
+  background-clip: content-box;
+  background-color: var(--color-scrollbar);
+}
