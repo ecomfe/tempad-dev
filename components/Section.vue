@@ -1,50 +1,44 @@
 <script lang="ts" setup>
-import { useSlots } from "vue";
+import { useSlots } from 'vue'
 
 const props = defineProps<{
-  title?: string;
-  collapsed?: boolean;
-  flat?: boolean;
-}>();
+  title?: string
+  collapsed?: boolean
+  flat?: boolean
+}>()
 
-const { header } = useSlots();
+const { header } = useSlots()
 
 function beforeEnter(el: Element) {
-  (el as HTMLElement).style.height = "0";
+  ;(el as HTMLElement).style.height = '0'
 }
 
 function enter(el: Element) {
-  const styles = getComputedStyle(el as HTMLElement);
-  const paddingTop = parseInt(
-    styles.getPropertyValue("--tp-section-padding-top"),
-    10
-  );
-  const paddingBottom = parseInt(
-    styles.getPropertyValue("--tp-section-padding-bottom"),
-    10
-  );
+  const styles = getComputedStyle(el as HTMLElement)
+  const paddingTop = parseInt(styles.getPropertyValue('--tp-section-padding-top'), 10)
+  const paddingBottom = parseInt(styles.getPropertyValue('--tp-section-padding-bottom'), 10)
 
-  (el as HTMLElement).style.height = `${
+  ;(el as HTMLElement).style.height = `${
     (el as HTMLElement).scrollHeight + paddingTop + paddingBottom
-  }px`;
+  }px`
 }
 
 function afterEnter(el: Element) {
-  (el as HTMLElement).style.height = "";
+  ;(el as HTMLElement).style.height = ''
 }
 
 function beforeLeave(el: Element) {
-  (el as HTMLElement).style.height = `${(el as HTMLElement).scrollHeight}px`;
+  ;(el as HTMLElement).style.height = `${(el as HTMLElement).scrollHeight}px`
 }
 
 function leave(el: Element) {
   if ((el as HTMLElement).scrollHeight) {
-    (el as HTMLElement).style.height = "0";
+    ;(el as HTMLElement).style.height = '0'
   }
 }
 
 function afterLeave(el: Element) {
-  (el as HTMLElement).style.height = "";
+  ;(el as HTMLElement).style.height = ''
 }
 </script>
 
@@ -58,11 +52,7 @@ function afterLeave(el: Element) {
     @leave="leave"
     @after-leave="afterLeave"
   >
-    <section
-      class="tp-section"
-      :class="{ 'tp-section-flat': props.flat }"
-      v-if="!collapsed"
-    >
+    <section class="tp-section" :class="{ 'tp-section-flat': props.flat }" v-if="!collapsed">
       <header v-if="title || header" class="tp-row tp-section-header">
         <slot name="header">{{ props.title }}</slot>
       </header>

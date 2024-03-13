@@ -1,26 +1,26 @@
 <script lang="ts" setup>
-import { computed, toRef } from "vue";
-import { useCopy } from "@/entrypoints/ui/composables/copy";
-import IconButton from "./IconButton.vue";
-import Copy from "./icons/Copy.vue";
+import { computed, toRef } from 'vue'
+import { useCopy } from '@/entrypoints/ui/composables/copy'
+import IconButton from './IconButton.vue'
+import Copy from './icons/Copy.vue'
 
 const props = defineProps<{
-  title: string;
-  lang: string;
-  code: string;
-  link?: string;
-}>();
+  title: string
+  lang: string
+  code: string
+  link?: string
+}>()
 
 const highlighted = computed(() => {
-  const { Prism } = window;
+  const { Prism } = window
   if (!Prism) {
-    return props.code;
+    return props.code
   }
 
-  return Prism.highlight(props.code, Prism.languages[props.lang], props.lang);
-});
+  return Prism.highlight(props.code, Prism.languages[props.lang], props.lang)
+})
 
-const copy = useCopy(toRef(props.code));
+const copy = useCopy(toRef(props.code))
 </script>
 
 <template>
@@ -61,7 +61,11 @@ const copy = useCopy(toRef(props.code));
   border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.1));
   padding: 4px 12px;
   -webkit-font-smoothing: antialiased;
-  font-family: Roboto Mono, Monaco, Courier New, monospace;
+  font-family:
+    Roboto Mono,
+    Monaco,
+    Courier New,
+    monospace;
   font-weight: 400;
   line-height: 18px;
   font-size: 11px;

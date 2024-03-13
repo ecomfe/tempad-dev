@@ -1,9 +1,6 @@
 {
   "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
-    "typeRoots": [
-      "node_modules/@types",
-      "node_modules/@figma"
-    ]
+    "typeRoots": ["node_modules/@types", "node_modules/@figma"]
   }
 }

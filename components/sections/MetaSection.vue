@@ -1,27 +1,27 @@
 <script lang="ts" setup>
-import { computed } from "vue";
-import Section from "../Section.vue";
-import { selection } from "@/entrypoints/ui/state";
-import Copyable from "../Copyable.vue";
-import IconButton from "../IconButton.vue";
-import Select from "../icons/Select.vue";
+import { computed } from 'vue'
+import Section from '../Section.vue'
+import { selection } from '@/entrypoints/ui/state'
+import Copyable from '../Copyable.vue'
+import IconButton from '../IconButton.vue'
+import Select from '../icons/Select.vue'
 
 const title = computed(() => {
-  const nodes = selection.value;
+  const nodes = selection.value
 
   if (!nodes || nodes.length === 0) {
-    return null;
+    return null
   }
 
   if (nodes.length > 1) {
-    return `${nodes.length} Selected`;
+    return `${nodes.length} Selected`
   }
 
-  return nodes[0].name;
-});
+  return nodes[0].name
+})
 
 function scrollIntoView() {
-  figma.viewport.scrollAndZoomIntoView(selection.value || []);
+  figma.viewport.scrollAndZoomIntoView(selection.value || [])
 }
 </script>
 

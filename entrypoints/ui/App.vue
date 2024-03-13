@@ -1,43 +1,37 @@
 <script lang="ts" setup>
-import Panel from "@/components/Panel.vue";
-import MetaSection from "@/components/sections/MetaSection.vue";
-import CodeSection from "@/components/sections/CodeSection.vue";
-import PrefSection from "@/components/sections/PrefSection.vue";
-import IconButton from "@/components/IconButton.vue";
-import Preferences from "@/components/icons/Preferences.vue";
-import Minus from "@/components/icons/Minus.vue";
-import Plus from "@/components/icons/Plus.vue";
-import { useSelection } from "./composables/selection";
-import { useKeyLock } from "./composables/key-lock";
-import { options } from "./state";
-import { computed } from "vue";
-import { PANEL_WIDTH } from "./const";
+import Panel from '@/components/Panel.vue'
+import MetaSection from '@/components/sections/MetaSection.vue'
+import CodeSection from '@/components/sections/CodeSection.vue'
+import PrefSection from '@/components/sections/PrefSection.vue'
+import IconButton from '@/components/IconButton.vue'
+import Preferences from '@/components/icons/Preferences.vue'
+import Minus from '@/components/icons/Minus.vue'
+import Plus from '@/components/icons/Plus.vue'
+import { useSelection } from './composables/selection'
+import { useKeyLock } from './composables/key-lock'
+import { options } from './state'
+import { computed } from 'vue'
+import { PANEL_WIDTH } from './const'
 
-const canvas = document.querySelector<HTMLElement>(
-  "#fullscreen-root .gpu-view-content canvas"
-);
+const canvas = document.querySelector<HTMLElement>('#fullscreen-root .gpu-view-content canvas')
 if (!canvas) {
-  figma.notify("[TemPad] Canvas not found.");
+  figma.notify('[TemPad] Canvas not found.')
 } else {
-  useSelection(canvas);
-  useKeyLock(canvas);
+  useSelection(canvas)
+  useKeyLock(canvas)
 }
 
 function toggleMinimized() {
-  options.value.minimized = !options.value.minimized;
+  options.value.minimized = !options.value.minimized
 }
 
 const style = computed(() => ({
-  "--tp-panel-width": `${PANEL_WIDTH}px`,
-}));
+  '--tp-panel-width': `${PANEL_WIDTH}px`
+}))
 </script>
 
 <template>
-  <Panel
-    class="tp-main"
-    :class="{ 'tp-main-minimized': options.minimized }"
-    :style="style"
-  >
+  <Panel class="tp-main" :class="{ 'tp-main-minimized': options.minimized }" :style="style">
     <template #header>
       TemPad Dev
       <div class="tp-row">

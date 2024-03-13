@@ -1,29 +1,28 @@
 <script lang="ts" setup>
-import { computed } from "vue";
+import { computed } from 'vue'
 
 const props = defineProps<{
-  type?: "button" | "submit" | "reset";
-  toggle?: boolean | "normal" | "subtle";
-  variant?: "normal" | "secondary";
-  title?: string;
-}>();
+  type?: 'button' | 'submit' | 'reset'
+  toggle?: boolean | 'normal' | 'subtle'
+  variant?: 'normal' | 'secondary'
+  title?: string
+}>()
 
-const selected = defineModel<boolean>("selected");
+const selected = defineModel<boolean>('selected')
 
 const classes = computed(() => {
-  const variant = props.variant || "normal";
-  const toggleVariant =
-    typeof props.toggle === "string" ? props.toggle : "normal";
+  const variant = props.variant || 'normal'
+  const toggleVariant = typeof props.toggle === 'string' ? props.toggle : 'normal'
 
   return {
     [`tp-button-${variant}`]: true,
-    [`tp-button-selected-${toggleVariant}`]: selected.value,
-  };
-});
+    [`tp-button-selected-${toggleVariant}`]: selected.value
+  }
+})
 
 function handleClick() {
   if (props.toggle) {
-    selected.value = !selected.value;
+    selected.value = !selected.value
   }
 }
 </script>
