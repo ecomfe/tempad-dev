@@ -14,3 +14,10 @@ Currently supported features include:
 - Locking the Deep Select mode (originally requiring pressing ⌘ and clicking)
 - Locking the Measure to Selection mode (originally requiring moving the cursor while holding ⌥ to view)
 - Scrolling the selected elements back into the viewport
+
+## Acknowledgements
+
+Inspired by the following projects:
+
+- https://github.com/leadream/figma-viewer-chrome-plugin
+- https://github.com/zouhangwithsweet/fubukicss-tool
