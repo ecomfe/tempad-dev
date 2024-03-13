@@ -1,0 +1,30 @@
+{
+  "name": "tempad-dev",
+  "description": "Dev Mode brought by TemPad.",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "compile": "vue-tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.88.0",
+    "@types/prismjs": "^1.26.3",
+    "@vitejs/plugin-vue": "^5.0.1",
+    "@vueuse/core": "^10.9.0",
+    "p-wait-for": "^5.0.2",
+    "radix-vue": "^1.5.1",
+    "typescript": "^5.3.3",
+    "vite-plugin-css-injected-by-js": "^3.4.0",
+    "vue": "^3.4.21",
+    "vue-tsc": "^1.8.27",
+    "wxt": "^0.17.0"
+  }
+}
