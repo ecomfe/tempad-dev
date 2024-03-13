@@ -4,13 +4,13 @@ Dev Mode brought by TemPad. A Figma Dev Mode alternative as a Web Extension.
 
 Built with [WXT](https://wxt.dev/), TypeScript and Vue 3.
 
-<center>
+<p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="assets/light.png">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/dark.png 2x">
+    <source media="(prefers-color-scheme: light)" srcset="assets/light.png 2x">
     <img alt="Shows a screenshot of the extension panel." src="assets/light.png">
   </picture>
-</center>
+</p>
 
 ## Features
 
