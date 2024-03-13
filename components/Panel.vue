@@ -1,29 +1,29 @@
 <script lang="ts" setup>
-import { ref } from "vue";
-import { useDraggable, watchDebounced } from "@vueuse/core";
-import { options } from "@/entrypoints/ui/state";
+import { ref } from 'vue'
+import { useDraggable, watchDebounced } from '@vueuse/core'
+import { options } from '@/entrypoints/ui/state'
 
-const panel = ref<HTMLElement | null>(null);
-const header = ref<HTMLElement | null>(null);
+const panel = ref<HTMLElement | null>(null)
+const header = ref<HTMLElement | null>(null)
 
-const position = options.value.panelPosition;
+const position = options.value.panelPosition
 const { style, x, y } = useDraggable(panel, {
   initialValue: {
     x: position ? position.left : 0,
-    y: position ? position.top : 0,
+    y: position ? position.top : 0
   },
-  handle: header,
-});
+  handle: header
+})
 
 if (position) {
   watchDebounced(
     [x, y],
     () => {
-      position.left = x.value;
-      position.top = y.value;
+      position.left = x.value
+      position.top = y.value
     },
     { debounce: 300 }
-  );
+  )
 }
 </script>
 

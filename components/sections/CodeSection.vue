@@ -1,52 +1,48 @@
 <script lang="ts" setup>
-import { shallowRef, watchEffect } from "vue";
-import { selectedNode } from "@/entrypoints/ui/state";
-import { serializeCSS, extractJSX } from "@/entrypoints/ui/utils";
-import Section from "../Section.vue";
-import Code from "../Code.vue";
-import IconButton from "../IconButton.vue";
-import Preview from "../icons/Preview.vue";
+import { shallowRef, watchEffect } from 'vue'
+import { selectedNode } from '@/entrypoints/ui/state'
+import { serializeCSS, extractJSX } from '@/entrypoints/ui/utils'
+import Section from '../Section.vue'
+import Code from '../Code.vue'
+import IconButton from '../IconButton.vue'
+import Preview from '../icons/Preview.vue'
 
-const component = shallowRef("");
-const componentLink = shallowRef("");
-const css = shallowRef("");
-const js = shallowRef("");
+const component = shallowRef('')
+const componentLink = shallowRef('')
+const css = shallowRef('')
+const js = shallowRef('')
 
 watchEffect(async () => {
-  const node = selectedNode.value;
+  const node = selectedNode.value
   if (node == null) {
-    css.value = "";
-    return;
+    css.value = ''
+    return
   }
 
-  if (node.type === "FRAME" && node.name.startsWith("🧩")) {
+  if (node.type === 'FRAME' && node.name.startsWith('🧩')) {
     // TemPad
-    const code = node.findChild(
-      (n) => n.type === "TEXT" && n.name === "代码"
-    ) as TextNode;
+    const code = node.findChild((n) => n.type === 'TEXT' && n.name === '代码') as TextNode
 
     if (code) {
-      component.value = extractJSX(code.characters);
+      component.value = extractJSX(code.characters)
     }
 
-    const link = node.findChild(
-      (n) => n.type === "TEXT" && n.name === "🔗"
-    ) as TextNode;
+    const link = node.findChild((n) => n.type === 'TEXT' && n.name === '🔗') as TextNode
 
     if (link) {
-      componentLink.value = (link.hyperlink as HyperlinkTarget).value;
+      componentLink.value = (link.hyperlink as HyperlinkTarget).value
     }
   } else {
-    component.value = componentLink.value = "";
+    component.value = componentLink.value = ''
   }
 
-  const style = await node.getCSSAsync();
-  css.value = serializeCSS(style);
-  js.value = serializeCSS(style, true);
-});
+  const style = await node.getCSSAsync()
+  css.value = serializeCSS(style)
+  js.value = serializeCSS(style, true)
+})
 
 function open() {
-  window.open(componentLink.value);
+  window.open(componentLink.value)
 }
 </script>
 
@@ -72,13 +68,7 @@ function open() {
       </template>
     </Code>
     <Code v-if="css" class="tp-code-code" title="CSS" lang="css" :code="css" />
-    <Code
-      v-if="css"
-      class="tp-code-code"
-      title="JavaScript"
-      lang="js"
-      :code="js"
-    />
+    <Code v-if="css" class="tp-code-code" title="JavaScript" lang="js" :code="js" />
   </Section>
 </template>
 

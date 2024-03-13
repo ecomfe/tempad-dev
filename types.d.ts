@@ -1,3 +1,3 @@
 interface Window {
-  figma: PluginAPI;
+  figma: PluginAPI
 }

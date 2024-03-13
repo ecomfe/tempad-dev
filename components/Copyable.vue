@@ -1,17 +1,17 @@
 <script lang="ts" setup>
-import { ref } from "vue";
-import { useCopy } from "@/entrypoints/ui/composables/copy";
+import { ref } from 'vue'
+import { useCopy } from '@/entrypoints/ui/composables/copy'
 
-const root = ref<HTMLElement>();
+const root = ref<HTMLElement>()
 
-const copy = useCopy(root);
+const copy = useCopy(root)
 
 async function copyText() {
   if (!root.value) {
-    return;
+    return
   }
 
-  copy();
+  copy()
 }
 </script>
 
