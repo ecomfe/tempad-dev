@@ -2,7 +2,6 @@
 import { computed, toRef } from "vue";
 import { useCopy } from "@/entrypoints/ui/composables/copy";
 import IconButton from "./IconButton.vue";
-import Preview from "./icons/Preview.vue";
 import Copy from "./icons/Copy.vue";
 
 const props = defineProps<{
