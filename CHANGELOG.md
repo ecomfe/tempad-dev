@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.3
+
+- Optimized panel drag range based on Figma's floating window handling to prevent dragging beyond visibility.
+
 ## 0.0.2
 
 - Added preferences: CSS unit and root font size.
