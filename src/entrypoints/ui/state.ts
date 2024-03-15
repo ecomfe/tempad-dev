@@ -28,5 +28,5 @@ export const options = useStorage<Options>('tempad-dev', {
   rootFontSize: 16
 })
 
-export const selection = shallowRef<readonly SceneNode[] | null>(null)
+export const selection = shallowRef<readonly SceneNode[]>([])
 export const selectedNode = computed(() => selection.value?.[0] ?? null)
