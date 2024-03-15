@@ -13,13 +13,8 @@ import { options } from './state'
 import { computed } from 'vue'
 import { PANEL_WIDTH } from './const'
 
-const canvas = document.querySelector<HTMLElement>('#fullscreen-root .gpu-view-content canvas')
-if (!canvas) {
-  figma.notify('[TemPad] Canvas not found.')
-} else {
-  useSelection(canvas)
-  useKeyLock(canvas)
-}
+useSelection()
+useKeyLock()
 
 function toggleMinimized() {
   options.value.minimized = !options.value.minimized

@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { shallowRef, watchEffect } from 'vue'
-import { selectedNode, options } from '@/entrypoints/ui/state'
+import { selection, selectedNode, options } from '@/entrypoints/ui/state'
 import { serializeCSS, extractJSX } from '@/entrypoints/ui/utils'
 import Section from '../Section.vue'
 import Code from '../Code.vue'
@@ -15,7 +15,7 @@ const js = shallowRef('')
 watchEffect(async () => {
   const node = selectedNode.value
 
-  if (node == null) {
+  if (node == null || selection.value.length > 1) {
     css.value = ''
     return
   }

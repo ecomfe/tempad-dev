@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.4
+
+- Fixed lock mode when user <kbd>  <kbd> + drag with mouses.
+- Fixed selection updates triggered by objects panel or <kbd>⌘</kbd>.
+- Fixed display when multiple nodes are selected.
+
 ## 0.0.3
 
 - Optimized panel drag range based on Figma's floating window handling to prevent dragging beyond visibility.
