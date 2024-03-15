@@ -1,7 +1,8 @@
 <script lang="ts" setup>
-import { ref } from 'vue'
-import { useDraggable, watchDebounced } from '@vueuse/core'
+import { ref, computed } from 'vue'
+import { useDraggable, useWindowSize, watchDebounced } from '@vueuse/core'
 import { options } from '@/entrypoints/ui/state'
+import { TOOLBAR_HEIGHT } from '@/entrypoints/ui/const'
 
 const panel = ref<HTMLElement | null>(null)
 const header = ref<HTMLElement | null>(null)
@@ -15,12 +16,38 @@ const { style, x, y } = useDraggable(panel, {
   handle: header
 })
 
+const { width: windowWidth, height: windowHeight } = useWindowSize()
+
+const restrictedPosition = computed(() => {
+  if (!panel.value || !header.value) {
+    return { top: x.value, left: y.value }
+  }
+
+  const { offsetWidth: panelWidth } = panel.value
+  const { offsetHeight: headerHeight } = header.value
+
+  const xMin = -panelWidth / 2
+  const xMax = windowWidth.value - panelWidth / 2
+  const yMin = TOOLBAR_HEIGHT
+  const yMax = windowHeight.value - headerHeight
+
+  return {
+    top: Math.max(yMin, Math.min(yMax, y.value)),
+    left: Math.max(xMin, Math.min(xMax, x.value))
+  }
+})
+
+const positionStyle = computed(() => {
+  const p = restrictedPosition.value
+  return `top: ${p.top}px; left: ${p.left}px`
+})
+
 if (position) {
   watchDebounced(
-    [x, y],
+    restrictedPosition,
     () => {
-      position.left = x.value
-      position.top = y.value
+      position.top = restrictedPosition.value.top
+      position.left = restrictedPosition.value.left
     },
     { debounce: 300 }
   )
@@ -32,7 +59,7 @@ function toggleMinimized() {
 </script>
 
 <template>
-  <article ref="panel" class="tp-panel" :style="style">
+  <article ref="panel" class="tp-panel" :style="positionStyle">
     <header ref="header" class="tp-row tp-row-justify tp-panel-header" @dblclick="toggleMinimized">
       <slot name="header" />
     </header>
