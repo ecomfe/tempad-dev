@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { shallowRef, watchEffect } from 'vue'
-import { selectedNode } from '@/entrypoints/ui/state'
+import { selectedNode, options } from '@/entrypoints/ui/state'
 import { serializeCSS, extractJSX } from '@/entrypoints/ui/utils'
 import Section from '../Section.vue'
 import Code from '../Code.vue'
@@ -14,6 +14,7 @@ const js = shallowRef('')
 
 watchEffect(async () => {
   const node = selectedNode.value
+
   if (node == null) {
     css.value = ''
     return
@@ -36,9 +37,15 @@ watchEffect(async () => {
     component.value = componentLink.value = ''
   }
 
+  const { cssUnit, rootFontSize } = options.value
+  const serializeOptions = {
+    useRem: cssUnit === 'rem',
+    rootFontSize
+  }
+
   const style = await node.getCSSAsync()
-  css.value = serializeCSS(style)
-  js.value = serializeCSS(style, true)
+  css.value = serializeCSS(style, serializeOptions)
+  js.value = serializeCSS(style, { toJS: true, ...serializeOptions })
 })
 
 function open() {

@@ -25,11 +25,15 @@ if (position) {
     { debounce: 300 }
   )
 }
+
+function toggleMinimized() {
+  options.value.minimized = !options.value.minimized
+}
 </script>
 
 <template>
   <article ref="panel" class="tp-panel" :style="style">
-    <header ref="header" class="tp-row tp-row-justify tp-panel-header">
+    <header ref="header" class="tp-row tp-row-justify tp-panel-header" @dblclick="toggleMinimized">
       <slot name="header" />
     </header>
     <main class="tp-panel-main">
@@ -41,7 +45,7 @@ if (position) {
 <style scoped>
 .tp-panel {
   position: fixed;
-  z-index: 7;
+  z-index: 8;
   display: flex;
   flex-direction: column;
   background-color: var(--color-bg);

@@ -28,8 +28,8 @@ function scrollIntoView() {
 <template>
   <Section flat>
     <h1 class="tp-row tp-row-justify tp-meta-title">
-      <span class="tp-meta-title-aux" v-if="title == null">No selection</span>
-      <Copyable v-else>{{ title }}</Copyable>
+      <span class="tp-meta-title-aux tp-ellipsis" v-if="title == null">No selection</span>
+      <Copyable class="tp-ellipsis" v-else>{{ title }}</Copyable>
       <IconButton
         v-if="selection && selection.length > 0"
         title="Scroll into view"
