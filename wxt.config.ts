@@ -17,7 +17,6 @@ export default defineConfig({
   }),
   manifest: {
     name: 'TemPad Dev',
-    description: 'Dev Mode brought by TemPad.',
     web_accessible_resources: [
       {
         resources: ['/ui.js'],
