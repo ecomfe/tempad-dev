@@ -2,7 +2,7 @@
 
 ## 0.0.4
 
-- Fixed lock mode when user <kbd>  <kbd> + drag with mouses.
+- Fixed lock mode when user <kbd>  </kbd> + drag with mouses.
 - Fixed selection updates triggered by objects panel or <kbd>⌘</kbd>.
 - Fixed display when multiple nodes are selected.
 
