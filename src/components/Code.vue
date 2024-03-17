@@ -132,4 +132,3 @@ const copy = useCopy(toRef(props.code))
   color: var(--color-codevalue);
 }
 </style>
-./icons/Play.vue
