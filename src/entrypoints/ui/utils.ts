@@ -109,12 +109,12 @@ export function kebabToCamel(str: string) {
   return str.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
 }
 
-const COMPONENT_RE = /<>[\s\n]+<Stack[^>]*>[\s\n]+([\s\S]+?)[\s\n]+<\/Stack>[\s\n]+<\/>/
+const COMPONENT_RE = /<>[\s\n]+<Stack[^>]*>[\s\n]+?(\s*)([\s\S]+?)[\s\n]+<\/Stack>[\s\n]+<\/>/
 const COMPONENT_PROVIDER_RE =
-  /<ProviderConfig[^>]*>[\s\n]+<Stack[^>]*>[\s\n]+([\s\S]+?)[\s\n]+<\/Stack>[\s\n]+<\/ProviderConfig>/
+  /<ProviderConfig[^>]*>[\s\n]+<Stack[^>]*>[\s\n]+?(\s*)([\s\S]+?)[\s\n]+<\/Stack>[\s\n]+<\/ProviderConfig>/
 export function extractJSX(code: string) {
-  const [, jsx] = code.match(COMPONENT_RE) || code.match(COMPONENT_PROVIDER_RE) || []
-  return jsx || ''
+  const [, indent = '', jsx = ''] = code.match(COMPONENT_RE) || code.match(COMPONENT_PROVIDER_RE) || []
+  return jsx.split('\n').map(line => line.replace(new RegExp(`^${indent}`), '')).join('\n')
 }
 
 export function getCanvas() {

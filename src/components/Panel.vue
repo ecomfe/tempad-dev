@@ -37,6 +37,8 @@ const restrictedPosition = computed(() => {
   }
 })
 
+const panelMaxHeight = computed(() => `${windowHeight.value - restrictedPosition.value.top}px`)
+
 const positionStyle = computed(() => {
   const p = restrictedPosition.value
   return `top: ${p.top}px; left: ${p.left}px`
@@ -75,6 +77,7 @@ function toggleMinimized() {
   z-index: 8;
   display: flex;
   flex-direction: column;
+  max-height: v-bind(panelMaxHeight);
   background-color: var(--color-bg);
   border-radius: 2px;
   box-shadow: var(--elevation-500-modal-window);
