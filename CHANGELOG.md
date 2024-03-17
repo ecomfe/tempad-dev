@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.5
+
+- Improved selection updates via keyboard shortcuts.
+- Improved TemPad code indentation.
+- Improved panel sizing.
+
 ## 0.0.4
 
 - Fixed lock mode when user <kbd>  </kbd> + drag with mouses.

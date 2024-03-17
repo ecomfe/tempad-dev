@@ -10,7 +10,6 @@ import Plus from '@/components/icons/Plus.vue'
 import { useSelection } from './composables/selection'
 import { useKeyLock } from './composables/key-lock'
 import { options } from './state'
-import { computed } from 'vue'
 import { PANEL_WIDTH } from './const'
 
 useSelection()
@@ -20,13 +19,11 @@ function toggleMinimized() {
   options.value.minimized = !options.value.minimized
 }
 
-const style = computed(() => ({
-  '--tp-panel-width': `${PANEL_WIDTH}px`
-}))
+const panelWidth = `${PANEL_WIDTH}px`
 </script>
 
 <template>
-  <Panel class="tp-main" :class="{ 'tp-main-minimized': options.minimized }" :style="style">
+  <Panel class="tp-main" :class="{ 'tp-main-minimized': options.minimized }">
     <template #header>
       TemPad Dev
       <div class="tp-row">
@@ -52,8 +49,7 @@ const style = computed(() => ({
 
 <style scoped>
 .tp-main {
-  width: var(--tp-panel-width);
-  max-height: calc(100vh - var(--toolbar-height));
+  width: v-bind(panelWidth);
   transition: width, height;
   transition-duration: 0.2s;
   transition-timing-function: cubic-bezier(0.87, 0, 0.13, 1);
