@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.6
+
+- Fixed the problem that code copy doesn't update correctly.
+
 ## 0.0.5
 
 - Improved selection updates via keyboard shortcuts.
