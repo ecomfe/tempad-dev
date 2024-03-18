@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, toRef } from 'vue'
+import { computed } from 'vue'
 import { useCopy } from '@/entrypoints/ui/composables/copy'
 import IconButton from './IconButton.vue'
 import Copy from './icons/Copy.vue'
@@ -20,7 +20,8 @@ const highlighted = computed(() => {
   return Prism.highlight(props.code, Prism.languages[props.lang], props.lang)
 })
 
-const copy = useCopy(toRef(props.code))
+const code = computed(() => props.code)
+const copy = useCopy(code)
 </script>
 
 <template>
