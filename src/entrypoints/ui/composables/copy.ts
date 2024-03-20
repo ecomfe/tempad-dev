@@ -8,7 +8,7 @@ export function useCopy(content: MaybeRefOrGetter<HTMLElement | string | undefin
   return () => {
     try {
       const value = toValue(content)
-      copy(typeof value === 'string' ? value : value?.textContent || '')
+      copy(typeof value === 'string' ? value : value?.dataset?.copy || value?.textContent || '')
       figma.notify('Copied to clipboard')
     } catch (e) {
       console.error(e)

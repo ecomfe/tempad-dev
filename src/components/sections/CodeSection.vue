@@ -1,13 +1,18 @@
 <script lang="ts" setup>
 import { shallowRef, watchEffect } from 'vue'
-import { selection, selectedNode, options } from '@/entrypoints/ui/state'
-import { serializeCSS, extractJSX } from '@/entrypoints/ui/utils'
+import {
+  selection,
+  selectedNode,
+  options,
+  selectedTemPadComponent
+} from '@/entrypoints/ui/state'
+import { serializeCSS } from '@/entrypoints/ui/utils'
 import Section from '../Section.vue'
 import Code from '../Code.vue'
 import IconButton from '../IconButton.vue'
 import Preview from '../icons/Preview.vue'
 
-const component = shallowRef('')
+const componentCode = shallowRef('')
 const componentLink = shallowRef('')
 const css = shallowRef('')
 const js = shallowRef('')
@@ -20,22 +25,9 @@ watchEffect(async () => {
     return
   }
 
-  if (node.type === 'FRAME' && node.name.startsWith('🧩')) {
-    // TemPad
-    const code = node.findChild((n) => n.type === 'TEXT' && n.name === '代码') as TextNode
-
-    if (code) {
-      component.value = extractJSX(code.characters)
-    }
-
-    const link = node.findChild((n) => n.type === 'TEXT' && n.name === '🔗') as TextNode
-
-    if (link) {
-      componentLink.value = (link.hyperlink as HyperlinkTarget).value
-    }
-  } else {
-    component.value = componentLink.value = ''
-  }
+  const component = selectedTemPadComponent.value
+  componentCode.value = component?.code || ''
+  componentLink.value = component?.link || ''
 
   const { cssUnit, rootFontSize } = options.value
   const serializeOptions = {
@@ -54,14 +46,14 @@ function open() {
 </script>
 
 <template>
-  <Section title="Code" :collapsed="!selectedNode || !(component || css)">
+  <Section title="Code" :collapsed="!selectedNode || !(componentCode || css)">
     <Code
-      v-if="component"
+      v-if="componentCode"
       class="tp-code-code"
       title="Component"
       lang="js"
       :link="componentLink"
-      :code="component"
+      :code="componentCode"
     >
       <template #actions>
         <IconButton
@@ -84,3 +76,4 @@ function open() {
   margin-bottom: 8px;
 }
 </style>
+@/entrypoints/ui/utils/utils
