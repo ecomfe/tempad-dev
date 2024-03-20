@@ -1,5 +1,11 @@
+<script lang="ts" setup>
+defineProps<{
+  title?: string
+}>()
+</script>
+
 <template>
-  <div class="tp-badge">
+  <div class="tp-badge" :data-tooltip="title || null" :data-tooltip-type="title ? 'text' : null">
     <slot />
   </div>
 </template>

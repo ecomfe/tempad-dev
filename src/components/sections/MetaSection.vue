@@ -44,7 +44,7 @@ function scrollIntoView() {
           {{ title }}
         </Copyable>
         <Copyable variant="block" :data-copy="libName">
-          <Badge v-if="libName">{{ libDisplayName || libName }}</Badge>
+          <Badge v-if="libName" :title="libName">{{ libDisplayName || libName }}</Badge>
         </Copyable>
       </div>
       <IconButton
