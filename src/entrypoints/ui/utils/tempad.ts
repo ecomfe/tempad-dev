@@ -39,7 +39,7 @@ export function getTemPadComponent(node: SceneNode): TemPadComponent | null {
       const iconNode = tree.slots.default.children[0]
       tempadData.libName =
         tempadData.name === 'Illustration' ? 'dls-illustrations-react' : iconNode.props.libName.v
-      tempadData.name = iconNode.props.name.v
+      tempadData.name = iconNode.props.name.v?.name || iconNode.props.name.v
     } catch (e) {
       console.error(e)
     }
