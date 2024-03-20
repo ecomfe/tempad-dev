@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.7
+
+- Added lib name badge for TemPad components.
+- Improved display name for icons for TemPad components.
+
 ## 0.0.6
 
 - Fixed the problem that code copy doesn't update correctly.
