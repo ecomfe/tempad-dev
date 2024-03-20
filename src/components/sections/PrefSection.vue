@@ -10,7 +10,7 @@ import Measure from '../icons/Measure.vue'
   <Section>
     <div class="tp-row tp-row-justify tp-pref-field">
       <label>Tools</label>
-      <div class="tp-row tp-pref-tools">
+      <div class="tp-row tp-row-gap">
         <IconButton title="Deep select" toggle="subtle" v-model:selected="options.deepSelectOn">
           <Inspect class="tp-pref-tools-icon" />
         </IconButton>
@@ -45,10 +45,6 @@ import Measure from '../icons/Measure.vue'
 <style scoped>
 .tp-pref-field + .tp-pref-field {
   margin-top: 8px;
-}
-
-.tp-pref-tools {
-  gap: 4px;
 }
 
 .tp-pref-tools-icon {

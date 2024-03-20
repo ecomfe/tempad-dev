@@ -24,6 +24,19 @@ tempad .tp-row-justify {
   justify-content: space-between;
 }
 
+tempad .tp-shrink {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+tempad .tp-gap {
+  gap: 4px;
+}
+
+tempad .tp-gap-l {
+  gap: 8px;
+}
+
 tempad .tp-ellipsis {
   overflow: hidden;
   text-overflow: ellipsis;

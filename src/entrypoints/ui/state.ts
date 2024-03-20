@@ -1,6 +1,7 @@
 import { shallowRef, computed } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { NATIVE_PANEL_WIDTH, PANEL_WIDTH, TOOLBAR_HEIGHT } from './const'
+import { getTemPadComponent } from './utils'
 
 type Options = {
   minimized: boolean
@@ -30,3 +31,4 @@ export const options = useStorage<Options>('tempad-dev', {
 
 export const selection = shallowRef<readonly SceneNode[]>([])
 export const selectedNode = computed(() => selection.value?.[0] ?? null)
+export const selectedTemPadComponent = computed(() => getTemPadComponent(selectedNode.value))

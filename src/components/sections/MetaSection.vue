@@ -1,10 +1,11 @@
 <script lang="ts" setup>
 import { computed } from 'vue'
 import Section from '../Section.vue'
-import { selection } from '@/entrypoints/ui/state'
+import { selection, selectedTemPadComponent } from '@/entrypoints/ui/state'
 import Copyable from '../Copyable.vue'
 import IconButton from '../IconButton.vue'
 import Select from '../icons/Select.vue'
+import Badge from '../Badge.vue'
 
 const title = computed(() => {
   const nodes = selection.value
@@ -17,8 +18,17 @@ const title = computed(() => {
     return `${nodes.length} Selected`
   }
 
+  const component = selectedTemPadComponent.value
+  if (component) {
+    return component.name
+  }
+
   return nodes[0].name
 })
+
+const libDisplayName = computed(() => selectedTemPadComponent.value?.libDisplayName)
+
+const libName = computed(() => selectedTemPadComponent.value?.libName)
 
 function scrollIntoView() {
   figma.viewport.scrollAndZoomIntoView(selection.value || [])
@@ -27,9 +37,16 @@ function scrollIntoView() {
 
 <template>
   <Section flat>
-    <h1 class="tp-row tp-row-justify tp-meta-title">
+    <h1 class="tp-row tp-row-justify tp-gap-l tp-meta-title">
       <span class="tp-meta-title-aux tp-ellipsis" v-if="title == null">No selection</span>
-      <Copyable class="tp-ellipsis" v-else>{{ title }}</Copyable>
+      <div class="tp-row tp-shrink tp-gap-l" v-else>
+        <Copyable class="tp-ellipsis">
+          {{ title }}
+        </Copyable>
+        <Copyable variant="block" :data-copy="libName">
+          <Badge v-if="libName">{{ libDisplayName || libName }}</Badge>
+        </Copyable>
+      </div>
       <IconButton
         v-if="selection && selection.length > 0"
         title="Scroll into view"
