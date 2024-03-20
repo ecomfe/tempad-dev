@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.8
+
+- Improved compatibility with TemPad icon names.
+
 ## 0.0.7
 
 - Added lib name badge for TemPad components.
