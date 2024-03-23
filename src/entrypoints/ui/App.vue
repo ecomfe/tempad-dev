@@ -3,6 +3,7 @@ import Panel from '@/components/Panel.vue'
 import MetaSection from '@/components/sections/MetaSection.vue'
 import CodeSection from '@/components/sections/CodeSection.vue'
 import PrefSection from '@/components/sections/PrefSection.vue'
+import ExportSection from '@/components/sections/ExportSection.vue'
 import IconButton from '@/components/IconButton.vue'
 import Preferences from '@/components/icons/Preferences.vue'
 import Minus from '@/components/icons/Minus.vue'
@@ -43,6 +44,7 @@ const panelWidth = `${PANEL_WIDTH}px`
     </template>
     <PrefSection :collapsed="!options.prefOpen" />
     <MetaSection />
+    <ExportSection />
     <CodeSection />
   </Panel>
 </template>
