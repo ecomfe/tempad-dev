@@ -8,7 +8,7 @@ const panel = ref<HTMLElement | null>(null)
 const header = ref<HTMLElement | null>(null)
 
 const position = options.value.panelPosition
-const { style, x, y } = useDraggable(panel, {
+const { x, y } = useDraggable(panel, {
   initialValue: {
     x: position ? position.left : 0,
     y: position ? position.top : 0
@@ -74,7 +74,7 @@ function toggleMinimized() {
 <style scoped>
 .tp-panel {
   position: fixed;
-  z-index: 8;
+  z-index: 6;
   display: flex;
   flex-direction: column;
   max-height: v-bind(panelMaxHeight);

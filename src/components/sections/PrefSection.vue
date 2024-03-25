@@ -1,13 +1,32 @@
 <script lang="ts" setup>
+import { ref, watch } from 'vue'
 import { options } from '@/entrypoints/ui/state'
 import IconButton from '../IconButton.vue'
 import Section from '../Section.vue'
 import Inspect from '../icons/Inspect.vue'
 import Measure from '../icons/Measure.vue'
+import { useSelectAll } from '@/entrypoints/ui/composables/input'
+
+const root = ref<InstanceType<typeof Section> | null>(null)
+
+watch(
+  () => options.value.prefOpen,
+  (open) => {
+    if (open) {
+      root.value?.$el.scrollIntoView()
+    }
+  },
+  {
+    flush: 'post'
+  }
+)
+
+const input = ref<HTMLInputElement | null>(null)
+useSelectAll(input)
 </script>
 
 <template>
-  <Section>
+  <Section ref="root">
     <div class="tp-row tp-row-justify tp-pref-field">
       <label>Tools</label>
       <div class="tp-row tp-row-gap">
@@ -35,6 +54,7 @@ import Measure from '../icons/Measure.vue'
       <input
         id="root-font-size"
         class="tp-pref-input"
+        ref="input"
         type="number"
         v-model.number="options.rootFontSize"
       />
