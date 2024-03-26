@@ -7,5 +7,8 @@ export function getCanvas() {
 
 export function getObjectsPanel() {
   // Similar to `getCanvas()`.
-  return document.querySelector('[data-testid="objects-panel"]') as HTMLElement
+  const node =
+    document.querySelector('[data-testid="objects-panel"]') ||
+    document.querySelector('[data-testid="devHandoffNodesList"]')
+  return node as HTMLElement
 }
