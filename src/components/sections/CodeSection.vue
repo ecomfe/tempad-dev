@@ -76,4 +76,3 @@ function open() {
   margin-bottom: 8px;
 }
 </style>
-@/entrypoints/ui/utils/utils
