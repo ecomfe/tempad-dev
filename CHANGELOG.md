@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.9
+
+- Lowered z-index to prevent Figma's own menus and popups from being covered by TemPad Dev.
+- Fixed the problem that double clicking pref button triggers the panel's toggle.
+
 ## 0.0.8
 
 - Improved compatibility with TemPad icon names.
