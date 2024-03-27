@@ -32,6 +32,7 @@ const panelWidth = `${PANEL_WIDTH}px`
           title="Preferences"
           toggle
           v-model:selected="options.prefOpen"
+          @dblclick.stop
         >
           <Preferences class="tp-panel-header-icon" />
         </IconButton>
