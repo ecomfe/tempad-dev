@@ -6,6 +6,12 @@ import Copyable from '../Copyable.vue'
 import IconButton from '../IconButton.vue'
 import Select from '../icons/Select.vue'
 import Badge from '../Badge.vue'
+import Plus from '../icons/Plus.vue'
+import Minus from '../icons/Minus.vue'
+
+import { useGlobalState } from '@/entrypoints/ui/state'
+
+const { scaleInputs, addScaleInput, removeScaleInput } = useGlobalState()
 
 const title = computed(() => {
   const nodes = selection.value
@@ -47,14 +53,19 @@ function scrollIntoView() {
           <Badge v-if="libName" :title="libName">{{ libDisplayName || libName }}</Badge>
         </Copyable>
       </div>
-      <IconButton
-        v-if="selection && selection.length > 0"
-        title="Scroll into view"
-        class="tp-meta-scroll"
-        @click="scrollIntoView"
-      >
-        <Select />
-      </IconButton>
+      <div class="tp-row tp-row-justify" v-if="selection && selection.length > 0">
+        <IconButton title="Scroll into view" class="tp-meta-scroll" @click="scrollIntoView">
+          <Select />
+        </IconButton>
+        <div class="tp-row tp-row-justify">
+          <IconButton @click="removeScaleInput" v-if="scaleInputs.length">
+            <Minus />
+          </IconButton>
+          <IconButton @click="addScaleInput">
+            <Plus />
+          </IconButton>
+        </div>
+      </div>
     </h1>
   </Section>
 </template>

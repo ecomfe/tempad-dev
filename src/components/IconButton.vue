@@ -35,6 +35,7 @@ function handleClick() {
     :data-tooltip="title || null"
     :data-tooltip-type="title ? 'text' : null"
     @click="handleClick"
+    @dblclick.stop
   >
     <slot />
   </button>
