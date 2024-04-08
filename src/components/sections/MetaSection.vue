@@ -26,12 +26,17 @@ const title = computed(() => {
   return nodes[0].name
 })
 
+const showFocusButton = computed(
+  () => window.figma && selection.value && selection.value.length > 0
+)
+
 const libDisplayName = computed(() => selectedTemPadComponent.value?.libDisplayName)
 
 const libName = computed(() => selectedTemPadComponent.value?.libName)
 
 function scrollIntoView() {
-  figma.viewport.scrollAndZoomIntoView(selection.value || [])
+  // if we have window.figma, selection.value is certainly SceneNode[]
+  window?.figma.viewport.scrollAndZoomIntoView(selection.value as SceneNode[] || [])
 }
 </script>
 
@@ -48,7 +53,7 @@ function scrollIntoView() {
         </Copyable>
       </div>
       <IconButton
-        v-if="selection && selection.length > 0"
+        v-if="showFocusButton"
         title="Scroll into view"
         class="tp-meta-scroll"
         @click="scrollIntoView"

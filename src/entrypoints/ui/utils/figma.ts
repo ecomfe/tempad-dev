@@ -5,7 +5,7 @@ export function getCanvas() {
   return (document.querySelector('#fullscreen-root .gpu-view-content canvas')) as HTMLElement
 }
 
-export function getObjectsPanel() {
+export function getLeftPanel() {
   // Similar to `getCanvas()`.
-  return document.querySelector('[data-testid="objects-panel"]') as HTMLElement
+  return document.querySelector('#left-panel-container') as HTMLElement
 }

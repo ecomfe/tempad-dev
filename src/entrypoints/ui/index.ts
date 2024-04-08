@@ -1,11 +1,18 @@
 import waitFor from 'p-wait-for'
 import { createApp } from 'vue'
 import App from './App.vue'
-import { getCanvas, getObjectsPanel } from './utils'
+import { isQuirksMode } from './state'
+import { getCanvas, getLeftPanel } from './utils'
 
 import './style.css'
 export default defineUnlistedScript(async () => {
-  await waitFor(() => window.figma != null && getCanvas() != null && getObjectsPanel() != null)
+  await waitFor(() => getCanvas() != null && getLeftPanel() != null)
+  try {
+    await waitFor(() => window.figma != null, { timeout: 1000 })
+  } catch (e) {
+    isQuirksMode.value = true
+    console.log('[tempad-dev] `window.figma` is not available. Start to enter quirks mode.')
+  }
 
   createApp(App).mount('tempad')
 })
