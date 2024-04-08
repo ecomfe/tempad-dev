@@ -1,3 +1,4 @@
+import { parseNumber, toDecimalPlace } from "./number"
 import { kebabToCamel } from "./string"
 
 function escapeSingleQuote(value: string) {
@@ -6,19 +7,6 @@ function escapeSingleQuote(value: string) {
 
 function trimComments(value: string) {
   return value.replace(/\/\*[\s\S]*?\*\//g, '')
-}
-
-function parseNumber(value: string) {
-  if (value.trim() === '') {
-    return null
-  }
-
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) {
-    return null
-  }
-
-  return parsed
 }
 
 const PX_VALUE_RE = /\b(\d+(?:.\d+)?)px\b/g
@@ -36,7 +24,7 @@ function pxToRem(value: string, rootFontSize: number) {
     if (parsed === 0) {
       return '0'
     }
-    return `${Number((parsed / rootFontSize).toFixed(5))}rem`
+    return `${toDecimalPlace(parsed / rootFontSize, 5)}rem`
   })
 }
 
@@ -62,14 +50,25 @@ function stringifyValue(value: string | number) {
   return typeof value === 'string' ? `'${escapeSingleQuote(value)}'` : value
 }
 
+function trimStyleObject(style: Record<string, string>) {
+  return Object.entries(style).reduce((acc, [key, value]) => {
+    if (value) {
+      acc[key] = value
+    }
+    return acc
+  }, {} as Record<string, string>)
+}
+
 export function serializeCSS(
   style: Record<string, string>,
   { toJS = false, useRem, rootFontSize }: SerializeOptions
 ) {
+  const trimmedStyle = trimStyleObject(style)
+
   if (toJS) {
     return (
       '{\n' +
-      Object.entries(style)
+      Object.entries(trimmedStyle)
         .map(
           ([key, value]) =>
             `  ${kebabToCamel(key)}: ${stringifyValue(processValue(key, value, { useRem, rootFontSize }))}`
@@ -79,7 +78,7 @@ export function serializeCSS(
     )
   }
 
-  return Object.entries(style)
+  return Object.entries(trimmedStyle)
     .map(([key, value]) => `${key}: ${processValue(key, value, { useRem, rootFontSize })};`)
     .join('\n')
 }

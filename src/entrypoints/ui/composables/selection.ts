@@ -1,8 +1,13 @@
 import { onMounted, onUnmounted } from 'vue'
 import { selection } from '../state'
-import { getCanvas, getObjectsPanel } from '../utils'
+import { getCanvas, getLeftPanel } from '../utils'
+import { createQuirksSelection } from '../utils/quirks'
 
 function syncSelection() {
+  if (!window.figma) {
+    selection.value = createQuirksSelection()
+    return
+  }
   selection.value = figma.currentPage.selection
 }
 
@@ -19,19 +24,21 @@ function handleKeyDown(e: KeyboardEvent) {
 
 export function useSelection() {
   const canvas = getCanvas()
-  const objectsPanel = getObjectsPanel()
+  const objectsPanel = getLeftPanel()
+
+  const options = { capture: true }
 
   onMounted(() => {
-    selection.value = figma.currentPage.selection
+    syncSelection()
 
-    canvas.addEventListener('click', handleClick)
-    objectsPanel.addEventListener('click', handleClick)
-    window.addEventListener('keydown', handleKeyDown)
+    canvas.addEventListener('click', handleClick, options)
+    objectsPanel.addEventListener('click', handleClick, options)
+    window.addEventListener('keydown', handleKeyDown, options)
   })
 
   onUnmounted(() => {
-    canvas.removeEventListener('click', handleClick)
-    objectsPanel.removeEventListener('click', handleClick)
-    window.removeEventListener('keydown', handleKeyDown)
+    canvas.removeEventListener('click', handleClick, options)
+    objectsPanel.removeEventListener('click', handleClick, options)
+    window.removeEventListener('keydown', handleKeyDown, options)
   })
 }

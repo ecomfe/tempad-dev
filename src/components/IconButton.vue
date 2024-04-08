@@ -6,6 +6,7 @@ const props = defineProps<{
   toggle?: boolean | 'normal' | 'subtle'
   variant?: 'normal' | 'secondary'
   title?: string
+  dull?: boolean
 }>()
 
 const selected = defineModel<boolean>('selected')
@@ -16,6 +17,7 @@ const classes = computed(() => {
 
   return {
     [`tp-button-${variant}`]: true,
+    [`tp-button-dull`]: props.dull,
     [`tp-button-selected-${toggleVariant}`]: selected.value
   }
 })
@@ -92,5 +94,13 @@ function handleClick() {
 .tp-button-secondary:not(:disabled):hover {
   --icon-button-color-bg: var(--color-bg-tertiary);
   --color-icon: var(--color-text);
+}
+
+.tp-button:disabled {
+  --color-icon: var(--color-icon-disabled);
+}
+
+.tp-button-dull:hover {
+  background: transparent !important;
 }
 </style>

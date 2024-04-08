@@ -2,6 +2,7 @@ import { shallowRef, computed } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { NATIVE_PANEL_WIDTH, PANEL_WIDTH, TOOLBAR_HEIGHT } from './const'
 import { getTemPadComponent } from './utils'
+import type { QuirksNode, GhostNode } from './utils/quirks'
 
 type Options = {
   minimized: boolean
@@ -16,6 +17,8 @@ type Options = {
   rootFontSize: number
 }
 
+type SelectionNode = SceneNode | QuirksNode | GhostNode
+
 export const options = useStorage<Options>('tempad-dev', {
   minimized: false,
   panelPosition: {
@@ -29,6 +32,7 @@ export const options = useStorage<Options>('tempad-dev', {
   rootFontSize: 16
 })
 
-export const selection = shallowRef<readonly SceneNode[]>([])
+export const isQuirksMode = shallowRef<boolean>(false)
+export const selection = shallowRef<readonly SelectionNode[]>([])
 export const selectedNode = computed(() => selection.value?.[0] ?? null)
 export const selectedTemPadComponent = computed(() => getTemPadComponent(selectedNode.value))

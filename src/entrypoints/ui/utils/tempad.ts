@@ -1,3 +1,5 @@
+import { GhostNode, QuirksNode } from './quirks'
+
 type TemPadComponent = {
   code: string
   name?: string
@@ -21,8 +23,10 @@ const LIB_DISPLAY_NAMES = {
   'dls-illustrations-react': 'DLS Illus.'
 } as Record<string, string>
 
-export function getTemPadComponent(node: SceneNode): TemPadComponent | null {
-  if (node.type !== 'FRAME' || !node.name.startsWith('🧩')) {
+export function getTemPadComponent(
+  node: SceneNode | QuirksNode | GhostNode
+): TemPadComponent | null {
+  if (!('type' in node) || node.type !== 'FRAME' || !node.name.startsWith('🧩')) {
     return null
   }
 
@@ -47,15 +51,24 @@ export function getTemPadComponent(node: SceneNode): TemPadComponent | null {
 
   const libDisplayName = tempadData?.libName ? LIB_DISPLAY_NAMES[tempadData.libName] : null
 
-  const codeNode = node.findChild((n) => n.type === 'TEXT' && n.name === '代码') as TextNode
-  const linkNode = node.findChild((n) => n.type === 'TEXT' && n.name === '🔗') as TextNode
+  let code = node.getSharedPluginData(NS, 'code') || null
+  let link = node.getSharedPluginData(NS, 'link') || null
 
-  if (!codeNode || !linkNode) {
+  if (!code) {
+    code = (node.findChild((n) => n.type === 'TEXT' && n.name === '代码') as TextNode)?.characters
+  }
+  if (!link) {
+    link = (
+      (node.findChild((n) => n.type === 'TEXT' && n.name === '🔗') as TextNode)
+        ?.hyperlink as HyperlinkTarget
+    )?.value
+  }
+
+  if (!code) {
     return null
   }
 
-  const code = extractJSX(codeNode.characters)
-  const link = (linkNode.hyperlink as HyperlinkTarget).value
+  code = extractJSX(code)
 
   return {
     code,

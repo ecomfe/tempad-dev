@@ -4,12 +4,13 @@ import MetaSection from '@/components/sections/MetaSection.vue'
 import CodeSection from '@/components/sections/CodeSection.vue'
 import PrefSection from '@/components/sections/PrefSection.vue'
 import IconButton from '@/components/IconButton.vue'
+import Info from '@/components/icons/Info.vue'
 import Preferences from '@/components/icons/Preferences.vue'
 import Minus from '@/components/icons/Minus.vue'
 import Plus from '@/components/icons/Plus.vue'
 import { useSelection } from './composables/selection'
 import { useKeyLock } from './composables/key-lock'
-import { options } from './state'
+import { options, isQuirksMode } from './state'
 import { PANEL_WIDTH } from './const'
 
 useSelection()
@@ -25,7 +26,17 @@ const panelWidth = `${PANEL_WIDTH}px`
 <template>
   <Panel class="tp-main" :class="{ 'tp-main-minimized': options.minimized }">
     <template #header>
-      TemPad Dev
+      <div class="tp-row">
+        TemPad Dev
+        <IconButton
+          v-if="isQuirksMode"
+          variant="secondary"
+          title="TemPad Dev is running in quirks mode."
+          dull
+        >
+          <Info />
+        </IconButton>
+      </div>
       <div class="tp-row">
         <IconButton
           v-if="!options.minimized"

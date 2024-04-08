@@ -1,21 +1,25 @@
 <script lang="ts" setup>
 import { shallowRef, watchEffect } from 'vue'
-import {
-  selection,
-  selectedNode,
-  options,
-  selectedTemPadComponent
-} from '@/entrypoints/ui/state'
+import { selection, selectedNode, options, selectedTemPadComponent } from '@/entrypoints/ui/state'
 import { serializeCSS } from '@/entrypoints/ui/utils'
 import Section from '../Section.vue'
 import Code from '../Code.vue'
 import IconButton from '../IconButton.vue'
 import Preview from '../icons/Preview.vue'
+import { computed } from 'vue'
+import Info from '../icons/Info.vue'
 
 const componentCode = shallowRef('')
 const componentLink = shallowRef('')
 const css = shallowRef('')
 const js = shallowRef('')
+const warning = shallowRef('')
+
+const playButtonTitle = computed(() =>
+  componentLink.value
+    ? 'Open in TemPad Playground'
+    : 'The component is produced with older versions of TemPad that does not provide a link to TemPad playground.'
+)
 
 watchEffect(async () => {
   const node = selectedNode.value
@@ -38,6 +42,12 @@ watchEffect(async () => {
   const style = await node.getCSSAsync()
   css.value = serializeCSS(style, serializeOptions)
   js.value = serializeCSS(style, { toJS: true, ...serializeOptions })
+
+  if ('warning' in node) {
+    warning.value = node.warning
+  } else {
+    warning.value = ''
+  }
 })
 
 function open() {
@@ -47,6 +57,17 @@ function open() {
 
 <template>
   <Section title="Code" :collapsed="!selectedNode || !(componentCode || css)">
+    <template #header>
+      Code
+      <IconButton
+        v-if="warning"
+        variant="secondary"
+        :title="warning"
+        dull
+      >
+        <Info />
+      </IconButton>
+    </template>
     <Code
       v-if="componentCode"
       class="tp-code-code"
@@ -57,9 +78,9 @@ function open() {
     >
       <template #actions>
         <IconButton
-          v-if="componentLink"
+          :disabled="!componentLink"
           variant="secondary"
-          title="Open in TemPad Playground"
+          :title="playButtonTitle"
           @click="open"
         >
           <Preview />
