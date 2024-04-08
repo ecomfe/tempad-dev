@@ -3,6 +3,7 @@ import Panel from '@/components/Panel.vue'
 import MetaSection from '@/components/sections/MetaSection.vue'
 import CodeSection from '@/components/sections/CodeSection.vue'
 import PrefSection from '@/components/sections/PrefSection.vue'
+import Toast from '@/components/Toast.vue'
 import IconButton from '@/components/IconButton.vue'
 import Info from '@/components/icons/Info.vue'
 import Preferences from '@/components/icons/Preferences.vue'
@@ -57,6 +58,7 @@ const panelWidth = `${PANEL_WIDTH}px`
     <MetaSection />
     <CodeSection />
   </Panel>
+  <Toast />
 </template>
 
 <style scoped>
