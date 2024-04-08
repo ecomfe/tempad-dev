@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0
+
+- Added experimental support for quirks mode that can run under view-only pages.
+
 ## 0.0.9
 
 - Lowered z-index to prevent Figma's own menus and popups from being covered by TemPad Dev.
