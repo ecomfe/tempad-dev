@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Improved codegen for `padding` in quirks mode.
+
 ## 0.1.0
 
 - Added experimental support for quirks mode that can run under view-only pages.
