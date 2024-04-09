@@ -551,6 +551,7 @@ export class QuirksNode {
       result['align-content'] = result['align-items']
     }
 
+    debugger
     const paddingTop = toDecimalPlace(props['stack-padding-top'] || 0)
     const paddingRight = toDecimalPlace(props['stack-padding-right'] || 0)
     const paddingBottom = toDecimalPlace(props['stack-padding-bottom'] || 0)
@@ -559,10 +560,11 @@ export class QuirksNode {
     if (
       paddingTop === paddingBottom &&
       paddingTop === paddingRight &&
-      paddingTop === paddingLeft &&
-      paddingTop !== 0
+      paddingTop === paddingLeft
     ) {
-      result.padding = `${paddingTop}px`
+      if (paddingTop !== 0) {
+        result.padding = `${paddingTop}px`
+      }
     } else if (paddingTop === paddingBottom && paddingRight === paddingLeft) {
       result.padding = `${paddingTop}px ${paddingRight}px`
     } else {
