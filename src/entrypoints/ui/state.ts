@@ -2,7 +2,7 @@ import { shallowRef, computed } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { NATIVE_PANEL_WIDTH, PANEL_WIDTH, TOOLBAR_HEIGHT } from './const'
 import { getTemPadComponent } from './utils'
-import type { QuirksNode, GhostNode } from './utils/quirks'
+import type { QuirksNode, GhostNode } from './quirks'
 
 type Options = {
   minimized: boolean

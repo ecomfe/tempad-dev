@@ -1,5 +1,5 @@
-import { parseNumber, toDecimalPlace } from "./number"
-import { kebabToCamel } from "./string"
+import { parseNumber, toDecimalPlace } from './number'
+import { kebabToCamel } from './string'
 
 function escapeSingleQuote(value: string) {
   return value.replace(/'/g, "\\'")
@@ -38,7 +38,7 @@ type SerializeOptions = {
 } & ProcessValueOptions
 
 function processValue(key: string, value: string, { useRem, rootFontSize }: ProcessValueOptions) {
-  let current: string | number = trimComments(value).trim()
+  const current: string | number = trimComments(value).trim()
 
   return (
     parseNumber(current) ??
@@ -50,20 +50,23 @@ function stringifyValue(value: string | number) {
   return typeof value === 'string' ? `'${escapeSingleQuote(value)}'` : value
 }
 
-function trimStyleObject(style: Record<string, string>) {
-  return Object.entries(style).reduce((acc, [key, value]) => {
-    if (value) {
-      acc[key] = value
-    }
-    return acc
-  }, {} as Record<string, string>)
+function trimStyleRecord(style: Record<string, string>) {
+  return Object.entries(style).reduce(
+    (acc, [key, value]) => {
+      if (value) {
+        acc[key] = value
+      }
+      return acc
+    },
+    {} as Record<string, string>
+  )
 }
 
 export function serializeCSS(
   style: Record<string, string>,
   { toJS = false, useRem, rootFontSize }: SerializeOptions
 ) {
-  const trimmedStyle = trimStyleObject(style)
+  const trimmedStyle = trimStyleRecord(style)
 
   if (toJS) {
     return (

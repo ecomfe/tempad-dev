@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+- Added support for font related CSS codegen for text nodes in quirks mode.
+- Refactored quirks mode so that its now more modular and easier to maintain.
+
 ## 0.1.1
 
 - Improved codegen for `padding` in quirks mode.

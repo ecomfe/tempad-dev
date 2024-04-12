@@ -59,12 +59,7 @@ function open() {
   <Section title="Code" :collapsed="!selectedNode || !(componentCode || css)">
     <template #header>
       Code
-      <IconButton
-        v-if="warning"
-        variant="secondary"
-        :title="warning"
-        dull
-      >
+      <IconButton v-if="warning" variant="secondary" :title="warning" dull>
         <Info />
       </IconButton>
     </template>
