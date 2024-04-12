@@ -1,10 +1,10 @@
 import { onMounted, onUnmounted } from 'vue'
 import { selection } from '../state'
 import { getCanvas, getLeftPanel } from '../utils'
-import { createQuirksSelection } from '../utils/quirks'
+import { createQuirksSelection } from '../quirks'
 
 function syncSelection() {
-  if (!window.figma) {
+  if (true || !window.figma) {
     selection.value = createQuirksSelection()
     return
   }
