@@ -12,7 +12,7 @@ export function parseNumber(value: string) {
 }
 
 export function toDecimalPlace(value: string | number, decimalPlaces: number = 3): number {
-  let val = typeof value === 'string' ? parseNumber(value) : value
+  const val = typeof value === 'string' ? parseNumber(value) : value
 
   if (val == null) {
     return 0
