@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Fixed `line-height` in quirks mode.
+
 ## 0.2.0
 
 - Added support for font related CSS codegen for text nodes in quirks mode.

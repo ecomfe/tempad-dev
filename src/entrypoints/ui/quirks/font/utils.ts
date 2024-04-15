@@ -151,7 +151,7 @@ export function getLineHeight(raw?: string): string {
 
   // 24.123456789px -> 24.123px
   if (raw.endsWith('px')) {
-    return `${toDecimalPlace(raw.slice(0, -2), 3)}`
+    return `${toDecimalPlace(raw.slice(0, -2))}px`
   }
 
   // 1.234567 -> 1.235
