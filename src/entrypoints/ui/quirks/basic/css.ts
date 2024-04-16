@@ -28,5 +28,13 @@ export function getBasicCSS(props: QuirksNodeProps): StyleRecord {
     })
   }
 
+  // We only need to calculate the rotation part
+  const matrix = props['relative-transform']
+  const { a, c } = matrix
+  const angle = Math.atan2(c, a) * (180 / Math.PI)
+  if (angle) {
+    result.transform = `rotate(${toDecimalPlace(angle, 2)}deg)`
+  }
+
   return result
 }
