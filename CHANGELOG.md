@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3
+
+- Added codegen support for rotation in quirks mode.
+- Stopped forcing into quirks mode by mistake.
+
 ## 0.2.2
 
 - Fixed that font props were generated for non-text nodes in quirks mode.
