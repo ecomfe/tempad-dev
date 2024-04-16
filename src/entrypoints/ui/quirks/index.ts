@@ -9,14 +9,14 @@ const TEMPAD_PLUGIN_ID = '1126010039932614529'
 const KV_SECTION_RE = /\n({\s+[\s\S]+?\n})/
 const KV_ITEMS_RE = /\n {2}([a-zA-Z0-9-]+): <([\s\S]*?)>(?=\n(?: {2}[a-z]|\}))/g
 
-function parseLog(log: string) {
+function parseLog(id: string, log: string) {
   const [, kvStr] = log.match(KV_SECTION_RE) || []
 
   if (!kvStr) {
     return null
   }
 
-  const props = [...kvStr.matchAll(KV_ITEMS_RE)].reduce((acc, cur) => {
+  const props = [...kvStr.matchAll(KV_ITEMS_RE)].reduce<Partial<QuirksNodeProps>>((acc, cur) => {
     const [, key, value] = cur || []
 
     if (!key || !value) {
@@ -34,7 +34,7 @@ function parseLog(log: string) {
     }
   }, {}) as QuirksNodeProps
 
-  return new QuirksNode(props)
+  return new QuirksNode(id, props)
 }
 
 function parseItem(itemStr: string): [string, string] | null {
@@ -97,7 +97,8 @@ function parseValue(rawValue: RawValue) {
 }
 
 export class QuirksNode {
-  constructor(props: QuirksNodeProps) {
+  constructor(id: string, props: QuirksNodeProps) {
+    this.id = id
     this.props = props
     this.name = props.name
     this.type = props.type
@@ -108,6 +109,7 @@ export class QuirksNode {
   props: QuirksNodeProps
   private parentCache: QuirksNode | null = null
 
+  id: string
   name: string
   type: NodeType
 
@@ -121,7 +123,7 @@ export class QuirksNode {
     }
 
     if (!this.parentCache) {
-      this.parentCache = parseLog(window.DebuggingHelpers.logNode(parentId))
+      this.parentCache = parseLog(parentId, window.DebuggingHelpers.logNode(parentId))
     }
 
     return this.parentCache
@@ -200,12 +202,19 @@ export class QuirksNode {
 }
 
 export class GhostNode {
+  constructor(id: string) {
+    this.id = id
+  }
+
+  id: string
   name: string = '-'
 
   async getCSSAsync() {
     return {}
   }
 }
+
+const LOG_SEP_RE = /\n*logging node state for (\d+:\d+)\n*/
 
 export function createQuirksSelection(): (QuirksNode | GhostNode)[] {
   const log = window.DebuggingHelpers.logSelected()
@@ -215,12 +224,22 @@ export function createQuirksSelection(): (QuirksNode | GhostNode)[] {
     return []
   }
 
-  const nodeLogs = log.split(/\n*logging node state for \d+:\d+\n*/).filter(Boolean)
-
-  if (nodeLogs.length > 1) {
-    // multiple nodes are selected, no need to parse
-    return Array.from({ length: nodeLogs.length }, () => new GhostNode())
+  const parts = log.split(LOG_SEP_RE).filter(Boolean)
+  const selectedIds: string[] = []
+  const nodeLogs: string[] = []
+  for (let i = 0; i < parts.length; i += 2) {
+    if (parts[i] && parts[i + 1]) {
+      selectedIds.push(parts[i])
+      nodeLogs.push(parts[i + 1])
+    }
   }
 
-  return [parseLog(nodeLogs[0]) as QuirksNode]
+  if (selectedIds.length > 1) {
+    // multiple nodes are selected, no need to parse
+    // `id` is necessary for the `scrollAndZoomIntoView` feature
+    // when forcing quirks mode with `window.figma` available
+    return selectedIds.map((id) => new GhostNode(id))
+  }
+
+  return [parseLog(selectedIds[0], nodeLogs[0]) as QuirksNode]
 }

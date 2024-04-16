@@ -67,40 +67,36 @@ function handleClick() {
 }
 
 .tp-button:focus-visible {
-  border-color: var(--color-border-selected);
+  --icon-button-color-bg: var(--color-border-selected);
   box-shadow: inset 0 0 0 1px var(--color-border-selected);
   border-radius: 2px;
 }
 
 .tp-button-selected-normal {
-  background-color: var(--bg-overlay-active) !important;
-  color: var(--color-icon-onbrand) !important;
+  --icon-button-color-bg: var(--bg-overlay-active) !important;
+  --color-icon: var(--color-icon-onbrand) !important;
   border-radius: 3px;
 }
 
 .tp-button-selected-subtle {
-  background-color: var(--color-bg-tertiary) !important;
+  --icon-button-color-bg: var(--color-bg-tertiary) !important;
   border-radius: 3px;
 }
 
-.tp-button-normal:not(:disabled):hover {
-  background-color: var(--color-bg-hover);
+.tp-button-normal:not(:disabled):not(.tp-button-dull):hover {
+  --icon-button-color-bg: var(--color-bg-hover);
 }
 
 .tp-button-secondary {
   --color-icon: var(--color-icon-secondary);
 }
 
-.tp-button-secondary:not(:disabled):hover {
+.tp-button-secondary:not(:disabled):not(.tp-button-dull):hover {
   --icon-button-color-bg: var(--color-bg-tertiary);
   --color-icon: var(--color-text);
 }
 
 .tp-button:disabled {
   --color-icon: var(--color-icon-disabled);
-}
-
-.tp-button-dull:hover {
-  background: transparent !important;
 }
 </style>

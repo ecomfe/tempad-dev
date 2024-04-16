@@ -4,7 +4,7 @@ import { getCanvas, getLeftPanel } from '../utils'
 import { createQuirksSelection } from '../quirks'
 
 function syncSelection() {
-  if (true || !window.figma) {
+  if (!window.figma) {
     selection.value = createQuirksSelection()
     return
   }
