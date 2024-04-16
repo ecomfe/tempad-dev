@@ -1,8 +1,8 @@
 export interface StyleProps {
   opacity: number
   'blend-mode': string
-  'fill-paint-data': string
-  'stroke-paint-data': string
+  'fill-paint-data': string[]
+  'stroke-paint-data': string[]
   'stroke-weight': number
   'stroke-dash-pattern': number[]
   'border-stroke-weights-independent'?: boolean

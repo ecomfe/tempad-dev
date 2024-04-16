@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Fixed that font props were generated for non-text nodes in quirks mode.
+- Fixed that rgba colors were treated as multiple fill data in quirks mode.
+
 ## 0.2.1
 
 - Fixed `line-height` in quirks mode.

@@ -10,11 +10,11 @@ const PAINT_DATA_RE = /^PaintData\(([\s\S]*)\)$/
 const PAINT_RE = /(Solid|Gradient|Raster)Paint\(([^)]+?)\)/g
 const PAINT_VALUE_RE = /([^,]+),\s*opacity (.*)/
 
-export function getPaint(raw: string): string {
+export function getPaint(raw: string): string[] {
   const [, rawPaints] = raw.match(PAINT_DATA_RE) || []
 
   if (!rawPaints) {
-    return ''
+    return []
   }
 
   const paints: string[] = []
@@ -44,7 +44,7 @@ export function getPaint(raw: string): string {
     }
   })
 
-  return paints.reverse().join(', ')
+  return paints.reverse()
 }
 
 const EFFECT_RE = /EffectData\[([^\]]+)\]/

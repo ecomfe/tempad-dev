@@ -19,22 +19,27 @@ export function getStyleCSS(props: QuirksNodeProps): StyleRecord {
   }
 
   const fill = props['fill-paint-data']
-  if (fill) {
+  if (fill.length) {
+    const fillString = fill.join(', ')
     if (props.type === 'TEXT') {
-      if (fill.includes('linear-gradient') || fill.includes('url(') || fill.includes(', ')) {
+      if (
+        fill.length > 1 ||
+        fill.some((f) => f.includes('linear-gradient')) ||
+        fill.some((f) => f.includes('url('))
+      ) {
         // not simple color
-        result.background = fill
+        result.background = fillString
         result['-webkit-background-clip'] = 'text'
         result['background-clip'] = 'text'
         result['-webkit-text-fill-color'] = 'transparent'
         result['text-fill-color'] = 'transparent'
       } else {
-        result.color = fill
+        result.color = fillString
       }
     } else if (isShape(props.type)) {
-      result.fill = fill
+      result.fill = fillString
     } else {
-      result.background = fill
+      result.background = fillString
     }
   }
 
@@ -47,24 +52,24 @@ export function getStyleCSS(props: QuirksNodeProps): StyleRecord {
 
 function getStrokeCSS(props: QuirksNodeProps): StyleRecord | null {
   const strokeWidth = toDecimalPlace(props['stroke-weight'] || 0)
-  if (!strokeWidth) {
+  const strokeColor = props['stroke-paint-data']
+  if (!strokeWidth || strokeColor.length === 0) {
     return null
   }
-  const strokeColor = props['stroke-paint-data']
   return {
     'stroke-width': `${strokeWidth}px`,
-    stroke: strokeColor
+    stroke: strokeColor.join(', ')
   }
 }
 
 function getBordersCSS(props: QuirksNodeProps): StyleRecord | null {
   const borderTopWidth = props['border-top-weight']
-  if (!borderTopWidth) {
+  const borderColor = props['stroke-paint-data']
+  if (!borderTopWidth || borderColor.length === 0) {
     return null
   }
 
   const borderStyle = props['stroke-dash-pattern'].length ? 'dashed' : 'solid'
-  const borderColor = props['stroke-paint-data']
 
   if (!props['border-stroke-weights-independent']) {
     const borderWidth = toDecimalPlace(borderTopWidth)
