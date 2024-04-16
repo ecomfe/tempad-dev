@@ -154,7 +154,7 @@ export class QuirksNode {
   private getWarning(): string {
     const { props } = this
     const effectCount = props['effect-data'] || 0
-    const hasGradient = [props['fill-paint-data'], props['stroke-paint-data']]
+    const hasGradient = [...props['fill-paint-data'], ...props['stroke-paint-data']]
       .filter(Boolean)
       .find((paint) => paint.includes('linear-gradient'))
 
@@ -194,7 +194,7 @@ export class QuirksNode {
       ...getBasicCSS(this.props),
       ...getStackCSS(this.props, this.parent),
       ...getStyleCSS(this.props),
-      ...getFontCSS(this.props)
+      ...(this.type === 'TEXT' ? getFontCSS(this.props) : {})
     }
   }
 }
