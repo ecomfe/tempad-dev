@@ -18,7 +18,7 @@ export function getStyleCSS(props: QuirksNodeProps): StyleRecord {
     result['mix-blend-mode'] = blendMode
   }
 
-  const fill = props['fill-paint-data']
+  const fill = props['fill-paint-data'] || []
   if (fill.length) {
     const fillString = fill.join(', ')
     if (props.type === 'TEXT') {
@@ -52,7 +52,7 @@ export function getStyleCSS(props: QuirksNodeProps): StyleRecord {
 
 function getStrokeCSS(props: QuirksNodeProps): StyleRecord | null {
   const strokeWidth = toDecimalPlace(props['stroke-weight'] || 0)
-  const strokeColor = props['stroke-paint-data']
+  const strokeColor = props['stroke-paint-data'] || []
   if (!strokeWidth || strokeColor.length === 0) {
     return null
   }
@@ -64,7 +64,7 @@ function getStrokeCSS(props: QuirksNodeProps): StyleRecord | null {
 
 function getBordersCSS(props: QuirksNodeProps): StyleRecord | null {
   const borderTopWidth = props['border-top-weight']
-  const borderColor = props['stroke-paint-data']
+  const borderColor = props['stroke-paint-data'] || []
   if (!borderTopWidth || borderColor.length === 0) {
     return null
   }
