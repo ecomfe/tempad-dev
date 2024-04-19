@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Fixed paint data and stroke data might be undefined in quirks mode.
+
 ## 0.2.3
 
 - Added codegen support for rotation in quirks mode.

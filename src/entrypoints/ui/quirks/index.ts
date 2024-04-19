@@ -156,7 +156,7 @@ export class QuirksNode {
   private getWarning(): string {
     const { props } = this
     const effectCount = props['effect-data'] || 0
-    const hasGradient = [...props['fill-paint-data'], ...props['stroke-paint-data']]
+    const hasGradient = [...(props['fill-paint-data'] || []), ...(props['stroke-paint-data'] || [])]
       .filter(Boolean)
       .find((paint) => paint.includes('linear-gradient'))
 
