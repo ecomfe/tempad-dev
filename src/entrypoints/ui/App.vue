@@ -13,6 +13,7 @@ import { useSelection } from './composables/selection'
 import { useKeyLock } from './composables/key-lock'
 import { options, isQuirksMode } from './state'
 import { PANEL_WIDTH } from './const'
+import { showDuplicateItem } from './utils'
 
 useSelection()
 useKeyLock()
@@ -32,8 +33,9 @@ const panelWidth = `${PANEL_WIDTH}px`
         <IconButton
           v-if="isQuirksMode"
           variant="secondary"
-          title="TemPad Dev is running in quirks mode."
+          title="TemPad Dev is running in quirks mode. Enter normal mode by duplicate this file to your drafts."
           dull
+          @click="showDuplicateItem"
         >
           <Info />
         </IconButton>
