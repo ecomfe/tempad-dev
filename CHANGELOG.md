@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5
+
+- Quirks mode hint now shows how to duplicate to drafts upon click.
+
 ## 0.2.4
 
 - Fixed paint data and stroke data might be undefined in quirks mode.
