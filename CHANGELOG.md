@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6
+
+- Used overlay scrollbar to prevent layout shift.
+
 ## 0.2.5
 
 - Quirks mode hint now shows how to duplicate to drafts upon click.

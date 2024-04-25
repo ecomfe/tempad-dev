@@ -1,10 +1,12 @@
+import 'overlayscrollbars/styles/overlayscrollbars.css'
+import './style.css'
+
 import waitFor from 'p-wait-for'
 import { createApp } from 'vue'
 import App from './App.vue'
 import { isQuirksMode } from './state'
 import { getCanvas, getLeftPanel } from './utils'
 
-import './style.css'
 export default defineUnlistedScript(async () => {
   await waitFor(() => getCanvas() != null && getLeftPanel() != null)
   try {
