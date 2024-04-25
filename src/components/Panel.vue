@@ -1,11 +1,20 @@
 <script lang="ts" setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useDraggable, useWindowSize, watchDebounced } from '@vueuse/core'
+import {
+  OverlayScrollbars,
+  ScrollbarsHidingPlugin,
+  SizeObserverPlugin,
+  ClickScrollPlugin
+} from 'overlayscrollbars';
 import { options } from '@/entrypoints/ui/state'
 import { TOOLBAR_HEIGHT } from '@/entrypoints/ui/const'
 
+OverlayScrollbars.plugin([ScrollbarsHidingPlugin, SizeObserverPlugin, ClickScrollPlugin])
+
 const panel = ref<HTMLElement | null>(null)
 const header = ref<HTMLElement | null>(null)
+const main = ref<HTMLElement | null>(null)
 
 const position = options.value.panelPosition
 const { x, y } = useDraggable(panel, {
@@ -58,6 +67,29 @@ if (position) {
 function toggleMinimized() {
   options.value.minimized = !options.value.minimized
 }
+
+let os: OverlayScrollbars
+
+onMounted(() => {
+  if (!main.value) {
+    return
+  }
+
+  os = OverlayScrollbars(main.value, {
+    overflow: {
+      x: 'hidden'
+    },
+    scrollbars: {
+      autoHide: 'leave',
+      autoHideDelay: 0,
+      clickScroll: true
+    }
+  })
+})
+
+onUnmounted(() => {
+  os?.destroy()
+})
 </script>
 
 <template>
@@ -65,7 +97,7 @@ function toggleMinimized() {
     <header ref="header" class="tp-row tp-row-justify tp-panel-header" @dblclick="toggleMinimized">
       <slot name="header" />
     </header>
-    <main class="tp-panel-main">
+    <main ref="main" class="tp-panel-main">
       <slot />
     </main>
   </article>
@@ -96,11 +128,30 @@ function toggleMinimized() {
 
 .tp-panel-main {
   flex: 1 1 auto;
-  overflow-y: auto;
 }
 
 .tp-panel-header-icon {
   width: auto;
   height: 32px;
+}
+</style>
+
+<style>
+.os-scrollbar {
+  --os-track-bg-hover: var(--color-scrollbartrackhover);
+  --os-track-bg-active: var(--color-scrollbartrackdrag);
+  --os-handle-bg: var(--color-scrollbar);
+  --os-handle-bg-hover: var(--color-scrollbar);
+  --os-handle-bg-active: var(--color-scrollbar);
+}
+
+.os-scrollbar-vertical:hover::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 1px;
+  background-color: var(--color-border);
 }
 </style>

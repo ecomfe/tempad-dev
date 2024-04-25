@@ -2,7 +2,7 @@
   "name": "tempad-dev",
   "description": "Inspect panel on Figma, for everyone.",
   "private": true,
-  "version": "0.2.5",
+  "version": "0.2.6",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -26,6 +26,7 @@
     "@vueuse/core": "^10.9.0",
     "eslint": "^8.57.0",
     "eslint-plugin-vue": "^9.23.0",
+    "overlayscrollbars": "^2.7.3",
     "p-wait-for": "^5.0.2",
     "prettier": "^3.2.5",
     "radix-vue": "^1.5.1",
