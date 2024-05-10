@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.7
+
+- Figma file paths may now start with `design`.
+
 ## 0.2.6
 
 - Used overlay scrollbar to prevent layout shift.
