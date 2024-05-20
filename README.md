@@ -2,6 +2,8 @@
 
 Inspect panel on Figma, for everyone.
 
+**[📦 Install on Chrome Web Store](https://chromewebstore.google.com/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc)**
+
 <picture height="469">
   <source media="(prefers-color-scheme: dark)" src="assets/dark.png">
   <source media="(prefers-color-scheme: light)" src="assets/light.png">
