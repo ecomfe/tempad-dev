@@ -20,8 +20,6 @@ Inspect panel on Figma, for everyone.
 > **2024.03.20**: After we posted complaints on the Figma Community Forum, the Figma team stated that they would reinstate the window.figma interface in view-only mode in the coming weeks. You can track the progress of this issue on this [thread](https://forum.figma.com/t/figma-removed-window-figma-on-view-only-pages-today/67292).
 >
 > **2024.04.03**: The Figma team adjusted the expected time from "in the coming weeks" to "in the coming months," effectively shelving the issue.
->
-> You can follow [this post](https://forum.figma.com/t/figma-removed-window-figma-on-view-only-pages-today/67292) to get the latest updates.
 
 > [!NOTE]
 > **2024.04.08**: TemPad Dev successfully retrieved most style information using currently unblocked debug interfaces, providing a new [Quirks Mode](#quirks-mode). This mode does not rely on window.figma but instead parses debug logs to generate style code, with slight differences from the standard mode.
