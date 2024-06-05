@@ -47,6 +47,9 @@ export function getTemPadComponent(
     } catch (e) {
       console.error(e)
     }
+  } else if (tempadData?.name === 'Tem.RichText') {
+    tempadData.name = 'Typography'
+    tempadData.libName = '@baidu/light-ai-react'
   }
 
   const libDisplayName = tempadData?.libName ? LIB_DISPLAY_NAMES[tempadData.libName] : null

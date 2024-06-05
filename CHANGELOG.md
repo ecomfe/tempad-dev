@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.8
+
+- Added compatibility for `Tem.RichText`.
+
 ## 0.2.7
 
 - Figma file paths may now start with `design`.
