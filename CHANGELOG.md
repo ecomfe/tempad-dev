@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.9
+
+- Updated text data retrieval for quirks mode.
+
 ## 0.2.8
 
 - Added compatibility for `Tem.RichText`.

@@ -13,7 +13,7 @@ const ALIGN_FLEX_MAP = {
 export function getFontCSS(props: QuirksNodeProps): StyleRecord {
   const result: StyleRecord = {}
 
-  const fontFace = getFontFace(props['font-handle'], props['text-data'])
+  const fontFace = getFontFace(props['font-handle'], props['derived-text-data'])
   if (fontFace) {
     Object.assign(result, fontFace)
   }
