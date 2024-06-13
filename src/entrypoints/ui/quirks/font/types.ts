@@ -11,7 +11,7 @@ export type FontPosition = 'normal' | 'sub' | 'super'
 
 export interface FontProps {
   'font-handle'?: string
-  'text-data'?: string
+  'derived-text-data'?: string
   'font-size'?: number
   'text-case'?: TextCase
   'text-align-horizontal'?: TextAlignX
