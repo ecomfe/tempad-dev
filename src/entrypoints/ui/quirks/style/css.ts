@@ -69,7 +69,7 @@ function getBordersCSS(props: QuirksNodeProps): StyleRecord | null {
     return null
   }
 
-  const borderStyle = props['stroke-dash-pattern'].length ? 'dashed' : 'solid'
+  const borderStyle = props['stroke-dash-pattern']?.length ? 'dashed' : 'solid'
 
   if (!props['border-stroke-weights-independent']) {
     const borderWidth = toDecimalPlace(borderTopWidth)
