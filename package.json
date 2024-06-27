@@ -2,7 +2,7 @@
   "name": "tempad-dev",
   "description": "Inspect panel on Figma, for everyone.",
   "private": true,
-  "version": "0.2.9",
+  "version": "0.2.10",
   "type": "module",
   "scripts": {
     "dev": "wxt",

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.10
+
+- Fixed that `stroke-dash-pattern` may be unavailable.
+
 ## 0.2.9
 
 - Updated text data retrieval for quirks mode.
