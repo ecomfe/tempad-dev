@@ -12,7 +12,7 @@ import Plus from '@/components/icons/Plus.vue'
 import { useSelection } from './composables/selection'
 import { useKeyLock } from './composables/key-lock'
 import { options, isQuirksMode } from './state'
-import { PANEL_WIDTH } from './const'
+import { ui } from './figma'
 import { showDuplicateItem } from './utils'
 
 useSelection()
@@ -22,7 +22,7 @@ function toggleMinimized() {
   options.value.minimized = !options.value.minimized
 }
 
-const panelWidth = `${PANEL_WIDTH}px`
+const panelWidth = `${ui.tempadPanelWidth}px`
 </script>
 
 <template>
@@ -40,7 +40,7 @@ const panelWidth = `${PANEL_WIDTH}px`
           <Info />
         </IconButton>
       </div>
-      <div class="tp-row">
+      <div class="tp-row tp-gap">
         <IconButton
           v-if="!options.minimized"
           title="Preferences"

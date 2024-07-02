@@ -6,9 +6,9 @@ import {
   ScrollbarsHidingPlugin,
   SizeObserverPlugin,
   ClickScrollPlugin
-} from 'overlayscrollbars';
+} from 'overlayscrollbars'
 import { options } from '@/entrypoints/ui/state'
-import { TOOLBAR_HEIGHT } from '@/entrypoints/ui/const'
+import { ui } from '@/entrypoints/ui/figma'
 
 OverlayScrollbars.plugin([ScrollbarsHidingPlugin, SizeObserverPlugin, ClickScrollPlugin])
 
@@ -37,7 +37,7 @@ const restrictedPosition = computed(() => {
 
   const xMin = -panelWidth / 2
   const xMax = windowWidth.value - panelWidth / 2
-  const yMin = TOOLBAR_HEIGHT
+  const yMin = ui.topBoundary
   const yMax = windowHeight.value - headerHeight
 
   return {
@@ -46,7 +46,9 @@ const restrictedPosition = computed(() => {
   }
 })
 
-const panelMaxHeight = computed(() => `${windowHeight.value - restrictedPosition.value.top}px`)
+const panelMaxHeight = computed(
+  () => `${windowHeight.value - restrictedPosition.value.top - ui.bottomBoundary}px`
+)
 
 const positionStyle = computed(() => {
   const p = restrictedPosition.value
@@ -134,6 +136,11 @@ onUnmounted(() => {
   width: auto;
   height: 32px;
 }
+
+[data-fpl-version='ui3'] .tp-panel {
+  box-shadow: var(--elevation-100);
+  border-radius: var(--radius-large);
+}
 </style>
 
 <style>
@@ -146,7 +153,7 @@ onUnmounted(() => {
 }
 
 .os-scrollbar-vertical:hover::before {
-  content: "";
+  content: '';
   position: absolute;
   top: 0;
   bottom: 0;

@@ -50,7 +50,7 @@ function handleClick() {
   --icon-button-height: 32px;
   height: var(--icon-button-height);
   width: var(--icon-button-height);
-  flex: 0 0 var(--icon-button-height);
+  flex: none;
   line-height: var(--icon-button-height);
   border: 1px solid transparent;
   position: relative;
@@ -98,5 +98,30 @@ function handleClick() {
 
 .tp-button:disabled {
   --color-icon: var(--color-icon-disabled);
+}
+
+[data-fpl-version='ui3'] .tp-button {
+  --icon-button-size: 1.5rem;
+  --icon-button-icon-size: 1.5rem;
+  --icon-button-radius: var(--radius-medium);
+
+  width: var(--icon-button-size);
+  height: var(--icon-button-size);
+  border: none;
+  border-radius: var(--icon-button-radius);
+}
+
+:slotted([data-fpl-version='ui3'] .tp-button svg) {
+  width: var(--icon-button-size);
+  height: var(--icon-button-size);
+}
+
+[data-fpl-version='ui3'] .tp-button-selected-normal {
+  --icon-button-color-bg: var(--color-bg-selected) !important;
+  --color-icon: var(--color-icon-brand) !important;
+}
+
+[data-fpl-version='ui3'] .tp-button-selected-normal:hover {
+  background: var(--color-bg-selected-secondary);
 }
 </style>

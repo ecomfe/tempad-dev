@@ -1,11 +1,11 @@
 <script lang="ts" setup>
 import { ref, watch } from 'vue'
 import { options } from '@/entrypoints/ui/state'
+import { useSelectAll } from '@/entrypoints/ui/composables/input'
 import IconButton from '../IconButton.vue'
 import Section from '../Section.vue'
 import Inspect from '../icons/Inspect.vue'
 import Measure from '../icons/Measure.vue'
-import { useSelectAll } from '@/entrypoints/ui/composables/input'
 
 const root = ref<InstanceType<typeof Section> | null>(null)
 
@@ -29,16 +29,16 @@ useSelectAll(input)
   <Section ref="root">
     <div class="tp-row tp-row-justify tp-pref-field">
       <label>Tools</label>
-      <div class="tp-row tp-row-gap">
+      <div class="tp-row tp-gap">
         <IconButton title="Deep select" toggle="subtle" v-model:selected="options.deepSelectOn">
-          <Inspect class="tp-pref-tools-icon" />
+          <Inspect />
         </IconButton>
         <IconButton
           title="Measure to selection"
           toggle="subtle"
           v-model:selected="options.measureOn"
         >
-          <Measure class="tp-pref-tools-icon" />
+          <Measure />
         </IconButton>
       </div>
     </div>
@@ -67,16 +67,15 @@ useSelectAll(input)
   margin-top: 8px;
 }
 
-.tp-pref-tools-icon {
-  width: auto;
-  height: 16px;
-}
-
 .tp-pref-input {
   width: 80px;
 }
 
 label {
   cursor: default;
+}
+
+[data-fpl-version='ui3'] label {
+  color: var(--color-text-secondary);
 }
 </style>

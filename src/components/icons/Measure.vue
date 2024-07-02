@@ -1,10 +1,31 @@
+<script lang="ts" setup>
+import { ui } from '@/entrypoints/ui/figma'
+</script>
+
 <template>
   <svg
+    v-if="ui.isUi3"
     class="tp-icon"
     xmlns="http://www.w3.org/2000/svg"
-    width="19"
-    height="19"
-    viewBox="0 0 19 19"
+    width="32"
+    height="32"
+    fill="none"
+    viewBox="-4 -4 32 32"
+  >
+    <path
+      fill="currentColor"
+      fill-rule="evenodd"
+      d="M3.293 7.793a1 1 0 0 0 0 1.414l11.5 11.5a1 1 0 0 0 1.414 0l4.5-4.5a1 1 0 0 0 0-1.414l-11.5-11.5a1 1 0 0 0-1.414 0l-4.5 4.5ZM4 8.5l.707.707.69.69.75-.75a.5.5 0 1 1 .707.707l-.75.75 1.292 1.292 2.25-2.25a.5.5 0 0 1 .708.708l-2.25 2.25 1.292 1.292.75-.75a.5.5 0 0 1 .708.708l-.75.75 1.292 1.292 2.25-2.25a.5.5 0 0 1 .708.708l-2.25 2.25 2.689 2.689.707.707.707-.707 3.086-3.086L20 15.5l-.707-.707L9.207 4.707 8.5 4l-.707.707-3.086 3.086L4 8.5ZM16 17a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+      clip-rule="evenodd"
+    ></path>
+  </svg>
+  <svg
+    v-else
+    class="tp-icon"
+    xmlns="http://www.w3.org/2000/svg"
+    width="32"
+    height="32"
+    viewBox="-6.5 -6.5 32 32"
   >
     <mask id="a" fill="#fff">
       <path
