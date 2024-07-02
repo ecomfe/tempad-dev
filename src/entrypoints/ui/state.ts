@@ -1,6 +1,6 @@
 import { shallowRef, computed } from 'vue'
 import { useStorage } from '@vueuse/core'
-import { NATIVE_PANEL_WIDTH, PANEL_WIDTH, TOOLBAR_HEIGHT } from './const'
+import { ui } from './figma'
 import { getTemPadComponent } from './utils'
 import type { QuirksNode, GhostNode } from './quirks'
 
@@ -22,8 +22,8 @@ type SelectionNode = SceneNode | QuirksNode | GhostNode
 export const options = useStorage<Options>('tempad-dev', {
   minimized: false,
   panelPosition: {
-    left: window.innerWidth - NATIVE_PANEL_WIDTH - PANEL_WIDTH,
-    top: TOOLBAR_HEIGHT
+    left: window.innerWidth - ui.nativePanelWidth - ui.tempadPanelWidth,
+    top: ui.topBoundary
   },
   prefOpen: false,
   deepSelectOn: false,

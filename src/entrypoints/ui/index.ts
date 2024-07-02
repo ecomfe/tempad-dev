@@ -3,7 +3,6 @@ import './style.css'
 
 import waitFor from 'p-wait-for'
 import { createApp } from 'vue'
-import App from './App.vue'
 import { isQuirksMode } from './state'
 import { getCanvas, getLeftPanel } from './utils'
 
@@ -15,6 +14,8 @@ export default defineUnlistedScript(async () => {
     isQuirksMode.value = true
     console.log('[tempad-dev] `window.figma` is not available. Start to enter quirks mode.')
   }
+
+  const App = (await import('./App.vue')).default
 
   createApp(App).mount('tempad')
 })

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Added support for UI3.
+
 ## 0.2.10
 
 - Fixed that `stroke-dash-pattern` may be unavailable.
