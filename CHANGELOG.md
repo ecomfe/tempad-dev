@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Fixed CSS unit for `stroke-width`.
+
 ## 0.3.0
 
 - Added support for UI3.

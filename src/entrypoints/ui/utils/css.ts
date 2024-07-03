@@ -10,7 +10,7 @@ function trimComments(value: string) {
 }
 
 const PX_VALUE_RE = /\b(\d+(?:.\d+)?)px\b/g
-const KEEP_PX_PROPS = ['border', 'box-shadow', 'filter', 'backdrop-filter']
+const KEEP_PX_PROPS = ['border', 'box-shadow', 'filter', 'backdrop-filter', 'stroke-width']
 function pxToRem(value: string, rootFontSize: number) {
   if (rootFontSize <= 0) {
     return value
