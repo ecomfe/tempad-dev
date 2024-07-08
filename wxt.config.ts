@@ -12,7 +12,10 @@ export default defineConfig({
   vite: () => ({
     plugins: [vue(), cssInjectedByJsPlugin()],
     build: {
-      sourcemap: false
+      sourcemap: false,
+      rollupOptions: {
+        input: 'src/entrypoints/ui/index.ts'
+      }
     }
   }),
   manifest: {
