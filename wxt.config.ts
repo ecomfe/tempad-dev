@@ -9,6 +9,9 @@ export default defineConfig({
       vueTemplate: true
     }
   },
+  runner: {
+    disabled: true
+  },
   vite: () => ({
     plugins: [vue(), cssInjectedByJsPlugin()],
     build: {
