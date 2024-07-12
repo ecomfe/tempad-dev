@@ -7,6 +7,15 @@ const message = shallowRef('')
 const shown = shallowRef(false)
 
 export function useToast() {
+  function hide () {
+    message.value = ''
+    shown.value = false
+    if (tick != null) {
+      clearTimeout(tick)
+      tick = null
+    }
+  }
+
   return {
     show(msg: string) {
       if (tick != null) {
@@ -15,12 +24,9 @@ export function useToast() {
       message.value = msg
       shown.value = true
 
-      tick = setTimeout(() => {
-        message.value = ''
-        shown.value = false
-        tick = null
-      }, duration)
+      tick = setTimeout(hide, duration)
     },
+    hide,
     shown,
     message
   }

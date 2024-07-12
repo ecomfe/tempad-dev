@@ -33,7 +33,7 @@ const panelWidth = `${ui.tempadPanelWidth}px`
         <IconButton
           v-if="isQuirksMode"
           variant="secondary"
-          title="TemPad Dev is running in quirks mode. Enter normal mode by duplicate this file to your drafts."
+          title="TemPad Dev is running in quirks mode. Enter normal mode by duplicating this file to your drafts."
           dull
           @click="showDuplicateItem"
         >
