@@ -4,7 +4,10 @@ import cssInjectedByJsPlugin from 'vite-plugin-css-injected-by-js'
 export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
   vite: () => ({
-    plugins: [cssInjectedByJsPlugin()]
+    plugins: [cssInjectedByJsPlugin()],
+    optimizeDeps: {
+      include: []
+    }
   }),
   runner: {
     disabled: true
