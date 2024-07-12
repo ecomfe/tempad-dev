@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- Adapted toast and quirks mode hint to UI3.
+
 ## 0.3.1
 
 - Fixed CSS unit for `stroke-width`.
