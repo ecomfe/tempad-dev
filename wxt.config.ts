@@ -1,26 +1,14 @@
 import { defineConfig } from 'wxt'
-import vue from '@vitejs/plugin-vue'
 import cssInjectedByJsPlugin from 'vite-plugin-css-injected-by-js'
 
 export default defineConfig({
-  srcDir: 'src',
-  imports: {
-    addons: {
-      vueTemplate: true
-    }
-  },
+  modules: ['@wxt-dev/module-vue'],
+  vite: () => ({
+    plugins: [cssInjectedByJsPlugin()]
+  }),
   runner: {
     disabled: true
   },
-  vite: () => ({
-    plugins: [vue(), cssInjectedByJsPlugin()],
-    build: {
-      sourcemap: false,
-      rollupOptions: {
-        input: 'src/entrypoints/ui/index.ts'
-      }
-    }
-  }),
   manifest: {
     name: 'TemPad Dev',
     web_accessible_resources: [
