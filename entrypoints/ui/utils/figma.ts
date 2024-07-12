@@ -1,3 +1,5 @@
+import { ui } from '../figma'
+
 export function getCanvas() {
   // Need to ensure the whole plugin is rendered after canvas is ready
   // so that we can cast the result to HTMLElement here.
@@ -11,13 +13,15 @@ export function getLeftPanel() {
 }
 
 function getChevron() {
-  return document.querySelector<HTMLElement>(
-    '#fullscreen-filename [class^="filename_view--chevronNoMainContainer--"]'
+  return (
+    document.querySelector<HTMLElement>(
+      '#fullscreen-filename [class^="filename_view--chevronNoMainContainer--"]'
+    ) ?? document.querySelector<HTMLElement>('[data-testid="filename-menu-chevron"]')
   )
 }
 
 function getDuplicateItem() {
-  return getChevron()?.querySelector<HTMLElement>(
+  return document.querySelector<HTMLElement>(
     '[data-testid="dropdown-option-Duplicate to your drafts"]'
   )
 }
@@ -29,9 +33,11 @@ export function showDuplicateItem() {
     return
   }
 
-  chevron.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+  chevron.dispatchEvent(new MouseEvent(ui.isUi3 ? 'click' : 'mousedown', { bubbles: true }))
 
   setTimeout(() => {
-    getDuplicateItem()?.focus()
+    const el = getDuplicateItem()
+    console.log(el)
+    el?.focus()
   }, 100)
 }
