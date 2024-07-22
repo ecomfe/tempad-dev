@@ -5,6 +5,8 @@ import { useToast } from '@/entrypoints/ui/composables/toast'
 import { ui } from '@/entrypoints/ui/figma'
 
 const { message, shown, hide } = useToast()
+
+defineProps<{ closable?: boolean }>()
 </script>
 
 <template>
@@ -17,7 +19,7 @@ const { message, shown, hide } = useToast()
         }"
       >
         <div class="tp-toast-text">{{ message }}</div>
-        <div v-if="ui.isUi3" class="tp-toast-button">
+        <div v-if="ui.isUi3 && closable" class="tp-toast-button">
           <IconButton @click="hide">
             <Times />
           </IconButton>
