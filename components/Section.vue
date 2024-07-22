@@ -52,9 +52,9 @@ function afterLeave(el: Element) {
     @leave="leave"
     @after-leave="afterLeave"
   >
-    <section class="tp-section" :class="{ 'tp-section-flat': props.flat }" v-if="!collapsed">
+    <section class="tp-section" :class="{ 'tp-section-flat': flat }" v-if="!collapsed">
       <header v-if="title || header" class="tp-row tp-section-header">
-        <slot name="header">{{ props.title }}</slot>
+        <slot name="header">{{ title }}</slot>
       </header>
       <div class="tp-section-content">
         <slot />

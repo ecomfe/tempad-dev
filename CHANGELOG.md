@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3
+
+- Improved toast.
+
 ## 0.3.2
 
 - Adapted toast and quirks mode hint to UI3.

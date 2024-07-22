@@ -27,7 +27,7 @@ const copy = useCopy(code)
 <template>
   <section class="tp-code">
     <header class="tp-row tp-row-justify tp-code-header">
-      {{ props.title }}
+      {{ title }}
       <div class="tp-row tp-gap">
         <slot name="actions" />
         <IconButton variant="secondary" title="Copy" @click="copy">

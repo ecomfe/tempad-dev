@@ -33,7 +33,7 @@ function handleClick() {
   <button
     class="tp-button"
     :class="classes"
-    :type="props.type || 'button'"
+    :type="type || 'button'"
     :data-tooltip="title || null"
     :data-tooltip-type="title ? 'text' : null"
     @click="handleClick"
