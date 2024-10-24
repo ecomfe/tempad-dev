@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.4
+
+- Fixed the problem that borders are not correctly recognized in quirks mode.
+- Fixed a style detail when the extension is minimized.
+
 ## 0.3.3
 
 - Improved toast.
