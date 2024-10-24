@@ -7,8 +7,8 @@ export function getBlendMode(raw: string): string {
 }
 
 const PAINT_DATA_RE = /^PaintData\(([\s\S]*)\)$/
-const PAINT_RE = /(Solid|Gradient|Raster)Paint\(([^)]+?)\)/g
-const PAINT_VALUE_RE = /([^,]+),\s*opacity (.*)/
+const PAINT_RE = /(Solid|Gradient|Raster)Paint\((.+)\)/g
+const PAINT_VALUE_RE = /([^,]+)(?:,\s*colorVar[^)]+\))?(?:,\s*opacity (.*))?/
 
 export function getPaint(raw: string): string[] {
   const [, rawPaints] = raw.match(PAINT_DATA_RE) || []
@@ -22,11 +22,11 @@ export function getPaint(raw: string): string[] {
   ;[...rawPaints.matchAll(PAINT_RE)].forEach((match) => {
     const [, type, paintValue] = match
     const [, paint, opacity] = paintValue.match(PAINT_VALUE_RE) || []
-    if (!paint || !opacity) {
+    if (!paint) {
       return
     }
 
-    const opacityValue = toDecimalPlace(opacity, 2)
+    const opacityValue = toDecimalPlace(opacity || 1, 2)
     switch (type) {
       case 'Solid':
         if (opacityValue > 0) {
