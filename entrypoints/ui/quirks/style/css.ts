@@ -92,12 +92,22 @@ function getBordersCSS(props: QuirksNodeProps): StyleRecord | null {
   const bottomWidth = toDecimalPlace(props['border-bottom-weight'] || 0)
   const leftWidth = toDecimalPlace(props['border-left-weight'] || 0)
 
-  return {
-    'border-top': `${topWidth}px ${borderStyle} ${borderColor}`,
-    'border-right': `${rightWidth}px ${borderStyle} ${borderColor}`,
-    'border-bottom': `${bottomWidth}px ${borderStyle} ${borderColor}`,
-    'border-left': `${leftWidth}px ${borderStyle} ${borderColor}`
+  const borders: StyleRecord = {}
+
+  if (topWidth) {
+    borders['border-top'] = `${topWidth}px ${borderStyle} ${borderColor}`
   }
+  if (rightWidth) {
+    borders['border-right'] = `${rightWidth}px ${borderStyle} ${borderColor}`
+  }
+  if (bottomWidth) {
+    borders['border-bottom'] = `${bottomWidth}px ${borderStyle} ${borderColor}`
+  }
+  if (leftWidth) {
+    borders['border-left'] = `${leftWidth}px ${borderStyle} ${borderColor}`
+  }
+
+  return borders
 }
 
 function getBorderRadiusCSS(props: QuirksNodeProps): StyleRecord | null {
