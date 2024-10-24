@@ -95,7 +95,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <article ref="panel" class="tp-panel" :style="positionStyle">
+  <article ref="panel" class="tp-panel" :class="{ 'tp-panel-minimized': options.minimized }" :style="positionStyle">
     <header ref="header" class="tp-row tp-row-justify tp-panel-header" @dblclick="toggleMinimized">
       <slot name="header" />
     </header>
@@ -126,6 +126,10 @@ onUnmounted(() => {
   user-select: none;
   cursor: default;
   white-space: nowrap;
+}
+
+.tp-panel-minimized .tp-panel-header {
+  border-bottom-color: transparent;
 }
 
 .tp-panel-main {
