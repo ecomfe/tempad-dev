@@ -64,15 +64,21 @@ function getStrokeCSS(props: QuirksNodeProps): StyleRecord | null {
 
 function getBordersCSS(props: QuirksNodeProps): StyleRecord | null {
   const borderTopWidth = props['border-top-weight']
+  const borderRightWidth = props['border-right-weight']
+  const borderBottomWidth = props['border-bottom-weight']
+  const borderLeftWidth = props['border-left-weight']
   const borderColor = props['stroke-paint-data'] || []
-  if (!borderTopWidth || borderColor.length === 0) {
+
+  const anyWidth = borderTopWidth || borderRightWidth || borderBottomWidth || borderLeftWidth
+
+  if (!anyWidth || borderColor.length === 0) {
     return null
   }
 
   const borderStyle = props['stroke-dash-pattern']?.length ? 'dashed' : 'solid'
 
   if (!props['border-stroke-weights-independent']) {
-    const borderWidth = toDecimalPlace(borderTopWidth)
+    const borderWidth = toDecimalPlace(anyWidth)
     if (!borderWidth) {
       return null
     }
@@ -81,7 +87,7 @@ function getBordersCSS(props: QuirksNodeProps): StyleRecord | null {
     }
   }
 
-  const topWidth = toDecimalPlace(borderTopWidth)
+  const topWidth = toDecimalPlace(props['border-top-weight'] || 0)
   const rightWidth = toDecimalPlace(props['border-right-weight'] || 0)
   const bottomWidth = toDecimalPlace(props['border-bottom-weight'] || 0)
   const leftWidth = toDecimalPlace(props['border-left-weight'] || 0)
