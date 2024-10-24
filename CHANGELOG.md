@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5
+
+- Excluded individual border if `border-width` is `0` in quirks mode.
+
 ## 0.3.4
 
 - Fixed the problem that borders are not correctly recognized in quirks mode.
