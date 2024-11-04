@@ -25,8 +25,10 @@ export default defineUnlistedScript(async () => {
 			content = content.replace(/if\(!([a-zA-Z\d]+)\.userID\|\|/, 'if(true){}else if(!$1.userID||')
 		}
 
-		const blob = new Blob([content], { type: 'text/javascript' })
-		replaceScript(URL.createObjectURL(blob))
+		// document.currentScript will be `null` if we run with `new Function()`
+		content = content.replaceAll('document.currentScript.src', `"${src}"`)
+
+		new Function(content)()
 	} catch (_) {
 		replaceScript(`${src}?fallback`)
 	}
