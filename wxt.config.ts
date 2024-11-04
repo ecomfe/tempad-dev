@@ -18,7 +18,22 @@ export default defineConfig({
       {
         resources: ['/ui.js'],
         matches: ['https://www.figma.com/*']
+      },
+      {
+        "resources": ["/figma.js"],
+        matches: ['https://www.figma.com/*']
       }
-    ]
+    ],
+    permissions: [
+      'declarativeNetRequest',
+      'declarativeNetRequestWithHostAccess'
+    ],
+    declarative_net_request: {
+      rule_resources: [{
+        id: 'figma',
+        enabled: true,
+        path: 'rules/figma.json'
+      }]
+    },
   }
 })
