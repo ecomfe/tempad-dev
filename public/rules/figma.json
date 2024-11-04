@@ -1,0 +1,8 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": { "type": "redirect", "redirect": { "extensionPath": "/figma.js" } },
+    "condition": { "regexFilter": "/\\d+-[0-9a-f]+\\.min\\.js\\.br$", "resourceTypes": ["script"] }
+  }
+]
