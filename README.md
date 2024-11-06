@@ -1,10 +1,13 @@
-# TemPad Dev
+<h1 align="center">TemPad Dev</h1>
 
-Inspect panel on Figma, for everyone.
+<p align="center">Inspect panel on Figma, for <b>everyone</b>.</p>
 
-**[📦 Install on Chrome Web Store](https://chromewebstore.google.com/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc)**
+<p align="center">
+  <a href="https://chrome.google.com/webstore/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc"><img src="https://img.shields.io/badge/Install%20on%20Chrome%20Web%20Store-4285F4?logo=chromewebstore&logoColor=%23fff" alt="Install on Chrome Web Store"></a>
+  <a href="https://discord.gg/MXGXwtkEck"><img src="https://img.shields.io/badge/Chat%20on%20Discord-5865F2?logo=discord&logoColor=%23fff" alt="Chat on Discord"></a>
+</p>
 
-<picture height="469">
+<picture align="center" height="469">
   <source media="(prefers-color-scheme: dark)" src="assets/dark.png">
   <source media="(prefers-color-scheme: light)" src="assets/light.png">
   <img alt="Shows a screenshot of the extension panel." src="assets/light.png">
@@ -13,7 +16,7 @@ Inspect panel on Figma, for everyone.
 ---
 
 <details>
-<summary>Important Updates</summary>
+<summary><h3>Compatibility Updates</h3></summary>
 
 <img height="355" align="right" src="assets/duplicate.png">
 
@@ -39,7 +42,10 @@ Select any element, and you can obtain the CSS code through the plugin's Code pa
 
 <img height="408" src="assets/unit.png">
 
-You can configure CSS units and root font size to convert px dimensions in CSS to rem units. After switching units, only the code output in the TemPad Dev panel will switch to non-px units. The plugin cannot affect the display of sizes and spacing on the Figma canvas.
+You can configure CSS units and root font size to convert px dimensions in CSS to rem units.
+
+> ![WARNING]
+> After switching units, only the code output in the TemPad Dev panel will switch to non-px units. The plugin cannot affect the display of sizes and spacing on the Figma canvas.
 
 ### Deep select mode
 
