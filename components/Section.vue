@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useSlots } from 'vue'
 
-const props = defineProps<{
+defineProps<{
   title?: string
   collapsed?: boolean
   flat?: boolean
