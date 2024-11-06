@@ -13,7 +13,7 @@ const props = defineProps<{
 
 const highlighted = computed(() => {
   const { Prism } = window
-  if (!Prism) {
+  if (!Prism || !Prism.languages[props.lang]) {
     return props.code
   }
 
