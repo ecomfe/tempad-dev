@@ -158,6 +158,7 @@ tempad ::-webkit-scrollbar-thumb {
   outline: unset;
 }
 
-#react-page:not(:has(#fullscreen-root .gpu-view-content canvas)) ~ tempad {
+#react-page:not(:has(#fullscreen-root .gpu-view-content canvas):has(#left-panel-container))
+  ~ tempad {
   display: none;
 }
