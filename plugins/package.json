@@ -1,0 +1,13 @@
+{
+  "name": "@tempad-dev/plugins",
+  "description": "Plugin utils for TemPad Dev.",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/index.js",
+    "dist/index.d.ts",
+    "README.md"
+  ]
+}
