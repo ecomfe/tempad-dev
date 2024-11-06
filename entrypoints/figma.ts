@@ -23,6 +23,7 @@ export default defineUnlistedScript(async () => {
 
 		if (matchFile(content)) {
 			content = content.replace(/if\(!([a-zA-Z\d]+)\.userID\|\|/, 'if(true){}else if(!$1.userID||')
+			content = content.replaceAll('delete window.figma', 'window.figma = undefined')
 		}
 
 		// document.currentScript will be `null` if we run with `new Function()`
