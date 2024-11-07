@@ -3,6 +3,7 @@ import { options } from '@/entrypoints/ui/state'
 import { useSelectAll } from '@/entrypoints/ui/composables/input'
 import IconButton from '../IconButton.vue'
 import Section from '../Section.vue'
+import PluginsSection from './PluginsSection.vue'
 import Inspect from '../icons/Inspect.vue'
 import Measure from '../icons/Measure.vue'
 
@@ -58,6 +59,7 @@ useSelectAll(fontSizeInput)
         v-model.number="options.rootFontSize"
       />
     </div>
+    <PluginsSection class="tp-pref-plugins" />
   </Section>
 </template>
 
@@ -72,6 +74,10 @@ useSelectAll(fontSizeInput)
 
 .tp-pref-input {
   width: 80px;
+}
+
+.tp-pref-plugins {
+  margin-top: 8px;
 }
 
 label {

@@ -1,4 +1,4 @@
-type SupportedLang = 'css' | 'js' | 'sass' | 'scss' | 'less' | 'stylus' | 'json'
+export type SupportedLang = 'css' | 'js' | 'sass' | 'scss' | 'less' | 'stylus' | 'json'
 
 type TransformParams = {
   /**
@@ -67,20 +67,22 @@ export type TransformOptions = {
   transformPx?: (params: TransformLengthParams) => string
 }
 
-export type CodeBlockOptions = TransformOptions & {
-  /**
-   * The title of the code block
-   * @example 'SCSS'
-   */
-  title?: string
-
-} | false
+export type CodeBlockOptions =
+  | (TransformOptions & {
+      /**
+       * The title of the code block
+       * @example 'SCSS'
+       */
+      title?: string
+    })
+  | false
 
 type BuiltInCodeBlock = 'css' | 'js'
 
-type CodeOptions = Partial<Record<BuiltInCodeBlock, CodeBlockOptions>> & Record<string, CodeBlockOptions>
+type CodeOptions = Partial<Record<BuiltInCodeBlock, CodeBlockOptions>> &
+  Record<string, CodeBlockOptions>
 
-type Plugin = {
+export type Plugin = {
   name: string
   code: CodeOptions
 }
