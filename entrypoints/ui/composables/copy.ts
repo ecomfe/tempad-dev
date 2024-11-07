@@ -1,9 +1,7 @@
 import { useClipboard } from '@vueuse/core'
-import { toValue } from 'vue'
 import { useToast } from '@/entrypoints/ui/composables/toast'
-import type { MaybeRefOrGetter } from 'vue'
 
-export function useCopy(content: MaybeRefOrGetter<HTMLElement | string | undefined>) {
+export function useCopy(content: MaybeRefOrGetter<HTMLElement | string | null | undefined>) {
   const { copy } = useClipboard()
   const { show } = useToast()
 

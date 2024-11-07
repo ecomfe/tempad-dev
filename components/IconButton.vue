@@ -1,6 +1,4 @@
-<script lang="ts" setup>
-import { computed } from 'vue'
-
+<script setup lang="ts">
 const props = defineProps<{
   type?: 'button' | 'submit' | 'reset'
   toggle?: boolean | 'normal' | 'subtle'

@@ -1,5 +1,4 @@
-<script lang="ts" setup>
-import { ref } from 'vue'
+<script setup lang="ts">
 import { useCopy } from '@/entrypoints/ui/composables/copy'
 
 defineProps<{ size?: 's' | 'm' | 'l'; variant?: 'normal' | 'block' }>()

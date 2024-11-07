@@ -1,12 +1,10 @@
-<script lang="ts" setup>
-import { shallowRef, watchEffect } from 'vue'
+<script setup lang="ts">
 import { selection, selectedNode, options, selectedTemPadComponent } from '@/entrypoints/ui/state'
 import { serializeCSS } from '@/entrypoints/ui/utils'
 import Section from '../Section.vue'
 import Code from '../Code.vue'
 import IconButton from '../IconButton.vue'
 import Preview from '../icons/Preview.vue'
-import { computed } from 'vue'
 import Info from '../icons/Info.vue'
 
 const componentCode = shallowRef('')
@@ -56,7 +54,7 @@ function open() {
 </script>
 
 <template>
-  <Section title="Code" :collapsed="!selectedNode || !(componentCode || css)">
+  <Section :collapsed="!selectedNode || !(componentCode || css)">
     <template #header>
       Code
       <IconButton v-if="warning" variant="secondary" :title="warning" dull>

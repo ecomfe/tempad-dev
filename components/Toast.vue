@@ -1,4 +1,4 @@
-<script lang="ts" setup>
+<script setup lang="ts">
 import IconButton from './IconButton.vue'
 import Times from './icons/Times.vue'
 import { useToast } from '@/entrypoints/ui/composables/toast'

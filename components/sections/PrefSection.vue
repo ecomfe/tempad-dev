@@ -1,5 +1,4 @@
-<script lang="ts" setup>
-import { ref, watch } from 'vue'
+<script setup lang="ts">
 import { options } from '@/entrypoints/ui/state'
 import { useSelectAll } from '@/entrypoints/ui/composables/input'
 import IconButton from '../IconButton.vue'
@@ -21,12 +20,12 @@ watch(
   }
 )
 
-const input = ref<HTMLInputElement | null>(null)
-useSelectAll(input)
+const fontSizeInput = useTemplateRef('fontSizeInput')
+useSelectAll(fontSizeInput)
 </script>
 
 <template>
-  <Section ref="root">
+  <Section ref="root" class="tp-pref">
     <div class="tp-row tp-row-justify tp-pref-field">
       <label>Tools</label>
       <div class="tp-row tp-gap">
@@ -54,7 +53,7 @@ useSelectAll(input)
       <input
         id="root-font-size"
         class="tp-pref-input"
-        ref="input"
+        ref="fontSizeInput"
         type="number"
         v-model.number="options.rootFontSize"
       />
@@ -63,6 +62,10 @@ useSelectAll(input)
 </template>
 
 <style scoped>
+.tp-pref {
+  --tp-section-padding-bottom: 0;
+}
+
 .tp-pref-field + .tp-pref-field {
   margin-top: 8px;
 }

@@ -1,6 +1,4 @@
-<script lang="ts" setup>
-import { useSlots } from 'vue'
-
+<script setup lang="ts">
 defineProps<{
   title?: string
   collapsed?: boolean
@@ -53,7 +51,7 @@ function afterLeave(el: Element) {
     @after-leave="afterLeave"
   >
     <section class="tp-section" :class="{ 'tp-section-flat': flat }" v-if="!collapsed">
-      <header v-if="title || header" class="tp-row tp-section-header">
+      <header v-if="title || header" class="tp-row tp-row-justify tp-gap-l tp-section-header">
         <slot name="header">{{ title }}</slot>
       </header>
       <div class="tp-section-content">
@@ -88,10 +86,24 @@ function afterLeave(el: Element) {
   font-weight: 600;
   user-select: none;
   cursor: default;
+  line-height: 16px;
+}
+
+.tp-section-flat > .tp-section-header {
+  min-height: 40px;
 }
 
 .tp-section-content {
   padding: 0 16px;
+}
+
+.tp-section-content > .tp-section {
+  margin-right: -16px;
+  margin-left: -16px;
+}
+
+.tp-section-content > .tp-section:last-child {
+  padding-bottom: 0;
 }
 
 .tp-section-enter-active,
