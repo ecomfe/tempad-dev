@@ -1,5 +1,3 @@
-import { shallowRef } from 'vue'
-
 let tick: number | null = null
 const duration = 3000
 
@@ -7,7 +5,7 @@ const message = shallowRef('')
 const shown = shallowRef(false)
 
 export function useToast() {
-  function hide () {
+  function hide() {
     message.value = ''
     shown.value = false
     if (tick != null) {

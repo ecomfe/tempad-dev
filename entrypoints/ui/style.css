@@ -69,6 +69,7 @@ tempad select:focus-visible {
   outline: 1px solid var(--fg-focus);
 }
 
+tempad input:not([type]),
 tempad input[type="text"],
 tempad input[type="number"] {
   height: 28px;

@@ -1,4 +1,3 @@
-import { onMounted, onUnmounted } from 'vue'
 import { selection } from '../state'
 import { getCanvas, getLeftPanel } from '../utils'
 import { createQuirksSelection } from '../quirks'

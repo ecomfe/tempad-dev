@@ -1,4 +1,3 @@
-import { onMounted, onUnmounted, watch } from 'vue'
 import { options } from '../state'
 import { getCanvas, setLockAltKey, setLockMetaKey } from '../utils'
 

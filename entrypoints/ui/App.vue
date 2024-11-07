@@ -1,4 +1,4 @@
-<script lang="ts" setup>
+<script setup lang="ts">
 import Panel from '@/components/Panel.vue'
 import MetaSection from '@/components/sections/MetaSection.vue'
 import CodeSection from '@/components/sections/CodeSection.vue'

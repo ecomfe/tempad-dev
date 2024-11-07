@@ -1,5 +1,4 @@
-<script lang="ts" setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+<script setup lang="ts">
 import { useDraggable, useWindowSize, watchDebounced } from '@vueuse/core'
 import {
   OverlayScrollbars,
@@ -12,9 +11,9 @@ import { ui } from '@/entrypoints/ui/figma'
 
 OverlayScrollbars.plugin([ScrollbarsHidingPlugin, SizeObserverPlugin, ClickScrollPlugin])
 
-const panel = ref<HTMLElement | null>(null)
-const header = ref<HTMLElement | null>(null)
-const main = ref<HTMLElement | null>(null)
+const panel = useTemplateRef('panel')
+const header = useTemplateRef('header')
+const main = useTemplateRef('main')
 
 const position = options.value.panelPosition
 const { x, y } = useDraggable(panel, {
@@ -95,7 +94,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <article ref="panel" class="tp-panel" :class="{ 'tp-panel-minimized': options.minimized }" :style="positionStyle">
+  <article
+    ref="panel"
+    class="tp-panel"
+    :class="{ 'tp-panel-minimized': options.minimized }"
+    :style="positionStyle"
+  >
     <header ref="header" class="tp-row tp-row-justify tp-panel-header" @dblclick="toggleMinimized">
       <slot name="header" />
     </header>

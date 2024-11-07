@@ -2,7 +2,6 @@ import 'overlayscrollbars/styles/overlayscrollbars.css'
 import './style.css'
 
 import waitFor from 'p-wait-for'
-import { createApp } from 'vue'
 import { isQuirksMode } from './state'
 import { getCanvas, getLeftPanel } from './utils'
 

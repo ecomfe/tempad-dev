@@ -1,4 +1,3 @@
-import { MaybeRefOrGetter } from 'vue'
 import { useEventListener } from '@vueuse/core'
 
 export function useSelectAll(el: MaybeRefOrGetter<HTMLInputElement | null>) {

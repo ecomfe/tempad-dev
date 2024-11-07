@@ -1,4 +1,3 @@
-import { shallowRef, computed } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { ui } from './figma'
 import { getTemPadComponent } from './utils'

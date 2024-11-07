@@ -1,5 +1,4 @@
-<script lang="ts" setup>
-import { computed } from 'vue'
+<script setup lang="ts">
 import Section from '../Section.vue'
 import { selection, selectedTemPadComponent } from '@/entrypoints/ui/state'
 import Copyable from '../Copyable.vue'
@@ -42,7 +41,7 @@ function scrollIntoView() {
 
 <template>
   <Section flat>
-    <h1 class="tp-row tp-row-justify tp-gap-l tp-meta-title">
+    <template #header>
       <span class="tp-meta-title-aux tp-ellipsis" v-if="title == null">No selection</span>
       <div class="tp-row tp-shrink tp-gap-l" v-else>
         <Copyable class="tp-ellipsis">
@@ -60,19 +59,11 @@ function scrollIntoView() {
       >
         <Select />
       </IconButton>
-    </h1>
+    </template>
   </Section>
 </template>
 
 <style scoped>
-.tp-meta-title {
-  min-height: 40px;
-  font-weight: 600;
-  font-size: 11px;
-  line-height: 16px;
-  letter-spacing: calc(0.005px + var(--text-tracking-pos, 0) * 11px);
-}
-
 .tp-meta-title:not(:hover) .tp-meta-scroll {
   display: none;
 }
