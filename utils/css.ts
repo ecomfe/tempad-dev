@@ -41,18 +41,6 @@ type SerializeOptions = {
   toJS?: boolean
 } & ProcessValueOptions
 
-function trimStyleRecord(style: Record<string, string>) {
-  return Object.entries(style).reduce(
-    (acc, [key, value]) => {
-      if (value) {
-        acc[key] = value
-      }
-      return acc
-    },
-    {} as Record<string, string>
-  )
-}
-
 export function serializeCSS(
   style: Record<string, string>,
   { toJS = false, useRem, rootFontSize }: SerializeOptions,
@@ -65,11 +53,6 @@ export function serializeCSS(
       current = current.replace(VARIABLE_RE, (_, name: string, value: string) =>
         transformVariable({ code: current, name, value })
       )
-    }
-
-    const numeric = parseNumber(current)
-    if (numeric != null) {
-      return numeric
     }
 
     if (KEEP_PX_PROPS.includes(key)) {
@@ -87,8 +70,8 @@ export function serializeCSS(
     return current
   }
 
-  function stringifyValue(value: string | number) {
-    if (typeof value === 'string' && value.includes('\0')) {
+  function stringifyValue(value: string) {
+    if (value.includes('\0')) {
       // Check if the entire string is a single variable enclosed by \0
       if (
         value.startsWith('\0') &&
@@ -107,25 +90,27 @@ export function serializeCSS(
       return '`' + template + '`'
     }
 
-    return typeof value === 'string' ? `'${escapeSingleQuote(value)}'` : value
+    return `'${escapeSingleQuote(value)}'`
   }
 
-  const trimmedStyle = trimStyleRecord(style)
+  const processedStyle = Object.fromEntries(
+    Object.entries(style)
+      .filter(([, value]) => value)
+      .map(([key, value]) => [key, processValue(key, value)])
+  )
 
   let code = toJS
     ? '{\n' +
-      Object.entries(trimmedStyle)
-        .map(
-          ([key, value]) => `  ${kebabToCamel(key)}: ${stringifyValue(processValue(key, value))}`
-        )
+      Object.entries(processedStyle)
+        .map(([key, value]) => `  ${kebabToCamel(key)}: ${stringifyValue(value)}`)
         .join(',\n') +
       '\n}'
-    : Object.entries(trimmedStyle)
-        .map(([key, value]) => `${key}: ${processValue(key, value)};`)
+    : Object.entries(processedStyle)
+        .map(([key, value]) => `${key}: ${value};`)
         .join('\n')
 
   if (typeof transform === 'function') {
-    code = transform({ code, style })
+    code = transform({ code, style: processedStyle })
   }
 
   return code
