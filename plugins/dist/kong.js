@@ -1,0 +1,1 @@
+function s(r){return r.toUpperCase().replace(/-/g,"_")}var a={name:"Kong UI",code:{css:{title:"SCSS",lang:"scss",transformVariable({name:r}){return`$kui-${r.toLowerCase()}`}},js:{transformVariable({name:r}){return`\0KUI_${s(r)}\0`}}}};export{a as plugin};
