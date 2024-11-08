@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { useCopy } from '@/entrypoints/ui/composables/copy'
+import { useCopy } from '@/composables'
 
 defineProps<{ size?: 's' | 'm' | 'l'; variant?: 'normal' | 'block' }>()
 
-const root = ref<HTMLElement>()
+const root = useTemplateRef('root')
 
 const copy = useCopy(root)
 

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import Section from '../Section.vue'
-import { selection, selectedTemPadComponent } from '@/entrypoints/ui/state'
-import Copyable from '../Copyable.vue'
-import IconButton from '../IconButton.vue'
-import Select from '../icons/Select.vue'
-import Badge from '../Badge.vue'
+import Badge from '@/components/Badge.vue'
+import Copyable from '@/components/Copyable.vue'
+import IconButton from '@/components/IconButton.vue'
+import Select from '@/components/icons/Select.vue'
+import Section from '@/components/Section.vue'
+import { selection, selectedTemPadComponent } from '@/ui/state'
 
 const title = computed(() => {
   const nodes = selection.value

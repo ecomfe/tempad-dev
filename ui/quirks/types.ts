@@ -1,6 +1,6 @@
 import type { BasicProps } from './basic'
-import type { StackProps } from './stack'
 import type { FontProps } from './font'
+import type { StackProps } from './stack'
 import type { StyleProps } from './style'
 
 export interface PluginData {

@@ -1,6 +1,8 @@
-import { toDecimalPlace } from '../../utils'
-import { getFontFace, getLineHeight, getVariantNumeric } from './utils'
+import { toDecimalPlace } from '@/utils'
+
 import type { QuirksNodeProps, StyleRecord } from '../types'
+
+import { getFontFace, getLineHeight, getVariantNumeric } from './utils'
 
 const ALIGN_FLEX_MAP = {
   top: 'flex-start',

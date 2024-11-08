@@ -28,6 +28,7 @@
     "@wxt-dev/module-vue": "^1.0.1",
     "esbuild": "^0.24.0",
     "eslint": "^8.57.1",
+    "eslint-plugin-perfectionist": "^3.9.1",
     "eslint-plugin-vue": "^9.30.0",
     "overlayscrollbars": "^2.10.0",
     "p-wait-for": "^5.0.2",
@@ -38,5 +39,10 @@
     "vue": "^3.5.12",
     "vue-tsc": "^1.8.27",
     "wxt": "^0.19.13"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "wxt@0.19.13": "patches/wxt@0.19.13.patch"
+    }
   }
 }

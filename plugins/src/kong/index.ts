@@ -1,4 +1,4 @@
-import { definePlugin } from '..'
+import { definePlugin } from '@/plugins/src'
 
 function toConstantCase(name: string) {
   return name.toUpperCase().replace(/-/g, '_')

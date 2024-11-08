@@ -54,7 +54,7 @@ function afterLeave(el: Element) {
       <header v-if="title || header" class="tp-row tp-row-justify tp-gap-l tp-section-header">
         <slot name="header">{{ title }}</slot>
       </header>
-      <div class="tp-section-content">
+      <div v-if="$slots.default" class="tp-section-content">
         <slot />
       </div>
     </section>

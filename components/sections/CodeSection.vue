@@ -1,32 +1,46 @@
 <script setup lang="ts">
+import type { RequestPayload, ResponsePayload, SerializeOptions } from '@/codegen/types'
+
+import { CodeBlock } from '@/codegen/types'
+import Code from '@/components/Code.vue'
+import IconButton from '@/components/IconButton.vue'
+import Info from '@/components/icons/Info.vue'
+import Preview from '@/components/icons/Preview.vue'
+import Section from '@/components/Section.vue'
+import Codegen from '@/entrypoints/ui/codegen?worker&inline'
+import { createWorkerRequester } from '@/entrypoints/ui/worker'
 import {
   selection,
   selectedNode,
   options,
   selectedTemPadComponent,
-  activePlugin
-} from '@/entrypoints/ui/state'
-import { serializeCSS } from '@/entrypoints/ui/utils'
-import Section from '../Section.vue'
-import Code from '../Code.vue'
-import IconButton from '../IconButton.vue'
-import Preview from '../icons/Preview.vue'
-import Info from '../icons/Info.vue'
+  activePluginCode
+} from '@/ui/state'
 
-import type { SupportedLang } from '../../plugins/src/index'
+async function codegen(
+  style: Record<string, string>,
+  options: SerializeOptions,
+  pluginCode?: string
+): Promise<CodeBlock[]> {
+  const request = createWorkerRequester<RequestPayload, ResponsePayload>(Codegen)
 
-type CodeBlock = {
-  name: string
-  title: string
-  code: string
-  lang: SupportedLang
+  try {
+    const result = await request({
+      style,
+      options,
+      pluginCode
+    })
+
+    return result.codeBlocks
+  } catch (error) {
+    console.error(error)
+    return []
+  }
 }
 
 const componentCode = shallowRef('')
 const componentLink = shallowRef('')
-const css = shallowRef<CodeBlock | null>(null)
-const js = shallowRef<CodeBlock | null>(null)
-const extra = shallowRef<CodeBlock[]>([])
+const codeBlocks = shallowRef<CodeBlock[]>([])
 const warning = shallowRef('')
 
 const playButtonTitle = computed(() =>
@@ -35,11 +49,11 @@ const playButtonTitle = computed(() =>
     : 'The component is produced with older versions of TemPad that does not provide a link to TemPad playground.'
 )
 
-watchEffect(async () => {
+watch([selectedNode, options, activePluginCode], async () => {
   const node = selectedNode.value
 
   if (node == null || selection.value.length > 1) {
-    css.value = null
+    codeBlocks.value = []
     return
   }
 
@@ -47,67 +61,14 @@ watchEffect(async () => {
   componentCode.value = component?.code || ''
   componentLink.value = component?.link || ''
 
+  const style = await node.getCSSAsync()
   const { cssUnit, rootFontSize } = options.value
   const serializeOptions = {
     useRem: cssUnit === 'rem',
     rootFontSize
   }
 
-  const { css: cssOptions, js: jsOptions, ...rest } = activePlugin.value?.code || {}
-
-  const style = await node.getCSSAsync()
-
-  if (cssOptions === false) {
-    css.value = null
-  } else {
-    const cssCode = serializeCSS(style, serializeOptions, cssOptions)
-    if (!cssCode) {
-      css.value = null
-    } else {
-      css.value = {
-        name: 'css',
-        title: cssOptions?.title ?? 'CSS',
-        lang: cssOptions?.lang ?? 'css',
-        code: cssCode
-      }
-    }
-  }
-
-  if (jsOptions === false) {
-    js.value = null
-  } else {
-    const jsCode = serializeCSS(style, { ...serializeOptions, toJS: true }, jsOptions)
-    if (!jsCode) {
-      js.value = null
-    } else {
-      js.value = {
-        name: 'js',
-        title: jsOptions?.title ?? 'JS',
-        lang: jsOptions?.lang ?? 'js',
-        code: jsCode
-      }
-    }
-  }
-
-  extra.value = Object.keys(rest)
-    .map((name) => {
-      const extraOptions = rest[name]
-      if (extraOptions === false) {
-        return null
-      }
-
-      const code = serializeCSS(style, serializeOptions, extraOptions)
-      if (!code) {
-        return null
-      }
-      return {
-        name,
-        title: extraOptions.title ?? name,
-        lang: extraOptions.lang ?? 'css',
-        code
-      }
-    })
-    .filter((item): item is CodeBlock => item != null)
+  codeBlocks.value = await codegen(style, serializeOptions, activePluginCode.value || undefined)
 
   if ('warning' in node) {
     warning.value = node.warning
@@ -122,7 +83,7 @@ function open() {
 </script>
 
 <template>
-  <Section :collapsed="!selectedNode || !(componentCode || css)">
+  <Section :collapsed="!selectedNode || !(componentCode || codeBlocks.length)">
     <template #header>
       Code
       <IconButton v-if="warning" variant="secondary" :title="warning" dull>
@@ -148,8 +109,14 @@ function open() {
         </IconButton>
       </template>
     </Code>
-    <Code v-if="css" class="tp-code-code" :title="css.title" :lang="css.lang" :code="css.code" />
-    <Code v-if="js" class="tp-code-code" :title="js.title" :lang="js.lang" :code="js.code" />
+    <Code
+      v-for="{ name, title, lang, code } in codeBlocks"
+      :key="name"
+      class="tp-code-code"
+      :title="title"
+      :lang="lang"
+      :code="code"
+    />
   </Section>
 </template>
 

@@ -1,5 +1,6 @@
+import { snakeToKebab, fadeTo, parseNumber, toDecimalPlace } from '@/utils'
+
 import { getEnumString } from '../basic'
-import { snakeToKebab, fadeTo, parseNumber, toDecimalPlace } from '../../utils'
 
 export function getBlendMode(raw: string): string {
   const modeString = getEnumString(raw)

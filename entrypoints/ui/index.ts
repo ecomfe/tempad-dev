@@ -1,11 +1,14 @@
 import 'overlayscrollbars/styles/overlayscrollbars.css'
+import { isQuirksMode } from '@/ui/state'
+import { getCanvas, getLeftPanel } from '@/utils'
+import waitFor from 'p-wait-for'
+
 import './style.css'
 
-import waitFor from 'p-wait-for'
-import { isQuirksMode } from './state'
-import { getCanvas, getLeftPanel } from './utils'
-
 export default defineUnlistedScript(async () => {
+  await waitFor(() => window.Prism != null)
+  import('./prism')
+
   await waitFor(() => getCanvas() != null && getLeftPanel() != null)
   try {
     await waitFor(() => window.figma != null, { timeout: 1000 })

@@ -1,5 +1,5 @@
-import { getEnumString } from '../basic'
-import { snakeToKebab } from '../../utils'
+import { snakeToKebab } from '@/utils'
+
 import type {
   StackAlign,
   StackJustify,
@@ -8,6 +8,8 @@ import type {
   StackSize,
   StackWrap
 } from './types'
+
+import { getEnumString } from '../basic'
 
 const STACK_MODE_MAP: Record<string, StackMode> = {
   HORIZONTAL: 'row',

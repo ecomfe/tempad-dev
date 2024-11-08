@@ -1,4 +1,4 @@
-import { GhostNode, QuirksNode } from '../quirks'
+import { GhostNode, QuirksNode } from '@/ui/quirks'
 
 type TemPadComponent = {
   code: string

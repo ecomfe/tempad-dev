@@ -1,8 +1,9 @@
-import { basicParsers, getBasicCSS } from './basic'
-import { styleParsers, getStyleCSS } from './style'
-import { stackParsers, getStackCSS } from './stack'
-import { fontParsers, getFontCSS } from './font'
 import type { QuirksNodeProps, StyleRecord } from './types'
+
+import { basicParsers, getBasicCSS } from './basic'
+import { fontParsers, getFontCSS } from './font'
+import { stackParsers, getStackCSS } from './stack'
+import { styleParsers, getStyleCSS } from './style'
 
 const TEMPAD_PLUGIN_ID = '1126010039932614529'
 

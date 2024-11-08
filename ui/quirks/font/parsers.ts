@@ -1,4 +1,3 @@
-import { getEnumString, getStringArray } from '../basic'
 import type {
   TextCase,
   TextAutoResize,
@@ -11,6 +10,8 @@ import type {
   FontCaps,
   FontPosition
 } from './types'
+
+import { getEnumString, getStringArray } from '../basic'
 
 const TEXT_CASE_MAP: Record<string, TextCase> = {
   ORIGINAL: 'none',
