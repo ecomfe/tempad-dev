@@ -1,7 +1,7 @@
+import type { TransformOptions } from '@/plugins/src'
+
 import { parseNumber, toDecimalPlace } from './number'
 import { kebabToCamel } from './string'
-
-import type { TransformOptions } from '@/plugins/src'
 
 function escapeSingleQuote(value: string) {
   return value.replace(/'/g, "\\'")

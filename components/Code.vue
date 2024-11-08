@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { useCopy } from '@/entrypoints/ui/composables/copy'
+import { useCopy } from '@/composables'
+
 import IconButton from './IconButton.vue'
 import Copy from './icons/Copy.vue'
 

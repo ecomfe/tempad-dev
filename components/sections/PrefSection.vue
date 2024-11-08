@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { options } from '@/entrypoints/ui/state'
-import { useSelectAll } from '@/entrypoints/ui/composables/input'
-import IconButton from '../IconButton.vue'
-import Section from '../Section.vue'
-import PluginsSection from './PluginsSection.vue'
-import Inspect from '../icons/Inspect.vue'
-import Measure from '../icons/Measure.vue'
+import IconButton from '@/components/IconButton.vue'
+import Inspect from '@/components/icons/Inspect.vue'
+import Measure from '@/components/icons/Measure.vue'
+import Section from '@/components/Section.vue'
+import PluginsSection from '@/components/sections/PluginsSection.vue'
+import { useSelectAll } from '@/composables/input'
+import { options } from '@/ui/state'
 
 const root = ref<InstanceType<typeof Section> | null>(null)
 

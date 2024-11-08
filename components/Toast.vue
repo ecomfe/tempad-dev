@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import IconButton from './IconButton.vue'
-import Times from './icons/Times.vue'
-import { useToast } from '@/entrypoints/ui/composables/toast'
-import { ui } from '@/entrypoints/ui/figma'
+import IconButton from '@/components/IconButton.vue'
+import Times from '@/components/icons/Times.vue'
+import { useToast } from '@/composables'
+import { ui } from '@/ui/figma'
 
 const { message, shown, hide } = useToast()
 

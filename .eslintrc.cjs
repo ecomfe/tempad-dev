@@ -3,6 +3,7 @@ require('@rushstack/eslint-patch/modern-module-resolution')
 
 module.exports = {
   root: true,
+  plugins: ['perfectionist'],
   extends: [
     'plugin:vue/vue3-essential',
     'eslint:recommended',
@@ -13,6 +14,7 @@ module.exports = {
     ecmaVersion: 'latest'
   },
   rules: {
-    'vue/multi-word-component-names': 'off'
+    'vue/multi-word-component-names': 'off',
+    'perfectionist/sort-imports': 'error'
   }
 }

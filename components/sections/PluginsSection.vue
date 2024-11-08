@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { options } from '@/entrypoints/ui/state'
-import Section from '../Section.vue'
-import IconButton from '../IconButton.vue'
-import PluginImporter from '../PluginImporter.vue'
-import PluginItem from '../PluginItem.vue'
-import Plus from '../icons/Plus.vue'
+import type { Plugin } from '@/plugins/src/index'
 
-import type { Plugin } from '../../plugins/src/index'
+import IconButton from '@/components/IconButton.vue'
+import Plus from '@/components/icons/Plus.vue'
+import PluginImporter from '@/components/PluginImporter.vue'
+import PluginItem from '@/components/PluginItem.vue'
+import Section from '@/components/Section.vue'
+import { options } from '@/ui/state'
 
 const isImporterShown = shallowRef(false)
 const importer = useTemplateRef('importer')

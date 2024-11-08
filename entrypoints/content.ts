@@ -1,5 +1,3 @@
-import { browser } from 'wxt/browser'
-
 export default defineContentScript({
   matches: ['https://www.figma.com/file/*', 'https://www.figma.com/design/*'],
   runAt: 'document_end',

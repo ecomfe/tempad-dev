@@ -1,4 +1,5 @@
-import { toDecimalPlace } from '../../utils'
+import { toDecimalPlace } from '@/utils'
+
 import type { QuirksNodeProps, StyleRecord } from '../types'
 
 export function getBasicCSS(props: QuirksNodeProps): StyleRecord {

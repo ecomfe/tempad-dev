@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ui } from '@/entrypoints/ui/figma'
+import { ui } from '@/ui/figma'
 </script>
 
 <template>

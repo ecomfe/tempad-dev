@@ -1,4 +1,4 @@
-import { ui } from '../figma'
+import { ui } from '@/ui/figma'
 
 export function getCanvas() {
   // Need to ensure the whole plugin is rendered after canvas is ready

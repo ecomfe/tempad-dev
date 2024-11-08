@@ -1,5 +1,5 @@
+import { useToast } from '@/composables'
 import { useClipboard } from '@vueuse/core'
-import { useToast } from '@/entrypoints/ui/composables/toast'
 
 export function useCopy(content: MaybeRefOrGetter<HTMLElement | string | null | undefined>) {
   const { copy } = useClipboard()

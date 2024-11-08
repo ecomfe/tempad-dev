@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ui } from '@/ui/figma'
+import { options } from '@/ui/state'
 import { useDraggable, useWindowSize, watchDebounced } from '@vueuse/core'
 import {
   OverlayScrollbars,
@@ -6,8 +8,6 @@ import {
   SizeObserverPlugin,
   ClickScrollPlugin
 } from 'overlayscrollbars'
-import { options } from '@/entrypoints/ui/state'
-import { ui } from '@/entrypoints/ui/figma'
 
 OverlayScrollbars.plugin([ScrollbarsHidingPlugin, SizeObserverPlugin, ClickScrollPlugin])
 

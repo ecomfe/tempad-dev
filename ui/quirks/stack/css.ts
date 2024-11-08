@@ -1,6 +1,8 @@
-import { QuirksNode } from '..'
-import { toDecimalPlace } from '../../utils'
+import { toDecimalPlace } from '@/utils'
+
 import type { QuirksNodeProps, StyleRecord } from '../types'
+
+import { QuirksNode } from '..'
 
 export function getStackCSS(props: QuirksNodeProps, parent: QuirksNode | null): StyleRecord {
   return {

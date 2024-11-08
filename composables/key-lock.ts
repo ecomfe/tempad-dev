@@ -1,5 +1,5 @@
-import { options } from '../state'
-import { getCanvas, setLockAltKey, setLockMetaKey } from '../utils'
+import { options } from '@/ui/state'
+import { getCanvas, setLockAltKey, setLockMetaKey } from '@/utils'
 
 let spacePressed = false
 

@@ -1,4 +1,5 @@
-import { parseNumber, toDecimalPlace } from '../../utils'
+import { parseNumber, toDecimalPlace } from '@/utils'
+
 import type { StyleRecord } from '../types'
 import type { NumericFigure, NumericSpacing, NumericFraction } from './types'
 

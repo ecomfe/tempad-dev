@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import type { Plugin } from '@/plugins/src/index'
+
+import { evaluate } from '@/utils'
+
 import IconButton from './IconButton.vue'
 import Minus from './icons/Minus.vue'
-import { evaluate } from '@/entrypoints/ui/utils'
-
-import type { Plugin } from '../plugins/src/index'
 
 const emit = defineEmits<{
   imported: [{ code: string; plugin: Plugin; source: string }]
