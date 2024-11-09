@@ -23,17 +23,17 @@ const installedPlugins = computed(() => Object.values(options.value.plugins || {
 function handleImported({
   source,
   code,
-  plugin
+  pluginName
 }: {
   source: string
   code: string
-  plugin: Plugin
+  pluginName: string
 }) {
   if (!options.value.plugins) {
     options.value.plugins = {}
   }
 
-  options.value.plugins[source] = { name: plugin.name, source, code }
+  options.value.plugins[source] = { name: pluginName, source, code }
 
   if (!options.value.activePluginSource) {
     options.value.activePluginSource = source

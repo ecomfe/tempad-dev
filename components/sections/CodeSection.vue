@@ -44,7 +44,9 @@ watch([selectedNode, options, activePluginCode], async () => {
     rootFontSize
   }
 
-  codeBlocks.value = await codegen(style, serializeOptions, activePluginCode.value || undefined)
+  codeBlocks.value = (
+    await codegen(style, serializeOptions, activePluginCode.value || undefined)
+  ).codeBlocks
 
   if ('warning' in node) {
     warning.value = node.warning

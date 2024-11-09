@@ -12,6 +12,7 @@ export interface RequestPayload {
 }
 
 export interface ResponsePayload {
+  pluginName?: string
   codeBlocks: CodeBlock[]
 }
 
