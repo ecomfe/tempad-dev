@@ -89,7 +89,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
 
   const message: Response = {
     id,
-    payload: { codeBlocks }
+    payload: { codeBlocks, pluginName: plugin?.name }
   }
   postMessage(message)
 }

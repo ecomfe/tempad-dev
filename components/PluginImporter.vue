@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import type { Plugin } from '@/plugins/src/index'
-
 import { codegen } from '@/utils'
 
 import IconButton from './IconButton.vue'
 import Minus from './icons/Minus.vue'
 
 const emit = defineEmits<{
-  imported: [{ code: string; plugin: Plugin; source: string }]
+  imported: [{ code: string; pluginName: string; source: string }]
   cancel: []
 }>()
 
@@ -18,8 +16,11 @@ defineExpose({
   }
 })
 
-function reportValidity(message: string) {
+function setValidity(message: string) {
   input.value?.setCustomValidity(message)
+}
+
+function reportValidity() {
   input.value?.reportValidity()
 }
 
@@ -36,16 +37,16 @@ function getBuiltInPlugin(source: string) {
 function validate() {
   const sourceInput = input.value
   if (!sourceInput) {
-    return
+    return false
   }
 
   if (!source.value) {
-    reportValidity('Please enter a source.')
+    setValidity('Please enter a source.')
     return false
   }
 
   if (!BUILT_IN_SOURCE_RE.test(source.value) && !URL.canParse(source.value)) {
-    reportValidity('Please enter a valid source.')
+    setValidity('Please enter a valid source.')
     return false
   }
 
@@ -54,51 +55,60 @@ function validate() {
 }
 
 const source = shallowRef('')
+const installing = shallowRef(false)
 
 let fetchingSource: string | null = null
 let controller: AbortController | null = null
 
 async function tryImport() {
   if (!validate()) {
+    reportValidity()
     return
   }
 
+  const src = source.value
+
   // No changed URL
-  if (source.value === fetchingSource) {
+  if (src === fetchingSource) {
     return
   }
 
   controller?.abort()
-  fetchingSource = source.value
+  fetchingSource = src
   controller = new AbortController()
   const signal = controller.signal
   let code: string | null = null
-  let plugin: Plugin | null = null
 
+  installing.value = true
+  source.value = 'Installing...'
   try {
-    const url = BUILT_IN_SOURCE_RE.test(source.value)
-      ? getBuiltInPlugin(source.value)
-      : source.value
+    const url = BUILT_IN_SOURCE_RE.test(src) ? getBuiltInPlugin(src) : src
+
     code = await (await fetch(url, { signal })).text()
 
     try {
-      await codegen({}, { useRem: false, rootFontSize: 12 }, code)
+      const { pluginName } = await codegen({}, { useRem: false, rootFontSize: 12 }, code)
+      if (!pluginName) {
+        setValidity('The plugin name must not be empty.')
+      } else {
+        emit('imported', { code, pluginName, source: src })
+      }
     } catch (e) {
-      reportValidity(
+      setValidity(
         `Failed to evaluate the code: ${e instanceof Error ? e.message : 'Unknown error'}`
       )
     }
   } catch (e) {
-    reportValidity(`Failed to fetch the URL.`)
-    return
+    setValidity('Failed to fetch the script content.')
   } finally {
     fetchingSource = null
     controller = null
   }
+  installing.value = false
+  source.value = src
 
-  if (plugin) {
-    emit('imported', { code, plugin, source: source.value })
-  }
+  await nextTick()
+  reportValidity()
 }
 </script>
 
@@ -109,6 +119,7 @@ async function tryImport() {
       class="tp-plugin-importer-input"
       type="text"
       v-model="source"
+      :disabled="installing"
       @input="clearValidity"
       @blur="tryImport"
       @keydown.enter="tryImport"
