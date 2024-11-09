@@ -6,7 +6,6 @@ import waitFor from 'p-wait-for'
 import './style.css'
 
 export default defineUnlistedScript(async () => {
-  await waitFor(() => window.Prism != null)
   import('./prism')
 
   await waitFor(() => getCanvas() != null && getLeftPanel() != null)
