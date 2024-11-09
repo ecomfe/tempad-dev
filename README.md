@@ -65,6 +65,75 @@ In Figma's read-only view, you need to hold <kbd>⌥</kbd> and move the cursor t
 
 When you hover over a node name section in TemPad Dev's inspect panel, a corresponding button appears. Clicking it will scroll the current selection to the center of the Figma viewport. Figma has a similar <kbd>⇧2</kbd> shortcut, but it zooms in to fill the viewport, which often doesn't meet the needs. Figma actually exposes an interface in the plugin API to move and zoom to 100%, so we also provide this capability as a supplement.
 
+Here's an improved version of your documentation with enhanced readability, conciseness, and clarity:
+
+---
+
+### Plugins
+
+Plugins allow you to customize the built-in code output or add custom code blocks.
+
+A TemPad Dev plugin is a simple JavaScript file that exports a plugin object as its `plugin` named export. To install a plugin, paste the plugin file's URL into the _Preferences > Plugins_ section. Some built-in plugins can also be enabled by using `@{name}` syntax (e.g., `@foo`), which corresponds to `https://raw.githubusercontent.com/{user}/{repo}/refs/heads/{branch}/plugins/dist/{name}.js`.
+
+> [!NOTE]
+> Plugin code is stored in the browser's local storage. Plugins are not auto-updated, so you must manually remove and re-install them to get new versions for now.
+
+#### Developing a plugin
+
+We provide a fully typed `definePlugin` function to simplify plugin creation. This function is available via the `@tempad-dev/plugins` package.
+
+```sh
+npm install -D @tempad-dev/plugins # or pnpm add -D @tempad-dev/plugins
+```
+
+Here is an example of a simple plugin that overrides the built-in CSS code block and hides the JavaScript code block:
+
+```ts
+import { definePlugin } from '@tempad-dev/plugins'
+
+export default definePlugin({
+  name: 'My Plugin',
+  code: {
+    css: {
+      title: 'Stylus', // Custom code block title
+      lang: 'stylus', // Custom syntax highlighting language
+      transform({ style }) {
+        return Object.entries(style)
+          .map(([key, value]) => `${key} ${value}`)
+          .join('\n')
+      }
+    },
+    js: false // Hides the built-in JavaScript code block
+  }
+})
+```
+
+> [!NOTE]
+> Plugin file must be a valid ES module and have a named export `plugin`.
+
+Currently, we support three plugin hooks:
+
+- `transform`: Converts the style object or code into a string format for the code block. Useful for custom structures, such as Tailwind CSS or UnoCSS.
+- `transformVariable`: Converts CSS variables into alternate formats, e.g., converting them to Sass variables for design tokens.
+- `transformPx`: Converts pixel values into other units or scales.
+
+Additionally, you can specify a custom `title` and `lang` for the code block or hide the built-in code block by setting it to `false`.
+
+For full type definitions, see [plugins/src/index.ts](/plugins/src/index.ts).
+
+#### Deploying a Plugin
+
+Ensure your plugin is accessible via a URL that supports cross-origin requests, such as a GitHub repository (or Gist). For instance, you can use a raw URL:
+
+```
+https://raw.githubusercontent.com/{username}/{repo}/main/your-plugin.js
+```
+
+> [!NOTE]
+> Plugin URLs must support cross-origin requests. Raw URLs provided by GitHub or Gist are generally suitable.
+
+Plugins run in a Web Worker, so they do not impact the main thread or access the DOM, safeguarding performance and security. Only a limited set of globals is available in the plugin context. See [safe.ts](https://github.com/ecomfe/tempad-dev/blob/main/codegen/safe.ts) for details.
+
 <details>
 <summary><h3>Inspect TemPad component code</h3></summary>
 

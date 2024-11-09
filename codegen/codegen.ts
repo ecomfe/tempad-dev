@@ -6,10 +6,16 @@ import { evaluate } from '@/utils/module'
 
 import type { RequestMessage, ResponseMessage } from './worker'
 
+import safe from './safe'
+
 type Request = RequestMessage<RequestPayload>
 type Response = ResponseMessage<ResponsePayload>
 
-onmessage = async ({ data }: MessageEvent<Request>) => {
+const IMPORT_RE = /^\s*import\s+(([^'"\n]+|'[^']*'|"[^"]*")|\s*\(\s*[^)]*\s*\))/gm
+
+const postMessage = globalThis.postMessage
+
+globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   const { id, payload } = data
   const codeBlocks: CodeBlock[] = []
 
@@ -18,9 +24,14 @@ onmessage = async ({ data }: MessageEvent<Request>) => {
 
   try {
     if (pluginCode) {
+      if (IMPORT_RE.test(pluginCode)) {
+        throw new Error('`import` is not allowed in plugins.')
+      }
+
       plugin = (await evaluate(pluginCode)).plugin as Plugin
     }
   } catch (e) {
+    console.error(e)
     const message: Response = {
       id,
       error: e
@@ -82,3 +93,18 @@ onmessage = async ({ data }: MessageEvent<Request>) => {
   }
   postMessage(message)
 }
+
+// Only expose the necessary APIs to plugins
+Object.getOwnPropertyNames(globalThis)
+  .filter((key) => !safe.has(key))
+  .forEach((key) => {
+    // @ts-ignore
+    globalThis[key] = undefined
+  })
+
+Object.defineProperties(globalThis, {
+  name: { value: 'codegen', writable: false, configurable: false },
+  onmessage: { value: undefined, writable: false, configurable: false },
+  onmessageerror: { value: undefined, writable: false, configurable: false },
+  postMessage: { value: undefined, writable: false, configurable: false }
+})

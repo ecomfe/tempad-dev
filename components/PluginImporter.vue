@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Plugin } from '@/plugins/src/index'
 
-import { evaluate } from '@/utils'
+import { codegen } from '@/utils'
 
 import IconButton from './IconButton.vue'
 import Minus from './icons/Minus.vue'
@@ -80,20 +80,20 @@ async function tryImport() {
       ? getBuiltInPlugin(source.value)
       : source.value
     code = await (await fetch(url, { signal })).text()
+
+    try {
+      await codegen({}, { useRem: false, rootFontSize: 12 }, code)
+    } catch (e) {
+      reportValidity(
+        `Failed to evaluate the code: ${e instanceof Error ? e.message : 'Unknown error'}`
+      )
+    }
   } catch (e) {
     reportValidity(`Failed to fetch the URL.`)
     return
   } finally {
     fetchingSource = null
     controller = null
-  }
-
-  try {
-    plugin = (await evaluate(code)).plugin
-  } catch (e) {
-    reportValidity(
-      `Failed to evaluate the code: ${e instanceof Error ? e.message : 'Unknown error'}`
-    )
   }
 
   if (plugin) {

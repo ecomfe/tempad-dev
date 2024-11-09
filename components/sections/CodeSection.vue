@@ -1,14 +1,11 @@
 <script setup lang="ts">
-import type { RequestPayload, ResponsePayload, SerializeOptions } from '@/codegen/types'
+import type { CodeBlock } from '@/codegen/types'
 
-import { CodeBlock } from '@/codegen/types'
 import Code from '@/components/Code.vue'
 import IconButton from '@/components/IconButton.vue'
 import Info from '@/components/icons/Info.vue'
 import Preview from '@/components/icons/Preview.vue'
 import Section from '@/components/Section.vue'
-import Codegen from '@/entrypoints/ui/codegen?worker&inline'
-import { createWorkerRequester } from '@/entrypoints/ui/worker'
 import {
   selection,
   selectedNode,
@@ -16,27 +13,6 @@ import {
   selectedTemPadComponent,
   activePluginCode
 } from '@/ui/state'
-
-async function codegen(
-  style: Record<string, string>,
-  options: SerializeOptions,
-  pluginCode?: string
-): Promise<CodeBlock[]> {
-  const request = createWorkerRequester<RequestPayload, ResponsePayload>(Codegen)
-
-  try {
-    const result = await request({
-      style,
-      options,
-      pluginCode
-    })
-
-    return result.codeBlocks
-  } catch (error) {
-    console.error(error)
-    return []
-  }
-}
 
 const componentCode = shallowRef('')
 const componentLink = shallowRef('')

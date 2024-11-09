@@ -34,7 +34,7 @@ type TransformVariableParams = {
   value?: string
 }
 
-type TransformLengthParams = {
+type TransformPxParams = {
   /**
    * The length value
    * @example 16
@@ -61,10 +61,10 @@ export type TransformOptions = {
   transformVariable?: (params: TransformVariableParams) => string
 
   /**
-   * Transform the pixel value CSS length code
+   * Transform the pixel value to the desired unit and scale
    * @example 16 -> '1rem'
    */
-  transformPx?: (params: TransformLengthParams) => string
+  transformPx?: (params: TransformPxParams) => string
 }
 
 export type CodeBlockOptions =
