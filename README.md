@@ -108,6 +108,8 @@ export default definePlugin({
 })
 ```
 
+See [built-in plugins](./plugins/src) for more examples.
+
 > [!NOTE]
 > Plugin file must be a valid ES module and have a named export `plugin`.
 
@@ -119,7 +121,7 @@ Currently, we support three plugin hooks:
 
 Additionally, you can specify a custom `title` and `lang` for the code block or hide the built-in code block by setting it to `false`.
 
-For full type definitions, see [plugins/src/index.ts](/plugins/src/index.ts).
+For full type definitions, see [`plugins/src/index.ts`](./plugins/src/index.ts).
 
 #### Deploying a Plugin
 
@@ -132,7 +134,7 @@ https://raw.githubusercontent.com/{username}/{repo}/main/your-plugin.js
 > [!NOTE]
 > Plugin URLs must support cross-origin requests. Raw URLs provided by GitHub or Gist are generally suitable.
 
-Plugins run in a Web Worker, so they do not impact the main thread or access the DOM, safeguarding performance and security. Only a limited set of globals is available in the plugin context. See [safe.ts](https://github.com/ecomfe/tempad-dev/blob/main/codegen/safe.ts) for details.
+Plugins run in a Web Worker, so they do not impact the main thread or access the DOM, safeguarding performance and security. Only a limited set of globals is available in the plugin context. See [`codegen/safe.ts`](./codegen/safe.ts) for details.
 
 <details>
 <summary><h3>Inspect TemPad component code</h3></summary>
