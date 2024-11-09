@@ -44,7 +44,7 @@ Select any element, and you can obtain the CSS code through the plugin's Code pa
 
 You can configure CSS units and root font size to convert px dimensions in CSS to rem units.
 
-> ![WARNING]
+> [!WARNING]
 > After switching units, only the code output in the TemPad Dev panel will switch to non-px units. The plugin cannot affect the display of sizes and spacing on the Figma canvas.
 
 ### Deep select mode
