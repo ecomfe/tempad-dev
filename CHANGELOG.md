@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- Added plugins support.
+- Added experimental support for enabling `window.figma` in view-only mode.
+
 ## 0.3.5
 
 - Excluded individual border if `border-width` is `0` in quirks mode.
