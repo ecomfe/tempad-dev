@@ -58,7 +58,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
     if (jsCode) {
       codeBlocks.push({
         name: 'js',
-        title: jsOptions?.title ?? 'JS',
+        title: jsOptions?.title ?? 'JavaScript',
         lang: jsOptions?.lang ?? 'js',
         code: jsCode
       })
