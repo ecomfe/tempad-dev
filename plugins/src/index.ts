@@ -1,6 +1,17 @@
 export type SupportedLang = 'css' | 'js' | 'sass' | 'scss' | 'less' | 'stylus' | 'json'
 
-type TransformParams = {
+interface TransformBaseParams {
+  /**
+   * The user preferences related to code transformation
+   * @example { useRem: true, rootFontSize: 16 }
+   */
+  options: {
+    useRem: boolean
+    rootFontSize: number
+  }
+}
+
+interface TransformParams extends TransformBaseParams {
   /**
    * The generated CSS code
    * @example 'background-color: red; color: blue;'
@@ -14,7 +25,7 @@ type TransformParams = {
   style: Record<string, string>
 }
 
-type TransformVariableParams = {
+interface TransformVariableParams extends TransformBaseParams {
   /**
    * The generated CSS variable code
    * @example 'var(--color-primary, #6699cc)'
@@ -34,7 +45,7 @@ type TransformVariableParams = {
   value?: string
 }
 
-type TransformPxParams = {
+interface TransformPxParams extends TransformBaseParams {
   /**
    * The length value
    * @example 16

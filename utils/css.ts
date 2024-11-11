@@ -46,12 +46,14 @@ export function serializeCSS(
   { toJS = false, useRem, rootFontSize }: SerializeOptions,
   { transform, transformVariable, transformPx }: TransformOptions = {}
 ) {
+  const options = { useRem, rootFontSize }
+
   function processValue(key: string, value: string) {
     let current = trimComments(value).trim()
 
     if (typeof transformVariable === 'function') {
       current = current.replace(VARIABLE_RE, (_, name: string, value: string) =>
-        transformVariable({ code: current, name, value })
+        transformVariable({ code: current, name, value, options })
       )
     }
 
@@ -60,7 +62,7 @@ export function serializeCSS(
     }
 
     if (typeof transformPx === 'function') {
-      current = transformPxValue(current, (value) => transformPx({ value }))
+      current = transformPxValue(current, (value) => transformPx({ value, options }))
     }
 
     if (useRem) {
@@ -114,7 +116,7 @@ export function serializeCSS(
         .join('\n')
 
   if (typeof transform === 'function') {
-    code = transform({ code, style: processedStyle })
+    code = transform({ code, style: processedStyle, options })
   }
 
   return code
