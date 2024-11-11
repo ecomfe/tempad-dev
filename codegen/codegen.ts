@@ -28,7 +28,8 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
         throw new Error('`import` is not allowed in plugins.')
       }
 
-      plugin = (await evaluate(pluginCode)).plugin as Plugin
+      const exports = await evaluate(pluginCode)
+      plugin = (exports.default || exports.plugin) as Plugin
     }
   } catch (e) {
     console.error(e)
