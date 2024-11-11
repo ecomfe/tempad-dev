@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Fixed the regression that preferences were not reactive.
+
 ## 0.4.1
 
 - Added `host_permissions` so that `declarativeNetworkResources` can take effect.
