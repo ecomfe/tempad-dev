@@ -29,6 +29,7 @@ export default defineConfig({
       }
     ],
     permissions: ['declarativeNetRequest', 'declarativeNetRequestWithHostAccess'],
+    host_permissions: ['https://www.figma.com/file/*', 'https://www.figma.com/design/*'],
     declarative_net_request: {
       rule_resources: [
         {
