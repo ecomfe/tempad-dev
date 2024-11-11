@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Added `host_permissions` so that `declarativeNetworkResources` can take effect.
+
 ## 0.4.0
 
 - Added plugins support.
