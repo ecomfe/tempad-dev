@@ -18,7 +18,11 @@
 <details>
 <summary><h3>Compatibility Updates</h3></summary>
 
-<img height="355" align="right" src="assets/duplicate.png">
+<picture width="321" height="334">
+  <source media="(prefers-color-scheme: dark)" src="assets/duplicate-dark.png">
+  <source media="(prefers-color-scheme: light)" src="assets/duplicate-light.png">
+  <img alt="Choose “Duplicate to your drafts” to ensure normal mode instead of quirks mode." src="assets/duplicate-light.png">
+</picture>
 
 **2024.03.19**: Figma removed the `window.figma` interface in view-only mode. As a result, we can no longer seamlessly view information and code for Figma elements in view-only mode.
 
@@ -36,32 +40,52 @@
 
 ### Inspect CSS code
 
-<img height="408" src="assets/code.png">
+<picture width="720" height="480">
+  <source media="(prefers-color-scheme: dark)" src="assets/code-dark.png">
+  <source media="(prefers-color-scheme: light)" src="assets/code-light.png">
+  <img alt="Shows the CSS and JavaScript code for a selected element." src="assets/code-light.png">
+</picture>
 
 Select any element, and you can obtain the CSS code through the plugin's Code panel. In addition to standard CSS code, TemPad Dev also provides styles in the form of JavaScript objects, making it convenient for use in JSX and similar scenarios.
 
-<img height="408" src="assets/unit.png">
+<picture width="720" height="480">
+  <source media="(prefers-color-scheme: dark)" src="assets/unit-dark.png">
+  <source media="(prefers-color-scheme: light)" src="assets/unit-light.png">
+  <img alt="Shows units and root font size settings in preferences." src="assets/unit-light.png">
+</picture>
 
-You can configure CSS units and root font size to convert px dimensions in CSS to rem units.
+You can configure CSS units and root font size to convert `px` dimensions in CSS to `rem` units.
 
 > [!WARNING]
 > After switching units, only the code output in the TemPad Dev panel will switch to non-px units. The plugin cannot affect the display of sizes and spacing on the Figma canvas.
 
 ### Deep select mode
 
-<img height="221.5" src="assets/deep.png">
+<picture width="720" height="360">
+  <source media="(prefers-color-scheme: dark)" src="assets/deep-dark.png">
+  <source media="(prefers-color-scheme: light)" src="assets/deep-light.png">
+  <img alt="Shows the deep select mode in preferences." src="assets/deep-light.png">
+</picture>
 
-In Figma's read-only view, selecting nodes requires double-clicking to drill down, and it often takes repeated double-clicks to select the lowest-level node. Although Figma offers a <kbd>⌘</kbd> + click shortcut, many users are unaware of this feature and need to perform extra key operations each time. Therefore, TemPad Dev provides a deep select mode in the settings.
+In Figma's read-only view, selecting nodes requires double-clicking to drill down, and it often takes repeated double-clicks to select the lowest-level node. Although Figma offers a <kbd>⌘</kbd> + click shortcut, many users are unaware of this feature and need to perform extra key operations each time. Therefore, TemPad Dev provides a deep select mode in preferences.
 
 ### Measure to selection mode
 
-<img height="221.5" src="assets/measure.png">
+<picture width="720" height="480">
+  <source media="(prefers-color-scheme: dark)" src="assets/measure-dark.png">
+  <source media="(prefers-color-scheme: light)" src="assets/measure-light.png">
+  <img alt="Shows the measure to selection mode in preferences." src="assets/measure-light.png">
+</picture>
 
-In Figma's read-only view, you need to hold <kbd>⌥</kbd> and move the cursor to display the spacing between other nodes and the selected node. For similar reasons to the deep select mode, TemPad Dev provides a measure to selection mode in the settings.
+In Figma's read-only view, you need to hold <kbd>⌥</kbd> and move the cursor to display the spacing between other nodes and the selected node. For similar reasons to the deep select mode, TemPad Dev provides a measure to selection mode in preferences.
 
 ### Scroll selection into view
 
-<img height="408" src="assets/scroll.png">
+<picture width="720" height="480">
+  <source media="(prefers-color-scheme: dark)" src="assets/scroll-dark.png">
+  <source media="(prefers-color-scheme: light)" src="assets/scroll-light.png">
+  <img alt="Shows the scroll selection into view feature." src="assets/scroll-light.png">
+</picture>
 
 When you hover over a node name section in TemPad Dev's inspect panel, a corresponding button appears. Clicking it will scroll the current selection to the center of the Figma viewport. Figma has a similar <kbd>⇧2</kbd> shortcut, but it zooms in to fill the viewport, which often doesn't meet the needs. Figma actually exposes an interface in the plugin API to move and zoom to 100%, so we also provide this capability as a supplement.
 
@@ -70,6 +94,12 @@ Here's an improved version of your documentation with enhanced readability, conc
 ---
 
 ### Plugins
+
+<picture width="720" height="540">
+  <source media="(prefers-color-scheme: dark)" src="assets/plugins-dark.png">
+  <source media="(prefers-color-scheme: light)" src="assets/plugins-light.png">
+  <img alt="Shows the plugins section in preferences." src="assets/plugins-light.png">
+</picture>
 
 Plugins allow you to customize the built-in code output or add custom code blocks.
 
@@ -119,6 +149,9 @@ Currently, we support three plugin hooks:
 - `transformVariable`: Converts CSS variables into alternate formats, e.g., converting them to Sass variables for design tokens.
 - `transformPx`: Converts pixel values into other units or scales.
 
+> [!TIP]
+> There is one convention for the return value of the `transformVariable` hook: if you want the generated JavaScript code to include JavaScript variables in the property values, you need to wrap the variable name in a pair of `\0` characters so that TemPad Dev will transform it into string interpolations. e.g. if you return `\0foo\0` as the return value, an input of `calc(var(--foo) + 10px)` will be transformed into a JavaScript template string as `` `calc(${foo} + 10px)` ``.
+
 Additionally, you can specify a custom `title` and `lang` for the code block or hide the built-in code block by setting it to `false`.
 
 For full type definitions, see [`plugins/src/index.ts`](./plugins/src/index.ts).
@@ -141,8 +174,6 @@ Plugins run in a Web Worker, so they do not impact the main thread or access the
 
 > [!WARNING]
 > This feature only works with nodes produced by the TemPad Figma plugin, which is only available internally at _Baidu, Inc._ at the moment.
-
-<img height="453" src="assets/tempad.png">
 
 Currently this feature only supports Light Design components.
 
