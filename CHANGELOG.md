@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3
+
+- Plugins can now be exported with default exports.
+- Plugin transform hooks now accepts a new `options` parameter.
+
 ## 0.4.2
 
 - Fixed the regression that preferences were not reactive.
