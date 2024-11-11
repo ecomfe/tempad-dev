@@ -7,21 +7,23 @@
   <a href="https://discord.gg/MXGXwtkEck"><img src="https://img.shields.io/badge/Chat%20on%20Discord-5865F2?logo=discord&logoColor=%23fff" alt="Chat on Discord"></a>
 </p>
 
-<picture align="center" height="469">
-  <source media="(prefers-color-scheme: dark)" src="assets/code-dark.png">
-  <source media="(prefers-color-scheme: light)" src="assets/code-light.png">
-  <img alt="Shows a screenshot of the extension panel." src="assets/light.png">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/code-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/code-light.png">
+    <img alt="Shows a screenshot of the extension panel." src="assets/code-light.png" width="720" height="480">
+  </picture>
+</p>
 
 ---
 
 <details>
 <summary><h3>Compatibility Updates</h3></summary>
 
-<picture width="720" height="480">
-  <source media="(prefers-color-scheme: dark)" src="assets/duplicate-dark.png">
-  <source media="(prefers-color-scheme: light)" src="assets/duplicate-light.png">
-  <img alt="Choose “Duplicate to your drafts” to ensure normal mode instead of quirks mode." src="assets/duplicate-light.png">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/duplicate-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/duplicate-light.png">
+  <img alt="Choose “Duplicate to your drafts” to ensure normal mode instead of quirks mode." src="assets/duplicate-light.png" width="720" height="480">
 </picture>
 
 **2024.03.19**: Figma removed the `window.figma` interface in view-only mode. As a result, we can no longer seamlessly view information and code for Figma elements in view-only mode.
@@ -40,18 +42,18 @@
 
 ### Inspect CSS code
 
-<picture width="720" height="480">
-  <source media="(prefers-color-scheme: dark)" src="assets/code-dark.png">
-  <source media="(prefers-color-scheme: light)" src="assets/code-light.png">
-  <img alt="Shows the CSS and JavaScript code for a selected element." src="assets/code-light.png">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/code-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/code-light.png">
+  <img alt="Shows the CSS and JavaScript code for a selected element." src="assets/code-light.png" width="720" height="480">
 </picture>
 
 Select any element, and you can obtain the CSS code through the plugin's Code panel. In addition to standard CSS code, TemPad Dev also provides styles in the form of JavaScript objects, making it convenient for use in JSX and similar scenarios.
 
-<picture width="720" height="480">
-  <source media="(prefers-color-scheme: dark)" src="assets/unit-dark.png">
-  <source media="(prefers-color-scheme: light)" src="assets/unit-light.png">
-  <img alt="Shows units and root font size settings in preferences." src="assets/unit-light.png">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/unit-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/unit-light.png">
+  <img alt="Shows units and root font size settings in preferences." src="assets/unit-light.png" width="720" height="480">
 </picture>
 
 You can configure CSS units and root font size to convert `px` dimensions in CSS to `rem` units.
@@ -61,30 +63,30 @@ You can configure CSS units and root font size to convert `px` dimensions in CSS
 
 ### Deep select mode
 
-<picture width="720" height="360">
-  <source media="(prefers-color-scheme: dark)" src="assets/deep-dark.png">
-  <source media="(prefers-color-scheme: light)" src="assets/deep-light.png">
-  <img alt="Shows the deep select mode in preferences." src="assets/deep-light.png">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/deep-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/deep-light.png">
+  <img alt="Shows the deep select mode in preferences." src="assets/deep-light.png" width="720" height="360">
 </picture>
 
 In Figma's read-only view, selecting nodes requires double-clicking to drill down, and it often takes repeated double-clicks to select the lowest-level node. Although Figma offers a <kbd>⌘</kbd> + click shortcut, many users are unaware of this feature and need to perform extra key operations each time. Therefore, TemPad Dev provides a deep select mode in preferences.
 
 ### Measure to selection mode
 
-<picture width="720" height="480">
-  <source media="(prefers-color-scheme: dark)" src="assets/measure-dark.png">
-  <source media="(prefers-color-scheme: light)" src="assets/measure-light.png">
-  <img alt="Shows the measure to selection mode in preferences." src="assets/measure-light.png">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/measure-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/measure-light.png">
+  <img alt="Shows the measure to selection mode in preferences." src="assets/measure-light.png" width="720" height="480">
 </picture>
 
 In Figma's read-only view, you need to hold <kbd>⌥</kbd> and move the cursor to display the spacing between other nodes and the selected node. For similar reasons to the deep select mode, TemPad Dev provides a measure to selection mode in preferences.
 
 ### Scroll selection into view
 
-<picture width="720" height="480">
-  <source media="(prefers-color-scheme: dark)" src="assets/scroll-dark.png">
-  <source media="(prefers-color-scheme: light)" src="assets/scroll-light.png">
-  <img alt="Shows the scroll selection into view feature." src="assets/scroll-light.png">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/scroll-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/scroll-light.png">
+  <img alt="Shows the scroll selection into view feature." src="assets/scroll-light.png" width="720" height="480">
 </picture>
 
 When you hover over a node name section in TemPad Dev's inspect panel, a corresponding button appears. Clicking it will scroll the current selection to the center of the Figma viewport. Figma has a similar <kbd>⇧2</kbd> shortcut, but it zooms in to fill the viewport, which often doesn't meet the needs. Figma actually exposes an interface in the plugin API to move and zoom to 100%, so we also provide this capability as a supplement.
@@ -95,10 +97,10 @@ Here's an improved version of your documentation with enhanced readability, conc
 
 ### Plugins
 
-<picture width="720" height="540">
-  <source media="(prefers-color-scheme: dark)" src="assets/plugins-dark.png">
-  <source media="(prefers-color-scheme: light)" src="assets/plugins-light.png">
-  <img alt="Shows the plugins section in preferences." src="assets/plugins-light.png">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/plugins-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/plugins-light.png">
+  <img alt="Shows the plugins section in preferences." src="assets/plugins-light.png" width="720" height="540">
 </picture>
 
 Plugins allow you to customize the built-in code output or add custom code blocks.
