@@ -8,8 +8,8 @@
 </p>
 
 <picture align="center" height="469">
-  <source media="(prefers-color-scheme: dark)" src="assets/dark.png">
-  <source media="(prefers-color-scheme: light)" src="assets/light.png">
+  <source media="(prefers-color-scheme: dark)" src="assets/code-dark.png">
+  <source media="(prefers-color-scheme: light)" src="assets/code-light.png">
   <img alt="Shows a screenshot of the extension panel." src="assets/light.png">
 </picture>
 
@@ -18,7 +18,7 @@
 <details>
 <summary><h3>Compatibility Updates</h3></summary>
 
-<picture width="321" height="334">
+<picture width="720" height="480">
   <source media="(prefers-color-scheme: dark)" src="assets/duplicate-dark.png">
   <source media="(prefers-color-scheme: light)" src="assets/duplicate-light.png">
   <img alt="Choose “Duplicate to your drafts” to ensure normal mode instead of quirks mode." src="assets/duplicate-light.png">
