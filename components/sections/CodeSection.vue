@@ -25,7 +25,7 @@ const playButtonTitle = computed(() =>
     : 'The component is produced with older versions of TemPad that does not provide a link to TemPad playground.'
 )
 
-watch([selectedNode, options, activePluginCode], async () => {
+async function updateCode() {
   const node = selectedNode.value
 
   if (node == null || selection.value.length > 1) {
@@ -53,7 +53,13 @@ watch([selectedNode, options, activePluginCode], async () => {
   } else {
     warning.value = ''
   }
+}
+
+watch(options, updateCode, {
+  deep: true
 })
+
+watch([selectedNode, activePluginCode], updateCode)
 
 function open() {
   window.open(componentLink.value)
