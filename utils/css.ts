@@ -99,6 +99,10 @@ export function serializeCSS(
       .map(([key, value]) => [key, processValue(key, value)])
   )
 
+  if (!Object.keys(processedStyle).length) {
+    return ''
+  }
+
   let code = toJS
     ? '{\n' +
       Object.entries(processedStyle)
