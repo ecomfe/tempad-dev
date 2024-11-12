@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import availablePlugins from '@/plugins/available-plugins.json'
 import { codegen } from '@/utils'
 
 import IconButton from './IconButton.vue'
@@ -30,8 +31,13 @@ function clearValidity() {
 
 const BUILT_IN_SOURCE_RE = /@[a-z\d_-]+/
 
-function getBuiltInPlugin(source: string) {
-  return `https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/${source.slice(1)}.js`
+const plugins = Object.fromEntries(availablePlugins.map(({ name, source }) => [name, source]))
+function getRegisteredPluginSource(source: string) {
+  const name = source.slice(1)
+  return (
+    plugins[name] ??
+    `https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/${name}.js`
+  )
 }
 
 function validate() {
@@ -82,9 +88,12 @@ async function tryImport() {
   installing.value = true
   source.value = 'Installing...'
   try {
-    const url = BUILT_IN_SOURCE_RE.test(src) ? getBuiltInPlugin(src) : src
-
-    code = await (await fetch(url, { signal })).text()
+    const url = BUILT_IN_SOURCE_RE.test(src) ? getRegisteredPluginSource(src) : src
+    const response = await fetch(url, { signal })
+    if (response.status !== 200) {
+      throw new Error('404: Not Found')
+    }
+    code = await response.text()
 
     try {
       const { pluginName } = await codegen({}, { useRem: false, rootFontSize: 12 }, code)
@@ -94,12 +103,12 @@ async function tryImport() {
         emit('imported', { code, pluginName, source: src })
       }
     } catch (e) {
-      setValidity(
-        `Failed to evaluate the code: ${e instanceof Error ? e.message : 'Unknown error'}`
-      )
+      const message = e instanceof Error ? e.message : 'Unknown error'
+      setValidity(`Failed to evaluate the code: ${message}`)
     }
   } catch (e) {
-    setValidity('Failed to fetch the script content.')
+    const message = e instanceof Error ? e.message : 'Network error'
+    setValidity(`Failed to fetch the script content: ${message}`)
   } finally {
     fetchingSource = null
     controller = null
