@@ -163,7 +163,7 @@ For full type definitions, see [`plugins/src/index.ts`](./plugins/src/index.ts).
 Ensure your plugin is accessible via a URL that supports cross-origin requests, such as a GitHub repository (or Gist). For instance, you can use a raw URL:
 
 ```
-https://raw.githubusercontent.com/{username}/{repo}/main/your-plugin.js
+https://raw.githubusercontent.com/{username}/{repo}/refs/heads/{branch}/your-plugin.js
 ```
 
 > [!NOTE]
@@ -182,13 +182,13 @@ Current available plugins:
 <!-- prettier-ignore -->
 | Name | Description | Author | Source |
 | -- | -- | -- | -- |
-| `@kong` | Kong Design System  | @Justineo | [ecomfe/tempad-dev](https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong.js) |
+| `@kong` | Kong Design System | @Justineo | [ecomfe/tempad-dev](https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong.js) |
+| `@kong-advanced` | Kong Design System Advanced | @Justineo | [ecomfe/tempad-dev](https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong-advanced.js) |
 | `@fubukicss/unocss` | UnoCSS by FubukiCSS | @zouhangwithsweet | [zouhangwithsweet/fubukicss-tool](https://raw.githubusercontent.com/zouhangwithsweet/fubukicss-tool/refs/heads/main/plugin/lib/index.js) |
 
 <details>
 <summary><h3>Inspect TemPad component code</h3></summary>
 
-> [!WARNING]
 > This feature only works with nodes produced by the TemPad Figma plugin, which is only available internally at _Baidu, Inc._ at the moment.
 
 Currently this feature only supports Light Design components.
