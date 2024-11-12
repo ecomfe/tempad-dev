@@ -48,5 +48,4 @@ async function build() {
   }
 }
 
-// 执行构建
 build()
