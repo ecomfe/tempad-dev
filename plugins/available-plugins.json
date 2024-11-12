@@ -4,6 +4,10 @@
     "source": "https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong.js"
   },
   {
+    "name": "kong-advanced",
+    "source": "https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong-advanced.js"
+  },
+  {
     "name": "fubukicss/unocss",
     "source": "https://raw.githubusercontent.com/zouhangwithsweet/fubukicss-tool/refs/heads/main/plugin/lib/index.js"
   }
