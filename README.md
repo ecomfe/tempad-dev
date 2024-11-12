@@ -142,6 +142,8 @@ export default definePlugin({
 
 See [built-in plugins](./plugins/src) for more examples.
 
+You can also register the plugin into our [plugin registry file](https://github.com/ecomfe/tempad-dev/blob/main/plugins/available-plugins.json) so that your plugin can be installed by name directly. Come and [add your own awesome plugin](https://github.com/ecomfe/tempad-dev/edit/main/plugins/available-plugins.json)!
+
 > [!NOTE]
 > Plugin file must be a valid ES module and have a named export `plugin`.
 
