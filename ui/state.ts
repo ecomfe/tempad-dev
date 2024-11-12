@@ -1,11 +1,15 @@
-import type { Plugin } from '@/plugins'
-
-import { evaluate, getTemPadComponent } from '@/utils'
+import { getTemPadComponent } from '@/utils'
 import { useStorage, computedAsync } from '@vueuse/core'
 
 import type { QuirksNode, GhostNode } from './quirks'
 
 import { ui } from './figma'
+
+interface PluginData {
+  name: string
+  code: string
+  source: string
+}
 
 export type Options = {
   minimized: boolean
@@ -19,11 +23,7 @@ export type Options = {
   cssUnit: 'px' | 'rem'
   rootFontSize: number
   plugins: {
-    [source: string]: {
-      name: string
-      code: string
-      source: string
-    }
+    [source: string]: PluginData
   }
   activePluginSource: string | null
 }
@@ -50,16 +50,10 @@ export const selection = shallowRef<readonly SelectionNode[]>([])
 export const selectedNode = computed(() => selection.value?.[0] ?? null)
 export const selectedTemPadComponent = computed(() => getTemPadComponent(selectedNode.value))
 
-export const activePluginCode = computedAsync(async () => {
+export const activePlugin = computedAsync(async () => {
   if (!options.value.activePluginSource) {
     return null
   }
 
-  const pluginData = options.value.plugins[options.value.activePluginSource]
-
-  if (!pluginData) {
-    return null
-  }
-
-  return pluginData.code
+  return options.value.plugins[options.value.activePluginSource]
 }, null)
