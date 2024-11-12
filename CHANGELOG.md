@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4
+
+- Added plugin registry.
+- Improved error reporting when importing plugins.
+
 ## 0.4.3
 
 - Plugins can now be exported with default exports.
