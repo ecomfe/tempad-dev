@@ -1,18 +1,13 @@
 <script setup lang="ts">
 import type { CodeBlock } from '@/codegen/types'
 
+import Badge from '@/components/Badge.vue'
 import Code from '@/components/Code.vue'
 import IconButton from '@/components/IconButton.vue'
 import Info from '@/components/icons/Info.vue'
 import Preview from '@/components/icons/Preview.vue'
 import Section from '@/components/Section.vue'
-import {
-  selection,
-  selectedNode,
-  options,
-  selectedTemPadComponent,
-  activePluginCode
-} from '@/ui/state'
+import { selection, selectedNode, options, selectedTemPadComponent, activePlugin } from '@/ui/state'
 
 const componentCode = shallowRef('')
 const componentLink = shallowRef('')
@@ -45,7 +40,7 @@ async function updateCode() {
   }
 
   codeBlocks.value = (
-    await codegen(style, serializeOptions, activePluginCode.value || undefined)
+    await codegen(style, serializeOptions, activePlugin.value?.code || undefined)
   ).codeBlocks
 
   if ('warning' in node) {
@@ -59,7 +54,7 @@ watch(options, updateCode, {
   deep: true
 })
 
-watch([selectedNode, activePluginCode], updateCode)
+watch([selectedNode, activePlugin], updateCode)
 
 function open() {
   window.open(componentLink.value)
@@ -69,7 +64,12 @@ function open() {
 <template>
   <Section :collapsed="!selectedNode || !(componentCode || codeBlocks.length)">
     <template #header>
-      Code
+      <div class="tp-row tp-shrink tp-gap-l">
+        Code
+        <Badge v-if="activePlugin" title="Code in this section is transformed by this plugin">{{
+          activePlugin.name
+        }}</Badge>
+      </div>
       <IconButton v-if="warning" variant="secondary" :title="warning" dull>
         <Info />
       </IconButton>

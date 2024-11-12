@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.5
+
+- Added a badge to show what plugin is transforming the code.
+
 ## 0.4.4
 
 - Added plugin registry.
