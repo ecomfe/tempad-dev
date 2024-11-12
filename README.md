@@ -142,8 +142,6 @@ export default definePlugin({
 
 See [built-in plugins](./plugins/src) for more examples.
 
-You can also register the plugin into our [plugin registry file](https://github.com/ecomfe/tempad-dev/blob/main/plugins/available-plugins.json) so that your plugin can be installed by name directly. Come and [add your own awesome plugin](https://github.com/ecomfe/tempad-dev/edit/main/plugins/available-plugins.json)!
-
 > [!NOTE]
 > Plugin file must be a valid ES module and have the plugin object as the `default` export.
 
@@ -160,7 +158,7 @@ Additionally, you can specify a custom `title` and `lang` for the code block or 
 
 For full type definitions, see [`plugins/src/index.ts`](./plugins/src/index.ts).
 
-#### Deploying a Plugin
+#### Deploying a plugin
 
 Ensure your plugin is accessible via a URL that supports cross-origin requests, such as a GitHub repository (or Gist). For instance, you can use a raw URL:
 
@@ -172,6 +170,20 @@ https://raw.githubusercontent.com/{username}/{repo}/main/your-plugin.js
 > Plugin URLs must support cross-origin requests. Raw URLs provided by GitHub or Gist are generally suitable.
 
 Plugins run in a Web Worker, so they do not impact the main thread or access the DOM, safeguarding performance and security. Only a limited set of globals is available in the plugin context. See [`codegen/safe.ts`](./codegen/safe.ts) for details.
+
+#### Sharing a plugin
+
+You can also register the plugin into our [plugin registry file](https://github.com/ecomfe/tempad-dev/blob/main/plugins/available-plugins.json) so that your plugin can be installed by name directly.
+
+**Come and [add your own awesome plugin](https://github.com/ecomfe/tempad-dev/edit/main/plugins/available-plugins.json)!**
+
+Current available plugins:
+
+<!-- prettier-ignore -->
+| Name | Description | Author | Source |
+| -- | -- | -- | -- |
+| `@kong` | Kong Design System  | @Justineo | [ecomfe/tempad-dev](https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong.js) |
+| `@fubukicss/unocss` | UnoCSS by FubukiCSS | @zouhangwithsweet | [zouhangwithsweet/fubukicss-tool](https://raw.githubusercontent.com/zouhangwithsweet/fubukicss-tool/refs/heads/main/plugin/lib/index.js) |
 
 <details>
 <summary><h3>Inspect TemPad component code</h3></summary>
