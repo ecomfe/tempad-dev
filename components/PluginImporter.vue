@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import availablePlugins from '@/plugins/available-plugins.json'
+import SNAPSHOT_PLUGINS from '@/plugins/available-plugins.json'
 import { codegen } from '@/utils'
 
 import IconButton from './IconButton.vue'
@@ -31,9 +31,25 @@ function clearValidity() {
 
 const BUILT_IN_SOURCE_RE = /@[a-z\d_-]+/
 
-const plugins = Object.fromEntries(availablePlugins.map(({ name, source }) => [name, source]))
-function getRegisteredPluginSource(source: string) {
+// plugin registry from the latest commit of the main branch
+const REGISTRY_URL =
+  'https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/available-plugins.json'
+
+async function getRegisteredPluginSource(source: string) {
   const name = source.slice(1)
+  let pluginList = null
+
+  try {
+    pluginList = (await fetch(REGISTRY_URL).then((res) => res.json())) as {
+      name: string
+      source: string
+    }[]
+  } catch (e) {
+    pluginList = SNAPSHOT_PLUGINS
+  }
+
+  const plugins = Object.fromEntries(pluginList.map(({ name, source }) => [name, source]))
+
   return (
     plugins[name] ??
     `https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/${name}.js`
@@ -88,7 +104,7 @@ async function tryImport() {
   installing.value = true
   source.value = 'Installing...'
   try {
-    const url = BUILT_IN_SOURCE_RE.test(src) ? getRegisteredPluginSource(src) : src
+    const url = BUILT_IN_SOURCE_RE.test(src) ? await getRegisteredPluginSource(src) : src
     const response = await fetch(url, { signal })
     if (response.status !== 200) {
       throw new Error('404: Not Found')
