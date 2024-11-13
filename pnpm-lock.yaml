@@ -34,6 +34,9 @@ importers:
       '@wxt-dev/module-vue':
         specifier: ^1.0.1
         version: 1.0.1(vite@5.4.10(@types/node@22.9.0))(vue@3.5.12(typescript@5.6.3))(wxt@0.19.13(patch_hash=rtgq4h774vd6wjpm3kauilpjpa)(@types/node@22.9.0)(rollup@4.24.4)(webpack-sources@3.2.3))
+      comment-mark:
+        specifier: ^1.1.1
+        version: 1.1.1
       esbuild:
         specifier: ^0.24.0
         version: 0.24.0
@@ -1196,6 +1199,9 @@ packages:
   commander@9.5.0:
     resolution: {integrity: sha512-KRs7WVDKg86PWiuAqhDrAQnTXZKraVcCc6vFdL14qrZ/DcWwuRo7VoiYXalXO7S5GKpqYiVEwCbgFDfxNHKJBQ==}
     engines: {node: ^12.20.0 || >=14}
+
+  comment-mark@1.1.1:
+    resolution: {integrity: sha512-KxFiXpu1/srgsSrftM/whqTpHZUX+BO3bgsToDNNJSqqsGP48sngnAIC+Cms+cCsDl9TQb7rlAVyfKDBdPQcaA==}
 
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
@@ -3901,6 +3907,8 @@ snapshots:
       graceful-readlink: 1.0.1
 
   commander@9.5.0: {}
+
+  comment-mark@1.1.1: {}
 
   concat-map@0.0.1: {}
 

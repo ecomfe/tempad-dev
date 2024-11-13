@@ -179,12 +179,15 @@ You can also register the plugin into our [plugin registry file](https://github.
 
 Current available plugins:
 
-<!-- prettier-ignore -->
+<!-- prettier-ignore-start -->
+<!-- availablePlugins:start -->
 | Name | Description | Author | Source |
 | -- | -- | -- | -- |
-| `@kong` | Kong Design System | @Justineo | [ecomfe/tempad-dev](https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong.js) |
-| `@kong-advanced` | Kong Design System Advanced | @Justineo | [ecomfe/tempad-dev](https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong-advanced.js) |
-| `@fubukicss/unocss` | UnoCSS by FubukiCSS | @zouhangwithsweet | [zouhangwithsweet/fubukicss-tool](https://raw.githubusercontent.com/zouhangwithsweet/fubukicss-tool/refs/heads/main/plugin/lib/index.js) |
+| `@kong` | Kong Design System | @Justineo | [raw.githubusercontent.com](https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong.js) |
+| `@kong/advanced` | Kong Design System (Advanced) | @Justineo | [raw.githubusercontent.com](https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong-advanced.js) |
+| `@fubukicss/unocss` | UnoCSS by FubukiCSS | @zouhangwithsweet | [raw.githubusercontent.com](https://raw.githubusercontent.com/zouhangwithsweet/fubukicss-tool/refs/heads/main/plugin/lib/index.js) |
+<!-- availablePlugins:end -->
+<!-- prettier-ignore-end -->
 
 <details>
 <summary><h3>Inspect TemPad component code</h3></summary>
