@@ -22,7 +22,9 @@ export function useToast() {
       message.value = msg
       shown.value = true
 
-      tick = setTimeout(hide, duration)
+      tick = setTimeout(() => {
+        hide()
+      }, duration)
     },
     hide,
     shown,

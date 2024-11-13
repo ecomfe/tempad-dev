@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { useToast } from '@/composables'
 import SNAPSHOT_PLUGINS from '@/plugins/available-plugins.json'
 import { codegen } from '@/utils'
 
 import IconButton from './IconButton.vue'
 import Minus from './icons/Minus.vue'
+
+const { show } = useToast()
 
 const emit = defineEmits<{
   imported: [{ code: string; pluginName: string; source: string }]
@@ -35,12 +38,14 @@ const BUILT_IN_SOURCE_RE = /@[a-z\d_-]+/
 const REGISTRY_URL =
   'https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/available-plugins.json'
 
-async function getRegisteredPluginSource(source: string) {
+async function getRegisteredPluginSource(source: string, signal?: AbortSignal) {
   const name = source.slice(1)
   let pluginList = null
 
   try {
-    pluginList = (await fetch(REGISTRY_URL).then((res) => res.json())) as {
+    pluginList = (await fetch(REGISTRY_URL, { cache: 'no-cache', signal }).then((res) =>
+      res.json()
+    )) as {
       name: string
       source: string
     }[]
@@ -104,8 +109,8 @@ async function tryImport() {
   installing.value = true
   source.value = 'Installing...'
   try {
-    const url = BUILT_IN_SOURCE_RE.test(src) ? await getRegisteredPluginSource(src) : src
-    const response = await fetch(url, { signal })
+    const url = BUILT_IN_SOURCE_RE.test(src) ? await getRegisteredPluginSource(src, signal) : src
+    const response = await fetch(url, { cache: 'no-cache', signal })
     if (response.status !== 200) {
       throw new Error('404: Not Found')
     }
@@ -116,6 +121,7 @@ async function tryImport() {
       if (!pluginName) {
         setValidity('The plugin name must not be empty.')
       } else {
+        show(`Plugin "${pluginName}" installed successfully.`)
         emit('imported', { code, pluginName, source: src })
       }
     } catch (e) {
