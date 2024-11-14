@@ -29,7 +29,7 @@ function getDomain(url: string) {
   }
 }
 
-function getVendor(url: string): string {
+function getVendor(url: string): string | null {
   // Check for GitHub raw file URL
   if (url.includes('raw.githubusercontent.com')) {
     return 'GitHub'
