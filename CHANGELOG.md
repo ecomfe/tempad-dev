@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.6
+
+- Fixed CSP issue by temporarily remove `main_frame` CSP header.
+
 ## 0.4.5
 
 - Added a badge to show what plugin is transforming the code.
