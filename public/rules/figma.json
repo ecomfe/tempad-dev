@@ -1,13 +1,7 @@
 [
   {
     "id": 1,
-    "priority": 1,
-    "action": { "type": "redirect", "redirect": { "extensionPath": "/figma.js" } },
-    "condition": { "regexFilter": "/\\d+-[0-9a-f]+\\.min\\.js\\.br$", "resourceTypes": ["script"] }
-  },
-  {
-    "id": 2,
-    "priority": 1,
+    "priority": 10,
     "action": {
       "type": "modifyHeaders",
       "responseHeaders": [
@@ -20,5 +14,11 @@
     "condition": {
       "resourceTypes": ["main_frame"]
     }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": { "type": "redirect", "redirect": { "extensionPath": "/figma.js" } },
+    "condition": { "regexFilter": "/\\d+-[0-9a-f]+\\.min\\.js\\.br$", "resourceTypes": ["script"] }
   }
 ]
