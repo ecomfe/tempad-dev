@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.7
+
+- Fixed rule priority for removing CSP header.
+
 ## 0.4.6
 
 - Fixed CSP issue by temporarily remove `main_frame` CSP header.
