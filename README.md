@@ -91,8 +91,6 @@ In Figma's read-only view, you need to hold <kbd>⌥</kbd> and move the cursor t
 
 When you hover over a node name section in TemPad Dev's inspect panel, a corresponding button appears. Clicking it will scroll the current selection to the center of the Figma viewport. Figma has a similar <kbd>⇧2</kbd> shortcut, but it zooms in to fill the viewport, which often doesn't meet the needs. Figma actually exposes an interface in the plugin API to move and zoom to 100%, so we also provide this capability as a supplement.
 
-Here's an improved version of your documentation with enhanced readability, conciseness, and clarity:
-
 ---
 
 ### Plugins
