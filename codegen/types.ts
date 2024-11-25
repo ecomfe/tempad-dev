@@ -1,4 +1,5 @@
-import { SupportedLang } from '@/plugins/src'
+import type { SupportedLang } from '@/plugins/src'
+import type { DesignComponent } from '@/shared/types'
 
 export interface SerializeOptions {
   useRem: boolean
@@ -7,6 +8,7 @@ export interface SerializeOptions {
 
 export interface RequestPayload {
   style: Record<string, string>
+  component?: DesignComponent
   options: SerializeOptions
   pluginCode?: string
 }

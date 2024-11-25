@@ -1,1 +1,1 @@
-function s(r){return r.toUpperCase().replace(/-/g,"_")}var t={name:"Kong UI",code:{css:{title:"SCSS",lang:"scss",transformVariable({name:r}){return`$kui-${r.toLowerCase()}`}},js:{transformVariable({name:r}){return`\0KUI_${s(r)}\0`}}}};export{t as plugin};
+function r(n){return n.toUpperCase().replace(/-/g,"_")}var s={name:"Kong UI",code:{css:{title:"SCSS",lang:"scss",transformVariable({name:n}){return`$kui-${n.toLowerCase()}`}},js:{transformVariable({name:n}){return`\0KUI_${r(n)}\0`}}}};export{s as plugin};

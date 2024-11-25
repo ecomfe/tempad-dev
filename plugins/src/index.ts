@@ -1,4 +1,30 @@
-export type SupportedLang = 'css' | 'js' | 'sass' | 'scss' | 'less' | 'stylus' | 'json'
+export type ComponentPropertyValue = string | number | boolean | DesignComponent
+
+export interface DesignComponent {
+  name: string
+  properties: Record<string, ComponentPropertyValue>
+}
+
+export interface DevComponent {
+  name: string
+  props?: Record<string, unknown>
+  children?: (DevComponent | string)[]
+}
+
+export type SupportedLang =
+  | 'text'
+  | 'tsx'
+  | 'jsx'
+  | 'ts'
+  | 'js'
+  | 'vue'
+  | 'html'
+  | 'css'
+  | 'sass'
+  | 'scss'
+  | 'less'
+  | 'stylus'
+  | 'json'
 
 interface TransformBaseParams {
   /**
@@ -53,6 +79,13 @@ interface TransformPxParams extends TransformBaseParams {
   value: number
 }
 
+interface TransformComponentParams {
+  /**
+   * The design component
+   */
+  component: DesignComponent
+}
+
 export type TransformOptions = {
   /**
    * The language of the code block for syntax highlighting
@@ -76,6 +109,11 @@ export type TransformOptions = {
    * @example 16 -> '1rem'
    */
   transformPx?: (params: TransformPxParams) => string
+
+  /**
+   * Transform the design component to a dev component
+   */
+  transformComponent?: (params: TransformComponentParams) => DevComponent | string
 }
 
 export type CodeBlockOptions =
@@ -93,11 +131,19 @@ type BuiltInCodeBlock = 'css' | 'js'
 type CodeOptions = Partial<Record<BuiltInCodeBlock, CodeBlockOptions>> &
   Record<string, CodeBlockOptions>
 
-export type Plugin = {
+export interface Plugin {
   name: string
   code: CodeOptions
 }
 
 export function definePlugin(plugin: Plugin): Plugin {
   return plugin
+}
+
+export function h(
+  name: string,
+  props?: Record<string, unknown>,
+  children?: (DevComponent | string)[]
+): DevComponent {
+  return { name, props, children }
 }
