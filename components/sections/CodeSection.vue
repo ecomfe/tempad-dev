@@ -28,9 +28,11 @@ async function updateCode() {
     return
   }
 
-  const component = selectedTemPadComponent.value
-  componentCode.value = component?.code || ''
-  componentLink.value = component?.link || ''
+  const tempadComponent = selectedTemPadComponent.value
+  componentCode.value = tempadComponent?.code || ''
+  componentLink.value = tempadComponent?.link || ''
+
+  const component = getDesignComponent(node)
 
   const style = await node.getCSSAsync()
   const { cssUnit, rootFontSize } = options.value
@@ -40,7 +42,7 @@ async function updateCode() {
   }
 
   codeBlocks.value = (
-    await codegen(style, serializeOptions, activePlugin.value?.code || undefined)
+    await codegen(style, component, serializeOptions, activePlugin.value?.code || undefined)
   ).codeBlocks
 
   if ('warning' in node) {

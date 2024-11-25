@@ -11,13 +11,25 @@ const props = defineProps<{
   link?: string
 }>()
 
+const prismAlias: Record<string, string> = {
+  vue: 'html',
+}
+
+const lang = computed(() => {
+  if (prismAlias[props.lang]) {
+    return prismAlias[props.lang]
+  }
+
+  return props.lang
+})
+
 const highlighted = computed(() => {
   const { Prism } = window
-  if (!Prism || !Prism.languages[props.lang]) {
+  if (!Prism || !Prism.languages[lang.value]) {
     return props.code
   }
 
-  return Prism.highlight(props.code, Prism.languages[props.lang], props.lang)
+  return Prism.highlight(props.code, Prism.languages[lang.value], lang.value)
 })
 
 const code = computed(() => props.code)

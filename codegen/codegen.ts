@@ -1,6 +1,7 @@
 import type { RequestPayload, ResponsePayload, CodeBlock } from '@/codegen/types'
 import type { Plugin } from '@/plugins/src/index'
 
+import { serializeComponent } from '@/utils/component'
 import { serializeCSS } from '@/utils/css'
 import { evaluate } from '@/utils/module'
 
@@ -19,7 +20,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   const { id, payload } = data
   const codeBlocks: CodeBlock[] = []
 
-  const { style, options, pluginCode } = payload
+  const { style, component, options, pluginCode } = payload
   let plugin = null
 
   try {
@@ -41,7 +42,20 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
     return
   }
 
-  const { css: cssOptions, js: jsOptions, ...rest } = plugin?.code || {}
+  const { component: componentOptions, css: cssOptions, js: jsOptions, ...rest } = plugin?.code || {}
+
+  if (componentOptions !== false && component) {
+    const componentCode = serializeComponent(component, { lang: componentOptions.lang })
+    if (componentCode) {
+      codeBlocks.push({
+        name: 'component',
+        title: componentOptions?.title ?? 'Component',
+        lang: componentOptions?.lang ?? 'jsx',
+        code: componentCode
+      })
+    }
+  }
+
   if (cssOptions !== false) {
     const cssCode = serializeCSS(style, options, cssOptions)
     if (cssCode) {

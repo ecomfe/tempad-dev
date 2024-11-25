@@ -209,6 +209,7 @@ export class GhostNode {
 
   id: string
   name: string = '-'
+  type: 'GHOST' = 'GHOST'
 
   async getCSSAsync() {
     return {}

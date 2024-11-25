@@ -148,6 +148,7 @@ Currently, we support three plugin hooks:
 - `transform`: Converts the style object or code into a string format for the code block. Useful for custom structures, such as Tailwind CSS or UnoCSS.
 - `transformVariable`: Converts CSS variables into alternate formats, e.g., converting them to Sass variables for design tokens.
 - `transformPx`: Converts pixel values into other units or scales.
+- `transformComponent`: Converts the design component object into a dev component object or a strin for the code block. Useful for generating component code for design systems.
 
 > [!TIP]
 > There is one convention for the return value of the `transformVariable` hook: if you want the generated JavaScript code to include JavaScript variables in the property values, you need to wrap the variable name in a pair of `\0` characters so that TemPad Dev will transform it into string interpolations. e.g. if you return `\0foo\0` as the return value, an input of `calc(var(--foo) + 10px)` will be transformed into a JavaScript template string as `` `calc(${foo} + 10px)` ``.
