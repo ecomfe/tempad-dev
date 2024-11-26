@@ -117,7 +117,7 @@ async function tryImport() {
     code = await response.text()
 
     try {
-      const { pluginName } = await codegen({}, { useRem: false, rootFontSize: 12 }, code)
+      const { pluginName } = await codegen({}, null, { useRem: false, rootFontSize: 12 }, code)
       if (!pluginName) {
         setValidity('The plugin name must not be empty.')
       } else {

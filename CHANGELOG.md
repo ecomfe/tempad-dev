@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.9
+
+- Fixed plugin import regression.
+- Improved component event handler codegen.
+
 ## 0.4.8
 
 - Added `transformComponent` support for plugins.

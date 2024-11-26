@@ -76,11 +76,18 @@ function stringifyBaseComponent(
   return `${indent}<${name}${propsString}${childrenString ? `>` : ' />'}${childrenString}${childrenString ? `</${name}>` : ''}${indentLevel === 0 ? '\n' : ''}`
 }
 
+const EVENT_HANDLER_RE = /^on[A-Z]/
+
 function stringifyVueComponent(component: DevComponent, indentLevel = 0) {
   return stringifyBaseComponent(
     component,
     ([key, value]) => {
       const name = camelToKebab(key)
+
+      if (EVENT_HANDLER_RE.test(key)) {
+        return `@${key[2].toLowerCase()}${key.slice(3)}="() => {}"`
+      }
+
       if (typeof value === 'string') {
         return `${name}="${value}"`
       }
@@ -99,6 +106,10 @@ function stringifyJSXComponent(component: DevComponent, indentLevel = 0) {
   return stringifyBaseComponent(
     component,
     ([key, value]) => {
+      if (EVENT_HANDLER_RE.test(key)) {
+        return `${key}="{() => {}}`
+      }
+
       if (typeof value === 'string') {
         return `${key}="${value}"`
       }
