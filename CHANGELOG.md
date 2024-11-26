@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.8
+
+- Added `transformComponent` support for plugins.
+
 ## 0.4.7
 
 - Fixed rule priority for removing CSP header.
