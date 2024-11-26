@@ -8,6 +8,7 @@ import Info from '@/components/icons/Info.vue'
 import Preview from '@/components/icons/Preview.vue'
 import Section from '@/components/Section.vue'
 import { selection, selectedNode, options, selectedTemPadComponent, activePlugin } from '@/ui/state'
+import { getDesignComponent } from '@/utils'
 
 const componentCode = shallowRef('')
 const componentLink = shallowRef('')
