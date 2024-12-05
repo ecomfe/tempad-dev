@@ -7,8 +7,8 @@ export interface DesignComponent {
 
 export interface DevComponent {
   name: string
-  props?: Record<string, unknown>
-  children?: (DevComponent | string)[]
+  props: Record<string, unknown>
+  children: (DevComponent | string)[]
 }
 
 export type SupportedLang =
@@ -145,5 +145,5 @@ export function h(
   props?: Record<string, unknown>,
   children?: (DevComponent | string)[]
 ): DevComponent {
-  return { name, props, children }
+  return { name, props: props || {}, children: children || [] }
 }
