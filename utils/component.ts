@@ -49,7 +49,7 @@ function stringifyBaseComponent(
   indentLevel = 0
 ) {
   const indent = INDENT_UNIT.repeat(indentLevel)
-  const { name, props = {}, children = [] } = component
+  const { name, props, children } = component
 
   const propItems = Object.entries(props).map((entry) => stringifyPropEntry(entry))
 
