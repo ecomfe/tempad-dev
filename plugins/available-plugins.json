@@ -3,13 +3,13 @@
     "name": "kong",
     "author": "@Justineo",
     "description": "Kong Design System",
-    "source": "https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong.js"
+    "source": "https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-kong/refs/heads/main/dist/kong.mjs"
   },
   {
     "name": "kong/advanced",
     "author": "@Justineo",
     "description": "Kong Design System (Advanced)",
-    "source": "https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong-advanced.js"
+    "source": "https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-kong/refs/heads/main/dist/kong-advanced.mjs"
   },
   {
     "name": "fubukicss/unocss",

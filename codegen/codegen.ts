@@ -45,7 +45,8 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   const { component: componentOptions, css: cssOptions, js: jsOptions, ...rest } = plugin?.code || {}
 
   if (componentOptions !== false && component) {
-    const componentCode = serializeComponent(component, { lang: componentOptions.lang })
+    const { lang, transformComponent } = componentOptions
+    const componentCode = serializeComponent(component, { lang }, { transformComponent })
     if (componentCode) {
       codeBlocks.push({
         name: 'component',

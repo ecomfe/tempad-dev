@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.10
+
+- Improved component codegen.
+
 ## 0.4.9
 
 - Fixed plugin import regression.

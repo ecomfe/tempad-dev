@@ -51,7 +51,7 @@ function stringifyBaseComponent(
   const indent = INDENT_UNIT.repeat(indentLevel)
   const { name, props, children } = component
 
-  const propItems = Object.entries(props).map((entry) => stringifyPropEntry(entry))
+  const propItems = Object.entries(props).filter(([, value]) => value != null).map((entry) => stringifyPropEntry(entry))
 
   const propsString =
     propItems.length === 0
@@ -64,14 +64,14 @@ function stringifyBaseComponent(
     children.length === 0
       ? ''
       : `\n${indent}${children
-          .map((child): string => {
-            if (typeof child === 'string') {
-              return `${indent + INDENT_UNIT}${child}`
-            }
+        .map((child): string => {
+          if (typeof child === 'string') {
+            return `${indent + INDENT_UNIT}${child}`
+          }
 
-            return stringifyBaseComponent(child, stringifyPropEntry, indentLevel + 1)
-          })
-          .join('\n')}\n${indent}`
+          return stringifyBaseComponent(child, stringifyPropEntry, indentLevel + 1)
+        })
+        .join('\n')}\n${indent}`
 
   return `${indent}<${name}${propsString}${childrenString ? `>` : ' />'}${childrenString}${childrenString ? `</${name}>` : ''}${indentLevel === 0 ? '\n' : ''}`
 }
