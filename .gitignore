@@ -13,9 +13,7 @@ stats.html
 stats-*.json
 .wxt
 web-ext.config.ts
-
-plugins/dist/index.js
-plugins/dist/index.d.ts
+dist
 
 # Editor directories and files
 .vscode/*

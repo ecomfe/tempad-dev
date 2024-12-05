@@ -8,7 +8,6 @@
   "files": [
     "dist/index.js",
     "dist/index.d.ts",
-    "dist/shared/*",
     "README.md"
   ]
 }

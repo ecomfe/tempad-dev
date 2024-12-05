@@ -182,8 +182,8 @@ Current available plugins:
 <!-- availablePlugins:start -->
 | Name | Description | Author | Source |
 | -- | -- | -- | -- |
-| `@kong` | Kong Design System | @Justineo | [GitHub](https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong.js) |
-| `@kong/advanced` | Kong Design System (Advanced) | @Justineo | [GitHub](https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/kong-advanced.js) |
+| `@kong` | Kong Design System | @Justineo | [GitHub](https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-kong/refs/heads/main/dist/kong.mjs) |
+| `@kong/advanced` | Kong Design System (Advanced) | @Justineo | [GitHub](https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-kong/refs/heads/main/dist/kong-advanced.mjs) |
 | `@fubukicss/unocss` | UnoCSS by FubukiCSS | @zouhangwithsweet | [GitHub](https://raw.githubusercontent.com/zouhangwithsweet/fubukicss-tool/refs/heads/main/plugin/lib/index.js) |
 <!-- availablePlugins:end -->
 <!-- prettier-ignore-end -->
