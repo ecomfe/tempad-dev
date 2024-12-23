@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2
+
+- Fix indentation for component codegen.
+
 ## 0.5.1
 
 - Improved the code output for component codegen.
