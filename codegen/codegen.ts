@@ -42,9 +42,14 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
     return
   }
 
-  const { component: componentOptions, css: cssOptions, js: jsOptions, ...rest } = plugin?.code || {}
+  const {
+    component: componentOptions,
+    css: cssOptions,
+    js: jsOptions,
+    ...rest
+  } = plugin?.code ?? {}
 
-  if (componentOptions !== false && component) {
+  if (componentOptions && component) {
     const { lang, transformComponent } = componentOptions
     const componentCode = serializeComponent(component, { lang }, { transformComponent })
     if (componentCode) {
