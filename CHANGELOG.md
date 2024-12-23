@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0
+
+- Added children support to `DesignComponent` for component codegen.
+
 ## 0.4.10
 
 - Improved component codegen.
