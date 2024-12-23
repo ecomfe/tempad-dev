@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD033 -->
 <h1 align="center">TemPad Dev</h1>
 
 <p align="center">Inspect panel on Figma, for <b>everyone</b>.</p>
@@ -161,7 +162,7 @@ For full type definitions, see [`plugins/src/index.ts`](./plugins/src/index.ts).
 
 Ensure your plugin is accessible via a URL that supports cross-origin requests, such as a GitHub repository (or Gist). For instance, you can use a raw URL:
 
-```
+```text
 https://raw.githubusercontent.com/{username}/{repo}/refs/heads/{branch}/your-plugin.js
 ```
 
@@ -221,6 +222,6 @@ Built with [WXT](https://wxt.dev/), TypeScript and Vue 3.
 
 Inspired by the following projects:
 
-- https://github.com/leadream/figma-viewer-chrome-plugin
-- https://github.com/zouhangwithsweet/fubukicss-tool
-- https://github.com/Inclushe/figma-ui3
+- <https://github.com/leadream/figma-viewer-chrome-plugin>
+- <https://github.com/zouhangwithsweet/fubukicss-tool>
+- <https://github.com/Inclushe/figma-ui3>
