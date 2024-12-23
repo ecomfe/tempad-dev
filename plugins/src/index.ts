@@ -167,7 +167,11 @@ export function h(
   return { name, props: props || {}, children: children || [] }
 }
 
-export type NodeQuery = Pick<DesignNode, 'type' | 'name'> | ((node: DesignNode) => boolean)
+type RequireAtLeastOne<T, Keys extends keyof T> = {
+  [K in Keys]: Required<Pick<T, K>> & Partial<Pick<T, Exclude<Keys, K>>>;
+}[Keys];
+
+export type NodeQuery = RequireAtLeastOne<DesignNode, 'type' | 'name'> | ((node: DesignNode) => boolean)
 
 function matchNode(node: DesignNode, query: NodeQuery): boolean {
   if (typeof query === 'function') {
