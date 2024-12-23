@@ -7,22 +7,30 @@ interface DesignNodeBase {
   type: SupportedDesignNodeType
 }
 
-export type DesignNode = ContainerNode | TextNode | DesignComponent
-
-export interface ContainerNode extends DesignNodeBase {
-  type: 'FRAME' | 'GROUP' | 'INSTANCE'
-  children: DesignNode[]
-}
+export type DesignNode = GroupNode | FrameNode | TextNode | DesignComponent
 
 export interface TextNode extends DesignNodeBase {
   type: 'TEXT'
   characters: string
 }
 
-export interface DesignComponent extends ContainerNode {
+interface ContainerNodeBase extends DesignNodeBase {
+  children: DesignNode[]
+}
+
+export interface GroupNode extends ContainerNodeBase {
+  type: 'GROUP'
+}
+export interface FrameNode extends ContainerNodeBase {
+  type: 'FRAME'
+}
+
+export interface DesignComponent extends ContainerNodeBase {
   type: 'INSTANCE'
   properties: Record<string, ComponentPropertyValue>
 }
+
+type ContainerNode = GroupNode | FrameNode | DesignComponent
 
 export interface DevComponent {
   name: string
@@ -168,10 +176,12 @@ export function h(
 }
 
 type RequireAtLeastOne<T, Keys extends keyof T> = {
-  [K in Keys]: Required<Pick<T, K>> & Partial<Pick<T, Exclude<Keys, K>>>;
-}[Keys];
+  [K in Keys]: Required<Pick<T, K>> & Partial<Pick<T, Exclude<Keys, K>>>
+}[Keys]
 
-export type NodeQuery = RequireAtLeastOne<DesignNode, 'type' | 'name'> | ((node: DesignNode) => boolean)
+export type NodeQuery =
+  | RequireAtLeastOne<DesignNode, 'type' | 'name'>
+  | ((node: DesignNode) => boolean)
 
 function matchNode(node: DesignNode, query: NodeQuery): boolean {
   if (typeof query === 'function') {
@@ -187,30 +197,42 @@ function matchNode(node: DesignNode, query: NodeQuery): boolean {
   return true
 }
 
-export function findChild(node: ContainerNode, query: NodeQuery): DesignNode | null {
-  return node.children.find((child) => matchNode(child, query)) ?? null
+export function findChild<T extends DesignNode = DesignNode>(
+  node: ContainerNode,
+  query: NodeQuery
+): T | null {
+  return (node.children.find((child) => matchNode(child, query)) as T) ?? null
 }
 
-export function findChildren(node: ContainerNode, query: NodeQuery): DesignNode[] {
-  return node.children.filter((child) => matchNode(child, query))
+export function findChildren<T extends DesignNode = DesignNode>(
+  node: ContainerNode,
+  query: NodeQuery
+): T[] {
+  return node.children.filter((child) => matchNode(child, query)) as T[]
 }
 
-export function findOne(node: ContainerNode, query: NodeQuery): DesignNode | null {
+export function findOne<T extends DesignNode = DesignNode>(
+  node: ContainerNode,
+  query: NodeQuery
+): T | null {
   for (const child of node.children) {
     if (matchNode(child, query)) {
-      return child
+      return child as T
     }
     if ('children' in child) {
       const result = findOne(child, query)
       if (result) {
-        return result
+        return result as T
       }
     }
   }
   return null
 }
 
-export function findAll(node: ContainerNode, query: NodeQuery): DesignNode[] {
+export function findAll<T extends DesignNode = DesignNode>(
+  node: ContainerNode,
+  query: NodeQuery
+): T[] {
   const result: DesignNode[] = []
   for (const child of node.children) {
     if (matchNode(child, query)) {
@@ -220,5 +242,5 @@ export function findAll(node: ContainerNode, query: NodeQuery): DesignNode[] {
       result.push(...findAll(child, query))
     }
   }
-  return result
+  return result as T[]
 }
