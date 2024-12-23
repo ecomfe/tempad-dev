@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import type { Plugin } from '@/plugins/src/index'
-
 import IconButton from '@/components/IconButton.vue'
 import Plus from '@/components/icons/Plus.vue'
 import PluginImporter from '@/components/PluginImporter.vue'

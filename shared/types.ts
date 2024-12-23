@@ -1,1 +1,11 @@
-export type { ComponentPropertyValue, DesignComponent, DevComponent } from '@/plugins/src'
+export type {
+  Plugin,
+  TextNode,
+  ContainerNode,
+  ComponentPropertyValue,
+  TransformOptions,
+  DesignNode,
+  DesignComponent,
+  DevComponent,
+  SupportedLang
+} from '@/plugins/src'

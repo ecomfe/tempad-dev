@@ -1,5 +1,4 @@
-import type { SupportedLang } from '@/plugins/src'
-import type { DesignComponent } from '@/shared/types'
+import type { DesignComponent, SupportedLang } from '@/shared/types'
 
 export interface SerializeOptions {
   useRem: boolean
