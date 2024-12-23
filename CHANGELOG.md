@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+
+- Improved the code output for component codegen.
+- Fixed a tiny UI issue under UI2.
+
 ## 0.5.0
 
 - Added children support to `DesignComponent` for component codegen.
