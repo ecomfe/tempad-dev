@@ -122,7 +122,7 @@ function stringifyBaseComponent(
           .join('\n')}\n${indent}`
 
   return `${indent}<${name}${propsString}${
-    childrenString ? `>` : propItems.length >= 1 ? '/>' : ' />'
+    childrenString ? `>` : propItems.length > 1 ? '/>' : ' />'
   }${childrenString}${childrenString ? `</${name}>` : ''}${indentLevel === 0 ? '\n' : ''}`
 }
 

@@ -67,7 +67,7 @@ function open() {
 <template>
   <Section :collapsed="!selectedNode || !(componentCode || codeBlocks.length)">
     <template #header>
-      <div class="tp-row tp-shrink tp-gap-l">
+      <div class="tp-code-header tp-row tp-shrink tp-gap-l">
         Code
         <Badge v-if="activePlugin" title="Code in this section is transformed by this plugin">{{
           activePlugin.name
@@ -108,6 +108,10 @@ function open() {
 </template>
 
 <style scoped>
+[data-fpl-version='ui2'] .tp-code-header {
+  gap: var(--spacer-l, 8px);
+}
+
 .tp-code-code {
   margin-bottom: 8px;
 }
