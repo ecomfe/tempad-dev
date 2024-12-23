@@ -111,7 +111,7 @@ function stringifyBaseComponent(
   const childrenString =
     children.length === 0
       ? ''
-      : `\n${indent}${children
+      : `\n${children
           .map((child): string => {
             if (typeof child === 'string') {
               return `${indent + INDENT_UNIT}${child}`
