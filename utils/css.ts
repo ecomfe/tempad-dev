@@ -1,4 +1,4 @@
-import type { TransformOptions } from '@/plugins/src'
+import type { TransformOptions } from '@/shared/types'
 
 import { parseNumber, toDecimalPlace } from './number'
 import { kebabToCamel } from './string'

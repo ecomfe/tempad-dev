@@ -1,7 +1,26 @@
 export type ComponentPropertyValue = string | number | boolean | DesignComponent
 
-export interface DesignComponent {
+export type SupportedDesignNodeType = 'GROUP' | 'FRAME' | 'TEXT' | 'INSTANCE'
+
+interface DesignNodeBase {
   name: string
+  type: SupportedDesignNodeType
+}
+
+export type DesignNode = ContainerNode | TextNode | DesignComponent
+
+export interface ContainerNode extends DesignNodeBase {
+  type: 'FRAME' | 'GROUP' | 'INSTANCE'
+  children: DesignNode[]
+}
+
+export interface TextNode extends DesignNodeBase {
+  type: 'TEXT'
+  characters: string
+}
+
+export interface DesignComponent extends ContainerNode {
+  type: 'INSTANCE'
   properties: Record<string, ComponentPropertyValue>
 }
 
@@ -146,4 +165,56 @@ export function h(
   children?: (DevComponent | string)[]
 ): DevComponent {
   return { name, props: props || {}, children: children || [] }
+}
+
+export type NodeQuery = Pick<DesignNode, 'type' | 'name'> | ((node: DesignNode) => boolean)
+
+function matchNode(node: DesignNode, query: NodeQuery): boolean {
+  if (typeof query === 'function') {
+    return query(node)
+  }
+
+  if (query.type && node.type !== query.type) {
+    return false
+  }
+  if (query.name && node.name !== query.name) {
+    return false
+  }
+  return true
+}
+
+export function findChild(node: ContainerNode, query: NodeQuery): DesignNode | null {
+  return node.children.find((child) => matchNode(child, query)) ?? null
+}
+
+export function findChildren(node: ContainerNode, query: NodeQuery): DesignNode[] {
+  return node.children.filter((child) => matchNode(child, query))
+}
+
+export function findOne(node: ContainerNode, query: NodeQuery): DesignNode | null {
+  for (const child of node.children) {
+    if (matchNode(child, query)) {
+      return child
+    }
+    if ('children' in child) {
+      const result = findOne(child, query)
+      if (result) {
+        return result
+      }
+    }
+  }
+  return null
+}
+
+export function findAll(node: ContainerNode, query: NodeQuery): DesignNode[] {
+  const result: DesignNode[] = []
+  for (const child of node.children) {
+    if (matchNode(child, query)) {
+      result.push(child)
+    }
+    if ('children' in child) {
+      result.push(...findAll(child, query))
+    }
+  }
+  return result
 }
