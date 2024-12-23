@@ -8,13 +8,10 @@ import type {
 } from '@/shared/types'
 import type { SelectionNode } from '@/ui/state'
 
-import {} from '@/plugins/src'
-import { QuirksNode } from '@/ui/quirks'
-
 import { camelToKebab } from './string'
 
 export function getDesignComponent(node: SelectionNode): DesignComponent | null {
-  if (node instanceof QuirksNode || node.type !== 'INSTANCE') {
+  if (!('componentProperties' in node)) {
     return null
   }
 
@@ -138,7 +135,8 @@ function stringifyVueComponent(component: DevComponent, indentLevel = 0) {
       const name = camelToKebab(key)
 
       if (EVENT_HANDLER_RE.test(key)) {
-        return `@${key[2].toLowerCase()}${key.slice(3)}="() => {}"`
+        const callback = typeof value === 'string' ? value : '() => {}'
+        return `@${key[2].toLowerCase()}${key.slice(3)}="${callback}"`
       }
 
       if (typeof value === 'string') {
@@ -160,7 +158,8 @@ function stringifyJSXComponent(component: DevComponent, indentLevel = 0) {
     component,
     ([key, value]) => {
       if (EVENT_HANDLER_RE.test(key)) {
-        return `${key}="{() => {}}`
+        const callback = typeof value === 'string' ? value : '() => {}'
+        return `${key}="{${callback}}"`
       }
 
       if (typeof value === 'string') {
