@@ -8,7 +8,13 @@ import type {
 } from '@/shared/types'
 import type { SelectionNode } from '@/ui/state'
 
-import { camelToKebab } from './string'
+import {
+  camelToKebab,
+  escapeHTML,
+  looseEscapeHTML,
+  stringify,
+  indentAll
+} from './string'
 
 export function getDesignComponent(node: SelectionNode): DesignComponent | null {
   if (!('componentProperties' in node)) {
@@ -91,7 +97,7 @@ const INDENT_UNIT = '  '
 
 function stringifyBaseComponent(
   component: DevComponent,
-  stringifyPropEntry: (entry: [key: string, value: unknown]) => string,
+  stringifyProp: (key: string, value: unknown) => string,
   indentLevel = 0
 ) {
   const indent = INDENT_UNIT.repeat(indentLevel)
@@ -99,14 +105,19 @@ function stringifyBaseComponent(
 
   const propItems = Object.entries(props)
     .filter(([, value]) => value != null)
-    .map((entry) => stringifyPropEntry(entry))
+    .map((entry) => stringifyProp(...entry))
 
   const propsString =
     propItems.length === 0
       ? ''
       : propItems.length === 1
         ? ` ${propItems[0]}`
-        : `\n${propItems.map((prop) => `${indent + INDENT_UNIT}${prop}`).join('\n')}\n${indent}`
+        : `\n${propItems
+            .map(
+              (prop) =>
+                `${indentAll(prop, indent + INDENT_UNIT)}`
+            )
+            .join('\n')}\n${indent}`
 
   const childrenString =
     children.length === 0
@@ -117,7 +128,7 @@ function stringifyBaseComponent(
               return `${indent + INDENT_UNIT}${child}`
             }
 
-            return stringifyBaseComponent(child, stringifyPropEntry, indentLevel + 1)
+            return stringifyBaseComponent(child, stringifyProp, indentLevel + 1)
           })
           .join('\n')}\n${indent}`
 
@@ -128,26 +139,43 @@ function stringifyBaseComponent(
 
 const EVENT_HANDLER_RE = /^on[A-Z]/
 
+function getEventName(key: string) {
+  if (EVENT_HANDLER_RE.test(key)) {
+    return key[2].toLowerCase() + key.slice(3)
+  }
+
+  if (key.startsWith('@')) {
+    return key.slice(1)
+  }
+
+  if (key.startsWith('v-on:')) {
+    return key.slice(5)
+  }
+
+  return null
+}
+
 function stringifyVueComponent(component: DevComponent, indentLevel = 0) {
   return stringifyBaseComponent(
     component,
-    ([key, value]) => {
-      const name = camelToKebab(key)
-
-      if (EVENT_HANDLER_RE.test(key)) {
-        const callback = typeof value === 'string' ? value : '() => {}'
-        return `@${key[2].toLowerCase()}${key.slice(3)}="${callback}"`
+    (key, value) => {
+      const eventName = getEventName(key)
+      if (eventName) {
+        const callback = typeof value === 'string' ? looseEscapeHTML(value) : '() => {}'
+        return `@${camelToKebab(eventName)}="${callback}"`
       }
 
+      const name = camelToKebab(key)
+
       if (typeof value === 'string') {
-        return `${name}="${value}"`
+        return `${name}="${escapeHTML(value)}"`
       }
 
       if (typeof value === 'boolean') {
         return value ? name : `:${name}="false"`
       }
 
-      return `:${name}="${JSON.stringify(value)}"`
+      return `:${name}="${looseEscapeHTML(stringify(value))}"`
     },
     indentLevel
   )
@@ -156,21 +184,21 @@ function stringifyVueComponent(component: DevComponent, indentLevel = 0) {
 function stringifyJSXComponent(component: DevComponent, indentLevel = 0) {
   return stringifyBaseComponent(
     component,
-    ([key, value]) => {
+    (key, value) => {
       if (EVENT_HANDLER_RE.test(key)) {
         const callback = typeof value === 'string' ? value : '() => {}'
         return `${key}="{${callback}}"`
       }
 
       if (typeof value === 'string') {
-        return `${key}="${value}"`
+        return `${key}="${escapeHTML(value)}"`
       }
 
       if (typeof value === 'boolean') {
         return value ? key : `${key}={false}`
       }
 
-      return `${key}={${JSON.stringify(value)}}`
+      return `${key}={${stringify(value)}}`
     },
     indentLevel
   )

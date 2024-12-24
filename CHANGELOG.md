@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3
+
+- Improve HTML escaping and indentation for component codegen.
+
 ## 0.5.2
 
 - Fix indentation for component codegen.
