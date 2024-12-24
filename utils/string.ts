@@ -1,3 +1,5 @@
+import stringifyObject from 'stringify-object'
+
 export function kebabToCamel(str: string) {
   return str.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
 }
@@ -8,4 +10,29 @@ export function camelToKebab(str: string) {
 
 export function snakeToKebab(str: string) {
   return str.replace(/_/g, '-').toLowerCase()
+}
+
+const ESCAPE_MAP: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+}
+
+const ESCAPE_RE = /[&<>"]/g
+
+export function escapeHTML(str: string) {
+  return str.replace(ESCAPE_RE, (match) => ESCAPE_MAP[match])
+}
+
+export function looseEscapeHTML(str: string) {
+  return str.replaceAll('"', '&quot;')
+}
+
+export function stringify(value: unknown) {
+  return stringifyObject(value, { indent: '  ' })
+}
+
+export function indentAll(str: string, indent: string) {
+  return str.split('\n').map((line) => indent + line).join('\n')
 }

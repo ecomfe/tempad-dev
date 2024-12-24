@@ -43,7 +43,7 @@ async function getRegisteredPluginSource(source: string, signal?: AbortSignal) {
   let pluginList = null
 
   try {
-    pluginList = (await fetch(REGISTRY_URL, { cache: 'no-cache', signal }).then((res) =>
+    pluginList = (await fetch(cacheBust(REGISTRY_URL), { cache: 'no-cache', signal }).then((res) =>
       res.json()
     )) as {
       name: string
@@ -87,6 +87,12 @@ const installing = shallowRef(false)
 let fetchingSource: string | null = null
 let controller: AbortController | null = null
 
+function cacheBust(url: string) {
+  const result = new URL(url)
+  result.searchParams.append('_tempad-dev_t_', String(Date.now()))
+  return result.href
+}
+
 async function tryImport() {
   if (!validate()) {
     reportValidity()
@@ -110,7 +116,7 @@ async function tryImport() {
   source.value = 'Installing...'
   try {
     const url = BUILT_IN_SOURCE_RE.test(src) ? await getRegisteredPluginSource(src, signal) : src
-    const response = await fetch(url, { cache: 'no-cache', signal })
+    const response = await fetch(cacheBust(url), { cache: 'no-cache', signal })
     if (response.status !== 200) {
       throw new Error('404: Not Found')
     }
