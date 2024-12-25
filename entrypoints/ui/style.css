@@ -65,8 +65,9 @@ tempad select {
 }
 
 tempad select:focus-visible {
-  border-color: var(--fg-focus);
-  outline: 1px solid var(--fg-focus);
+  border: 1px solid var(--color-border-selected);
+  outline: 1px solid var(--color-border-selected);
+  outline-offset: -2px;
 }
 
 tempad input:not([type]),
@@ -87,8 +88,9 @@ tempad input[type="number"]::-webkit-outer-spin-button {
 
 tempad input[type="text"]:focus-visible,
 tempad input[type="number"]:focus-visible {
-  border-color: var(--fg-focus);
-  outline: 1px solid var(--fg-focus);
+  border: 1px solid var(--color-border-selected);
+  outline: 1px solid var(--color-border-selected);
+  outline-offset: -2px;
 }
 
 tempad ::-webkit-scrollbar {

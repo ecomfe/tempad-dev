@@ -58,6 +58,14 @@ function handleClick() {
   background-color: var(--icon-button-color-bg);
   color: var(--color-icon);
   grid-column-end: span 4;
+  --icon-button-radius: 0.125rem;
+  --icon-button-outline-offset: -0.125rem;
+  --icon-button-outline-width: 0.125rem;
+}
+
+[data-fpl-version='ui3'] .tp-button {
+  --icon-button-outline-offset: -0.0625rem;
+  --icon-button-outline-width: 0.0625rem;
 }
 
 .tp-button:hover {
@@ -65,13 +73,14 @@ function handleClick() {
 }
 
 .tp-button:focus-visible {
-  --icon-button-color-bg: var(--color-border-selected);
-  box-shadow: inset 0 0 0 1px var(--color-border-selected);
-  border-radius: 2px;
+  --icon-button-outline-color: var(--color-border-selected);
+  outline: var(--icon-button-outline-color) solid var(--icon-button-outline-width);
+  outline-offset: var(--icon-button-outline-offset);
+  border-radius: var(--icon-button-radius);
 }
 
 .tp-button-selected-normal {
-  --icon-button-color-bg: var(--bg-overlay-active) !important;
+  --icon-button-color-bg: var(--color-bg-brand) !important;
   --color-icon: var(--color-icon-onbrand) !important;
   border-radius: 3px;
 }

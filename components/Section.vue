@@ -5,7 +5,10 @@ defineProps<{
   flat?: boolean
 }>()
 
-const { header } = useSlots()
+const { header } = defineSlots<{
+  header?(): unknown
+  default?(): unknown
+}>()
 
 function beforeEnter(el: Element) {
   ;(el as HTMLElement).style.height = '0'

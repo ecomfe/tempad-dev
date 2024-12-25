@@ -2,8 +2,11 @@
 import IconButton from '@/components/IconButton.vue'
 import Check from '@/components/icons/Check.vue'
 import Minus from '@/components/icons/Minus.vue'
+import Refresh from '@/components/icons/Refresh.vue'
+import { usePluginInstall } from '@/composables/plugin'
+import { useToast } from '@/composables/toast'
 
-defineProps<{
+const props = defineProps<{
   name: string
   source: string
   checked: boolean
@@ -14,56 +17,101 @@ const emit = defineEmits<{
   remove: []
 }>()
 
+const { validity, installing, install, cancel } = usePluginInstall()
+const { show } = useToast()
+
+watch(validity, (message) => {
+  if (message) {
+    show(message)
+    validity.value = ''
+  }
+})
+
 function handleChange(e: Event) {
   emit('change', (e.target as HTMLInputElement).checked)
+}
+
+async function handleUpdate() {
+  await install(props.source)
+}
+
+function handleRemove() {
+  cancel()
+  emit('remove')
 }
 </script>
 
 <template>
   <div class="tp-row tp-row-justify tp-plugin-item">
-    <label
-      class="tp-plugin-name tp-row tp-gap-l"
-      :data-tooltip="source || null"
-      :data-tooltip-type="source ? 'text' : null"
-    >
+    <label class="tp-plugin-item-label tp-row tp-gap-l">
       <input
-        class="tp-plugin-checkbox-input"
+        class="tp-plugin-item-checkbox-input"
         type="checkbox"
         :checked="checked"
+        :disabled="installing"
         @change="handleChange"
       />
-      <span class="tp-plugin-checkbox">
-        <span class="tp-plugin-checkbox-inner">
-          <Check class="tp-plugin-checkbox-check" />
+      <span class="tp-plugin-item-checkbox">
+        <span class="tp-plugin-item-checkbox-inner">
+          <Check class="tp-plugin-item-checkbox-check" />
         </span>
       </span>
-      {{ name }}
+      <span
+        class="tp-plugin-item-name"
+        :data-tooltip="source || null"
+        :data-tooltip-type="source ? 'text' : null"
+      >
+        {{ name }}
+      </span>
     </label>
-    <IconButton title="Remove" @click="emit('remove')">
-      <Minus />
-    </IconButton>
+    <div class="tp-row tp-gap">
+      <IconButton
+        class="tp-plugin-item-update"
+        :class="{ 'tp-plugin-item-updating': installing }"
+        title="Update"
+        @click="handleUpdate"
+      >
+        <Refresh :spin="installing" />
+      </IconButton>
+      <IconButton title="Remove" @click="handleRemove">
+        <Minus />
+      </IconButton>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.tp-plugin-name {
+.tp-plugin-item-label {
+  flex-grow: 1;
   cursor: default;
 }
 
-body:not([data-fpl-version='ui3']) .tp-plugin-name {
+body:not([data-fpl-version='ui3']) .tp-plugin-item-label {
   gap: 8px;
 }
 
-.tp-plugin-checkbox-input {
+.tp-plugin-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tp-plugin-item-label:not(:hover)
+  + .tp-row
+  > .tp-plugin-item-update:not(:hover, .tp-plugin-item-updating) {
+  display: none;
+}
+
+.tp-plugin-item-checkbox-input {
   position: absolute;
   opacity: 0;
 }
 
-.tp-plugin-checkbox {
+.tp-plugin-item-checkbox {
   position: relative;
 }
 
-body:not([data-fpl-version='ui3']) .tp-plugin-checkbox {
+body:not([data-fpl-version='ui3']) .tp-plugin-item-checkbox {
   display: flex;
   width: 12px;
   height: 12px;
@@ -73,11 +121,11 @@ body:not([data-fpl-version='ui3']) .tp-plugin-checkbox {
   background-clip: padding-box;
 }
 
-body:not([data-fpl-version='ui3']) .tp-plugin-checkbox-check {
+body:not([data-fpl-version='ui3']) .tp-plugin-item-checkbox-check {
   fill: #fff;
 }
 
-[data-fpl-version='ui3'] .tp-plugin-checkbox {
+[data-fpl-version='ui3'] .tp-plugin-item-checkbox {
   --fpl-checkbox-outer-size: 1.5rem;
   --fpl-checkbox-inner-size: 1rem;
   --fpl-checkbox-inset: calc((var(--fpl-checkbox-outer-size) - var(--fpl-checkbox-inner-size)) / 2);
@@ -89,12 +137,12 @@ body:not([data-fpl-version='ui3']) .tp-plugin-checkbox-check {
   height: var(--fpl-checkbox-inner-size);
 }
 
-.tp-plugin-checkbox-inner {
+.tp-plugin-item-checkbox-inner {
   position: absolute;
   inset: 0;
 }
 
-body:not([data-fpl-version='ui3']) .tp-plugin-checkbox-inner {
+body:not([data-fpl-version='ui3']) .tp-plugin-item-checkbox-inner {
   display: flex;
   justify-content: center;
   align-items: center;
@@ -104,7 +152,7 @@ body:not([data-fpl-version='ui3']) .tp-plugin-checkbox-inner {
   background-color: var(--color-bg-brand);
 }
 
-[data-fpl-version='ui3'] .tp-plugin-checkbox-inner {
+[data-fpl-version='ui3'] .tp-plugin-item-checkbox-inner {
   --checkbox-first-inner-border-color: var(--color-border);
   --checkbox-second-inner-border-color: transparent;
   --checkbox-bg: var(--color-bg-secondary);
@@ -117,7 +165,7 @@ body:not([data-fpl-version='ui3']) .tp-plugin-checkbox-inner {
   box-sizing: border-box;
 }
 
-[data-fpl-version='ui3'] .tp-plugin-checkbox-inner::before {
+[data-fpl-version='ui3'] .tp-plugin-item-checkbox-inner::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -127,23 +175,23 @@ body:not([data-fpl-version='ui3']) .tp-plugin-checkbox-inner {
   box-sizing: border-box;
 }
 
-[data-fpl-version='ui3'] .tp-plugin-checkbox-check {
+[data-fpl-version='ui3'] .tp-plugin-item-checkbox-check {
   position: relative;
   width: var(--fpl-checkbox-inner-size);
   height: var(--fpl-checkbox-inner-size);
 }
 
 body:not([data-fpl-version='ui3'])
-  .tp-plugin-checkbox-input:not(:checked)
-  + .tp-plugin-checkbox
-  .tp-plugin-checkbox-inner {
+  .tp-plugin-item-checkbox-input:not(:checked)
+  + .tp-plugin-item-checkbox
+  .tp-plugin-item-checkbox-inner {
   display: none;
 }
 
 [data-fpl-version='ui3']
-  .tp-plugin-checkbox-input:not(:checked)
-  + .tp-plugin-checkbox
-  .tp-plugin-checkbox-check {
+  .tp-plugin-item-checkbox-input:not(:checked)
+  + .tp-plugin-item-checkbox
+  .tp-plugin-item-checkbox-check {
   display: none;
 }
 </style>
