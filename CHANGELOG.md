@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.4
+
+- Added plugin update support.
+- Improved focus styles.
+
 ## 0.5.3
 
 - Improve HTML escaping and indentation for component codegen.

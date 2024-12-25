@@ -1,24 +1,24 @@
 <script setup lang="ts">
 import IconButton from '@/components/IconButton.vue'
 import Plus from '@/components/icons/Plus.vue'
-import PluginImporter from '@/components/PluginImporter.vue'
+import PluginInstaller from '@/components/PluginInstaller.vue'
 import PluginItem from '@/components/PluginItem.vue'
 import Section from '@/components/Section.vue'
 import { options } from '@/ui/state'
 
 const isImporterShown = shallowRef(false)
-const importer = useTemplateRef('importer')
+const installer = useTemplateRef('installer')
 
 async function showImporter() {
   isImporterShown.value = true
 
   await nextTick()
-  importer.value?.focus()
+  installer.value?.focus()
 }
 
 const installedPlugins = computed(() => Object.values(options.value.plugins || {}))
 
-function handleImported({
+function handleInstalled({
   source,
   code,
   pluginName
@@ -66,11 +66,11 @@ function handleRemove(source: string) {
       </IconButton>
     </template>
     <div class="tp-plugins-list">
-      <PluginImporter
-        ref="importer"
+      <PluginInstaller
+        ref="installer"
         class="tp-plugins-item"
         v-if="isImporterShown"
-        @imported="handleImported"
+        @installed="handleInstalled"
         @cancel="isImporterShown = false"
       />
       <PluginItem
