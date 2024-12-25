@@ -1,4 +1,10 @@
+<!-- markdownlint-disable MD033 -->
+
 # Changelog
+
+## 0.5.5
+
+- Fixed that plugin update was not working.
 
 ## 0.5.4
 

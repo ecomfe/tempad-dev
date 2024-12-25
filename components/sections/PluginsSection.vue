@@ -79,6 +79,7 @@ function handleRemove(source: string) {
         :checked="source === options.activePluginSource"
         :source="source"
         :name="name"
+        @updated="handleInstalled"
         @change="handleActiveChange(source, $event)"
         @remove="handleRemove(source)"
         class="tp-plugin-item"
