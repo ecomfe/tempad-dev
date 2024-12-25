@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { PluginData } from '@/composables/plugin'
+
 import IconButton from '@/components/IconButton.vue'
 import Check from '@/components/icons/Check.vue'
 import Minus from '@/components/icons/Minus.vue'
@@ -13,6 +15,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  updated: [pluginData: PluginData]
   change: [checked: boolean]
   remove: []
 }>()
@@ -32,7 +35,11 @@ function handleChange(e: Event) {
 }
 
 async function handleUpdate() {
-  await install(props.source)
+  const installed = await install(props.source)
+
+  if (installed) {
+    emit('updated', installed)
+  }
 }
 
 function handleRemove() {

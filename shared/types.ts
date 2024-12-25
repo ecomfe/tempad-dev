@@ -1,7 +1,6 @@
 export type {
   Plugin,
   TextNode,
-  ContainerNode,
   ComponentPropertyValue,
   TransformOptions,
   DesignNode,

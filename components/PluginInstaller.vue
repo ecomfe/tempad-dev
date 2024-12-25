@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import type { PluginData } from '@/composables/plugin'
+
 import { usePluginInstall } from '@/composables/plugin'
 
 import IconButton from './IconButton.vue'
 import Minus from './icons/Minus.vue'
 
 const emit = defineEmits<{
-  installed: [{ code: string; pluginName: string; source: string }]
+  installed: [pluginData: PluginData]
   cancel: []
 }>()
 
