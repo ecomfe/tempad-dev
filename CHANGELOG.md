@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.5.6
+
+- Fixed the problem that worker requester isn't properly cached.
+
 ## 0.5.5
 
 - Fixed that plugin update was not working.
