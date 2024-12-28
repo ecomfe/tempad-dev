@@ -22,7 +22,7 @@ type WorkerClass = {
   new (...args: any[]): Worker
 }
 
-const cache = new Map<WorkerClass, (payload: unknown) => unknown>()
+const cache = new Map<WorkerClass, (payload: any) => Promise<any>>()
 
 export function createWorkerRequester<T, U>(Worker: WorkerClass) {
   if (cache.has(Worker)) {
@@ -45,7 +45,7 @@ export function createWorkerRequester<T, U>(Worker: WorkerClass) {
     }
   }
 
-  return function request(payload: T): Promise<U> {
+  const request = function(payload: T): Promise<U> {
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject })
 
@@ -54,4 +54,8 @@ export function createWorkerRequester<T, U>(Worker: WorkerClass) {
       id++
     })
   }
+
+  cache.set(Worker, request)
+
+  return request
 }
