@@ -28,6 +28,10 @@ export interface FrameNode extends ContainerNodeBase {
 export interface DesignComponent extends ContainerNodeBase {
   type: 'INSTANCE'
   properties: Record<string, ComponentPropertyValue>
+  mainComponent?: {
+    id: string
+    name: string
+  } | null
 }
 
 type ContainerNode = GroupNode | FrameNode | DesignComponent
