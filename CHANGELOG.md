@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.5.7
+
+- Added main component info for component codegen plugins.
+
 ## 0.5.6
 
 - Fixed the problem that worker requester isn't properly cached.
