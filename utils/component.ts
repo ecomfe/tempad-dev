@@ -21,7 +21,7 @@ export function getDesignComponent(node: SelectionNode): DesignComponent | null 
     return null
   }
 
-  const { name, componentProperties } = node
+  const { name, componentProperties, mainComponent } = node
   const properties: Record<string, ComponentPropertyValue> = {}
 
   for (const [name, data] of Object.entries(componentProperties)) {
@@ -36,7 +36,9 @@ export function getDesignComponent(node: SelectionNode): DesignComponent | null 
     }
   }
 
-  return { name, type: 'INSTANCE', properties, children: getChildren(node) ?? [] }
+  const main = mainComponent ? { id: mainComponent.id, name: mainComponent.name } : null
+
+  return { name, type: 'INSTANCE', properties, mainComponent: main, children: getChildren(node) ?? [] }
 }
 
 function getChildren(node: SelectionNode): DesignNode[] | null {

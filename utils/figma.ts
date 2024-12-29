@@ -37,7 +37,6 @@ export function showDuplicateItem() {
 
   setTimeout(() => {
     const el = getDuplicateItem()
-    console.log(el)
     el?.focus()
   }, 100)
 }
