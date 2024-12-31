@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.5.9
+
+- Fixed vector fills extraction.
+
 ## 0.5.8
 
 - Added vector node support for component codegen plugin.

@@ -77,7 +77,7 @@ function getChildren(node: SelectionNode): DesignNode[] | null {
       }
       case 'VECTOR': {
         type FillArray = Exclude<typeof child.fills, symbol>
-        if (Array.isArray(child.fills)) {
+        if (!Array.isArray(child.fills)) {
           break
         }
         const fills: Fill[] = []
