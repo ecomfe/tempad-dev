@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.5.8
+
+- Added vector node support for component codegen plugin.
+
 ## 0.5.7
 
 - Added main component info for component codegen plugins.
