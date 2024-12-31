@@ -1,13 +1,13 @@
 export type ComponentPropertyValue = string | number | boolean | DesignComponent
 
-export type SupportedDesignNodeType = 'GROUP' | 'FRAME' | 'TEXT' | 'INSTANCE'
+export type SupportedDesignNodeType = 'GROUP' | 'FRAME' | 'VECTOR' | 'TEXT' | 'INSTANCE'
 
 interface DesignNodeBase {
   name: string
   type: SupportedDesignNodeType
 }
 
-export type DesignNode = GroupNode | FrameNode | TextNode | DesignComponent
+export type DesignNode = GroupNode | FrameNode | VectorNode | TextNode | DesignComponent
 
 export interface TextNode extends DesignNodeBase {
   type: 'TEXT'
@@ -23,6 +23,20 @@ export interface GroupNode extends ContainerNodeBase {
 }
 export interface FrameNode extends ContainerNodeBase {
   type: 'FRAME'
+}
+
+export interface Variable {
+  name: string
+  value: string
+}
+
+export interface Fill {
+  color: string | Variable
+}
+
+export interface VectorNode extends DesignNodeBase {
+  type: 'VECTOR',
+  fills: Fill[]
 }
 
 export interface DesignComponent extends ContainerNodeBase {

@@ -8,13 +8,9 @@ import type {
 } from '@/shared/types'
 import type { SelectionNode } from '@/ui/state'
 
-import {
-  camelToKebab,
-  escapeHTML,
-  looseEscapeHTML,
-  stringify,
-  indentAll
-} from './string'
+import { Fill, Variable } from '@/plugins/src'
+
+import { camelToKebab, escapeHTML, looseEscapeHTML, stringify, indentAll } from './string'
 
 export function getDesignComponent(node: SelectionNode): DesignComponent | null {
   if (!('componentProperties' in node)) {
@@ -38,7 +34,13 @@ export function getDesignComponent(node: SelectionNode): DesignComponent | null 
 
   const main = mainComponent ? { id: mainComponent.id, name: mainComponent.name } : null
 
-  return { name, type: 'INSTANCE', properties, mainComponent: main, children: getChildren(node) ?? [] }
+  return {
+    name,
+    type: 'INSTANCE',
+    properties,
+    mainComponent: main,
+    children: getChildren(node) ?? []
+  }
 }
 
 function getChildren(node: SelectionNode): DesignNode[] | null {
@@ -73,6 +75,38 @@ function getChildren(node: SelectionNode): DesignNode[] | null {
         })
         break
       }
+      case 'VECTOR': {
+        type FillArray = Exclude<typeof child.fills, symbol>
+        if (Array.isArray(child.fills)) {
+          break
+        }
+        const fills: Fill[] = []
+        ;(child.fills as FillArray).forEach((fill) => {
+          if (fill.type !== 'SOLID') {
+            return
+          }
+
+          const { color: rgb, boundVariables } = fill
+          const hex = rgbToHex(rgb)
+          let color: string | Variable
+
+          if (figma && boundVariables?.color) {
+            const variable = figma.variables.getVariableById(boundVariables.color.id)
+            color = variable ? { name: variable.name, value: hex } : hex
+          } else {
+            color = hex
+          }
+
+          fills.push({ color })
+        })
+
+        result.push({
+          name: child.name,
+          type: 'VECTOR',
+          fills
+        })
+        break
+      }
       default:
         break
     }
@@ -103,7 +137,7 @@ function stringifyBaseComponent(
   indentLevel = 0
 ) {
   const indent = INDENT_UNIT.repeat(indentLevel)
-  const { name, props, children } = component
+  const { name, props, children: rawChildren } = component
 
   const propItems = Object.entries(props)
     .filter(([, value]) => value != null)
@@ -115,11 +149,10 @@ function stringifyBaseComponent(
       : propItems.length === 1
         ? ` ${propItems[0]}`
         : `\n${propItems
-            .map(
-              (prop) =>
-                `${indentAll(prop, indent + INDENT_UNIT)}`
-            )
+            .map((prop) => `${indentAll(prop, indent + INDENT_UNIT)}`)
             .join('\n')}\n${indent}`
+
+  const children = rawChildren.filter((child) => child != null)
 
   const childrenString =
     children.length === 0
