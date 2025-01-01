@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.6.0
+
+- Provided a brand new icon for the extension.
+
 ## 0.5.9
 
 - Fixed vector fills extraction.
