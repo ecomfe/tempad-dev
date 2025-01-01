@@ -3,7 +3,7 @@ import { codegen } from '@/utils'
 
 import { useToast } from './toast'
 
-const BUILT_IN_SOURCE_RE = /@[a-z\d_-]+/
+const REGISTERED_SOURCE_RE = /@[a-z\d_-]+/
 
 // plugin registry from the latest commit of the main branch
 const REGISTRY_URL =
@@ -26,13 +26,14 @@ async function getRegisteredPluginSource(source: string, signal?: AbortSignal) {
 
   const plugins = Object.fromEntries(pluginList.map(({ name, source }) => [name, source]))
 
-  return (
-    plugins[name] ??
-    `https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/plugins/dist/${name}.js`
-  )
+  if (!plugins[name]) {
+    throw new Error(`"${name}" is not a registered plugin.`)
+  }
+
+  return plugins[name]
 }
 
-type PluginData = {
+export type PluginData = {
   code: string
   pluginName: string
   source: string
@@ -66,7 +67,7 @@ export function usePluginInstall() {
     installing.value = true
 
     try {
-      const url = BUILT_IN_SOURCE_RE.test(src) ? await getRegisteredPluginSource(src, signal) : src
+      const url = REGISTERED_SOURCE_RE.test(src) ? await getRegisteredPluginSource(src, signal) : src
       const response = await fetch(url, { cache: 'no-cache', signal })
       if (response.status !== 200) {
         throw new Error('404: Not Found')
