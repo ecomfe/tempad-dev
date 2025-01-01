@@ -1,5 +1,11 @@
-<!-- markdownlint-disable MD033 -->
-<h1 align="center">TemPad Dev</h1>
+<!-- markdownlint-disable MD033 MD041 -->
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/hero-light.svg">
+    <img alt="Shows a screenshot of the extension panel." src="assets/hero-light.svg" width="540" height="296">
+  </picture>
+</p>
 
 <p align="center">Inspect panel on Figma, for <b>everyone</b>.</p>
 
