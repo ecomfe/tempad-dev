@@ -145,7 +145,7 @@ export default definePlugin({
 })
 ```
 
-See [built-in plugins](./plugins/src) for more examples.
+See [Justineo/tempad-dev-plugin-kong](https://github.com/Justineo/tempad-dev-plugin-kong/) for more comprehensive examples.
 
 > [!NOTE]
 > Plugin file must be a valid ES module and have the plugin object as the `default` export.
