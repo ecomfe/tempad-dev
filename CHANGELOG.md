@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.6.1
+
+- No longer supports built-in plugins.
+
 ## 0.6.0
 
 - Provided a brand new icon for the extension.
