@@ -25,7 +25,7 @@ export function getDesignComponent(node: SelectionNode): DesignComponent | null 
     if (data.type === 'INSTANCE_SWAP') {
       const component = figma.getNodeById(data.value as string)
       if (component?.type === 'COMPONENT') {
-        properties[key] = { name: component.name, type: 'INSTANCE', properties: {}, children: [] }
+        properties[key] = { name: component.name, type: 'INSTANCE', properties: {}, children: [], visible: true }
       }
     } else {
       properties[key] = data.value
@@ -38,6 +38,7 @@ export function getDesignComponent(node: SelectionNode): DesignComponent | null 
     name,
     type: 'INSTANCE',
     properties,
+    visible: node.visible,
     mainComponent: main,
     children: getChildren(node) ?? []
   }
@@ -50,6 +51,7 @@ function getChildren(node: SelectionNode): DesignNode[] | null {
 
   const result: DesignNode[] = []
   for (const child of node.children) {
+    const {visible} = child
     switch (child.type) {
       case 'INSTANCE': {
         const component = getDesignComponent(child)
@@ -62,6 +64,7 @@ function getChildren(node: SelectionNode): DesignNode[] | null {
         result.push({
           name: child.name,
           type: 'TEXT',
+          visible,
           characters: child.characters
         })
         break
@@ -71,6 +74,7 @@ function getChildren(node: SelectionNode): DesignNode[] | null {
         result.push({
           name: child.name,
           type: child.type,
+          visible,
           children: getChildren(child) ?? []
         })
         break
@@ -103,6 +107,7 @@ function getChildren(node: SelectionNode): DesignNode[] | null {
         result.push({
           name: child.name,
           type: 'VECTOR',
+          visible,
           fills
         })
         break
