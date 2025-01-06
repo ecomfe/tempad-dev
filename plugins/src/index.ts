@@ -5,6 +5,7 @@ export type SupportedDesignNodeType = 'GROUP' | 'FRAME' | 'VECTOR' | 'TEXT' | 'I
 interface DesignNodeBase {
   name: string
   type: SupportedDesignNodeType
+  visible: boolean
 }
 
 export type DesignNode = GroupNode | FrameNode | VectorNode | TextNode | DesignComponent

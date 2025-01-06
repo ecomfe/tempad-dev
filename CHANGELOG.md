@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.6.2
+
+- Added `visible` info to component codegen.
+
 ## 0.6.1
 
 - No longer supports built-in plugins.
