@@ -110,7 +110,7 @@ When you hover over a node name section in TemPad Dev's inspect panel, a corresp
 
 Plugins allow you to customize the built-in code output or add custom code blocks.
 
-A TemPad Dev plugin is a simple JavaScript file that exports a plugin object as its `plugin` named export. To install a plugin, paste the plugin file's URL into the _Preferences > Plugins_ section. Some built-in plugins can also be enabled by using `@{name}` syntax (e.g., `@foo`), which corresponds to `https://raw.githubusercontent.com/{user}/{repo}/refs/heads/{branch}/plugins/dist/{name}.js`.
+A TemPad Dev plugin is a simple JavaScript file that exports a plugin object as its `plugin` named export. To install a plugin, paste the plugin file's URL into the _Preferences > Plugins_ section. Some built-in plugins can also be enabled by using `@{name}` syntax (e.g., `@foo`), which corresponds to the plugin names in our [plugin registry](https://github.com/ecomfe/tempad-dev/blob/main/plugins/available-plugins.json).
 
 > [!NOTE]
 > Plugin code is stored in the browser's local storage. Plugins are not auto-updated, so you must manually remove and re-install them to get new versions for now.
@@ -150,7 +150,7 @@ See [Justineo/tempad-dev-plugin-kong](https://github.com/Justineo/tempad-dev-plu
 > [!NOTE]
 > Plugin file must be a valid ES module and have the plugin object as the `default` export.
 
-Currently, we support three plugin hooks:
+Currently, we support 4 plugin hooks:
 
 - `transform`: Converts the style object or code into a string format for the code block. Useful for custom structures, such as Tailwind CSS or UnoCSS.
 - `transformVariable`: Converts CSS variables into alternate formats, e.g., converting them to Sass variables for design tokens.
