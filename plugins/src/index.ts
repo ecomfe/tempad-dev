@@ -186,12 +186,17 @@ export function definePlugin(plugin: Plugin): Plugin {
   return plugin
 }
 
-export function h(
+export function h<T extends Record<string, unknown> = Record<string, unknown>>(
   name: string,
-  props?: Record<string, unknown>,
+  props?: T,
   children?: (DevComponent | string)[]
-): DevComponent {
-  return { name, props: props || {}, children: children || [] }
+): DevComponent<T> {
+  // 如果没有传 props, 就用 {} 作为默认值
+  return {
+    name,
+    props: props ?? ({} as T),
+    children: children ?? [],
+  }
 }
 
 type RequireAtLeastOne<T, Keys extends keyof T> = {
@@ -207,13 +212,13 @@ function matchNode(node: DesignNode, query: NodeQuery): boolean {
     return query(node)
   }
 
-  if (query.type && node.type !== query.type) {
+  if (query.type != null && node.type !== query.type) {
     return false
   }
-  if (query.name && node.name !== query.name) {
+  if (query.name != null && node.name !== query.name) {
     return false
   }
-  if (query.visible !== undefined && node.visible !== query.visible) {
+  if (query.visible != null && node.visible !== query.visible) {
     return false
   }
   return true
