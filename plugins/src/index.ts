@@ -51,9 +51,9 @@ export interface DesignComponent extends ContainerNodeBase {
 
 type ContainerNode = GroupNode | FrameNode | DesignComponent
 
-export interface DevComponent {
+export interface DevComponent<T extends Record<string, unknown> = Record<string, unknown>> {
   name: string
-  props: Record<string, unknown>
+  props: T
   children: (DevComponent | string)[]
 }
 
@@ -199,7 +199,7 @@ type RequireAtLeastOne<T, Keys extends keyof T> = {
 }[Keys]
 
 export type NodeQuery =
-  | RequireAtLeastOne<DesignNode, 'type' | 'name'>
+  | RequireAtLeastOne<DesignNode, 'type' | 'name' | 'visible'>
   | ((node: DesignNode) => boolean)
 
 function matchNode(node: DesignNode, query: NodeQuery): boolean {
@@ -211,6 +211,9 @@ function matchNode(node: DesignNode, query: NodeQuery): boolean {
     return false
   }
   if (query.name && node.name !== query.name) {
+    return false
+  }
+  if (query.visible !== undefined && node.visible !== query.visible) {
     return false
   }
   return true
