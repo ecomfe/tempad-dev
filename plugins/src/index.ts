@@ -186,20 +186,14 @@ export function definePlugin(plugin: Plugin): Plugin {
   return plugin
 }
 
-export function h(name: string): DevComponent<Record<string, unknown>>
-export function h<T extends Record<string, unknown>>(
-  name: string,
-  props: T,
-  children?: (DevComponent | string)[]
-): DevComponent<T>
-export function h<T extends Record<string, unknown> = Record<string, unknown>>(
+export function h<T extends object = Record<string, unknown>>(
   name: string,
   props?: T,
   children?: (DevComponent | string)[]
-): DevComponent<T> {
+): DevComponent<T extends Record<string, unknown> ? T : Record<string, unknown>> {
   return {
     name,
-    props: props ?? ({} as T),
+    props: (props ?? {}) as T extends Record<string, unknown> ? T : Record<string, unknown>,
     children: children ?? []
   }
 }
