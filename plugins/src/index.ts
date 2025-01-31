@@ -52,7 +52,7 @@ export interface DesignComponent<T extends object = Record<string, ComponentProp
 
 type ContainerNode = GroupNode | FrameNode | DesignComponent
 
-interface DevComponent<T extends object = Record<string, unknown>> {
+export interface DevComponent<T extends object = Record<string, unknown>> {
   name: string
   props: T
   children: (DevComponent | string)[]
