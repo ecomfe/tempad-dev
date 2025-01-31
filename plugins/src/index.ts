@@ -52,7 +52,7 @@ export interface DesignComponent<T extends object = Record<string, ComponentProp
 
 type ContainerNode = GroupNode | FrameNode | DesignComponent
 
-export interface DevComponent<T extends object = Record<string, unknown>> {
+export interface DevComponent<T extends object = object> {
   name: string
   props: T
   children: (DevComponent | string)[]
@@ -187,7 +187,7 @@ export function definePlugin(plugin: Plugin): Plugin {
   return plugin
 }
 
-export function h<T extends object = Record<string, unknown>>(
+export function h<T extends object = object>(
   name: string,
   props?: T,
   children?: (DevComponent | string)[]
