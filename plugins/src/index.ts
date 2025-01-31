@@ -40,9 +40,10 @@ export interface VectorNode extends DesignNodeBase {
   fills: Fill[]
 }
 
-export interface DesignComponent extends ContainerNodeBase {
+export interface DesignComponent<T extends object = Record<string, ComponentPropertyValue>>
+  extends ContainerNodeBase {
   type: 'INSTANCE'
-  properties: Record<string, ComponentPropertyValue>
+  properties: T
   mainComponent?: {
     id: string
     name: string
@@ -51,7 +52,7 @@ export interface DesignComponent extends ContainerNodeBase {
 
 type ContainerNode = GroupNode | FrameNode | DesignComponent
 
-export interface DevComponent<T extends Record<string, unknown> = Record<string, unknown>> {
+interface DevComponent<T extends object = Record<string, unknown>> {
   name: string
   props: T
   children: (DevComponent | string)[]
@@ -190,10 +191,10 @@ export function h<T extends object = Record<string, unknown>>(
   name: string,
   props?: T,
   children?: (DevComponent | string)[]
-): DevComponent<T extends Record<string, unknown> ? T : Record<string, unknown>> {
+): DevComponent<T> {
   return {
     name,
-    props: (props ?? {}) as T extends Record<string, unknown> ? T : Record<string, unknown>,
+    props: (props ?? {}) as T,
     children: children ?? []
   }
 }
