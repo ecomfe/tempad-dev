@@ -10,6 +10,7 @@ import type { SelectionNode } from '@/ui/state'
 
 import { Fill, Variable } from '@/plugins/src'
 
+import { prune } from './object'
 import { camelToKebab, escapeHTML, looseEscapeHTML, stringify, indentAll } from './string'
 
 export function getDesignComponent(node: SelectionNode): DesignComponent | null {
@@ -215,6 +216,10 @@ function stringifyVueComponent(component: DevComponent, indentLevel = 0) {
         return value ? name : `:${name}="false"`
       }
 
+      if (typeof value === 'object' && value != null) {
+        return `:${name}="${looseEscapeHTML(stringify(prune(value)))}"`
+      }
+
       return `:${name}="${looseEscapeHTML(stringify(value))}"`
     },
     indentLevel
@@ -236,6 +241,10 @@ function stringifyJSXComponent(component: DevComponent, indentLevel = 0) {
 
       if (typeof value === 'boolean') {
         return value ? key : `${key}={false}`
+      }
+
+      if (typeof value === 'object' && value != null) {
+        return `${key}={${stringify(prune(value))}}`
       }
 
       return `${key}={${stringify(value)}}`

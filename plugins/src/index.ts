@@ -36,7 +36,7 @@ export interface Fill {
 }
 
 export interface VectorNode extends DesignNodeBase {
-  type: 'VECTOR',
+  type: 'VECTOR'
   fills: Fill[]
 }
 
@@ -186,16 +186,21 @@ export function definePlugin(plugin: Plugin): Plugin {
   return plugin
 }
 
+export function h(name: string): DevComponent<Record<string, unknown>>
+export function h<T extends Record<string, unknown>>(
+  name: string,
+  props: T,
+  children?: (DevComponent | string)[]
+): DevComponent<T>
 export function h<T extends Record<string, unknown> = Record<string, unknown>>(
   name: string,
   props?: T,
   children?: (DevComponent | string)[]
 ): DevComponent<T> {
-  // 如果没有传 props, 就用 {} 作为默认值
   return {
     name,
     props: props ?? ({} as T),
-    children: children ?? [],
+    children: children ?? []
   }
 }
 
