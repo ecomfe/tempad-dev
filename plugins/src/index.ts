@@ -22,6 +22,7 @@ interface ContainerNodeBase extends DesignNodeBase {
 export interface GroupNode extends ContainerNodeBase {
   type: 'GROUP'
 }
+
 export interface FrameNode extends ContainerNodeBase {
   type: 'FRAME'
 }
@@ -52,7 +53,7 @@ export interface DesignComponent<T extends object = Record<string, ComponentProp
 
 type ContainerNode = GroupNode | FrameNode | DesignComponent
 
-export interface DevComponent<T extends object = object> {
+export interface DevComponent<T extends object = Record<string, unknown>> {
   name: string
   props: T
   children: (DevComponent | string)[]
@@ -187,7 +188,7 @@ export function definePlugin(plugin: Plugin): Plugin {
   return plugin
 }
 
-export function h<T extends object = object>(
+export function h<T extends object = Record<string, unknown>>(
   name: string,
   props?: T,
   children?: (DevComponent | string)[]
@@ -199,29 +200,48 @@ export function h<T extends object = object>(
   }
 }
 
-type RequireAtLeastOne<T, Keys extends keyof T> = {
-  [K in Keys]: Required<Pick<T, K>> & Partial<Pick<T, Exclude<Keys, K>>>
-}[Keys]
+// Mapped type for queryable properties
+type QueryableProperties = {
+  [K in keyof Pick<DesignNode, 'type' | 'name' | 'visible'>]: DesignNode[K] extends string
+    ? DesignNode[K] | DesignNode[K][] | RegExp
+    : DesignNode[K]
+}
 
-export type NodeQuery =
-  | RequireAtLeastOne<DesignNode, 'type' | 'name' | 'visible'>
-  | ((node: DesignNode) => boolean)
+type RequireAtLeastOne<T> = {
+  [K in keyof T]: Required<Pick<T, K>> & Partial<Pick<T, Exclude<keyof T, K>>>
+}[keyof T]
+
+export type NodeQuery = RequireAtLeastOne<QueryableProperties> | ((node: DesignNode) => boolean)
+
+function matchProperty<T>(
+  value: T,
+  condition: T extends string ? T | T[] | RegExp : T | undefined
+): boolean {
+  if (condition === undefined) {
+    return true
+  }
+
+  if (typeof value === 'string') {
+    if (Array.isArray(condition)) {
+      return condition.includes(value)
+    }
+
+    if (condition instanceof RegExp) {
+      return condition.test(value)
+    }
+  }
+
+  return value === condition
+}
 
 function matchNode(node: DesignNode, query: NodeQuery): boolean {
-  if (typeof query === 'function') {
-    return query(node)
-  }
+  if (typeof query === 'function') return query(node)
 
-  if (query.type != null && node.type !== query.type) {
-    return false
-  }
-  if (query.name != null && node.name !== query.name) {
-    return false
-  }
-  if (query.visible != null && node.visible !== query.visible) {
-    return false
-  }
-  return true
+  return (
+    matchProperty(node.type, query.type) &&
+    matchProperty(node.name, query.name) &&
+    matchProperty(node.visible, query.visible)
+  )
 }
 
 export function findChild<T extends DesignNode = DesignNode>(
