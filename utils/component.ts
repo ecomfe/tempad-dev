@@ -148,6 +148,7 @@ function stringifyBaseComponent(
   const propItems = Object.entries(props)
     .filter(([, value]) => value != null)
     .map((entry) => stringifyProp(...entry))
+    .filter(Boolean)
 
   const propsString =
     propItems.length === 0
@@ -217,7 +218,11 @@ function stringifyVueComponent(component: DevComponent, indentLevel = 0) {
       }
 
       if (typeof value === 'object' && value != null) {
-        return `:${name}="${looseEscapeHTML(stringify(prune(value)))}"`
+        const pruned = prune(value)
+        if (pruned == null) {
+          return ''
+        }
+        return `:${name}="${looseEscapeHTML(stringify(pruned))}"`
       }
 
       return `:${name}="${looseEscapeHTML(stringify(value))}"`
@@ -244,7 +249,11 @@ function stringifyJSXComponent(component: DevComponent, indentLevel = 0) {
       }
 
       if (typeof value === 'object' && value != null) {
-        return `${key}={${stringify(prune(value))}}`
+        const pruned = prune(value)
+        if (pruned == null) {
+          return ''
+        }
+        return `${key}={${stringify(pruned)}}`
       }
 
       return `${key}={${stringify(value)}}`
