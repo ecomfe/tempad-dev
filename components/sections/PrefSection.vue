@@ -63,7 +63,7 @@ useSelectAll(scaleMultiplierInput)
       />
     </div>
     <div class="tp-row tp-row-justify tp-pref-field">
-      <label for="scale-multiplier">scale multiplier</label>
+      <label for="scale-multiplier">Scale multiplier</label>
       <input
         id="scale-multiplier"
         class="tp-pref-input"

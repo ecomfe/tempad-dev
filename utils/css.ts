@@ -30,15 +30,7 @@ function transformPxValue(value: string, transform: (value: number) => string) {
 
 function scaleValue(value: string, multiplier: number): string {
   try {
-    const numericValue = parseFloat(value);
-    if (isNaN(numericValue) || !Number.isFinite(multiplier)) {
-      return value;
-    }
-
-    const roundedMultiplier = Math.round(multiplier * 10) / 10;
-    const result = numericValue * roundedMultiplier;
-
-    return result.toString();
+    return transformPxValue(value, (v) => `${Math.round(multiplier * 10) / 10 * v}px`)
   } catch {
     return value;
   }
@@ -74,6 +66,10 @@ export function serializeCSS(
       )
     }
 
+    if (typeof scale === 'number' && scale !== 1 && !useRem) {
+      current = scaleValue(current, scale)
+    }
+
     if (KEEP_PX_PROPS.includes(key)) {
       return current
     }
@@ -84,8 +80,6 @@ export function serializeCSS(
 
     if (useRem) {
       current = pxToRem(current, rootFontSize)
-    } else if (scale !== 1) {
-      current = scaleValue(current, scale)
     }
 
     return current
