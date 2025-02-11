@@ -22,6 +22,7 @@ export type Options = {
   measureOn: boolean
   cssUnit: 'px' | 'rem'
   rootFontSize: number
+  scale: number
   plugins: {
     [source: string]: PluginData
   }
@@ -41,6 +42,7 @@ export const options = useStorage<Options>('tempad-dev', {
   measureOn: false,
   cssUnit: 'px',
   rootFontSize: 16,
+  scale: 1,
   plugins: {},
   activePluginSource: null
 })

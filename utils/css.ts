@@ -28,6 +28,22 @@ function transformPxValue(value: string, transform: (value: number) => string) {
   })
 }
 
+function scaleValue(value: string, multiplier: number): string {
+  try {
+    const numericValue = parseFloat(value);
+    if (isNaN(numericValue) || !Number.isFinite(multiplier)) {
+      return value;
+    }
+
+    const roundedMultiplier = Math.round(multiplier * 10) / 10;
+    const result = numericValue * roundedMultiplier;
+
+    return result.toString();
+  } catch {
+    return value;
+  }
+}
+
 function pxToRem(value: string, rootFontSize: number) {
   return transformPxValue(value, (val) => `${toDecimalPlace(val / rootFontSize)}rem`)
 }
@@ -35,6 +51,7 @@ function pxToRem(value: string, rootFontSize: number) {
 type ProcessValueOptions = {
   useRem: boolean
   rootFontSize: number
+  scale: number
 }
 
 type SerializeOptions = {
@@ -43,10 +60,10 @@ type SerializeOptions = {
 
 export function serializeCSS(
   style: Record<string, string>,
-  { toJS = false, useRem, rootFontSize }: SerializeOptions,
+  { toJS = false, useRem, rootFontSize, scale = 1 }: SerializeOptions,
   { transform, transformVariable, transformPx }: TransformOptions = {}
 ) {
-  const options = { useRem, rootFontSize }
+  const options = { useRem, rootFontSize, scale }
 
   function processValue(key: string, value: string) {
     let current = trimComments(value).trim()
@@ -67,6 +84,8 @@ export function serializeCSS(
 
     if (useRem) {
       current = pxToRem(current, rootFontSize)
+    } else if (scale !== 1) {
+      current = scaleValue(current, scale)
     }
 
     return current
