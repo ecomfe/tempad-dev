@@ -16,5 +16,11 @@
     "author": "@zouhangwithsweet",
     "description": "UnoCSS by FubukiCSS",
     "source": "https://raw.githubusercontent.com/zouhangwithsweet/fubukicss-tool/refs/heads/main/plugin/lib/index.js"
+  },
+  {
+    "name": "nuxt",
+    "author": "@Justineo",
+    "description": "Nuxt UI",
+    "source": "https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-nuxt-ui/refs/heads/main/dist/nuxt-ui.mjs"
   }
 ]
