@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.6.3
+
+- Improved component codegen, remove `undefined` values automatically.
+
 ## 0.6.2
 
 - Added `visible` info to component codegen.
