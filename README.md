@@ -113,7 +113,7 @@ Plugins allow you to customize the built-in code output or add custom code block
 A TemPad Dev plugin is a simple JavaScript file that exports a plugin object as its `plugin` named export. To install a plugin, paste the plugin file's URL into the _Preferences > Plugins_ section. Some built-in plugins can also be enabled by using `@{name}` syntax (e.g., `@foo`), which corresponds to the plugin names in our [plugin registry](https://github.com/ecomfe/tempad-dev/blob/main/plugins/available-plugins.json).
 
 > [!NOTE]
-> Plugin code is stored in the browser's local storage. Plugins are not auto-updated, so you must manually remove and re-install them to get new versions for now.
+> Plugin code is stored in the browser's local storage. Plugins are not versioned or auto-updated, so you must manually update them from the UI.
 
 #### Developing a plugin
 
@@ -169,7 +169,7 @@ For full type definitions, see [`plugins/src/index.ts`](./plugins/src/index.ts).
 Ensure your plugin is accessible via a URL that supports cross-origin requests, such as a GitHub repository (or Gist). For instance, you can use a raw URL:
 
 ```text
-https://raw.githubusercontent.com/{username}/{repo}/refs/heads/{branch}/your-plugin.js
+https://raw.githubusercontent.com/{username}/{repo}/refs/heads/{branch}/{filename}.js
 ```
 
 > [!NOTE]
@@ -192,6 +192,7 @@ Current available plugins:
 | `@kong` | Kong Design System | @Justineo | [GitHub](https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-kong/refs/heads/main/dist/kong.mjs) |
 | `@kong/advanced` | Kong Design System (Advanced) | @Justineo | [GitHub](https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-kong/refs/heads/main/dist/kong-advanced.mjs) |
 | `@fubukicss/unocss` | UnoCSS by FubukiCSS | @zouhangwithsweet | [GitHub](https://raw.githubusercontent.com/zouhangwithsweet/fubukicss-tool/refs/heads/main/plugin/lib/index.js) |
+| `@nuxt` | Nuxt UI | @Justineo | [GitHub](https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-nuxt-ui/refs/heads/main/dist/nuxt-ui.mjs) |
 <!-- availablePlugins:end -->
 <!-- prettier-ignore-end -->
 
