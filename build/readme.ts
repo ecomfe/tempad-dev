@@ -63,7 +63,7 @@ function getVendor(url: string): Vendor | string | null {
 }
 
 function generatePluginTable(plugins: PluginMeta[]) {
-  return `| Name | Description | Author | Repo |
+  return `| Plugin name | Description | Author | Repository |
 | -- | -- | -- | -- |
 ${plugins
   .map(
