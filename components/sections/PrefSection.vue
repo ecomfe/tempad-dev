@@ -63,11 +63,11 @@ useSelectAll(scaleMultiplierInput)
       />
     </div>
     <div class="tp-row tp-row-justify tp-pref-field">
-      <label for="scale-multiplier">Scale</label>
+      <label for="scale">Scale</label>
       <input
-        id="scale-multiplier"
+        id="scale"
         class="tp-pref-input"
-        ref="scaleMultiplierInput"
+        ref="scaleInput"
         type="number"
         step="0.1"
         v-model.number="options.scale"
