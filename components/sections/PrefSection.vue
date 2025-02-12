@@ -25,7 +25,7 @@ const fontSizeInput = useTemplateRef('fontSizeInput')
 useSelectAll(fontSizeInput)
 
 const scaleInput = useTemplateRef('scaleInput')
-useSelectAll(scaleMultiplierInput)
+useSelectAll(scaleInput)
 </script>
 
 <template>
