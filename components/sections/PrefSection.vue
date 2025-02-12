@@ -23,6 +23,9 @@ watch(
 
 const fontSizeInput = useTemplateRef('fontSizeInput')
 useSelectAll(fontSizeInput)
+
+const scaleInput = useTemplateRef('scaleInput')
+useSelectAll(scaleInput)
 </script>
 
 <template>
@@ -57,6 +60,17 @@ useSelectAll(fontSizeInput)
         ref="fontSizeInput"
         type="number"
         v-model.number="options.rootFontSize"
+      />
+    </div>
+    <div class="tp-row tp-row-justify tp-pref-field">
+      <label for="scale">Scale</label>
+      <input
+        id="scale"
+        class="tp-pref-input"
+        ref="scaleInput"
+        type="number"
+        step="0.1"
+        v-model.number="options.scale"
       />
     </div>
     <PluginsSection class="tp-pref-plugins" />
