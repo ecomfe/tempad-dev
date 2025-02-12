@@ -3,24 +3,28 @@
     "name": "kong",
     "author": "@Justineo",
     "description": "Kong Design System",
-    "source": "https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-kong/refs/heads/main/dist/kong.mjs"
+    "repo": "https://github.com/Justineo/tempad-dev-plugin-kong",
+    "url": "https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-kong/refs/heads/main/dist/kong.mjs"
   },
   {
     "name": "kong/advanced",
     "author": "@Justineo",
     "description": "Kong Design System (Advanced)",
-    "source": "https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-kong/refs/heads/main/dist/kong-advanced.mjs"
+    "repo": "https://github.com/Justineo/tempad-dev-plugin-kong",
+    "url": "https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-kong/refs/heads/main/dist/kong-advanced.mjs"
   },
   {
     "name": "fubukicss/unocss",
     "author": "@zouhangwithsweet",
     "description": "UnoCSS by FubukiCSS",
-    "source": "https://raw.githubusercontent.com/zouhangwithsweet/fubukicss-tool/refs/heads/main/plugin/lib/index.js"
+    "repo": "https://github.com/zouhangwithsweet/fubukicss-tool",
+    "url": "https://raw.githubusercontent.com/zouhangwithsweet/fubukicss-tool/refs/heads/main/plugin/lib/index.js"
   },
   {
     "name": "nuxt",
     "author": "@Justineo",
     "description": "Nuxt UI",
-    "source": "https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-nuxt-ui/refs/heads/main/dist/nuxt-ui.mjs"
+    "repo": "https://github.com/Justineo/tempad-dev-plugin-nuxt-ui",
+    "url": "https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-nuxt-ui/refs/heads/main/dist/nuxt-ui.mjs"
   }
 ]
