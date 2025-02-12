@@ -28,8 +28,8 @@ function transformPxValue(value: string, transform: (value: number) => string) {
   })
 }
 
-function scalePxValue(value: string, multiplier: number): string {
-  return transformPxValue(value, (v) => `${multiplier * v}px`)
+function scalePxValue(value: string, scale: number): string {
+  return transformPxValue(value, (val) => `${toDecimalPlace(scale * val)}px`)
 }
 
 function pxToRem(value: string, rootFontSize: number) {
@@ -56,14 +56,14 @@ export function serializeCSS(
   function processValue(key: string, value: string) {
     let current = trimComments(value).trim()
 
+    if (typeof scale === 'number' && scale !== 1) {
+      current = scalePxValue(current, scale)
+    }
+
     if (typeof transformVariable === 'function') {
       current = current.replace(VARIABLE_RE, (_, name: string, value: string) =>
         transformVariable({ code: current, name, value, options })
       )
-    }
-
-    if (typeof scale === 'number' && scale !== 1) {
-      current = scalePxValue(current, scale)
     }
 
     if (KEEP_PX_PROPS.includes(key)) {
