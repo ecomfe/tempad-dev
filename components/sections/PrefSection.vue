@@ -24,7 +24,7 @@ watch(
 const fontSizeInput = useTemplateRef('fontSizeInput')
 useSelectAll(fontSizeInput)
 
-const scaleMultiplierInput = useTemplateRef('scaleMultiplierInput')
+const scaleInput = useTemplateRef('scaleInput')
 useSelectAll(scaleMultiplierInput)
 </script>
 
