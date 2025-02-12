@@ -69,7 +69,7 @@ useSelectAll(scaleInput)
         class="tp-pref-input"
         ref="scaleInput"
         type="number"
-        step="0.1"
+        step="1"
         v-model.number="options.scale"
       />
     </div>
