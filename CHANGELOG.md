@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.7.0
+
+- Added a new option: `scale`.
+
 ## 0.6.3
 
 - Improved component codegen, remove `undefined` values automatically.

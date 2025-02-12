@@ -63,7 +63,7 @@ Select any element, and you can obtain the CSS code through the plugin's Code pa
   <img alt="Shows units and root font size settings in preferences." src="assets/unit-light.png" width="720">
 </picture>
 
-You can configure CSS units and root font size to convert `px` dimensions in CSS to `rem` units.
+You can configure CSS units and root font size to convert `px` dimensions in CSS to `rem` units. You can also apply a `scale` factor to scale `px` values according to your handoff requirements.
 
 > [!WARNING]
 > After switching units, only the code output in the TemPad Dev panel will switch to non-px units. The plugin cannot affect the display of sizes and spacing on the Figma canvas.
