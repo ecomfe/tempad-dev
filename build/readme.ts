@@ -3,11 +3,32 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+interface Vendor {
+  name: string
+  icon: string
+}
+
+const vendorDomainMap: Record<string, Vendor> = {
+  'raw.githubusercontent.com': {
+    name: 'GitHub',
+    icon: 'github'
+  },
+  'gist.githubusercontent.com': {
+    name: 'GitHub Gist',
+    icon: 'github'
+  },
+  'gitlab.com': {
+    name: 'GitLab',
+    icon: 'gitlab'
+  }
+}
+
 interface PluginMeta {
   name: string
   description: string
   author: string
-  source: string
+  repo: string,
+  url: string
 }
 
 const __filename = fileURLToPath(import.meta.url)
@@ -29,58 +50,33 @@ function getDomain(url: string) {
   }
 }
 
-function getVendor(url: string): string | null {
-  // Check for GitHub raw file URL
-  if (url.includes('raw.githubusercontent.com')) {
-    return 'GitHub'
+function getVendor(url: string): Vendor | string | null {
+  const domain = getDomain(url)
+
+  if (!domain) {
+    return null
   }
 
-  // Check for GitHub Gist raw file URL
-  if (url.includes('gist.githubusercontent.com')) {
-    return 'GitHub Gist'
-  }
+  const vendor = vendorDomainMap[domain]
 
-  // Check for Bitbucket raw file URL
-  if (url.includes('bitbucket.org') && url.includes('/raw/')) {
-    return 'Bitbucket'
-  }
-
-  // Check for GitLab raw file URL
-  if (url.includes('gitlab.com') && url.includes('/-/raw/')) {
-    return 'GitLab'
-  }
-
-  // Check for SourceForge raw file URL
-  if (url.includes('sourceforge.net') && url.includes('/files/')) {
-    return 'SourceForge'
-  }
-
-  // Check for AWS S3 URL
-  if (url.includes('s3.amazonaws.com')) {
-    return 'AWS S3'
-  }
-
-  // Check for Azure Blob Storage URL
-  if (url.includes('blob.core.windows.net')) {
-    return 'Azure Blob Storage'
-  }
-
-  // Check for Google Cloud Storage URL
-  if (url.includes('storage.googleapis.com')) {
-    return 'Google Cloud Storage'
-  }
-
-  // If no vendor is found
-  return getDomain(url)
+  return vendor || domain
 }
 
 function generatePluginTable(plugins: PluginMeta[]) {
-  return `| Name | Description | Author | Source |
+  return `| Name | Description | Author | Repo |
 | -- | -- | -- | -- |
 ${plugins
   .map(
-    ({ name, description, author, source }) =>
-      `| \`@${name}\` | ${description} | ${author} | [${getVendor(source) ?? 'URL'}](${source}) |`
+    ({ name, description, author, repo, url }) => {
+      const vendor = getVendor(url)
+      const link = vendor
+        ? typeof vendor === 'string'
+          ? `[${vendor}](${repo})`
+          : `<img alt="${vendor.name}" src="https://simpleicons.org/icons/${vendor.icon}.svg" width="12" height="12"> [${vendor.name}](${repo})`
+        : ''
+
+      return `| \`@${name}\` | ${description} | ${author} | ${link} |`
+    }
   )
   .join('\n')}`
 }

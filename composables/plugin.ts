@@ -18,13 +18,13 @@ async function getRegisteredPluginSource(source: string, signal?: AbortSignal) {
       res.json()
     )) as {
       name: string
-      source: string
+      url: string
     }[]
   } catch (e) {
     pluginList = SNAPSHOT_PLUGINS
   }
 
-  const plugins = Object.fromEntries(pluginList.map(({ name, source }) => [name, source]))
+  const plugins = Object.fromEntries(pluginList.map(({ name, url }) => [name, url]))
 
   if (!plugins[name]) {
     throw new Error(`"${name}" is not a registered plugin.`)
@@ -36,7 +36,7 @@ async function getRegisteredPluginSource(source: string, signal?: AbortSignal) {
 export type PluginData = {
   code: string
   pluginName: string
-  source: string
+  source: string // can be a URL or a registered plugin name like `@{plugin-name}`
 }
 
 export function usePluginInstall() {
