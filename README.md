@@ -187,12 +187,12 @@ Current available plugins:
 
 <!-- prettier-ignore-start -->
 <!-- availablePlugins:start -->
-| Name | Description | Author | Source |
+| Name | Description | Author | Repo |
 | -- | -- | -- | -- |
-| `@kong` | Kong Design System | @Justineo | [GitHub](https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-kong/refs/heads/main/dist/kong.mjs) |
-| `@kong/advanced` | Kong Design System (Advanced) | @Justineo | [GitHub](https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-kong/refs/heads/main/dist/kong-advanced.mjs) |
-| `@fubukicss/unocss` | UnoCSS by FubukiCSS | @zouhangwithsweet | [GitHub](https://raw.githubusercontent.com/zouhangwithsweet/fubukicss-tool/refs/heads/main/plugin/lib/index.js) |
-| `@nuxt` | Nuxt UI | @Justineo | [GitHub](https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-nuxt-ui/refs/heads/main/dist/nuxt-ui.mjs) |
+| `@kong` | Kong Design System | @Justineo | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-kong) |
+| `@kong/advanced` | Kong Design System (Advanced) | @Justineo | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-kong) |
+| `@fubukicss/unocss` | UnoCSS by FubukiCSS | @zouhangwithsweet | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/zouhangwithsweet/fubukicss-tool) |
+| `@nuxt` | Nuxt UI | @Justineo | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
 <!-- availablePlugins:end -->
 <!-- prettier-ignore-end -->
 
