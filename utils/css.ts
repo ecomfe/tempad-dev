@@ -28,12 +28,8 @@ function transformPxValue(value: string, transform: (value: number) => string) {
   })
 }
 
-function scaleValue(value: string, multiplier: number): string {
-  try {
-    return transformPxValue(value, (v) => `${Math.round(multiplier * 10) / 10 * v}px`)
-  } catch {
-    return value;
-  }
+function scalePxValue(value: string, multiplier: number): string {
+  return transformPxValue(value, (v) => `${Math.round(multiplier * 10) / 10 * v}px`)
 }
 
 function pxToRem(value: string, rootFontSize: number) {
@@ -52,7 +48,7 @@ type SerializeOptions = {
 
 export function serializeCSS(
   style: Record<string, string>,
-  { toJS = false, useRem, rootFontSize, scale = 1 }: SerializeOptions,
+  { toJS = false, useRem, rootFontSize, scale }: SerializeOptions,
   { transform, transformVariable, transformPx }: TransformOptions = {}
 ) {
   const options = { useRem, rootFontSize, scale }
@@ -66,8 +62,8 @@ export function serializeCSS(
       )
     }
 
-    if (typeof scale === 'number' && scale !== 1 && !useRem) {
-      current = scaleValue(current, scale)
+    if (typeof scale === 'number' && scale !== 1) {
+      current = scalePxValue(current, scale)
     }
 
     if (KEEP_PX_PROPS.includes(key)) {
