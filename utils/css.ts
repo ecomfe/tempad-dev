@@ -29,7 +29,7 @@ function transformPxValue(value: string, transform: (value: number) => string) {
 }
 
 function scalePxValue(value: string, multiplier: number): string {
-  return transformPxValue(value, (v) => `${Math.round(multiplier * 10) / 10 * v}px`)
+  return transformPxValue(value, (v) => `${multiplier * v}px`)
 }
 
 function pxToRem(value: string, rootFontSize: number) {
