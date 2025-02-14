@@ -26,5 +26,12 @@
     "description": "Nuxt UI",
     "repo": "https://github.com/Justineo/tempad-dev-plugin-nuxt-ui",
     "url": "https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-nuxt-ui/refs/heads/main/dist/nuxt-ui.mjs"
+  },
+  {
+    "name": "baidu/wz",
+    "author": "@KangXinzhi",
+    "description": "Custom style for Baidu Health WZ",
+    "repo": "https://github.com/KangXinzhi/tempad-dev-plugin-wz",
+    "url": "https://raw.githubusercontent.com/KangXinzhi/tempad-dev-plugin-wz/refs/heads/main/dist/index.mjs"
   }
 ]
