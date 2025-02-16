@@ -163,7 +163,7 @@ Currently, we support 4 plugin hooks:
 
 Additionally, you can specify a custom `title` and `lang` for the code block or hide the built-in code block by setting it to `false`.
 
-For full type definitions, see [`plugins/src/index.ts`](./plugins/src/index.ts).
+For full type definitions and helper functions, see [`plugins/src/index.ts`](./plugins/src/index.ts).
 
 #### Deploying a plugin
 
