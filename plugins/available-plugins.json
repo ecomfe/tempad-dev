@@ -33,5 +33,12 @@
     "description": "Custom style for Baidu Health WZ",
     "repo": "https://github.com/KangXinzhi/tempad-dev-plugin-wz",
     "url": "https://raw.githubusercontent.com/KangXinzhi/tempad-dev-plugin-wz/refs/heads/main/dist/index.mjs"
+  },
+  {
+    "name": "baidu/health/med-styles",
+    "author": "@KangXinzhi",
+    "description": "Custom style for Baidu Health med-styles",
+    "repo": "https://github.com/KangXinzhi/tempad-dev-plugin-med-styles",
+    "url": "https://raw.githubusercontent.com/KangXinzhi/tempad-dev-plugin-med-styles/refs/heads/main/dist/index.mjs"
   }
 ]

@@ -195,6 +195,7 @@ Current available plugins:
 | `@fubukicss/unocss` | UnoCSS by FubukiCSS | @zouhangwithsweet | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/zouhangwithsweet/fubukicss-tool) |
 | `@nuxt` | Nuxt UI | @Justineo | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
 | `@baidu/wz` | Custom style for Baidu Health WZ | @KangXinzhi | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-wz) |
+| `@baidu/health/med-styles` | Custom style for Baidu Health Med Styles  | @KangXinzhi | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-med-styles) |
 <!-- availablePlugins:end -->
 <!-- prettier-ignore-end -->
 
