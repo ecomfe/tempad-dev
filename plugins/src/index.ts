@@ -240,7 +240,7 @@ function matchNode(node: DesignNode, query: NodeQuery): boolean {
   return (
     matchProperty(node.type, query.type) &&
     matchProperty(node.name, query.name) &&
-    matchProperty(node.visible, query.visible)
+    matchProperty(node.visible, query.visible ?? true)
   )
 }
 
@@ -290,4 +290,57 @@ export function findAll<T extends DesignNode = DesignNode>(
     }
   }
   return result as T[]
+}
+
+export type QueryType = 'child' | 'children' | 'one' | 'all'
+
+export function queryAll<T extends DesignNode = DesignNode>(
+  node: ContainerNode,
+  queries: (NodeQuery & { query: QueryType })[]
+): T[] {
+  if (queries.length === 0) {
+    return []
+  }
+
+  let current: DesignNode[] = [node]
+
+  for (const query of queries) {
+    const seen = new Set<DesignNode>()
+    const next: DesignNode[] = []
+
+    for (const node of current) {
+      if (!('children' in node)) {
+        continue
+      }
+
+      seen.add(node)
+
+      if (query.query === 'child' || query.query === 'one') {
+        const one = query.query === 'child' ? findChild(node, query) : findOne(node, query)
+        if (one && !seen.has(one)) {
+          seen.add(one)
+          next.push(one)
+        }
+      } else {
+        const all = query.query === 'children' ? findChildren(node, query) : findAll(node, query)
+        for (const item of all) {
+          if (!seen.has(item)) {
+            seen.add(item)
+            next.push(item)
+          }
+        }
+      }
+    }
+
+    current = next
+  }
+
+  return current as T[]
+}
+
+export function queryOne<T extends DesignNode = DesignNode>(
+  node: ContainerNode,
+  queries: (NodeQuery & { query: QueryType })[]
+): T | null {
+  return queryAll<T>(node, queries)[0]
 }

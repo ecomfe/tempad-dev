@@ -3,6 +3,7 @@ import type { DesignComponent, SupportedLang } from '@/shared/types'
 export interface SerializeOptions {
   useRem: boolean
   rootFontSize: number
+  scale: number
 }
 
 export interface RequestPayload {
