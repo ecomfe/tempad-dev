@@ -28,10 +28,17 @@
     "url": "https://raw.githubusercontent.com/Justineo/tempad-dev-plugin-nuxt-ui/refs/heads/main/dist/nuxt-ui.mjs"
   },
   {
-    "name": "baidu/wz",
+    "name": "baidu-health/wz-style",
     "author": "@KangXinzhi",
-    "description": "Custom style for Baidu Health WZ",
-    "repo": "https://github.com/KangXinzhi/tempad-dev-plugin-wz",
-    "url": "https://raw.githubusercontent.com/KangXinzhi/tempad-dev-plugin-wz/refs/heads/main/dist/index.mjs"
+    "description": "Custom style for Baidu Health wz-style",
+    "repo": "https://github.com/KangXinzhi/tempad-dev-plugin-wz-style",
+    "url": "https://raw.githubusercontent.com/KangXinzhi/tempad-dev-plugin-wz-style/refs/heads/main/dist/index.mjs"
+  },
+  {
+    "name": "baidu-health/med-style",
+    "author": "@KangXinzhi",
+    "description": "Custom style for Baidu Health med-style",
+    "repo": "https://github.com/KangXinzhi/tempad-dev-plugin-med-style",
+    "url": "https://raw.githubusercontent.com/KangXinzhi/tempad-dev-plugin-med-style/refs/heads/main/dist/index.mjs"
   }
 ]
