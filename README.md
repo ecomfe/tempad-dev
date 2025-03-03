@@ -194,8 +194,9 @@ Current available plugins:
 | `@kong/advanced` | Kong Design System (Advanced) | @Justineo | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-kong) |
 | `@fubukicss/unocss` | UnoCSS by FubukiCSS | @zouhangwithsweet | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/zouhangwithsweet/fubukicss-tool) |
 | `@nuxt` | Nuxt UI | @Justineo | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
-| `@baidu-health/wz-style` | Custom style for Baidu Health wz-style  | @KangXinzhi | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-wz-style) |
-| `@baidu-health/med-style` | Custom style for Baidu Health med-style  | @KangXinzhi | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-med-style) |
+| `@nuxt/pro` | Nuxt UI Pro | @Justineo | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
+| `@baidu-health/wz-style` | Custom style for Baidu Health wz-style | @KangXinzhi | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-wz-style) |
+| `@baidu-health/med-style` | Custom style for Baidu Health med-style | @KangXinzhi | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-med-style) |
 <!-- availablePlugins:end -->
 <!-- prettier-ignore-end -->
 
