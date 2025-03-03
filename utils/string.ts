@@ -16,7 +16,7 @@ const ESCAPE_MAP: Record<string, string> = {
   '&': '&amp;',
   '<': '&lt;',
   '>': '&gt;',
-  '"': '&quot;',
+  '"': '&quot;'
 }
 
 const ESCAPE_RE = /[&<>"]/g
@@ -33,6 +33,9 @@ export function stringify(value: unknown) {
   return stringifyObject(value, { indent: '  ' })
 }
 
-export function indentAll(str: string, indent: string) {
-  return str.split('\n').map((line) => indent + line).join('\n')
+export function indentAll(str: string, indent: string, skipFirst = false) {
+  return str
+    .split('\n')
+    .map((line, index) => (skipFirst && index === 0 ? '' : indent) + line)
+    .join('\n')
 }

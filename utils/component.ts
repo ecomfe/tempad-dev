@@ -26,7 +26,13 @@ export function getDesignComponent(node: SelectionNode): DesignComponent | null 
     if (data.type === 'INSTANCE_SWAP') {
       const component = figma.getNodeById(data.value as string)
       if (component?.type === 'COMPONENT') {
-        properties[key] = { name: component.name, type: 'INSTANCE', properties: {}, children: [], visible: true }
+        properties[key] = {
+          name: component.name,
+          type: 'INSTANCE',
+          properties: {},
+          children: [],
+          visible: true
+        }
       }
     } else {
       properties[key] = data.value
@@ -52,7 +58,7 @@ function getChildren(node: SelectionNode): DesignNode[] | null {
 
   const result: DesignNode[] = []
   for (const child of node.children) {
-    const {visible} = child
+    const { visible } = child
     switch (child.type) {
       case 'INSTANCE': {
         const component = getDesignComponent(child)
@@ -150,11 +156,15 @@ function stringifyBaseComponent(
     .map((entry) => stringifyProp(...entry))
     .filter(Boolean)
 
+  const firstItem = propItems[0]
+
   const propsString =
     propItems.length === 0
       ? ''
       : propItems.length === 1
-        ? ` ${propItems[0]}`
+        ? firstItem.includes('\n')
+          ? ` ${indentAll(firstItem, indent, true)}`
+          : ` ${firstItem}`
         : `\n${propItems
             .map((prop) => `${indentAll(prop, indent + INDENT_UNIT)}`)
             .join('\n')}\n${indent}`
