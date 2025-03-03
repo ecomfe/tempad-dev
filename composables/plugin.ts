@@ -67,7 +67,9 @@ export function usePluginInstall() {
     installing.value = true
 
     try {
-      const url = REGISTERED_SOURCE_RE.test(src) ? await getRegisteredPluginSource(src, signal) : src
+      const url = REGISTERED_SOURCE_RE.test(src)
+        ? await getRegisteredPluginSource(src, signal)
+        : src
       const response = await fetch(url, { cache: 'no-cache', signal })
       if (response.status !== 200) {
         throw new Error('404: Not Found')
@@ -75,7 +77,12 @@ export function usePluginInstall() {
       code = await response.text()
 
       try {
-        const { pluginName } = await codegen({}, null, { useRem: false, rootFontSize: 12 }, code)
+        const { pluginName } = await codegen(
+          {},
+          null,
+          { useRem: false, rootFontSize: 12, scale: 1 },
+          code
+        )
         if (!pluginName) {
           validity.value = 'The plugin name must not be empty.'
         } else {
