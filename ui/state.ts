@@ -47,7 +47,7 @@ export const options = useStorage<Options>('tempad-dev', {
   activePluginSource: null
 })
 
-export const isQuirksMode = shallowRef<boolean>(false)
+export const runtimeMode = shallowRef<'standard' | 'quirks' | 'unavailable'>('standard')
 export const selection = shallowRef<readonly SelectionNode[]>([])
 export const selectedNode = computed(() => selection.value?.[0] ?? null)
 export const selectedTemPadComponent = computed(() => getTemPadComponent(selectedNode.value))

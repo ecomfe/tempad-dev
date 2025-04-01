@@ -1,6 +1,6 @@
 interface Window {
   DebuggingHelpers: {
-    logSelected: () => string
-    logNode: (id: string) => string
+    logSelected?: () => string
+    logNode?: (id: string) => string
   }
 }
