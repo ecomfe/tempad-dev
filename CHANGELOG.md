@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.8.0
+
+- Fixed `window.figma` recovery for clients that are loading script files without `.br` extension.
+- Quirks mode is no longer available as Figma removed the `window.DebuggingHelpers.logSelected` API.
+
+## 0.7.1
+
+- Improved component codegen.
+
 ## 0.7.0
 
 - Added a new option: `scale`.
