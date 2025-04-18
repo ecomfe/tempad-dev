@@ -19,7 +19,7 @@ export default defineUnlistedScript(async () => {
     let content = await (await fetch(src)).text()
 
     if (matchFile(content)) {
-      content = content.replace(/if\(!([a-zA-Z\d]+)\.userID\|\|/, 'if(true){}else if(!$1.userID||')
+      content = content.replace(/\.userID;if\([^)]*\){/, '.userId;if(true){}else{')
     }
 
     // document.currentScript will be `null` if we run with `new Function()`

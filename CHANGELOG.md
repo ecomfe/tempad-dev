@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.8.1
+
+- Fixed script replacement after Figma update.
+
 ## 0.8.0
 
 - Fixed `window.figma` recovery for clients that are loading script files without `.br` extension.
