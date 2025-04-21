@@ -1,4 +1,4 @@
-name: Check Figma Script Rewrite
+name: check-script-rewrite
 
 on:
   push:
