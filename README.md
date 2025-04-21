@@ -15,6 +15,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/ecomfe/tempad-dev/actions/workflows/check-rewrite.yml"><img src="https://github.com/ecomfe/tempad-dev/actions/workflows/check-rewrite.yml/badge.svg" alt="check-script-rewrite"></a>
+</p>
+
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/code-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="assets/code-light.png">
@@ -23,29 +27,6 @@
 </p>
 
 ---
-
-<details>
-<summary><h3>Compatibility Updates</h3></summary>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/duplicate-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="assets/duplicate-light.png">
-  <img alt="Choose “Duplicate to your drafts” to ensure standard mode instead of quirks mode." src="assets/duplicate-light.png" width="720">
-</picture>
-
-**2025.04.01**: Figma removed the `window.DebuggingHelpers.logSelected` API, which was used to extract style data. As a result, Quirks mode is no longer usable.
-
-**2024.11.04**: TemPad Dev now managed to bring back the `window.figma` API under view-only mode. But we still cannot guarantee the long-term validity of this feature. If Figma removes the related interface again, this mode will also become unavailable.
-
-**2024.04.08**: TemPad Dev successfully retrieved most style information using currently unblocked debug interfaces, providing a new [Quirks Mode](#quirks-mode). This mode does not rely on `window.figma` but instead parses debug logs to generate style code, with slight differences from the standard mode.
-
-**2024.04.03**: The Figma team adjusted the expected time from "in the coming weeks" to "in the coming months", effectively shelving the issue.
-
-**2024.03.20**: After we posted complaints on the Figma Community Forum, the Figma team stated that they would reinstate the `window.figma` interface in view-only mode in the coming weeks. You can track the progress of this issue on this [thread](https://forum.figma.com/t/figma-removed-window-figma-on-view-only-pages-today/67292).
-
-**2024.03.19**: Figma removed the `window.figma` interface in view-only mode. As a result, we can no longer seamlessly view information and code for Figma elements in view-only mode.
-
-</details>
 
 ## Key features
 
@@ -233,6 +214,29 @@ Known missing features generating style codes include:
 - The ["Scroll Selection into View"](#scroll-selection-into-view) feature is not available in this mode.
 
 Except for the above-mentioned features, others are mostly consistent with the standard mode. If Quirks mode is sufficient for your scenarios, it can eliminate the tedious operation of duplicating to drafts and be used directly in view-only mode. Note that this mode also relies on Figma's globally exposed debug interface and cannot guarantee long-term validity. If Figma removes the related interface again, this mode will also become unavailable.
+
+<details>
+<summary><h3>Compatibility Updates</h3></summary>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/duplicate-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/duplicate-light.png">
+  <img align="right" alt="Choose “Duplicate to your drafts” to ensure standard mode instead of quirks mode." src="assets/duplicate-light.png" width="360">
+</picture>
+
+**2025.04.01**: Figma removed the `window.DebuggingHelpers.logSelected` API, which was used to extract style data. As a result, Quirks mode is no longer usable.
+
+**2024.11.04**: TemPad Dev now managed to bring back the `window.figma` API under view-only mode. But we still cannot guarantee the long-term validity of this feature. If Figma removes the related interface again, this mode will also become unavailable.
+
+**2024.04.08**: TemPad Dev successfully retrieved most style information using currently unblocked debug interfaces, providing a new [Quirks Mode](#quirks-mode). This mode does not rely on `window.figma` but instead parses debug logs to generate style code, with slight differences from the standard mode.
+
+**2024.04.03**: The Figma team adjusted the expected time from "in the coming weeks" to "in the coming months", effectively shelving the issue.
+
+**2024.03.20**: After we posted complaints on the Figma Community Forum, the Figma team stated that they would reinstate the `window.figma` interface in view-only mode in the coming weeks. You can track the progress of this issue on this [thread](https://forum.figma.com/t/figma-removed-window-figma-on-view-only-pages-today/67292).
+
+**2024.03.19**: Figma removed the `window.figma` interface in view-only mode. As a result, we can no longer seamlessly view information and code for Figma elements in view-only mode.
+
+</details>
 
 ## Acknowledgements
 
