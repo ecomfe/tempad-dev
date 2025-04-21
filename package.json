@@ -34,6 +34,7 @@
     "eslint-plugin-vue": "^9.30.0",
     "overlayscrollbars": "^2.10.0",
     "p-wait-for": "^5.0.2",
+    "playwright-chromium": "^1.52.0",
     "prettier": "^3.3.3",
     "stringify-object": "^5.0.0",
     "tsx": "^4.19.2",
@@ -46,6 +47,9 @@
   "pnpm": {
     "patchedDependencies": {
       "wxt@0.19.13": "patches/wxt@0.19.13.patch"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "playwright-chromium"
+    ]
   }
 }
