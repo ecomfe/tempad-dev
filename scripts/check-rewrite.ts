@@ -1,7 +1,7 @@
+import { REWRITE_PATTERN } from '@/shared/rewrite'
 import { chromium } from 'playwright-chromium'
 
 const ASSETS_PATTERN = /\/webpack-artifacts\/assets\/\d+-[0-9a-f]+\.min\.js(\.br)?$/
-const REWRITE_PATTERN = /\.userID;if\([^)]*\){/
 const MARKERS = ['delete window.figma', '.createAPI()']
 const MAX_RETRIES = 3
 

@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.8.2
+
+- Fixed script replacement after Figma update.
+
 ## 0.8.1
 
 - Fixed script replacement after Figma update.

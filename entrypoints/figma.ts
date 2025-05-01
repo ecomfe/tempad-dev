@@ -1,3 +1,5 @@
+import { REWRITE_PATTERN, REWRITE_REPLACER } from '@/shared/rewrite'
+
 export default defineUnlistedScript(async () => {
   const markers = ['delete window.figma', '.createAPI()']
 
@@ -19,7 +21,7 @@ export default defineUnlistedScript(async () => {
     let content = await (await fetch(src)).text()
 
     if (matchFile(content)) {
-      content = content.replace(/\.userID;if\([^)]*\){/, '.userId;if(true){}else{')
+      content = content.replace(REWRITE_PATTERN, REWRITE_REPLACER)
     }
 
     // document.currentScript will be `null` if we run with `new Function()`
