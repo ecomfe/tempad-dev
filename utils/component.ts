@@ -214,13 +214,13 @@ function stringifyVueComponent(component: DevComponent, indentLevel = 0) {
       const eventName = getEventName(key)
       if (eventName) {
         const callback = typeof value === 'string' ? looseEscapeHTML(value) : '() => {}'
-        return `@${camelToKebab(eventName)}="${callback}"`
+        return `@${camelToKebab(eventName)}="${callback.trim()}"`
       }
 
       const name = camelToKebab(key)
 
       if (typeof value === 'string') {
-        return `${name}="${escapeHTML(value)}"`
+        return `${name}="${escapeHTML(value).trim()}"`
       }
 
       if (typeof value === 'boolean') {
@@ -232,10 +232,10 @@ function stringifyVueComponent(component: DevComponent, indentLevel = 0) {
         if (pruned == null) {
           return ''
         }
-        return `:${name}="${looseEscapeHTML(stringify(pruned))}"`
+        return `:${name}="${looseEscapeHTML(stringify(pruned)).trim()}"`
       }
 
-      return `:${name}="${looseEscapeHTML(stringify(value))}"`
+      return `:${name}="${looseEscapeHTML(stringify(value)).trim()}"`
     },
     indentLevel
   )
@@ -247,11 +247,11 @@ function stringifyJSXComponent(component: DevComponent, indentLevel = 0) {
     (key, value) => {
       if (EVENT_HANDLER_RE.test(key)) {
         const callback = typeof value === 'string' ? value : '() => {}'
-        return `${key}="{${callback}}"`
+        return `${key}="{${callback.trim()}}"`
       }
 
       if (typeof value === 'string') {
-        return `${key}="${escapeHTML(value)}"`
+        return `${key}="${escapeHTML(value).trim()}"`
       }
 
       if (typeof value === 'boolean') {
