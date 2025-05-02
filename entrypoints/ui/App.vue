@@ -6,6 +6,7 @@ import Plus from '@/components/icons/Plus.vue'
 import Preferences from '@/components/icons/Preferences.vue'
 import Panel from '@/components/Panel.vue'
 import CodeSection from '@/components/sections/CodeSection.vue'
+import ErrorSection from '@/components/sections/ErrorSection.vue'
 import MetaSection from '@/components/sections/MetaSection.vue'
 import PrefSection from '@/components/sections/PrefSection.vue'
 import Toast from '@/components/Toast.vue'
@@ -30,13 +31,9 @@ const panelWidth = `${ui.tempadPanelWidth}px`
       <div class="tp-row">
         TemPad Dev
         <IconButton
-          v-if="runtimeMode !== 'standard'"
+          v-if="runtimeMode === 'quirks'"
           variant="secondary"
-          :title="
-            runtimeMode === 'quirks'
-              ? 'TemPad Dev is running in quirks mode. Enter standard mode by duplicating this file to your drafts.'
-              : 'TemPad Dev is not able to run in view-only mode. Enter standard mode by duplicating this file to your drafts.'
-          "
+          title="TemPad Dev is running in quirks mode. Enter standard mode by duplicating this file to your drafts."
           dull
           @click="showDuplicateItem"
         >
@@ -45,7 +42,7 @@ const panelWidth = `${ui.tempadPanelWidth}px`
       </div>
       <div class="tp-row tp-gap">
         <IconButton
-          v-if="!options.minimized"
+          v-if="runtimeMode !== 'unavailable' && !options.minimized"
           title="Preferences"
           toggle
           v-model:selected="options.prefOpen"
@@ -59,9 +56,12 @@ const panelWidth = `${ui.tempadPanelWidth}px`
         </IconButton>
       </div>
     </template>
-    <PrefSection :collapsed="!options.prefOpen" />
-    <MetaSection />
-    <CodeSection />
+    <ErrorSection v-if="runtimeMode === 'unavailable'" />
+    <template v-else>
+      <PrefSection :collapsed="!options.prefOpen" />
+      <MetaSection />
+      <CodeSection />
+    </template>
   </Panel>
   <Toast />
 </template>
@@ -72,6 +72,7 @@ const panelWidth = `${ui.tempadPanelWidth}px`
   transition: width, height;
   transition-duration: 0.2s;
   transition-timing-function: cubic-bezier(0.87, 0, 0.13, 1);
+  overflow: hidden;
 }
 
 .tp-main-minimized {

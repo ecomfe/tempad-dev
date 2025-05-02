@@ -5,7 +5,7 @@ defineProps<{
   flat?: boolean
 }>()
 
-const { header } = defineSlots<{
+const slots = defineSlots<{
   header?(): unknown
   default?(): unknown
 }>()
@@ -54,10 +54,10 @@ function afterLeave(el: Element) {
     @after-leave="afterLeave"
   >
     <section class="tp-section" :class="{ 'tp-section-flat': flat }" v-if="!collapsed">
-      <header v-if="title || header" class="tp-row tp-row-justify tp-gap-l tp-section-header">
+      <header v-if="title || slots.header" class="tp-row tp-row-justify tp-gap-l tp-section-header">
         <slot name="header">{{ title }}</slot>
       </header>
-      <div v-if="$slots.default" class="tp-section-content">
+      <div v-if="slots.default" class="tp-section-content">
         <slot />
       </div>
     </section>
