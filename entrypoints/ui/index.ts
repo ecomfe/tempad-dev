@@ -10,7 +10,7 @@ export default defineUnlistedScript(async () => {
 
   await waitFor(() => getCanvas() != null && getLeftPanel() != null)
   try {
-    await waitFor(() => window.figma != null, { timeout: 1000 })
+    await waitFor(() => window.figma?.currentPage != null, { timeout: 1000 })
   } catch (e) {
     if (window.DebuggingHelpers.logSelected) {
       runtimeMode.value = 'quirks'
