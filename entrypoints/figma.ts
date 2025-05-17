@@ -1,8 +1,6 @@
-import { REWRITE_PATTERN, REWRITE_REPLACER } from '@/shared/rewrite'
+import { matchFile, REWRITE_PATTERN, REWRITE_REPLACER } from '@/shared/rewrite'
 
 export default defineUnlistedScript(async () => {
-  const markers = ['delete window.figma', '.createAPI()']
-
   const current = document.currentScript as HTMLScriptElement
   const src = current.src
 
@@ -11,10 +9,6 @@ export default defineUnlistedScript(async () => {
     script.src = src
     script.defer = true
     current.replaceWith(script)
-  }
-
-  function matchFile(content: string) {
-    return markers.every((marker) => content.includes(marker))
   }
 
   try {

@@ -1,13 +1,8 @@
-import { REWRITE_PATTERN } from '@/shared/rewrite'
+import { matchFile, REWRITE_PATTERN } from '@/shared/rewrite'
 import { chromium } from 'playwright-chromium'
 
 const ASSETS_PATTERN = /\/webpack-artifacts\/assets\/\d+-[0-9a-f]+\.min\.js(\.br)?$/
-const MARKERS = ['delete window.figma', '.createAPI()']
 const MAX_RETRIES = 3
-
-function matchFile(content: string) {
-  return MARKERS.every((marker) => content.includes(marker))
-}
 
 async function runCheck() {
   const scripts: { url: string; content: string }[] = []
