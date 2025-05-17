@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.8.4
+
+- Updated the script rewrite logic.
+
 ## 0.8.3
 
 - Improved user instructions when `window.figma` is unavailable.
