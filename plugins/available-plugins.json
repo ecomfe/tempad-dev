@@ -54,5 +54,5 @@
     "description": "CSS to Tailwind CSS",
     "repo": "https://github.com/haydenull/tempad-dev-plugin-tailwind",
     "url": "https://raw.githubusercontent.com/haydenull/tempad-dev-plugin-tailwind/main/dist/index.mjs"
-  },
+  }
 ]

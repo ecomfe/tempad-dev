@@ -180,6 +180,7 @@ Current available plugins:
 | `@nuxt/pro` | Nuxt UI Pro | @Justineo | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/Justineo/tempad-dev-plugin-nuxt-ui) |
 | `@baidu-health/wz-style` | Custom style for Baidu Health wz-style | @KangXinzhi | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-wz-style) |
 | `@baidu-health/med-style` | Custom style for Baidu Health med-style | @KangXinzhi | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/KangXinzhi/tempad-dev-plugin-med-style) |
+| `@tailwind` | CSS to Tailwind CSS | @haydenull | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/haydenull/tempad-dev-plugin-tailwind) |
 <!-- availablePlugins:end -->
 <!-- prettier-ignore-end -->
 
