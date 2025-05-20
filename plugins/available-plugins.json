@@ -51,7 +51,7 @@
   {
     "name": "tailwind",
     "author": "@haydenull",
-    "description": "A plugin for tempad-dev that transforms CSS to Tailwind CSS",
+    "description": "CSS to Tailwind CSS",
     "repo": "https://github.com/haydenull/tempad-dev-plugin-tailwind",
     "url": "https://raw.githubusercontent.com/haydenull/tempad-dev-plugin-tailwind/main/dist/index.mjs"
   },
