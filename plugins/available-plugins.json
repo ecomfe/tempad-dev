@@ -47,5 +47,12 @@
     "description": "Custom style for Baidu Health med-style",
     "repo": "https://github.com/KangXinzhi/tempad-dev-plugin-med-style",
     "url": "https://raw.githubusercontent.com/KangXinzhi/tempad-dev-plugin-med-style/refs/heads/main/dist/index.mjs"
-  }
+  },
+  {
+    "name": "tailwind",
+    "author": "@haydenull",
+    "description": "CSS to Tailwind CSS",
+    "repo": "https://github.com/haydenull/tempad-dev-plugin-tailwind",
+    "url": "https://raw.githubusercontent.com/haydenull/tempad-dev-plugin-tailwind/main/dist/index.mjs"
+  },
 ]
