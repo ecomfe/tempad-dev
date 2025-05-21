@@ -25,7 +25,7 @@ export default defineUnlistedScript(async () => {
     content = content.replaceAll('delete window.figma', 'window.figma = undefined')
 
     new Function(content)()
-  } catch (_) {
+  } catch {
     replaceScript(`${src}?fallback`)
   }
 })

@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.8.5
+
+- Update WXT to fix the problem that multiple WXT-based web extensions invalidates each other.
+
 ## 0.8.4
 
 - Updated the script rewrite logic.
