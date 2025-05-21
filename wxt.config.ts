@@ -9,7 +9,7 @@ export default defineConfig({
       include: []
     }
   }),
-  runner: {
+  webExt: {
     disabled: true
   },
   manifest: {
