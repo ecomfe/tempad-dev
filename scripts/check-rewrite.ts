@@ -1,7 +1,11 @@
 import { matchFile, REWRITE_PATTERN } from '@/rewrite/config'
 import { chromium } from 'playwright-chromium'
 
-const ASSETS_PATTERN = /\/webpack-artifacts\/assets\/[^.]+\.min\.js(\.br)?$/
+import rules from '../public/rules/figma.json'
+
+const redirectRule = rules.find((rule) => rule.action.type === 'redirect')
+
+const ASSETS_PATTERN = new RegExp(redirectRule?.condition?.regexFilter || /a^/)
 const MAX_RETRIES = 3
 
 async function runCheck() {
