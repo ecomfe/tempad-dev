@@ -13,6 +13,10 @@ async function fetchRules() {
   const newRules = await res.json()
   const oldIds = (await browser.declarativeNetRequest.getDynamicRules()).map(({ id }) => id)
 
+  await browser.declarativeNetRequest.updateEnabledRulesets({
+    disableRulesetIds: ['figma']
+  })
+
   await browser.declarativeNetRequest.updateDynamicRules({
     removeRuleIds: oldIds,
     addRules: newRules
