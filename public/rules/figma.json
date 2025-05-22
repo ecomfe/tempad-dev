@@ -21,7 +21,7 @@
     "action": {
       "type": "redirect",
       "redirect": {
-        "url": "https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/rewrite/figma.js"
+        "url": "https://cdn.jsdelivr.net/gh/ecomfe/tempad-dev@main/rewrite/figma.js"
       }
     },
     "condition": {
