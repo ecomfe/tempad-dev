@@ -1,7 +1,7 @@
 import { matchFile, REWRITE_PATTERN } from '@/rewrite/config'
 import { chromium } from 'playwright-chromium'
 
-const ASSETS_PATTERN = /\/webpack-artifacts\/assets\/\d+-[0-9a-f]+\.min\.js(\.br)?$/
+const ASSETS_PATTERN = /\/webpack-artifacts\/assets\/[^.]+\.min\.js(\.br)?$/
 const MAX_RETRIES = 3
 
 async function runCheck() {
