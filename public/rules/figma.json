@@ -21,7 +21,7 @@
     "action": {
       "type": "redirect",
       "redirect": {
-        "url": "http://ecomfe.github.io/tempad-dev/figma.js"
+        "url": "https://ecomfe.github.io/tempad-dev/figma.js"
       }
     },
     "condition": {
