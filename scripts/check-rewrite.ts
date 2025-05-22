@@ -1,4 +1,4 @@
-import { matchFile, REWRITE_PATTERN } from '@/shared/rewrite'
+import { matchFile, REWRITE_PATTERN } from '@/rewrite/config'
 import { chromium } from 'playwright-chromium'
 
 const ASSETS_PATTERN = /\/webpack-artifacts\/assets\/\d+-[0-9a-f]+\.min\.js(\.br)?$/
@@ -50,7 +50,7 @@ async function runCheck() {
     let matched: string | null = null
     let rewritable = false
     scripts.forEach(({ url, content }) => {
-      if (matchFile(content)) {
+      if (matchFile(url, content)) {
         matched = url
         console.log(`Matched script: ${url}`)
         if (REWRITE_PATTERN.test(content)) {
