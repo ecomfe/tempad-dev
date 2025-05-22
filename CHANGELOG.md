@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.9.0
+
+- Updated the script rewrite logic.
+- Moved the rewriter script to a remote URL on GitHub repo.
+- Added dynamic DNR rules syncing mechanism.
+
 ## 0.8.5
 
 - Update WXT to fix the problem that multiple WXT-based web extensions invalidates each other.
