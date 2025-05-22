@@ -40,6 +40,9 @@ importers:
       comment-mark:
         specifier: ^1.1.1
         version: 1.1.1
+      esbuild:
+        specifier: ^0.25.4
+        version: 0.25.4
       eslint:
         specifier: ^8.57.1
         version: 8.57.1

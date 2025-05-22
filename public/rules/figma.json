@@ -18,9 +18,14 @@
   {
     "id": 2,
     "priority": 1,
-    "action": { "type": "redirect", "redirect": { "extensionPath": "/figma.js" } },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "url": "https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/rewrite/figma.js"
+      }
+    },
     "condition": {
-      "regexFilter": "/webpack-artifacts/assets/\\d+-[0-9a-f]+\\.min\\.js(\\.br)?$",
+      "regexFilter": "/webpack-artifacts/assets/[^.]+\\.min\\.js(\\.br)?$",
       "resourceTypes": ["script"]
     }
   }
