@@ -44,6 +44,14 @@ async function runCheck() {
       return false
     }
 
+    try {
+      await page.goto(process.env.FIGMA_FILE || '', { timeout: 10000 })
+      console.log('Opening design file...')
+    } catch {
+      console.error('Failed to load the design file. Please check your internet connection.')
+      return false
+    }
+
     await page.waitForLoadState('load')
     console.log(`Page loaded at ${page.url()}.`)
 
