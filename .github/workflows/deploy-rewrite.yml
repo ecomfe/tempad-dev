@@ -1,21 +1,12 @@
-name: check-script-rewrite
+name: deploy-rewrite-script
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-  schedule:
-    - cron: '0 */2 * * *'
 
 jobs:
   check-rewrite:
     runs-on: ubuntu-latest
-
-    env:
-      FIGMA_EMAIL: ${{ secrets.FIGMA_EMAIL }}
-      FIGMA_PASSWORD: ${{ secrets.FIGMA_PASSWORD }}
-      FIGMA_FILE: ${{ secrets.FIGMA_FILE }}
 
     steps:
       - name: Checkout repository
@@ -34,5 +25,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run check script
-        run: pnpm exec tsx scripts/check-rewrite.ts
+      - name: Build rewrite script
+        run: pnpm run build:rewrite
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
