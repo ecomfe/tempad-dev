@@ -25,7 +25,8 @@ async function rewriteScript() {
     content = content.replaceAll('delete window.figma', 'window.figma = undefined')
 
     new Function(content)()
-  } catch {
+  } catch (e) {
+    console.error(e)
     replaceScript(`${src}?fallback`)
   }
 }
