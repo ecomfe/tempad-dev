@@ -20,10 +20,6 @@ export default defineConfig({
         matches: ['https://www.figma.com/*']
       },
       {
-        resources: ['/figma.js'],
-        matches: ['https://www.figma.com/*']
-      },
-      {
         resources: ['/codegen.js'],
         matches: ['https://www.figma.com/*']
       }
