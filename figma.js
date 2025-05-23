@@ -11,6 +11,7 @@ function matchFile(src, content) {
 async function rewriteScript() {
   const current = document.currentScript;
   const src = current.src;
+  const desc = Object.getOwnPropertyDescriptor(Document.prototype, "currentScript");
   function replaceScript(src2) {
     const script = document.createElement("script");
     script.src = src2;
@@ -21,13 +22,21 @@ async function rewriteScript() {
     let content = await (await fetch(src)).text();
     if (matchFile(src, content)) {
       content = content.replace(REWRITE_PATTERN, REWRITE_REPLACER);
+      console.log(`Rewrote script: ${src}`);
     }
-    content = content.replaceAll("document.currentScript.src", `"${src}"`);
     content = content.replaceAll("delete window.figma", "window.figma = undefined");
+    Object.defineProperty(document, "currentScript", {
+      configurable: true,
+      get() {
+        return current;
+      }
+    });
     new Function(content)();
   } catch (e) {
     console.error(e);
     replaceScript(`${src}?fallback`);
+  } finally {
+    Object.defineProperty(document, "currentScript", desc);
   }
 }
 rewriteScript();
