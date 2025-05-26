@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useCopy } from '@/composables'
+import { transformHTML } from '@/utils/dom'
 
 import IconButton from './IconButton.vue'
 import Copy from './icons/Copy.vue'
@@ -12,7 +13,7 @@ const props = defineProps<{
 }>()
 
 const prismAlias: Record<string, string> = {
-  vue: 'html',
+  vue: 'html'
 }
 
 const lang = computed(() => {
@@ -29,11 +30,36 @@ const highlighted = computed(() => {
     return props.code
   }
 
-  return Prism.highlight(props.code, Prism.languages[lang.value], lang.value)
+  const html = Prism.highlight(props.code, Prism.languages[lang.value], lang.value)
+
+  return transformHTML(html, (tpl) => {
+    tpl.querySelectorAll<HTMLElement>('.token.variable, .token.constant').forEach((el) => {
+      el.setAttribute('tabindex', '0')
+      el.classList.add('copyable')
+      el.dataset.tooltipType = 'text'
+      el.dataset.tooltip = 'Copy'
+      el.innerHTML = `<span>${el.innerHTML}</span>`
+    })
+
+    tpl.querySelectorAll('.token.number + .token.unit').forEach((el) => {
+      const span = document.createElement('span')
+      span.className = 'token dimension'
+      el.parentNode!.insertBefore(span, el.nextElementSibling)
+      span.appendChild(el.previousElementSibling!)
+      span.appendChild(el)
+    })
+  })
 })
 
 const code = computed(() => props.code)
 const copy = useCopy(code)
+
+function handleClick(event: MouseEvent) {
+  const target = event.target as HTMLElement
+  if (target.closest('.token.copyable')) {
+    copy(target)
+  }
+}
 </script>
 
 <template>
@@ -47,7 +73,7 @@ const copy = useCopy(code)
         </IconButton>
       </div>
     </header>
-    <pre class="tp-code-content"><code v-html="highlighted"/></pre>
+    <pre class="tp-code-content"><code v-html="highlighted" @click="handleClick"/></pre>
   </section>
 </template>
 
@@ -100,6 +126,14 @@ const copy = useCopy(code)
   color: var(--color-text);
 }
 
+.tp-code-content .token.property {
+  color: var(--color-text);
+}
+
+.tp-code-content .token.plain {
+  color: var(--color-codevalue);
+}
+
 .tp-code-content .token.selector {
   color: var(--color-codeclassname);
 }
@@ -143,5 +177,53 @@ const copy = useCopy(code)
 .tp-code-content .token.boolean,
 .highlight .token.number {
   color: var(--color-codevalue);
+}
+
+.tp-code-content .token.number,
+.tp-code-content .token.unit {
+  color: var(--color-codevalue);
+}
+
+.tp-code-content .token.copyable {
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-codevariable) 50%, transparent);
+  text-decoration-style: dashed;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  -webkit-user-select: text;
+  user-select: text;
+  background: transparent;
+  display: unset;
+}
+
+.tp-code-content .token.copyable > span {
+  line-height: 130%;
+  background: transparent;
+  border-radius: 4px;
+  padding: 0 2px;
+  margin: -2px;
+}
+
+.tp-code-content .token.copyable:hover > span {
+  background: color-mix(in srgb, var(--color-codevariable) 15%, transparent);
+}
+
+.tp-code-content .token.copyable {
+  outline: 2px solid transparent;
+}
+
+.tp-code-content .token.copyable:focus-visible {
+  outline: 2px solid var(--color-border-selected);
+  outline-offset: -2px;
+}
+
+.tp-code-content .token.variable:focus {
+  outline: 2px solid var(--color-border-selected);
+  outline-offset: -2px;
+}
+
+.tp-code-content .token.variable:focus:not(:focus-visible) {
+  outline: 2px solid transparent;
 }
 </style>
