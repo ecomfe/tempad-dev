@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.10.0
+
+- Variables in code panels are now copyable.
+
 ## 0.9.0
 
 - Updated the script rewrite logic.
