@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.10.1
+
+- Fixed the copy button for code blocks.
+- Improved error handling when fetching live rules.
+
 ## 0.10.0
 
 - Variables in code panels are now copyable.

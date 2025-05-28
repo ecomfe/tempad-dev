@@ -54,6 +54,10 @@ const highlighted = computed(() => {
 const code = computed(() => props.code)
 const copy = useCopy(code)
 
+function handleCopy() {
+  copy()
+}
+
 function handleClick(event: MouseEvent) {
   const target = event.target as HTMLElement
   if (target.closest('.token.copyable')) {
@@ -68,7 +72,7 @@ function handleClick(event: MouseEvent) {
       {{ title }}
       <div class="tp-row tp-gap">
         <slot name="actions" />
-        <IconButton variant="secondary" title="Copy" @click="copy">
+        <IconButton variant="secondary" title="Copy" @click="handleCopy">
           <Copy />
         </IconButton>
       </div>
