@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.10.2
+
+- Fixed an issue with CSS code generation when optimizing dimension code.
+
 ## 0.10.1
 
 - Fixed the copy button for code blocks.
