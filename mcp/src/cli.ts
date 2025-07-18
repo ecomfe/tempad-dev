@@ -7,6 +7,11 @@ import lockfile from 'proper-lockfile'
 
 import { log, LOCK_PATH, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
 
+process.on('SIGINT', () => {
+  log.info('SIGINT received. Exiting CLI.')
+  process.exit(0)
+})
+
 const HUB_STARTUP_TIMEOUT = 5000
 const CONNECT_RETRY_DELAY = 200
 const FAILED_RESTART_DELAY = 5000

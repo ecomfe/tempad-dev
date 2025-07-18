@@ -4,10 +4,10 @@ import { nanoid } from 'nanoid'
 import { existsSync, rmSync, chmodSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { WebSocketServer, type RawData } from 'ws'
-import { z } from 'zod'
 
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
 import { log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
+import { TOOLS } from './tools'
 import {
   MessageFromExtensionSchema,
   type ExtensionConnection,
@@ -22,26 +22,13 @@ const TOOL_CALL_TIMEOUT = 15000
 const MAX_PAYLOAD_SIZE = 4 * 1024 * 1024
 const SHUTDOWN_TIMEOUT = 2000
 
-const TOOLS = [
-  {
-    name: 'get_price',
-    description: 'Returns the latest price of a stock.',
-    parameters: z.object({ symbol: z.string().length(4, 'Stock symbol must be 4 characters.') })
-  },
-  {
-    name: 'weather',
-    description: 'Returns the current weather for a city.',
-    parameters: z.object({ city: z.string().min(1, 'City name cannot be empty.') })
-  }
-] as const
-
 const extensions: ExtensionConnection[] = []
 let consumerCount = 0
 
 const mcp = new McpServer({ name: 'tempad-dev-mcp', version: '0.1.0', capabilities: { tools: {} } })
 
 for (const tool of TOOLS) {
-  mcp.registerTool(tool.name, tool.parameters, async (args: any) => {
+  mcp.registerTool(tool.name, tool.parameters, async (args) => {
     const activeExt = extensions.find((e) => e.active)
     if (!activeExt) throw new Error('No active TemPad extension available.')
 
@@ -136,6 +123,12 @@ const wss = new WebSocketServer({
       cb(false, 403, 'Forbidden')
     }
   }
+})
+
+// Add an error handler to prevent crashes from port conflicts, etc.
+wss.on('error', (err) => {
+  log.error({ err }, 'WebSocket server critical error. Exiting.')
+  process.exit(1)
 })
 
 wss.on('connection', (ws) => {
