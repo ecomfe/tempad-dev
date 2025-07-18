@@ -42,10 +42,15 @@ const highlighted = computed(() => {
     })
 
     tpl.querySelectorAll('.token.number + .token.unit').forEach((el) => {
+      const prev = el.previousElementSibling!
+      if (prev.nodeType !== Node.ELEMENT_NODE || !prev.classList.contains('number')) {
+        return
+      }
+
       const span = document.createElement('span')
       span.className = 'token dimension'
-      el.parentNode!.insertBefore(span, el.nextElementSibling)
-      span.appendChild(el.previousElementSibling!)
+      el.parentNode!.insertBefore(span, el.nextSibling)
+      span.appendChild(prev)
       span.appendChild(el)
     })
   })
