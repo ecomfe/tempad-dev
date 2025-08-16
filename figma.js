@@ -1,13 +1,26 @@
 "use strict";
 (() => {
   // rewrite/config.ts
-  var SRC_PATTERN = /\/figma_app/;
-  var REWRITE_PATTERN = /\.appModel\.isReadOnly/g;
-  var REWRITE_REPLACER = ".appModel.__isReadOnly__";
-  var MARKERS = [".appModel.isReadOnly"];
-  function matchFile(src, content) {
-    return SRC_PATTERN.test(src) && MARKERS.every((marker) => content.includes(marker));
-  }
+  var GROUPS = [
+    {
+      markers: [".appModel.isReadOnly"],
+      replacements: [
+        {
+          pattern: /\.appModel\.isReadOnly/g,
+          replacer: ".appModel.__isReadOnly__"
+        }
+      ]
+    },
+    {
+      markers: ["dispnf.fyufotjpo;00", "np{.fyufotjpo;00"],
+      replacements: [
+        {
+          pattern: /dispnf\.fyufotjpo;00|np{\.fyufotjpo;00/g,
+          replacer: "FIGMA_PLEASE_STOP"
+        }
+      ]
+    }
+  ];
 
   // rewrite/figma.ts
   async function rewriteScript() {
@@ -20,10 +33,28 @@
       script.defer = true;
       current.replaceWith(script);
     }
+    function applyGroup(content, group) {
+      const markers = group.markers || [];
+      if (!markers.every((marker) => content.includes(marker))) {
+        return content;
+      }
+      let out = content;
+      for (const { pattern, replacer } of group.replacements) {
+        if (typeof pattern === "string") {
+          out = out.replaceAll(pattern, replacer);
+        } else {
+          out = out.replace(pattern, replacer);
+        }
+      }
+      return out;
+    }
     try {
-      let content = await (await fetch(src)).text();
-      if (matchFile(src, content)) {
-        content = content.replace(REWRITE_PATTERN, REWRITE_REPLACER);
+      const original = await (await fetch(src)).text();
+      let content = original;
+      for (const group of GROUPS) {
+        content = applyGroup(content, group);
+      }
+      if (content !== original) {
         console.log(`Rewrote script: ${src}`);
       }
       content = content.replaceAll("delete window.figma", "window.figma = undefined");
