@@ -1,10 +1,9 @@
-import { matchFile, REWRITE_PATTERN } from '@/rewrite/config'
+import { GROUPS } from '@/rewrite/config'
+import { analyze } from '@/rewrite/shared'
 import { chromium } from 'playwright-chromium'
-
 import rules from '../public/rules/figma.json'
 
 const redirectRule = rules.find((rule) => rule.action.type === 'redirect')
-
 const ASSETS_PATTERN = new RegExp(redirectRule?.condition?.regexFilter || /a^/)
 const MAX_RETRIES = 3
 
@@ -16,16 +15,16 @@ async function runCheck() {
 
   try {
     page.on('response', async (response) => {
-      if (response.request().resourceType() === 'script') {
-        const url = response.url()
-        if (!ASSETS_PATTERN.test(url)) {
-          return
-        }
-
-        const content = await response.text()
-        scripts.push({ url, content })
-        console.log(`Captured script: ${url}`)
+      if (response.request().resourceType() !== 'script') {
+        return
       }
+      const url = response.url()
+      if (!ASSETS_PATTERN.test(url)) {
+        return
+      }
+      const content = await response.text()
+      scripts.push({ url, content })
+      console.log(`Captured script: ${url}`)
     })
 
     try {
@@ -43,7 +42,7 @@ async function runCheck() {
     try {
       await page.waitForURL(/^(?!.*login).*$/, { timeout: 10000 })
       console.log('Logged in successfully.')
-    } catch (error) {
+    } catch {
       console.error('Login failed. Please check your credentials.')
       return false
     }
@@ -53,16 +52,20 @@ async function runCheck() {
 
     let matched: string | null = null
     let rewritable = false
-    scripts.forEach(({ url, content }) => {
-      if (matchFile(url, content)) {
-        matched = url
-        console.log(`Matched script: ${url}`)
-        if (REWRITE_PATTERN.test(content)) {
-          rewritable = true
-          console.log(`Rewritable script: ${url}`)
-        }
+
+    for (const { url, content } of scripts) {
+      const { matched: m, rewritable: r } = analyze(content, GROUPS)
+      if (!m) {
+        continue
       }
-    })
+      matched = url
+      console.log(`Matched script: ${url}`)
+      if (r) {
+        rewritable = true
+        console.log(`Rewritable script: ${url}`)
+        break
+      }
+    }
 
     if (!matched) {
       console.log('❌ No matched script found.')
@@ -72,11 +75,11 @@ async function runCheck() {
     console.log(`✅ Matched script: ${matched}`)
 
     if (!rewritable) {
-      console.log(`❌ Rewrite pattern not found.`)
+      console.log('❌ Rewrite pattern not found.')
       return false
     }
 
-    console.log(`✅ Rewrite pattern found.`)
+    console.log('✅ Rewrite pattern found.')
     return true
   } finally {
     await browser.close()
@@ -90,14 +93,12 @@ async function main() {
     }
 
     const success = await runCheck()
-
     if (success) {
       process.exit(0)
     }
 
     if (attempt < MAX_RETRIES) {
       console.log(`Attempt ${attempt} failed. Waiting before retry...`)
-      // Wait a bit before retrying
       await new Promise((resolve) => setTimeout(resolve, 3000))
     }
   }
