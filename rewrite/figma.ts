@@ -1,4 +1,7 @@
 import { matchFile, REWRITE_PATTERN, REWRITE_REPLACER } from './config'
+import { patchErrorStack } from './patch'
+
+patchErrorStack()
 
 async function rewriteScript() {
   const current = document.currentScript as HTMLScriptElement
