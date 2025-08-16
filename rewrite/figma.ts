@@ -1,9 +1,12 @@
-import type { Group } from './config'
 import { GROUPS } from './config'
+import { applyGroups } from './shared'
 
 async function rewriteScript() {
   const current = document.currentScript as HTMLScriptElement
-  const src = current.src
+  const src = current?.src
+  if (!current || !src) {
+    return
+  }
 
   const desc = Object.getOwnPropertyDescriptor(Document.prototype, 'currentScript')
 
@@ -14,39 +17,17 @@ async function rewriteScript() {
     current.replaceWith(script)
   }
 
-  function applyGroup(content: string, group: Group) {
-    const markers = group.markers || []
-
-    if (!markers.every((marker) => content.includes(marker))) {
-      return content
-    }
-
-    let out = content
-    for (const { pattern, replacer } of group.replacements) {
-      if (typeof pattern === 'string') {
-        // @ts-ignore
-        out = out.replaceAll(pattern, replacer)
-      } else {
-        // @ts-ignore
-        out = out.replace(pattern, replacer)
-      }
-    }
-    return out
-  }
-
   try {
-    const original = await (await fetch(src)).text()
-    let content = original
+    const response = await fetch(src)
+    const original = await response.text()
 
-    for (const group of GROUPS) {
-      content = applyGroup(content, group)
-    }
+    const { content: afterRules, changed } = applyGroups(original, GROUPS)
 
-    if (content !== original) {
+    if (changed) {
       console.log(`Rewrote script: ${src}`)
     }
 
-    content = content.replaceAll('delete window.figma', 'window.figma = undefined')
+    const content = afterRules.replaceAll('delete window.figma', 'window.figma = undefined')
 
     Object.defineProperty(document, 'currentScript', {
       configurable: true,
