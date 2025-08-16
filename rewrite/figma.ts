@@ -1,4 +1,5 @@
-import { matchFile, REWRITE_PATTERN, REWRITE_REPLACER } from './config'
+import type { Group } from './config'
+import { GROUPS } from './config'
 
 async function rewriteScript() {
   const current = document.currentScript as HTMLScriptElement
@@ -13,15 +14,38 @@ async function rewriteScript() {
     current.replaceWith(script)
   }
 
-  try {
-    let content = await (await fetch(src)).text()
+  function applyGroup(content: string, group: Group) {
+    const markers = group.markers || []
 
-    if (matchFile(src, content)) {
-      content = content.replace(REWRITE_PATTERN, REWRITE_REPLACER)
+    if (!markers.every((marker) => content.includes(marker))) {
+      return content
+    }
+
+    let out = content
+    for (const { pattern, replacer } of group.replacements) {
+      if (typeof pattern === 'string') {
+        // @ts-ignore
+        out = out.replaceAll(pattern, replacer)
+      } else {
+        // @ts-ignore
+        out = out.replace(pattern, replacer)
+      }
+    }
+    return out
+  }
+
+  try {
+    const original = await (await fetch(src)).text()
+    let content = original
+
+    for (const group of GROUPS) {
+      content = applyGroup(content, group)
+    }
+
+    if (content !== original) {
       console.log(`Rewrote script: ${src}`)
     }
 
-    // delete window.figma may throw Error in strict mode
     content = content.replaceAll('delete window.figma', 'window.figma = undefined')
 
     Object.defineProperty(document, 'currentScript', {
