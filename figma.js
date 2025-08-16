@@ -22,23 +22,17 @@
     }
   ];
 
-  // rewrite/figma.ts
-  async function rewriteScript() {
-    const current = document.currentScript;
-    const src = current.src;
-    const desc = Object.getOwnPropertyDescriptor(Document.prototype, "currentScript");
-    function replaceScript(src2) {
-      const script = document.createElement("script");
-      script.src = src2;
-      script.defer = true;
-      current.replaceWith(script);
-    }
-    function applyGroup(content, group) {
-      const markers = group.markers || [];
-      if (!markers.every((marker) => content.includes(marker))) {
-        return content;
+  // rewrite/shared.ts
+  function groupMatches(content, group) {
+    const markers = group.markers || [];
+    return markers.every((marker) => content.includes(marker));
+  }
+  function applyGroups(content, groups) {
+    let out = content;
+    for (const group of groups) {
+      if (!groupMatches(out, group)) {
+        continue;
       }
-      let out = content;
       for (const { pattern, replacer } of group.replacements) {
         if (typeof pattern === "string") {
           out = out.replaceAll(pattern, replacer);
@@ -46,18 +40,32 @@
           out = out.replace(pattern, replacer);
         }
       }
-      return out;
+    }
+    return { content: out, changed: out !== content };
+  }
+
+  // rewrite/figma.ts
+  async function rewriteScript() {
+    const current = document.currentScript;
+    const src = current?.src;
+    if (!current || !src) {
+      return;
+    }
+    const desc = Object.getOwnPropertyDescriptor(Document.prototype, "currentScript");
+    function replaceScript(src2) {
+      const script = document.createElement("script");
+      script.src = src2;
+      script.defer = true;
+      current.replaceWith(script);
     }
     try {
-      const original = await (await fetch(src)).text();
-      let content = original;
-      for (const group of GROUPS) {
-        content = applyGroup(content, group);
-      }
-      if (content !== original) {
+      const response = await fetch(src);
+      const original = await response.text();
+      const { content: afterRules, changed } = applyGroups(original, GROUPS);
+      if (changed) {
         console.log(`Rewrote script: ${src}`);
       }
-      content = content.replaceAll("delete window.figma", "window.figma = undefined");
+      const content = afterRules.replaceAll("delete window.figma", "window.figma = undefined");
       Object.defineProperty(document, "currentScript", {
         configurable: true,
         get() {
