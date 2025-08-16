@@ -7,9 +7,9 @@
   "scripts": {
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",
-    "build": "wxt build && pnpm run build:rewriter && pnpm run build:plugins && pnpm run build:readme",
+    "build": "wxt build && pnpm run build:rewrite && pnpm run build:plugins && pnpm run build:readme",
     "build:firefox": "wxt build -b firefox",
-    "build:rewrite": "esbuild ./rewrite/figma.ts --outfile=./dist/figma.js --bundle --format=esm",
+    "build:rewrite": "esbuild ./rewrite/figma.ts --outfile=./dist/figma.js --bundle --format=iife",
     "build:plugins": "tsc -p ./plugins/tsconfig.json",
     "build:readme": "tsx ./build/readme.ts",
     "npm:plugins": "pnpm build:plugins && cd plugins && pnpm publish --access public && cd ..",
