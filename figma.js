@@ -9,53 +9,7 @@
     return SRC_PATTERN.test(src) && MARKERS.every((marker) => content.includes(marker));
   }
 
-  // rewrite/patch.ts
-  var EXT_SCHEMES = /(?:chrome|moz)-extension:\/\//g;
-  var PATCHED = Symbol();
-  function sanitizeStack(text = "") {
-    return text.replace(EXT_SCHEMES, "");
-  }
-  function patchErrorStack() {
-    if (globalThis[PATCHED]) return;
-    const NativeError = globalThis.Error;
-    function Error(...args) {
-      const error = new NativeError(...args);
-      if (typeof NativeError.captureStackTrace === "function") {
-        NativeError.captureStackTrace(error, Error);
-      }
-      let rawStack;
-      try {
-        rawStack = error.stack;
-      } catch {
-      }
-      if (typeof rawStack === "string") {
-        let stored = rawStack;
-        Object.defineProperty(error, "stack", {
-          configurable: true,
-          enumerable: false,
-          get() {
-            return sanitizeStack(stored);
-          },
-          set(v) {
-            stored = v;
-          }
-        });
-      }
-      return error;
-    }
-    Object.setPrototypeOf(Error, NativeError);
-    Error.prototype = NativeError.prototype;
-    globalThis.Error = Error;
-    Object.defineProperty(globalThis, PATCHED, {
-      value: true,
-      writable: false,
-      enumerable: false,
-      configurable: false
-    });
-  }
-
   // rewrite/figma.ts
-  patchErrorStack();
   async function rewriteScript() {
     const current = document.currentScript;
     const src = current.src;
