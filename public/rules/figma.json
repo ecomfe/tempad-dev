@@ -25,7 +25,7 @@
       }
     },
     "condition": {
-      "regexFilter": "/webpack-artifacts/assets/figma_app[^.]+\\.min\\.js(\\.br)?$",
+      "regexFilter": "/webpack-artifacts/assets/(?:figma_app[^.]+|[0-9a-zA-Z-]+)\\.min\\.js(?:\\.br)?$",
       "resourceTypes": ["script"]
     }
   }
