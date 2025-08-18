@@ -15,6 +15,7 @@ jobs:
     env:
       FIGMA_EMAIL: ${{ secrets.FIGMA_EMAIL }}
       FIGMA_PASSWORD: ${{ secrets.FIGMA_PASSWORD }}
+      FIGMA_FILE_KEY: ${{ secrets.FIGMA_FILE_KEY }}
 
     steps:
       - name: Checkout repository
