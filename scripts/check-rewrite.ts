@@ -24,7 +24,7 @@ async function runCheck() {
       }
       const content = await response.text()
       scripts.push({ url, content })
-      console.log(`Captured script: ${url}`)
+      console.log(`Captured script: <${url}>.`)
     })
 
     try {
@@ -48,7 +48,13 @@ async function runCheck() {
     }
 
     await page.waitForLoadState('load')
-    console.log(`Page loaded at ${page.url()}.`)
+    console.log(`Page loaded at <${page.url()}>.`)
+
+    console.log(
+      `Navigating to the design file: <https://www.figma.com/design/${process.env.FIGMA_FILE_KEY}>.`
+    )
+    await page.goto(`https://www.figma.com/design/${process.env.FIGMA_FILE_KEY}`)
+    console.log(`Page loaded at <${page.url()}>.`)
 
     let matched: string | null = null
     let rewritable = false
@@ -59,10 +65,10 @@ async function runCheck() {
         continue
       }
       matched = url
-      console.log(`Matched script: ${url}`)
+      console.log(`Matched script: <${url}>.`)
       if (r) {
         rewritable = true
-        console.log(`Rewritable script: ${url}`)
+        console.log(`Rewritable script: <${url}>.`)
         break
       }
     }
@@ -72,7 +78,7 @@ async function runCheck() {
       return false
     }
 
-    console.log(`✅ Matched script: ${matched}`)
+    console.log(`✅ Matched script: <${matched}>.`)
 
     if (!rewritable) {
       console.log('❌ Rewrite pattern not found.')
