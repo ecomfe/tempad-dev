@@ -1,5 +1,5 @@
 import { GROUPS } from '@/rewrite/config'
-import { analyze } from '@/rewrite/shared'
+import { applyGroups, groupMatches } from '@/rewrite/shared'
 import { chromium } from 'playwright-chromium'
 import rules from '../public/rules/figma.json'
 
@@ -56,36 +56,43 @@ async function runCheck() {
     await page.goto(`https://www.figma.com/design/${process.env.FIGMA_FILE_KEY}`)
     console.log(`Page loaded at <${page.url()}>.`)
 
-    let matched: string | null = null
-    let rewritable = false
+    let matchedCount = 0
+    let rewrittenCount = 0
+    const notRewritten: string[] = []
 
     for (const { url, content } of scripts) {
-      const { matched: m, rewritable: r } = analyze(content, GROUPS)
-      if (!m) {
+      const matched = GROUPS.some((group) => groupMatches(content, group))
+      if (!matched) {
         continue
       }
-      matched = url
+
+      matchedCount++
       console.log(`Matched script: <${url}>.`)
-      if (r) {
-        rewritable = true
-        console.log(`Rewritable script: <${url}>.`)
-        break
+
+      const { changed } = applyGroups(content, GROUPS)
+      if (changed) {
+        rewrittenCount++
+        console.log(`Rewritable (would change): <${url}>.`)
+      } else {
+        notRewritten.push(url)
+        console.log(`Not rewritable (no change produced): <${url}>.`)
       }
     }
 
-    if (!matched) {
+    if (matchedCount === 0) {
       console.log('❌ No matched script found.')
       return false
     }
 
-    console.log(`✅ Matched script: <${matched}>.`)
+    console.log(`✅ Matched ${matchedCount} script(s).`)
 
-    if (!rewritable) {
-      console.log('❌ Rewrite pattern not found.')
+    if (rewrittenCount !== matchedCount) {
+      console.log('❌ Some matched scripts would not be rewritten by rules:')
+      notRewritten.forEach((url) => console.log(` - <${url}>`))
       return false
     }
 
-    console.log('✅ Rewrite pattern found.')
+    console.log('✅ All matched scripts would be rewritten by rules.')
     return true
   } finally {
     await browser.close()
