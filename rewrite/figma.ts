@@ -1,5 +1,16 @@
+import waitFor from 'p-wait-for'
+
 import { GROUPS } from './config'
 import { applyGroups } from './shared'
+
+async function waitRuntimeReady() {
+  const getQueue = () => (window.webpackChunk_figma_web_bundler ||= [])
+
+  await waitFor(() => {
+    const queue = getQueue()
+    return typeof queue.push === 'function' && queue.push !== Array.prototype.push
+  })
+}
 
 async function rewriteScript() {
   const current = document.currentScript as HTMLScriptElement
@@ -29,6 +40,8 @@ async function rewriteScript() {
 
     const content = afterRules.replaceAll('delete window.figma', 'window.figma = undefined')
 
+    await waitRuntimeReady()
+
     Object.defineProperty(document, 'currentScript', {
       configurable: true,
       get() {
@@ -41,7 +54,11 @@ async function rewriteScript() {
     console.error(e)
     replaceScript(`${src}?fallback`)
   } finally {
-    Object.defineProperty(document, 'currentScript', desc as PropertyDescriptor)
+    if (desc) {
+      Object.defineProperty(document, 'currentScript', desc)
+    } else {
+      delete (document as any).currentScript
+    }
   }
 }
 
