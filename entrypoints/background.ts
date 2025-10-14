@@ -1,5 +1,4 @@
-const RULE_URL =
-  'https://raw.githubusercontent.com/ecomfe/tempad-dev/refs/heads/main/public/rules/figma.json'
+const RULE_URL = 'https://ecomfe.github.io/tempad-dev/figma.json'
 
 const SYNC_ALARM = 'sync-rules'
 const SYNC_INTERVAL_MINUTES = 10
