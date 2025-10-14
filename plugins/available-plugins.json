@@ -54,5 +54,12 @@
     "description": "CSS to Tailwind CSS",
     "repo": "https://github.com/haydenull/tempad-dev-plugin-tailwind",
     "url": "https://raw.githubusercontent.com/haydenull/tempad-dev-plugin-tailwind/main/dist/index.mjs"
+  },
+  {
+    "name": "react-native",
+    "author": "@CANntyield",
+    "description": "CSS to React Native StyleSheet",
+    "repo": "https://github.com/CANntyield/tempad-dev-plugin-react-native",
+    "url": "https://raw.githubusercontent.com/CANntyield/tempad-dev-plugin-react-native/refs/heads/main/dist/index.mjs"
   }
 ]
