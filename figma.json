@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "priority": 10,
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "header": "Content-Security-Policy",
+          "operation": "remove"
+        }
+      ]
+    },
+    "condition": {
+      "resourceTypes": ["main_frame"]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "url": "https://ecomfe.github.io/tempad-dev/figma.js"
+      }
+    },
+    "condition": {
+      "regexFilter": "/webpack-artifacts/assets/figma_app[^.]+\\.min\\.js(?:\\.br)?$",
+      "resourceTypes": ["script"]
+    }
+  }
+]
