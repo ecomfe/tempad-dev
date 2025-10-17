@@ -1,7 +1,7 @@
 import rules from '@/public/rules/figma.json'
 import { applyGroups, RULES_URL, REWRITE_RULE_ID } from '@/rewrite/shared'
 import { GROUPS } from '@/rewrite/config'
-import type { BlobHandle, CacheEntry, Rules } from './types'
+import type { BlobHandle, CacheEntry, Rules } from '../types/rewrite'
 
 export default defineContentScript({
   matches: [

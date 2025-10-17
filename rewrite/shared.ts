@@ -1,4 +1,4 @@
-import type { Group } from './config'
+import type { Group } from '@/types/rewrite'
 
 export const RULES_URL = 'https://ecomfe.github.io/tempad-dev/figma.json'
 export const REWRITE_RULE_ID = 2

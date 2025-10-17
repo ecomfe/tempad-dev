@@ -1,6 +1,6 @@
 import { RULES_URL } from '@/rewrite/shared'
 import rules from '@/public/rules/figma.json'
-import type { Rules } from './types'
+import type { Rules } from '../types/rewrite'
 
 const SYNC_ALARM = 'sync-rules'
 const SYNC_INTERVAL_MINUTES = 10

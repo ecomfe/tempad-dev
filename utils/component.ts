@@ -5,7 +5,7 @@ import type {
   DesignNode,
   DesignComponent,
   DevComponent
-} from '@/shared/types'
+} from '@/types/plugin'
 import type { SelectionNode } from '@/ui/state'
 
 import { Fill, Variable } from '@/plugins/src'

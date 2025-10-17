@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CodeBlock } from '@/codegen/types'
+import type { CodeBlock } from '@/types/codegen'
 
 import Badge from '@/components/Badge.vue'
 import Code from '@/components/Code.vue'

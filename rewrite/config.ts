@@ -1,12 +1,4 @@
-export type Replacement = {
-  pattern: string | RegExp
-  replacer: string | ((...args: any[]) => string)
-}
-
-export type Group = {
-  markers?: string[]
-  replacements: Replacement[]
-}
+import type { Group } from '@/types/rewrite'
 
 export const GROUPS: Group[] = [
   {
