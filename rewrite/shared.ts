@@ -1,5 +1,8 @@
 import type { Group } from './config'
 
+export const RULES_URL = 'https://ecomfe.github.io/tempad-dev/figma.json'
+export const REWRITE_RULE_ID = 2
+
 export function groupMatches(content: string, group: Group) {
   const markers = group.markers || []
   return markers.every((marker) => content.includes(marker))
