@@ -1,5 +1,5 @@
-import type { RequestPayload, ResponsePayload, SerializeOptions } from '@/codegen/types'
-import type { DesignComponent } from '@/shared/types'
+import type { RequestPayload, ResponsePayload, SerializeOptions } from '@/types/codegen'
+import type { DesignComponent } from '@/types/plugin'
 
 import Codegen from '@/codegen/codegen?worker&inline'
 import { createWorkerRequester } from '@/codegen/worker'

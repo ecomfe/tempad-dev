@@ -1,5 +1,5 @@
-import type { RequestPayload, ResponsePayload, CodeBlock } from '@/codegen/types'
-import type { Plugin } from '@/shared/types'
+import type { RequestPayload, ResponsePayload, CodeBlock } from '@/types/codegen'
+import type { Plugin } from '@/types/plugin'
 
 import { serializeComponent } from '@/utils/component'
 import { serializeCSS } from '@/utils/css'
