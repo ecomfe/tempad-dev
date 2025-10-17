@@ -24,7 +24,7 @@ async function rewriteScript() {
     const { content: afterRules, changed } = applyGroups(original, GROUPS)
 
     if (changed) {
-      console.log(`Rewrote script: ${src}`)
+      console.log(`[tempad-dev] Rewrote script: ${src}`)
     }
 
     const content = afterRules.replaceAll('delete window.figma', 'window.figma = undefined')

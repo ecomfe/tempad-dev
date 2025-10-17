@@ -1,17 +1,27 @@
-const RULE_URL = 'https://ecomfe.github.io/tempad-dev/figma.json'
+import { RULES_URL } from '@/rewrite/shared'
+import rules from '@/public/rules/figma.json'
+import type { Rules } from './types'
 
 const SYNC_ALARM = 'sync-rules'
 const SYNC_INTERVAL_MINUTES = 10
 
 async function fetchRules() {
   try {
-    const res = await fetch(RULE_URL, { cache: 'no-store' })
-    if (!res.ok) {
-      console.error('[tempad-dev] Failed to fetch rules:', res.statusText)
-      return
+    let newRules: Rules
+
+    if (import.meta.env.DEV) {
+      newRules = rules as Rules
+      console.log('[tempad-dev] Loaded local rules (dev).')
+    } else {
+      const res = await fetch(RULES_URL, { cache: 'no-store' })
+      if (!res.ok) {
+        console.error('[tempad-dev] Failed to fetch rules:', res.statusText)
+        return
+      }
+
+      newRules = (await res.json()) as Rules
     }
 
-    const newRules = await res.json()
     const oldIds = (await browser.declarativeNetRequest.getDynamicRules()).map(({ id }) => id)
 
     await browser.declarativeNetRequest.updateEnabledRulesets({
