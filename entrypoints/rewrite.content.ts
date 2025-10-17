@@ -7,8 +7,10 @@ export default defineContentScript({
   matches: [
     'https://www.figma.com/file/*',
     'https://www.figma.com/design/*',
+    'https://www.figma.com/proto/*',
+    'https://www.figma.com/slides/*',
     'https://www.figma.com/deck/*',
-    'https://www.figma.com/proto/*'
+    'https://www.figma.com/site/*'
   ],
   runAt: 'document_start',
   world: 'MAIN',
