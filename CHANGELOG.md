@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.11.1
+
+- Fixed loading error on Figma slides and site pages.
+
 ## 0.11.0
 
 - Improved compatibility with Figma's lazy loading mechanism.
