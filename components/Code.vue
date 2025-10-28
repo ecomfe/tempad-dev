@@ -12,6 +12,17 @@ const props = defineProps<{
   link?: string
 }>()
 
+const content = useTemplateRef('content')
+useScrollbar(content, {
+  overflow: {
+    y: 'hidden'
+  },
+  scrollbars: {
+    autoHideDelay: 0,
+    clickScroll: true
+  }
+})
+
 const prismAlias: Record<string, string> = {
   vue: 'html'
 }
@@ -57,6 +68,7 @@ const highlighted = computed(() => {
 })
 
 const code = computed(() => props.code)
+const lines = computed(() => props.code.split('\n').length)
 const copy = useCopy(code)
 
 function handleCopy() {
@@ -74,40 +86,55 @@ function handleClick(event: MouseEvent) {
 <template>
   <section class="tp-code">
     <header class="tp-row tp-row-justify tp-code-header">
-      {{ title }}
+      <h3 class="tp-code-title">{{ title }}</h3>
       <div class="tp-row tp-gap">
         <slot name="actions" />
-        <IconButton variant="secondary" title="Copy" @click="handleCopy">
+        <IconButton title="Copy" @click="handleCopy">
           <Copy />
         </IconButton>
       </div>
     </header>
-    <pre class="tp-code-content"><code v-html="highlighted" @click="handleClick"/></pre>
+    <div class="tp-code-block">
+      <div class="tp-code-line-numbers">
+        <div class="tp-code-line-number" v-for="i in lines" :key="i">{{ i }}</div>
+      </div>
+      <pre
+        class="tp-code-content"
+        ref="content"
+      ><code v-html="highlighted" @click="handleClick"/></pre>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.tp-code {
-  border-radius: 2px;
-  background-color: var(--color-bg-secondary);
-}
-
 .tp-code-header {
-  height: 40px;
-  padding: 4px 4px 4px 12px;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  user-select: none;
-  cursor: default;
-  min-width: 0;
+  width: 100%;
+  min-height: 32px;
+  border-radius: var(--radius-medium) var(--radius-medium) 0 0;
+  padding: 0;
+  background-color: var(--color-bg);
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
+  user-select: none;
+  cursor: default;
 }
 
-.tp-code-content {
-  border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.1));
-  padding: 4px 12px;
+.tp-code-title {
+  padding: 8px 0;
+  font-weight: 400;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.tp-code-block {
+  display: flex;
+  flex-direction: row;
+  background-color: transparent;
+  border-radius: var(--radius-medium, 2px);
+  box-shadow: 0 0 0 1px var(--color-border-code-well);
+  margin: 1px 0;
+  padding: 8px 0 0;
   -webkit-font-smoothing: antialiased;
   font-family:
     Roboto Mono,
@@ -118,7 +145,37 @@ function handleClick(event: MouseEvent) {
   line-height: 18px;
   font-size: 11px;
   letter-spacing: 0.005em;
+}
+
+.tp-code-line-numbers {
+  display: flex;
+  flex-direction: column;
+  min-width: 20px;
+  border-radius: 2px 0 0 2px;
+  flex-shrink: 0;
+  margin-top: -8px;
+  padding-top: 8px;
+  border-right: 1px solid var(--color-border-code-well);
+}
+
+.tp-code-line-number {
+  min-width: 12px;
+  color: var(--color-text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  padding-right: 4px;
+  padding-left: 4px;
+}
+
+.tp-code-content {
+  padding-left: 6px;
+  padding-bottom: 8px;
   overflow-x: auto;
+}
+
+.tp-code-content:has(.os-scrollbar-visible) {
+  padding-bottom: 16px;
 }
 
 .tp-code-content::selection {
@@ -139,7 +196,8 @@ function handleClick(event: MouseEvent) {
   color: var(--color-text);
 }
 
-.tp-code-content .token.plain {
+.tp-code-content .token.plain,
+.tp-code-content .token.color {
   color: var(--color-codevalue);
 }
 
