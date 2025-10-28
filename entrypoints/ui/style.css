@@ -165,3 +165,21 @@ tempad ::-webkit-scrollbar-thumb {
   ~ tempad {
   display: none;
 }
+
+.os-scrollbar {
+  --os-track-bg-hover: var(--color-scrollbartrackhover);
+  --os-track-bg-active: var(--color-scrollbartrackdrag);
+  --os-handle-bg: var(--color-scrollbar);
+  --os-handle-bg-hover: var(--color-scrollbar);
+  --os-handle-bg-active: var(--color-scrollbar);
+}
+
+.os-scrollbar-vertical:hover::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 1px;
+  background-color: var(--color-border);
+}

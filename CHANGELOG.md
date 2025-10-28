@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.11.2
+
+- Improved code block styles.
+
 ## 0.11.1
 
 - Fixed loading error on Figma slides and site pages.

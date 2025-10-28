@@ -1,19 +1,23 @@
 <script setup lang="ts">
+import { useScrollbar } from '@/composables/scrollbar'
 import { ui } from '@/ui/figma'
 import { options } from '@/ui/state'
 import { useDraggable, useWindowSize, watchDebounced } from '@vueuse/core'
-import {
-  OverlayScrollbars,
-  ScrollbarsHidingPlugin,
-  SizeObserverPlugin,
-  ClickScrollPlugin
-} from 'overlayscrollbars'
-
-OverlayScrollbars.plugin([ScrollbarsHidingPlugin, SizeObserverPlugin, ClickScrollPlugin])
 
 const panel = useTemplateRef('panel')
 const header = useTemplateRef('header')
 const main = useTemplateRef('main')
+
+useScrollbar(main, {
+  overflow: {
+    x: 'hidden'
+  },
+  scrollbars: {
+    autoHide: 'leave',
+    autoHideDelay: 0,
+    clickScroll: true
+  }
+})
 
 const position = options.value.panelPosition
 const { x, y } = useDraggable(panel, {
@@ -68,29 +72,6 @@ if (position) {
 function toggleMinimized() {
   options.value.minimized = !options.value.minimized
 }
-
-let os: OverlayScrollbars
-
-onMounted(() => {
-  if (!main.value) {
-    return
-  }
-
-  os = OverlayScrollbars(main.value, {
-    overflow: {
-      x: 'hidden'
-    },
-    scrollbars: {
-      autoHide: 'leave',
-      autoHideDelay: 0,
-      clickScroll: true
-    }
-  })
-})
-
-onUnmounted(() => {
-  os?.destroy()
-})
 </script>
 
 <template>
@@ -148,25 +129,5 @@ onUnmounted(() => {
 [data-fpl-version='ui3'] .tp-panel {
   box-shadow: var(--elevation-100);
   border-radius: var(--radius-large);
-}
-</style>
-
-<style>
-.os-scrollbar {
-  --os-track-bg-hover: var(--color-scrollbartrackhover);
-  --os-track-bg-active: var(--color-scrollbartrackdrag);
-  --os-handle-bg: var(--color-scrollbar);
-  --os-handle-bg-hover: var(--color-scrollbar);
-  --os-handle-bg-active: var(--color-scrollbar);
-}
-
-.os-scrollbar-vertical:hover::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -1px;
-  width: 1px;
-  background-color: var(--color-border);
 }
 </style>
