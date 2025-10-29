@@ -64,6 +64,13 @@ const highlighted = computed(() => {
       span.appendChild(prev)
       span.appendChild(el)
     })
+
+    tpl.querySelectorAll('.token.color').forEach((el) => {
+      const span = document.createElement('span')
+      span.className = 'token chit'
+      span.style.backgroundColor = el.textContent || 'transparent'
+      el.parentNode!.insertBefore(span, el)
+    })
   })
 })
 
@@ -169,8 +176,7 @@ function handleClick(event: MouseEvent) {
 }
 
 .tp-code-content {
-  padding-left: 6px;
-  padding-bottom: 8px;
+  padding: 0 8px 8px;
   overflow-x: auto;
 }
 
@@ -292,5 +298,17 @@ function handleClick(event: MouseEvent) {
 
 .tp-code-content .token.variable:focus:not(:focus-visible) {
   outline: 2px solid transparent;
+}
+
+.tp-code-content .token.chit {
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+  margin-right: 2px;
+  transform: translateY(-1px);
+  vertical-align: middle;
+  border-radius: 2px;
+  border: 1px solid var(--color-border);
+  cursor: default;
 }
 </style>

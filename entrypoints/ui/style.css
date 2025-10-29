@@ -183,3 +183,14 @@ tempad ::-webkit-scrollbar-thumb {
   width: 1px;
   background-color: var(--color-border);
 }
+
+[data-testid="design-toolbelt-wrapper"] [class^="toolbelt_banner--container"],
+[data-testid="design-toolbelt-wrapper"]:has([class^="toolbelt_banner--container"])
+  [class^="design_toolbelt--enabledToolsRow"]
+  ~ *,
+[data-testid="design-toolbelt-wrapper"]:has([class^="toolbelt_banner--container"])
+  [class^="mode_toggle_switch_divider"],
+[data-testid="design-toolbelt-wrapper"]:has([class^="toolbelt_banner--container"])
+  [class^="mode_switcher_toggle--toggleWrapper"] {
+  display: none !important;
+}
