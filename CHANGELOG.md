@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.11.3
+
+- Added color preview for color tokens in code blocks.
+- Cleaned up view-only mode alert messages and CTA buttons.
+
 ## 0.11.2
 
 - Improved code block styles.
