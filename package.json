@@ -28,7 +28,7 @@
     "@vue/eslint-config-prettier": "^10.0.0",
     "@vue/eslint-config-typescript": "^14.6.0",
     "@vueuse/core": "^14.0.0",
-    "@wxt-dev/module-vue": "^1.0.2",
+    "@wxt-dev/module-vue": "^1.0.3",
     "comment-mark": "^2.0.1",
     "esbuild": "^0.25.4",
     "eslint": "^9.38.0",
@@ -49,6 +49,9 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "playwright-chromium"
-    ]
+    ],
+    "overrides": {
+      "vite": "npm:rolldown-vite@latest"
+    }
   }
 }
