@@ -38,8 +38,8 @@ importers:
         specifier: ^1.0.2
         version: 1.0.2(vite@6.3.5(@types/node@22.15.21)(jiti@2.4.2)(tsx@4.19.4))(vue@3.5.14(typescript@5.8.3))(wxt@0.20.6(patch_hash=5e8fefe1eb45738764c66af1f26e1cd6beeed487f88f28b4362f8ef40d8f9318)(@types/node@22.15.21)(jiti@2.4.2)(rollup@4.41.0)(tsx@4.19.4))
       comment-mark:
-        specifier: ^1.1.1
-        version: 1.1.1
+        specifier: ^2.0.0
+        version: 2.0.1
       esbuild:
         specifier: ^0.25.4
         version: 0.25.4
@@ -901,8 +901,9 @@ packages:
     resolution: {integrity: sha512-KRs7WVDKg86PWiuAqhDrAQnTXZKraVcCc6vFdL14qrZ/DcWwuRo7VoiYXalXO7S5GKpqYiVEwCbgFDfxNHKJBQ==}
     engines: {node: ^12.20.0 || >=14}
 
-  comment-mark@1.1.1:
-    resolution: {integrity: sha512-KxFiXpu1/srgsSrftM/whqTpHZUX+BO3bgsToDNNJSqqsGP48sngnAIC+Cms+cCsDl9TQb7rlAVyfKDBdPQcaA==}
+  comment-mark@2.0.1:
+    resolution: {integrity: sha512-WObl+IX0fmiQYgt/pMTquyAYBdcKf8GQGPVPDNtL7XvDQDUdfHaOJYayzsLGS24GHLuHhFXgVXmwwq6CM1lHcQ==}
+    engines: {node: '>=20'}
 
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
@@ -3379,7 +3380,7 @@ snapshots:
 
   commander@9.5.0: {}
 
-  comment-mark@1.1.1: {}
+  comment-mark@2.0.1: {}
 
   concat-map@0.0.1: {}
 

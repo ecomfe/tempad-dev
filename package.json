@@ -29,7 +29,7 @@
     "@vue/eslint-config-typescript": "^13.0.0",
     "@vueuse/core": "^10.11.1",
     "@wxt-dev/module-vue": "^1.0.2",
-    "comment-mark": "^1.1.1",
+    "comment-mark": "^2.0.0",
     "esbuild": "^0.25.4",
     "eslint": "^8.57.1",
     "eslint-plugin-perfectionist": "^3.9.1",
