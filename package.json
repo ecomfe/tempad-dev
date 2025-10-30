@@ -27,7 +27,7 @@
     "@types/stringify-object": "^4.0.5",
     "@vue/eslint-config-prettier": "^9.0.0",
     "@vue/eslint-config-typescript": "^14.6.0",
-    "@vueuse/core": "^10.11.1",
+    "@vueuse/core": "^14.0.0",
     "@wxt-dev/module-vue": "^1.0.2",
     "comment-mark": "^1.1.1",
     "esbuild": "^0.25.4",
