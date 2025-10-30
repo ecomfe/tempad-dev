@@ -48,6 +48,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "esbuild",
       "playwright-chromium"
     ],
     "overrides": {
