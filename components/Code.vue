@@ -27,6 +27,10 @@ const prismAlias: Record<string, string> = {
   vue: 'html'
 }
 
+const STRIP_TRAILING_WS_RE = /\s+$/gm
+
+const code = computed(() => props.code.replace(STRIP_TRAILING_WS_RE, ''))
+
 const lang = computed(() => {
   if (prismAlias[props.lang]) {
     return prismAlias[props.lang]
@@ -38,10 +42,10 @@ const lang = computed(() => {
 const highlighted = computed(() => {
   const { Prism } = window
   if (!Prism || !Prism.languages[lang.value]) {
-    return props.code
+    return code.value
   }
 
-  const html = Prism.highlight(props.code, Prism.languages[lang.value], lang.value)
+  const html = Prism.highlight(code.value, Prism.languages[lang.value], lang.value)
 
   return transformHTML(html, (tpl) => {
     tpl.querySelectorAll<HTMLElement>('.token.variable, .token.constant').forEach((el) => {
@@ -74,8 +78,7 @@ const highlighted = computed(() => {
   })
 })
 
-const code = computed(() => props.code)
-const lines = computed(() => props.code.split('\n').length)
+const lines = computed(() => code.value.split('\n').length)
 const copy = useCopy(code)
 
 function handleCopy() {
