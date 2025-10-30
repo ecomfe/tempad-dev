@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.11.4
+
+- Strip trailing whitespaces and newlines from code blocks.
+
 ## 0.11.3
 
 - Added color preview for color tokens in code blocks.
