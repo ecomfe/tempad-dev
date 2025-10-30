@@ -35,7 +35,7 @@
     "eslint-plugin-perfectionist": "^3.9.1",
     "eslint-plugin-vue": "^9.33.0",
     "overlayscrollbars": "^2.11.3",
-    "p-wait-for": "^5.0.2",
+    "p-wait-for": "^6.0.0",
     "playwright-chromium": "^1.52.0",
     "prettier": "^3.5.3",
     "stringify-object": "^5.0.0",
