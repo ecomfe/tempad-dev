@@ -44,14 +44,11 @@
     "vite-plugin-css-injected-by-js": "^3.5.2",
     "vue": "^3.5.14",
     "vue-tsc": "^3.1.2",
-    "wxt": "^0.20.6"
+    "wxt": "^0.20.11"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "playwright-chromium"
-    ],
-    "patchedDependencies": {
-      "wxt": "patches/wxt.patch"
-    }
+    ]
   }
 }
