@@ -38,7 +38,7 @@
     "p-wait-for": "^5.0.2",
     "playwright-chromium": "^1.52.0",
     "prettier": "^3.5.3",
-    "stringify-object": "^5.0.0",
+    "stringify-object": "^6.0.0",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3",
     "vite-plugin-css-injected-by-js": "^3.5.2",
