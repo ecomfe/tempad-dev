@@ -43,7 +43,7 @@
     "typescript": "^5.8.3",
     "vite-plugin-css-injected-by-js": "^3.5.2",
     "vue": "^3.5.14",
-    "vue-tsc": "^2.2.10",
+    "vue-tsc": "^3.0.0",
     "wxt": "^0.20.6"
   },
   "pnpm": {
