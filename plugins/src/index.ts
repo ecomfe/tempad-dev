@@ -380,7 +380,7 @@ export function h<T extends object = Record<string, unknown>>(
 
   const childSource =
     propsOrChildren === undefined || isChildrenArgument(propsOrChildren)
-      ? propsOrChildren ?? childrenOrSingle
+      ? (propsOrChildren ?? childrenOrSingle)
       : childrenOrSingle
 
   return {
