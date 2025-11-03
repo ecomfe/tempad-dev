@@ -13,7 +13,7 @@ importers:
     devDependencies:
       '@figma/plugin-typings':
         specifier: ^1.112.0
-        version: 1.118.0
+        version: 1.119.0
       '@rushstack/eslint-patch':
         specifier: ^1.11.0
         version: 1.14.1
@@ -500,8 +500,8 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@figma/plugin-typings@1.118.0':
-    resolution: {integrity: sha512-hiT0vGrbwnNeZrwjcar3btHjxcouUNFQ52QzBvIbwEdhbH/k/JtWEzmbDZ2UnGZMt3n5K3J4D6fqkATwoz2gLA==}
+  '@figma/plugin-typings@1.119.0':
+    resolution: {integrity: sha512-DxNa0LwOBublet2iXa30Bt8zUmHXDnLrSiJOSHfL8KjyxpZv15GHgV5TIenvGI84QbQTKmXwOMAwmX/QDeDNWw==}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -3002,7 +3002,7 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@figma/plugin-typings@1.118.0': {}
+  '@figma/plugin-typings@1.119.0': {}
 
   '@humanfs/core@0.19.1': {}
 
