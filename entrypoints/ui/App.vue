@@ -9,7 +9,6 @@ import ErrorSection from '@/components/sections/ErrorSection.vue'
 import MetaSection from '@/components/sections/MetaSection.vue'
 import PrefSection from '@/components/sections/PrefSection.vue'
 import { useKeyLock, useSelection } from '@/composables'
-import { ui } from '@/ui/figma'
 import { options, runtimeMode } from '@/ui/state'
 
 useSelection()
@@ -18,8 +17,6 @@ useKeyLock()
 function toggleMinimized() {
   options.value.minimized = !options.value.minimized
 }
-
-const panelWidth = `${ui.tempadPanelWidth}px`
 </script>
 
 <template>
@@ -53,7 +50,6 @@ const panelWidth = `${ui.tempadPanelWidth}px`
 
 <style scoped>
 .tp-main {
-  width: v-bind(panelWidth);
   transition: width, height;
   transition-duration: 0.2s;
   transition-timing-function: cubic-bezier(0.87, 0, 0.13, 1);
@@ -63,5 +59,10 @@ const panelWidth = `${ui.tempadPanelWidth}px`
 .tp-main-minimized {
   height: 41px;
   border-bottom-width: 0;
+}
+
+.tp-main.tp-panel-dragging,
+.tp-main.tp-panel-resizing {
+  transition: none;
 }
 </style>
