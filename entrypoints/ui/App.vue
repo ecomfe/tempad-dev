@@ -21,8 +21,6 @@ function toggleMinimized() {
   options.value.minimized = !options.value.minimized
 }
 
-const panelWidth = `${ui.tempadPanelWidth}px`
-
 const { status, selfActive, count, activate } = useMcp()
 
 const isMcpConnected = computed(() => status.value === 'connected')
@@ -111,7 +109,6 @@ function activateMcp() {
 
 <style scoped>
 .tp-main {
-  width: v-bind(panelWidth);
   transition: width, height;
   transition-duration: 0.2s;
   transition-timing-function: cubic-bezier(0.87, 0, 0.13, 1);
@@ -121,6 +118,11 @@ function activateMcp() {
 .tp-main-minimized {
   height: 41px;
   border-bottom-width: 0;
+}
+
+.tp-main.tp-panel-dragging,
+.tp-main.tp-panel-resizing {
+  transition: none;
 }
 
 .tp-mcp-badge {
