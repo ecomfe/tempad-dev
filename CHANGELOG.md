@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.12.0
+
+- Added support for documentation links and dev resource links.
+- Switch to always use `figma.notify`.
+- Remove Quirks mode.
+
 ## 0.11.4
 
 - Strip trailing whitespaces and newlines from code blocks.
