@@ -1,8 +1,6 @@
 import { getTemPadComponent } from '@/utils'
 import { useStorage, computedAsync } from '@vueuse/core'
 
-import type { QuirksNode, GhostNode } from './quirks'
-
 import { ui } from './figma'
 
 interface PluginData {
@@ -29,7 +27,7 @@ export type Options = {
   activePluginSource: string | null
 }
 
-export type SelectionNode = SceneNode | QuirksNode | GhostNode
+export type SelectionNode = SceneNode
 
 export const options = useStorage<Options>('tempad-dev', {
   minimized: false,
@@ -47,7 +45,7 @@ export const options = useStorage<Options>('tempad-dev', {
   activePluginSource: null
 })
 
-export const runtimeMode = shallowRef<'standard' | 'quirks' | 'unavailable'>('standard')
+export const runtimeMode = shallowRef<'standard' | 'unavailable'>('standard')
 export const selection = shallowRef<readonly SelectionNode[]>([])
 export const selectedNode = computed(() => selection.value?.[0] ?? null)
 export const selectedTemPadComponent = computed(() => getTemPadComponent(selectedNode.value))

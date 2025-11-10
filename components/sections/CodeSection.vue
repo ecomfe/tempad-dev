@@ -4,7 +4,6 @@ import type { CodeBlock } from '@/types/codegen'
 import Badge from '@/components/Badge.vue'
 import Code from '@/components/Code.vue'
 import IconButton from '@/components/IconButton.vue'
-import Info from '@/components/icons/Info.vue'
 import Preview from '@/components/icons/Preview.vue'
 import Section from '@/components/Section.vue'
 import { selection, selectedNode, options, selectedTemPadComponent, activePlugin } from '@/ui/state'
@@ -13,7 +12,6 @@ import { getDesignComponent } from '@/utils'
 const componentCode = shallowRef('')
 const componentLink = shallowRef('')
 const codeBlocks = shallowRef<CodeBlock[]>([])
-const warning = shallowRef('')
 
 const playButtonTitle = computed(() =>
   componentLink.value
@@ -46,12 +44,6 @@ async function updateCode() {
   codeBlocks.value = (
     await codegen(style, component, serializeOptions, activePlugin.value?.code || undefined)
   ).codeBlocks
-
-  if ('warning' in node) {
-    warning.value = node.warning
-  } else {
-    warning.value = ''
-  }
 }
 
 watch(options, updateCode, {
@@ -74,9 +66,6 @@ function open() {
           activePlugin.name
         }}</Badge>
       </div>
-      <IconButton v-if="warning" variant="secondary" :title="warning" dull>
-        <Info />
-      </IconButton>
     </template>
     <Code
       v-if="componentCode"
