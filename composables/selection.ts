@@ -1,10 +1,9 @@
-import { createQuirksSelection } from '@/ui/quirks'
 import { selection } from '@/ui/state'
 import { getCanvas, getLeftPanel } from '@/utils'
 
 function syncSelection() {
   if (!window.figma) {
-    selection.value = createQuirksSelection()
+    selection.value = []
     return
   }
   selection.value = figma.currentPage.selection

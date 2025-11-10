@@ -5,6 +5,9 @@ tempad {
   font-family: var(--font-family-ui);
   font-size: 11px;
   color: var(--text-primary);
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 [data-fpl-version="ui3"] tempad {
