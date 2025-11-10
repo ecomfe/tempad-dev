@@ -96,29 +96,6 @@ tempad input[type="number"]:focus-visible {
   outline-offset: -2px;
 }
 
-tempad ::-webkit-scrollbar {
-  width: 11px;
-  height: 11px;
-  background-color: transparent;
-  border: 0 solid var(--color-border);
-}
-
-tempad ::-webkit-scrollbar:horizontal {
-  border-top-width: 1px;
-}
-
-tempad ::-webkit-scrollbar:vertical {
-  border-left-width: 1px;
-}
-
-tempad ::-webkit-scrollbar-thumb {
-  border-radius: 8px;
-  border: solid transparent;
-  border-width: 3px 2px 2px 3px;
-  background-clip: content-box;
-  background-color: var(--color-scrollbar);
-}
-
 [data-fpl-version="ui3"] tempad .tp-gap {
   gap: var(--spacer-1);
 }
