@@ -136,18 +136,16 @@ See [Justineo/tempad-dev-plugin-kong](https://github.com/Justineo/tempad-dev-plu
 
 Currently, we support 4 plugin hooks:
 
-- `transform`: Adjusts the generated CSS string or parsed style object before it is rendered in the panel.
-- `transformVariable`: Remaps CSS variables, letting you emit alternate token syntaxes such as Sass variables.
-- `transformPx`: Rewrites numeric pixel values while respecting user preferences like `useRem` and `rootFontSize`.
-- `transformComponent`: Converts the inspected component instance into either a `DevComponent` tree or a preformatted string for the code block.
+- `transform`: Converts the style object or code into a string format for the code block. Useful for custom structures, such as Tailwind CSS or UnoCSS.
+- `transformVariable`: Converts CSS variables into alternate formats, e.g., converting them to Sass variables for design tokens.
+- `transformPx`: Converts pixel values into other units or scales.
+- `transformComponent`: Converts the design component object into a dev component object or a strin for the code block. Useful for generating component code for design systems.
 
 > [!TIP]
 > To include JavaScript variables in generated CSS, wrap the variable name in `\0` characters. This will convert it into string interpolation for JavaScript.
 > e.g. if you return `\0foo\0` as the return value, an input of `calc(var(--foo) + 10px)` will be transformed into a JavaScript template string as `` `calc(${foo} + 10px)` ``.
 
-Additionally, you can specify a custom `title` and `lang` for the code block (supported values include `text`, `tsx`, `jsx`, `ts`, `js`, `vue`, `html`, `css`, `sass`, `scss`, `less`, `stylus`, and `json`) or hide the built-in code block by setting it to `false`.
-
-When `transformComponent` returns a `DevComponent` tree, TemPad Dev serializes it to JSX by default. Set `lang` to `'vue'` to render Vue template markup, or return a string directly if you need a bespoke serialization strategy. The exported `h` helper from `@tempad-dev/plugins` builds `DevComponent` trees with concise hyperscript-style calls.
+Additionally, you can specify a custom `title` and `lang` for the code block or hide the built-in code block by setting it to `false`.
 
 For full type definitions and helper functions, see [`plugins/src/index.ts`](./plugins/src/index.ts).
 
