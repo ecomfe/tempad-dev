@@ -18,9 +18,40 @@ import type {
   ActiveChangedMessage
 } from './types'
 
-const WS_PORT_CANDIDATES = [6220, 7431, 8127]
-const ALLOWED_EXTENSION_IDS = ['abcd1234efgh5678', 'dev-extension-id-for-testing']
-const TOOL_CALL_TIMEOUT = 15000
+function parseNumberList(env?: string, fallback: number[] = []): number[] {
+  if (!env) return fallback
+  const list = env
+    .split(',')
+    .map((s) => Number.parseInt(s.trim(), 10))
+    .filter((n) => Number.isFinite(n) && n > 0)
+  return list.length ? list : fallback
+}
+
+function parseStringList(env?: string, fallback: string[] = []): string[] {
+  if (!env) return fallback
+  const list = env
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return list.length ? list : fallback
+}
+
+function parseString(env?: string, fallback?: string): string | undefined {
+  if (!env) return fallback
+  const trimmed = env.trim()
+  return trimmed.length ? trimmed : fallback
+}
+
+function parsePositiveInt(env: string | undefined, fallback: number): number {
+  const parsed = env ? Number.parseInt(env, 10) : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+const WS_PORT_CANDIDATES = parseNumberList(process.env.TEMPAD_MCP_WS_PORTS, [6220, 7431, 8127])
+const DEFAULT_EXTENSION_ID = 'lgoeakbaikpkihoiphamaeopmliaimpc'
+const ALLOWED_EXTENSION_ID =
+  parseString(process.env.TEMPAD_MCP_ALLOWED_EXT, DEFAULT_EXTENSION_ID) || DEFAULT_EXTENSION_ID
+const TOOL_CALL_TIMEOUT = parsePositiveInt(process.env.TEMPAD_MCP_TOOL_TIMEOUT, 15000)
 const MAX_PAYLOAD_SIZE = 4 * 1024 * 1024
 const SHUTDOWN_TIMEOUT = 2000
 
@@ -149,7 +180,7 @@ async function startWebSocketServer(): Promise<{ wss: WebSocketServer; port: num
         }
         const match = origin.match(/^chrome-extension:\/\/([^/]+)/)
         const extensionId = match ? match[1] : ''
-        if (ALLOWED_EXTENSION_IDS.includes(extensionId)) {
+        if (extensionId === ALLOWED_EXTENSION_ID) {
           cb(true)
         } else {
           log.warn({ origin, extensionId }, 'Rejected untrusted WebSocket connection.')
