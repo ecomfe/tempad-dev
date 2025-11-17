@@ -1,25 +1,50 @@
 import { mkdirSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
+
+export function ensureDir(dirPath: string): void {
+  mkdirSync(dirPath, { recursive: true, mode: 0o700 })
+}
+
+function resolveRuntimeDir(): string {
+  if (process.env.TEMPAD_MCP_RUNTIME_DIR) return process.env.TEMPAD_MCP_RUNTIME_DIR
+  return join(tmpdir(), 'tempad-dev', 'run')
+}
+
+function resolveLogDir(): string {
+  if (process.env.TEMPAD_MCP_LOG_DIR) return process.env.TEMPAD_MCP_LOG_DIR
+  return join(tmpdir(), 'tempad-dev', 'log')
+}
+
+export const RUNTIME_DIR = resolveRuntimeDir()
+export const LOG_DIR = resolveLogDir()
+
+ensureDir(RUNTIME_DIR)
+ensureDir(LOG_DIR)
+
+const timestamp = new Date()
+  .toISOString()
+  .replaceAll(':', '-')
+  .replaceAll('.', '-')
+const pid = process.pid
+const LOG_FILE = join(LOG_DIR, `mcp-${timestamp}-${pid}.log`)
 
 export const log = pino(
   {
     level: process.env.DEBUG ? 'debug' : 'info',
     msgPrefix: '[tempad-dev/mcp] ',
-    transport:
-      process.env.NODE_ENV === 'production'
-        ? undefined
-        : { target: 'pino-pretty', options: { translateTime: 'SYS:HH:MM:ss' } }
+    transport: {
+      target: 'pino-pretty',
+      options: {
+        translateTime: 'SYS:HH:MM:ss',
+        destination: LOG_FILE
+      }
+    }
   },
-  pino.destination(2)
+  pino.destination({ dest: LOG_FILE, mkdir: true })
 )
 
-export const RUNTIME_DIR = process.env.XDG_RUNTIME_DIR || join(homedir(), '.tempad', 'run')
 export const SOCK_PATH =
   process.platform === 'win32' ? '\\\\.\\pipe\\tempad-mcp' : join(RUNTIME_DIR, 'mcp.sock')
 export const LOCK_PATH = join(RUNTIME_DIR, 'mcp.lock')
-
-export function ensureDir(dirPath: string): void {
-  mkdirSync(dirPath, { recursive: true, mode: 0o700 })
-}
