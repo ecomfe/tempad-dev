@@ -28,10 +28,10 @@ useSelectAll(fontSizeInput)
 const scaleInput = useTemplateRef('scaleInput')
 useSelectAll(scaleInput)
 
-const cssUnitOptions: SelectOption[] = [
+const cssUnitOptions = [
   { label: 'px', value: 'px' },
   { label: 'rem', value: 'rem' }
-]
+] as const satisfies SelectOption[]
 </script>
 
 <template>
