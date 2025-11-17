@@ -31,16 +31,28 @@ let consumerCount = 0
 const mcp = new McpServer({ name: 'tempad-dev-mcp', version: '0.1.0' })
 
 for (const tool of TOOLS) {
+  const schema = tool.parameters
+  type InputSchema = Parameters<typeof mcp.registerTool>[1]['inputSchema']
+
   mcp.registerTool(
     tool.name,
-    { description: tool.description, inputSchema: tool.parameters },
-    async (args: z.infer<typeof tool.parameters>) => {
+    {
+      description: tool.description,
+      inputSchema: schema as unknown as InputSchema
+    },
+    async (args: unknown) => {
+      const parsedArgs = schema.parse(args)
       const activeExt = extensions.find((e) => e.active)
-      if (!activeExt) throw new Error('No active TemPad extension available.')
+      if (!activeExt) throw new Error('No active TemPad Dev extension available.')
 
       const { promise, requestId } = register<unknown>(activeExt.id, TOOL_CALL_TIMEOUT)
 
-      const message: ToolCallMessage = { type: 'toolCall', req: requestId, name: tool.name, args }
+      const message: ToolCallMessage = {
+        type: 'toolCall',
+        req: requestId,
+        name: tool.name,
+        args: parsedArgs
+      }
       activeExt.ws.send(JSON.stringify(message))
       log.info({ tool: tool.name, req: requestId, extId: activeExt.id }, 'Forwarded tool call.')
 

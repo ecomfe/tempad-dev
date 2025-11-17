@@ -1,8 +1,14 @@
 {
   "extends": "../tsconfig.json",
+  "include": ["src/**/*"],
   "compilerOptions": {
-    "typeRoots": [
-      "node_modules/@types"
-    ]
+    "outDir": "./dist",
+    "target": "ESNext",
+    "module": "ESNext",
+    "declaration": false,
+    "noEmit": false,
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "types": ["node"]
   }
 }
