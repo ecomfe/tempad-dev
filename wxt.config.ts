@@ -1,8 +1,19 @@
 import cssInjectedByJsPlugin from 'vite-plugin-css-injected-by-js'
 import { defineConfig } from 'wxt'
 
+const newElements = ['selectedcontent']
+
 export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
+  vue: {
+    vite: {
+      template: {
+        compilerOptions: {
+          isCustomElement: (tag) => newElements.includes(tag)
+        }
+      }
+    }
+  },
   vite: () => ({
     plugins: [cssInjectedByJsPlugin()],
     optimizeDeps: {
