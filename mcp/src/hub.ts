@@ -3,17 +3,20 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { nanoid } from 'nanoid'
 import { existsSync, rmSync, chmodSync } from 'node:fs'
 import { createServer } from 'node:net'
-import { WebSocketServer, type RawData } from 'ws'
+import { WebSocketServer } from 'ws'
 
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
 import { log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
 import { TOOLS } from './tools'
-import {
-  MessageFromExtensionSchema,
-  type ExtensionConnection,
-  type ToolCallMessage,
-  type RegisteredMessage,
-  type ActiveChangedMessage
+import { MessageFromExtensionSchema } from './schema'
+
+import type { RawData } from 'ws'
+import type { z } from 'zod'
+import type {
+  ExtensionConnection,
+  ToolCallMessage,
+  RegisteredMessage,
+  ActiveChangedMessage
 } from './types'
 
 const WS_PORT = 6220
@@ -25,25 +28,31 @@ const SHUTDOWN_TIMEOUT = 2000
 const extensions: ExtensionConnection[] = []
 let consumerCount = 0
 
-const mcp = new McpServer({ name: 'tempad-dev-mcp', version: '0.1.0', capabilities: { tools: {} } })
+const mcp = new McpServer({ name: 'tempad-dev-mcp', version: '0.1.0' })
 
 for (const tool of TOOLS) {
-  mcp.registerTool(tool.name, tool.parameters, async (args) => {
-    const activeExt = extensions.find((e) => e.active)
-    if (!activeExt) throw new Error('No active TemPad extension available.')
+  mcp.registerTool(
+    tool.name,
+    { description: tool.description, inputSchema: tool.parameters },
+    async (args: z.infer<typeof tool.parameters>) => {
+      const activeExt = extensions.find((e) => e.active)
+      if (!activeExt) throw new Error('No active TemPad extension available.')
 
-    const { promise, requestId } = register<unknown>(activeExt.id, TOOL_CALL_TIMEOUT)
+      const { promise, requestId } = register<unknown>(activeExt.id, TOOL_CALL_TIMEOUT)
 
-    const message: ToolCallMessage = { type: 'toolCall', req: requestId, name: tool.name, args }
-    activeExt.ws.send(JSON.stringify(message))
-    log.info({ tool: tool.name, req: requestId, extId: activeExt.id }, 'Forwarded tool call.')
+      const message: ToolCallMessage = { type: 'toolCall', req: requestId, name: tool.name, args }
+      activeExt.ws.send(JSON.stringify(message))
+      log.info({ tool: tool.name, req: requestId, extId: activeExt.id }, 'Forwarded tool call.')
 
-    const unknownPayload = await promise
-    const textContent =
-      typeof unknownPayload === 'string' ? unknownPayload : JSON.stringify(unknownPayload, null, 2)
+      const unknownPayload = await promise
+      const textContent =
+        typeof unknownPayload === 'string'
+          ? unknownPayload
+          : JSON.stringify(unknownPayload, null, 2)
 
-    return { content: [{ type: 'text', text: textContent }] }
-  })
+      return { content: [{ type: 'text' as const, text: textContent }] }
+    }
+  )
 }
 log.info({ tools: TOOLS.map((t) => t.name) }, 'Registered tools.')
 
@@ -80,8 +89,18 @@ try {
 const netServer = createServer((sock) => {
   consumerCount++
   log.info(`Consumer connected. Total: ${consumerCount}`)
-  mcp.connect(new StdioServerTransport(sock))
-  sock.on('close', () => {
+  const transport = new StdioServerTransport(sock, sock)
+  mcp.connect(transport).catch((err) => {
+    log.error({ err }, 'Failed to attach MCP transport.')
+    transport.close().catch((closeErr) => log.warn({ err: closeErr }, 'Transport close failed.'))
+    sock.destroy()
+  })
+  sock.on('error', (err) => {
+    log.warn({ err }, 'Consumer socket error.')
+    transport.close().catch((closeErr) => log.warn({ err: closeErr }, 'Transport close failed.'))
+  })
+  sock.on('close', async () => {
+    await transport.close()
     consumerCount--
     log.info(`Consumer disconnected. Remaining: ${consumerCount}`)
     if (consumerCount === 0) {
