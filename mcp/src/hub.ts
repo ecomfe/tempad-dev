@@ -19,7 +19,7 @@ import type {
   ActiveChangedMessage
 } from './types'
 
-const WS_PORT = 6220
+const WS_PORT_CANDIDATES = [6220, 7431, 8127]
 const ALLOWED_EXTENSION_IDS = ['abcd1234efgh5678', 'dev-extension-id-for-testing']
 const TOOL_CALL_TIMEOUT = 15000
 const MAX_PAYLOAD_SIZE = 4 * 1024 * 1024
@@ -66,7 +66,7 @@ function broadcastActiveState(): void {
 function shutdown(): void {
   log.info('Hub is shutting down...')
   netServer.close(() => log.info('Net server closed.'))
-  wss.close(() => log.info('WebSocket server closed.'))
+  wss?.close(() => log.info('WebSocket server closed.'))
   cleanupAll()
   const timer = setTimeout(() => {
     log.warn('Shutdown timed out. Forcing exit.')
@@ -123,26 +123,64 @@ netServer.listen(SOCK_PATH, () => {
   log.info({ sock: SOCK_PATH }, 'Hub socket ready.')
 })
 
-const wss = new WebSocketServer({
-  port: WS_PORT,
-  maxPayload: MAX_PAYLOAD_SIZE,
-  verifyClient: (info, cb) => {
-    const origin = info.origin || ''
-    if (!origin) {
-      log.warn('Rejected WebSocket connection with empty origin.')
-      cb(false, 403, 'Forbidden')
-      return
-    }
-    const match = origin.match(/^chrome-extension:\/\/([^/]+)/)
-    const extensionId = match ? match[1] : ''
-    if (ALLOWED_EXTENSION_IDS.includes(extensionId)) {
-      cb(true)
-    } else {
-      log.warn({ origin, extensionId }, 'Rejected untrusted WebSocket connection.')
-      cb(false, 403, 'Forbidden')
+async function startWebSocketServer(): Promise<{ wss: WebSocketServer; port: number }> {
+  for (const candidate of WS_PORT_CANDIDATES) {
+    const server = new WebSocketServer({
+      host: '127.0.0.1',
+      port: candidate,
+      maxPayload: MAX_PAYLOAD_SIZE,
+      verifyClient: (info, cb) => {
+        const origin = info.origin || ''
+        if (!origin) {
+          log.warn('Rejected WebSocket connection with empty origin.')
+          cb(false, 403, 'Forbidden')
+          return
+        }
+        const match = origin.match(/^chrome-extension:\/\/([^/]+)/)
+        const extensionId = match ? match[1] : ''
+        if (ALLOWED_EXTENSION_IDS.includes(extensionId)) {
+          cb(true)
+        } else {
+          log.warn({ origin, extensionId }, 'Rejected untrusted WebSocket connection.')
+          cb(false, 403, 'Forbidden')
+        }
+      }
+    })
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onError = (err: NodeJS.ErrnoException) => {
+          server.off('listening', onListening)
+          reject(err)
+        }
+        const onListening = () => {
+          server.off('error', onError)
+          resolve()
+        }
+        server.once('error', onError)
+        server.once('listening', onListening)
+      })
+      return { wss: server, port: candidate }
+    } catch (err) {
+      server.close()
+      const errno = err as NodeJS.ErrnoException
+      if (errno.code === 'EADDRINUSE') {
+        log.warn({ port: candidate }, 'WebSocket port in use, trying next candidate.')
+        continue
+      }
+      log.error({ err: errno, port: candidate }, 'Failed to start WebSocket server.')
+      process.exit(1)
     }
   }
-})
+
+  log.error(
+    { candidates: WS_PORT_CANDIDATES },
+    'Unable to start WebSocket server on any candidate port.'
+  )
+  process.exit(1)
+}
+
+const { wss, port: selectedWsPort } = await startWebSocketServer()
 
 // Add an error handler to prevent crashes from port conflicts, etc.
 wss.on('error', (err) => {
@@ -217,7 +255,8 @@ wss.on('connection', (ws) => {
   })
 })
 
-log.info({ port: WS_PORT }, 'WebSocket server ready.')
+log.info({ port: selectedWsPort }, 'WebSocket server ready.')
+log.info({ port: selectedWsPort }, 'WebSocket server ready.')
 
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
