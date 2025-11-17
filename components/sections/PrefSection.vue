@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Select, { type SelectOption } from '@/components/Select.vue'
 import IconButton from '@/components/IconButton.vue'
 import Inspect from '@/components/icons/Inspect.vue'
 import Measure from '@/components/icons/Measure.vue'
@@ -26,6 +27,11 @@ useSelectAll(fontSizeInput)
 
 const scaleInput = useTemplateRef('scaleInput')
 useSelectAll(scaleInput)
+
+const cssUnitOptions: SelectOption[] = [
+  { label: 'px', value: 'px' },
+  { label: 'rem', value: 'rem' }
+]
 </script>
 
 <template>
@@ -47,10 +53,12 @@ useSelectAll(scaleInput)
     </div>
     <div class="tp-row tp-row-justify tp-pref-field">
       <label for="css-unit">CSS unit</label>
-      <select id="css-unit" class="tp-pref-input" v-model="options.cssUnit">
-        <option value="px">px</option>
-        <option value="rem">rem</option>
-      </select>
+      <Select
+        id="css-unit"
+        class="tp-pref-input"
+        :options="cssUnitOptions"
+        v-model="options.cssUnit"
+      />
     </div>
     <div class="tp-row tp-row-justify tp-pref-field">
       <label for="root-font-size">Root font size</label>
