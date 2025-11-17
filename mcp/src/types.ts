@@ -1,5 +1,6 @@
-import { type WebSocket } from 'ws'
-import { z } from 'zod'
+import type { WebSocket } from 'ws'
+import type { MessageFromExtensionSchema } from './schema'
+import type { z } from 'zod'
 
 // Core Data Structures
 export interface ExtensionConnection {
@@ -34,16 +35,5 @@ export interface ToolCallMessage {
 }
 
 export type MessageToExtension = RegisteredMessage | ActiveChangedMessage | ToolCallMessage
-
-// Messages Sent FROM Extension TO Hub
-export const MessageFromExtensionSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('activate') }),
-  z.object({
-    type: z.literal('toolResult'),
-    req: z.string(),
-    ok: z.boolean(),
-    payload: z.unknown()
-  })
-])
 
 export type MessageFromExtension = z.infer<typeof MessageFromExtensionSchema>
