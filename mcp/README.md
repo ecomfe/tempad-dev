@@ -6,8 +6,7 @@
 {
   "mcpServers": {
     "TemPad Dev": {
-      "command": "npx",
-      "args": ["@tempad-dev/mcp"]
+      "command": "tempad-dev-mcp"
     }
   }
 }

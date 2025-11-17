@@ -3,11 +3,22 @@
   "description": "MCP server for TemPad Dev.",
   "version": "0.1.0",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/cli.js",
+  "bin": "dist/cli.js",
   "files": [
-    "dist/index.js",
-    "dist/index.d.ts",
+    "dist/cli.js",
     "README.md"
-  ]
+  ],
+  "scripts": {
+    "build": "tsc -p ./tsconfig.json --outDir dist --noEmit false --declaration false",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.22.0",
+    "nanoid": "^5.1.6",
+    "pino": "^9.14.0",
+    "proper-lockfile": "^4.1.2",
+    "ws": "^8.18.3",
+    "zod": "^4.1.12"
+  }
 }

@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
-import { spawn, type ChildProcess } from 'node:child_process'
-import { type Socket, connect } from 'node:net'
+import { spawn } from 'node:child_process'
+import { connect } from 'node:net'
 import { join } from 'node:path'
 import lockfile from 'proper-lockfile'
 
 import { log, LOCK_PATH, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
+
+import type { ChildProcess } from 'node:child_process'
+import type { Socket } from 'node:net'
 
 process.on('SIGINT', () => {
   log.info('SIGINT received. Exiting CLI.')

@@ -20,6 +20,9 @@ importers:
       '@rushstack/eslint-patch':
         specifier: ^1.15.0
         version: 1.15.0
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.10.1
       '@types/prismjs':
         specifier: ^1.26.5
         version: 1.26.5
