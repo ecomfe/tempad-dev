@@ -11,7 +11,6 @@ import { TOOLS } from './tools'
 import { MessageFromExtensionSchema } from './schema'
 
 import type { RawData } from 'ws'
-import type { z } from 'zod'
 import type {
   ExtensionConnection,
   ToolCallMessage,
