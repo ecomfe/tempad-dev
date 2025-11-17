@@ -3,7 +3,7 @@ import Chevron from '@/components/icons/Chevron.vue'
 import OptionCheck from '@/components/icons/OptionCheck.vue'
 import { computed, watch } from 'vue'
 
-export interface SelectOption<T extends string> {
+export interface SelectOption<T extends string = string> {
   label: string
   value: T
 }
