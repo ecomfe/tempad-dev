@@ -35,14 +35,20 @@ const { width: windowWidth, height: windowHeight } = useWindowSize()
 const {
   width: panelWidth,
   isResizing,
-  onResizeRightStart,
-  onResizeLeftStart
+  handleRightEdgeResize,
+  handleLeftEdgeResize,
+  resetWidth,
+  isAtMinWidth,
+  isAtMaxWidth,
+  cleanup
 } = useResizable({
   min: 300,
   max: 800,
   defaultWidth: 400,
   initialWidth: position?.width,
-  positionX: x,
+  onPositionChange: (positionDelta) => {
+    x.value += positionDelta
+  },
   onResizeEnd: (width) => {
     if (position) {
       position.width = width
@@ -94,6 +100,29 @@ if (position) {
 function toggleMinimized() {
   options.value.minimized = !options.value.minimized
 }
+
+function onResizeHandleDoubleClick() {
+  if (position) {
+    delete position.width
+  }
+  resetWidth()
+}
+
+const leftHandleCursor = computed(() => {
+  if (isAtMaxWidth.value) return 'e-resize'
+  if (isAtMinWidth.value) return 'w-resize'
+  return 'ew-resize'
+})
+
+const rightHandleCursor = computed(() => {
+  if (isAtMaxWidth.value) return 'w-resize'
+  if (isAtMinWidth.value) return 'e-resize'
+  return 'ew-resize'
+})
+
+const resizingCursor = computed(() => {
+  return 'ew-resize'
+})
 </script>
 
 <template>
@@ -109,11 +138,13 @@ function toggleMinimized() {
   >
     <div
       class="tp-panel-resize-handle tp-panel-resize-handle-left"
-      @pointerdown="onResizeLeftStart"
+      @pointerdown="handleLeftEdgeResize"
+      @dblclick="onResizeHandleDoubleClick"
     />
     <div
       class="tp-panel-resize-handle tp-panel-resize-handle-right"
-      @pointerdown="onResizeRightStart"
+      @pointerdown="handleRightEdgeResize"
+      @dblclick="onResizeHandleDoubleClick"
     />
     <header ref="header" class="tp-row tp-row-justify tp-panel-header" @dblclick="toggleMinimized">
       <slot name="header" />
@@ -139,11 +170,7 @@ function toggleMinimized() {
 
 .tp-panel-resizing {
   user-select: none;
-  cursor: ew-resize;
-}
-
-.tp-panel-resizing * {
-  cursor: ew-resize !important;
+  cursor: v-bind(resizingCursor);
 }
 
 .tp-panel-resize-handle {
@@ -151,7 +178,6 @@ function toggleMinimized() {
   top: 0;
   bottom: 0;
   width: 8px;
-  cursor: ew-resize;
   z-index: 100;
   transition: background-color 0.2s ease;
   touch-action: none;
@@ -160,10 +186,12 @@ function toggleMinimized() {
 
 .tp-panel-resize-handle-left {
   left: 0;
+  cursor: v-bind(leftHandleCursor);
 }
 
 .tp-panel-resize-handle-right {
   right: 0;
+  cursor: v-bind(rightHandleCursor);
 }
 
 .tp-panel-resize-handle::before {
@@ -178,11 +206,11 @@ function toggleMinimized() {
 }
 
 .tp-panel-resize-handle-left::before {
-  left: 3px;
+  right: 3px;
 }
 
 .tp-panel-resize-handle-right::before {
-  right: 3px;
+  left: 3px;
 }
 
 .tp-panel-resize-handle:hover {

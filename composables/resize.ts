@@ -1,22 +1,26 @@
-import type { Ref } from 'vue'
+import type { Ref, ComputedRef } from 'vue'
 
 export interface UseResizableOptions {
   min?: number
   max?: number
   defaultWidth?: number
   initialWidth?: number
-  positionX?: Ref<number>
   onResizeStart?: () => void
   onResize?: (width: number) => void
   onResizeEnd?: (width: number) => void
+  onPositionChange?: (position: number) => void
 }
 
 export interface UseResizableReturn {
   width: Ref<number>
   isResizing: Readonly<Ref<boolean>>
-  onResizeRightStart: (e: PointerEvent) => void
-  onResizeLeftStart: (e: PointerEvent) => void
+  handleRightEdgeResize: (e: PointerEvent) => void
+  handleLeftEdgeResize: (e: PointerEvent) => void
   setWidth: (width: number) => void
+  resetWidth: () => void
+  cleanup: () => void
+  isAtMinWidth: ComputedRef<boolean>
+  isAtMaxWidth: ComputedRef<boolean>
 }
 
 export function useResizable(options: UseResizableOptions = {}): UseResizableReturn {
@@ -25,14 +29,15 @@ export function useResizable(options: UseResizableOptions = {}): UseResizableRet
     max = 800,
     defaultWidth = 400,
     initialWidth,
-    positionX,
     onResizeStart,
     onResize,
-    onResizeEnd
+    onResizeEnd,
+    onPositionChange
   } = options
 
   const width = ref(initialWidth ?? defaultWidth)
   const isResizing = ref(false)
+  const activeCleanups = new Set<() => void>()
 
   function clampWidth(value: number): number {
     return Math.max(min, Math.min(max, value))
@@ -43,92 +48,100 @@ export function useResizable(options: UseResizableOptions = {}): UseResizableRet
     onResize?.(width.value)
   }
 
-  function onResizeRightStart(e: PointerEvent) {
-    e.preventDefault()
-    e.stopPropagation()
-
-    const target = e.currentTarget as HTMLElement
-    if (!target) return
-
-    // Capture pointer to ensure we receive all events
-    target.setPointerCapture(e.pointerId)
-    isResizing.value = true
-    onResizeStart?.()
-
-    const startX = e.clientX
-    const startWidth = width.value
-
-    function onPointerMove(moveEvent: PointerEvent) {
-      const deltaX = moveEvent.clientX - startX
-      const newWidth = clampWidth(startWidth + deltaX)
-      width.value = newWidth
-      onResize?.(newWidth)
-    }
-
-    function cleanup(upEvent: PointerEvent) {
-      isResizing.value = false
-      target.releasePointerCapture(upEvent.pointerId)
-      target.removeEventListener('pointermove', onPointerMove)
-      target.removeEventListener('pointerup', cleanup)
-      target.removeEventListener('pointercancel', cleanup)
-
-      onResizeEnd?.(width.value)
-    }
-
-    target.addEventListener('pointermove', onPointerMove)
-    target.addEventListener('pointerup', cleanup)
-    target.addEventListener('pointercancel', cleanup)
+  function resetWidth() {
+    width.value = defaultWidth
+    onResize?.(width.value)
+    onResizeEnd?.(width.value)
   }
 
-  function onResizeLeftStart(e: PointerEvent) {
-    e.preventDefault()
-    e.stopPropagation()
+  const isAtMinWidth = computed(() => width.value <= min)
+  const isAtMaxWidth = computed(() => width.value >= max)
 
-    const target = e.currentTarget as HTMLElement
-    if (!target) return
+  function createResizeHandler(direction: 'right' | 'left') {
+    return function handleResize(e: PointerEvent) {
+      e.preventDefault()
+      e.stopPropagation()
 
-    // Capture pointer to ensure we receive all events
-    target.setPointerCapture(e.pointerId)
-    isResizing.value = true
-    onResizeStart?.()
+      const target = e.currentTarget as HTMLElement
+      if (!target) return
 
-    const startX = e.clientX
-    const startWidth = width.value
-    const startLeft = positionX?.value ?? 0
+      target.setPointerCapture(e.pointerId)
+      isResizing.value = true
+      onResizeStart?.()
 
-    function onPointerMove(moveEvent: PointerEvent) {
-      const deltaX = moveEvent.clientX - startX
-      const newWidth = clampWidth(startWidth - deltaX)
+      const startX = e.clientX
+      const startWidth = width.value
+      const pointerId = e.pointerId
 
-      // Adjust position to keep right edge fixed (if positionX is provided)
-      if (positionX) {
-        positionX.value = startLeft + (startWidth - newWidth)
+      function onPointerMove(moveEvent: PointerEvent) {
+        if (moveEvent.buttons === 0) {
+          cleanup(moveEvent)
+          return
+        }
+
+        const deltaX = moveEvent.clientX - startX
+        const newWidth = direction === 'right'
+          ? clampWidth(startWidth + deltaX)
+          : clampWidth(startWidth - deltaX)
+
+        if (direction === 'left' && onPositionChange) {
+          const positionDelta = startWidth - newWidth
+          onPositionChange(positionDelta)
+        }
+
+        width.value = newWidth
+        onResize?.(newWidth)
       }
 
-      width.value = newWidth
-      onResize?.(newWidth)
+      function cleanup(upEvent: PointerEvent) {
+        if (!isResizing.value) return
+
+        isResizing.value = false
+
+        target.releasePointerCapture(pointerId)
+        target.removeEventListener('pointermove', onPointerMove)
+        target.removeEventListener('pointerup', cleanup)
+        target.removeEventListener('pointercancel', cleanup)
+        target.removeEventListener('lostpointercapture', cleanup)
+
+        activeCleanups.delete(cleanupHandler)
+        onResizeEnd?.(width.value)
+      }
+
+      const cleanupHandler = () => {
+        target.removeEventListener('pointermove', onPointerMove)
+        target.removeEventListener('pointerup', cleanup)
+        target.removeEventListener('pointercancel', cleanup)
+        target.removeEventListener('lostpointercapture', cleanup)
+      }
+
+      activeCleanups.add(cleanupHandler)
+
+      target.addEventListener('pointermove', onPointerMove)
+      target.addEventListener('pointerup', cleanup)
+      target.addEventListener('pointercancel', cleanup)
+      target.addEventListener('lostpointercapture', cleanup)
     }
+  }
 
-    function cleanup(upEvent: PointerEvent) {
-      isResizing.value = false
-      target.releasePointerCapture(upEvent.pointerId)
-      target.removeEventListener('pointermove', onPointerMove)
-      target.removeEventListener('pointerup', cleanup)
-      target.removeEventListener('pointercancel', cleanup)
+  const handleRightEdgeResize = createResizeHandler('right')
+  const handleLeftEdgeResize = createResizeHandler('left')
 
-      onResizeEnd?.(width.value)
-    }
-
-    target.addEventListener('pointermove', onPointerMove)
-    target.addEventListener('pointerup', cleanup)
-    target.addEventListener('pointercancel', cleanup)
+  function cleanup() {
+    activeCleanups.forEach(fn => fn())
+    activeCleanups.clear()
+    isResizing.value = false
   }
 
   return {
     width,
     isResizing: readonly(isResizing),
-    onResizeRightStart,
-    onResizeLeftStart,
-    setWidth
+    handleRightEdgeResize,
+    handleLeftEdgeResize,
+    setWidth,
+    resetWidth,
+    cleanup,
+    isAtMinWidth,
+    isAtMaxWidth
   }
 }
