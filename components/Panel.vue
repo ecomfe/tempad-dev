@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onBeforeUnmount } from 'vue'
 import { useResizable } from '@/composables'
 import { useScrollbar } from '@/composables/scrollbar'
 import { ui } from '@/ui/figma'
@@ -53,6 +54,10 @@ const {
       position.width = width
     }
   }
+})
+
+onBeforeUnmount(() => {
+  cleanup()
 })
 
 const restrictedPosition = computed(() => {
