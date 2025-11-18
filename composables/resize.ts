@@ -72,6 +72,7 @@ export function useResizable(options: UseResizableOptions = {}): UseResizableRet
       const startX = e.clientX
       const startWidth = width.value
       const pointerId = e.pointerId
+      let lastWidth = startWidth
 
       function onPointerMove(moveEvent: PointerEvent) {
         if (moveEvent.buttons === 0) {
@@ -85,8 +86,9 @@ export function useResizable(options: UseResizableOptions = {}): UseResizableRet
           : clampWidth(startWidth - deltaX)
 
         if (direction === 'left' && onPositionChange) {
-          const positionDelta = startWidth - newWidth
+          const positionDelta = lastWidth - newWidth
           onPositionChange(positionDelta)
+          lastWidth = newWidth
         }
 
         width.value = newWidth
