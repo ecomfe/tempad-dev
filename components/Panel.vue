@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { useDraggable, useWindowSize, watchDebounced } from '@vueuse/core'
+import { useDraggable, useEventListener, useWindowSize, watchDebounced } from '@vueuse/core'
 
-import { onBeforeUnmount } from 'vue'
-import { useResizable } from '@/composables'
 import { useScrollbar } from '@/composables/scrollbar'
 import { ui } from '@/ui/figma'
 import { options } from '@/ui/state'
@@ -33,33 +31,89 @@ const { x, y, isDragging } = useDraggable(panel, {
 
 const { width: windowWidth, height: windowHeight } = useWindowSize()
 
-const {
-  width: panelWidth,
-  isResizing,
-  handleRightEdgeResize,
-  handleLeftEdgeResize,
-  resetWidth,
-  isAtMinWidth,
-  isAtMaxWidth,
-  cleanup
-} = useResizable({
-  min: ui.tempadPanelWidth,
-  max: ui.tempadPanelMaxWidth,
-  defaultWidth: ui.tempadPanelWidth,
-  initialWidth: position?.width,
-  onPositionChange: (positionDelta) => {
-    x.value += positionDelta
-  },
-  onResizeEnd: (width) => {
-    if (position) {
-      position.width = width
-    }
-  }
-})
+const panelWidth = ref(position?.width ?? ui.tempadPanelWidth)
+const isResizing = ref(false)
 
-onBeforeUnmount(() => {
-  cleanup()
-})
+// no need reactive state, directly using variables
+let resizeState: {
+  direction: 'left' | 'right'
+  startX: number
+  startWidth: number
+  target: HTMLElement
+  pointerId: number
+} | null = null
+
+function clampWidth(value: number): number {
+  return Math.max(ui.tempadPanelWidth, Math.min(ui.tempadPanelMaxWidth, value))
+}
+
+function startResize(e: PointerEvent, direction: 'left' | 'right') {
+  e.preventDefault()
+  e.stopPropagation()
+
+  const target = e.currentTarget as HTMLElement
+  if (!target) return
+
+  target.setPointerCapture(e.pointerId)
+  isResizing.value = true
+
+  resizeState = {
+    direction,
+    startX: e.clientX,
+    startWidth: panelWidth.value,
+    target,
+    pointerId: e.pointerId
+  }
+}
+
+function onPointerMove(e: PointerEvent) {
+  if (!isResizing.value || !resizeState) return
+
+  if (e.buttons === 0) {
+    endResize(e)
+    return
+  }
+
+  const deltaX = e.clientX - resizeState.startX
+  const newWidth =
+    resizeState.direction === 'right'
+      ? clampWidth(resizeState.startWidth + deltaX)
+      : clampWidth(resizeState.startWidth - deltaX)
+
+  if (resizeState.direction === 'left') {
+    const positionDelta = panelWidth.value - newWidth
+    x.value += positionDelta
+  }
+
+  panelWidth.value = newWidth
+}
+
+function endResize(e: PointerEvent) {
+  if (!isResizing.value || !resizeState) return
+
+  isResizing.value = false
+  resizeState.target.releasePointerCapture(resizeState.pointerId)
+
+  if (position) {
+    position.width = panelWidth.value
+  }
+
+  resizeState = null
+}
+
+function resetWidth() {
+  panelWidth.value = ui.tempadPanelWidth
+  if (position) {
+    delete position.width
+  }
+}
+
+useEventListener('pointermove', onPointerMove)
+useEventListener('pointerup', endResize)
+useEventListener('pointercancel', endResize)
+
+const isAtMinWidth = computed(() => panelWidth.value <= ui.tempadPanelWidth)
+const isAtMaxWidth = computed(() => panelWidth.value >= ui.tempadPanelMaxWidth)
 
 const restrictedPosition = computed(() => {
   if (!panel.value || !header.value) {
@@ -106,13 +160,6 @@ function toggleMinimized() {
   options.value.minimized = !options.value.minimized
 }
 
-function onResizeHandleDoubleClick() {
-  if (position) {
-    delete position.width
-  }
-  resetWidth()
-}
-
 const leftHandleCursor = computed(() => {
   if (isAtMaxWidth.value) return 'e-resize'
   if (isAtMinWidth.value) return 'w-resize'
@@ -141,13 +188,13 @@ const resizingCursor = 'ew-resize'
   >
     <div
       class="tp-panel-resize-handle tp-panel-resize-handle-left"
-      @pointerdown="handleLeftEdgeResize"
-      @dblclick="onResizeHandleDoubleClick"
+      @pointerdown="startResize($event, 'left')"
+      @dblclick="resetWidth"
     />
     <div
       class="tp-panel-resize-handle tp-panel-resize-handle-right"
-      @pointerdown="handleRightEdgeResize"
-      @dblclick="onResizeHandleDoubleClick"
+      @pointerdown="startResize($event, 'right')"
+      @dblclick="resetWidth"
     />
     <header ref="header" class="tp-row tp-row-justify tp-panel-header" @dblclick="toggleMinimized">
       <slot name="header" />
