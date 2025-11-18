@@ -1,6 +1,5 @@
 export * from './copy'
 export * from './input'
 export * from './key-lock'
-export * from './resize'
 export * from './selection'
 export * from './toast'
