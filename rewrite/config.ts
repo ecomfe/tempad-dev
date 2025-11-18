@@ -11,6 +11,19 @@ export const GROUPS: Group[] = [
     ]
   },
   {
+    markers: ['i=(0,_.rd)()||n;if(!i)'],
+    replacements: [
+      {
+        pattern: 'i=(0,_.rd)()||n;if(!i)',
+        replacer: 'i=(0,_.rd)()||n;if(false)'
+      },
+      {
+        pattern: 'if((0,ee.et)())return;i&&',
+        replacer: 'if((0,ee.et)())return;true&&'
+      }
+    ]
+  },
+  {
     markers: ['dispnf.fyufotjpo;00', 'np{.fyufotjpo;00'],
     replacements: [
       {
