@@ -42,9 +42,9 @@ const {
   isAtMaxWidth,
   cleanup
 } = useResizable({
-  min: 300,
-  max: 800,
-  defaultWidth: 400,
+  min: ui.tempadPanelWidth,
+  max: ui.tempadPanelMaxWidth,
+  defaultWidth: ui.tempadPanelWidth,
   initialWidth: position?.width,
   onPositionChange: (positionDelta) => {
     x.value += positionDelta
@@ -124,9 +124,7 @@ const rightHandleCursor = computed(() => {
   return 'ew-resize'
 })
 
-const resizingCursor = computed(() => {
-  return 'ew-resize'
-})
+const resizingCursor = 'ew-resize'
 </script>
 
 <template>
