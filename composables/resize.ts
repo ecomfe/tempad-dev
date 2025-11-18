@@ -1,4 +1,5 @@
 import type { Ref, ComputedRef } from 'vue'
+import { useEventListener } from '@vueuse/core'
 
 export interface UseResizableOptions {
   min?: number
@@ -74,6 +75,8 @@ export function useResizable(options: UseResizableOptions = {}): UseResizableRet
       const pointerId = e.pointerId
       let lastWidth = startWidth
 
+      const eventCleanups: (() => void)[] = []
+
       function onPointerMove(moveEvent: PointerEvent) {
         if (moveEvent.buttons === 0) {
           cleanup(moveEvent)
@@ -101,28 +104,27 @@ export function useResizable(options: UseResizableOptions = {}): UseResizableRet
         isResizing.value = false
 
         target.releasePointerCapture(pointerId)
-        target.removeEventListener('pointermove', onPointerMove)
-        target.removeEventListener('pointerup', cleanup)
-        target.removeEventListener('pointercancel', cleanup)
-        target.removeEventListener('lostpointercapture', cleanup)
+
+        eventCleanups.forEach(fn => fn())
+        eventCleanups.length = 0
 
         activeCleanups.delete(cleanupHandler)
         onResizeEnd?.(width.value)
       }
 
       const cleanupHandler = () => {
-        target.removeEventListener('pointermove', onPointerMove)
-        target.removeEventListener('pointerup', cleanup)
-        target.removeEventListener('pointercancel', cleanup)
-        target.removeEventListener('lostpointercapture', cleanup)
+        eventCleanups.forEach(fn => fn())
+        eventCleanups.length = 0
       }
 
       activeCleanups.add(cleanupHandler)
 
-      target.addEventListener('pointermove', onPointerMove)
-      target.addEventListener('pointerup', cleanup)
-      target.addEventListener('pointercancel', cleanup)
-      target.addEventListener('lostpointercapture', cleanup)
+      eventCleanups.push(
+        useEventListener(target, 'pointermove', onPointerMove),
+        useEventListener(target, 'pointerup', cleanup),
+        useEventListener(target, 'pointercancel', cleanup),
+        useEventListener(target, 'lostpointercapture', cleanup)
+      )
     }
   }
 
