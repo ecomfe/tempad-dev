@@ -65,17 +65,19 @@ export function useResizable(options: UseResizableOptions = {}): UseResizableRet
       onResize?.(newWidth)
     }
 
-    function onPointerUp(upEvent: PointerEvent) {
+    function cleanup(upEvent: PointerEvent) {
       isResizing.value = false
       target.releasePointerCapture(upEvent.pointerId)
       target.removeEventListener('pointermove', onPointerMove)
-      target.removeEventListener('pointerup', onPointerUp)
+      target.removeEventListener('pointerup', cleanup)
+      target.removeEventListener('pointercancel', cleanup)
 
       onResizeEnd?.(width.value)
     }
 
     target.addEventListener('pointermove', onPointerMove)
-    target.addEventListener('pointerup', onPointerUp)
+    target.addEventListener('pointerup', cleanup)
+    target.addEventListener('pointercancel', cleanup)
   }
 
   function onResizeLeftStart(e: PointerEvent) {
@@ -107,17 +109,19 @@ export function useResizable(options: UseResizableOptions = {}): UseResizableRet
       onResize?.(newWidth)
     }
 
-    function onPointerUp(upEvent: PointerEvent) {
+    function cleanup(upEvent: PointerEvent) {
       isResizing.value = false
       target.releasePointerCapture(upEvent.pointerId)
       target.removeEventListener('pointermove', onPointerMove)
-      target.removeEventListener('pointerup', onPointerUp)
+      target.removeEventListener('pointerup', cleanup)
+      target.removeEventListener('pointercancel', cleanup)
 
       onResizeEnd?.(width.value)
     }
 
     target.addEventListener('pointermove', onPointerMove)
-    target.addEventListener('pointerup', onPointerUp)
+    target.addEventListener('pointerup', cleanup)
+    target.addEventListener('pointercancel', cleanup)
   }
 
   return {
