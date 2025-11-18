@@ -112,7 +112,6 @@ function activateMcp() {
   transition: width, height;
   transition-duration: 0.2s;
   transition-timing-function: cubic-bezier(0.87, 0, 0.13, 1);
-  overflow: hidden;
 }
 
 .tp-main-minimized {

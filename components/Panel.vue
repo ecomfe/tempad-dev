@@ -178,6 +178,11 @@ const resizingCursor = computed(() => {
   cursor: v-bind(resizingCursor);
 }
 
+.tp-panel-resizing * {
+  user-select: none;
+  cursor: v-bind(resizingCursor) !important;
+}
+
 .tp-panel-resize-handle {
   position: absolute;
   top: 0;
@@ -190,48 +195,13 @@ const resizingCursor = computed(() => {
 }
 
 .tp-panel-resize-handle-left {
-  left: 0;
+  left: -8px;
   cursor: v-bind(leftHandleCursor);
 }
 
 .tp-panel-resize-handle-right {
-  right: 0;
+  right: -8px;
   cursor: v-bind(rightHandleCursor);
-}
-
-.tp-panel-resize-handle::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 2px;
-  height: 40px;
-  background-color: transparent;
-  transition: background-color 0.2s ease;
-}
-
-.tp-panel-resize-handle-left::before {
-  right: 3px;
-}
-
-.tp-panel-resize-handle-right::before {
-  left: 3px;
-}
-
-.tp-panel-resize-handle:hover {
-  background-color: var(--figma-color-bg-brand-hover, rgba(24, 160, 251, 0.08));
-}
-
-.tp-panel-resize-handle:hover::before {
-  background-color: var(--figma-color-bg-brand, rgba(24, 160, 251, 0.8));
-}
-
-.tp-panel-resize-handle:active {
-  background-color: var(--figma-color-bg-brand-pressed, rgba(24, 160, 251, 0.15));
-}
-
-.tp-panel-resize-handle:active::before {
-  background-color: var(--figma-color-bg-brand, rgb(24, 160, 251));
 }
 
 .tp-panel-header {
@@ -251,6 +221,9 @@ const resizingCursor = computed(() => {
 
 .tp-panel-main {
   flex: 1 1 auto;
+  /* TODO: find correct way to inject this radius value */
+  border-bottom-left-radius: var(--radius-lg, 0.8125rem);
+  border-bottom-right-radius: var(--radius-lg, 0.8125rem);
 }
 
 .tp-panel-header-icon {
