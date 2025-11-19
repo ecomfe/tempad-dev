@@ -16,11 +16,11 @@
       replacements: [
         {
           pattern: /([A-Za-z_$][A-Za-z0-9_$]*)=\(0,([A-Za-z_$][A-Za-z0-9_$]*\.[A-Za-z_$][A-Za-z0-9_$]*)\)\(\)\|\|([A-Za-z_$][A-Za-z0-9_$]*);if\(!\1\)/,
-          replacer: "$1=(0,$2)()||$3;if(false)"
+          replacer: "$1=(0,$2)()||$3;debugger;if(false)"
         },
         {
           pattern: /if\(\(0,([A-Za-z_$][A-Za-z0-9_$]*\.[A-Za-z_$][A-Za-z0-9_$]*)\)\(\)\)return;([A-Za-z_$][A-Za-z0-9_$]*)&&/,
-          replacer: "if((0,$1)())return;true&&"
+          replacer: "if((0,$1)())return;debugger;true&&"
         }
       ]
     },
