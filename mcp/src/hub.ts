@@ -19,21 +19,12 @@ import {
 import type { RawData } from 'ws'
 import type { ExtensionConnection } from './types'
 
-function parseString(env?: string, fallback?: string): string | undefined {
-  if (!env) return fallback
-  const trimmed = env.trim()
-  return trimmed.length ? trimmed : fallback
-}
-
 function parsePositiveInt(env: string | undefined, fallback: number): number {
   const parsed = env ? Number.parseInt(env, 10) : Number.NaN
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
 const WS_PORT_CANDIDATES = [6220, 7431, 8127]
-const DEFAULT_EXTENSION_ID = 'lgoeakbaikpkihoiphamaeopmliaimpc'
-const ALLOWED_EXTENSION_ID =
-  parseString(process.env.TEMPAD_MCP_ALLOWED_EXT, DEFAULT_EXTENSION_ID) || DEFAULT_EXTENSION_ID
 const TOOL_CALL_TIMEOUT = parsePositiveInt(process.env.TEMPAD_MCP_TOOL_TIMEOUT, 15000)
 const MAX_PAYLOAD_SIZE = 4 * 1024 * 1024
 const SHUTDOWN_TIMEOUT = 2000
@@ -198,23 +189,7 @@ async function startWebSocketServer(): Promise<{ wss: WebSocketServer; port: num
     const server = new WebSocketServer({
       host: '127.0.0.1',
       port: candidate,
-      maxPayload: MAX_PAYLOAD_SIZE,
-      verifyClient: (info, cb) => {
-        const origin = info.origin || ''
-        if (!origin) {
-          log.warn('Rejected WebSocket connection with empty origin.')
-          cb(false, 403, 'Forbidden')
-          return
-        }
-        const match = origin.match(/^chrome-extension:\/\/([^/]+)/)
-        const extensionId = match ? match[1] : ''
-        if (extensionId === ALLOWED_EXTENSION_ID) {
-          cb(true)
-        } else {
-          log.warn({ origin, extensionId }, 'Rejected untrusted WebSocket connection.')
-          cb(false, 403, 'Forbidden')
-        }
-      }
+      maxPayload: MAX_PAYLOAD_SIZE
     })
 
     try {

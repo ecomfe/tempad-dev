@@ -1,5 +1,10 @@
 import { computed, shallowRef, watch } from 'vue'
-import { createSharedComposable, useEventListener, useTimeoutFn } from '@vueuse/core'
+import {
+  createSharedComposable,
+  useDocumentVisibility,
+  useEventListener,
+  useTimeoutFn
+} from '@vueuse/core'
 
 import type { GetCodeParametersInput, GetCodeResult } from '@/mcp/src/tools'
 import { parseMessageToExtension } from '@/mcp/src/protocol'
@@ -75,6 +80,7 @@ export const useMcp = createSharedComposable(() => {
 
   let lastSuccessfulPort: number | null = null
   let isConnecting = false
+  const documentVisibility = useDocumentVisibility()
 
   const { start: startReconnectTimer, stop: stopReconnectTimer } = useTimeoutFn(
     () => {
@@ -128,7 +134,12 @@ export const useMcp = createSharedComposable(() => {
   }
 
   async function connect() {
-    if (!options.value.mcpOn || isConnecting || socket.value) {
+    if (
+      !options.value.mcpOn ||
+      isConnecting ||
+      socket.value ||
+      documentVisibility.value !== 'visible'
+    ) {
       return
     }
 
@@ -229,6 +240,16 @@ export const useMcp = createSharedComposable(() => {
     errorMessage.value = null
   }
 
+  function pauseWhileHidden() {
+    stopReconnectTimer()
+    cleanupSocket()
+    resetState()
+    if (options.value.mcpOn) {
+      status.value = 'disabled'
+      errorMessage.value = null
+    }
+  }
+
   watch(
     () => options.value.mcpOn,
     (enabled) => {
@@ -236,6 +257,22 @@ export const useMcp = createSharedComposable(() => {
         start()
       } else {
         stop()
+      }
+    },
+    { immediate: true }
+  )
+
+  watch(
+    documentVisibility,
+    (state) => {
+      if (state === 'visible') {
+        if (options.value.mcpOn) {
+          console.log('Document visible. Resuming MCP connection...')
+          start()
+        }
+      } else {
+        console.log('Document hidden. Pausing MCP connection...')
+        pauseWhileHidden()
       }
     },
     { immediate: true }

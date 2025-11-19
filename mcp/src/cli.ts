@@ -11,10 +11,34 @@ import { log, LOCK_PATH, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
 import type { ChildProcess } from 'node:child_process'
 import type { Socket } from 'node:net'
 
-process.on('SIGINT', () => {
-  log.info('SIGINT received. Exiting CLI.')
+let activeSocket: Socket | null = null
+let shuttingDown = false
+
+function closeActiveSocket() {
+  if (!activeSocket) return
+  try {
+    activeSocket.end()
+  } catch {
+    // ignore
+  }
+  try {
+    activeSocket.destroy()
+  } catch {
+    // ignore
+  }
+  activeSocket = null
+}
+
+function shutdownCli(reason: string) {
+  if (shuttingDown) return
+  shuttingDown = true
+  log.info(`${reason} Shutting down CLI.`)
+  closeActiveSocket()
   process.exit(0)
-})
+}
+
+process.on('SIGINT', () => shutdownCli('SIGINT received.'))
+process.on('SIGTERM', () => shutdownCli('SIGTERM received.'))
 
 const HUB_STARTUP_TIMEOUT = 5000
 const CONNECT_RETRY_DELAY = 200
@@ -27,16 +51,16 @@ ensureDir(RUNTIME_DIR)
 function bridge(socket: Socket): Promise<void> {
   return new Promise((resolve) => {
     log.info('Bridge established with Hub. Forwarding I/O.')
+    activeSocket = socket
 
     const onStdinEnd = () => {
-      log.info('Consumer stream ended. Shutting down CLI.')
-      socket.destroy()
-      process.exit(0)
+      shutdownCli('Consumer stream ended.')
     }
     process.stdin.once('end', onStdinEnd)
 
     const onSocketClose = () => {
       log.warn('Connection to Hub lost. Attempting to reconnect...')
+      activeSocket = null
       process.stdin.removeListener('end', onStdinEnd)
       process.stdin.unpipe(socket)
       socket.unpipe(process.stdout)
