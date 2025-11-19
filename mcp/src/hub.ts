@@ -8,15 +8,16 @@ import { WebSocketServer } from 'ws'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
 import { log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
 import { TOOLS } from './tools'
-import { MessageFromExtensionSchema } from './schema'
+import {
+  MessageFromExtensionSchema,
+  RegisteredMessage,
+  StateMessage,
+  ToolCallMessage,
+  ToolResultMessage
+} from './protocol'
 
 import type { RawData } from 'ws'
-import type {
-  ExtensionConnection,
-  ToolCallMessage,
-  RegisteredMessage,
-  ActiveChangedMessage
-} from './types'
+import type { ExtensionConnection } from './types'
 
 function parseNumberList(env?: string, fallback: number[] = []): number[] {
   if (!env) return fallback
@@ -24,15 +25,6 @@ function parseNumberList(env?: string, fallback: number[] = []): number[] {
     .split(',')
     .map((s) => Number.parseInt(s.trim(), 10))
     .filter((n) => Number.isFinite(n) && n > 0)
-  return list.length ? list : fallback
-}
-
-function parseStringList(env?: string, fallback: string[] = []): string[] {
-  if (!env) return fallback
-  const list = env
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
   return list.length ? list : fallback
 }
 
@@ -54,9 +46,12 @@ const ALLOWED_EXTENSION_ID =
 const TOOL_CALL_TIMEOUT = parsePositiveInt(process.env.TEMPAD_MCP_TOOL_TIMEOUT, 15000)
 const MAX_PAYLOAD_SIZE = 4 * 1024 * 1024
 const SHUTDOWN_TIMEOUT = 2000
+const AUTO_ACTIVATE_GRACE_MS = parsePositiveInt(process.env.TEMPAD_MCP_AUTO_ACTIVATE_GRACE, 1500)
 
 const extensions: ExtensionConnection[] = []
 let consumerCount = 0
+let autoActivateTimer: NodeJS.Timeout | null = null
+let selectedWsPort = 0
 
 const mcp = new McpServer({ name: 'tempad-dev-mcp', version: '0.1.0' })
 
@@ -79,9 +74,11 @@ for (const tool of TOOLS) {
 
       const message: ToolCallMessage = {
         type: 'toolCall',
-        req: requestId,
-        name: tool.name,
-        args: parsedArgs
+        id: requestId,
+        payload: {
+          name: tool.name,
+          args: parsedArgs
+        }
       }
       activeExt.ws.send(JSON.stringify(message))
       log.info({ tool: tool.name, req: requestId, extId: activeExt.id }, 'Forwarded tool call.')
@@ -98,11 +95,51 @@ for (const tool of TOOLS) {
 }
 log.info({ tools: TOOLS.map((t) => t.name) }, 'Registered tools.')
 
-function broadcastActiveState(): void {
-  const activeId = extensions.find((e) => e.active)?.id ?? null
-  const message: ActiveChangedMessage = { type: 'activeChanged', activeId }
+function getActiveId(): string | null {
+  return extensions.find((e) => e.active)?.id ?? null
+}
+
+function setActive(targetId: string | null): void {
+  extensions.forEach((e) => {
+    e.active = targetId !== null && e.id === targetId
+  })
+}
+
+function clearAutoActivateTimer(): void {
+  if (autoActivateTimer) {
+    clearTimeout(autoActivateTimer)
+    autoActivateTimer = null
+  }
+}
+
+function scheduleAutoActivate(): void {
+  clearAutoActivateTimer()
+
+  if (extensions.length !== 1 || getActiveId()) {
+    return
+  }
+
+  const target = extensions[0]
+  autoActivateTimer = setTimeout(() => {
+    autoActivateTimer = null
+    if (extensions.length === 1 && !getActiveId()) {
+      setActive(target.id)
+      log.info({ id: target.id }, 'Auto-activated sole extension after grace period.')
+      broadcastState()
+    }
+  }, AUTO_ACTIVATE_GRACE_MS)
+}
+
+function broadcastState(): void {
+  const activeId = getActiveId()
+  const message: StateMessage = {
+    type: 'state',
+    activeId,
+    count: extensions.length,
+    port: selectedWsPort
+  }
   extensions.forEach((ext) => ext.ws.send(JSON.stringify(message)))
-  log.debug({ activeId }, 'Broadcasted active state change.')
+  log.debug({ activeId, count: extensions.length }, 'Broadcasted state.')
 }
 
 function shutdown(): void {
@@ -222,7 +259,8 @@ async function startWebSocketServer(): Promise<{ wss: WebSocketServer; port: num
   process.exit(1)
 }
 
-const { wss, port: selectedWsPort } = await startWebSocketServer()
+const { wss, port } = await startWebSocketServer()
+selectedWsPort = port
 
 // Add an error handler to prevent crashes from port conflicts, etc.
 wss.on('error', (err) => {
@@ -237,7 +275,8 @@ wss.on('connection', (ws) => {
 
   const message: RegisteredMessage = { type: 'registered', id: ext.id }
   ws.send(JSON.stringify(message))
-  broadcastActiveState()
+  broadcastState()
+  scheduleAutoActivate()
 
   ws.on('message', (raw: RawData) => {
     let messageBuffer: Buffer
@@ -266,17 +305,18 @@ wss.on('connection', (ws) => {
 
     switch (msg.type) {
       case 'activate': {
-        extensions.forEach((e) => (e.active = e.id === ext.id))
+        setActive(ext.id)
         log.info({ id: ext.id }, 'Extension activated.')
-        broadcastActiveState()
+        broadcastState()
+        scheduleAutoActivate()
         break
       }
       case 'toolResult': {
-        const { req, ok, payload } = msg
-        if (ok) {
-          resolve(req, payload)
+        const { id, payload, error } = msg as ToolResultMessage
+        if (error) {
+          reject(id, error instanceof Error ? error : new Error(String(error)))
         } else {
-          reject(req, new Error(String(payload ?? 'Error from extension.')))
+          resolve(id, payload)
         }
         break
       }
@@ -292,12 +332,14 @@ wss.on('connection', (ws) => {
 
     if (ext.active) {
       log.warn({ id: ext.id }, 'Active extension disconnected.')
-      broadcastActiveState()
+      setActive(null)
     }
+
+    broadcastState()
+    scheduleAutoActivate()
   })
 })
 
-log.info({ port: selectedWsPort }, 'WebSocket server ready.')
 log.info({ port: selectedWsPort }, 'WebSocket server ready.')
 
 process.on('SIGINT', shutdown)
