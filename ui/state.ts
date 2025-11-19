@@ -15,7 +15,7 @@ export type Options = {
   panelPosition: {
     left: number
     top: number
-    width?: number
+    width: number
   }
   prefOpen: boolean
   deepSelectOn: boolean
@@ -34,7 +34,8 @@ export const options = useStorage<Options>('tempad-dev', {
   minimized: false,
   panelPosition: {
     left: window.innerWidth - ui.nativePanelWidth - ui.tempadPanelWidth,
-    top: ui.topBoundary
+    top: ui.topBoundary,
+    width: ui.tempadPanelWidth
   },
   prefOpen: false,
   deepSelectOn: false,

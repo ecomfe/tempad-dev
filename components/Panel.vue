@@ -31,10 +31,9 @@ const { x, y, isDragging } = useDraggable(panel, {
 
 const { width: windowWidth, height: windowHeight } = useWindowSize()
 
-const panelWidth = ref(position?.width ?? ui.tempadPanelWidth)
+const panelWidth = ref(position ? position.width : ui.tempadPanelWidth)
 const isResizing = ref(false)
 
-// no need reactive state, directly using variables
 let resizeState: {
   direction: 'left' | 'right'
   startX: number
@@ -104,7 +103,7 @@ function endResize(e: PointerEvent) {
 function resetWidth() {
   panelWidth.value = ui.tempadPanelWidth
   if (position) {
-    delete position.width
+    position.width = ui.tempadPanelWidth
   }
 }
 
@@ -233,7 +232,7 @@ const resizingCursor = 'ew-resize'
   top: 0;
   bottom: 0;
   width: 8px;
-  z-index: 100;
+  z-index: 10;
   transition: background-color 0.2s ease;
   touch-action: none;
   user-select: none;
@@ -266,9 +265,8 @@ const resizingCursor = 'ew-resize'
 
 .tp-panel-main {
   flex: 1 1 auto;
-  /* TODO: find correct way to inject this radius value */
-  border-bottom-left-radius: var(--radius-lg, 0.8125rem);
-  border-bottom-right-radius: var(--radius-lg, 0.8125rem);
+  border-bottom-left-radius: 0.8125rem;
+  border-bottom-right-radius: 0.8125rem;
 }
 
 .tp-panel-header-icon {
