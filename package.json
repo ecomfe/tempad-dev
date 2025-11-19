@@ -10,10 +10,11 @@
     "build": "wxt build && pnpm run build:rewrite && pnpm run build:plugins && pnpm run build:mcp && pnpm run build:readme",
     "build:firefox": "wxt build -b firefox",
     "build:rewrite": "esbuild ./rewrite/figma.ts --outfile=./dist/figma.js --bundle --format=iife && cp ./public/rules/figma.legacy.json ./dist/figma.json && cp ./public/rules/figma.legacy.json ./dist/figma.comply.json",
-    "build:plugins": "tsc -p ./plugins/tsconfig.json",
-    "build:mcp": "tsc -p ./mcp/tsconfig.json",
+    "build:plugins": "pnpm --filter @tempad-dev/plugins run build",
+    "build:mcp": "pnpm --filter @tempad-dev/mcp run build",
     "build:readme": "tsx ./build/readme.ts",
-    "npm:plugins": "pnpm build:plugins && cd plugins && pnpm publish --access public && cd ..",
+    "npm:plugins": "pnpm --filter @tempad-dev/plugins publish --access public",
+    "npm:mcp": "pnpm --filter @tempad-dev/mcp publish --access public",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "compile": "vue-tsc --noEmit",
@@ -59,7 +60,8 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
-      "playwright-chromium"
+      "playwright-chromium",
+      "spawn-sync"
     ],
     "overrides": {
       "vite": "npm:rolldown-vite@latest"

@@ -9,5 +9,9 @@
     "dist/index.js",
     "dist/index.d.ts",
     "README.md"
-  ]
+  ],
+  "scripts": {
+    "build": "tsc -p ./tsconfig.json",
+    "prepublishOnly": "pnpm run build"
+  }
 }
