@@ -19,15 +19,6 @@ import {
 import type { RawData } from 'ws'
 import type { ExtensionConnection } from './types'
 
-function parseNumberList(env?: string, fallback: number[] = []): number[] {
-  if (!env) return fallback
-  const list = env
-    .split(',')
-    .map((s) => Number.parseInt(s.trim(), 10))
-    .filter((n) => Number.isFinite(n) && n > 0)
-  return list.length ? list : fallback
-}
-
 function parseString(env?: string, fallback?: string): string | undefined {
   if (!env) return fallback
   const trimmed = env.trim()
@@ -39,7 +30,7 @@ function parsePositiveInt(env: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-const WS_PORT_CANDIDATES = parseNumberList(process.env.TEMPAD_MCP_WS_PORTS, [6220, 7431, 8127])
+const WS_PORT_CANDIDATES = [6220, 7431, 8127]
 const DEFAULT_EXTENSION_ID = 'lgoeakbaikpkihoiphamaeopmliaimpc'
 const ALLOWED_EXTENSION_ID =
   parseString(process.env.TEMPAD_MCP_ALLOWED_EXT, DEFAULT_EXTENSION_ID) || DEFAULT_EXTENSION_ID

@@ -30,19 +30,20 @@ const timestamp = new Date()
 const pid = process.pid
 const LOG_FILE = join(LOG_DIR, `mcp-${timestamp}-${pid}.log`)
 
+const prettyTransport = pino.transport({
+  target: 'pino-pretty',
+  options: {
+    translateTime: 'SYS:HH:MM:ss',
+    destination: LOG_FILE
+  }
+})
+
 export const log = pino(
   {
     level: process.env.DEBUG ? 'debug' : 'info',
-    msgPrefix: '[tempad-dev/mcp] ',
-    transport: {
-      target: 'pino-pretty',
-      options: {
-        translateTime: 'SYS:HH:MM:ss',
-        destination: LOG_FILE
-      }
-    }
+    msgPrefix: '[tempad-dev/mcp] '
   },
-  pino.destination({ dest: LOG_FILE, mkdir: true })
+  prettyTransport
 )
 
 export const SOCK_PATH =
