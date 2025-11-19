@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
@@ -22,6 +22,14 @@ export const LOG_DIR = resolveLogDir()
 
 ensureDir(RUNTIME_DIR)
 ensureDir(LOG_DIR)
+
+function ensureFile(filePath: string): void {
+  const fd = openSync(filePath, 'a')
+  closeSync(fd)
+}
+
+export const LOCK_PATH = join(RUNTIME_DIR, 'mcp.lock')
+ensureFile(LOCK_PATH)
 
 const timestamp = new Date()
   .toISOString()
@@ -48,4 +56,3 @@ export const log = pino(
 
 export const SOCK_PATH =
   process.platform === 'win32' ? '\\\\.\\pipe\\tempad-mcp' : join(RUNTIME_DIR, 'mcp.sock')
-export const LOCK_PATH = join(RUNTIME_DIR, 'mcp.lock')
