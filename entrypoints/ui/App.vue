@@ -69,7 +69,7 @@ function activateMcp() {
         <IconButton
           v-if="runtimeMode !== 'unavailable' && !options.minimized"
           title="Preferences"
-          toggle="subtle"
+          toggle
           v-model:selected="options.prefOpen"
           @dblclick.stop
         >
