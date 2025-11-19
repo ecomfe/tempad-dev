@@ -7,7 +7,7 @@ import IconButton from '@/components/IconButton.vue'
 import Preview from '@/components/icons/Preview.vue'
 import Section from '@/components/Section.vue'
 import { selection, selectedNode, options, selectedTemPadComponent, activePlugin } from '@/ui/state'
-import { getDesignComponent } from '@/utils'
+import { generateCodeBlocksForNode } from '@/utils'
 
 const componentCode = shallowRef('')
 const componentLink = shallowRef('')
@@ -31,19 +31,15 @@ async function updateCode() {
   componentCode.value = tempadComponent?.code || ''
   componentLink.value = tempadComponent?.link || ''
 
-  const component = getDesignComponent(node)
-
-  const style = await node.getCSSAsync()
-  const { cssUnit, rootFontSize, scale } = options.value
-  const serializeOptions = {
-    useRem: cssUnit === 'rem',
-    rootFontSize,
-    scale
-  }
-
-  codeBlocks.value = (
-    await codegen(style, component, serializeOptions, activePlugin.value?.code || undefined)
-  ).codeBlocks
+  codeBlocks.value = await generateCodeBlocksForNode(
+    node,
+    {
+      cssUnit: options.value.cssUnit,
+      rootFontSize: options.value.rootFontSize,
+      scale: options.value.scale
+    },
+    activePlugin.value?.code || undefined
+  )
 }
 
 watch(options, updateCode, {

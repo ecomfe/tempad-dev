@@ -1,5 +1,5 @@
 <template>
-  <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+  <svg class="tp-icon" width="24" height="24" fill="none" viewBox="0 0 24 24">
     <path
       fill="var(--fpl-icon-color, var(--color-icon))"
       fill-rule="evenodd"

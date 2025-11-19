@@ -1,18 +1,18 @@
 import { z } from 'zod'
 
+export const GetCodeParametersSchema = z.object({
+  output: z.enum(['css', 'js']).optional().default('css')
+})
+
+export type GetCodeParametersInput = z.input<typeof GetCodeParametersSchema>
+export type GetCodeResult = {
+  code: Record<string, string>
+}
+
 export const TOOLS = [
   {
-    name: 'get_price',
-    description: 'Returns the latest price of a stock.',
-    parameters: z.object({
-      symbol: z.string().length(4, 'Stock symbol must be 4 characters.')
-    })
-  },
-  {
-    name: 'weather',
-    description: 'Returns the current weather for a city.',
-    parameters: z.object({
-      city: z.string().min(1, 'City name cannot be empty.')
-    })
+    name: 'get_code',
+    description: 'Returns generated code for the currently selected node.',
+    parameters: GetCodeParametersSchema
   }
 ] as const
