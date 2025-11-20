@@ -161,6 +161,7 @@ const selectedIndex = computed(() => {
 
 .tp-select::picker(select) {
   appearance: base-select;
+  border: none;
 }
 
 .tp-select:open::picker(select) {

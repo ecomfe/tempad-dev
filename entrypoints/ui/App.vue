@@ -55,6 +55,9 @@ const mcpBadgeTooltip = computed(() => {
 })
 
 const mcpBadgeStatusClass = computed(() => `tp-mcp-badge-${status.value}`)
+const mcpBadgeActiveClass = computed(() =>
+  isMcpConnected.value ? (selfActive.value ? 'tp-mcp-badge-active' : 'tp-mcp-badge-inactive') : null
+)
 
 function activateMcp() {
   if (isMcpConnected.value) {
@@ -70,20 +73,14 @@ function activateMcp() {
         <span>TemPad Dev</span>
         <Badge
           v-if="options.mcpOn && runtimeMode === 'standard'"
-          :class="['tp-mcp-badge', mcpBadgeStatusClass]"
+          :class="['tp-mcp-badge', mcpBadgeStatusClass, mcpBadgeActiveClass]"
           :tone="mcpBadgeTone"
           :variant="mcpBadgeVariant"
           :title="mcpBadgeTooltip"
           @click="activateMcp"
           @dblclick.stop
         >
-          <span
-            class="tp-mcp-dot"
-            :class="{
-              'tp-mcp-dot-connected-inactive': isMcpConnected && !selfActive,
-              'tp-mcp-dot-connected-active': isMcpConnected && selfActive
-            }"
-          />
+          <span class="tp-mcp-dot" />
           MCP
         </Badge>
       </div>
@@ -130,6 +127,11 @@ function activateMcp() {
   gap: 4px;
 }
 
+.tp-mcp-badge-inactive .tp-mcp-dot {
+  animation: tp-mcp-dot-pulse 1.2s ease-in-out infinite;
+  background-color: var(--color-icon-success, #1bc47d);
+}
+
 .tp-mcp-badge-connected:hover {
   border-style: solid;
 }
@@ -142,12 +144,17 @@ function activateMcp() {
   box-sizing: border-box;
 }
 
-.tp-mcp-dot-connected-inactive {
-  background-color: transparent;
-  border: 1px solid var(--color-icon-success, #1bc47d);
+.tp-mcp-badge-active .tp-mcp-dot {
+  background-color: var(--color-icon-success, #1bc47d);
 }
 
-.tp-mcp-dot-connected-active {
-  background-color: var(--color-icon-success, #1bc47d);
+@keyframes tp-mcp-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 </style>
