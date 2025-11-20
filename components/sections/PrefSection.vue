@@ -3,8 +3,8 @@ import Select, { type SelectOption } from '@/components/Select.vue'
 import IconButton from '@/components/IconButton.vue'
 import Inspect from '@/components/icons/Inspect.vue'
 import Measure from '@/components/icons/Measure.vue'
-import MCP from '@/components/icons/MCP.vue'
 import Section from '@/components/Section.vue'
+import MCPSection from '@/components/sections/McpSection.vue'
 import PluginsSection from '@/components/sections/PluginsSection.vue'
 import { useSelectAll } from '@/composables/input'
 import { options } from '@/ui/state'
@@ -40,9 +40,6 @@ const cssUnitOptions = [
     <div class="tp-row tp-row-justify tp-pref-field">
       <label>Tools</label>
       <div class="tp-row tp-gap">
-        <IconButton title="MCP server" toggle v-model:selected="options.mcpOn">
-          <MCP />
-        </IconButton>
         <IconButton title="Deep select" toggle v-model:selected="options.deepSelectOn">
           <Inspect />
         </IconButton>
@@ -81,6 +78,7 @@ const cssUnitOptions = [
         v-model.number="options.scale"
       />
     </div>
+    <MCPSection class="tp-pref-mcp" />
     <PluginsSection class="tp-pref-plugins" />
   </Section>
 </template>
@@ -90,16 +88,21 @@ const cssUnitOptions = [
   --tp-section-padding-bottom: 0;
 }
 
+.tp-pref-mcp,
+.tp-pref-plugins {
+  margin-top: 12px;
+  margin-left: -12px;
+  margin-right: -12px;
+  --tp-section-padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
 .tp-pref-field + .tp-pref-field {
   margin-top: 8px;
 }
 
 .tp-pref-input {
   width: 80px;
-}
-
-.tp-pref-plugins {
-  margin-top: 8px;
 }
 
 label {
