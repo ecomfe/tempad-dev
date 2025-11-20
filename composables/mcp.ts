@@ -3,7 +3,9 @@ import {
   createSharedComposable,
   useDocumentVisibility,
   useEventListener,
-  useTimeoutFn
+  useIdle,
+  useTimeoutFn,
+  useWindowFocus
 } from '@vueuse/core'
 
 import type { GetCodeParametersInput, GetCodeResult } from '@/mcp/src/tools'
@@ -12,7 +14,8 @@ import { generateCodeBlocksForNode } from '@/utils'
 import { activePlugin, options, selectedNode, selection } from '@/ui/state'
 
 const PORT_CANDIDATES = [6220, 7431, 8127]
-const RECONNECT_DELAY_MS = 1000
+const RECONNECT_DELAY_MS = 3000
+const IDLE_TIMEOUT_MS = 10000
 
 export type McpStatus = 'disabled' | 'connecting' | 'connected' | 'error'
 
@@ -81,6 +84,12 @@ export const useMcp = createSharedComposable(() => {
   let lastSuccessfulPort: number | null = null
   let isConnecting = false
   const documentVisibility = useDocumentVisibility()
+  const { idle } = useIdle(IDLE_TIMEOUT_MS)
+  const focused = useWindowFocus()
+
+  const isWindowActive = computed(() => {
+    return documentVisibility.value === 'visible' && !idle.value && focused.value
+  })
 
   const { start: startReconnectTimer, stop: stopReconnectTimer } = useTimeoutFn(
     () => {
@@ -134,12 +143,7 @@ export const useMcp = createSharedComposable(() => {
   }
 
   async function connect() {
-    if (
-      !options.value.mcpOn ||
-      isConnecting ||
-      socket.value ||
-      documentVisibility.value !== 'visible'
-    ) {
+    if (!options.value.mcpOn || isConnecting || socket.value || !isWindowActive.value) {
       return
     }
 
@@ -240,16 +244,6 @@ export const useMcp = createSharedComposable(() => {
     errorMessage.value = null
   }
 
-  function pauseWhileHidden() {
-    stopReconnectTimer()
-    cleanupSocket()
-    resetState()
-    if (options.value.mcpOn) {
-      status.value = 'disabled'
-      errorMessage.value = null
-    }
-  }
-
   watch(
     () => options.value.mcpOn,
     (enabled) => {
@@ -262,21 +256,19 @@ export const useMcp = createSharedComposable(() => {
     { immediate: true }
   )
 
-  watch(
-    documentVisibility,
-    (state) => {
-      if (state === 'visible') {
-        if (options.value.mcpOn) {
-          console.log('Document visible. Resuming MCP connection...')
-          start()
-        }
-      } else {
-        console.log('Document hidden. Pausing MCP connection...')
-        pauseWhileHidden()
+  watch(isWindowActive, (active) => {
+    if (active) {
+      if (options.value.mcpOn && !socket.value && !isConnecting) {
+        console.log('[tempad-dev] MCP connection polling resumed.')
+        connect()
       }
-    },
-    { immediate: true }
-  )
+    } else {
+      if (options.value.mcpOn && !socket.value) {
+        console.log('[tempad-dev] MCP connection polling paused.')
+        stopReconnectTimer()
+      }
+    }
+  })
 
   const selfActive = computed(() => !!selfId.value && selfId.value === activeId.value)
 
