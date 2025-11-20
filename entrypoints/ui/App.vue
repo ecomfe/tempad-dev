@@ -23,25 +23,42 @@ function toggleMinimized() {
 
 const panelWidth = `${ui.tempadPanelWidth}px`
 
-const mcp = useMcp()
+const { status, selfActive, count, activate } = useMcp()
 
-const isMcpConnected = computed(() => mcp.status.value === 'connected')
-const isMcpDashed = computed(
-  () => isMcpConnected.value && mcp.count.value > 1 && !mcp.selfActive.value
-)
+const isMcpConnected = computed(() => status.value === 'connected')
+
+const mcpBadgeTone = computed(() => {
+  if (!isMcpConnected.value) return 'neutral'
+  if (!selfActive.value) return 'neutral'
+  return 'success'
+})
+
+const mcpBadgeVariant = computed(() => {
+  if (!isMcpConnected.value) return 'dashed'
+  if (!selfActive.value) return 'dashed'
+  return 'solid'
+})
 
 const mcpBadgeTooltip = computed(() => {
-  if (isMcpConnected.value) {
-    const count = mcp.count.value || 0
-    const port = mcp.port.value ?? 'unknown'
-    return `Connected with ${count} windows • Click to activate this window • localhost:${port}`
+  if (!isMcpConnected.value) {
+    return 'Unavailable • Start MCP server to enable files'
   }
-  return 'MCP not connected'
+
+  const fileCount = count.value || 0
+  const fileLabel = fileCount > 1 ? ` • ${fileCount} files` : ''
+
+  if (selfActive.value) {
+    return `Active${fileLabel}`
+  }
+
+  return `Inactive${fileLabel} • Click to activate`
 })
+
+const mcpBadgeStatusClass = computed(() => `tp-mcp-badge-${status.value}`)
 
 function activateMcp() {
   if (isMcpConnected.value) {
-    mcp.activate()
+    activate()
   }
 }
 </script>
@@ -53,15 +70,20 @@ function activateMcp() {
         <span>TemPad Dev</span>
         <Badge
           v-if="options.mcpOn && runtimeMode === 'standard'"
-          class="tp-mcp-badge"
-          :class="{
-            'tp-mcp-badge-connected': isMcpConnected,
-            'tp-mcp-badge-dashed': isMcpDashed
-          }"
+          :class="['tp-mcp-badge', mcpBadgeStatusClass]"
+          :tone="mcpBadgeTone"
+          :variant="mcpBadgeVariant"
           :title="mcpBadgeTooltip"
           @click="activateMcp"
+          @dblclick.stop
         >
-          <span class="tp-mcp-dot" :class="{ 'tp-mcp-dot-on': isMcpConnected }" />
+          <span
+            class="tp-mcp-dot"
+            :class="{
+              'tp-mcp-dot-connected-inactive': isMcpConnected && !selfActive,
+              'tp-mcp-dot-connected-active': isMcpConnected && selfActive
+            }"
+          />
           MCP
         </Badge>
       </div>
@@ -105,19 +127,11 @@ function activateMcp() {
 }
 
 .tp-mcp-badge {
-  display: inline-flex;
-  align-items: center;
   gap: 4px;
-  cursor: pointer;
+}
+
+.tp-mcp-badge-connected:hover {
   border-style: solid;
-}
-
-.tp-mcp-badge-dashed {
-  border-style: dashed;
-}
-
-.tp-mcp-badge:not(.tp-mcp-badge-connected) {
-  opacity: 0.75;
 }
 
 .tp-mcp-dot {
@@ -125,9 +139,15 @@ function activateMcp() {
   height: 6px;
   border-radius: 50%;
   background-color: var(--color-icon-disabled, #9ba1a6);
+  box-sizing: border-box;
 }
 
-.tp-mcp-dot-on {
+.tp-mcp-dot-connected-inactive {
+  background-color: transparent;
+  border: 1px solid var(--color-icon-success, #1bc47d);
+}
+
+.tp-mcp-dot-connected-active {
   background-color: var(--color-icon-success, #1bc47d);
 }
 </style>
