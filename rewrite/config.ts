@@ -5,7 +5,7 @@ export const GROUPS: Group[] = [
     markers: ['.appModel.isReadOnly'],
     replacements: [
       {
-        pattern: /\.appModel\.isReadOnly/g,
+        pattern: '.appModel.isReadOnly',
         replacer: '.appModel.__isReadOnly__'
       }
     ]
@@ -31,6 +31,15 @@ export const GROUPS: Group[] = [
       {
         pattern: /dispnf\.fyufotjpo;00|np{\.fyufotjpo;00/g,
         replacer: 'FIGMA_PLEASE_STOP'
+      }
+    ]
+  },
+  {
+    markers: ['ext_init_wdf'],
+    replacements: [
+      {
+        pattern: 'ext_init_wdf',
+        replacer: '__ext_init_wdf__'
       }
     ]
   }
