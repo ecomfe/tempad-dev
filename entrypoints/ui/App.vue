@@ -52,7 +52,7 @@ function activateMcp() {
       <div class="tp-row tp-gap-l">
         <span>TemPad Dev</span>
         <Badge
-          v-if="options.mcpOn"
+          v-if="options.mcpOn && runtimeMode === 'standard'"
           class="tp-mcp-badge"
           :class="{
             'tp-mcp-badge-connected': isMcpConnected,
