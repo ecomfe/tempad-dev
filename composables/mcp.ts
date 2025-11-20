@@ -11,7 +11,7 @@ import {
 import type { GetCodeParametersInput, GetCodeResult } from '@/mcp/src/tools'
 import { parseMessageToExtension } from '@/mcp/src/protocol'
 import { generateCodeBlocksForNode } from '@/utils'
-import { activePlugin, options, selectedNode, selection } from '@/ui/state'
+import { activePlugin, options, runtimeMode, selectedNode, selection } from '@/ui/state'
 
 const PORT_CANDIDATES = [6220, 7431, 8127]
 const RECONNECT_DELAY_MS = 3000
@@ -143,7 +143,13 @@ export const useMcp = createSharedComposable(() => {
   }
 
   async function connect() {
-    if (!options.value.mcpOn || isConnecting || socket.value || !isWindowActive.value) {
+    if (
+      runtimeMode.value !== 'standard' ||
+      !options.value.mcpOn ||
+      isConnecting ||
+      socket.value ||
+      !isWindowActive.value
+    ) {
       return
     }
 
@@ -247,7 +253,7 @@ export const useMcp = createSharedComposable(() => {
   watch(
     () => options.value.mcpOn,
     (enabled) => {
-      if (enabled) {
+      if (enabled && runtimeMode.value === 'standard') {
         start()
       } else {
         stop()
@@ -258,7 +264,12 @@ export const useMcp = createSharedComposable(() => {
 
   watch(isWindowActive, (active) => {
     if (active) {
-      if (options.value.mcpOn && !socket.value && !isConnecting) {
+      if (
+        runtimeMode.value === 'standard' &&
+        options.value.mcpOn &&
+        !socket.value &&
+        !isConnecting
+      ) {
         console.log('[tempad-dev] MCP connection polling resumed.')
         connect()
       }
