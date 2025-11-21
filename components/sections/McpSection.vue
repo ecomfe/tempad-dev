@@ -54,6 +54,10 @@ const mcpClients = computed(() =>
 
 const copy = useCopy()
 const defaultInstallCommand = `${MCP_SERVER.command} ${MCP_SERVER.args.join(' ')}`
+const copyMessages = {
+  command: 'Copied command to clipboard',
+  config: 'Copied configuration to clipboard'
+} as const
 
 async function handleClientClick(client: McpClientConfig & { icon: unknown; brandColor?: string }) {
   if (client.deepLink) {
@@ -61,7 +65,8 @@ async function handleClientClick(client: McpClientConfig & { icon: unknown; bran
     return
   }
   if (client.copyText) {
-    copy(client.copyText)
+    const kind = client.copyKind === 'config' ? 'config' : 'command'
+    copy(client.copyText, copyMessages[kind])
   }
 }
 </script>
@@ -105,7 +110,7 @@ async function handleClientClick(client: McpClientConfig & { icon: unknown; bran
             title="Copy configuration"
             class="tp-mcp-client-button"
             variant="secondary"
-            @click="copy(defaultInstallCommand)"
+            @click="copy(defaultInstallCommand, copyMessages.command)"
           >
             <Copy />
           </IconButton>
