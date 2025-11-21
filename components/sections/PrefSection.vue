@@ -4,7 +4,7 @@ import IconButton from '@/components/IconButton.vue'
 import Inspect from '@/components/icons/Inspect.vue'
 import Measure from '@/components/icons/Measure.vue'
 import Section from '@/components/Section.vue'
-import MCPSection from '@/components/sections/McpSection.vue'
+import McpSection from '@/components/sections/McpSection.vue'
 import PluginsSection from '@/components/sections/PluginsSection.vue'
 import { useSelectAll } from '@/composables/input'
 import { options } from '@/ui/state'
@@ -78,7 +78,7 @@ const cssUnitOptions = [
         v-model.number="options.scale"
       />
     </div>
-    <MCPSection class="tp-pref-mcp" />
+    <McpSection class="tp-pref-mcp" />
     <PluginsSection class="tp-pref-plugins" />
   </Section>
 </template>
