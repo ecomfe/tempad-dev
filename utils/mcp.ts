@@ -55,39 +55,7 @@ const codexCliCommand = `codex mcp add "${SERVER_NAME}" -- ${SERVER_COMMAND} ${S
 
 const traeConfigSnippet = windsurfConfigSnippet
 
-const zedConfigSnippet = JSON.stringify(
-  {
-    context_servers: {
-      [SERVER_NAME]: cursorConfig
-    }
-  },
-  null,
-  2
-)
-
-const clineConfigSnippet = JSON.stringify(
-  {
-    mcpServers: {
-      [SERVER_NAME]: {
-        type: 'stdio',
-        ...cursorConfig,
-        disabled: false
-      }
-    }
-  },
-  null,
-  2
-)
-
-export type McpClientId =
-  | 'vscode'
-  | 'cursor'
-  | 'windsurf'
-  | 'claude'
-  | 'codex'
-  | 'trae'
-  | 'zed'
-  | 'cline'
+export type McpClientId = 'vscode' | 'cursor' | 'windsurf' | 'claude' | 'codex' | 'trae'
 
 export type McpClientConfig = {
   id: McpClientId
@@ -144,22 +112,6 @@ export const MCP_CLIENTS: McpClientConfig[] = [
     brandColor: '#000',
     supportsDeepLink: false,
     copyText: traeConfigSnippet,
-    copyKind: 'config'
-  },
-  {
-    id: 'zed',
-    name: 'Zed',
-    brandColor: '#084CCF',
-    supportsDeepLink: false,
-    copyText: zedConfigSnippet,
-    copyKind: 'config'
-  },
-  {
-    id: 'cline',
-    name: 'Cline',
-    brandColor: '#000',
-    supportsDeepLink: false,
-    copyText: clineConfigSnippet,
     copyKind: 'config'
   }
 ]

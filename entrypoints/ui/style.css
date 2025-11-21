@@ -5,6 +5,8 @@ tempad {
   font-family: var(--font-family-ui);
   font-size: 11px;
   color: var(--text-primary);
+  cursor: default;
+  user-select: none;
 
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
