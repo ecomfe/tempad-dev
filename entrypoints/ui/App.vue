@@ -41,7 +41,7 @@ const mcpBadgeVariant = computed(() => {
 
 const mcpBadgeTooltip = computed(() => {
   if (!isMcpConnected.value) {
-    return 'Unavailable • Start MCP server to enable files'
+    return 'Unavailable'
   }
 
   const fileCount = count.value || 0

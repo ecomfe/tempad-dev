@@ -1,8 +1,90 @@
+const SERVER_NAME = 'TemPad Dev'
+const SERVER_COMMAND = 'npx'
+const SERVER_ARGS = ['-y', '@tempad-dev/mcp']
+
+type BaseCommandConfig = {
+  command: string
+  args: string[]
+}
+
+const stdioConfig = {
+  type: 'stdio' as const,
+  command: SERVER_COMMAND,
+  args: SERVER_ARGS
+}
+
+const cursorConfig: BaseCommandConfig = {
+  command: SERVER_COMMAND,
+  args: SERVER_ARGS
+}
+
+function toBase64(input: string): string {
+  if (typeof btoa === 'function') {
+    return btoa(input)
+  }
+  throw new Error('Base64 encoding not supported in this environment.')
+}
+
+const vscodeDeepLink = (() => {
+  const payload = {
+    name: SERVER_NAME,
+    ...stdioConfig
+  }
+  const encoded = encodeURIComponent(JSON.stringify(payload))
+  return `vscode:mcp/install?${encoded}`
+})()
+
+const cursorDeepLink = (() => {
+  const name = encodeURIComponent(SERVER_NAME)
+  const configBase64 = toBase64(JSON.stringify(cursorConfig))
+  return `cursor://anysphere.cursor-deeplink/mcp/install?name=${name}&config=${configBase64}`
+})()
+
+const windsurfConfigSnippet = JSON.stringify(
+  {
+    mcpServers: {
+      [SERVER_NAME]: cursorConfig
+    }
+  },
+  null,
+  2
+)
+
+const claudeCliCommand = `claude mcp add --transport stdio "${SERVER_NAME}" -- ${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`
+const codexCliCommand = `codex mcp add "${SERVER_NAME}" -- ${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`
+
+const traeConfigSnippet = windsurfConfigSnippet
+
+const zedConfigSnippet = JSON.stringify(
+  {
+    context_servers: {
+      [SERVER_NAME]: cursorConfig
+    }
+  },
+  null,
+  2
+)
+
+const clineConfigSnippet = JSON.stringify(
+  {
+    mcpServers: {
+      [SERVER_NAME]: {
+        type: 'stdio',
+        ...cursorConfig,
+        disabled: false
+      }
+    }
+  },
+  null,
+  2
+)
+
 export type McpClientId =
   | 'vscode'
   | 'cursor'
   | 'windsurf'
   | 'claude'
+  | 'codex'
   | 'trae'
   | 'zed'
   | 'cline'
@@ -10,19 +92,76 @@ export type McpClientId =
 export type McpClientConfig = {
   id: McpClientId
   name: string
-  hoverColor?: string
+  brandColor?: string
   deepLink?: string
   supportsDeepLink: boolean
+  copyText?: string
+  copyKind?: 'command' | 'config'
 }
 
 export const MCP_CLIENTS: McpClientConfig[] = [
-  { id: 'vscode', name: 'VS Code', supportsDeepLink: true, deepLink: 'vscode://' },
-  { id: 'cursor', name: 'Cursor', supportsDeepLink: true, deepLink: 'cursor://' },
-  { id: 'windsurf', name: 'Windsurf', supportsDeepLink: true, deepLink: 'windsurf://' },
-  { id: 'claude', name: 'Claude', supportsDeepLink: false },
-  { id: 'trae', name: 'TRAE', supportsDeepLink: false },
-  { id: 'zed', name: 'Zed', supportsDeepLink: true, deepLink: 'zed://' },
-  { id: 'cline', name: 'Cline', supportsDeepLink: false }
+  {
+    id: 'vscode',
+    name: 'VS Code',
+    brandColor: '#0098FF',
+    supportsDeepLink: true,
+    deepLink: vscodeDeepLink
+  },
+  {
+    id: 'cursor',
+    name: 'Cursor',
+    brandColor: '#000000',
+    supportsDeepLink: true,
+    deepLink: cursorDeepLink
+  },
+  {
+    id: 'windsurf',
+    name: 'Windsurf',
+    brandColor: '#0B100F',
+    supportsDeepLink: false,
+    copyText: windsurfConfigSnippet,
+    copyKind: 'config'
+  },
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    brandColor: '#D97757',
+    supportsDeepLink: false,
+    copyText: claudeCliCommand,
+    copyKind: 'command'
+  },
+  {
+    id: 'codex',
+    name: 'Codex CLI',
+    brandColor: '#000',
+    supportsDeepLink: false,
+    copyText: codexCliCommand,
+    copyKind: 'command'
+  },
+  {
+    id: 'trae',
+    name: 'TRAE',
+    brandColor: '#000',
+    supportsDeepLink: false,
+    copyText: traeConfigSnippet,
+    copyKind: 'config'
+  },
+  {
+    id: 'zed',
+    name: 'Zed',
+    brandColor: '#084CCF',
+    supportsDeepLink: false,
+    copyText: zedConfigSnippet,
+    copyKind: 'config'
+  },
+  {
+    id: 'cline',
+    name: 'Cline',
+    brandColor: '#000',
+    supportsDeepLink: false,
+    copyText: clineConfigSnippet,
+    copyKind: 'config'
+  }
 ]
 
 export const MCP_CLIENTS_BY_ID = MCP_CLIENTS.reduce<Record<McpClientId, McpClientConfig>>(
@@ -32,3 +171,9 @@ export const MCP_CLIENTS_BY_ID = MCP_CLIENTS.reduce<Record<McpClientId, McpClien
   },
   {} as Record<McpClientId, McpClientConfig>
 )
+
+export const MCP_SERVER = {
+  name: SERVER_NAME,
+  command: SERVER_COMMAND,
+  args: SERVER_ARGS
+}
