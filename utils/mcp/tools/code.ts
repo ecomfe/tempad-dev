@@ -5,8 +5,6 @@ import type { GetCodeResult } from '@/mcp/src/tools'
 import type { CodegenConfig } from '@/utils/codegen'
 import type { CodeBlock } from '@/types/codegen'
 
-const DEFAULT_LANG: GetCodeResult['lang'] = 'jsx'
-
 function pickPreferredBlock(blocks: CodeBlock[]): CodeBlock {
   const component = blocks.find(({ name }) => name === 'component')
   if (component) return component
@@ -30,7 +28,7 @@ export async function handleGetCode(node: SceneNode): Promise<GetCodeResult> {
   if (!blocks.length) throw new Error('No code available for the current selection.')
 
   const preferred = pickPreferredBlock(blocks)
-  const lang = preferred.lang ?? DEFAULT_LANG
+  const lang: GetCodeResult['lang'] = preferred.lang === 'vue' ? 'vue' : 'jsx'
 
   return { lang, code: preferred.code }
 }

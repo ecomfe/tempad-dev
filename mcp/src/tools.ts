@@ -2,18 +2,13 @@ import { z } from 'zod'
 
 // get_code
 export const GetCodeParametersSchema = z.object({
-  nodeIds: z.array(z.string()).optional(),
-  options: z
-    .object({
-      maxDepth: z.number().int().positive().optional()
-    })
-    .optional()
+  nodeIds: z.array(z.string()).optional()
 })
 
 export type GetCodeParametersInput = z.input<typeof GetCodeParametersSchema>
 export type GetCodeResult = {
-  lang: string
   code: string
+  lang: 'vue' | 'jsx'
 }
 
 // get_token_defs
@@ -41,6 +36,8 @@ export type GetScreenshotResult = {
   format: 'png'
   width: number
   height: number
+  scale: number
+  bytes: number
   dataUrl: string
 }
 
@@ -56,6 +53,7 @@ export const GetStructureParametersSchema = z.object({
 
 export type GetStructureParametersInput = z.input<typeof GetStructureParametersSchema>
 export type OutlineNode = {
+  id: string
   name: string
   type: string
   x: number
