@@ -1,5 +1,3 @@
-import { SelectionNode } from '@/ui/state'
-
 type TemPadComponent = {
   code: string
   name?: string
@@ -23,7 +21,7 @@ const LIB_DISPLAY_NAMES = {
   'dls-illustrations-react': 'DLS Illus.'
 } as Record<string, string>
 
-export function getTemPadComponent(node: SelectionNode): TemPadComponent | null {
+export function getTemPadComponent(node: SceneNode): TemPadComponent | null {
   if (!('type' in node) || node.type !== 'FRAME' || !node.name.startsWith('🧩')) {
     return null
   }

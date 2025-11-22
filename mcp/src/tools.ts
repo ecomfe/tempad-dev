@@ -58,7 +58,10 @@ export type GetStructureParametersInput = z.input<typeof GetStructureParametersS
 export type OutlineNode = {
   name: string
   type: string
-  bounds: { x: number; y: number; w: number; h: number }
+  x: number
+  y: number
+  width: number
+  height: number
   children?: OutlineNode[]
 }
 export type GetStructureResult = {

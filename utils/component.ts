@@ -6,14 +6,13 @@ import type {
   DesignComponent,
   DevComponent
 } from '@/types/plugin'
-import type { SelectionNode } from '@/ui/state'
 
 import { Fill, Variable } from '@/plugins/src'
 
 import { prune } from './object'
 import { camelToKebab, escapeHTML, looseEscapeHTML, stringify, indentAll } from './string'
 
-export function getDesignComponent(node: SelectionNode): DesignComponent | null {
+export function getDesignComponent(node: SceneNode): DesignComponent | null {
   if (!('componentProperties' in node)) {
     return null
   }
@@ -51,7 +50,7 @@ export function getDesignComponent(node: SelectionNode): DesignComponent | null 
   }
 }
 
-function getChildren(node: SelectionNode): DesignNode[] | null {
+function getChildren(node: SceneNode): DesignNode[] | null {
   if (!('children' in node)) {
     return null
   }
