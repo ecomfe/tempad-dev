@@ -1,5 +1,3 @@
-import { SelectionNode } from '@/ui/state'
-
 const devResourcesCache = reactive<Map<string, DevResourceWithNodeId[]>>(new Map())
 const inflightDevResources = new Map<string, Promise<void>>()
 
@@ -28,9 +26,7 @@ async function getFavicon(url: string) {
   }
 }
 
-export function useDevResourceLinks(
-  nodeSource: MaybeRefOrGetter<SelectionNode | null | undefined>
-) {
+export function useDevResourceLinks(nodeSource: MaybeRefOrGetter<SceneNode | null | undefined>) {
   const nodeRef = computed(() => toValue(nodeSource) ?? null)
 
   const links = computed<DevResourceLink[]>(() => {
@@ -75,7 +71,7 @@ export function useDevResourceLinks(
   return links
 }
 
-function ensureDevResources(node: SelectionNode) {
+function ensureDevResources(node: SceneNode) {
   if (inflightDevResources.has(node.id)) {
     return
   }
@@ -127,7 +123,7 @@ function toLink(name: string, url: string, inherited: boolean = false): DevResou
   }
 }
 
-function getDocumentationLinks(node: SelectionNode): readonly DocumentationLink[] {
+function getDocumentationLinks(node: SceneNode): readonly DocumentationLink[] {
   if (node.type !== 'INSTANCE' && node.type !== 'COMPONENT' && node.type !== 'COMPONENT_SET') {
     return []
   }

@@ -28,8 +28,6 @@ export type Options = {
   activePluginSource: string | null
 }
 
-export type SelectionNode = SceneNode
-
 export const options = useStorage<Options>('tempad-dev', {
   minimized: false,
   panelPosition: {
@@ -48,7 +46,7 @@ export const options = useStorage<Options>('tempad-dev', {
 })
 
 export const runtimeMode = shallowRef<'standard' | 'unavailable'>('standard')
-export const selection = shallowRef<readonly SelectionNode[]>([])
+export const selection = shallowRef<readonly SceneNode[]>([])
 export const selectedNode = computed(() => selection.value?.[0] ?? null)
 export const selectedTemPadComponent = computed(() => getTemPadComponent(selectedNode.value))
 
