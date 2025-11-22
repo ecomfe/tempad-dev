@@ -2,20 +2,21 @@ import { generateCodeBlocksForNode } from '@/utils/codegen'
 import { runTransformVariableBatch } from '@/mcp/transform-variable'
 import { buildSemanticTree } from '@/mcp/semantic-tree'
 import { activePlugin, options } from '@/ui/state'
+import { stringifyComponent } from '@/utils/component'
 
 import type { GetCodeResult } from '@/mcp-server/src/tools'
 import type { CodeBlock } from '@/types/codegen'
 import type { CodegenConfig } from '@/utils/codegen'
 import type { SemanticNode } from '@/mcp/semantic-tree'
+import type { DevComponent } from '@/types/plugin'
 
 const VARIABLE_RE = /var\(--([a-zA-Z\d-]+)(?:,\s*([^)]+))?\)/g
-const SELF_CLOSING_TAGS = new Set(['img', 'input', 'hr', 'br', 'meta', 'link'])
 
 type RenderContext = {
   styles: Map<string, Record<string, string>>
-  sceneNodes: Map<string, SceneNode>
-  components: Map<string, string>
-  componentKeys: Map<string, string>
+  nodes: Map<string, SceneNode>
+  components: string[]
+  symbolCounts: Map<string, number>
   pluginCode?: string
   config: CodegenConfig
 }
@@ -35,8 +36,12 @@ type PropertyBucket = {
   matchIndices: number[]
 }
 
-export async function handleGetCode(node: SceneNode): Promise<GetCodeResult> {
-  const tree = buildSemanticTree([node])
+export async function handleGetCode(nodes: SceneNode[]): Promise<GetCodeResult> {
+  if (nodes.length !== 1) {
+    throw new Error('Select exactly one node or provide a single root node id.')
+  }
+
+  const tree = buildSemanticTree(nodes)
   const root = tree.roots[0]
   if (!root) {
     throw new Error('No renderable nodes found for the current selection.')
@@ -44,57 +49,55 @@ export async function handleGetCode(node: SceneNode): Promise<GetCodeResult> {
 
   const config = codegenConfig()
   const pluginCode = activePlugin.value?.code
-  const { sceneNodes, styles } = await collectSceneData(tree.roots)
+  const { nodes: nodeMap, styles } = await collectSceneData(tree.roots)
   await applyVariableTransforms(styles, config, pluginCode)
 
   const ctx: RenderContext = {
     styles,
-    sceneNodes,
-    components: new Map(),
-    componentKeys: new Map(),
+    nodes: nodeMap,
+    components: [],
+    symbolCounts: new Map(),
     pluginCode,
     config
   }
 
-  const markup = await renderSemanticNode(root, ctx, 0)
-  if (!markup) {
+  const componentTree = await renderSemanticNode(root, ctx)
+  if (!componentTree) {
     throw new Error('Unable to build markup for the current selection.')
   }
 
-  const componentCode = ctx.components.size
-    ? '\n\n' + Array.from(ctx.components.values()).join('\n\n')
-    : ''
+  const markup = stringifyComponent(componentTree, 'jsx')
+
+  const componentCode = ctx.components.length ? '\n\n' + ctx.components.join('\n\n') : ''
 
   return { lang: 'jsx', code: `${markup}${componentCode}` }
 }
 
 async function collectSceneData(roots: SemanticNode[]): Promise<{
-  sceneNodes: Map<string, SceneNode>
+  nodes: Map<string, SceneNode>
   styles: Map<string, Record<string, string>>
 }> {
   const semanticNodes = flattenSemanticNodes(roots)
-  const sceneNodes = new Map<string, SceneNode>()
+  const nodes = new Map<string, SceneNode>()
   const styles = new Map<string, Record<string, string>>()
 
   await Promise.all(
     semanticNodes.map(async (semantic) => {
-      const sceneNode = figma.getNodeById(semantic.id)
-      if (!isSceneNode(sceneNode) || !sceneNode.visible) {
+      const node = figma.getNodeById(semantic.id) as SceneNode | null
+      if (!node || !node.visible) {
         return
       }
-      sceneNodes.set(semantic.id, sceneNode)
-      if (hasComputedStyle(sceneNode)) {
-        try {
-          const style = await sceneNode.getCSSAsync()
-          styles.set(semantic.id, style)
-        } catch {
-          // ignore nodes without computable CSS
-        }
+      nodes.set(semantic.id, node)
+      try {
+        const style = await node.getCSSAsync()
+        styles.set(semantic.id, style)
+      } catch {
+        // ignore nodes without computable CSS
       }
     })
   )
 
-  return { sceneNodes, styles }
+  return { nodes, styles }
 }
 
 async function applyVariableTransforms(
@@ -170,65 +173,52 @@ function collectVariableReferences(styles: Map<string, Record<string, string>>):
 }
 
 async function renderSemanticNode(
-  node: SemanticNode,
-  ctx: RenderContext,
-  depth: number
-): Promise<string> {
-  const sceneNode = ctx.sceneNodes.get(node.id)
-  if (!sceneNode) {
-    return ''
+  semantic: SemanticNode,
+  ctx: RenderContext
+): Promise<DevComponent | null> {
+  const node = ctx.nodes.get(semantic.id)
+  if (!node) {
+    return null
   }
 
-  if (sceneNode.type === 'INSTANCE') {
-    const symbol = await ensureComponentSymbol(sceneNode, ctx)
+  if (node.type === 'INSTANCE') {
+    const symbol = await ensureComponentSymbol(node, ctx)
     if (symbol) {
-      return `${indent(depth)}<${symbol} />`
+      return { name: symbol, props: {}, children: [] }
     }
   }
 
-  const classNames = cssToTailwind(ctx.styles.get(node.id) ?? {}, node.id)
-  const classAttr = classNames.length ? ` className="${classNames.join(' ')}"` : ''
-  const tag = node.tag || 'div'
-  const indentLevel = indent(depth)
+  const classNames = cssToTailwind(ctx.styles.get(semantic.id) ?? {}, semantic.id)
+  const props: Record<string, unknown> = {}
+  if (classNames.length) {
+    props.className = classNames.join(' ')
+  }
+  if (semantic.dataHint?.kind === 'attr') {
+    props[semantic.dataHint.name] = semantic.dataHint.value
+  }
 
-  const childChunks: string[] = []
-  for (const child of node.children) {
-    const rendered = await renderSemanticNode(child, ctx, depth + 1)
+  const children: (DevComponent | string)[] = []
+  for (const child of semantic.children) {
+    const rendered = await renderSemanticNode(child, ctx)
     if (rendered) {
-      childChunks.push(rendered)
+      children.push(rendered)
     }
   }
 
-  const textLiteral =
-    sceneNode.type === 'TEXT' ? formatTextLiteral(sceneNode.characters ?? '') : null
-
-  if (!childChunks.length && !textLiteral && SELF_CLOSING_TAGS.has(tag)) {
-    return `${indentLevel}<${tag}${classAttr} />`
+  if (node.type === 'TEXT') {
+    const textLiteral = formatTextLiteral(node.characters ?? '')
+    if (textLiteral) {
+      children.unshift(`{${textLiteral}}`)
+    }
   }
 
-  if (!childChunks.length && !textLiteral) {
-    return `${indentLevel}<${tag}${classAttr}></${tag}>`
-  }
-
-  const inner: string[] = []
-  if (textLiteral) {
-    inner.push(`${indent(depth + 1)}{${textLiteral}}`)
-  }
-  inner.push(...childChunks)
-
-  return `${indentLevel}<${tag}${classAttr}>\n${inner.join('\n')}\n${indentLevel}</${tag}>`
+  return { name: semantic.tag || 'div', props, children }
 }
 
 async function ensureComponentSymbol(
   node: InstanceNode,
   ctx: RenderContext
 ): Promise<string | null> {
-  const componentKey = node.mainComponent?.id ?? node.id
-  const cached = ctx.componentKeys.get(componentKey)
-  if (cached) {
-    return cached
-  }
-
   if (!ctx.pluginCode) {
     return null
   }
@@ -239,9 +229,11 @@ async function ensureComponentSymbol(
     return null
   }
 
-  const symbol = formatComponentSymbol(node.name)
-  ctx.componentKeys.set(componentKey, symbol)
-  ctx.components.set(symbol, componentBlock.code)
+  const baseSymbol = formatComponentSymbol(node.name)
+  const count = (ctx.symbolCounts.get(baseSymbol) ?? 0) + 1
+  ctx.symbolCounts.set(baseSymbol, count)
+  const symbol = count === 1 ? baseSymbol : `${baseSymbol}${count}`
+  ctx.components.push(componentBlock.code)
   return symbol
 }
 
@@ -287,21 +279,4 @@ function flattenSemanticNodes(nodes: SemanticNode[]): SemanticNode[] {
 function codegenConfig(): CodegenConfig {
   const { cssUnit, rootFontSize, scale } = options.value
   return { cssUnit, rootFontSize, scale }
-}
-
-function indent(depth: number): string {
-  return '  '.repeat(depth)
-}
-
-function isSceneNode(node: BaseNode | null): node is SceneNode {
-  return !!node && 'type' in node && 'visible' in node
-}
-
-function hasComputedStyle(node: SceneNode): node is SceneNode & {
-  getCSSAsync: () => Promise<Record<string, string>>
-} {
-  return (
-    'getCSSAsync' in node &&
-    typeof (node as SceneNode & { getCSSAsync?: unknown }).getCSSAsync === 'function'
-  )
 }

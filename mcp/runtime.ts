@@ -35,11 +35,7 @@ function resolveNodes(nodeIds?: string[]): SceneNode[] {
 
 async function handleGetCode(args?: GetCodeParametersInput): Promise<GetCodeResult> {
   const nodes = resolveNodes(args?.nodeIds)
-  if (nodes.length !== 1) {
-    throw new Error('Select exactly one node or provide a single root node id.')
-  }
-
-  return runGetCode(nodes[0])
+  return runGetCode(nodes)
 }
 
 async function handleGetTokenDefs(args?: GetTokenDefsParametersInput): Promise<GetTokenDefsResult> {

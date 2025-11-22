@@ -126,7 +126,7 @@ function getChildren(node: SceneNode): DesignNode[] | null {
   return result
 }
 
-function stringifyComponent(component: DevComponent, lang: SupportedLang): string {
+export function stringifyComponent(component: DevComponent, lang: SupportedLang): string {
   // output as HTML
   switch (lang) {
     case 'vue': {
