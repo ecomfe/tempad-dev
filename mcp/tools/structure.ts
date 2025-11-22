@@ -1,5 +1,5 @@
-import type { GetStructureResult } from '@/mcp/src/tools'
-import { buildSemanticTree, semanticTreeToOutline } from '@/utils/mcp/semantic-tree'
+import type { GetStructureResult } from '@/mcp-server/src/tools'
+import { buildSemanticTree, semanticTreeToOutline } from '@/mcp/semantic-tree'
 
 export function handleGetStructure(roots: SceneNode[], depthLimit?: number): GetStructureResult {
   const tree = buildSemanticTree(roots, { depthLimit })

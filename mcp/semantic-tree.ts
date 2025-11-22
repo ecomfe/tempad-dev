@@ -1,4 +1,4 @@
-import type { OutlineNode } from '@/mcp/src/tools'
+import type { OutlineNode } from '@/mcp-server/src/tools'
 
 const NODE_CAP = 800
 const NODE_TARGET = 400

@@ -1,4 +1,4 @@
-import type { GetScreenshotResult } from '@/mcp/src/tools'
+import type { GetScreenshotResult } from '@/mcp-server/src/tools'
 
 const SCREENSHOT_MAX_BYTES = 4 * 1024 * 1024
 const SCALE_STEPS = [1, 0.75, 0.5, 0.25]
