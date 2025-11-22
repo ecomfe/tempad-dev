@@ -8,10 +8,11 @@ import {
   useWindowFocus
 } from '@vueuse/core'
 
-import type { GetCodeParametersInput, GetCodeResult } from '@/mcp/src/tools'
 import { parseMessageToExtension } from '@/mcp/src/protocol'
-import { generateCodeBlocksForNode } from '@/utils'
-import { activePlugin, options, runtimeMode, selectedNode, selection } from '@/ui/state'
+import { MCP_TOOL_HANDLERS } from '@/utils/mcp/runtime'
+import { options, runtimeMode } from '@/ui/state'
+
+import type { McpToolArgs, McpToolName, MCPHandlers } from '@/utils/mcp/runtime'
 
 const PORT_CANDIDATES = [6220, 7431, 8127]
 const RECONNECT_DELAY_MS = 3000
@@ -24,52 +25,6 @@ function getPortCandidates(lastSuccessfulPort: number | null): number[] {
     return [lastSuccessfulPort, ...PORT_CANDIDATES.filter((p) => p !== lastSuccessfulPort)]
   }
   return PORT_CANDIDATES
-}
-
-type ToolHandler = (args: unknown) => unknown | Promise<unknown>
-
-const DEFAULT_OUTPUT: NonNullable<GetCodeParametersInput['output']> = 'css'
-
-async function generateCode(output: NonNullable<GetCodeParametersInput['output']>) {
-  const node = selectedNode.value
-  if (!node || selection.value.length !== 1) {
-    throw new Error('Select exactly one node to generate code.')
-  }
-
-  const codeBlocks = await generateCodeBlocksForNode(
-    node,
-    {
-      cssUnit: options.value.cssUnit,
-      rootFontSize: options.value.rootFontSize,
-      scale: options.value.scale
-    },
-    activePlugin.value?.code
-  )
-  if (!codeBlocks.length) {
-    throw new Error('No code available for the current selection.')
-  }
-
-  const preferred =
-    codeBlocks.find(({ name }) => name === output) ?? codeBlocks.find(({ name }) => name === 'css')
-
-  const block = preferred ?? codeBlocks[0]
-  return {
-    name: block.name,
-    code: block.code
-  }
-}
-
-const TOOL_HANDLERS: Record<string, ToolHandler> = {
-  get_code: async (args: unknown) => {
-    const typed = (args ?? {}) as GetCodeParametersInput
-    const output = typed.output ?? DEFAULT_OUTPUT
-    const result = await generateCode(output)
-    return {
-      code: {
-        [result.name]: result.code
-      }
-    } satisfies GetCodeResult
-  }
 }
 
 export const useMcp = createSharedComposable(() => {
@@ -208,7 +163,11 @@ export const useMcp = createSharedComposable(() => {
     }
 
     if (message.type === 'toolCall') {
-      await processToolCall(message.id, message.payload.name, message.payload.args)
+      const { name, args } = message.payload
+      if (!isMcpToolName(name)) {
+        throw new Error(`No handler registered for tool "${name}".`)
+      }
+      await processToolCall(message.id, name, args as McpToolArgs<typeof name> | undefined)
     }
   }
 
@@ -290,8 +249,20 @@ export const useMcp = createSharedComposable(() => {
     }
   }
 
-  async function processToolCall(req: string, name: string, args: unknown) {
-    const handler = TOOL_HANDLERS[name]
+  function isMcpToolName(name: string): name is McpToolName {
+    return name in MCP_TOOL_HANDLERS
+  }
+
+  function getHandler<N extends McpToolName>(name: N): MCPHandlers[N] {
+    return MCP_TOOL_HANDLERS[name]
+  }
+
+  async function processToolCall<N extends McpToolName>(
+    req: string,
+    name: N,
+    args: McpToolArgs<N> | undefined
+  ) {
+    const handler = getHandler(name)
     const currentSocket = socket.value
     if (!currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
       return
@@ -301,7 +272,7 @@ export const useMcp = createSharedComposable(() => {
       if (!handler) {
         throw new Error(`No handler registered for tool "${name}".`)
       }
-      const result = await handler(args)
+      const result = await handler(args as McpToolArgs<typeof name>)
       currentSocket.send(
         JSON.stringify({
           type: 'toolResult',
