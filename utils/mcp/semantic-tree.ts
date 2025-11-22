@@ -74,43 +74,36 @@ const VECTOR_LIKE_TYPES = new Set<SceneNode['type']>([
   'POLYGON'
 ])
 
-function hasChildren(node: SceneNode): node is SceneNode & ChildrenMixin {
-  return 'children' in node
-}
-
-function hasLayout(node: SceneNode): node is SceneNode & ConstraintMixin & LayoutMixin {
-  return 'layoutMode' in node
-}
-
-function hasGeometry(node: SceneNode): node is SceneNode & GeometryMixin {
-  return 'fills' in node
-}
-
 function getBounds(node: SceneNode): Bounds {
   return { x: node.x, y: node.y, width: node.width, height: node.height }
 }
 
 function getVisibleChildren(node: SceneNode): SceneNode[] {
-  if (!hasChildren(node)) return []
+  if (!('children' in node)) return []
   return node.children.filter((child) => child.visible)
 }
 
 function isWrapper(node: SceneNode): boolean {
-  if (!hasChildren(node)) return false
+  if (!('children' in node)) return false
   const visibleChildren = getVisibleChildren(node)
   if (visibleChildren.length !== 1) return false
   if (node.type === 'SECTION') return false
   if ('isMask' in node && node.isMask) return false
 
-  if (hasGeometry(node)) {
-    const hasFills = Array.isArray(node.fills) && node.fills.some((fill) => fill.visible !== false)
-    const hasStrokes = Array.isArray(node.strokes) && node.strokes.some((stroke) => stroke.visible !== false)
-    type SceneEffect = { visible?: boolean }
-    const effectList = 'effects' in node ? ((node as { effects?: ReadonlyArray<SceneEffect> }).effects ?? []) : []
-    const hasVisibleEffects = effectList.some((effect) => effect.visible !== false)
-    if (hasFills || hasStrokes || hasVisibleEffects) {
-      return false
-    }
+  const hasFills =
+    'fills' in node &&
+    Array.isArray(node.fills) &&
+    node.fills.some((fill) => fill.visible !== false)
+  const hasStrokes =
+    'strokes' in node &&
+    Array.isArray(node.strokes) &&
+    node.strokes.some((stroke) => stroke.visible !== false)
+  const hasVisibleEffects =
+    'effects' in node &&
+    Array.isArray(node.effects) &&
+    node.effects.some((effect) => effect.visible !== false)
+  if (hasFills || hasStrokes || hasVisibleEffects) {
+    return false
   }
 
   return true
@@ -118,17 +111,14 @@ function isWrapper(node: SceneNode): boolean {
 
 function resolveTag(node: SceneNode): string {
   if (node.type === 'TEXT') {
-    if ('characters' in node && typeof node.characters === 'string' && node.characters.includes('\n')) {
-      return 'p'
-    }
-    return 'span'
+    return node.characters.includes('\n') ? 'p' : 'span'
   }
 
   if (VECTOR_LIKE_TYPES.has(node.type)) {
     return 'svg'
   }
 
-  if (node.type === 'RECTANGLE' && hasGeometry(node) && Array.isArray(node.fills)) {
+  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
     const hasImageFill = node.fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
     if (hasImageFill) return 'img'
   }
@@ -141,7 +131,7 @@ function classifyAsset(node: SceneNode): { isAsset: boolean; assetKind?: 'vector
     return { isAsset: true, assetKind: 'vector' }
   }
 
-  if (node.type === 'RECTANGLE' && hasGeometry(node) && Array.isArray(node.fills)) {
+  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
     const hasImageFill = node.fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
     if (hasImageFill) {
       return { isAsset: true, assetKind: 'image' }
@@ -172,16 +162,18 @@ function composeDataHint(node: SceneNode): DataHint | undefined {
 }
 
 function getLayoutKind(node: SceneNode): 'auto' | 'absolute' {
-  if ('layoutMode' in node) {
-    const layoutMode = (node as SceneNode & { layoutMode: 'HORIZONTAL' | 'VERTICAL' | 'NONE' }).layoutMode
-    if (layoutMode && layoutMode !== 'NONE') {
-      return 'auto'
-    }
+  if ('layoutMode' in node && node.layoutMode !== 'NONE') {
+    return 'auto'
   }
   return 'absolute'
 }
 
-function visit(node: SceneNode, depth: number, index: number, ctx: TraversalContext): FlattenResult {
+function visit(
+  node: SceneNode,
+  depth: number,
+  index: number,
+  ctx: TraversalContext
+): FlattenResult {
   if (!node.visible) return []
 
   if (ctx.depthLimit !== undefined && depth >= ctx.depthLimit) {
@@ -218,8 +210,9 @@ function visit(node: SceneNode, depth: number, index: number, ctx: TraversalCont
     return children.flatMap((child, childIndex) => visit(child, depth, childIndex, ctx))
   }
 
-  const children = getVisibleChildren(node)
-    .flatMap((child, childIndex) => visit(child, depth + 1, childIndex, ctx))
+  const children = getVisibleChildren(node).flatMap((child, childIndex) =>
+    visit(child, depth + 1, childIndex, ctx)
+  )
   assignIndexes(children)
 
   const semanticNode: SemanticNode = {
@@ -252,7 +245,7 @@ function collectDepthCounts(nodes: SceneNode[], depth = 0, counts: number[] = []
   for (const node of nodes) {
     if (!node.visible) continue
     counts[depth] += 1
-    if (hasChildren(node)) {
+    if ('children' in node) {
       collectDepthCounts(Array.from(node.children), depth + 1, counts)
     }
   }
@@ -292,7 +285,9 @@ export function buildSemanticTree(
   }
   const cappedNodeIds: string[] = []
 
-  const semanticRoots = roots.flatMap((node, index) => visit(node, 0, index, { depthLimit, stats, cappedNodeIds }))
+  const semanticRoots = roots.flatMap((node, index) =>
+    visit(node, 0, index, { depthLimit, stats, cappedNodeIds })
+  )
   assignIndexes(semanticRoots)
 
   return {
