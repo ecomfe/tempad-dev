@@ -15,10 +15,10 @@ import VSCode from '@/components/icons/brands/VSCode.vue'
 import Windsurf from '@/components/icons/brands/Windsurf.vue'
 import Expanded from '@/components/icons/Expanded.vue'
 import Collapsed from '@/components/icons/Collapsed.vue'
-import { MCP_CLIENTS, MCP_SERVER } from '@/utils'
+import { MCP_CLIENTS, MCP_SERVER } from '@/utils/mcp/config'
 import { options } from '@/ui/state'
 
-import type { McpClientConfig, McpClientId } from '@/utils'
+import type { McpClientConfig, McpClientId } from '@/utils/mcp/config'
 import ExternalLink from '../icons/ExternalLink.vue'
 
 const mcpOptions = [
