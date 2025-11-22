@@ -1,4 +1,4 @@
 packages:
   - .
-  - mcp
+  - mcp-server
   - plugins

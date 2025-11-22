@@ -12,7 +12,7 @@ import type {
   GetScreenshotResult,
   GetTokenDefsParametersInput,
   GetTokenDefsResult
-} from '@/mcp/src/tools'
+} from '@/mcp-server/src/tools'
 
 function isSceneNode(node: BaseNode | null): node is SceneNode {
   return !!node && 'visible' in node && 'type' in node

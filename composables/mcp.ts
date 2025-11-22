@@ -8,11 +8,11 @@ import {
   useWindowFocus
 } from '@vueuse/core'
 
-import { parseMessageToExtension } from '@/mcp/src/protocol'
-import { MCP_TOOL_HANDLERS } from '@/utils/mcp/runtime'
+import { parseMessageToExtension } from '@/mcp-server/src/protocol'
+import { MCP_TOOL_HANDLERS } from '@/mcp/runtime'
 import { options, runtimeMode } from '@/ui/state'
 
-import type { McpToolArgs, McpToolName, MCPHandlers } from '@/utils/mcp/runtime'
+import type { McpToolArgs, McpToolName, MCPHandlers } from '@/mcp/runtime'
 
 const PORT_CANDIDATES = [6220, 7431, 8127]
 const RECONNECT_DELAY_MS = 3000
