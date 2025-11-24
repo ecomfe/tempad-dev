@@ -1,5 +1,8 @@
 import type { GetTokenDefsResult } from '@/mcp-server/src/tools'
 import { rgbaToCss } from '@/utils/color'
+import { canonicalizeVariable } from '@/utils/css'
+import { runTransformVariableBatch } from '@/mcp/transform-variable'
+import { activePlugin, options } from '@/ui/state'
 
 const COLOR_SCOPE_HINTS = ['COLOR', 'FILL', 'STROKE', 'TEXT_FILL']
 const TYPO_SCOPE_HINTS = [
@@ -34,9 +37,9 @@ type VariableAlias = { id?: string } | { type?: string; id?: string }
 type VariableWithCollection = Variable & { variableCollectionId?: string }
 type VariableCollectionInfo = { defaultModeId?: string }
 
-export function handleGetTokenDefs(nodes: SceneNode[]): GetTokenDefsResult {
+export async function handleGetTokenDefs(nodes: SceneNode[]): Promise<GetTokenDefsResult> {
   const { variableIds } = collectTokenReferences(nodes)
-  const tokens = resolveVariableTokens(variableIds)
+  const tokens = await resolveVariableTokens(variableIds)
   tokens.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 
   return { tokens }
@@ -72,8 +75,11 @@ function collectTokenReferences(roots: SceneNode[]): {
   return { variableIds }
 }
 
-function resolveVariableTokens(ids: Set<string>): TokenEntry[] {
-  const deduped = new Map<string, TokenEntry>()
+async function resolveVariableTokens(ids: Set<string>): Promise<TokenEntry[]> {
+  const references: Array<{ rawName: string }> = []
+  const pending: Array<{ rawName: string; value: TokenEntry['value']; kind: TokenEntry['kind'] }> =
+    []
+
   ids.forEach((id) => {
     const variable = figma.variables.getVariableById(id)
     if (!variable) {
@@ -87,11 +93,22 @@ function resolveVariableTokens(ids: Set<string>): TokenEntry[] {
       return
     }
 
-    if (!deduped.has(variable.name)) {
-      deduped.set(variable.name, {
-        name: variable.name,
-        value,
-        kind: inferVariableKind(variable)
+    references.push({ rawName: variable.name })
+    pending.push({ rawName: variable.name, value, kind: inferVariableKind(variable) })
+  })
+
+  if (!pending.length) return []
+
+  const transformedNames = await transformVariableNames(references)
+
+  const deduped = new Map<string, TokenEntry>()
+  pending.forEach((item, index) => {
+    const name = transformedNames[index] ?? item.rawName
+    if (!deduped.has(name)) {
+      deduped.set(name, {
+        name,
+        value: item.value,
+        kind: item.kind
       })
     }
   })
@@ -288,6 +305,33 @@ function formatNumericValue(value: number): string {
     return '0'
   }
   return toFixed(value)
+}
+
+async function transformVariableNames(references: Array<{ rawName: string }>): Promise<string[]> {
+  if (!references.length) return []
+
+  const transformRefs = references.map(({ rawName }) => ({
+    code: `var(--${rawName})`,
+    name: rawName
+  }))
+
+  const replacements = await runTransformVariableBatch(
+    transformRefs,
+    {
+      useRem: options.value.cssUnit === 'rem',
+      rootFontSize: options.value.rootFontSize,
+      scale: options.value.scale
+    },
+    activePlugin.value?.code
+  )
+
+  return replacements.map((expr, idx) => {
+    const fallback = transformRefs[idx]
+    const canonical =
+      canonicalizeVariable(expr)?.match(/^var\((--[^)]+)\)$/)?.[1] ??
+      canonicalizeVariable(fallback.code)?.match(/^var\((--[^)]+)\)$/)?.[1]
+    return canonical ?? fallback.name
+  })
 }
 
 function inferVariableKind(variable: Variable): TokenEntry['kind'] {

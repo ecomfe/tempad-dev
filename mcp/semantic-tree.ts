@@ -102,6 +102,7 @@ function isWrapper(node: SceneNode): boolean {
   if (visibleChildren.length !== 1) return false
   if (node.type === 'SECTION') return false
   if ('isMask' in node && node.isMask) return false
+  if ('layoutMode' in node && node.layoutMode && node.layoutMode !== 'NONE') return false
 
   const hasFills =
     'fills' in node &&
@@ -117,6 +118,18 @@ function isWrapper(node: SceneNode): boolean {
     node.effects.some((effect) => effect.visible !== false)
   if (hasFills || hasStrokes || hasVisibleEffects) {
     return false
+  }
+
+  const paddingKeys: Array<keyof BaseFrameMixin> = [
+    'paddingTop',
+    'paddingRight',
+    'paddingBottom',
+    'paddingLeft'
+  ]
+  for (const key of paddingKeys) {
+    if (typeof (node as Partial<BaseFrameMixin>)[key] === 'number') {
+      return false
+    }
   }
 
   return true

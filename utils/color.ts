@@ -47,3 +47,18 @@ export function rgbaToCss(color: RGB | RGBA, alphaOverride?: number): string {
   const a = Math.round(Math.min(Math.max(alpha, 0), 1) * 100) / 100
   return `rgba(${r}, ${g}, ${b}, ${a})`
 }
+
+export function formatHex(r: number, g: number, b: number): string {
+  const toHex = (n: number) => n.toString(16).padStart(2, '0')
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
+export function compressHex(hex: string): string {
+  const h = hex.toLowerCase()
+  if (!/^#[0-9a-f]{6}$/.test(h)) return h
+  const [r1, r2, g1, g2, b1, b2] = h.slice(1).split('')
+  if (r1 === r2 && g1 === g2 && b1 === b2) {
+    return `#${r1}${g1}${b1}`
+  }
+  return h
+}

@@ -3,6 +3,14 @@ import { runTransformVariableBatch } from '@/mcp/transform-variable'
 import { buildSemanticTree } from '@/mcp/semantic-tree'
 import { activePlugin, options } from '@/ui/state'
 import { stringifyComponent } from '@/utils/component'
+import { styleToTailwind } from '@/utils/tailwind'
+import { rgbaToCss } from '@/utils/color'
+import {
+  TEXT_STYLE_PROPS,
+  stripDefaultTextStyles,
+  pruneInheritedTextStyles,
+  mapTextCase
+} from '@/utils/css'
 
 import type { GetCodeResult } from '@/mcp-server/src/tools'
 import type { CodeBlock } from '@/types/codegen'
@@ -11,22 +19,6 @@ import type { SemanticNode } from '@/mcp/semantic-tree'
 import type { DevComponent } from '@/types/plugin'
 
 const VARIABLE_RE = /var\(--([a-zA-Z\d-]+)(?:,\s*([^)]+))?\)/g
-const TEXT_STYLE_PROPS = new Set([
-  'color',
-  'font-family',
-  'font-size',
-  'font-weight',
-  'font-style',
-  'line-height',
-  'letter-spacing',
-  'text-transform',
-  'text-decoration',
-  'text-decoration-line',
-  'text-decoration-style',
-  'text-decoration-color',
-  'text-decoration-thickness'
-])
-
 type TextStyleMap = Record<string, string>
 
 type CodeLanguage = 'jsx' | 'vue'
@@ -97,9 +89,12 @@ export async function handleGetCode(
 
   const resolvedLang = preferredLang ?? ctx.detectedLang ?? 'jsx'
   const markup = stringifyComponent(componentTree, resolvedLang)
+  const message = tree.stats.capped
+    ? `Selection truncated at depth ${tree.stats.depthLimit ?? tree.stats.maxDepth}.`
+    : undefined
 
   // Default back to JSX when no language was detected
-  return { lang: resolvedLang, code: markup }
+  return { lang: resolvedLang, code: markup, ...(message ? { message } : {}) }
 }
 
 async function collectSceneData(roots: SemanticNode[]): Promise<{
@@ -212,24 +207,33 @@ async function renderSemanticNode(
   }
 
   const rawStyle = ctx.styles.get(semantic.id) ?? {}
+  const pluginComponent = node.type === 'INSTANCE' ? await renderPluginComponent(node, ctx) : null
+
+  const langHint = pluginComponent?.lang ?? ctx.preferredLang ?? ctx.detectedLang
+  const classProp = getClassPropName(langHint)
+
+  const textData =
+    node.type === 'TEXT' ? renderTextSegments(node, classProp, inheritedTextStyle) : undefined
+  const commonTextStyle = textData?.commonStyle ?? {}
+
   const { textStyle, otherStyle } = splitTextStyles(rawStyle)
-  const { appliedTextStyle, nextTextStyle } = diffTextStyles(inheritedTextStyle, textStyle)
+  const cleanedTextStyle = stripDefaultTextStyles(textStyle)
+  const effectiveTextStyle =
+    node.type === 'TEXT'
+      ? Object.keys(commonTextStyle).length
+        ? commonTextStyle
+        : cleanedTextStyle
+      : cleanedTextStyle
+  const { appliedTextStyle, nextTextStyle } = diffTextStyles(inheritedTextStyle, effectiveTextStyle)
   const baseStyleForClass = Object.keys(otherStyle).length
     ? { ...otherStyle, ...appliedTextStyle }
     : appliedTextStyle
 
-  const pluginComponent = node.type === 'INSTANCE' ? await renderPluginComponent(node, ctx) : null
-
   const styleForClass = pluginComponent
     ? pickChildLayoutStyles(baseStyleForClass)
     : baseStyleForClass
-  const classNames = cssToTailwind(
-    styleForClass,
-    semantic.id,
-    pluginComponent ? undefined : semantic.autoLayout
-  )
-  const langHint = pluginComponent?.lang ?? ctx.preferredLang ?? ctx.detectedLang
-  const classProp = getClassPropName(langHint)
+  const classString = styleToTailwind(styleForClass)
+  const classNames = classString ? classString.split(/\s+/).filter(Boolean) : []
   const pluginProps =
     pluginComponent &&
     (classNames.length ||
@@ -256,11 +260,16 @@ async function renderSemanticNode(
   }
 
   if (node.type === 'TEXT') {
-    const textLiteral = formatTextLiteral(node.characters ?? '')
-    if (!classNames.length && !semantic.dataHint && textLiteral) {
-      return textLiteral
+    const textSegments =
+      textData?.segments ?? renderTextSegments(node, classProp, effectiveTextStyle).segments
+    const classString = styleToTailwind(baseStyleForClass)
+    const classNames = classString ? classString.split(/\s+/).filter(Boolean) : []
+    if (!classNames.length && !semantic.dataHint && textSegments.length === 1) {
+      return textSegments[0] ?? null
     }
-    const textChild: (DevComponent | string)[] = textLiteral ? [textLiteral] : []
+    const textChild: (DevComponent | string)[] = textSegments.filter(Boolean) as Array<
+      DevComponent | string
+    >
     return {
       name: semantic.tag || 'span',
       props,
@@ -360,43 +369,6 @@ function findComponentBlock(
   )
 }
 
-const LAYOUT_PROPS = new Set([
-  'display',
-  'flex',
-  'flex-grow',
-  'flex-shrink',
-  'flex-basis',
-  'flex-direction',
-  'justify-content',
-  'align-items',
-  'align-content',
-  'align-self',
-  'gap',
-  'row-gap',
-  'column-gap',
-  'margin',
-  'margin-top',
-  'margin-right',
-  'margin-bottom',
-  'margin-left',
-  'width',
-  'height',
-  'min-width',
-  'min-height',
-  'max-width',
-  'max-height'
-])
-
-function pickLayoutStyles(style: Record<string, string>): Record<string, string> {
-  const picked: Record<string, string> = {}
-  for (const [key, value] of Object.entries(style)) {
-    if (LAYOUT_PROPS.has(key)) {
-      picked[key] = value
-    }
-  }
-  return picked
-}
-
 const CHILD_LAYOUT_PROPS = new Set([
   'flex-grow',
   'flex-shrink',
@@ -467,13 +439,6 @@ function injectAttributes(markup: string, attrs: Record<string, string>): string
   return openTag + markup.slice(match[0].length)
 }
 
-function mergeClasses(existing: string, extra: string): string {
-  const parts = [...existing.split(/\s+/), ...extra.split(/\s+/)]
-    .map((p) => p.trim())
-    .filter(Boolean)
-  return Array.from(new Set(parts)).join(' ')
-}
-
 function mergeDevComponentProps(
   component: DevComponent,
   extraProps?: Record<string, unknown>
@@ -492,6 +457,13 @@ function mergeDevComponentProps(
     }
   }
   return { ...component, props }
+}
+
+function mergeClasses(existing: string, extra: string): string {
+  const parts = [...existing.split(/\s+/), ...extra.split(/\s+/)]
+    .map((p) => p.trim())
+    .filter(Boolean)
+  return Array.from(new Set(parts)).join(' ')
 }
 
 function buildPluginProps(
@@ -596,6 +568,20 @@ function mergeInferredAutoLayout(
   return merged
 }
 
+function hasGap(style: Record<string, string>): boolean {
+  return !!(style.gap || style['row-gap'] || style['column-gap'])
+}
+
+function hasPadding(style: Record<string, string>): boolean {
+  return !!(
+    style.padding ||
+    style['padding-top'] ||
+    style['padding-right'] ||
+    style['padding-bottom'] ||
+    style['padding-left']
+  )
+}
+
 function getAutoLayoutSource(node: SceneNode): AutoLayoutLike | undefined {
   if ('layoutMode' in node && node.layoutMode !== undefined) {
     return node as unknown as AutoLayoutLike
@@ -678,105 +664,145 @@ function diffTextStyles(
   }
 }
 
-function cssToTailwind(
-  style: Record<string, string>,
-  nodeId: string,
-  autoLayout?: {
-    direction: 'row' | 'column'
-    gap?: number
-    alignPrimary?: string
-    alignCounter?: string
-    padding?: { top: number; right: number; bottom: number; left: number }
-  }
-): string[] {
-  const hasExplicitStyle = Object.keys(style).length > 0
-  const classes = hasExplicitStyle ? [`tw-${nodeId.slice(0, 6)}`] : []
-
-  if (autoLayout) {
-    classes.push(...autoLayoutToClasses(autoLayout, style))
-  }
-
-  return classes
-}
-
-function autoLayoutToClasses(
-  autoLayout: {
-    direction: 'row' | 'column'
-    gap?: number
-    alignPrimary?: string
-    alignCounter?: string
-    padding?: { top: number; right: number; bottom: number; left: number }
-  },
-  style: Record<string, string>
-): string[] {
-  const { direction, gap, alignPrimary, alignCounter, padding } = autoLayout
-  const classes: string[] = []
-  const display = style.display?.trim()
-  if (!display || !display.includes('flex')) {
-    classes.push('flex')
-  }
-
-  const flexDirection = style['flex-direction']?.trim()
-  const desired = direction === 'row' ? 'row' : 'column'
-  if (!flexDirection || !flexDirection.includes(desired)) {
-    classes.push(direction === 'row' ? 'flex-row' : 'flex-col')
-  }
-
-  if (typeof gap === 'number' && gap > 0 && !hasGap(style)) {
-    classes.push(`gap-[${Math.round(gap)}px]`)
-  }
-
-  if (alignPrimary && !style['justify-content']) {
-    classes.push(mapAlignment(alignPrimary, 'primary'))
-  }
-  if (alignCounter && !style['align-items']) {
-    classes.push(mapAlignment(alignCounter, 'counter'))
-  }
-
-  if (padding && !hasPadding(style)) {
-    const { top, right, bottom, left } = padding
-    if (top === bottom && left === right && top === left) {
-      if (top) classes.push(`p-[${top}px]`)
-    } else {
-      if (top) classes.push(`pt-[${top}px]`)
-      if (right) classes.push(`pr-[${right}px]`)
-      if (bottom) classes.push(`pb-[${bottom}px]`)
-      if (left) classes.push(`pl-[${left}px]`)
-    }
-  }
-
-  return classes.filter(Boolean)
-}
-
-function hasGap(style: Record<string, string>): boolean {
-  return !!(style.gap || style['row-gap'] || style['column-gap'])
-}
-
-function hasPadding(style: Record<string, string>): boolean {
-  return !!(
-    style.padding ||
-    style['padding-top'] ||
-    style['padding-right'] ||
-    style['padding-bottom'] ||
-    style['padding-left']
-  )
-}
-
-function mapAlignment(value: string, axis: 'primary' | 'counter'): string {
-  const lookup: Record<string, string> = {
-    MIN: axis === 'primary' ? 'justify-start' : 'items-start',
-    MAX: axis === 'primary' ? 'justify-end' : 'items-end',
-    CENTER: axis === 'primary' ? 'justify-center' : 'items-center',
-    SPACE_BETWEEN: axis === 'primary' ? 'justify-between' : 'items-stretch'
-  }
-  return lookup[value] ?? (axis === 'primary' ? 'justify-start' : 'items-start')
-}
-
 function formatTextLiteral(value: string): string | null {
   if (!value.trim()) {
     return null
   }
   return JSON.stringify(value)
+}
+
+function renderTextSegments(
+  node: TextNode,
+  classProp: 'class' | 'className',
+  inheritedTextStyle?: TextStyleMap
+): { segments: Array<DevComponent | string>; commonStyle: Record<string, string> } {
+  const segments: Array<DevComponent | string> = []
+  const segStyles: Array<Record<string, string>> = []
+  let rawSegments: Array<{
+    characters: string
+    fontName?: FontName
+    textDecoration?: TextDecoration
+    fills?: Paint[]
+    fontSize?: number
+    lineHeight?: LineHeight
+    letterSpacing?: LetterSpacing
+    textCase?: TextCase
+  }> | null = null
+
+  try {
+    const styled =
+      typeof node.getStyledTextSegments === 'function'
+        ? node.getStyledTextSegments([
+            'fontName',
+            'textDecoration',
+            'fills',
+            'fontSize',
+            'lineHeight',
+            'letterSpacing',
+            'textCase'
+          ])
+        : null
+    if (Array.isArray(styled)) {
+      rawSegments = styled
+    }
+  } catch {
+    rawSegments = null
+  }
+
+  if (!rawSegments || !rawSegments.length) {
+    const literal = formatTextLiteral(node.characters ?? '')
+    if (literal) segments.push(literal)
+    return { segments, commonStyle: {} }
+  }
+
+  rawSegments.forEach((seg) => {
+    const literal = formatTextLiteral(seg.characters ?? '')
+    if (!literal) return
+
+    let child: DevComponent | string = literal
+    const styleName = seg.fontName?.style?.toLowerCase() ?? ''
+    const isItalic = styleName.includes('italic')
+    const isBold =
+      styleName.includes('bold') ||
+      styleName.includes('semibold') ||
+      styleName.includes('medium') ||
+      styleName.includes('black')
+
+    const decoration = seg.textDecoration
+    const isUnderline = decoration === 'UNDERLINE'
+    const isStrike = decoration === 'STRIKETHROUGH'
+
+    const segStyle: Record<string, string> = {}
+    if (seg.fontName?.family) {
+      segStyle['font-family'] = seg.fontName.family
+    }
+    if (Array.isArray(seg.fills)) {
+      const solid = seg.fills.find((fill) => fill.type === 'SOLID' && fill.visible !== false) as
+        | SolidPaint
+        | undefined
+      if (solid?.color) {
+        segStyle.color = rgbaToCss(solid.color, solid.opacity)
+      }
+    }
+    if (seg.fontSize) {
+      segStyle['font-size'] = `${seg.fontSize}px`
+    }
+    if (seg.lineHeight) {
+      const lh = seg.lineHeight
+      if (lh.unit === 'AUTO') {
+        segStyle['line-height'] = 'normal'
+      } else if ('value' in lh) {
+        segStyle['line-height'] = lh.unit === 'PERCENT' ? `${lh.value}%` : `${lh.value}px`
+      }
+    }
+    if (seg.letterSpacing) {
+      const ls = seg.letterSpacing
+      if ('value' in ls) {
+        segStyle['letter-spacing'] = ls.unit === 'PERCENT' ? `${ls.value}%` : `${ls.value}px`
+      }
+    }
+    if (seg.textCase) {
+      const textTransform = mapTextCase(seg.textCase)
+      if (textTransform) {
+        segStyle['text-transform'] = textTransform
+      }
+    }
+
+    if (isBold) {
+      child = { name: 'strong', props: {}, children: [child] }
+    }
+    if (isItalic) {
+      child = { name: 'em', props: {}, children: [child] }
+    }
+    if (isUnderline) {
+      child = { name: 'u', props: {}, children: [child] }
+    }
+    if (isStrike) {
+      child = { name: 'del', props: {}, children: [child] }
+    }
+
+    const cleanedSegStyle = stripDefaultTextStyles(segStyle)
+    pruneInheritedTextStyles(cleanedSegStyle, inheritedTextStyle)
+    segStyles.push(cleanedSegStyle)
+
+    segments.push(child)
+  })
+
+  const commonStyle = computeCommonStyle(segStyles)
+
+  // Apply remaining per-segment styles as classes
+  segments.forEach((seg, idx) => {
+    const style = omitCommon(segStyles[idx], commonStyle)
+    if (Object.keys(style).length === 0) return
+    const cls = styleToTailwind(style)
+    if (!cls) return
+    segments[idx] =
+      typeof seg === 'string'
+        ? { name: 'span', props: { [classProp]: cls }, children: [seg] }
+        : { ...seg, props: { ...(seg.props ?? {}), [classProp]: cls } }
+  })
+
+  return { segments, commonStyle }
 }
 
 function flattenSemanticNodes(nodes: SemanticNode[]): SemanticNode[] {
@@ -786,6 +812,33 @@ function flattenSemanticNodes(nodes: SemanticNode[]): SemanticNode[] {
     node.children.forEach(visit)
   }
   nodes.forEach(visit)
+  return result
+}
+
+function computeCommonStyle(styles: Array<Record<string, string>>): Record<string, string> {
+  if (!styles.length) return {}
+  const common: Record<string, string> = { ...styles[0] }
+  styles.slice(1).forEach((style) => {
+    Object.keys(common).forEach((key) => {
+      if (!(key in style) || style[key] !== common[key]) {
+        delete common[key]
+      }
+    })
+  })
+  return common
+}
+
+function omitCommon(
+  style: Record<string, string>,
+  common: Record<string, string>
+): Record<string, string> {
+  if (!common || !Object.keys(common).length) return style
+  const result: Record<string, string> = {}
+  Object.entries(style).forEach(([key, value]) => {
+    if (common[key] !== value) {
+      result[key] = value
+    }
+  })
   return result
 }
 
