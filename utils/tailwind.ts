@@ -41,35 +41,35 @@ export function styleToTailwind(style: Record<string, string>): string {
 
       /* Spacing */
       case 'padding':
-        push(value === '0px' || value === '0' ? 'p-0' : `p-[${normalizeArbitraryValue(value)}]`)
+        pushBoxClasses('padding', value, push)
         break
       case 'padding-top':
-        push(value === '0px' || value === '0' ? 'pt-0' : `pt-[${normalizeArbitraryValue(value)}]`)
+        emitLengthClass('pt', value, push)
         break
       case 'padding-right':
-        push(value === '0px' || value === '0' ? 'pr-0' : `pr-[${normalizeArbitraryValue(value)}]`)
+        emitLengthClass('pr', value, push)
         break
       case 'padding-bottom':
-        push(value === '0px' || value === '0' ? 'pb-0' : `pb-[${normalizeArbitraryValue(value)}]`)
+        emitLengthClass('pb', value, push)
         break
       case 'padding-left':
-        push(value === '0px' || value === '0' ? 'pl-0' : `pl-[${normalizeArbitraryValue(value)}]`)
+        emitLengthClass('pl', value, push)
         break
 
       case 'margin':
-        push(value === '0px' || value === '0' ? 'm-0' : `m-[${normalizeArbitraryValue(value)}]`)
+        pushBoxClasses('margin', value, push)
         break
       case 'margin-top':
-        push(value === '0px' || value === '0' ? 'mt-0' : `mt-[${normalizeArbitraryValue(value)}]`)
+        emitLengthClass('mt', value, push, { allowAuto: true })
         break
       case 'margin-right':
-        push(value === '0px' || value === '0' ? 'mr-0' : `mr-[${normalizeArbitraryValue(value)}]`)
+        emitLengthClass('mr', value, push, { allowAuto: true })
         break
       case 'margin-bottom':
-        push(value === '0px' || value === '0' ? 'mb-0' : `mb-[${normalizeArbitraryValue(value)}]`)
+        emitLengthClass('mb', value, push, { allowAuto: true })
         break
       case 'margin-left':
-        push(value === '0px' || value === '0' ? 'ml-0' : `ml-[${normalizeArbitraryValue(value)}]`)
+        emitLengthClass('ml', value, push, { allowAuto: true })
         break
 
       /* Display */
@@ -79,16 +79,16 @@ export function styleToTailwind(style: Record<string, string>): string {
 
       /* Flex layout */
       case 'flex-direction':
-        push(flexDirectionMap(value) ?? `flex-[${normalizeArbitraryValue(value)}]`)
+        push(flexDirectionMap(value) ?? `[flex-direction:${normalizeArbitraryValue(value)}]`)
         break
       case 'flex-wrap':
-        push(flexWrapMap(value) ?? `flex-wrap-[${normalizeArbitraryValue(value)}]`)
+        push(flexWrapMap(value) ?? `[flex-wrap:${normalizeArbitraryValue(value)}]`)
         break
       case 'justify-content':
-        push(justifyMap(value) ?? `justify-[${normalizeArbitraryValue(value)}]`)
+        push(justifyMap(value) ?? `[justify-content:${normalizeArbitraryValue(value)}]`)
         break
       case 'align-items':
-        push(itemsMap(value) ?? `items-[${normalizeArbitraryValue(value)}]`)
+        push(itemsMap(value) ?? `[align-items:${normalizeArbitraryValue(value)}]`)
         break
       case 'align-content':
         push(alignContentMap(value) ?? `[align-content:${normalizeArbitraryValue(value)}]`)
@@ -103,16 +103,27 @@ export function styleToTailwind(style: Record<string, string>): string {
         push(placeSelfMap(value) ?? `[place-self:${normalizeArbitraryValue(value)}]`)
         break
       case 'align-self':
-        push(selfMap(value) ?? `self-[${normalizeArbitraryValue(value)}]`)
+        push(selfMap(value) ?? `[align-self:${normalizeArbitraryValue(value)}]`)
+        break
+      case 'flex':
+        if (flexShorthandToClasses(value, push)) {
+          // handled
+        } else {
+          push(
+            flexValueMap(value) ??
+              flexShorthandToClass(value) ??
+              `[flex:${normalizeArbitraryValue(value)}]`
+          )
+        }
         break
       case 'gap':
-        push(`gap-[${normalizeArbitraryValue(value)}]`)
+        pushGapClasses(value, push)
         break
       case 'row-gap':
-        push(`gap-y-[${normalizeArbitraryValue(value)}]`)
+        emitLengthClass('gap-y', value, push)
         break
       case 'column-gap':
-        push(`gap-x-[${normalizeArbitraryValue(value)}]`)
+        emitLengthClass('gap-x', value, push)
         break
       case 'flex-grow':
         push(
@@ -133,7 +144,7 @@ export function styleToTailwind(style: Record<string, string>): string {
         )
         break
       case 'flex-basis':
-        push(`basis-[${normalizeArbitraryValue(value)}]`)
+        push(flexBasisMap(value) ?? `basis-[${normalizeArbitraryValue(value)}]`)
         break
       case 'order':
         push(
@@ -188,16 +199,29 @@ export function styleToTailwind(style: Record<string, string>): string {
       /* Background / color / opacity */
       case 'background':
       case 'background-color':
-        push(value === 'transparent' ? 'bg-transparent' : `bg-[${normalizeColorValue(value)}]`)
+        push(value === 'transparent' ? 'bg-transparent' : buildColorClass('bg', value))
         break
       case 'background-image':
-        push(`bg-[${normalizeArbitraryValue(value)}]`)
+        push(
+          isCssVar(value)
+            ? `bg-[image:${stripCssComments(value).trim()}]`
+            : `bg-[${normalizeArbitraryValue(value)}]`
+        )
         break
       case 'background-size':
-        push(bgSizeMap(value) ?? `[background-size:${normalizeArbitraryValue(value)}]`)
+        push(
+          bgSizeMap(value) ??
+            (isCssVar(value)
+              ? `bg-[length:${stripCssComments(value).trim()}]`
+              : `[background-size:${normalizeArbitraryValue(value)}]`)
+        )
         break
       case 'background-position':
-        push(`[background-position:${normalizeArbitraryValue(value)}]`)
+        push(
+          isCssVar(value)
+            ? `bg-[position:${stripCssComments(value).trim()}]`
+            : `[background-position:${normalizeArbitraryValue(value)}]`
+        )
         break
       case 'background-repeat':
         push(bgRepeatMap(value) ?? `[background-repeat:${normalizeArbitraryValue(value)}]`)
@@ -206,9 +230,7 @@ export function styleToTailwind(style: Record<string, string>): string {
         push(`opacity-[${normalizeArbitraryValue(value)}]`)
         break
       case 'color':
-        push(
-          value === 'transparent' ? 'text-transparent' : `text-[${normalizeColorValue(value)}]`
-        )
+        push(value === 'transparent' ? 'text-transparent' : buildColorClass('text', value))
         break
 
       /* Border */
@@ -228,44 +250,40 @@ export function styleToTailwind(style: Record<string, string>): string {
         push(`rounded-br-[${normalizeArbitraryValue(value)}]`)
         break
       case 'border-width':
-        push(
-          value === '0px' || value === '0'
-            ? 'border-0'
-            : `border-[${normalizeArbitraryValue(value)}]`
-        )
+        push(value === '0px' || value === '0' ? 'border-0' : buildLengthClass('border', value))
         break
       case 'border-top-width':
-        push(`border-t-[${normalizeArbitraryValue(value)}]`)
+        push(buildLengthClass('border-t', value))
         break
       case 'border-right-width':
-        push(`border-r-[${normalizeArbitraryValue(value)}]`)
+        push(buildLengthClass('border-r', value))
         break
       case 'border-bottom-width':
-        push(`border-b-[${normalizeArbitraryValue(value)}]`)
+        push(buildLengthClass('border-b', value))
         break
       case 'border-left-width':
-        push(`border-l-[${normalizeArbitraryValue(value)}]`)
+        push(buildLengthClass('border-l', value))
         break
       case 'border-style':
         push(borderStyleMap(value) ?? `border-[${normalizeArbitraryValue(value)}]`)
         break
       case 'border-color':
-        push(`border-[${normalizeColorValue(value)}]`)
+        push(buildColorClass('border', value))
         break
       case 'border-top-color':
-        push(`border-t-[${normalizeColorValue(value)}]`)
+        push(buildColorClass('border-t', value))
         break
       case 'border-right-color':
-        push(`border-r-[${normalizeColorValue(value)}]`)
+        push(buildColorClass('border-r', value))
         break
       case 'border-bottom-color':
-        push(`border-b-[${normalizeColorValue(value)}]`)
+        push(buildColorClass('border-b', value))
         break
       case 'border-left-color':
-        push(`border-l-[${normalizeColorValue(value)}]`)
+        push(buildColorClass('border-l', value))
         break
       case 'border':
-        push(`border-[${normalizeArbitraryValue(value)}]`)
+        push(buildLengthClass('border', value))
         break
 
       /* Effects */
@@ -293,10 +311,23 @@ export function styleToTailwind(style: Record<string, string>): string {
         push(`font-[${normalizeArbitraryValue(value)}]`)
         break
       case 'font-size':
-        push(`text-[${normalizeArbitraryValue(value)}]`)
+        push(
+          isCssVar(value)
+            ? `text-[length:${stripCssComments(value).trim()}]`
+            : `text-[${normalizeArbitraryValue(value)}]`
+        )
         break
       case 'font-weight':
         push(fontWeightMap(value) ?? `font-[${normalizeArbitraryValue(value)}]`)
+        break
+      case 'font-style':
+        if (value.trim() === 'normal') {
+          // default, skip
+        } else if (value.toLowerCase().includes('italic')) {
+          push('italic')
+        } else {
+          push(`font-[${normalizeArbitraryValue(value)}]`)
+        }
         break
       case 'line-height':
         push(`leading-[${normalizeArbitraryValue(value)}]`)
@@ -309,6 +340,11 @@ export function styleToTailwind(style: Record<string, string>): string {
         break
       case 'text-decoration':
         push(textDecorationMap(value))
+        break
+      case 'text-decoration-line':
+        push(
+          textDecorationLineMap(value) ?? `[text-decoration-line:${normalizeArbitraryValue(value)}]`
+        )
         break
       case 'text-transform':
         push(textTransformMap(value))
@@ -327,10 +363,24 @@ export function styleToTailwind(style: Record<string, string>): string {
         )
         break
       case 'text-overflow':
-        push(value === 'ellipsis' ? 'text-ellipsis' : `[text-overflow:${normalizeArbitraryValue(value)}]`)
+        push(
+          value === 'ellipsis'
+            ? 'text-ellipsis'
+            : `[text-overflow:${normalizeArbitraryValue(value)}]`
+        )
         break
       case 'text-shadow':
         push(`[text-shadow:${normalizeArbitraryValue(value)}]`)
+        break
+      case 'text-decoration-color':
+        push(buildColorClass('decoration', value))
+        break
+      case 'text-decoration-thickness':
+        push(
+          isCssVar(value)
+            ? `decoration-[length:${stripCssComments(value).trim()}]`
+            : `decoration-[${normalizeArbitraryValue(value)}]`
+        )
         break
 
       /* Images */
@@ -357,12 +407,132 @@ export function styleToTailwind(style: Record<string, string>): string {
 /* Helpers */
 
 function normalizeArbitraryValue(value: string) {
-  // Tailwind arbitrary values 对空格敏感，常规做法是空格转下划线
-  return value.trim().replace(/\s+/g, '_')
+  // Tailwind arbitrary values 对空格敏感，常规做法是空格转下划线，并去掉注释
+  const cleaned = stripCssComments(value).trim()
+  return cleaned.replace(/\s+/g, '_')
 }
 
+function stripCssComments(value: string): string {
+  return value.replace(/\s*\/\*[\s\S]*?\*\/\s*/g, '')
+}
 function dedupe(arr: string[]) {
   return Array.from(new Set(arr))
+}
+
+function isZeroValue(value: string): boolean {
+  return /^(0+(\.0+)?)([a-z%]+)?$/i.test(value.trim())
+}
+
+type EmitLengthOptions = {
+  allowAuto?: boolean
+  allowVarLength?: boolean
+}
+
+function emitLengthClass(
+  prefix: string,
+  value: string,
+  push: (cls?: string) => void,
+  { allowAuto = false, allowVarLength = true }: EmitLengthOptions = {}
+): void {
+  const trimmed = value.trim()
+  if (!trimmed) return
+  if (allowAuto && trimmed === 'auto') {
+    push(`${prefix}-auto`)
+    return
+  }
+  if (isCssVar(trimmed) && allowVarLength) {
+    push(`${prefix}-[length:${stripCssComments(trimmed).trim()}]`)
+    return
+  }
+  if (isZeroValue(trimmed)) {
+    push(`${prefix}-0`)
+    return
+  }
+  push(`${prefix}-[${normalizeArbitraryValue(trimmed)}]`)
+}
+
+function pushGapClasses(value: string, push: (cls?: string) => void): void {
+  const trimmed = value.trim()
+  if (!trimmed) return
+  const parts = parseBoxShorthand(trimmed)
+  if (!parts) {
+    emitLengthClass('gap', trimmed, push)
+    return
+  }
+
+  const [row, column] = expandBoxValues(parts)
+  const same =
+    normalizeArbitraryValue(row) === normalizeArbitraryValue(column) ||
+    (isZeroValue(row) && isZeroValue(column))
+
+  if (same) {
+    emitLengthClass('gap', row, push)
+    return
+  }
+
+  emitLengthClass('gap-y', row, push)
+  emitLengthClass('gap-x', column, push)
+}
+
+function pushBoxClasses(kind: 'padding' | 'margin', value: string, push: (cls?: string) => void) {
+  const prefix = kind === 'padding' ? 'p' : 'm'
+  const parts = parseBoxShorthand(value)
+  if (!parts) {
+    emitLengthClass(prefix, value, push, { allowAuto: kind === 'margin' })
+    return
+  }
+
+  const [top, right, bottom, left] = expandBoxValues(parts)
+
+  const emit = (axis: string, val: string) =>
+    emitLengthClass(`${prefix}${axis}`, val, push, {
+      allowAuto: kind === 'margin',
+      allowVarLength: true
+    })
+
+  if (top === bottom && right === left) {
+    if (top === right) {
+      emit('', top)
+    } else {
+      emit('y', top)
+      emit('x', right)
+    }
+    return
+  }
+
+  // 3-value shorthand: top, x, bottom
+  if (parts.length === 3 && right === left) {
+    emit('t', top)
+    emit('x', right)
+    emit('b', bottom)
+    return
+  }
+
+  emit('t', top)
+  emit('r', right)
+  emit('b', bottom)
+  emit('l', left)
+}
+
+function parseBoxShorthand(value: string): string[] | null {
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.includes('/')) return null
+  const parts = trimmed.split(/\s+/).filter(Boolean)
+  if (parts.length === 0 || parts.length > 4) return null
+  return parts
+}
+
+function expandBoxValues(parts: string[]): [string, string, string, string] {
+  if (parts.length === 1) {
+    return [parts[0], parts[0], parts[0], parts[0]]
+  }
+  if (parts.length === 2) {
+    return [parts[0], parts[1], parts[0], parts[1]]
+  }
+  if (parts.length === 3) {
+    return [parts[0], parts[1], parts[2], parts[1]]
+  }
+  return [parts[0], parts[1], parts[2], parts[3]]
 }
 
 function displayMap(v: string) {
@@ -485,6 +655,64 @@ function selfMap(v: string) {
   )[v]
 }
 
+function flexValueMap(v: string) {
+  return (
+    {
+      none: 'flex-none',
+      auto: 'flex-auto',
+      initial: 'flex-initial',
+      '1': 'flex-1'
+    } as Record<string, string | undefined>
+  )[v]
+}
+
+function flexShorthandToClass(v: string) {
+  const normalized = v.replace(/\s+/g, ' ').trim()
+  if (normalized === '0 1 auto') return 'flex-initial'
+  if (normalized === '1 1 0%' || normalized === '1 1 0') return 'flex-1'
+  if (normalized === '1 1 auto') return 'flex-auto'
+  if (normalized === 'none') return 'flex-none'
+  return undefined
+}
+
+function flexShorthandToClasses(v: string, push: (cls?: string) => void): boolean {
+  const normalized = v.trim().replace(/\s+/g, ' ')
+  const parts = normalized.split(' ')
+  if (parts.length !== 3) return false
+  const [grow, shrink, basis] = parts
+
+  const emitGrow = () => {
+    if (grow === '0') push('grow-0')
+    else if (grow === '1') push('grow')
+    else push(`grow-[${normalizeArbitraryValue(grow)}]`)
+  }
+
+  const emitShrink = () => {
+    if (shrink === '0') push('shrink-0')
+    else if (shrink === '1') push('shrink')
+    else push(`shrink-[${normalizeArbitraryValue(shrink)}]`)
+  }
+
+  const emitBasis = () => {
+    const mapped = flexBasisMap(basis)
+    if (mapped) push(mapped)
+    else push(`basis-[${normalizeArbitraryValue(basis)}]`)
+  }
+
+  emitGrow()
+  emitShrink()
+  emitBasis()
+  return true
+}
+
+function flexBasisMap(v: string) {
+  const val = v.trim()
+  if (val === '0' || val === '0px') return 'basis-0'
+  if (val === 'auto') return 'basis-auto'
+  if (val === '100%' || val === 'full') return 'basis-full'
+  return undefined
+}
+
 function positionMap(v: string) {
   return (
     {
@@ -577,6 +805,21 @@ function textDecorationMap(v: string) {
   )[v]
 }
 
+function textDecorationLineMap(v: string) {
+  const tokens = v.split(/\s+/).filter(Boolean)
+  if (tokens.length === 1) {
+    return (
+      {
+        none: 'no-underline',
+        underline: 'underline',
+        'line-through': 'line-through',
+        overline: '[text-decoration-line:overline]'
+      } as Record<string, string | undefined>
+    )[tokens[0]]
+  }
+  return undefined
+}
+
 function textTransformMap(v: string) {
   return (
     {
@@ -661,6 +904,9 @@ function wordBreakMap(v: string) {
 
 function normalizeColorValue(value: string) {
   const trimmed = value.trim()
+  if (isCssVar(trimmed)) {
+    return trimmed
+  }
   const rgbMatch = trimmed.match(/^rgba?\(([^)]+)\)$/i)
   if (rgbMatch) {
     const parts = rgbMatch[1].split(',').map((p) => p.trim())
@@ -716,4 +962,22 @@ function compressHex(hex: string): string {
     return `#${r1}${g1}${b1}`
   }
   return h
+}
+
+function isCssVar(value: string): boolean {
+  return /^var\(/i.test(stripCssComments(value).trim())
+}
+
+function buildColorClass(prefix: string, value: string): string {
+  if (isCssVar(value)) {
+    return `${prefix}-[color:${stripCssComments(value).trim()}]`
+  }
+  return `${prefix}-[${normalizeColorValue(value)}]`
+}
+
+function buildLengthClass(prefix: string, value: string): string {
+  if (isCssVar(value)) {
+    return `${prefix}-[length:${stripCssComments(value).trim()}]`
+  }
+  return `${prefix}-[${normalizeArbitraryValue(value)}]`
 }

@@ -245,15 +245,17 @@ export function stripVariantTextProps(
 
 export function pruneInheritedTextStyles(
   style: Record<string, string>,
-  inherited?: Record<string, string>
+  ...bases: Array<Record<string, string> | undefined>
 ): void {
   Object.entries(style).forEach(([key, value]) => {
     const normalizedCurrent = normalizeComparableValue(key, value)
 
-    const inheritedValue = inherited?.[key]
-    if (inheritedValue && normalizeComparableValue(key, inheritedValue) === normalizedCurrent) {
-      delete style[key]
-      return
+    for (const base of bases) {
+      const inheritedValue = base?.[key]
+      if (inheritedValue && normalizeComparableValue(key, inheritedValue) === normalizedCurrent) {
+        delete style[key]
+        return
+      }
     }
 
     const defaultValue = TEXT_STYLE_DEFAULTS.get(key)

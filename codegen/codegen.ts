@@ -4,6 +4,7 @@ import type { DevComponent, Plugin } from '@/types/plugin'
 import { serializeComponent, stringifyComponent } from '@/utils/component'
 import { serializeCSS } from '@/utils/css'
 import { evaluate } from '@/utils/module'
+import { stringify } from '@/utils/string'
 
 import type { RequestMessage, ResponseMessage } from './worker'
 
@@ -124,9 +125,21 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
 
   const message: Response = {
     id,
-    payload: { codeBlocks, pluginName: plugin?.name, ...(payload.returnDevComponent && devComponent ? { devComponent } : {}) }
+    payload: {
+      codeBlocks,
+      pluginName: plugin?.name,
+      ...(payload.returnDevComponent && devComponent ? { devComponent } : {})
+    }
   }
-  postMessage(message)
+
+  const safe = JSON.parse(
+    JSON.stringify(message, (_, v) => {
+      if (typeof v === 'function') return stringify(v)
+      return v
+    })
+  )
+
+  postMessage(safe)
 }
 
 // Only expose the necessary APIs to plugins
