@@ -31,7 +31,7 @@ async function updateCode() {
   componentCode.value = tempadComponent?.code || ''
   componentLink.value = tempadComponent?.link || ''
 
-  const { codeBlocks } = await generateCodeBlocksForNode(
+  const result = await generateCodeBlocksForNode(
     node,
     {
       cssUnit: options.value.cssUnit,
@@ -40,7 +40,7 @@ async function updateCode() {
     },
     activePlugin.value?.code || undefined
   )
-  codeBlocks.value = codeBlocks
+  codeBlocks.value = result.codeBlocks
 }
 
 watch(options, updateCode, {
