@@ -12,8 +12,8 @@ importers:
   .:
     devDependencies:
       '@figma/plugin-typings':
-        specifier: ^1.119.0
-        version: 1.119.0
+        specifier: ^1.121.0
+        version: 1.121.0
       '@modelcontextprotocol/sdk':
         specifier: ^1.22.0
         version: 1.22.0
@@ -112,6 +112,30 @@ importers:
         version: 4.1.12
 
   mcp:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.22.0
+        version: 1.22.0
+      nanoid:
+        specifier: ^5.1.6
+        version: 5.1.6
+      pino:
+        specifier: ^9.14.0
+        version: 9.14.0
+      pino-pretty:
+        specifier: ^11.2.2
+        version: 11.3.0
+      proper-lockfile:
+        specifier: ^4.1.2
+        version: 4.1.2
+      ws:
+        specifier: ^8.18.3
+        version: 8.18.3
+      zod:
+        specifier: ^4.1.12
+        version: 4.1.12
+
+  mcp-server:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.22.0
@@ -393,8 +417,8 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@figma/plugin-typings@1.119.0':
-    resolution: {integrity: sha512-DxNa0LwOBublet2iXa30Bt8zUmHXDnLrSiJOSHfL8KjyxpZv15GHgV5TIenvGI84QbQTKmXwOMAwmX/QDeDNWw==}
+  '@figma/plugin-typings@1.121.0':
+    resolution: {integrity: sha512-590qfxc5QtGs/AqdAEegNZUWzwEuaA9whl6T8LxscBaGjmqU3Z5jJHgHfYXissy1S5IBsXEZFmudKibpLcxGdQ==}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -3218,7 +3242,7 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@figma/plugin-typings@1.119.0': {}
+  '@figma/plugin-typings@1.121.0': {}
 
   '@humanfs/core@0.19.1': {}
 

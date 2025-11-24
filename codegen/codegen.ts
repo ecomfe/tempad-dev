@@ -1,7 +1,7 @@
 import type { RequestPayload, ResponsePayload, CodeBlock } from '@/types/codegen'
-import type { Plugin } from '@/types/plugin'
+import type { DevComponent, Plugin } from '@/types/plugin'
 
-import { serializeComponent } from '@/utils/component'
+import { serializeComponent, stringifyComponent } from '@/utils/component'
 import { serializeCSS } from '@/utils/css'
 import { evaluate } from '@/utils/module'
 
@@ -22,6 +22,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
 
   const { style, component, options, pluginCode } = payload
   let plugin = null
+  let devComponent: DevComponent | null = null
 
   try {
     if (pluginCode) {
@@ -51,7 +52,20 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
 
   if (componentOptions && component) {
     const { lang, transformComponent } = componentOptions
-    const componentCode = serializeComponent(component, { lang }, { transformComponent })
+    let componentCode = ''
+
+    if (typeof transformComponent === 'function') {
+      const result = transformComponent({ component })
+      if (typeof result === 'string') {
+        componentCode = result
+      } else if (result) {
+        devComponent = result
+        componentCode = stringifyComponent(result, lang ?? 'jsx')
+      }
+    } else {
+      componentCode = serializeComponent(component, { lang }, { transformComponent })
+    }
+
     if (componentCode) {
       codeBlocks.push({
         name: 'component',
@@ -110,7 +124,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
 
   const message: Response = {
     id,
-    payload: { codeBlocks, pluginName: plugin?.name }
+    payload: { codeBlocks, pluginName: plugin?.name, ...(payload.returnDevComponent && devComponent ? { devComponent } : {}) }
   }
   postMessage(message)
 }

@@ -1,4 +1,9 @@
-import type { RequestPayload, ResponsePayload, SerializeOptions, CodeBlock } from '@/types/codegen'
+import type {
+  RequestPayload,
+  ResponsePayload,
+  SerializeOptions,
+  CodeBlock
+} from '@/types/codegen'
 import type { DesignComponent } from '@/types/plugin'
 
 import Codegen from '@/codegen/codegen?worker&inline'
@@ -9,7 +14,8 @@ export async function codegen(
   style: Record<string, string>,
   component: DesignComponent | null,
   options: SerializeOptions,
-  pluginCode?: string
+  pluginCode?: string,
+  returnDevComponent?: boolean
 ): Promise<ResponsePayload> {
   const request = createWorkerRequester<RequestPayload, ResponsePayload>(Codegen)
 
@@ -17,7 +23,8 @@ export async function codegen(
     style,
     component: component ?? undefined,
     options,
-    pluginCode
+    pluginCode,
+    returnDevComponent
   })
 }
 
@@ -30,8 +37,9 @@ export type CodegenConfig = {
 export async function generateCodeBlocksForNode(
   node: SceneNode,
   config: CodegenConfig,
-  pluginCode?: string
-): Promise<CodeBlock[]> {
+  pluginCode?: string,
+  opts?: { returnDevComponent?: boolean }
+): Promise<ResponsePayload> {
   const style = await node.getCSSAsync()
   const component = getDesignComponent(node)
   const serializeOptions: SerializeOptions = {
@@ -40,6 +48,11 @@ export async function generateCodeBlocksForNode(
     scale: config.scale
   }
 
-  const { codeBlocks } = await codegen(style, component, serializeOptions, pluginCode)
-  return codeBlocks
+  return await codegen(
+    style,
+    component,
+    serializeOptions,
+    pluginCode,
+    opts?.returnDevComponent
+  )
 }

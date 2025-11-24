@@ -216,7 +216,7 @@ function stringifyVueComponent(component: DevComponent, indentLevel = 0) {
         return `@${camelToKebab(eventName)}="${callback.trim()}"`
       }
 
-      const name = camelToKebab(key)
+      const name = key === 'className' ? 'class' : camelToKebab(key)
 
       if (typeof value === 'string') {
         return `${name}="${escapeHTML(value).trim()}"`

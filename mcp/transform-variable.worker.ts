@@ -31,6 +31,8 @@ const formatVariable = (ref: TransformVariableReference): string => {
   return `var(--${ref.name}${ref.value ? `, ${ref.value}` : ''})`
 }
 
+const postMessage = globalThis.postMessage
+
 function resolveTransformVariable(
   plugin: Plugin | null
 ): NonNullable<TransformOptions['transformVariable']> | undefined {

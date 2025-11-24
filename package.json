@@ -23,7 +23,7 @@
     "format": "prettier --write src *.cjs *.json *.md"
   },
   "devDependencies": {
-    "@figma/plugin-typings": "^1.119.0",
+    "@figma/plugin-typings": "^1.121.0",
     "@modelcontextprotocol/sdk": "^1.22.0",
     "@rushstack/eslint-patch": "^1.15.0",
     "@types/node": "^24.10.1",

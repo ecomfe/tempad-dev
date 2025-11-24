@@ -2,6 +2,7 @@ import { selection } from '@/ui/state'
 import { handleGetCode as runGetCode } from './tools/code'
 import { handleGetScreenshot as runGetScreenshot } from './tools/screenshot'
 import { handleGetStructure as runGetStructure } from './tools/structure'
+import { handleGetTokenDefs as runGetTokenDefs } from './tools/token-defs'
 
 import type {
   GetCodeParametersInput,
@@ -35,12 +36,13 @@ function resolveNodes(nodeIds?: string[]): SceneNode[] {
 
 async function handleGetCode(args?: GetCodeParametersInput): Promise<GetCodeResult> {
   const nodes = resolveNodes(args?.nodeIds)
-  return runGetCode(nodes)
+  const preferredLang = args?.preferredLang
+  return runGetCode(nodes, preferredLang)
 }
 
 async function handleGetTokenDefs(args?: GetTokenDefsParametersInput): Promise<GetTokenDefsResult> {
-  resolveNodes(args?.nodeIds) // validation hook; real extraction to be added.
-  return { tokens: [] }
+  const nodes = resolveNodes(args?.nodeIds)
+  return runGetTokenDefs(nodes)
 }
 
 async function handleGetScreenshot(
@@ -76,3 +78,16 @@ export const MCP_TOOL_HANDLERS: MCPHandlers = {
 
 export type McpToolName = keyof MCPHandlers
 export type McpToolArgs<T extends McpToolName> = Parameters<MCPHandlers[T]>[0]
+
+function exposeToolsOnWindow(): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+  const target = window as Window & { tempadTools?: Partial<MCPHandlers> }
+  target.tempadTools = {
+    ...(target.tempadTools ?? {}),
+    ...MCP_TOOL_HANDLERS
+  }
+}
+
+exposeToolsOnWindow()
