@@ -23,8 +23,6 @@ export type GetTokenDefsResult = {
     name: string
     value: string | Record<string, unknown>
     kind: 'color' | 'spacing' | 'typography' | 'effect' | 'other'
-    source: 'variable' | 'style' | 'plugin'
-    metadata?: Record<string, unknown>
   }>
 }
 

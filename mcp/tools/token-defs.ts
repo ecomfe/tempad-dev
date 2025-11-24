@@ -7,6 +7,8 @@ const TYPO_SCOPE_HINTS = [
   'TEXT',
   'LINE_HEIGHT',
   'LETTER_SPACING',
+  'FONT_SIZE',
+  'FONT_WEIGHT',
   'PARAGRAPH_SPACING',
   'TEXT_CONTENT'
 ]
@@ -27,76 +29,14 @@ const SPACING_SCOPE_HINTS = [
   'CORNER_RADIUS'
 ]
 
-const STYLE_PROP_KEYS = [
-  'fillStyleId',
-  'strokeStyleId',
-  'effectStyleId',
-  'textStyleId',
-  'gridStyleId'
-] as const
-
 type TokenEntry = GetTokenDefsResult['tokens'][number]
-type StylePropKey = (typeof STYLE_PROP_KEYS)[number]
 type VariableAlias = { id?: string } | { type?: string; id?: string }
-type StylableNode = SceneNode & Partial<Record<StylePropKey, string>>
-
-type SerializablePaint = {
-  type: Paint['type']
-  visible?: boolean
-  opacity?: number
-  color?: string
-  gradientStops?: Array<{ position: number; color: string }>
-}
-
-type SerializableEffect = {
-  type: Effect['type']
-  color?: string
-  offset?: { x: number; y: number }
-  radius?: number
-  spread?: number
-}
-
-type SerializableGrid = {
-  pattern: LayoutGrid['pattern']
-  sectionSize: number
-  visible: boolean
-  color: string
-  count?: number
-  gutterSize?: number
-  offset?: number
-  alignment?: RowsColsLayoutGrid['alignment']
-}
-
-type SerializableTextStyle = {
-  fontName: string
-  fontSize: number
-  lineHeight?: Record<string, unknown>
-  letterSpacing?: Record<string, unknown>
-  paragraphSpacing?: number
-  textCase?: TextCase
-  textDecoration?: TextDecoration
-}
-
-type SerializablePaintStyle = {
-  paints: SerializablePaint[]
-}
-
-type SerializableEffectStyle = {
-  effects: SerializableEffect[]
-}
-
-type SerializableGridStyle = {
-  grids: SerializableGrid[]
-}
-
-type TokenMetadata = TokenEntry['metadata']
+type VariableWithCollection = Variable & { variableCollectionId?: string }
+type VariableCollectionInfo = { defaultModeId?: string }
 
 export function handleGetTokenDefs(nodes: SceneNode[]): GetTokenDefsResult {
-  const { variableIds, styleIds } = collectTokenReferences(nodes)
-  const variableTokens = resolveVariableTokens(variableIds)
-  const styleTokens = resolveStyleTokens(styleIds)
-
-  const tokens = [...variableTokens, ...styleTokens]
+  const { variableIds } = collectTokenReferences(nodes)
+  const tokens = resolveVariableTokens(variableIds)
   tokens.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 
   return { tokens }
@@ -108,19 +48,11 @@ function hasChildren(node: SceneNode): node is SceneNode & ChildrenMixin {
 
 function collectTokenReferences(roots: SceneNode[]): {
   variableIds: Set<string>
-  styleIds: Set<string>
 } {
   const variableIds = new Set<string>()
-  const styleIds = new Set<string>()
 
   const visit = (node: SceneNode) => {
     collectVariableIds(node, variableIds)
-    STYLE_PROP_KEYS.forEach((key) => {
-      const styleId = getStyleId(node, key)
-      if (styleId) {
-        styleIds.add(styleId)
-      }
-    })
 
     if (hasChildren(node)) {
       node.children.forEach((child) => {
@@ -137,7 +69,7 @@ function collectTokenReferences(roots: SceneNode[]): {
     }
   })
 
-  return { variableIds, styleIds }
+  return { variableIds }
 }
 
 function resolveVariableTokens(ids: Set<string>): TokenEntry[] {
@@ -148,7 +80,9 @@ function resolveVariableTokens(ids: Set<string>): TokenEntry[] {
       return
     }
 
-    const value = formatVariableValue(variable)
+    const collection = resolveVariableCollection(variable)
+    const defaultModeId = pickDefaultModeId(variable, collection)
+    const value = formatVariableValue(variable, defaultModeId, collection)
     if (value == null) {
       return
     }
@@ -156,33 +90,11 @@ function resolveVariableTokens(ids: Set<string>): TokenEntry[] {
     tokens.push({
       name: variable.name,
       value,
-      kind: inferVariableKind(variable),
-      source: 'variable',
-      metadata: buildVariableMetadata(variable)
+      kind: inferVariableKind(variable)
     })
   })
 
   return tokens
-}
-
-function buildVariableMetadata(variable: Variable): TokenMetadata {
-  const { id, resolvedType, scopes = [] } = variable
-  const scoped = [...scopes]
-  const metadata: TokenMetadata = {
-    id,
-    resolvedType
-  }
-
-  if (scoped.length) {
-    metadata.scopes = scoped
-  }
-
-  const modeCount = Object.keys(variable.valuesByMode ?? {}).length
-  if (modeCount > 1) {
-    metadata.modeCount = modeCount
-  }
-
-  return metadata
 }
 
 function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
@@ -257,30 +169,113 @@ function collectVariableIdFromValue(value: unknown, bucket: Set<string>): void {
   }
 }
 
-function formatVariableValue(variable: Variable): string | Record<string, unknown> | null {
-  const { valuesByMode = {}, resolvedType } = variable
-  const modeId = Object.keys(valuesByMode)[0]
-  if (!modeId) {
+function resolveVariableCollection(variable: Variable): VariableCollectionInfo | null {
+  const collectionId = (variable as VariableWithCollection).variableCollectionId
+  if (!collectionId) {
     return null
   }
 
-  const defaultValue = valuesByMode[modeId]
-  if (defaultValue == null) {
+  try {
+    const collection = figma.variables.getVariableCollectionById(collectionId)
+    if (!collection) return null
+    return { defaultModeId: collection.defaultModeId }
+  } catch {
+    return null
+  }
+}
+
+function pickDefaultModeId(
+  variable: Variable,
+  collection?: VariableCollectionInfo | null
+): string | undefined {
+  const { valuesByMode = {} } = variable
+  if (collection?.defaultModeId && collection.defaultModeId in valuesByMode) {
+    return collection.defaultModeId
+  }
+  const modeId = Object.keys(valuesByMode)[0]
+  return modeId
+}
+
+function resolveVariableValueForMode(
+  variable: Variable,
+  modeId: string,
+  collection?: VariableCollectionInfo | null,
+  seen: Set<string> = new Set()
+): unknown {
+  const { valuesByMode = {} } = variable
+  if (seen.has(variable.id)) {
+    return null
+  }
+  seen.add(variable.id)
+
+  const rawValue = valuesByMode[modeId]
+  if (isVariableAlias(rawValue)) {
+    const target = figma.variables.getVariableById(rawValue.id)
+    if (!target) {
+      return rawValue
+    }
+    const targetCollection = resolveVariableCollection(target)
+    const targetModeId = pickDefaultModeId(target, targetCollection) ?? modeId
+    return resolveVariableValueForMode(target, targetModeId, targetCollection, seen)
+  }
+
+  if (rawValue === undefined && collection?.defaultModeId && collection.defaultModeId !== modeId) {
+    const fallback = valuesByMode[collection.defaultModeId]
+    if (fallback !== undefined) {
+      return fallback
+    }
+  }
+
+  return rawValue
+}
+
+function isVariableAlias(value: unknown): value is VariableAlias {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const alias = value as VariableAlias
+  return typeof alias.id === 'string'
+}
+
+function formatVariableValue(
+  variable: Variable,
+  modeId: string | undefined,
+  collection?: VariableCollectionInfo | null
+): string | Record<string, unknown> | null {
+  const { resolvedType } = variable
+  const effectiveMode = modeId ?? pickDefaultModeId(variable, collection)
+  if (!effectiveMode) {
+    return null
+  }
+
+  const resolved = resolveVariableValueForMode(variable, effectiveMode, collection)
+  if (resolved == null) {
+    return null
+  }
+
+  return serializeVariableValue(resolved, resolvedType)
+}
+
+function serializeVariableValue(
+  value: unknown,
+  resolvedType: Variable['resolvedType']
+): string | Record<string, unknown> | null {
+  if (value == null) {
     return null
   }
 
   switch (resolvedType) {
     case 'COLOR':
-      return rgbaToCss(defaultValue as RGBA)
+      return rgbaToCss(value as RGBA)
     case 'FLOAT':
-      return formatNumericValue(defaultValue as number)
+      return formatNumericValue(value as number)
     case 'BOOLEAN':
-      return (defaultValue as boolean).toString()
+      return (value as boolean).toString()
     case 'STRING':
-      return String(defaultValue)
+      return String(value)
     default:
-      if (typeof defaultValue === 'object' && defaultValue !== null) {
-        return defaultValue as unknown as Record<string, unknown>
+      if (typeof value === 'object') {
+        return value as Record<string, unknown>
       }
       return null
   }
@@ -318,214 +313,6 @@ function inferVariableKind(variable: Variable): TokenEntry['kind'] {
 
 function hasScope(scopes: string[], hints: string[]): boolean {
   return scopes.some((scope) => hints.includes(scope))
-}
-
-function resolveStyleTokens(styleIds: Set<string>): TokenEntry[] {
-  const tokens: TokenEntry[] = []
-  styleIds.forEach((id) => {
-    let style: BaseStyle | null = null
-    try {
-      style = figma.getStyleById(id)
-    } catch {
-      style = null
-    }
-
-    if (!style) {
-      return
-    }
-
-    const token = serializeStyle(style)
-    if (token) {
-      tokens.push(token)
-    }
-  })
-
-  return tokens
-}
-
-function getStyleId(node: SceneNode, key: StylePropKey): string | null {
-  const value = (node as StylableNode)[key]
-  if (typeof value === 'string' && value.trim().length > 0) {
-    return value
-  }
-  return null
-}
-
-function serializeStyle(style: BaseStyle): TokenEntry | null {
-  switch (style.type) {
-    case 'PAINT':
-      return {
-        name: style.name,
-        value: serializePaintStyle(style as PaintStyle),
-        kind: 'color',
-        source: 'style',
-        metadata: buildStyleMetadata(style)
-      }
-    case 'TEXT':
-      return {
-        name: style.name,
-        value: serializeTextStyle(style as TextStyle),
-        kind: 'typography',
-        source: 'style',
-        metadata: buildStyleMetadata(style)
-      }
-    case 'EFFECT':
-      return {
-        name: style.name,
-        value: serializeEffectStyle(style as EffectStyle),
-        kind: 'effect',
-        source: 'style',
-        metadata: buildStyleMetadata(style)
-      }
-    case 'GRID':
-      return {
-        name: style.name,
-        value: serializeGridStyle(style as GridStyle),
-        kind: 'spacing',
-        source: 'style',
-        metadata: buildStyleMetadata(style)
-      }
-    default:
-      return null
-  }
-}
-
-function buildStyleMetadata(style: BaseStyle): TokenMetadata {
-  const metadata: TokenMetadata = {
-    id: style.id,
-    styleType: style.type
-  }
-  return metadata
-}
-
-function serializePaintStyle(style: PaintStyle): SerializablePaintStyle {
-  const paints = (style.paints ?? []).map((paint) => serializePaint(paint))
-  return { paints }
-}
-
-function serializePaint(paint: Paint): SerializablePaint {
-  const base: SerializablePaint = {
-    type: paint.type,
-    visible: paint.visible !== false
-  }
-
-  if (typeof paint.opacity === 'number') {
-    base.opacity = Number(paint.opacity.toFixed(3))
-  }
-
-  switch (paint.type) {
-    case 'SOLID':
-      base.color = rgbaToCss(paint.color, paint.opacity)
-      break
-    case 'GRADIENT_LINEAR':
-    case 'GRADIENT_RADIAL':
-    case 'GRADIENT_ANGULAR':
-    case 'GRADIENT_DIAMOND':
-      base.gradientStops = paint.gradientStops.map((stop) => ({
-        position: stop.position,
-        color: rgbaToCss(stop.color)
-      }))
-      break
-    default:
-      break
-  }
-
-  return base
-}
-
-function serializeTextStyle(style: TextStyle): SerializableTextStyle {
-  return {
-    fontName: formatFontName(style.fontName),
-    fontSize: style.fontSize,
-    lineHeight: formatLineHeight(style.lineHeight),
-    letterSpacing: formatLetterSpacing(style.letterSpacing),
-    paragraphSpacing: style.paragraphSpacing,
-    textCase: style.textCase,
-    textDecoration: style.textDecoration
-  }
-}
-
-function serializeEffectStyle(style: EffectStyle): SerializableEffectStyle {
-  return {
-    effects: (style.effects ?? []).map((effect) => serializeEffect(effect))
-  }
-}
-
-function serializeEffect(effect: Effect): SerializableEffect {
-  const result: SerializableEffect = {
-    type: effect.type,
-    radius: 'radius' in effect ? effect.radius : undefined
-  }
-
-  if ('color' in effect && effect.color) {
-    result.color = rgbaToCss(effect.color)
-  }
-
-  if ('offset' in effect && effect.offset) {
-    result.offset = { x: effect.offset.x, y: effect.offset.y }
-  }
-
-  if ('spread' in effect && typeof effect.spread === 'number') {
-    result.spread = effect.spread
-  }
-
-  return result
-}
-
-function serializeGridStyle(style: GridStyle): SerializableGridStyle {
-  return {
-    grids: (style.layoutGrids ?? []).map((grid) => serializeGrid(grid))
-  }
-}
-
-function serializeGrid(grid: LayoutGrid): SerializableGrid {
-  const base: SerializableGrid = {
-    pattern: grid.pattern,
-    sectionSize: grid.sectionSize ?? 0,
-    visible: grid.visible !== false,
-    color: rgbaToCss(grid.color ?? { r: 0, g: 0, b: 0, a: 1 }),
-    count: undefined,
-    gutterSize: undefined,
-    offset: undefined,
-    alignment: undefined
-  }
-
-  if (grid.pattern === 'GRID') {
-    return base
-  }
-
-  const rowsCols = grid as RowsColsLayoutGrid
-  return {
-    ...base,
-    count: rowsCols.count,
-    gutterSize: rowsCols.gutterSize,
-    offset: rowsCols.offset,
-    alignment: rowsCols.alignment
-  }
-}
-
-function formatFontName(fontName: FontName | typeof figma.mixed): string {
-  if (fontName === figma.mixed) {
-    return 'mixed'
-  }
-  return `${fontName.family} ${fontName.style}`
-}
-
-function formatLineHeight(lineHeight: LineHeight): Record<string, unknown> | undefined {
-  if (lineHeight.unit === 'AUTO') {
-    return { unit: 'AUTO' }
-  }
-  if ('value' in lineHeight) {
-    return { unit: lineHeight.unit, value: lineHeight.value }
-  }
-  return undefined
-}
-
-function formatLetterSpacing(letterSpacing: LetterSpacing): Record<string, unknown> | undefined {
-  if ('value' in letterSpacing) {
-    return { unit: letterSpacing.unit, value: letterSpacing.value }
-  }
-  return undefined
 }
 
 function toFixed(value: number): string {
