@@ -10,6 +10,7 @@ export type GetCodeParametersInput = z.input<typeof GetCodeParametersSchema>
 export type GetCodeResult = {
   code: string
   lang: 'vue' | 'jsx'
+  message?: string
 }
 
 // get_token_defs

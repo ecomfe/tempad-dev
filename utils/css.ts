@@ -2,6 +2,7 @@ import type { TransformOptions } from '@/types/plugin'
 
 import { parseNumber, toDecimalPlace } from './number'
 import { kebabToCamel } from './string'
+import { compressHex, formatHex } from './color'
 
 function escapeSingleQuote(value: string) {
   return value.replace(/'/g, "\\'")
@@ -129,4 +130,207 @@ export function serializeCSS(
   }
 
   return code
+}
+
+const CSS_VAR_FUNCTION_RE = /^var\(\s*(--[A-Za-z0-9-_]+)\s*(?:,.*)?\)$/
+const PREPROCESSOR_VAR_RE = /^[$@]([A-Za-z0-9-_]+)$/
+const BARE_CSS_CUSTOM_PROP_RE = /^(--[A-Za-z0-9-_]+)$/
+
+/**
+ * Normalize any variable-shaped value into CSS var(--name).
+ *
+ * Supported input forms:
+ * 1) CSS var():
+ *    - "var(--ui-foo, 20px)" -> "var(--ui-foo)"
+ *    - "var(--ui-foo, $ui-foo)" -> "var(--ui-foo)"
+ *    - "var(--ui-foo)" -> "var(--ui-foo)"
+ * 2) Preprocessor variables:
+ *    - "$ui-foo" -> "var(--ui-foo)"
+ *    - "@ui-foo" -> "var(--ui-foo)"
+ * 3) Bare CSS custom property (optional):
+ *    - "--ui-foo" -> "var(--ui-foo)"
+ *
+ * If the value is not recognized as a variable form, returns null.
+ */
+export function canonicalizeVariable(value: string): string | null {
+  const v = value.trim()
+
+  // 1) CSS var(--name, fallback) or var(--name)
+  const varFn = v.match(CSS_VAR_FUNCTION_RE)
+  if (varFn) {
+    const name = varFn[1] // already like "--ui-foo"
+    return `var(${name})`
+  }
+
+  // 2) SCSS / Less variables: $name / @name
+  const pre = v.match(PREPROCESSOR_VAR_RE)
+  if (pre) {
+    const name = pre[1] // like "ui-foo"
+    return `var(--${name})`
+  }
+
+  // 3) Bare CSS custom property: --name
+  const bare = v.match(BARE_CSS_CUSTOM_PROP_RE)
+  if (bare) {
+    const name = bare[1] // like "--ui-foo"
+    return `var(${name})`
+  }
+
+  return null
+}
+
+// Text style helpers
+const TEXT_STYLE_DEFAULTS = new Map<string, string>([
+  ['text-decoration-skip-ink', 'auto'],
+  ['text-underline-offset', 'auto'],
+  ['text-underline-position', 'from-font'],
+  ['text-decoration-style', 'solid'],
+  ['text-decoration-line', 'none'],
+  ['text-decoration-thickness', 'auto'],
+  ['font-style', 'normal'],
+  ['font-weight', '400'],
+  ['line-height', 'normal'],
+  ['letter-spacing', 'normal'],
+  ['letter-spacing-zero', '0'],
+  ['text-transform', 'none']
+])
+
+const TEXT_STYLE_PROP_KEYS = [
+  'color',
+  'font-family',
+  'font-size',
+  'font-weight',
+  'font-style',
+  'line-height',
+  'letter-spacing',
+  'text-transform',
+  'text-decoration',
+  'text-decoration-line',
+  'text-decoration-style',
+  'text-decoration-color',
+  'text-decoration-thickness',
+  'text-decoration-skip-ink',
+  'text-underline-offset',
+  'text-underline-position'
+] as const
+
+export const TEXT_STYLE_PROPS = new Set<string>(
+  TEXT_STYLE_PROP_KEYS.filter((key) => !key.endsWith('-zero'))
+)
+
+export function stripDefaultTextStyles(style: Record<string, string>): Record<string, string> {
+  const cleaned: Record<string, string> = {}
+  Object.entries(style).forEach(([key, value]) => {
+    const defaultValue = TEXT_STYLE_DEFAULTS.get(key)
+    if (
+      defaultValue &&
+      normalizeComparableValue(key, defaultValue) === normalizeComparableValue(key, value)
+    ) {
+      return
+    }
+    cleaned[key] = value
+  })
+  return cleaned
+}
+
+export function stripVariantTextProps(
+  style: Record<string, string>,
+  hasVariants: boolean
+): Record<string, string> {
+  if (!hasVariants) return style
+  // When mixed segments exist, we conservatively keep only properties that are present on all segments (handled by caller).
+  // This helper is retained for API compatibility; it simply returns the original style when variants are present.
+  return style
+}
+
+export function pruneInheritedTextStyles(
+  style: Record<string, string>,
+  inherited?: Record<string, string>
+): void {
+  Object.entries(style).forEach(([key, value]) => {
+    const normalizedCurrent = normalizeComparableValue(key, value)
+
+    const inheritedValue = inherited?.[key]
+    if (inheritedValue && normalizeComparableValue(key, inheritedValue) === normalizedCurrent) {
+      delete style[key]
+      return
+    }
+
+    const defaultValue = TEXT_STYLE_DEFAULTS.get(key)
+    if (defaultValue && normalizeComparableValue(key, defaultValue) === normalizedCurrent) {
+      delete style[key]
+    }
+  })
+}
+
+export function mapTextCase(textCase: TextCase): string | undefined {
+  switch (textCase) {
+    case 'UPPER':
+      return 'uppercase'
+    case 'LOWER':
+      return 'lowercase'
+    case 'TITLE':
+      return 'capitalize'
+    case 'ORIGINAL':
+    default:
+      return undefined
+  }
+}
+
+export function normalizeComparableValue(key: string, value: string): string {
+  const trimmed = value.trim().toLowerCase()
+  if (key === 'color') {
+    const hex = normalizeColorComparable(trimmed)
+    if (hex) return hex
+  }
+  if (key === 'letter-spacing') {
+    if (trimmed === 'normal') return '0'
+    const m = trimmed.match(/^(-?\d+(?:\.\d+)?)(px|%)?$/)
+    if (m) {
+      const n = Number(m[1])
+      if (Number.isFinite(n) && Math.abs(n) < 1e-6) {
+        return '0'
+      }
+    }
+  }
+  if (key === 'line-height' && trimmed === 'normal') {
+    return 'normal'
+  }
+  return trimmed.replace(/\s+/g, '')
+}
+
+function normalizeColorComparable(value: string): string | null {
+  if (value.startsWith('#')) {
+    return compressHex(value)
+  }
+  const rgb = value.match(/^rgba?\(([^)]+)\)$/)
+  if (rgb) {
+    const parts = rgb[1].split(',').map((p) => p.trim())
+    const [r, g, b, a = '1'] = parts
+    const toInt = (v: string) => {
+      const n = Number(v)
+      return Number.isFinite(n) ? Math.round(n) : null
+    }
+    const ri = toInt(r)
+    const gi = toInt(g)
+    const bi = toInt(b)
+    const an = Number(a)
+    if (
+      ri != null &&
+      gi != null &&
+      bi != null &&
+      ri >= 0 &&
+      ri <= 255 &&
+      gi >= 0 &&
+      gi <= 255 &&
+      bi >= 0 &&
+      bi <= 255
+    ) {
+      const hex = compressHex(formatHex(ri, gi, bi))
+      if (an >= 1 || Number.isNaN(an)) return hex
+      const opacity = Math.max(0, Math.min(100, Math.round(an * 100)))
+      return `${hex}/${opacity}`
+    }
+  }
+  return null
 }
