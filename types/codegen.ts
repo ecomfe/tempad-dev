@@ -1,4 +1,4 @@
-import type { DesignComponent, SupportedLang } from '@/types/plugin'
+import type { DesignComponent, DevComponent, SupportedLang } from '@/types/plugin'
 
 export interface SerializeOptions {
   useRem: boolean
@@ -11,11 +11,13 @@ export interface RequestPayload {
   component?: DesignComponent
   options: SerializeOptions
   pluginCode?: string
+  returnDevComponent?: boolean
 }
 
 export interface ResponsePayload {
   pluginName?: string
   codeBlocks: CodeBlock[]
+  devComponent?: DevComponent
 }
 
 export type CodeBlock = {

@@ -2,7 +2,8 @@ import { z } from 'zod'
 
 // get_code
 export const GetCodeParametersSchema = z.object({
-  nodeIds: z.array(z.string()).optional()
+  nodeIds: z.array(z.string()).optional(),
+  preferredLang: z.enum(['jsx', 'vue']).optional()
 })
 
 export type GetCodeParametersInput = z.input<typeof GetCodeParametersSchema>
@@ -23,6 +24,7 @@ export type GetTokenDefsResult = {
     value: string | Record<string, unknown>
     kind: 'color' | 'spacing' | 'typography' | 'effect' | 'other'
     source: 'variable' | 'style' | 'plugin'
+    metadata?: Record<string, unknown>
   }>
 }
 

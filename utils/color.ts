@@ -36,3 +36,14 @@ export function rgbToHex({ r, g, b }: { r: number; g: number; b: number }): stri
   // r, g, b are all 0~1
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
+
+export function rgbaToCss(color: RGB | RGBA, alphaOverride?: number): string {
+  const alpha =
+    typeof alphaOverride === 'number' ? alphaOverride : 'a' in color ? (color.a ?? 1) : 1
+  const clamp = (value: number) => Math.round(Math.min(Math.max(value, 0), 1) * 255)
+  const r = clamp(color.r)
+  const g = clamp(color.g)
+  const b = clamp(color.b)
+  const a = Math.round(Math.min(Math.max(alpha, 0), 1) * 100) / 100
+  return `rgba(${r}, ${g}, ${b}, ${a})`
+}

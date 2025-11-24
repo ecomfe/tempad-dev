@@ -10,9 +10,21 @@ export type Bounds = {
   height: number
 }
 
-export type DataHint =
-  | { kind: 'attr'; name: string; value: string }
-  | { kind: 'comment'; value: string }
+/**
+ * Lightweight metadata extracted from a SceneNode to help downstream renderers
+ * preserve authoring intent without duplicating entire properties.
+ *
+ * Currently only attribute hints are emitted for component instances to help
+ * preserve instance names in downstream markup.
+ */
+export type DataHint = { kind: 'attr'; name: string; value: string }
+type AutoLayoutSummary = {
+  direction: 'row' | 'column'
+  gap?: number
+  alignPrimary?: string
+  alignCounter?: string
+  padding?: { top: number; right: number; bottom: number; left: number }
+}
 
 export type SemanticNode = {
   id: string
@@ -27,6 +39,7 @@ export type SemanticNode = {
   isAsset: boolean
   assetKind?: 'vector' | 'image'
   dataHint?: DataHint
+  autoLayout?: AutoLayoutSummary
   capped?: boolean
   children: SemanticNode[]
 }
@@ -146,19 +159,80 @@ function classifyAsset(node: SceneNode): { isAsset: boolean; assetKind?: 'vector
 }
 
 function composeDataHint(node: SceneNode): DataHint | undefined {
-  if (node.type === 'INSTANCE') {
-    const componentName = node.mainComponent?.name ?? node.name
-    return { kind: 'attr', name: 'data-tp', value: `instance:${componentName}` }
+  if (node.type !== 'INSTANCE' || !node.mainComponent) {
+    return undefined
   }
 
-  if ('componentPropertyReferences' in node) {
-    const refs = Object.keys(node.componentPropertyReferences ?? {})
-    if (refs.length) {
-      return { kind: 'comment', value: `tp:props(${refs.join(',')})` }
+  const props = summarizeComponentProperties(node)
+  const base = `component:${node.mainComponent.name}`
+  const value = props ? `${base}|props:${props}` : base
+
+  return { kind: 'attr', name: 'data-tp', value }
+}
+
+type ComponentPropertyValueLike =
+  | { type: 'BOOLEAN'; value: boolean }
+  | { type: 'TEXT'; value: string }
+  | { type: 'VARIANT'; value: string }
+  | { type: 'INSTANCE_SWAP'; value: string }
+  | { type: string; value: unknown }
+
+function getComponentProperties(
+  node: InstanceNode
+): Record<string, ComponentPropertyValueLike> | undefined {
+  const props = node.componentProperties
+  if (!props || typeof props !== 'object') {
+    return undefined
+  }
+  return props as Record<string, ComponentPropertyValueLike>
+}
+
+function summarizeComponentProperties(node: InstanceNode): string | undefined {
+  const properties = getComponentProperties(node)
+  if (!properties) {
+    return undefined
+  }
+
+  const entries: string[] = []
+  for (const [rawKey, prop] of Object.entries(properties)) {
+    if (!prop) {
+      continue
+    }
+    const key = rawKey.split('#')[0]
+    switch (prop.type) {
+      case 'BOOLEAN':
+        entries.push(`${key}=${prop.value ? 'on' : 'off'}`)
+        break
+      case 'TEXT':
+      case 'VARIANT':
+        if (typeof prop.value === 'string' && prop.value.trim()) {
+          entries.push(`${key}=${prop.value}`)
+        }
+        break
+      case 'INSTANCE_SWAP':
+        if (typeof prop.value === 'string') {
+          const swapped = figma.getNodeById(prop.value)
+          if (swapped && 'name' in swapped) {
+            entries.push(`${key}=${(swapped as SceneNode).name}`)
+          } else {
+            entries.push(`${key}=swap`)
+          }
+        }
+        break
+      default:
+        break
+    }
+
+    if (entries.length >= 3) {
+      break
     }
   }
 
-  return undefined
+  if (!entries.length) {
+    return undefined
+  }
+
+  return entries.join(',')
 }
 
 function getLayoutKind(node: SceneNode): 'auto' | 'absolute' {
@@ -193,6 +267,7 @@ function visit(
       bounds: getBounds(node),
       isComponentInstance: node.type === 'INSTANCE',
       ...classifyAsset(node),
+      autoLayout: extractAutoLayout(node),
       capped: true,
       children: []
     }
@@ -226,6 +301,7 @@ function visit(
     bounds: getBounds(node),
     isComponentInstance: node.type === 'INSTANCE',
     ...classifyAsset(node),
+    autoLayout: extractAutoLayout(node),
     children
   }
 
@@ -296,6 +372,63 @@ export function buildSemanticTree(
     depthLimit,
     cappedNodeIds
   }
+}
+
+type AutoLayoutLike = {
+  layoutMode: 'NONE' | 'HORIZONTAL' | 'VERTICAL'
+  itemSpacing?: number
+  primaryAxisAlignItems?: string
+  counterAxisAlignItems?: string
+  paddingTop?: number
+  paddingRight?: number
+  paddingBottom?: number
+  paddingLeft?: number
+}
+
+function extractAutoLayout(node: SceneNode): AutoLayoutSummary | undefined {
+  const source = resolveAutoLayoutSource(node)
+  if (!source || source.layoutMode === 'NONE') {
+    return undefined
+  }
+
+  const summary: AutoLayoutSummary = {
+    direction: source.layoutMode === 'HORIZONTAL' ? 'row' : 'column'
+  }
+
+  if (typeof source.itemSpacing === 'number') {
+    summary.gap = source.itemSpacing
+  }
+  if (source.primaryAxisAlignItems) {
+    summary.alignPrimary = source.primaryAxisAlignItems
+  }
+  if (source.counterAxisAlignItems) {
+    summary.alignCounter = source.counterAxisAlignItems
+  }
+  if (
+    typeof source.paddingTop === 'number' ||
+    typeof source.paddingRight === 'number' ||
+    typeof source.paddingBottom === 'number' ||
+    typeof source.paddingLeft === 'number'
+  ) {
+    summary.padding = {
+      top: source.paddingTop ?? 0,
+      right: source.paddingRight ?? 0,
+      bottom: source.paddingBottom ?? 0,
+      left: source.paddingLeft ?? 0
+    }
+  }
+
+  return summary
+}
+
+function resolveAutoLayoutSource(node: SceneNode): AutoLayoutLike | undefined {
+  if ('layoutMode' in node && node.layoutMode !== undefined) {
+    return node as AutoLayoutLike
+  }
+  if ('inferredAutoLayout' in node) {
+    return (node as { inferredAutoLayout?: AutoLayoutLike | null }).inferredAutoLayout ?? undefined
+  }
+  return undefined
 }
 
 export function semanticTreeToOutline(nodes: SemanticNode[]): OutlineNode[] {
