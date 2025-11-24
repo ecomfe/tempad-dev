@@ -232,7 +232,8 @@ async function renderSemanticNode(
   const classProp = getClassPropName(langHint)
   const pluginProps =
     pluginComponent &&
-    (classNames.length || (semantic.dataHint?.kind === 'attr' && shouldApplyDataHint(node, semantic.dataHint)))
+    (classNames.length ||
+      (semantic.dataHint?.kind === 'attr' && shouldApplyDataHint(node, semantic.dataHint)))
       ? buildPluginProps(classProp, classNames, semantic.dataHint, node)
       : undefined
   const props: Record<string, unknown> = {}
@@ -467,7 +468,9 @@ function injectAttributes(markup: string, attrs: Record<string, string>): string
 }
 
 function mergeClasses(existing: string, extra: string): string {
-  const parts = [...existing.split(/\s+/), ...extra.split(/\s+/)].map((p) => p.trim()).filter(Boolean)
+  const parts = [...existing.split(/\s+/), ...extra.split(/\s+/)]
+    .map((p) => p.trim())
+    .filter(Boolean)
   return Array.from(new Set(parts)).join(' ')
 }
 
@@ -535,34 +538,44 @@ function mergeInferredAutoLayout(
     return style
   }
 
+  const {
+    layoutMode,
+    itemSpacing,
+    primaryAxisAlignItems,
+    counterAxisAlignItems,
+    paddingTop,
+    paddingRight,
+    paddingBottom,
+    paddingLeft
+  } = source
+
   const merged: Record<string, string> = { ...style }
   const display = merged.display?.trim()
   if (!display || !display.includes('flex')) {
     merged.display = 'flex'
   }
 
-  const direction = source.layoutMode === 'HORIZONTAL' ? 'row' : 'column'
+  const direction = layoutMode === 'HORIZONTAL' ? 'row' : 'column'
   if (!merged['flex-direction']) {
     merged['flex-direction'] = direction
   }
 
-  if (typeof source.itemSpacing === 'number' && !hasGap(merged)) {
-    merged.gap = `${Math.round(source.itemSpacing)}px`
+  if (typeof itemSpacing === 'number' && !hasGap(merged)) {
+    merged.gap = `${Math.round(itemSpacing)}px`
   }
 
-  const justify = mapAxisAlignToCss(source.primaryAxisAlignItems)
+  const justify = mapAxisAlignToCss(primaryAxisAlignItems)
   if (justify && !merged['justify-content']) {
     merged['justify-content'] = justify
   }
 
-  const align = mapAxisAlignToCss(source.counterAxisAlignItems)
+  const align = mapAxisAlignToCss(counterAxisAlignItems)
   if (align && !merged['align-items']) {
     merged['align-items'] = align
   }
 
   const allowPadding = node.type !== 'INSTANCE'
   if (allowPadding && !hasPadding(merged)) {
-    const { paddingTop, paddingRight, paddingBottom, paddingLeft } = source
     if (
       paddingTop ||
       paddingRight ||
@@ -588,7 +601,10 @@ function getAutoLayoutSource(node: SceneNode): AutoLayoutLike | undefined {
     return node as unknown as AutoLayoutLike
   }
   if ('inferredAutoLayout' in node) {
-    return (node as unknown as { inferredAutoLayout?: AutoLayoutLike | null }).inferredAutoLayout ?? undefined
+    return (
+      (node as unknown as { inferredAutoLayout?: AutoLayoutLike | null }).inferredAutoLayout ??
+      undefined
+    )
   }
   return undefined
 }
@@ -693,6 +709,7 @@ function autoLayoutToClasses(
   },
   style: Record<string, string>
 ): string[] {
+  const { direction, gap, alignPrimary, alignCounter, padding } = autoLayout
   const classes: string[] = []
   const display = style.display?.trim()
   if (!display || !display.includes('flex')) {
@@ -700,24 +717,24 @@ function autoLayoutToClasses(
   }
 
   const flexDirection = style['flex-direction']?.trim()
-  const desired = autoLayout.direction === 'row' ? 'row' : 'column'
+  const desired = direction === 'row' ? 'row' : 'column'
   if (!flexDirection || !flexDirection.includes(desired)) {
-    classes.push(autoLayout.direction === 'row' ? 'flex-row' : 'flex-col')
+    classes.push(direction === 'row' ? 'flex-row' : 'flex-col')
   }
 
-  if (typeof autoLayout.gap === 'number' && autoLayout.gap > 0 && !hasGap(style)) {
-    classes.push(`gap-[${Math.round(autoLayout.gap)}px]`)
+  if (typeof gap === 'number' && gap > 0 && !hasGap(style)) {
+    classes.push(`gap-[${Math.round(gap)}px]`)
   }
 
-  if (autoLayout.alignPrimary && !style['justify-content']) {
-    classes.push(mapAlignment(autoLayout.alignPrimary, 'primary'))
+  if (alignPrimary && !style['justify-content']) {
+    classes.push(mapAlignment(alignPrimary, 'primary'))
   }
-  if (autoLayout.alignCounter && !style['align-items']) {
-    classes.push(mapAlignment(autoLayout.alignCounter, 'counter'))
+  if (alignCounter && !style['align-items']) {
+    classes.push(mapAlignment(alignCounter, 'counter'))
   }
 
-  if (autoLayout.padding && !hasPadding(style)) {
-    const { top, right, bottom, left } = autoLayout.padding
+  if (padding && !hasPadding(style)) {
+    const { top, right, bottom, left } = padding
     if (top === bottom && left === right && top === left) {
       if (top) classes.push(`p-[${top}px]`)
     } else {
@@ -732,16 +749,16 @@ function autoLayoutToClasses(
 }
 
 function hasGap(style: Record<string, string>): boolean {
-  return Boolean(style.gap || style['row-gap'] || style['column-gap'])
+  return !!(style.gap || style['row-gap'] || style['column-gap'])
 }
 
 function hasPadding(style: Record<string, string>): boolean {
-  return Boolean(
+  return !!(
     style.padding ||
-      style['padding-top'] ||
-      style['padding-right'] ||
-      style['padding-bottom'] ||
-      style['padding-left']
+    style['padding-top'] ||
+    style['padding-right'] ||
+    style['padding-bottom'] ||
+    style['padding-left']
   )
 }
 

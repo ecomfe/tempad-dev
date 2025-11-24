@@ -16,9 +16,10 @@ export async function handleGetScreenshot(node: SceneNode): Promise<GetScreensho
 
   for (const scale of SCALE_STEPS) {
     const bytes = await exportAtScale(node, scale)
-    lastAttemptBytes = bytes.byteLength
+    const { byteLength } = bytes
+    lastAttemptBytes = byteLength
 
-    if (bytes.byteLength <= SCREENSHOT_MAX_BYTES) {
+    if (byteLength <= SCREENSHOT_MAX_BYTES) {
       const base64 = figma.base64Encode(bytes)
       const dataUrl = `data:image/png;base64,${base64}`
       return {
@@ -26,7 +27,7 @@ export async function handleGetScreenshot(node: SceneNode): Promise<GetScreensho
         width: Math.round(width * scale),
         height: Math.round(height * scale),
         scale,
-        bytes: bytes.byteLength,
+        bytes: byteLength,
         dataUrl
       }
     }

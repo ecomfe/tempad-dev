@@ -49,12 +49,13 @@ function resolveTransformVariable(
 
 globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   const { id, payload } = data
+  const { pluginCode, references, options } = payload
 
   let plugin: Plugin | null = null
 
-  if (payload.pluginCode) {
+  if (pluginCode) {
     try {
-      const exports = await evaluate(payload.pluginCode)
+      const exports = await evaluate(pluginCode)
       plugin = (exports.default || exports.plugin) as Plugin
     } catch (error) {
       const message: Response = { id, error }
@@ -65,17 +66,18 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
 
   const transformVariable = resolveTransformVariable(plugin)
 
-  const results = payload.references.map((ref) => {
+  const results = references.map((ref) => {
+    const { code, name, value } = ref
     if (!transformVariable) {
       return formatVariable(ref)
     }
 
     try {
       return transformVariable({
-        code: ref.code,
-        name: ref.name,
-        value: ref.value,
-        options: payload.options
+        code,
+        name,
+        value,
+        options
       })
     } catch (error) {
       console.error(error)

@@ -123,16 +123,18 @@ function isWrapper(node: SceneNode): boolean {
 }
 
 function resolveTag(node: SceneNode): string {
-  if (node.type === 'TEXT') {
+  const { type } = node
+  if (type === 'TEXT') {
     return node.characters.includes('\n') ? 'p' : 'span'
   }
 
-  if (VECTOR_LIKE_TYPES.has(node.type)) {
+  if (VECTOR_LIKE_TYPES.has(type)) {
     return 'svg'
   }
 
-  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
-    const hasImageFill = node.fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
+  if (type === 'RECTANGLE' && Array.isArray(node.fills)) {
+    const { fills } = node
+    const hasImageFill = fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
     if (hasImageFill) return 'img'
   }
 
@@ -140,18 +142,20 @@ function resolveTag(node: SceneNode): string {
 }
 
 function classifyAsset(node: SceneNode): { isAsset: boolean; assetKind?: 'vector' | 'image' } {
-  if (VECTOR_LIKE_TYPES.has(node.type)) {
+  const { type } = node
+  if (VECTOR_LIKE_TYPES.has(type)) {
     return { isAsset: true, assetKind: 'vector' }
   }
 
-  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
-    const hasImageFill = node.fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
+  if (type === 'RECTANGLE' && Array.isArray(node.fills)) {
+    const { fills } = node
+    const hasImageFill = fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
     if (hasImageFill) {
       return { isAsset: true, assetKind: 'image' }
     }
   }
 
-  if (node.type === 'ELLIPSE' || node.type === 'POLYGON' || node.type === 'STAR') {
+  if (type === 'ELLIPSE' || type === 'POLYGON' || type === 'STAR') {
     return { isAsset: true, assetKind: 'vector' }
   }
 
@@ -159,12 +163,17 @@ function classifyAsset(node: SceneNode): { isAsset: boolean; assetKind?: 'vector
 }
 
 function composeDataHint(node: SceneNode): DataHint | undefined {
-  if (node.type !== 'INSTANCE' || !node.mainComponent) {
+  if (node.type !== 'INSTANCE') {
+    return undefined
+  }
+
+  const { mainComponent } = node as InstanceNode
+  if (!mainComponent) {
     return undefined
   }
 
   const props = summarizeComponentProperties(node)
-  const base = `component:${node.mainComponent.name}`
+  const base = `component:${mainComponent.name}`
   const value = props ? `${base}|props:${props}` : base
 
   return { kind: 'attr', name: 'data-tp', value }
@@ -180,7 +189,7 @@ type ComponentPropertyValueLike =
 function getComponentProperties(
   node: InstanceNode
 ): Record<string, ComponentPropertyValueLike> | undefined {
-  const props = node.componentProperties
+  const { componentProperties: props } = node
   if (!props || typeof props !== 'object') {
     return undefined
   }
