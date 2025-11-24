@@ -73,7 +73,7 @@ function collectTokenReferences(roots: SceneNode[]): {
 }
 
 function resolveVariableTokens(ids: Set<string>): TokenEntry[] {
-  const tokens: TokenEntry[] = []
+  const deduped = new Map<string, TokenEntry>()
   ids.forEach((id) => {
     const variable = figma.variables.getVariableById(id)
     if (!variable) {
@@ -87,14 +87,16 @@ function resolveVariableTokens(ids: Set<string>): TokenEntry[] {
       return
     }
 
-    tokens.push({
-      name: variable.name,
-      value,
-      kind: inferVariableKind(variable)
-    })
+    if (!deduped.has(variable.name)) {
+      deduped.set(variable.name, {
+        name: variable.name,
+        value,
+        kind: inferVariableKind(variable)
+      })
+    }
   })
 
-  return tokens
+  return Array.from(deduped.values())
 }
 
 function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
