@@ -166,14 +166,15 @@ function resolveVariableTokens(ids: Set<string>): TokenEntry[] {
 }
 
 function buildVariableMetadata(variable: Variable): TokenMetadata {
-  const scopes = (variable.scopes ?? []).slice()
+  const { id, resolvedType, scopes = [] } = variable
+  const scoped = [...scopes]
   const metadata: TokenMetadata = {
-    id: variable.id,
-    resolvedType: variable.resolvedType
+    id,
+    resolvedType
   }
 
-  if (scopes.length) {
-    metadata.scopes = scopes
+  if (scoped.length) {
+    metadata.scopes = scoped
   }
 
   const modeCount = Object.keys(variable.valuesByMode ?? {}).length
@@ -185,18 +186,53 @@ function buildVariableMetadata(variable: Variable): TokenMetadata {
 }
 
 function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
-  const boundVariables = getBoundVariables(node)
-  if (!boundVariables) {
-    // still collect inferred variables if available
-  } else {
-    Object.values(boundVariables).forEach((entry) => {
-      collectVariableIdFromValue(entry, bucket)
-    })
+  if ('boundVariables' in node) {
+    const { boundVariables } = node
+    if (boundVariables) {
+      Object.values(boundVariables).forEach((entry) => collectVariableIdFromValue(entry, bucket))
+    }
   }
 
-  const inferred = getInferredVariables(node)
-  if (inferred) {
-    inferred.forEach((entry) => collectVariableIdFromValue(entry, bucket))
+  if ('inferredVariables' in node) {
+    const { inferredVariables } = node
+    if (inferredVariables) {
+      Object.values(inferredVariables).forEach((entry) => collectVariableIdFromValue(entry, bucket))
+    }
+  }
+
+  if ('variableReferences' in node) {
+    const { variableReferences } = node
+    if (variableReferences) {
+      Object.values(variableReferences).forEach((entry) => collectVariableIdFromValue(entry, bucket))
+    }
+  }
+
+  if ('exportSettings' in node) {
+    const { exportSettings } = node
+    if (Array.isArray(exportSettings)) {
+      exportSettings.forEach((setting) => collectVariableIdFromValue(setting, bucket))
+    }
+  }
+
+  if ('fills' in node) {
+    const { fills } = node
+    if (Array.isArray(fills)) {
+      fills.forEach((fill) => collectVariableIdFromValue(fill, bucket))
+    }
+  }
+
+  if ('strokes' in node) {
+    const { strokes } = node
+    if (Array.isArray(strokes)) {
+      strokes.forEach((stroke) => collectVariableIdFromValue(stroke, bucket))
+    }
+  }
+
+  if ('effects' in node) {
+    const { effects } = node
+    if (Array.isArray(effects)) {
+      effects.forEach((effect) => collectVariableIdFromValue(effect, bucket))
+    }
   }
 }
 
@@ -222,7 +258,7 @@ function collectVariableIdFromValue(value: unknown, bucket: Set<string>): void {
 }
 
 function formatVariableValue(variable: Variable): string | Record<string, unknown> | null {
-  const valuesByMode = variable.valuesByMode ?? {}
+  const { valuesByMode = {}, resolvedType } = variable
   const modeId = Object.keys(valuesByMode)[0]
   if (!modeId) {
     return null
@@ -233,7 +269,7 @@ function formatVariableValue(variable: Variable): string | Record<string, unknow
     return null
   }
 
-  switch (variable.resolvedType) {
+  switch (resolvedType) {
     case 'COLOR':
       return rgbaToCss(defaultValue as RGBA)
     case 'FLOAT':
@@ -258,21 +294,22 @@ function formatNumericValue(value: number): string {
 }
 
 function inferVariableKind(variable: Variable): TokenEntry['kind'] {
-  const scopes = (variable.scopes ?? []).map((scope) => scope.toUpperCase())
+  const { resolvedType, scopes = [] } = variable
+  const normalizedScopes = scopes.map((scope) => scope.toUpperCase())
 
-  if (variable.resolvedType === 'COLOR' || hasScope(scopes, COLOR_SCOPE_HINTS)) {
+  if (resolvedType === 'COLOR' || hasScope(normalizedScopes, COLOR_SCOPE_HINTS)) {
     return 'color'
   }
 
-  if (hasScope(scopes, TYPO_SCOPE_HINTS)) {
+  if (hasScope(normalizedScopes, TYPO_SCOPE_HINTS)) {
     return 'typography'
   }
 
-  if (hasScope(scopes, EFFECT_SCOPE_HINTS)) {
+  if (hasScope(normalizedScopes, EFFECT_SCOPE_HINTS)) {
     return 'effect'
   }
 
-  if (hasScope(scopes, SPACING_SCOPE_HINTS)) {
+  if (hasScope(normalizedScopes, SPACING_SCOPE_HINTS)) {
     return 'spacing'
   }
 
@@ -312,20 +349,6 @@ function getStyleId(node: SceneNode, key: StylePropKey): string | null {
     return value
   }
   return null
-}
-
-function getBoundVariables(node: SceneNode): Record<string, unknown> | undefined {
-  if ('boundVariables' in node) {
-    return (node as { boundVariables?: Record<string, unknown> }).boundVariables
-  }
-  return undefined
-}
-
-function getInferredVariables(node: SceneNode): VariableAlias[] | undefined {
-  if ('inferredVariables' in node) {
-    return (node as { inferredVariables?: VariableAlias[] }).inferredVariables
-  }
-  return undefined
 }
 
 function serializeStyle(style: BaseStyle): TokenEntry | null {

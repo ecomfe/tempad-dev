@@ -30,8 +30,9 @@ export function register<T>(
 export function resolve(requestId: string, payload: unknown): void {
   const call = pendingCalls.get(requestId)
   if (call) {
-    clearTimeout(call.timer)
-    call.resolve(payload)
+    const { timer, resolve: finish } = call
+    clearTimeout(timer)
+    finish(payload)
     pendingCalls.delete(requestId)
   } else {
     log.warn({ reqId: requestId }, 'Received result for unknown/timed-out call.')
@@ -41,8 +42,9 @@ export function resolve(requestId: string, payload: unknown): void {
 export function reject(requestId: string, error: Error): void {
   const call = pendingCalls.get(requestId)
   if (call) {
-    clearTimeout(call.timer)
-    call.reject(error)
+    const { timer, reject: fail } = call
+    clearTimeout(timer)
+    fail(error)
     pendingCalls.delete(requestId)
   } else {
     log.warn({ reqId: requestId }, 'Received error for unknown/timed-out call.')
@@ -51,9 +53,10 @@ export function reject(requestId: string, error: Error): void {
 
 export function cleanupForExtension(extensionId: string): void {
   for (const [reqId, call] of pendingCalls.entries()) {
-    if (call.extensionId === extensionId) {
-      clearTimeout(call.timer)
-      call.reject(new Error('Extension disconnected before providing a result.'))
+    const { timer, reject: fail, extensionId: extId } = call
+    if (extId === extensionId) {
+      clearTimeout(timer)
+      fail(new Error('Extension disconnected before providing a result.'))
       pendingCalls.delete(reqId)
       log.warn({ reqId, extId: extensionId }, 'Rejected pending call from disconnected extension.')
     }
@@ -62,8 +65,9 @@ export function cleanupForExtension(extensionId: string): void {
 
 export function cleanupAll(): void {
   pendingCalls.forEach((call, reqId) => {
-    clearTimeout(call.timer)
-    call.reject(new Error('Hub is shutting down.'))
+    const { timer, reject: fail } = call
+    clearTimeout(timer)
+    fail(new Error('Hub is shutting down.'))
     log.debug({ reqId }, 'Rejected pending tool call due to shutdown.')
   })
   pendingCalls.clear()

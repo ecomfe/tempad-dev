@@ -20,7 +20,7 @@ function isSceneNode(node: BaseNode | null): node is SceneNode {
 }
 
 function resolveNodes(nodeIds?: string[]): SceneNode[] {
-  if (nodeIds && nodeIds.length > 0) {
+  if (nodeIds?.length) {
     const nodes = nodeIds
       .map((id) => figma.getNodeById(id))
       .filter(isSceneNode)
@@ -31,12 +31,12 @@ function resolveNodes(nodeIds?: string[]): SceneNode[] {
   }
 
   if (selection.value.length === 0) throw new Error('Select at least one node to proceed.')
-  return selection.value.slice()
+  return [...selection.value]
 }
 
 async function handleGetCode(args?: GetCodeParametersInput): Promise<GetCodeResult> {
   const nodes = resolveNodes(args?.nodeIds)
-  const preferredLang = args?.preferredLang
+  const { preferredLang } = args ?? {}
   return runGetCode(nodes, preferredLang)
 }
 
@@ -57,8 +57,9 @@ async function handleGetScreenshot(
 }
 
 async function handleGetStructure(args?: GetStructureParametersInput): Promise<GetStructureResult> {
-  const roots = resolveNodes(args?.nodeIds)
-  const depth = args?.options?.depth
+  const { nodeIds, options } = args ?? {}
+  const roots = resolveNodes(nodeIds)
+  const depth = options?.depth
   return runGetStructure(roots, depth)
 }
 
