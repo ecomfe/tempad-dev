@@ -27,11 +27,7 @@ export default defineConfig({
     name: 'TemPad Dev',
     web_accessible_resources: [
       {
-        resources: ['/ui.js'],
-        matches: ['https://www.figma.com/*']
-      },
-      {
-        resources: ['/codegen.js'],
+        resources: ['/ui.js', '/figma.js', '/codegen.js'],
         matches: ['https://www.figma.com/*']
       }
     ],
