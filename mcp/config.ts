@@ -57,10 +57,12 @@ const traeConfigSnippet = windsurfConfigSnippet
 
 export type McpClientId = 'vscode' | 'cursor' | 'windsurf' | 'claude' | 'codex' | 'trae'
 
+export type McpBrandColor = string | [light: string, dark: string]
+
 export type McpClientConfig = {
   id: McpClientId
   name: string
-  brandColor?: string
+  brandColor?: McpBrandColor
   deepLink?: string
   supportsDeepLink: boolean
   copyText?: string
@@ -71,21 +73,21 @@ export const MCP_CLIENTS: McpClientConfig[] = [
   {
     id: 'vscode',
     name: 'VS Code',
-    brandColor: '#0098FF',
+    brandColor: '#0098ff',
     supportsDeepLink: true,
     deepLink: vscodeDeepLink
   },
   {
     id: 'cursor',
     name: 'Cursor',
-    brandColor: '#000000',
+    brandColor: ['#000', '#fff'],
     supportsDeepLink: true,
     deepLink: cursorDeepLink
   },
   {
     id: 'windsurf',
     name: 'Windsurf',
-    brandColor: '#0B100F',
+    brandColor: ['#0B100F', '#F0F3F2'],
     supportsDeepLink: false,
     copyText: windsurfConfigSnippet,
     copyKind: 'config'
@@ -101,7 +103,7 @@ export const MCP_CLIENTS: McpClientConfig[] = [
   {
     id: 'codex',
     name: 'Codex CLI',
-    brandColor: '#000',
+    brandColor: ['#000', '#fff'],
     supportsDeepLink: false,
     copyText: codexCliCommand,
     copyKind: 'command'
@@ -109,7 +111,7 @@ export const MCP_CLIENTS: McpClientConfig[] = [
   {
     id: 'trae',
     name: 'TRAE',
-    brandColor: '#000',
+    brandColor: ['#0fdc78', '#32f08c'],
     supportsDeepLink: false,
     copyText: traeConfigSnippet,
     copyKind: 'config'
