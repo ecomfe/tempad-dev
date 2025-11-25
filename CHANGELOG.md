@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.13.1
+
+- Redeployed the rewrite script so users on older versions can continue using the extension normally.
+- Introduced a compliance version of DNR rules to meet Chrome Web Store policies.
+
 ## 0.13.0
 
 - Updated to comply with Chrome Web Store policies by moving DNR redirection rules to the extension side.
