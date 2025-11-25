@@ -1,9 +1,3 @@
-import { selection } from '@/ui/state'
-import { handleGetCode as runGetCode } from './tools/code'
-import { handleGetScreenshot as runGetScreenshot } from './tools/screenshot'
-import { handleGetStructure as runGetStructure } from './tools/structure'
-import { handleGetTokenDefs as runGetTokenDefs } from './tools/token-defs'
-
 import type {
   GetCodeParametersInput,
   GetCodeResult,
@@ -14,6 +8,13 @@ import type {
   GetTokenDefsParametersInput,
   GetTokenDefsResult
 } from '@/mcp-server/src/tools'
+
+import { selection } from '@/ui/state'
+
+import { handleGetCode as runGetCode } from './tools/code'
+import { handleGetScreenshot as runGetScreenshot } from './tools/screenshot'
+import { handleGetStructure as runGetStructure } from './tools/structure'
+import { handleGetTokenDefs as runGetTokenDefs } from './tools/token-defs'
 
 function isSceneNode(node: BaseNode | null): node is SceneNode {
   return !!node && 'visible' in node && 'type' in node

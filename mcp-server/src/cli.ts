@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+import type { ChildProcess } from 'node:child_process'
+import type { Socket } from 'node:net'
+
 import { spawn } from 'node:child_process'
 import { connect } from 'node:net'
 import { join } from 'node:path'
@@ -7,9 +10,6 @@ import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
 
 import { log, LOCK_PATH, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
-
-import type { ChildProcess } from 'node:child_process'
-import type { Socket } from 'node:net'
 
 let activeSocket: Socket | null = null
 let shuttingDown = false
@@ -127,7 +127,7 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
       retries: { retries: 5, factor: 1.2, minTimeout: 50 },
       stale: 15000
     })
-  } catch (error: unknown) {
+  } catch {
     log.info('Another process is starting the Hub. Waiting...')
     return connectWithRetry(HUB_STARTUP_TIMEOUT)
   }
@@ -160,7 +160,7 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
 
 async function main() {
   log.info('TemPad MCP Client starting...')
-  // eslint-disable-next-line no-constant-condition
+
   while (true) {
     try {
       const socket = await connectHub().catch(() => {

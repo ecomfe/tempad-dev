@@ -1,3 +1,5 @@
+import type { RawData } from 'ws'
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { nanoid } from 'nanoid'
@@ -5,9 +7,8 @@ import { existsSync, rmSync, chmodSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { WebSocketServer } from 'ws'
 
-import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
-import { log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
-import { TOOLS } from './tools'
+import type { ExtensionConnection } from './types'
+
 import {
   MessageFromExtensionSchema,
   RegisteredMessage,
@@ -15,9 +16,9 @@ import {
   ToolCallMessage,
   ToolResultMessage
 } from './protocol'
-
-import type { RawData } from 'ws'
-import type { ExtensionConnection } from './types'
+import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
+import { log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
+import { TOOLS } from './tools'
 
 function parsePositiveInt(env: string | undefined, fallback: number): number {
   const parsed = env ? Number.parseInt(env, 10) : Number.NaN

@@ -45,6 +45,7 @@ export default defineUnlistedScript(() => {
       if (desc) {
         Object.defineProperty(document, 'currentScript', desc)
       } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         delete (document as any).currentScript
       }
     }

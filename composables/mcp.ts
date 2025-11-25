@@ -1,4 +1,3 @@
-import { computed, shallowRef, watch } from 'vue'
 import {
   createSharedComposable,
   useDocumentVisibility,
@@ -7,12 +6,13 @@ import {
   useTimeoutFn,
   useWindowFocus
 } from '@vueuse/core'
+import { computed, shallowRef, watch } from 'vue'
+
+import type { McpToolArgs, McpToolName, MCPHandlers } from '@/mcp/runtime'
 
 import { parseMessageToExtension } from '@/mcp-server/src/protocol'
 import { MCP_TOOL_HANDLERS } from '@/mcp/runtime'
 import { options, runtimeMode } from '@/ui/state'
-
-import type { McpToolArgs, McpToolName, MCPHandlers } from '@/mcp/runtime'
 
 const PORT_CANDIDATES = [6220, 7431, 8127]
 const RECONNECT_DELAY_MS = 3000

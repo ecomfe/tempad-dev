@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import Select, { type SelectOption } from '@/components/Select.vue'
 import IconButton from '@/components/IconButton.vue'
 import Inspect from '@/components/icons/Inspect.vue'
 import Measure from '@/components/icons/Measure.vue'
 import Section from '@/components/Section.vue'
 import McpSection from '@/components/sections/McpSection.vue'
 import PluginsSection from '@/components/sections/PluginsSection.vue'
+import Select, { type SelectOption } from '@/components/Select.vue'
 import { useSelectAll } from '@/composables/input'
 import { options } from '@/ui/state'
 

@@ -17,9 +17,11 @@ export function applyGroups(content: string, groups: Group[]) {
     for (const { pattern, replacer } of group.replacements) {
       const before = out
       if (typeof pattern === 'string') {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
         out = out.replaceAll(pattern, replacer)
       } else {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
         out = out.replace(pattern, replacer)
       }

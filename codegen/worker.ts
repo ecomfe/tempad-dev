@@ -16,17 +16,20 @@ type PendingRequest<T = unknown> = {
   reject: (reason?: unknown) => void
 }
 
-const pending = new Map<number, PendingRequest<any>>()
+const pending = new Map<number, PendingRequest>()
 
 type WorkerClass = {
-  new (...args: any[]): Worker
+  // Bundler-provided worker classes expose a zero-arg constructor
+  new (): Worker
 }
 
-const cache = new Map<WorkerClass, (payload: any) => Promise<any>>()
+type WorkerRequester<T = unknown, U = unknown> = (payload: T) => Promise<U>
+
+const cache = new WeakMap<WorkerClass, unknown>()
 
 export function createWorkerRequester<T, U>(Worker: WorkerClass) {
   if (cache.has(Worker)) {
-    return cache.get(Worker) as (payload: T) => Promise<U>
+    return cache.get(Worker) as WorkerRequester<T, U>
   }
 
   const worker = new Worker()
@@ -45,9 +48,12 @@ export function createWorkerRequester<T, U>(Worker: WorkerClass) {
     }
   }
 
-  const request = function(payload: T): Promise<U> {
+  const request: WorkerRequester<T, U> = function (payload: T): Promise<U> {
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject })
+      pending.set(id, {
+        resolve: (result) => resolve(result as U),
+        reject
+      })
 
       const message: RequestMessage<T> = { id, payload }
       worker.postMessage(message)

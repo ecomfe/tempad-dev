@@ -1,8 +1,8 @@
 import type { TransformOptions } from '@/types/plugin'
 
+import { compressHex, formatHex } from './color'
 import { parseNumber, toDecimalPlace } from './number'
 import { kebabToCamel } from './string'
-import { compressHex, formatHex } from './color'
 
 function escapeSingleQuote(value: string) {
   return value.replace(/'/g, "\\'")

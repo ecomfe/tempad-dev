@@ -1,10 +1,15 @@
-import { generateCodeBlocksForNode } from '@/utils/codegen'
-import { runTransformVariableBatch } from '@/mcp/transform-variable'
+import type { GetCodeResult } from '@/mcp-server/src/tools'
+import type { SemanticNode } from '@/mcp/semantic-tree'
+import type { CodeBlock } from '@/types/codegen'
+import type { DevComponent } from '@/types/plugin'
+import type { CodegenConfig } from '@/utils/codegen'
+
 import { buildSemanticTree } from '@/mcp/semantic-tree'
+import { runTransformVariableBatch } from '@/mcp/transform-variable'
 import { activePlugin, options } from '@/ui/state'
-import { stringifyComponent } from '@/utils/component'
-import { styleToTailwind } from '@/utils/tailwind'
+import { generateCodeBlocksForNode } from '@/utils/codegen'
 import { rgbaToCss } from '@/utils/color'
+import { stringifyComponent } from '@/utils/component'
 import {
   TEXT_STYLE_PROPS,
   stripDefaultTextStyles,
@@ -12,12 +17,7 @@ import {
   mapTextCase,
   normalizeComparableValue
 } from '@/utils/css'
-
-import type { GetCodeResult } from '@/mcp-server/src/tools'
-import type { CodeBlock } from '@/types/codegen'
-import type { CodegenConfig } from '@/utils/codegen'
-import type { SemanticNode } from '@/mcp/semantic-tree'
-import type { DevComponent } from '@/types/plugin'
+import { styleToTailwind } from '@/utils/tailwind'
 
 const VARIABLE_RE = /var\(--([^,)]+)(?:,\s*([^)]+))?\)/g
 type TextStyleMap = Record<string, string>
@@ -229,7 +229,6 @@ async function renderSemanticNode(
     node.type === 'TEXT'
       ? await renderTextSegments(node, classProp, ctx, {
           inheritedTextStyle,
-          nodeTextStyle: cleanedTextStyle,
           segments: styledSegments ?? undefined,
           computeSegmentStyle: hasSegmentVariants
         })
@@ -447,7 +446,7 @@ function injectAttributes(markup: string, attrs: Record<string, string>): string
     if (!safeValue) continue
 
     const attrName = key
-    const attrRegex = new RegExp(`(\\s${attrName}\\s*=\\s*)(\"([^\"]*)\"|'([^']*)')`)
+    const attrRegex = new RegExp(`(\\s${attrName}\\s*=\\s*)("([^"]*)"|'([^']*)')`)
 
     if ((attrName === 'class' || attrName === 'className') && attrRegex.test(updatedAttrs)) {
       updatedAttrs = updatedAttrs.replace(attrRegex, (_m, prefix, _quoted, dq, sq) => {
@@ -698,35 +697,8 @@ function formatTextLiteral(value: string): string | null {
   return value
 }
 
-const SEGMENT_FIELDS = [
-  'characters',
-  'start',
-  'end',
-  'fontName',
-  'fontSize',
-  'fontWeight',
-  'fontStyle',
-  'lineHeight',
-  'letterSpacing',
-  'textCase',
-  'textDecoration',
-  'textDecorationStyle',
-  'textDecorationOffset',
-  'textDecorationThickness',
-  'textDecorationColor',
-  'textDecorationSkipInk',
-  'paragraphSpacing',
-  'indentation',
-  'listOptions',
-  'fills',
-  'textStyleId',
-  'fillStyleId',
-  'boundVariables'
-] as const
-type SegmentFieldForRequest = Exclude<
-  (typeof SEGMENT_FIELDS)[number],
-  'characters' | 'start' | 'end'
->
+type SegmentFieldForRequest = keyof Omit<StyledTextSegment, 'characters' | 'start' | 'end'>
+
 const REQUESTED_SEGMENT_FIELDS: SegmentFieldForRequest[] = [
   'fontName',
   'fontSize',
@@ -748,13 +720,13 @@ const REQUESTED_SEGMENT_FIELDS: SegmentFieldForRequest[] = [
   'textStyleId',
   'fillStyleId',
   'boundVariables'
-] as const
+]
+type SegmentField = SegmentFieldForRequest | 'characters' | 'start' | 'end'
 
 type VariableAlias = { id?: string; type?: string }
-type StyledTextSegmentSubset = Pick<StyledTextSegment, (typeof SEGMENT_FIELDS)[number]>
+type StyledTextSegmentSubset = Pick<StyledTextSegment, SegmentField>
 type RenderTextSegmentsOptions = {
   inheritedTextStyle?: TextStyleMap
-  nodeTextStyle?: TextStyleMap
   segments?: StyledTextSegmentSubset[] | null
   computeSegmentStyle?: boolean
 }
@@ -1146,7 +1118,6 @@ async function renderTextSegments(
   ctx: RenderContext,
   {
     inheritedTextStyle,
-    nodeTextStyle,
     segments: providedSegments,
     computeSegmentStyle = true
   }: RenderTextSegmentsOptions
@@ -1249,25 +1220,6 @@ function flattenSemanticNodes(nodes: SemanticNode[]): SemanticNode[] {
   }
   nodes.forEach(visit)
   return result
-}
-
-function computeCommonStyle(styles: Array<Record<string, string>>): Record<string, string> {
-  if (!styles.length) return {}
-  const common: Record<string, string> = { ...styles[0] }
-  styles.slice(1).forEach((style) => {
-    Object.keys(common).forEach((key) => {
-      if (!(key in style)) {
-        delete common[key]
-        return
-      }
-      if (
-        normalizeComparableValue(key, style[key]) !== normalizeComparableValue(key, common[key])
-      ) {
-        delete common[key]
-      }
-    })
-  })
-  return common
 }
 
 function computeDominantStyle(styles: Array<Record<string, string>>): Record<string, string> {

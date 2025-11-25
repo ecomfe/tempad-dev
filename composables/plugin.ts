@@ -20,7 +20,7 @@ async function getRegisteredPluginSource(source: string, signal?: AbortSignal) {
       name: string
       url: string
     }[]
-  } catch (e) {
+  } catch {
     pluginList = SNAPSHOT_PLUGINS
   }
 

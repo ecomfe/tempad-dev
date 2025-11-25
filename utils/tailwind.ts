@@ -424,7 +424,11 @@ function normalizeArbitraryValue(value: string) {
     return canonical.replace(/\s+/g, '_')
   }
   if (cleaned.toLowerCase().startsWith('var(')) {
-    const name = cleaned.split(',')[0]?.replace(/^var\(\s*/, '').replace(/\s*\)$/, '').trim()
+    const name = cleaned
+      .split(',')[0]
+      ?.replace(/^var\(\s*/, '')
+      .replace(/\s*\)$/, '')
+      .trim()
     if (name) {
       return `var(${name})`.replace(/\s+/g, '_')
     }
@@ -598,7 +602,13 @@ function gridAutoFlowMap(v: string) {
 function gridAutoAxisClass(axis: 'cols' | 'rows', v: string) {
   const val = v.trim().toLowerCase()
   const prefix = axis === 'cols' ? 'auto-cols' : 'auto-rows'
-  if (val === 'auto' || val === 'min' || val === 'max' || val === 'min-content' || val === 'max-content') {
+  if (
+    val === 'auto' ||
+    val === 'min' ||
+    val === 'max' ||
+    val === 'min-content' ||
+    val === 'max-content'
+  ) {
     return `${prefix}-${val === 'auto' ? 'auto' : val.replace('-content', '')}`
   }
   if (val === '1fr' || val === 'minmax(0, 1fr)') {

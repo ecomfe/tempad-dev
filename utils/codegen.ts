@@ -1,13 +1,9 @@
-import type {
-  RequestPayload,
-  ResponsePayload,
-  SerializeOptions,
-  CodeBlock
-} from '@/types/codegen'
+import type { RequestPayload, ResponsePayload, SerializeOptions } from '@/types/codegen'
 import type { DesignComponent } from '@/types/plugin'
 
 import Codegen from '@/codegen/codegen?worker&inline'
 import { createWorkerRequester } from '@/codegen/worker'
+
 import { getDesignComponent } from './component'
 
 export async function codegen(
@@ -48,11 +44,5 @@ export async function generateCodeBlocksForNode(
     scale: config.scale
   }
 
-  return await codegen(
-    style,
-    component,
-    serializeOptions,
-    pluginCode,
-    opts?.returnDevComponent
-  )
+  return await codegen(style, component, serializeOptions, pluginCode, opts?.returnDevComponent)
 }

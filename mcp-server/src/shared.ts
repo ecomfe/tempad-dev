@@ -31,10 +31,7 @@ function ensureFile(filePath: string): void {
 export const LOCK_PATH = join(RUNTIME_DIR, 'mcp.lock')
 ensureFile(LOCK_PATH)
 
-const timestamp = new Date()
-  .toISOString()
-  .replaceAll(':', '-')
-  .replaceAll('.', '-')
+const timestamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
 const pid = process.pid
 const LOG_FILE = join(LOG_DIR, `mcp-${timestamp}-${pid}.log`)
 
