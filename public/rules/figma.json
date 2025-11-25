@@ -21,7 +21,7 @@
     "action": {
       "type": "redirect",
       "redirect": {
-        "extensionPath": "/figma.js"
+        "url": "https://ecomfe.github.io/tempad-dev/figma.js"
       }
     },
     "condition": {
