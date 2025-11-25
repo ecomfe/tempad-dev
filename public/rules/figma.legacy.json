@@ -21,7 +21,7 @@
     "action": {
       "type": "redirect",
       "redirect": {
-        "extensionPath": "/figma.js"
+        "url": "https://ecomfe.github.io/tempad-dev/figma.js"
       }
     },
     "condition": {
@@ -44,7 +44,7 @@
       "resourceTypes": ["xmlhttprequest"],
       "initiatorDomains": ["www.figma.com"],
       "requestDomains": ["ecomfe.github.io"],
-      "regexFilter": "/tempad-dev/figma\\.(?:json|comply\\.json)$"
+      "regexFilter": "/tempad-dev/figma\\.json$"
     }
   }
 ]
