@@ -85,7 +85,16 @@ const mcpClients = computed(() =>
 )
 
 const copy = useCopy()
-const defaultInstallCommand = `${MCP_SERVER.command} ${MCP_SERVER.args.join(' ')}`
+const defaultConfig = JSON.stringify(
+  {
+    [MCP_SERVER.name]: {
+      command: MCP_SERVER.command,
+      args: MCP_SERVER.args
+    }
+  },
+  null,
+  2
+)
 const copyMessages = {
   command: 'Copied command to clipboard',
   config: 'Copied configuration to clipboard'
@@ -144,7 +153,7 @@ async function handleClientClick(client: McpClientDisplay) {
             title="Copy configuration"
             class="tp-mcp-client-button"
             variant="secondary"
-            @click="copy(defaultInstallCommand, copyMessages.command)"
+            @click="copy(defaultConfig, copyMessages.config)"
           >
             <Copy />
           </IconButton>

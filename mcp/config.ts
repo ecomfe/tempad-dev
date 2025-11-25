@@ -40,6 +40,13 @@ const cursorDeepLink = (() => {
   return `cursor://anysphere.cursor-deeplink/mcp/install?name=${name}&config=${configBase64}`
 })()
 
+const traeDeepLink = (() => {
+  const type = 'stdio'
+  const name = encodeURIComponent(SERVER_NAME)
+  const configBase64 = encodeURIComponent(toBase64(JSON.stringify(cursorConfig)))
+  return `trae-cn://trae.ai-ide/mcp-import?type=${type}&name=${name}&config=${configBase64}`
+})()
+
 const windsurfConfigSnippet = JSON.stringify(
   {
     mcpServers: {
@@ -52,8 +59,6 @@ const windsurfConfigSnippet = JSON.stringify(
 
 const claudeCliCommand = `claude mcp add --transport stdio "${SERVER_NAME}" -- ${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`
 const codexCliCommand = `codex mcp add "${SERVER_NAME}" -- ${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`
-
-const traeConfigSnippet = windsurfConfigSnippet
 
 export type McpClientId = 'vscode' | 'cursor' | 'windsurf' | 'claude' | 'codex' | 'trae'
 
@@ -112,9 +117,8 @@ export const MCP_CLIENTS: McpClientConfig[] = [
     id: 'trae',
     name: 'TRAE',
     brandColor: ['#0fdc78', '#32f08c'],
-    supportsDeepLink: false,
-    copyText: traeConfigSnippet,
-    copyKind: 'config'
+    supportsDeepLink: true,
+    deepLink: traeDeepLink
   }
 ]
 
