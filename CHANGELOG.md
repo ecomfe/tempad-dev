@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.13.0
+
+- Updated to comply with Chrome Web Store policies by moving DNR redirection rules to the extension side.
+- Improved select component style in preferences panel to match Figma's UI.
+
 ## 0.12.0
 
 - Added support for documentation links and dev resource links.
