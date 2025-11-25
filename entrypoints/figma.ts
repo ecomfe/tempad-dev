@@ -1,0 +1,54 @@
+import { GROUPS } from '@/rewrite/config'
+import { applyGroups } from '@/rewrite/shared'
+
+export default defineUnlistedScript(() => {
+  async function rewriteScript() {
+    const current = document.currentScript as HTMLScriptElement
+    const src = current?.src
+    if (!current || !src) {
+      return
+    }
+
+    const desc = Object.getOwnPropertyDescriptor(Document.prototype, 'currentScript')
+
+    function replaceScript(src: string) {
+      const script = document.createElement('script')
+      script.src = src
+      script.defer = true
+      current.replaceWith(script)
+    }
+
+    try {
+      const response = await fetch(src)
+      const original = await response.text()
+
+      const { content: afterRules, changed } = applyGroups(original, GROUPS)
+
+      if (changed) {
+        console.log(`[tempad-dev] Rewrote script: ${src}`)
+      }
+
+      const content = afterRules.replaceAll('delete window.figma', 'window.figma = undefined')
+
+      Object.defineProperty(document, 'currentScript', {
+        configurable: true,
+        get() {
+          return current
+        }
+      })
+
+      new Function(content)()
+    } catch (e) {
+      console.error(e)
+      replaceScript(`${src}?fallback`)
+    } finally {
+      if (desc) {
+        Object.defineProperty(document, 'currentScript', desc)
+      } else {
+        delete (document as any).currentScript
+      }
+    }
+  }
+
+  void rewriteScript()
+})
