@@ -1,24 +1,26 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useCopy } from '@/composables'
+
+import type { McpClientConfig, McpClientId } from '@/mcp/config'
+
 import IconButton from '@/components/IconButton.vue'
-import Section from '@/components/Section.vue'
-import SegmentedControl from '@/components/SegmentedControl.vue'
-import Copy from '@/components/icons/Copy.vue'
-import Minus from '@/components/icons/Minus.vue'
-import Tick from '@/components/icons/Tick.vue'
 import Claude from '@/components/icons/brands/Claude.vue'
 import Cursor from '@/components/icons/brands/Cursor.vue'
 import OpenAI from '@/components/icons/brands/OpenAI.vue'
 import Trae from '@/components/icons/brands/TRAE.vue'
 import VSCode from '@/components/icons/brands/VSCode.vue'
 import Windsurf from '@/components/icons/brands/Windsurf.vue'
-import Expanded from '@/components/icons/Expanded.vue'
 import Collapsed from '@/components/icons/Collapsed.vue'
+import Copy from '@/components/icons/Copy.vue'
+import Expanded from '@/components/icons/Expanded.vue'
+import Minus from '@/components/icons/Minus.vue'
+import Tick from '@/components/icons/Tick.vue'
+import Section from '@/components/Section.vue'
+import SegmentedControl from '@/components/SegmentedControl.vue'
+import { useCopy } from '@/composables'
 import { MCP_CLIENTS, MCP_SERVER } from '@/mcp/config'
 import { options } from '@/ui/state'
 
-import type { McpClientConfig, McpClientId } from '@/mcp/config'
 import ExternalLink from '../icons/ExternalLink.vue'
 
 const mcpOptions = [
@@ -37,19 +39,49 @@ const CLIENT_ICONS: Record<McpClientId, unknown> = {
   trae: Trae
 }
 
+type McpClientDisplay = Omit<McpClientConfig, 'brandColor'> & {
+  brandColor?: string
+  icon: unknown
+  tooltip: string
+}
+
+function resolveBrandColor(brandColor: McpClientConfig['brandColor'], theme: 'light' | 'dark') {
+  if (!brandColor) return undefined
+  if (Array.isArray(brandColor)) {
+    const [lightColor, darkColor] = brandColor
+    return theme === 'dark' ? (darkColor ?? lightColor) : (lightColor ?? darkColor)
+  }
+  return brandColor
+}
+
+const brandColorsByTheme = computed(() => {
+  const light = {} as Record<McpClientId, string>
+  const dark = {} as Record<McpClientId, string>
+
+  MCP_CLIENTS.forEach((client) => {
+    light[client.id] = resolveBrandColor(client.brandColor, 'light') ?? ''
+    dark[client.id] = resolveBrandColor(client.brandColor, 'dark') ?? ''
+  })
+
+  return { light, dark }
+})
+
 const mcpClients = computed(() =>
-  MCP_CLIENTS.map((client) => ({
-    ...client,
-    icon: CLIENT_ICONS[client.id],
-    brandColor: client.brandColor,
-    tooltip: client.deepLink
-      ? `Install in ${client.name}`
-      : client.copyKind === 'command'
-        ? `Copy command for ${client.name}`
-        : client.copyKind === 'config'
-          ? `Copy configuration for ${client.name}`
-          : client.name
-  }))
+  MCP_CLIENTS.map((client) => {
+    const { brandColor, ...rest } = client
+
+    return {
+      ...rest,
+      icon: CLIENT_ICONS[client.id],
+      tooltip: client.deepLink
+        ? `Install in ${client.name}`
+        : client.copyKind === 'command'
+          ? `Copy command for ${client.name}`
+          : client.copyKind === 'config'
+            ? `Copy configuration for ${client.name}`
+            : client.name
+    } satisfies McpClientDisplay
+  })
 )
 
 const copy = useCopy()
@@ -59,7 +91,7 @@ const copyMessages = {
   config: 'Copied configuration to clipboard'
 } as const
 
-async function handleClientClick(client: McpClientConfig & { icon: unknown; brandColor?: string }) {
+async function handleClientClick(client: McpClientDisplay) {
   if (client.deepLink) {
     window.open(client.deepLink, '_self')
     return
@@ -101,7 +133,9 @@ async function handleClientClick(client: McpClientConfig & { icon: unknown; bran
             :title="client.tooltip"
             variant="secondary"
             class="tp-mcp-client-button"
-            :style="client.brandColor ? { '--tp-mcp-client-hover-color': client.brandColor } : null"
+            :style="{
+              '--tp-mcp-client-hover-color': `var(--brand-color-${client.id})`
+            }"
             @click="handleClientClick(client)"
           >
             <component :is="client.icon" class="tp-mcp-client-icon" />
@@ -132,6 +166,24 @@ async function handleClientClick(client: McpClientConfig & { icon: unknown; bran
 </template>
 
 <style scoped>
+:global([data-preferred-theme='light'] .tp-mcp-section) {
+  --brand-color-vscode: v-bind('brandColorsByTheme.light.vscode');
+  --brand-color-cursor: v-bind('brandColorsByTheme.light.cursor');
+  --brand-color-windsurf: v-bind('brandColorsByTheme.light.windsurf');
+  --brand-color-claude: v-bind('brandColorsByTheme.light.claude');
+  --brand-color-codex: v-bind('brandColorsByTheme.light.codex');
+  --brand-color-trae: v-bind('brandColorsByTheme.light.trae');
+}
+
+:global([data-preferred-theme='dark'] .tp-mcp-section) {
+  --brand-color-vscode: v-bind('brandColorsByTheme.dark.vscode');
+  --brand-color-cursor: v-bind('brandColorsByTheme.dark.cursor');
+  --brand-color-windsurf: v-bind('brandColorsByTheme.dark.windsurf');
+  --brand-color-claude: v-bind('brandColorsByTheme.dark.claude');
+  --brand-color-codex: v-bind('brandColorsByTheme.dark.codex');
+  --brand-color-trae: v-bind('brandColorsByTheme.dark.trae');
+}
+
 .tp-mcp-field + .tp-mcp-field {
   margin-top: 8px;
 }
@@ -158,7 +210,7 @@ label {
 }
 
 .tp-mcp-client-button:hover {
-  --color-icon: var(--tp-mcp-client-hover-color, var(--color-icon)) !important;
+  --color-icon: var(--tp-mcp-client-hover-color) !important;
 }
 
 .tp-mcp-toggle {
