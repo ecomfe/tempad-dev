@@ -1,5 +1,6 @@
-import { getTemPadComponent } from '@/utils'
 import { useStorage, computedAsync } from '@vueuse/core'
+
+import { getTemPadComponent } from '@/utils'
 
 import { ui } from './figma'
 

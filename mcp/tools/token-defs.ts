@@ -1,8 +1,9 @@
 import type { GetTokenDefsResult } from '@/mcp-server/src/tools'
-import { rgbaToCss } from '@/utils/color'
-import { canonicalizeVariable } from '@/utils/css'
+
 import { runTransformVariableBatch } from '@/mcp/transform-variable'
 import { activePlugin, options } from '@/ui/state'
+import { rgbaToCss } from '@/utils/color'
+import { canonicalizeVariable } from '@/utils/css'
 
 const COLOR_SCOPE_HINTS = ['COLOR', 'FILL', 'STROKE', 'TEXT_FILL']
 const TYPO_SCOPE_HINTS = [

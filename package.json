@@ -19,8 +19,8 @@
     "zip:firefox": "wxt zip -b firefox",
     "compile": "vue-tsc --noEmit",
     "postinstall": "wxt prepare",
-    "lint": "eslint src --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore",
-    "format": "prettier --write src *.cjs *.json *.md"
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
+    "format": "prettier --write \"**/*.{js,ts,jsx,tsx,cjs,mjs,cts,mts,vue,json,md,css}\" --ignore-path .gitignore"
   },
   "devDependencies": {
     "@figma/plugin-typings": "^1.121.0",
@@ -31,10 +31,12 @@
     "@types/proper-lockfile": "^4.1.4",
     "@types/stringify-object": "^4.0.5",
     "@types/ws": "^8.18.1",
+    "@eslint/js": "^9.39.1",
     "@vue/eslint-config-prettier": "^10.2.0",
     "@vue/eslint-config-typescript": "^14.6.0",
     "@vueuse/core": "^14.0.0",
     "@wxt-dev/module-vue": "^1.0.3",
+    "eslint-config-flat-gitignore": "^2.1.0",
     "comment-mark": "^2.0.1",
     "esbuild": "^0.25.12",
     "eslint": "^9.39.1",
@@ -50,6 +52,7 @@
     "stringify-object": "^6.0.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.19.1",
     "vite-plugin-css-injected-by-js": "^3.5.2",
     "vue": "^3.5.24",
     "vue-tsc": "^3.1.4",

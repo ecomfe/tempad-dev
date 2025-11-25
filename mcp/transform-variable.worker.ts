@@ -1,6 +1,6 @@
+import type { RequestMessage, ResponseMessage } from '@/codegen/worker'
 import type { Plugin, TransformOptions } from '@/types/plugin'
 
-import type { RequestMessage, ResponseMessage } from '@/codegen/worker'
 import safe from '@/codegen/safe'
 import { evaluate } from '@/utils/module'
 
@@ -96,6 +96,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
 Object.getOwnPropertyNames(globalThis)
   .filter((key) => !safe.has(key))
   .forEach((key) => {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     globalThis[key] = undefined
   })

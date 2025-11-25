@@ -44,7 +44,7 @@ function getDomain(url: string) {
   try {
     const { hostname } = new URL(url)
     return hostname
-  } catch (error) {
+  } catch {
     console.error('Invalid URL:', url)
     return null
   }

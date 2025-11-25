@@ -1,6 +1,7 @@
 <script setup lang="ts" generic="T extends string | number | boolean">
-import { watch } from 'vue'
 import type { Component } from 'vue'
+
+import { watch } from 'vue'
 
 export interface SegmentedControlOption<T> {
   label: string

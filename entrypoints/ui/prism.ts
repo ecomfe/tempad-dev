@@ -1,5 +1,6 @@
-import { evaluate } from '@/utils'
 import waitFor from 'p-wait-for'
+
+import { evaluate } from '@/utils'
 
 const EXTRA_LANGS = ['sass', 'scss', 'less', 'stylus', 'css-extras'] as const
 

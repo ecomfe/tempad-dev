@@ -1,6 +1,7 @@
 import rules from '@/public/rules/figma.json'
-import { applyGroups, RULES_URL, REWRITE_RULE_ID } from '@/rewrite/shared'
 import { GROUPS } from '@/rewrite/config'
+import { applyGroups, RULES_URL, REWRITE_RULE_ID } from '@/rewrite/shared'
+
 import type { BlobHandle, CacheEntry, Rules } from '../types/rewrite'
 
 export default defineContentScript({
@@ -69,7 +70,9 @@ export default defineContentScript({
       if (entry.ref <= 0) {
         try {
           URL.revokeObjectURL(entry.url)
-        } catch {}
+        } catch {
+          // noop
+        }
         blobCache.delete(src)
       }
     }
@@ -122,7 +125,9 @@ export default defineContentScript({
         script.addEventListener('load', release, { once: true })
         script.addEventListener('error', release, { once: true })
         script.src = url
-      } catch {}
+      } catch {
+        // noop
+      }
 
       normalizedInsert(parent, script, before)
     }

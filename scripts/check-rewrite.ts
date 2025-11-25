@@ -1,6 +1,8 @@
+import { chromium } from 'playwright-chromium'
+
 import { GROUPS } from '@/rewrite/config'
 import { applyGroups, groupMatches } from '@/rewrite/shared'
-import { chromium } from 'playwright-chromium'
+
 import rules from '../public/rules/figma.json'
 
 const redirectRule = rules.find((rule) => rule.action.type === 'redirect')

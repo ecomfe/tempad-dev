@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { useDraggable, useWindowSize, watchDebounced } from '@vueuse/core'
+
 import { useScrollbar } from '@/composables/scrollbar'
 import { ui } from '@/ui/figma'
 import { options } from '@/ui/state'
-import { useDraggable, useWindowSize, watchDebounced } from '@vueuse/core'
 
 const panel = useTemplateRef('panel')
 const header = useTemplateRef('header')

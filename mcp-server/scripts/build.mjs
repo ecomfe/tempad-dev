@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
-import { rmSync, readFileSync } from 'node:fs'
 import { build } from 'esbuild'
+import { rmSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const THIS_DIR = dirname(fileURLToPath(import.meta.url))
 const ROOT = dirname(THIS_DIR)

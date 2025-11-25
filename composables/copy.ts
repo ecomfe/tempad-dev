@@ -1,5 +1,6 @@
-import { useToast } from '@/composables'
 import { useClipboard } from '@vueuse/core'
+
+import { useToast } from '@/composables'
 
 type CopySource = HTMLElement | string | null | undefined
 

@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 type Prune<T> = T extends undefined
   ? never
   : T extends any[]
@@ -19,19 +21,15 @@ type PruneArrayItem<Item> = Item extends undefined
       : Item
 
 type PruneObjectInArray<T extends object> = {
-  [K in keyof T as T[K] extends undefined
-    ? never
-    : Prune<T[K]> extends never
-      ? never
-      : K]: Prune<T[K]>
+  [K in keyof T as T[K] extends undefined ? never : Prune<T[K]> extends never ? never : K]: Prune<
+    T[K]
+  >
 }
 
 type PruneObject<T extends object> = {
-  [K in keyof T as T[K] extends undefined
-    ? never
-    : Prune<T[K]> extends never
-      ? never
-      : K]: Prune<T[K]>
+  [K in keyof T as T[K] extends undefined ? never : Prune<T[K]> extends never ? never : K]: Prune<
+    T[K]
+  >
 } extends infer O
   ? O extends object
     ? keyof O extends never
@@ -40,9 +38,7 @@ type PruneObject<T extends object> = {
     : never
   : never
 
-export function prune<T extends object>(
-  obj: T,
-): Prune<T> extends never ? undefined : Prune<T> {
+export function prune<T extends object>(obj: T): Prune<T> extends never ? undefined : Prune<T> {
   return _prune(obj, false) as any
 }
 
@@ -63,11 +59,7 @@ function _prune(value: any, insideArray: boolean): any {
 
     if (pruned === undefined) continue
 
-    if (
-      typeof pruned === 'object' &&
-      !Array.isArray(pruned) &&
-      Object.keys(pruned).length === 0
-    ) {
+    if (typeof pruned === 'object' && !Array.isArray(pruned) && Object.keys(pruned).length === 0) {
       continue
     }
 

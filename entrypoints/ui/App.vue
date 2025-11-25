@@ -1,17 +1,17 @@
 <script setup lang="ts">
+import Badge from '@/components/Badge.vue'
 import IconButton from '@/components/IconButton.vue'
 import Minus from '@/components/icons/Minus.vue'
 import Plus from '@/components/icons/Plus.vue'
 import Preferences from '@/components/icons/Preferences.vue'
 import Panel from '@/components/Panel.vue'
-import Badge from '@/components/Badge.vue'
 import CodeSection from '@/components/sections/CodeSection.vue'
 import ErrorSection from '@/components/sections/ErrorSection.vue'
 import MetaSection from '@/components/sections/MetaSection.vue'
 import PrefSection from '@/components/sections/PrefSection.vue'
 import { useKeyLock, useSelection } from '@/composables'
-import { ui } from '@/ui/figma'
 import { useMcp } from '@/composables/mcp'
+import { ui } from '@/ui/figma'
 import { options, runtimeMode } from '@/ui/state'
 
 useSelection()

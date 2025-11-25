@@ -1,7 +1,8 @@
 <script setup lang="ts" generic="T extends string">
+import { computed, watch } from 'vue'
+
 import Chevron from '@/components/icons/Chevron.vue'
 import OptionCheck from '@/components/icons/OptionCheck.vue'
-import { computed, watch } from 'vue'
 
 export interface SelectOption<T extends string = string> {
   label: string
