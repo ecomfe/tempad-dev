@@ -134,14 +134,9 @@ function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
   if ('variableReferences' in node) {
     const { variableReferences } = node
     if (variableReferences) {
-      Object.values(variableReferences).forEach((entry) => collectVariableIdFromValue(entry, bucket))
-    }
-  }
-
-  if ('exportSettings' in node) {
-    const { exportSettings } = node
-    if (Array.isArray(exportSettings)) {
-      exportSettings.forEach((setting) => collectVariableIdFromValue(setting, bucket))
+      Object.values(variableReferences).forEach((entry) =>
+        collectVariableIdFromValue(entry, bucket)
+      )
     }
   }
 
@@ -178,6 +173,13 @@ function collectVariableIdFromValue(value: unknown, bucket: Set<string>): void {
   }
 
   if (typeof value === 'object') {
+    if (
+      'visible' in (value as { visible?: boolean }) &&
+      (value as { visible?: boolean }).visible === false
+    ) {
+      return
+    }
+
     const alias = value as VariableAlias
     if (alias && typeof alias.id === 'string') {
       bucket.add(alias.id)
