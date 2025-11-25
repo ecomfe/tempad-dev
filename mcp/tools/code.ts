@@ -277,15 +277,29 @@ async function renderSemanticNode(
     const segments = textSegments?.segments ?? []
     const classString = styleToTailwind(baseStyleForClass)
     const classNames = classString ? classString.split(/\s+/).filter(Boolean) : []
-    if (!classNames.length && !semantic.dataHint && segments.length === 1) {
-      return segments[0] ?? null
+    const textProps: Record<string, unknown> = {}
+    if (classNames.length) {
+      textProps[classProp] = classNames.join(' ')
+    }
+    if (semantic.dataHint?.kind === 'attr' && shouldApplyDataHint(node, semantic.dataHint)) {
+      textProps[semantic.dataHint.name] = semantic.dataHint.value
+    }
+
+    if (segments.length === 1) {
+      const single = segments[0]
+      if (!classNames.length && !semantic.dataHint) {
+        return single ?? null
+      }
+      if (single && typeof single !== 'string') {
+        return mergeDevComponentProps(single, textProps)
+      }
     }
     const textChild: (DevComponent | string)[] = segments.filter(Boolean) as Array<
       DevComponent | string
     >
     return {
       name: semantic.tag || 'span',
-      props,
+      props: textProps,
       children: textChild
     }
   }

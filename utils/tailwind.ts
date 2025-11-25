@@ -7,16 +7,8 @@ export function styleToTailwind(style: Record<string, string>): string {
     if (cls) classes.push(cls)
   }
 
-  const v = (prop: string) => style[prop]
-
   for (const [prop, rawValue] of Object.entries(style)) {
-    let value = rawValue.trim()
-
-    // Normalize any variable-like value to CSS custom property form
-    const canonical = canonicalizeVariable(value)
-    if (canonical) {
-      value = canonical
-    }
+    const value = rawValue.trim()
 
     switch (prop) {
       /* Size */
@@ -74,7 +66,46 @@ export function styleToTailwind(style: Record<string, string>): string {
 
       /* Display */
       case 'display':
-        push(displayMap(value) ?? undefined)
+        push(displayMap(value) ?? `[display:${normalizeArbitraryValue(value)}]`)
+        break
+
+      /* Grid layout */
+      case 'grid-template-columns': {
+        const mapped = gridTemplateRepeatMap(value, 'cols')
+        push(mapped ?? `grid-cols-[${normalizeArbitraryValue(value)}]`)
+        break
+      }
+      case 'grid-template-rows': {
+        const mapped = gridTemplateRepeatMap(value, 'rows')
+        push(mapped ?? `grid-rows-[${normalizeArbitraryValue(value)}]`)
+        break
+      }
+      case 'grid-auto-flow':
+        push(gridAutoFlowMap(value) ?? `grid-flow-[${normalizeArbitraryValue(value)}]`)
+        break
+      case 'grid-auto-columns':
+        push(gridAutoAxisClass('cols', value))
+        break
+      case 'grid-auto-rows':
+        push(gridAutoAxisClass('rows', value))
+        break
+      case 'grid-row':
+        pushGridPlacement('row', value, push)
+        break
+      case 'grid-column':
+        pushGridPlacement('col', value, push)
+        break
+      case 'grid-row-start':
+        push(gridLineClass('row-start', value))
+        break
+      case 'grid-row-end':
+        push(gridLineClass('row-end', value))
+        break
+      case 'grid-column-start':
+        push(gridLineClass('col-start', value))
+        break
+      case 'grid-column-end':
+        push(gridLineClass('col-end', value))
         break
 
       /* Flex layout */
@@ -202,26 +233,13 @@ export function styleToTailwind(style: Record<string, string>): string {
         push(value === 'transparent' ? 'bg-transparent' : buildColorClass('bg', value))
         break
       case 'background-image':
-        push(
-          isCssVar(value)
-            ? `bg-[image:${stripCssComments(value).trim()}]`
-            : `bg-[${normalizeArbitraryValue(value)}]`
-        )
+        push(`bg-[image:${normalizeArbitraryValue(value)}]`)
         break
       case 'background-size':
-        push(
-          bgSizeMap(value) ??
-            (isCssVar(value)
-              ? `bg-[length:${stripCssComments(value).trim()}]`
-              : `[background-size:${normalizeArbitraryValue(value)}]`)
-        )
+        push(bgSizeMap(value) ?? `[background-size:${normalizeArbitraryValue(value)}]`)
         break
       case 'background-position':
-        push(
-          isCssVar(value)
-            ? `bg-[position:${stripCssComments(value).trim()}]`
-            : `[background-position:${normalizeArbitraryValue(value)}]`
-        )
+        push(`[background-position:${normalizeArbitraryValue(value)}]`)
         break
       case 'background-repeat':
         push(bgRepeatMap(value) ?? `[background-repeat:${normalizeArbitraryValue(value)}]`)
@@ -293,7 +311,7 @@ export function styleToTailwind(style: Record<string, string>): string {
       case 'filter':
       case 'backdrop-filter':
       case 'transform':
-        // 对我们认识但没有对应 utility 的属性，使用 arbitrary property
+        // For known properties without dedicated utilities, fall back to arbitrary property
         push(`[${prop}:${normalizeArbitraryValue(value)}]`)
         break
       case 'box-sizing':
@@ -311,11 +329,7 @@ export function styleToTailwind(style: Record<string, string>): string {
         push(`font-[${normalizeArbitraryValue(value)}]`)
         break
       case 'font-size':
-        push(
-          isCssVar(value)
-            ? `text-[length:${stripCssComments(value).trim()}]`
-            : `text-[${normalizeArbitraryValue(value)}]`
-        )
+        push(`text-[${normalizeArbitraryValue(value)}]`)
         break
       case 'font-weight':
         push(fontWeightMap(value) ?? `font-[${normalizeArbitraryValue(value)}]`)
@@ -376,11 +390,7 @@ export function styleToTailwind(style: Record<string, string>): string {
         push(buildColorClass('decoration', value))
         break
       case 'text-decoration-thickness':
-        push(
-          isCssVar(value)
-            ? `decoration-[length:${stripCssComments(value).trim()}]`
-            : `decoration-[${normalizeArbitraryValue(value)}]`
-        )
+        push(`decoration-[${normalizeArbitraryValue(value)}]`)
         break
 
       /* Images */
@@ -395,7 +405,7 @@ export function styleToTailwind(style: Record<string, string>): string {
         break
 
       default:
-        // 不认识的属性用 arbitrary property 兜底
+        // Unknown properties fall back to arbitrary property
         push(`[${prop}:${normalizeArbitraryValue(value)}]`)
         break
     }
@@ -407,8 +417,18 @@ export function styleToTailwind(style: Record<string, string>): string {
 /* Helpers */
 
 function normalizeArbitraryValue(value: string) {
-  // Tailwind arbitrary values 对空格敏感，常规做法是空格转下划线，并去掉注释
+  // Tailwind arbitrary values are whitespace-sensitive; strip comments, trim, and replace spaces
   const cleaned = stripCssComments(value).trim()
+  const canonical = canonicalizeVariable(cleaned)
+  if (canonical) {
+    return canonical.replace(/\s+/g, '_')
+  }
+  if (cleaned.toLowerCase().startsWith('var(')) {
+    const name = cleaned.split(',')[0]?.replace(/^var\(\s*/, '').replace(/\s*\)$/, '').trim()
+    if (name) {
+      return `var(${name})`.replace(/\s+/g, '_')
+    }
+  }
   return cleaned.replace(/\s+/g, '_')
 }
 
@@ -441,7 +461,7 @@ function emitLengthClass(
     return
   }
   if (isCssVar(trimmed) && allowVarLength) {
-    push(`${prefix}-[length:${stripCssComments(trimmed).trim()}]`)
+    push(`${prefix}-[${normalizeArbitraryValue(trimmed)}]`)
     return
   }
   if (isZeroValue(trimmed)) {
@@ -517,6 +537,7 @@ function pushBoxClasses(kind: 'padding' | 'margin', value: string, push: (cls?: 
 function parseBoxShorthand(value: string): string[] | null {
   const trimmed = value.trim()
   if (!trimmed || trimmed.includes('/')) return null
+  if (/var\(/i.test(trimmed)) return null
   const parts = trimmed.split(/\s+/).filter(Boolean)
   if (parts.length === 0 || parts.length > 4) return null
   return parts
@@ -539,13 +560,110 @@ function displayMap(v: string) {
   return (
     {
       flex: 'flex',
+      'inline-flex': 'inline-flex',
       block: 'block',
       'inline-block': 'inline-block',
       inline: 'inline',
       grid: 'grid',
+      'inline-grid': 'inline-grid',
       none: 'hidden'
     } as Record<string, string | undefined>
   )[v]
+}
+
+function gridTemplateRepeatMap(v: string, axis: 'cols' | 'rows') {
+  const match = v
+    .replace(/\s+/g, ' ')
+    .trim()
+    .match(/^repeat\(\s*(\d+)\s*,\s*minmax\(\s*0(px)?\s*,\s*1fr\s*\)\s*\)$/i)
+  if (match) {
+    return axis === 'cols' ? `grid-cols-${match[1]}` : `grid-rows-${match[1]}`
+  }
+  return undefined
+}
+
+function gridAutoFlowMap(v: string) {
+  const normalized = v.trim().toLowerCase()
+  return (
+    {
+      row: 'grid-flow-row',
+      column: 'grid-flow-col',
+      'row dense': 'grid-flow-row-dense',
+      'column dense': 'grid-flow-col-dense',
+      dense: 'grid-flow-dense'
+    } as Record<string, string | undefined>
+  )[normalized]
+}
+
+function gridAutoAxisClass(axis: 'cols' | 'rows', v: string) {
+  const val = v.trim().toLowerCase()
+  const prefix = axis === 'cols' ? 'auto-cols' : 'auto-rows'
+  if (val === 'auto' || val === 'min' || val === 'max' || val === 'min-content' || val === 'max-content') {
+    return `${prefix}-${val === 'auto' ? 'auto' : val.replace('-content', '')}`
+  }
+  if (val === '1fr' || val === 'minmax(0, 1fr)') {
+    return `${prefix}-fr`
+  }
+  return `${prefix}-[${normalizeArbitraryValue(v)}]`
+}
+
+function parseGridPlacement(value: string): { start?: string; end?: string; span?: string } | null {
+  const parts = value.split('/')
+  if (parts.length !== 2) {
+    return null
+  }
+  const start = parts[0].trim()
+  const end = parts[1].trim()
+  const spanMatch = end.match(/^span\s+(-?\d+)$/i)
+  const startSpanMatch = start.match(/^span\s+(-?\d+)$/i)
+
+  if (spanMatch) {
+    return {
+      start: start && start !== 'auto' ? start : undefined,
+      span: spanMatch[1]
+    }
+  }
+
+  if (startSpanMatch) {
+    return {
+      end: end && end !== 'auto' ? end : undefined,
+      span: startSpanMatch[1]
+    }
+  }
+
+  return {
+    start: start && start !== 'auto' ? start : undefined,
+    end: end && end !== 'auto' ? end : undefined
+  }
+}
+
+function pushGridPlacement(axis: 'row' | 'col', value: string, push: (cls?: string) => void) {
+  const parsed = parseGridPlacement(value)
+  if (!parsed) {
+    push(`[grid-${axis}:${normalizeArbitraryValue(value)}]`)
+    return
+  }
+
+  const { start, end, span } = parsed
+  if (start) {
+    push(gridLineClass(`${axis}-start`, start))
+  }
+  if (end) {
+    push(gridLineClass(`${axis}-end`, end))
+  }
+  if (span) {
+    push(`${axis}-span-${normalizeArbitraryValue(span)}`)
+  }
+
+  if (!start && !end && !span) {
+    push(`[grid-${axis}:${normalizeArbitraryValue(value)}]`)
+  }
+}
+
+function gridLineClass(prefix: string, value: string) {
+  const val = value.trim()
+  if (!val || val === 'auto') return undefined
+  return `${prefix}-${normalizeArbitraryValue(val)}`
 }
 
 function flexDirectionMap(v: string) {
@@ -969,15 +1087,21 @@ function isCssVar(value: string): boolean {
 }
 
 function buildColorClass(prefix: string, value: string): string {
+  const needsColorAnnotation = prefix === 'text' || prefix === 'border' || prefix === 'decoration'
   if (isCssVar(value)) {
-    return `${prefix}-[color:${stripCssComments(value).trim()}]`
+    const norm = normalizeArbitraryValue(value)
+    return needsColorAnnotation ? `${prefix}-[color:${norm}]` : `${prefix}-[${norm}]`
   }
-  return `${prefix}-[${normalizeColorValue(value)}]`
+  const norm = normalizeColorValue(value)
+  if (needsColorAnnotation && norm.startsWith('var(')) {
+    return `${prefix}-[color:${norm}]`
+  }
+  return `${prefix}-[${norm}]`
 }
 
 function buildLengthClass(prefix: string, value: string): string {
   if (isCssVar(value)) {
-    return `${prefix}-[length:${stripCssComments(value).trim()}]`
+    return `${prefix}-[${normalizeArbitraryValue(value)}]`
   }
   return `${prefix}-[${normalizeArbitraryValue(value)}]`
 }
