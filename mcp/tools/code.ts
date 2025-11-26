@@ -20,6 +20,7 @@ import {
 import { styleToTailwind } from '@/utils/tailwind'
 
 const VARIABLE_RE = /var\(--([^,)]+)(?:,\s*([^)]+))?\)/g
+const PREPROCESSOR_VAR_TOKEN_RE = /(?<![\w-])(?:[$@])([A-Za-z0-9-_]+)/g
 type TextStyleMap = Record<string, string>
 
 type CodeLanguage = 'jsx' | 'vue'
@@ -44,7 +45,7 @@ type VariableReferenceInternal = {
 type PropertyBucket = {
   nodeId: string
   property: string
-  original: string
+  value: string
   matchIndices: number[]
 }
 
@@ -149,7 +150,7 @@ async function applyVariableTransforms(
     const style = styles.get(bucket.nodeId)
     if (!style) continue
     let occurrence = 0
-    style[bucket.property] = bucket.original.replace(VARIABLE_RE, (match) => {
+    style[bucket.property] = bucket.value.replace(VARIABLE_RE, (match) => {
       const refIndex = bucket.matchIndices[occurrence++]
       return replacements[refIndex] ?? match
     })
@@ -189,7 +190,7 @@ function collectVariableReferences(styles: Map<string, Record<string, string>>):
           buckets.set(key, {
             nodeId,
             property,
-            original: value,
+            value: normalizedValue,
             matchIndices: [refIndex]
           })
         }
@@ -809,9 +810,13 @@ function normalizeCssVarName(name: string): string {
 }
 
 function normalizeCssVarValue(value: string): string {
-  return value.replace(VARIABLE_RE, (_match, name: string, fallback?: string) => {
+  const normalizedVarFns = value.replace(VARIABLE_RE, (_match, name: string, fallback?: string) => {
     const normalized = normalizeCssVarName(name)
     return fallback ? `var(--${normalized}, ${fallback})` : `var(--${normalized})`
+  })
+  return normalizedVarFns.replace(PREPROCESSOR_VAR_TOKEN_RE, (_match, name: string) => {
+    const normalized = normalizeCssVarName(name)
+    return `var(--${normalized})`
   })
 }
 
