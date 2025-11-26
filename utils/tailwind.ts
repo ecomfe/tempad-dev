@@ -7,6 +7,19 @@ export function styleToTailwind(style: Record<string, string>): string {
     if (cls) classes.push(cls)
   }
 
+  const sideBorderColorProps = [
+    'border-top-color',
+    'border-right-color',
+    'border-bottom-color',
+    'border-left-color'
+  ]
+  const hasGlobalBorderColor = style['border-color'] != null
+  const sideBorderColorCount = sideBorderColorProps.reduce(
+    (count, prop) => count + (style[prop] != null ? 1 : 0),
+    0
+  )
+  const canLiftSideBorderColor = !hasGlobalBorderColor && sideBorderColorCount === 1
+
   for (const [prop, rawValue] of Object.entries(style)) {
     const value = rawValue.trim()
 
@@ -289,19 +302,31 @@ export function styleToTailwind(style: Record<string, string>): string {
         push(buildColorClass('border', value))
         break
       case 'border-top-color':
-        push(buildColorClass('border-t', value))
+        push(buildBorderSideColorClass('t', value, canLiftSideBorderColor))
         break
       case 'border-right-color':
-        push(buildColorClass('border-r', value))
+        push(buildBorderSideColorClass('r', value, canLiftSideBorderColor))
         break
       case 'border-bottom-color':
-        push(buildColorClass('border-b', value))
+        push(buildBorderSideColorClass('b', value, canLiftSideBorderColor))
         break
       case 'border-left-color':
-        push(buildColorClass('border-l', value))
+        push(buildBorderSideColorClass('l', value, canLiftSideBorderColor))
         break
       case 'border':
-        push(buildLengthClass('border', value))
+        pushBorderShorthand(value, push)
+        break
+      case 'border-top':
+        pushBorderShorthand(value, push, 't')
+        break
+      case 'border-right':
+        pushBorderShorthand(value, push, 'r')
+        break
+      case 'border-bottom':
+        pushBorderShorthand(value, push, 'b')
+        break
+      case 'border-left':
+        pushBorderShorthand(value, push, 'l')
         break
 
       /* Effects */
@@ -411,14 +436,14 @@ export function styleToTailwind(style: Record<string, string>): string {
     }
   }
 
-  return dedupe(classes).join(' ')
+  return dedupe(optimizeSpacingClasses(classes)).join(' ')
 }
 
 /* Helpers */
 
 function normalizeArbitraryValue(value: string) {
   // Tailwind arbitrary values are whitespace-sensitive; strip comments, trim, and replace spaces
-  const cleaned = stripCssComments(value).trim()
+  const cleaned = canonicalizeEmbeddedVariables(stripCssComments(value).trim())
   const canonical = canonicalizeVariable(cleaned)
   if (canonical) {
     return canonical.replace(/\s+/g, '_')
@@ -439,8 +464,73 @@ function normalizeArbitraryValue(value: string) {
 function stripCssComments(value: string): string {
   return value.replace(/\s*\/\*[\s\S]*?\*\/\s*/g, '')
 }
+
+function canonicalizeEmbeddedVariables(value: string): string {
+  return value.replace(/(?<![\w-])(?:\$|@)([A-Za-z0-9-_]+)/g, (match) => {
+    const canonical = canonicalizeVariable(match)
+    return canonical ?? match
+  })
+}
+
 function dedupe(arr: string[]) {
   return Array.from(new Set(arr))
+}
+
+function optimizeSpacingClasses(classes: string[]): string[] {
+  const compactPadding = compactEdgeClasses(classes, 'p')
+  return compactEdgeClasses(compactPadding, 'm')
+}
+
+function compactEdgeClasses(classes: string[], prefix: 'p' | 'm'): string[] {
+  const edges: Record<'t' | 'r' | 'b' | 'l', { value: string; index: number } | null> = {
+    t: null,
+    r: null,
+    b: null,
+    l: null
+  }
+
+  classes.forEach((cls, index) => {
+    const match = cls.match(new RegExp(`^${prefix}([trbl])-(.+)$`))
+    if (match) {
+      const side = match[1] as 't' | 'r' | 'b' | 'l'
+      edges[side] = { value: match[2], index }
+    }
+  })
+
+  if (!edges.t || !edges.r || !edges.b || !edges.l) {
+    return classes
+  }
+
+  const values = {
+    t: edges.t.value,
+    r: edges.r.value,
+    b: edges.b.value,
+    l: edges.l.value
+  }
+
+  const replacements: string[] = []
+  if (values.t === values.r && values.t === values.b && values.t === values.l) {
+    replacements.push(`${prefix}-${values.t}`)
+  } else if (values.t === values.b && values.r === values.l) {
+    replacements.push(`${prefix}y-${values.t}`)
+    replacements.push(`${prefix}x-${values.r}`)
+  } else {
+    return classes
+  }
+
+  const dropIndices = new Set([edges.t.index, edges.r.index, edges.b.index, edges.l.index])
+  const firstIndex = Math.min(...Array.from(dropIndices))
+  const result: string[] = []
+  classes.forEach((cls, idx) => {
+    if (idx === firstIndex) {
+      replacements.forEach((r) => result.push(r))
+    }
+    if (!dropIndices.has(idx)) {
+      result.push(cls)
+    }
+  })
+
+  return result
 }
 
 function isZeroValue(value: string): boolean {
@@ -558,6 +648,169 @@ function expandBoxValues(parts: string[]): [string, string, string, string] {
     return [parts[0], parts[1], parts[2], parts[1]]
   }
   return [parts[0], parts[1], parts[2], parts[3]]
+}
+
+function pushBorderShorthand(
+  value: string,
+  push: (cls?: string) => void,
+  side?: 't' | 'r' | 'b' | 'l'
+) {
+  const parsed = parseBorderValue(value)
+  const propName = side ? `border-${sideToWord(side)}` : 'border'
+  if (!parsed || !parsed.width) {
+    push(`[${propName}:${normalizeArbitraryValue(value)}]`)
+    return
+  }
+
+  const prefix = side ? `border-${side}` : 'border'
+  push(borderWidthClass(prefix, parsed.width))
+
+  if (parsed.style) {
+    push(
+      borderStyleMap(parsed.style) ?? `[${propName}-style:${normalizeArbitraryValue(parsed.style)}]`
+    )
+  }
+  if (parsed.color) {
+    if (side) {
+      push(`[${propName}-color:${normalizeArbitraryValue(parsed.color)}]`)
+    } else {
+      push(buildColorClass('border', parsed.color))
+    }
+  }
+}
+
+const BORDER_KEYWORD_VALUES = new Set(['inherit', 'initial', 'unset', 'revert'])
+
+function parseBorderValue(value: string): { width?: string; style?: string; color?: string } | null {
+  const trimmed = value.trim()
+  if (!trimmed || BORDER_KEYWORD_VALUES.has(trimmed.toLowerCase())) {
+    return null
+  }
+
+  const tokens = tokenizeBorderValue(trimmed)
+  if (!tokens.length) {
+    return null
+  }
+
+  let width: string | undefined
+  let style: string | undefined
+  const colorParts: string[] = []
+
+  tokens.forEach((token) => {
+    if (!width && isBorderWidthToken(token)) {
+      width = token
+      return
+    }
+    if (!style && isBorderStyleToken(token)) {
+      style = token
+      return
+    }
+    if (looksLikeColorToken(token)) {
+      colorParts.push(token)
+      return
+    }
+    // Default to treating remaining tokens as color fragments
+    colorParts.push(token)
+  })
+
+  const color = colorParts.length ? colorParts.join(' ') : undefined
+
+  if (!width && !style && !color) {
+    return null
+  }
+
+  return { width, style, color }
+}
+
+function tokenizeBorderValue(value: string): string[] {
+  const tokens: string[] = []
+  let current = ''
+  let depth = 0
+
+  for (const ch of value) {
+    if (ch === '(') {
+      depth++
+      current += ch
+      continue
+    }
+    if (ch === ')') {
+      depth = Math.max(0, depth - 1)
+      current += ch
+      continue
+    }
+    if (/\s/.test(ch) && depth === 0) {
+      if (current.trim()) {
+        tokens.push(current.trim())
+      }
+      current = ''
+      continue
+    }
+    current += ch
+  }
+
+  if (current.trim()) {
+    tokens.push(current.trim())
+  }
+
+  return tokens
+}
+
+function isBorderWidthToken(token: string): boolean {
+  const normalized = token.toLowerCase()
+  if (/^var\(/i.test(normalized) || /^[\$@]/.test(normalized) || normalized.startsWith('--')) {
+    return false
+  }
+  if (normalized === 'thin' || normalized === 'medium' || normalized === 'thick') {
+    return true
+  }
+  if (/^-?\d*\.?\d+(px|r?em|ex|ch|vh|vw|vmin|vmax|cm|mm|in|pt|pc|%)?$/.test(normalized)) {
+    return true
+  }
+  if (/^calc\(/i.test(normalized)) {
+    return true
+  }
+  return false
+}
+
+function isBorderStyleToken(token: string): boolean {
+  return !!borderStyleMap(token.trim())
+}
+
+function looksLikeColorToken(token: string): boolean {
+  const normalized = token.trim().toLowerCase()
+  if (!normalized) return false
+  if (normalized === 'transparent' || normalized === 'currentcolor') return true
+  if (/^#/.test(normalized)) return true
+  if (/^rgba?\(/i.test(normalized) || /^hsla?\(/i.test(normalized)) return true
+  if (/^var\(/i.test(normalized) || /^[\$@]/.test(normalized) || normalized.startsWith('--')) return true
+  return false
+}
+
+function borderWidthClass(prefix: string, width: string): string {
+  const normalized = width.trim()
+  if (normalized === '0' || normalized === '0px') {
+    return `${prefix}-0`
+  }
+  if (normalized === '1' || normalized === '1px') {
+    return prefix
+  }
+  return buildLengthClass(prefix, width)
+}
+
+function sideToWord(side: 't' | 'r' | 'b' | 'l'): 'top' | 'right' | 'bottom' | 'left' {
+  return side === 't' ? 'top' : side === 'r' ? 'right' : side === 'b' ? 'bottom' : 'left'
+}
+
+function buildBorderSideColorClass(
+  side: 't' | 'r' | 'b' | 'l',
+  value: string,
+  liftToGlobalColor?: boolean
+): string {
+  if (liftToGlobalColor) {
+    return buildColorClass('border', value)
+  }
+  const propName = `border-${sideToWord(side)}-color`
+  return `[${propName}:${normalizeArbitraryValue(value)}]`
 }
 
 function displayMap(v: string) {
@@ -1032,6 +1285,10 @@ function wordBreakMap(v: string) {
 
 function normalizeColorValue(value: string) {
   const trimmed = value.trim()
+  const canonical = canonicalizeVariable(trimmed)
+  if (canonical) {
+    return canonical
+  }
   if (isCssVar(trimmed)) {
     return trimmed
   }
@@ -1097,7 +1354,8 @@ function isCssVar(value: string): boolean {
 }
 
 function buildColorClass(prefix: string, value: string): string {
-  const needsColorAnnotation = prefix === 'text' || prefix === 'border' || prefix === 'decoration'
+  const needsColorAnnotation =
+    prefix === 'text' || prefix === 'border' || prefix === 'decoration' || prefix.startsWith('border-')
   if (isCssVar(value)) {
     const norm = normalizeArbitraryValue(value)
     return needsColorAnnotation ? `${prefix}-[color:${norm}]` : `${prefix}-[${norm}]`
