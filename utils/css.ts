@@ -8,13 +8,13 @@ function escapeSingleQuote(value: string) {
   return value.replace(/'/g, "\\'")
 }
 
-function trimComments(value: string) {
-  return value.replace(/\/\*[\s\S]*?\*\//g, '')
-}
-
 const PX_VALUE_RE = /\b(-?\d+(?:.\d+)?)px\b/g
-const VARIABLE_RE = /var\(--([a-zA-Z\d-]+)(?:,\s*([^)]+))?\)/g
+export const CSS_VAR_FUNCTION_RE = /var\(--([^,)]+)(?:,\s*([^)]+))?\)/g
 const KEEP_PX_PROPS = ['border', 'box-shadow', 'filter', 'backdrop-filter', 'stroke-width']
+const CSS_COMMENTS_RE = /\/\*[\s\S]*?\*\//g
+const SCSS_VARS_RE = /(^|[^\w-])[$@]([a-zA-Z0-9_-]+)/g
+const VAR_DEFAULTS_RE = /var\((--[a-zA-Z0-9_-]+),\s*[^)]+\)/g
+const ZERO_UNITS_RE = /(^|\s)0(px|rem|%|em)(?=$|\s)/g
 
 function transformPxValue(value: string, transform: (value: number) => string) {
   return value.replace(PX_VALUE_RE, (_, val) => {
@@ -55,14 +55,14 @@ export function serializeCSS(
   const options = { useRem, rootFontSize, scale }
 
   function processValue(key: string, value: string) {
-    let current = trimComments(value).trim()
+    let current = normalizeStyleValue(value)
 
     if (typeof scale === 'number' && scale !== 1) {
       current = scalePxValue(current, scale)
     }
 
     if (typeof transformVariable === 'function') {
-      current = current.replace(VARIABLE_RE, (_, name: string, value: string) =>
+      current = current.replace(CSS_VAR_FUNCTION_RE, (_, name: string, value: string) =>
         transformVariable({ code: current, name, value, options })
       )
     }
@@ -132,7 +132,7 @@ export function serializeCSS(
   return code
 }
 
-const CSS_VAR_FUNCTION_RE = /^var\(\s*(--[A-Za-z0-9-_]+)\s*(?:,.*)?\)$/
+const CSS_VAR_FUNCTION_EXACT_RE = /^var\(\s*(--[A-Za-z0-9-_]+)\s*(?:,.*)?\)$/
 const PREPROCESSOR_VAR_RE = /^[$@]([A-Za-z0-9-_]+)$/
 const BARE_CSS_CUSTOM_PROP_RE = /^(--[A-Za-z0-9-_]+)$/
 
@@ -153,10 +153,10 @@ const BARE_CSS_CUSTOM_PROP_RE = /^(--[A-Za-z0-9-_]+)$/
  * If the value is not recognized as a variable form, returns null.
  */
 export function canonicalizeVariable(value: string): string | null {
-  const v = value.trim()
+  const v = normalizeStyleValue(value)
 
   // 1) CSS var(--name, fallback) or var(--name)
-  const varFn = v.match(CSS_VAR_FUNCTION_RE)
+  const varFn = v.match(CSS_VAR_FUNCTION_EXACT_RE)
   if (varFn) {
     const name = varFn[1] // already like "--ui-foo"
     return `var(${name})`
@@ -177,6 +177,69 @@ export function canonicalizeVariable(value: string): string | null {
   }
 
   return null
+}
+
+export function normalizeCssVarName(name: string): string {
+  const cleaned = name
+    .trim()
+    .replace(/[^a-zA-Z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
+  if (!cleaned) return 'var'
+  if (/^[0-9-]/.test(cleaned)) {
+    return `var-${cleaned.replace(/^-+/, '')}`
+  }
+  return cleaned
+}
+
+export function normalizeCssVarValue(value: string): string {
+  const cleaned = canonicalizeEmbeddedVariables(stripCssComments(value))
+  const normalizedVarFns = cleaned.replace(
+    CSS_VAR_FUNCTION_RE,
+    (_match, name: string, fallback?: string) => {
+      const normalized = normalizeCssVarName(name)
+      return fallback ? `var(--${normalized}, ${fallback})` : `var(--${normalized})`
+    }
+  )
+  return normalizedVarFns
+}
+
+/**
+ * Normalize all variable-like tokens in a style map in place.
+ */
+export function normalizeStyleVariables(style: Record<string, string>): Record<string, string> {
+  Object.entries(style).forEach(([key, value]) => {
+    const normalized = normalizeCssVarValue(value)
+    if (normalized !== value) {
+      style[key] = normalized
+    }
+  })
+  return style
+}
+
+export function stripCssComments(value: string): string {
+  return value.replace(CSS_COMMENTS_RE, '')
+}
+
+export function canonicalizeEmbeddedVariables(value: string): string {
+  return value.replace(SCSS_VARS_RE, '$1var(--$2)')
+}
+
+export function isCssVar(value: string): boolean {
+  return /^var\(/i.test(stripCssComments(value).trim())
+}
+
+export function isZeroValue(value: string): boolean {
+  return /^(0+(\.0+)?)([a-z%]+)?$/i.test(value.trim())
+}
+
+export function normalizeStyleValue(raw: string): string {
+  if (!raw) return ''
+  let val = raw
+  val = stripCssComments(val)
+  val = canonicalizeEmbeddedVariables(val)
+  val = val.replace(VAR_DEFAULTS_RE, 'var($1)')
+  val = val.replace(ZERO_UNITS_RE, '$10')
+  return val.trim()
 }
 
 // Text style helpers

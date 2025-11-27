@@ -1,1375 +1,1094 @@
-import { canonicalizeVariable } from '@/utils/css'
+/**
+ * Style to Tailwind converter
+ * Features:
+ * - Deterministic output
+ * - Config-driven architecture
+ * - Hybrid value support (keywords + arbitrary values)
+ * - Auto-normalization (variables, comments, units)
+ * - Composite property support (smart flexbox)
+ */
 
-export function styleToTailwind(style: Record<string, string>): string {
-  const classes: string[] = []
+import { normalizeStyleValue } from '@/utils/css'
 
-  const push = (cls?: string) => {
-    if (cls) classes.push(cls)
+// Global regex patterns
+const WHITESPACE = /\s+/
+const ALL_WHITESPACE = /\s+/g
+const COMMA_DELIMITER = /,\s*/g
+const QUOTES = /['"]/g
+const NUMBER = /^\d+(\.\d+)?$/
+
+// Core types (strict discriminated unions)
+
+export type Side = 't' | 'r' | 'b' | 'l'
+export type Corner = 'tl' | 'tr' | 'br' | 'bl'
+export type Axis = 'x' | 'y'
+export type DirectField = 'v'
+
+export type CollapseMode = 'side' | 'corner' | 'axis' | 'direct' | 'composite'
+
+export type ValueKind = 'length' | 'color' | 'integer' | 'percent' | 'url' | 'any' | 'keyword'
+
+export type PropDef = string | { prop: string; defaultValue?: string }
+export type KeywordDef = string | [string, string]
+
+// Base interface
+interface FamilyConfigBase {
+  prefix: string
+  valueKind: ValueKind
+  keywords?: KeywordDef[]
+}
+
+// Discriminated union: ensures props keys match the mode at compile time
+interface SideFamily extends FamilyConfigBase {
+  mode: 'side'
+  props: Partial<Record<Side, PropDef>>
+}
+
+interface CornerFamily extends FamilyConfigBase {
+  mode: 'corner'
+  props: Partial<Record<Corner, PropDef>>
+}
+
+interface AxisFamily extends FamilyConfigBase {
+  mode: 'axis'
+  props: Partial<Record<Axis, PropDef>>
+}
+
+interface DirectFamily extends FamilyConfigBase {
+  mode: 'direct'
+  props: Partial<Record<DirectField, PropDef>>
+}
+
+// Composite mode for flex
+interface AtomicFallback {
+  prefix: string
+  valueKind: ValueKind
+}
+
+interface CompositeFamily extends FamilyConfigBase {
+  mode: 'composite'
+  props: Record<string, string>
+  composites: Array<{ match: Record<string, string>; suffix: string }>
+  atomics: Record<string, AtomicFallback>
+}
+
+export type FamilyConfig = SideFamily | CornerFamily | AxisFamily | DirectFamily | CompositeFamily
+
+// Runtime structures
+interface PropertyLookup {
+  familyKey: string
+  field: string
+  defaultValue?: string
+}
+interface FamilyBuffer {
+  sides?: Partial<Record<Side, string>>
+  corners?: Partial<Record<Corner, string>>
+  axes?: Partial<Record<Axis, string>>
+  composite?: Record<string, string>
+  val?: string
+}
+interface FormattedValue {
+  text: string
+  isNegative: boolean
+  isKeyword: boolean
+}
+
+// Type guards
+
+function isSide(f: string): f is Side {
+  return f === 't' || f === 'r' || f === 'b' || f === 'l'
+}
+function isCorner(f: string): f is Corner {
+  return f === 'tl' || f === 'tr' || f === 'br' || f === 'bl'
+}
+function isAxis(f: string): f is Axis {
+  return f === 'x' || f === 'y'
+}
+
+// Configuration
+
+const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
+  // Layout properties
+  display: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      'block',
+      'inline-block',
+      'inline',
+      'flex',
+      'inline-flex',
+      'grid',
+      'inline-grid',
+      'table',
+      'table-row',
+      'table-cell',
+      'contents',
+      'list-item',
+      ['none', 'hidden'],
+      'flow-root'
+    ],
+    props: { v: 'display' }
+  },
+
+  // Positioning
+  position: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['static', 'fixed', 'absolute', 'relative', 'sticky'],
+    props: { v: 'position' }
+  },
+
+  // Overflow
+  // Figma "Clip content" -> overflow: hidden
+  overflow: {
+    prefix: 'overflow',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['auto', 'hidden', 'clip', 'visible', 'scroll'],
+    props: { v: 'overflow' }
+  },
+  overflowX: {
+    prefix: 'overflow-x',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['auto', 'hidden', 'clip', 'visible', 'scroll'],
+    props: { v: 'overflow-x' }
+  },
+  overflowY: {
+    prefix: 'overflow-y',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['auto', 'hidden', 'clip', 'visible', 'scroll'],
+    props: { v: 'overflow-y' }
+  },
+
+  // Visual / Image handling
+  objectFit: {
+    prefix: 'object',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['contain', 'cover', 'fill', 'none', 'scale-down'],
+    props: { v: 'object-fit' }
+  },
+  objectPosition: {
+    prefix: 'object',
+    mode: 'direct',
+    valueKind: 'any', // e.g. object-[50%_50%] or keywords
+    keywords: [
+      'bottom',
+      'center',
+      'left',
+      'left bottom',
+      'left top',
+      'right',
+      'right bottom',
+      'right top',
+      'top'
+    ],
+    props: { v: 'object-position' }
+  },
+  visibility: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['visible', ['hidden', 'invisible'], 'collapse'],
+    props: { v: 'visibility' }
+  },
+
+  // Interactivity
+  cursor: {
+    prefix: 'cursor',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['auto', 'default', 'pointer', 'wait', 'text', 'move', 'help', 'not-allowed'],
+    props: { v: 'cursor' }
+  },
+  pointerEvents: {
+    prefix: 'pointer-events',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['none', 'auto'],
+    props: { v: 'pointer-events' }
+  },
+  resize: {
+    prefix: 'resize',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['none', 'none'],
+      ['both', ''],
+      ['vertical', 'y'],
+      ['horizontal', 'x']
+    ],
+    props: { v: 'resize' }
+  },
+
+  // List Style
+  listStyleType: {
+    prefix: 'list',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['none', 'disc', 'decimal'],
+    props: { v: 'list-style-type' }
+  },
+  listStylePosition: {
+    prefix: 'list',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['inside', 'outside'],
+    props: { v: 'list-style-position' }
+  },
+
+  // Composite: flex shorthand
+  flex: {
+    prefix: 'flex',
+    mode: 'composite',
+    valueKind: 'keyword',
+    props: { grow: 'flex-grow', shrink: 'flex-shrink', basis: 'flex-basis' },
+    composites: [
+      { match: { grow: '1', shrink: '1', basis: '0%' }, suffix: '1' },
+      { match: { grow: '1', shrink: '1', basis: '0px' }, suffix: '1' },
+      { match: { grow: '1', shrink: '1', basis: 'auto' }, suffix: 'auto' },
+      { match: { grow: '0', shrink: '1', basis: 'auto' }, suffix: 'initial' },
+      { match: { grow: '0', shrink: '0', basis: 'auto' }, suffix: 'none' }
+    ],
+    atomics: {
+      grow: { prefix: 'grow', valueKind: 'integer' },
+      shrink: { prefix: 'shrink', valueKind: 'integer' },
+      basis: { prefix: 'basis', valueKind: 'length' }
+    }
+  },
+
+  // Layout properties
+  flexDirection: {
+    prefix: 'flex',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['row', 'row'],
+      ['row-reverse', 'row-reverse'],
+      ['column', 'col'],
+      ['column-reverse', 'col-reverse']
+    ],
+    props: { v: 'flex-direction' }
+  },
+  flexWrap: {
+    prefix: 'flex',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['nowrap', 'nowrap'],
+      ['wrap', 'wrap'],
+      ['wrap-reverse', 'wrap-reverse']
+    ],
+    props: { v: 'flex-wrap' }
+  },
+  alignItems: {
+    prefix: 'items',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['flex-start', 'start'],
+      ['flex-end', 'end']
+    ],
+    props: { v: 'align-items' }
+  },
+  alignContent: {
+    prefix: 'content',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['flex-start', 'start'],
+      ['flex-end', 'end'],
+      ['space-between', 'between'],
+      ['space-around', 'around'],
+      ['space-evenly', 'evenly']
+    ],
+    props: { v: 'align-content' }
+  },
+  justifyContent: {
+    prefix: 'justify',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['flex-start', 'start'],
+      ['flex-end', 'end'],
+      ['space-between', 'between'],
+      ['space-around', 'around'],
+      ['space-evenly', 'evenly']
+    ],
+    props: { v: 'justify-content' }
+  },
+  justifyItems: {
+    prefix: 'justify-items',
+    mode: 'direct',
+    valueKind: 'keyword',
+    props: { v: 'justify-items' }
+  },
+  justifySelf: {
+    prefix: 'justify-self',
+    mode: 'direct',
+    valueKind: 'keyword',
+    props: { v: 'justify-self' }
+  },
+  alignSelf: {
+    prefix: 'self',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['flex-start', 'start'],
+      ['flex-end', 'end']
+    ],
+    props: { v: 'align-self' }
+  },
+  order: {
+    prefix: 'order',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: [
+      ['0', 'none'],
+      ['-9999', 'first'],
+      ['9999', 'last']
+    ],
+    props: { v: 'order' }
+  },
+
+  // Grid layout
+  gridTemplateColumns: {
+    prefix: 'grid-cols',
+    mode: 'direct',
+    valueKind: 'any',
+    keywords: ['none', 'subgrid'],
+    props: { v: 'grid-template-columns' }
+  },
+  gridTemplateRows: {
+    prefix: 'grid-rows',
+    mode: 'direct',
+    valueKind: 'any',
+    keywords: ['none', 'subgrid'],
+    props: { v: 'grid-template-rows' }
+  },
+  gridAutoFlow: {
+    prefix: 'grid-flow',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['row', 'col', 'dense', ['row dense', 'row-dense'], ['column dense', 'col-dense']],
+    props: { v: 'grid-auto-flow' }
+  },
+  gridAutoColumns: {
+    prefix: 'auto-cols',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: ['auto', 'min', 'max', 'fr'],
+    props: { v: 'grid-auto-columns' }
+  },
+  gridAutoRows: {
+    prefix: 'auto-rows',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: ['auto', 'min', 'max', 'fr'],
+    props: { v: 'grid-auto-rows' }
+  },
+  gridColumn: {
+    prefix: 'col',
+    mode: 'direct',
+    valueKind: 'any',
+    keywords: [['auto', 'auto']],
+    props: { v: 'grid-column' }
+  },
+  gridColumnStart: {
+    prefix: 'col-start',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: [['auto', 'auto']],
+    props: { v: 'grid-column-start' }
+  },
+  gridColumnEnd: {
+    prefix: 'col-end',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: [['auto', 'auto']],
+    props: { v: 'grid-column-end' }
+  },
+  gridRow: {
+    prefix: 'row',
+    mode: 'direct',
+    valueKind: 'any',
+    keywords: [['auto', 'auto']],
+    props: { v: 'grid-row' }
+  },
+  gridRowStart: {
+    prefix: 'row-start',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: [['auto', 'auto']],
+    props: { v: 'grid-row-start' }
+  },
+  gridRowEnd: {
+    prefix: 'row-end',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: [['auto', 'auto']],
+    props: { v: 'grid-row-end' }
+  },
+
+  // Spacing
+  padding: {
+    prefix: 'p',
+    mode: 'side',
+    valueKind: 'length',
+    props: { t: 'padding-top', r: 'padding-right', b: 'padding-bottom', l: 'padding-left' }
+  },
+  margin: {
+    prefix: 'm',
+    mode: 'side',
+    valueKind: 'length',
+    props: { t: 'margin-top', r: 'margin-right', b: 'margin-bottom', l: 'margin-left' }
+  },
+  inset: {
+    prefix: 'inset-',
+    mode: 'side',
+    valueKind: 'length',
+    props: { t: 'top', r: 'right', b: 'bottom', l: 'left' }
+  },
+  gap: {
+    prefix: 'gap-',
+    mode: 'axis',
+    valueKind: 'length',
+    props: { y: 'row-gap', x: 'column-gap' }
+  },
+
+  // Sizing
+  width: { prefix: 'w', mode: 'direct', valueKind: 'length', props: { v: 'width' } },
+  height: { prefix: 'h', mode: 'direct', valueKind: 'length', props: { v: 'height' } },
+  minWidth: { prefix: 'min-w', mode: 'direct', valueKind: 'length', props: { v: 'min-width' } },
+  minHeight: { prefix: 'min-h', mode: 'direct', valueKind: 'length', props: { v: 'min-height' } },
+  maxWidth: { prefix: 'max-w', mode: 'direct', valueKind: 'length', props: { v: 'max-width' } },
+  maxHeight: { prefix: 'max-h', mode: 'direct', valueKind: 'length', props: { v: 'max-height' } },
+
+  // Typography
+  fontFamily: { prefix: 'font', mode: 'direct', valueKind: 'any', props: { v: 'font-family' } },
+  fontSize: { prefix: 'text', mode: 'direct', valueKind: 'length', props: { v: 'font-size' } },
+
+  fontWeight: {
+    prefix: 'font',
+    mode: 'direct',
+    valueKind: 'any',
+    keywords: ['normal', 'bold', 'lighter', 'bolder'],
+    props: { v: 'font-weight' }
+  },
+
+  fontStyle: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [['normal', 'not-italic'], 'italic'],
+    props: { v: { prop: 'font-style', defaultValue: 'normal' } }
+  },
+
+  fontStretch: {
+    prefix: 'font-stretch-',
+    mode: 'direct',
+    valueKind: 'keyword',
+    props: { v: { prop: 'font-stretch', defaultValue: 'normal' } }
+  },
+
+  fontVariantNumeric: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [['normal', 'normal-nums']],
+    props: { v: { prop: 'font-variant-numeric', defaultValue: 'normal' } }
+  },
+
+  textColor: { prefix: 'text', mode: 'direct', valueKind: 'color', props: { v: 'color' } },
+  textAlign: { prefix: 'text', mode: 'direct', valueKind: 'keyword', props: { v: 'text-align' } },
+  lineHeight: {
+    prefix: 'leading',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'line-height' }
+  },
+  letterSpacing: {
+    prefix: 'tracking',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'letter-spacing' }
+  },
+  textIndent: {
+    prefix: 'indent',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'text-indent' }
+  },
+
+  verticalAlign: {
+    prefix: 'align-',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: ['baseline', 'top', 'middle', 'bottom', 'text-top', 'text-bottom', 'sub', 'super'],
+    props: { v: 'vertical-align' }
+  },
+
+  whitespace: {
+    prefix: 'whitespace',
+    mode: 'direct',
+    valueKind: 'keyword',
+    props: { v: 'white-space' }
+  },
+  wordBreak: { prefix: 'break', mode: 'direct', valueKind: 'keyword', props: { v: 'word-break' } },
+  lineClamp: {
+    prefix: 'line-clamp',
+    mode: 'direct',
+    valueKind: 'integer',
+    props: { v: 'line-clamp' }
+  },
+
+  textTransform: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [['none', 'normal-case'], 'uppercase', 'lowercase', 'capitalize'],
+    props: { v: 'text-transform' }
+  },
+
+  textDecorationLine: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [['none', 'no-underline'], 'underline', 'line-through'],
+    props: { v: { prop: 'text-decoration-line', defaultValue: 'none' } }
+  },
+  textDecorationColor: {
+    prefix: 'decoration',
+    mode: 'direct',
+    valueKind: 'color',
+    props: { v: 'text-decoration-color' }
+  },
+  textDecorationStyle: {
+    prefix: 'decoration',
+    mode: 'direct',
+    valueKind: 'keyword',
+    props: { v: { prop: 'text-decoration-style', defaultValue: 'solid' } }
+  },
+  textDecorationThickness: {
+    prefix: 'decoration',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'text-decoration-thickness' }
+  },
+  textUnderlineOffset: {
+    prefix: 'underline-offset-',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'text-underline-offset' }
+  },
+
+  // Backgrounds
+  background: {
+    prefix: 'bg',
+    mode: 'direct',
+    valueKind: 'any',
+    props: { v: 'background' }
+  },
+  backgroundColor: {
+    prefix: 'bg',
+    mode: 'direct',
+    valueKind: 'color',
+    props: { v: 'background-color' }
+  },
+  backgroundImage: {
+    prefix: 'bg',
+    mode: 'direct',
+    valueKind: 'any',
+    props: { v: 'background-image' }
+  },
+  backgroundPosition: {
+    prefix: 'bg',
+    mode: 'direct',
+    valueKind: 'any',
+    props: { v: 'background-position' }
+  },
+  backgroundSize: {
+    prefix: 'bg',
+    mode: 'direct',
+    valueKind: 'any',
+    props: { v: 'background-size' }
+  },
+
+  // SVG / Borders
+  fill: { prefix: 'fill-', mode: 'direct', valueKind: 'color', props: { v: 'fill' } },
+  stroke: { prefix: 'stroke-', mode: 'direct', valueKind: 'color', props: { v: 'stroke' } },
+  strokeWidth: {
+    prefix: 'stroke-',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'stroke-width' }
+  },
+
+  borderWidth: {
+    prefix: 'border-',
+    mode: 'side',
+    valueKind: 'length',
+    props: {
+      t: 'border-top-width',
+      r: 'border-right-width',
+      b: 'border-bottom-width',
+      l: 'border-left-width'
+    }
+  },
+  borderColor: {
+    prefix: 'border-',
+    mode: 'side',
+    valueKind: 'color',
+    props: {
+      t: 'border-top-color',
+      r: 'border-right-color',
+      b: 'border-bottom-color',
+      l: 'border-left-color'
+    }
+  },
+  borderStyle: {
+    prefix: 'border-',
+    mode: 'side',
+    valueKind: 'keyword',
+    props: {
+      t: { prop: 'border-top-style', defaultValue: 'solid' },
+      r: { prop: 'border-right-style', defaultValue: 'solid' },
+      b: { prop: 'border-bottom-style', defaultValue: 'solid' },
+      l: { prop: 'border-left-style', defaultValue: 'solid' }
+    }
+  },
+  radius: {
+    prefix: 'rounded-',
+    mode: 'corner',
+    valueKind: 'length',
+    props: {
+      tl: 'border-top-left-radius',
+      tr: 'border-top-right-radius',
+      br: 'border-bottom-right-radius',
+      bl: 'border-bottom-left-radius'
+    }
+  },
+
+  // Effects
+  opacity: { prefix: 'opacity', mode: 'direct', valueKind: 'percent', props: { v: 'opacity' } },
+  zIndex: {
+    prefix: 'z',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: ['auto'],
+    props: { v: 'z-index' }
+  },
+  boxShadow: { prefix: 'shadow', mode: 'direct', valueKind: 'any', props: { v: 'box-shadow' } },
+  filter: { prefix: 'filter', mode: 'direct', valueKind: 'any', props: { v: 'filter' } },
+  backdropFilter: {
+    prefix: 'backdrop',
+    mode: 'direct',
+    valueKind: 'any',
+    props: { v: 'backdrop-filter' }
+  },
+  mixBlendMode: {
+    prefix: 'mix-blend',
+    mode: 'direct',
+    valueKind: 'keyword',
+    props: { v: 'mix-blend-mode' }
   }
+}
 
-  const sideBorderColorProps = [
-    'border-top-color',
-    'border-right-color',
-    'border-bottom-color',
-    'border-left-color'
-  ]
-  const hasGlobalBorderColor = style['border-color'] != null
-  const sideBorderColorCount = sideBorderColorProps.reduce(
-    (count, prop) => count + (style[prop] != null ? 1 : 0),
-    0
-  )
-  const canLiftSideBorderColor = !hasGlobalBorderColor && sideBorderColorCount === 1
+// Initialization (pre-compute lookups)
 
-  for (const [prop, rawValue] of Object.entries(style)) {
-    const value = rawValue.trim()
+const PROPERTY_MAP: Record<string, PropertyLookup> = {}
+const KEYWORD_REGISTRY: Record<string, Record<string, string>> = {}
 
-    switch (prop) {
-      /* Size */
-      case 'width':
-        push(`w-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'height':
-        push(`h-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'min-width':
-        push(`min-w-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'max-width':
-        push(`max-w-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'min-height':
-        push(`min-h-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'max-height':
-        push(`max-h-[${normalizeArbitraryValue(value)}]`)
-        break
+Object.keys(TAILWIND_CONFIG).forEach((key) => {
+  const familyKey = key
+  const config = TAILWIND_CONFIG[familyKey]
 
-      /* Spacing */
-      case 'padding':
-        pushBoxClasses('padding', value, push)
-        break
-      case 'padding-top':
-        emitLengthClass('pt', value, push)
-        break
-      case 'padding-right':
-        emitLengthClass('pr', value, push)
-        break
-      case 'padding-bottom':
-        emitLengthClass('pb', value, push)
-        break
-      case 'padding-left':
-        emitLengthClass('pl', value, push)
-        break
+  Object.entries(config.props).forEach(([field, def]) => {
+    const propName = typeof def === 'string' ? def : def.prop
+    const defaultValue = typeof def === 'string' ? undefined : def.defaultValue
+    PROPERTY_MAP[propName] = { familyKey, field, defaultValue }
+  })
 
-      case 'margin':
-        pushBoxClasses('margin', value, push)
-        break
-      case 'margin-top':
-        emitLengthClass('mt', value, push, { allowAuto: true })
-        break
-      case 'margin-right':
-        emitLengthClass('mr', value, push, { allowAuto: true })
-        break
-      case 'margin-bottom':
-        emitLengthClass('mb', value, push, { allowAuto: true })
-        break
-      case 'margin-left':
-        emitLengthClass('ml', value, push, { allowAuto: true })
-        break
-
-      /* Display */
-      case 'display':
-        push(displayMap(value) ?? `[display:${normalizeArbitraryValue(value)}]`)
-        break
-
-      /* Grid layout */
-      case 'grid-template-columns': {
-        const mapped = gridTemplateRepeatMap(value, 'cols')
-        push(mapped ?? `grid-cols-[${normalizeArbitraryValue(value)}]`)
-        break
+  if (config.keywords) {
+    const map: Record<string, string> = {}
+    config.keywords.forEach((k) => {
+      if (Array.isArray(k)) {
+        map[k[0]] = k[1]
+      } else {
+        map[k] = k
       }
-      case 'grid-template-rows': {
-        const mapped = gridTemplateRepeatMap(value, 'rows')
-        push(mapped ?? `grid-rows-[${normalizeArbitraryValue(value)}]`)
-        break
-      }
-      case 'grid-auto-flow':
-        push(gridAutoFlowMap(value) ?? `grid-flow-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'grid-auto-columns':
-        push(gridAutoAxisClass('cols', value))
-        break
-      case 'grid-auto-rows':
-        push(gridAutoAxisClass('rows', value))
-        break
-      case 'grid-row':
-        pushGridPlacement('row', value, push)
-        break
-      case 'grid-column':
-        pushGridPlacement('col', value, push)
-        break
-      case 'grid-row-start':
-        push(gridLineClass('row-start', value))
-        break
-      case 'grid-row-end':
-        push(gridLineClass('row-end', value))
-        break
-      case 'grid-column-start':
-        push(gridLineClass('col-start', value))
-        break
-      case 'grid-column-end':
-        push(gridLineClass('col-end', value))
-        break
-
-      /* Flex layout */
-      case 'flex-direction':
-        push(flexDirectionMap(value) ?? `[flex-direction:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'flex-wrap':
-        push(flexWrapMap(value) ?? `[flex-wrap:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'justify-content':
-        push(justifyMap(value) ?? `[justify-content:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'align-items':
-        push(itemsMap(value) ?? `[align-items:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'align-content':
-        push(alignContentMap(value) ?? `[align-content:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'justify-items':
-        push(justifyItemsMap(value) ?? `[justify-items:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'place-items':
-        push(placeItemsMap(value) ?? `[place-items:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'place-self':
-        push(placeSelfMap(value) ?? `[place-self:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'align-self':
-        push(selfMap(value) ?? `[align-self:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'flex':
-        if (flexShorthandToClasses(value, push)) {
-          // handled
-        } else {
-          push(
-            flexValueMap(value) ??
-              flexShorthandToClass(value) ??
-              `[flex:${normalizeArbitraryValue(value)}]`
-          )
-        }
-        break
-      case 'gap':
-        pushGapClasses(value, push)
-        break
-      case 'row-gap':
-        emitLengthClass('gap-y', value, push)
-        break
-      case 'column-gap':
-        emitLengthClass('gap-x', value, push)
-        break
-      case 'flex-grow':
-        push(
-          value === '1'
-            ? 'grow'
-            : value === '0'
-              ? 'grow-0'
-              : `grow-[${normalizeArbitraryValue(value)}]`
-        )
-        break
-      case 'flex-shrink':
-        push(
-          value === '1'
-            ? 'shrink'
-            : value === '0'
-              ? 'shrink-0'
-              : `shrink-[${normalizeArbitraryValue(value)}]`
-        )
-        break
-      case 'flex-basis':
-        push(flexBasisMap(value) ?? `basis-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'order':
-        push(
-          value === '0'
-            ? 'order-first'
-            : value === '9999'
-              ? 'order-last'
-              : `order-[${normalizeArbitraryValue(value)}]`
-        )
-        break
-
-      /* Positioning */
-      case 'position':
-        push(positionMap(value))
-        break
-      case 'inset':
-        push(`inset-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'inset-x':
-        push(`inset-x-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'inset-y':
-        push(`inset-y-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'top':
-        push(`top-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'right':
-        push(`right-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'bottom':
-        push(`bottom-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'left':
-        push(`left-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'z-index':
-        push(`z-[${normalizeArbitraryValue(value)}]`)
-        break
-
-      /* Overflow */
-      case 'overflow':
-        push(overflowMap(value) ?? `overflow-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'overflow-x':
-        push(overflowAxisMap('x', value) ?? `overflow-x-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'overflow-y':
-        push(overflowAxisMap('y', value) ?? `overflow-y-[${normalizeArbitraryValue(value)}]`)
-        break
-
-      /* Background / color / opacity */
-      case 'background':
-      case 'background-color':
-        push(value === 'transparent' ? 'bg-transparent' : buildColorClass('bg', value))
-        break
-      case 'background-image':
-        push(`bg-[image:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'background-size':
-        push(bgSizeMap(value) ?? `[background-size:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'background-position':
-        push(`[background-position:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'background-repeat':
-        push(bgRepeatMap(value) ?? `[background-repeat:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'opacity':
-        push(`opacity-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'color':
-        push(value === 'transparent' ? 'text-transparent' : buildColorClass('text', value))
-        break
-
-      /* Border */
-      case 'border-radius':
-        push(borderRadiusMap(value) ?? `rounded-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'border-top-left-radius':
-        push(`rounded-tl-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'border-top-right-radius':
-        push(`rounded-tr-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'border-bottom-left-radius':
-        push(`rounded-bl-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'border-bottom-right-radius':
-        push(`rounded-br-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'border-width':
-        push(value === '0px' || value === '0' ? 'border-0' : buildLengthClass('border', value))
-        break
-      case 'border-top-width':
-        push(buildLengthClass('border-t', value))
-        break
-      case 'border-right-width':
-        push(buildLengthClass('border-r', value))
-        break
-      case 'border-bottom-width':
-        push(buildLengthClass('border-b', value))
-        break
-      case 'border-left-width':
-        push(buildLengthClass('border-l', value))
-        break
-      case 'border-style':
-        push(borderStyleMap(value) ?? `border-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'border-color':
-        push(buildColorClass('border', value))
-        break
-      case 'border-top-color':
-        push(buildBorderSideColorClass('t', value, canLiftSideBorderColor))
-        break
-      case 'border-right-color':
-        push(buildBorderSideColorClass('r', value, canLiftSideBorderColor))
-        break
-      case 'border-bottom-color':
-        push(buildBorderSideColorClass('b', value, canLiftSideBorderColor))
-        break
-      case 'border-left-color':
-        push(buildBorderSideColorClass('l', value, canLiftSideBorderColor))
-        break
-      case 'border':
-        pushBorderShorthand(value, push)
-        break
-      case 'border-top':
-        pushBorderShorthand(value, push, 't')
-        break
-      case 'border-right':
-        pushBorderShorthand(value, push, 'r')
-        break
-      case 'border-bottom':
-        pushBorderShorthand(value, push, 'b')
-        break
-      case 'border-left':
-        pushBorderShorthand(value, push, 'l')
-        break
-
-      /* Effects */
-      case 'box-shadow':
-        push(value === 'none' ? 'shadow-none' : `shadow-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'filter':
-      case 'backdrop-filter':
-      case 'transform':
-        // For known properties without dedicated utilities, fall back to arbitrary property
-        push(`[${prop}:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'box-sizing':
-        push(
-          value === 'border-box'
-            ? 'box-border'
-            : value === 'content-box'
-              ? 'box-content'
-              : `[box-sizing:${normalizeArbitraryValue(value)}]`
-        )
-        break
-
-      /* Typography */
-      case 'font-family':
-        push(`font-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'font-size':
-        push(`text-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'font-weight':
-        push(fontWeightMap(value) ?? `font-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'font-style':
-        if (value.trim() === 'normal') {
-          // default, skip
-        } else if (value.toLowerCase().includes('italic')) {
-          push('italic')
-        } else {
-          push(`font-[${normalizeArbitraryValue(value)}]`)
-        }
-        break
-      case 'line-height':
-        push(`leading-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'letter-spacing':
-        push(`tracking-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'text-align':
-        push(textAlignMap(value) ?? `text-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'text-decoration':
-        push(textDecorationMap(value))
-        break
-      case 'text-decoration-line':
-        push(
-          textDecorationLineMap(value) ?? `[text-decoration-line:${normalizeArbitraryValue(value)}]`
-        )
-        break
-      case 'text-transform':
-        push(textTransformMap(value))
-        break
-      case 'white-space':
-        push(whiteSpaceMap(value) ?? `whitespace-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'word-break':
-        push(wordBreakMap(value) ?? `[word-break:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'overflow-wrap':
-        push(
-          value === 'break-word'
-            ? 'break-words'
-            : `[overflow-wrap:${normalizeArbitraryValue(value)}]`
-        )
-        break
-      case 'text-overflow':
-        push(
-          value === 'ellipsis'
-            ? 'text-ellipsis'
-            : `[text-overflow:${normalizeArbitraryValue(value)}]`
-        )
-        break
-      case 'text-shadow':
-        push(`[text-shadow:${normalizeArbitraryValue(value)}]`)
-        break
-      case 'text-decoration-color':
-        push(buildColorClass('decoration', value))
-        break
-      case 'text-decoration-thickness':
-        push(`decoration-[${normalizeArbitraryValue(value)}]`)
-        break
-
-      /* Images */
-      case 'object-fit':
-        push(objectFitMap(value) ?? `object-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'object-position':
-        push(objectPositionMap(value) ?? `object-[${normalizeArbitraryValue(value)}]`)
-        break
-      case 'aspect-ratio':
-        push(`aspect-[${normalizeArbitraryValue(value)}]`)
-        break
-
-      default:
-        // Unknown properties fall back to arbitrary property
-        push(`[${prop}:${normalizeArbitraryValue(value)}]`)
-        break
-    }
-  }
-
-  return dedupe(optimizeSpacingClasses(classes)).join(' ')
-}
-
-/* Helpers */
-
-function normalizeArbitraryValue(value: string) {
-  // Tailwind arbitrary values are whitespace-sensitive; strip comments, trim, and replace spaces
-  const cleaned = canonicalizeEmbeddedVariables(stripCssComments(value).trim())
-  const canonical = canonicalizeVariable(cleaned)
-  if (canonical) {
-    return canonical.replace(/\s+/g, '_')
-  }
-  if (cleaned.toLowerCase().startsWith('var(')) {
-    const name = cleaned
-      .split(',')[0]
-      ?.replace(/^var\(\s*/, '')
-      .replace(/\s*\)$/, '')
-      .trim()
-    if (name) {
-      return `var(${name})`.replace(/\s+/g, '_')
-    }
-  }
-  return cleaned.replace(/\s+/g, '_')
-}
-
-function stripCssComments(value: string): string {
-  return value.replace(/\s*\/\*[\s\S]*?\*\/\s*/g, '')
-}
-
-function canonicalizeEmbeddedVariables(value: string): string {
-  return value.replace(/(?<![\w-])(?:\$|@)([A-Za-z0-9-_]+)/g, (match) => {
-    const canonical = canonicalizeVariable(match)
-    return canonical ?? match
-  })
-}
-
-function dedupe(arr: string[]) {
-  return Array.from(new Set(arr))
-}
-
-function optimizeSpacingClasses(classes: string[]): string[] {
-  const compactPadding = compactEdgeClasses(classes, 'p')
-  return compactEdgeClasses(compactPadding, 'm')
-}
-
-function compactEdgeClasses(classes: string[], prefix: 'p' | 'm'): string[] {
-  const edges: Record<'t' | 'r' | 'b' | 'l', { value: string; index: number } | null> = {
-    t: null,
-    r: null,
-    b: null,
-    l: null
-  }
-
-  classes.forEach((cls, index) => {
-    const match = cls.match(new RegExp(`^${prefix}([trbl])-(.+)$`))
-    if (match) {
-      const side = match[1] as 't' | 'r' | 'b' | 'l'
-      edges[side] = { value: match[2], index }
-    }
-  })
-
-  if (!edges.t || !edges.r || !edges.b || !edges.l) {
-    return classes
-  }
-
-  const values = {
-    t: edges.t.value,
-    r: edges.r.value,
-    b: edges.b.value,
-    l: edges.l.value
-  }
-
-  const replacements: string[] = []
-  if (values.t === values.r && values.t === values.b && values.t === values.l) {
-    replacements.push(`${prefix}-${values.t}`)
-  } else if (values.t === values.b && values.r === values.l) {
-    replacements.push(`${prefix}y-${values.t}`)
-    replacements.push(`${prefix}x-${values.r}`)
-  } else {
-    return classes
-  }
-
-  const dropIndices = new Set([edges.t.index, edges.r.index, edges.b.index, edges.l.index])
-  const firstIndex = Math.min(...Array.from(dropIndices))
-  const result: string[] = []
-  classes.forEach((cls, idx) => {
-    if (idx === firstIndex) {
-      replacements.forEach((r) => result.push(r))
-    }
-    if (!dropIndices.has(idx)) {
-      result.push(cls)
-    }
-  })
-
-  return result
-}
-
-function isZeroValue(value: string): boolean {
-  return /^(0+(\.0+)?)([a-z%]+)?$/i.test(value.trim())
-}
-
-type EmitLengthOptions = {
-  allowAuto?: boolean
-  allowVarLength?: boolean
-}
-
-function emitLengthClass(
-  prefix: string,
-  value: string,
-  push: (cls?: string) => void,
-  { allowAuto = false, allowVarLength = true }: EmitLengthOptions = {}
-): void {
-  const trimmed = value.trim()
-  if (!trimmed) return
-  if (allowAuto && trimmed === 'auto') {
-    push(`${prefix}-auto`)
-    return
-  }
-  if (isCssVar(trimmed) && allowVarLength) {
-    push(`${prefix}-[${normalizeArbitraryValue(trimmed)}]`)
-    return
-  }
-  if (isZeroValue(trimmed)) {
-    push(`${prefix}-0`)
-    return
-  }
-  push(`${prefix}-[${normalizeArbitraryValue(trimmed)}]`)
-}
-
-function pushGapClasses(value: string, push: (cls?: string) => void): void {
-  const trimmed = value.trim()
-  if (!trimmed) return
-  const parts = parseBoxShorthand(trimmed)
-  if (!parts) {
-    emitLengthClass('gap', trimmed, push)
-    return
-  }
-
-  const [row, column] = expandBoxValues(parts)
-  const same =
-    normalizeArbitraryValue(row) === normalizeArbitraryValue(column) ||
-    (isZeroValue(row) && isZeroValue(column))
-
-  if (same) {
-    emitLengthClass('gap', row, push)
-    return
-  }
-
-  emitLengthClass('gap-y', row, push)
-  emitLengthClass('gap-x', column, push)
-}
-
-function pushBoxClasses(kind: 'padding' | 'margin', value: string, push: (cls?: string) => void) {
-  const prefix = kind === 'padding' ? 'p' : 'm'
-  const parts = parseBoxShorthand(value)
-  if (!parts) {
-    emitLengthClass(prefix, value, push, { allowAuto: kind === 'margin' })
-    return
-  }
-
-  const [top, right, bottom, left] = expandBoxValues(parts)
-
-  const emit = (axis: string, val: string) =>
-    emitLengthClass(`${prefix}${axis}`, val, push, {
-      allowAuto: kind === 'margin',
-      allowVarLength: true
     })
+    KEYWORD_REGISTRY[familyKey] = map
+  }
+})
 
-  if (top === bottom && right === left) {
-    if (top === right) {
-      emit('', top)
-    } else {
-      emit('y', top)
-      emit('x', right)
+// Normalization
+
+function expandShorthands(style: Record<string, string>): Record<string, string> {
+  const expanded: Record<string, string> = { ...style }
+  const parse = (v: string) => v.trim().split(WHITESPACE)
+
+  const expand4 = (arr: string[]): [string, string, string, string] => {
+    if (arr.length === 1) return [arr[0], arr[0], arr[0], arr[0]]
+    if (arr.length === 2) return [arr[0], arr[1], arr[0], arr[1]]
+    if (arr.length === 3) return [arr[0], arr[1], arr[2], arr[1]]
+    return [arr[0], arr[1], arr[2], arr[3]]
+  }
+
+  const boxKeys = ['padding', 'margin', 'inset']
+  boxKeys.forEach((key) => {
+    if (expanded[key]) {
+      const val = normalizeStyleValue(expanded[key])
+      const [t, r, b, l] = expand4(parse(val))
+      if (key === 'inset') {
+        expanded['top'] = t
+        expanded['right'] = r
+        expanded['bottom'] = b
+        expanded['left'] = l
+      } else {
+        expanded[`${key}-top`] = t
+        expanded[`${key}-right`] = r
+        expanded[`${key}-bottom`] = b
+        expanded[`${key}-left`] = l
+      }
+      delete expanded[key]
     }
-    return
-  }
-
-  // 3-value shorthand: top, x, bottom
-  if (parts.length === 3 && right === left) {
-    emit('t', top)
-    emit('x', right)
-    emit('b', bottom)
-    return
-  }
-
-  emit('t', top)
-  emit('r', right)
-  emit('b', bottom)
-  emit('l', left)
-}
-
-function parseBoxShorthand(value: string): string[] | null {
-  const trimmed = value.trim()
-  if (!trimmed || trimmed.includes('/')) return null
-  if (/var\(/i.test(trimmed)) return null
-  const parts = trimmed.split(/\s+/).filter(Boolean)
-  if (parts.length === 0 || parts.length > 4) return null
-  return parts
-}
-
-function expandBoxValues(parts: string[]): [string, string, string, string] {
-  if (parts.length === 1) {
-    return [parts[0], parts[0], parts[0], parts[0]]
-  }
-  if (parts.length === 2) {
-    return [parts[0], parts[1], parts[0], parts[1]]
-  }
-  if (parts.length === 3) {
-    return [parts[0], parts[1], parts[2], parts[1]]
-  }
-  return [parts[0], parts[1], parts[2], parts[3]]
-}
-
-function pushBorderShorthand(
-  value: string,
-  push: (cls?: string) => void,
-  side?: 't' | 'r' | 'b' | 'l'
-) {
-  const parsed = parseBorderValue(value)
-  const propName = side ? `border-${sideToWord(side)}` : 'border'
-  if (!parsed || !parsed.width) {
-    push(`[${propName}:${normalizeArbitraryValue(value)}]`)
-    return
-  }
-
-  const prefix = side ? `border-${side}` : 'border'
-  push(borderWidthClass(prefix, parsed.width))
-
-  if (parsed.style) {
-    push(
-      borderStyleMap(parsed.style) ?? `[${propName}-style:${normalizeArbitraryValue(parsed.style)}]`
-    )
-  }
-  if (parsed.color) {
-    if (side) {
-      push(`[${propName}-color:${normalizeArbitraryValue(parsed.color)}]`)
-    } else {
-      push(buildColorClass('border', parsed.color))
-    }
-  }
-}
-
-const BORDER_KEYWORD_VALUES = new Set(['inherit', 'initial', 'unset', 'revert'])
-
-function parseBorderValue(value: string): { width?: string; style?: string; color?: string } | null {
-  const trimmed = value.trim()
-  if (!trimmed || BORDER_KEYWORD_VALUES.has(trimmed.toLowerCase())) {
-    return null
-  }
-
-  const tokens = tokenizeBorderValue(trimmed)
-  if (!tokens.length) {
-    return null
-  }
-
-  let width: string | undefined
-  let style: string | undefined
-  const colorParts: string[] = []
-
-  tokens.forEach((token) => {
-    if (!width && isBorderWidthToken(token)) {
-      width = token
-      return
-    }
-    if (!style && isBorderStyleToken(token)) {
-      style = token
-      return
-    }
-    if (looksLikeColorToken(token)) {
-      colorParts.push(token)
-      return
-    }
-    // Default to treating remaining tokens as color fragments
-    colorParts.push(token)
   })
 
-  const color = colorParts.length ? colorParts.join(' ') : undefined
-
-  if (!width && !style && !color) {
-    return null
+  if (expanded['border-radius']) {
+    const val = normalizeStyleValue(expanded['border-radius'])
+    const [tl, tr, br, bl] = expand4(parse(val))
+    expanded['border-top-left-radius'] = tl
+    expanded['border-top-right-radius'] = tr
+    expanded['border-bottom-right-radius'] = br
+    expanded['border-bottom-left-radius'] = bl
+    delete expanded['border-radius']
+  }
+  if (expanded['gap']) {
+    const val = normalizeStyleValue(expanded['gap'])
+    const parts = parse(val)
+    expanded['row-gap'] = parts[0]
+    expanded['column-gap'] = parts[1] || parts[0]
+    delete expanded['gap']
   }
 
-  return { width, style, color }
-}
+  // Flex shorthand parser
+  if (expanded['flex']) {
+    const val = normalizeStyleValue(expanded['flex'])
+    const parts = parse(val)
+    let grow = '1'
+    let shrink = '1'
+    let basis = '0%'
 
-function tokenizeBorderValue(value: string): string[] {
-  const tokens: string[] = []
-  let current = ''
-  let depth = 0
-
-  for (const ch of value) {
-    if (ch === '(') {
-      depth++
-      current += ch
-      continue
-    }
-    if (ch === ')') {
-      depth = Math.max(0, depth - 1)
-      current += ch
-      continue
-    }
-    if (/\s/.test(ch) && depth === 0) {
-      if (current.trim()) {
-        tokens.push(current.trim())
+    if (parts.length === 1) {
+      const p = parts[0]
+      if (p === 'initial') {
+        grow = '0'
+        shrink = '1'
+        basis = 'auto'
+      } else if (p === 'auto') {
+        grow = '1'
+        shrink = '1'
+        basis = 'auto'
+      } else if (p === 'none') {
+        grow = '0'
+        shrink = '0'
+        basis = 'auto'
+      } else if (NUMBER.test(p)) {
+        grow = p
+        shrink = '1'
+        basis = '0%'
+      } else {
+        grow = '1'
+        shrink = '1'
+        basis = p
       }
-      current = ''
-      continue
-    }
-    current += ch
-  }
-
-  if (current.trim()) {
-    tokens.push(current.trim())
-  }
-
-  return tokens
-}
-
-function isBorderWidthToken(token: string): boolean {
-  const normalized = token.toLowerCase()
-  if (/^var\(/i.test(normalized) || /^[\$@]/.test(normalized) || normalized.startsWith('--')) {
-    return false
-  }
-  if (normalized === 'thin' || normalized === 'medium' || normalized === 'thick') {
-    return true
-  }
-  if (/^-?\d*\.?\d+(px|r?em|ex|ch|vh|vw|vmin|vmax|cm|mm|in|pt|pc|%)?$/.test(normalized)) {
-    return true
-  }
-  if (/^calc\(/i.test(normalized)) {
-    return true
-  }
-  return false
-}
-
-function isBorderStyleToken(token: string): boolean {
-  return !!borderStyleMap(token.trim())
-}
-
-function looksLikeColorToken(token: string): boolean {
-  const normalized = token.trim().toLowerCase()
-  if (!normalized) return false
-  if (normalized === 'transparent' || normalized === 'currentcolor') return true
-  if (/^#/.test(normalized)) return true
-  if (/^rgba?\(/i.test(normalized) || /^hsla?\(/i.test(normalized)) return true
-  if (/^var\(/i.test(normalized) || /^[\$@]/.test(normalized) || normalized.startsWith('--')) return true
-  return false
-}
-
-function borderWidthClass(prefix: string, width: string): string {
-  const normalized = width.trim()
-  if (normalized === '0' || normalized === '0px') {
-    return `${prefix}-0`
-  }
-  if (normalized === '1' || normalized === '1px') {
-    return prefix
-  }
-  return buildLengthClass(prefix, width)
-}
-
-function sideToWord(side: 't' | 'r' | 'b' | 'l'): 'top' | 'right' | 'bottom' | 'left' {
-  return side === 't' ? 'top' : side === 'r' ? 'right' : side === 'b' ? 'bottom' : 'left'
-}
-
-function buildBorderSideColorClass(
-  side: 't' | 'r' | 'b' | 'l',
-  value: string,
-  liftToGlobalColor?: boolean
-): string {
-  if (liftToGlobalColor) {
-    return buildColorClass('border', value)
-  }
-  const propName = `border-${sideToWord(side)}-color`
-  return `[${propName}:${normalizeArbitraryValue(value)}]`
-}
-
-function displayMap(v: string) {
-  return (
-    {
-      flex: 'flex',
-      'inline-flex': 'inline-flex',
-      block: 'block',
-      'inline-block': 'inline-block',
-      inline: 'inline',
-      grid: 'grid',
-      'inline-grid': 'inline-grid',
-      none: 'hidden'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function gridTemplateRepeatMap(v: string, axis: 'cols' | 'rows') {
-  const match = v
-    .replace(/\s+/g, ' ')
-    .trim()
-    .match(/^repeat\(\s*(\d+)\s*,\s*minmax\(\s*0(px)?\s*,\s*1fr\s*\)\s*\)$/i)
-  if (match) {
-    return axis === 'cols' ? `grid-cols-${match[1]}` : `grid-rows-${match[1]}`
-  }
-  return undefined
-}
-
-function gridAutoFlowMap(v: string) {
-  const normalized = v.trim().toLowerCase()
-  return (
-    {
-      row: 'grid-flow-row',
-      column: 'grid-flow-col',
-      'row dense': 'grid-flow-row-dense',
-      'column dense': 'grid-flow-col-dense',
-      dense: 'grid-flow-dense'
-    } as Record<string, string | undefined>
-  )[normalized]
-}
-
-function gridAutoAxisClass(axis: 'cols' | 'rows', v: string) {
-  const val = v.trim().toLowerCase()
-  const prefix = axis === 'cols' ? 'auto-cols' : 'auto-rows'
-  if (
-    val === 'auto' ||
-    val === 'min' ||
-    val === 'max' ||
-    val === 'min-content' ||
-    val === 'max-content'
-  ) {
-    return `${prefix}-${val === 'auto' ? 'auto' : val.replace('-content', '')}`
-  }
-  if (val === '1fr' || val === 'minmax(0, 1fr)') {
-    return `${prefix}-fr`
-  }
-  return `${prefix}-[${normalizeArbitraryValue(v)}]`
-}
-
-function parseGridPlacement(value: string): { start?: string; end?: string; span?: string } | null {
-  const parts = value.split('/')
-  if (parts.length !== 2) {
-    return null
-  }
-  const start = parts[0].trim()
-  const end = parts[1].trim()
-  const spanMatch = end.match(/^span\s+(-?\d+)$/i)
-  const startSpanMatch = start.match(/^span\s+(-?\d+)$/i)
-
-  if (spanMatch) {
-    return {
-      start: start && start !== 'auto' ? start : undefined,
-      span: spanMatch[1]
-    }
-  }
-
-  if (startSpanMatch) {
-    return {
-      end: end && end !== 'auto' ? end : undefined,
-      span: startSpanMatch[1]
-    }
-  }
-
-  return {
-    start: start && start !== 'auto' ? start : undefined,
-    end: end && end !== 'auto' ? end : undefined
-  }
-}
-
-function pushGridPlacement(axis: 'row' | 'col', value: string, push: (cls?: string) => void) {
-  const parsed = parseGridPlacement(value)
-  if (!parsed) {
-    push(`[grid-${axis}:${normalizeArbitraryValue(value)}]`)
-    return
-  }
-
-  const { start, end, span } = parsed
-  if (start) {
-    push(gridLineClass(`${axis}-start`, start))
-  }
-  if (end) {
-    push(gridLineClass(`${axis}-end`, end))
-  }
-  if (span) {
-    push(`${axis}-span-${normalizeArbitraryValue(span)}`)
-  }
-
-  if (!start && !end && !span) {
-    push(`[grid-${axis}:${normalizeArbitraryValue(value)}]`)
-  }
-}
-
-function gridLineClass(prefix: string, value: string) {
-  const val = value.trim()
-  if (!val || val === 'auto') return undefined
-  return `${prefix}-${normalizeArbitraryValue(val)}`
-}
-
-function flexDirectionMap(v: string) {
-  return (
-    {
-      row: 'flex-row',
-      column: 'flex-col',
-      'row-reverse': 'flex-row-reverse',
-      'column-reverse': 'flex-col-reverse'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function flexWrapMap(v: string) {
-  return (
-    {
-      nowrap: 'flex-nowrap',
-      wrap: 'flex-wrap',
-      'wrap-reverse': 'flex-wrap-reverse'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function justifyMap(v: string) {
-  return (
-    {
-      'flex-start': 'justify-start',
-      center: 'justify-center',
-      'flex-end': 'justify-end',
-      'space-between': 'justify-between',
-      'space-around': 'justify-around',
-      'space-evenly': 'justify-evenly'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function itemsMap(v: string) {
-  return (
-    {
-      'flex-start': 'items-start',
-      center: 'items-center',
-      'flex-end': 'items-end',
-      baseline: 'items-baseline',
-      stretch: 'items-stretch'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function alignContentMap(v: string) {
-  return (
-    {
-      'flex-start': 'content-start',
-      'flex-end': 'content-end',
-      center: 'content-center',
-      stretch: 'content-stretch',
-      'space-between': 'content-between',
-      'space-around': 'content-around',
-      'space-evenly': 'content-evenly'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function justifyItemsMap(v: string) {
-  return (
-    {
-      start: 'justify-items-start',
-      end: 'justify-items-end',
-      center: 'justify-items-center',
-      stretch: 'justify-items-stretch'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function placeItemsMap(v: string) {
-  return (
-    {
-      start: 'place-items-start',
-      end: 'place-items-end',
-      center: 'place-items-center',
-      stretch: 'place-items-stretch'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function placeSelfMap(v: string) {
-  return (
-    {
-      auto: 'place-self-auto',
-      start: 'place-self-start',
-      end: 'place-self-end',
-      center: 'place-self-center',
-      stretch: 'place-self-stretch'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function selfMap(v: string) {
-  return (
-    {
-      auto: 'self-auto',
-      'flex-start': 'self-start',
-      center: 'self-center',
-      'flex-end': 'self-end',
-      stretch: 'self-stretch',
-      baseline: 'self-baseline'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function flexValueMap(v: string) {
-  return (
-    {
-      none: 'flex-none',
-      auto: 'flex-auto',
-      initial: 'flex-initial',
-      '1': 'flex-1'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function flexShorthandToClass(v: string) {
-  const normalized = v.replace(/\s+/g, ' ').trim()
-  if (normalized === '0 1 auto') return 'flex-initial'
-  if (normalized === '1 1 0%' || normalized === '1 1 0') return 'flex-1'
-  if (normalized === '1 1 auto') return 'flex-auto'
-  if (normalized === 'none') return 'flex-none'
-  return undefined
-}
-
-function flexShorthandToClasses(v: string, push: (cls?: string) => void): boolean {
-  const normalized = v.trim().replace(/\s+/g, ' ')
-  const parts = normalized.split(' ')
-  if (parts.length !== 3) return false
-  const [grow, shrink, basis] = parts
-
-  const emitGrow = () => {
-    if (grow === '0') push('grow-0')
-    else if (grow === '1') push('grow')
-    else push(`grow-[${normalizeArbitraryValue(grow)}]`)
-  }
-
-  const emitShrink = () => {
-    if (shrink === '0') push('shrink-0')
-    else if (shrink === '1') push('shrink')
-    else push(`shrink-[${normalizeArbitraryValue(shrink)}]`)
-  }
-
-  const emitBasis = () => {
-    const mapped = flexBasisMap(basis)
-    if (mapped) push(mapped)
-    else push(`basis-[${normalizeArbitraryValue(basis)}]`)
-  }
-
-  emitGrow()
-  emitShrink()
-  emitBasis()
-  return true
-}
-
-function flexBasisMap(v: string) {
-  const val = v.trim()
-  if (val === '0' || val === '0px') return 'basis-0'
-  if (val === 'auto') return 'basis-auto'
-  if (val === '100%' || val === 'full') return 'basis-full'
-  return undefined
-}
-
-function positionMap(v: string) {
-  return (
-    {
-      static: 'static',
-      relative: 'relative',
-      absolute: 'absolute',
-      fixed: 'fixed',
-      sticky: 'sticky'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function overflowMap(v: string) {
-  return (
-    {
-      visible: 'overflow-visible',
-      hidden: 'overflow-hidden',
-      clip: 'overflow-clip',
-      scroll: 'overflow-scroll',
-      auto: 'overflow-auto'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function overflowAxisMap(axis: 'x' | 'y', v: string) {
-  const map = {
-    visible: `overflow-${axis}-visible`,
-    hidden: `overflow-${axis}-hidden`,
-    clip: `overflow-${axis}-clip`,
-    scroll: `overflow-${axis}-scroll`,
-    auto: `overflow-${axis}-auto`
-  } as Record<string, string>
-  return map[v]
-}
-
-function borderRadiusMap(v: string) {
-  if (v === '0px' || v === '0') return 'rounded-none'
-  if (v === '9999px' || v === '9999rem' || v === '50%') return 'rounded-full'
-  return undefined
-}
-
-function borderStyleMap(v: string) {
-  return (
-    {
-      solid: 'border-solid',
-      dashed: 'border-dashed',
-      dotted: 'border-dotted',
-      double: 'border-double',
-      none: 'border-none'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function fontWeightMap(v: string) {
-  return (
-    {
-      '100': 'font-thin',
-      '200': 'font-extralight',
-      '300': 'font-light',
-      '400': 'font-normal',
-      '500': 'font-medium',
-      '600': 'font-semibold',
-      '700': 'font-bold',
-      '800': 'font-extrabold',
-      '900': 'font-black'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function textAlignMap(v: string) {
-  return (
-    {
-      left: 'text-left',
-      center: 'text-center',
-      right: 'text-right',
-      justified: 'text-justify',
-      justify: 'text-justify'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function textDecorationMap(v: string) {
-  return (
-    {
-      none: 'no-underline',
-      underline: 'underline',
-      'line-through': 'line-through',
-      overline: '[text-decoration:overline]'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function textDecorationLineMap(v: string) {
-  const tokens = v.split(/\s+/).filter(Boolean)
-  if (tokens.length === 1) {
-    return (
-      {
-        none: 'no-underline',
-        underline: 'underline',
-        'line-through': 'line-through',
-        overline: '[text-decoration-line:overline]'
-      } as Record<string, string | undefined>
-    )[tokens[0]]
-  }
-  return undefined
-}
-
-function textTransformMap(v: string) {
-  return (
-    {
-      none: 'normal-case',
-      uppercase: 'uppercase',
-      lowercase: 'lowercase',
-      capitalize: 'capitalize'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function whiteSpaceMap(v: string) {
-  return (
-    {
-      normal: 'whitespace-normal',
-      nowrap: 'whitespace-nowrap',
-      pre: 'whitespace-pre',
-      'pre-line': 'whitespace-pre-line',
-      'pre-wrap': 'whitespace-pre-wrap',
-      'break-spaces': 'whitespace-break-spaces'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function objectFitMap(v: string) {
-  return (
-    {
-      contain: 'object-contain',
-      cover: 'object-cover',
-      fill: 'object-fill',
-      none: 'object-none',
-      'scale-down': 'object-scale-down'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function objectPositionMap(v: string) {
-  return (
-    {
-      center: 'object-center',
-      top: 'object-top',
-      bottom: 'object-bottom',
-      left: 'object-left',
-      right: 'object-right'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function bgSizeMap(v: string) {
-  return (
-    {
-      cover: 'bg-cover',
-      contain: 'bg-contain',
-      auto: 'bg-auto'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function bgRepeatMap(v: string) {
-  return (
-    {
-      'no-repeat': 'bg-no-repeat',
-      repeat: 'bg-repeat',
-      'repeat-x': 'bg-repeat-x',
-      'repeat-y': 'bg-repeat-y',
-      round: 'bg-repeat-round',
-      space: 'bg-repeat-space'
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function wordBreakMap(v: string) {
-  return (
-    {
-      'break-all': 'break-all',
-      'keep-all': 'break-keep',
-      'break-word': 'break-words',
-      normal: undefined
-    } as Record<string, string | undefined>
-  )[v]
-}
-
-function normalizeColorValue(value: string) {
-  const trimmed = value.trim()
-  const canonical = canonicalizeVariable(trimmed)
-  if (canonical) {
-    return canonical
-  }
-  if (isCssVar(trimmed)) {
-    return trimmed
-  }
-  const rgbMatch = trimmed.match(/^rgba?\(([^)]+)\)$/i)
-  if (rgbMatch) {
-    const parts = rgbMatch[1].split(',').map((p) => p.trim())
-    const [r, g, b, a = '1'] = parts
-    const toInt = (v: string) => {
-      const n = Number(v)
-      return Number.isFinite(n) ? Math.round(n) : null
-    }
-    const rInt = toInt(r)
-    const gInt = toInt(g)
-    const bInt = toInt(b)
-    const aNum = Number(a)
-    if (
-      rInt != null &&
-      gInt != null &&
-      bInt != null &&
-      rInt >= 0 &&
-      rInt <= 255 &&
-      gInt >= 0 &&
-      gInt <= 255 &&
-      bInt >= 0 &&
-      bInt <= 255 &&
-      Number.isFinite(aNum)
-    ) {
-      const hex = compressHex(formatHex(rInt, gInt, bInt))
-      if (aNum >= 1) {
-        return hex
+    } else if (parts.length === 2) {
+      grow = parts[0]
+      if (NUMBER.test(parts[1])) {
+        shrink = parts[1]
+        basis = '0%'
+      } else {
+        shrink = '1'
+        basis = parts[1]
       }
-      const opacity = Math.max(0, Math.min(100, Math.round(aNum * 100)))
-      const shortHex = hex.length === 7 ? compressHex(hex) : hex
-      return `${shortHex}/${opacity}`
+    } else if (parts.length >= 3) {
+      grow = parts[0]
+      shrink = parts[1]
+      basis = parts[2]
     }
-    return `rgb(${parts.join(',')})`
+
+    expanded['flex-grow'] = grow
+    expanded['flex-shrink'] = shrink
+    expanded['flex-basis'] = basis
+    delete expanded['flex']
   }
 
-  if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed)) {
-    return compressHex(trimmed)
+  // Grid gap legacy support
+  if (expanded['grid-gap']) {
+    const val = normalizeStyleValue(expanded['grid-gap'])
+    const parts = parse(val)
+    expanded['row-gap'] = parts[0]
+    expanded['column-gap'] = parts[1] || parts[0]
+    delete expanded['grid-gap']
   }
 
-  return trimmed
+  return expanded
 }
 
-function formatHex(r: number, g: number, b: number): string {
-  const toHex = (n: number) => n.toString(16).padStart(2, '0')
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+// Formatting
+
+function extractValuePart(
+  val: string,
+  config: FamilyConfig,
+  familyKey: string,
+  overrideKind?: ValueKind
+): FormattedValue {
+  const isNegative = val.startsWith('-')
+  let inner = isNegative ? val.substring(1) : val
+
+  const keywordMap = KEYWORD_REGISTRY[familyKey]
+  if (keywordMap && keywordMap[inner]) {
+    return { isNegative, text: keywordMap[inner], isKeyword: true }
+  }
+
+  if (inner.includes('calc')) inner = inner.replace(ALL_WHITESPACE, '_')
+  if (familyKey === 'fontFamily') {
+    inner = inner.replace(COMMA_DELIMITER, ',')
+    inner = inner.replace(WHITESPACE, '_')
+    inner = inner.replace(QUOTES, '')
+  }
+  inner = formatArbitraryValue(inner)
+
+  const kind = overrideKind || config.valueKind
+  const isStrictKeywordType = kind === 'keyword'
+  let text = inner
+  let isKeyword = isStrictKeywordType
+
+  if (!isStrictKeywordType) {
+    text = `[${inner}]`
+    if (familyKey === 'borderWidth' && (inner.includes('var(') || !isNaN(Number(inner)))) {
+      text = `[length:${inner}]`
+    }
+    isKeyword = false
+  } else {
+    isKeyword = true
+  }
+
+  return { isNegative, text, isKeyword }
 }
 
-function compressHex(hex: string): string {
-  const h = hex.toLowerCase()
-  if (!/^#[0-9a-f]{6}$/.test(h)) return h
-  const [r1, r2, g1, g2, b1, b2] = h.slice(1).split('')
-  if (r1 === r2 && g1 === g2 && b1 === b2) {
-    return `#${r1}${g1}${b1}`
+function buildClass(config: FamilyConfig, modifier: string, val: FormattedValue): string {
+  const negPrefix = val.isNegative ? '-' : ''
+  const base = config.prefix + modifier
+
+  let connector = ''
+  if (base && !base.endsWith('-')) {
+    connector = '-'
   }
-  return h
+
+  if (!base) {
+    return `${negPrefix}${val.text}`
+  }
+
+  return `${negPrefix}${base}${connector}${val.text}`
 }
 
-function isCssVar(value: string): boolean {
-  return /^var\(/i.test(stripCssComments(value).trim())
+// Collapsing (with type guards)
+
+function collapseSides(
+  config: FamilyConfig,
+  familyKey: string,
+  s: NonNullable<FamilyBuffer['sides']>
+): string[] {
+  const out: string[] = []
+  const { t, r, b, l } = s
+
+  if (t && t === r && r === b && b === l) {
+    out.push(buildClass(config, '', extractValuePart(t, config, familyKey)))
+    return out
+  }
+  const done: Record<Side, boolean> = { t: false, r: false, b: false, l: false }
+  if (l && r && l === r) {
+    out.push(buildClass(config, 'x', extractValuePart(l, config, familyKey)))
+    done.l = done.r = true
+  }
+  if (t && b && t === b) {
+    out.push(buildClass(config, 'y', extractValuePart(t, config, familyKey)))
+    done.t = done.b = true
+  }
+  const sideMap: Record<Side, string> = { t: 't', r: 'r', b: 'b', l: 'l' }
+  ;(Object.keys(sideMap) as Side[]).forEach((k) => {
+    if (s[k] && !done[k])
+      out.push(buildClass(config, sideMap[k], extractValuePart(s[k]!, config, familyKey)))
+  })
+  return out
 }
 
-function buildColorClass(prefix: string, value: string): string {
-  const needsColorAnnotation =
-    prefix === 'text' || prefix === 'border' || prefix === 'decoration' || prefix.startsWith('border-')
-  if (isCssVar(value)) {
-    const norm = normalizeArbitraryValue(value)
-    return needsColorAnnotation ? `${prefix}-[color:${norm}]` : `${prefix}-[${norm}]`
+function collapseCorners(
+  config: FamilyConfig,
+  familyKey: string,
+  c: NonNullable<FamilyBuffer['corners']>
+): string[] {
+  const out: string[] = []
+  const { tl, tr, br, bl } = c
+
+  if (tl && tl === tr && tr === br && br === bl) {
+    out.push(buildClass(config, '', extractValuePart(tl, config, familyKey)))
+    return out
   }
-  const norm = normalizeColorValue(value)
-  if (needsColorAnnotation && norm.startsWith('var(')) {
-    return `${prefix}-[color:${norm}]`
+  const done: Record<Corner, boolean> = { tl: false, tr: false, br: false, bl: false }
+  if (tl && tr && tl === tr) {
+    out.push(buildClass(config, 't', extractValuePart(tl, config, familyKey)))
+    done.tl = done.tr = true
   }
-  return `${prefix}-[${norm}]`
+  if (bl && br && bl === br) {
+    out.push(buildClass(config, 'b', extractValuePart(bl, config, familyKey)))
+    done.bl = done.br = true
+  }
+  if (!done.tl && !done.bl && tl && bl && tl === bl) {
+    out.push(buildClass(config, 'l', extractValuePart(tl, config, familyKey)))
+    done.tl = done.bl = true
+  }
+  if (!done.tr && !done.br && tr && br && tr === br) {
+    out.push(buildClass(config, 'r', extractValuePart(tr, config, familyKey)))
+    done.tr = done.br = true
+  }
+  const cornerMap: Record<Corner, string> = { tl: 'tl', tr: 'tr', br: 'br', bl: 'bl' }
+  ;(Object.keys(cornerMap) as Corner[]).forEach((k) => {
+    if (c[k] && !done[k])
+      out.push(buildClass(config, cornerMap[k], extractValuePart(c[k]!, config, familyKey)))
+  })
+  return out
 }
 
-function buildLengthClass(prefix: string, value: string): string {
-  if (isCssVar(value)) {
-    return `${prefix}-[${normalizeArbitraryValue(value)}]`
+function collapseAxes(
+  config: FamilyConfig,
+  familyKey: string,
+  a: NonNullable<FamilyBuffer['axes']>
+): string[] {
+  const out: string[] = []
+  const { x, y } = a
+  if (x && y && x === y) {
+    out.push(buildClass(config, '', extractValuePart(x, config, familyKey)))
+  } else {
+    if (x) out.push(buildClass(config, 'x', extractValuePart(x, config, familyKey)))
+    if (y) out.push(buildClass(config, 'y', extractValuePart(y, config, familyKey)))
   }
-  return `${prefix}-[${normalizeArbitraryValue(value)}]`
+  return out
+}
+
+function collapseComposite(
+  config: CompositeFamily,
+  familyKey: string,
+  buffer: Record<string, string>
+): string[] {
+  const out: string[] = []
+
+  const matchedComposite = config.composites.find((comp) => {
+    return Object.entries(comp.match).every(([k, v]) => buffer[k] === v)
+  })
+
+  if (matchedComposite) {
+    out.push(
+      buildClass(config, '', {
+        text: matchedComposite.suffix,
+        isNegative: false,
+        isKeyword: true
+      })
+    )
+    return out
+  }
+
+  Object.keys(config.props).forEach((field) => {
+    const val = buffer[field]
+    if (val) {
+      const atomicConfig = config.atomics[field]
+      if (atomicConfig) {
+        const formatted = extractValuePart(val, config, familyKey, atomicConfig.valueKind)
+        const tempConfig: FamilyConfig = {
+          ...config,
+          prefix: atomicConfig.prefix
+        }
+        out.push(buildClass(tempConfig, '', formatted))
+      }
+    }
+  })
+
+  return out
+}
+
+// Main API
+
+export function styleToTailwind(rawStyle: Record<string, string>): string {
+  if (!rawStyle || Object.keys(rawStyle).length === 0) return ''
+  const expandedStyle = expandShorthands(rawStyle)
+  const buffers: Record<string, FamilyBuffer> = {}
+
+  for (const [prop, rawVal] of Object.entries(expandedStyle)) {
+    if (!rawVal) continue
+    const lookup = PROPERTY_MAP[prop]
+    if (!lookup) continue
+
+    const { familyKey, field, defaultValue } = lookup
+    const val = normalizeStyleValue(rawVal)
+    if (!val) continue
+    if (defaultValue && val === defaultValue) continue
+
+    if (!buffers[familyKey]) buffers[familyKey] = {}
+    const buf = buffers[familyKey]
+    const config = TAILWIND_CONFIG[familyKey]
+
+    if (config.mode === 'side' && isSide(field)) {
+      const sides = buf.sides || (buf.sides = {})
+      sides[field] = val
+    } else if (config.mode === 'corner' && isCorner(field)) {
+      const corners = buf.corners || (buf.corners = {})
+      corners[field] = val
+    } else if (config.mode === 'axis' && isAxis(field)) {
+      const axes = buf.axes || (buf.axes = {})
+      axes[field] = val
+    } else if (config.mode === 'direct') {
+      buf.val = val
+    } else if (config.mode === 'composite') {
+      const comp = buf.composite || (buf.composite = {})
+      comp[field] = val
+    }
+  }
+
+  const classes: string[] = []
+  for (const [familyKey, buf] of Object.entries(buffers)) {
+    const config = TAILWIND_CONFIG[familyKey]
+    if (config.mode === 'side' && buf.sides) {
+      classes.push(...collapseSides(config, familyKey, buf.sides))
+    } else if (config.mode === 'corner' && buf.corners) {
+      classes.push(...collapseCorners(config, familyKey, buf.corners))
+    } else if (config.mode === 'axis' && buf.axes) {
+      classes.push(...collapseAxes(config, familyKey, buf.axes))
+    } else if (config.mode === 'direct' && buf.val) {
+      classes.push(buildClass(config, '', extractValuePart(buf.val, config, familyKey)))
+    } else if (config.mode === 'composite' && buf.composite) {
+      classes.push(...collapseComposite(config, familyKey, buf.composite))
+    }
+  }
+
+  return classes.join(' ')
+}
+
+function formatArbitraryValue(value: string): string {
+  return value.trim().replace(/;+$/, '').replace(ALL_WHITESPACE, '_')
+}
+
+export function styleToClassNames(style: Record<string, string>): string[] {
+  const cls = styleToTailwind(style)
+  return cls ? cls.split(WHITESPACE).filter(Boolean) : []
+}
+
+export function joinClassNames(classNames: string[]): string {
+  return classNames.filter(Boolean).join(' ')
 }

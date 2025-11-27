@@ -15,12 +15,13 @@ import {
   stripDefaultTextStyles,
   pruneInheritedTextStyles,
   mapTextCase,
-  normalizeComparableValue
+  normalizeComparableValue,
+  CSS_VAR_FUNCTION_RE,
+  normalizeCssVarName,
+  normalizeStyleVariables
 } from '@/utils/css'
-import { styleToTailwind } from '@/utils/tailwind'
+import { styleToClassNames, joinClassNames } from '@/utils/tailwind'
 
-const VARIABLE_RE = /var\(--([^,)]+)(?:,\s*([^)]+))?\)/g
-const PREPROCESSOR_VAR_TOKEN_RE = /(?<![\w-])(?:[$@])([A-Za-z0-9-_]+)/g
 type TextStyleMap = Record<string, string>
 
 type CodeLanguage = 'jsx' | 'vue'
@@ -48,6 +49,8 @@ type PropertyBucket = {
   value: string
   matchIndices: number[]
 }
+
+type DataHint = { kind: string; name: string; value: unknown }
 
 export async function handleGetCode(
   nodes: SceneNode[],
@@ -150,7 +153,7 @@ async function applyVariableTransforms(
     const style = styles.get(bucket.nodeId)
     if (!style) continue
     let occurrence = 0
-    style[bucket.property] = bucket.value.replace(VARIABLE_RE, (match) => {
+    style[bucket.property] = bucket.value.replace(CSS_VAR_FUNCTION_RE, (match) => {
       const refIndex = bucket.matchIndices[occurrence++]
       return replacements[refIndex] ?? match
     })
@@ -165,13 +168,11 @@ function collectVariableReferences(styles: Map<string, Record<string, string>>):
   const buckets = new Map<string, PropertyBucket>()
 
   for (const [nodeId, style] of styles.entries()) {
-    for (const [property, value] of Object.entries(style)) {
-      const normalizedValue = normalizeCssVarValue(value)
-      if (normalizedValue !== value) {
-        style[property] = normalizedValue
-      }
+    const normalizedStyle = normalizeStyleVariables(style)
+    for (const [property, value] of Object.entries(normalizedStyle)) {
+      const normalizedValue = value
       let match: RegExpExecArray | null
-      while ((match = VARIABLE_RE.exec(normalizedValue))) {
+      while ((match = CSS_VAR_FUNCTION_RE.exec(normalizedValue))) {
         const [, name, fallback] = match
         const refIndex =
           references.push({
@@ -195,7 +196,7 @@ function collectVariableReferences(styles: Map<string, Record<string, string>>):
           })
         }
       }
-      VARIABLE_RE.lastIndex = 0
+      CSS_VAR_FUNCTION_RE.lastIndex = 0
     }
   }
 
@@ -246,21 +247,9 @@ async function renderSemanticNode(
   const styleForClass = pluginComponent
     ? pickChildLayoutStyles(baseStyleForClass)
     : baseStyleForClass
-  const classString = styleToTailwind(styleForClass)
-  const classNames = classString ? classString.split(/\s+/).filter(Boolean) : []
-  const pluginProps =
-    pluginComponent &&
-    (classNames.length ||
-      (semantic.dataHint?.kind === 'attr' && shouldApplyDataHint(node, semantic.dataHint)))
-      ? buildPluginProps(classProp, classNames, semantic.dataHint, node)
-      : undefined
-  const props: Record<string, unknown> = {}
-  if (classNames.length) {
-    props[classProp] = classNames.join(' ')
-  }
-  if (semantic.dataHint?.kind === 'attr' && shouldApplyDataHint(node, semantic.dataHint)) {
-    props[semantic.dataHint.name] = semantic.dataHint.value
-  }
+  const { classNames, props } = buildClassProps(styleForClass, classProp, semantic.dataHint, node)
+  const hasDataHintProp = semantic.dataHint?.kind === 'attr' && semantic.dataHint.name in props
+  const pluginProps = pluginComponent && (classNames.length || hasDataHintProp) ? props : undefined
 
   if (pluginComponent) {
     if (pluginComponent.component) {
@@ -268,22 +257,19 @@ async function renderSemanticNode(
     }
     const injected =
       pluginProps && pluginComponent.code
-        ? injectAttributes(pluginComponent.code, pluginProps)
+        ? injectAttributes(pluginComponent.code, pluginProps as Record<string, string>)
         : null
     return injected ?? pluginComponent.code ?? null
   }
 
   if (node.type === 'TEXT') {
     const segments = textSegments?.segments ?? []
-    const classString = styleToTailwind(baseStyleForClass)
-    const classNames = classString ? classString.split(/\s+/).filter(Boolean) : []
-    const textProps: Record<string, unknown> = {}
-    if (classNames.length) {
-      textProps[classProp] = classNames.join(' ')
-    }
-    if (semantic.dataHint?.kind === 'attr' && shouldApplyDataHint(node, semantic.dataHint)) {
-      textProps[semantic.dataHint.name] = semantic.dataHint.value
-    }
+    const { classNames, props: textProps } = buildClassProps(
+      baseStyleForClass,
+      classProp,
+      semantic.dataHint,
+      node
+    )
 
     if (segments.length === 1) {
       const single = segments[0]
@@ -428,6 +414,26 @@ function getClassPropName(lang?: CodeLanguage): 'class' | 'className' {
   return lang === 'vue' ? 'class' : 'className'
 }
 
+function buildClassProps(
+  style: Record<string, string>,
+  classProp: 'class' | 'className',
+  dataHint: DataHint | undefined,
+  node: SceneNode
+): { classNames: string[]; props: Record<string, string> } {
+  const classNames = styleToClassNames(style)
+  const props: Record<string, string> = {}
+  if (classNames.length) {
+    props[classProp] = joinClassNames(classNames)
+  }
+  if (dataHint?.kind === 'attr' && shouldApplyDataHint(node, dataHint)) {
+    const value = dataHint.value
+    if (value != null && String(value).trim()) {
+      props[dataHint.name] = String(value)
+    }
+  }
+  return { classNames, props }
+}
+
 function injectAttributes(markup: string, attrs: Record<string, string>): string | null {
   const entries = Object.entries(attrs).filter(([, value]) => value != null && String(value).trim())
   if (!entries.length) {
@@ -493,23 +499,7 @@ function mergeClasses(existing: string, extra: string): string {
   return Array.from(new Set(parts)).join(' ')
 }
 
-function buildPluginProps(
-  classProp: string,
-  classNames: string[],
-  dataHint: { kind: string; name: string; value: unknown } | undefined,
-  node: SceneNode
-): Record<string, string> {
-  const props: Record<string, string> = {}
-  if (classNames.length) {
-    props[classProp] = classNames.join(' ')
-  }
-  if (dataHint?.kind === 'attr' && dataHint.value != null && shouldApplyDataHint(node, dataHint)) {
-    props[dataHint.name] = String(dataHint.value)
-  }
-  return props
-}
-
-function shouldApplyDataHint(node: SceneNode, dataHint: { name: string }): boolean {
+function shouldApplyDataHint(node: SceneNode, dataHint: DataHint): boolean {
   // Skip component metadata on component instances
   if (dataHint.name === 'data-tp' && node.type === 'INSTANCE') {
     return false
@@ -795,29 +785,6 @@ function getStyledSegments(node: TextNode): StyledTextSegmentSubset[] | null {
   } catch {
     return null
   }
-}
-
-function normalizeCssVarName(name: string): string {
-  const cleaned = name
-    .trim()
-    .replace(/[^a-zA-Z0-9-_]/g, '-')
-    .replace(/-+/g, '-')
-  if (!cleaned) return 'var'
-  if (/^[0-9-]/.test(cleaned)) {
-    return `var-${cleaned.replace(/^-+/, '')}`
-  }
-  return cleaned
-}
-
-function normalizeCssVarValue(value: string): string {
-  const normalizedVarFns = value.replace(VARIABLE_RE, (_match, name: string, fallback?: string) => {
-    const normalized = normalizeCssVarName(name)
-    return fallback ? `var(--${normalized}, ${fallback})` : `var(--${normalized})`
-  })
-  return normalizedVarFns.replace(PREPROCESSOR_VAR_TOKEN_RE, (_match, name: string) => {
-    const normalized = normalizeCssVarName(name)
-    return `var(--${normalized})`
-  })
 }
 
 function resolveAliasToTokenSync(alias: VariableAlias | null | undefined): TokenRef | null {
@@ -1206,8 +1173,9 @@ async function renderTextSegments(
   segments.forEach((seg, idx) => {
     const style = omitCommon(cleanedStyles[idx], dominantStyle)
     if (!Object.keys(style).length) return
-    const cls = styleToTailwind(style)
-    if (!cls) return
+    const classNames = styleToClassNames(style)
+    if (!classNames.length) return
+    const cls = joinClassNames(classNames)
     segments[idx] =
       typeof seg === 'string'
         ? { name: 'span', props: { [classProp]: cls }, children: [seg] }
