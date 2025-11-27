@@ -3,7 +3,7 @@ import type { GetTokenDefsResult } from '@/mcp-server/src/tools'
 import { runTransformVariableBatch } from '@/mcp/transform-variable'
 import { activePlugin, options } from '@/ui/state'
 import { rgbaToCss } from '@/utils/color'
-import { canonicalizeVariable } from '@/utils/css'
+import { canonicalizeVariable, normalizeCssVarName } from '@/utils/css'
 
 const COLOR_SCOPE_HINTS = ['COLOR', 'FILL', 'STROKE', 'TEXT_FILL']
 const TYPO_SCOPE_HINTS = [
@@ -313,10 +313,10 @@ function formatNumericValue(value: number): string {
 async function transformVariableNames(references: Array<{ rawName: string }>): Promise<string[]> {
   if (!references.length) return []
 
-  const transformRefs = references.map(({ rawName }) => ({
-    code: `var(--${rawName})`,
-    name: rawName
-  }))
+  const transformRefs = references.map(({ rawName }) => {
+    const name = normalizeCssVarName(rawName)
+    return { code: `var(--${name})`, name }
+  })
 
   const replacements = await runTransformVariableBatch(
     transformRefs,
