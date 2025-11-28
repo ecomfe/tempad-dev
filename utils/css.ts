@@ -32,8 +32,11 @@ export const TOP_LEVEL_COMMA_RE = /,(?![^(]*\))/
 // Background shorthand parsing
 export const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
 export const BG_REPEAT_RE = /(no-repeat|repeat-x|repeat-y|repeat|space|round)/i
+// Matches position (e.g. "center", "50% 50%", "top left")
+// Uses lookahead to ensure we don't eat the slash separator for size
 export const BG_POS_RE =
   /(?:^|\s)(center|top|bottom|left|right|[\d.]+(?:%|px))(?:\s+(?:center|top|bottom|left|right|[\d.]+(?:%|px)))?(?=\s*\/|\s*$)/i
+// Matches full url() wrapper
 export const BG_URL_RE = /url\((['"]?)(.*?)\1\)/i
 
 const KEEP_PX_PROPS = ['border', 'box-shadow', 'filter', 'backdrop-filter', 'stroke-width']
