@@ -3,6 +3,7 @@ import type { GetTokenDefsResult } from '@/mcp-server/src/tools'
 import { runTransformVariableBatch } from '@/mcp/transform-variable'
 import { activePlugin, options } from '@/ui/state'
 import { canonicalizeVariable, formatHexAlpha, normalizeCssVarName } from '@/utils/css'
+import { toDecimalPlace } from '@/utils/number'
 
 const COLOR_SCOPE_HINTS = ['COLOR', 'FILL', 'STROKE', 'TEXT_FILL']
 const TYPO_SCOPE_HINTS = [
@@ -306,7 +307,8 @@ function formatNumericValue(value: number): string {
   if (!Number.isFinite(value)) {
     return '0'
   }
-  return toFixed(value)
+  // Use centralized number utility for consistency
+  return String(toDecimalPlace(value))
 }
 
 async function transformVariableNames(references: Array<{ rawName: string }>): Promise<string[]> {
@@ -362,11 +364,4 @@ function inferVariableKind(variable: Variable): TokenEntry['kind'] {
 
 function hasScope(scopes: string[], hints: string[]): boolean {
   return scopes.some((scope) => hints.includes(scope))
-}
-
-function toFixed(value: number): string {
-  const rounded = Math.round(value * 1000) / 1000
-  return Number.isInteger(rounded)
-    ? String(rounded)
-    : rounded.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
 }
