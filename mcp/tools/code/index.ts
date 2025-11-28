@@ -9,7 +9,7 @@ import { MCP_MAX_PAYLOAD_BYTES } from '@/mcp/shared/constants'
 import { activePlugin, options } from '@/ui/state'
 import { generateCodeBlocksForNode } from '@/utils/codegen'
 import { stringifyComponent } from '@/utils/component'
-import { BG_URL_RE, TEXT_STYLE_PROPS, stripDefaultTextStyles } from '@/utils/css'
+import { BG_URL_RE, TEXT_STYLE_PROPS, normalizeCssValue, stripDefaultTextStyles } from '@/utils/css'
 import { joinClassNames } from '@/utils/tailwind'
 
 import {
@@ -56,7 +56,7 @@ export async function handleGetCode(
   const config = codegenConfig()
   const pluginCode = activePlugin.value?.code
 
-  const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots)
+  const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots, config)
 
   await applyVariableTransforms(styles, {
     config,
@@ -80,15 +80,21 @@ export async function handleGetCode(
   }
 
   if (typeof componentTree === 'string') {
-    componentTree = {
-      name: root.tag || 'div',
-      props: {},
-      children: [componentTree]
+    const isSvg = componentTree.trim().startsWith('<svg')
+    if (!isSvg) {
+      componentTree = {
+        name: root.tag || 'div',
+        props: {},
+        children: [componentTree]
+      }
     }
   }
 
   const resolvedLang = preferredLang ?? ctx.detectedLang ?? 'jsx'
-  let markup = stringifyComponent(componentTree, resolvedLang)
+  let markup =
+    typeof componentTree === 'string'
+      ? componentTree
+      : stringifyComponent(componentTree, resolvedLang)
 
   const MAX_CODE_CHARS = Math.floor(MCP_MAX_PAYLOAD_BYTES * 0.6)
   let message = tree.stats.capped
@@ -110,7 +116,10 @@ export async function handleGetCode(
   }
 }
 
-async function collectSceneData(roots: SemanticNode[]): Promise<{
+async function collectSceneData(
+  roots: SemanticNode[],
+  config: CodegenConfig
+): Promise<{
   nodes: Map<string, SceneNode>
   styles: Map<string, Record<string, string>>
   svgs: Map<string, string>
@@ -130,7 +139,10 @@ async function collectSceneData(roots: SemanticNode[]): Promise<{
       try {
         const svgUint8 = await node.exportAsync({ format: 'SVG' })
         const decoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null
-        const svgString = decoder ? decoder.decode(svgUint8) : String.fromCharCode(...svgUint8)
+        let svgString = decoder ? decoder.decode(svgUint8) : String.fromCharCode(...svgUint8)
+
+        svgString = transformSvgAttributes(svgString, config)
+
         svgs.set(semantic.id, svgString)
       } catch {
         // Fallback
@@ -142,7 +154,8 @@ async function collectSceneData(roots: SemanticNode[]): Promise<{
         merged = inferResizingStyles(merged, node)
 
         if (hasImageFills(node)) {
-          merged = replaceImageUrlsWithPlaceholder(merged, node)
+          // Pass config to respect scale settings
+          merged = replaceImageUrlsWithPlaceholder(merged, node, config)
         }
 
         styles.set(semantic.id, merged)
@@ -168,18 +181,40 @@ function hasImageFills(node: SceneNode): boolean {
   )
 }
 
+function transformSvgAttributes(svg: string, config: CodegenConfig): string {
+  const replacer = (match: string, attr: string, val: string) => {
+    const pxVal = val.endsWith('px') ? val : `${val}px`
+    const normalized = normalizeCssValue(pxVal, config)
+    return `${attr}="${normalized}"`
+  }
+
+  let result = svg.replace(/(width)=["']([^"']+)["']/g, replacer)
+  result = result.replace(/(height)=["']([^"']+)["']/g, replacer)
+
+  return result
+}
+
 function replaceImageUrlsWithPlaceholder(
   style: Record<string, string>,
-  node: SceneNode
+  node: SceneNode,
+  config: CodegenConfig
 ): Record<string, string> {
   if (!style.background && !style['background-image']) return style
 
+  const scale = config.scale ?? 1
   let w = 100
   let h = 100
-  if ('width' in node && typeof node.width === 'number') w = Math.round(node.width)
-  if ('height' in node && typeof node.height === 'number') h = Math.round(node.height)
+
+  // Apply scaling logic to placeholder dimensions
+  if ('width' in node && typeof node.width === 'number') {
+    w = Math.round(node.width * scale)
+  }
+  if ('height' in node && typeof node.height === 'number') {
+    h = Math.round(node.height * scale)
+  }
 
   const placeholderUrl = `https://placehold.co/${w}x${h}`
+
   const result = { ...style }
   const keysToReplace = ['background', 'background-image']
 
@@ -243,12 +278,18 @@ async function renderSemanticNode(
     ? pickChildLayoutStyles(baseStyleForClass)
     : baseStyleForClass
 
-  // Determine if we should inject fills (only for non-component instances)
   const shouldInjectFills = !pluginComponent
 
-  const { classNames, props } = buildClassProps(styleForClass, classProp, semantic.dataHint, node, {
-    injectFills: shouldInjectFills
-  })
+  const { classNames, props } = buildClassProps(
+    styleForClass,
+    classProp,
+    semantic.dataHint,
+    node,
+    ctx.config,
+    {
+      injectFills: shouldInjectFills
+    }
+  )
 
   if (pluginComponent) {
     const hasDataHintProp = semantic.dataHint?.kind === 'attr' && semantic.dataHint.name in props
@@ -273,7 +314,8 @@ async function renderSemanticNode(
       baseStyleForClass,
       classProp,
       semantic.dataHint,
-      node
+      node,
+      ctx.config
     )
     if (segments.length === 1) {
       const single = segments[0]
@@ -373,9 +415,10 @@ function buildClassProps(
   defaultClassProp: 'class' | 'className',
   dataHint: DataHint | undefined,
   node: SceneNode,
+  config: CodegenConfig,
   options: { injectFills?: boolean } = {}
 ) {
-  const classNames = styleToClassNames(style, node, options)
+  const classNames = styleToClassNames(style, config, node, options)
   const props: Record<string, string> = {}
 
   if (classNames.length) props[defaultClassProp] = joinClassNames(classNames)

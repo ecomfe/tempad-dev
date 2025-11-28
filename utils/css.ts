@@ -40,6 +40,7 @@ export const BG_POS_RE =
 // Matches full url() wrapper
 export const BG_URL_RE = /url\((['"]?)(.*?)\1\)/i
 
+// Properties that should usually stay in px and not be converted to rem
 const KEEP_PX_PROPS = new Set([
   'border',
   'border-width',
@@ -193,6 +194,21 @@ export function normalizeCssValue(value: string, config: CodegenConfig, prop?: s
   }
 
   return current
+}
+
+/**
+ * Batch normalize all values in a style object (Scale & Unit Conversion).
+ * Respects the property blacklist.
+ */
+export function normalizeStyleValues(
+  style: Record<string, string>,
+  config: CodegenConfig
+): Record<string, string> {
+  const normalized: Record<string, string> = {}
+  for (const [key, value] of Object.entries(style)) {
+    normalized[key] = normalizeCssValue(value, config, key)
+  }
+  return normalized
 }
 
 type SerializeOptions = {
