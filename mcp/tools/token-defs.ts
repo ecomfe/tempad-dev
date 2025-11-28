@@ -1,9 +1,14 @@
 import type { GetTokenDefsResult } from '@/mcp-server/src/tools'
+import type { CodegenConfig } from '@/utils/codegen'
 
 import { runTransformVariableBatch } from '@/mcp/transform-variable'
 import { activePlugin, options } from '@/ui/state'
-import { canonicalizeVariable, formatHexAlpha, normalizeCssVarName } from '@/utils/css'
-import { toDecimalPlace } from '@/utils/number'
+import {
+  canonicalizeVariable,
+  formatHexAlpha,
+  normalizeCssValue,
+  normalizeCssVarName
+} from '@/utils/css'
 
 const COLOR_SCOPE_HINTS = ['COLOR', 'FILL', 'STROKE', 'TEXT_FILL']
 const TYPO_SCOPE_HINTS = [
@@ -40,7 +45,9 @@ type VariableCollectionInfo = { defaultModeId?: string }
 
 export async function handleGetTokenDefs(nodes: SceneNode[]): Promise<GetTokenDefsResult> {
   const { variableIds } = collectTokenReferences(nodes)
-  const tokens = await resolveVariableTokens(variableIds)
+  const config = getCodegenConfig()
+  const tokens = await resolveVariableTokens(variableIds, config)
+
   tokens.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 
   return { tokens }
@@ -76,23 +83,23 @@ function collectTokenReferences(roots: SceneNode[]): {
   return { variableIds }
 }
 
-async function resolveVariableTokens(ids: Set<string>): Promise<TokenEntry[]> {
+async function resolveVariableTokens(
+  ids: Set<string>,
+  config: CodegenConfig
+): Promise<TokenEntry[]> {
   const references: Array<{ rawName: string }> = []
   const pending: Array<{ rawName: string; value: TokenEntry['value']; kind: TokenEntry['kind'] }> =
     []
 
   ids.forEach((id) => {
     const variable = figma.variables.getVariableById(id)
-    if (!variable) {
-      return
-    }
+    if (!variable) return
 
     const collection = resolveVariableCollection(variable)
     const defaultModeId = pickDefaultModeId(variable, collection)
-    const value = formatVariableValue(variable, defaultModeId, collection)
-    if (value == null) {
-      return
-    }
+    const value = formatVariableValue(variable, defaultModeId, collection, config)
+
+    if (value == null) return
 
     references.push({ rawName: variable.name })
     pending.push({ rawName: variable.name, value, kind: inferVariableKind(variable) })
@@ -164,9 +171,7 @@ function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
 }
 
 function collectVariableIdFromValue(value: unknown, bucket: Set<string>): void {
-  if (!value) {
-    return
-  }
+  if (!value) return
 
   if (Array.isArray(value)) {
     value.forEach((item) => collectVariableIdFromValue(item, bucket))
@@ -193,9 +198,7 @@ function collectVariableIdFromValue(value: unknown, bucket: Set<string>): void {
 
 function resolveVariableCollection(variable: Variable): VariableCollectionInfo | null {
   const collectionId = (variable as VariableWithCollection).variableCollectionId
-  if (!collectionId) {
-    return null
-  }
+  if (!collectionId) return null
 
   try {
     const collection = figma.variables.getVariableCollectionById(collectionId)
@@ -214,8 +217,7 @@ function pickDefaultModeId(
   if (collection?.defaultModeId && collection.defaultModeId in valuesByMode) {
     return collection.defaultModeId
   }
-  const modeId = Object.keys(valuesByMode)[0]
-  return modeId
+  return Object.keys(valuesByMode)[0]
 }
 
 function resolveVariableValueForMode(
@@ -225,17 +227,15 @@ function resolveVariableValueForMode(
   seen: Set<string> = new Set()
 ): unknown {
   const { valuesByMode = {} } = variable
-  if (seen.has(variable.id)) {
-    return null
-  }
+  if (seen.has(variable.id)) return null
   seen.add(variable.id)
 
   const rawValue = valuesByMode[modeId]
+
   if (isVariableAlias(rawValue)) {
     const target = figma.variables.getVariableById(rawValue.id)
-    if (!target) {
-      return rawValue
-    }
+    if (!target) return rawValue
+
     const targetCollection = resolveVariableCollection(target)
     const targetModeId = pickDefaultModeId(target, targetCollection) ?? modeId
     return resolveVariableValueForMode(target, targetModeId, targetCollection, seen)
@@ -243,18 +243,14 @@ function resolveVariableValueForMode(
 
   if (rawValue === undefined && collection?.defaultModeId && collection.defaultModeId !== modeId) {
     const fallback = valuesByMode[collection.defaultModeId]
-    if (fallback !== undefined) {
-      return fallback
-    }
+    if (fallback !== undefined) return fallback
   }
 
   return rawValue
 }
 
 function isVariableAlias(value: unknown): value is VariableAlias {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
+  if (!value || typeof value !== 'object') return false
   const alias = value as VariableAlias
   return typeof alias.id === 'string'
 }
@@ -262,35 +258,32 @@ function isVariableAlias(value: unknown): value is VariableAlias {
 function formatVariableValue(
   variable: Variable,
   modeId: string | undefined,
-  collection?: VariableCollectionInfo | null
+  collection: VariableCollectionInfo | null,
+  config: CodegenConfig
 ): string | Record<string, unknown> | null {
   const { resolvedType } = variable
   const effectiveMode = modeId ?? pickDefaultModeId(variable, collection)
-  if (!effectiveMode) {
-    return null
-  }
+  if (!effectiveMode) return null
 
   const resolved = resolveVariableValueForMode(variable, effectiveMode, collection)
-  if (resolved == null) {
-    return null
-  }
+  if (resolved == null) return null
 
-  return serializeVariableValue(resolved, resolvedType)
+  return serializeVariableValue(resolved, resolvedType, config)
 }
 
 function serializeVariableValue(
   value: unknown,
-  resolvedType: Variable['resolvedType']
+  resolvedType: Variable['resolvedType'],
+  config: CodegenConfig
 ): string | Record<string, unknown> | null {
-  if (value == null) {
-    return null
-  }
+  if (value == null) return null
 
   switch (resolvedType) {
     case 'COLOR':
       return formatHexAlpha(value as RGBA, (value as RGBA).a)
     case 'FLOAT':
-      return formatNumericValue(value as number)
+      // Treat numbers as pixels and normalize (e.g. 16 -> 1rem)
+      return normalizeCssValue(`${value}px`, config)
     case 'BOOLEAN':
       return (value as boolean).toString()
     case 'STRING':
@@ -301,13 +294,6 @@ function serializeVariableValue(
       }
       return null
   }
-}
-
-function formatNumericValue(value: number): string {
-  if (!Number.isFinite(value)) {
-    return '0'
-  }
-  return String(toDecimalPlace(value))
 }
 
 async function transformVariableNames(references: Array<{ rawName: string }>): Promise<string[]> {
@@ -331,7 +317,6 @@ async function transformVariableNames(references: Array<{ rawName: string }>): P
   return replacements.map((expr, idx) => {
     const fallback = transformRefs[idx]
     const canonical = canonicalizeVariable(expr)
-
     const nameMatch = canonical?.match(/^var\((--[^)]+)\)$/)
 
     return nameMatch ? nameMatch[1] : (canonical ?? fallback.name)
@@ -363,4 +348,9 @@ function inferVariableKind(variable: Variable): TokenEntry['kind'] {
 
 function hasScope(scopes: string[], hints: string[]): boolean {
   return scopes.some((scope) => hints.includes(scope))
+}
+
+function getCodegenConfig(): CodegenConfig {
+  const { cssUnit, rootFontSize, scale } = options.value
+  return { cssUnit, rootFontSize, scale }
 }
