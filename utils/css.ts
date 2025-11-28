@@ -36,7 +36,7 @@ export const BG_POS_RE =
   /(?:^|\s)(center|top|bottom|left|right|[\d.]+(?:%|px))(?:\s+(?:center|top|bottom|left|right|[\d.]+(?:%|px)))?(?=\s*\/|\s*$)/i
 export const BG_URL_RE = /url\((['"]?)(.*?)\1\)/i
 
-const KEEP_PX_PROPS = ['border', 'box-shadow', 'filter', 'backdrop-filter', 'stroke-width']
+const KEEP_PX_PROPS = new Set(['border', 'box-shadow', 'filter', 'backdrop-filter', 'stroke-width'])
 const CSS_COMMENTS_RE = /\/\*[\s\S]*?\*\//g
 
 // Helper functions
@@ -83,7 +83,7 @@ export function parseBackgroundShorthand(value: string) {
   return result
 }
 
-function transformPxValueHelper(value: string, transform: (value: number) => string) {
+export function transformPxValue(value: string, transform: (value: number) => string) {
   return value.replace(PX_VALUE_RE, (_, val) => {
     const parsed = parseNumber(val)
     if (parsed == null) return val
@@ -93,11 +93,11 @@ function transformPxValueHelper(value: string, transform: (value: number) => str
 }
 
 function scalePxValue(value: string, scale: number): string {
-  return transformPxValueHelper(value, (val) => `${toDecimalPlace(scale * val)}px`)
+  return transformPxValue(value, (val) => `${toDecimalPlace(scale * val)}px`)
 }
 
 function pxToRem(value: string, rootFontSize: number) {
-  return transformPxValueHelper(value, (val) => `${toDecimalPlace(val / rootFontSize)}rem`)
+  return transformPxValue(value, (val) => `${toDecimalPlace(val / rootFontSize)}rem`)
 }
 
 export function normalizeCssValue(value: string, config: CodegenConfig): string {
@@ -144,12 +144,12 @@ export function serializeCSS(
       )
     }
 
-    if (KEEP_PX_PROPS.includes(key)) {
+    if (KEEP_PX_PROPS.has(key)) {
       return current
     }
 
     if (typeof transformPx === 'function') {
-      current = transformPxValueHelper(current, (value) => transformPx({ value, options }))
+      current = transformPxValue(current, (value) => transformPx({ value, options }))
     }
 
     if (useRem) {
@@ -366,18 +366,12 @@ export function pruneInheritedTextStyles(
   })
 }
 
-/**
- * Standardize a value for comparison/diffing purposes.
- * E.g. "normal" -> "0" for letter-spacing, "#FFF" -> "#FFFFFF" for color.
- */
 export function canonicalizeValue(key: string, value: string): string {
   const trimmed = value.trim().toLowerCase()
-
   if (key === 'color') {
     const hex = canonicalizeColor(trimmed)
     if (hex) return hex
   }
-
   if (key === 'letter-spacing') {
     if (trimmed === 'normal') return '0'
     const m = trimmed.match(/^(-?\d+(?:\.\d+)?)(px|%)?$/)
@@ -388,38 +382,28 @@ export function canonicalizeValue(key: string, value: string): string {
       }
     }
   }
-
   if (key === 'line-height' && trimmed === 'normal') {
     return 'normal'
   }
-
   return trimmed.replace(ALL_WHITESPACE_RE, '')
 }
 
-/**
- * Canonicalize a color string for comparison (diffing).
- * NOT for outputting to Tailwind class names (use formatHexAlpha for that).
- */
 export function canonicalizeColor(value: string): string | null {
   if (value.startsWith('#')) {
     return compressHex(value)
   }
-
-  const rgbMatch = value.match(/^rgba?\(([^)]+)\)$/)
-  if (rgbMatch) {
-    const parts = rgbMatch[1].split(',').map((p) => p.trim())
+  const rgb = value.match(/^rgba?\(([^)]+)\)$/)
+  if (rgb) {
+    const parts = rgb[1].split(',').map((p) => p.trim())
     const [r, g, b, a = '1'] = parts
-
     const toInt = (v: string) => {
       const n = Number(v)
       return Number.isFinite(n) ? Math.round(n) : null
     }
-
     const ri = toInt(r)
     const gi = toInt(g)
     const bi = toInt(b)
     const an = Number(a)
-
     if (
       ri != null &&
       gi != null &&
