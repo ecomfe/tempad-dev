@@ -129,7 +129,8 @@ async function collectSceneData(roots: SemanticNode[]): Promise<{
     if (isVectorNode(node)) {
       try {
         const svgUint8 = await node.exportAsync({ format: 'SVG' })
-        const svgString = String.fromCharCode.apply(null, Array.from(svgUint8))
+        const decoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null
+        const svgString = decoder ? decoder.decode(svgUint8) : String.fromCharCode(...svgUint8)
         svgs.set(semantic.id, svgString)
       } catch {
         // Fallback
