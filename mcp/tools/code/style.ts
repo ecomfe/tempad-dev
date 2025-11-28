@@ -9,7 +9,7 @@ import {
   normalizeStyleVariables,
   parseBackgroundShorthand
 } from '@/utils/css'
-import { cssToTailwind } from '@/utils/tailwind'
+import { cssToClassNames } from '@/utils/tailwind'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
 
@@ -285,6 +285,5 @@ function processFigmaSpecificStyles(
 
 export function styleToClassNames(style: Record<string, string>, node?: SceneNode): string[] {
   const cleanStyle = processFigmaSpecificStyles(style, node)
-  const cls = cssToTailwind(cleanStyle)
-  return cls ? cls.split(/\s+/).filter(Boolean) : []
+  return cssToClassNames(cleanStyle)
 }

@@ -28,6 +28,7 @@ const BARE_CSS_CUSTOM_PROP_RE = /^(--[A-Za-z0-9-_]+)$/
 export const PX_VALUE_RE = /\b(-?\d+(?:.\d+)?)px\b/g
 export const QUOTES_RE = /['"]/g
 export const TOP_LEVEL_COMMA_RE = /,(?![^(]*\))/
+const NUMBER_RE = /^\d+(\.\d+)?$/
 
 // Background shorthand parsing
 export const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
@@ -81,6 +82,66 @@ export function parseBackgroundShorthand(value: string) {
   if (posMatch) result.position = posMatch[0].trim()
 
   return result
+}
+
+export function parseBoxValues(value: string): [string, string, string, string] {
+  const parts = value.trim().split(WHITESPACE_RE)
+
+  if (parts.length === 1) return [parts[0], parts[0], parts[0], parts[0]]
+  if (parts.length === 2) return [parts[0], parts[1], parts[0], parts[1]]
+  if (parts.length === 3) return [parts[0], parts[1], parts[2], parts[1]]
+
+  return [parts[0], parts[1], parts[2], parts[3]]
+}
+
+export function parseFlexShorthand(value: string) {
+  const parts = value.trim().split(WHITESPACE_RE)
+
+  // Default values
+  let grow = '1'
+  let shrink = '1'
+  let basis = '0%'
+
+  if (parts.length === 1) {
+    const p = parts[0]
+    if (p === 'initial') {
+      grow = '0'
+      shrink = '1'
+      basis = 'auto'
+    } else if (p === 'auto') {
+      grow = '1'
+      shrink = '1'
+      basis = 'auto'
+    } else if (p === 'none') {
+      grow = '0'
+      shrink = '0'
+      basis = 'auto'
+    } else if (NUMBER_RE.test(p)) {
+      grow = p
+      shrink = '1'
+      basis = '0%'
+    } else {
+      // Assuming it's a width/basis value
+      grow = '1'
+      shrink = '1'
+      basis = p
+    }
+  } else if (parts.length === 2) {
+    grow = parts[0]
+    if (NUMBER_RE.test(parts[1])) {
+      shrink = parts[1]
+      basis = '0%'
+    } else {
+      shrink = '1'
+      basis = parts[1]
+    }
+  } else if (parts.length >= 3) {
+    grow = parts[0]
+    shrink = parts[1]
+    basis = parts[2]
+  }
+
+  return { grow, shrink, basis }
 }
 
 export function transformPxValue(value: string, transform: (value: number) => string) {
