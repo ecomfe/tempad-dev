@@ -1,8 +1,8 @@
 import type { DevComponent } from '@/types/plugin'
 
 import {
+  canonicalizeValue,
   formatHexAlpha,
-  normalizeComparableValue,
   normalizeCssVarName,
   pruneInheritedTextStyles,
   stripDefaultTextStyles
@@ -117,6 +117,7 @@ export async function renderTextSegments(
     return { segments, commonStyle: {}, metas }
   }
 
+  // Phase 1: Build initial structure and styles
   rawSegments.forEach((seg) => {
     const literal = formatTextLiteral(seg.characters ?? '')
     if (!literal) return
@@ -135,6 +136,7 @@ export async function renderTextSegments(
     return { segments, commonStyle: {}, metas }
   }
 
+  // Phase 2: Apply variable transforms
   const styleMap = new Map<string, Record<string, string>>()
   segStyles.forEach((style, index) => {
     styleMap.set(`${node.id}:seg:${index}`, style)
@@ -145,6 +147,7 @@ export async function renderTextSegments(
     pluginCode: ctx.pluginCode
   })
 
+  // Phase 3: Compute dominant style
   const cleanedStyles = segStyles.map((style) => {
     const cleaned = stripDefaultTextStyles({ ...style })
     pruneInheritedTextStyles(cleaned, inheritedTextStyle)
@@ -153,6 +156,7 @@ export async function renderTextSegments(
 
   const commonStyle = computeDominantStyle(cleanedStyles)
 
+  // Phase 4: Apply class names
   segments.forEach((seg, idx) => {
     const style = omitCommon(cleanedStyles[idx], commonStyle)
     if (!Object.keys(style).length) return
@@ -462,7 +466,7 @@ function computeDominantStyle(styles: Array<Record<string, string>>): Record<str
 
   for (const style of styles) {
     for (const [key, value] of Object.entries(style)) {
-      const normalized = normalizeComparableValue(key, value)
+      const normalized = canonicalizeValue(key, value)
       if (!counts.has(key)) counts.set(key, new Map())
       const perProp = counts.get(key)!
       const entry = perProp.get(normalized)
@@ -493,10 +497,7 @@ function omitCommon(
   const result: Record<string, string> = {}
 
   for (const [key, value] of Object.entries(style)) {
-    if (
-      !common[key] ||
-      normalizeComparableValue(key, value) !== normalizeComparableValue(key, common[key])
-    ) {
+    if (!common[key] || canonicalizeValue(key, value) !== canonicalizeValue(key, common[key])) {
       result[key] = value
     }
   }

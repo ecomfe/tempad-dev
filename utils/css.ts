@@ -32,11 +32,8 @@ export const TOP_LEVEL_COMMA_RE = /,(?![^(]*\))/
 // Background shorthand parsing
 export const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
 export const BG_REPEAT_RE = /(no-repeat|repeat-x|repeat-y|repeat|space|round)/i
-// Matches position (e.g. "center", "50% 50%", "top left")
-// Uses lookahead to ensure we don't eat the slash separator for size
 export const BG_POS_RE =
   /(?:^|\s)(center|top|bottom|left|right|[\d.]+(?:%|px))(?:\s+(?:center|top|bottom|left|right|[\d.]+(?:%|px)))?(?=\s*\/|\s*$)/i
-// Matches full url() wrapper
 export const BG_URL_RE = /url\((['"]?)(.*?)\1\)/i
 
 const KEEP_PX_PROPS = ['border', 'box-shadow', 'filter', 'backdrop-filter', 'stroke-width']
@@ -53,7 +50,8 @@ export function formatHexAlpha(
     return i.toString(16).padStart(2, '0').toUpperCase()
   }
 
-  const hex = `#${toHex(color.r)}${toHex(color.g)}${toHex(color.b)}`
+  const { r, g, b } = color
+  const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`
 
   if (opacity >= 0.99) {
     return hex
@@ -330,10 +328,7 @@ export function stripDefaultTextStyles(style: Record<string, string>): Record<st
   const cleaned: Record<string, string> = {}
   Object.entries(style).forEach(([key, value]) => {
     const defaultValue = TEXT_STYLE_DEFAULTS.get(key)
-    if (
-      defaultValue &&
-      normalizeComparableValue(key, defaultValue) === normalizeComparableValue(key, value)
-    ) {
+    if (defaultValue && canonicalizeValue(key, defaultValue) === canonicalizeValue(key, value)) {
       return
     }
     cleaned[key] = value
@@ -354,29 +349,35 @@ export function pruneInheritedTextStyles(
   ...bases: Array<Record<string, string> | undefined>
 ): void {
   Object.entries(style).forEach(([key, value]) => {
-    const normalizedCurrent = normalizeComparableValue(key, value)
+    const normalizedCurrent = canonicalizeValue(key, value)
 
     for (const base of bases) {
       const inheritedValue = base?.[key]
-      if (inheritedValue && normalizeComparableValue(key, inheritedValue) === normalizedCurrent) {
+      if (inheritedValue && canonicalizeValue(key, inheritedValue) === normalizedCurrent) {
         delete style[key]
         return
       }
     }
 
     const defaultValue = TEXT_STYLE_DEFAULTS.get(key)
-    if (defaultValue && normalizeComparableValue(key, defaultValue) === normalizedCurrent) {
+    if (defaultValue && canonicalizeValue(key, defaultValue) === normalizedCurrent) {
       delete style[key]
     }
   })
 }
 
-export function normalizeComparableValue(key: string, value: string): string {
+/**
+ * Standardize a value for comparison/diffing purposes.
+ * E.g. "normal" -> "0" for letter-spacing, "#FFF" -> "#FFFFFF" for color.
+ */
+export function canonicalizeValue(key: string, value: string): string {
   const trimmed = value.trim().toLowerCase()
+
   if (key === 'color') {
-    const hex = normalizeColorComparable(trimmed)
+    const hex = canonicalizeColor(trimmed)
     if (hex) return hex
   }
+
   if (key === 'letter-spacing') {
     if (trimmed === 'normal') return '0'
     const m = trimmed.match(/^(-?\d+(?:\.\d+)?)(px|%)?$/)
@@ -387,28 +388,38 @@ export function normalizeComparableValue(key: string, value: string): string {
       }
     }
   }
+
   if (key === 'line-height' && trimmed === 'normal') {
     return 'normal'
   }
+
   return trimmed.replace(ALL_WHITESPACE_RE, '')
 }
 
-function normalizeColorComparable(value: string): string | null {
+/**
+ * Canonicalize a color string for comparison (diffing).
+ * NOT for outputting to Tailwind class names (use formatHexAlpha for that).
+ */
+export function canonicalizeColor(value: string): string | null {
   if (value.startsWith('#')) {
     return compressHex(value)
   }
-  const rgb = value.match(/^rgba?\(([^)]+)\)$/)
-  if (rgb) {
-    const parts = rgb[1].split(',').map((p) => p.trim())
+
+  const rgbMatch = value.match(/^rgba?\(([^)]+)\)$/)
+  if (rgbMatch) {
+    const parts = rgbMatch[1].split(',').map((p) => p.trim())
     const [r, g, b, a = '1'] = parts
+
     const toInt = (v: string) => {
       const n = Number(v)
       return Number.isFinite(n) ? Math.round(n) : null
     }
+
     const ri = toInt(r)
     const gi = toInt(g)
     const bi = toInt(b)
     const an = Number(a)
+
     if (
       ri != null &&
       gi != null &&
