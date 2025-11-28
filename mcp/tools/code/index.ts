@@ -55,16 +55,16 @@ export async function handleGetCode(
   const config = codegenConfig()
   const pluginCode = activePlugin.value?.code
 
-  // 1. Data collection
+  // Data collection
   const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots)
 
-  // 2. Standard variable transform
+  // Standard variable transform
   await applyVariableTransforms(styles, {
     config,
     pluginCode
   })
 
-  // 3. Render
+  // Render
   const ctx: RenderContext = {
     styles,
     nodes: nodeMap,
