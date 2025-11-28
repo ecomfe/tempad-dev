@@ -1,4 +1,5 @@
 import type { DevComponent } from '@/types/plugin'
+import type { CodegenConfig } from '@/utils/codegen'
 
 import {
   canonicalizeValue,
@@ -62,8 +63,6 @@ const TYPO_FIELDS = [
 type TokenRef = {
   id: string
   name: string
-  collectionName?: string
-  codeSyntax?: Record<string, string> | null
 }
 
 type SegmentStyleMeta = {
@@ -118,6 +117,7 @@ export async function renderTextSegments(
     return { segments, commonStyle: {}, metas }
   }
 
+  // Build initial structure and styles
   rawSegments.forEach((seg) => {
     const literal = formatTextLiteral(seg.characters ?? '')
     if (!literal) return
@@ -136,6 +136,7 @@ export async function renderTextSegments(
     return { segments, commonStyle: {}, metas }
   }
 
+  // Batch process variable transforms
   const styleMap = new Map<string, Record<string, string>>()
   segStyles.forEach((style, index) => {
     styleMap.set(`${node.id}:seg:${index}`, style)
@@ -144,9 +145,10 @@ export async function renderTextSegments(
   await applyVariableTransforms(styleMap, {
     config: ctx.config,
     pluginCode: ctx.pluginCode,
-    resolveVariables: ctx.options.resolveVariables ?? false // FIX: Access via ctx.options
+    resolveVariables: ctx.options.resolveVariables ?? false
   })
 
+  // Compute dominant style
   const cleanedStyles = segStyles.map((style) => {
     const cleaned = stripDefaultTextStyles({ ...style })
     pruneInheritedTextStyles(cleaned, inheritedTextStyle)
@@ -155,6 +157,7 @@ export async function renderTextSegments(
 
   const commonStyle = computeDominantStyle(cleanedStyles)
 
+  // Apply class names to segments
   segments.forEach((seg, idx) => {
     const style = omitCommon(cleanedStyles[idx], commonStyle)
     if (!Object.keys(style).length) return
@@ -203,19 +206,13 @@ function wrapTextWithTags(literal: string, seg: StyledTextSegmentSubset): DevCom
 }
 
 function resolveAliasToTokenSync(alias: VariableAlias | null | undefined): TokenRef | null {
-  if (!alias || typeof alias !== 'object' || !alias.id) return null
+  if (!alias || !alias.id) return null
   try {
     const variable = figma.variables.getVariableById(alias.id)
     if (!variable) return null
-    const collection = variable.variableCollectionId
-      ? figma.variables.getVariableCollectionById(variable.variableCollectionId)
-      : null
-
     return {
       id: variable.id,
-      name: variable.name,
-      collectionName: collection?.name,
-      codeSyntax: (variable as { codeSyntax?: Record<string, string> }).codeSyntax ?? null
+      name: variable.name
     }
   } catch {
     return null
@@ -291,20 +288,20 @@ function buildSegmentStyle(meta: SegmentStyleMeta, config: CodegenConfig): Recor
 
   const solid = raw.fills?.find((f) => f.type === 'SOLID' && f.visible !== false) as SolidPaint
   const colorToken = tokens.fills.find((f) => f.color)?.color
-  const color = formatTokenExpression(colorToken, formatSolidPaintColor(solid))
+  const color = constructCssVar(colorToken, formatSolidPaintColor(solid))
   if (color) style.color = color
 
   if (raw.fontName?.family) {
-    const fontFamily = formatTokenExpression(tokens.typography.fontFamily, raw.fontName.family)
+    const fontFamily = constructCssVar(tokens.typography.fontFamily, raw.fontName.family)
     if (fontFamily) style['font-family'] = fontFamily
   }
 
   const weight = inferFontWeight(raw.fontName?.style, raw.fontWeight)
   if (weight != null) {
-    style['font-weight'] = formatTokenExpression(tokens.typography.fontWeight, `${weight}`)!
+    style['font-weight'] = constructCssVar(tokens.typography.fontWeight, `${weight}`)!
   }
 
-  const fontStyle = formatTokenExpression(
+  const fontStyle = constructCssVar(
     tokens.typography.fontStyle,
     raw.fontStyle === 'ITALIC' ? 'italic' : 'normal'
   )
@@ -312,16 +309,16 @@ function buildSegmentStyle(meta: SegmentStyleMeta, config: CodegenConfig): Recor
 
   const size = typeof raw.fontSize === 'number' ? `${raw.fontSize}px` : undefined
   const normalizedSize = size ? normalizeCssValue(size, config, 'font-size') : undefined
-  const fontSize = formatTokenExpression(tokens.typography.fontSize, normalizedSize)
+  const fontSize = constructCssVar(tokens.typography.fontSize, normalizedSize)
   if (fontSize) style['font-size'] = fontSize
 
-  const lineHeight = formatTokenExpression(
+  const lineHeight = constructCssVar(
     tokens.typography.lineHeight,
     formatLineHeightValue(raw.lineHeight, config)
   )
   if (lineHeight) style['line-height'] = lineHeight
 
-  const letterSpacing = formatTokenExpression(
+  const letterSpacing = constructCssVar(
     tokens.typography.letterSpacing,
     formatLetterSpacingValue(raw.letterSpacing, config)
   )
@@ -352,20 +349,20 @@ function buildSegmentStyle(meta: SegmentStyleMeta, config: CodegenConfig): Recor
 
   if (typeof raw.paragraphSpacing === 'number' && raw.paragraphSpacing > 0) {
     const spacing = normalizeCssValue(`${raw.paragraphSpacing}px`, config, 'margin-bottom')
-    const paraSpacing = formatTokenExpression(tokens.typography.paragraphSpacing, spacing)
+    const paraSpacing = constructCssVar(tokens.typography.paragraphSpacing, spacing)
     if (paraSpacing) style['margin-bottom'] = paraSpacing
   }
 
   if (typeof raw.indentation === 'number' && raw.indentation > 0) {
     const indentVal = normalizeCssValue(`${raw.indentation}px`, config, 'text-indent')
-    const indent = formatTokenExpression(tokens.typography.paragraphIndent, indentVal)
+    const indent = constructCssVar(tokens.typography.paragraphIndent, indentVal)
     if (indent) style['text-indent'] = indent
   }
 
   return style
 }
 
-function formatTokenExpression(token?: TokenRef | null, fallback?: string): string | undefined {
+function constructCssVar(token?: TokenRef | null, fallback?: string): string | undefined {
   if (token) return `var(--${normalizeCssVarName(token.name)})`
   const safeFallback = fallback?.trim()
   return safeFallback && safeFallback.length ? safeFallback : undefined
