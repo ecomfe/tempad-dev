@@ -12,19 +12,19 @@ import type { McpToolArgs, McpToolName, MCPHandlers } from '@/mcp/runtime'
 
 import { parseMessageToExtension } from '@/mcp-server/src/protocol'
 import { MCP_TOOL_HANDLERS } from '@/mcp/runtime'
+import { MCP_PORT_CANDIDATES } from '@/mcp/shared/constants'
 import { options, runtimeMode } from '@/ui/state'
 
-const PORT_CANDIDATES = [6220, 7431, 8127]
 const RECONNECT_DELAY_MS = 3000
 const IDLE_TIMEOUT_MS = 10000
 
 export type McpStatus = 'disabled' | 'connecting' | 'connected' | 'error'
 
 function getPortCandidates(lastSuccessfulPort: number | null): number[] {
-  if (lastSuccessfulPort && PORT_CANDIDATES.includes(lastSuccessfulPort)) {
-    return [lastSuccessfulPort, ...PORT_CANDIDATES.filter((p) => p !== lastSuccessfulPort)]
+  if (lastSuccessfulPort && MCP_PORT_CANDIDATES.includes(lastSuccessfulPort)) {
+    return [lastSuccessfulPort, ...MCP_PORT_CANDIDATES.filter((p) => p !== lastSuccessfulPort)]
   }
-  return PORT_CANDIDATES
+  return MCP_PORT_CANDIDATES
 }
 
 export const useMcp = createSharedComposable(() => {
