@@ -44,6 +44,7 @@
     "eslint-plugin-vue": "^10.5.1",
     "nanoid": "^5.1.6",
     "overlayscrollbars": "^2.12.0",
+    "p-limit": "^7.2.0",
     "p-wait-for": "^6.0.0",
     "pino": "^9.14.0",
     "playwright-chromium": "^1.56.1",
