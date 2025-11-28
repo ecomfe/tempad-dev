@@ -8,6 +8,7 @@ import {
   normalizeCssValue,
   normalizeCssVarName,
   normalizeStyleVariables,
+  normalizeStyleValues,
   parseBackgroundShorthand
 } from '@/utils/css'
 import { cssToClassNames } from '@/utils/tailwind'
@@ -169,7 +170,6 @@ export async function applyVariableTransforms(
   let replacements: string[] = []
 
   if (resolveVariables) {
-    // Mode: Exact value
     replacements = references.map((ref) => {
       let rawValue = ref.value
       if (!rawValue) {
@@ -181,7 +181,6 @@ export async function applyVariableTransforms(
       return normalizeCssValue(val, config, ref.property)
     })
   } else {
-    // Mode: Token
     const transformResults = await runTransformVariableBatch(
       references.map(({ code, name, value }) => ({ code, name, value })),
       {
@@ -261,7 +260,6 @@ function processFigmaSpecificStyles(
   const processed = { ...style }
   if (!node) return processed
 
-  // Decompose noisy backgrounds
   if (processed.background) {
     const bgValue = processed.background
     if (BG_URL_LIGHTGRAY_RE.test(bgValue) && 'fills' in node && Array.isArray(node.fills)) {
@@ -284,8 +282,6 @@ function processFigmaSpecificStyles(
     }
   }
 
-  // Fallback: Inject background-color if missing
-  // Explicitly exclude TEXT nodes and when injectFills is false (for component instances)
   if (
     injectFills &&
     node.type !== 'TEXT' &&
@@ -307,10 +303,13 @@ function processFigmaSpecificStyles(
 
 export function styleToClassNames(
   style: Record<string, string>,
+  config: CodegenConfig,
   node?: SceneNode,
   options: { injectFills?: boolean } = {}
 ): string[] {
   const { injectFills = true } = options
   const cleanStyle = processFigmaSpecificStyles(style, node, injectFills)
-  return cssToClassNames(cleanStyle)
+  // Batch normalize values (Scale & Unit conversion) before mapping to Tailwind
+  const normalizedStyle = normalizeStyleValues(cleanStyle, config)
+  return cssToClassNames(normalizedStyle)
 }

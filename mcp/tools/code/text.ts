@@ -1,9 +1,8 @@
 import type { DevComponent } from '@/types/plugin'
-import type { CodegenConfig } from '@/utils/codegen'
 
 import {
+  canonicalizeValue,
   formatHexAlpha,
-  normalizeCssValue,
   normalizeCssVarName,
   pruneInheritedTextStyles,
   stripDefaultTextStyles
@@ -116,6 +115,7 @@ export async function renderTextSegments(
     return { segments, commonStyle: {}, metas }
   }
 
+  // Build initial structure and styles
   rawSegments.forEach((seg) => {
     const literal = formatTextLiteral(seg.characters ?? '')
     if (!literal) return
@@ -126,7 +126,8 @@ export async function renderTextSegments(
     if (computeSegmentStyle) {
       const meta = buildSegmentMeta(node, seg)
       metas.push(meta)
-      segStyles.push(buildSegmentStyle(meta, ctx.config))
+      // Pass raw styles, normalization happens later in styleToClassNames
+      segStyles.push(buildSegmentStyle(meta))
     }
   })
 
@@ -134,6 +135,7 @@ export async function renderTextSegments(
     return { segments, commonStyle: {}, metas }
   }
 
+  // Batch process variable transforms
   const styleMap = new Map<string, Record<string, string>>()
   segStyles.forEach((style, index) => {
     styleMap.set(`${node.id}:seg:${index}`, style)
@@ -142,9 +144,10 @@ export async function renderTextSegments(
   await applyVariableTransforms(styleMap, {
     config: ctx.config,
     pluginCode: ctx.pluginCode,
-    resolveVariables: false // Fixed: Hardcoded to false as options removed from context
+    resolveVariables: false
   })
 
+  // Compute dominant style
   const cleanedStyles = segStyles.map((style) => {
     const cleaned = stripDefaultTextStyles({ ...style })
     pruneInheritedTextStyles(cleaned, inheritedTextStyle)
@@ -153,11 +156,13 @@ export async function renderTextSegments(
 
   const commonStyle = computeDominantStyle(cleanedStyles)
 
+  // Apply class names
   segments.forEach((seg, idx) => {
     const style = omitCommon(cleanedStyles[idx], commonStyle)
     if (!Object.keys(style).length) return
 
-    const classNames = styleToClassNames(style, node)
+    // styleToClassNames will handle normalization (scaling/rem)
+    const classNames = styleToClassNames(style, ctx.config, node)
     if (!classNames.length) return
 
     const cls = joinClassNames(classNames)
@@ -277,51 +282,60 @@ function buildSegmentMeta(textNode: TextNode, seg: StyledTextSegmentSubset): Seg
   }
 }
 
-function buildSegmentStyle(meta: SegmentStyleMeta, config: CodegenConfig): Record<string, string> {
+function buildSegmentStyle(meta: SegmentStyleMeta): Record<string, string> {
   const { raw, tokens } = meta
   const style: Record<string, string> = {}
 
+  // Color
   const solid = raw.fills?.find((f) => f.type === 'SOLID' && f.visible !== false) as SolidPaint
   const colorToken = tokens.fills.find((f) => f.color)?.color
   const color = constructCssVar(colorToken, formatSolidPaintColor(solid))
   if (color) style.color = color
 
+  // Font Family
   if (raw.fontName?.family) {
     const fontFamily = constructCssVar(tokens.typography.fontFamily, raw.fontName.family)
     if (fontFamily) style['font-family'] = fontFamily
   }
 
+  // Font Weight
   const weight = inferFontWeight(raw.fontName?.style, raw.fontWeight)
   if (weight != null) {
     style['font-weight'] = constructCssVar(tokens.typography.fontWeight, `${weight}`)!
   }
 
+  // Font Style
   const fontStyle = constructCssVar(
     tokens.typography.fontStyle,
     raw.fontStyle === 'ITALIC' ? 'italic' : 'normal'
   )
   if (fontStyle) style['font-style'] = fontStyle
 
+  // Font Size
+  // We return raw pixels here; normalization happens in styleToClassNames
   const size = typeof raw.fontSize === 'number' ? `${raw.fontSize}px` : undefined
-  const normalizedSize = size ? normalizeCssValue(size, config, 'font-size') : undefined
-  const fontSize = constructCssVar(tokens.typography.fontSize, normalizedSize)
+  const fontSize = constructCssVar(tokens.typography.fontSize, size)
   if (fontSize) style['font-size'] = fontSize
 
+  // Line Height
   const lineHeight = constructCssVar(
     tokens.typography.lineHeight,
-    formatLineHeightValue(raw.lineHeight, config)
+    formatLineHeightValue(raw.lineHeight)
   )
   if (lineHeight) style['line-height'] = lineHeight
 
+  // Letter Spacing
   const letterSpacing = constructCssVar(
     tokens.typography.letterSpacing,
-    formatLetterSpacingValue(raw.letterSpacing, config)
+    formatLetterSpacingValue(raw.letterSpacing)
   )
   if (letterSpacing) style['letter-spacing'] = letterSpacing
 
+  // Text Transform
   const textTransform = raw.textCase ? mapTextCase(raw.textCase) : undefined
   if (textTransform) style['text-transform'] = textTransform
 
+  // Text Decoration
   const decorationLine = mapTextDecorationLine(raw.textDecoration)
   if (decorationLine) style['text-decoration-line'] = decorationLine
 
@@ -329,10 +343,10 @@ function buildSegmentStyle(meta: SegmentStyleMeta, config: CodegenConfig): Recor
     style['text-decoration-style'] = raw.textDecorationStyle.toLowerCase()
   }
 
-  const decorationThickness = formatTextDecorationThickness(raw.textDecorationThickness, config)
+  const decorationThickness = formatTextDecorationThickness(raw.textDecorationThickness)
   if (decorationThickness) style['text-decoration-thickness'] = decorationThickness
 
-  const decorationOffset = formatTextDecorationOffset(raw.textDecorationOffset, config)
+  const decorationOffset = formatTextDecorationOffset(raw.textDecorationOffset)
   if (decorationOffset) style['text-underline-offset'] = decorationOffset
 
   if (typeof raw.textDecorationSkipInk === 'boolean') {
@@ -342,15 +356,18 @@ function buildSegmentStyle(meta: SegmentStyleMeta, config: CodegenConfig): Recor
   const decorationColor = formatTextDecorationColor(raw.textDecorationColor)
   if (decorationColor) style['text-decoration-color'] = decorationColor
 
+  // Paragraph Spacing
   if (typeof raw.paragraphSpacing === 'number' && raw.paragraphSpacing > 0) {
-    const spacing = normalizeCssValue(`${raw.paragraphSpacing}px`, config, 'margin-bottom')
-    const paraSpacing = constructCssVar(tokens.typography.paragraphSpacing, spacing)
+    const paraSpacing = constructCssVar(
+      tokens.typography.paragraphSpacing,
+      `${raw.paragraphSpacing}px`
+    )
     if (paraSpacing) style['margin-bottom'] = paraSpacing
   }
 
+  // Indentation
   if (typeof raw.indentation === 'number' && raw.indentation > 0) {
-    const indentVal = normalizeCssValue(`${raw.indentation}px`, config, 'text-indent')
-    const indent = constructCssVar(tokens.typography.paragraphIndent, indentVal)
+    const indent = constructCssVar(tokens.typography.paragraphIndent, `${raw.indentation}px`)
     if (indent) style['text-indent'] = indent
   }
 
@@ -368,44 +385,34 @@ function formatSolidPaintColor(paint?: SolidPaint): string | undefined {
   return paint.color ? formatHexAlpha(paint.color, paint.opacity) : undefined
 }
 
-function formatLineHeightValue(
-  lineHeight: LineHeight | undefined,
-  config: CodegenConfig
-): string | undefined {
+function formatLineHeightValue(lineHeight?: LineHeight): string | undefined {
   if (!lineHeight) return undefined
   if (lineHeight.unit === 'AUTO') return 'normal'
   if ('value' in lineHeight) {
     if (lineHeight.unit === 'PERCENT') return `${lineHeight.value}%`
-    return normalizeCssValue(`${lineHeight.value}px`, config, 'line-height')
+    return `${lineHeight.value}px`
   }
   return undefined
 }
 
-function formatLetterSpacingValue(
-  letterSpacing: LetterSpacing | undefined,
-  config: CodegenConfig
-): string | undefined {
+function formatLetterSpacingValue(letterSpacing?: LetterSpacing): string | undefined {
   if (!letterSpacing || !('value' in letterSpacing)) return undefined
   if (letterSpacing.unit === 'PERCENT') return `${letterSpacing.value}%`
-  return normalizeCssValue(`${letterSpacing.value}px`, config, 'letter-spacing')
+  return `${letterSpacing.value}px`
 }
 
 function formatTextDecorationThickness(
-  thickness: TextDecorationThickness | null | undefined,
-  config: CodegenConfig
+  thickness?: TextDecorationThickness | null
 ): string | undefined {
   if (!thickness || thickness.unit === 'AUTO') return undefined
   if (thickness.unit === 'PERCENT') return `${thickness.value}%`
-  return normalizeCssValue(`${thickness.value}px`, config, 'text-decoration-thickness')
+  return `${thickness.value}px`
 }
 
-function formatTextDecorationOffset(
-  offset: TextDecorationOffset | null | undefined,
-  config: CodegenConfig
-): string | undefined {
+function formatTextDecorationOffset(offset?: TextDecorationOffset | null): string | undefined {
   if (!offset || offset.unit === 'AUTO') return undefined
   if (offset.unit === 'PERCENT') return `${offset.value}%`
-  return normalizeCssValue(`${offset.value}px`, config, 'text-underline-offset')
+  return `${offset.value}px`
 }
 
 function formatTextDecorationColor(color?: TextDecorationColor | null): string | undefined {
