@@ -20,48 +20,45 @@ function isSceneNode(node: BaseNode | null): node is SceneNode {
   return !!node && 'visible' in node && 'type' in node
 }
 
-function resolveNodes(nodeIds?: string[]): SceneNode[] {
-  if (nodeIds?.length) {
-    const nodes = nodeIds
-      .map((id) => figma.getNodeById(id))
-      .filter(isSceneNode)
-      .filter((node) => node.visible)
-
-    if (nodes.length === 0) throw new Error('No valid nodes found for provided nodeIds.')
-    return nodes
+function resolveSingleNode(nodeId?: string): SceneNode {
+  if (nodeId) {
+    const node = figma.getNodeById(nodeId)
+    if (!isSceneNode(node) || !node.visible) {
+      throw new Error('No valid node found for the provided nodeId.')
+    }
+    return node
   }
 
-  if (selection.value.length === 0) throw new Error('Select at least one node to proceed.')
-  return [...selection.value]
+  if (selection.value.length !== 1 || !selection.value[0].visible) {
+    throw new Error('Select exactly one visible node to proceed.')
+  }
+
+  return selection.value[0]
 }
 
 async function handleGetCode(args?: GetCodeParametersInput): Promise<GetCodeResult> {
-  const nodes = resolveNodes(args?.nodeIds)
+  const node = resolveSingleNode(args?.nodeId)
   const { preferredLang } = args ?? {}
-  return runGetCode(nodes, preferredLang)
+  return runGetCode([node], preferredLang)
 }
 
 async function handleGetTokenDefs(args?: GetTokenDefsParametersInput): Promise<GetTokenDefsResult> {
-  const nodes = resolveNodes(args?.nodeIds)
-  return runGetTokenDefs(nodes)
+  const node = resolveSingleNode(args?.nodeId)
+  return runGetTokenDefs([node])
 }
 
 async function handleGetScreenshot(
   args?: GetScreenshotParametersInput
 ): Promise<GetScreenshotResult> {
-  const nodes = args?.nodeId ? resolveNodes([args.nodeId]) : resolveNodes()
-  if (nodes.length !== 1) {
-    throw new Error('Select exactly one node or provide a single root node id.')
-  }
-
-  return runGetScreenshot(nodes[0])
+  const node = resolveSingleNode(args?.nodeId)
+  return runGetScreenshot(node)
 }
 
 async function handleGetStructure(args?: GetStructureParametersInput): Promise<GetStructureResult> {
-  const { nodeIds, options } = args ?? {}
-  const roots = resolveNodes(nodeIds)
+  const { nodeId, options } = args ?? {}
+  const root = resolveSingleNode(nodeId)
   const depth = options?.depth
-  return runGetStructure(roots, depth)
+  return runGetStructure([root], depth)
 }
 
 export type MCPHandlers = {
