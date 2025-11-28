@@ -233,7 +233,12 @@ async function renderSemanticNode(
     ? pickChildLayoutStyles(baseStyleForClass)
     : baseStyleForClass
 
-  const { classNames, props } = buildClassProps(styleForClass, classProp, semantic.dataHint, node)
+  // Determine if we should inject fills (only for non-component instances)
+  const shouldInjectFills = !pluginComponent
+
+  const { classNames, props } = buildClassProps(styleForClass, classProp, semantic.dataHint, node, {
+    injectFills: shouldInjectFills
+  })
 
   if (pluginComponent) {
     const hasDataHintProp = semantic.dataHint?.kind === 'attr' && semantic.dataHint.name in props
@@ -357,9 +362,10 @@ function buildClassProps(
   style: Record<string, string>,
   defaultClassProp: 'class' | 'className',
   dataHint: DataHint | undefined,
-  node: SceneNode
+  node: SceneNode,
+  options: { injectFills?: boolean } = {}
 ) {
-  const classNames = styleToClassNames(style, node)
+  const classNames = styleToClassNames(style, node, options)
   const props: Record<string, string> = {}
 
   if (classNames.length) props[defaultClassProp] = joinClassNames(classNames)

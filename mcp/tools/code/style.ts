@@ -10,7 +10,7 @@ import {
   normalizeStyleVariables,
   parseBackgroundShorthand
 } from '@/utils/css'
-import { cssToTailwind } from '@/utils/tailwind'
+import { cssToClassNames } from '@/utils/tailwind'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
 const CSS_VAR_FALLBACK_RE = /var\(--[^,]+,\s*(.+)\)/
@@ -255,7 +255,8 @@ function collectVariableReferences(styles: Map<string, Record<string, string>>) 
 
 function processFigmaSpecificStyles(
   style: Record<string, string>,
-  node?: SceneNode
+  node?: SceneNode,
+  injectFills = true
 ): Record<string, string> {
   const processed = { ...style }
   if (!node) return processed
@@ -284,8 +285,9 @@ function processFigmaSpecificStyles(
   }
 
   // Fallback: Inject background-color if missing
-  // Explicitly exclude TEXT nodes
+  // Explicitly exclude TEXT nodes and when injectFills is false (for component instances)
   if (
+    injectFills &&
     node.type !== 'TEXT' &&
     !processed.background &&
     !processed['background-color'] &&
@@ -303,8 +305,12 @@ function processFigmaSpecificStyles(
   return processed
 }
 
-export function styleToClassNames(style: Record<string, string>, node?: SceneNode): string[] {
-  const cleanStyle = processFigmaSpecificStyles(style, node)
-  const cls = cssToTailwind(cleanStyle)
-  return cls ? cls.split(/\s+/).filter(Boolean) : []
+export function styleToClassNames(
+  style: Record<string, string>,
+  node?: SceneNode,
+  options: { injectFills?: boolean } = {}
+): string[] {
+  const { injectFills = true } = options
+  const cleanStyle = processFigmaSpecificStyles(style, node, injectFills)
+  return cssToClassNames(cleanStyle)
 }
