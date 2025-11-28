@@ -9,6 +9,7 @@ import { WebSocketServer } from 'ws'
 
 import type { ExtensionConnection } from './types'
 
+import { getMcpServerConfig } from './config'
 import {
   MessageFromExtensionSchema,
   RegisteredMessage,
@@ -20,16 +21,9 @@ import { register, resolve, reject, cleanupForExtension, cleanupAll } from './re
 import { log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
 import { TOOLS } from './tools'
 
-function parsePositiveInt(env: string | undefined, fallback: number): number {
-  const parsed = env ? Number.parseInt(env, 10) : Number.NaN
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
-}
-
-const WS_PORT_CANDIDATES = [6220, 7431, 8127]
-const TOOL_CALL_TIMEOUT = parsePositiveInt(process.env.TEMPAD_MCP_TOOL_TIMEOUT, 15000)
-const MAX_PAYLOAD_SIZE = 4 * 1024 * 1024
 const SHUTDOWN_TIMEOUT = 2000
-const AUTO_ACTIVATE_GRACE_MS = parsePositiveInt(process.env.TEMPAD_MCP_AUTO_ACTIVATE_GRACE, 1500)
+const { wsPortCandidates, toolTimeoutMs, maxPayloadBytes, autoActivateGraceMs } =
+  getMcpServerConfig()
 
 const extensions: ExtensionConnection[] = []
 let consumerCount = 0
@@ -53,7 +47,7 @@ for (const tool of TOOLS) {
       const activeExt = extensions.find((e) => e.active)
       if (!activeExt) throw new Error('No active TemPad Dev extension available.')
 
-      const { promise, requestId } = register<unknown>(activeExt.id, TOOL_CALL_TIMEOUT)
+      const { promise, requestId } = register<unknown>(activeExt.id, toolTimeoutMs)
 
       const message: ToolCallMessage = {
         type: 'toolCall',
@@ -110,7 +104,7 @@ function scheduleAutoActivate(): void {
       log.info({ id: target.id }, 'Auto-activated sole extension after grace period.')
       broadcastState()
     }
-  }, AUTO_ACTIVATE_GRACE_MS)
+  }, autoActivateGraceMs)
 }
 
 function broadcastState(): void {
@@ -186,11 +180,11 @@ netServer.listen(SOCK_PATH, () => {
 })
 
 async function startWebSocketServer(): Promise<{ wss: WebSocketServer; port: number }> {
-  for (const candidate of WS_PORT_CANDIDATES) {
+  for (const candidate of wsPortCandidates) {
     const server = new WebSocketServer({
       host: '127.0.0.1',
       port: candidate,
-      maxPayload: MAX_PAYLOAD_SIZE
+      maxPayload: maxPayloadBytes
     })
 
     try {
@@ -220,7 +214,7 @@ async function startWebSocketServer(): Promise<{ wss: WebSocketServer; port: num
   }
 
   log.error(
-    { candidates: WS_PORT_CANDIDATES },
+    { candidates: wsPortCandidates },
     'Unable to start WebSocket server on any candidate port.'
   )
   process.exit(1)
