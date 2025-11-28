@@ -1,7 +1,7 @@
 import type { DevComponent } from '@/types/plugin'
 
-import { rgbaToCss } from '@/utils/color'
 import {
+  formatHexAlpha,
   normalizeComparableValue,
   normalizeCssVarName,
   pruneInheritedTextStyles,
@@ -161,7 +161,6 @@ export async function renderTextSegments(
     const style = omitCommon(cleanedStyles[idx], commonStyle)
     if (!Object.keys(style).length) return
 
-    // Use styleToClassNames from style.ts to ensure consistency (e.g. background patches)
     const classNames = styleToClassNames(style, node)
     if (!classNames.length) return
 
@@ -376,7 +375,7 @@ function formatTokenExpression(token?: TokenRef | null, fallback?: string): stri
 
 function formatSolidPaintColor(paint?: SolidPaint): string | undefined {
   if (!paint || paint.type !== 'SOLID') return undefined
-  return paint.color ? rgbaToCss(paint.color, paint.opacity) : undefined
+  return paint.color ? formatHexAlpha(paint.color, paint.opacity) : undefined
 }
 
 function formatLineHeightValue(lineHeight?: LineHeight): string | undefined {

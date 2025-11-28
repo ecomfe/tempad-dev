@@ -1,17 +1,12 @@
 import {
-  normalizeStyleValue,
-  WHITESPACE_RE,
+  ALL_WHITESPACE_RE,
   COMMA_DELIMITER_RE,
-  ALL_WHITESPACE_RE
+  QUOTES_RE,
+  TOP_LEVEL_COMMA_RE,
+  WHITESPACE_RE,
+  normalizeStyleValue,
+  parseBackgroundShorthand
 } from '@/utils/css'
-
-const QUOTES_RE = /['"]/g
-const TOP_LEVEL_COMMA_RE = /,(?![^(]*\))/
-const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
-const BG_REPEAT_RE = /(no-repeat|repeat-x|repeat-y|repeat|space|round)/i
-const BG_URL_RE = /url\(.*?\)/i
-const BG_POS_RE =
-  /(?:^|\s)(center|top|bottom|left|right|[\d.]+(?:%|px))(?:\s+(?:center|top|bottom|left|right|[\d.]+(?:%|px)))?/i
 
 export type Side = 't' | 'r' | 'b' | 'l'
 export type Corner = 'tl' | 'tr' | 'br' | 'bl'
@@ -95,15 +90,581 @@ function isAxis(f: string): f is Axis {
 }
 
 export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
-  // ... (Full config omitted for brevity, assuming same as before)
   display: {
     prefix: '',
     mode: 'direct',
     valueKind: 'keyword',
-    keywords: ['block', 'inline-block', 'inline', 'flex', 'grid', 'hidden'],
+    keywords: [
+      'block',
+      'inline-block',
+      'inline',
+      'flex',
+      'inline-flex',
+      'grid',
+      'inline-grid',
+      'table',
+      'table-row',
+      'table-cell',
+      'contents',
+      'list-item',
+      ['none', 'hidden'],
+      'flow-root'
+    ],
     props: { v: 'display' }
+  },
+  position: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['static', 'fixed', 'absolute', 'relative', 'sticky'],
+    props: { v: 'position' }
+  },
+  overflow: {
+    prefix: 'overflow',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['auto', 'hidden', 'clip', 'visible', 'scroll'],
+    props: { v: 'overflow' }
+  },
+  overflowX: {
+    prefix: 'overflow-x',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['auto', 'hidden', 'clip', 'visible', 'scroll'],
+    props: { v: 'overflow-x' }
+  },
+  overflowY: {
+    prefix: 'overflow-y',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['auto', 'hidden', 'clip', 'visible', 'scroll'],
+    props: { v: 'overflow-y' }
+  },
+  objectFit: {
+    prefix: 'object',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['contain', 'cover', 'fill', 'none', 'scale-down'],
+    props: { v: 'object-fit' }
+  },
+  objectPosition: {
+    prefix: 'object',
+    mode: 'direct',
+    valueKind: 'any',
+    keywords: [
+      'bottom',
+      'center',
+      'left',
+      'left bottom',
+      'left top',
+      'right',
+      'right bottom',
+      'right top',
+      'top'
+    ],
+    props: { v: 'object-position' }
+  },
+  visibility: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['visible', ['hidden', 'invisible'], 'collapse'],
+    props: { v: 'visibility' }
+  },
+  cursor: {
+    prefix: 'cursor',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['auto', 'default', 'pointer', 'wait', 'text', 'move', 'help', 'not-allowed'],
+    props: { v: 'cursor' }
+  },
+  pointerEvents: {
+    prefix: 'pointer-events',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['none', 'auto'],
+    props: { v: 'pointer-events' }
+  },
+  resize: {
+    prefix: 'resize',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['none', 'none'],
+      ['both', ''],
+      ['vertical', 'y'],
+      ['horizontal', 'x']
+    ],
+    props: { v: 'resize' }
+  },
+  listStyleType: {
+    prefix: 'list',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['none', 'disc', 'decimal'],
+    props: { v: 'list-style-type' }
+  },
+  listStylePosition: {
+    prefix: 'list',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['inside', 'outside'],
+    props: { v: 'list-style-position' }
+  },
+  flex: {
+    prefix: 'flex',
+    mode: 'composite',
+    valueKind: 'keyword',
+    props: { grow: 'flex-grow', shrink: 'flex-shrink', basis: 'flex-basis' },
+    composites: [
+      { match: { grow: '1', shrink: '1', basis: '0%' }, suffix: '1' },
+      { match: { grow: '1', shrink: '1', basis: '0px' }, suffix: '1' },
+      { match: { grow: '1', shrink: '1', basis: 'auto' }, suffix: 'auto' },
+      { match: { grow: '0', shrink: '1', basis: 'auto' }, suffix: 'initial' },
+      { match: { grow: '0', shrink: '0', basis: 'auto' }, suffix: 'none' }
+    ],
+    atomics: {
+      grow: { prefix: 'grow', valueKind: 'integer' },
+      shrink: { prefix: 'shrink', valueKind: 'integer' },
+      basis: { prefix: 'basis', valueKind: 'length' }
+    }
+  },
+  flexDirection: {
+    prefix: 'flex',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['row', 'row'],
+      ['row-reverse', 'row-reverse'],
+      ['column', 'col'],
+      ['column-reverse', 'col-reverse']
+    ],
+    props: { v: 'flex-direction' }
+  },
+  flexWrap: {
+    prefix: 'flex',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['nowrap', 'nowrap'],
+      ['wrap', 'wrap'],
+      ['wrap-reverse', 'wrap-reverse']
+    ],
+    props: { v: 'flex-wrap' }
+  },
+  alignItems: {
+    prefix: 'items',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['flex-start', 'start'],
+      ['flex-end', 'end']
+    ],
+    props: { v: 'align-items' }
+  },
+  alignContent: {
+    prefix: 'content',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['flex-start', 'start'],
+      ['flex-end', 'end'],
+      ['space-between', 'between'],
+      ['space-around', 'around'],
+      ['space-evenly', 'evenly']
+    ],
+    props: { v: 'align-content' }
+  },
+  justifyContent: {
+    prefix: 'justify',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['flex-start', 'start'],
+      ['flex-end', 'end'],
+      ['space-between', 'between'],
+      ['space-around', 'around'],
+      ['space-evenly', 'evenly']
+    ],
+    props: { v: 'justify-content' }
+  },
+  justifyItems: {
+    prefix: 'justify-items',
+    mode: 'direct',
+    valueKind: 'keyword',
+    props: { v: 'justify-items' }
+  },
+  justifySelf: {
+    prefix: 'justify-self',
+    mode: 'direct',
+    valueKind: 'keyword',
+    props: { v: 'justify-self' }
+  },
+  alignSelf: {
+    prefix: 'self',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['flex-start', 'start'],
+      ['flex-end', 'end']
+    ],
+    props: { v: 'align-self' }
+  },
+  order: {
+    prefix: 'order',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: [
+      ['0', 'none'],
+      ['-9999', 'first'],
+      ['9999', 'last']
+    ],
+    props: { v: 'order' }
+  },
+  gridTemplateColumns: {
+    prefix: 'grid-cols',
+    mode: 'direct',
+    valueKind: 'any',
+    keywords: ['none', 'subgrid'],
+    props: { v: 'grid-template-columns' }
+  },
+  gridTemplateRows: {
+    prefix: 'grid-rows',
+    mode: 'direct',
+    valueKind: 'any',
+    keywords: ['none', 'subgrid'],
+    props: { v: 'grid-template-rows' }
+  },
+  gridAutoFlow: {
+    prefix: 'grid-flow',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['row', 'col', 'dense', ['row dense', 'row-dense'], ['column dense', 'col-dense']],
+    props: { v: 'grid-auto-flow' }
+  },
+  gridAutoColumns: {
+    prefix: 'auto-cols',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: ['auto', 'min', 'max', 'fr'],
+    props: { v: 'grid-auto-columns' }
+  },
+  gridAutoRows: {
+    prefix: 'auto-rows',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: ['auto', 'min', 'max', 'fr'],
+    props: { v: 'grid-auto-rows' }
+  },
+  gridColumn: {
+    prefix: 'col',
+    mode: 'direct',
+    valueKind: 'any',
+    keywords: [['auto', 'auto']],
+    props: { v: 'grid-column' }
+  },
+  gridColumnStart: {
+    prefix: 'col-start',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: [['auto', 'auto']],
+    props: { v: 'grid-column-start' }
+  },
+  gridColumnEnd: {
+    prefix: 'col-end',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: [['auto', 'auto']],
+    props: { v: 'grid-column-end' }
+  },
+  gridRow: {
+    prefix: 'row',
+    mode: 'direct',
+    valueKind: 'any',
+    keywords: [['auto', 'auto']],
+    props: { v: 'grid-row' }
+  },
+  gridRowStart: {
+    prefix: 'row-start',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: [['auto', 'auto']],
+    props: { v: 'grid-row-start' }
+  },
+  gridRowEnd: {
+    prefix: 'row-end',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: [['auto', 'auto']],
+    props: { v: 'grid-row-end' }
+  },
+  padding: {
+    prefix: 'p',
+    mode: 'side',
+    valueKind: 'length',
+    props: { t: 'padding-top', r: 'padding-right', b: 'padding-bottom', l: 'padding-left' }
+  },
+  margin: {
+    prefix: 'm',
+    mode: 'side',
+    valueKind: 'length',
+    props: { t: 'margin-top', r: 'margin-right', b: 'margin-bottom', l: 'margin-left' }
+  },
+  inset: {
+    prefix: 'inset-',
+    mode: 'side',
+    valueKind: 'length',
+    props: { t: 'top', r: 'right', b: 'bottom', l: 'left' }
+  },
+  gap: {
+    prefix: 'gap-',
+    mode: 'axis',
+    valueKind: 'length',
+    props: { y: 'row-gap', x: 'column-gap' }
+  },
+  width: { prefix: 'w', mode: 'direct', valueKind: 'length', props: { v: 'width' } },
+  height: { prefix: 'h', mode: 'direct', valueKind: 'length', props: { v: 'height' } },
+  minWidth: { prefix: 'min-w', mode: 'direct', valueKind: 'length', props: { v: 'min-width' } },
+  minHeight: { prefix: 'min-h', mode: 'direct', valueKind: 'length', props: { v: 'min-height' } },
+  maxWidth: { prefix: 'max-w', mode: 'direct', valueKind: 'length', props: { v: 'max-width' } },
+  maxHeight: { prefix: 'max-h', mode: 'direct', valueKind: 'length', props: { v: 'max-height' } },
+  fontFamily: { prefix: 'font', mode: 'direct', valueKind: 'any', props: { v: 'font-family' } },
+  fontSize: { prefix: 'text', mode: 'direct', valueKind: 'length', props: { v: 'font-size' } },
+  fontWeight: {
+    prefix: 'font',
+    mode: 'direct',
+    valueKind: 'any',
+    keywords: ['normal', 'bold', 'lighter', 'bolder'],
+    props: { v: 'font-weight' }
+  },
+  fontStyle: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [['normal', 'not-italic'], 'italic'],
+    props: { v: { prop: 'font-style', defaultValue: 'normal' } }
+  },
+  fontStretch: {
+    prefix: 'font-stretch-',
+    mode: 'direct',
+    valueKind: 'keyword',
+    props: { v: { prop: 'font-stretch', defaultValue: 'normal' } }
+  },
+  fontVariantNumeric: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [['normal', 'normal-nums']],
+    props: { v: { prop: 'font-variant-numeric', defaultValue: 'normal' } }
+  },
+  textColor: { prefix: 'text', mode: 'direct', valueKind: 'color', props: { v: 'color' } },
+  textAlign: { prefix: 'text', mode: 'direct', valueKind: 'keyword', props: { v: 'text-align' } },
+  lineHeight: {
+    prefix: 'leading',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'line-height' }
+  },
+  letterSpacing: {
+    prefix: 'tracking',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'letter-spacing' }
+  },
+  textIndent: {
+    prefix: 'indent',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'text-indent' }
+  },
+  verticalAlign: {
+    prefix: 'align-',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: ['baseline', 'top', 'middle', 'bottom', 'text-top', 'text-bottom', 'sub', 'super'],
+    props: { v: 'vertical-align' }
+  },
+  whitespace: {
+    prefix: 'whitespace',
+    mode: 'direct',
+    valueKind: 'keyword',
+    props: { v: 'white-space' }
+  },
+  wordBreak: { prefix: 'break', mode: 'direct', valueKind: 'keyword', props: { v: 'word-break' } },
+  lineClamp: {
+    prefix: 'line-clamp',
+    mode: 'direct',
+    valueKind: 'integer',
+    props: { v: 'line-clamp' }
+  },
+  textTransform: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [['none', 'normal-case'], 'uppercase', 'lowercase', 'capitalize'],
+    props: { v: 'text-transform' }
+  },
+  textDecorationLine: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [['none', 'no-underline'], 'underline', 'line-through'],
+    props: { v: { prop: 'text-decoration-line', defaultValue: 'none' } }
+  },
+  textDecorationColor: {
+    prefix: 'decoration',
+    mode: 'direct',
+    valueKind: 'color',
+    props: { v: 'text-decoration-color' }
+  },
+  textDecorationStyle: {
+    prefix: 'decoration',
+    mode: 'direct',
+    valueKind: 'keyword',
+    props: { v: { prop: 'text-decoration-style', defaultValue: 'solid' } }
+  },
+  textDecorationThickness: {
+    prefix: 'decoration',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'text-decoration-thickness' }
+  },
+  textUnderlineOffset: {
+    prefix: 'underline-offset-',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'text-underline-offset' }
+  },
+  background: {
+    prefix: 'bg',
+    mode: 'direct',
+    valueKind: 'any',
+    props: { v: 'background' }
+  },
+  backgroundColor: {
+    prefix: 'bg',
+    mode: 'direct',
+    valueKind: 'color',
+    props: { v: 'background-color' }
+  },
+  backgroundImage: {
+    prefix: 'bg',
+    mode: 'direct',
+    valueKind: 'any',
+    props: { v: 'background-image' }
+  },
+  backgroundPosition: {
+    prefix: 'bg',
+    mode: 'direct',
+    valueKind: 'any',
+    keywords: [
+      ['center', 'center'],
+      ['top', 'top'],
+      ['bottom', 'bottom'],
+      ['left', 'left'],
+      ['right', 'right'],
+      ['left top', 'left-top'],
+      ['left bottom', 'left-bottom'],
+      ['right top', 'right-top'],
+      ['right bottom', 'right-bottom'],
+      ['50%', 'center'],
+      ['50% 50%', 'center']
+    ],
+    props: { v: 'background-position' }
+  },
+  backgroundSize: {
+    prefix: 'bg',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['auto', 'cover', 'contain'],
+    props: { v: 'background-size' }
+  },
+  backgroundRepeat: {
+    prefix: 'bg',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: [
+      ['no-repeat', 'no-repeat'],
+      ['repeat', 'repeat'],
+      ['repeat-x', 'repeat-x'],
+      ['repeat-y', 'repeat-y']
+    ],
+    props: { v: 'background-repeat' }
+  },
+  fill: { prefix: 'fill-', mode: 'direct', valueKind: 'color', props: { v: 'fill' } },
+  stroke: { prefix: 'stroke-', mode: 'direct', valueKind: 'color', props: { v: 'stroke' } },
+  strokeWidth: {
+    prefix: 'stroke-',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'stroke-width' }
+  },
+  borderWidth: {
+    prefix: 'border-',
+    mode: 'side',
+    valueKind: 'length',
+    props: {
+      t: 'border-top-width',
+      r: 'border-right-width',
+      b: 'border-bottom-width',
+      l: 'border-left-width'
+    }
+  },
+  borderColor: {
+    prefix: 'border-',
+    mode: 'side',
+    valueKind: 'color',
+    props: {
+      t: 'border-top-color',
+      r: 'border-right-color',
+      b: 'border-bottom-color',
+      l: 'border-left-color'
+    }
+  },
+  borderStyle: {
+    prefix: 'border-',
+    mode: 'side',
+    valueKind: 'keyword',
+    props: {
+      t: { prop: 'border-top-style', defaultValue: 'solid' },
+      r: { prop: 'border-right-style', defaultValue: 'solid' },
+      b: { prop: 'border-bottom-style', defaultValue: 'solid' },
+      l: { prop: 'border-left-style', defaultValue: 'solid' }
+    }
+  },
+  radius: {
+    prefix: 'rounded-',
+    mode: 'corner',
+    valueKind: 'length',
+    props: {
+      tl: 'border-top-left-radius',
+      tr: 'border-top-right-radius',
+      br: 'border-bottom-right-radius',
+      bl: 'border-bottom-left-radius'
+    }
+  },
+  opacity: { prefix: 'opacity', mode: 'direct', valueKind: 'percent', props: { v: 'opacity' } },
+  zIndex: {
+    prefix: 'z',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: ['auto'],
+    props: { v: 'z-index' }
+  },
+  boxShadow: { prefix: 'shadow', mode: 'direct', valueKind: 'any', props: { v: 'box-shadow' } },
+  filter: { prefix: 'filter', mode: 'direct', valueKind: 'any', props: { v: 'filter' } },
+  backdropFilter: {
+    prefix: 'backdrop',
+    mode: 'direct',
+    valueKind: 'any',
+    props: { v: 'backdrop-filter' }
+  },
+  mixBlendMode: {
+    prefix: 'mix-blend',
+    mode: 'direct',
+    valueKind: 'keyword',
+    props: { v: 'mix-blend-mode' }
   }
-  // ...
 }
 
 const PROPERTY_MAP: Record<string, PropertyLookup> = {}
@@ -234,17 +795,11 @@ function expandShorthands(style: Record<string, string>): Record<string, string>
   if (expanded['background']) {
     const val = normalizeStyleValue(expanded['background'])
     if (!TOP_LEVEL_COMMA_RE.test(val)) {
-      const size = val.match(BG_SIZE_RE)
-      if (size) expanded['background-size'] = size[1]
-      const repeat = val.match(BG_REPEAT_RE)
-      if (repeat) expanded['background-repeat'] = repeat[0]
-      const pos = val.match(BG_POS_RE)
-      if (pos) {
-        const p = pos[0].trim()
-        if (p) expanded['background-position'] = p
-      }
-      const url = val.match(BG_URL_RE)
-      if (url) expanded['background-image'] = url[0]
+      const parsed = parseBackgroundShorthand(val)
+      if (parsed.size) expanded['background-size'] = parsed.size
+      if (parsed.repeat) expanded['background-repeat'] = parsed.repeat
+      if (parsed.position) expanded['background-position'] = parsed.position
+      if (parsed.image) expanded['background-image'] = parsed.image
       delete expanded['background']
     }
   }
@@ -430,7 +985,7 @@ function collapseComposite(
   return out
 }
 
-export function styleToTailwind(rawStyle: Record<string, string>): string {
+export function cssToTailwind(rawStyle: Record<string, string>): string {
   if (!rawStyle || Object.keys(rawStyle).length === 0) return ''
 
   const expandedStyle = expandShorthands(rawStyle)
@@ -495,7 +1050,7 @@ function formatArbitraryValue(value: string): string {
 }
 
 export function styleToClassNames(style: Record<string, string>): string[] {
-  const cls = styleToTailwind(style)
+  const cls = cssToTailwind(style)
   return cls ? cls.split(WHITESPACE_RE).filter(Boolean) : []
 }
 

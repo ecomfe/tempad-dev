@@ -10,20 +10,34 @@ function escapeSingleQuote(value: string) {
 }
 
 // Regex constants
-export const CSS_VAR_FUNCTION_RE = /var\(--([^,)]+)(?:,\s*([^)]+))?\)/g
-export const CSS_VAR_FUNCTION_EXACT_RE = /^var\(\s*(--[A-Za-z0-9-_]+)\s*(?:,.*)?\)$/
-export const PX_VALUE_RE = /\b(-?\d+(?:.\d+)?)px\b/g
+
 export const WHITESPACE_RE = /\s+/
 export const ALL_WHITESPACE_RE = /\s+/g
 export const COMMA_DELIMITER_RE = /,\s*/g
 export const ZERO_UNITS_RE = /(^|\s)0(px|rem|%|em)(?=$|\s)/g
 
-const KEEP_PX_PROPS = ['border', 'box-shadow', 'filter', 'backdrop-filter', 'stroke-width']
-const CSS_COMMENTS_RE = /\/\*[\s\S]*?\*\//g
+// Variable parsing
+export const CSS_VAR_FUNCTION_RE = /var\(--([^,)]+)(?:,\s*([^)]+))?\)/g
+export const CSS_VAR_FUNCTION_EXACT_RE = /^var\(\s*(--[A-Za-z0-9-_]+)\s*(?:,.*)?\)$/
 const SCSS_VARS_RE = /(^|[^\w-])[$@]([a-zA-Z0-9_-]+)/g
 const VAR_DEFAULTS_RE = /var\((--[a-zA-Z0-9_-]+),\s*[^)]+\)/g
 const PREPROCESSOR_VAR_RE = /^[$@]([A-Za-z0-9-_]+)$/
 const BARE_CSS_CUSTOM_PROP_RE = /^(--[A-Za-z0-9-_]+)$/
+
+// Value parsing
+export const PX_VALUE_RE = /\b(-?\d+(?:.\d+)?)px\b/g
+export const QUOTES_RE = /['"]/g
+export const TOP_LEVEL_COMMA_RE = /,(?![^(]*\))/
+
+// Background shorthand parsing
+export const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
+export const BG_REPEAT_RE = /(no-repeat|repeat-x|repeat-y|repeat|space|round)/i
+export const BG_POS_RE =
+  /(?:^|\s)(center|top|bottom|left|right|[\d.]+(?:%|px))(?:\s+(?:center|top|bottom|left|right|[\d.]+(?:%|px)))?(?=\s*\/|\s*$)/i
+export const BG_URL_RE = /url\((['"]?)(.*?)\1\)/i
+
+const KEEP_PX_PROPS = ['border', 'box-shadow', 'filter', 'backdrop-filter', 'stroke-width']
+const CSS_COMMENTS_RE = /\/\*[\s\S]*?\*\//g
 
 // Helper functions
 
@@ -43,6 +57,29 @@ export function formatHexAlpha(
   }
 
   return `${hex}${toHex(opacity)}`
+}
+
+export function parseBackgroundShorthand(value: string) {
+  const result: {
+    image?: string
+    size?: string
+    repeat?: string
+    position?: string
+  } = {}
+
+  const urlMatch = value.match(BG_URL_RE)
+  if (urlMatch) result.image = urlMatch[0]
+
+  const sizeMatch = value.match(BG_SIZE_RE)
+  if (sizeMatch) result.size = sizeMatch[1]
+
+  const repeatMatch = value.match(BG_REPEAT_RE)
+  if (repeatMatch) result.repeat = repeatMatch[0]
+
+  const posMatch = value.match(BG_POS_RE)
+  if (posMatch) result.position = posMatch[0].trim()
+
+  return result
 }
 
 function transformPxValueHelper(value: string, transform: (value: number) => string) {

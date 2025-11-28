@@ -2,8 +2,7 @@ import type { GetTokenDefsResult } from '@/mcp-server/src/tools'
 
 import { runTransformVariableBatch } from '@/mcp/transform-variable'
 import { activePlugin, options } from '@/ui/state'
-import { rgbaToCss } from '@/utils/color'
-import { canonicalizeVariable, normalizeCssVarName } from '@/utils/css'
+import { canonicalizeVariable, formatHexAlpha, normalizeCssVarName } from '@/utils/css'
 
 const COLOR_SCOPE_HINTS = ['COLOR', 'FILL', 'STROKE', 'TEXT_FILL']
 const TYPO_SCOPE_HINTS = [
@@ -288,7 +287,7 @@ function serializeVariableValue(
 
   switch (resolvedType) {
     case 'COLOR':
-      return rgbaToCss(value as RGBA)
+      return formatHexAlpha(value as RGBA, (value as RGBA).a)
     case 'FLOAT':
       return formatNumericValue(value as number)
     case 'BOOLEAN':
@@ -330,11 +329,8 @@ async function transformVariableNames(references: Array<{ rawName: string }>): P
 
   return replacements.map((expr, idx) => {
     const fallback = transformRefs[idx]
-    // Use canonicalizeVariable from css.ts to ensure consistent variable format (var(--name))
     const canonical = canonicalizeVariable(expr)
 
-    // Attempt to extract the bare name inside var() for cleaner metadata if possible,
-    // otherwise fallback to full expression
     const nameMatch = canonical?.match(/^var\((--[^)]+)\)$/)
 
     return nameMatch ? nameMatch[1] : (canonical ?? fallback.name)

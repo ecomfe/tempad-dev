@@ -13,18 +13,13 @@ import { joinClassNames } from '@/utils/tailwind'
 
 import {
   applyVariableTransforms,
-  mergeInferredAutoLayout,
   inferResizingStyles,
+  mergeInferredAutoLayout,
   styleToClassNames
 } from './style'
 import { renderTextSegments } from './text'
 
 export type CodeLanguage = 'jsx' | 'vue'
-
-export type CodegenOptions = {
-  preferredLang?: CodeLanguage
-  attributeName?: 'class' | 'className'
-}
 
 export type RenderContext = {
   styles: Map<string, Record<string, string>>
@@ -32,43 +27,51 @@ export type RenderContext = {
   svgs: Map<string, string>
   pluginCode?: string
   config: CodegenConfig
-  options: CodegenOptions
+  preferredLang?: CodeLanguage
   detectedLang?: CodeLanguage
 }
 
 type DataHint = { kind: string; name: string; value: unknown }
 
 export async function handleGetCode(
-  node: SceneNode,
-  opts: CodegenOptions = {}
+  nodes: SceneNode[],
+  preferredLang?: CodeLanguage
 ): Promise<GetCodeResult & { assets: Record<string, string> }> {
-  if (!node || !node.visible) {
-    throw new Error('The selected node is not visible or valid.')
+  if (nodes.length !== 1) {
+    throw new Error('Select exactly one node or provide a single root node id.')
   }
 
-  const tree = buildSemanticTree([node])
+  const node = nodes[0]
+  if (!node.visible) {
+    throw new Error('The selected node is not visible.')
+  }
+
+  const tree = buildSemanticTree(nodes)
   const root = tree.roots[0]
   if (!root) {
-    throw new Error('Unable to process the selected node.')
+    throw new Error('No renderable nodes found for the current selection.')
   }
 
   const config = codegenConfig()
   const pluginCode = activePlugin.value?.code
 
+  // 1. Data collection
   const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots)
 
+  // 2. Standard variable transform
   await applyVariableTransforms(styles, {
     config,
     pluginCode
   })
 
+  // 3. Render
   const ctx: RenderContext = {
     styles,
     nodes: nodeMap,
     svgs,
     pluginCode,
     config,
-    options: opts
+    preferredLang
   }
 
   let componentTree = await renderSemanticNode(root, ctx)
@@ -85,7 +88,7 @@ export async function handleGetCode(
     }
   }
 
-  const resolvedLang = opts.preferredLang ?? ctx.detectedLang ?? 'jsx'
+  const resolvedLang = preferredLang ?? ctx.detectedLang ?? 'jsx'
   const markup = stringifyComponent(componentTree, resolvedLang)
 
   const message = tree.stats.capped
@@ -196,11 +199,11 @@ async function renderSemanticNode(
   const rawStyle = ctx.styles.get(semantic.id) ?? {}
   const pluginComponent = node.type === 'INSTANCE' ? await renderPluginComponent(node, ctx) : null
 
-  if (pluginComponent?.lang && !ctx.options.preferredLang && ctx.detectedLang !== 'vue') {
+  if (pluginComponent?.lang && !ctx.preferredLang && ctx.detectedLang !== 'vue') {
     ctx.detectedLang = pluginComponent.lang
   }
 
-  const langHint = pluginComponent?.lang ?? ctx.options.preferredLang ?? ctx.detectedLang
+  const langHint = pluginComponent?.lang ?? ctx.preferredLang ?? ctx.detectedLang
   const classProp = getClassPropName(langHint)
 
   const { textStyle, otherStyle } = splitTextStyles(rawStyle)
@@ -231,13 +234,7 @@ async function renderSemanticNode(
     ? pickChildLayoutStyles(baseStyleForClass)
     : baseStyleForClass
 
-  const { classNames, props } = buildClassProps(
-    styleForClass,
-    classProp,
-    semantic.dataHint,
-    node,
-    ctx.options.attributeName
-  )
+  const { classNames, props } = buildClassProps(styleForClass, classProp, semantic.dataHint, node)
 
   if (pluginComponent) {
     const hasDataHintProp = semantic.dataHint?.kind === 'attr' && semantic.dataHint.name in props
@@ -262,8 +259,7 @@ async function renderSemanticNode(
       baseStyleForClass,
       classProp,
       semantic.dataHint,
-      node,
-      ctx.options.attributeName
+      node
     )
     if (segments.length === 1) {
       const single = segments[0]
@@ -299,7 +295,7 @@ async function renderPluginComponent(
     ctx.pluginCode,
     { returnDevComponent: true }
   )
-  const detectedLang = detectLang(codeBlocks, ctx.options.preferredLang)
+  const detectedLang = detectLang(codeBlocks, ctx.preferredLang)
   const componentBlock = findComponentBlock(codeBlocks, detectedLang)
   const code = componentBlock?.code.trim()
   if (!code && !devComponent) return null
@@ -360,16 +356,14 @@ function pickChildLayoutStyles(style: Record<string, string>): Record<string, st
 
 function buildClassProps(
   style: Record<string, string>,
-  defaultClassProp: 'class' | 'className',
+  classProp: 'class' | 'className',
   dataHint: DataHint | undefined,
-  node: SceneNode,
-  overrideAttributeName?: 'class' | 'className'
+  node: SceneNode
 ) {
   const classNames = styleToClassNames(style, node)
   const props: Record<string, string> = {}
-  const propName = overrideAttributeName ?? defaultClassProp
 
-  if (classNames.length) props[propName] = joinClassNames(classNames)
+  if (classNames.length) props[classProp] = joinClassNames(classNames)
 
   if (dataHint?.kind === 'attr' && dataHint.name !== 'data-tp') {
     const val = dataHint.value

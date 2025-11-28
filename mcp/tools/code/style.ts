@@ -6,16 +6,12 @@ import {
   canonicalizeVariable,
   formatHexAlpha,
   normalizeCssVarName,
-  normalizeStyleVariables
+  normalizeStyleVariables,
+  parseBackgroundShorthand
 } from '@/utils/css'
-import { styleToClassNames as coreStyleToClassNames } from '@/utils/tailwind'
+import { cssToTailwind } from '@/utils/tailwind'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
-const EXTRACT_URL_RE = /url\((['"]?)(.*?)\1\)/
-const EXTRACT_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
-const EXTRACT_REPEAT_RE = /(no-repeat|repeat-x|repeat-y|repeat|space|round)/i
-const EXTRACT_POS_RE =
-  /(?:^|\s)(center|top|bottom|left|right|[\d.]+(?:%|px))(?:\s+(?:center|top|bottom|left|right|[\d.]+(?:%|px)))?(?=\s*\/|\s*$)/i
 
 type AutoLayoutLike = {
   layoutMode?: 'HORIZONTAL' | 'VERTICAL' | 'NONE'
@@ -244,20 +240,16 @@ function processFigmaSpecificStyles(
   const processed = { ...style }
   if (!node) return processed
 
+  // Decompose noisy backgrounds
   if (processed.background) {
     const bgValue = processed.background
     if (BG_URL_LIGHTGRAY_RE.test(bgValue) && 'fills' in node && Array.isArray(node.fills)) {
-      const urlMatch = bgValue.match(EXTRACT_URL_RE)
-      if (urlMatch) processed['background-image'] = urlMatch[0]
+      const parsed = parseBackgroundShorthand(bgValue)
 
-      const sizeMatch = bgValue.match(EXTRACT_SIZE_RE)
-      if (sizeMatch) processed['background-size'] = sizeMatch[1]
-
-      const repeatMatch = bgValue.match(EXTRACT_REPEAT_RE)
-      if (repeatMatch) processed['background-repeat'] = repeatMatch[0]
-
-      const posMatch = bgValue.match(EXTRACT_POS_RE)
-      if (posMatch) processed['background-position'] = posMatch[0].trim()
+      if (parsed.image) processed['background-image'] = parsed.image
+      if (parsed.size) processed['background-size'] = parsed.size
+      if (parsed.repeat) processed['background-repeat'] = parsed.repeat
+      if (parsed.position) processed['background-position'] = parsed.position
 
       const solidFill = node.fills.find(
         (f) => f.type === 'SOLID' && f.visible !== false
@@ -271,7 +263,10 @@ function processFigmaSpecificStyles(
     }
   }
 
+  // Fallback: Inject background-color if missing
+  // Explicitly exclude TEXT nodes
   if (
+    node.type !== 'TEXT' &&
     !processed.background &&
     !processed['background-color'] &&
     'fills' in node &&
@@ -290,5 +285,6 @@ function processFigmaSpecificStyles(
 
 export function styleToClassNames(style: Record<string, string>, node?: SceneNode): string[] {
   const cleanStyle = processFigmaSpecificStyles(style, node)
-  return coreStyleToClassNames(cleanStyle)
+  const cls = cssToTailwind(cleanStyle)
+  return cls ? cls.split(/\s+/).filter(Boolean) : []
 }
