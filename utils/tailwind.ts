@@ -5,7 +5,9 @@ import {
   TOP_LEVEL_COMMA_RE,
   WHITESPACE_RE,
   normalizeStyleValue,
-  parseBackgroundShorthand
+  parseBackgroundShorthand,
+  parseBoxValues,
+  parseFlexShorthand
 } from '@/utils/css'
 
 export type Side = 't' | 'r' | 'b' | 'l'
@@ -695,19 +697,12 @@ Object.keys(TAILWIND_CONFIG).forEach((key) => {
 
 function expandShorthands(style: Record<string, string>): Record<string, string> {
   const expanded: Record<string, string> = { ...style }
-  const parse = (v: string) => v.trim().split(WHITESPACE_RE)
-  const expand4 = (arr: string[]): [string, string, string, string] => {
-    if (arr.length === 1) return [arr[0], arr[0], arr[0], arr[0]]
-    if (arr.length === 2) return [arr[0], arr[1], arr[0], arr[1]]
-    if (arr.length === 3) return [arr[0], arr[1], arr[2], arr[1]]
-    return [arr[0], arr[1], arr[2], arr[3]]
-  }
 
   const boxKeys = ['padding', 'margin', 'inset']
   boxKeys.forEach((key) => {
     if (expanded[key]) {
       const val = normalizeStyleValue(expanded[key])
-      const [t, r, b, l] = expand4(parse(val))
+      const [t, r, b, l] = parseBoxValues(val)
       if (key === 'inset') {
         expanded['top'] = t
         expanded['right'] = r
@@ -725,7 +720,7 @@ function expandShorthands(style: Record<string, string>): Record<string, string>
 
   if (expanded['border-radius']) {
     const val = normalizeStyleValue(expanded['border-radius'])
-    const [tl, tr, br, bl] = expand4(parse(val))
+    const [tl, tr, br, bl] = parseBoxValues(val)
     expanded['border-top-left-radius'] = tl
     expanded['border-top-right-radius'] = tr
     expanded['border-bottom-right-radius'] = br
@@ -735,7 +730,7 @@ function expandShorthands(style: Record<string, string>): Record<string, string>
 
   if (expanded['gap']) {
     const val = normalizeStyleValue(expanded['gap'])
-    const parts = parse(val)
+    const parts = val.trim().split(WHITESPACE_RE)
     expanded['row-gap'] = parts[0]
     expanded['column-gap'] = parts[1] || parts[0]
     delete expanded['gap']
@@ -743,49 +738,7 @@ function expandShorthands(style: Record<string, string>): Record<string, string>
 
   if (expanded['flex']) {
     const val = normalizeStyleValue(expanded['flex'])
-    const parts = parse(val)
-    let grow = '1'
-    let shrink = '1'
-    let basis = '0%'
-
-    if (parts.length === 1) {
-      const p = parts[0]
-      if (p === 'initial') {
-        grow = '0'
-        shrink = '1'
-        basis = 'auto'
-      } else if (p === 'auto') {
-        grow = '1'
-        shrink = '1'
-        basis = 'auto'
-      } else if (p === 'none') {
-        grow = '0'
-        shrink = '0'
-        basis = 'auto'
-      } else if (/^\d+(\.\d+)?$/.test(p)) {
-        grow = p
-        shrink = '1'
-        basis = '0%'
-      } else {
-        grow = '1'
-        shrink = '1'
-        basis = p
-      }
-    } else if (parts.length === 2) {
-      grow = parts[0]
-      if (/^\d+(\.\d+)?$/.test(parts[1])) {
-        shrink = parts[1]
-        basis = '0%'
-      } else {
-        shrink = '1'
-        basis = parts[1]
-      }
-    } else if (parts.length >= 3) {
-      grow = parts[0]
-      shrink = parts[1]
-      basis = parts[2]
-    }
-
+    const { grow, shrink, basis } = parseFlexShorthand(val)
     expanded['flex-grow'] = grow
     expanded['flex-shrink'] = shrink
     expanded['flex-basis'] = basis
@@ -1049,7 +1002,7 @@ function formatArbitraryValue(value: string): string {
   return value.trim().replace(/;+$/, '').replace(ALL_WHITESPACE_RE, '_')
 }
 
-export function styleToClassNames(style: Record<string, string>): string[] {
+export function cssToClassNames(style: Record<string, string>): string[] {
   const cls = cssToTailwind(style)
   return cls ? cls.split(WHITESPACE_RE).filter(Boolean) : []
 }
