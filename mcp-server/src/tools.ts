@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 // get_code
 export const GetCodeParametersSchema = z.object({
-  nodeIds: z.array(z.string()).optional(),
+  nodeId: z.string().optional(),
   preferredLang: z.enum(['jsx', 'vue']).optional()
 })
 
@@ -15,7 +15,7 @@ export type GetCodeResult = {
 
 // get_token_defs
 export const GetTokenDefsParametersSchema = z.object({
-  nodeIds: z.array(z.string()).optional()
+  nodeId: z.string().optional()
 })
 
 export type GetTokenDefsParametersInput = z.input<typeof GetTokenDefsParametersSchema>
@@ -44,7 +44,7 @@ export type GetScreenshotResult = {
 
 // get_structure
 export const GetStructureParametersSchema = z.object({
-  nodeIds: z.array(z.string()).optional(),
+  nodeId: z.string().optional(),
   options: z
     .object({
       depth: z.number().int().positive().optional()
