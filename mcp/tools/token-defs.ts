@@ -1,6 +1,7 @@
 import type { GetTokenDefsResult } from '@/mcp-server/src/tools'
 import type { CodegenConfig } from '@/utils/codegen'
 
+import { MCP_MAX_PAYLOAD_BYTES } from '@/mcp/shared/constants'
 import { runTransformVariableBatch } from '@/mcp/transform-variable'
 import { activePlugin, options } from '@/ui/state'
 import {
@@ -50,7 +51,14 @@ export async function handleGetTokenDefs(nodes: SceneNode[]): Promise<GetTokenDe
 
   tokens.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 
-  return { tokens }
+  const payload: GetTokenDefsResult = { tokens }
+
+  const approxSize = JSON.stringify(payload).length
+  if (approxSize > MCP_MAX_PAYLOAD_BYTES) {
+    throw new Error('Token payload too large. Please reduce selection and retry.')
+  }
+
+  return payload
 }
 
 function hasChildren(node: SceneNode): node is SceneNode & ChildrenMixin {
