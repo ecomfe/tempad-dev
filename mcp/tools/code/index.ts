@@ -8,7 +8,7 @@ import { buildSemanticTree } from '@/mcp/semantic-tree'
 import { activePlugin, options } from '@/ui/state'
 import { generateCodeBlocksForNode } from '@/utils/codegen'
 import { stringifyComponent } from '@/utils/component'
-import { TEXT_STYLE_PROPS, stripDefaultTextStyles } from '@/utils/css'
+import { BG_URL_RE, TEXT_STYLE_PROPS, stripDefaultTextStyles } from '@/utils/css'
 import { joinClassNames } from '@/utils/tailwind'
 
 import {
@@ -21,18 +21,12 @@ import { renderTextSegments } from './text'
 
 export type CodeLanguage = 'jsx' | 'vue'
 
-export type CodegenOptions = {
-  resolveVariables?: boolean
-  preferredLang?: CodeLanguage
-}
-
 export type RenderContext = {
   styles: Map<string, Record<string, string>>
   nodes: Map<string, SceneNode>
   svgs: Map<string, string>
   pluginCode?: string
   config: CodegenConfig
-  options: CodegenOptions
   preferredLang?: CodeLanguage
   detectedLang?: CodeLanguage
 }
@@ -41,7 +35,7 @@ type DataHint = { kind: string; name: string; value: unknown }
 
 export async function handleGetCode(
   nodes: SceneNode[],
-  opts: CodegenOptions = {}
+  preferredLang?: CodeLanguage
 ): Promise<GetCodeResult & { assets: Record<string, string> }> {
   if (nodes.length !== 1) {
     throw new Error('Select exactly one node or provide a single root node id.')
@@ -61,25 +55,21 @@ export async function handleGetCode(
   const config = codegenConfig()
   const pluginCode = activePlugin.value?.code
 
-  // 1. Data Collection
   const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots)
 
-  // 2. Standard Variable Transform
   await applyVariableTransforms(styles, {
     config,
     pluginCode,
-    resolveVariables: opts.resolveVariables ?? false // FIX: Pass the option here
+    resolveVariables: false
   })
 
-  // 3. Render
   const ctx: RenderContext = {
     styles,
     nodes: nodeMap,
     svgs,
     pluginCode,
     config,
-    options: opts, // Pass opts to context so text.ts can access it
-    preferredLang: opts.preferredLang
+    preferredLang
   }
 
   let componentTree = await renderSemanticNode(root, ctx)
@@ -96,7 +86,7 @@ export async function handleGetCode(
     }
   }
 
-  const resolvedLang = opts.preferredLang ?? ctx.detectedLang ?? 'jsx'
+  const resolvedLang = preferredLang ?? ctx.detectedLang ?? 'jsx'
   const markup = stringifyComponent(componentTree, resolvedLang)
 
   const message = tree.stats.capped
@@ -180,13 +170,14 @@ function replaceImageUrlsWithPlaceholder(
   if ('height' in node && typeof node.height === 'number') h = Math.round(node.height)
 
   const placeholderUrl = `https://placehold.co/${w}x${h}`
-
   const result = { ...style }
   const keysToReplace = ['background', 'background-image']
 
+  const regex = new RegExp(BG_URL_RE.source, 'gi')
+
   keysToReplace.forEach((key) => {
     if (!result[key]) return
-    result[key] = result[key].replace(/url\((['"]?)(.*?)\1\)/g, `url('${placeholderUrl}')`)
+    result[key] = result[key].replace(regex, `url('${placeholderUrl}')`)
   })
 
   return result
