@@ -17,12 +17,10 @@ async function exportAtScale(node: SceneNode, scale: number): Promise<Uint8Array
 
 export async function handleGetScreenshot(node: SceneNode): Promise<GetScreenshotResult> {
   const { width, height } = node
-  let lastAttemptBytes = 0
 
   for (const scale of SCALE_STEPS) {
     const bytes = await exportAtScale(node, scale)
     const { byteLength } = bytes
-    lastAttemptBytes = byteLength
 
     if (byteLength <= SCREENSHOT_MAX_BYTES) {
       const base64 = figma.base64Encode(bytes)
@@ -39,6 +37,6 @@ export async function handleGetScreenshot(node: SceneNode): Promise<GetScreensho
   }
 
   throw new Error(
-    `Screenshot payload exceeded ${SCREENSHOT_MAX_BYTES} bytes (last attempt ${lastAttemptBytes} bytes).`
+    'Screenshot payload too large to return. Reduce selection size or scale and retry.'
   )
 }

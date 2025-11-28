@@ -11,7 +11,7 @@ export function handleGetStructure(roots: SceneNode[], depthLimit?: number): Get
 
   const approxSize = JSON.stringify(payload).length
   if (approxSize > MCP_MAX_PAYLOAD_BYTES) {
-    throw new Error('Structure payload too large. Please reduce selection or depth and retry.')
+    throw new Error('Structure payload too large to return. Reduce selection or depth and retry.')
   }
 
   return payload

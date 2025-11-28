@@ -98,8 +98,8 @@ export async function handleGetCode(
   if (markup.length > MAX_CODE_CHARS) {
     markup = markup.slice(0, MAX_CODE_CHARS)
     message = message
-      ? `${message} Output truncated due to size; showing first ${MAX_CODE_CHARS} chars.`
-      : `Output truncated due to size; showing first ${MAX_CODE_CHARS} chars.`
+      ? `${message} Output truncated to fit payload limit; showing first ${MAX_CODE_CHARS} characters.`
+      : `Output truncated to fit payload limit; showing first ${MAX_CODE_CHARS} characters.`
   }
 
   return {

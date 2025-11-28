@@ -55,7 +55,7 @@ export async function handleGetTokenDefs(nodes: SceneNode[]): Promise<GetTokenDe
 
   const approxSize = JSON.stringify(payload).length
   if (approxSize > MCP_MAX_PAYLOAD_BYTES) {
-    throw new Error('Token payload too large. Please reduce selection and retry.')
+    throw new Error('Token payload too large to return. Reduce selection and retry.')
   }
 
   return payload
