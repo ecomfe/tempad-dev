@@ -3,6 +3,7 @@ import type { DevComponent } from '@/types/plugin'
 import {
   canonicalizeValue,
   formatHexAlpha,
+  normalizeCssValue,
   normalizeCssVarName,
   pruneInheritedTextStyles,
   stripDefaultTextStyles
@@ -117,7 +118,6 @@ export async function renderTextSegments(
     return { segments, commonStyle: {}, metas }
   }
 
-  // Phase 1: Build initial structure and styles
   rawSegments.forEach((seg) => {
     const literal = formatTextLiteral(seg.characters ?? '')
     if (!literal) return
@@ -128,7 +128,7 @@ export async function renderTextSegments(
     if (computeSegmentStyle) {
       const meta = buildSegmentMeta(node, seg)
       metas.push(meta)
-      segStyles.push(buildSegmentStyle(meta))
+      segStyles.push(buildSegmentStyle(meta, ctx.config))
     }
   })
 
@@ -136,7 +136,6 @@ export async function renderTextSegments(
     return { segments, commonStyle: {}, metas }
   }
 
-  // Phase 2: Apply variable transforms
   const styleMap = new Map<string, Record<string, string>>()
   segStyles.forEach((style, index) => {
     styleMap.set(`${node.id}:seg:${index}`, style)
@@ -144,10 +143,10 @@ export async function renderTextSegments(
 
   await applyVariableTransforms(styleMap, {
     config: ctx.config,
-    pluginCode: ctx.pluginCode
+    pluginCode: ctx.pluginCode,
+    resolveVariables: ctx.options.resolveVariables ?? false // FIX: Access via ctx.options
   })
 
-  // Phase 3: Compute dominant style
   const cleanedStyles = segStyles.map((style) => {
     const cleaned = stripDefaultTextStyles({ ...style })
     pruneInheritedTextStyles(cleaned, inheritedTextStyle)
@@ -156,7 +155,6 @@ export async function renderTextSegments(
 
   const commonStyle = computeDominantStyle(cleanedStyles)
 
-  // Phase 4: Apply class names
   segments.forEach((seg, idx) => {
     const style = omitCommon(cleanedStyles[idx], commonStyle)
     if (!Object.keys(style).length) return
@@ -287,7 +285,7 @@ function buildSegmentMeta(textNode: TextNode, seg: StyledTextSegmentSubset): Seg
   }
 }
 
-function buildSegmentStyle(meta: SegmentStyleMeta): Record<string, string> {
+function buildSegmentStyle(meta: SegmentStyleMeta, config: CodegenConfig): Record<string, string> {
   const { raw, tokens } = meta
   const style: Record<string, string> = {}
 
@@ -313,18 +311,19 @@ function buildSegmentStyle(meta: SegmentStyleMeta): Record<string, string> {
   if (fontStyle) style['font-style'] = fontStyle
 
   const size = typeof raw.fontSize === 'number' ? `${raw.fontSize}px` : undefined
-  const fontSize = formatTokenExpression(tokens.typography.fontSize, size)
+  const normalizedSize = size ? normalizeCssValue(size, config, 'font-size') : undefined
+  const fontSize = formatTokenExpression(tokens.typography.fontSize, normalizedSize)
   if (fontSize) style['font-size'] = fontSize
 
   const lineHeight = formatTokenExpression(
     tokens.typography.lineHeight,
-    formatLineHeightValue(raw.lineHeight)
+    formatLineHeightValue(raw.lineHeight, config)
   )
   if (lineHeight) style['line-height'] = lineHeight
 
   const letterSpacing = formatTokenExpression(
     tokens.typography.letterSpacing,
-    formatLetterSpacingValue(raw.letterSpacing)
+    formatLetterSpacingValue(raw.letterSpacing, config)
   )
   if (letterSpacing) style['letter-spacing'] = letterSpacing
 
@@ -338,10 +337,10 @@ function buildSegmentStyle(meta: SegmentStyleMeta): Record<string, string> {
     style['text-decoration-style'] = raw.textDecorationStyle.toLowerCase()
   }
 
-  const decorationThickness = formatTextDecorationThickness(raw.textDecorationThickness)
+  const decorationThickness = formatTextDecorationThickness(raw.textDecorationThickness, config)
   if (decorationThickness) style['text-decoration-thickness'] = decorationThickness
 
-  const decorationOffset = formatTextDecorationOffset(raw.textDecorationOffset)
+  const decorationOffset = formatTextDecorationOffset(raw.textDecorationOffset, config)
   if (decorationOffset) style['text-underline-offset'] = decorationOffset
 
   if (typeof raw.textDecorationSkipInk === 'boolean') {
@@ -352,15 +351,14 @@ function buildSegmentStyle(meta: SegmentStyleMeta): Record<string, string> {
   if (decorationColor) style['text-decoration-color'] = decorationColor
 
   if (typeof raw.paragraphSpacing === 'number' && raw.paragraphSpacing > 0) {
-    const paraSpacing = formatTokenExpression(
-      tokens.typography.paragraphSpacing,
-      `${raw.paragraphSpacing}px`
-    )
+    const spacing = normalizeCssValue(`${raw.paragraphSpacing}px`, config, 'margin-bottom')
+    const paraSpacing = formatTokenExpression(tokens.typography.paragraphSpacing, spacing)
     if (paraSpacing) style['margin-bottom'] = paraSpacing
   }
 
   if (typeof raw.indentation === 'number' && raw.indentation > 0) {
-    const indent = formatTokenExpression(tokens.typography.paragraphIndent, `${raw.indentation}px`)
+    const indentVal = normalizeCssValue(`${raw.indentation}px`, config, 'text-indent')
+    const indent = formatTokenExpression(tokens.typography.paragraphIndent, indentVal)
     if (indent) style['text-indent'] = indent
   }
 
@@ -378,30 +376,44 @@ function formatSolidPaintColor(paint?: SolidPaint): string | undefined {
   return paint.color ? formatHexAlpha(paint.color, paint.opacity) : undefined
 }
 
-function formatLineHeightValue(lineHeight?: LineHeight): string | undefined {
+function formatLineHeightValue(
+  lineHeight: LineHeight | undefined,
+  config: CodegenConfig
+): string | undefined {
   if (!lineHeight) return undefined
   if (lineHeight.unit === 'AUTO') return 'normal'
   if ('value' in lineHeight) {
-    return lineHeight.unit === 'PERCENT' ? `${lineHeight.value}%` : `${lineHeight.value}px`
+    if (lineHeight.unit === 'PERCENT') return `${lineHeight.value}%`
+    return normalizeCssValue(`${lineHeight.value}px`, config, 'line-height')
   }
   return undefined
 }
 
-function formatLetterSpacingValue(letterSpacing?: LetterSpacing): string | undefined {
+function formatLetterSpacingValue(
+  letterSpacing: LetterSpacing | undefined,
+  config: CodegenConfig
+): string | undefined {
   if (!letterSpacing || !('value' in letterSpacing)) return undefined
-  return letterSpacing.unit === 'PERCENT' ? `${letterSpacing.value}%` : `${letterSpacing.value}px`
+  if (letterSpacing.unit === 'PERCENT') return `${letterSpacing.value}%`
+  return normalizeCssValue(`${letterSpacing.value}px`, config, 'letter-spacing')
 }
 
 function formatTextDecorationThickness(
-  thickness?: TextDecorationThickness | null
+  thickness: TextDecorationThickness | null | undefined,
+  config: CodegenConfig
 ): string | undefined {
   if (!thickness || thickness.unit === 'AUTO') return undefined
-  return thickness.unit === 'PERCENT' ? `${thickness.value}%` : `${thickness.value}px`
+  if (thickness.unit === 'PERCENT') return `${thickness.value}%`
+  return normalizeCssValue(`${thickness.value}px`, config, 'text-decoration-thickness')
 }
 
-function formatTextDecorationOffset(offset?: TextDecorationOffset | null): string | undefined {
+function formatTextDecorationOffset(
+  offset: TextDecorationOffset | null | undefined,
+  config: CodegenConfig
+): string | undefined {
   if (!offset || offset.unit === 'AUTO') return undefined
-  return offset.unit === 'PERCENT' ? `${offset.value}%` : `${offset.value}px`
+  if (offset.unit === 'PERCENT') return `${offset.value}%`
+  return normalizeCssValue(`${offset.value}px`, config, 'text-underline-offset')
 }
 
 function formatTextDecorationColor(color?: TextDecorationColor | null): string | undefined {

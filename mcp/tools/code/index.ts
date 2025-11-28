@@ -21,12 +21,18 @@ import { renderTextSegments } from './text'
 
 export type CodeLanguage = 'jsx' | 'vue'
 
+export type CodegenOptions = {
+  resolveVariables?: boolean
+  preferredLang?: CodeLanguage
+}
+
 export type RenderContext = {
   styles: Map<string, Record<string, string>>
   nodes: Map<string, SceneNode>
   svgs: Map<string, string>
   pluginCode?: string
   config: CodegenConfig
+  options: CodegenOptions
   preferredLang?: CodeLanguage
   detectedLang?: CodeLanguage
 }
@@ -35,7 +41,7 @@ type DataHint = { kind: string; name: string; value: unknown }
 
 export async function handleGetCode(
   nodes: SceneNode[],
-  preferredLang?: CodeLanguage
+  opts: CodegenOptions = {}
 ): Promise<GetCodeResult & { assets: Record<string, string> }> {
   if (nodes.length !== 1) {
     throw new Error('Select exactly one node or provide a single root node id.')
@@ -55,23 +61,25 @@ export async function handleGetCode(
   const config = codegenConfig()
   const pluginCode = activePlugin.value?.code
 
-  // Data collection
+  // 1. Data Collection
   const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots)
 
-  // Standard variable transform
+  // 2. Standard Variable Transform
   await applyVariableTransforms(styles, {
     config,
-    pluginCode
+    pluginCode,
+    resolveVariables: opts.resolveVariables ?? false // FIX: Pass the option here
   })
 
-  // Render
+  // 3. Render
   const ctx: RenderContext = {
     styles,
     nodes: nodeMap,
     svgs,
     pluginCode,
     config,
-    preferredLang
+    options: opts, // Pass opts to context so text.ts can access it
+    preferredLang: opts.preferredLang
   }
 
   let componentTree = await renderSemanticNode(root, ctx)
@@ -88,7 +96,7 @@ export async function handleGetCode(
     }
   }
 
-  const resolvedLang = preferredLang ?? ctx.detectedLang ?? 'jsx'
+  const resolvedLang = opts.preferredLang ?? ctx.detectedLang ?? 'jsx'
   const markup = stringifyComponent(componentTree, resolvedLang)
 
   const message = tree.stats.capped
@@ -356,14 +364,14 @@ function pickChildLayoutStyles(style: Record<string, string>): Record<string, st
 
 function buildClassProps(
   style: Record<string, string>,
-  classProp: 'class' | 'className',
+  defaultClassProp: 'class' | 'className',
   dataHint: DataHint | undefined,
   node: SceneNode
 ) {
   const classNames = styleToClassNames(style, node)
   const props: Record<string, string> = {}
 
-  if (classNames.length) props[classProp] = joinClassNames(classNames)
+  if (classNames.length) props[defaultClassProp] = joinClassNames(classNames)
 
   if (dataHint?.kind === 'attr' && dataHint.name !== 'data-tp') {
     const val = dataHint.value
