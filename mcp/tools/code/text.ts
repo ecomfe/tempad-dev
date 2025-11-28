@@ -2,7 +2,6 @@ import type { DevComponent } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
 
 import {
-  canonicalizeValue,
   formatHexAlpha,
   normalizeCssValue,
   normalizeCssVarName,
@@ -117,7 +116,6 @@ export async function renderTextSegments(
     return { segments, commonStyle: {}, metas }
   }
 
-  // Build initial structure and styles
   rawSegments.forEach((seg) => {
     const literal = formatTextLiteral(seg.characters ?? '')
     if (!literal) return
@@ -136,7 +134,6 @@ export async function renderTextSegments(
     return { segments, commonStyle: {}, metas }
   }
 
-  // Batch process variable transforms
   const styleMap = new Map<string, Record<string, string>>()
   segStyles.forEach((style, index) => {
     styleMap.set(`${node.id}:seg:${index}`, style)
@@ -145,10 +142,9 @@ export async function renderTextSegments(
   await applyVariableTransforms(styleMap, {
     config: ctx.config,
     pluginCode: ctx.pluginCode,
-    resolveVariables: ctx.options.resolveVariables ?? false
+    resolveVariables: false // Fixed: Hardcoded to false as options removed from context
   })
 
-  // Compute dominant style
   const cleanedStyles = segStyles.map((style) => {
     const cleaned = stripDefaultTextStyles({ ...style })
     pruneInheritedTextStyles(cleaned, inheritedTextStyle)
@@ -157,7 +153,6 @@ export async function renderTextSegments(
 
   const commonStyle = computeDominantStyle(cleanedStyles)
 
-  // Apply class names to segments
   segments.forEach((seg, idx) => {
     const style = omitCommon(cleanedStyles[idx], commonStyle)
     if (!Object.keys(style).length) return
