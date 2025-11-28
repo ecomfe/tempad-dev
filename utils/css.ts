@@ -33,11 +33,26 @@ const NUMBER_RE = /^\d+(\.\d+)?$/
 // Background shorthand parsing
 export const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
 export const BG_REPEAT_RE = /(no-repeat|repeat-x|repeat-y|repeat|space|round)/i
+// Matches position (e.g. "center", "50% 50%", "top left")
+// Uses lookahead to ensure we don't eat the slash separator for size
 export const BG_POS_RE =
   /(?:^|\s)(center|top|bottom|left|right|[\d.]+(?:%|px))(?:\s+(?:center|top|bottom|left|right|[\d.]+(?:%|px)))?(?=\s*\/|\s*$)/i
+// Matches full url() wrapper
 export const BG_URL_RE = /url\((['"]?)(.*?)\1\)/i
 
-const KEEP_PX_PROPS = new Set(['border', 'box-shadow', 'filter', 'backdrop-filter', 'stroke-width'])
+const KEEP_PX_PROPS = new Set([
+  'border',
+  'border-width',
+  'border-top-width',
+  'border-right-width',
+  'border-bottom-width',
+  'border-left-width',
+  'stroke-width',
+  'box-shadow',
+  'filter',
+  'backdrop-filter'
+])
+
 const CSS_COMMENTS_RE = /\/\*[\s\S]*?\*\//g
 
 // Helper functions
@@ -97,7 +112,6 @@ export function parseBoxValues(value: string): [string, string, string, string] 
 export function parseFlexShorthand(value: string) {
   const parts = value.trim().split(WHITESPACE_RE)
 
-  // Default values
   let grow = '1'
   let shrink = '1'
   let basis = '0%'
@@ -121,7 +135,6 @@ export function parseFlexShorthand(value: string) {
       shrink = '1'
       basis = '0%'
     } else {
-      // Assuming it's a width/basis value
       grow = '1'
       shrink = '1'
       basis = p
@@ -161,10 +174,14 @@ function pxToRem(value: string, rootFontSize: number) {
   return transformPxValue(value, (val) => `${toDecimalPlace(val / rootFontSize)}rem`)
 }
 
-export function normalizeCssValue(value: string, config: CodegenConfig): string {
+export function normalizeCssValue(value: string, config: CodegenConfig, prop?: string): string {
   if (!value) return value
 
   let current = value.trim()
+
+  if (prop && KEEP_PX_PROPS.has(prop)) {
+    return current
+  }
 
   if (typeof config.scale === 'number' && config.scale !== 1) {
     current = scalePxValue(current, config.scale)

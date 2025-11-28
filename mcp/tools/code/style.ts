@@ -5,13 +5,15 @@ import {
   CSS_VAR_FUNCTION_RE,
   canonicalizeVariable,
   formatHexAlpha,
+  normalizeCssValue,
   normalizeCssVarName,
   normalizeStyleVariables,
   parseBackgroundShorthand
 } from '@/utils/css'
-import { cssToClassNames } from '@/utils/tailwind'
+import { cssToTailwind } from '@/utils/tailwind'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
+const CSS_VAR_FALLBACK_RE = /var\(--[^,]+,\s*(.+)\)/
 
 type AutoLayoutLike = {
   layoutMode?: 'HORIZONTAL' | 'VERTICAL' | 'NONE'
@@ -154,28 +156,46 @@ type PropertyBucket = {
 type ApplyVariableOptions = {
   config: CodegenConfig
   pluginCode?: string
+  resolveVariables: boolean
 }
 
 export async function applyVariableTransforms(
   styles: Map<string, Record<string, string>>,
-  { config, pluginCode }: ApplyVariableOptions
+  { config, pluginCode, resolveVariables }: ApplyVariableOptions
 ): Promise<void> {
   const { references, buckets } = collectVariableReferences(styles)
   if (!references.length) return
 
-  const transformResults = await runTransformVariableBatch(
-    references.map(({ code, name, value }) => ({ code, name, value })),
-    {
-      useRem: config.cssUnit === 'rem',
-      rootFontSize: config.rootFontSize ?? 16,
-      scale: config.scale ?? 1
-    },
-    pluginCode
-  )
+  let replacements: string[] = []
 
-  const replacements = transformResults.map((result) => {
-    return canonicalizeVariable(result) || result
-  })
+  if (resolveVariables) {
+    // Mode: Exact value
+    replacements = references.map((ref) => {
+      let rawValue = ref.value
+      if (!rawValue) {
+        const match = ref.code.match(CSS_VAR_FALLBACK_RE)
+        if (match && match[1]) rawValue = match[1]
+      }
+
+      const val = (rawValue || ref.code).trim()
+      return normalizeCssValue(val, config, ref.property)
+    })
+  } else {
+    // Mode: Token
+    const transformResults = await runTransformVariableBatch(
+      references.map(({ code, name, value }) => ({ code, name, value })),
+      {
+        useRem: config.cssUnit === 'rem',
+        rootFontSize: config.rootFontSize ?? 16,
+        scale: config.scale ?? 1
+      },
+      pluginCode
+    )
+
+    replacements = transformResults.map((result) => {
+      return canonicalizeVariable(result) || result
+    })
+  }
 
   const safeRegex = new RegExp(CSS_VAR_FUNCTION_RE.source, CSS_VAR_FUNCTION_RE.flags)
 
@@ -285,5 +305,6 @@ function processFigmaSpecificStyles(
 
 export function styleToClassNames(style: Record<string, string>, node?: SceneNode): string[] {
   const cleanStyle = processFigmaSpecificStyles(style, node)
-  return cssToClassNames(cleanStyle)
+  const cls = cssToTailwind(cleanStyle)
+  return cls ? cls.split(/\s+/).filter(Boolean) : []
 }
