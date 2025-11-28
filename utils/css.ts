@@ -1,4 +1,5 @@
 import type { TransformOptions } from '@/types/plugin'
+import type { CodegenConfig } from '@/utils/codegen'
 
 import { compressHex, formatHex } from './color'
 import { parseNumber, toDecimalPlace } from './number'
@@ -8,44 +9,82 @@ function escapeSingleQuote(value: string) {
   return value.replace(/'/g, "\\'")
 }
 
-const PX_VALUE_RE = /\b(-?\d+(?:.\d+)?)px\b/g
+// Regex constants
 export const CSS_VAR_FUNCTION_RE = /var\(--([^,)]+)(?:,\s*([^)]+))?\)/g
+export const CSS_VAR_FUNCTION_EXACT_RE = /^var\(\s*(--[A-Za-z0-9-_]+)\s*(?:,.*)?\)$/
+export const PX_VALUE_RE = /\b(-?\d+(?:.\d+)?)px\b/g
+export const WHITESPACE_RE = /\s+/
+export const ALL_WHITESPACE_RE = /\s+/g
+export const COMMA_DELIMITER_RE = /,\s*/g
+export const ZERO_UNITS_RE = /(^|\s)0(px|rem|%|em)(?=$|\s)/g
+
 const KEEP_PX_PROPS = ['border', 'box-shadow', 'filter', 'backdrop-filter', 'stroke-width']
 const CSS_COMMENTS_RE = /\/\*[\s\S]*?\*\//g
 const SCSS_VARS_RE = /(^|[^\w-])[$@]([a-zA-Z0-9_-]+)/g
 const VAR_DEFAULTS_RE = /var\((--[a-zA-Z0-9_-]+),\s*[^)]+\)/g
-const ZERO_UNITS_RE = /(^|\s)0(px|rem|%|em)(?=$|\s)/g
+const PREPROCESSOR_VAR_RE = /^[$@]([A-Za-z0-9-_]+)$/
+const BARE_CSS_CUSTOM_PROP_RE = /^(--[A-Za-z0-9-_]+)$/
 
-function transformPxValue(value: string, transform: (value: number) => string) {
+// Helper functions
+
+export function formatHexAlpha(
+  color: { r: number; g: number; b: number },
+  opacity: number = 1
+): string {
+  const toHex = (n: number) => {
+    const i = Math.min(255, Math.max(0, Math.round(n * 255)))
+    return i.toString(16).padStart(2, '0').toUpperCase()
+  }
+
+  const hex = `#${toHex(color.r)}${toHex(color.g)}${toHex(color.b)}`
+
+  if (opacity >= 0.99) {
+    return hex
+  }
+
+  return `${hex}${toHex(opacity)}`
+}
+
+function transformPxValueHelper(value: string, transform: (value: number) => string) {
   return value.replace(PX_VALUE_RE, (_, val) => {
     const parsed = parseNumber(val)
-    if (parsed == null) {
-      return val
-    }
-    if (parsed === 0) {
-      return '0'
-    }
+    if (parsed == null) return val
+    if (parsed === 0) return '0'
     return transform(toDecimalPlace(parsed, 5))
   })
 }
 
 function scalePxValue(value: string, scale: number): string {
-  return transformPxValue(value, (val) => `${toDecimalPlace(scale * val)}px`)
+  return transformPxValueHelper(value, (val) => `${toDecimalPlace(scale * val)}px`)
 }
 
 function pxToRem(value: string, rootFontSize: number) {
-  return transformPxValue(value, (val) => `${toDecimalPlace(val / rootFontSize)}rem`)
+  return transformPxValueHelper(value, (val) => `${toDecimalPlace(val / rootFontSize)}rem`)
 }
 
-type ProcessValueOptions = {
-  useRem: boolean
-  rootFontSize: number
-  scale: number
+export function normalizeCssValue(value: string, config: CodegenConfig): string {
+  if (!value) return value
+
+  let current = value.trim()
+
+  if (typeof config.scale === 'number' && config.scale !== 1) {
+    current = scalePxValue(current, config.scale)
+  }
+
+  if (config.cssUnit === 'rem') {
+    const root = config.rootFontSize || 16
+    current = pxToRem(current, root)
+  }
+
+  return current
 }
 
 type SerializeOptions = {
   toJS?: boolean
-} & ProcessValueOptions
+  useRem: boolean
+  rootFontSize: number
+  scale: number
+}
 
 export function serializeCSS(
   style: Record<string, string>,
@@ -72,7 +111,7 @@ export function serializeCSS(
     }
 
     if (typeof transformPx === 'function') {
-      current = transformPxValue(current, (value) => transformPx({ value, options }))
+      current = transformPxValueHelper(current, (value) => transformPx({ value, options }))
     }
 
     if (useRem) {
@@ -84,7 +123,6 @@ export function serializeCSS(
 
   function stringifyValue(value: string) {
     if (value.includes('\0')) {
-      // Check if the entire string is a single variable enclosed by \0
       if (
         value.startsWith('\0') &&
         value.endsWith('\0') &&
@@ -94,7 +132,6 @@ export function serializeCSS(
       }
 
       const parts = value.split('\0')
-
       const template = parts
         .map((part, index) => (index % 2 === 0 ? part.replace(/`/g, '\\`') : '${' + part + '}'))
         .join('')
@@ -132,49 +169,19 @@ export function serializeCSS(
   return code
 }
 
-const CSS_VAR_FUNCTION_EXACT_RE = /^var\(\s*(--[A-Za-z0-9-_]+)\s*(?:,.*)?\)$/
-const PREPROCESSOR_VAR_RE = /^[$@]([A-Za-z0-9-_]+)$/
-const BARE_CSS_CUSTOM_PROP_RE = /^(--[A-Za-z0-9-_]+)$/
+// Variable canonicalization
 
-/**
- * Normalize any variable-shaped value into CSS var(--name).
- *
- * Supported input forms:
- * 1) CSS var():
- *    - "var(--ui-foo, 20px)" -> "var(--ui-foo)"
- *    - "var(--ui-foo, $ui-foo)" -> "var(--ui-foo)"
- *    - "var(--ui-foo)" -> "var(--ui-foo)"
- * 2) Preprocessor variables:
- *    - "$ui-foo" -> "var(--ui-foo)"
- *    - "@ui-foo" -> "var(--ui-foo)"
- * 3) Bare CSS custom property (optional):
- *    - "--ui-foo" -> "var(--ui-foo)"
- *
- * If the value is not recognized as a variable form, returns null.
- */
 export function canonicalizeVariable(value: string): string | null {
   const v = normalizeStyleValue(value)
 
-  // 1) CSS var(--name, fallback) or var(--name)
   const varFn = v.match(CSS_VAR_FUNCTION_EXACT_RE)
-  if (varFn) {
-    const name = varFn[1] // already like "--ui-foo"
-    return `var(${name})`
-  }
+  if (varFn) return `var(${varFn[1]})`
 
-  // 2) SCSS / Less variables: $name / @name
   const pre = v.match(PREPROCESSOR_VAR_RE)
-  if (pre) {
-    const name = pre[1] // like "ui-foo"
-    return `var(--${name})`
-  }
+  if (pre) return `var(--${pre[1]})`
 
-  // 3) Bare CSS custom property: --name
   const bare = v.match(BARE_CSS_CUSTOM_PROP_RE)
-  if (bare) {
-    const name = bare[1] // like "--ui-foo"
-    return `var(${name})`
-  }
+  if (bare) return `var(${bare[1]})`
 
   return null
 }
@@ -203,9 +210,6 @@ export function normalizeCssVarValue(value: string): string {
   return normalizedVarFns
 }
 
-/**
- * Normalize all variable-like tokens in a style map in place.
- */
 export function normalizeStyleVariables(style: Record<string, string>): Record<string, string> {
   Object.entries(style).forEach(([key, value]) => {
     const normalized = normalizeCssVarValue(value)
@@ -243,6 +247,7 @@ export function normalizeStyleValue(raw: string): string {
 }
 
 // Text style helpers
+
 const TEXT_STYLE_DEFAULTS = new Map<string, string>([
   ['text-decoration-skip-ink', 'auto'],
   ['text-underline-offset', 'auto'],
@@ -301,8 +306,6 @@ export function stripVariantTextProps(
   hasVariants: boolean
 ): Record<string, string> {
   if (!hasVariants) return style
-  // When mixed segments exist, we conservatively keep only properties that are present on all segments (handled by caller).
-  // This helper is retained for API compatibility; it simply returns the original style when variants are present.
   return style
 }
 
@@ -328,20 +331,6 @@ export function pruneInheritedTextStyles(
   })
 }
 
-export function mapTextCase(textCase: TextCase): string | undefined {
-  switch (textCase) {
-    case 'UPPER':
-      return 'uppercase'
-    case 'LOWER':
-      return 'lowercase'
-    case 'TITLE':
-      return 'capitalize'
-    case 'ORIGINAL':
-    default:
-      return undefined
-  }
-}
-
 export function normalizeComparableValue(key: string, value: string): string {
   const trimmed = value.trim().toLowerCase()
   if (key === 'color') {
@@ -361,7 +350,7 @@ export function normalizeComparableValue(key: string, value: string): string {
   if (key === 'line-height' && trimmed === 'normal') {
     return 'normal'
   }
-  return trimmed.replace(/\s+/g, '')
+  return trimmed.replace(ALL_WHITESPACE_RE, '')
 }
 
 function normalizeColorComparable(value: string): string | null {

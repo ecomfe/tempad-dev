@@ -330,10 +330,14 @@ async function transformVariableNames(references: Array<{ rawName: string }>): P
 
   return replacements.map((expr, idx) => {
     const fallback = transformRefs[idx]
-    const canonical =
-      canonicalizeVariable(expr)?.match(/^var\((--[^)]+)\)$/)?.[1] ??
-      canonicalizeVariable(fallback.code)?.match(/^var\((--[^)]+)\)$/)?.[1]
-    return canonical ?? fallback.name
+    // Use canonicalizeVariable from css.ts to ensure consistent variable format (var(--name))
+    const canonical = canonicalizeVariable(expr)
+
+    // Attempt to extract the bare name inside var() for cleaner metadata if possible,
+    // otherwise fallback to full expression
+    const nameMatch = canonical?.match(/^var\((--[^)]+)\)$/)
+
+    return nameMatch ? nameMatch[1] : (canonical ?? fallback.name)
   })
 }
 
