@@ -5,6 +5,7 @@ import type { DevComponent } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { buildSemanticTree } from '@/mcp/semantic-tree'
+import { MCP_MAX_PAYLOAD_BYTES } from '@/mcp/shared/constants'
 import { activePlugin, options } from '@/ui/state'
 import { generateCodeBlocksForNode } from '@/utils/codegen'
 import { stringifyComponent } from '@/utils/component'
@@ -87,11 +88,19 @@ export async function handleGetCode(
   }
 
   const resolvedLang = preferredLang ?? ctx.detectedLang ?? 'jsx'
-  const markup = stringifyComponent(componentTree, resolvedLang)
+  let markup = stringifyComponent(componentTree, resolvedLang)
 
-  const message = tree.stats.capped
+  const MAX_CODE_CHARS = Math.floor(MCP_MAX_PAYLOAD_BYTES * 0.6)
+  let message = tree.stats.capped
     ? `Selection truncated at depth ${tree.stats.depthLimit ?? tree.stats.maxDepth}.`
     : undefined
+
+  if (markup.length > MAX_CODE_CHARS) {
+    markup = markup.slice(0, MAX_CODE_CHARS)
+    message = message
+      ? `${message} Output truncated due to size; showing first ${MAX_CODE_CHARS} chars.`
+      : `Output truncated due to size; showing first ${MAX_CODE_CHARS} chars.`
+  }
 
   return {
     lang: resolvedLang,
