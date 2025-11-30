@@ -4,8 +4,8 @@ import { runTransformVariableBatch } from '@/mcp/transform-variable'
 import {
   CSS_VAR_FUNCTION_RE,
   canonicalizeVariable,
+  expandShorthands,
   formatHexAlpha,
-  normalizeCssValue,
   normalizeCssVarName,
   normalizeStyleVariables,
   normalizeStyleValues,
@@ -14,7 +14,6 @@ import {
 import { cssToClassNames } from '@/utils/tailwind'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
-const CSS_VAR_FALLBACK_RE = /var\(--[^,]+,\s*(.+)\)/
 
 type AutoLayoutLike = {
   layoutMode?: 'HORIZONTAL' | 'VERTICAL' | 'NONE'
@@ -29,16 +28,84 @@ type AutoLayoutLike = {
   layoutSizingVertical?: 'FIXED' | 'HUG' | 'FILL'
 }
 
-export function mergeInferredAutoLayout(
+/**
+ * Main pipeline function for cleaning and preparing raw Figma CSS.
+ * 1. Cleans specific dirty data (e.g. lightgray bug).
+ * 2. Expands shorthands (padding -> padding-top/right...).
+ * 3. Injects fills if needed.
+ */
+export function preprocessStyles(
   style: Record<string, string>,
+  node?: SceneNode,
+  injectFills = true
+): Record<string, string> {
+  // Step 1: Clean known Figma dirty data BEFORE expansion,
+  // because some cleaning logic (like background) relies on the shorthand structure.
+  const cleaned = cleanFigmaSpecificStyles(style, node, injectFills)
+
+  // Step 2: Expand shorthands to ensure we only deal with atomic props downstream.
+  return expandShorthands(cleaned)
+}
+
+function cleanFigmaSpecificStyles(
+  style: Record<string, string>,
+  node?: SceneNode,
+  injectFills = true
+): Record<string, string> {
+  const processed = { ...style }
+  if (!node) return processed
+
+  if (processed.background) {
+    const bgValue = processed.background
+    if (BG_URL_LIGHTGRAY_RE.test(bgValue) && 'fills' in node && Array.isArray(node.fills)) {
+      const parsed = parseBackgroundShorthand(bgValue)
+
+      if (parsed.image) processed['background-image'] = parsed.image
+      if (parsed.size) processed['background-size'] = parsed.size
+      if (parsed.repeat) processed['background-repeat'] = parsed.repeat
+      if (parsed.position) processed['background-position'] = parsed.position
+
+      const solidFill = node.fills.find(
+        (f) => f.type === 'SOLID' && f.visible !== false
+      ) as SolidPaint
+
+      if (solidFill && solidFill.color) {
+        processed['background-color'] = formatHexAlpha(solidFill.color, solidFill.opacity)
+      }
+
+      delete processed.background
+    }
+  }
+
+  if (
+    injectFills &&
+    node.type !== 'TEXT' &&
+    !processed.background &&
+    !processed['background-color'] &&
+    'fills' in node &&
+    Array.isArray(node.fills)
+  ) {
+    const solidFill = node.fills.find(
+      (f) => f.type === 'SOLID' && f.visible !== false
+    ) as SolidPaint
+    if (solidFill && solidFill.color) {
+      processed['background-color'] = formatHexAlpha(solidFill.color, solidFill.opacity)
+    }
+  }
+
+  return processed
+}
+
+export function mergeInferredAutoLayout(
+  expandedStyle: Record<string, string>,
   node: SceneNode
 ): Record<string, string> {
   const source = getAutoLayoutSource(node)
   if (!source || source.layoutMode === 'NONE' || !source.layoutMode) {
-    return style
+    return expandedStyle
   }
 
-  const merged: Record<string, string> = { ...style }
+  const merged: Record<string, string> = { ...expandedStyle }
 
   if (!merged.display?.includes('flex')) {
     merged.display = 'flex'
@@ -57,13 +124,20 @@ export function mergeInferredAutoLayout(
   const align = mapAxisAlignToCss(source.counterAxisAlignItems)
   if (align && !merged['align-items']) merged['align-items'] = align
 
-  if (node.type !== 'INSTANCE' && !hasPadding(merged)) {
+  if (node.type !== 'INSTANCE') {
+    // Optimization: Since styles are expanded, we don't need to check "padding".
+    // We only check if specific atomic paddings are missing.
     const { paddingTop: t, paddingRight: r, paddingBottom: b, paddingLeft: l } = source
     if (t || r || b || l) {
-      merged['padding-top'] = `${t ?? 0}px`
-      merged['padding-right'] = `${r ?? 0}px`
-      merged['padding-bottom'] = `${b ?? 0}px`
-      merged['padding-left'] = `${l ?? 0}px`
+      // Only apply inferred padding if NO padding is present (simplistic heuristic),
+      // or we can overwrite. Standard behavior usually prefers manual overrides.
+      // Here we check if any specific padding side is set.
+      if (!hasAtomicPadding(merged)) {
+        merged['padding-top'] = `${t ?? 0}px`
+        merged['padding-right'] = `${r ?? 0}px`
+        merged['padding-bottom'] = `${b ?? 0}px`
+        merged['padding-left'] = `${l ?? 0}px`
+      }
     }
   }
 
@@ -125,18 +199,8 @@ function hasGap(s: Record<string, string>) {
   return !!(s.gap || s['row-gap'] || s['column-gap'])
 }
 
-function hasPadding(s: Record<string, string>) {
-  return !!(
-    s.padding ||
-    s.paddingTop ||
-    s.paddingRight ||
-    s.paddingBottom ||
-    s.paddingLeft ||
-    s['padding-top'] ||
-    s['padding-right'] ||
-    s['padding-bottom'] ||
-    s['padding-left']
-  )
+function hasAtomicPadding(s: Record<string, string>) {
+  return !!(s['padding-top'] || s['padding-right'] || s['padding-bottom'] || s['padding-left'])
 }
 
 type VariableReferenceInternal = {
@@ -155,46 +219,30 @@ type PropertyBucket = {
 }
 
 type ApplyVariableOptions = {
-  config: CodegenConfig
   pluginCode?: string
-  resolveVariables: boolean
+  config: CodegenConfig
 }
 
 export async function applyVariableTransforms(
   styles: Map<string, Record<string, string>>,
-  { config, pluginCode, resolveVariables }: ApplyVariableOptions
+  { pluginCode, config }: ApplyVariableOptions
 ): Promise<void> {
   const { references, buckets } = collectVariableReferences(styles)
   if (!references.length) return
 
-  let replacements: string[] = []
+  const transformResults = await runTransformVariableBatch(
+    references.map(({ code, name, value }) => ({ code, name, value })),
+    {
+      useRem: config.cssUnit === 'rem',
+      rootFontSize: config.rootFontSize ?? 16,
+      scale: config.scale ?? 1
+    },
+    pluginCode
+  )
 
-  if (resolveVariables) {
-    replacements = references.map((ref) => {
-      let rawValue = ref.value
-      if (!rawValue) {
-        const match = ref.code.match(CSS_VAR_FALLBACK_RE)
-        if (match && match[1]) rawValue = match[1]
-      }
-
-      const val = (rawValue || ref.code).trim()
-      return normalizeCssValue(val, config, ref.property)
-    })
-  } else {
-    const transformResults = await runTransformVariableBatch(
-      references.map(({ code, name, value }) => ({ code, name, value })),
-      {
-        useRem: config.cssUnit === 'rem',
-        rootFontSize: config.rootFontSize ?? 16,
-        scale: config.scale ?? 1
-      },
-      pluginCode
-    )
-
-    replacements = transformResults.map((result) => {
-      return canonicalizeVariable(result) || result
-    })
-  }
+  const replacements = transformResults.map((result) => {
+    return canonicalizeVariable(result) || result
+  })
 
   const safeRegex = new RegExp(CSS_VAR_FUNCTION_RE.source, CSS_VAR_FUNCTION_RE.flags)
 
@@ -252,55 +300,6 @@ function collectVariableReferences(styles: Map<string, Record<string, string>>) 
   return { references, buckets }
 }
 
-function processFigmaSpecificStyles(
-  style: Record<string, string>,
-  node?: SceneNode,
-  injectFills = true
-): Record<string, string> {
-  const processed = { ...style }
-  if (!node) return processed
-
-  if (processed.background) {
-    const bgValue = processed.background
-    if (BG_URL_LIGHTGRAY_RE.test(bgValue) && 'fills' in node && Array.isArray(node.fills)) {
-      const parsed = parseBackgroundShorthand(bgValue)
-
-      if (parsed.image) processed['background-image'] = parsed.image
-      if (parsed.size) processed['background-size'] = parsed.size
-      if (parsed.repeat) processed['background-repeat'] = parsed.repeat
-      if (parsed.position) processed['background-position'] = parsed.position
-
-      const solidFill = node.fills.find(
-        (f) => f.type === 'SOLID' && f.visible !== false
-      ) as SolidPaint
-
-      if (solidFill && solidFill.color) {
-        processed['background-color'] = formatHexAlpha(solidFill.color, solidFill.opacity)
-      }
-
-      delete processed.background
-    }
-  }
-
-  if (
-    injectFills &&
-    node.type !== 'TEXT' &&
-    !processed.background &&
-    !processed['background-color'] &&
-    'fills' in node &&
-    Array.isArray(node.fills)
-  ) {
-    const solidFill = node.fills.find(
-      (f) => f.type === 'SOLID' && f.visible !== false
-    ) as SolidPaint
-    if (solidFill && solidFill.color) {
-      processed['background-color'] = formatHexAlpha(solidFill.color, solidFill.opacity)
-    }
-  }
-
-  return processed
-}
-
 export function styleToClassNames(
   style: Record<string, string>,
   config: CodegenConfig,
@@ -308,8 +307,12 @@ export function styleToClassNames(
   options: { injectFills?: boolean } = {}
 ): string[] {
   const { injectFills = true } = options
-  const cleanStyle = processFigmaSpecificStyles(style, node, injectFills)
-  // Batch normalize values (Scale & Unit conversion) before mapping to Tailwind
-  const normalizedStyle = normalizeStyleValues(cleanStyle, config)
+
+  // NOTE: If styleToClassNames is called with styles that are ALREADY processed (like in collectSceneData),
+  // re-running preprocessStyles might be redundant but harmless (expandShorthands is idempotent).
+  // However, for Text Segments which are generated on the fly, this is necessary.
+  const processed = preprocessStyles(style, node, injectFills)
+  const normalizedStyle = normalizeStyleValues(processed, config)
+
   return cssToClassNames(normalizedStyle)
 }

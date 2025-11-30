@@ -47,7 +47,9 @@ type VariableCollectionInfo = { defaultModeId?: string }
 export async function handleGetTokenDefs(nodes: SceneNode[]): Promise<GetTokenDefsResult> {
   const { variableIds } = collectTokenReferences(nodes)
   const config = getCodegenConfig()
-  const tokens = await resolveVariableTokens(variableIds, config)
+  const pluginCode = activePlugin.value?.code
+
+  const tokens = await resolveVariableTokens(variableIds, config, pluginCode)
 
   tokens.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 
@@ -93,7 +95,8 @@ function collectTokenReferences(roots: SceneNode[]): {
 
 async function resolveVariableTokens(
   ids: Set<string>,
-  config: CodegenConfig
+  config: CodegenConfig,
+  pluginCode?: string
 ): Promise<TokenEntry[]> {
   const references: Array<{ rawName: string }> = []
   const pending: Array<{ rawName: string; value: TokenEntry['value']; kind: TokenEntry['kind'] }> =
@@ -115,7 +118,7 @@ async function resolveVariableTokens(
 
   if (!pending.length) return []
 
-  const transformedNames = await transformVariableNames(references)
+  const transformedNames = await transformVariableNames(references, config, pluginCode)
 
   const deduped = new Map<string, TokenEntry>()
   pending.forEach((item, index) => {
@@ -304,7 +307,11 @@ function serializeVariableValue(
   }
 }
 
-async function transformVariableNames(references: Array<{ rawName: string }>): Promise<string[]> {
+async function transformVariableNames(
+  references: Array<{ rawName: string }>,
+  config: CodegenConfig,
+  pluginCode?: string
+): Promise<string[]> {
   if (!references.length) return []
 
   const transformRefs = references.map(({ rawName }) => {
@@ -315,11 +322,11 @@ async function transformVariableNames(references: Array<{ rawName: string }>): P
   const replacements = await runTransformVariableBatch(
     transformRefs,
     {
-      useRem: options.value.cssUnit === 'rem',
-      rootFontSize: options.value.rootFontSize,
-      scale: options.value.scale
+      useRem: config.cssUnit === 'rem',
+      rootFontSize: config.rootFontSize ?? 16,
+      scale: config.scale ?? 1
     },
-    activePlugin.value?.code
+    pluginCode
   )
 
   return replacements.map((expr, idx) => {

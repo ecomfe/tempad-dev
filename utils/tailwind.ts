@@ -2,12 +2,8 @@ import {
   ALL_WHITESPACE_RE,
   COMMA_DELIMITER_RE,
   QUOTES_RE,
-  TOP_LEVEL_COMMA_RE,
   WHITESPACE_RE,
-  normalizeStyleValue,
-  parseBackgroundShorthand,
-  parseBoxValues,
-  parseFlexShorthand
+  normalizeStyleValue
 } from '@/utils/css'
 
 export type Side = 't' | 'r' | 'b' | 'l'
@@ -19,10 +15,16 @@ export type ValueKind = 'length' | 'color' | 'integer' | 'percent' | 'url' | 'an
 export type PropDef = string | { prop: string; defaultValue?: string }
 export type KeywordDef = string | [string, string]
 
+// Strategy Type
+type ValueFormatter = (value: string) => string
+
 interface FamilyConfigBase {
   prefix: string
   valueKind: ValueKind
   keywords?: KeywordDef[]
+  // Strategy hooks to avoid hardcoding familyKeys in logic
+  formatter?: ValueFormatter
+  arbitraryType?: string // e.g. 'length' for [length:var(--x)]
 }
 
 interface SideFamily extends FamilyConfigBase {
@@ -89,6 +91,11 @@ function isCorner(f: string): f is Corner {
 
 function isAxis(f: string): f is Axis {
   return ['x', 'y'].includes(f)
+}
+
+// Special Strategy: Font Family Formatter
+function formatFontFamily(val: string): string {
+  return val.replace(COMMA_DELIMITER_RE, ',').replace(WHITESPACE_RE, '_').replace(QUOTES_RE, '')
 }
 
 export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
@@ -235,23 +242,14 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'flex',
     mode: 'direct',
     valueKind: 'keyword',
-    keywords: [
-      ['row', 'row'],
-      ['row-reverse', 'row-reverse'],
-      ['column', 'col'],
-      ['column-reverse', 'col-reverse']
-    ],
+    keywords: ['row', 'row-reverse', ['column', 'col'], ['column-reverse', 'col-reverse']],
     props: { v: 'flex-direction' }
   },
   flexWrap: {
     prefix: 'flex',
     mode: 'direct',
     valueKind: 'keyword',
-    keywords: [
-      ['nowrap', 'nowrap'],
-      ['wrap', 'wrap'],
-      ['wrap-reverse', 'wrap-reverse']
-    ],
+    keywords: ['nowrap', 'wrap', 'wrap-reverse'],
     props: { v: 'flex-wrap' }
   },
   alignItems: {
@@ -430,7 +428,13 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
   minHeight: { prefix: 'min-h', mode: 'direct', valueKind: 'length', props: { v: 'min-height' } },
   maxWidth: { prefix: 'max-w', mode: 'direct', valueKind: 'length', props: { v: 'max-width' } },
   maxHeight: { prefix: 'max-h', mode: 'direct', valueKind: 'length', props: { v: 'max-height' } },
-  fontFamily: { prefix: 'font', mode: 'direct', valueKind: 'any', props: { v: 'font-family' } },
+  fontFamily: {
+    prefix: 'font',
+    mode: 'direct',
+    valueKind: 'any',
+    props: { v: 'font-family' },
+    formatter: formatFontFamily
+  },
   fontSize: { prefix: 'text', mode: 'direct', valueKind: 'length', props: { v: 'font-size' } },
   fontWeight: {
     prefix: 'font',
@@ -585,12 +589,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'bg',
     mode: 'direct',
     valueKind: 'keyword',
-    keywords: [
-      ['no-repeat', 'no-repeat'],
-      ['repeat', 'repeat'],
-      ['repeat-x', 'repeat-x'],
-      ['repeat-y', 'repeat-y']
-    ],
+    keywords: ['no-repeat', 'repeat', 'repeat-x', 'repeat-y'],
     props: { v: 'background-repeat' }
   },
   fill: { prefix: 'fill-', mode: 'direct', valueKind: 'color', props: { v: 'fill' } },
@@ -610,7 +609,8 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
       r: 'border-right-width',
       b: 'border-bottom-width',
       l: 'border-left-width'
-    }
+    },
+    arbitraryType: 'length'
   },
   borderColor: {
     prefix: 'border-',
@@ -695,71 +695,6 @@ Object.keys(TAILWIND_CONFIG).forEach((key) => {
   }
 })
 
-function expandShorthands(style: Record<string, string>): Record<string, string> {
-  const expanded: Record<string, string> = { ...style }
-
-  const boxKeys = ['padding', 'margin', 'inset']
-  boxKeys.forEach((key) => {
-    if (expanded[key]) {
-      const val = normalizeStyleValue(expanded[key])
-      const [t, r, b, l] = parseBoxValues(val)
-      if (key === 'inset') {
-        expanded['top'] = t
-        expanded['right'] = r
-        expanded['bottom'] = b
-        expanded['left'] = l
-      } else {
-        expanded[`${key}-top`] = t
-        expanded[`${key}-right`] = r
-        expanded[`${key}-bottom`] = b
-        expanded[`${key}-left`] = l
-      }
-      delete expanded[key]
-    }
-  })
-
-  if (expanded['border-radius']) {
-    const val = normalizeStyleValue(expanded['border-radius'])
-    const [tl, tr, br, bl] = parseBoxValues(val)
-    expanded['border-top-left-radius'] = tl
-    expanded['border-top-right-radius'] = tr
-    expanded['border-bottom-right-radius'] = br
-    expanded['border-bottom-left-radius'] = bl
-    delete expanded['border-radius']
-  }
-
-  if (expanded['gap']) {
-    const val = normalizeStyleValue(expanded['gap'])
-    const parts = val.trim().split(WHITESPACE_RE)
-    expanded['row-gap'] = parts[0]
-    expanded['column-gap'] = parts[1] || parts[0]
-    delete expanded['gap']
-  }
-
-  if (expanded['flex']) {
-    const val = normalizeStyleValue(expanded['flex'])
-    const { grow, shrink, basis } = parseFlexShorthand(val)
-    expanded['flex-grow'] = grow
-    expanded['flex-shrink'] = shrink
-    expanded['flex-basis'] = basis
-    delete expanded['flex']
-  }
-
-  if (expanded['background']) {
-    const val = normalizeStyleValue(expanded['background'])
-    if (!TOP_LEVEL_COMMA_RE.test(val)) {
-      const parsed = parseBackgroundShorthand(val)
-      if (parsed.size) expanded['background-size'] = parsed.size
-      if (parsed.repeat) expanded['background-repeat'] = parsed.repeat
-      if (parsed.position) expanded['background-position'] = parsed.position
-      if (parsed.image) expanded['background-image'] = parsed.image
-      delete expanded['background']
-    }
-  }
-
-  return expanded
-}
-
 function extractValuePart(
   val: string,
   config: FamilyConfig,
@@ -774,12 +709,14 @@ function extractValuePart(
     return { isNegative, text: keywordMap[inner], isKeyword: true }
   }
 
-  if (inner.includes('calc')) inner = inner.replace(ALL_WHITESPACE_RE, '_')
+  // Strategy: Apply Formatter if present
+  if (config.formatter) {
+    inner = config.formatter(inner)
+  }
 
-  if (familyKey === 'fontFamily') {
-    inner = inner.replace(COMMA_DELIMITER_RE, ',')
-    inner = inner.replace(WHITESPACE_RE, '_')
-    inner = inner.replace(QUOTES_RE, '')
+  // General Cleanup (calc, arbitrary formatting)
+  if (inner.includes('calc')) {
+    inner = inner.replace(ALL_WHITESPACE_RE, '_')
   }
 
   inner = formatArbitraryValue(inner)
@@ -791,9 +728,13 @@ function extractValuePart(
 
   if (!isStrictKeywordType) {
     text = `[${inner}]`
-    if (familyKey === 'borderWidth' && (inner.includes('var(') || !isNaN(Number(inner)))) {
-      text = `[length:${inner}]`
+
+    // Strategy: Arbitrary Type Hinting (e.g., border-[length:var(--x)])
+    // This disambiguates values that Tailwind JIT might confuse (e.g. raw vars or numbers)
+    if (config.arbitraryType && (inner.includes('var(') || !isNaN(Number(inner)))) {
+      text = `[${config.arbitraryType}:${inner}]`
     }
+
     isKeyword = false
   } else {
     isKeyword = true
@@ -941,7 +882,7 @@ function collapseComposite(
 export function cssToTailwind(rawStyle: Record<string, string>): string {
   if (!rawStyle || Object.keys(rawStyle).length === 0) return ''
 
-  const expandedStyle = expandShorthands(rawStyle)
+  const expandedStyle = rawStyle
   const buffers: Record<string, FamilyBuffer> = {}
 
   for (const [prop, rawVal] of Object.entries(expandedStyle)) {

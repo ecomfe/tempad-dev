@@ -16,6 +16,7 @@ import {
   applyVariableTransforms,
   inferResizingStyles,
   mergeInferredAutoLayout,
+  preprocessStyles,
   styleToClassNames
 } from './style'
 import { renderTextSegments } from './text'
@@ -58,10 +59,10 @@ export async function handleGetCode(
 
   const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots, config)
 
+  // Force Token Mode
   await applyVariableTransforms(styles, {
-    config,
     pluginCode,
-    resolveVariables: false
+    config
   })
 
   const ctx: RenderContext = {
@@ -150,15 +151,18 @@ async function collectSceneData(
     } else {
       try {
         const css = await node.getCSSAsync()
-        let merged = mergeInferredAutoLayout(css, node)
-        merged = inferResizingStyles(merged, node)
+
+        // Pipeline: Clean -> Expand -> Inferred Logic
+        let processed = preprocessStyles(css, node)
+
+        processed = mergeInferredAutoLayout(processed, node)
+        processed = inferResizingStyles(processed, node)
 
         if (hasImageFills(node)) {
-          // Pass config to respect scale settings
-          merged = replaceImageUrlsWithPlaceholder(merged, node, config)
+          processed = replaceImageUrlsWithPlaceholder(processed, node, config)
         }
 
-        styles.set(semantic.id, merged)
+        styles.set(semantic.id, processed)
       } catch {
         // Ignore
       }
@@ -182,16 +186,13 @@ function hasImageFills(node: SceneNode): boolean {
 }
 
 function transformSvgAttributes(svg: string, config: CodegenConfig): string {
-  const replacer = (match: string, attr: string, val: string) => {
+  const regex = /(\s|^)(width|height)=(['"])(.*?)\3/g
+  const replacer = (_match: string, prefix: string, attr: string, quote: string, val: string) => {
     const pxVal = val.endsWith('px') ? val : `${val}px`
     const normalized = normalizeCssValue(pxVal, config)
-    return `${attr}="${normalized}"`
+    return `${prefix}${attr}=${quote}${normalized}${quote}`
   }
-
-  let result = svg.replace(/(width)=["']([^"']+)["']/g, replacer)
-  result = result.replace(/(height)=["']([^"']+)["']/g, replacer)
-
-  return result
+  return svg.replace(regex, replacer)
 }
 
 function replaceImageUrlsWithPlaceholder(
@@ -199,19 +200,14 @@ function replaceImageUrlsWithPlaceholder(
   node: SceneNode,
   config: CodegenConfig
 ): Record<string, string> {
-  if (!style.background && !style['background-image']) return style
+  // Check both property types because styles are expanded now
+  if (!style['background-color'] && !style['background-image'] && !style.background) return style
 
   const scale = config.scale ?? 1
   let w = 100
   let h = 100
-
-  // Apply scaling logic to placeholder dimensions
-  if ('width' in node && typeof node.width === 'number') {
-    w = Math.round(node.width * scale)
-  }
-  if ('height' in node && typeof node.height === 'number') {
-    h = Math.round(node.height * scale)
-  }
+  if ('width' in node && typeof node.width === 'number') w = Math.round(node.width * scale)
+  if ('height' in node && typeof node.height === 'number') h = Math.round(node.height * scale)
 
   const placeholderUrl = `https://placehold.co/${w}x${h}`
 
@@ -279,15 +275,17 @@ async function renderSemanticNode(
     : baseStyleForClass
 
   const shouldInjectFills = !pluginComponent
+  const isFallback = !pluginComponent
 
   const { classNames, props } = buildClassProps(
     styleForClass,
+    ctx.config,
     classProp,
     semantic.dataHint,
     node,
-    ctx.config,
     {
-      injectFills: shouldInjectFills
+      injectFills: shouldInjectFills,
+      isFallback
     }
   )
 
@@ -312,10 +310,11 @@ async function renderSemanticNode(
     const segments = textSegments?.segments ?? []
     const { classNames, props: textProps } = buildClassProps(
       baseStyleForClass,
+      ctx.config,
       classProp,
       semantic.dataHint,
       node,
-      ctx.config
+      { isFallback }
     )
     if (segments.length === 1) {
       const single = segments[0]
@@ -412,24 +411,28 @@ function pickChildLayoutStyles(style: Record<string, string>): Record<string, st
 
 function buildClassProps(
   style: Record<string, string>,
+  config: CodegenConfig,
   defaultClassProp: 'class' | 'className',
   dataHint: DataHint | undefined,
   node: SceneNode,
-  config: CodegenConfig,
-  options: { injectFills?: boolean } = {}
+  options: { injectFills?: boolean; isFallback?: boolean } = {}
 ) {
   const classNames = styleToClassNames(style, config, node, options)
   const props: Record<string, string> = {}
 
   if (classNames.length) props[defaultClassProp] = joinClassNames(classNames)
 
-  if (dataHint?.kind === 'attr' && dataHint.name !== 'data-tp') {
-    const val = dataHint.value
-    if (val != null && String(val).trim()) props[dataHint.name] = String(val)
-  } else if (dataHint?.kind === 'attr' && dataHint.name === 'data-tp' && node.type !== 'INSTANCE') {
-    const val = dataHint.value
-    if (val != null && String(val).trim()) props[dataHint.name] = String(val)
+  if (dataHint?.kind === 'attr') {
+    if (dataHint.name === 'data-tp') {
+      if (options.isFallback) {
+        props[dataHint.name] = String(dataHint.value)
+      }
+    } else {
+      const val = dataHint.value
+      if (val != null && String(val).trim()) props[dataHint.name] = String(val)
+    }
   }
+
   return { classNames, props }
 }
 
@@ -443,12 +446,18 @@ function injectAttributes(markup: string, attrs: Record<string, string>): string
   let updatedAttrs = rawAttrs
   for (const [key, value] of entries) {
     const safeValue = String(value).trim().replace(/"/g, '&quot;')
-    const attrRegex = new RegExp(`(\\s${key}\\s*=\\s*)(["'])(.*?)\\2`, 's')
-    if ((key === 'class' || key === 'className') && attrRegex.test(updatedAttrs)) {
-      updatedAttrs = updatedAttrs.replace(attrRegex, (_, prefix, quote, currentVal) => {
-        return `${prefix}${quote}${mergeClasses(currentVal, safeValue)}${quote}`
-      })
-    } else if (!attrRegex.test(updatedAttrs)) {
+    const attrRegex = new RegExp(`(\\s|^)${key}\\s*=\\s*(["'])(.*?)\\2`, 's')
+    if (attrRegex.test(updatedAttrs)) {
+      if (key === 'class' || key === 'className') {
+        updatedAttrs = updatedAttrs.replace(attrRegex, (_, prefix, quote, currentVal) => {
+          return `${prefix}${key}=${quote}${mergeClasses(currentVal, safeValue)}${quote}`
+        })
+      } else {
+        updatedAttrs = updatedAttrs.replace(attrRegex, (_, prefix, quote) => {
+          return `${prefix}${key}=${quote}${safeValue}${quote}`
+        })
+      }
+    } else {
       updatedAttrs += ` ${key}="${safeValue}"`
     }
   }

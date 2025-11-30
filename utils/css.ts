@@ -33,14 +33,10 @@ const NUMBER_RE = /^\d+(\.\d+)?$/
 // Background shorthand parsing
 export const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
 export const BG_REPEAT_RE = /(no-repeat|repeat-x|repeat-y|repeat|space|round)/i
-// Matches position (e.g. "center", "50% 50%", "top left")
-// Uses lookahead to ensure we don't eat the slash separator for size
 export const BG_POS_RE =
   /(?:^|\s)(center|top|bottom|left|right|[\d.]+(?:%|px))(?:\s+(?:center|top|bottom|left|right|[\d.]+(?:%|px)))?(?=\s*\/|\s*$)/i
-// Matches full url() wrapper
 export const BG_URL_RE = /url\((['"]?)(.*?)\1\)/i
 
-// Properties that should usually stay in px and not be converted to rem
 const KEEP_PX_PROPS = new Set([
   'border',
   'border-width',
@@ -58,15 +54,12 @@ const CSS_COMMENTS_RE = /\/\*[\s\S]*?\*\//g
 
 // Helper functions
 
+// Optimization: Cached lookup for hex values could be added if needed,
+// but simplifying the function body itself is a good start.
 export function formatHexAlpha(
   color: { r: number; g: number; b: number },
   opacity: number = 1
 ): string {
-  const toHex = (n: number) => {
-    const i = Math.min(255, Math.max(0, Math.round(n * 255)))
-    return i.toString(16).padStart(2, '0').toUpperCase()
-  }
-
   const { r, g, b } = color
   const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`
 
@@ -75,6 +68,11 @@ export function formatHexAlpha(
   }
 
   return `${hex}${toHex(opacity)}`
+}
+
+function toHex(n: number): string {
+  const i = Math.min(255, Math.max(0, Math.round(n * 255)))
+  return i.toString(16).padStart(2, '0').toUpperCase()
 }
 
 export function parseBackgroundShorthand(value: string) {
@@ -100,14 +98,11 @@ export function parseBackgroundShorthand(value: string) {
   return result
 }
 
+// Optimization: Use array destructuring with defaults
 export function parseBoxValues(value: string): [string, string, string, string] {
   const parts = value.trim().split(WHITESPACE_RE)
-
-  if (parts.length === 1) return [parts[0], parts[0], parts[0], parts[0]]
-  if (parts.length === 2) return [parts[0], parts[1], parts[0], parts[1]]
-  if (parts.length === 3) return [parts[0], parts[1], parts[2], parts[1]]
-
-  return [parts[0], parts[1], parts[2], parts[3]]
+  const [t, r = t, b = t, l = r] = parts
+  return [t, r, b, l]
 }
 
 export function parseFlexShorthand(value: string) {
@@ -196,10 +191,6 @@ export function normalizeCssValue(value: string, config: CodegenConfig, prop?: s
   return current
 }
 
-/**
- * Batch normalize all values in a style object (Scale & Unit Conversion).
- * Respects the property blacklist.
- */
 export function normalizeStyleValues(
   style: Record<string, string>,
   config: CodegenConfig
@@ -209,6 +200,75 @@ export function normalizeStyleValues(
     normalized[key] = normalizeCssValue(value, config, key)
   }
   return normalized
+}
+
+/**
+ * Expands CSS shorthand properties into their atomic constituents.
+ * E.g., padding: 10px -> padding-top: 10px, ...
+ */
+export function expandShorthands(style: Record<string, string>): Record<string, string> {
+  const expanded: Record<string, string> = { ...style }
+
+  const boxKeys = ['padding', 'margin', 'inset']
+  boxKeys.forEach((key) => {
+    if (expanded[key]) {
+      const val = normalizeStyleValue(expanded[key])
+      const [t, r, b, l] = parseBoxValues(val)
+      if (key === 'inset') {
+        expanded['top'] = t
+        expanded['right'] = r
+        expanded['bottom'] = b
+        expanded['left'] = l
+      } else {
+        expanded[`${key}-top`] = t
+        expanded[`${key}-right`] = r
+        expanded[`${key}-bottom`] = b
+        expanded[`${key}-left`] = l
+      }
+      delete expanded[key]
+    }
+  })
+
+  if (expanded['border-radius']) {
+    const val = normalizeStyleValue(expanded['border-radius'])
+    const [tl, tr, br, bl] = parseBoxValues(val)
+    expanded['border-top-left-radius'] = tl
+    expanded['border-top-right-radius'] = tr
+    expanded['border-bottom-right-radius'] = br
+    expanded['border-bottom-left-radius'] = bl
+    delete expanded['border-radius']
+  }
+
+  if (expanded['gap']) {
+    const val = normalizeStyleValue(expanded['gap'])
+    const parts = val.trim().split(WHITESPACE_RE)
+    expanded['row-gap'] = parts[0]
+    expanded['column-gap'] = parts[1] || parts[0]
+    delete expanded['gap']
+  }
+
+  if (expanded['flex']) {
+    const val = normalizeStyleValue(expanded['flex'])
+    const { grow, shrink, basis } = parseFlexShorthand(val)
+    expanded['flex-grow'] = grow
+    expanded['flex-shrink'] = shrink
+    expanded['flex-basis'] = basis
+    delete expanded['flex']
+  }
+
+  if (expanded['background']) {
+    const val = normalizeStyleValue(expanded['background'])
+    if (!TOP_LEVEL_COMMA_RE.test(val)) {
+      const parsed = parseBackgroundShorthand(val)
+      if (parsed.size) expanded['background-size'] = parsed.size
+      if (parsed.repeat) expanded['background-repeat'] = parsed.repeat
+      if (parsed.position) expanded['background-position'] = parsed.position
+      if (parsed.image) expanded['background-image'] = parsed.image
+      delete expanded['background']
+    }
+  }
+
+  return expanded
 }
 
 type SerializeOptions = {

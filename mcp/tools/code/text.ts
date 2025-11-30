@@ -1,11 +1,11 @@
 import type { DevComponent } from '@/types/plugin'
 
 import {
-  canonicalizeValue,
   formatHexAlpha,
   normalizeCssVarName,
   pruneInheritedTextStyles,
-  stripDefaultTextStyles
+  stripDefaultTextStyles,
+  canonicalizeValue
 } from '@/utils/css'
 import { joinClassNames } from '@/utils/tailwind'
 
@@ -142,9 +142,8 @@ export async function renderTextSegments(
   })
 
   await applyVariableTransforms(styleMap, {
-    config: ctx.config,
     pluginCode: ctx.pluginCode,
-    resolveVariables: false
+    config: ctx.config
   })
 
   // Compute dominant style
@@ -220,26 +219,49 @@ function resolveAliasToTokenSync(alias: VariableAlias | null | undefined): Token
 }
 
 function buildSegmentMeta(textNode: TextNode, seg: StyledTextSegmentSubset): SegmentStyleMeta {
-  const tokens: SegmentStyleMeta['tokens'] = { typography: {}, fills: [] }
+  const typography = resolveTypographyTokens(textNode, seg)
+  const fills = resolveFillTokens(seg)
+
+  return {
+    raw: seg,
+    tokens: { typography, fills },
+    refs: { textStyleId: seg.textStyleId as string, fillStyleId: seg.fillStyleId as string }
+  }
+}
+
+function resolveTypographyTokens(
+  textNode: TextNode,
+  seg: StyledTextSegmentSubset
+): SegmentStyleMeta['tokens']['typography'] {
+  const result: SegmentStyleMeta['tokens']['typography'] = {}
+
+  let cachedStyle: TextStyle | undefined
 
   TYPO_FIELDS.forEach((field) => {
+    // 1. Check direct segment bindings
     const bindings = seg.boundVariables as
       | Record<VariableBindableTextField, VariableAlias>
       | undefined
     let token = resolveAliasToTokenSync(bindings?.[field as VariableBindableTextField])
 
+    // 2. Check text style bindings
     if (!token && seg.textStyleId && typeof seg.textStyleId === 'string') {
       try {
-        const style = figma.getStyleById(seg.textStyleId) as TextStyle
-        const styleBindings = style?.boundVariables as
-          | Record<VariableBindableTextField, VariableAlias>
-          | undefined
-        token = resolveAliasToTokenSync(styleBindings?.[field as VariableBindableTextField])
+        if (!cachedStyle || cachedStyle.id !== seg.textStyleId) {
+          cachedStyle = figma.getStyleById(seg.textStyleId) as TextStyle
+        }
+        if (cachedStyle) {
+          const styleBindings = cachedStyle.boundVariables as
+            | Record<VariableBindableTextField, VariableAlias>
+            | undefined
+          token = resolveAliasToTokenSync(styleBindings?.[field as VariableBindableTextField])
+        }
       } catch {
-        // Ignore
+        // Ignore style fetch errors
       }
     }
 
+    // 3. Check range-based bindings (fallback)
     if (!token) {
       try {
         const alias = textNode.getRangeBoundVariable(
@@ -249,18 +271,22 @@ function buildSegmentMeta(textNode: TextNode, seg: StyledTextSegmentSubset): Seg
         )
         token = resolveAliasToTokenSync(alias as VariableAlias)
       } catch {
-        // Ignore
+        // Ignore range errors
       }
     }
 
-    if (token) tokens.typography[field] = token
+    if (token) result[field] = token
   })
 
+  return result
+}
+
+function resolveFillTokens(seg: StyledTextSegmentSubset): SegmentStyleMeta['tokens']['fills'] {
   const fills = Array.isArray(seg.fills) ? (seg.fills as Paint[]) : []
-  fills.forEach((paint) => {
+  return fills.map((paint) => {
     if (paint.type === 'SOLID') {
       const colorToken = resolveAliasToTokenSync(paint.boundVariables?.color)
-      tokens.fills.push({ type: 'SOLID', color: colorToken ?? null })
+      return { type: 'SOLID', color: colorToken ?? null }
     } else {
       const other: Record<string, TokenRef | null> = {}
       if ('boundVariables' in paint) {
@@ -271,15 +297,9 @@ function buildSegmentMeta(textNode: TextNode, seg: StyledTextSegmentSubset): Seg
           })
         }
       }
-      tokens.fills.push({ type: paint.type, other })
+      return { type: paint.type, other }
     }
   })
-
-  return {
-    raw: seg,
-    tokens,
-    refs: { textStyleId: seg.textStyleId as string, fillStyleId: seg.fillStyleId as string }
-  }
 }
 
 function buildSegmentStyle(meta: SegmentStyleMeta): Record<string, string> {
@@ -312,7 +332,6 @@ function buildSegmentStyle(meta: SegmentStyleMeta): Record<string, string> {
   if (fontStyle) style['font-style'] = fontStyle
 
   // Font Size
-  // We return raw pixels here; normalization happens in styleToClassNames
   const size = typeof raw.fontSize === 'number' ? `${raw.fontSize}px` : undefined
   const fontSize = constructCssVar(tokens.typography.fontSize, size)
   if (fontSize) style['font-size'] = fontSize
@@ -473,27 +492,42 @@ function mapTextCase(textCase?: TextCase): string | undefined {
 
 function computeDominantStyle(styles: Array<Record<string, string>>): Record<string, string> {
   if (!styles.length) return {}
-  const counts = new Map<string, Map<string, { raw: string; count: number }>>()
+  if (styles.length === 1) return {} // Optimization: No common style if only 1 segment (optional policy)
+
+  // Structure: { [property]: { [normalizedValue]: { raw, count } } }
+  const counts: Record<string, Record<string, { raw: string; count: number }>> = {}
 
   for (const style of styles) {
     for (const [key, value] of Object.entries(style)) {
       const normalized = canonicalizeValue(key, value)
-      if (!counts.has(key)) counts.set(key, new Map())
-      const perProp = counts.get(key)!
-      const entry = perProp.get(normalized)
-      perProp.set(normalized, { raw: entry?.raw ?? value, count: (entry?.count ?? 0) + 1 })
+
+      if (!counts[key]) counts[key] = {}
+      const bucket = counts[key]
+
+      if (!bucket[normalized]) {
+        bucket[normalized] = { raw: value, count: 1 }
+      } else {
+        bucket[normalized].count++
+      }
     }
   }
 
   const dominant: Record<string, string> = {}
-  for (const [key, perProp] of counts.entries()) {
-    const total = Array.from(perProp.values()).reduce((sum, item) => sum + item.count, 0)
-    let best: { raw: string; count: number } | undefined
-    for (const entry of perProp.values()) {
-      if (!best || entry.count > best.count) best = entry
+  const threshold = styles.length / 2
+
+  for (const key in counts) {
+    const bucket = counts[key]
+    let bestValue: { raw: string; count: number } | undefined
+
+    for (const norm in bucket) {
+      const entry = bucket[norm]
+      if (!bestValue || entry.count > bestValue.count) {
+        bestValue = entry
+      }
     }
-    if (best && best.count > 1 && best.count >= total / 2) {
-      dominant[key] = best.raw
+
+    if (bestValue && bestValue.count > 1 && bestValue.count >= threshold) {
+      dominant[key] = bestValue.raw
     }
   }
 
