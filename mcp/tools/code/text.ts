@@ -20,17 +20,7 @@ const MARK_WEIGHTS = Object.fromEntries(
   MARK_PRIORITY.map((mark, index) => [mark, index])
 ) as Record<TextMark, number>
 
-const HOIST_ALLOWLIST = new Set([
-  'color',
-  'font-family',
-  'font-size',
-  'font-weight',
-  'font-style',
-  'line-height',
-  'letter-spacing',
-  'text-align',
-  'text-transform'
-])
+const HOIST_ALLOWLIST = new Set(['color', 'font-family', 'font-size', 'line-height', 'letter-spacing', 'text-align', 'text-transform'])
 
 const CODE_FONT_KEYWORDS = ['mono', 'code', 'consolas', 'menlo', 'courier', 'source code']
 
@@ -136,7 +126,6 @@ type VariableAlias = { id?: string; type?: string }
 export type RenderTextSegmentsOptions = {
   inheritedTextStyle?: Record<string, string>
   segments?: StyledTextSegmentSubset[] | null
-  computeSegmentStyle?: boolean
 }
 
 export async function renderTextSegments(
@@ -367,16 +356,20 @@ function optimizeComponentTree(node: DevComponent | string, classProp: string) {
   if (UNWRAP_WHITELIST.has(node.name) && node.children && node.children.length === 1) {
     const child = node.children[0]
     if (typeof child !== 'string' && child.name === 'span') {
-      const parentClass = String(node.props?.[classProp] || '')
-      const childClass = String(child.props?.[classProp] || '')
-      const mergedClass = joinClassNames([parentClass, childClass])
+      const childProps = child.props || {}
+      const extraChildProps = Object.keys(childProps).filter((key) => key !== classProp)
+      if (extraChildProps.length === 0) {
+        const parentClass = String(node.props?.[classProp] || '')
+        const childClass = String(childProps?.[classProp] || '')
+        const mergedClass = joinClassNames([parentClass, childClass])
 
-      if (mergedClass) {
-        if (!node.props) node.props = {}
-        node.props[classProp] = mergedClass
+        if (mergedClass) {
+          if (!node.props) node.props = {}
+          node.props[classProp] = mergedClass
+        }
+
+        node.children = child.children
       }
-
-      node.children = child.children
     }
   }
 }

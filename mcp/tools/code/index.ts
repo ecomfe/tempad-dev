@@ -9,7 +9,7 @@ import { MCP_MAX_PAYLOAD_BYTES } from '@/mcp/shared/constants'
 import { activePlugin, options } from '@/ui/state'
 import { generateCodeBlocksForNode } from '@/utils/codegen'
 import { stringifyComponent } from '@/utils/component'
-import { BG_URL_RE, normalizeCssValue, stripDefaultTextStyles } from '@/utils/css'
+import { BG_URL_RE, canonicalizeValue, normalizeCssValue, stripDefaultTextStyles } from '@/utils/css'
 import { joinClassNames } from '@/utils/tailwind'
 
 import {
@@ -283,21 +283,23 @@ async function renderSemanticNode(
 
   const { textStyle, otherStyle } = splitTextStyles(rawStyle)
   const cleanedTextStyle = stripDefaultTextStyles(textStyle)
+  const hoistedTextStyle = node.type === 'TEXT' ? filterHoistableTextStyle(cleanedTextStyle) : cleanedTextStyle
 
   if (node.type === 'TEXT' && inheritedTextStyle?.color && cleanedTextStyle.color) {
-    delete cleanedTextStyle.color
+    delete hoistedTextStyle.color
   }
 
   const textSegments =
     node.type === 'TEXT'
       ? await renderTextSegments(node, classProp, ctx, {
-          inheritedTextStyle,
-          computeSegmentStyle: true
+          inheritedTextStyle
         })
       : undefined
 
   const effectiveTextStyle =
-    node.type === 'TEXT' && textSegments?.commonStyle ? textSegments.commonStyle : cleanedTextStyle
+    node.type === 'TEXT' && textSegments
+      ? { ...hoistedTextStyle, ...(textSegments.commonStyle ?? {}) }
+      : hoistedTextStyle
 
   const { appliedTextStyle, nextTextStyle } = diffTextStyles(inheritedTextStyle, effectiveTextStyle)
 
@@ -529,6 +531,26 @@ function splitTextStyles(style: Record<string, string>) {
   return { textStyle, otherStyle }
 }
 
+const HOISTABLE_TEXT_STYLE_KEYS = new Set([
+  'color',
+  'font-family',
+  'font-size',
+  'line-height',
+  'letter-spacing',
+  'text-align',
+  'text-transform'
+])
+
+function filterHoistableTextStyle(style: Record<string, string>): Record<string, string> {
+  const res: Record<string, string> = {}
+  for (const [k, v] of Object.entries(style)) {
+    if (HOISTABLE_TEXT_STYLE_KEYS.has(k)) {
+      res[k] = v
+    }
+  }
+  return res
+}
+
 function diffTextStyles(
   inherited: Record<string, string> | undefined,
   current: Record<string, string>
@@ -536,7 +558,11 @@ function diffTextStyles(
   const appliedTextStyle: Record<string, string> = {}
   const nextTextStyle = { ...(inherited || {}) }
   for (const [k, v] of Object.entries(current)) {
-    if (inherited?.[k] !== v) {
+    const inheritedVal = inherited?.[k]
+    const inheritedCanonical = inheritedVal ? canonicalizeValue(k, inheritedVal) : undefined
+    const currentCanonical = canonicalizeValue(k, v)
+
+    if (inheritedCanonical !== currentCanonical) {
       appliedTextStyle[k] = v
     }
     nextTextStyle[k] = v
