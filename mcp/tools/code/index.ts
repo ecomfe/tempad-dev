@@ -18,6 +18,7 @@ import {
 } from '@/utils/css'
 import { joinClassNames } from '@/utils/tailwind'
 
+import { collectTokenReferences, resolveVariableTokens } from '../token-defs'
 import {
   applyVariableTransforms,
   inferResizingStyles,
@@ -143,10 +144,25 @@ export async function handleGetCode(
       : `Output truncated to fit payload limit; showing first ${MAX_CODE_CHARS} characters.`
   }
 
+  const { variableIds } = collectTokenReferences(nodes)
+  const allTokens = await resolveVariableTokens(variableIds, config, pluginCode)
+
+  const usedTokenNames = new Set<string>()
+  // Use a simple regex to capture all var(--name) occurrences, including nested ones.
+  // We don't use CSS_VAR_FUNCTION_RE because it consumes the whole function and might miss nested vars in fallbacks.
+  const regex = /var\(--([a-zA-Z0-9-_]+)/g
+  let match
+  while ((match = regex.exec(markup))) {
+    usedTokenNames.add(`--${match[1]}`)
+  }
+
+  const usedTokens = allTokens.filter((t) => usedTokenNames.has(t.name))
+
   return {
     lang: resolvedLang,
     code: markup,
     assets: {},
+    usedTokens,
     ...(message ? { message } : {})
   }
 }

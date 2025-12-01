@@ -11,6 +11,7 @@ export type GetCodeResult = {
   code: string
   lang: 'vue' | 'jsx'
   message?: string
+  usedTokens?: GetTokenDefsResult['tokens']
 }
 
 // get_token_defs
