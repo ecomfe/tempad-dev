@@ -13,7 +13,92 @@ import type { RenderContext } from './index'
 
 import { applyVariableTransforms, styleToClassNames } from './style'
 
-type TextStyleMap = Record<string, string>
+const MARK_PRIORITY = ['link', 'code', 'bold', 'italic', 'strike', 'underline'] as const
+type TextMark = (typeof MARK_PRIORITY)[number]
+
+const MARK_WEIGHTS = Object.fromEntries(
+  MARK_PRIORITY.map((mark, index) => [mark, index])
+) as Record<TextMark, number>
+
+const HOIST_ALLOWLIST = new Set([
+  'color',
+  'font-family',
+  'font-size',
+  'font-weight',
+  'font-style',
+  'line-height',
+  'letter-spacing',
+  'text-align',
+  'text-transform'
+])
+
+const CODE_FONT_KEYWORDS = ['mono', 'code', 'consolas', 'menlo', 'courier', 'source code']
+
+const TYPO_FIELDS = [
+  'fontFamily',
+  'fontStyle',
+  'fontWeight',
+  'fontSize',
+  'lineHeight',
+  'letterSpacing',
+  'paragraphSpacing',
+  'paragraphIndent'
+] as const
+
+const NEWLINE_RE = /\r\n|[\n\r\u2028\u2029]/
+
+export interface TextRun {
+  text: string
+  marks: Set<TextMark>
+  attrs: Record<string, string>
+  link?: string
+  originalSegment?: StyledTextSegmentSubset
+}
+
+export interface TextLine {
+  runs: TextRun[]
+  attrs: {
+    listType: 'ORDERED' | 'UNORDERED' | 'NONE'
+    indentation: number
+    listSpacing: number
+    paragraphSpacing: number
+  }
+}
+
+export type BlockType = 'paragraph' | 'ordered-list' | 'unordered-list'
+
+export interface TextBlock {
+  type: BlockType
+  lines: TextLine[]
+  attrs: TextLine['attrs']
+}
+
+interface StackNode {
+  container: { children: Array<DevComponent | string> }
+  markType?: TextMark
+  linkHref?: string
+}
+
+type TokenRef = { id: string; name: string }
+
+interface ResolvedFill {
+  type: Paint['type']
+  token?: TokenRef | null
+  raw?: Paint
+}
+
+type SegmentStyleMeta = {
+  raw: Partial<StyledTextSegmentSubset>
+  tokens: {
+    typography: Partial<Record<(typeof TYPO_FIELDS)[number], TokenRef>>
+    fills: Array<{
+      type: Paint['type']
+      color?: TokenRef | null
+      other?: Record<string, TokenRef | null>
+    }>
+  }
+  refs: { textStyleId?: string | null; fillStyleId?: string | null }
+}
 
 type SegmentFieldForRequest = keyof Omit<StyledTextSegment, 'characters' | 'start' | 'end'>
 
@@ -37,7 +122,8 @@ const REQUESTED_SEGMENT_FIELDS: SegmentFieldForRequest[] = [
   'fills',
   'textStyleId',
   'fillStyleId',
-  'boundVariables'
+  'boundVariables',
+  'hyperlink'
 ]
 
 type StyledTextSegmentSubset = Pick<
@@ -47,49 +133,10 @@ type StyledTextSegmentSubset = Pick<
 
 type VariableAlias = { id?: string; type?: string }
 
-const TYPO_FIELDS = [
-  'fontFamily',
-  'fontStyle',
-  'fontWeight',
-  'fontSize',
-  'lineHeight',
-  'letterSpacing',
-  'paragraphSpacing',
-  'paragraphIndent'
-] as const
-
-type TokenRef = {
-  id: string
-  name: string
-}
-
-type SegmentStyleMeta = {
-  raw: Partial<StyledTextSegmentSubset>
-  tokens: {
-    typography: Partial<Record<(typeof TYPO_FIELDS)[number], TokenRef>>
-    fills: Array<{
-      type: Paint['type']
-      color?: TokenRef | null
-      other?: Record<string, TokenRef | null>
-    }>
-  }
-  refs: { textStyleId?: string | null; fillStyleId?: string | null }
-}
-
 export type RenderTextSegmentsOptions = {
-  inheritedTextStyle?: TextStyleMap
+  inheritedTextStyle?: Record<string, string>
   segments?: StyledTextSegmentSubset[] | null
   computeSegmentStyle?: boolean
-}
-
-export function getStyledSegments(node: TextNode): StyledTextSegmentSubset[] | null {
-  try {
-    if (typeof node.getStyledTextSegments !== 'function') return null
-    const segments = node.getStyledTextSegments(REQUESTED_SEGMENT_FIELDS)
-    return Array.isArray(segments) ? (segments as StyledTextSegmentSubset[]) : null
-  } catch {
-    return null
-  }
 }
 
 export async function renderTextSegments(
@@ -102,166 +149,628 @@ export async function renderTextSegments(
   commonStyle: Record<string, string>
   metas: SegmentStyleMeta[]
 }> {
-  const { inheritedTextStyle, segments: providedSegments, computeSegmentStyle = true } = options
-  const segments: Array<DevComponent | string> = []
-  const segStyles: Array<Record<string, string>> = []
-  const metas: SegmentStyleMeta[] = []
+  const { inheritedTextStyle, segments: providedSegments } = options
 
   const rawSegments = providedSegments ?? getStyledSegments(node)
-
   if (!rawSegments || !rawSegments.length) {
     const literal = formatTextLiteral(node.characters ?? '')
-    if (literal) segments.push(literal)
-    return { segments, commonStyle: {}, metas }
-  }
-
-  // Build initial structure and styles
-  rawSegments.forEach((seg) => {
-    const literal = formatTextLiteral(seg.characters ?? '')
-    if (!literal) return
-
-    const child = wrapTextWithTags(literal, seg)
-    segments.push(child)
-
-    if (computeSegmentStyle) {
-      const meta = buildSegmentMeta(node, seg)
-      metas.push(meta)
-      // Pass raw styles, normalization happens later in styleToClassNames
-      segStyles.push(buildSegmentStyle(meta))
+    return {
+      segments: literal ? [literal] : [],
+      commonStyle: {},
+      metas: []
     }
-  })
-
-  if (!computeSegmentStyle || !segStyles.length) {
-    return { segments, commonStyle: {}, metas }
   }
 
-  // Batch process variable transforms
-  const styleMap = new Map<string, Record<string, string>>()
-  segStyles.forEach((style, index) => {
-    styleMap.set(`${node.id}:seg:${index}`, style)
-  })
+  const blocks = buildTextBlocks(node, rawSegments)
 
-  await applyVariableTransforms(styleMap, {
+  const runStyleMap = new Map<string, Record<string, string>>()
+  let runCounter = 0
+
+  for (const block of blocks) {
+    for (const line of block.lines) {
+      for (const run of line.runs) {
+        runStyleMap.set(`run:${runCounter++}`, run.attrs)
+      }
+    }
+  }
+
+  await applyVariableTransforms(runStyleMap, {
     pluginCode: ctx.pluginCode,
     config: ctx.config
   })
 
-  // Compute dominant style
-  const cleanedStyles = segStyles.map((style) => {
-    const cleaned = stripDefaultTextStyles({ ...style })
-    pruneInheritedTextStyles(cleaned, inheritedTextStyle)
-    return cleaned
-  })
+  const allRunStyles: Array<{ style: Record<string, string>; weight: number }> = []
 
-  const commonStyle = computeDominantStyle(cleanedStyles)
+  for (const block of blocks) {
+    for (const line of block.lines) {
+      for (const run of line.runs) {
+        const cleaned = stripDefaultTextStyles({ ...run.attrs })
+        pruneInheritedTextStyles(cleaned, inheritedTextStyle)
 
-  // Apply class names
-  segments.forEach((seg, idx) => {
-    const style = omitCommon(cleanedStyles[idx], commonStyle)
-    if (!Object.keys(style).length) return
+        const hoistableCandidate: Record<string, string> = {}
+        for (const key in cleaned) {
+          if (HOIST_ALLOWLIST.has(key)) {
+            hoistableCandidate[key] = cleaned[key]
+          }
+        }
 
-    // styleToClassNames will handle normalization (scaling/rem)
+        if (Object.keys(hoistableCandidate).length > 0) {
+          allRunStyles.push({ style: hoistableCandidate, weight: run.text.length })
+        }
+      }
+    }
+  }
+
+  const commonStyle = computeDominantStyle(allRunStyles)
+
+  const outputSegments: Array<DevComponent | string> = []
+
+  for (const block of blocks) {
+    const renderedBlock = renderBlock(block, commonStyle, classProp, ctx, node)
+    if (renderedBlock) {
+      optimizeComponentTree(renderedBlock, classProp)
+      outputSegments.push(renderedBlock)
+    }
+  }
+
+  return { segments: outputSegments, commonStyle, metas: [] }
+}
+
+interface ListStackItem {
+  list: DevComponent
+  level: number
+  lastLi?: DevComponent
+}
+
+function renderBlock(
+  block: TextBlock,
+  commonStyle: Record<string, string>,
+  classProp: 'class' | 'className',
+  ctx: RenderContext,
+  node: TextNode
+): DevComponent | null {
+  const { type, lines, attrs } = block
+  const { paragraphSpacing } = attrs
+  const { config } = ctx
+
+  const isList = type === 'ordered-list' || type === 'unordered-list'
+
+  const props: Record<string, string> = {}
+  const blockClasses: string[] = []
+
+  if (Object.keys(commonStyle).length) {
+    blockClasses.push(...styleToClassNames(commonStyle, config, node))
+  }
+
+  if (paragraphSpacing > 0) {
+    const mbStyle = { 'margin-bottom': `${paragraphSpacing}px` }
+    blockClasses.push(...styleToClassNames(mbStyle, config, node))
+  }
+
+  const cls = joinClassNames(blockClasses)
+  if (cls) props[classProp] = cls
+
+  if (!isList) {
+    const pTag: DevComponent = { name: 'p', props, children: [] }
+
+    lines.forEach((line, idx) => {
+      const lineNodes = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
+      pTag.children.push(...lineNodes)
+      if (idx < lines.length - 1) {
+        pTag.children.push({ name: 'br', props: {}, children: [] })
+      }
+    })
+
+    if (pTag.children.length === 0) {
+      pTag.children.push({ name: 'br', props: {}, children: [] })
+    }
+
+    return pTag
+  }
+
+  const rootType = type === 'ordered-list' ? 'ORDERED' : 'UNORDERED'
+  const rootTag = rootType === 'ORDERED' ? 'ol' : 'ul'
+  const rootListStyle = getListStyleClass(rootType, 0)
+
+  const rootClasses = [rootListStyle, 'list-outside', 'pl-[1.2em]']
+  const rootCls = joinClassNames([...rootClasses, cls])
+
+  const rootList: DevComponent = { name: rootTag, props: { [classProp]: rootCls }, children: [] }
+
+  const stack: ListStackItem[] = [{ list: rootList, level: lines[0]?.attrs.indentation || 1 }]
+
+  for (const line of lines) {
+    const currentIndent = line.attrs.indentation
+
+    while (stack.length > 0 && currentIndent < stack[stack.length - 1].level) {
+      stack.pop()
+    }
+
+    if (stack.length > 0 && currentIndent > stack[stack.length - 1].level) {
+      const parentStackItem = stack[stack.length - 1]
+
+      if (!parentStackItem.lastLi) {
+        const dummyLi: DevComponent = { name: 'li', props: {}, children: [] }
+        parentStackItem.list.children.push(dummyLi)
+        parentStackItem.lastLi = dummyLi
+      }
+
+      const currentDepth = stack.length
+      const newListTypeKey = line.attrs.listType === 'ORDERED' ? 'ORDERED' : 'UNORDERED'
+      const newListTag = newListTypeKey === 'ORDERED' ? 'ol' : 'ul'
+
+      const newListStyle = getListStyleClass(newListTypeKey, currentDepth)
+      const newListClasses = [newListStyle, 'list-outside', 'pl-[1.2em]']
+
+      const newList: DevComponent = {
+        name: newListTag,
+        props: { [classProp]: joinClassNames(newListClasses) },
+        children: []
+      }
+
+      parentStackItem.lastLi.children.push(newList)
+      stack.push({ list: newList, level: currentIndent })
+    }
+
+    const lineChildren = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
+    if (lineChildren.length === 0) {
+      lineChildren.push({ name: 'br', props: {}, children: [] })
+    }
+
+    const li: DevComponent = { name: 'li', props: {}, children: lineChildren }
+
+    const activeItem = stack[stack.length - 1]
+    activeItem.list.children.push(li)
+    activeItem.lastLi = li
+  }
+
+  return rootList
+}
+
+function getListStyleClass(type: 'ORDERED' | 'UNORDERED', depth: number): string {
+  if (type === 'UNORDERED') {
+    return 'list-disc'
+  } else {
+    const d = depth % 3
+    if (d === 1) return 'list-[lower-alpha]'
+    if (d === 2) return 'list-[lower-roman]'
+    return 'list-decimal'
+  }
+}
+
+function optimizeComponentTree(node: DevComponent | string, classProp: string) {
+  if (typeof node === 'string') return
+
+  if (node.children) {
+    for (const child of node.children) {
+      optimizeComponentTree(child, classProp)
+    }
+  }
+
+  const UNWRAP_WHITELIST = new Set([
+    'li',
+    'p',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'strong',
+    'em',
+    'u',
+    's',
+    'code',
+    'a'
+  ])
+
+  if (UNWRAP_WHITELIST.has(node.name) && node.children && node.children.length === 1) {
+    const child = node.children[0]
+    if (typeof child !== 'string' && child.name === 'span') {
+      const parentClass = String(node.props?.[classProp] || '')
+      const childClass = String(child.props?.[classProp] || '')
+      const mergedClass = joinClassNames([parentClass, childClass])
+
+      if (mergedClass) {
+        if (!node.props) node.props = {}
+        node.props[classProp] = mergedClass
+      }
+
+      node.children = child.children
+    }
+  }
+}
+
+function buildInlineTree(
+  runs: TextRun[],
+  commonStyle: Record<string, string>,
+  classProp: 'class' | 'className',
+  ctx: RenderContext,
+  node: TextNode
+): Array<DevComponent | string> {
+  const root: { children: Array<DevComponent | string> } = { children: [] }
+  const stack: StackNode[] = [{ container: root }]
+
+  for (const run of runs) {
+    if (!run.text) continue
+
+    const sortedMarks = [...run.marks].sort((a, b) => MARK_WEIGHTS[a] - MARK_WEIGHTS[b])
+
+    let k = 0
+    while (k < sortedMarks.length && k < stack.length - 1) {
+      const { markType, linkHref } = stack[k + 1]
+      const currentMark = sortedMarks[k]
+
+      if (markType === currentMark && (currentMark !== 'link' || linkHref === run.link)) {
+        k++
+      } else {
+        break
+      }
+    }
+    const matchDepth = k
+
+    while (stack.length - 1 > matchDepth) {
+      stack.pop()
+    }
+
+    while (stack.length - 1 < sortedMarks.length) {
+      const mark = sortedMarks[stack.length - 1]
+      const component = createMarkComponent(mark, run)
+
+      stack[stack.length - 1].container.children.push(component)
+
+      stack.push({
+        container: component,
+        markType: mark,
+        linkHref: mark === 'link' ? run.link : undefined
+      })
+    }
+
+    const cleanedAttrs = stripDefaultTextStyles(run.attrs)
+    const style = omitCommon(cleanedAttrs, commonStyle)
     const classNames = styleToClassNames(style, ctx.config, node)
-    if (!classNames.length) return
-
     const cls = joinClassNames(classNames)
-    if (typeof seg === 'string') {
-      segments[idx] = { name: 'span', props: { [classProp]: cls }, children: [seg] }
+    const top = stack[stack.length - 1].container
+
+    if (cls) {
+      top.children.push({
+        name: 'span',
+        props: { [classProp]: cls },
+        children: [run.text]
+      })
     } else {
-      segments[idx] = { ...seg, props: { ...(seg.props ?? {}), [classProp]: cls } }
+      top.children.push(run.text)
     }
+  }
+
+  return root.children
+}
+
+function createMarkComponent(mark: TextMark, run: TextRun): DevComponent {
+  switch (mark) {
+    case 'bold':
+      return { name: 'strong', props: {}, children: [] }
+    case 'italic':
+      return { name: 'em', props: {}, children: [] }
+    case 'underline':
+      return { name: 'u', props: {}, children: [] }
+    case 'strike':
+      return { name: 'del', props: {}, children: [] }
+    case 'code':
+      return { name: 'code', props: {}, children: [] }
+    case 'link':
+      return { name: 'a', props: { href: run.link }, children: [] }
+  }
+}
+
+function buildTextBlocks(node: TextNode, segments: StyledTextSegmentSubset[]): TextBlock[] {
+  const lines = splitIntoLines(node, segments)
+  return groupLinesIntoBlocks(lines)
+}
+
+function splitIntoLines(node: TextNode, segments: StyledTextSegmentSubset[]): TextLine[] {
+  const lines: TextLine[] = []
+
+  let currentRuns: TextRun[] = []
+  let currentSegmentForAttrs: StyledTextSegmentSubset | null = null
+
+  for (const seg of segments) {
+    const text = seg.characters
+    const parts = text.split(NEWLINE_RE)
+
+    for (let i = 0; i < parts.length; i++) {
+      const partText = parts[i]
+
+      if (partText.length > 0) {
+        const run = createRun(node, seg, partText)
+        currentRuns.push(run)
+      }
+
+      if (i < parts.length - 1) {
+        lines.push({
+          runs: optimizeRuns(currentRuns),
+          attrs: extractLineAttrs(seg)
+        })
+        currentRuns = []
+      }
+    }
+    currentSegmentForAttrs = seg
+  }
+
+  if (currentRuns.length > 0 && currentSegmentForAttrs) {
+    lines.push({
+      runs: optimizeRuns(currentRuns),
+      attrs: extractLineAttrs(currentSegmentForAttrs)
+    })
+  }
+
+  return lines
+}
+
+function groupLinesIntoBlocks(lines: TextLine[]): TextBlock[] {
+  const blocks: TextBlock[] = []
+  if (!lines.length) return blocks
+
+  let currentBlock: TextBlock | null = null
+
+  for (const line of lines) {
+    const { listType } = line.attrs
+    const isList = listType !== 'NONE'
+    const blockType: BlockType = isList
+      ? listType === 'ORDERED'
+        ? 'ordered-list'
+        : 'unordered-list'
+      : 'paragraph'
+
+    const canMerge = currentBlock && currentBlock.type === blockType
+
+    if (canMerge) {
+      currentBlock!.lines.push(line)
+    } else {
+      currentBlock = {
+        type: blockType,
+        lines: [line],
+        attrs: line.attrs
+      }
+      blocks.push(currentBlock)
+    }
+  }
+
+  return blocks
+}
+
+function optimizeRuns(runs: TextRun[]): TextRun[] {
+  applyStickySpace(runs)
+
+  const result: TextRun[] = []
+
+  const cleanedRuns = runs.map((run) => {
+    // Regex matches pure whitespace including ZWSP and other invisibles
+    if (/^[\s\u200B-\u200D\uFEFF]*$/.test(run.text)) {
+      const newAttrs = { ...run.attrs }
+      delete newAttrs['color']
+      delete newAttrs['text-decoration-color']
+      delete newAttrs['text-decoration-line']
+      delete newAttrs['background-color']
+      return { ...run, attrs: newAttrs }
+    }
+    return run
   })
 
-  return { segments, commonStyle, metas }
-}
-
-function formatTextLiteral(value: string): string | null {
-  return value.trim() ? value : null
-}
-
-function wrapTextWithTags(literal: string, seg: StyledTextSegmentSubset): DevComponent | string {
-  let child: DevComponent | string = literal
-
-  const weight = inferFontWeight(seg.fontName?.style, seg.fontWeight)
-  const styleName = seg.fontName?.style?.toLowerCase() ?? ''
-
-  const isBold =
-    typeof weight === 'number'
-      ? weight >= 600 || weight === 500
-      : /bold|black|heavy/.test(styleName)
-
-  const isItalic = seg.fontStyle === 'ITALIC' || /italic|oblique/.test(styleName)
-
-  const decorationLine = mapTextDecorationLine(seg.textDecoration)
-  const isUnderline = decorationLine === 'underline'
-  const isStrike = decorationLine === 'line-through'
-
-  if (isBold) child = { name: 'strong', props: {}, children: [child] }
-  if (isItalic) child = { name: 'em', props: {}, children: [child] }
-  if (isUnderline) child = { name: 'u', props: {}, children: [child] }
-  if (isStrike) child = { name: 'del', props: {}, children: [child] }
-
-  return child
-}
-
-function resolveAliasToTokenSync(alias: VariableAlias | null | undefined): TokenRef | null {
-  if (!alias || !alias.id) return null
-  try {
-    const variable = figma.variables.getVariableById(alias.id)
-    if (!variable) return null
-    return {
-      id: variable.id,
-      name: variable.name
+  for (const run of cleanedRuns) {
+    if (result.length === 0) {
+      result.push(run)
+      continue
     }
-  } catch {
-    return null
-  }
-}
 
-function buildSegmentMeta(textNode: TextNode, seg: StyledTextSegmentSubset): SegmentStyleMeta {
-  const typography = resolveTypographyTokens(textNode, seg)
-  const fills = resolveFillTokens(seg)
+    const prev = result[result.length - 1]
 
-  return {
-    raw: seg,
-    tokens: { typography, fills },
-    refs: { textStyleId: seg.textStyleId as string, fillStyleId: seg.fillStyleId as string }
-  }
-}
+    // Aggressive Merge: If current is whitespace, merge if Mark/Link match. Ignore attrs.
+    const isWhitespace = /^[\s\u200B-\u200D\uFEFF]*$/.test(run.text)
 
-function resolveTypographyTokens(
-  textNode: TextNode,
-  seg: StyledTextSegmentSubset
-): SegmentStyleMeta['tokens']['typography'] {
-  const result: SegmentStyleMeta['tokens']['typography'] = {}
-
-  let cachedStyle: TextStyle | undefined
-
-  TYPO_FIELDS.forEach((field) => {
-    // 1. Check direct segment bindings
-    const bindings = seg.boundVariables as
-      | Record<VariableBindableTextField, VariableAlias>
-      | undefined
-    let token = resolveAliasToTokenSync(bindings?.[field as VariableBindableTextField])
-
-    // 2. Check text style bindings
-    if (!token && seg.textStyleId && typeof seg.textStyleId === 'string') {
-      try {
-        if (!cachedStyle || cachedStyle.id !== seg.textStyleId) {
-          cachedStyle = figma.getStyleById(seg.textStyleId) as TextStyle
+    if (isWhitespace) {
+      if (prev.marks.size !== run.marks.size) {
+        result.push(run)
+        continue
+      }
+      let marksMatch = true
+      for (const m of prev.marks) {
+        if (!run.marks.has(m)) {
+          marksMatch = false
+          break
         }
-        if (cachedStyle) {
-          const styleBindings = cachedStyle.boundVariables as
-            | Record<VariableBindableTextField, VariableAlias>
-            | undefined
-          token = resolveAliasToTokenSync(styleBindings?.[field as VariableBindableTextField])
-        }
-      } catch {
-        // Ignore style fetch errors
+      }
+
+      if (marksMatch && prev.link === run.link) {
+        prev.text += run.text
+        continue
       }
     }
 
-    // 3. Check range-based bindings (fallback)
+    if (prev.marks.size !== run.marks.size) {
+      result.push(run)
+      continue
+    }
+
+    let marksMatch = true
+    for (const m of prev.marks) {
+      if (!run.marks.has(m)) {
+        marksMatch = false
+        break
+      }
+    }
+    if (!marksMatch) {
+      result.push(run)
+      continue
+    }
+
+    const prevKeys = Object.keys(prev.attrs)
+    const runKeys = Object.keys(run.attrs)
+
+    if (prevKeys.length !== runKeys.length) {
+      result.push(run)
+      continue
+    }
+
+    let attrsMatch = true
+    for (const key of prevKeys) {
+      if (canonicalizeValue(key, prev.attrs[key]) !== canonicalizeValue(key, run.attrs[key])) {
+        attrsMatch = false
+        break
+      }
+    }
+
+    if (attrsMatch && prev.link === run.link) {
+      prev.text += run.text
+    } else {
+      result.push(run)
+    }
+  }
+
+  return result
+}
+
+function createRun(node: TextNode, seg: StyledTextSegmentSubset, text: string): TextRun {
+  const marks = new Set<TextMark>()
+  const { typography, fills } = resolveTokens(node, seg)
+  const attrs = resolveRunAttrs(seg, typography, fills)
+
+  const weight = inferFontWeight(seg.fontName?.style, seg.fontWeight) ?? 400
+  if (weight >= 600) {
+    marks.add('bold')
+  }
+
+  if (seg.fontStyle === 'ITALIC') {
+    marks.add('italic')
+    // Retain attr
+  }
+
+  const family = typography.fontFamily?.name || seg.fontName?.family || ''
+  if (isCodeFont(family)) {
+    marks.add('code')
+    delete attrs['font-family']
+  }
+
+  if (seg.textDecoration === 'UNDERLINE') {
+    marks.add('underline')
+    // Retain attr
+  }
+  if (seg.textDecoration === 'STRIKETHROUGH') {
+    marks.add('strike')
+    // Retain attr
+  }
+
+  let link: string | undefined
+  if (seg.hyperlink) {
+    marks.add('link')
+    if (seg.hyperlink.type === 'URL') link = seg.hyperlink.value
+  }
+
+  return {
+    text,
+    marks,
+    attrs,
+    link,
+    originalSegment: seg
+  }
+}
+
+function applyStickySpace(runs: TextRun[]): TextRun[] {
+  for (let i = 1; i < runs.length - 1; i++) {
+    const curr = runs[i]
+    if (!curr.text.trim()) {
+      const prev = runs[i - 1]
+      const next = runs[i + 1]
+
+      const commonMarks = new Set([...prev.marks].filter((m) => next.marks.has(m)))
+
+      for (const m of commonMarks) {
+        curr.marks.add(m)
+      }
+    }
+  }
+  return runs
+}
+
+function extractLineAttrs(seg: StyledTextSegmentSubset): TextLine['attrs'] {
+  return {
+    listType: seg.listOptions?.type || 'NONE',
+    indentation: seg.indentation || 0,
+    listSpacing: seg.listOptions?.type !== 'NONE' ? seg.paragraphSpacing || 0 : 0,
+    paragraphSpacing: seg.paragraphSpacing || 0
+  }
+}
+
+function resolveRunAttrs(
+  seg: StyledTextSegmentSubset,
+  typography: Record<string, TokenRef>,
+  fills: ResolvedFill[]
+): Record<string, string> {
+  const style: Record<string, string> = {}
+
+  const solid = fills.find((f) => f.type === 'SOLID')
+  if (solid) {
+    const rawPaint = solid.raw as SolidPaint | undefined
+    if (rawPaint) {
+      const val = formatHexAlpha(rawPaint.color, rawPaint.opacity ?? 1)
+      const css = constructCssVar(solid.token, val)
+      if (css) style.color = css
+    }
+  }
+
+  const { fontFamily, fontSize, lineHeight, letterSpacing, fontWeight } = typography
+
+  const fontVal = constructCssVar(fontFamily, seg.fontName?.family)
+  if (fontVal) style['font-family'] = fontVal
+
+  const sizeVal = constructCssVar(
+    fontSize,
+    typeof seg.fontSize === 'number' ? `${seg.fontSize}px` : undefined
+  )
+  if (sizeVal) style['font-size'] = sizeVal
+
+  if (fontWeight || typeof seg.fontWeight === 'number') {
+    const wVal = inferFontWeight(seg.fontName?.style, seg.fontWeight)
+    const wStr = wVal != null ? String(wVal) : undefined
+    const weightCss = constructCssVar(fontWeight, wStr)
+    if (weightCss) style['font-weight'] = weightCss
+  }
+
+  const lhVal = constructCssVar(lineHeight, formatLineHeightValue(seg.lineHeight))
+  if (lhVal) style['line-height'] = lhVal
+
+  const lsVal = constructCssVar(letterSpacing, formatLetterSpacingValue(seg.letterSpacing))
+  if (lsVal) style['letter-spacing'] = lsVal
+
+  if (seg.textCase) {
+    const transform = mapTextCase(seg.textCase)
+    if (transform) style['text-transform'] = transform
+  }
+
+  if (seg.textDecoration === 'UNDERLINE' || seg.textDecoration === 'STRIKETHROUGH') {
+    style['text-decoration-line'] = seg.textDecoration.toLowerCase().replace('_', '-')
+  }
+
+  return style
+}
+
+function resolveTokens(textNode: TextNode, seg: StyledTextSegmentSubset) {
+  const typography: Record<string, TokenRef> = {}
+
+  TYPO_FIELDS.forEach((field) => {
+    const bindings = seg.boundVariables as Record<string, VariableAlias> | undefined
+    let token = resolveAliasToTokenSync(bindings?.[field])
+
+    if (!token && seg.textStyleId && typeof seg.textStyleId === 'string') {
+      try {
+        const style = figma.getStyleById(seg.textStyleId) as TextStyle
+        const styleBindings = style?.boundVariables as Record<string, VariableAlias> | undefined
+        token = resolveAliasToTokenSync(styleBindings?.[field])
+      } catch {
+        // noop
+      }
+    }
+
     if (!token) {
       try {
         const alias = textNode.getRangeBoundVariable(
@@ -269,174 +778,61 @@ function resolveTypographyTokens(
           seg.end,
           field as VariableBindableTextField
         )
-        token = resolveAliasToTokenSync(alias as VariableAlias)
+        if (alias !== figma.mixed) {
+          token = resolveAliasToTokenSync(alias)
+        }
       } catch {
-        // Ignore range errors
+        // noop
       }
     }
-
-    if (token) result[field] = token
+    if (token) typography[field] = token
   })
 
-  return result
-}
-
-function resolveFillTokens(seg: StyledTextSegmentSubset): SegmentStyleMeta['tokens']['fills'] {
-  const fills = Array.isArray(seg.fills) ? (seg.fills as Paint[]) : []
-  return fills.map((paint) => {
+  const fillRaw = Array.isArray(seg.fills) ? seg.fills : []
+  const fills: ResolvedFill[] = fillRaw.map((paint) => {
     if (paint.type === 'SOLID') {
       const colorToken = resolveAliasToTokenSync(paint.boundVariables?.color)
-      return { type: 'SOLID', color: colorToken ?? null }
-    } else {
-      const other: Record<string, TokenRef | null> = {}
-      if ('boundVariables' in paint) {
-        const bound = paint.boundVariables as Record<string, VariableAlias> | undefined
-        if (bound) {
-          Object.entries(bound).forEach(([k, alias]) => {
-            other[k] = resolveAliasToTokenSync(alias as VariableAlias)
-          })
-        }
-      }
-      return { type: paint.type, other }
+      return { type: 'SOLID', token: colorToken, raw: paint }
     }
+    return { type: paint.type, raw: paint }
   })
+
+  return { typography, fills }
 }
 
-function buildSegmentStyle(meta: SegmentStyleMeta): Record<string, string> {
-  const { raw, tokens } = meta
-  const style: Record<string, string> = {}
-
-  // Color
-  const solid = raw.fills?.find((f) => f.type === 'SOLID' && f.visible !== false) as SolidPaint
-  const colorToken = tokens.fills.find((f) => f.color)?.color
-  const color = constructCssVar(colorToken, formatSolidPaintColor(solid))
-  if (color) style.color = color
-
-  // Font Family
-  if (raw.fontName?.family) {
-    const fontFamily = constructCssVar(tokens.typography.fontFamily, raw.fontName.family)
-    if (fontFamily) style['font-family'] = fontFamily
+export function getStyledSegments(node: TextNode): StyledTextSegmentSubset[] | null {
+  try {
+    if (typeof node.getStyledTextSegments !== 'function') return null
+    const segments = node.getStyledTextSegments(REQUESTED_SEGMENT_FIELDS)
+    return Array.isArray(segments) ? (segments as StyledTextSegmentSubset[]) : null
+  } catch {
+    return null
   }
+}
 
-  // Font Weight
-  const weight = inferFontWeight(raw.fontName?.style, raw.fontWeight)
-  if (weight != null) {
-    style['font-weight'] = constructCssVar(tokens.typography.fontWeight, `${weight}`)!
+function resolveAliasToTokenSync(alias: VariableAlias | null | undefined): TokenRef | null {
+  if (!alias || !alias.id) return null
+  try {
+    const variable = figma.variables.getVariableById(alias.id)
+    if (!variable) return null
+    return { id: variable.id, name: variable.name }
+  } catch {
+    return null
   }
-
-  // Font Style
-  const fontStyle = constructCssVar(
-    tokens.typography.fontStyle,
-    raw.fontStyle === 'ITALIC' ? 'italic' : 'normal'
-  )
-  if (fontStyle) style['font-style'] = fontStyle
-
-  // Font Size
-  const size = typeof raw.fontSize === 'number' ? `${raw.fontSize}px` : undefined
-  const fontSize = constructCssVar(tokens.typography.fontSize, size)
-  if (fontSize) style['font-size'] = fontSize
-
-  // Line Height
-  const lineHeight = constructCssVar(
-    tokens.typography.lineHeight,
-    formatLineHeightValue(raw.lineHeight)
-  )
-  if (lineHeight) style['line-height'] = lineHeight
-
-  // Letter Spacing
-  const letterSpacing = constructCssVar(
-    tokens.typography.letterSpacing,
-    formatLetterSpacingValue(raw.letterSpacing)
-  )
-  if (letterSpacing) style['letter-spacing'] = letterSpacing
-
-  // Text Transform
-  const textTransform = raw.textCase ? mapTextCase(raw.textCase) : undefined
-  if (textTransform) style['text-transform'] = textTransform
-
-  // Text Decoration
-  const decorationLine = mapTextDecorationLine(raw.textDecoration)
-  if (decorationLine) style['text-decoration-line'] = decorationLine
-
-  if (raw.textDecorationStyle) {
-    style['text-decoration-style'] = raw.textDecorationStyle.toLowerCase()
-  }
-
-  const decorationThickness = formatTextDecorationThickness(raw.textDecorationThickness)
-  if (decorationThickness) style['text-decoration-thickness'] = decorationThickness
-
-  const decorationOffset = formatTextDecorationOffset(raw.textDecorationOffset)
-  if (decorationOffset) style['text-underline-offset'] = decorationOffset
-
-  if (typeof raw.textDecorationSkipInk === 'boolean') {
-    style['text-decoration-skip-ink'] = raw.textDecorationSkipInk ? 'auto' : 'none'
-  }
-
-  const decorationColor = formatTextDecorationColor(raw.textDecorationColor)
-  if (decorationColor) style['text-decoration-color'] = decorationColor
-
-  // Paragraph Spacing
-  if (typeof raw.paragraphSpacing === 'number' && raw.paragraphSpacing > 0) {
-    const paraSpacing = constructCssVar(
-      tokens.typography.paragraphSpacing,
-      `${raw.paragraphSpacing}px`
-    )
-    if (paraSpacing) style['margin-bottom'] = paraSpacing
-  }
-
-  // Indentation
-  if (typeof raw.indentation === 'number' && raw.indentation > 0) {
-    const indent = constructCssVar(tokens.typography.paragraphIndent, `${raw.indentation}px`)
-    if (indent) style['text-indent'] = indent
-  }
-
-  return style
 }
 
 function constructCssVar(token?: TokenRef | null, fallback?: string): string | undefined {
   if (token) return `var(--${normalizeCssVarName(token.name)})`
-  const safeFallback = fallback?.trim()
-  return safeFallback && safeFallback.length ? safeFallback : undefined
+  return fallback?.trim() || undefined
 }
 
-function formatSolidPaintColor(paint?: SolidPaint): string | undefined {
-  if (!paint || paint.type !== 'SOLID') return undefined
-  return paint.color ? formatHexAlpha(paint.color, paint.opacity) : undefined
+function formatTextLiteral(value: string): string | null {
+  return value.trim() ? value : null
 }
 
-function formatLineHeightValue(lineHeight?: LineHeight): string | undefined {
-  if (!lineHeight) return undefined
-  if (lineHeight.unit === 'AUTO') return 'normal'
-  if ('value' in lineHeight) {
-    if (lineHeight.unit === 'PERCENT') return `${lineHeight.value}%`
-    return `${lineHeight.value}px`
-  }
-  return undefined
-}
-
-function formatLetterSpacingValue(letterSpacing?: LetterSpacing): string | undefined {
-  if (!letterSpacing || !('value' in letterSpacing)) return undefined
-  if (letterSpacing.unit === 'PERCENT') return `${letterSpacing.value}%`
-  return `${letterSpacing.value}px`
-}
-
-function formatTextDecorationThickness(
-  thickness?: TextDecorationThickness | null
-): string | undefined {
-  if (!thickness || thickness.unit === 'AUTO') return undefined
-  if (thickness.unit === 'PERCENT') return `${thickness.value}%`
-  return `${thickness.value}px`
-}
-
-function formatTextDecorationOffset(offset?: TextDecorationOffset | null): string | undefined {
-  if (!offset || offset.unit === 'AUTO') return undefined
-  if (offset.unit === 'PERCENT') return `${offset.value}%`
-  return `${offset.value}px`
-}
-
-function formatTextDecorationColor(color?: TextDecorationColor | null): string | undefined {
-  if (!color || color.value === 'AUTO') return undefined
-  return formatSolidPaintColor(color.value as SolidPaint)
+function isCodeFont(family: string): boolean {
+  const lower = family.toLowerCase()
+  return CODE_FONT_KEYWORDS.some((k) => lower.includes(k))
 }
 
 function inferFontWeight(styleName?: string | null, explicit?: number): number | undefined {
@@ -465,68 +861,67 @@ function inferFontWeight(styleName?: string | null, explicit?: number): number |
   return undefined
 }
 
-function mapTextDecorationLine(decoration?: TextDecoration): string | undefined {
-  if (decoration === 'UNDERLINE') return 'underline'
-  if (decoration === 'STRIKETHROUGH') return 'line-through'
+function formatLineHeightValue(lineHeight?: LineHeight): string | undefined {
+  if (!lineHeight) return undefined
+  if (lineHeight.unit === 'AUTO') return 'normal'
+  if ('value' in lineHeight) {
+    return lineHeight.unit === 'PERCENT' ? `${lineHeight.value}%` : `${lineHeight.value}px`
+  }
   return undefined
 }
 
-function mapTextCase(textCase?: TextCase): string | undefined {
-  switch (textCase) {
-    case 'UPPER':
-      return 'uppercase'
-    case 'LOWER':
-      return 'lowercase'
-    case 'TITLE':
-      return 'capitalize'
-    case 'ORIGINAL':
-      return 'none'
-    case 'SMALL_CAPS':
-      return 'small-caps'
-    case 'SMALL_CAPS_FORCED':
-      return 'small-caps'
-    default:
-      return undefined
-  }
+function formatLetterSpacingValue(letterSpacing?: LetterSpacing): string | undefined {
+  if (!letterSpacing || !('value' in letterSpacing)) return undefined
+  return letterSpacing.unit === 'PERCENT' ? `${letterSpacing.value}%` : `${letterSpacing.value}px`
 }
 
-function computeDominantStyle(styles: Array<Record<string, string>>): Record<string, string> {
-  if (!styles.length) return {}
-  if (styles.length === 1) return {} // Optimization: No common style if only 1 segment (optional policy)
+function mapTextCase(textCase?: TextCase): string | undefined {
+  const map: Record<string, string> = {
+    UPPER: 'uppercase',
+    LOWER: 'lowercase',
+    TITLE: 'capitalize'
+  }
+  return map[textCase as string]
+}
 
-  // Structure: { [property]: { [normalizedValue]: { raw, count } } }
-  const counts: Record<string, Record<string, { raw: string; count: number }>> = {}
+function computeDominantStyle(
+  runStyles: Array<{ style: Record<string, string>; weight: number }>
+): Record<string, string> {
+  if (!runStyles.length) return {}
 
-  for (const style of styles) {
+  const counts: Record<string, Record<string, { raw: string; score: number }>> = {}
+  let totalWeight = 0
+
+  for (const { style, weight } of runStyles) {
+    totalWeight += weight
     for (const [key, value] of Object.entries(style)) {
       const normalized = canonicalizeValue(key, value)
-
       if (!counts[key]) counts[key] = {}
-      const bucket = counts[key]
 
-      if (!bucket[normalized]) {
-        bucket[normalized] = { raw: value, count: 1 }
+      if (!counts[key][normalized]) {
+        counts[key][normalized] = { raw: value, score: weight }
       } else {
-        bucket[normalized].count++
+        counts[key][normalized].score += weight
       }
     }
   }
 
   const dominant: Record<string, string> = {}
-  const threshold = styles.length / 2
+  // Hoist a property only when it represents a clear majority of the text.
+  const threshold = totalWeight * 0.5
 
   for (const key in counts) {
     const bucket = counts[key]
-    let bestValue: { raw: string; count: number } | undefined
+    let bestValue: { raw: string; score: number } | undefined
 
     for (const norm in bucket) {
       const entry = bucket[norm]
-      if (!bestValue || entry.count > bestValue.count) {
+      if (!bestValue || entry.score > bestValue.score) {
         bestValue = entry
       }
     }
 
-    if (bestValue && bestValue.count > 1 && bestValue.count >= threshold) {
+    if (bestValue && bestValue.score >= threshold) {
       dominant[key] = bestValue.raw
     }
   }

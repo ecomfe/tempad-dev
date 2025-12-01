@@ -126,16 +126,26 @@ function getChildren(node: SceneNode): DesignNode[] | null {
   return result
 }
 
-export function stringifyComponent(component: DevComponent, lang: SupportedLang): string {
-  // output as HTML
-  switch (lang) {
+export type StringifyOptions = {
+  lang: SupportedLang
+  isInline?: (tagName: string) => boolean
+}
+
+export function stringifyComponent(
+  component: DevComponent,
+  optionsOrLang: SupportedLang | StringifyOptions
+): string {
+  const options: StringifyOptions =
+    typeof optionsOrLang === 'string' ? { lang: optionsOrLang } : optionsOrLang
+
+  switch (options.lang) {
     case 'vue': {
-      return stringifyVueComponent(component)
+      return stringifyVueComponent(component, 0, options.isInline)
     }
     case 'jsx':
     case 'tsx':
     default: {
-      return stringifyJSXComponent(component)
+      return stringifyJSXComponent(component, 0, options.isInline)
     }
   }
 }
@@ -145,7 +155,8 @@ const INDENT_UNIT = '  '
 function stringifyBaseComponent(
   component: DevComponent,
   stringifyProp: (key: string, value: unknown) => string,
-  indentLevel = 0
+  indentLevel = 0,
+  isInline?: (tagName: string) => boolean
 ) {
   const indent = INDENT_UNIT.repeat(indentLevel)
   const { name, props, children: rawChildren } = component
@@ -170,22 +181,39 @@ function stringifyBaseComponent(
 
   const children = rawChildren.filter((child) => child != null)
 
-  const childrenString =
-    children.length === 0
-      ? ''
-      : `\n${children
-          .map((child): string => {
-            if (typeof child === 'string') {
-              return `${indent + INDENT_UNIT}${child}`
-            }
+  // Compact Mode Check
+  const shouldCompact = isInline?.(name) ?? false
 
-            return stringifyBaseComponent(child, stringifyProp, indentLevel + 1)
-          })
-          .join('\n')}\n${indent}`
+  let childrenString = ''
+
+  if (shouldCompact) {
+    // Compact Mode: No newlines, no extra indent, join with empty string
+    childrenString = children
+      .map((child): string => {
+        if (typeof child === 'string') return child
+        return stringifyBaseComponent(child, stringifyProp, 0, isInline)
+      })
+      .join('')
+  } else {
+    // Block Mode: Newlines and Indentation
+    childrenString =
+      children.length === 0
+        ? ''
+        : `\n${children
+            .map((child): string => {
+              if (typeof child === 'string') {
+                return `${indent + INDENT_UNIT}${child}`
+              }
+              return stringifyBaseComponent(child, stringifyProp, indentLevel + 1, isInline)
+            })
+            .join('\n')}\n${indent}`
+      }
+
+  const appendFinalNewline = indentLevel === 0 && !shouldCompact
 
   return `${indent}<${name}${propsString}${
     childrenString ? `>` : propItems.length > 1 ? '/>' : ' />'
-  }${childrenString}${childrenString ? `</${name}>` : ''}${indentLevel === 0 ? '\n' : ''}`
+  }${childrenString}${childrenString ? `</${name}>` : ''}${appendFinalNewline ? '\n' : ''}`
 }
 
 const EVENT_HANDLER_RE = /^on[A-Z]/
@@ -206,7 +234,11 @@ function getEventName(key: string) {
   return null
 }
 
-function stringifyVueComponent(component: DevComponent, indentLevel = 0) {
+function stringifyVueComponent(
+  component: DevComponent,
+  indentLevel = 0,
+  isInline?: (tag: string) => boolean
+) {
   return stringifyBaseComponent(
     component,
     (key, value) => {
@@ -236,11 +268,16 @@ function stringifyVueComponent(component: DevComponent, indentLevel = 0) {
 
       return `:${name}="${looseEscapeHTML(stringify(value)).trim()}"`
     },
-    indentLevel
+    indentLevel,
+    isInline
   )
 }
 
-function stringifyJSXComponent(component: DevComponent, indentLevel = 0) {
+function stringifyJSXComponent(
+  component: DevComponent,
+  indentLevel = 0,
+  isInline?: (tag: string) => boolean
+) {
   return stringifyBaseComponent(
     component,
     (key, value) => {
@@ -267,7 +304,8 @@ function stringifyJSXComponent(component: DevComponent, indentLevel = 0) {
 
       return `${key}={${stringify(value)}}`
     },
-    indentLevel
+    indentLevel,
+    isInline
   )
 }
 
@@ -286,7 +324,7 @@ export function serializeComponent(
       return result
     }
 
-    return stringifyComponent(result, lang)
+    return stringifyComponent(result, { lang })
   }
 
   return ''

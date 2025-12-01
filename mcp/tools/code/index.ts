@@ -9,7 +9,7 @@ import { MCP_MAX_PAYLOAD_BYTES } from '@/mcp/shared/constants'
 import { activePlugin, options } from '@/ui/state'
 import { generateCodeBlocksForNode } from '@/utils/codegen'
 import { stringifyComponent } from '@/utils/component'
-import { BG_URL_RE, TEXT_STYLE_PROPS, normalizeCssValue, stripDefaultTextStyles } from '@/utils/css'
+import { BG_URL_RE, normalizeCssValue, stripDefaultTextStyles } from '@/utils/css'
 import { joinClassNames } from '@/utils/tailwind'
 
 import {
@@ -35,6 +35,42 @@ export type RenderContext = {
 
 type DataHint = { kind: string; name: string; value: unknown }
 
+// Tags that should render children without extra whitespace/newlines.
+const COMPACT_TAGS = new Set([
+  'a',
+  'span',
+  'b',
+  'strong',
+  'i',
+  'em',
+  'u',
+  's',
+  'strike',
+  'code',
+  'br',
+  'wbr',
+  'small',
+  'sub',
+  'sup',
+  'label',
+  'time',
+  'p',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'li',
+  'dt',
+  'dd',
+  'th',
+  'td',
+  'caption',
+  'figcaption',
+  'summary'
+])
+
 export async function handleGetCode(
   nodes: SceneNode[],
   preferredLang?: CodeLanguage
@@ -59,7 +95,6 @@ export async function handleGetCode(
 
   const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots, config)
 
-  // Force Token Mode
   await applyVariableTransforms(styles, {
     pluginCode,
     config
@@ -92,10 +127,14 @@ export async function handleGetCode(
   }
 
   const resolvedLang = preferredLang ?? ctx.detectedLang ?? 'jsx'
+
   let markup =
     typeof componentTree === 'string'
       ? componentTree
-      : stringifyComponent(componentTree, resolvedLang)
+      : stringifyComponent(componentTree, {
+          lang: resolvedLang,
+          isInline: (tag) => COMPACT_TAGS.has(tag)
+        })
 
   const MAX_CODE_CHARS = Math.floor(MCP_MAX_PAYLOAD_BYTES * 0.6)
   let message = tree.stats.capped
@@ -152,9 +191,7 @@ async function collectSceneData(
       try {
         const css = await node.getCSSAsync()
 
-        // Pipeline: Clean -> Expand -> Inferred Logic
         let processed = preprocessStyles(css, node)
-
         processed = mergeInferredAutoLayout(processed, node)
         processed = inferResizingStyles(processed, node)
 
@@ -200,26 +237,24 @@ function replaceImageUrlsWithPlaceholder(
   node: SceneNode,
   config: CodegenConfig
 ): Record<string, string> {
-  // Check both property types because styles are expanded now
   if (!style['background-color'] && !style['background-image'] && !style.background) return style
 
-  const scale = config.scale ?? 1
+  const { scale = 1 } = config
   let w = 100
   let h = 100
+
   if ('width' in node && typeof node.width === 'number') w = Math.round(node.width * scale)
   if ('height' in node && typeof node.height === 'number') h = Math.round(node.height * scale)
 
   const placeholderUrl = `https://placehold.co/${w}x${h}`
-
   const result = { ...style }
-  const keysToReplace = ['background', 'background-image']
-
   const regex = new RegExp(BG_URL_RE.source, 'gi')
 
-  keysToReplace.forEach((key) => {
-    if (!result[key]) return
-    result[key] = result[key].replace(regex, `url('${placeholderUrl}')`)
-  })
+  for (const key of ['background', 'background-image']) {
+    if (result[key]) {
+      result[key] = result[key].replace(regex, `url('${placeholderUrl}')`)
+    }
+  }
 
   return result
 }

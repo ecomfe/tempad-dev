@@ -1,7 +1,6 @@
 import type { TransformOptions } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
 
-import { compressHex, formatHex } from './color'
 import { parseNumber, toDecimalPlace } from './number'
 import { kebabToCamel } from './string'
 
@@ -9,14 +8,11 @@ function escapeSingleQuote(value: string) {
   return value.replace(/'/g, "\\'")
 }
 
-// Regex constants
-
 export const WHITESPACE_RE = /\s+/
 export const ALL_WHITESPACE_RE = /\s+/g
 export const COMMA_DELIMITER_RE = /,\s*/g
 export const ZERO_UNITS_RE = /(^|\s)0(px|rem|%|em)(?=$|\s)/g
 
-// Variable parsing
 export const CSS_VAR_FUNCTION_RE = /var\(--([^,)]+)(?:,\s*([^)]+))?\)/g
 export const CSS_VAR_FUNCTION_EXACT_RE = /^var\(\s*(--[A-Za-z0-9-_]+)\s*(?:,.*)?\)$/
 const SCSS_VARS_RE = /(^|[^\w-])[$@]([a-zA-Z0-9_-]+)/g
@@ -24,13 +20,11 @@ const VAR_DEFAULTS_RE = /var\((--[a-zA-Z0-9_-]+),\s*[^)]+\)/g
 const PREPROCESSOR_VAR_RE = /^[$@]([A-Za-z0-9-_]+)$/
 const BARE_CSS_CUSTOM_PROP_RE = /^(--[A-Za-z0-9-_]+)$/
 
-// Value parsing
 export const PX_VALUE_RE = /\b(-?\d+(?:.\d+)?)px\b/g
 export const QUOTES_RE = /['"]/g
 export const TOP_LEVEL_COMMA_RE = /,(?![^(]*\))/
 const NUMBER_RE = /^\d+(\.\d+)?$/
 
-// Background shorthand parsing
 export const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
 export const BG_REPEAT_RE = /(no-repeat|repeat-x|repeat-y|repeat|space|round)/i
 export const BG_POS_RE =
@@ -52,27 +46,30 @@ const KEEP_PX_PROPS = new Set([
 
 const CSS_COMMENTS_RE = /\/\*[\s\S]*?\*\//g
 
-// Helper functions
-
-// Optimization: Cached lookup for hex values could be added if needed,
-// but simplifying the function body itself is a good start.
 export function formatHexAlpha(
   color: { r: number; g: number; b: number },
   opacity: number = 1
 ): string {
-  const { r, g, b } = color
-  const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`
+  const toHex = (n: number) => {
+    const i = Math.min(255, Math.max(0, Math.round(n * 255)))
+    return i.toString(16).padStart(2, '0').toUpperCase()
+  }
+
+  const r = toHex(color.r)
+  const g = toHex(color.g)
+  const b = toHex(color.b)
+
+  // Compress if possible (e.g. #AABBCC -> #ABC)
+  let hex = `#${r}${g}${b}`
+  if (r[0] === r[1] && g[0] === g[1] && b[0] === b[1]) {
+    hex = `#${r[0]}${g[0]}${b[0]}`
+  }
 
   if (opacity >= 0.99) {
     return hex
   }
 
   return `${hex}${toHex(opacity)}`
-}
-
-function toHex(n: number): string {
-  const i = Math.min(255, Math.max(0, Math.round(n * 255)))
-  return i.toString(16).padStart(2, '0').toUpperCase()
 }
 
 export function parseBackgroundShorthand(value: string) {
@@ -98,7 +95,6 @@ export function parseBackgroundShorthand(value: string) {
   return result
 }
 
-// Optimization: Use array destructuring with defaults
 export function parseBoxValues(value: string): [string, string, string, string] {
   const parts = value.trim().split(WHITESPACE_RE)
   const [t, r = t, b = t, l = r] = parts
@@ -202,10 +198,6 @@ export function normalizeStyleValues(
   return normalized
 }
 
-/**
- * Expands CSS shorthand properties into their atomic constituents.
- * E.g., padding: 10px -> padding-top: 10px, ...
- */
 export function expandShorthands(style: Record<string, string>): Record<string, string> {
   const expanded: Record<string, string> = { ...style }
 
@@ -361,8 +353,6 @@ export function serializeCSS(
   return code
 }
 
-// Variable canonicalization
-
 export function canonicalizeVariable(value: string): string | null {
   const v = normalizeStyleValue(value)
 
@@ -438,8 +428,6 @@ export function normalizeStyleValue(raw: string): string {
   return val.trim()
 }
 
-// Text style helpers
-
 const TEXT_STYLE_DEFAULTS = new Map<string, string>([
   ['text-decoration-skip-ink', 'auto'],
   ['text-underline-offset', 'auto'],
@@ -450,7 +438,7 @@ const TEXT_STYLE_DEFAULTS = new Map<string, string>([
   ['font-style', 'normal'],
   ['font-weight', '400'],
   ['line-height', 'normal'],
-  ['letter-spacing', 'normal'],
+  ['letter-spacing', '0'],
   ['letter-spacing-zero', '0'],
   ['text-transform', 'none']
 ])
@@ -522,23 +510,25 @@ export function pruneInheritedTextStyles(
 
 export function canonicalizeValue(key: string, value: string): string {
   const trimmed = value.trim().toLowerCase()
+
+  if (/^0+(\.0+)?(px|%|rem|em)?$/.test(trimmed)) {
+    return '0'
+  }
+
   if (key === 'color') {
     const hex = canonicalizeColor(trimmed)
     if (hex) return hex
   }
-  if (key === 'letter-spacing') {
-    if (trimmed === 'normal') return '0'
-    const m = trimmed.match(/^(-?\d+(?:\.\d+)?)(px|%)?$/)
-    if (m) {
-      const n = Number(m[1])
-      if (Number.isFinite(n) && Math.abs(n) < 1e-6) {
-        return '0'
-      }
-    }
+
+  if (key === 'font-weight') {
+    if (trimmed === 'normal') return '400'
+    if (trimmed === 'bold') return '700'
   }
+
   if (key === 'line-height' && trimmed === 'normal') {
     return 'normal'
   }
+
   return trimmed.replace(ALL_WHITESPACE_RE, '')
 }
 
@@ -576,4 +566,11 @@ export function canonicalizeColor(value: string): string | null {
     }
   }
   return null
+}
+
+function compressHex(hex: string): string {
+  if (hex.length === 7 && hex[1] === hex[2] && hex[3] === hex[4] && hex[5] === hex[6]) {
+    return `#${hex[1]}${hex[3]}${hex[5]}`
+  }
+  return hex
 }
