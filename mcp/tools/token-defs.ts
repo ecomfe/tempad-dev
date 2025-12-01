@@ -67,7 +67,7 @@ function hasChildren(node: SceneNode): node is SceneNode & ChildrenMixin {
   return 'children' in node
 }
 
-function collectTokenReferences(roots: SceneNode[]): {
+export function collectTokenReferences(roots: SceneNode[]): {
   variableIds: Set<string>
 } {
   const variableIds = new Set<string>()
@@ -93,7 +93,7 @@ function collectTokenReferences(roots: SceneNode[]): {
   return { variableIds }
 }
 
-async function resolveVariableTokens(
+export async function resolveVariableTokens(
   ids: Set<string>,
   config: CodegenConfig,
   pluginCode?: string

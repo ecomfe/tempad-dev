@@ -26,7 +26,7 @@ export const TOP_LEVEL_COMMA_RE = /,(?![^(]*\))/
 const NUMBER_RE = /^\d+(\.\d+)?$/
 
 export const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
-export const BG_REPEAT_RE = /(no-repeat|repeat-x|repeat-y|repeat|space|round)/i
+export const BG_REPEAT_RE = /(?:^|\s)(no-repeat|repeat-x|repeat-y|repeat|space|round)(?=$|\s)/i
 export const BG_POS_RE =
   /(?:^|\s)(center|top|bottom|left|right|[\d.]+(?:%|px))(?:\s+(?:center|top|bottom|left|right|[\d.]+(?:%|px)))?(?=\s*\/|\s*$)/i
 export const BG_URL_RE = /url\((['"]?)(.*?)\1\)/i
@@ -87,7 +87,7 @@ export function parseBackgroundShorthand(value: string) {
   if (sizeMatch) result.size = sizeMatch[1]
 
   const repeatMatch = value.match(BG_REPEAT_RE)
-  if (repeatMatch) result.repeat = repeatMatch[0]
+  if (repeatMatch) result.repeat = repeatMatch[1] || repeatMatch[0].trim()
 
   const posMatch = value.match(BG_POS_RE)
   if (posMatch) result.position = posMatch[0].trim()
