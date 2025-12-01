@@ -190,7 +190,7 @@ function stringifyBaseComponent(
     // Compact Mode: No newlines, no extra indent, join with empty string
     childrenString = children
       .map((child): string => {
-        if (typeof child === 'string') return child
+        if (typeof child === 'string') return escapeHTML(child)
         return stringifyBaseComponent(child, stringifyProp, 0, isInline)
       })
       .join('')
@@ -202,12 +202,12 @@ function stringifyBaseComponent(
         : `\n${children
             .map((child): string => {
               if (typeof child === 'string') {
-                return `${indent + INDENT_UNIT}${child}`
+                return `${indent + INDENT_UNIT}${escapeHTML(child)}`
               }
               return stringifyBaseComponent(child, stringifyProp, indentLevel + 1, isInline)
             })
             .join('\n')}\n${indent}`
-      }
+  }
 
   const appendFinalNewline = indentLevel === 0 && !shouldCompact
 
