@@ -6,10 +6,16 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { buildSemanticTree } from '@/mcp/semantic-tree'
 import { MCP_MAX_PAYLOAD_BYTES } from '@/mcp/shared/constants'
+import { raw } from '@/plugins/src'
 import { activePlugin, options } from '@/ui/state'
 import { generateCodeBlocksForNode } from '@/utils/codegen'
 import { stringifyComponent } from '@/utils/component'
-import { BG_URL_RE, canonicalizeValue, normalizeCssValue, stripDefaultTextStyles } from '@/utils/css'
+import {
+  BG_URL_RE,
+  canonicalizeValue,
+  normalizeCssValue,
+  stripDefaultTextStyles
+} from '@/utils/css'
 import { joinClassNames } from '@/utils/tailwind'
 
 import {
@@ -109,28 +115,17 @@ export async function handleGetCode(
     preferredLang
   }
 
-  let componentTree = await renderSemanticNode(root, ctx)
+  const componentTree = await renderSemanticNode(root, ctx)
 
   if (!componentTree) {
     throw new Error('Unable to build markup for the current selection.')
-  }
-
-  if (typeof componentTree === 'string') {
-    const isSvg = componentTree.trim().startsWith('<svg')
-    if (!isSvg) {
-      componentTree = {
-        name: root.tag || 'div',
-        props: {},
-        children: [componentTree]
-      }
-    }
   }
 
   const resolvedLang = preferredLang ?? ctx.detectedLang ?? 'jsx'
 
   let markup =
     typeof componentTree === 'string'
-      ? componentTree
+      ? normalizeRootString(componentTree, root.tag, resolvedLang)
       : stringifyComponent(componentTree, {
           lang: resolvedLang,
           isInline: (tag) => COMPACT_TAGS.has(tag)
@@ -154,6 +149,20 @@ export async function handleGetCode(
     assets: {},
     ...(message ? { message } : {})
   }
+}
+
+function normalizeRootString(content: string, fallbackTag: string | undefined, lang: CodeLanguage) {
+  return stringifyComponent(
+    {
+      name: fallbackTag || 'div',
+      props: {},
+      children: [content]
+    },
+    {
+      lang,
+      isInline: (tag) => COMPACT_TAGS.has(tag)
+    }
+  )
 }
 
 async function collectSceneData(
@@ -262,16 +271,21 @@ function replaceImageUrlsWithPlaceholder(
 async function renderSemanticNode(
   semantic: SemanticNode,
   ctx: RenderContext,
-  inheritedTextStyle?: Record<string, string>
+  inheritedTextStyle?: Record<string, string>,
+  parentIsGrid = false
 ): Promise<DevComponent | string | null> {
   const node = ctx.nodes.get(semantic.id)
   if (!node) return null
 
   if (ctx.svgs.has(semantic.id)) {
-    return ctx.svgs.get(semantic.id)!
+    return raw(ctx.svgs.get(semantic.id)!)
   }
 
-  const rawStyle = ctx.styles.get(semantic.id) ?? {}
+  let rawStyle = ctx.styles.get(semantic.id) ?? {}
+  if (!parentIsGrid) {
+    rawStyle = filterGridProps(rawStyle)
+  }
+
   const pluginComponent = node.type === 'INSTANCE' ? await renderPluginComponent(node, ctx) : null
 
   if (pluginComponent?.lang && !ctx.preferredLang && ctx.detectedLang !== 'vue') {
@@ -283,7 +297,8 @@ async function renderSemanticNode(
 
   const { textStyle, otherStyle } = splitTextStyles(rawStyle)
   const cleanedTextStyle = stripDefaultTextStyles(textStyle)
-  const hoistedTextStyle = node.type === 'TEXT' ? filterHoistableTextStyle(cleanedTextStyle) : cleanedTextStyle
+  const hoistedTextStyle =
+    node.type === 'TEXT' ? filterHoistableTextStyle(cleanedTextStyle) : cleanedTextStyle
 
   if (node.type === 'TEXT' && inheritedTextStyle?.color && cleanedTextStyle.color) {
     delete hoistedTextStyle.color
@@ -334,13 +349,10 @@ async function renderSemanticNode(
       return mergeDevComponentProps(pluginComponent.component, pluginProps)
     }
 
-    if (pluginComponent.code && pluginProps) {
-      return (
-        injectAttributes(pluginComponent.code, pluginProps as Record<string, string>) ??
-        pluginComponent.code
-      )
+    if (pluginComponent.code) {
+      return raw(pluginComponent.code, pluginProps as Record<string, string>)
     }
-    return pluginComponent.code ?? null
+    return null
   }
 
   if (node.type === 'TEXT') {
@@ -365,13 +377,35 @@ async function renderSemanticNode(
     }
   }
 
-  const children: (DevComponent | string)[] = []
+  const children: Array<DevComponent | string> = []
+  const display = rawStyle.display || ''
+  const isCurrentGrid = display === 'grid' || display === 'inline-grid'
+
   for (const child of semantic.children) {
-    const rendered = await renderSemanticNode(child, ctx, nextTextStyle)
+    const rendered = await renderSemanticNode(child, ctx, nextTextStyle, isCurrentGrid)
     if (rendered) children.push(rendered)
   }
 
   return { name: semantic.tag || 'div', props, children }
+}
+
+function filterGridProps(style: Record<string, string>): Record<string, string> {
+  const res: Record<string, string> = {}
+  for (const [k, v] of Object.entries(style)) {
+    if (
+      k === 'grid-row' ||
+      k === 'grid-column' ||
+      k === 'grid-area' ||
+      k === 'grid-row-start' ||
+      k === 'grid-row-end' ||
+      k === 'grid-column-start' ||
+      k === 'grid-column-end'
+    ) {
+      continue
+    }
+    res[k] = v
+  }
+  return res
 }
 
 type PluginComponent = { component?: DevComponent; code?: string; lang?: CodeLanguage }
@@ -471,34 +505,6 @@ function buildClassProps(
   }
 
   return { classNames, props }
-}
-
-function injectAttributes(markup: string, attrs: Record<string, string>): string | null {
-  const entries = Object.entries(attrs).filter(([, v]) => v != null && String(v).trim())
-  if (!entries.length) return markup
-  const tagRegex = /^\s*<\s*([a-zA-Z0-9\-_]+)([^>]*?)(\/?>)/s
-  const match = markup.match(tagRegex)
-  if (!match) return null
-  const [, tagName, rawAttrs, closer] = match
-  let updatedAttrs = rawAttrs
-  for (const [key, value] of entries) {
-    const safeValue = String(value).trim().replace(/"/g, '&quot;')
-    const attrRegex = new RegExp(`(\\s|^)${key}\\s*=\\s*(["'])(.*?)\\2`, 's')
-    if (attrRegex.test(updatedAttrs)) {
-      if (key === 'class' || key === 'className') {
-        updatedAttrs = updatedAttrs.replace(attrRegex, (_, prefix, quote, currentVal) => {
-          return `${prefix}${key}=${quote}${mergeClasses(currentVal, safeValue)}${quote}`
-        })
-      } else {
-        updatedAttrs = updatedAttrs.replace(attrRegex, (_, prefix, quote) => {
-          return `${prefix}${key}=${quote}${safeValue}${quote}`
-        })
-      }
-    } else {
-      updatedAttrs += ` ${key}="${safeValue}"`
-    }
-  }
-  return markup.replace(tagRegex, `<${tagName}${updatedAttrs}${closer}`)
 }
 
 function mergeClasses(c1: string, c2: string): string {

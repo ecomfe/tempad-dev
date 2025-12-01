@@ -260,6 +260,50 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
     }
   }
 
+  if (expanded['grid-row']) {
+    const val = normalizeStyleValue(expanded['grid-row'])
+    const parts = val.split(/\s*\/\s*/)
+    if (parts.length > 1) {
+      const start = parts[0].trim()
+      const end = parts[1].trim()
+
+      if (start.startsWith('span')) {
+        expanded['grid-row-span'] = start.replace(/^span\s*/, '')
+      } else {
+        expanded['grid-row-start'] = start
+      }
+
+      if (end.startsWith('span')) {
+        expanded['grid-row-span'] = end.replace(/^span\s*/, '')
+      } else {
+        expanded['grid-row-end'] = end
+      }
+      delete expanded['grid-row']
+    }
+  }
+
+  if (expanded['grid-column']) {
+    const val = normalizeStyleValue(expanded['grid-column'])
+    const parts = val.split(/\s*\/\s*/)
+    if (parts.length > 1) {
+      const start = parts[0].trim()
+      const end = parts[1].trim()
+
+      if (start.startsWith('span')) {
+        expanded['grid-column-span'] = start.replace(/^span\s*/, '')
+      } else {
+        expanded['grid-column-start'] = start
+      }
+
+      if (end.startsWith('span')) {
+        expanded['grid-column-span'] = end.replace(/^span\s*/, '')
+      } else {
+        expanded['grid-column-end'] = end
+      }
+      delete expanded['grid-column']
+    }
+  }
+
   return expanded
 }
 

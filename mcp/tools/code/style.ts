@@ -100,6 +100,12 @@ export function mergeInferredAutoLayout(
   expandedStyle: Record<string, string>,
   node: SceneNode
 ): Record<string, string> {
+  // Respect explicit grid layout from Figma; don't overwrite with inferred flex.
+  const display = expandedStyle.display
+  if (display === 'grid' || display === 'inline-grid') {
+    return expandedStyle
+  }
+
   const source = getAutoLayoutSource(node)
   if (!source || source.layoutMode === 'NONE' || !source.layoutMode) {
     return expandedStyle
