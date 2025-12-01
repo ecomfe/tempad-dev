@@ -15,16 +15,14 @@ export type ValueKind = 'length' | 'color' | 'integer' | 'percent' | 'url' | 'an
 export type PropDef = string | { prop: string; defaultValue?: string }
 export type KeywordDef = string | [string, string]
 
-// Strategy Type
 type ValueFormatter = (value: string) => string
 
 interface FamilyConfigBase {
   prefix: string
   valueKind: ValueKind
   keywords?: KeywordDef[]
-  // Strategy hooks to avoid hardcoding familyKeys in logic
   formatter?: ValueFormatter
-  arbitraryType?: string // e.g. 'length' for [length:var(--x)]
+  arbitraryType?: string
 }
 
 interface SideFamily extends FamilyConfigBase {
@@ -93,7 +91,6 @@ function isAxis(f: string): f is Axis {
   return ['x', 'y'].includes(f)
 }
 
-// Special Strategy: Font Family Formatter
 function formatFontFamily(val: string): string {
   return val.replace(COMMA_DELIMITER_RE, ',').replace(WHITESPACE_RE, '_').replace(QUOTES_RE, '')
 }
@@ -440,7 +437,21 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'font',
     mode: 'direct',
     valueKind: 'any',
-    keywords: ['normal', 'bold', 'lighter', 'bolder'],
+    keywords: [
+      ['100', 'thin'],
+      ['200', 'extralight'],
+      ['300', 'light'],
+      ['400', 'normal'],
+      ['500', 'medium'],
+      ['600', 'semibold'],
+      ['700', 'bold'],
+      ['800', 'extrabold'],
+      ['900', 'black'],
+      'normal',
+      'bold',
+      'lighter',
+      'bolder'
+    ],
     props: { v: 'font-weight' }
   },
   fontStyle: {
@@ -709,12 +720,10 @@ function extractValuePart(
     return { isNegative, text: keywordMap[inner], isKeyword: true }
   }
 
-  // Strategy: Apply Formatter if present
   if (config.formatter) {
     inner = config.formatter(inner)
   }
 
-  // General Cleanup (calc, arbitrary formatting)
   if (inner.includes('calc')) {
     inner = inner.replace(ALL_WHITESPACE_RE, '_')
   }
@@ -729,8 +738,6 @@ function extractValuePart(
   if (!isStrictKeywordType) {
     text = `[${inner}]`
 
-    // Strategy: Arbitrary Type Hinting (e.g., border-[length:var(--x)])
-    // This disambiguates values that Tailwind JIT might confuse (e.g. raw vars or numbers)
     if (config.arbitraryType && (inner.includes('var(') || !isNaN(Number(inner)))) {
       text = `[${config.arbitraryType}:${inner}]`
     }
