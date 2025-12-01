@@ -15,7 +15,8 @@ export type ValueKind = 'length' | 'color' | 'integer' | 'percent' | 'url' | 'an
 export type PropDef = string | { prop: string; defaultValue?: string }
 export type KeywordDef = string | [string, string]
 
-type ValueFormatter = (value: string) => string
+type FormatterResult = string | { text: string; isKeyword?: boolean }
+type ValueFormatter = (value: string) => FormatterResult
 
 interface FamilyConfigBase {
   prefix: string
@@ -93,6 +94,30 @@ function isAxis(f: string): f is Axis {
 
 function formatFontFamily(val: string): string {
   return val.replace(COMMA_DELIMITER_RE, ',').replace(WHITESPACE_RE, '_').replace(QUOTES_RE, '')
+}
+
+function formatGridTemplate(val: string): FormatterResult {
+  const trimmed = val.trim()
+  const match = trimmed.match(/^repeat\(\s*(\d+)\s*,\s*minmax\(\s*0\s*,\s*1fr\s*\)\s*\)$/i)
+  if (match) {
+    return { text: match[1], isKeyword: true }
+  }
+  return trimmed
+}
+
+function formatGridLine(val: string): FormatterResult {
+  const trimmed = val.trim()
+  if (!trimmed) return trimmed
+
+  // Guard against invalid 0 or span 0 which Tailwind cannot represent meaningfully.
+  if (/^\s*0(\D|$)/.test(trimmed) || /span\s*0/i.test(trimmed)) {
+    return { text: 'auto', isKeyword: true }
+  }
+  return trimmed
+}
+
+function range(start: number, end: number) {
+  return Array.from({ length: end - start + 1 }, (_, i) => (start + i).toString())
 }
 
 export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
@@ -322,15 +347,17 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'grid-cols',
     mode: 'direct',
     valueKind: 'any',
-    keywords: ['none', 'subgrid'],
-    props: { v: 'grid-template-columns' }
+    keywords: ['none', 'subgrid', ...range(1, 12)],
+    props: { v: 'grid-template-columns' },
+    formatter: formatGridTemplate
   },
   gridTemplateRows: {
     prefix: 'grid-rows',
     mode: 'direct',
     valueKind: 'any',
-    keywords: ['none', 'subgrid'],
-    props: { v: 'grid-template-rows' }
+    keywords: ['none', 'subgrid', ...range(1, 6)],
+    props: { v: 'grid-template-rows' },
+    formatter: formatGridTemplate
   },
   gridAutoFlow: {
     prefix: 'grid-flow',
@@ -358,42 +385,62 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     mode: 'direct',
     valueKind: 'any',
     keywords: [['auto', 'auto']],
-    props: { v: 'grid-column' }
+    props: { v: 'grid-column' },
+    formatter: formatGridLine
   },
   gridColumnStart: {
     prefix: 'col-start',
     mode: 'direct',
     valueKind: 'integer',
-    keywords: [['auto', 'auto']],
-    props: { v: 'grid-column-start' }
+    keywords: [['auto', 'auto'], ...range(1, 13)],
+    props: { v: 'grid-column-start' },
+    formatter: formatGridLine
   },
   gridColumnEnd: {
     prefix: 'col-end',
     mode: 'direct',
     valueKind: 'integer',
-    keywords: [['auto', 'auto']],
-    props: { v: 'grid-column-end' }
+    keywords: [['auto', 'auto'], ...range(1, 13)],
+    props: { v: 'grid-column-end' },
+    formatter: formatGridLine
+  },
+  gridColumnSpan: {
+    prefix: 'col-span',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: [['full', '1 / -1'], ...range(1, 12)],
+    props: { v: 'grid-column-span' }
   },
   gridRow: {
     prefix: 'row',
     mode: 'direct',
     valueKind: 'any',
     keywords: [['auto', 'auto']],
-    props: { v: 'grid-row' }
+    props: { v: 'grid-row' },
+    formatter: formatGridLine
   },
   gridRowStart: {
     prefix: 'row-start',
     mode: 'direct',
     valueKind: 'integer',
-    keywords: [['auto', 'auto']],
-    props: { v: 'grid-row-start' }
+    keywords: [['auto', 'auto'], ...range(1, 13)],
+    props: { v: 'grid-row-start' },
+    formatter: formatGridLine
   },
   gridRowEnd: {
     prefix: 'row-end',
     mode: 'direct',
     valueKind: 'integer',
-    keywords: [['auto', 'auto']],
-    props: { v: 'grid-row-end' }
+    keywords: [['auto', 'auto'], ...range(1, 13)],
+    props: { v: 'grid-row-end' },
+    formatter: formatGridLine
+  },
+  gridRowSpan: {
+    prefix: 'row-span',
+    mode: 'direct',
+    valueKind: 'integer',
+    keywords: [['full', '1 / -1'], ...range(1, 12)],
+    props: { v: 'grid-row-span' }
   },
   padding: {
     prefix: 'p',
@@ -713,7 +760,8 @@ function extractValuePart(
   overrideKind?: ValueKind
 ): FormattedValue {
   const isNegative = val.startsWith('-')
-  let inner = isNegative ? val.substring(1) : val
+  let inner: string = isNegative ? val.substring(1) : val
+  let overrideIsKeyword: boolean | undefined
 
   const keywordMap = KEYWORD_REGISTRY[familyKey]
   if (keywordMap && keywordMap[inner]) {
@@ -721,7 +769,13 @@ function extractValuePart(
   }
 
   if (config.formatter) {
-    inner = config.formatter(inner)
+    const formatted = config.formatter(inner)
+    if (typeof formatted === 'object') {
+      inner = formatted.text
+      overrideIsKeyword = formatted.isKeyword
+    } else {
+      inner = formatted
+    }
   }
 
   if (inner.includes('calc')) {
@@ -733,18 +787,14 @@ function extractValuePart(
   const kind = overrideKind || config.valueKind
   const isStrictKeywordType = kind === 'keyword'
   let text = inner
-  let isKeyword = isStrictKeywordType
+  const isKeyword = overrideIsKeyword ?? isStrictKeywordType
 
-  if (!isStrictKeywordType) {
+  if (!isKeyword) {
     text = `[${inner}]`
 
     if (config.arbitraryType && (inner.includes('var(') || !isNaN(Number(inner)))) {
       text = `[${config.arbitraryType}:${inner}]`
     }
-
-    isKeyword = false
-  } else {
-    isKeyword = true
   }
 
   return { isNegative, text, isKeyword }

@@ -20,7 +20,15 @@ const MARK_WEIGHTS = Object.fromEntries(
   MARK_PRIORITY.map((mark, index) => [mark, index])
 ) as Record<TextMark, number>
 
-const HOIST_ALLOWLIST = new Set(['color', 'font-family', 'font-size', 'line-height', 'letter-spacing', 'text-align', 'text-transform'])
+const HOIST_ALLOWLIST = new Set([
+  'color',
+  'font-family',
+  'font-size',
+  'line-height',
+  'letter-spacing',
+  'text-align',
+  'text-transform'
+])
 
 const CODE_FONT_KEYWORDS = ['mono', 'code', 'consolas', 'menlo', 'courier', 'source code']
 
@@ -240,21 +248,23 @@ function renderBlock(
   if (cls) props[classProp] = cls
 
   if (!isList) {
-    const pTag: DevComponent = { name: 'p', props, children: [] }
+    const isMultiline = lines.length > 1
+    const tagName = isMultiline || paragraphSpacing > 0 ? 'p' : 'span'
+    const container: DevComponent = { name: tagName, props, children: [] }
 
     lines.forEach((line, idx) => {
       const lineNodes = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
-      pTag.children.push(...lineNodes)
-      if (idx < lines.length - 1) {
-        pTag.children.push({ name: 'br', props: {}, children: [] })
+      container.children.push(...lineNodes)
+      if (isMultiline && idx < lines.length - 1) {
+        container.children.push({ name: 'br', props: {}, children: [] })
       }
     })
 
-    if (pTag.children.length === 0) {
-      pTag.children.push({ name: 'br', props: {}, children: [] })
+    if (container.children.length === 0 && tagName === 'p') {
+      container.children.push({ name: 'br', props: {}, children: [] })
     }
 
-    return pTag
+    return container
   }
 
   const rootType = type === 'ordered-list' ? 'ORDERED' : 'UNORDERED'
@@ -350,7 +360,8 @@ function optimizeComponentTree(node: DevComponent | string, classProp: string) {
     'u',
     's',
     'code',
-    'a'
+    'a',
+    'span'
   ])
 
   if (UNWRAP_WHITELIST.has(node.name) && node.children && node.children.length === 1) {
