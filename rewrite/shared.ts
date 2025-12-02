@@ -15,12 +15,19 @@ export function applyGroups(content: string, groups: Group[]) {
       continue
     }
     for (const { pattern, replacer } of group.replacements) {
+      const before = out
       if (typeof pattern === 'string') {
         // @ts-ignore
         out = out.replaceAll(pattern, replacer)
       } else {
         // @ts-ignore
         out = out.replace(pattern, replacer)
+      }
+
+      if (out !== before) {
+        console.log(`[tempad-dev] Applied replacement: ${pattern} -> ${replacer}`)
+      } else {
+        console.warn(`[tempad-dev] Replacement had no effect: ${pattern} -> ${replacer}`)
       }
     }
   }
