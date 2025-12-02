@@ -3,7 +3,8 @@ import { z } from 'zod'
 // get_code
 export const GetCodeParametersSchema = z.object({
   nodeId: z.string().optional(),
-  preferredLang: z.enum(['jsx', 'vue']).optional()
+  preferredLang: z.enum(['jsx', 'vue']).optional(),
+  resolveTokens: z.boolean().optional()
 })
 
 export type GetCodeParametersInput = z.input<typeof GetCodeParametersSchema>

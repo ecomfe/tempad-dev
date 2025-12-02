@@ -80,7 +80,8 @@ const COMPACT_TAGS = new Set([
 
 export async function handleGetCode(
   nodes: SceneNode[],
-  preferredLang?: CodeLanguage
+  preferredLang?: CodeLanguage,
+  resolveTokens?: boolean
 ): Promise<GetCodeResult & { assets: Record<string, string> }> {
   if (nodes.length !== 1) {
     throw new Error('Select exactly one node or provide a single root node id.')
@@ -157,6 +158,21 @@ export async function handleGetCode(
   }
 
   const usedTokens = allTokens.filter((t) => usedTokenNames.has(t.name))
+
+  if (resolveTokens) {
+    const tokenMap = new Map(usedTokens.map((t) => [t.name, t.value]))
+    markup = markup.replace(/var\((--[a-zA-Z0-9-_]+)\)/g, (match, name) => {
+      const val = tokenMap.get(name)
+      return typeof val === 'string' ? val : match
+    })
+    // If tokens are resolved, we don't need to return the token definitions
+    return {
+      lang: resolvedLang,
+      code: markup,
+      assets: {},
+      ...(message ? { message } : {})
+    }
+  }
 
   return {
     lang: resolvedLang,
