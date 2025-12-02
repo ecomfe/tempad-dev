@@ -1,0 +1,50 @@
+[
+  {
+    "id": 1,
+    "priority": 10,
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "header": "Content-Security-Policy",
+          "operation": "remove"
+        }
+      ]
+    },
+    "condition": {
+      "resourceTypes": ["main_frame"]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "extensionPath": "/figma.js"
+      }
+    },
+    "condition": {
+      "regexFilter": "/webpack-artifacts/assets/(?:figma_app[^.]+|[0-9a-zA-Z-]+)\\.min\\.js(?:\\.br)?$",
+      "resourceTypes": ["script"]
+    }
+  },
+  {
+    "id": 99,
+    "priority": 1000,
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        { "header": "Access-Control-Allow-Origin", "operation": "set", "value": "*" },
+        { "header": "Access-Control-Allow-Methods", "operation": "set", "value": "GET, OPTIONS" },
+        { "header": "Access-Control-Allow-Headers", "operation": "set", "value": "*" }
+      ]
+    },
+    "condition": {
+      "resourceTypes": ["xmlhttprequest"],
+      "initiatorDomains": ["www.figma.com"],
+      "requestDomains": ["ecomfe.github.io"],
+      "regexFilter": "/tempad-dev/figma\\.(?:json|comply\\.json)$"
+    }
+  }
+]
