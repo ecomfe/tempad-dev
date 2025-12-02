@@ -41,6 +41,15 @@
           replacer: "__ext_init_wdf__"
         }
       ]
+    },
+    {
+      markers: ["let{canRunExtensions:"],
+      replacements: [
+        {
+          pattern: /let\{canRunExtensions:([A-Za-z_$][A-Za-z0-9_$]*),canAccessFullDevMode:([A-Za-z_$][A-Za-z0-9_$]*)\}=([A-Za-z_$][A-Za-z0-9_$]*).openFile;/,
+          replacer: "let{canRunExtensions:$1,canAccessFullDevMode:$2}=$3.openFile;$1=true;"
+        }
+      ]
     }
   ];
 
@@ -56,10 +65,16 @@
         continue;
       }
       for (const { pattern, replacer } of group.replacements) {
+        const before = out;
         if (typeof pattern === "string") {
           out = out.replaceAll(pattern, replacer);
         } else {
           out = out.replace(pattern, replacer);
+        }
+        if (out !== before) {
+          console.log(`[tempad-dev] Applied replacement: ${pattern} -> ${replacer}`);
+        } else {
+          console.warn(`[tempad-dev] Replacement had no effect: ${pattern} -> ${replacer}`);
         }
       }
     }
