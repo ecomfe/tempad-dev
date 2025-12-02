@@ -202,11 +202,15 @@ type ComponentPropertyValueLike =
 function getComponentProperties(
   node: InstanceNode
 ): Record<string, ComponentPropertyValueLike> | undefined {
-  const { componentProperties: props } = node
-  if (!props || typeof props !== 'object') {
+  try {
+    const { componentProperties: props } = node
+    if (!props || typeof props !== 'object') {
+      return undefined
+    }
+    return props as Record<string, ComponentPropertyValueLike>
+  } catch {
     return undefined
   }
-  return props as Record<string, ComponentPropertyValueLike>
 }
 
 function summarizeComponentProperties(node: InstanceNode): string | undefined {

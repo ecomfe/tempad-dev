@@ -59,17 +59,19 @@ export function formatHexAlpha(
   const g = toHex(color.g)
   const b = toHex(color.b)
 
-  // Compress if possible (e.g. #AABBCC -> #ABC)
-  let hex = `#${r}${g}${b}`
-  if (r[0] === r[1] && g[0] === g[1] && b[0] === b[1]) {
-    hex = `#${r[0]}${g[0]}${b[0]}`
-  }
-
   if (opacity >= 0.99) {
-    return hex
+    if (r[0] === r[1] && g[0] === g[1] && b[0] === b[1]) {
+      return `#${r[0]}${g[0]}${b[0]}`
+    }
+    return `#${r}${g}${b}`
   }
 
-  return `${hex}${toHex(opacity)}`
+  const a = toHex(opacity)
+  if (r[0] === r[1] && g[0] === g[1] && b[0] === b[1] && a[0] === a[1]) {
+    return `#${r[0]}${g[0]}${b[0]}${a[0]}`
+  }
+
+  return `#${r}${g}${b}${a}`
 }
 
 export function parseBackgroundShorthand(value: string) {
