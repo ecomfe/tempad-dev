@@ -42,5 +42,15 @@ export const GROUPS: Group[] = [
         replacer: '__ext_init_wdf__'
       }
     ]
+  },
+  {
+    markers: ['let{canRunExtensions:'],
+    replacements: [
+      {
+        pattern:
+          /let\{canRunExtensions:([A-Za-z_$][A-Za-z0-9_$]*),canAccessFullDevMode:([A-Za-z_$][A-Za-z0-9_$]*)\}=([A-Za-z_$][A-Za-z0-9_$]*).openFile;/,
+        replacer: 'let{canRunExtensions:$1,canAccessFullDevMode:$2}=$3.openFile;$1=true;'
+      }
+    ]
   }
 ]
