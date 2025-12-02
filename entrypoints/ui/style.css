@@ -87,22 +87,6 @@ tempad input[type="number"]:focus-visible {
   gap: var(--spacer-2);
 }
 
-[data-fpl-version="ui3"] tempad select {
-  height: var(--spacer-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-medium);
-  background-image: url("data:image/svg+xml,%3Csvg class='svg' xmlns='http://www.w3.org/2000/svg' width='8' height='7' viewBox='0 0 8 7'%3E%3Cpath fill='%23000000e5' fill-opacity='1' fill-rule='evenodd' stroke='none' d='m3.646 5.354-3-3 .708-.708L4 4.293l2.646-2.647.708.708-3 3L4 5.707l-.354-.353z'%3E%3C/path%3E%3C/svg%3E");
-  font-family: var(--text-body-medium-font-family);
-  font-size: var(--text-body-medium-font-size);
-  font-weight: var(--text-body-medium-font-weight);
-  letter-spacing: var(--text-body-medium-letter-spacing);
-  line-height: var(--text-body-medium-line-height);
-}
-
-[data-preferred-theme="dark"][data-fpl-version="ui3"] tempad select {
-  background-image: url("data:image/svg+xml,%3Csvg class='svg' xmlns='http://www.w3.org/2000/svg' width='8' height='7' viewBox='0 0 8 7'%3E%3Cpath fill='%23fff' fill-opacity='1' fill-rule='evenodd' stroke='none' d='m3.646 5.354-3-3 .708-.708L4 4.293l2.646-2.647.708.708-3 3L4 5.707l-.354-.353z'%3E%3C/path%3E%3C/svg%3E");
-}
-
 [data-fpl-version="ui3"] tempad input[type="text"],
 [data-fpl-version="ui3"] tempad input[type="number"] {
   height: var(--spacer-4);
