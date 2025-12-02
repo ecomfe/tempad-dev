@@ -1,6 +1,6 @@
 import type { Group } from '@/types/rewrite'
 
-export const RULES_URL = 'https://ecomfe.github.io/tempad-dev/figma.comply.json'
+export const RULES_URL = 'https://ecomfe.github.io/tempad-dev/figma.json'
 export const REWRITE_RULE_ID = 2
 
 export function groupMatches(content: string, group: Group) {
