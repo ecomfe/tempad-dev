@@ -240,6 +240,8 @@ async function collectSceneData(
           processed = replaceImageUrlsWithPlaceholder(processed, node, config)
         }
 
+        stripInertShadows(processed, node)
+
         styles.set(semantic.id, processed)
       } catch {
         // Ignore
@@ -261,6 +263,32 @@ function hasImageFills(node: SceneNode): boolean {
     Array.isArray(node.fills) &&
     node.fills.some((f) => f.type === 'IMAGE' && f.visible !== false)
   )
+}
+
+function stripInertShadows(style: Record<string, string>, node: SceneNode): void {
+  if (!style['box-shadow']) return
+  if (hasRenderableFill(node)) return
+  delete style['box-shadow']
+}
+
+function hasRenderableFill(node: SceneNode): boolean {
+  if (!('fills' in node)) return false
+  const fills = node.fills
+  if (!Array.isArray(fills)) return false
+  return fills.some((fill) => isFillRenderable(fill as Paint))
+}
+
+function isFillRenderable(fill: Paint | undefined): boolean {
+  if (!fill || fill.visible === false) {
+    return false
+  }
+  if (typeof fill.opacity === 'number' && fill.opacity <= 0) {
+    return false
+  }
+  if ('gradientStops' in fill && Array.isArray(fill.gradientStops)) {
+    return fill.gradientStops.some((stop) => (stop.color?.a ?? 1) > 0)
+  }
+  return true
 }
 
 function transformSvgAttributes(svg: string, config: CodegenConfig): string {
