@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 jobs:
-  check-rewrite:
+  deploy-rewrite:
     runs-on: ubuntu-latest
 
     steps:
