@@ -39,9 +39,9 @@ export const AssetDescriptorSchema = z.object({
   url: z.string().url(),
   mimeType: z.string().min(1),
   size: z.number().int().nonnegative(),
-  resourceUri: z.string().min(1),
-  width: z.number().optional(),
-  height: z.number().optional()
+  resourceUri: z.string().regex(/^asset:\/\/tempad\/[a-f0-9]{64}$/i),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional()
 })
 
 // get_screenshot

@@ -1,13 +1,25 @@
-import { createReadStream, createWriteStream, existsSync } from 'node:fs'
+import { nanoid } from 'nanoid'
+import { createHash } from 'node:crypto'
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  renameSync,
+  statSync,
+  unlinkSync
+} from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { URL } from 'node:url'
 
 import type { AssetStore } from './asset-store'
 
+import { MCP_HASH_PATTERN } from '../../mcp/shared/constants'
+import { getMcpServerConfig } from './config'
 import { ASSET_DIR, log } from './shared'
 
 const LOOPBACK_HOST = '127.0.0.1'
+const { maxAssetSizeBytes } = getMcpServerConfig()
 
 export interface AssetHttpServer {
   start(): Promise<void>
@@ -55,6 +67,16 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
   }
 
   function handleRequest(req: IncomingMessage, res: ServerResponse): void {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Asset-Width, X-Asset-Height')
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
+
     if (!req.url) {
       res.writeHead(400)
       res.end('Missing URL')
@@ -93,17 +115,26 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       return
     }
 
-    // Check if file actually exists on disk
-    if (!existsSync(record.filePath)) {
-      store.remove(hash, { removeFile: false })
-      res.writeHead(404)
-      res.end('Not Found')
+    let stat
+    try {
+      stat = statSync(record.filePath)
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException
+      if (err.code === 'ENOENT') {
+        store.remove(hash, { removeFile: false })
+        res.writeHead(404)
+        res.end('Not Found')
+      } else {
+        log.error({ error, hash }, 'Failed to stat asset file.')
+        res.writeHead(500)
+        res.end('Internal Server Error')
+      }
       return
     }
 
     res.writeHead(200, {
       'Content-Type': record.mime,
-      'Content-Length': record.size.toString(),
+      'Content-Length': stat.size.toString(),
       'Cache-Control': 'public, max-age=31536000, immutable'
     })
 
@@ -122,38 +153,134 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
   }
 
   function handleUpload(req: IncomingMessage, res: ServerResponse, hash: string): void {
+    if (!MCP_HASH_PATTERN.test(hash)) {
+      res.writeHead(400)
+      res.end('Invalid Hash Format')
+      return
+    }
+
     const mimeType = req.headers['content-type'] || 'application/octet-stream'
     const filePath = join(ASSET_DIR, hash)
 
+    const width = parseInt(req.headers['x-asset-width'] as string, 10)
+    const height = parseInt(req.headers['x-asset-height'] as string, 10)
+    const metadata =
+      !isNaN(width) && !isNaN(height) && width > 0 && height > 0 ? { width, height } : undefined
+
     // If asset already exists and file is present, skip write
     if (store.has(hash) && existsSync(filePath)) {
+      // Drain request to ensure connection is clean
+      req.resume()
+
+      const existing = store.get(hash)!
+      let changed = false
+      if (metadata) {
+        existing.metadata = metadata
+        changed = true
+      }
+      if (existing.mime !== mimeType) {
+        existing.mime = mimeType
+        changed = true
+      }
+      if (changed) {
+        store.upsert(existing)
+      }
       store.touch(hash)
       res.writeHead(200)
       res.end('OK')
       return
     }
 
-    const writeStream = createWriteStream(filePath)
+    const tmpPath = `${filePath}.tmp.${nanoid()}`
+    const writeStream = createWriteStream(tmpPath)
+    const hasher = createHash('sha256')
     let size = 0
+    let aborted = false
+
+    const cleanup = () => {
+      if (existsSync(tmpPath)) {
+        try {
+          unlinkSync(tmpPath)
+        } catch (e) {
+          log.warn({ error: e, tmpPath }, 'Failed to cleanup temp file.')
+        }
+      }
+    }
 
     req.on('data', (chunk) => {
+      if (aborted) return
       size += chunk.length
+      if (size > maxAssetSizeBytes) {
+        aborted = true
+        req.destroy()
+        writeStream.destroy()
+        cleanup()
+        res.writeHead(413)
+        res.end('Payload Too Large')
+        return
+      }
+      hasher.update(chunk)
     })
 
     req.pipe(writeStream)
 
+    req.on('aborted', () => {
+      aborted = true
+      writeStream.destroy()
+      cleanup()
+    })
+
+    req.on('error', (err) => {
+      log.warn({ err, hash }, 'Upload request error.')
+      aborted = true
+      writeStream.destroy()
+      cleanup()
+    })
+
+    req.on('close', () => {
+      if (!res.writableEnded && !aborted) {
+        log.warn({ hash }, 'Upload request closed prematurely.')
+        aborted = true
+        writeStream.destroy()
+        cleanup()
+      }
+    })
+
     writeStream.on('error', (error) => {
+      if (aborted) return
       log.error({ error, hash }, 'Failed to write uploaded asset.')
+      cleanup()
       res.writeHead(500)
       res.end('Internal Server Error')
     })
 
     writeStream.on('finish', () => {
+      if (aborted) return
+
+      const computedHash = hasher.digest('hex')
+      if (computedHash !== hash) {
+        cleanup()
+        res.writeHead(400)
+        res.end('Hash Mismatch')
+        return
+      }
+
+      try {
+        renameSync(tmpPath, filePath)
+      } catch (error) {
+        log.error({ error, hash }, 'Failed to rename temp file to asset.')
+        cleanup()
+        res.writeHead(500)
+        res.end('Internal Server Error')
+        return
+      }
+
       store.upsert({
         hash,
         filePath,
         mime: mimeType,
-        size
+        size,
+        metadata
       })
       log.info({ hash, size }, 'Stored uploaded asset via HTTP.')
       res.writeHead(201)

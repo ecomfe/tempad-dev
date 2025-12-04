@@ -313,7 +313,9 @@ async function replaceImageUrlsWithAssets(
   if (!style['background-color'] && !style['background-image'] && !style.background) return style
 
   const fills = await collectImageFillAssets(node, assetRegistry)
-  if (!fills.length) return replaceImageUrlsWithPlaceholder(style, node, config)
+  if (!fills.length) {
+    return replaceImageUrlsWithPlaceholder(style, node, config)
+  }
 
   const result = { ...style }
   const regex = new RegExp(BG_URL_RE.source, 'gi')
@@ -324,7 +326,7 @@ async function replaceImageUrlsWithAssets(
     result[key] = result[key].replace(regex, () => {
       const asset = fills[Math.min(index, fills.length - 1)]
       index++
-      return `url('${asset.url}')`
+      return `url('${asset.resourceUri}')`
     })
   }
 

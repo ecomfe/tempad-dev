@@ -3,6 +3,7 @@ import type { AssetDescriptor } from '@/mcp/shared/types'
 import { MCP_ASSET_URI_PREFIX } from '@/mcp/shared/constants'
 
 const uploadedAssets = new Set<string>()
+const inflightUploads = new Map<string, Promise<void>>()
 let assetServerUrl: string | null = null
 
 export function setAssetServerUrl(url: string | null): void {
@@ -11,6 +12,7 @@ export function setAssetServerUrl(url: string | null): void {
 
 export function resetUploadedAssets(): void {
   uploadedAssets.clear()
+  inflightUploads.clear()
 }
 
 export function buildAssetResourceUri(hash: string): string {
@@ -19,7 +21,8 @@ export function buildAssetResourceUri(hash: string): string {
 
 export async function ensureAssetUploaded(
   bytes: Uint8Array,
-  mimeType: string
+  mimeType: string,
+  metadata?: { width?: number; height?: number }
 ): Promise<AssetDescriptor> {
   const hash = await hashBytes(bytes)
 
@@ -36,26 +39,51 @@ export async function ensureAssetUploaded(
     mimeType,
     size,
     resourceUri,
-    url
+    url,
+    ...metadata
   }
 
-  if (uploadedAssets.has(hash)) {
+  const uploadKey = `${assetServerUrl}::${hash}::${mimeType}::${metadata?.width ?? ''}x${metadata?.height ?? ''}`
+
+  if (uploadedAssets.has(uploadKey)) {
     return descriptor
   }
 
-  await upload(url, bytes, mimeType)
-  uploadedAssets.add(hash)
+  if (inflightUploads.has(uploadKey)) {
+    await inflightUploads.get(uploadKey)
+    return descriptor
+  }
+
+  const promise = upload(url, bytes, mimeType, metadata)
+    .then(() => {
+      uploadedAssets.add(uploadKey)
+    })
+    .finally(() => {
+      inflightUploads.delete(uploadKey)
+    })
+
+  inflightUploads.set(uploadKey, promise)
+  await promise
 
   return descriptor
 }
 
-async function upload(url: string, bytes: Uint8Array, mimeType: string) {
+async function upload(
+  url: string,
+  bytes: Uint8Array,
+  mimeType: string,
+  metadata?: { width?: number; height?: number }
+) {
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': mimeType
+    }
+    if (metadata?.width) headers['X-Asset-Width'] = String(metadata.width)
+    if (metadata?.height) headers['X-Asset-Height'] = String(metadata.height)
+
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': mimeType
-      },
+      headers,
       body: new Blob([toArrayBuffer(bytes)], { type: mimeType })
     })
 

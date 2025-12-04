@@ -4,7 +4,7 @@ import type { RawData } from 'ws'
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { nanoid } from 'nanoid'
-import { existsSync, rmSync, chmodSync, readFileSync } from 'node:fs'
+import { existsSync, rmSync, chmodSync, readFileSync, statSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { WebSocketServer } from 'ws'
 
@@ -61,12 +61,15 @@ registerAssetResources()
 function registerAssetResources(): void {
   const template = new ResourceTemplate(MCP_ASSET_URI_TEMPLATE, {
     list: async () => ({
-      resources: assetStore.list().map((record) => ({
-        uri: buildAssetResourceUri(record.hash),
-        name: formatAssetResourceName(record.hash),
-        description: `${record.mime} (${formatBytes(record.size)})`,
-        mimeType: record.mime
-      }))
+      resources: assetStore
+        .list()
+        .filter((record) => existsSync(record.filePath))
+        .map((record) => ({
+          uri: buildAssetResourceUri(record.hash),
+          name: formatAssetResourceName(record.hash),
+          description: `${record.mime} (${formatBytes(record.size)})`,
+          mimeType: record.mime
+        }))
     })
   })
 
@@ -90,6 +93,20 @@ async function readAssetResource(hash: string) {
   const record = assetStore.get(hash)
   if (!record) {
     throw new Error(`Asset ${hash} not found.`)
+  }
+
+  if (!existsSync(record.filePath)) {
+    assetStore.remove(hash, { removeFile: false })
+    throw new Error(`Asset ${hash} file is missing.`)
+  }
+
+  const stat = statSync(record.filePath)
+  // Base64 encoding increases size by ~33% (4 bytes for every 3 bytes)
+  const estimatedSize = Math.ceil(stat.size / 3) * 4
+  if (estimatedSize > maxPayloadBytes) {
+    throw new Error(
+      `Asset ${hash} is too large (${formatBytes(stat.size)}, encoded: ${formatBytes(estimatedSize)}) to read via MCP protocol. Use HTTP download.`
+    )
   }
 
   assetStore.touch(hash)
@@ -137,7 +154,9 @@ function buildAssetDescriptor(record: AssetRecord): AssetDescriptor {
     url: `${assetHttpServer.getBaseUrl()}/assets/${record.hash}`,
     mimeType: record.mime,
     size: record.size,
-    resourceUri: buildAssetResourceUri(record.hash)
+    resourceUri: buildAssetResourceUri(record.hash),
+    width: record.metadata?.width,
+    height: record.metadata?.height
   }
 }
 
@@ -145,9 +164,9 @@ function createAssetResourceLinkBlock(asset: AssetDescriptor) {
   return {
     type: 'resource_link' as const,
     name: formatAssetResourceName(asset.hash),
-    uri: asset.url,
+    uri: asset.resourceUri,
     mimeType: asset.mimeType,
-    description: describeAsset(asset)
+    description: `${describeAsset(asset)} - Download: ${asset.url}`
   }
 }
 
@@ -170,8 +189,15 @@ function registerHubTools(): void {
     },
     async (args: unknown) => {
       const { hashes } = GetAssetsParametersSchema.parse(args)
+      if (hashes.length > 100) {
+        throw new Error('Too many hashes requested. Limit is 100.')
+      }
       const unique = Array.from(new Set(hashes))
-      const records = assetStore.getMany(unique)
+      const records = assetStore.getMany(unique).filter((record) => {
+        if (existsSync(record.filePath)) return true
+        assetStore.remove(record.hash, { removeFile: false })
+        return false
+      })
       const found = new Set(records.map((record) => record.hash))
       const payload: GetAssetsResult = GetAssetsResultSchema.parse({
         assets: records.map((record) => buildAssetDescriptor(record)),
@@ -338,23 +364,22 @@ function normalizeCodeResult(result: ToolResultMap['get_code']): ToolResultMap['
   }
 }
 
+function rewriteCodeAssetUrls(code: string, assets: AssetDescriptor[]): string {
+  let updatedCode = code
+  for (const asset of assets) {
+    // Replace asset:// URIs with the HTTP URL
+    const uriPattern = new RegExp(escapeRegExp(asset.resourceUri), 'g')
+    updatedCode = updatedCode.replace(uriPattern, asset.url)
+  }
+  return updatedCode
+}
+
 function enrichAssetDescriptor(asset: AssetDescriptor): AssetDescriptor {
   const record = assetStore.get(asset.hash)
   if (!record) {
     return asset
   }
   return buildAssetDescriptor(record)
-}
-
-function rewriteCodeAssetUrls(code: string, assets: AssetDescriptor[]): string {
-  let current = code
-  for (const asset of assets) {
-    const placeholder = buildAssetResourceUri(asset.hash)
-    if (!asset.url || asset.url === placeholder) continue
-    const pattern = new RegExp(escapeRegExp(placeholder), 'g')
-    current = current.replace(pattern, asset.url)
-  }
-  return current
 }
 
 function escapeRegExp(value: string): string {
@@ -452,9 +477,9 @@ function createResourceLinkBlock(asset: AssetDescriptor, result: GetScreenshotRe
   return {
     type: 'resource_link' as const,
     name: 'Screenshot',
-    uri: asset.url,
+    uri: asset.resourceUri,
     mimeType: asset.mimeType,
-    description: `Screenshot ${result.width}x${result.height} @${result.scale}x`
+    description: `Screenshot ${result.width}x${result.height} @${result.scale}x - Download: ${asset.url}`
   }
 }
 
@@ -484,6 +509,7 @@ function isScreenshotResult(payload: unknown): payload is GetScreenshotResult {
 
 function shutdown(): void {
   log.info('Hub is shutting down...')
+  assetStore.flush()
   assetHttpServer.stop()
   netServer.close(() => log.info('Net server closed.'))
   wss?.close(() => log.info('WebSocket server closed.'))

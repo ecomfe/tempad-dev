@@ -20,4 +20,8 @@ export interface AssetRecord {
   size: number
   uploadedAt: number
   lastAccess: number
+  metadata?: {
+    width?: number
+    height?: number
+  }
 }
