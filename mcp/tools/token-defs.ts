@@ -215,7 +215,8 @@ function resolveVariableCollection(variable: Variable): VariableCollectionInfo |
     const collection = figma.variables.getVariableCollectionById(collectionId)
     if (!collection) return null
     return { defaultModeId: collection.defaultModeId }
-  } catch {
+  } catch (error) {
+    console.warn('[tempad-dev] Failed to resolve variable collection:', error)
     return null
   }
 }
