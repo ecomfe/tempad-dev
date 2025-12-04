@@ -17,21 +17,19 @@ async function exportAtScale(node: SceneNode, scale: number): Promise<Uint8Array
 }
 
 export async function handleGetScreenshot(node: SceneNode): Promise<GetScreenshotResult> {
-  const { width, height } = node
-
   for (const scale of SCALE_STEPS) {
     const bytes = await exportAtScale(node, scale)
     const { byteLength } = bytes
 
     if (byteLength <= SCREENSHOT_MAX_BYTES) {
-      const asset = await ensureAssetUploaded(bytes, 'image/png')
-      asset.width = Math.round(width * scale)
-      asset.height = Math.round(height * scale)
+      const width = Math.round(node.width * scale)
+      const height = Math.round(node.height * scale)
+      const asset = await ensureAssetUploaded(bytes, 'image/png', { width, height })
 
       return {
         format: 'png',
-        width: asset.width,
-        height: asset.height,
+        width,
+        height,
         scale,
         bytes: byteLength,
         asset

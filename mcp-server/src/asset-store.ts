@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { AssetRecord } from './types'
@@ -24,6 +24,7 @@ export interface AssetStore {
   touch(hash: string): AssetRecord | undefined
   remove(hash: string, opts?: { removeFile?: boolean }): void
   reconcile(): void
+  flush(): void
 }
 
 function readIndex(indexPath: string): AssetRecord[] {
@@ -49,6 +50,7 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
   const indexPath = options.indexPath ?? DEFAULT_INDEX_PATH
   ensureFile(indexPath)
   const records = new Map<string, AssetRecord>()
+  let persistTimer: NodeJS.Timeout | null = null
 
   function loadExisting(): void {
     const list = readIndex(indexPath)
@@ -60,6 +62,21 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
   }
 
   function persist(): void {
+    if (persistTimer) return
+    persistTimer = setTimeout(() => {
+      persistTimer = null
+      writeIndex(indexPath, [...records.values()])
+    }, 5000)
+    if (typeof persistTimer.unref === 'function') {
+      persistTimer.unref()
+    }
+  }
+
+  function flush(): void {
+    if (persistTimer) {
+      clearTimeout(persistTimer)
+      persistTimer = null
+    }
     writeIndex(indexPath, [...records.values()])
   }
 
@@ -92,7 +109,7 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
       lastAccess: input.lastAccess ?? now
     }
     records.set(record.hash, record)
-    persist()
+    flush()
     return record
   }
 
@@ -127,7 +144,54 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
         changed = true
       }
     }
-    if (changed) persist()
+
+    try {
+      const files = readdirSync(ASSET_DIR)
+      const now = Date.now()
+      for (const file of files) {
+        if (file === INDEX_FILENAME) continue
+
+        // Cleanup stale tmp files (> 1 hour)
+        if (file.includes('.tmp.')) {
+          try {
+            const filePath = join(ASSET_DIR, file)
+            const stat = statSync(filePath)
+            if (now - stat.mtimeMs > 3600 * 1000) {
+              rmSync(filePath, { force: true })
+              log.info({ file }, 'Cleaned up stale temp file.')
+            }
+          } catch {
+            // Ignore errors during cleanup
+          }
+          continue
+        }
+
+        if (!/^[a-f0-9]{64}$/i.test(file)) continue
+
+        if (!records.has(file)) {
+          const filePath = join(ASSET_DIR, file)
+          try {
+            const stat = statSync(filePath)
+            records.set(file, {
+              hash: file,
+              filePath,
+              mime: 'application/octet-stream',
+              size: stat.size,
+              uploadedAt: stat.birthtimeMs,
+              lastAccess: stat.atimeMs
+            })
+            changed = true
+            log.info({ hash: file }, 'Recovered orphan asset file.')
+          } catch (e) {
+            log.warn({ error: e, file }, 'Failed to stat orphan file.')
+          }
+        }
+      }
+    } catch (error) {
+      log.warn({ error }, 'Failed to scan asset directory for orphans.')
+    }
+
+    if (changed) flush()
   }
 
   loadExisting()
@@ -141,6 +205,7 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
     upsert,
     touch,
     remove,
-    reconcile
+    reconcile,
+    flush
   }
 }
