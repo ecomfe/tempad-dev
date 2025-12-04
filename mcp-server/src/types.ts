@@ -12,3 +12,12 @@ export interface PendingToolCall {
   timer: NodeJS.Timeout
   extensionId: string
 }
+
+export interface AssetRecord {
+  hash: string
+  filePath: string
+  mime: string
+  size: number
+  uploadedAt: number
+  lastAccess: number
+}

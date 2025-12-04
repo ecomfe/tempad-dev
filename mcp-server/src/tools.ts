@@ -13,6 +13,7 @@ export type GetCodeResult = {
   lang: 'vue' | 'jsx'
   message?: string
   usedTokens?: GetTokenDefsResult['tokens']
+  assets: AssetDescriptor[]
 }
 
 // get_token_defs
@@ -28,6 +29,16 @@ export type GetTokenDefsResult = {
     kind: 'color' | 'spacing' | 'typography' | 'effect' | 'other'
   }>
 }
+
+export const AssetDescriptorSchema = z.object({
+  hash: z.string().min(1),
+  url: z.string().url(),
+  mimeType: z.string().min(1),
+  size: z.number().int().nonnegative(),
+  resourceUri: z.string().min(1)
+})
+
+export type AssetDescriptor = z.infer<typeof AssetDescriptorSchema>
 
 // get_screenshot
 export const GetScreenshotParametersSchema = z.object({
@@ -69,6 +80,19 @@ export type GetStructureResult = {
   roots: OutlineNode[]
 }
 
+// get_assets (hub only)
+export const GetAssetsParametersSchema = z.object({
+  hashes: z.array(z.string().min(1)).min(1)
+})
+
+export const GetAssetsResultSchema = z.object({
+  assets: z.array(AssetDescriptorSchema),
+  missing: z.array(z.string().min(1))
+})
+
+export type GetAssetsParametersInput = z.input<typeof GetAssetsParametersSchema>
+export type GetAssetsResult = z.infer<typeof GetAssetsResultSchema>
+
 export const TOOLS = [
   {
     name: 'get_code',
@@ -91,3 +115,12 @@ export const TOOLS = [
     parameters: GetStructureParametersSchema
   }
 ] as const
+
+export type ToolName = (typeof TOOLS)[number]['name']
+
+export type ToolResultMap = {
+  get_code: GetCodeResult
+  get_token_defs: GetTokenDefsResult
+  get_screenshot: GetScreenshotResult
+  get_structure: GetStructureResult
+}

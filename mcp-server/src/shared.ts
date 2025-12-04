@@ -17,13 +17,20 @@ function resolveLogDir(): string {
   return join(tmpdir(), 'tempad-dev', 'log')
 }
 
+function resolveAssetDir(): string {
+  if (process.env.TEMPAD_MCP_ASSET_DIR) return process.env.TEMPAD_MCP_ASSET_DIR
+  return join(tmpdir(), 'tempad-dev', 'assets')
+}
+
 export const RUNTIME_DIR = resolveRuntimeDir()
 export const LOG_DIR = resolveLogDir()
+export const ASSET_DIR = resolveAssetDir()
 
 ensureDir(RUNTIME_DIR)
 ensureDir(LOG_DIR)
+ensureDir(ASSET_DIR)
 
-function ensureFile(filePath: string): void {
+export function ensureFile(filePath: string): void {
   const fd = openSync(filePath, 'a')
   closeSync(fd)
 }
