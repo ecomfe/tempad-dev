@@ -24,10 +24,18 @@ export const ToolCallMessageSchema = z.object({
   payload: ToolCallPayloadSchema
 })
 
+export const AssetUploadedMessageSchema = z.object({
+  type: z.literal('assetUploaded'),
+  hash: z.string(),
+  ok: z.boolean(),
+  error: z.string().optional()
+})
+
 export const MessageToExtensionSchema = z.discriminatedUnion('type', [
   RegisteredMessageSchema,
   StateMessageSchema,
-  ToolCallMessageSchema
+  ToolCallMessageSchema,
+  AssetUploadedMessageSchema
 ])
 
 // Messages from extension to hub
@@ -42,18 +50,28 @@ export const ToolResultMessageSchema = z.object({
   error: z.unknown().optional()
 })
 
+export const AssetUploadRequestSchema = z.object({
+  type: z.literal('assetUpload'),
+  hash: z.string(),
+  mime: z.string(),
+  size: z.number().int().nonnegative()
+})
+
 export const MessageFromExtensionSchema = z.discriminatedUnion('type', [
   ActivateMessageSchema,
-  ToolResultMessageSchema
+  ToolResultMessageSchema,
+  AssetUploadRequestSchema
 ])
 
 export type RegisteredMessage = z.infer<typeof RegisteredMessageSchema>
 export type StateMessage = z.infer<typeof StateMessageSchema>
 export type ToolCallPayload = z.infer<typeof ToolCallPayloadSchema>
 export type ToolCallMessage = z.infer<typeof ToolCallMessageSchema>
+export type AssetUploadedMessage = z.infer<typeof AssetUploadedMessageSchema>
 export type MessageToExtension = z.infer<typeof MessageToExtensionSchema>
 export type ActivateMessage = z.infer<typeof ActivateMessageSchema>
 export type ToolResultMessage = z.infer<typeof ToolResultMessageSchema>
+export type AssetUploadRequest = z.infer<typeof AssetUploadRequestSchema>
 export type MessageFromExtension = z.infer<typeof MessageFromExtensionSchema>
 
 export function parseMessageToExtension(data: string): MessageToExtension | null {

@@ -8,3 +8,10 @@ export const MCP_TOOL_TIMEOUT_MS = 15000
 
 // Grace period before auto-activating the sole extension (ms).
 export const MCP_AUTO_ACTIVATE_GRACE_MS = 1500
+
+// Maximum allowed size for uploaded assets (bytes).
+export const MCP_MAX_ASSET_BYTES = 8 * 1024 * 1024
+
+export const MCP_ASSET_RESOURCE_NAME = 'tempad-assets'
+export const MCP_ASSET_URI_PREFIX = 'asset://tempad/'
+export const MCP_ASSET_URI_TEMPLATE = `${MCP_ASSET_URI_PREFIX}{hash}`

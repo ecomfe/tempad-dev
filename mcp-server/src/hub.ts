@@ -1,16 +1,28 @@
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { RawData } from 'ws'
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { nanoid } from 'nanoid'
-import { existsSync, rmSync, chmodSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, rmSync, chmodSync, writeFileSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:net'
+import { join } from 'node:path'
 import { WebSocketServer } from 'ws'
 
-import type { ExtensionConnection } from './types'
+import type { AssetRecord, ExtensionConnection } from './types'
 
+import {
+  MCP_ASSET_RESOURCE_NAME,
+  MCP_ASSET_URI_PREFIX,
+  MCP_ASSET_URI_TEMPLATE
+} from '../../mcp/shared/constants'
+import { createAssetHttpServer } from './asset-http-server'
+import { createAssetStore } from './asset-store'
 import { getMcpServerConfig } from './config'
 import {
+  AssetUploadRequest,
+  AssetUploadedMessage,
   MessageFromExtensionSchema,
   RegisteredMessage,
   StateMessage,
@@ -18,36 +30,220 @@ import {
   ToolResultMessage
 } from './protocol'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
-import { log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
-import { TOOLS } from './tools'
+import { log, RUNTIME_DIR, SOCK_PATH, ensureDir, ASSET_DIR } from './shared'
+import {
+  TOOLS,
+  GetAssetsParametersSchema,
+  GetAssetsResultSchema,
+  type AssetDescriptor,
+  type GetAssetsResult,
+  type GetScreenshotResult,
+  type ToolResultMap,
+  type ToolName
+} from './tools'
+
+type PendingAssetUpload = AssetUploadRequest & { receivedAt: number }
+type QueuedAssetUpload = PendingAssetUpload & { skipWrite: boolean }
 
 const SHUTDOWN_TIMEOUT = 2000
-const { wsPortCandidates, toolTimeoutMs, maxPayloadBytes, autoActivateGraceMs } =
+const { wsPortCandidates, toolTimeoutMs, maxPayloadBytes, autoActivateGraceMs, maxAssetSizeBytes } =
   getMcpServerConfig()
 
 const extensions: ExtensionConnection[] = []
 let consumerCount = 0
-let autoActivateTimer: NodeJS.Timeout | null = null
+type TimeoutHandle = ReturnType<typeof setTimeout>
+let autoActivateTimer: TimeoutHandle | null = null
 let selectedWsPort = 0
+const pendingUploadQueues = new Map<string, QueuedAssetUpload[]>()
 
 const mcp = new McpServer({ name: 'tempad-dev-mcp', version: '0.1.0' })
+type McpInputSchema = Parameters<typeof mcp.registerTool>[1]['inputSchema']
+type McpOutputSchema = Parameters<typeof mcp.registerTool>[1]['outputSchema']
+type RegisteredTool = (typeof TOOLS)[number]
 
-for (const tool of TOOLS) {
+const assetStore = createAssetStore()
+const assetHttpServer = createAssetHttpServer(assetStore)
+await assetHttpServer.start()
+registerAssetResources()
+
+const DATA_URL_PATTERN = /^data:(?<mime>[^;]+);base64,(?<data>[\s\S]+)$/i
+
+function registerAssetResources(): void {
+  const template = new ResourceTemplate(MCP_ASSET_URI_TEMPLATE, {
+    list: async () => ({
+      resources: assetStore.list().map((record) => ({
+        uri: buildAssetResourceUri(record.hash),
+        name: formatAssetResourceName(record.hash),
+        description: `${record.mime} (${formatBytes(record.size)})`,
+        mimeType: record.mime
+      }))
+    })
+  })
+
+  mcp.registerResource(
+    MCP_ASSET_RESOURCE_NAME,
+    template,
+    {
+      description: 'Binary assets captured by the TemPad Dev hub.'
+    },
+    async (_uri, variables) => {
+      const hash = typeof variables.hash === 'string' ? variables.hash : ''
+      return readAssetResource(hash)
+    }
+  )
+}
+
+async function readAssetResource(hash: string) {
+  if (!hash) {
+    throw new Error('Missing asset hash in resource URI.')
+  }
+  const record = assetStore.get(hash)
+  if (!record) {
+    throw new Error(`Asset ${hash} not found.`)
+  }
+
+  assetStore.touch(hash)
+  const buffer = readFileSync(record.filePath)
+  const resourceUri = buildAssetResourceUri(hash)
+
+  if (isTextualMime(record.mime)) {
+    return {
+      contents: [
+        {
+          uri: resourceUri,
+          mimeType: record.mime,
+          text: buffer.toString('utf8')
+        }
+      ]
+    }
+  }
+
+  return {
+    contents: [
+      {
+        uri: resourceUri,
+        mimeType: record.mime,
+        blob: buffer.toString('base64')
+      }
+    ]
+  }
+}
+
+function isTextualMime(mimeType: string): boolean {
+  return mimeType === 'image/svg+xml' || mimeType.startsWith('text/')
+}
+
+function buildAssetResourceUri(hash: string): string {
+  return `${MCP_ASSET_URI_PREFIX}${hash}`
+}
+
+function formatAssetResourceName(hash: string): string {
+  return `asset:${hash.slice(0, 8)}`
+}
+
+function buildAssetDescriptor(record: AssetRecord): AssetDescriptor {
+  return {
+    hash: record.hash,
+    url: `${assetHttpServer.getBaseUrl()}/assets/${record.hash}`,
+    mimeType: record.mime,
+    size: record.size,
+    resourceUri: buildAssetResourceUri(record.hash)
+  }
+}
+
+function notifyResourceListChanged(): void {
+  try {
+    mcp.sendResourceListChanged()
+  } catch (error) {
+    log.debug({ error }, 'Failed to notify clients about resource changes.')
+  }
+}
+
+function createAssetResourceLinkBlock(asset: AssetDescriptor) {
+  return {
+    type: 'resource_link' as const,
+    name: formatAssetResourceName(asset.hash),
+    uri: asset.url,
+    mimeType: asset.mimeType,
+    description: describeAsset(asset)
+  }
+}
+
+function describeAsset(asset: AssetDescriptor): string {
+  return `${asset.mimeType} (${formatBytes(asset.size)})`
+}
+
+function registerHubTools(): void {
+  for (const tool of TOOLS) {
+    registerExtensionTool(tool)
+  }
+
+  mcp.registerTool(
+    'get_assets',
+    {
+      description:
+        'Resolve uploaded asset hashes to downloadable URLs and resource URIs for resources/read calls.',
+      inputSchema: GetAssetsParametersSchema as unknown as McpInputSchema,
+      outputSchema: GetAssetsResultSchema as unknown as McpOutputSchema
+    },
+    async (args: unknown) => {
+      const { hashes } = GetAssetsParametersSchema.parse(args)
+      const unique = Array.from(new Set(hashes))
+      const records = assetStore.getMany(unique)
+      const found = new Set(records.map((record) => record.hash))
+      const payload: GetAssetsResult = GetAssetsResultSchema.parse({
+        assets: records.map((record) => buildAssetDescriptor(record)),
+        missing: unique.filter((hash) => !found.has(hash))
+      })
+
+      const summary: string[] = []
+      summary.push(
+        payload.assets.length
+          ? `Resolved ${payload.assets.length} asset${payload.assets.length === 1 ? '' : 's'}.`
+          : 'No assets were resolved for the requested hashes.'
+      )
+      if (payload.missing.length) {
+        summary.push(`Missing: ${payload.missing.join(', ')}`)
+      }
+      summary.push(
+        'Use resources/read with each resourceUri or fetch the fallback URL to download bytes.'
+      )
+
+      const content = [
+        {
+          type: 'text' as const,
+          text: summary.join('\n')
+        },
+        ...payload.assets.map((asset) => createAssetResourceLinkBlock(asset))
+      ]
+
+      return {
+        content,
+        structuredContent: payload
+      }
+    }
+  )
+}
+
+registerHubTools()
+log.info({ tools: TOOLS.map((t) => t.name) }, 'Registered tools.')
+function registerExtensionTool<T extends RegisteredTool>(tool: T): void {
+  type Name = T['name']
+  type Result = ToolResultMap[Name]
+
   const schema = tool.parameters
-  type InputSchema = Parameters<typeof mcp.registerTool>[1]['inputSchema']
-
   mcp.registerTool(
     tool.name,
     {
       description: tool.description,
-      inputSchema: schema as unknown as InputSchema
+      inputSchema: schema as unknown as McpInputSchema
     },
     async (args: unknown) => {
       const parsedArgs = schema.parse(args)
       const activeExt = extensions.find((e) => e.active)
       if (!activeExt) throw new Error('No active TemPad Dev extension available.')
 
-      const { promise, requestId } = register<unknown>(activeExt.id, toolTimeoutMs)
+      const { promise, requestId } = register<Result>(activeExt.id, toolTimeoutMs)
 
       const message: ToolCallMessage = {
         type: 'toolCall',
@@ -60,17 +256,136 @@ for (const tool of TOOLS) {
       activeExt.ws.send(JSON.stringify(message))
       log.info({ tool: tool.name, req: requestId, extId: activeExt.id }, 'Forwarded tool call.')
 
-      const unknownPayload = await promise
-      const textContent =
-        typeof unknownPayload === 'string'
-          ? unknownPayload
-          : JSON.stringify(unknownPayload, null, 2)
-
-      return { content: [{ type: 'text' as const, text: textContent }] }
+      const payload = await promise
+      return createToolResponse(tool.name, payload)
     }
   )
 }
-log.info({ tools: TOOLS.map((t) => t.name) }, 'Registered tools.')
+
+type ToolResponse = CallToolResult
+
+type StoredAssetReference = {
+  hash: string
+  url: string
+  mimeType: string
+  size: number
+  resourceUri: string
+}
+
+function createToolResponse<Name extends ToolName>(
+  toolName: Name,
+  payload: ToolResultMap[Name]
+): ToolResponse {
+  if (toolName === 'get_screenshot') {
+    try {
+      // TS cannot narrow ToolResultMap[Name] to the screenshot payload even though the tool name is literal.
+      return createScreenshotToolResponse(payload as ToolResultMap['get_screenshot'])
+    } catch (error) {
+      log.warn({ error }, 'Failed to format get_screenshot result; returning raw payload.')
+      return coercePayloadToToolResponse(payload)
+    }
+  }
+  if (toolName === 'get_code') {
+    try {
+      return createCodeToolResponse(payload as ToolResultMap['get_code'])
+    } catch (error) {
+      log.warn({ error }, 'Failed to format get_code result; returning raw payload.')
+      return coercePayloadToToolResponse(payload)
+    }
+  }
+
+  return coercePayloadToToolResponse(payload)
+}
+function coercePayloadToToolResponse(payload: unknown): ToolResponse {
+  if (payload && typeof payload === 'object' && Array.isArray((payload as ToolResponse).content)) {
+    return payload as ToolResponse
+  }
+
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2)
+      }
+    ]
+  }
+}
+
+function createCodeToolResponse(payload: ToolResultMap['get_code']): ToolResponse {
+  if (!isCodeResult(payload)) {
+    throw new Error('Invalid get_code payload received from extension.')
+  }
+
+  const normalized = normalizeCodeResult(payload)
+  const summary: string[] = []
+  const codeSize = Buffer.byteLength(normalized.code, 'utf8')
+  summary.push(`Generated ${normalized.lang.toUpperCase()} snippet (${formatBytes(codeSize)}).`)
+  if (normalized.message) {
+    summary.push(normalized.message)
+  }
+  summary.push(
+    normalized.assets.length
+      ? `Assets attached: ${normalized.assets.length}. Fetch bytes via resources/read using resourceUri or call get_assets.`
+      : 'No binary assets were attached to this response.'
+  )
+  if (normalized.usedTokens?.length) {
+    summary.push(`Token references included: ${normalized.usedTokens.length}.`)
+  }
+  summary.push('Read structuredContent for the full code string and asset metadata.')
+
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: summary.join('\n')
+      }
+    ],
+    structuredContent: normalized
+  }
+}
+
+function isCodeResult(payload: unknown): payload is ToolResultMap['get_code'] {
+  if (typeof payload !== 'object' || !payload) return false
+  const candidate = payload as Partial<ToolResultMap['get_code'] & Record<string, unknown>>
+  return (
+    typeof candidate.code === 'string' &&
+    typeof candidate.lang === 'string' &&
+    Array.isArray(candidate.assets)
+  )
+}
+
+function normalizeCodeResult(result: ToolResultMap['get_code']): ToolResultMap['get_code'] {
+  const updatedAssets = result.assets.map((asset) => enrichAssetDescriptor(asset))
+  const rewrittenCode = rewriteCodeAssetUrls(result.code, updatedAssets)
+  return {
+    ...result,
+    code: rewrittenCode,
+    assets: updatedAssets
+  }
+}
+
+function enrichAssetDescriptor(asset: AssetDescriptor): AssetDescriptor {
+  const record = assetStore.get(asset.hash)
+  if (!record) {
+    return asset
+  }
+  return buildAssetDescriptor(record)
+}
+
+function rewriteCodeAssetUrls(code: string, assets: AssetDescriptor[]): string {
+  let current = code
+  for (const asset of assets) {
+    const placeholder = buildAssetResourceUri(asset.hash)
+    if (!asset.url || asset.url === placeholder) continue
+    const pattern = new RegExp(escapeRegExp(placeholder), 'g')
+    current = current.replace(pattern, asset.url)
+  }
+  return current
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
 
 function getActiveId(): string | null {
   return extensions.find((e) => e.active)?.id ?? null
@@ -107,6 +422,15 @@ function scheduleAutoActivate(): void {
   }, autoActivateGraceMs)
 }
 
+function unrefTimer(timer: TimeoutHandle): void {
+  if (typeof timer === 'object' && timer !== null) {
+    const handle = timer as NodeJS.Timeout
+    if (typeof handle.unref === 'function') {
+      handle.unref()
+    }
+  }
+}
+
 function broadcastState(): void {
   const activeId = getActiveId()
   const message: StateMessage = {
@@ -119,8 +443,221 @@ function broadcastState(): void {
   log.debug({ activeId, count: extensions.length }, 'Broadcasted state.')
 }
 
+function rawDataToBuffer(raw: RawData): Buffer {
+  if (typeof raw === 'string') return Buffer.from(raw)
+  if (Buffer.isBuffer(raw)) return raw
+  if (raw instanceof ArrayBuffer) return Buffer.from(raw)
+  return Buffer.concat(raw)
+}
+
+function sendAssetUploadAck(
+  ws: ExtensionConnection['ws'],
+  hash: string,
+  ok: boolean,
+  error?: string
+) {
+  const message: AssetUploadedMessage = {
+    type: 'assetUploaded',
+    hash,
+    ok,
+    ...(error ? { error } : {})
+  }
+  ws.send(JSON.stringify(message))
+}
+
+function getUploadQueue(extId: string): QueuedAssetUpload[] {
+  let queue = pendingUploadQueues.get(extId)
+  if (!queue) {
+    queue = []
+    pendingUploadQueues.set(extId, queue)
+  }
+  return queue
+}
+
+function dequeueUpload(extId: string): QueuedAssetUpload | null {
+  const queue = pendingUploadQueues.get(extId)
+  if (!queue || queue.length === 0) return null
+  const next = queue.shift() ?? null
+  if (queue.length === 0) {
+    pendingUploadQueues.delete(extId)
+  }
+  return next
+}
+
+function persistBinaryAsset(ext: ExtensionConnection, raw: RawData): void {
+  const pending = dequeueUpload(ext.id)
+  if (!pending) {
+    log.warn({ extId: ext.id }, 'Received binary payload without pending asset metadata.')
+    return
+  }
+
+  const buffer = rawDataToBuffer(raw)
+  if (buffer.byteLength !== pending.size) {
+    const message = `Asset size mismatch: expected ${pending.size}, got ${buffer.byteLength}.`
+    log.warn({ hash: pending.hash, extId: ext.id }, message)
+    sendAssetUploadAck(ext.ws, pending.hash, false, message)
+    return
+  }
+
+  if (buffer.byteLength > maxAssetSizeBytes) {
+    const message = `Asset size ${buffer.byteLength} exceeds limit of ${maxAssetSizeBytes} bytes.`
+    log.warn({ hash: pending.hash, extId: ext.id }, message)
+    sendAssetUploadAck(ext.ws, pending.hash, false, message)
+    return
+  }
+
+  if (pending.skipWrite) {
+    const touched = assetStore.touch(pending.hash)
+    if (touched) {
+      log.info({ hash: pending.hash }, 'Skipped upload; asset already exists.')
+      sendAssetUploadAck(ext.ws, pending.hash, true)
+      return
+    }
+    log.warn({ hash: pending.hash }, 'Expected existing asset missing; proceeding with upload.')
+  }
+
+  const assetAlreadyStored = assetStore.has(pending.hash)
+  const filePath = join(ASSET_DIR, pending.hash)
+  try {
+    writeFileSync(filePath, buffer)
+    assetStore.upsert({
+      hash: pending.hash,
+      filePath,
+      mime: pending.mime,
+      size: buffer.byteLength
+    })
+    log.info({ hash: pending.hash, size: buffer.byteLength }, 'Stored uploaded asset.')
+    if (!assetAlreadyStored) {
+      notifyResourceListChanged()
+    }
+    sendAssetUploadAck(ext.ws, pending.hash, true)
+  } catch (error) {
+    log.error({ error, hash: pending.hash }, 'Failed to persist uploaded asset.')
+    sendAssetUploadAck(ext.ws, pending.hash, false, 'Failed to store asset on disk.')
+  }
+}
+
+function createScreenshotToolResponse(payload: ToolResultMap['get_screenshot']): ToolResponse {
+  if (!isScreenshotResult(payload)) {
+    throw new Error('Invalid get_screenshot payload received from extension.')
+  }
+
+  const descriptionBlock = {
+    type: 'text' as const,
+    text: describeScreenshot(payload)
+  }
+
+  const { mimeType, base64 } = parseDataUrlOrThrow(payload.dataUrl)
+  const normalizedBase64 = base64.replace(/\s+/g, '')
+  const buffer = Buffer.from(normalizedBase64, 'base64')
+
+  if (buffer.byteLength === 0) {
+    throw new Error('Screenshot payload is empty.')
+  }
+
+  if (buffer.byteLength !== payload.bytes) {
+    log.warn(
+      { reported: payload.bytes, decoded: buffer.byteLength },
+      'Mismatch between reported and decoded screenshot sizes.'
+    )
+  }
+
+  const asset = persistGeneratedAsset(buffer, mimeType)
+  return {
+    content: [descriptionBlock, createResourceLinkBlock(asset, payload)],
+    structuredContent: buildScreenshotMetadata(payload, asset)
+  }
+}
+
+function buildScreenshotMetadata(result: GetScreenshotResult, asset: StoredAssetReference) {
+  return {
+    format: result.format,
+    width: result.width,
+    height: result.height,
+    scale: result.scale,
+    bytes: result.bytes,
+    delivery: 'asset' as const,
+    asset: {
+      hash: asset.hash,
+      url: asset.url,
+      mimeType: asset.mimeType,
+      resourceUri: asset.resourceUri,
+      bytes: asset.size
+    }
+  }
+}
+
+function createResourceLinkBlock(asset: StoredAssetReference, result: GetScreenshotResult) {
+  return {
+    type: 'resource_link' as const,
+    name: 'Screenshot',
+    uri: asset.url,
+    mimeType: asset.mimeType,
+    description: `Screenshot ${result.width}x${result.height} @${result.scale}x`
+  }
+}
+
+function persistGeneratedAsset(buffer: Buffer, mimeType: string): StoredAssetReference {
+  const hash = createHash('sha256').update(buffer).digest('hex')
+  const existing = assetStore.get(hash)
+  const filePath = existing?.filePath ?? join(ASSET_DIR, hash)
+  const needsWrite = !existing || !existsSync(filePath)
+  let size = buffer.byteLength
+  const resourceUri = buildAssetResourceUri(hash)
+
+  if (needsWrite) {
+    writeFileSync(filePath, buffer)
+    assetStore.upsert({ hash, filePath, mime: mimeType, size: buffer.byteLength })
+    log.info({ hash, size: buffer.byteLength }, 'Stored generated asset.')
+    notifyResourceListChanged()
+  } else {
+    const record = assetStore.touch(hash)
+    size = record?.size ?? size
+  }
+
+  return {
+    hash,
+    url: `${assetHttpServer.getBaseUrl()}/assets/${hash}`,
+    mimeType,
+    size,
+    resourceUri
+  }
+}
+
+function parseDataUrlOrThrow(dataUrl: string): { mimeType: string; base64: string } {
+  const match = DATA_URL_PATTERN.exec(dataUrl)
+  if (!match?.groups?.mime || !match.groups.data) {
+    throw new Error('Screenshot payload did not include a valid data URL.')
+  }
+  return { mimeType: match.groups.mime, base64: match.groups.data }
+}
+
+function describeScreenshot(result: GetScreenshotResult): string {
+  return `Screenshot ${result.width}x${result.height} @${result.scale}x (${formatBytes(result.bytes)})`
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function isScreenshotResult(payload: unknown): payload is GetScreenshotResult {
+  if (typeof payload !== 'object' || !payload) return false
+  const candidate = payload as Partial<GetScreenshotResult & Record<string, unknown>>
+  return (
+    typeof candidate.dataUrl === 'string' &&
+    typeof candidate.width === 'number' &&
+    typeof candidate.height === 'number' &&
+    typeof candidate.scale === 'number' &&
+    typeof candidate.bytes === 'number' &&
+    typeof candidate.format === 'string'
+  )
+}
+
 function shutdown(): void {
   log.info('Hub is shutting down...')
+  assetHttpServer.stop()
   netServer.close(() => log.info('Net server closed.'))
   wss?.close(() => log.info('WebSocket server closed.'))
   cleanupAll()
@@ -128,7 +665,7 @@ function shutdown(): void {
     log.warn('Shutdown timed out. Forcing exit.')
     process.exit(1)
   }, SHUTDOWN_TIMEOUT)
-  timer.unref()
+  unrefTimer(timer)
 }
 
 try {
@@ -239,15 +776,13 @@ wss.on('connection', (ws) => {
   broadcastState()
   scheduleAutoActivate()
 
-  ws.on('message', (raw: RawData) => {
-    let messageBuffer: Buffer
-    if (Buffer.isBuffer(raw)) {
-      messageBuffer = raw
-    } else if (raw instanceof ArrayBuffer) {
-      messageBuffer = Buffer.from(raw)
-    } else {
-      messageBuffer = Buffer.concat(raw)
+  ws.on('message', (raw: RawData, isBinary: boolean) => {
+    if (isBinary) {
+      persistBinaryAsset(ext, raw)
+      return
     }
+
+    const messageBuffer = rawDataToBuffer(raw)
 
     let parsedJson: unknown
     try {
@@ -281,6 +816,31 @@ wss.on('connection', (ws) => {
         }
         break
       }
+      case 'assetUpload': {
+        const payload = msg as AssetUploadRequest
+        if (payload.size > maxAssetSizeBytes) {
+          const message = `Asset size ${payload.size} exceeds limit of ${maxAssetSizeBytes} bytes.`
+          log.warn({ extId: ext.id, hash: payload.hash }, message)
+          sendAssetUploadAck(ext.ws, payload.hash, false, message)
+          break
+        }
+
+        const queue = getUploadQueue(ext.id)
+        const item: QueuedAssetUpload = {
+          ...payload,
+          receivedAt: Date.now(),
+          skipWrite: assetStore.has(payload.hash)
+        }
+        queue.push(item)
+        log.debug(
+          { extId: ext.id, hash: payload.hash, size: payload.size, queueDepth: queue.length },
+          'Queued asset metadata; awaiting binary payload.'
+        )
+        if (item.skipWrite) {
+          log.debug({ hash: payload.hash }, 'Asset already exists; binary data will be discarded.')
+        }
+        break
+      }
     }
   })
 
@@ -290,6 +850,7 @@ wss.on('connection', (ws) => {
 
     log.info({ id: ext.id }, `Extension disconnected. Remaining: ${extensions.length}`)
     cleanupForExtension(ext.id)
+    pendingUploadQueues.delete(ext.id)
 
     if (ext.active) {
       log.warn({ id: ext.id }, 'Active extension disconnected.')

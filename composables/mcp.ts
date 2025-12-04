@@ -11,8 +11,10 @@ import { computed, shallowRef, watch } from 'vue'
 import type { McpToolArgs, McpToolName, MCPHandlers } from '@/mcp/runtime'
 
 import { parseMessageToExtension } from '@/mcp-server/src/protocol'
+import { handleAssetUploaded } from '@/mcp/assets'
 import { MCP_TOOL_HANDLERS } from '@/mcp/runtime'
 import { MCP_PORT_CANDIDATES } from '@/mcp/shared/constants'
+import { setMcpSocket } from '@/mcp/transport'
 import { options, runtimeMode } from '@/ui/state'
 
 const RECONNECT_DELAY_MS = 3000
@@ -70,6 +72,7 @@ export const useMcp = createSharedComposable(() => {
       }
     }
     socket.value = null
+    setMcpSocket(null)
   }
 
   function scheduleReconnect() {
@@ -125,6 +128,7 @@ export const useMcp = createSharedComposable(() => {
         port.value = candidatePort
         errorMessage.value = null
         socket.value = ws
+        setMcpSocket(ws)
         break
       } catch (err) {
         errorMessage.value =
@@ -162,6 +166,11 @@ export const useMcp = createSharedComposable(() => {
       return
     }
 
+    if (message.type === 'assetUploaded') {
+      handleAssetUploaded(message)
+      return
+    }
+
     if (message.type === 'toolCall') {
       const { name, args } = message.payload
       if (!isMcpToolName(name)) {
@@ -176,6 +185,7 @@ export const useMcp = createSharedComposable(() => {
       errorMessage.value = 'MCP connection closed unexpectedly'
     }
     socket.value = null
+    setMcpSocket(null)
     resetState()
     if (!options.value.mcpOn) {
       status.value = 'disabled'

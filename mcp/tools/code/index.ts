@@ -1,9 +1,10 @@
-import type { GetCodeResult } from '@/mcp-server/src/tools'
+import type { AssetDescriptor, GetCodeResult } from '@/mcp-server/src/tools'
 import type { SemanticNode } from '@/mcp/semantic-tree'
 import type { CodeBlock } from '@/types/codegen'
 import type { DevComponent } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
 
+import { ensureAssetUploaded } from '@/mcp/assets'
 import { buildSemanticTree } from '@/mcp/semantic-tree'
 import { MCP_MAX_PAYLOAD_BYTES } from '@/mcp/shared/constants'
 import { raw } from '@/plugins/src'
@@ -82,7 +83,7 @@ export async function handleGetCode(
   nodes: SceneNode[],
   preferredLang?: CodeLanguage,
   resolveTokens?: boolean
-): Promise<GetCodeResult & { assets: Record<string, string> }> {
+): Promise<GetCodeResult> {
   if (nodes.length !== 1) {
     throw new Error('Select exactly one node or provide a single root node id.')
   }
@@ -101,7 +102,8 @@ export async function handleGetCode(
   const config = codegenConfig()
   const pluginCode = activePlugin.value?.code
 
-  const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots, config)
+  const assetRegistry = new Map<string, AssetDescriptor>()
+  const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots, config, assetRegistry)
 
   await applyVariableTransforms(styles, {
     pluginCode,
@@ -169,7 +171,7 @@ export async function handleGetCode(
     return {
       lang: resolvedLang,
       code: markup,
-      assets: {},
+      assets: Array.from(assetRegistry.values()),
       ...(message ? { message } : {})
     }
   }
@@ -177,7 +179,7 @@ export async function handleGetCode(
   return {
     lang: resolvedLang,
     code: markup,
-    assets: {},
+    assets: Array.from(assetRegistry.values()),
     usedTokens,
     ...(message ? { message } : {})
   }
@@ -199,7 +201,8 @@ function normalizeRootString(content: string, fallbackTag: string | undefined, l
 
 async function collectSceneData(
   roots: SemanticNode[],
-  config: CodegenConfig
+  config: CodegenConfig,
+  assetRegistry: Map<string, AssetDescriptor>
 ): Promise<{
   nodes: Map<string, SceneNode>
   styles: Map<string, Record<string, string>>
@@ -237,7 +240,7 @@ async function collectSceneData(
         processed = inferResizingStyles(processed, node)
 
         if (hasImageFills(node)) {
-          processed = replaceImageUrlsWithPlaceholder(processed, node, config)
+          processed = await replaceImageUrlsWithAssets(processed, node, config, assetRegistry)
         }
 
         stripInertShadows(processed, node)
@@ -299,6 +302,129 @@ function transformSvgAttributes(svg: string, config: CodegenConfig): string {
     return `${prefix}${attr}=${quote}${normalized}${quote}`
   }
   return svg.replace(regex, replacer)
+}
+
+async function replaceImageUrlsWithAssets(
+  style: Record<string, string>,
+  node: SceneNode,
+  config: CodegenConfig,
+  assetRegistry: Map<string, AssetDescriptor>
+): Promise<Record<string, string>> {
+  if (!style['background-color'] && !style['background-image'] && !style.background) return style
+
+  const fills = await collectImageFillAssets(node, assetRegistry)
+  if (!fills.length) return replaceImageUrlsWithPlaceholder(style, node, config)
+
+  const result = { ...style }
+  const regex = new RegExp(BG_URL_RE.source, 'gi')
+
+  for (const key of ['background', 'background-image']) {
+    if (!result[key]) continue
+    let index = 0
+    result[key] = result[key].replace(regex, () => {
+      const asset = fills[Math.min(index, fills.length - 1)]
+      index++
+      return `url('${asset.url}')`
+    })
+  }
+
+  return result
+}
+
+const imageBytesCache = new Map<string, Promise<Uint8Array>>()
+
+async function collectImageFillAssets(
+  node: SceneNode,
+  assetRegistry: Map<string, AssetDescriptor>
+): Promise<AssetDescriptor[]> {
+  if (!('fills' in node)) return []
+  const fills = Array.isArray(node.fills) ? (node.fills as Paint[]) : null
+  if (!fills?.length) return []
+
+  const assets: AssetDescriptor[] = []
+  for (const fill of fills) {
+    if (!isRenderableImagePaint(fill)) continue
+    const hash = fill.imageHash
+    if (!hash) continue
+
+    try {
+      const bytes = await loadImageBytes(hash)
+      const mimeType = detectImageMime(bytes)
+      const asset = await ensureAssetUploaded(bytes, mimeType)
+      assetRegistry.set(asset.hash, asset)
+      assets.push(asset)
+    } catch (error) {
+      console.warn('[tempad-dev] Failed to process image fill asset:', error)
+    }
+  }
+
+  return assets
+}
+
+function isRenderableImagePaint(paint: Paint): paint is ImagePaint {
+  return paint.type === 'IMAGE' && paint.visible !== false
+}
+
+function loadImageBytes(hash: string): Promise<Uint8Array> {
+  let promise = imageBytesCache.get(hash)
+  if (!promise) {
+    const image = figma.getImageByHash(hash)
+    if (!image) {
+      throw new Error(`Unable to resolve image for hash ${hash}.`)
+    }
+    promise = image
+      .getBytesAsync()
+      .then((bytes) => {
+        imageBytesCache.set(hash, Promise.resolve(bytes))
+        return bytes
+      })
+      .catch((error) => {
+        imageBytesCache.delete(hash)
+        throw error
+      })
+    imageBytesCache.set(hash, promise)
+  }
+  return promise
+}
+
+function detectImageMime(bytes: Uint8Array): string {
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return 'image/png'
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (
+    bytes.length >= 6 &&
+    bytes[0] === 0x47 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x38 &&
+    (bytes[4] === 0x37 || bytes[4] === 0x39) &&
+    bytes[5] === 0x61
+  ) {
+    return 'image/gif'
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return 'image/webp'
+  }
+  return 'application/octet-stream'
 }
 
 function replaceImageUrlsWithPlaceholder(
