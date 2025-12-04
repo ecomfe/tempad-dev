@@ -133,7 +133,7 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
     }
 
     res.writeHead(200, {
-      'Content-Type': record.mime,
+      'Content-Type': record.mimeType,
       'Content-Length': stat.size.toString(),
       'Cache-Control': 'public, max-age=31536000, immutable'
     })
@@ -178,8 +178,8 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
         existing.metadata = metadata
         changed = true
       }
-      if (existing.mime !== mimeType) {
-        existing.mime = mimeType
+      if (existing.mimeType !== mimeType) {
+        existing.mimeType = mimeType
         changed = true
       }
       if (changed) {
@@ -278,7 +278,7 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       store.upsert({
         hash,
         filePath,
-        mime: mimeType,
+        mimeType: mimeType,
         size,
         metadata
       })

@@ -16,7 +16,7 @@ export interface PendingToolCall {
 export interface AssetRecord {
   hash: string
   filePath: string
-  mime: string
+  mimeType: string
   size: number
   uploadedAt: number
   lastAccess: number

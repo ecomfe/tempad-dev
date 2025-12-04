@@ -109,7 +109,7 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
       lastAccess: input.lastAccess ?? now
     }
     records.set(record.hash, record)
-    flush()
+    persist()
     return record
   }
 
@@ -175,7 +175,7 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
             records.set(file, {
               hash: file,
               filePath,
-              mime: 'application/octet-stream',
+              mimeType: 'application/octet-stream',
               size: stat.size,
               uploadedAt: stat.birthtimeMs,
               lastAccess: stat.atimeMs

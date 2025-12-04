@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import type { AssetDescriptor } from '../../mcp/shared/types'
 
+import { MCP_HASH_PATTERN } from '../../mcp/shared/constants'
+
 export type { AssetDescriptor }
 
 // get_code
@@ -86,7 +88,7 @@ export type GetStructureResult = {
 
 // get_assets (hub only)
 export const GetAssetsParametersSchema = z.object({
-  hashes: z.array(z.string().min(1)).min(1)
+  hashes: z.array(z.string().regex(MCP_HASH_PATTERN)).min(1)
 })
 
 export const GetAssetsResultSchema = z.object({
