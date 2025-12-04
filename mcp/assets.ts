@@ -43,7 +43,7 @@ export async function ensureAssetUploaded(
     ...metadata
   }
 
-  const uploadKey = `${assetServerUrl}::${hash}::${mimeType}::${metadata?.width ?? ''}x${metadata?.height ?? ''}`
+  const uploadKey = `${assetServerUrl}::${hash}`
 
   if (uploadedAssets.has(uploadKey)) {
     return descriptor

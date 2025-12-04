@@ -67,8 +67,8 @@ function registerAssetResources(): void {
         .map((record) => ({
           uri: buildAssetResourceUri(record.hash),
           name: formatAssetResourceName(record.hash),
-          description: `${record.mime} (${formatBytes(record.size)})`,
-          mimeType: record.mime
+          description: `${record.mimeType} (${formatBytes(record.size)})`,
+          mimeType: record.mimeType
         }))
     })
   })
@@ -113,12 +113,12 @@ async function readAssetResource(hash: string) {
   const buffer = readFileSync(record.filePath)
   const resourceUri = buildAssetResourceUri(hash)
 
-  if (isTextualMime(record.mime)) {
+  if (isTextualMime(record.mimeType)) {
     return {
       contents: [
         {
           uri: resourceUri,
-          mimeType: record.mime,
+          mimeType: record.mimeType,
           text: buffer.toString('utf8')
         }
       ]
@@ -129,7 +129,7 @@ async function readAssetResource(hash: string) {
     contents: [
       {
         uri: resourceUri,
-        mimeType: record.mime,
+        mimeType: record.mimeType,
         blob: buffer.toString('base64')
       }
     ]
@@ -152,7 +152,7 @@ function buildAssetDescriptor(record: AssetRecord): AssetDescriptor {
   return {
     hash: record.hash,
     url: `${assetHttpServer.getBaseUrl()}/assets/${record.hash}`,
-    mimeType: record.mime,
+    mimeType: record.mimeType,
     size: record.size,
     resourceUri: buildAssetResourceUri(record.hash),
     width: record.metadata?.width,
