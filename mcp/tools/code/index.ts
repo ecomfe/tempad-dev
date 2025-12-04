@@ -228,8 +228,8 @@ async function collectSceneData(
         svgString = transformSvgAttributes(svgString, config)
 
         svgs.set(semantic.id, svgString)
-      } catch {
-        // Fallback
+      } catch (error) {
+        console.warn('[tempad-dev] Failed to export vector node:', error)
       }
     } else {
       try {
@@ -246,8 +246,8 @@ async function collectSceneData(
         stripInertShadows(processed, node)
 
         styles.set(semantic.id, processed)
-      } catch {
-        // Ignore
+      } catch (error) {
+        console.warn('[tempad-dev] Failed to process node styles:', error)
       }
     }
   }

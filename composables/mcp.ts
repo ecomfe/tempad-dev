@@ -67,8 +67,8 @@ export const useMcp = createSharedComposable(() => {
     if (socket.value) {
       try {
         socket.value.close()
-      } catch {
-        // ignore
+      } catch (error) {
+        console.warn('[tempad-dev] Failed to close socket:', error)
       }
     }
     socket.value = null

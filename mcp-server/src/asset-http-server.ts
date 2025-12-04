@@ -10,6 +10,7 @@ import {
 } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
+import { pipeline, Transform } from 'node:stream'
 import { URL } from 'node:url'
 
 import type { AssetStore } from './asset-store'
@@ -195,7 +196,6 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
     const writeStream = createWriteStream(tmpPath)
     const hasher = createHash('sha256')
     let size = 0
-    let aborted = false
 
     const cleanup = () => {
       if (existsSync(tmpPath)) {
@@ -207,55 +207,35 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       }
     }
 
-    req.on('data', (chunk) => {
-      if (aborted) return
-      size += chunk.length
-      if (size > maxAssetSizeBytes) {
-        aborted = true
-        req.destroy()
-        writeStream.destroy()
+    const monitor = new Transform({
+      transform(chunk, encoding, callback) {
+        size += chunk.length
+        if (size > maxAssetSizeBytes) {
+          callback(new Error('PayloadTooLarge'))
+          return
+        }
+        hasher.update(chunk)
+        callback(null, chunk)
+      }
+    })
+
+    pipeline(req, monitor, writeStream, (err) => {
+      if (err) {
         cleanup()
-        res.writeHead(413)
-        res.end('Payload Too Large')
+        if (err.message === 'PayloadTooLarge') {
+          res.writeHead(413)
+          res.end('Payload Too Large')
+        } else if (err.code === 'ERR_STREAM_PREMATURE_CLOSE') {
+          log.warn({ hash }, 'Upload request closed prematurely.')
+        } else {
+          log.error({ error: err, hash }, 'Upload pipeline failed.')
+          if (!res.headersSent) {
+            res.writeHead(500)
+            res.end('Internal Server Error')
+          }
+        }
         return
       }
-      hasher.update(chunk)
-    })
-
-    req.pipe(writeStream)
-
-    req.on('aborted', () => {
-      aborted = true
-      writeStream.destroy()
-      cleanup()
-    })
-
-    req.on('error', (err) => {
-      log.warn({ err, hash }, 'Upload request error.')
-      aborted = true
-      writeStream.destroy()
-      cleanup()
-    })
-
-    req.on('close', () => {
-      if (!res.writableEnded && !aborted) {
-        log.warn({ hash }, 'Upload request closed prematurely.')
-        aborted = true
-        writeStream.destroy()
-        cleanup()
-      }
-    })
-
-    writeStream.on('error', (error) => {
-      if (aborted) return
-      log.error({ error, hash }, 'Failed to write uploaded asset.')
-      cleanup()
-      res.writeHead(500)
-      res.end('Internal Server Error')
-    })
-
-    writeStream.on('finish', () => {
-      if (aborted) return
 
       const computedHash = hasher.digest('hex')
       if (computedHash !== hash) {
@@ -278,7 +258,7 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       store.upsert({
         hash,
         filePath,
-        mimeType: mimeType,
+        mimeType,
         size,
         metadata
       })

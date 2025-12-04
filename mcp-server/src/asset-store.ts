@@ -160,8 +160,9 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
               rmSync(filePath, { force: true })
               log.info({ file }, 'Cleaned up stale temp file.')
             }
-          } catch {
+          } catch (e) {
             // Ignore errors during cleanup
+            log.debug({ error: e, file }, 'Failed to cleanup stale temp file.')
           }
           continue
         }

@@ -13,6 +13,7 @@ export function setAssetServerUrl(url: string | null): void {
 export function resetUploadedAssets(): void {
   uploadedAssets.clear()
   inflightUploads.clear()
+  // We don't clear the URL here as it might be needed for subsequent calls
 }
 
 export function buildAssetResourceUri(hash: string): string {
@@ -27,6 +28,7 @@ export async function ensureAssetUploaded(
   const hash = await hashBytes(bytes)
 
   if (!assetServerUrl) {
+    console.error('[tempad-dev] Asset server URL is missing.')
     throw new Error('Asset server URL is not configured.')
   }
 
