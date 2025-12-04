@@ -1,5 +1,9 @@
 import { z } from 'zod'
 
+import type { AssetDescriptor } from '../../mcp/shared/types'
+
+export type { AssetDescriptor }
+
 // get_code
 export const GetCodeParametersSchema = z.object({
   nodeId: z.string().optional(),
@@ -35,10 +39,10 @@ export const AssetDescriptorSchema = z.object({
   url: z.string().url(),
   mimeType: z.string().min(1),
   size: z.number().int().nonnegative(),
-  resourceUri: z.string().min(1)
+  resourceUri: z.string().min(1),
+  width: z.number().optional(),
+  height: z.number().optional()
 })
-
-export type AssetDescriptor = z.infer<typeof AssetDescriptorSchema>
 
 // get_screenshot
 export const GetScreenshotParametersSchema = z.object({
@@ -52,7 +56,7 @@ export type GetScreenshotResult = {
   height: number
   scale: number
   bytes: number
-  dataUrl: string
+  asset: AssetDescriptor
 }
 
 // get_structure

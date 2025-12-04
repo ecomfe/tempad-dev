@@ -11,7 +11,7 @@ import { computed, shallowRef, watch } from 'vue'
 import type { McpToolArgs, McpToolName, MCPHandlers } from '@/mcp/runtime'
 
 import { parseMessageToExtension } from '@/mcp-server/src/protocol'
-import { handleAssetUploaded } from '@/mcp/assets'
+import { resetUploadedAssets, setAssetServerUrl } from '@/mcp/assets'
 import { MCP_TOOL_HANDLERS } from '@/mcp/runtime'
 import { MCP_PORT_CANDIDATES } from '@/mcp/shared/constants'
 import { setMcpSocket } from '@/mcp/transport'
@@ -161,13 +161,9 @@ export const useMcp = createSharedComposable(() => {
       activeId.value = message.activeId
       count.value = message.count
       port.value = message.port
+      setAssetServerUrl(message.assetServerUrl)
       status.value = 'connected'
       errorMessage.value = null
-      return
-    }
-
-    if (message.type === 'assetUploaded') {
-      handleAssetUploaded(message)
       return
     }
 
@@ -187,6 +183,7 @@ export const useMcp = createSharedComposable(() => {
     socket.value = null
     setMcpSocket(null)
     resetState()
+    resetUploadedAssets()
     if (!options.value.mcpOn) {
       status.value = 'disabled'
       return
