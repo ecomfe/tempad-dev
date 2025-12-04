@@ -1,36 +1,20 @@
-import type { AssetUploadedMessage } from '@/mcp-server/src/protocol'
-import type { AssetDescriptor } from '@/mcp-server/src/tools'
+import type { AssetDescriptor } from '@/mcp/shared/types'
 
 import { MCP_ASSET_URI_PREFIX } from '@/mcp/shared/constants'
 
-import { getMcpSocket } from './transport'
+const uploadedAssets = new Set<string>()
+let assetServerUrl: string | null = null
 
-const uploadedAssets = new Map<string, AssetDescriptor>()
-const inFlightUploads = new Map<string, Promise<AssetDescriptor>>()
-const pendingAcks = new Map<
-  string,
-  {
-    resolve: () => void
-    reject: (error: Error) => void
-  }
->()
+export function setAssetServerUrl(url: string | null): void {
+  assetServerUrl = url
+}
+
+export function resetUploadedAssets(): void {
+  uploadedAssets.clear()
+}
 
 export function buildAssetResourceUri(hash: string): string {
   return `${MCP_ASSET_URI_PREFIX}${hash}`
-}
-
-export function handleAssetUploaded(message: AssetUploadedMessage): void {
-  const pending = pendingAcks.get(message.hash)
-  if (!pending) {
-    return
-  }
-  pendingAcks.delete(message.hash)
-
-  if (message.ok) {
-    pending.resolve()
-  } else {
-    pending.reject(new Error(message.error || 'Asset upload failed.'))
-  }
 }
 
 export async function ensureAssetUploaded(
@@ -38,70 +22,49 @@ export async function ensureAssetUploaded(
   mimeType: string
 ): Promise<AssetDescriptor> {
   const hash = await hashBytes(bytes)
-  const existing = uploadedAssets.get(hash)
-  if (existing) {
-    return existing
+
+  if (!assetServerUrl) {
+    throw new Error('Asset server URL is not configured.')
   }
 
-  let uploadPromise = inFlightUploads.get(hash)
-  if (!uploadPromise) {
-    uploadPromise = upload(hash, bytes, mimeType)
-    inFlightUploads.set(hash, uploadPromise)
-  }
-
-  const asset = await uploadPromise
-  uploadedAssets.set(hash, asset)
-  inFlightUploads.delete(hash)
-  return asset
-}
-
-async function upload(hash: string, bytes: Uint8Array, mimeType: string) {
-  const socket = getMcpSocket()
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    throw new Error('Cannot upload asset without an active MCP connection.')
-  }
-
-  const ack = createDeferred<void>()
-  pendingAcks.set(hash, ack)
-
+  const url = `${assetServerUrl}/assets/${hash}`
+  const resourceUri = buildAssetResourceUri(hash)
   const size = bytes.byteLength
-  const meta = {
-    type: 'assetUpload',
-    hash,
-    mime: mimeType,
-    size
-  }
-  try {
-    socket.send(JSON.stringify(meta))
-    socket.send(toArrayBuffer(bytes))
-  } catch (error) {
-    pendingAcks.delete(hash)
-    throw error instanceof Error
-      ? error
-      : new Error('Failed to transmit asset payload to MCP transport.')
-  }
-
-  await ack.promise
 
   const descriptor: AssetDescriptor = {
     hash,
     mimeType,
     size,
-    resourceUri: buildAssetResourceUri(hash),
-    url: buildAssetResourceUri(hash)
+    resourceUri,
+    url
   }
+
+  if (uploadedAssets.has(hash)) {
+    return descriptor
+  }
+
+  await upload(url, bytes, mimeType)
+  uploadedAssets.add(hash)
 
   return descriptor
 }
 
-function createDeferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve, reject }
+async function upload(url: string, bytes: Uint8Array, mimeType: string) {
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': mimeType
+      },
+      body: new Blob([toArrayBuffer(bytes)], { type: mimeType })
+    })
+
+    if (!response.ok) {
+      throw new Error(`Upload failed with status ${response.status} ${response.statusText}`)
+    }
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('Failed to upload asset via HTTP.')
+  }
 }
 
 async function hashBytes(bytes: Uint8Array): Promise<string> {

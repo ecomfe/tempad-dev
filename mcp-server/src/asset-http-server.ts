@@ -1,10 +1,11 @@
-import { createReadStream } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { join } from 'node:path'
 import { URL } from 'node:url'
 
 import type { AssetStore } from './asset-store'
 
-import { log } from './shared'
+import { ASSET_DIR, log } from './shared'
 
 const LOOPBACK_HOST = '127.0.0.1'
 
@@ -69,8 +70,32 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
     }
 
     const hash = segments[1]
+
+    if (req.method === 'POST') {
+      handleUpload(req, res, hash)
+      return
+    }
+
+    if (req.method === 'GET') {
+      handleDownload(req, res, hash)
+      return
+    }
+
+    res.writeHead(405)
+    res.end('Method Not Allowed')
+  }
+
+  function handleDownload(req: IncomingMessage, res: ServerResponse, hash: string): void {
     const record = store.get(hash)
     if (!record) {
+      res.writeHead(404)
+      res.end('Not Found')
+      return
+    }
+
+    // Check if file actually exists on disk
+    if (!existsSync(record.filePath)) {
+      store.remove(hash, { removeFile: false })
       res.writeHead(404)
       res.end('Not Found')
       return
@@ -79,7 +104,7 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
     res.writeHead(200, {
       'Content-Type': record.mime,
       'Content-Length': record.size.toString(),
-      'Cache-Control': 'no-store'
+      'Cache-Control': 'public, max-age=31536000, immutable'
     })
 
     const stream = createReadStream(record.filePath)
@@ -94,6 +119,46 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       store.touch(hash)
     })
     stream.pipe(res)
+  }
+
+  function handleUpload(req: IncomingMessage, res: ServerResponse, hash: string): void {
+    const mimeType = req.headers['content-type'] || 'application/octet-stream'
+    const filePath = join(ASSET_DIR, hash)
+
+    // If asset already exists and file is present, skip write
+    if (store.has(hash) && existsSync(filePath)) {
+      store.touch(hash)
+      res.writeHead(200)
+      res.end('OK')
+      return
+    }
+
+    const writeStream = createWriteStream(filePath)
+    let size = 0
+
+    req.on('data', (chunk) => {
+      size += chunk.length
+    })
+
+    req.pipe(writeStream)
+
+    writeStream.on('error', (error) => {
+      log.error({ error, hash }, 'Failed to write uploaded asset.')
+      res.writeHead(500)
+      res.end('Internal Server Error')
+    })
+
+    writeStream.on('finish', () => {
+      store.upsert({
+        hash,
+        filePath,
+        mime: mimeType,
+        size
+      })
+      log.info({ hash, size }, 'Stored uploaded asset via HTTP.')
+      res.writeHead(201)
+      res.end('Created')
+    })
   }
 
   return {

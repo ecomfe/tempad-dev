@@ -1,5 +1,6 @@
 import type { GetScreenshotResult } from '@/mcp-server/src/tools'
 
+import { ensureAssetUploaded } from '@/mcp/assets'
 import { MCP_MAX_PAYLOAD_BYTES } from '@/mcp/shared/constants'
 
 // Limit raw PNG bytes so the base64 data URL stays under the transport cap.
@@ -23,15 +24,17 @@ export async function handleGetScreenshot(node: SceneNode): Promise<GetScreensho
     const { byteLength } = bytes
 
     if (byteLength <= SCREENSHOT_MAX_BYTES) {
-      const base64 = figma.base64Encode(bytes)
-      const dataUrl = `data:image/png;base64,${base64}`
+      const asset = await ensureAssetUploaded(bytes, 'image/png')
+      asset.width = Math.round(width * scale)
+      asset.height = Math.round(height * scale)
+
       return {
         format: 'png',
-        width: Math.round(width * scale),
-        height: Math.round(height * scale),
+        width: asset.width,
+        height: asset.height,
         scale,
         bytes: byteLength,
-        dataUrl
+        asset
       }
     }
   }
