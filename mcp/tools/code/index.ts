@@ -1,5 +1,5 @@
 import type { AssetDescriptor, GetCodeResult } from '@/mcp-server/src/tools'
-import type { SemanticNode } from '@/mcp/semantic-tree'
+import type { SemanticNode, DataHint } from '@/mcp/semantic-tree'
 import type { CodeBlock } from '@/types/codegen'
 import type { DevComponent } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
@@ -40,8 +40,6 @@ export type RenderContext = {
   preferredLang?: CodeLanguage
   detectedLang?: CodeLanguage
 }
-
-type DataHint = { kind: string; name: string; value: unknown }
 
 // Tags that should render children without extra whitespace/newlines.
 const COMPACT_TAGS = new Set([
@@ -161,6 +159,11 @@ export async function handleGetCode(
 
   const usedTokens = allTokens.filter((t) => usedTokenNames.has(t.name))
 
+  const codegen = {
+    preset: activePlugin.value?.name ?? 'none',
+    config
+  }
+
   if (resolveTokens) {
     const tokenMap = new Map(usedTokens.map((t) => [t.name, t.value]))
     markup = markup.replace(/var\((--[a-zA-Z0-9-_]+)\)/g, (match, name) => {
@@ -172,6 +175,7 @@ export async function handleGetCode(
       lang: resolvedLang,
       code: markup,
       assets: Array.from(assetRegistry.values()),
+      codegen,
       ...(message ? { message } : {})
     }
   }
@@ -181,6 +185,7 @@ export async function handleGetCode(
     code: markup,
     assets: Array.from(assetRegistry.values()),
     usedTokens,
+    codegen,
     ...(message ? { message } : {})
   }
 }
@@ -690,6 +695,10 @@ function buildClassProps(
       if (key === 'data-hint-auto-layout' && options.isFallback !== true) return
       props[key] = String(val)
     })
+
+    if (props['data-hint-auto-layout']) {
+      props['data-hint-node-id'] = node.id
+    }
   }
 
   return { classNames, props }

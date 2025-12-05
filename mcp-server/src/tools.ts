@@ -23,6 +23,14 @@ export type GetCodeResult = {
   message?: string
   usedTokens?: GetTokenDefsResult['tokens']
   assets: AssetDescriptor[]
+  codegen: {
+    preset: string
+    config: {
+      cssUnit: 'px' | 'rem'
+      rootFontSize: number
+      scale: number
+    }
+  }
 }
 
 // get_token_defs
@@ -173,7 +181,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_code',
     description:
-      'Code snapshot for nodeId (or current selection); may include assets/usedTokens. Refine it; never output data-hint*. If auto-layout is none/inferred, validate via get_structure geometry. Resolve assets via get_assets and rewrite local paths. SVG/vector must use exact assets; never redraw.',
+      'Get a high-fidelity code snapshot for a nodeId (or current selection), including assets/usedTokens and `codegen` preset/config.',
     parameters: GetCodeParametersSchema,
     target: 'extension',
     format: createCodeToolResponse
@@ -181,7 +189,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_token_defs',
     description:
-      'Resolve provided canonical token names (e.g., --color-primary) to current and per-mode values. Use to map usedTokens to project tokens.',
+      'Resolve canonical token names to values (including modes) for tokens referenced by `get_code`.',
     parameters: GetTokenDefsParametersSchema,
     target: 'extension',
     exposed: false
@@ -189,7 +197,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_screenshot',
     description:
-      'Screenshot for nodeId (or current selection). Use only to resolve major ambiguity or sanity-check.',
+      'Capture a rendered screenshot for a nodeId (or current selection) for visual verification.',
     parameters: GetScreenshotParametersSchema,
     target: 'extension',
     format: createScreenshotToolResponse
@@ -197,14 +205,14 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_structure',
     description:
-      'Structure + geometry for nodeId (or current selection). Use early; use geometry when layout is inferred.',
+      'Get a structural + geometry outline for a nodeId (or current selection) to understand hierarchy and layout intent.',
     parameters: GetStructureParametersSchema,
     target: 'extension'
   }),
   hubTool({
     name: 'get_assets',
     description:
-      'Resolve asset hashes to URLs/URIs. Save with semantic names, rewrite local paths; preserve SVG exactly.',
+      'Resolve asset hashes to downloadable URLs/URIs for assets referenced by `get_code`.',
     parameters: GetAssetsParametersSchema,
     target: 'hub',
     outputSchema: GetAssetsResultSchema,

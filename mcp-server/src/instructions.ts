@@ -1,6 +1,8 @@
 export const MCP_INSTRUCTIONS = `
 ## MCP Server Instructions (Design to Code)
 
+You are connected to a Figma design file via the MCP server. Help convert design elements into code, preserving design intent and fitting the user’s codebase conventions.
+
 ### P0 (must)
 
 - Do not output \`data-hint*\` attributes. They are guidance only.
@@ -10,6 +12,7 @@ export const MCP_INSTRUCTIONS = `
 
 - Prefer calling \`get_structure\` early to understand hierarchy and layout intent.
 - Treat \`get_code\` as the implementation baseline; refine it to match the current project’s conventions.
+- Use \`get_screenshot\` only when structure and hints cannot resolve major ambiguities, or to sanity-check the final result.
 
 ### Layout uncertainty (\`data-hint-auto-layout\`)
 
@@ -22,10 +25,5 @@ export const MCP_INSTRUCTIONS = `
 
 ### Assets and tokens
 
-- If \`get_code\` references assets, call \`get_assets\`, save with semantic stable names, and rewrite to local relative paths.
-- Treat \`usedTokens\` as intent signals. Follow project convention: map to existing tokens when appropriate, keep inline values when that is the style, and add new tokens only when it fits convention and improves reuse.
-
-### Verification
-
-- Use \`get_screenshot\` only when structure and hints cannot resolve major ambiguities, or to sanity-check the final result.
+- If \`get_code\` references assets or tokens, handle them according to the current project’s conventions (local asset paths, existing token/variable systems, theming rules).
 `.trim()
