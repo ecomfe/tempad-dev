@@ -186,6 +186,47 @@ Current available plugins:
 <!-- availablePlugins:end -->
 <!-- prettier-ignore-end -->
 
+## MCP server
+
+TemPad Dev ships an [MCP](https://modelcontextprotocol.io/) server so agents/IDEs can pull code and context directly from the node you have selected in Figma. With the TemPad Dev panel open and MCP enabled, the server exposes:
+
+- `get_code`: High-fidelity JSX/Vue + TailwindCSS code output by default, plus attached assets and the codegen preset/config used.
+- `get_structure`: A structural outline (ids, types, geometry) for the current selection.
+- `get_screenshot`: A PNG capture with a `resourceUri` and direct HTTP download URL.
+- `tempad-assets` resource template (`asset://tempad/{hash}`) for any binaries returned by the tools above.
+
+### Setup guide
+
+1. Requirements: Node.js 18+ and TemPad Dev running in a Figma tab.
+2. In TemPad Dev, open **Preferences → MCP server** and toggle **Enable MCP server**.
+3. Use the quick actions in Preferences to install/connect, or add the server manually to your MCP client as a stdio command:
+
+   ```json
+   {
+     "mcpServers": {
+       "TemPad Dev": {
+         "command": "npx",
+         "args": ["-y", "@tempad-dev/mcp"]
+       }
+     }
+   }
+   ```
+
+   For CLI-style installers, the equivalent commands are `claude mcp add --transport stdio "TemPad Dev" -- npx -y @tempad-dev/mcp` or `codex mcp add "TemPad Dev" -- npx -y @tempad-dev/mcp`.
+
+4. Keep the TemPad Dev tab active while using MCP. If you have multiple Figma files (and thus multiple TemPad Dev extensions) open, click the MCP badge in the TemPad Dev panel to activate the correct file for your agent.
+
+### Configuration
+
+Optional environment variables for `@tempad-dev/mcp`:
+
+- `TEMPAD_MCP_TOOL_TIMEOUT` (default `15000`): Tool call timeout in milliseconds.
+- `TEMPAD_MCP_AUTO_ACTIVATE_GRACE` (default `1500`): Delay before auto-activating the sole connected extension.
+- `TEMPAD_MCP_MAX_ASSET_BYTES` (default `8388608`): Maximum upload size for captured assets/screenshots (bytes).
+- `TEMPAD_MCP_RUNTIME_DIR` (default `${TMPDIR}/tempad-dev/run`): Where the hub stores its socket/lock files.
+- `TEMPAD_MCP_LOG_DIR` (default `${TMPDIR}/tempad-dev/log`): Where MCP logs are written.
+- `TEMPAD_MCP_ASSET_DIR` (default `${TMPDIR}/tempad-dev/assets`): Storage for exported assets referenced by `resourceUri`.
+
 <details>
 <summary><h3>Inspect TemPad component code</h3></summary>
 

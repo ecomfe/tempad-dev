@@ -163,7 +163,7 @@ async function handleClientClick(client: McpClientDisplay) {
             target="_blank"
             rel="noopener"
             class="tp-mcp-link"
-            href="https://github.com/ecomfe/tempad-dev"
+            href="https://github.com/ecomfe/tempad-dev#mcp-server"
           >
             <ExternalLink />
             View setup guide
