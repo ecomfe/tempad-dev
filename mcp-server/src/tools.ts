@@ -1,3 +1,4 @@
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { ZodType } from 'zod'
 
 import { z } from 'zod'
@@ -131,11 +132,14 @@ export type ToolResultMap = {
 
 export type ToolName = keyof ToolResultMap
 
+export { MCP_INSTRUCTIONS } from './instructions'
+
 type BaseToolMetadata<Name extends ToolName, Schema extends ZodType> = {
   name: Name
   description: string
   parameters: Schema
   exposed?: boolean
+  format?: (payload: ToolResultMap[Name]) => CallToolResult
 }
 
 type ExtensionToolMetadata<Name extends ToolName, Schema extends ZodType> = BaseToolMetadata<
@@ -153,56 +157,242 @@ type HubToolMetadata<Name extends ToolName, Schema extends ZodType> = BaseToolMe
   outputSchema?: ZodType
 }
 
-type ToolMetadata<Name extends ToolName = ToolName> =
-  | ExtensionToolMetadata<Name, ZodType>
-  | HubToolMetadata<Name, ZodType>
-
-function defineExtensionTool<Name extends ToolName, Schema extends ZodType>(
+function extTool<Name extends ToolName, Schema extends ZodType>(
   definition: ExtensionToolMetadata<Name, Schema>
 ): ExtensionToolMetadata<Name, Schema> {
   return definition
 }
 
-function defineHubTool<Name extends ToolName, Schema extends ZodType>(
+function hubTool<Name extends ToolName, Schema extends ZodType>(
   definition: HubToolMetadata<Name, Schema>
 ): HubToolMetadata<Name, Schema> {
   return definition
 }
 
-export const TOOL_METADATA = [
-  defineExtensionTool({
+export const TOOL_DEFS = [
+  extTool({
     name: 'get_code',
-    description: 'High fidelity code snapshot for the current selection or provided node IDs.',
+    description:
+      'Code snapshot for nodeId (or current selection); may include assets/usedTokens. Refine it; never output data-hint*. If auto-layout is none/inferred, validate via get_structure geometry. Resolve assets via get_assets and rewrite local paths. SVG/vector must use exact assets; never redraw.',
     parameters: GetCodeParametersSchema,
-    target: 'extension'
+    target: 'extension',
+    format: createCodeToolResponse
   }),
-  defineExtensionTool({
+  extTool({
     name: 'get_token_defs',
     description:
-      'Resolve provided canonical token names (e.g., --color-primary) to current and per-mode values.',
+      'Resolve provided canonical token names (e.g., --color-primary) to current and per-mode values. Use to map usedTokens to project tokens.',
     parameters: GetTokenDefsParametersSchema,
     target: 'extension',
     exposed: false
   }),
-  defineExtensionTool({
+  extTool({
     name: 'get_screenshot',
-    description: 'Rendered screenshot for the requested node.',
+    description:
+      'Screenshot for nodeId (or current selection). Use only to resolve major ambiguity or sanity-check.',
     parameters: GetScreenshotParametersSchema,
-    target: 'extension'
+    target: 'extension',
+    format: createScreenshotToolResponse
   }),
-  defineExtensionTool({
+  extTool({
     name: 'get_structure',
-    description: 'Structural outline of the current selection or provided node IDs.',
+    description:
+      'Structure + geometry for nodeId (or current selection). Use early; use geometry when layout is inferred.',
     parameters: GetStructureParametersSchema,
     target: 'extension'
   }),
-  defineHubTool({
+  hubTool({
     name: 'get_assets',
     description:
-      'Resolve uploaded asset hashes to downloadable URLs and resource URIs for resources/read calls.',
+      'Resolve asset hashes to URLs/URIs. Save with semantic names, rewrite local paths; preserve SVG exactly.',
     parameters: GetAssetsParametersSchema,
     target: 'hub',
     outputSchema: GetAssetsResultSchema,
     exposed: false
   })
-] as const satisfies ReadonlyArray<ToolMetadata>
+] as const
+
+function createToolErrorResponse(toolName: string, error: unknown): CallToolResult {
+  const message =
+    error instanceof Error
+      ? error.message || 'Unknown error occurred.'
+      : typeof error === 'string'
+        ? error
+        : 'Unknown error occurred.'
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: `Tool "${toolName}" failed: ${message}`
+      }
+    ]
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+export function createCodeToolResponse(payload: ToolResultMap['get_code']): CallToolResult {
+  if (!isCodeResult(payload)) {
+    throw new Error('Invalid get_code payload received from extension.')
+  }
+
+  const normalized = normalizeCodeResult(payload)
+  const summary: string[] = []
+  const codeSize = Buffer.byteLength(normalized.code, 'utf8')
+  summary.push(`Generated ${normalized.lang.toUpperCase()} snippet (${formatBytes(codeSize)}).`)
+  if (normalized.message) {
+    summary.push(normalized.message)
+  }
+  summary.push(
+    normalized.assets.length
+      ? `Assets attached: ${normalized.assets.length}. Fetch bytes via resources/read using resourceUri.`
+      : 'No binary assets were attached to this response.'
+  )
+  if (normalized.usedTokens?.length) {
+    summary.push(`Token references included: ${normalized.usedTokens.length}.`)
+  }
+  summary.push('Read structuredContent for the full code string and asset metadata.')
+
+  const assetLinks =
+    normalized.assets.length > 0
+      ? normalized.assets.map((asset) => createAssetResourceLinkBlock(asset))
+      : []
+
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: summary.join('\n')
+      },
+      ...assetLinks
+    ],
+    structuredContent: normalized
+  }
+}
+
+export function createScreenshotToolResponse(
+  payload: ToolResultMap['get_screenshot']
+): CallToolResult {
+  if (!isScreenshotResult(payload)) {
+    throw new Error('Invalid get_screenshot payload received from extension.')
+  }
+
+  const descriptionBlock = {
+    type: 'text' as const,
+    text: describeScreenshot(payload)
+  }
+
+  return {
+    content: [
+      descriptionBlock,
+      {
+        type: 'text' as const,
+        text: `![Screenshot](${payload.asset.url})`
+      },
+      createResourceLinkBlock(payload.asset, payload)
+    ],
+    structuredContent: payload
+  }
+}
+
+function createResourceLinkBlock(asset: AssetDescriptor, result: GetScreenshotResult) {
+  return {
+    type: 'resource_link' as const,
+    name: 'Screenshot',
+    uri: asset.resourceUri,
+    mimeType: asset.mimeType,
+    description: `Screenshot ${result.width}x${result.height} @${result.scale}x - Download: ${asset.url}`
+  }
+}
+
+function describeScreenshot(result: GetScreenshotResult): string {
+  return `Screenshot ${result.width}x${result.height} @${result.scale}x (${formatBytes(result.bytes)})`
+}
+
+function isScreenshotResult(payload: unknown): payload is GetScreenshotResult {
+  if (typeof payload !== 'object' || !payload) return false
+  const candidate = payload as Partial<GetScreenshotResult & Record<string, unknown>>
+  return (
+    typeof candidate.asset === 'object' &&
+    candidate.asset !== null &&
+    typeof candidate.width === 'number' &&
+    typeof candidate.height === 'number' &&
+    typeof candidate.scale === 'number' &&
+    typeof candidate.bytes === 'number' &&
+    typeof candidate.format === 'string'
+  )
+}
+
+function isCodeResult(payload: unknown): payload is ToolResultMap['get_code'] {
+  if (typeof payload !== 'object' || !payload) return false
+  const candidate = payload as Partial<ToolResultMap['get_code'] & Record<string, unknown>>
+  return (
+    typeof candidate.code === 'string' &&
+    typeof candidate.lang === 'string' &&
+    Array.isArray(candidate.assets)
+  )
+}
+
+function normalizeCodeResult(result: ToolResultMap['get_code']): ToolResultMap['get_code'] {
+  const rewrittenCode = rewriteCodeAssetUrls(result.code, result.assets)
+  return {
+    ...result,
+    code: rewrittenCode
+  }
+}
+
+function rewriteCodeAssetUrls(code: string, assets: AssetDescriptor[]): string {
+  let updatedCode = code
+  for (const asset of assets) {
+    const uriPattern = new RegExp(escapeRegExp(asset.resourceUri), 'g')
+    updatedCode = updatedCode.replace(uriPattern, asset.url)
+  }
+  return updatedCode
+}
+
+function createAssetResourceLinkBlock(asset: AssetDescriptor) {
+  return {
+    type: 'resource_link' as const,
+    name: formatAssetResourceName(asset.hash),
+    uri: asset.resourceUri,
+    mimeType: asset.mimeType,
+    description: `${describeAsset(asset)} - Download: ${asset.url}`
+  }
+}
+
+function describeAsset(asset: AssetDescriptor): string {
+  return `${asset.mimeType} (${formatBytes(asset.size)})`
+}
+
+function formatAssetResourceName(hash: string): string {
+  return `asset:${hash.slice(0, 8)}`
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+export function coercePayloadToToolResponse(payload: unknown): CallToolResult {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    Array.isArray((payload as CallToolResult).content)
+  ) {
+    return payload as CallToolResult
+  }
+
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2)
+      }
+    ]
+  }
+}
+
+export { createToolErrorResponse }

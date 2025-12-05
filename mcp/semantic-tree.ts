@@ -14,10 +14,9 @@ export type Bounds = {
  * Lightweight metadata extracted from a SceneNode to help downstream renderers
  * preserve authoring intent without duplicating entire properties.
  *
- * Currently only attribute hints are emitted for component instances to help
- * preserve instance names in downstream markup.
+ * Hints are carried as data attributes (e.g. data-hint-design-component).
  */
-export type DataHint = { kind: 'attr'; name: string; value: string }
+export type DataHint = Record<string, string>
 type AutoLayoutSummary = {
   direction: 'row' | 'column'
   gap?: number
@@ -176,20 +175,24 @@ function classifyAsset(node: SceneNode): { isAsset: boolean; assetKind?: 'vector
 }
 
 function composeDataHint(node: SceneNode): DataHint | undefined {
-  if (node.type !== 'INSTANCE') {
-    return undefined
+  const hints: DataHint = {}
+
+  if (node.type === 'INSTANCE') {
+    const { mainComponent } = node as InstanceNode
+    if (mainComponent) {
+      const props = summarizeComponentProperties(node)
+      hints['data-hint-design-component'] = props
+        ? `${mainComponent.name}[${props}]`
+        : mainComponent.name
+    }
   }
 
-  const { mainComponent } = node as InstanceNode
-  if (!mainComponent) {
-    return undefined
+  const layoutHint = summarizeLayoutHint(node)
+  if (layoutHint) {
+    hints['data-hint-auto-layout'] = layoutHint
   }
 
-  const props = summarizeComponentProperties(node)
-  const base = `component:${mainComponent.name}`
-  const value = props ? `${base}|props:${props}` : base
-
-  return { kind: 'attr', name: 'data-tp', value }
+  return Object.keys(hints).length ? hints : undefined
 }
 
 type ComponentPropertyValueLike =
@@ -259,6 +262,19 @@ function summarizeComponentProperties(node: InstanceNode): string | undefined {
   }
 
   return entries.join(',')
+}
+
+function summarizeLayoutHint(node: SceneNode): string | undefined {
+  const layoutSource = resolveAutoLayoutSource(node)
+  // Explicit auto layout is obvious; only hint when not explicitly set.
+  if (layoutSource?.layoutMode && layoutSource.layoutMode !== 'NONE') return undefined
+  if (
+    'inferredAutoLayout' in node &&
+    (node as { inferredAutoLayout?: unknown }).inferredAutoLayout
+  ) {
+    return 'inferred'
+  }
+  return 'none'
 }
 
 function getLayoutKind(node: SceneNode): 'auto' | 'absolute' {

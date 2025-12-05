@@ -43,7 +43,12 @@ type TokenEntry = GetTokenDefsResult['tokens'][number]
 type TokenModeValue = NonNullable<TokenEntry['current']>
 type VariableAlias = { id?: string } | { type?: string; id?: string }
 type VariableWithCollection = Variable & { variableCollectionId?: string }
-type VariableCollectionInfo = { id?: string; name?: string; defaultModeId?: string; activeModeId?: string }
+type VariableCollectionInfo = {
+  id?: string
+  name?: string
+  defaultModeId?: string
+  activeModeId?: string
+}
 
 export async function handleGetTokenDefs(
   names: string[],
@@ -61,7 +66,9 @@ export async function handleGetTokenDefs(
   const payload: GetTokenDefsResult = { tokens }
   const approxSize = JSON.stringify(payload).length
   if (approxSize > MCP_MAX_PAYLOAD_BYTES) {
-    throw new Error('Token payload too large to return. Reduce selection or requested names and retry.')
+    throw new Error(
+      'Token payload too large to return. Reduce selection or requested names and retry.'
+    )
   }
 
   return payload
@@ -269,8 +276,9 @@ function resolveVariableCollection(variable: Variable): VariableCollectionInfo |
 
 function readActiveModeId(collectionId?: string): string | undefined {
   if (!collectionId) return undefined
-  const variablesApi = (figma as unknown as { variables?: { getVariableModeId?: (id: string) => string } })
-    .variables
+  const variablesApi = (
+    figma as unknown as { variables?: { getVariableModeId?: (id: string) => string } }
+  ).variables
   const getter = variablesApi?.getVariableModeId
   if (typeof getter !== 'function') return undefined
   try {
