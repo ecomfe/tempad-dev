@@ -43,8 +43,11 @@ async function handleGetCode(args?: GetCodeParametersInput): Promise<GetCodeResu
 }
 
 async function handleGetTokenDefs(args?: GetTokenDefsParametersInput): Promise<GetTokenDefsResult> {
-  const node = resolveSingleNode(args?.nodeId)
-  return runGetTokenDefs([node])
+  const { names, includeAllModes } = args ?? {}
+  if (!names?.length) {
+    throw new Error('names is required and must include at least one canonical token name.')
+  }
+  return runGetTokenDefs(names, includeAllModes)
 }
 
 async function handleGetScreenshot(

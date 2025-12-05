@@ -40,24 +40,28 @@ const SPACING_SCOPE_HINTS = [
 ]
 
 type TokenEntry = GetTokenDefsResult['tokens'][number]
+type TokenModeValue = NonNullable<TokenEntry['current']>
 type VariableAlias = { id?: string } | { type?: string; id?: string }
 type VariableWithCollection = Variable & { variableCollectionId?: string }
-type VariableCollectionInfo = { defaultModeId?: string }
+type VariableCollectionInfo = { id?: string; name?: string; defaultModeId?: string; activeModeId?: string }
 
-export async function handleGetTokenDefs(nodes: SceneNode[]): Promise<GetTokenDefsResult> {
-  const { variableIds } = collectTokenReferences(nodes)
+export async function handleGetTokenDefs(
+  names: string[],
+  includeAllModes = false
+): Promise<GetTokenDefsResult> {
   const config = getCodegenConfig()
   const pluginCode = activePlugin.value?.code
 
-  const tokens = await resolveVariableTokens(variableIds, config, pluginCode)
+  const requested = new Set(names.map((n) => (n.startsWith('--') ? n : `--${n}`)))
+  const variables = await findVariablesByCanonicalName(requested, config, pluginCode)
+  const tokens = await buildTokenEntries(variables, config, pluginCode, includeAllModes)
 
   tokens.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 
   const payload: GetTokenDefsResult = { tokens }
-
   const approxSize = JSON.stringify(payload).length
   if (approxSize > MCP_MAX_PAYLOAD_BYTES) {
-    throw new Error('Token payload too large to return. Reduce selection and retry.')
+    throw new Error('Token payload too large to return. Reduce selection or requested names and retry.')
   }
 
   return payload
@@ -96,43 +100,80 @@ export function collectTokenReferences(roots: SceneNode[]): {
 export async function resolveVariableTokens(
   ids: Set<string>,
   config: CodegenConfig,
-  pluginCode?: string
+  pluginCode?: string,
+  options: { includeAllModes?: boolean } = {}
 ): Promise<TokenEntry[]> {
-  const references: Array<{ rawName: string }> = []
-  const pending: Array<{ rawName: string; value: TokenEntry['value']; kind: TokenEntry['kind'] }> =
-    []
-
+  const variables: Variable[] = []
   ids.forEach((id) => {
     const variable = figma.variables.getVariableById(id)
-    if (!variable) return
-
-    const collection = resolveVariableCollection(variable)
-    const defaultModeId = pickDefaultModeId(variable, collection)
-    const value = formatVariableValue(variable, defaultModeId, collection, config)
-
-    if (value == null) return
-
-    references.push({ rawName: variable.name })
-    pending.push({ rawName: variable.name, value, kind: inferVariableKind(variable) })
+    if (variable) variables.push(variable)
   })
+  return buildTokenEntries(variables, config, pluginCode, !!options.includeAllModes)
+}
 
-  if (!pending.length) return []
+async function buildTokenEntries(
+  variables: Variable[],
+  config: CodegenConfig,
+  pluginCode: string | undefined,
+  includeAllModes: boolean
+): Promise<TokenEntry[]> {
+  if (!variables.length) return []
 
-  const transformedNames = await transformVariableNames(references, config, pluginCode)
+  const references = variables.map((variable) => ({ rawName: variable.name }))
+  const canonicalNames = await transformVariableNames(references, config, pluginCode)
 
   const deduped = new Map<string, TokenEntry>()
-  pending.forEach((item, index) => {
-    const name = transformedNames[index] ?? item.rawName
-    if (!deduped.has(name)) {
-      deduped.set(name, {
-        name,
-        value: item.value,
-        kind: item.kind
-      })
+
+  variables.forEach((variable, index) => {
+    const canonicalName = canonicalNames[index] ?? normalizeCssVarName(variable.name)
+    const collection = resolveVariableCollection(variable)
+    const preferredModeId = pickPreferredModeId(variable, collection)
+    const current = preferredModeId
+      ? resolveModeValue(variable, preferredModeId, collection, config)
+      : {
+          modeId: '',
+          resolved: null
+        }
+    const modes = includeAllModes
+      ? resolveAllModes(variable, collection, config, preferredModeId)
+      : undefined
+
+    const token: TokenEntry = {
+      name: canonicalName,
+      value: current.resolved,
+      current,
+      ...(modes ? { modes } : {}),
+      ...(collection ? { collection } : {}),
+      kind: inferVariableKind(variable)
+    }
+    if (!deduped.has(token.name)) {
+      deduped.set(token.name, token)
     }
   })
 
   return Array.from(deduped.values())
+}
+
+async function findVariablesByCanonicalName(
+  requested: Set<string>,
+  config: CodegenConfig,
+  pluginCode?: string
+): Promise<Variable[]> {
+  if (!requested.size) return []
+
+  const allVariables = await getAllVariables()
+  if (!allVariables.length) return []
+
+  const references = allVariables.map((variable) => ({ rawName: variable.name }))
+  const canonicalNames = await transformVariableNames(references, config, pluginCode)
+
+  const result: Variable[] = []
+  canonicalNames.forEach((name, index) => {
+    if (requested.has(name)) {
+      result.push(allVariables[index])
+    }
+  })
+  return result
 }
 
 function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
@@ -214,73 +255,127 @@ function resolveVariableCollection(variable: Variable): VariableCollectionInfo |
   try {
     const collection = figma.variables.getVariableCollectionById(collectionId)
     if (!collection) return null
-    return { defaultModeId: collection.defaultModeId }
+    return {
+      id: collection.id,
+      name: collection.name,
+      defaultModeId: collection.defaultModeId,
+      activeModeId: readActiveModeId(collection.id)
+    }
   } catch (error) {
     console.warn('[tempad-dev] Failed to resolve variable collection:', error)
     return null
   }
 }
 
-function pickDefaultModeId(
+function readActiveModeId(collectionId?: string): string | undefined {
+  if (!collectionId) return undefined
+  const variablesApi = (figma as unknown as { variables?: { getVariableModeId?: (id: string) => string } })
+    .variables
+  const getter = variablesApi?.getVariableModeId
+  if (typeof getter !== 'function') return undefined
+  try {
+    return getter(collectionId)
+  } catch (error) {
+    console.warn('[tempad-dev] Failed to read active mode id:', error)
+    return undefined
+  }
+}
+
+function pickPreferredModeId(
   variable: Variable,
-  collection?: VariableCollectionInfo | null
+  collection?: VariableCollectionInfo | null,
+  desiredModeId?: string
 ): string | undefined {
   const { valuesByMode = {} } = variable
+  if (desiredModeId && desiredModeId in valuesByMode) return desiredModeId
+  if (collection?.activeModeId && collection.activeModeId in valuesByMode) {
+    return collection.activeModeId
+  }
   if (collection?.defaultModeId && collection.defaultModeId in valuesByMode) {
     return collection.defaultModeId
   }
   return Object.keys(valuesByMode)[0]
 }
 
-function resolveVariableValueForMode(
+function resolveModeValue(
   variable: Variable,
   modeId: string,
-  collection?: VariableCollectionInfo | null,
+  collection: VariableCollectionInfo | null,
+  config: CodegenConfig,
   seen: Set<string> = new Set()
-): unknown {
+): TokenModeValue {
   const { valuesByMode = {} } = variable
-  if (seen.has(variable.id)) return null
+  if (seen.has(variable.id)) {
+    return { modeId, resolved: null, aliasChain: [] }
+  }
   seen.add(variable.id)
 
-  const rawValue = valuesByMode[modeId]
+  const rawValue = valuesByMode[modeId] ?? resolveFallbackValue(valuesByMode, modeId, collection)
 
   if (isVariableAlias(rawValue)) {
     const target = figma.variables.getVariableById(rawValue.id)
-    if (!target) return rawValue
-
+    if (!target) {
+      return { modeId, aliasTo: rawValue.id, resolved: null, aliasChain: [rawValue.id] }
+    }
     const targetCollection = resolveVariableCollection(target)
-    const targetModeId = pickDefaultModeId(target, targetCollection) ?? modeId
-    return resolveVariableValueForMode(target, targetModeId, targetCollection, seen)
+    const targetModeId = pickPreferredModeId(target, targetCollection, modeId) ?? modeId
+    const resolvedTarget = resolveModeValue(target, targetModeId, targetCollection, config, seen)
+    const chain = [rawValue.id, ...(resolvedTarget.aliasChain ?? [])]
+    return {
+      modeId,
+      aliasTo: rawValue.id,
+      resolved: resolvedTarget.resolved,
+      aliasChain: chain.length ? chain : undefined
+    }
   }
 
-  if (rawValue === undefined && collection?.defaultModeId && collection.defaultModeId !== modeId) {
+  const serialized = serializeVariableValue(rawValue, variable.resolvedType, config)
+  return {
+    modeId,
+    value: serialized ?? undefined,
+    resolved: serialized,
+    aliasChain: undefined
+  }
+}
+
+function resolveAllModes(
+  variable: Variable,
+  collection: VariableCollectionInfo | null,
+  config: CodegenConfig,
+  preferredModeId?: string
+): Array<Omit<TokenModeValue, 'aliasChain'>> {
+  const { valuesByMode = {} } = variable
+  const modeIds = Object.keys(valuesByMode)
+  if (!modeIds.length && preferredModeId) {
+    const current = resolveModeValue(variable, preferredModeId, collection, config)
+    const { aliasChain: _aliasChain, ...rest } = current
+    return [rest]
+  }
+
+  return modeIds.map((modeId) => {
+    const resolved = resolveModeValue(variable, modeId, collection, config)
+    const { aliasChain: _aliasChain, ...rest } = resolved
+    return rest
+  })
+}
+
+function resolveFallbackValue(
+  valuesByMode: Variable['valuesByMode'],
+  modeId: string,
+  collection: VariableCollectionInfo | null
+): unknown {
+  if (valuesByMode[modeId] !== undefined) return valuesByMode[modeId]
+  if (collection?.defaultModeId && collection.defaultModeId !== modeId) {
     const fallback = valuesByMode[collection.defaultModeId]
     if (fallback !== undefined) return fallback
   }
-
-  return rawValue
+  return valuesByMode[modeId]
 }
 
 function isVariableAlias(value: unknown): value is VariableAlias {
   if (!value || typeof value !== 'object') return false
   const alias = value as VariableAlias
   return typeof alias.id === 'string'
-}
-
-function formatVariableValue(
-  variable: Variable,
-  modeId: string | undefined,
-  collection: VariableCollectionInfo | null,
-  config: CodegenConfig
-): string | Record<string, unknown> | null {
-  const { resolvedType } = variable
-  const effectiveMode = modeId ?? pickDefaultModeId(variable, collection)
-  if (!effectiveMode) return null
-
-  const resolved = resolveVariableValueForMode(variable, effectiveMode, collection)
-  if (resolved == null) return null
-
-  return serializeVariableValue(resolved, resolvedType, config)
 }
 
 function serializeVariableValue(
@@ -337,6 +432,32 @@ async function transformVariableNames(
 
     return nameMatch ? nameMatch[1] : (canonical ?? fallback.name)
   })
+}
+
+async function getAllVariables(): Promise<Variable[]> {
+  const variablesApi = (figma as unknown as { variables?: Record<string, unknown> }).variables
+  if (!variablesApi) return []
+
+  const asyncGetter = (variablesApi as { getLocalVariablesAsync?: () => Promise<Variable[]> })
+    .getLocalVariablesAsync
+  if (typeof asyncGetter === 'function') {
+    try {
+      return await asyncGetter()
+    } catch (error) {
+      console.warn('[tempad-dev] Failed to read variables async:', error)
+    }
+  }
+
+  const syncGetter = (variablesApi as { getLocalVariables?: () => Variable[] }).getLocalVariables
+  if (typeof syncGetter === 'function') {
+    try {
+      return syncGetter()
+    } catch (error) {
+      console.warn('[tempad-dev] Failed to read variables:', error)
+    }
+  }
+
+  return []
 }
 
 function inferVariableKind(variable: Variable): TokenEntry['kind'] {
