@@ -11,9 +11,18 @@ export type { AssetDescriptor }
 
 // get_code
 export const GetCodeParametersSchema = z.object({
-  nodeId: z.string().optional(),
-  preferredLang: z.enum(['jsx', 'vue']).optional(),
-  resolveTokens: z.boolean().optional()
+  nodeId: z
+    .string()
+    .describe('Optional node id to target; defaults to the current single selection.')
+    .optional(),
+  preferredLang: z
+    .enum(['jsx', 'vue'])
+    .describe('Preferred output language; otherwise uses the design’s hint/detected language, then JSX.')
+    .optional(),
+  resolveTokens: z
+    .boolean()
+    .describe('Resolve token references to concrete values; default false returns token metadata.')
+    .optional()
 })
 
 export type GetCodeParametersInput = z.input<typeof GetCodeParametersSchema>
@@ -35,8 +44,14 @@ export type GetCodeResult = {
 
 // get_token_defs
 export const GetTokenDefsParametersSchema = z.object({
-  names: z.array(z.string().regex(/^--[a-zA-Z0-9-_]+$/)).min(1),
-  includeAllModes: z.boolean().optional()
+  names: z
+    .array(z.string().regex(/^--[a-zA-Z0-9-_]+$/))
+    .min(1)
+    .describe('Canonical token names (CSS variable form) to resolve, e.g., --color-primary.'),
+  includeAllModes: z
+    .boolean()
+    .describe('Include all token modes instead of just the active one; default false.')
+    .optional()
 })
 
 export type GetTokenDefsParametersInput = z.input<typeof GetTokenDefsParametersSchema>
@@ -79,7 +94,10 @@ export const AssetDescriptorSchema = z.object({
 
 // get_screenshot
 export const GetScreenshotParametersSchema = z.object({
-  nodeId: z.string().optional()
+  nodeId: z
+    .string()
+    .describe('Optional node id to screenshot; defaults to the current single selection.')
+    .optional()
 })
 
 export type GetScreenshotParametersInput = z.input<typeof GetScreenshotParametersSchema>
@@ -94,10 +112,18 @@ export type GetScreenshotResult = {
 
 // get_structure
 export const GetStructureParametersSchema = z.object({
-  nodeId: z.string().optional(),
+  nodeId: z
+    .string()
+    .describe('Optional node id to outline; defaults to the current single selection.')
+    .optional(),
   options: z
     .object({
-      depth: z.number().int().positive().optional()
+      depth: z
+        .number()
+        .int()
+        .positive()
+        .describe('Limit traversal depth; defaults to full tree (subject to safety caps).')
+        .optional()
     })
     .optional()
 })
@@ -119,7 +145,10 @@ export type GetStructureResult = {
 
 // get_assets (hub only)
 export const GetAssetsParametersSchema = z.object({
-  hashes: z.array(z.string().regex(MCP_HASH_PATTERN)).min(1)
+  hashes: z
+    .array(z.string().regex(MCP_HASH_PATTERN))
+    .min(1)
+    .describe('Asset hashes returned from other tools to download/resolve.')
 })
 
 export const GetAssetsResultSchema = z.object({
