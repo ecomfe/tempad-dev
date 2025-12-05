@@ -26,14 +26,34 @@ export type GetCodeResult = {
 
 // get_token_defs
 export const GetTokenDefsParametersSchema = z.object({
-  nodeId: z.string().optional()
+  names: z.array(z.string().regex(/^--[a-zA-Z0-9-_]+$/)).min(1),
+  includeAllModes: z.boolean().optional()
 })
 
 export type GetTokenDefsParametersInput = z.input<typeof GetTokenDefsParametersSchema>
 export type GetTokenDefsResult = {
   tokens: Array<{
     name: string
-    value: string | Record<string, unknown>
+    value: string | Record<string, unknown> | null
+    current: {
+      modeId: string
+      value?: string | Record<string, unknown>
+      aliasTo?: string
+      resolved: string | Record<string, unknown> | null
+      aliasChain?: string[]
+    }
+    modes?: Array<{
+      modeId: string
+      value?: string | Record<string, unknown>
+      aliasTo?: string
+      resolved: string | Record<string, unknown> | null
+    }>
+    collection?: {
+      id?: string
+      name?: string
+      activeModeId?: string
+      defaultModeId?: string
+    }
     kind: 'color' | 'spacing' | 'typography' | 'effect' | 'other'
   }>
 }
@@ -152,13 +172,14 @@ function defineHubTool<Name extends ToolName, Schema extends ZodType>(
 export const TOOL_METADATA = [
   defineExtensionTool({
     name: 'get_code',
-    description: 'High fidelity code snapshot for the current selection or provided node ids.',
+    description: 'High fidelity code snapshot for the current selection or provided node IDs.',
     parameters: GetCodeParametersSchema,
     target: 'extension'
   }),
   defineExtensionTool({
     name: 'get_token_defs',
-    description: 'Token definitions referenced by the current selection or provided node ids.',
+    description:
+      'Resolve provided canonical token names (e.g., --color-primary) to current and per-mode values.',
     parameters: GetTokenDefsParametersSchema,
     target: 'extension',
     exposed: false
@@ -171,7 +192,7 @@ export const TOOL_METADATA = [
   }),
   defineExtensionTool({
     name: 'get_structure',
-    description: 'Structural outline of the current selection or provided node ids.',
+    description: 'Structural outline of the current selection or provided node IDs.',
     parameters: GetStructureParametersSchema,
     target: 'extension'
   }),
@@ -181,6 +202,7 @@ export const TOOL_METADATA = [
       'Resolve uploaded asset hashes to downloadable URLs and resource URIs for resources/read calls.',
     parameters: GetAssetsParametersSchema,
     target: 'hub',
-    outputSchema: GetAssetsResultSchema
+    outputSchema: GetAssetsResultSchema,
+    exposed: false
   })
 ] as const satisfies ReadonlyArray<ToolMetadata>

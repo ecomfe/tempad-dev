@@ -432,12 +432,16 @@ function createCodeToolResponse(payload: ToolResultMap['get_code']): ToolRespons
   }
   summary.push('Read structuredContent for the full code string and asset metadata.')
 
+  const assetLinks =
+    normalized.assets.length > 0 ? normalized.assets.map((asset) => createAssetResourceLinkBlock(asset)) : []
+
   return {
     content: [
       {
         type: 'text' as const,
         text: summary.join('\n')
-      }
+      },
+      ...assetLinks
     ],
     structuredContent: normalized
   }
