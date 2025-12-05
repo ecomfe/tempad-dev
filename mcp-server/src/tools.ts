@@ -1,3 +1,5 @@
+import type { ZodType } from 'zod'
+
 import { z } from 'zod'
 
 import type { AssetDescriptor } from '../../mcp/shared/types'
@@ -99,34 +101,86 @@ export const GetAssetsResultSchema = z.object({
 export type GetAssetsParametersInput = z.input<typeof GetAssetsParametersSchema>
 export type GetAssetsResult = z.infer<typeof GetAssetsResultSchema>
 
-export const TOOLS = [
-  {
-    name: 'get_code',
-    description: 'High fidelity code snapshot for the current selection or provided node ids.',
-    parameters: GetCodeParametersSchema
-  },
-  {
-    name: 'get_token_defs',
-    description: 'Token definitions referenced by the current selection or provided node ids.',
-    parameters: GetTokenDefsParametersSchema
-  },
-  {
-    name: 'get_screenshot',
-    description: 'Rendered screenshot for the requested node.',
-    parameters: GetScreenshotParametersSchema
-  },
-  {
-    name: 'get_structure',
-    description: 'Structural outline of the current selection or provided node ids.',
-    parameters: GetStructureParametersSchema
-  }
-] as const
-
-export type ToolName = (typeof TOOLS)[number]['name']
-
 export type ToolResultMap = {
   get_code: GetCodeResult
   get_token_defs: GetTokenDefsResult
   get_screenshot: GetScreenshotResult
   get_structure: GetStructureResult
+  get_assets: GetAssetsResult
 }
+
+export type ToolName = keyof ToolResultMap
+
+type BaseToolMetadata<Name extends ToolName, Schema extends ZodType> = {
+  name: Name
+  description: string
+  parameters: Schema
+  exposed?: boolean
+}
+
+type ExtensionToolMetadata<Name extends ToolName, Schema extends ZodType> = BaseToolMetadata<
+  Name,
+  Schema
+> & {
+  target: 'extension'
+}
+
+type HubToolMetadata<Name extends ToolName, Schema extends ZodType> = BaseToolMetadata<
+  Name,
+  Schema
+> & {
+  target: 'hub'
+  outputSchema?: ZodType
+}
+
+type ToolMetadata<Name extends ToolName = ToolName> =
+  | ExtensionToolMetadata<Name, ZodType>
+  | HubToolMetadata<Name, ZodType>
+
+function defineExtensionTool<Name extends ToolName, Schema extends ZodType>(
+  definition: ExtensionToolMetadata<Name, Schema>
+): ExtensionToolMetadata<Name, Schema> {
+  return definition
+}
+
+function defineHubTool<Name extends ToolName, Schema extends ZodType>(
+  definition: HubToolMetadata<Name, Schema>
+): HubToolMetadata<Name, Schema> {
+  return definition
+}
+
+export const TOOL_METADATA = [
+  defineExtensionTool({
+    name: 'get_code',
+    description: 'High fidelity code snapshot for the current selection or provided node ids.',
+    parameters: GetCodeParametersSchema,
+    target: 'extension'
+  }),
+  defineExtensionTool({
+    name: 'get_token_defs',
+    description: 'Token definitions referenced by the current selection or provided node ids.',
+    parameters: GetTokenDefsParametersSchema,
+    target: 'extension',
+    exposed: false
+  }),
+  defineExtensionTool({
+    name: 'get_screenshot',
+    description: 'Rendered screenshot for the requested node.',
+    parameters: GetScreenshotParametersSchema,
+    target: 'extension'
+  }),
+  defineExtensionTool({
+    name: 'get_structure',
+    description: 'Structural outline of the current selection or provided node ids.',
+    parameters: GetStructureParametersSchema,
+    target: 'extension'
+  }),
+  defineHubTool({
+    name: 'get_assets',
+    description:
+      'Resolve uploaded asset hashes to downloadable URLs and resource URIs for resources/read calls.',
+    parameters: GetAssetsParametersSchema,
+    target: 'hub',
+    outputSchema: GetAssetsResultSchema
+  })
+] as const satisfies ReadonlyArray<ToolMetadata>

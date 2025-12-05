@@ -1,5 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { RawData } from 'ws'
+import type { ZodType } from 'zod'
 
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -8,6 +9,14 @@ import { existsSync, rmSync, chmodSync, readFileSync, statSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { WebSocketServer } from 'ws'
 
+import type {
+  AssetDescriptor,
+  GetAssetsParametersInput,
+  GetAssetsResult,
+  GetScreenshotResult,
+  ToolResultMap,
+  ToolName
+} from './tools'
 import type { AssetRecord, ExtensionConnection } from './types'
 
 import {
@@ -27,16 +36,7 @@ import {
 } from './protocol'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
 import { log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
-import {
-  TOOLS,
-  GetAssetsParametersSchema,
-  GetAssetsResultSchema,
-  type AssetDescriptor,
-  type GetAssetsResult,
-  type GetScreenshotResult,
-  type ToolResultMap,
-  type ToolName
-} from './tools'
+import { GetAssetsResultSchema, TOOL_METADATA } from './tools'
 
 const SHUTDOWN_TIMEOUT = 2000
 const { wsPortCandidates, toolTimeoutMs, maxPayloadBytes, autoActivateGraceMs } =
@@ -51,7 +51,81 @@ let selectedWsPort = 0
 const mcp = new McpServer({ name: 'tempad-dev-mcp', version: '0.1.0' })
 type McpInputSchema = Parameters<typeof mcp.registerTool>[1]['inputSchema']
 type McpOutputSchema = Parameters<typeof mcp.registerTool>[1]['outputSchema']
-type RegisteredTool = (typeof TOOLS)[number]
+type ToolResponse = CallToolResult
+type SchemaOutput<Schema extends ZodType> = Schema['_output']
+type ToolMetadataEntry = (typeof TOOL_METADATA)[number]
+type ExtensionToolMetadata = Extract<ToolMetadataEntry, { target: 'extension' }>
+type HubToolMetadata = Extract<ToolMetadataEntry, { target: 'hub' }>
+
+type ExtensionToolWithFormat<Name extends ExtensionToolMetadata['name']> = Extract<
+  ExtensionToolMetadata,
+  { name: Name }
+> & {
+  format: (payload: ToolResultMap[Name]) => ToolResponse
+}
+
+type HubToolWithHandler<Name extends HubToolMetadata['name']> = Extract<
+  HubToolMetadata,
+  { name: Name }
+> & {
+  handler: (
+    args: SchemaOutput<Extract<HubToolMetadata, { name: Name }>['parameters']>
+  ) => Promise<ToolResponse>
+}
+
+type RegisteredToolDefinition =
+  | ExtensionToolWithFormat<'get_code'>
+  | ExtensionToolWithFormat<'get_screenshot'>
+  | Extract<ExtensionToolMetadata, { name: 'get_token_defs' | 'get_structure' }>
+  | HubToolWithHandler<'get_assets'>
+
+type ExtensionToolWithFormatter =
+  | ExtensionToolWithFormat<'get_code'>
+  | ExtensionToolWithFormat<'get_screenshot'>
+
+function enrichToolDefinition(tool: ToolMetadataEntry): RegisteredToolDefinition {
+  if (tool.target === 'extension') {
+    switch (tool.name) {
+      case 'get_code':
+        return { ...tool, format: createCodeToolResponse }
+      case 'get_screenshot':
+        return { ...tool, format: createScreenshotToolResponse }
+      default:
+        return tool
+    }
+  }
+
+  switch (tool.name) {
+    case 'get_assets':
+      return { ...tool, handler: handleGetAssets }
+    default:
+      throw new Error('No handler configured for hub tool.')
+  }
+}
+
+const TOOL_DEFINITIONS: ReadonlyArray<RegisteredToolDefinition> = TOOL_METADATA.map((tool) =>
+  enrichToolDefinition(tool)
+)
+
+type RegisteredTool = (typeof TOOL_DEFINITIONS)[number]
+type ExtensionTool = Extract<RegisteredTool, { target: 'extension' }>
+type HubOnlyTool = Extract<RegisteredTool, { target: 'hub' }>
+
+function hasFormatter(tool: RegisteredToolDefinition): tool is ExtensionToolWithFormatter {
+  return tool.target === 'extension' && 'format' in tool
+}
+
+type ToolDefinitionByName = {
+  [T in RegisteredToolDefinition as T['name']]: T
+}
+
+const TOOL_BY_NAME: ToolDefinitionByName = Object.fromEntries(
+  TOOL_DEFINITIONS.map((tool) => [tool.name, tool] as const)
+) as ToolDefinitionByName
+
+function getToolDefinition<Name extends ToolName>(name: Name): ToolDefinitionByName[Name] {
+  return TOOL_BY_NAME[name]
+}
 
 const assetStore = createAssetStore()
 const assetHttpServer = createAssetHttpServer(assetStore)
@@ -174,68 +248,26 @@ function describeAsset(asset: AssetDescriptor): string {
   return `${asset.mimeType} (${formatBytes(asset.size)})`
 }
 
-function registerHubTools(): void {
-  for (const tool of TOOLS) {
-    registerExtensionTool(tool)
+function registerTools(): void {
+  const registered: string[] = []
+  for (const tool of TOOL_DEFINITIONS) {
+    if (tool.exposed === false) continue
+    registerTool(tool)
+    registered.push(tool.name)
   }
-
-  mcp.registerTool(
-    'get_assets',
-    {
-      description:
-        'Resolve uploaded asset hashes to downloadable URLs and resource URIs for resources/read calls.',
-      inputSchema: GetAssetsParametersSchema as unknown as McpInputSchema,
-      outputSchema: GetAssetsResultSchema as unknown as McpOutputSchema
-    },
-    async (args: unknown) => {
-      const { hashes } = GetAssetsParametersSchema.parse(args)
-      if (hashes.length > 100) {
-        throw new Error('Too many hashes requested. Limit is 100.')
-      }
-      const unique = Array.from(new Set(hashes))
-      const records = assetStore.getMany(unique).filter((record) => {
-        if (existsSync(record.filePath)) return true
-        assetStore.remove(record.hash, { removeFile: false })
-        return false
-      })
-      const found = new Set(records.map((record) => record.hash))
-      const payload: GetAssetsResult = GetAssetsResultSchema.parse({
-        assets: records.map((record) => buildAssetDescriptor(record)),
-        missing: unique.filter((hash) => !found.has(hash))
-      })
-
-      const summary: string[] = []
-      summary.push(
-        payload.assets.length
-          ? `Resolved ${payload.assets.length} asset${payload.assets.length === 1 ? '' : 's'}.`
-          : 'No assets were resolved for the requested hashes.'
-      )
-      if (payload.missing.length) {
-        summary.push(`Missing: ${payload.missing.join(', ')}`)
-      }
-      summary.push(
-        'Use resources/read with each resourceUri or fetch the fallback URL to download bytes.'
-      )
-
-      const content = [
-        {
-          type: 'text' as const,
-          text: summary.join('\n')
-        },
-        ...payload.assets.map((asset) => createAssetResourceLinkBlock(asset))
-      ]
-
-      return {
-        content,
-        structuredContent: payload
-      }
-    }
-  )
+  log.info({ tools: registered }, 'Registered tools.')
 }
 
-registerHubTools()
-log.info({ tools: TOOLS.map((t) => t.name) }, 'Registered tools.')
-function registerExtensionTool<T extends RegisteredTool>(tool: T): void {
+registerTools()
+function registerTool(tool: RegisteredTool): void {
+  if (tool.target === 'extension') {
+    registerProxiedTool(tool)
+  } else {
+    registerLocalTool(tool)
+  }
+}
+
+function registerProxiedTool<T extends ExtensionTool>(tool: T): void {
   type Name = T['name']
   type Result = ToolResultMap[Name]
 
@@ -247,54 +279,121 @@ function registerExtensionTool<T extends RegisteredTool>(tool: T): void {
       inputSchema: schema as unknown as McpInputSchema
     },
     async (args: unknown) => {
-      const parsedArgs = schema.parse(args)
-      const activeExt = extensions.find((e) => e.active)
-      if (!activeExt) throw new Error('No active TemPad Dev extension available.')
+      try {
+        const parsedArgs = schema.parse(args)
+        const activeExt = extensions.find((e) => e.active)
+        if (!activeExt) throw new Error('No active TemPad Dev extension available.')
 
-      const { promise, requestId } = register<Result>(activeExt.id, toolTimeoutMs)
+        const { promise, requestId } = register<Result>(activeExt.id, toolTimeoutMs)
 
-      const message: ToolCallMessage = {
-        type: 'toolCall',
-        id: requestId,
-        payload: {
-          name: tool.name,
-          args: parsedArgs
+        const message: ToolCallMessage = {
+          type: 'toolCall',
+          id: requestId,
+          payload: {
+            name: tool.name,
+            args: parsedArgs
+          }
         }
-      }
-      activeExt.ws.send(JSON.stringify(message))
-      log.info({ tool: tool.name, req: requestId, extId: activeExt.id }, 'Forwarded tool call.')
+        activeExt.ws.send(JSON.stringify(message))
+        log.info({ tool: tool.name, req: requestId, extId: activeExt.id }, 'Forwarded tool call.')
 
-      const payload = await promise
-      return createToolResponse(tool.name, payload)
+        const payload = await promise
+        return createToolResponse(tool.name, payload)
+      } catch (error) {
+        log.error({ tool: tool.name, error }, 'Tool invocation failed before reaching extension.')
+        return createToolErrorResponse(tool.name, error)
+      }
     }
   )
 }
 
-type ToolResponse = CallToolResult
+function registerLocalTool(tool: HubOnlyTool): void {
+  const schema = tool.parameters
+  const handler = tool.handler
+
+  const registrationOptions: {
+    description: string
+    inputSchema: McpInputSchema
+    outputSchema?: McpOutputSchema
+  } = {
+    description: tool.description,
+    inputSchema: schema as unknown as McpInputSchema
+  }
+
+  if (tool.outputSchema) {
+    registrationOptions.outputSchema = tool.outputSchema as unknown as McpOutputSchema
+  }
+
+  mcp.registerTool(tool.name, registrationOptions, async (args: unknown) => {
+    try {
+      const parsed = schema.parse(args)
+      return await handler(parsed)
+    } catch (error) {
+      log.error({ tool: tool.name, error }, 'Local tool invocation failed.')
+      return createToolErrorResponse(tool.name, error)
+    }
+  })
+}
 
 function createToolResponse<Name extends ToolName>(
   toolName: Name,
   payload: ToolResultMap[Name]
 ): ToolResponse {
-  if (toolName === 'get_screenshot') {
+  const definition = getToolDefinition(toolName)
+  if (definition && hasFormatter(definition)) {
     try {
-      // TS cannot narrow ToolResultMap[Name] to the screenshot payload even though the tool name is literal.
-      return createScreenshotToolResponse(payload as ToolResultMap['get_screenshot'])
+      const formatter = definition.format as (input: ToolResultMap[Name]) => ToolResponse
+      return formatter(payload)
     } catch (error) {
-      log.warn({ error }, 'Failed to format get_screenshot result; returning raw payload.')
-      return coercePayloadToToolResponse(payload)
-    }
-  }
-  if (toolName === 'get_code') {
-    try {
-      return createCodeToolResponse(payload as ToolResultMap['get_code'])
-    } catch (error) {
-      log.warn({ error }, 'Failed to format get_code result; returning raw payload.')
+      log.warn({ tool: toolName, error }, 'Failed to format tool result; returning raw payload.')
       return coercePayloadToToolResponse(payload)
     }
   }
 
   return coercePayloadToToolResponse(payload)
+}
+
+async function handleGetAssets({ hashes }: GetAssetsParametersInput): Promise<ToolResponse> {
+  if (hashes.length > 100) {
+    throw new Error('Too many hashes requested. Limit is 100.')
+  }
+  const unique = Array.from(new Set(hashes))
+  const records = assetStore.getMany(unique).filter((record) => {
+    if (existsSync(record.filePath)) return true
+    assetStore.remove(record.hash, { removeFile: false })
+    return false
+  })
+  const found = new Set(records.map((record) => record.hash))
+  const payload: GetAssetsResult = GetAssetsResultSchema.parse({
+    assets: records.map((record) => buildAssetDescriptor(record)),
+    missing: unique.filter((hash) => !found.has(hash))
+  })
+
+  const summary: string[] = []
+  summary.push(
+    payload.assets.length
+      ? `Resolved ${payload.assets.length} asset${payload.assets.length === 1 ? '' : 's'}.`
+      : 'No assets were resolved for the requested hashes.'
+  )
+  if (payload.missing.length) {
+    summary.push(`Missing: ${payload.missing.join(', ')}`)
+  }
+  summary.push(
+    'Use resources/read with each resourceUri or fetch the fallback URL to download bytes.'
+  )
+
+  const content = [
+    {
+      type: 'text' as const,
+      text: summary.join('\n')
+    },
+    ...payload.assets.map((asset) => createAssetResourceLinkBlock(asset))
+  ]
+
+  return {
+    content,
+    structuredContent: payload
+  }
 }
 function coercePayloadToToolResponse(payload: unknown): ToolResponse {
   if (payload && typeof payload === 'object' && Array.isArray((payload as ToolResponse).content)) {
@@ -372,6 +471,23 @@ function rewriteCodeAssetUrls(code: string, assets: AssetDescriptor[]): string {
     updatedCode = updatedCode.replace(uriPattern, asset.url)
   }
   return updatedCode
+}
+
+function createToolErrorResponse(toolName: string, error: unknown): ToolResponse {
+  const message =
+    error instanceof Error
+      ? error.message || 'Unknown error occurred.'
+      : typeof error === 'string'
+        ? error
+        : 'Unknown error occurred.'
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: `Tool "${toolName}" failed: ${message}`
+      }
+    ]
+  }
 }
 
 function enrichAssetDescriptor(asset: AssetDescriptor): AssetDescriptor {
