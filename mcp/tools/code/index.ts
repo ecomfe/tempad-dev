@@ -530,7 +530,9 @@ async function renderSemanticNode(
   )
 
   if (pluginComponent) {
-    const hasDataHintProp = semantic.dataHint?.kind === 'attr' && semantic.dataHint.name in props
+    const hasDataHintProp = semantic.dataHint
+      ? Object.keys(semantic.dataHint).some((key) => key in props)
+      : false
     const pluginProps = classNames.length || hasDataHintProp ? props : undefined
 
     if (pluginComponent.component) {
@@ -681,15 +683,13 @@ function buildClassProps(
 
   if (classNames.length) props[defaultClassProp] = joinClassNames(classNames)
 
-  if (dataHint?.kind === 'attr') {
-    if (dataHint.name === 'data-tp') {
-      if (options.isFallback) {
-        props[dataHint.name] = String(dataHint.value)
-      }
-    } else {
-      const val = dataHint.value
-      if (val != null && String(val).trim()) props[dataHint.name] = String(val)
-    }
+  if (dataHint) {
+    Object.entries(dataHint).forEach(([key, val]) => {
+      if (!val || !String(val).trim()) return
+      // Only inject layout hint when we are not using plugin-provided component (i.e., fallback)
+      if (key === 'data-hint-auto-layout' && options.isFallback !== true) return
+      props[key] = String(val)
+    })
   }
 
   return { classNames, props }

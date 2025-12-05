@@ -13,7 +13,6 @@ import type {
   AssetDescriptor,
   GetAssetsParametersInput,
   GetAssetsResult,
-  GetScreenshotResult,
   ToolResultMap,
   ToolName
 } from './tools'
@@ -36,7 +35,13 @@ import {
 } from './protocol'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
 import { log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
-import { GetAssetsResultSchema, TOOL_METADATA } from './tools'
+import {
+  GetAssetsResultSchema,
+  TOOL_DEFS,
+  MCP_INSTRUCTIONS,
+  coercePayloadToToolResponse,
+  createToolErrorResponse
+} from './tools'
 
 const SHUTDOWN_TIMEOUT = 2000
 const { wsPortCandidates, toolTimeoutMs, maxPayloadBytes, autoActivateGraceMs } =
@@ -48,62 +53,41 @@ type TimeoutHandle = ReturnType<typeof setTimeout>
 let autoActivateTimer: TimeoutHandle | null = null
 let selectedWsPort = 0
 
-const mcp = new McpServer({ name: 'tempad-dev-mcp', version: '0.1.0' })
+const mcp = new McpServer(
+  { name: 'tempad-dev-mcp', version: '0.1.0' },
+  MCP_INSTRUCTIONS ? { instructions: MCP_INSTRUCTIONS } : undefined
+)
 type McpInputSchema = Parameters<typeof mcp.registerTool>[1]['inputSchema']
 type McpOutputSchema = Parameters<typeof mcp.registerTool>[1]['outputSchema']
 type ToolResponse = CallToolResult
 type SchemaOutput<Schema extends ZodType> = Schema['_output']
-type ToolMetadataEntry = (typeof TOOL_METADATA)[number]
+type ToolMetadataEntry = (typeof TOOL_DEFS)[number]
 type ExtensionToolMetadata = Extract<ToolMetadataEntry, { target: 'extension' }>
 type HubToolMetadata = Extract<ToolMetadataEntry, { target: 'hub' }>
 
-type ExtensionToolWithFormat<Name extends ExtensionToolMetadata['name']> = Extract<
-  ExtensionToolMetadata,
-  { name: Name }
-> & {
-  format: (payload: ToolResultMap[Name]) => ToolResponse
+type HubToolWithHandler<T extends HubToolMetadata = HubToolMetadata> = T & {
+  handler: (args: SchemaOutput<T['parameters']>) => Promise<ToolResponse>
 }
 
-type HubToolWithHandler<Name extends HubToolMetadata['name']> = Extract<
-  HubToolMetadata,
-  { name: Name }
-> & {
-  handler: (
-    args: SchemaOutput<Extract<HubToolMetadata, { name: Name }>['parameters']>
-  ) => Promise<ToolResponse>
-}
-
-type RegisteredToolDefinition =
-  | ExtensionToolWithFormat<'get_code'>
-  | ExtensionToolWithFormat<'get_screenshot'>
-  | Extract<ExtensionToolMetadata, { name: 'get_token_defs' | 'get_structure' }>
-  | HubToolWithHandler<'get_assets'>
-
-type ExtensionToolWithFormatter =
-  | ExtensionToolWithFormat<'get_code'>
-  | ExtensionToolWithFormat<'get_screenshot'>
+type RegisteredToolDefinition = ExtensionToolMetadata | HubToolWithHandler
 
 function enrichToolDefinition(tool: ToolMetadataEntry): RegisteredToolDefinition {
   if (tool.target === 'extension') {
-    switch (tool.name) {
-      case 'get_code':
-        return { ...tool, format: createCodeToolResponse }
-      case 'get_screenshot':
-        return { ...tool, format: createScreenshotToolResponse }
-      default:
-        return tool
-    }
+    return tool
   }
 
   switch (tool.name) {
     case 'get_assets':
-      return { ...tool, handler: handleGetAssets }
+      return {
+        ...tool,
+        handler: handleGetAssets
+      } satisfies HubToolWithHandler
     default:
       throw new Error('No handler configured for hub tool.')
   }
 }
 
-const TOOL_DEFINITIONS: ReadonlyArray<RegisteredToolDefinition> = TOOL_METADATA.map((tool) =>
+const TOOL_DEFINITIONS: ReadonlyArray<RegisteredToolDefinition> = TOOL_DEFS.map((tool) =>
   enrichToolDefinition(tool)
 )
 
@@ -111,7 +95,9 @@ type RegisteredTool = (typeof TOOL_DEFINITIONS)[number]
 type ExtensionTool = Extract<RegisteredTool, { target: 'extension' }>
 type HubOnlyTool = Extract<RegisteredTool, { target: 'hub' }>
 
-function hasFormatter(tool: RegisteredToolDefinition): tool is ExtensionToolWithFormatter {
+function hasFormatter(tool: RegisteredToolDefinition): tool is ExtensionTool & {
+  format: (payload: unknown) => ToolResponse
+} {
   return tool.target === 'extension' && 'format' in tool
 }
 
@@ -251,7 +237,7 @@ function describeAsset(asset: AssetDescriptor): string {
 function registerTools(): void {
   const registered: string[] = []
   for (const tool of TOOL_DEFINITIONS) {
-    if (tool.exposed === false) continue
+    if ('exposed' in tool && tool.exposed === false) continue
     registerTool(tool)
     registered.push(tool.name)
   }
@@ -395,116 +381,6 @@ async function handleGetAssets({ hashes }: GetAssetsParametersInput): Promise<To
     structuredContent: payload
   }
 }
-function coercePayloadToToolResponse(payload: unknown): ToolResponse {
-  if (payload && typeof payload === 'object' && Array.isArray((payload as ToolResponse).content)) {
-    return payload as ToolResponse
-  }
-
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2)
-      }
-    ]
-  }
-}
-
-function createCodeToolResponse(payload: ToolResultMap['get_code']): ToolResponse {
-  if (!isCodeResult(payload)) {
-    throw new Error('Invalid get_code payload received from extension.')
-  }
-
-  const normalized = normalizeCodeResult(payload)
-  const summary: string[] = []
-  const codeSize = Buffer.byteLength(normalized.code, 'utf8')
-  summary.push(`Generated ${normalized.lang.toUpperCase()} snippet (${formatBytes(codeSize)}).`)
-  if (normalized.message) {
-    summary.push(normalized.message)
-  }
-  summary.push(
-    normalized.assets.length
-      ? `Assets attached: ${normalized.assets.length}. Fetch bytes via resources/read using resourceUri or call get_assets.`
-      : 'No binary assets were attached to this response.'
-  )
-  if (normalized.usedTokens?.length) {
-    summary.push(`Token references included: ${normalized.usedTokens.length}.`)
-  }
-  summary.push('Read structuredContent for the full code string and asset metadata.')
-
-  const assetLinks =
-    normalized.assets.length > 0 ? normalized.assets.map((asset) => createAssetResourceLinkBlock(asset)) : []
-
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: summary.join('\n')
-      },
-      ...assetLinks
-    ],
-    structuredContent: normalized
-  }
-}
-
-function isCodeResult(payload: unknown): payload is ToolResultMap['get_code'] {
-  if (typeof payload !== 'object' || !payload) return false
-  const candidate = payload as Partial<ToolResultMap['get_code'] & Record<string, unknown>>
-  return (
-    typeof candidate.code === 'string' &&
-    typeof candidate.lang === 'string' &&
-    Array.isArray(candidate.assets)
-  )
-}
-
-function normalizeCodeResult(result: ToolResultMap['get_code']): ToolResultMap['get_code'] {
-  const updatedAssets = result.assets.map((asset) => enrichAssetDescriptor(asset))
-  const rewrittenCode = rewriteCodeAssetUrls(result.code, updatedAssets)
-  return {
-    ...result,
-    code: rewrittenCode,
-    assets: updatedAssets
-  }
-}
-
-function rewriteCodeAssetUrls(code: string, assets: AssetDescriptor[]): string {
-  let updatedCode = code
-  for (const asset of assets) {
-    // Replace asset:// URIs with the HTTP URL
-    const uriPattern = new RegExp(escapeRegExp(asset.resourceUri), 'g')
-    updatedCode = updatedCode.replace(uriPattern, asset.url)
-  }
-  return updatedCode
-}
-
-function createToolErrorResponse(toolName: string, error: unknown): ToolResponse {
-  const message =
-    error instanceof Error
-      ? error.message || 'Unknown error occurred.'
-      : typeof error === 'string'
-        ? error
-        : 'Unknown error occurred.'
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: `Tool "${toolName}" failed: ${message}`
-      }
-    ]
-  }
-}
-
-function enrichAssetDescriptor(asset: AssetDescriptor): AssetDescriptor {
-  const record = assetStore.get(asset.hash)
-  if (!record) {
-    return asset
-  }
-  return buildAssetDescriptor(record)
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
 
 function getActiveId(): string | null {
   return extensions.find((e) => e.active)?.id ?? null
@@ -570,61 +446,10 @@ function rawDataToBuffer(raw: RawData): Buffer {
   return Buffer.concat(raw)
 }
 
-function createScreenshotToolResponse(payload: ToolResultMap['get_screenshot']): ToolResponse {
-  if (!isScreenshotResult(payload)) {
-    throw new Error('Invalid get_screenshot payload received from extension.')
-  }
-
-  const descriptionBlock = {
-    type: 'text' as const,
-    text: describeScreenshot(payload)
-  }
-
-  return {
-    content: [
-      descriptionBlock,
-      {
-        type: 'text' as const,
-        text: `![Screenshot](${payload.asset.url})`
-      },
-      createResourceLinkBlock(payload.asset, payload)
-    ],
-    structuredContent: payload
-  }
-}
-
-function createResourceLinkBlock(asset: AssetDescriptor, result: GetScreenshotResult) {
-  return {
-    type: 'resource_link' as const,
-    name: 'Screenshot',
-    uri: asset.resourceUri,
-    mimeType: asset.mimeType,
-    description: `Screenshot ${result.width}x${result.height} @${result.scale}x - Download: ${asset.url}`
-  }
-}
-
-function describeScreenshot(result: GetScreenshotResult): string {
-  return `Screenshot ${result.width}x${result.height} @${result.scale}x (${formatBytes(result.bytes)})`
-}
-
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function isScreenshotResult(payload: unknown): payload is GetScreenshotResult {
-  if (typeof payload !== 'object' || !payload) return false
-  const candidate = payload as Partial<GetScreenshotResult & Record<string, unknown>>
-  return (
-    typeof candidate.asset === 'object' &&
-    candidate.asset !== null &&
-    typeof candidate.width === 'number' &&
-    typeof candidate.height === 'number' &&
-    typeof candidate.scale === 'number' &&
-    typeof candidate.bytes === 'number' &&
-    typeof candidate.format === 'string'
-  )
 }
 
 function shutdown(): void {
