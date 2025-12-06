@@ -28,15 +28,18 @@ export default defineUnlistedScript(async () => {
     console.log(
       '[tempad-dev] `window.figma` is not available. TemPad Dev is currently unavailable.'
     )
+    const panelEl = () => document.getElementById('tempad')
 
     const tryRecover = async () => {
-      if (runtimeMode.value !== 'unavailable') return false
-      const ok = await ensureFigmaReady()
-      if (ok) {
+      const el = panelEl()
+      const available = await ensureFigmaReady()
+      if (available) {
         runtimeMode.value = 'standard'
+        if (el) el.style.display = ''
         console.log('[tempad-dev] `window.figma` is now available. TemPad Dev is ready.')
         return true
       }
+      if (el && document.visibilityState === 'hidden') el.style.display = 'none'
       return false
     }
 
@@ -46,9 +49,14 @@ export default defineUnlistedScript(async () => {
     }, FIGMA_RECOVER_INTERVAL)
 
     const handleVisibility = async () => {
-      if (document.visibilityState === 'visible') {
-        await tryRecover()
+      const el = panelEl()
+      if (!el) return
+      if (document.visibilityState === 'hidden') {
+        if (runtimeMode.value === 'unavailable') el.style.display = 'none'
+        return
       }
+      el.style.display = ''
+      await tryRecover()
     }
 
     const handleFocus = async () => {
