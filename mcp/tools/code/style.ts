@@ -185,9 +185,21 @@ export function inferResizingStyles(
 }
 
 function getAutoLayoutSource(node: SceneNode): AutoLayoutLike | undefined {
-  if ('layoutMode' in node) return node as AutoLayoutLike
-  const candidate = node as { inferredAutoLayout?: AutoLayoutLike | null }
-  return candidate.inferredAutoLayout ?? undefined
+  const inferred = (node as { inferredAutoLayout?: AutoLayoutLike | null }).inferredAutoLayout ?? undefined
+
+  if ('layoutMode' in node) {
+    const layoutNode = node as AutoLayoutLike
+    if (layoutNode.layoutMode && layoutNode.layoutMode !== 'NONE') {
+      return layoutNode
+    }
+    // Fallback to inferred auto layout when Figma CSS doesn’t emit layout props
+    if (inferred && inferred.layoutMode && inferred.layoutMode !== 'NONE') {
+      return inferred
+    }
+    return layoutNode
+  }
+
+  return inferred
 }
 
 function mapAxisAlignToCss(value?: string): string | undefined {
