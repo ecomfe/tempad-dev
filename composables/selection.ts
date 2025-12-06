@@ -2,7 +2,7 @@ import { selection } from '@/ui/state'
 import { getCanvas, getLeftPanel } from '@/utils'
 
 function syncSelection() {
-  if (!window.figma) {
+  if (!window.figma?.currentPage) {
     selection.value = []
     return
   }
