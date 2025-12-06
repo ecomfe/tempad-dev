@@ -24,6 +24,7 @@ export const PX_VALUE_RE = /\b(-?\d+(?:.\d+)?)px\b/g
 export const QUOTES_RE = /['"]/g
 export const TOP_LEVEL_COMMA_RE = /,(?![^(]*\))/
 const NUMBER_RE = /^\d+(\.\d+)?$/
+const BORDER_STYLE_KEYWORDS = new Set(['none', 'hidden', 'solid', 'dashed', 'dotted', 'double'])
 
 export const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
 export const BG_REPEAT_RE = /(?:^|\s)(no-repeat|repeat-x|repeat-y|repeat|space|round)(?=$|\s)/i
@@ -200,6 +201,34 @@ export function normalizeStyleValues(
   return normalized
 }
 
+function parseBorderShorthand(val: string): {
+  width?: string
+  style?: string
+  color?: string
+} {
+  const parts = normalizeStyleValue(val).split(WHITESPACE_RE).filter(Boolean)
+  const [first, second, third] = parts
+
+  const width = first
+  let style: string | undefined
+  let color: string | undefined
+
+  if (second) {
+    const lower = second.toLowerCase()
+    if (BORDER_STYLE_KEYWORDS.has(lower)) {
+      style = second
+    } else {
+      color = second
+    }
+  }
+
+  if (third && !color) {
+    color = third
+  }
+
+  return { width, style, color }
+}
+
 export function expandShorthands(style: Record<string, string>): Record<string, string> {
   const expanded: Record<string, string> = { ...style }
 
@@ -303,6 +332,27 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
         expanded['grid-column-end'] = end
       }
       delete expanded['grid-column']
+    }
+  }
+
+  const borderKeys: Array<{ key: string; sides: Array<'top' | 'right' | 'bottom' | 'left'> }> = [
+    { key: 'border', sides: ['top', 'right', 'bottom', 'left'] },
+    { key: 'border-top', sides: ['top'] },
+    { key: 'border-right', sides: ['right'] },
+    { key: 'border-bottom', sides: ['bottom'] },
+    { key: 'border-left', sides: ['left'] }
+  ]
+
+  for (const { key, sides } of borderKeys) {
+    if (expanded[key]) {
+      const val = normalizeStyleValue(expanded[key])
+      const { width, style: borderStyle, color } = parseBorderShorthand(val)
+      sides.forEach((side) => {
+        if (width) expanded[`border-${side}-width`] = width
+        if (borderStyle) expanded[`border-${side}-style`] = borderStyle
+        if (color) expanded[`border-${side}-color`] = color
+      })
+      delete expanded[key]
     }
   }
 
