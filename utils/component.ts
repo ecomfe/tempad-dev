@@ -432,7 +432,7 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
       // Attribute Value
       let quote = ''
       let valueStart = i
-      let valueEnd = i
+      let valueEnd
 
       if (code[i] === '"' || code[i] === "'") {
         quote = code[i]
