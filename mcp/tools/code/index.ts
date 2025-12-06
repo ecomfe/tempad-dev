@@ -688,11 +688,17 @@ function buildClassProps(
 
   if (classNames.length) props[defaultClassProp] = joinClassNames(classNames)
 
+  const hasLayoutDisplay = (() => {
+    const display = style.display?.toLowerCase()
+    if (display && /flex|grid/.test(display)) return true
+    return classNames.some((c) => c === 'flex' || c === 'inline-flex' || c === 'grid' || c === 'inline-grid')
+  })()
+
   if (dataHint) {
     Object.entries(dataHint).forEach(([key, val]) => {
       if (!val || !String(val).trim()) return
       // Only inject layout hint when we are not using plugin-provided component (i.e., fallback)
-      if (key === 'data-hint-auto-layout' && options.isFallback !== true) return
+      if (key === 'data-hint-auto-layout' && (options.isFallback !== true || !hasLayoutDisplay)) return
       props[key] = String(val)
     })
 
