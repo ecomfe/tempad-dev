@@ -1,5 +1,7 @@
 import type { OutlineNode } from '@/mcp-server/src/tools'
 
+import { toPascalCase } from '@/utils/string'
+
 const NODE_CAP = 800
 const NODE_TARGET = 400
 
@@ -179,11 +181,13 @@ function composeDataHint(node: SceneNode): DataHint | undefined {
 
   if (node.type === 'INSTANCE') {
     const { mainComponent } = node as InstanceNode
-    if (mainComponent) {
-      const props = summarizeComponentProperties(node)
-      hints['data-hint-design-component'] = props
-        ? `${mainComponent.name}[${props}]`
-        : mainComponent.name
+    const name =
+      mainComponent?.parent?.type === 'COMPONENT_SET'
+        ? mainComponent.parent.name
+        : (mainComponent?.name ?? node.name)
+    const props = summarizeComponentProperties(node) ?? ''
+    if (name) {
+      hints['data-hint-design-component'] = `${toPascalCase(name)}${props}`
     }
   }
 
@@ -222,46 +226,37 @@ function summarizeComponentProperties(node: InstanceNode): string | undefined {
     return undefined
   }
 
-  const entries: string[] = []
+  const variants: string[] = []
+  const others: string[] = []
+
   for (const [rawKey, prop] of Object.entries(properties)) {
-    if (!prop) {
-      continue
-    }
+    if (!prop) continue
     const key = rawKey.split('#')[0]
+
     switch (prop.type) {
       case 'BOOLEAN':
-        entries.push(`${key}=${prop.value ? 'on' : 'off'}`)
+        others.push(`${key}=${prop.value ? 'on' : 'off'}`)
         break
       case 'TEXT':
+        if (typeof prop.value === 'string' && prop.value.trim()) {
+          others.push(`${key}=${prop.value}`)
+        }
+        break
       case 'VARIANT':
         if (typeof prop.value === 'string' && prop.value.trim()) {
-          entries.push(`${key}=${prop.value}`)
+          variants.push(`${key}=${prop.value}`)
         }
         break
       case 'INSTANCE_SWAP':
-        if (typeof prop.value === 'string') {
-          const swapped = figma.getNodeById(prop.value)
-          if (swapped && 'name' in swapped) {
-            entries.push(`${key}=${(swapped as SceneNode).name}`)
-          } else {
-            entries.push(`${key}=swap`)
-          }
-        }
+        // Skip instance swap for data-hint
         break
       default:
         break
     }
-
-    if (entries.length >= 3) {
-      break
-    }
   }
 
-  if (!entries.length) {
-    return undefined
-  }
-
-  return entries.join(',')
+  const entries = [...variants, ...others]
+  return entries.length ? entries.map((e) => `[${e}]`).join('') : undefined
 }
 
 function summarizeLayoutHint(node: SceneNode): string | undefined {
