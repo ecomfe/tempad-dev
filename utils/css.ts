@@ -16,7 +16,6 @@ export const ZERO_UNITS_RE = /(^|\s)0(px|rem|%|em)(?=$|\s)/g
 export const CSS_VAR_FUNCTION_RE = /var\(--([^,)]+)(?:,\s*([^)]+))?\)/g
 export const CSS_VAR_FUNCTION_EXACT_RE = /^var\(\s*(--[A-Za-z0-9-_]+)\s*(?:,.*)?\)$/
 const SCSS_VARS_RE = /(^|[^\w-])[$@]([a-zA-Z0-9_-]+)/g
-const VAR_DEFAULTS_RE = /var\((--[a-zA-Z0-9_-]+),\s*[^)]+\)/g
 const PREPROCESSOR_VAR_RE = /^[$@]([A-Za-z0-9-_]+)$/
 const BARE_CSS_CUSTOM_PROP_RE = /^(--[A-Za-z0-9-_]+)$/
 
@@ -24,7 +23,6 @@ export const PX_VALUE_RE = /\b(-?\d+(?:.\d+)?)px\b/g
 export const QUOTES_RE = /['"]/g
 export const TOP_LEVEL_COMMA_RE = /,(?![^(]*\))/
 const NUMBER_RE = /^\d+(\.\d+)?$/
-const BORDER_STYLE_KEYWORDS = new Set(['none', 'hidden', 'solid', 'dashed', 'dotted', 'double'])
 
 export const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
 export const BG_REPEAT_RE = /(?:^|\s)(no-repeat|repeat-x|repeat-y|repeat|space|round)(?=$|\s)/i
@@ -206,27 +204,19 @@ function parseBorderShorthand(val: string): {
   style?: string
   color?: string
 } {
-  const parts = normalizeStyleValue(val).split(WHITESPACE_RE).filter(Boolean)
-  const [first, second, third] = parts
-
-  const width = first
-  let style: string | undefined
-  let color: string | undefined
-
-  if (second) {
-    const lower = second.toLowerCase()
-    if (BORDER_STYLE_KEYWORDS.has(lower)) {
-      style = second
-    } else {
-      color = second
-    }
+  const normalized = normalizeStyleValue(val)
+  const matched = normalized.match(/^\s*(\S+)\s+(\S+)\s+(.+)\s*$/)
+  if (matched) {
+    const [, width, style, color] = matched
+    return { width, style, color: color.trim() }
   }
 
-  if (third && !color) {
-    color = third
+  const parts = normalized.split(WHITESPACE_RE).filter(Boolean)
+  return {
+    width: parts[0],
+    style: parts[1],
+    color: parts.slice(2).join(' ').trim() || undefined
   }
-
-  return { width, style, color }
 }
 
 export function expandShorthands(style: Record<string, string>): Record<string, string> {
@@ -506,6 +496,57 @@ export function canonicalizeEmbeddedVariables(value: string): string {
   return value.replace(SCSS_VARS_RE, '$1var(--$2)')
 }
 
+function stripVarFallbacks(value: string): string {
+  let i = 0
+  const len = value.length
+  let out = ''
+
+  while (i < len) {
+    if (value.startsWith('var(', i)) {
+      let j = i + 4
+      let depth = 1
+
+      // skip whitespace after var(
+      while (j < len && /\s/.test(value[j])) j++
+      const nameStart = j
+
+      let nameEnd = nameStart
+      let sawComma = false
+
+      for (; j < len; j++) {
+        const ch = value[j]
+        if (ch === '(') depth++
+        else if (ch === ')') {
+          depth--
+          if (depth === 0) break
+        } else if (ch === ',' && depth === 1 && !sawComma) {
+          sawComma = true
+          nameEnd = j
+        }
+      }
+
+      if (depth === 0) {
+        if (!sawComma) {
+          nameEnd = j
+        }
+        // trim trailing whitespace from name
+        while (nameEnd > nameStart && /\s/.test(value[nameEnd - 1])) nameEnd--
+
+        const name = value.slice(nameStart, nameEnd)
+        out += `var(${name})`
+        i = j + 1
+        continue
+      }
+      // fall through if malformed
+    }
+
+    out += value[i]
+    i++
+  }
+
+  return out
+}
+
 export function isCssVar(value: string): boolean {
   return /^var\(/i.test(stripCssComments(value).trim())
 }
@@ -519,7 +560,7 @@ export function normalizeStyleValue(raw: string): string {
   let val = raw
   val = stripCssComments(val)
   val = canonicalizeEmbeddedVariables(val)
-  val = val.replace(VAR_DEFAULTS_RE, 'var($1)')
+  val = stripVarFallbacks(val)
   val = val.replace(ZERO_UNITS_RE, '$10')
   return val.trim()
 }
