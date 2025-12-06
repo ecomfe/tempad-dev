@@ -181,6 +181,12 @@ function handleClick(event: MouseEvent) {
 .tp-code-content {
   padding: 0 8px 8px;
   overflow-x: auto;
+  user-select: text;
+  cursor: text;
+}
+
+.tp-code-content :deep(.os-scrollbar) {
+  cursor: default;
 }
 
 .tp-code-content:has(.os-scrollbar-visible) {

@@ -1,5 +1,6 @@
-import { getTemPadComponent } from '@/utils'
 import { useStorage, computedAsync } from '@vueuse/core'
+
+import { getTemPadComponent } from '@/utils'
 
 import { ui } from './figma'
 
@@ -21,13 +22,12 @@ export type Options = {
   cssUnit: 'px' | 'rem'
   rootFontSize: number
   scale: number
+  mcpOn: boolean
   plugins: {
     [source: string]: PluginData
   }
   activePluginSource: string | null
 }
-
-export type SelectionNode = SceneNode
 
 export const options = useStorage<Options>('tempad-dev', {
   minimized: false,
@@ -41,12 +41,13 @@ export const options = useStorage<Options>('tempad-dev', {
   cssUnit: 'px',
   rootFontSize: 16,
   scale: 1,
+  mcpOn: false,
   plugins: {},
   activePluginSource: null
 })
 
 export const runtimeMode = shallowRef<'standard' | 'unavailable'>('standard')
-export const selection = shallowRef<readonly SelectionNode[]>([])
+export const selection = shallowRef<readonly SceneNode[]>([])
 export const selectedNode = computed(() => selection.value?.[0] ?? null)
 export const selectedTemPadComponent = computed(() => getTemPadComponent(selectedNode.value))
 

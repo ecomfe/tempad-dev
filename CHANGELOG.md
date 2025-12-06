@@ -1,6 +1,8 @@
-<!-- markdownlint-disable MD033 -->
-
 # Changelog
+
+## 0.14.0
+
+- Added MCP server support to let agents/IDEs pull code, structure, and screenshots from your current Figma selection.
 
 ## 0.13.1
 

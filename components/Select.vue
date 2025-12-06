@@ -1,9 +1,10 @@
 <script setup lang="ts" generic="T extends string">
-import Chevron from '@/components/icons/Chevron.vue'
-import OptionCheck from '@/components/icons/OptionCheck.vue'
 import { computed, watch } from 'vue'
 
-export interface SelectOption<T extends string> {
+import Chevron from '@/components/icons/Chevron.vue'
+import OptionCheck from '@/components/icons/OptionCheck.vue'
+
+export interface SelectOption<T extends string = string> {
   label: string
   value: T
 }
@@ -161,6 +162,7 @@ const selectedIndex = computed(() => {
 
 .tp-select::picker(select) {
   appearance: base-select;
+  border: none;
 }
 
 .tp-select:open::picker(select) {

@@ -2,11 +2,11 @@
 import Badge from '@/components/Badge.vue'
 import Copyable from '@/components/Copyable.vue'
 import IconButton from '@/components/IconButton.vue'
+import Link from '@/components/icons/Link.vue'
 import Select from '@/components/icons/Select.vue'
 import Section from '@/components/Section.vue'
 import { useDevResourceLinks } from '@/composables/dev-resources'
 import { selection, selectedNode, selectedTemPadComponent } from '@/ui/state'
-import Link from '@/components/icons/Link.vue'
 
 const title = computed(() => {
   const nodes = selection.value

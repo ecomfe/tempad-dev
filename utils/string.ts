@@ -12,6 +12,12 @@ export function snakeToKebab(str: string) {
   return str.replace(/_/g, '-').toLowerCase()
 }
 
+export function toPascalCase(str: string) {
+  return str.replace(/(^\w|-+\w|_+\w|\s+\w)/g, (match) =>
+    match.replace(/[-_\s]+/, '').toUpperCase()
+  )
+}
+
 const ESCAPE_MAP: Record<string, string> = {
   '&': '&amp;',
   '<': '&lt;',

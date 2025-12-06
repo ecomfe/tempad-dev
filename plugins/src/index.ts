@@ -284,6 +284,20 @@ export interface Plugin {
   code: CodeOptions
 }
 
+export const RAW_TAG_NAME = '__tempad_raw__'
+
+/**
+ * Helper to create a raw markup node.
+ * This is fully compatible with the existing DevComponent type.
+ */
+export function raw(content: string, injectedProps?: Record<string, string>): DevComponent {
+  return {
+    name: RAW_TAG_NAME,
+    props: { content, injectedProps },
+    children: []
+  }
+}
+
 /**
  * Helper to define a TemPad Dev plugin with full type support.
  *
