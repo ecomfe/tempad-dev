@@ -34,7 +34,7 @@ export type CodeLanguage = 'jsx' | 'vue'
 export type RenderContext = {
   styles: Map<string, Record<string, string>>
   nodes: Map<string, SceneNode>
-  svgs: Map<string, string>
+  svgs: Map<string, Record<string, string>>
   pluginCode?: string
   config: CodegenConfig
   preferredLang?: CodeLanguage
@@ -211,12 +211,12 @@ async function collectSceneData(
 ): Promise<{
   nodes: Map<string, SceneNode>
   styles: Map<string, Record<string, string>>
-  svgs: Map<string, string>
+  svgs: Map<string, Record<string, string>>
 }> {
   const semanticNodes = flattenSemanticNodes(roots)
   const nodes = new Map<string, SceneNode>()
   const styles = new Map<string, Record<string, string>>()
-  const svgs = new Map<string, string>()
+  const svgs = new Map<string, Record<string, string>>()
 
   for (const semantic of semanticNodes) {
     const node = figma.getNodeById(semantic.id) as SceneNode | null
@@ -232,7 +232,15 @@ async function collectSceneData(
 
         svgString = transformSvgAttributes(svgString, config)
 
-        svgs.set(semantic.id, svgString)
+        const asset = await ensureAssetUploaded(svgUint8, 'image/svg+xml', {
+          width: Math.round(node.width),
+          height: Math.round(node.height)
+        })
+        assetRegistry.set(asset.hash, asset)
+
+        const baseProps = extractSvgAttributes(svgString)
+        baseProps['data-resource-uri'] = asset.resourceUri
+        svgs.set(semantic.id, baseProps)
       } catch (error) {
         console.warn('[tempad-dev] Failed to export vector node:', error)
       }
@@ -307,6 +315,19 @@ function transformSvgAttributes(svg: string, config: CodegenConfig): string {
     return `${prefix}${attr}=${quote}${normalized}${quote}`
   }
   return svg.replace(regex, replacer)
+}
+
+function extractSvgAttributes(svg: string): Record<string, string> {
+  const attrs: Record<string, string> = {}
+  const match = svg.match(/<svg\s+([^>]+)>/i)
+  if (!match) return attrs
+  const attrString = match[1]
+  const regex = /([^\s=]+)\s*=\s*(['"])(.*?)\2/g
+  let m: RegExpExecArray | null
+  while ((m = regex.exec(attrString))) {
+    attrs[m[1]] = m[3]
+  }
+  return attrs
 }
 
 async function replaceImageUrlsWithAssets(
@@ -471,7 +492,12 @@ async function renderSemanticNode(
   if (!node) return null
 
   if (ctx.svgs.has(semantic.id)) {
-    return raw(ctx.svgs.get(semantic.id)!)
+    const props = ctx.svgs.get(semantic.id)!
+    return {
+      name: 'svg',
+      props,
+      children: []
+    }
   }
 
   let rawStyle = ctx.styles.get(semantic.id) ?? {}
@@ -691,14 +717,17 @@ function buildClassProps(
   const hasLayoutDisplay = (() => {
     const display = style.display?.toLowerCase()
     if (display && /flex|grid/.test(display)) return true
-    return classNames.some((c) => c === 'flex' || c === 'inline-flex' || c === 'grid' || c === 'inline-grid')
+    return classNames.some(
+      (c) => c === 'flex' || c === 'inline-flex' || c === 'grid' || c === 'inline-grid'
+    )
   })()
 
   if (dataHint) {
     Object.entries(dataHint).forEach(([key, val]) => {
       if (!val || !String(val).trim()) return
       // Only inject layout hint when we are not using plugin-provided component (i.e., fallback)
-      if (key === 'data-hint-auto-layout' && (options.isFallback !== true || !hasLayoutDisplay)) return
+      if (key === 'data-hint-auto-layout' && (options.isFallback !== true || !hasLayoutDisplay))
+        return
       props[key] = String(val)
     })
 

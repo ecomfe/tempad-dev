@@ -59,6 +59,9 @@ export async function ensureAssetUploaded(
   const promise = upload(url, bytes, mimeType, metadata)
     .then(() => {
       uploadedAssets.add(uploadKey)
+      console.info(
+        `[tempad-dev] Uploaded asset ${hash.slice(0, 8)} (${mimeType}, ${size} bytes) to ${url}`
+      )
     })
     .finally(() => {
       inflightUploads.delete(uploadKey)
@@ -90,9 +93,16 @@ async function upload(
     })
 
     if (!response.ok) {
+      console.error(
+        '[tempad-dev] Asset upload failed.',
+        url,
+        response.status,
+        response.statusText
+      )
       throw new Error(`Upload failed with status ${response.status} ${response.statusText}`)
     }
   } catch (error) {
+    console.error('[tempad-dev] Failed to upload asset via HTTP.', error)
     throw error instanceof Error ? error : new Error('Failed to upload asset via HTTP.')
   }
 }

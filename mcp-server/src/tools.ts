@@ -277,26 +277,25 @@ export function createCodeToolResponse(payload: ToolResultMap['get_code']): Call
     throw new Error('Invalid get_code payload received from extension.')
   }
 
-  const normalized = normalizeCodeResult(payload)
   const summary: string[] = []
-  const codeSize = Buffer.byteLength(normalized.code, 'utf8')
-  summary.push(`Generated ${normalized.lang.toUpperCase()} snippet (${formatBytes(codeSize)}).`)
-  if (normalized.message) {
-    summary.push(normalized.message)
+  const codeSize = Buffer.byteLength(payload.code, 'utf8')
+  summary.push(`Generated ${payload.lang.toUpperCase()} snippet (${formatBytes(codeSize)}).`)
+  if (payload.message) {
+    summary.push(payload.message)
   }
   summary.push(
-    normalized.assets.length
-      ? `Assets attached: ${normalized.assets.length}. Fetch bytes via resources/read using resourceUri.`
+    payload.assets.length
+      ? `Assets attached: ${payload.assets.length}. Fetch bytes via resources/read using resourceUri.`
       : 'No binary assets were attached to this response.'
   )
-  if (normalized.usedTokens?.length) {
-    summary.push(`Token references included: ${normalized.usedTokens.length}.`)
+  if (payload.usedTokens?.length) {
+    summary.push(`Token references included: ${payload.usedTokens.length}.`)
   }
   summary.push('Read structuredContent for the full code string and asset metadata.')
 
   const assetLinks =
-    normalized.assets.length > 0
-      ? normalized.assets.map((asset) => createAssetResourceLinkBlock(asset))
+    payload.assets.length > 0
+      ? payload.assets.map((asset) => createAssetResourceLinkBlock(asset))
       : []
 
   return {
@@ -307,7 +306,7 @@ export function createCodeToolResponse(payload: ToolResultMap['get_code']): Call
       },
       ...assetLinks
     ],
-    structuredContent: normalized
+    structuredContent: payload
   }
 }
 
@@ -374,23 +373,6 @@ function isCodeResult(payload: unknown): payload is ToolResultMap['get_code'] {
   )
 }
 
-function normalizeCodeResult(result: ToolResultMap['get_code']): ToolResultMap['get_code'] {
-  const rewrittenCode = rewriteCodeAssetUrls(result.code, result.assets)
-  return {
-    ...result,
-    code: rewrittenCode
-  }
-}
-
-function rewriteCodeAssetUrls(code: string, assets: AssetDescriptor[]): string {
-  let updatedCode = code
-  for (const asset of assets) {
-    const uriPattern = new RegExp(escapeRegExp(asset.resourceUri), 'g')
-    updatedCode = updatedCode.replace(uriPattern, asset.url)
-  }
-  return updatedCode
-}
-
 function createAssetResourceLinkBlock(asset: AssetDescriptor) {
   return {
     type: 'resource_link' as const,
@@ -407,10 +389,6 @@ function describeAsset(asset: AssetDescriptor): string {
 
 function formatAssetResourceName(hash: string): string {
   return `asset:${hash.slice(0, 8)}`
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 export function coercePayloadToToolResponse(payload: unknown): CallToolResult {
