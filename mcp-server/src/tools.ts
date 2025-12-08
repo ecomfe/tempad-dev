@@ -281,7 +281,7 @@ export function createCodeToolResponse(payload: ToolResultMap['get_code']): Call
 
   const summary: string[] = []
   const codeSize = Buffer.byteLength(payload.code, 'utf8')
-  summary.push(`Generated ${payload.lang.toUpperCase()} snippet (${formatBytes(codeSize)}).`)
+  summary.push(`Generated \`${payload.lang}\` snippet (${formatBytes(codeSize)}).`)
   if (payload.message) {
     summary.push(payload.message)
   }
