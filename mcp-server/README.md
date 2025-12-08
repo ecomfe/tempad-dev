@@ -7,7 +7,7 @@
   "mcpServers": {
     "TemPad Dev": {
       "command": "npx",
-      "args": ["@tempad-dev/mcp"]
+      "args": ["-y", "@tempad-dev/mcp@latest"]
     }
   }
 }
@@ -17,7 +17,7 @@ Quick setup helpers:
 
 - VS Code / Cursor / TRAE: use the deep links in TemPad Dev (Preferences → MCP server).
 - Windsurf: copy the JSON snippet from the same panel.
-- CLI: `claude mcp add --transport stdio "TemPad Dev" -- npx -y @tempad-dev/mcp` or `codex mcp add "TemPad Dev" -- npx -y @tempad-dev/mcp`.
+- CLI: `claude mcp add --transport stdio "TemPad Dev" -- npx -y @tempad-dev/mcp@latest` or `codex mcp add "TemPad Dev" -- npx -y @tempad-dev/mcp@latest`.
 
 Supported tools/resources:
 

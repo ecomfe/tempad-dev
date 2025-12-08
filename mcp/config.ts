@@ -1,6 +1,6 @@
 const SERVER_NAME = 'TemPad Dev'
 const SERVER_COMMAND = 'npx'
-const SERVER_ARGS = ['-y', '@tempad-dev/mcp']
+const SERVER_ARGS = ['-y', '@tempad-dev/mcp@latest']
 
 type BaseCommandConfig = {
   command: string

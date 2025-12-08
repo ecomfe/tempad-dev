@@ -185,7 +185,8 @@ export function inferResizingStyles(
 }
 
 function getAutoLayoutSource(node: SceneNode): AutoLayoutLike | undefined {
-  const inferred = (node as { inferredAutoLayout?: AutoLayoutLike | null }).inferredAutoLayout ?? undefined
+  const inferred =
+    (node as { inferredAutoLayout?: AutoLayoutLike | null }).inferredAutoLayout ?? undefined
 
   if ('layoutMode' in node) {
     const layoutNode = node as AutoLayoutLike

@@ -93,12 +93,7 @@ async function upload(
     })
 
     if (!response.ok) {
-      console.error(
-        '[tempad-dev] Asset upload failed.',
-        url,
-        response.status,
-        response.statusText
-      )
+      console.error('[tempad-dev] Asset upload failed.', url, response.status, response.statusText)
       throw new Error(`Upload failed with status ${response.status} ${response.statusText}`)
     }
   } catch (error) {
