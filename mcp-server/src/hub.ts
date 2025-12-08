@@ -34,7 +34,7 @@ import {
   ToolResultMessage
 } from './protocol'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
-import { log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
+import { PACKAGE_VERSION, log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
 import {
   GetAssetsResultSchema,
   TOOL_DEFS,
@@ -47,6 +47,8 @@ const SHUTDOWN_TIMEOUT = 2000
 const { wsPortCandidates, toolTimeoutMs, maxPayloadBytes, autoActivateGraceMs } =
   getMcpServerConfig()
 
+log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Hub starting...')
+
 const extensions: ExtensionConnection[] = []
 let consumerCount = 0
 type TimeoutHandle = ReturnType<typeof setTimeout>
@@ -54,7 +56,7 @@ let autoActivateTimer: TimeoutHandle | null = null
 let selectedWsPort = 0
 
 const mcp = new McpServer(
-  { name: 'tempad-dev-mcp', version: '0.1.0' },
+  { name: 'tempad-dev-mcp', version: PACKAGE_VERSION },
   MCP_INSTRUCTIONS ? { instructions: MCP_INSTRUCTIONS } : undefined
 )
 type McpInputSchema = Parameters<typeof mcp.registerTool>[1]['inputSchema']

@@ -17,7 +17,9 @@ export const GetCodeParametersSchema = z.object({
     .optional(),
   preferredLang: z
     .enum(['jsx', 'vue'])
-    .describe('Preferred output language; otherwise uses the design’s hint/detected language, then JSX.')
+    .describe(
+      'Preferred output language; otherwise uses the design’s hint/detected language, then JSX.'
+    )
     .optional(),
   resolveTokens: z
     .boolean()

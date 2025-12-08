@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
 
-import { log, LOCK_PATH, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
+import { PACKAGE_VERSION, log, LOCK_PATH, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
 
 let activeSocket: Socket | null = null
 let shuttingDown = false
@@ -159,7 +159,7 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
 }
 
 async function main() {
-  log.info('TemPad MCP Client starting...')
+  log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Client starting...')
 
   while (true) {
     try {

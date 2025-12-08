@@ -3,9 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
 
+import packageJson from '../package.json' assert { type: 'json' }
+
 export function ensureDir(dirPath: string): void {
   mkdirSync(dirPath, { recursive: true, mode: 0o700 })
 }
+
+const pkg = packageJson as { version?: unknown }
+export const PACKAGE_VERSION = typeof pkg.version === 'string' ? pkg.version : '0.0.0'
 
 function resolveRuntimeDir(): string {
   if (process.env.TEMPAD_MCP_RUNTIME_DIR) return process.env.TEMPAD_MCP_RUNTIME_DIR

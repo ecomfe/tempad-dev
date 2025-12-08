@@ -206,13 +206,13 @@ TemPad Dev ships an [MCP](https://modelcontextprotocol.io/) server so agents/IDE
      "mcpServers": {
        "TemPad Dev": {
          "command": "npx",
-         "args": ["-y", "@tempad-dev/mcp"]
+         "args": ["-y", "@tempad-dev/mcp@latest"]
        }
      }
    }
    ```
 
-   For CLI-style installers, the equivalent commands are `claude mcp add --transport stdio "TemPad Dev" -- npx -y @tempad-dev/mcp` or `codex mcp add "TemPad Dev" -- npx -y @tempad-dev/mcp`.
+   For CLI-style installers, the equivalent commands are `claude mcp add --transport stdio "TemPad Dev" -- npx -y @tempad-dev/mcp@latest` or `codex mcp add "TemPad Dev" -- npx -y @tempad-dev/mcp@latest`.
 
 4. Keep the TemPad Dev tab active while using MCP. If you have multiple Figma files (and thus multiple TemPad Dev extensions) open, click the MCP badge in the TemPad Dev panel to activate the correct file for your agent.
 
