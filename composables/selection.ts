@@ -1,7 +1,7 @@
-import { selection } from '@/ui/state'
+import { selection, runtimeMode } from '@/ui/state'
 import { getCanvas, getLeftPanel } from '@/utils'
 
-function syncSelection() {
+export function syncSelection() {
   if (!window.figma?.currentPage) {
     selection.value = []
     return
@@ -39,4 +39,6 @@ export function useSelection() {
     objectsPanel.removeEventListener('click', handleClick, options)
     window.removeEventListener('keydown', handleKeyDown, options)
   })
+
+  watch(runtimeMode, () => syncSelection())
 }
