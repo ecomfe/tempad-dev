@@ -1,8 +1,8 @@
 import type { RequestPayload, ResponsePayload, SerializeOptions } from '@/types/codegen'
 import type { DesignComponent } from '@/types/plugin'
 
-import Codegen from '@/codegen/codegen?worker&inline'
-import { createWorkerRequester } from '@/codegen/worker'
+import { createWorkerRequester } from '@/codegen/requester'
+import Codegen from '@/codegen/worker?worker&inline'
 
 import { getDesignComponent } from './component'
 

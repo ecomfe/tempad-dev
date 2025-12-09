@@ -1,6 +1,6 @@
 import type { CodegenConfig } from '@/utils/codegen'
 
-import { runTransformVariableBatch } from '@/mcp/transform-variable'
+import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
 import {
   CSS_VAR_FUNCTION_RE,
   canonicalizeVariable,

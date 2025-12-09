@@ -1,67 +1,159 @@
-let id = 0
+import type { RequestPayload, ResponsePayload, CodeBlock } from '@/types/codegen'
+import type { DevComponent, Plugin } from '@/types/plugin'
 
-export type RequestMessage<T = unknown> = {
-  id: number
-  payload: T
-}
+import { serializeComponent, stringifyComponent } from '@/utils/component'
+import { serializeCSS } from '@/utils/css'
+import { evaluate } from '@/utils/module'
+import { stringify } from '@/utils/string'
 
-export type ResponseMessage<T = unknown> = {
-  id: number
-  payload?: T
-  error?: unknown
-}
+import type { RequestMessage, ResponseMessage } from './requester'
 
-type PendingRequest<T = unknown> = {
-  resolve: (result: T) => void
-  reject: (reason?: unknown) => void
-}
+import safe from './safe'
 
-const pending = new Map<number, PendingRequest>()
+type Request = RequestMessage<RequestPayload>
+type Response = ResponseMessage<ResponsePayload>
 
-type WorkerClass = {
-  // Bundler-provided worker classes expose a zero-arg constructor
-  new (): Worker
-}
+const IMPORT_RE = /^\s*import\s+(([^'"\n]+|'[^']*'|"[^"]*")|\s*\(\s*[^)]*\s*\))/gm
 
-type WorkerRequester<T = unknown, U = unknown> = (payload: T) => Promise<U>
+const postMessage = globalThis.postMessage
 
-const cache = new WeakMap<WorkerClass, unknown>()
+globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
+  const { id, payload } = data
+  const codeBlocks: CodeBlock[] = []
 
-export function createWorkerRequester<T, U>(Worker: WorkerClass) {
-  if (cache.has(Worker)) {
-    return cache.get(Worker) as WorkerRequester<T, U>
+  const { style, component, options, pluginCode } = payload
+  let plugin = null
+  let devComponent: DevComponent | null = null
+
+  try {
+    if (pluginCode) {
+      if (IMPORT_RE.test(pluginCode)) {
+        throw new Error('`import` is not allowed in plugins.')
+      }
+
+      const exports = await evaluate(pluginCode)
+      plugin = (exports.default || exports.plugin) as Plugin
+    }
+  } catch (e) {
+    console.error(e)
+    const message: Response = {
+      id,
+      error: e
+    }
+    postMessage(message)
+    return
   }
 
-  const worker = new Worker()
+  const {
+    component: componentOptions,
+    css: cssOptions,
+    js: jsOptions,
+    ...rest
+  } = plugin?.code ?? {}
 
-  worker.onmessage = ({ data }: MessageEvent<ResponseMessage<U>>) => {
-    const { id, payload, error } = data
+  if (componentOptions && component) {
+    const { lang, transformComponent } = componentOptions
+    let componentCode = ''
 
-    const request = pending.get(id)
-    if (request) {
-      if (error) {
-        request.reject(error)
-      } else {
-        request.resolve(payload)
+    if (typeof transformComponent === 'function') {
+      const result = transformComponent({ component })
+      if (typeof result === 'string') {
+        componentCode = result
+      } else if (result) {
+        devComponent = result
+        componentCode = stringifyComponent(result, lang ?? 'jsx')
       }
-      pending.delete(id)
+    } else {
+      componentCode = serializeComponent(component, { lang }, { transformComponent })
+    }
+
+    if (componentCode) {
+      codeBlocks.push({
+        name: 'component',
+        title: componentOptions?.title ?? 'Component',
+        lang: componentOptions?.lang ?? 'jsx',
+        code: componentCode
+      })
     }
   }
 
-  const request: WorkerRequester<T, U> = function (payload: T): Promise<U> {
-    return new Promise((resolve, reject) => {
-      pending.set(id, {
-        resolve: (result) => resolve(result as U),
-        reject
+  if (cssOptions !== false) {
+    const cssCode = serializeCSS(style, options, cssOptions)
+    if (cssCode) {
+      codeBlocks.push({
+        name: 'css',
+        title: cssOptions?.title ?? 'CSS',
+        lang: cssOptions?.lang ?? 'css',
+        code: cssCode
       })
-
-      const message: RequestMessage<T> = { id, payload }
-      worker.postMessage(message)
-      id++
-    })
+    }
   }
 
-  cache.set(Worker, request)
+  if (jsOptions !== false) {
+    const jsCode = serializeCSS(style, { ...options, toJS: true }, jsOptions)
+    if (jsCode) {
+      codeBlocks.push({
+        name: 'js',
+        title: jsOptions?.title ?? 'JavaScript',
+        lang: jsOptions?.lang ?? 'js',
+        code: jsCode
+      })
+    }
+  }
 
-  return request
+  codeBlocks.push(
+    ...Object.keys(rest)
+      .map((name) => {
+        const extraOptions = rest[name]
+        if (extraOptions === false) {
+          return null
+        }
+
+        const code = serializeCSS(style, options, extraOptions)
+        if (!code) {
+          return null
+        }
+        return {
+          name,
+          title: extraOptions.title ?? name,
+          lang: extraOptions.lang ?? 'css',
+          code
+        }
+      })
+      .filter((item): item is CodeBlock => item != null)
+  )
+
+  const message: Response = {
+    id,
+    payload: {
+      codeBlocks,
+      pluginName: plugin?.name,
+      ...(payload.returnDevComponent && devComponent ? { devComponent } : {})
+    }
+  }
+
+  const safe = JSON.parse(
+    JSON.stringify(message, (_, v) => {
+      if (typeof v === 'function') return stringify(v)
+      return v
+    })
+  )
+
+  postMessage(safe)
 }
+
+// Only expose the necessary APIs to plugins
+Object.getOwnPropertyNames(globalThis)
+  .filter((key) => !safe.has(key))
+  .forEach((key) => {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    globalThis[key] = undefined
+  })
+
+Object.defineProperties(globalThis, {
+  name: { value: 'codegen', writable: false, configurable: false },
+  onmessage: { value: undefined, writable: false, configurable: false },
+  onmessageerror: { value: undefined, writable: false, configurable: false },
+  postMessage: { value: undefined, writable: false, configurable: false }
+})
