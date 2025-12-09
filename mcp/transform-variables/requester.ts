@@ -1,12 +1,12 @@
-import { createWorkerRequester } from '@/codegen/worker'
+import { createWorkerRequester } from '@/codegen/requester'
 
 import type {
   TransformVariableReference,
   TransformVariableRequestPayload,
   TransformVariableResponsePayload
-} from './transform-variable.worker'
+} from './worker'
 
-import TransformerWorker from './transform-variable.worker?worker&inline'
+import TransformerWorker from './worker?worker&inline'
 
 export type VariableReference = TransformVariableReference & {
   nodeId: string

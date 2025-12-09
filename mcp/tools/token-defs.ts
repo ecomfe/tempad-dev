@@ -2,7 +2,7 @@ import type { GetTokenDefsResult } from '@/mcp-server/src/tools'
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { MCP_MAX_PAYLOAD_BYTES } from '@/mcp/shared/constants'
-import { runTransformVariableBatch } from '@/mcp/transform-variable'
+import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
 import { activePlugin, options } from '@/ui/state'
 import {
   canonicalizeVariable,

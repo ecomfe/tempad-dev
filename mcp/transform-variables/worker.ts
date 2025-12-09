@@ -1,4 +1,4 @@
-import type { RequestMessage, ResponseMessage } from '@/codegen/worker'
+import type { RequestMessage, ResponseMessage } from '@/codegen/requester'
 import type { Plugin, TransformOptions } from '@/types/plugin'
 
 import safe from '@/codegen/safe'
