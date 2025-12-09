@@ -1,4 +1,5 @@
 export * from './copy'
+export * from './deep-link'
 export * from './input'
 export * from './key-lock'
 export * from './selection'

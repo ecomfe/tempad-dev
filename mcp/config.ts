@@ -47,6 +47,13 @@ const traeDeepLink = (() => {
   return `trae-cn://trae.ai-ide/mcp-import?type=${type}&name=${name}&config=${configBase64}`
 })()
 
+const traeDeepLinkIntl = (() => {
+  const type = 'stdio'
+  const name = encodeURIComponent(SERVER_NAME)
+  const configBase64 = encodeURIComponent(toBase64(JSON.stringify(cursorConfig)))
+  return `trae://trae.ai-ide/mcp-import?type=${type}&name=${name}&config=${configBase64}`
+})()
+
 const windsurfConfigSnippet = JSON.stringify(
   {
     mcpServers: {
@@ -70,6 +77,7 @@ export type McpClientConfig = {
   brandColor?: McpBrandColor
   deepLink?: string
   supportsDeepLink: boolean
+  fallbackDeepLink?: string
   copyText?: string
   copyKind?: 'command' | 'config'
 }
@@ -118,7 +126,8 @@ export const MCP_CLIENTS: McpClientConfig[] = [
     name: 'TRAE',
     brandColor: ['#0fdc78', '#32f08c'],
     supportsDeepLink: true,
-    deepLink: traeDeepLink
+    deepLink: traeDeepLinkIntl,
+    fallbackDeepLink: traeDeepLink
   }
 ]
 

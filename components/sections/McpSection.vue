@@ -17,7 +17,7 @@ import Minus from '@/components/icons/Minus.vue'
 import Tick from '@/components/icons/Tick.vue'
 import Section from '@/components/Section.vue'
 import SegmentedControl from '@/components/SegmentedControl.vue'
-import { useCopy } from '@/composables'
+import { useCopy, useDeepLinkGuard } from '@/composables'
 import { MCP_CLIENTS, MCP_SERVER } from '@/mcp/config'
 import { options } from '@/ui/state'
 
@@ -85,6 +85,7 @@ const mcpClients = computed(() =>
 )
 
 const copy = useCopy()
+const guardDeepLink = useDeepLinkGuard({ timeout: 800 })
 const defaultConfig = JSON.stringify(
   {
     [MCP_SERVER.name]: {
@@ -102,7 +103,10 @@ const copyMessages = {
 
 async function handleClientClick(client: McpClientDisplay) {
   if (client.deepLink) {
-    window.open(client.deepLink, '_self')
+    guardDeepLink(client.deepLink, {
+      message: `No response from ${client.name}. Please install it first.`,
+      fallbackDeepLink: client.fallbackDeepLink
+    })
     return
   }
   if (client.copyText) {
