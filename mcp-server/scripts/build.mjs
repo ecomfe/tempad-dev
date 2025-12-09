@@ -22,5 +22,8 @@ await build({
   bundle: true,
   external: externalDeps,
   sourcemap: true,
-  logLevel: 'info'
+  logLevel: 'info',
+  loader: {
+    '.md': 'text'
+  }
 })
