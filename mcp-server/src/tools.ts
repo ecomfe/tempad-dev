@@ -13,17 +13,21 @@ export type { AssetDescriptor }
 export const GetCodeParametersSchema = z.object({
   nodeId: z
     .string()
-    .describe('Optional node id to target; defaults to the current single selection.')
+    .describe(
+      'Optional target node id; omit to use the current single selection when pulling the baseline snapshot.'
+    )
     .optional(),
   preferredLang: z
     .enum(['jsx', 'vue'])
     .describe(
-      'Preferred output language; otherwise uses the design’s hint/detected language, then JSX.'
+      'Preferred output language to bias the snapshot; otherwise uses the design’s hint/detected language, then falls back to JSX.'
     )
     .optional(),
   resolveTokens: z
     .boolean()
-    .describe('Resolve token references to concrete values; default false returns token metadata.')
+    .describe(
+      'Inline token values instead of references for quick renders; default false returns token metadata so you can map into your theming system.'
+    )
     .optional()
 })
 
@@ -49,10 +53,14 @@ export const GetTokenDefsParametersSchema = z.object({
   names: z
     .array(z.string().regex(/^--[a-zA-Z0-9-_]+$/))
     .min(1)
-    .describe('Canonical token names (CSS variable form) to resolve, e.g., --color-primary.'),
+    .describe(
+      'Canonical token names (CSS variable form) from get_code.usedTokens or your own list to resolve, e.g., --color-primary.'
+    ),
   includeAllModes: z
     .boolean()
-    .describe('Include all token modes instead of just the active one; default false.')
+    .describe(
+      'Include all token modes (light/dark/etc.) instead of just the active one to mirror responsive tokens; default false.'
+    )
     .optional()
 })
 
@@ -98,7 +106,9 @@ export const AssetDescriptorSchema = z.object({
 export const GetScreenshotParametersSchema = z.object({
   nodeId: z
     .string()
-    .describe('Optional node id to screenshot; defaults to the current single selection.')
+    .describe(
+      'Optional node id to screenshot; defaults to the current single selection. Useful when layout/overlap is uncertain (auto-layout none/inferred).'
+    )
     .optional()
 })
 
@@ -116,7 +126,9 @@ export type GetScreenshotResult = {
 export const GetStructureParametersSchema = z.object({
   nodeId: z
     .string()
-    .describe('Optional node id to outline; defaults to the current single selection.')
+    .describe(
+      'Optional node id to outline; defaults to the current single selection. Useful when auto-layout hints are none/inferred or you need explicit geometry for refactors.'
+    )
     .optional(),
   options: z
     .object({
@@ -150,7 +162,9 @@ export const GetAssetsParametersSchema = z.object({
   hashes: z
     .array(z.string().regex(MCP_HASH_PATTERN))
     .min(1)
-    .describe('Asset hashes returned from other tools to download/resolve.')
+    .describe(
+      'Asset hashes returned from get_code (or other tools) to download/resolve exact bytes for rasterized images or SVGs before routing through your asset pipeline.'
+    )
 })
 
 export const GetAssetsResultSchema = z.object({
@@ -171,7 +185,7 @@ export type ToolResultMap = {
 
 export type ToolName = keyof ToolResultMap
 
-export { MCP_INSTRUCTIONS } from './instructions'
+export { default as MCP_INSTRUCTIONS } from './instructions.md'
 
 type BaseToolMetadata<Name extends ToolName, Schema extends ZodType> = {
   name: Name
@@ -212,7 +226,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_code',
     description:
-      'Get a high-fidelity code snapshot for a nodeId (or current selection), including assets/usedTokens and `codegen` preset/config.',
+      'Get a high-fidelity code snapshot for a nodeId/current selection, including assets/usedTokens and codegen preset/config. Start here, then refactor into your component/styling/file/naming conventions; strip any data-* hints. If no data-hint-auto-layout is present, layout is explicit; if any hint is none/inferred, pair with get_structure/get_screenshot to confirm hierarchy/overlap. Use data-hint-component plus repetition to decide on reusable components. Replace resource URIs with your canonical asset system as needed.',
     parameters: GetCodeParametersSchema,
     target: 'extension',
     format: createCodeToolResponse
@@ -220,7 +234,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_token_defs',
     description:
-      'Resolve canonical token names to values (including modes) for tokens referenced by `get_code`.',
+      'Resolve canonical token names to values (including modes) for tokens referenced by get_code. Use this to map into your design token/theming system, including responsive tokens.',
     parameters: GetTokenDefsParametersSchema,
     target: 'extension',
     exposed: false
@@ -228,7 +242,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_screenshot',
     description:
-      'Capture a rendered screenshot for a nodeId (or current selection) for visual verification.',
+      'Capture a rendered screenshot for a nodeId/current selection for visual verification. Useful for confirming layering/overlap/masks/shadows/translucency when auto-layout hints are none/inferred.',
     parameters: GetScreenshotParametersSchema,
     target: 'extension',
     format: createScreenshotToolResponse
@@ -236,14 +250,14 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_structure',
     description:
-      'Get a structural + geometry outline for a nodeId (or current selection) to understand hierarchy and layout intent.',
+      'Get a structural + geometry outline for a nodeId/current selection to understand hierarchy and layout intent. Use when auto-layout hints are none/inferred or you need explicit bounds for refactors/component extraction.',
     parameters: GetStructureParametersSchema,
     target: 'extension'
   }),
   hubTool({
     name: 'get_assets',
     description:
-      'Resolve asset hashes to downloadable URLs/URIs for assets referenced by `get_code`.',
+      'Resolve asset hashes to downloadable URLs/URIs for assets referenced by get_code, preserving vectors exactly. Pull bytes before routing through your asset/icon pipeline.',
     parameters: GetAssetsParametersSchema,
     target: 'hub',
     outputSchema: GetAssetsResultSchema,
