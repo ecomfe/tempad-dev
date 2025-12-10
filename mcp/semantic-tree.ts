@@ -98,43 +98,16 @@ function getVisibleChildren(node: SceneNode): SceneNode[] {
 }
 
 function isWrapper(node: SceneNode): boolean {
-  if (!('children' in node)) return false
-  const visibleChildren = getVisibleChildren(node)
-  if (visibleChildren.length !== 1) return false
-  if (node.type === 'SECTION') return false
-  if ('isMask' in node && node.isMask) return false
-  if (getOverflowKind(node)) return false
-  if ('layoutMode' in node && node.layoutMode && node.layoutMode !== 'NONE') return false
-
-  const hasFills =
-    'fills' in node &&
-    Array.isArray(node.fills) &&
-    node.fills.some((fill) => fill.visible !== false)
-  const hasStrokes =
-    'strokes' in node &&
-    Array.isArray(node.strokes) &&
-    node.strokes.some((stroke) => stroke.visible !== false)
-  const hasVisibleEffects =
-    'effects' in node &&
-    Array.isArray(node.effects) &&
-    node.effects.some((effect) => effect.visible !== false)
-  if (hasFills || hasStrokes || hasVisibleEffects) {
-    return false
-  }
-
-  const paddingKeys: Array<keyof BaseFrameMixin> = [
-    'paddingTop',
-    'paddingRight',
-    'paddingBottom',
-    'paddingLeft'
-  ]
-  for (const key of paddingKeys) {
-    if (typeof (node as Partial<BaseFrameMixin>)[key] === 'number') {
-      return false
-    }
-  }
-
-  return true
+  return (
+    'children' in node &&
+    getVisibleChildren(node).length === 1 &&
+    node.type !== 'SECTION' &&
+    !('isMask' in node && node.isMask) &&
+    !hasExplicitOverflow(node) &&
+    !hasExplicitAutoLayout(node) &&
+    !hasVisibleSurface(node) &&
+    !hasPadding(node)
+  )
 }
 
 function resolveTag(node: SceneNode): string {
@@ -175,6 +148,42 @@ function classifyAsset(node: SceneNode): { isAsset: boolean; assetKind?: 'vector
   }
 
   return { isAsset: false }
+}
+
+function hasExplicitOverflow(node: SceneNode): boolean {
+  if (!('overflowDirection' in node)) return false
+  const dir = (node as { overflowDirection?: string }).overflowDirection
+  return dir !== undefined && dir !== 'NONE'
+}
+
+function hasExplicitAutoLayout(node: SceneNode): boolean {
+  return 'layoutMode' in node && !!(node.layoutMode && node.layoutMode !== 'NONE')
+}
+
+function hasVisibleSurface(node: SceneNode): boolean {
+  const hasFills =
+    'fills' in node &&
+    Array.isArray(node.fills) &&
+    node.fills.some((fill) => fill.visible !== false)
+  const hasStrokes =
+    'strokes' in node &&
+    Array.isArray(node.strokes) &&
+    node.strokes.some((stroke) => stroke.visible !== false)
+  const hasVisibleEffects =
+    'effects' in node &&
+    Array.isArray(node.effects) &&
+    node.effects.some((effect) => effect.visible !== false)
+  return hasFills || hasStrokes || hasVisibleEffects
+}
+
+function hasPadding(node: SceneNode): boolean {
+  const paddingKeys: Array<keyof BaseFrameMixin> = [
+    'paddingTop',
+    'paddingRight',
+    'paddingBottom',
+    'paddingLeft'
+  ]
+  return paddingKeys.some((key) => typeof (node as Partial<BaseFrameMixin>)[key] === 'number')
 }
 
 function composeDataHint(node: SceneNode): DataHint | undefined {
