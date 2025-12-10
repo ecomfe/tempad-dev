@@ -85,7 +85,6 @@ export async function renderSemanticNode(
     ? pickChildLayoutStyles(baseStyleForClass)
     : baseStyleForClass
 
-  const shouldInjectFills = !pluginComponent
   const isFallback = !pluginComponent
 
   const { classNames, props } = buildClassProps(
@@ -94,10 +93,7 @@ export async function renderSemanticNode(
     classProp,
     semantic.dataHint,
     node,
-    {
-      injectFills: shouldInjectFills,
-      isFallback
-    }
+    { isFallback }
   )
 
   if (pluginComponent) {

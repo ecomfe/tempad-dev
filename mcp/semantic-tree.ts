@@ -103,6 +103,7 @@ function isWrapper(node: SceneNode): boolean {
   if (visibleChildren.length !== 1) return false
   if (node.type === 'SECTION') return false
   if ('isMask' in node && node.isMask) return false
+  if (getOverflowKind(node)) return false
   if ('layoutMode' in node && node.layoutMode && node.layoutMode !== 'NONE') return false
 
   const hasFills =
