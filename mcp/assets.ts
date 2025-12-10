@@ -1,6 +1,6 @@
 import type { AssetDescriptor } from '@/mcp/shared/types'
 
-import { MCP_ASSET_URI_PREFIX } from '@/mcp/shared/constants'
+import { MCP_ASSET_URI_PREFIX, MCP_HASH_HEX_LENGTH } from '@/mcp/shared/constants'
 
 const uploadedAssets = new Set<string>()
 const inflightUploads = new Map<string, Promise<void>>()
@@ -105,7 +105,8 @@ async function upload(
 async function hashBytes(bytes: Uint8Array): Promise<string> {
   if (typeof crypto?.subtle?.digest === 'function') {
     const digest = await crypto.subtle.digest('SHA-256', toArrayBuffer(bytes))
-    return bufferToHex(new Uint8Array(digest))
+    const fullHex = bufferToHex(new Uint8Array(digest))
+    return fullHex.slice(0, MCP_HASH_HEX_LENGTH)
   }
   throw new Error('crypto.subtle.digest is unavailable in this environment.')
 }

@@ -16,4 +16,5 @@ export const MCP_ASSET_RESOURCE_NAME = 'tempad-assets'
 export const MCP_ASSET_URI_PREFIX = 'asset://tempad/'
 export const MCP_ASSET_URI_TEMPLATE = `${MCP_ASSET_URI_PREFIX}{hash}`
 
-export const MCP_HASH_PATTERN = /^[a-f0-9]{64}$/i
+export const MCP_HASH_HEX_LENGTH = 8
+export const MCP_HASH_PATTERN = new RegExp(`^[a-f0-9]{${MCP_HASH_HEX_LENGTH}}$`, 'i')

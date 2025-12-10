@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import type { AssetRecord } from './types'
 
+import { MCP_HASH_PATTERN } from '../../mcp/shared/constants'
 import { ASSET_DIR, ensureDir, ensureFile, log } from './shared'
 
 const INDEX_FILENAME = 'assets.json'
@@ -167,7 +168,7 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
           continue
         }
 
-        if (!/^[a-f0-9]{64}$/i.test(file)) continue
+        if (!MCP_HASH_PATTERN.test(file)) continue
 
         if (!records.has(file)) {
           const filePath = join(ASSET_DIR, file)
