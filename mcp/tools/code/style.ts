@@ -28,32 +28,37 @@ type AutoLayoutLike = {
   layoutSizingVertical?: 'FIXED' | 'HUG' | 'FILL'
 }
 
+type StyleStep = (style: Record<string, string>, node?: SceneNode) => Record<string, string>
+
 /**
- * Main pipeline function for cleaning and preparing raw Figma CSS.
- * 1. Cleans specific dirty data (e.g. lightgray bug).
- * 2. Expands shorthands (padding -> padding-top/right...).
- * 3. Injects fills if needed.
+ * Steps:
+ * 1) Clean Figma-specific quirks and inject fills when absent.
+ * 2) Expand shorthands.
+ * 3) Merge inferred auto-layout.
+ * 4) Infer resizing styles.
+ * 5) Apply overflow rules.
  */
+const STYLE_PIPELINE: StyleStep[] = [
+  cleanFigmaSpecificStyles,
+  expandShorthands,
+  mergeInferredAutoLayout,
+  inferResizingStyles,
+  applyOverflowStyles
+]
+
 export function preprocessStyles(
   style: Record<string, string>,
-  node?: SceneNode,
-  injectFills = true
+  node?: SceneNode
 ): Record<string, string> {
-  // Step 1: Clean known Figma dirty data BEFORE expansion,
-  // because some cleaning logic (like background) relies on the shorthand structure.
-  const cleaned = cleanFigmaSpecificStyles(style, node, injectFills)
-
-  // Step 2: Expand shorthands to ensure we only deal with atomic props downstream.
-  return expandShorthands(cleaned)
+  return STYLE_PIPELINE.reduce((acc, step) => step(acc, node), style)
 }
 
 function cleanFigmaSpecificStyles(
   style: Record<string, string>,
-  node?: SceneNode,
-  injectFills = true
+  node?: SceneNode
 ): Record<string, string> {
-  const processed = { ...style }
-  if (!node) return processed
+  if (!node) return style
+  const processed = style
 
   if (processed.background) {
     const bgValue = processed.background
@@ -78,7 +83,6 @@ function cleanFigmaSpecificStyles(
   }
 
   if (
-    injectFills &&
     node.type !== 'TEXT' &&
     !processed.background &&
     !processed['background-color'] &&
@@ -96,10 +100,112 @@ function cleanFigmaSpecificStyles(
   return processed
 }
 
+export function applyOverflowStyles(
+  style: Record<string, string>,
+  node?: SceneNode
+): Record<string, string> {
+  if (!node || !('overflowDirection' in node)) return style
+
+  const dir = (node as { overflowDirection?: string }).overflowDirection
+  const next = style
+  const hasOverflow = (prop: 'overflow' | 'overflow-x' | 'overflow-y') => !!next[prop]
+  const overflowInfo = computeChildOverflow(node)
+
+  // Explicit scroll settings take precedence.
+  if (dir && dir !== 'NONE') {
+    if (dir === 'HORIZONTAL') {
+      if (!hasOverflow('overflow-x')) next['overflow-x'] = 'auto'
+      if ((node as { clipsContent?: boolean }).clipsContent && overflowInfo.y) {
+        if (!hasOverflow('overflow-y')) next['overflow-y'] = 'hidden'
+      }
+    } else if (dir === 'VERTICAL') {
+      if (!hasOverflow('overflow-y')) next['overflow-y'] = 'auto'
+      if ((node as { clipsContent?: boolean }).clipsContent && overflowInfo.x) {
+        if (!hasOverflow('overflow-x')) next['overflow-x'] = 'hidden'
+      }
+    } else if (dir === 'BOTH') {
+      if (!hasOverflow('overflow')) next.overflow = 'auto'
+      // clipsContent is satisfied by scrolling on both axes.
+    }
+    return next
+  }
+
+  // No explicit scroll; only add hidden when clipsContent is on AND children overflow.
+  if ((node as { clipsContent?: boolean }).clipsContent && (overflowInfo.x || overflowInfo.y)) {
+    if (!hasOverflow('overflow')) next.overflow = 'hidden'
+  }
+
+  return next
+}
+
+type OverflowInfo = { x: boolean; y: boolean }
+
+function computeChildOverflow(node: SceneNode): OverflowInfo {
+  const none = { x: false, y: false }
+  if (!('children' in node) || !Array.isArray((node as ChildrenMixin).children)) return none
+  const children = (node as SceneNode & ChildrenMixin).children.filter((c) => c.visible)
+  if (!children.length) return none
+
+  const parentBounds = getRenderBounds(node)
+  if (!parentBounds) return none
+  if (parentBounds.width === 0 || parentBounds.height === 0) return none
+
+  const { x: px, y: py, width: pw, height: ph } = parentBounds
+  const tol = 0.5 // guard against minor float noise
+  const minX = px - tol
+  const minY = py - tol
+  const maxX = px + pw + tol
+  const maxY = py + ph + tol
+
+  let overflowX = false
+  let overflowY = false
+
+  for (const child of children) {
+    const bounds = getRenderBounds(child)
+    if (!bounds) continue
+    const cx1 = bounds.x
+    const cy1 = bounds.y
+    const cx2 = bounds.x + bounds.width
+    const cy2 = bounds.y + bounds.height
+    if (cx1 < minX || cx2 > maxX) overflowX = true
+    if (cy1 < minY || cy2 > maxY) overflowY = true
+    if (overflowX && overflowY) break
+  }
+
+  return { x: overflowX, y: overflowY }
+}
+
+function getRenderBounds(
+  node: SceneNode
+): { x: number; y: number; width: number; height: number } | null {
+  const renderBounds = (node as { absoluteRenderBounds?: Rect | null }).absoluteRenderBounds
+  if (renderBounds) {
+    const { x, y, width, height } = renderBounds
+    if (isFinite(x) && isFinite(y) && isFinite(width) && isFinite(height)) {
+      return { x, y, width, height }
+    }
+  }
+
+  if ('width' in node && 'height' in node && 'x' in node && 'y' in node) {
+    const { x, y, width, height } = node as LayoutMixin
+    if (
+      typeof x === 'number' &&
+      typeof y === 'number' &&
+      typeof width === 'number' &&
+      typeof height === 'number'
+    ) {
+      return { x, y, width, height }
+    }
+  }
+
+  return null
+}
+
 export function mergeInferredAutoLayout(
   expandedStyle: Record<string, string>,
-  node: SceneNode
+  node?: SceneNode
 ): Record<string, string> {
+  if (!node) return expandedStyle
   // Respect explicit grid layout from Figma; don't overwrite with inferred flex.
   const display = expandedStyle.display
   if (display === 'grid' || display === 'inline-grid') {
@@ -111,7 +217,7 @@ export function mergeInferredAutoLayout(
     return expandedStyle
   }
 
-  const merged: Record<string, string> = { ...expandedStyle }
+  const merged: Record<string, string> = expandedStyle
 
   if (!merged.display?.includes('flex')) {
     merged.display = 'flex'
@@ -125,10 +231,14 @@ export function mergeInferredAutoLayout(
   }
 
   const justify = mapAxisAlignToCss(source.primaryAxisAlignItems)
-  if (justify && !merged['justify-content']) merged['justify-content'] = justify
+  if (justify && !merged['justify-content']) {
+    merged['justify-content'] = justify
+  }
 
   const align = mapAxisAlignToCss(source.counterAxisAlignItems)
-  if (align && !merged['align-items']) merged['align-items'] = align
+  if (align && !merged['align-items']) {
+    merged['align-items'] = align
+  }
 
   if (node.type !== 'INSTANCE') {
     // Optimization: Since styles are expanded, we don't need to check "padding".
@@ -152,12 +262,13 @@ export function mergeInferredAutoLayout(
 
 export function inferResizingStyles(
   style: Record<string, string>,
-  node: SceneNode
+  node?: SceneNode
 ): Record<string, string> {
+  if (!node) return style
   const source = getAutoLayoutSource(node)
   if (!source) return style
 
-  const merged = { ...style }
+  const merged = style
   const { layoutSizingHorizontal, layoutSizingVertical } = source
 
   if (layoutSizingHorizontal === 'FILL') {
@@ -184,7 +295,8 @@ export function inferResizingStyles(
   return merged
 }
 
-function getAutoLayoutSource(node: SceneNode): AutoLayoutLike | undefined {
+function getAutoLayoutSource(node?: SceneNode): AutoLayoutLike | undefined {
+  if (!node) return undefined
   const inferred =
     (node as { inferredAutoLayout?: AutoLayoutLike | null }).inferredAutoLayout ?? undefined
 
@@ -348,15 +460,12 @@ function collectVariableReferences(styles: Map<string, Record<string, string>>) 
 export function styleToClassNames(
   style: Record<string, string>,
   config: CodegenConfig,
-  node?: SceneNode,
-  options: { injectFills?: boolean } = {}
+  node?: SceneNode
 ): string[] {
-  const { injectFills = true } = options
-
   // NOTE: If styleToClassNames is called with styles that are ALREADY processed (like in collectSceneData),
   // re-running preprocessStyles might be redundant but harmless (expandShorthands is idempotent).
   // However, for Text Segments which are generated on the fly, this is necessary.
-  const processed = preprocessStyles(style, node, injectFills)
+  const processed = preprocessStyles(style, node)
   const normalizedStyle = normalizeStyleValues(processed, config)
 
   return cssToClassNames(normalizedStyle)

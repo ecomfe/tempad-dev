@@ -5,12 +5,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 import type { SvgEntry } from './assets'
 
 import { exportSvgEntry, hasImageFills, replaceImageUrlsWithAssets } from './assets'
-import {
-  inferResizingStyles,
-  mergeInferredAutoLayout,
-  preprocessStyles,
-  stripInertShadows
-} from './style'
+import { preprocessStyles, stripInertShadows } from './style'
 
 export type CollectedSceneData = {
   nodes: Map<string, SceneNode>
@@ -46,8 +41,6 @@ export async function collectSceneData(
       const css = await node.getCSSAsync()
 
       let processed = preprocessStyles(css, node)
-      processed = mergeInferredAutoLayout(processed, node)
-      processed = inferResizingStyles(processed, node)
 
       if (hasImageFills(node)) {
         processed = await replaceImageUrlsWithAssets(processed, node, config, assetRegistry)

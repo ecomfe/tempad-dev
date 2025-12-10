@@ -11,9 +11,9 @@ export function buildClassProps(
   defaultClassProp: 'class' | 'className',
   dataHint: DataHint | undefined,
   node: SceneNode,
-  options: { injectFills?: boolean; isFallback?: boolean } = {}
+  options: { isFallback?: boolean } = {}
 ) {
-  const classNames = styleToClassNames(style, config, node, options)
+  const classNames = styleToClassNames(style, config, node)
   const props: Record<string, string> = {}
 
   if (classNames.length) props[defaultClassProp] = joinClassNames(classNames)
