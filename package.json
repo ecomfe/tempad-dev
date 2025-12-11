@@ -25,7 +25,9 @@
     "lint": "pnpm -r lint",
     "format": "pnpm -r format",
     "typecheck": "pnpm -r typecheck",
-    "zip": "pnpm --filter @tempad-dev/extension zip"
+    "zip": "pnpm --filter @tempad-dev/extension zip",
+    "npm:plugins": "pnpm --filter @tempad-dev/plugins publish --access public",
+    "npm:mcp": "pnpm --filter @tempad-dev/mcp publish --access public"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
