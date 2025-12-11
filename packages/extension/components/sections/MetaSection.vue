@@ -5,7 +5,7 @@ import IconButton from '@/components/IconButton.vue'
 import Link from '@/components/icons/Link.vue'
 import Select from '@/components/icons/Select.vue'
 import Section from '@/components/Section.vue'
-import { useDevResourceLinks } from '@/composables/dev-resources'
+import { useDevResourceLinks } from '@/composables'
 import { selection, selectedNode, selectedTemPadComponent } from '@/ui/state'
 
 const title = computed(() => {

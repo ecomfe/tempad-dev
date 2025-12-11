@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useDraggable, useEventListener, useWindowSize, watchDebounced } from '@vueuse/core'
 
-import { useScrollbar } from '@/composables/scrollbar'
+import { useScrollbar } from '@/composables'
 import { ui } from '@/ui/figma'
 import { options } from '@/ui/state'
 

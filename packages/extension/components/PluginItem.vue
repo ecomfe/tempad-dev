@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import type { PluginData } from '@/composables/plugin'
+import type { PluginData } from '@/composables'
 
 import IconButton from '@/components/IconButton.vue'
 import Check from '@/components/icons/Check.vue'
 import Minus from '@/components/icons/Minus.vue'
 import Refresh from '@/components/icons/Refresh.vue'
-import { usePluginInstall } from '@/composables/plugin'
-import { useToast } from '@/composables/toast'
+import { usePluginInstall, useToast } from '@/composables'
 
 const props = defineProps<{
   name: string
