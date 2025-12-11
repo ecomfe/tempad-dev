@@ -223,8 +223,8 @@ const rightHandleCursor = computed(() => getResizeCursor('right'))
   width: v-bind(panelWidthPx);
   max-height: v-bind(panelMaxHeight);
   background-color: var(--color-bg);
-  border-radius: 2px;
-  box-shadow: var(--elevation-500-modal-window);
+  border-radius: var(--radius-large);
+  box-shadow: var(--elevation-100);
 }
 
 .tp-panel-resize-handle {
@@ -265,17 +265,10 @@ const rightHandleCursor = computed(() => getResizeCursor('right'))
 
 .tp-panel-main {
   flex: 1 1 auto;
-  border-bottom-left-radius: 0.8125rem;
-  border-bottom-right-radius: 0.8125rem;
 }
 
 .tp-panel-header-icon {
   width: auto;
   height: 32px;
-}
-
-[data-fpl-version='ui3'] .tp-panel {
-  box-shadow: var(--elevation-100);
-  border-radius: var(--radius-large);
 }
 </style>
