@@ -32,14 +32,10 @@ import type { AssetRecord, ExtensionConnection } from './types'
 import { createAssetHttpServer } from './asset-http-server'
 import { createAssetStore } from './asset-store'
 import { getMcpServerConfig } from './config'
+import MCP_INSTRUCTIONS from './instructions.md?raw'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
 import { PACKAGE_VERSION, log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
-import {
-  TOOL_DEFS,
-  MCP_INSTRUCTIONS,
-  coercePayloadToToolResponse,
-  createToolErrorResponse
-} from './tools'
+import { TOOL_DEFS, coercePayloadToToolResponse, createToolErrorResponse } from './tools'
 
 const SHUTDOWN_TIMEOUT = 2000
 const { wsPortCandidates, toolTimeoutMs, maxPayloadBytes, autoActivateGraceMs } =

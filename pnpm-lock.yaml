@@ -187,6 +187,9 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+      unplugin-raw:
+        specifier: ^0.6.3
+        version: 0.6.3(esbuild@0.27.1)
       zod:
         specifier: ^4.1.12
         version: 4.1.12
@@ -3131,6 +3134,15 @@ packages:
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
     engines: {node: '>= 0.8'}
+
+  unplugin-raw@0.6.3:
+    resolution: {integrity: sha512-R/AJrN3pcXOkKHF5nCVxk3Afx64jfeqQVAs/M+5npN7IWzVb0sVUlz3USW7AT5FhCs9pBuFZwdz3zgDsxQPzPQ==}
+    engines: {node: '>=20.18.0'}
+    peerDependencies:
+      esbuild: '>=0.25.0'
+    peerDependenciesMeta:
+      esbuild:
+        optional: true
 
   unplugin-utils@0.3.1:
     resolution: {integrity: sha512-5lWVjgi6vuHhJ526bI4nlCOmkCIF3nnfXkCMDeMJrtdvxTs6ZFCM8oNufGTsDbKv/tJ/xj8RpvXjRuPBZJuJog==}
@@ -6131,6 +6143,13 @@ snapshots:
   universalify@2.0.1: {}
 
   unpipe@1.0.0: {}
+
+  unplugin-raw@0.6.3(esbuild@0.27.1):
+    dependencies:
+      unplugin: 2.3.10
+      unplugin-utils: 0.3.1
+    optionalDependencies:
+      esbuild: 0.27.1
 
   unplugin-utils@0.3.1:
     dependencies:

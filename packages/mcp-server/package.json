@@ -1,16 +1,16 @@
 {
   "name": "@tempad-dev/mcp",
   "description": "MCP server for TemPad Dev.",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "type": "module",
-  "main": "dist/cli.js",
-  "bin": "dist/cli.js",
+  "main": "dist/cli.mjs",
+  "bin": "dist/cli.mjs",
   "files": [
     "dist/**/*",
     "README.md"
   ],
   "scripts": {
-    "build": "tsdown && cp src/instructions.md dist/instructions.md",
+    "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs",
     "format": "prettier --write \"**/*.{js,ts,mjs,cjs,cts,mts,json,md}\"",
@@ -31,6 +31,7 @@
     "@types/ws": "^8.5.12",
     "tsdown": "^0.17.2",
     "typescript": "^5.9.3",
+    "unplugin-raw": "^0.6.3",
     "zod": "^4.1.12"
   }
 }
