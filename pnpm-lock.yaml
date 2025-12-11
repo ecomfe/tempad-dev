@@ -153,9 +153,6 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.24.0
         version: 1.24.3(zod@4.1.12)
-      '@tempad-dev/mcp-shared':
-        specifier: workspace:^0.1.0
-        version: link:../mcp-shared
       nanoid:
         specifier: ^5.1.6
         version: 5.1.6
@@ -172,6 +169,9 @@ importers:
         specifier: ^8.18.3
         version: 8.18.3
     devDependencies:
+      '@tempad-dev/mcp-shared':
+        specifier: workspace:^0.1.0
+        version: link:../mcp-shared
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.2
