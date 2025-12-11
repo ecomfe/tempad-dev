@@ -16,9 +16,6 @@ import {
   GetStructureParametersSchema,
   GetTokenDefsParametersSchema
 } from '@tempad-dev/mcp-shared'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 export type {
   AssetDescriptor,
@@ -37,9 +34,6 @@ export type {
   ToolResultMap,
   ToolSchema
 } from '@tempad-dev/mcp-shared'
-
-const HERE = dirname(fileURLToPath(import.meta.url))
-export const MCP_INSTRUCTIONS = readFileSync(join(HERE, 'instructions.md'), 'utf8')
 
 type BaseToolMetadata<Name extends ToolName, Schema extends ZodType> = ToolSchema<Name> & {
   parameters: Schema

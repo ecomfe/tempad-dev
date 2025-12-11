@@ -44,7 +44,7 @@ const HUB_STARTUP_TIMEOUT = 5000
 const CONNECT_RETRY_DELAY = 200
 const FAILED_RESTART_DELAY = 5000
 const HERE = fileURLToPath(new URL('.', import.meta.url))
-const HUB_ENTRY = join(HERE, 'hub.js')
+const HUB_ENTRY = join(HERE, 'hub.mjs')
 
 ensureDir(RUNTIME_DIR)
 

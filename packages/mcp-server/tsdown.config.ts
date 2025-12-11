@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'tsdown'
+import raw from 'unplugin-raw/rolldown'
 
 const dir = dirname(fileURLToPath(import.meta.url))
 const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
@@ -13,6 +14,7 @@ const internalDeps = Object.keys(pkg.dependencies ?? {}).filter((name: string) =
 
 export default defineConfig({
   entry: ['src/cli.ts', 'src/hub.ts'],
+  plugins: [raw()],
   format: ['esm'],
   platform: 'node',
   target: 'node18',
