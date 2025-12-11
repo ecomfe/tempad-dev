@@ -60,6 +60,16 @@ function filterTokensByNames(input: GetTokenDefsResult, names: Set<string>): Get
   return { tokens }
 }
 
+function primaryTokenValue(entry: GetTokenDefsResult['tokens'][string]): string | undefined {
+  if (typeof entry.value === 'string') return entry.value
+  if (typeof entry.resolvedValue === 'string') return entry.resolvedValue
+  if (entry.activeMode && typeof entry.value[entry.activeMode] === 'string') {
+    return entry.value[entry.activeMode]
+  }
+  const first = Object.values(entry.value)[0]
+  return typeof first === 'string' ? first : undefined
+}
+
 export async function handleGetCode(
   nodes: SceneNode[],
   preferredLang?: CodeLanguage,
@@ -140,7 +150,7 @@ export async function handleGetCode(
 
   if (resolveTokens) {
     const tokenMap = new Map(
-      Object.entries(usedTokens.tokens).map(([name, entry]) => [name, entry.resolvedValue])
+      Object.entries(usedTokens.tokens).map(([name, entry]) => [name, primaryTokenValue(entry)])
     )
     const resolvedMarkup = markup.replace(/var\((--[a-zA-Z0-9-_]+)\)/g, (match, name) => {
       const val = tokenMap.get(name)

@@ -136,12 +136,17 @@ async function buildTokenEntries(
 
     const value: string | Record<string, string> = modeIds.length <= 1 ? resolvedValue : valueMap
 
-    tokens[canonicalName] = {
+    const entry: TokenEntry = {
       kind: mapResolvedType(variable.resolvedType),
-      value,
-      resolvedValue,
-      ...(modeIds.length > 1 && primaryModeName ? { activeMode: primaryModeName } : {})
+      value
     }
+
+    if (modeIds.length > 1 && primaryModeName) {
+      entry.resolvedValue = resolvedValue
+      entry.activeMode = primaryModeName
+    }
+
+    tokens[canonicalName] = entry
   }
 
   return { tokens }

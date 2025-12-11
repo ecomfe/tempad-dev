@@ -68,7 +68,7 @@ export type GetTokenDefsParametersInput = z.input<typeof GetTokenDefsParametersS
 export type TokenEntry = {
   kind: 'color' | 'number' | 'string' | 'boolean'
   value: string | Record<string, string> // single mode -> string; multi-mode -> map (mode name -> literal or alias)
-  resolvedValue: string // value for the active mode (or the single mode)
+  resolvedValue?: string // value for the active mode when multi-mode
   activeMode?: string // only present when multi-mode map is returned
 }
 
