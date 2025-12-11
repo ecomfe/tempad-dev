@@ -48,7 +48,7 @@ const mcpBadgeTooltip = computed(() => {
     return `Active${fileLabel}`
   }
 
-  return `Inactive${fileLabel} • Click to activate`
+  return `Inactive${fileLabel}\nClick to activate`
 })
 
 const mcpBadgeStatusClass = computed(() => `tp-mcp-badge-${status.value}`)
