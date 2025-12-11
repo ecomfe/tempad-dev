@@ -257,45 +257,59 @@ function registerProxiedTool<T extends ExtensionTool>(tool: T): void {
   type Name = T['name']
   type Result = ToolResultMap[Name]
 
+  const registerToolFn = mcp.registerTool.bind(mcp) as (
+    name: string,
+    options: { description: string; inputSchema: ZodType; outputSchema?: ZodType },
+    handler: (args: unknown) => Promise<CallToolResult>
+  ) => unknown
+
   const schema = tool.parameters
-  mcp.registerTool(
+  const handler = async (args: unknown) => {
+    try {
+      const parsedArgs = schema.parse(args)
+      const activeExt = extensions.find((e) => e.active)
+      if (!activeExt) throw new Error('No active TemPad Dev extension available.')
+
+      const { promise, requestId } = register<Result>(activeExt.id, toolTimeoutMs)
+
+      const message: ToolCallMessage = {
+        type: 'toolCall',
+        id: requestId,
+        payload: {
+          name: tool.name,
+          args: parsedArgs
+        }
+      }
+      activeExt.ws.send(JSON.stringify(message))
+      log.info({ tool: tool.name, req: requestId, extId: activeExt.id }, 'Forwarded tool call.')
+
+      const payload = await promise
+      return createToolResponse(tool.name, payload)
+    } catch (error) {
+      log.error({ tool: tool.name, error }, 'Tool invocation failed before reaching extension.')
+      return createToolErrorResponse(tool.name, error)
+    }
+  }
+
+  registerToolFn(
     tool.name,
     {
       description: tool.description,
       inputSchema: schema as unknown as McpInputSchema
     },
-    async (args: unknown) => {
-      try {
-        const parsedArgs = schema.parse(args)
-        const activeExt = extensions.find((e) => e.active)
-        if (!activeExt) throw new Error('No active TemPad Dev extension available.')
-
-        const { promise, requestId } = register<Result>(activeExt.id, toolTimeoutMs)
-
-        const message: ToolCallMessage = {
-          type: 'toolCall',
-          id: requestId,
-          payload: {
-            name: tool.name,
-            args: parsedArgs
-          }
-        }
-        activeExt.ws.send(JSON.stringify(message))
-        log.info({ tool: tool.name, req: requestId, extId: activeExt.id }, 'Forwarded tool call.')
-
-        const payload = await promise
-        return createToolResponse(tool.name, payload)
-      } catch (error) {
-        log.error({ tool: tool.name, error }, 'Tool invocation failed before reaching extension.')
-        return createToolErrorResponse(tool.name, error)
-      }
-    }
+    handler
   )
 }
 
 function registerLocalTool(tool: HubOnlyTool): void {
   const schema = tool.parameters
   const handler = tool.handler
+
+  const registerToolFn = mcp.registerTool.bind(mcp) as (
+    name: string,
+    options: { description: string; inputSchema: ZodType; outputSchema?: ZodType },
+    handler: (args: unknown) => Promise<CallToolResult>
+  ) => unknown
 
   const registrationOptions: {
     description: string
@@ -310,7 +324,7 @@ function registerLocalTool(tool: HubOnlyTool): void {
     registrationOptions.outputSchema = tool.outputSchema as unknown as McpOutputSchema
   }
 
-  mcp.registerTool(tool.name, registrationOptions, async (args: unknown) => {
+  const registerHandler = async (args: unknown) => {
     try {
       const parsed = schema.parse(args)
       return await handler(parsed)
@@ -318,7 +332,9 @@ function registerLocalTool(tool: HubOnlyTool): void {
       log.error({ tool: tool.name, error }, 'Local tool invocation failed.')
       return createToolErrorResponse(tool.name, error)
     }
-  })
+  }
+
+  registerToolFn(tool.name, registrationOptions, registerHandler)
 }
 
 function createToolResponse<Name extends ToolName>(
