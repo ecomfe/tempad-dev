@@ -1,4 +1,4 @@
-import type { GetTokenDefsResult } from '@/mcp-server/src/tools'
+import type { GetTokenDefsResult, TokenEntry } from '@/mcp-server/src/tools'
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { MCP_MAX_PAYLOAD_BYTES } from '@/mcp/shared/constants'
@@ -11,43 +11,22 @@ import {
   normalizeCssVarName
 } from '@/utils/css'
 
-const COLOR_SCOPE_HINTS = ['COLOR', 'FILL', 'STROKE', 'TEXT_FILL']
-const TYPO_SCOPE_HINTS = [
-  'FONT',
-  'TEXT',
-  'LINE_HEIGHT',
-  'LETTER_SPACING',
-  'FONT_SIZE',
-  'FONT_WEIGHT',
-  'PARAGRAPH_SPACING',
-  'TEXT_CONTENT'
-]
-const EFFECT_SCOPE_HINTS = [
-  'DROP_SHADOW',
-  'INNER_SHADOW',
-  'LAYER_BLUR',
-  'BACKGROUND_BLUR',
-  'EFFECT'
-]
-const SPACING_SCOPE_HINTS = [
-  'WIDTH',
-  'HEIGHT',
-  'GAP',
-  'SPACING',
-  'PADDING',
-  'MARGIN',
-  'CORNER_RADIUS'
-]
+type TokenModeValue = {
+  modeId: string
+  value?: string | Record<string, unknown>
+  resolved: string | Record<string, unknown> | null
+  aliasTo?: string
+  aliasChain?: string[]
+}
 
-type TokenEntry = GetTokenDefsResult['tokens'][number]
-type TokenModeValue = NonNullable<TokenEntry['current']>
 type VariableAlias = { id?: string } | { type?: string; id?: string }
-type VariableWithCollection = Variable & { variableCollectionId?: string }
+type VariableWithCollection = Variable & { variableCollectionId?: string; resolvedType?: string }
 type VariableCollectionInfo = {
   id?: string
   name?: string
   defaultModeId?: string
   activeModeId?: string
+  modes?: Array<{ id: string; name?: string }>
 }
 
 export async function handleGetTokenDefs(
@@ -59,11 +38,7 @@ export async function handleGetTokenDefs(
 
   const requested = new Set(names.map((n) => (n.startsWith('--') ? n : `--${n}`)))
   const variables = await findVariablesByCanonicalName(requested, config, pluginCode)
-  const tokens = await buildTokenEntries(variables, config, pluginCode, includeAllModes)
-
-  tokens.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
-
-  const payload: GetTokenDefsResult = { tokens }
+  const payload = await buildTokenEntries(variables, config, pluginCode, includeAllModes)
   const approxSize = JSON.stringify(payload).length
   if (approxSize > MCP_MAX_PAYLOAD_BYTES) {
     throw new Error(
@@ -109,7 +84,7 @@ export async function resolveVariableTokens(
   config: CodegenConfig,
   pluginCode?: string,
   options: { includeAllModes?: boolean } = {}
-): Promise<TokenEntry[]> {
+): Promise<GetTokenDefsResult> {
   const variables: Variable[] = []
   ids.forEach((id) => {
     const variable = figma.variables.getVariableById(id)
@@ -123,42 +98,53 @@ async function buildTokenEntries(
   config: CodegenConfig,
   pluginCode: string | undefined,
   includeAllModes: boolean
-): Promise<TokenEntry[]> {
-  if (!variables.length) return []
+): Promise<GetTokenDefsResult> {
+  if (!variables.length) return { tokens: {} }
 
   const references = variables.map((variable) => ({ rawName: variable.name }))
   const canonicalNames = await transformVariableNames(references, config, pluginCode)
 
-  const deduped = new Map<string, TokenEntry>()
+  const tokens: Record<string, TokenEntry> = {}
 
-  variables.forEach((variable, index) => {
+  for (let index = 0; index < variables.length; index += 1) {
+    const variable = variables[index]
     const canonicalName = canonicalNames[index] ?? normalizeCssVarName(variable.name)
     const collection = resolveVariableCollection(variable)
     const preferredModeId = pickPreferredModeId(variable, collection)
-    const current = preferredModeId
-      ? resolveModeValue(variable, preferredModeId, collection, config)
-      : {
-          modeId: '',
-          resolved: null
-        }
-    const modes = includeAllModes
-      ? resolveAllModes(variable, collection, config, preferredModeId)
-      : undefined
+    const modeIds = includeAllModes
+      ? Object.keys(variable.valuesByMode ?? {})
+      : preferredModeId
+        ? [preferredModeId]
+        : []
 
-    const token: TokenEntry = {
-      name: canonicalName,
-      value: current.resolved,
-      current,
-      ...(modes ? { modes } : {}),
-      ...(collection ? { collection } : {}),
-      kind: inferVariableKind(variable)
+    const valueMap: Record<string, string> = {}
+    for (const modeId of modeIds) {
+      const mv = await resolveModeValue(variable, modeId, collection, config, pluginCode)
+      const modeKey = modeName(collection, modeId)
+      const resolvedLiteral = toLiteralString(mv.resolved)
+      const aliasName = mv.aliasTo
+        ? await resolveAliasName(mv.aliasTo, config, pluginCode)
+        : undefined
+      valueMap[modeKey] = aliasName ?? resolvedLiteral
     }
-    if (!deduped.has(token.name)) {
-      deduped.set(token.name, token)
-    }
-  })
 
-  return Array.from(deduped.values())
+    const primaryModeId = collection?.activeModeId ?? preferredModeId ?? modeIds[0]
+    const primaryModeName = primaryModeId ? modeName(collection, primaryModeId) : undefined
+    const resolvedValue =
+      (primaryModeName && valueMap[primaryModeName]) ||
+      (modeIds.length ? valueMap[modeName(collection, modeIds[0])] : '')
+
+    const value: string | Record<string, string> = modeIds.length <= 1 ? resolvedValue : valueMap
+
+    tokens[canonicalName] = {
+      kind: mapResolvedType(variable.resolvedType),
+      value,
+      resolvedValue,
+      ...(modeIds.length > 1 && primaryModeName ? { activeMode: primaryModeName } : {})
+    }
+  }
+
+  return { tokens }
 }
 
 async function findVariablesByCanonicalName(
@@ -266,7 +252,10 @@ function resolveVariableCollection(variable: Variable): VariableCollectionInfo |
       id: collection.id,
       name: collection.name,
       defaultModeId: collection.defaultModeId,
-      activeModeId: readActiveModeId(collection.id)
+      activeModeId: readActiveModeId(collection.id),
+      modes: Array.isArray(collection.modes)
+        ? collection.modes.map((m) => ({ id: m.modeId, name: m.name }))
+        : undefined
     }
   } catch (error) {
     console.warn('[tempad-dev] Failed to resolve variable collection:', error)
@@ -305,13 +294,14 @@ function pickPreferredModeId(
   return Object.keys(valuesByMode)[0]
 }
 
-function resolveModeValue(
+async function resolveModeValue(
   variable: Variable,
   modeId: string,
   collection: VariableCollectionInfo | null,
   config: CodegenConfig,
+  pluginCode?: string,
   seen: Set<string> = new Set()
-): TokenModeValue {
+): Promise<TokenModeValue> {
   const { valuesByMode = {} } = variable
   if (seen.has(variable.id)) {
     return { modeId, resolved: null, aliasChain: [] }
@@ -327,7 +317,14 @@ function resolveModeValue(
     }
     const targetCollection = resolveVariableCollection(target)
     const targetModeId = pickPreferredModeId(target, targetCollection, modeId) ?? modeId
-    const resolvedTarget = resolveModeValue(target, targetModeId, targetCollection, config, seen)
+    const resolvedTarget = await resolveModeValue(
+      target,
+      targetModeId,
+      targetCollection,
+      config,
+      pluginCode,
+      seen
+    )
     const chain = [rawValue.id, ...(resolvedTarget.aliasChain ?? [])]
     return {
       modeId,
@@ -344,27 +341,6 @@ function resolveModeValue(
     resolved: serialized,
     aliasChain: undefined
   }
-}
-
-function resolveAllModes(
-  variable: Variable,
-  collection: VariableCollectionInfo | null,
-  config: CodegenConfig,
-  preferredModeId?: string
-): Array<Omit<TokenModeValue, 'aliasChain'>> {
-  const { valuesByMode = {} } = variable
-  const modeIds = Object.keys(valuesByMode)
-  if (!modeIds.length && preferredModeId) {
-    const current = resolveModeValue(variable, preferredModeId, collection, config)
-    const { aliasChain: _aliasChain, ...rest } = current
-    return [rest]
-  }
-
-  return modeIds.map((modeId) => {
-    const resolved = resolveModeValue(variable, modeId, collection, config)
-    const { aliasChain: _aliasChain, ...rest } = resolved
-    return rest
-  })
 }
 
 function resolveFallbackValue(
@@ -468,31 +444,61 @@ async function getAllVariables(): Promise<Variable[]> {
   return []
 }
 
-function inferVariableKind(variable: Variable): TokenEntry['kind'] {
-  const { resolvedType, scopes = [] } = variable
-  const normalizedScopes = scopes.map((scope) => scope.toUpperCase())
-
-  if (resolvedType === 'COLOR' || hasScope(normalizedScopes, COLOR_SCOPE_HINTS)) {
-    return 'color'
+async function resolveAliasName(
+  id: string,
+  config: CodegenConfig,
+  pluginCode?: string
+): Promise<string | undefined> {
+  try {
+    const v = figma.variables.getVariableById(id)
+    if (!v) return undefined
+    return await canonicalizeName(v.name, config, pluginCode)
+  } catch {
+    return undefined
   }
-
-  if (hasScope(normalizedScopes, TYPO_SCOPE_HINTS)) {
-    return 'typography'
-  }
-
-  if (hasScope(normalizedScopes, EFFECT_SCOPE_HINTS)) {
-    return 'effect'
-  }
-
-  if (hasScope(normalizedScopes, SPACING_SCOPE_HINTS)) {
-    return 'spacing'
-  }
-
-  return 'other'
 }
 
-function hasScope(scopes: string[], hints: string[]): boolean {
-  return scopes.some((scope) => hints.includes(scope))
+function modeName(collection: VariableCollectionInfo | null, modeId: string): string {
+  const found = collection?.modes?.find((m) => m.id === modeId)
+  return found?.name || modeId
+}
+
+async function canonicalizeName(
+  rawName: string,
+  config: CodegenConfig,
+  pluginCode?: string
+): Promise<string> {
+  const [result] = await transformVariableNames([{ rawName }], config, pluginCode)
+  return result ?? normalizeCssVarName(rawName)
+}
+
+function mapResolvedType(resolvedType?: string): TokenEntry['kind'] {
+  switch (resolvedType) {
+    case 'COLOR':
+      return 'color'
+    case 'FLOAT':
+      return 'number'
+    case 'STRING':
+      return 'string'
+    case 'BOOLEAN':
+      return 'boolean'
+    default:
+      return 'string'
+  }
+}
+
+function toLiteralString(value: unknown): string {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
+  }
+  return String(value ?? '')
 }
 
 function getCodegenConfig(): CodegenConfig {

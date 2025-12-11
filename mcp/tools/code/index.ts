@@ -1,4 +1,4 @@
-import type { AssetDescriptor, GetCodeResult } from '@/mcp-server/src/tools'
+import type { AssetDescriptor, GetCodeResult, GetTokenDefsResult } from '@/mcp-server/src/tools'
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { buildSemanticTree } from '@/mcp/semantic-tree'
@@ -49,6 +49,16 @@ const COMPACT_TAGS = new Set([
   'figcaption',
   'summary'
 ])
+
+function filterTokensByNames(input: GetTokenDefsResult, names: Set<string>): GetTokenDefsResult {
+  const tokens: Record<string, GetTokenDefsResult['tokens'][string]> = {}
+  Object.entries(input.tokens).forEach(([name, entry]) => {
+    if (names.has(name)) {
+      tokens[name] = entry
+    }
+  })
+  return { tokens }
+}
 
 export async function handleGetCode(
   nodes: SceneNode[],
@@ -121,7 +131,7 @@ export async function handleGetCode(
     usedTokenNames.add(`--${match[1]}`)
   }
 
-  const usedTokens = allTokens.filter((t) => usedTokenNames.has(t.name))
+  const usedTokens = filterTokensByNames(allTokens, usedTokenNames)
 
   const codegen = {
     preset: activePlugin.value?.name ?? 'none',
@@ -129,7 +139,9 @@ export async function handleGetCode(
   }
 
   if (resolveTokens) {
-    const tokenMap = new Map(usedTokens.map((t) => [t.name, t.value]))
+    const tokenMap = new Map(
+      Object.entries(usedTokens.tokens).map(([name, entry]) => [name, entry.resolvedValue])
+    )
     const resolvedMarkup = markup.replace(/var\((--[a-zA-Z0-9-_]+)\)/g, (match, name) => {
       const val = tokenMap.get(name)
       return typeof val === 'string' ? val : match
