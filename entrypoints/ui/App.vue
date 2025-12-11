@@ -109,9 +109,7 @@ function activateMcp() {
 
 <style scoped>
 .tp-main {
-  transition: width, height;
-  transition-duration: 0.2s;
-  transition-timing-function: cubic-bezier(0.87, 0, 0.13, 1);
+  transition: height 0.2s cubic-bezier(0.87, 0, 0.13, 1);
 }
 
 .tp-main-minimized {

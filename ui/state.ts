@@ -15,7 +15,7 @@ export type Options = {
   panelPosition: {
     left: number
     top: number
-    width: number
+    width?: number
   }
   prefOpen: boolean
   deepSelectOn: boolean

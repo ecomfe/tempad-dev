@@ -31,8 +31,7 @@ const { x, y, isDragging } = useDraggable(panel, {
 
 const { width: windowWidth, height: windowHeight } = useWindowSize()
 
-const panelWidth = ref(position ? position.width : ui.tempadPanelWidth)
-const isResizing = ref(false)
+const panelWidth = ref(position?.width ?? ui.tempadPanelWidth)
 
 let resizeState: {
   direction: 'left' | 'right'
@@ -54,7 +53,6 @@ function startResize(e: PointerEvent, direction: 'left' | 'right') {
   if (!target) return
 
   target.setPointerCapture(e.pointerId)
-  isResizing.value = true
 
   resizeState = {
     direction,
@@ -66,7 +64,9 @@ function startResize(e: PointerEvent, direction: 'left' | 'right') {
 }
 
 function onPointerMove(e: PointerEvent) {
-  if (!isResizing.value || !resizeState) return
+  if (!resizeState) return
+
+  if (e.pointerId !== resizeState.pointerId) return
 
   if (e.buttons === 0) {
     endResize(e)
@@ -88,9 +88,8 @@ function onPointerMove(e: PointerEvent) {
 }
 
 function endResize(e: PointerEvent) {
-  if (!isResizing.value || !resizeState) return
+  if (!resizeState || e.pointerId !== resizeState.pointerId) return
 
-  isResizing.value = false
   resizeState.target.releasePointerCapture(resizeState.pointerId)
 
   if (position) {
@@ -100,10 +99,19 @@ function endResize(e: PointerEvent) {
   resizeState = null
 }
 
-function resetWidth() {
-  panelWidth.value = ui.tempadPanelWidth
+function resetWidth(direction: 'left' | 'right') {
+  const newWidth = ui.tempadPanelWidth
+  const positionDelta = panelWidth.value - newWidth
+
+  // Keep the edge under the double-clicked handle stationary
+  if (direction === 'left' && positionDelta !== 0) {
+    x.value += positionDelta
+  }
+
+  panelWidth.value = newWidth
+
   if (position) {
-    position.width = ui.tempadPanelWidth
+    delete position.width
   }
 }
 
@@ -115,15 +123,15 @@ const isAtMinWidth = computed(() => panelWidth.value <= ui.tempadPanelWidth)
 const isAtMaxWidth = computed(() => panelWidth.value >= ui.tempadPanelMaxWidth)
 
 const restrictedPosition = computed(() => {
-  if (!panel.value || !header.value) {
+  if (!header.value) {
     return { top: x.value, left: y.value }
   }
 
-  const { offsetWidth: panelWidth } = panel.value
+  const panelPixelWidth = panelWidth.value
   const { offsetHeight: headerHeight } = header.value
 
-  const xMin = -panelWidth / 2
-  const xMax = windowWidth.value - panelWidth / 2
+  const xMin = -panelPixelWidth / 2
+  const xMax = windowWidth.value - panelPixelWidth / 2
   const yMin = ui.topBoundary
   const yMax = windowHeight.value - headerHeight
 
@@ -159,19 +167,22 @@ function toggleMinimized() {
   options.value.minimized = !options.value.minimized
 }
 
-const leftHandleCursor = computed(() => {
-  if (isAtMaxWidth.value) return 'e-resize'
-  if (isAtMinWidth.value) return 'w-resize'
-  return 'ew-resize'
-})
+function getResizeCursor(direction: 'left' | 'right'): 'e-resize' | 'w-resize' | 'ew-resize' {
+  const atMin = isAtMinWidth.value
+  const atMax = isAtMaxWidth.value
 
-const rightHandleCursor = computed(() => {
-  if (isAtMaxWidth.value) return 'w-resize'
-  if (isAtMinWidth.value) return 'e-resize'
+  if (direction === 'left') {
+    if (atMax) return 'e-resize'
+    if (atMin) return 'w-resize'
+  } else {
+    if (atMax) return 'w-resize'
+    if (atMin) return 'e-resize'
+  }
   return 'ew-resize'
-})
+}
 
-const resizingCursor = 'ew-resize'
+const leftHandleCursor = computed(() => getResizeCursor('left'))
+const rightHandleCursor = computed(() => getResizeCursor('right'))
 </script>
 
 <template>
@@ -180,7 +191,6 @@ const resizingCursor = 'ew-resize'
     class="tp-panel"
     :class="{
       'tp-panel-minimized': options.minimized,
-      'tp-panel-resizing': isResizing,
       'tp-panel-dragging': isDragging
     }"
     :style="positionStyle"
@@ -188,12 +198,12 @@ const resizingCursor = 'ew-resize'
     <div
       class="tp-panel-resize-handle tp-panel-resize-handle-left"
       @pointerdown="startResize($event, 'left')"
-      @dblclick="resetWidth"
+      @dblclick="resetWidth('left')"
     />
     <div
       class="tp-panel-resize-handle tp-panel-resize-handle-right"
       @pointerdown="startResize($event, 'right')"
-      @dblclick="resetWidth"
+      @dblclick="resetWidth('right')"
     />
     <header ref="header" class="tp-row tp-row-justify tp-panel-header" @dblclick="toggleMinimized">
       <slot name="header" />
@@ -215,16 +225,6 @@ const resizingCursor = 'ew-resize'
   background-color: var(--color-bg);
   border-radius: 2px;
   box-shadow: var(--elevation-500-modal-window);
-}
-
-.tp-panel-resizing {
-  user-select: none;
-  cursor: v-bind(resizingCursor);
-}
-
-.tp-panel-resizing * {
-  user-select: none;
-  cursor: v-bind(resizingCursor) !important;
 }
 
 .tp-panel-resize-handle {
