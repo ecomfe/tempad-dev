@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useDraggable, useWindowSize, watchDebounced } from '@vueuse/core'
+import { useDraggable, useEventListener, useWindowSize, watchDebounced } from '@vueuse/core'
 
 import { useScrollbar } from '@/composables/scrollbar'
 import { ui } from '@/ui/figma'
@@ -21,7 +21,7 @@ useScrollbar(main, {
 })
 
 const position = options.value.panelPosition
-const { x, y } = useDraggable(panel, {
+const { x, y, isDragging } = useDraggable(panel, {
   initialValue: {
     x: position ? position.left : 0,
     y: position ? position.top : 0
@@ -31,16 +31,107 @@ const { x, y } = useDraggable(panel, {
 
 const { width: windowWidth, height: windowHeight } = useWindowSize()
 
+const panelWidth = ref(position?.width ?? ui.tempadPanelWidth)
+
+let resizeState: {
+  direction: 'left' | 'right'
+  startX: number
+  startWidth: number
+  target: HTMLElement
+  pointerId: number
+} | null = null
+
+function clampWidth(value: number): number {
+  return Math.max(ui.tempadPanelWidth, Math.min(ui.tempadPanelMaxWidth, value))
+}
+
+function startResize(e: PointerEvent, direction: 'left' | 'right') {
+  e.preventDefault()
+  e.stopPropagation()
+
+  const target = e.currentTarget as HTMLElement
+  if (!target) return
+
+  target.setPointerCapture(e.pointerId)
+
+  resizeState = {
+    direction,
+    startX: e.clientX,
+    startWidth: panelWidth.value,
+    target,
+    pointerId: e.pointerId
+  }
+}
+
+function onPointerMove(e: PointerEvent) {
+  if (!resizeState) return
+
+  if (e.pointerId !== resizeState.pointerId) return
+
+  if (e.buttons === 0) {
+    endResize(e)
+    return
+  }
+
+  const deltaX = e.clientX - resizeState.startX
+  const newWidth =
+    resizeState.direction === 'right'
+      ? clampWidth(resizeState.startWidth + deltaX)
+      : clampWidth(resizeState.startWidth - deltaX)
+
+  if (resizeState.direction === 'left') {
+    const positionDelta = panelWidth.value - newWidth
+    x.value += positionDelta
+  }
+
+  panelWidth.value = newWidth
+}
+
+function endResize(e: PointerEvent) {
+  if (!resizeState || e.pointerId !== resizeState.pointerId) return
+
+  resizeState.target.releasePointerCapture(resizeState.pointerId)
+
+  if (position) {
+    position.width = panelWidth.value
+  }
+
+  resizeState = null
+}
+
+function resetWidth(direction: 'left' | 'right') {
+  const newWidth = ui.tempadPanelWidth
+  const positionDelta = panelWidth.value - newWidth
+
+  // Keep the edge under the double-clicked handle stationary
+  if (direction === 'left' && positionDelta !== 0) {
+    x.value += positionDelta
+  }
+
+  panelWidth.value = newWidth
+
+  if (position) {
+    delete position.width
+  }
+}
+
+useEventListener('pointermove', onPointerMove)
+useEventListener('pointerup', endResize)
+useEventListener('pointercancel', endResize)
+
+const isAtMinWidth = computed(() => panelWidth.value <= ui.tempadPanelWidth)
+const isAtMaxWidth = computed(() => panelWidth.value >= ui.tempadPanelMaxWidth)
+
 const restrictedPosition = computed(() => {
-  if (!panel.value || !header.value) {
+  if (!header.value) {
     return { top: x.value, left: y.value }
   }
 
-  const { offsetWidth: panelWidth } = panel.value
+  const panelPixelWidth = panelWidth.value
   const { offsetHeight: headerHeight } = header.value
 
-  const xMin = -panelWidth / 2
-  const xMax = windowWidth.value - panelWidth / 2
+  const xMin = -panelPixelWidth / 2
+  const xMax = windowWidth.value - panelPixelWidth / 2
   const yMin = ui.topBoundary
   const yMax = windowHeight.value - headerHeight
 
@@ -53,6 +144,8 @@ const restrictedPosition = computed(() => {
 const panelMaxHeight = computed(
   () => `${windowHeight.value - restrictedPosition.value.top - ui.bottomBoundary}px`
 )
+
+const panelWidthPx = computed(() => `${panelWidth.value}px`)
 
 const positionStyle = computed(() => {
   const p = restrictedPosition.value
@@ -73,15 +166,45 @@ if (position) {
 function toggleMinimized() {
   options.value.minimized = !options.value.minimized
 }
+
+function getResizeCursor(direction: 'left' | 'right'): 'e-resize' | 'w-resize' | 'ew-resize' {
+  const atMin = isAtMinWidth.value
+  const atMax = isAtMaxWidth.value
+
+  if (direction === 'left') {
+    if (atMax) return 'e-resize'
+    if (atMin) return 'w-resize'
+  } else {
+    if (atMax) return 'w-resize'
+    if (atMin) return 'e-resize'
+  }
+  return 'ew-resize'
+}
+
+const leftHandleCursor = computed(() => getResizeCursor('left'))
+const rightHandleCursor = computed(() => getResizeCursor('right'))
 </script>
 
 <template>
   <article
     ref="panel"
     class="tp-panel"
-    :class="{ 'tp-panel-minimized': options.minimized }"
+    :class="{
+      'tp-panel-minimized': options.minimized,
+      'tp-panel-dragging': isDragging
+    }"
     :style="positionStyle"
   >
+    <div
+      class="tp-panel-resize-handle tp-panel-resize-handle-left"
+      @pointerdown="startResize($event, 'left')"
+      @dblclick="resetWidth('left')"
+    />
+    <div
+      class="tp-panel-resize-handle tp-panel-resize-handle-right"
+      @pointerdown="startResize($event, 'right')"
+      @dblclick="resetWidth('right')"
+    />
     <header ref="header" class="tp-row tp-row-justify tp-panel-header" @dblclick="toggleMinimized">
       <slot name="header" />
     </header>
@@ -97,10 +220,32 @@ function toggleMinimized() {
   z-index: 6;
   display: flex;
   flex-direction: column;
+  width: v-bind(panelWidthPx);
   max-height: v-bind(panelMaxHeight);
   background-color: var(--color-bg);
-  border-radius: 2px;
-  box-shadow: var(--elevation-500-modal-window);
+  border-radius: var(--radius-large);
+  box-shadow: var(--elevation-100);
+}
+
+.tp-panel-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  z-index: 10;
+  transition: background-color 0.2s ease;
+  touch-action: none;
+  user-select: none;
+}
+
+.tp-panel-resize-handle-left {
+  left: -8px;
+  cursor: v-bind(leftHandleCursor);
+}
+
+.tp-panel-resize-handle-right {
+  right: -8px;
+  cursor: v-bind(rightHandleCursor);
 }
 
 .tp-panel-header {
@@ -125,10 +270,5 @@ function toggleMinimized() {
 .tp-panel-header-icon {
   width: auto;
   height: 32px;
-}
-
-[data-fpl-version='ui3'] .tp-panel {
-  box-shadow: var(--elevation-100);
-  border-radius: var(--radius-large);
 }
 </style>
