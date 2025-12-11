@@ -12,6 +12,18 @@ export default defineUnlistedScript(async () => {
   const FIGMA_READY_TIMEOUT = 1000
   const FIGMA_RECOVER_INTERVAL = 3000
 
+  let announcedUnavailable = false
+
+  const announceUnavailable = () => {
+    if (announcedUnavailable) return
+    if (document.visibilityState === 'hidden') return
+    runtimeMode.value = 'unavailable'
+    announcedUnavailable = true
+    console.log(
+      '[tempad-dev] `window.figma` is not available. TemPad Dev is currently unavailable.'
+    )
+  }
+
   async function ensureFigmaReady(timeout?: number): Promise<boolean> {
     try {
       await waitFor(() => window.figma?.currentPage != null, timeout ? { timeout } : undefined)
@@ -24,10 +36,7 @@ export default defineUnlistedScript(async () => {
   await waitFor(() => getCanvas() != null && getLeftPanel() != null)
   const ready = await ensureFigmaReady(FIGMA_READY_TIMEOUT)
   if (!ready) {
-    runtimeMode.value = 'unavailable'
-    console.log(
-      '[tempad-dev] `window.figma` is not available. TemPad Dev is currently unavailable.'
-    )
+    announceUnavailable()
     const panelEl = () => document.getElementById('tempad')
 
     const tryRecover = async () => {
@@ -40,6 +49,7 @@ export default defineUnlistedScript(async () => {
         return true
       }
       if (el && document.visibilityState === 'hidden') el.style.display = 'none'
+      else announceUnavailable()
       return false
     }
 
@@ -56,7 +66,8 @@ export default defineUnlistedScript(async () => {
         return
       }
       el.style.display = ''
-      await tryRecover()
+      const ok = await tryRecover()
+      if (!ok) announceUnavailable()
     }
 
     const handleFocus = async () => {
