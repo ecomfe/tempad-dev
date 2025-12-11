@@ -4,6 +4,7 @@
 
 - Added MCP server support to let agents/IDEs pull code, structure, and screenshots from your current Figma selection.
 - The inspect panel can be resized horizontally by dragging either its left or right edge. (Suggested and implemented by @molinla at [#34](https://github.com/ecomfe/tempad-dev/pull/34))
+- Measure mode won't trigger node duplication anymore when dragging a node in design mode.
 
 ## 0.13.1
 

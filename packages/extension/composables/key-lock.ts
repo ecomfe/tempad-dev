@@ -1,3 +1,5 @@
+import { useEventListener } from '@vueuse/core'
+
 import { options } from '@/ui/state'
 import { getCanvas, setLockAltKey, setLockMetaKey } from '@/utils'
 
@@ -13,6 +15,14 @@ function resume() {
     return
   }
   setLockMetaKey(options.value.deepSelectOn)
+  setLockAltKey(options.value.measureOn)
+}
+
+function pauseMeasure() {
+  setLockAltKey(false)
+}
+
+function resumeMeasure() {
   setLockAltKey(options.value.measureOn)
 }
 
@@ -49,21 +59,13 @@ function keyup(e: KeyboardEvent) {
 export function useKeyLock() {
   const canvas = getCanvas()
 
-  onMounted(() => {
-    canvas.addEventListener('mouseleave', pause)
-    canvas.addEventListener('mouseenter', resume)
-    canvas.addEventListener('wheel', pauseMetaThenResume)
-    window.addEventListener('keydown', keydown)
-    window.addEventListener('keyup', keyup)
-  })
-
-  onUnmounted(() => {
-    canvas.removeEventListener('mouseleave', pause)
-    canvas.removeEventListener('mouseenter', resume)
-    canvas.removeEventListener('wheel', pauseMetaThenResume)
-    window.removeEventListener('keydown', keydown)
-    window.removeEventListener('keyup', keyup)
-  })
+  useEventListener(canvas, 'mouseleave', pause)
+  useEventListener(canvas, 'mouseenter', resume)
+  useEventListener(canvas, 'pointerdown', pauseMeasure, { capture: true })
+  useEventListener('pointerup', resumeMeasure, { capture: true })
+  useEventListener(canvas, 'wheel', pauseMetaThenResume)
+  useEventListener('keydown', keydown)
+  useEventListener('keyup', keyup)
 
   watch(
     () => options.value.deepSelectOn,
