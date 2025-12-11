@@ -10,7 +10,7 @@ import ErrorSection from '@/components/sections/ErrorSection.vue'
 import MetaSection from '@/components/sections/MetaSection.vue'
 import PrefSection from '@/components/sections/PrefSection.vue'
 import { useKeyLock, useSelection } from '@/composables'
-import { useMcp } from '@/composables/mcp'
+import { useMcp } from '@/composables'
 import { options, runtimeMode } from '@/ui/state'
 
 useSelection()

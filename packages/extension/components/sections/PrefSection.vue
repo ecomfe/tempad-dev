@@ -6,7 +6,7 @@ import Section from '@/components/Section.vue'
 import McpSection from '@/components/sections/McpSection.vue'
 import PluginsSection from '@/components/sections/PluginsSection.vue'
 import Select, { type SelectOption } from '@/components/Select.vue'
-import { useSelectAll } from '@/composables/input'
+import { useSelectAll } from '@/composables'
 import { options } from '@/ui/state'
 
 const root = ref<InstanceType<typeof Section> | null>(null)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { PluginData } from '@/composables/plugin'
+import type { PluginData } from '@/composables'
 
-import { usePluginInstall } from '@/composables/plugin'
+import { usePluginInstall } from '@/composables'
 
 import IconButton from './IconButton.vue'
 import Minus from './icons/Minus.vue'
