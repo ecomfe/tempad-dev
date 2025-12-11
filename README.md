@@ -1,4 +1,3 @@
-<!-- markdownlint-disable MD033 MD041 -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
@@ -94,7 +93,7 @@ When you hover over a node name section in TemPad Dev's inspect panel, a corresp
 
 Plugins allow you to customize the built-in code output or add custom code blocks.
 
-A TemPad Dev plugin is a simple JavaScript file that exports a plugin object as its `plugin` named export. To install a plugin, paste the plugin file's URL into the _Preferences > Plugins_ section. Some built-in plugins can also be enabled by using `@{name}` syntax (e.g., `@foo`), which corresponds to the plugin names in our [plugin registry](https://github.com/ecomfe/tempad-dev/blob/main/plugins/available-plugins.json).
+A TemPad Dev plugin is a simple JavaScript file that exports a plugin object as its `plugin` named export. To install a plugin, paste the plugin file's URL into the _Preferences > Plugins_ section. Some built-in plugins can also be enabled by using `@{name}` syntax (e.g., `@foo`), which corresponds to the plugin names in our [plugin registry](https://github.com/ecomfe/tempad-dev/blob/main/packages/extension/plugins/available-plugins.json).
 
 > [!NOTE]
 > Plugin code is stored in the browser's local storage. Plugins are not versioned or auto-updated, so you must manually update them from the UI.
@@ -164,9 +163,9 @@ Plugins run in a Web Worker, so they do not impact the main thread or access the
 
 #### Sharing a plugin
 
-You can also register the plugin into our [plugin registry file](https://github.com/ecomfe/tempad-dev/blob/main/plugins/available-plugins.json) so that your plugin can be installed by name directly.
+You can also register the plugin into our [plugin registry file](https://github.com/ecomfe/tempad-dev/blob/main/packages/extension/plugins/available-plugins.json) so that your plugin can be installed by name directly.
 
-**Come and [add your own awesome plugin](https://github.com/ecomfe/tempad-dev/edit/main/plugins/available-plugins.json)!**
+**Come and [add your own awesome plugin](https://github.com/ecomfe/tempad-dev/edit/main/packages/extension/plugins/available-plugins.json)!**
 
 Current available plugins:
 
