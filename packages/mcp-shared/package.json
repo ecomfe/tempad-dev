@@ -1,0 +1,30 @@
+{
+  "name": "@tempad-dev/mcp-shared",
+  "description": "Shared MCP schemas/constants used by TemPad Dev extension and MCP server.",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs",
+    "format": "prettier --write \"**/*.{js,ts,mjs,cjs,cts,mts,json,md}\""
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "tsdown": "^0.17.2",
+    "typescript": "^5.9.3"
+  }
+}

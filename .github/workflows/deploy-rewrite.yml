@@ -26,10 +26,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build rewrite script
-        run: pnpm run build:rewrite
+        run: pnpm --filter @tempad-dev/extension run build:rewrite
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
+          publish_dir: ./packages/extension/dist
