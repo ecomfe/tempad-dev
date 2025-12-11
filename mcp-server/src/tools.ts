@@ -36,7 +36,7 @@ export type GetCodeResult = {
   code: string
   lang: 'vue' | 'jsx'
   message?: string
-  usedTokens?: GetTokenDefsResult['tokens']
+  usedTokens?: GetTokenDefsResult
   assets: AssetDescriptor[]
   codegen: {
     preset: string
@@ -65,31 +65,15 @@ export const GetTokenDefsParametersSchema = z.object({
 })
 
 export type GetTokenDefsParametersInput = z.input<typeof GetTokenDefsParametersSchema>
+export type TokenEntry = {
+  kind: 'color' | 'number' | 'string' | 'boolean'
+  value: string | Record<string, string> // single mode -> string; multi-mode -> map (mode name -> literal or alias)
+  resolvedValue: string // value for the active mode (or the single mode)
+  activeMode?: string // only present when multi-mode map is returned
+}
+
 export type GetTokenDefsResult = {
-  tokens: Array<{
-    name: string
-    value: string | Record<string, unknown> | null
-    current: {
-      modeId: string
-      value?: string | Record<string, unknown>
-      aliasTo?: string
-      resolved: string | Record<string, unknown> | null
-      aliasChain?: string[]
-    }
-    modes?: Array<{
-      modeId: string
-      value?: string | Record<string, unknown>
-      aliasTo?: string
-      resolved: string | Record<string, unknown> | null
-    }>
-    collection?: {
-      id?: string
-      name?: string
-      activeModeId?: string
-      defaultModeId?: string
-    }
-    kind: 'color' | 'spacing' | 'typography' | 'effect' | 'other'
-  }>
+  tokens: Record<string, TokenEntry>
 }
 
 export const AssetDescriptorSchema = z.object({
@@ -97,7 +81,7 @@ export const AssetDescriptorSchema = z.object({
   url: z.string().url(),
   mimeType: z.string().min(1),
   size: z.number().int().nonnegative(),
-  resourceUri: z.string().regex(/^asset:\/\/tempad\/[a-f0-9]{64}$/i),
+  resourceUri: z.string().regex(/^asset:\/\/tempad\/[a-f0-9]{8}$/i),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional()
 })
@@ -304,8 +288,9 @@ export function createCodeToolResponse(payload: ToolResultMap['get_code']): Call
       ? `Assets attached: ${payload.assets.length}. Fetch bytes via resources/read using resourceUri.`
       : 'No binary assets were attached to this response.'
   )
-  if (payload.usedTokens?.length) {
-    summary.push(`Token references included: ${payload.usedTokens.length}.`)
+  const tokenCount = payload.usedTokens ? Object.keys(payload.usedTokens.tokens ?? {}).length : 0
+  if (tokenCount) {
+    summary.push(`Token references included: ${tokenCount}.`)
   }
   summary.push('Read structuredContent for the full code string and asset metadata.')
 
