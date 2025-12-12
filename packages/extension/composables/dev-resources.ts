@@ -80,6 +80,10 @@ function ensureDevResources(node: SceneNode) {
     try {
       const resources = await node.getDevResourcesAsync()
       devResourcesCache.set(node.id, resources)
+    } catch (e: unknown) {
+      if (typeof e === 'string' && e.includes('status 403')) {
+        devResourcesCache.set(node.id, [])
+      }
     } finally {
       inflightDevResources.delete(node.id)
     }

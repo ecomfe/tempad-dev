@@ -1,5 +1,5 @@
 export default defineContentScript({
-  matches: ['https://www.figma.com/file/*', 'https://www.figma.com/design/*'],
+  matches: ['https://www.figma.com/*'],
   runAt: 'document_end',
   main(ctx) {
     const ui = createIntegratedUi(ctx, {

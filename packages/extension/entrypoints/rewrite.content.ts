@@ -5,14 +5,7 @@ import { applyGroups, RULES_URL, REWRITE_RULE_ID } from '@/rewrite/shared'
 import type { BlobHandle, CacheEntry, Rules } from '../types/rewrite'
 
 export default defineContentScript({
-  matches: [
-    'https://www.figma.com/file/*',
-    'https://www.figma.com/design/*',
-    'https://www.figma.com/proto/*',
-    'https://www.figma.com/slides/*',
-    'https://www.figma.com/deck/*',
-    'https://www.figma.com/site/*'
-  ],
+  matches: ['https://www.figma.com/*'],
   runAt: 'document_start',
   world: 'MAIN',
   main() {
