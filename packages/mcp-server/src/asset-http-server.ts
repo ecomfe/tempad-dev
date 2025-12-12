@@ -1,4 +1,4 @@
-import { MCP_HASH_PATTERN } from '@tempad-dev/mcp-shared'
+import { MCP_HASH_HEX_LENGTH, MCP_HASH_PATTERN } from '@tempad-dev/mcp-shared'
 import { nanoid } from 'nanoid'
 import { createHash } from 'node:crypto'
 import {
@@ -68,6 +68,19 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
   }
 
   function handleRequest(req: IncomingMessage, res: ServerResponse): void {
+    const startedAt = Date.now()
+    res.on('finish', () => {
+      log.info(
+        {
+          method: req.method,
+          url: req.url,
+          status: res.statusCode,
+          durationMs: Date.now() - startedAt
+        },
+        'HTTP asset request completed.'
+      )
+    })
+
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Asset-Width, X-Asset-Height')
@@ -79,16 +92,14 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
     }
 
     if (!req.url) {
-      res.writeHead(400)
-      res.end('Missing URL')
+      sendError(res, 400, 'Missing URL')
       return
     }
 
     const url = new URL(req.url, getBaseUrl())
     const segments = url.pathname.split('/').filter(Boolean)
     if (segments.length !== 2 || segments[0] !== 'assets') {
-      res.writeHead(404)
-      res.end('Not Found')
+      sendError(res, 404, 'Not Found')
       return
     }
 
@@ -104,15 +115,13 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       return
     }
 
-    res.writeHead(405)
-    res.end('Method Not Allowed')
+    sendError(res, 405, 'Method Not Allowed')
   }
 
   function handleDownload(req: IncomingMessage, res: ServerResponse, hash: string): void {
     const record = store.get(hash)
     if (!record) {
-      res.writeHead(404)
-      res.end('Not Found')
+      sendError(res, 404, 'Asset Not Found')
       return
     }
 
@@ -123,12 +132,10 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       const err = error as NodeJS.ErrnoException
       if (err.code === 'ENOENT') {
         store.remove(hash, { removeFile: false })
-        res.writeHead(404)
-        res.end('Not Found')
+        sendError(res, 404, 'Asset Not Found')
       } else {
         log.error({ error, hash }, 'Failed to stat asset file.')
-        res.writeHead(500)
-        res.end('Internal Server Error')
+        sendError(res, 500, 'Internal Server Error')
       }
       return
     }
@@ -143,9 +150,10 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
     stream.on('error', (error) => {
       log.warn({ error, hash }, 'Failed to stream asset file.')
       if (!res.headersSent) {
-        res.writeHead(500)
+        sendError(res, 500, 'Internal Server Error')
+      } else {
+        res.end()
       }
-      res.end('Internal Server Error')
     })
     stream.on('open', () => {
       store.touch(hash)
@@ -155,8 +163,7 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
 
   function handleUpload(req: IncomingMessage, res: ServerResponse, hash: string): void {
     if (!MCP_HASH_PATTERN.test(hash)) {
-      res.writeHead(400)
-      res.end('Invalid Hash Format')
+      sendError(res, 400, 'Invalid Hash Format')
       return
     }
 
@@ -187,8 +194,7 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
         store.upsert(existing)
       }
       store.touch(hash)
-      res.writeHead(200)
-      res.end('OK')
+      sendOk(res, 200, 'Asset Already Exists')
       return
     }
 
@@ -223,25 +229,23 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       if (err) {
         cleanup()
         if (err.message === 'PayloadTooLarge') {
-          res.writeHead(413)
-          res.end('Payload Too Large')
+          sendError(res, 413, 'Payload Too Large')
         } else if (err.code === 'ERR_STREAM_PREMATURE_CLOSE') {
           log.warn({ hash }, 'Upload request closed prematurely.')
+          sendError(res, 400, 'Upload Incomplete')
         } else {
           log.error({ error: err, hash }, 'Upload pipeline failed.')
           if (!res.headersSent) {
-            res.writeHead(500)
-            res.end('Internal Server Error')
+            sendError(res, 500, 'Internal Server Error')
           }
         }
         return
       }
 
-      const computedHash = hasher.digest('hex')
+      const computedHash = hasher.digest('hex').slice(0, MCP_HASH_HEX_LENGTH)
       if (computedHash !== hash) {
         cleanup()
-        res.writeHead(400)
-        res.end('Hash Mismatch')
+        sendError(res, 400, 'Hash Mismatch')
         return
       }
 
@@ -250,8 +254,7 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       } catch (error) {
         log.error({ error, hash }, 'Failed to rename temp file to asset.')
         cleanup()
-        res.writeHead(500)
-        res.end('Internal Server Error')
+        sendError(res, 500, 'Internal Server Error')
         return
       }
 
@@ -263,9 +266,42 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
         metadata
       })
       log.info({ hash, size }, 'Stored uploaded asset via HTTP.')
-      res.writeHead(201)
-      res.end('Created')
+      sendOk(res, 201, 'Created', { hash, size })
     })
+  }
+
+  function sendError(
+    res: ServerResponse,
+    status: number,
+    message: string,
+    details?: Record<string, unknown>
+  ): void {
+    if (!res.headersSent) {
+      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
+    }
+    res.end(
+      JSON.stringify({
+        error: message,
+        ...details
+      })
+    )
+  }
+
+  function sendOk(
+    res: ServerResponse,
+    status: number,
+    message: string,
+    data?: Record<string, unknown>
+  ): void {
+    if (!res.headersSent) {
+      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
+    }
+    res.end(
+      JSON.stringify({
+        message,
+        ...data
+      })
+    )
   }
 
   return {
