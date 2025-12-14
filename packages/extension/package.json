@@ -12,7 +12,8 @@
     "zip": "wxt zip",
     "typecheck": "vue-tsc --noEmit",
     "postinstall": "wxt prepare",
-    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts",
+    "lint:fix": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
     "format": "prettier --write \"**/*.{js,ts,jsx,tsx,cjs,mjs,cts,mts,vue,json,md,css}\" --ignore-path .gitignore"
   },
   "dependencies": {

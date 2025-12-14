@@ -33,6 +33,12 @@ jobs:
       - name: Install dependencies (filtered)
         run: pnpm install --frozen-lockfile --filter @tempad-dev/mcp...
 
+      - name: Type check
+        run: pnpm --filter @tempad-dev/mcp... run typecheck
+
+      - name: Lint
+        run: pnpm --filter @tempad-dev/mcp... run lint
+
       - name: Build package (with deps)
         run: pnpm --filter @tempad-dev/mcp... run build
 

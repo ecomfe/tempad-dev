@@ -33,8 +33,14 @@ jobs:
       - name: Install dependencies (filtered)
         run: pnpm install --frozen-lockfile --filter @tempad-dev/plugins...
 
+      - name: Type check
+        run: pnpm --filter @tempad-dev/plugins... run typecheck
+
+      - name: Lint
+        run: pnpm --filter @tempad-dev/plugins... run lint
+
       - name: Build package
-        run: pnpm --filter @tempad-dev/plugins run build
+        run: pnpm --filter @tempad-dev/plugins... run build
 
       - name: Publish @tempad-dev/plugins with provenance
         run: cd packages/plugins && npm publish --provenance --access public

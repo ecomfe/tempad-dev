@@ -13,6 +13,7 @@
     "eslint-config-flat-gitignore": "^2.1.0",
     "eslint-plugin-perfectionist": "^4.15.1",
     "eslint-plugin-vue": "^10.5.1",
+    "lefthook": "^1.7.17",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3"
   },
@@ -23,11 +24,14 @@
     "build:plugins": "pnpm --filter @tempad-dev/plugins build",
     "build:mcp": "pnpm --filter @tempad-dev/mcp build",
     "lint": "pnpm -r lint",
+    "lint:fix": "pnpm -r lint:fix",
     "format": "pnpm -r format",
     "typecheck": "pnpm -r typecheck",
     "zip": "pnpm --filter @tempad-dev/extension zip",
     "npm:plugins": "pnpm --filter @tempad-dev/plugins publish --access public",
-    "npm:mcp": "pnpm --filter @tempad-dev/mcp publish --access public"
+    "npm:mcp": "pnpm --filter @tempad-dev/mcp publish --access public",
+    "format:check": "pnpm exec prettier --check \"**/*.{js,ts,mjs,cjs,cts,mts,json,md,yml,yaml}\" --ignore-path .gitignore",
+    "prepare": "lefthook install"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
