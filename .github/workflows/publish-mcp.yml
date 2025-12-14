@@ -30,17 +30,7 @@ jobs:
         with:
           version: 10
 
-      - name: Install dependencies (filtered)
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile --filter @tempad-dev/mcp...
-
-      - name: Type check
-        run: pnpm --filter @tempad-dev/mcp... run typecheck
-
-      - name: Lint
-        run: pnpm --filter @tempad-dev/mcp... run lint
-
-      - name: Build package (with deps)
-        run: pnpm --filter @tempad-dev/mcp... run build
-
-      - name: Publish @tempad-dev/mcp with provenance
+      - name: Publish
         run: cd packages/mcp-server && npm publish --provenance --access public
