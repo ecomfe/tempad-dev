@@ -1,0 +1,40 @@
+name: publish-plugins
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish @tempad-dev/plugins
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-plugins
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+          registry-url: https://registry.npmjs.org
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies (filtered)
+        run: pnpm install --frozen-lockfile --filter @tempad-dev/plugins...
+
+      - name: Build package
+        run: pnpm --filter @tempad-dev/plugins run build
+
+      - name: Publish @tempad-dev/plugins with provenance
+        run: cd packages/plugins && npm publish --provenance --access public
