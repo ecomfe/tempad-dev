@@ -1,0 +1,13 @@
+pre-commit:
+  parallel: true
+  commands:
+    typecheck:
+      run: pnpm -r typecheck
+    lint:
+      files: "\\.(ts|js|mjs|cjs|mts|cts|vue)$"
+      run: pnpm exec eslint --fix {staged_files}
+      stage_fixed: true
+    format:
+      files: "\\.(ts|js|mjs|cjs|cts|mts|json|md|yml|yaml|vue)$"
+      run: pnpm exec prettier --write {staged_files}
+      stage_fixed: true

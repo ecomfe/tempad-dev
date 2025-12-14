@@ -19,6 +19,7 @@
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs",
+    "lint:fix": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs --fix",
     "format": "prettier --write \"**/*.{js,ts,mjs,cjs,cts,mts,json,md}\"",
     "prepublishOnly": "pnpm run build"
   },
