@@ -30,6 +30,16 @@ export type CodegenConfig = {
   scale: number
 }
 
+export function workerUnitOptions(
+  config: CodegenConfig
+): Pick<SerializeOptions, 'useRem' | 'rootFontSize' | 'scale'> {
+  return {
+    useRem: config.cssUnit === 'rem',
+    rootFontSize: config.rootFontSize,
+    scale: config.scale
+  }
+}
+
 export async function generateCodeBlocksForNode(
   node: SceneNode,
   config: CodegenConfig,
@@ -38,11 +48,7 @@ export async function generateCodeBlocksForNode(
 ): Promise<ResponsePayload> {
   const style = await node.getCSSAsync()
   const component = getDesignComponent(node)
-  const serializeOptions: SerializeOptions = {
-    useRem: config.cssUnit === 'rem',
-    rootFontSize: config.rootFontSize,
-    scale: config.scale
-  }
+  const serializeOptions: SerializeOptions = workerUnitOptions(config)
 
   return await codegen(style, component, serializeOptions, pluginCode, opts?.returnDevComponent)
 }

@@ -4,14 +4,11 @@ import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/mcp-shared'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
-import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
-import { activePlugin, options } from '@/ui/state'
-import {
-  canonicalizeVariable,
-  formatHexAlpha,
-  normalizeCssValue,
-  normalizeCssVarName
-} from '@/utils/css'
+import { activePlugin } from '@/ui/state'
+import { formatHexAlpha, normalizeCssValue } from '@/utils/css'
+
+import { currentCodegenConfig } from '../config'
+import { canonicalizeVarName, canonicalizeVarNames, getTokenIndex } from './indexer'
 
 type TokenModeValue = {
   modeId: string
@@ -35,82 +32,180 @@ export async function handleGetTokenDefs(
   names: string[],
   includeAllModes = false
 ): Promise<GetTokenDefsResult> {
-  const config = getCodegenConfig()
+  const config = currentCodegenConfig()
   const pluginCode = activePlugin.value?.code
 
   const requested = new Set(names.map((n) => (n.startsWith('--') ? n : `--${n}`)))
-  const variables = await findVariablesByCanonicalName(requested, config, pluginCode)
-  const payload = await buildTokenEntries(variables, config, pluginCode, includeAllModes)
-  const approxSize = JSON.stringify(payload).length
+  const tokens = await resolveTokenDefsByNames(requested, config, pluginCode, { includeAllModes })
+
+  const approxSize = JSON.stringify(tokens).length
   if (approxSize > MCP_MAX_PAYLOAD_BYTES) {
     throw new Error(
       'Token payload too large to return. Reduce selection or requested names and retry.'
     )
   }
 
-  return payload
+  return tokens
 }
 
-function hasChildren(node: SceneNode): node is SceneNode & ChildrenMixin {
-  return 'children' in node
+export async function resolveTokenDefsByNames(
+  names: Set<string>,
+  config: CodegenConfig,
+  pluginCode?: string,
+  options: {
+    includeAllModes?: boolean
+    candidateIds?: Set<string> | (() => Set<string>)
+  } = {}
+): Promise<GetTokenDefsResult> {
+  return resolveTokens({
+    names,
+    includeAllModes: !!options.includeAllModes,
+    config,
+    pluginCode,
+    candidateIds: options.candidateIds
+  })
 }
 
-export function collectTokenReferences(roots: SceneNode[]): {
-  variableIds: Set<string>
-} {
-  const variableIds = new Set<string>()
+type ResolveTokensOptions = {
+  names: Set<string>
+  includeAllModes: boolean
+  config: CodegenConfig
+  pluginCode?: string
+  candidateIds?: Set<string> | (() => Set<string>)
+}
 
-  const visit = (node: SceneNode) => {
-    collectVariableIds(node, variableIds)
+async function resolveTokens({
+  names,
+  includeAllModes,
+  config,
+  pluginCode,
+  candidateIds
+}: ResolveTokensOptions): Promise<GetTokenDefsResult> {
+  if (!names.size) return {}
 
-    if (hasChildren(node)) {
-      node.children.forEach((child) => {
-        if (child.visible) {
-          visit(child)
-        }
-      })
+  const seeds: Variable[] = []
+  const index = await getTokenIndex(config, pluginCode)
+  const missingNames = new Set<string>()
+  for (const name of names) {
+    const idsForName = index.byCanonicalName.get(name)
+    if (!idsForName?.length) {
+      missingNames.add(name)
+      continue
+    }
+    for (const id of idsForName) {
+      const variable = figma.variables.getVariableById(id)
+      if (variable) seeds.push(variable)
     }
   }
 
-  roots.forEach((root) => {
-    if (root.visible) {
-      visit(root)
+  // Fallback for non-local/library variables: scan candidate variable ids referenced by selection.
+  // Still keep the output limited to `names` (+ alias deps) via filtering below.
+  if (missingNames.size && candidateIds) {
+    const realized = typeof candidateIds === 'function' ? candidateIds() : candidateIds
+    if (!realized?.size) {
+      // no-op
+    } else {
+      const candidateVariables: Variable[] = []
+      for (const id of realized) {
+        const v = figma.variables.getVariableById(id)
+        if (v) candidateVariables.push(v)
+      }
+
+      if (candidateVariables.length) {
+        const canonicals = await canonicalizeVarNames(
+          candidateVariables.map((v) => v.name),
+          config,
+          pluginCode
+        )
+
+        for (let i = 0; i < candidateVariables.length; i++) {
+          const v = candidateVariables[i]
+          const canonical = canonicals[i]
+          if (canonical && missingNames.has(canonical)) {
+            seeds.push(v)
+          }
+        }
+      }
     }
+  }
+
+  const allTokens = await buildTokensFromVariables({
+    seedVariables: seeds,
+    includeAllModes,
+    config,
+    pluginCode
   })
 
-  return { variableIds }
+  const expanded = collectAliasDependencies(allTokens, names)
+  return filterTokensByNames(allTokens, expanded)
 }
 
-export async function resolveVariableTokens(
-  ids: Set<string>,
-  config: CodegenConfig,
-  pluginCode?: string,
-  options: { includeAllModes?: boolean } = {}
-): Promise<GetTokenDefsResult> {
-  const variables: Variable[] = []
-  ids.forEach((id) => {
-    const variable = figma.variables.getVariableById(id)
-    if (variable) variables.push(variable)
+function filterTokensByNames(input: GetTokenDefsResult, names: Set<string>): GetTokenDefsResult {
+  const tokens: GetTokenDefsResult = {}
+  Object.entries(input).forEach(([name, entry]) => {
+    if (names.has(name)) tokens[name] = entry
   })
-  return buildTokenEntries(variables, config, pluginCode, !!options.includeAllModes)
+  return tokens
 }
 
-async function buildTokenEntries(
-  variables: Variable[],
-  config: CodegenConfig,
-  pluginCode: string | undefined,
+function collectAliasDependencies(allTokens: GetTokenDefsResult, seeds: Set<string>): Set<string> {
+  const names = new Set(seeds)
+  const queue = Array.from(seeds)
+
+  const collectRefs = (entry: TokenEntry) => {
+    const values: string[] = []
+    if (typeof entry.value === 'string') values.push(entry.value)
+    else values.push(...Object.values(entry.value))
+    if (typeof entry.resolvedValue === 'string') values.push(entry.resolvedValue)
+
+    values.forEach((val) => {
+      if (typeof val !== 'string') return
+      if (!val.startsWith('--')) return
+      if (!names.has(val)) {
+        names.add(val)
+        queue.push(val)
+      }
+    })
+  }
+
+  while (queue.length) {
+    const name = queue.pop()
+    const entry = name ? allTokens[name] : undefined
+    if (entry) collectRefs(entry)
+  }
+
+  return names
+}
+
+type BuildTokensOptions = {
+  seedVariables: Variable[]
   includeAllModes: boolean
-): Promise<GetTokenDefsResult> {
-  if (!variables.length) return { tokens: {} }
+  config: CodegenConfig
+  pluginCode?: string
+}
 
-  const references = variables.map((variable) => ({ rawName: variable.name }))
-  const canonicalNames = await transformVariableNames(references, config, pluginCode)
+async function buildTokensFromVariables({
+  seedVariables,
+  includeAllModes,
+  config,
+  pluginCode
+}: BuildTokensOptions): Promise<GetTokenDefsResult> {
+  if (!seedVariables.length) return {}
 
-  const tokens: Record<string, TokenEntry> = {}
+  const index = await getTokenIndex(config, pluginCode)
 
-  for (let index = 0; index < variables.length; index += 1) {
-    const variable = variables[index]
-    const canonicalName = canonicalNames[index] ?? normalizeCssVarName(variable.name)
+  const tokens: GetTokenDefsResult = {}
+  const pending: Variable[] = [...seedVariables]
+  const seenIds = new Set<string>()
+
+  while (pending.length) {
+    const variable = pending.shift()!
+    if (seenIds.has(variable.id)) continue
+    seenIds.add(variable.id)
+
+    const canonicalName =
+      index.canonicalNameById.get(variable.id) ??
+      (await canonicalizeVarName(variable.name, config, pluginCode))
     const collection = resolveVariableCollection(variable)
     const preferredModeId = pickPreferredModeId(variable, collection)
     const modeIds = includeAllModes
@@ -121,11 +216,19 @@ async function buildTokenEntries(
 
     const valueMap: Record<string, string> = {}
     for (const modeId of modeIds) {
-      const mv = await resolveModeValue(variable, modeId, collection, config, pluginCode)
+      const mv = await resolveModeValue(
+        variable,
+        modeId,
+        collection,
+        config,
+        pluginCode,
+        new Set(),
+        pending
+      )
       const modeKey = modeName(collection, modeId)
       const resolvedLiteral = toLiteralString(mv.resolved)
       const aliasName = mv.aliasTo
-        ? await resolveAliasName(mv.aliasTo, config, pluginCode)
+        ? await resolveAliasName(mv.aliasTo, index, config, pluginCode)
         : undefined
       valueMap[modeKey] = aliasName ?? resolvedLiteral
     }
@@ -151,101 +254,7 @@ async function buildTokenEntries(
     tokens[canonicalName] = entry
   }
 
-  return { tokens }
-}
-
-async function findVariablesByCanonicalName(
-  requested: Set<string>,
-  config: CodegenConfig,
-  pluginCode?: string
-): Promise<Variable[]> {
-  if (!requested.size) return []
-
-  const allVariables = await getAllVariables()
-  if (!allVariables.length) return []
-
-  const references = allVariables.map((variable) => ({ rawName: variable.name }))
-  const canonicalNames = await transformVariableNames(references, config, pluginCode)
-
-  const result: Variable[] = []
-  canonicalNames.forEach((name, index) => {
-    if (requested.has(name)) {
-      result.push(allVariables[index])
-    }
-  })
-  return result
-}
-
-function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
-  if ('boundVariables' in node) {
-    const { boundVariables } = node
-    if (boundVariables) {
-      Object.values(boundVariables).forEach((entry) => collectVariableIdFromValue(entry, bucket))
-    }
-  }
-
-  if ('inferredVariables' in node) {
-    const { inferredVariables } = node
-    if (inferredVariables) {
-      Object.values(inferredVariables).forEach((entry) => collectVariableIdFromValue(entry, bucket))
-    }
-  }
-
-  if ('variableReferences' in node) {
-    const { variableReferences } = node
-    if (variableReferences) {
-      Object.values(variableReferences).forEach((entry) =>
-        collectVariableIdFromValue(entry, bucket)
-      )
-    }
-  }
-
-  if ('fills' in node) {
-    const { fills } = node
-    if (Array.isArray(fills)) {
-      fills.forEach((fill) => collectVariableIdFromValue(fill, bucket))
-    }
-  }
-
-  if ('strokes' in node) {
-    const { strokes } = node
-    if (Array.isArray(strokes)) {
-      strokes.forEach((stroke) => collectVariableIdFromValue(stroke, bucket))
-    }
-  }
-
-  if ('effects' in node) {
-    const { effects } = node
-    if (Array.isArray(effects)) {
-      effects.forEach((effect) => collectVariableIdFromValue(effect, bucket))
-    }
-  }
-}
-
-function collectVariableIdFromValue(value: unknown, bucket: Set<string>): void {
-  if (!value) return
-
-  if (Array.isArray(value)) {
-    value.forEach((item) => collectVariableIdFromValue(item, bucket))
-    return
-  }
-
-  if (typeof value === 'object') {
-    if (
-      'visible' in (value as { visible?: boolean }) &&
-      (value as { visible?: boolean }).visible === false
-    ) {
-      return
-    }
-
-    const alias = value as VariableAlias
-    if (alias && typeof alias.id === 'string') {
-      bucket.add(alias.id)
-      return
-    }
-
-    Object.values(value).forEach((nested) => collectVariableIdFromValue(nested, bucket))
-  }
+  return tokens
 }
 
 function resolveVariableCollection(variable: Variable): VariableCollectionInfo | null {
@@ -307,21 +316,27 @@ async function resolveModeValue(
   collection: VariableCollectionInfo | null,
   config: CodegenConfig,
   pluginCode?: string,
-  seen: Set<string> = new Set()
+  aliasSeen: Set<string> = new Set(),
+  pending?: Variable[]
 ): Promise<TokenModeValue> {
   const { valuesByMode = {} } = variable
-  if (seen.has(variable.id)) {
+  if (aliasSeen.has(variable.id)) {
     return { modeId, resolved: null, aliasChain: [] }
   }
-  seen.add(variable.id)
+  aliasSeen.add(variable.id)
 
   const rawValue = valuesByMode[modeId] ?? resolveFallbackValue(valuesByMode, modeId, collection)
 
   if (isVariableAlias(rawValue)) {
     const target = figma.variables.getVariableById(rawValue.id)
     if (!target) {
+      console.error('[tempad-dev] Missing alias target variable', {
+        source: variable.id,
+        target: rawValue.id
+      })
       return { modeId, aliasTo: rawValue.id, resolved: null, aliasChain: [rawValue.id] }
     }
+    pending?.push(target)
     const targetCollection = resolveVariableCollection(target)
     const targetModeId = pickPreferredModeId(target, targetCollection, modeId) ?? modeId
     const resolvedTarget = await resolveModeValue(
@@ -330,7 +345,8 @@ async function resolveModeValue(
       targetCollection,
       config,
       pluginCode,
-      seen
+      aliasSeen,
+      pending
     )
     const chain = [rawValue.id, ...(resolvedTarget.aliasChain ?? [])]
     return {
@@ -394,72 +410,21 @@ function serializeVariableValue(
   }
 }
 
-async function transformVariableNames(
-  references: Array<{ rawName: string }>,
-  config: CodegenConfig,
-  pluginCode?: string
-): Promise<string[]> {
-  if (!references.length) return []
-
-  const transformRefs = references.map(({ rawName }) => {
-    const name = normalizeCssVarName(rawName)
-    return { code: `var(--${name})`, name }
-  })
-
-  const replacements = await runTransformVariableBatch(
-    transformRefs,
-    {
-      useRem: config.cssUnit === 'rem',
-      rootFontSize: config.rootFontSize ?? 16,
-      scale: config.scale ?? 1
-    },
-    pluginCode
-  )
-
-  return replacements.map((expr, idx) => {
-    const fallback = transformRefs[idx]
-    const canonical = canonicalizeVariable(expr)
-    const nameMatch = canonical?.match(/^var\((--[^)]+)\)$/)
-
-    return nameMatch ? nameMatch[1] : (canonical ?? fallback.name)
-  })
-}
-
-async function getAllVariables(): Promise<Variable[]> {
-  const variablesApi = (figma as unknown as { variables?: Record<string, unknown> }).variables
-  if (!variablesApi) return []
-
-  const asyncGetter = (variablesApi as { getLocalVariablesAsync?: () => Promise<Variable[]> })
-    .getLocalVariablesAsync
-  if (typeof asyncGetter === 'function') {
-    try {
-      return await asyncGetter()
-    } catch (error) {
-      console.warn('[tempad-dev] Failed to read variables async:', error)
-    }
-  }
-
-  const syncGetter = (variablesApi as { getLocalVariables?: () => Variable[] }).getLocalVariables
-  if (typeof syncGetter === 'function') {
-    try {
-      return syncGetter()
-    } catch (error) {
-      console.warn('[tempad-dev] Failed to read variables:', error)
-    }
-  }
-
-  return []
-}
-
 async function resolveAliasName(
   id: string,
+  index: Awaited<ReturnType<typeof getTokenIndex>>,
   config: CodegenConfig,
   pluginCode?: string
 ): Promise<string | undefined> {
+  const fromIndex = index.canonicalNameById.get(id)
+  if (fromIndex) return fromIndex
+
+  // Fallback for non-local variables.
   try {
     const v = figma.variables.getVariableById(id)
     if (!v) return undefined
-    return await canonicalizeName(v.name, config, pluginCode)
+    // Ensure it still matches the plugin canonicalization semantics.
+    return await canonicalizeVarName(v.name, config, pluginCode)
   } catch {
     return undefined
   }
@@ -468,15 +433,6 @@ async function resolveAliasName(
 function modeName(collection: VariableCollectionInfo | null, modeId: string): string {
   const found = collection?.modes?.find((m) => m.id === modeId)
   return found?.name || modeId
-}
-
-async function canonicalizeName(
-  rawName: string,
-  config: CodegenConfig,
-  pluginCode?: string
-): Promise<string> {
-  const [result] = await transformVariableNames([{ rawName }], config, pluginCode)
-  return result ?? normalizeCssVarName(rawName)
 }
 
 function mapResolvedType(resolvedType?: string): TokenEntry['kind'] {
@@ -506,9 +462,4 @@ function toLiteralString(value: unknown): string {
     }
   }
   return String(value ?? '')
-}
-
-function getCodegenConfig(): CodegenConfig {
-  const { cssUnit, rootFontSize, scale } = options.value
-  return { cssUnit, rootFontSize, scale }
 }

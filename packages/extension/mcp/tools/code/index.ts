@@ -1,16 +1,27 @@
-import type { AssetDescriptor, GetCodeResult, GetTokenDefsResult } from '@tempad-dev/mcp-shared'
+import type {
+  AssetDescriptor,
+  GetCodeResult,
+  GetTokenDefsResult,
+  TokenEntry
+} from '@tempad-dev/mcp-shared'
 
 import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/mcp-shared'
 
-import type { CodegenConfig } from '@/utils/codegen'
-
 import { buildSemanticTree } from '@/mcp/semantic-tree'
-import { activePlugin, options } from '@/ui/state'
+import { activePlugin } from '@/ui/state'
 import { stringifyComponent } from '@/utils/component'
+import {
+  extractVarNames,
+  normalizeCssVarName,
+  replaceVarFunctions,
+  stripFallback,
+  toVarExpr
+} from '@/utils/css'
 
 import type { RenderContext, CodeLanguage } from './render'
 
-import { collectTokenReferences, resolveVariableTokens } from '../token-defs'
+import { currentCodegenConfig } from '../config'
+import { collectCandidateVariableIds, resolveTokenDefsByNames } from '../token'
 import { collectSceneData } from './collect'
 import { buildGetCodeMessage } from './messages'
 import { renderSemanticNode } from './render'
@@ -52,17 +63,7 @@ const COMPACT_TAGS = new Set([
   'summary'
 ])
 
-function filterTokensByNames(input: GetTokenDefsResult, names: Set<string>): GetTokenDefsResult {
-  const tokens: Record<string, GetTokenDefsResult['tokens'][string]> = {}
-  Object.entries(input.tokens).forEach(([name, entry]) => {
-    if (names.has(name)) {
-      tokens[name] = entry
-    }
-  })
-  return { tokens }
-}
-
-function primaryTokenValue(entry: GetTokenDefsResult['tokens'][string]): string | undefined {
+function primaryTokenValue(entry: TokenEntry): string | undefined {
   if (typeof entry.value === 'string') return entry.value
   if (typeof entry.resolvedValue === 'string') return entry.resolvedValue
   if (entry.activeMode && typeof entry.value[entry.activeMode] === 'string') {
@@ -70,6 +71,34 @@ function primaryTokenValue(entry: GetTokenDefsResult['tokens'][string]): string 
   }
   const first = Object.values(entry.value)[0]
   return typeof first === 'string' ? first : undefined
+}
+
+function resolveConcreteValue(
+  name: string,
+  allTokens: GetTokenDefsResult,
+  cache: Map<string, string | undefined>,
+  depth = 0
+): string | undefined {
+  if (cache.has(name)) return cache.get(name)
+  if (depth > 20) return undefined
+
+  const entry = allTokens[name]
+  if (!entry) {
+    cache.set(name, undefined)
+    return undefined
+  }
+  const val = primaryTokenValue(entry)
+  if (typeof val !== 'string') {
+    cache.set(name, undefined)
+    return undefined
+  }
+  if (val.startsWith('--') && val !== name) {
+    const resolved = resolveConcreteValue(val, allTokens, cache, depth + 1) ?? val
+    cache.set(name, resolved)
+    return resolved
+  }
+  cache.set(name, val)
+  return val
 }
 
 export async function handleGetCode(
@@ -92,13 +121,13 @@ export async function handleGetCode(
     throw new Error('No renderable nodes found for the current selection.')
   }
 
-  const config = codegenConfig()
+  const config = currentCodegenConfig()
   const pluginCode = activePlugin.value?.code
 
   const assetRegistry = new Map<string, AssetDescriptor>()
   const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots, config, assetRegistry)
 
-  await applyVariableTransforms(styles, {
+  const styleVarNames = await applyVariableTransforms(styles, {
     pluginCode,
     config
   })
@@ -131,19 +160,13 @@ export async function handleGetCode(
   const MAX_CODE_CHARS = Math.floor(MCP_MAX_PAYLOAD_BYTES * 0.6)
   const { markup, message } = buildGetCodeMessage(rawMarkup, MAX_CODE_CHARS, tree.stats)
 
-  const { variableIds } = collectTokenReferences(nodes)
-  const allTokens = await resolveVariableTokens(variableIds, config, pluginCode)
+  // Only include tokens actually referenced in the final output.
+  const usedTokenNames = new Set<string>(styleVarNames)
+  extractVarNames(markup).forEach((n) => usedTokenNames.add(n))
 
-  const usedTokenNames = new Set<string>()
-  // Use a simple regex to capture all var(--name) occurrences, including nested ones.
-  // We don't use CSS_VAR_FUNCTION_RE because it consumes the whole function and might miss nested vars in fallbacks.
-  const regex = /var\(--([a-zA-Z0-9-_]+)/g
-  let match
-  while ((match = regex.exec(markup))) {
-    usedTokenNames.add(`--${match[1]}`)
-  }
-
-  const usedTokens = filterTokensByNames(allTokens, usedTokenNames)
+  const usedTokens = await resolveTokenDefsByNames(usedTokenNames, config, pluginCode, {
+    candidateIds: () => collectCandidateVariableIds(nodes).variableIds
+  })
 
   const codegen = {
     preset: activePlugin.value?.name ?? 'none',
@@ -151,13 +174,34 @@ export async function handleGetCode(
   }
 
   if (resolveTokens) {
-    const tokenMap = new Map(
-      Object.entries(usedTokens.tokens).map(([name, entry]) => [name, primaryTokenValue(entry)])
-    )
-    const resolvedMarkup = markup.replace(/var\((--[a-zA-Z0-9-_]+)\)/g, (match, name) => {
-      const val = tokenMap.get(name)
-      return typeof val === 'string' ? val : match
+    const tokenCache = new Map<string, string | undefined>()
+    const tokenMap = new Map<string, string | undefined>()
+    Object.keys(usedTokens).forEach((name) => {
+      tokenMap.set(name, resolveConcreteValue(name, usedTokens, tokenCache))
     })
+
+    const replaceToken = (input: string): string => {
+      // Always strip fallbacks (even if token isn't resolved).
+      let out = stripFallback(input)
+
+      // Replace CSS var() functions first (supports whitespace/nesting).
+      out = replaceVarFunctions(out, ({ name, full }) => {
+        const trimmed = name.trim()
+        if (!trimmed.startsWith('--')) return full
+        const canonical = `--${normalizeCssVarName(trimmed.slice(2))}`
+        const val = tokenMap.get(canonical)
+        return typeof val === 'string' ? val : toVarExpr(canonical)
+      })
+
+      // replace bare --token (e.g., Tailwind arbitrary value: border-[--foo])
+      out = out.replace(/--[A-Za-z0-9-_]+/g, (m) => {
+        const val = tokenMap.get(m)
+        return typeof val === 'string' ? val : m
+      })
+      return out
+    }
+
+    const resolvedMarkup = replaceToken(markup)
     // If tokens are resolved, we don't need to return the token definitions
     return {
       lang: resolvedLang,
@@ -190,9 +234,4 @@ function normalizeRootString(content: string, fallbackTag: string | undefined, l
       isInline: (tag) => COMPACT_TAGS.has(tag)
     }
   )
-}
-
-function codegenConfig(): CodegenConfig {
-  const { cssUnit, rootFontSize, scale } = options.value
-  return { cssUnit, rootFontSize, scale }
 }

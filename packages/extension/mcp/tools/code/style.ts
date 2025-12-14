@@ -1,15 +1,19 @@
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
+import { workerUnitOptions } from '@/utils/codegen'
 import {
-  CSS_VAR_FUNCTION_RE,
-  canonicalizeVariable,
+  canonicalizeVarName,
   expandShorthands,
+  extractVarNames,
   formatHexAlpha,
   normalizeCssVarName,
-  normalizeStyleVariables,
+  preprocessCssValue,
+  replaceVarFunctions,
+  stripFallback,
   normalizeStyleValues,
-  parseBackgroundShorthand
+  parseBackgroundShorthand,
+  toVarExpr
 } from '@/utils/css'
 import { cssToClassNames } from '@/utils/tailwind'
 
@@ -357,36 +361,38 @@ type ApplyVariableOptions = {
 export async function applyVariableTransforms(
   styles: Map<string, Record<string, string>>,
   { pluginCode, config }: ApplyVariableOptions
-): Promise<void> {
+): Promise<Set<string>> {
   const { references, buckets } = collectVariableReferences(styles)
-  if (!references.length) return
+  if (!references.length) return new Set()
 
   const transformResults = await runTransformVariableBatch(
     references.map(({ code, name, value }) => ({ code, name, value })),
-    {
-      useRem: config.cssUnit === 'rem',
-      rootFontSize: config.rootFontSize ?? 16,
-      scale: config.scale ?? 1
-    },
+    workerUnitOptions(config),
     pluginCode
   )
 
   const replacements = transformResults.map((result) => {
-    return canonicalizeVariable(result) || result
+    const noFallback = stripFallback(result)
+    const canonicalName = canonicalizeVarName(noFallback)
+    return canonicalName ? toVarExpr(canonicalName) : noFallback
   })
-
-  const safeRegex = new RegExp(CSS_VAR_FUNCTION_RE.source, CSS_VAR_FUNCTION_RE.flags)
+  const usedNames = new Set<string>()
+  // Keep original reference names to handle transforms that inline literal values.
+  references.forEach(({ name }) => usedNames.add(`--${name}`))
+  replacements.forEach((repl) => extractVarNames(repl).forEach((n) => usedNames.add(n)))
 
   for (const bucket of buckets.values()) {
     const style = styles.get(bucket.nodeId)
     if (!style) continue
 
     let occurrence = 0
-    style[bucket.property] = bucket.value.replace(safeRegex, (match: string) => {
+    style[bucket.property] = replaceVarFunctions(bucket.value, ({ full }) => {
       const refIndex = bucket.matchIndices[occurrence++]
-      return replacements[refIndex] ?? match
+      return refIndex != null ? (replacements[refIndex] ?? full) : full
     })
   }
+
+  return usedNames
 }
 
 export function stripInertShadows(style: Record<string, string>, node: SceneNode): void {
@@ -418,30 +424,33 @@ function isFillRenderable(fill: Paint | undefined): boolean {
 function collectVariableReferences(styles: Map<string, Record<string, string>>) {
   const references: VariableReferenceInternal[] = []
   const buckets = new Map<string, PropertyBucket>()
-  const regex = new RegExp(CSS_VAR_FUNCTION_RE.source, CSS_VAR_FUNCTION_RE.flags)
 
   for (const [nodeId, style] of styles.entries()) {
-    normalizeStyleVariables(style)
-
     for (const [property, value] of Object.entries(style)) {
-      let match: RegExpExecArray | null
       let hasMatch = false
       const indices: number[] = []
 
-      regex.lastIndex = 0
-      while ((match = regex.exec(value))) {
+      const normalized = preprocessCssValue(value)
+      if (normalized !== value) {
+        style[property] = normalized
+      }
+
+      replaceVarFunctions(normalized, ({ full, name, fallback }) => {
+        const trimmed = name.trim()
+        if (!trimmed.startsWith('--')) return full
+
         hasMatch = true
-        const [, name, fallback] = match
         const refIndex =
           references.push({
             nodeId,
             property,
-            code: match[0],
-            name: normalizeCssVarName(name),
+            code: full,
+            name: normalizeCssVarName(trimmed.slice(2)),
             value: fallback?.trim()
           }) - 1
         indices.push(refIndex)
-      }
+        return full
+      })
 
       if (hasMatch) {
         const key = `${nodeId}:${property}`
@@ -449,7 +458,7 @@ function collectVariableReferences(styles: Map<string, Record<string, string>>) 
         if (bucket) {
           bucket.matchIndices.push(...indices)
         } else {
-          buckets.set(key, { nodeId, property, value, matchIndices: indices })
+          buckets.set(key, { nodeId, property, value: normalized, matchIndices: indices })
         }
       }
     }

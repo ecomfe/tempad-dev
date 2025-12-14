@@ -33,6 +33,10 @@ const formatVariable = (ref: TransformVariableReference): string => {
 
 const postMessage = globalThis.postMessage
 
+let cachedPluginCode: string | undefined
+let cachedPlugin: Plugin | null = null
+let cachedTransformVariable: NonNullable<TransformOptions['transformVariable']> | undefined
+
 function resolveTransformVariable(
   plugin: Plugin | null
 ): NonNullable<TransformOptions['transformVariable']> | undefined {
@@ -51,20 +55,30 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   const { id, payload } = data
   const { pluginCode, references, options } = payload
 
-  let plugin: Plugin | null = null
+  let transformVariable: NonNullable<TransformOptions['transformVariable']> | undefined
 
   if (pluginCode) {
-    try {
-      const exports = await evaluate(pluginCode)
-      plugin = (exports.default || exports.plugin) as Plugin
-    } catch (error) {
-      const message: Response = { id, error }
-      postMessage(message)
-      return
+    if (pluginCode === cachedPluginCode) {
+      transformVariable = cachedTransformVariable
+    } else {
+      try {
+        const exports = await evaluate(pluginCode)
+        cachedPlugin = (exports.default || exports.plugin) as Plugin
+        cachedPluginCode = pluginCode
+        cachedTransformVariable = resolveTransformVariable(cachedPlugin)
+        transformVariable = cachedTransformVariable
+      } catch (error) {
+        const message: Response = { id, error }
+        postMessage(message)
+        return
+      }
     }
+  } else {
+    // Reset cache when plugin is disabled.
+    cachedPluginCode = undefined
+    cachedPlugin = null
+    cachedTransformVariable = undefined
   }
-
-  const transformVariable = resolveTransformVariable(plugin)
 
   const results = references.map((ref) => {
     const { code, name, value } = ref
