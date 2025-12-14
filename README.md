@@ -199,7 +199,7 @@ TemPad Dev ships an [MCP](https://modelcontextprotocol.io/) server so agents/IDE
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-config-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-config-light.png">
-  <img alt="TemPad Dev MCP preferences panel." src="packages/extension/assets/mcp-config-light.png" width="480">
+  <img alt="TemPad Dev MCP preferences panel." src="packages/extension/assets/mcp-config-light.png" width="240">
 </picture>
 
 1. **Requirements**: Node.js 18+ and TemPad Dev running in a Figma tab.
