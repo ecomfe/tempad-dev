@@ -149,7 +149,7 @@ export function createCodeToolResponse(payload: ToolResultMap['get_code']): Call
       ? `Assets attached: ${payload.assets.length}. Fetch bytes via resources/read using resourceUri.`
       : 'No binary assets were attached to this response.'
   )
-  const tokenCount = payload.usedTokens ? Object.keys(payload.usedTokens.tokens ?? {}).length : 0
+  const tokenCount = payload.usedTokens ? Object.keys(payload.usedTokens ?? {}).length : 0
   if (tokenCount) {
     summary.push(`Token references included: ${tokenCount}.`)
   }

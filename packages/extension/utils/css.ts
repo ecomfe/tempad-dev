@@ -11,22 +11,46 @@ function escapeSingleQuote(value: string) {
 export const WHITESPACE_RE = /\s+/
 export const ALL_WHITESPACE_RE = /\s+/g
 export const COMMA_DELIMITER_RE = /,\s*/g
-export const ZERO_UNITS_RE = /(^|\s)0(px|rem|%|em)(?=$|\s)/g
+const ZERO_UNITS_RE = /(^|\s)0(px|rem|%|em)(?=$|\s)/g
 
-export const CSS_VAR_FUNCTION_RE = /var\(--([^,)]+)(?:,\s*([^)]+))?\)/g
-export const CSS_VAR_FUNCTION_EXACT_RE = /^var\(\s*(--[A-Za-z0-9-_]+)\s*(?:,.*)?\)$/
 const SCSS_VARS_RE = /(^|[^\w-])[$@]([a-zA-Z0-9_-]+)/g
-const PREPROCESSOR_VAR_RE = /^[$@]([A-Za-z0-9-_]+)$/
-const BARE_CSS_CUSTOM_PROP_RE = /^(--[A-Za-z0-9-_]+)$/
 
-export const PX_VALUE_RE = /\b(-?\d+(?:.\d+)?)px\b/g
+const PX_VALUE_RE = /\b(-?\d+(?:\.\d+)?)px\b/g
 export const QUOTES_RE = /['"]/g
-export const TOP_LEVEL_COMMA_RE = /,(?![^(]*\))/
 const NUMBER_RE = /^\d+(\.\d+)?$/
 
-export const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
-export const BG_REPEAT_RE = /(?:^|\s)(no-repeat|repeat-x|repeat-y|repeat|space|round)(?=$|\s)/i
-export const BG_POS_RE =
+function hasTopLevelComma(value: string): boolean {
+  let depth = 0
+  let quote: "'" | '"' | null = null
+
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i]
+
+    if (quote) {
+      if (ch === '\\') {
+        i++
+        continue
+      }
+      if (ch === quote) quote = null
+      continue
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      continue
+    }
+
+    if (ch === '(') depth++
+    else if (ch === ')') depth = Math.max(0, depth - 1)
+    else if (ch === ',' && depth === 0) return true
+  }
+
+  return false
+}
+
+const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
+const BG_REPEAT_RE = /(?:^|\s)(no-repeat|repeat-x|repeat-y|repeat|space|round)(?=$|\s)/i
+const BG_POS_RE =
   /(?:^|\s)(center|top|bottom|left|right|[\d.]+(?:%|px))(?:\s+(?:center|top|bottom|left|right|[\d.]+(?:%|px)))?(?=\s*\/|\s*$)/i
 export const BG_URL_RE = /url\((['"]?)(.*?)\1\)/i
 
@@ -44,6 +68,88 @@ const KEEP_PX_PROPS = new Set([
 ])
 
 const CSS_COMMENTS_RE = /\/\*[\s\S]*?\*\//g
+
+type VarFunctionMatch = {
+  full: string
+  name: string
+  fallback?: string
+}
+
+export function replaceVarFunctions(
+  input: string,
+  replacer: (match: VarFunctionMatch) => string
+): string {
+  if (!input) return input
+
+  let out = ''
+  let i = 0
+
+  while (i < input.length) {
+    const start = input.toLowerCase().indexOf('var(', i)
+    if (start < 0) {
+      out += input.slice(i)
+      break
+    }
+
+    out += input.slice(i, start)
+
+    let j = start + 4
+    let depth = 1
+    let nameStart = -1
+    let nameEnd = -1
+    let commaIndex = -1
+
+    while (j < input.length && /\s/.test(input[j])) j++
+    nameStart = j
+
+    for (; j < input.length; j++) {
+      const ch = input[j]
+      if (ch === '(') depth++
+      else if (ch === ')') {
+        depth--
+        if (depth === 0) break
+      } else if (ch === ',' && depth === 1 && commaIndex < 0) {
+        commaIndex = j
+        nameEnd = j
+      }
+    }
+
+    if (depth !== 0) {
+      out += input.slice(start)
+      break
+    }
+
+    if (commaIndex < 0) {
+      nameEnd = j
+    }
+
+    while (nameEnd > nameStart && /\s/.test(input[nameEnd - 1])) nameEnd--
+
+    const full = input.slice(start, j + 1)
+    const name = input.slice(nameStart, nameEnd)
+    const fallback = commaIndex >= 0 ? input.slice(commaIndex + 1, j).trim() : undefined
+
+    out += replacer({ full, name, ...(fallback ? { fallback } : {}) })
+    i = j + 1
+  }
+
+  return out
+}
+
+export function extractVarNames(input: string): Set<string> {
+  const out = new Set<string>()
+  if (!input) return out
+
+  replaceVarFunctions(input, ({ name, full }) => {
+    const trimmed = name.trim()
+    if (trimmed.startsWith('--')) {
+      out.add(`--${normalizeCssVarName(trimmed.slice(2))}`)
+    }
+    return full
+  })
+
+  return out
+}
 
 export function formatHexAlpha(
   color: { r: number; g: number; b: number },
@@ -96,13 +202,13 @@ export function parseBackgroundShorthand(value: string) {
   return result
 }
 
-export function parseBoxValues(value: string): [string, string, string, string] {
+function parseBoxValues(value: string): [string, string, string, string] {
   const parts = value.trim().split(WHITESPACE_RE)
   const [t, r = t, b = t, l = r] = parts
   return [t, r, b, l]
 }
 
-export function parseFlexShorthand(value: string) {
+function parseFlexShorthand(value: string) {
   const parts = value.trim().split(WHITESPACE_RE)
 
   let grow = '1'
@@ -150,7 +256,7 @@ export function parseFlexShorthand(value: string) {
   return { grow, shrink, basis }
 }
 
-export function transformPxValue(value: string, transform: (value: number) => string) {
+function transformPxValue(value: string, transform: (value: number) => string) {
   return value.replace(PX_VALUE_RE, (_, val) => {
     const parsed = parseNumber(val)
     if (parsed == null) return val
@@ -199,12 +305,11 @@ export function normalizeStyleValues(
   return normalized
 }
 
-function parseBorderShorthand(val: string): {
+function parseBorderShorthand(normalized: string): {
   width?: string
   style?: string
   color?: string
 } {
-  const normalized = normalizeStyleValue(val)
   const matched = normalized.match(/^\s*(\S+)\s+(\S+)\s+(.+)\s*$/)
   if (matched) {
     const [, width, style, color] = matched
@@ -271,7 +376,7 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
 
   if (expanded['background']) {
     const val = normalizeStyleValue(expanded['background'])
-    if (!TOP_LEVEL_COMMA_RE.test(val)) {
+    if (!hasTopLevelComma(val)) {
       const parsed = parseBackgroundShorthand(val)
       if (parsed.size) expanded['background-size'] = parsed.size
       if (parsed.repeat) expanded['background-repeat'] = parsed.repeat
@@ -371,9 +476,16 @@ export function serializeCSS(
     }
 
     if (typeof transformVariable === 'function') {
-      current = current.replace(CSS_VAR_FUNCTION_RE, (_, name: string, value: string) =>
-        transformVariable({ code: current, name, value, options })
-      )
+      current = replaceVarFunctions(current, ({ name, fallback }) => {
+        const trimmed = name.trim()
+        const normalizedName = trimmed.startsWith('--') ? trimmed.slice(2) : trimmed
+        return transformVariable({
+          code: current,
+          name: normalizedName,
+          value: fallback,
+          options
+        })
+      })
     }
 
     if (KEEP_PX_PROPS.has(key)) {
@@ -439,25 +551,41 @@ export function serializeCSS(
   return code
 }
 
-export function canonicalizeVariable(value: string): string | null {
-  const v = normalizeStyleValue(value)
+export function canonicalizeVarName(value: string): string | null {
+  if (!value) return null
+  const cleaned = stripFallback(preprocessCssValue(value)).trim()
 
-  const varFn = v.match(CSS_VAR_FUNCTION_EXACT_RE)
-  if (varFn) return `var(${varFn[1]})`
+  if (cleaned.startsWith('var(') && cleaned.endsWith(')')) {
+    // stripFallback() guarantees we have no comma at top-level.
+    let inner = cleaned.slice(4, -1).trim()
+    if (inner.startsWith('--')) {
+      inner = inner.slice(2).trim()
+      const normalized = normalizeCssVarName(inner)
+      return `--${normalized}`
+    }
+    return null
+  }
 
-  const pre = v.match(PREPROCESSOR_VAR_RE)
-  if (pre) return `var(--${pre[1]})`
-
-  const bare = v.match(BARE_CSS_CUSTOM_PROP_RE)
-  if (bare) return `var(${bare[1]})`
+  if (cleaned.startsWith('--')) {
+    const normalized = normalizeCssVarName(cleaned.slice(2))
+    return `--${normalized}`
+  }
 
   return null
+}
+
+export function toVarExpr(name: string): string {
+  const trimmed = name.trim()
+  const canonical = trimmed.startsWith('--')
+    ? `--${normalizeCssVarName(trimmed.slice(2))}`
+    : `--${normalizeCssVarName(trimmed)}`
+  return `var(${canonical})`
 }
 
 export function normalizeCssVarName(name: string): string {
   const cleaned = name
     .trim()
-    .replace(/[^a-zA-Z0-9-_]/g, '-')
+    .replace(/[^a-zA-Z0-9_-]/g, '-')
     .replace(/-+/g, '-')
   if (!cleaned) return 'var'
   if (/^[0-9-]/.test(cleaned)) {
@@ -466,101 +594,24 @@ export function normalizeCssVarName(name: string): string {
   return cleaned
 }
 
-export function normalizeCssVarValue(value: string): string {
-  const cleaned = canonicalizeEmbeddedVariables(stripCssComments(value))
-  const normalizedVarFns = cleaned.replace(
-    CSS_VAR_FUNCTION_RE,
-    (_match, name: string, fallback?: string) => {
-      const normalized = normalizeCssVarName(name)
-      return fallback ? `var(--${normalized}, ${fallback})` : `var(--${normalized})`
-    }
-  )
-  return normalizedVarFns
+// Preprocess raw CSS-like values so subsequent var() parsing behaves consistently.
+// Intentionally does NOT strip fallbacks.
+export function preprocessCssValue(value: string): string {
+  if (!value) return value
+  return value.replace(CSS_COMMENTS_RE, '').replace(SCSS_VARS_RE, '$1var(--$2)')
 }
 
-export function normalizeStyleVariables(style: Record<string, string>): Record<string, string> {
-  Object.entries(style).forEach(([key, value]) => {
-    const normalized = normalizeCssVarValue(value)
-    if (normalized !== value) {
-      style[key] = normalized
-    }
+export function stripFallback(value: string): string {
+  return replaceVarFunctions(value, ({ name, full, fallback }) => {
+    if (!fallback) return full
+    return `var(${name.trim()})`
   })
-  return style
-}
-
-export function stripCssComments(value: string): string {
-  return value.replace(CSS_COMMENTS_RE, '')
-}
-
-export function canonicalizeEmbeddedVariables(value: string): string {
-  return value.replace(SCSS_VARS_RE, '$1var(--$2)')
-}
-
-function stripVarFallbacks(value: string): string {
-  let i = 0
-  const len = value.length
-  let out = ''
-
-  while (i < len) {
-    if (value.startsWith('var(', i)) {
-      let j = i + 4
-      let depth = 1
-
-      // skip whitespace after var(
-      while (j < len && /\s/.test(value[j])) j++
-      const nameStart = j
-
-      let nameEnd = nameStart
-      let sawComma = false
-
-      for (; j < len; j++) {
-        const ch = value[j]
-        if (ch === '(') depth++
-        else if (ch === ')') {
-          depth--
-          if (depth === 0) break
-        } else if (ch === ',' && depth === 1 && !sawComma) {
-          sawComma = true
-          nameEnd = j
-        }
-      }
-
-      if (depth === 0) {
-        if (!sawComma) {
-          nameEnd = j
-        }
-        // trim trailing whitespace from name
-        while (nameEnd > nameStart && /\s/.test(value[nameEnd - 1])) nameEnd--
-
-        const name = value.slice(nameStart, nameEnd)
-        out += `var(${name})`
-        i = j + 1
-        continue
-      }
-      // fall through if malformed
-    }
-
-    out += value[i]
-    i++
-  }
-
-  return out
-}
-
-export function isCssVar(value: string): boolean {
-  return /^var\(/i.test(stripCssComments(value).trim())
-}
-
-export function isZeroValue(value: string): boolean {
-  return /^(0+(\.0+)?)([a-z%]+)?$/i.test(value.trim())
 }
 
 export function normalizeStyleValue(raw: string): string {
   if (!raw) return ''
-  let val = raw
-  val = stripCssComments(val)
-  val = canonicalizeEmbeddedVariables(val)
-  val = stripVarFallbacks(val)
+  let val = preprocessCssValue(raw)
+  val = stripFallback(val)
   val = val.replace(ZERO_UNITS_RE, '$10')
   return val.trim()
 }
@@ -613,14 +664,6 @@ export function stripDefaultTextStyles(style: Record<string, string>): Record<st
     cleaned[key] = value
   })
   return cleaned
-}
-
-export function stripVariantTextProps(
-  style: Record<string, string>,
-  hasVariants: boolean
-): Record<string, string> {
-  if (!hasVariants) return style
-  return style
 }
 
 export function pruneInheritedTextStyles(

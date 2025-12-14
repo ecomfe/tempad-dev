@@ -59,7 +59,7 @@ export const GetTokenDefsParametersSchema = z.object({
     .array(z.string().regex(/^--[a-zA-Z0-9-_]+$/))
     .min(1)
     .describe(
-      'Canonical token names (CSS variable form) from get_code.usedTokens or your own list to resolve, e.g., --color-primary.'
+      'Canonical token names (CSS variable form) from Object.keys(get_code.usedTokens) or your own list to resolve, e.g., --color-primary.'
     ),
   includeAllModes: z
     .boolean()
@@ -78,7 +78,7 @@ export type TokenEntry = {
 }
 
 export type GetTokenDefsResult = {
-  tokens: Record<string, TokenEntry>
+  [canonicalName: string]: TokenEntry
 }
 
 // get_screenshot
