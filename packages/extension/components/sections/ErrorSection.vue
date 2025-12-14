@@ -3,7 +3,6 @@ import Discord from '@/components/icons/Discord.vue'
 import GitHub from '@/components/icons/GitHub.vue'
 import Warning from '@/components/icons/Warning.vue'
 import Section from '@/components/Section.vue'
-import { showDuplicateItem } from '@/utils'
 </script>
 
 <template>
@@ -14,14 +13,6 @@ import { showDuplicateItem } from '@/utils'
       </div>
     </template>
     <p>Due to Figma updates, TemPad is temporarily unavailable in view-only mode.</p>
-    <p
-      class="tp-error-alert"
-      data-tooltip="Click to see how to"
-      data-tooltip-type="text"
-      @click="showDuplicateItem"
-    >
-      Duplicate this file to drafts to continue using TemPad Dev.
-    </p>
     <p class="tp-error-actions">
       <a target="_blank" href="https://discord.gg/MXGXwtkEck"
         ><Discord /> Join Discord for updates</a
