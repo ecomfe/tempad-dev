@@ -17,6 +17,7 @@
   ],
   "scripts": {
     "build": "tsdown",
+    "prepare": "pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs",
     "lint:fix": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs --fix",
