@@ -1,5 +1,3 @@
-import { ui } from '@/ui/figma'
-
 export function getCanvas() {
   // Need to ensure the whole plugin is rendered after canvas is ready
   // so that we can cast the result to HTMLElement here.
