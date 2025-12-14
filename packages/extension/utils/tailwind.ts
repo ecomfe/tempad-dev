@@ -621,6 +621,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'bg',
     mode: 'direct',
     valueKind: 'any',
+    arbitraryType: 'position',
     keywords: [
       ['center', 'center'],
       ['top', 'top'],
@@ -667,8 +668,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
       r: 'border-right-width',
       b: 'border-bottom-width',
       l: 'border-left-width'
-    },
-    arbitraryType: 'length'
+    }
   },
   borderColor: {
     prefix: 'border-',
@@ -790,11 +790,9 @@ function extractValuePart(
   const isKeyword = overrideIsKeyword ?? isStrictKeywordType
 
   if (!isKeyword) {
-    text = `[${inner}]`
+    const shouldTag = config.arbitraryType && (inner.includes('var(') || config.valueKind === 'any')
 
-    if (config.arbitraryType && (inner.includes('var(') || !isNaN(Number(inner)))) {
-      text = `[${config.arbitraryType}:${inner}]`
-    }
+    text = shouldTag ? `[${config.arbitraryType}:${inner}]` : `[${inner}]`
   }
 
   return { isNegative, text, isKeyword }
