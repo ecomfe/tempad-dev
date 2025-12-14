@@ -8,7 +8,7 @@ import { activePlugin } from '@/ui/state'
 import { formatHexAlpha, normalizeCssValue } from '@/utils/css'
 
 import { currentCodegenConfig } from '../config'
-import { canonicalizeVarName, canonicalizeVarNames, getTokenIndex } from './indexer'
+import { canonicalizeName, canonicalizeNames, getTokenIndex } from './indexer'
 
 type TokenModeValue = {
   modeId: string
@@ -84,27 +84,18 @@ async function resolveTokens({
   if (!names.size) return {}
 
   const seeds: Variable[] = []
-  const index = await getTokenIndex(config, pluginCode)
-  const missingNames = new Set<string>()
-  for (const name of names) {
-    const idsForName = index.byCanonicalName.get(name)
-    if (!idsForName?.length) {
-      missingNames.add(name)
-      continue
-    }
-    for (const id of idsForName) {
-      const variable = figma.variables.getVariableById(id)
-      if (variable) seeds.push(variable)
-    }
+  const remaining = new Set(names)
+  let index: Awaited<ReturnType<typeof getTokenIndex>> | null = null
+
+  const ensureIndex = async () => {
+    if (!index) index = await getTokenIndex(config, pluginCode)
+    return index
   }
 
-  // Fallback for non-local/library variables: scan candidate variable ids referenced by selection.
-  // Still keep the output limited to `names` (+ alias deps) via filtering below.
-  if (missingNames.size && candidateIds) {
+  // Try to satisfy via candidate ids first (narrow scope).
+  if (remaining.size && candidateIds) {
     const realized = typeof candidateIds === 'function' ? candidateIds() : candidateIds
-    if (!realized?.size) {
-      // no-op
-    } else {
+    if (realized?.size) {
       const candidateVariables: Variable[] = []
       for (const id of realized) {
         const v = figma.variables.getVariableById(id)
@@ -112,7 +103,7 @@ async function resolveTokens({
       }
 
       if (candidateVariables.length) {
-        const canonicals = await canonicalizeVarNames(
+        const canonicals = await canonicalizeNames(
           candidateVariables.map((v) => v.name),
           config,
           pluginCode
@@ -121,23 +112,39 @@ async function resolveTokens({
         for (let i = 0; i < candidateVariables.length; i++) {
           const v = candidateVariables[i]
           const canonical = canonicals[i]
-          if (canonical && missingNames.has(canonical)) {
+          if (canonical && remaining.has(canonical)) {
             seeds.push(v)
+            remaining.delete(canonical)
           }
         }
       }
     }
   }
 
-  const allTokens = await buildTokensFromVariables({
+  // Use full index only for remaining names.
+  if (remaining.size) {
+    const fullIndex = await ensureIndex()
+    for (const name of remaining) {
+      const idsForName = fullIndex.byCanonicalName.get(name)
+      if (!idsForName?.length) continue
+      for (const id of idsForName) {
+        const variable = figma.variables.getVariableById(id)
+        if (variable) seeds.push(variable)
+      }
+    }
+    remaining.clear()
+  }
+
+  const { tokens, aliasDeps } = await buildTokensFromVariables({
     seedVariables: seeds,
     includeAllModes,
     config,
-    pluginCode
+    pluginCode,
+    index: index ?? undefined
   })
 
-  const expanded = collectAliasDependencies(allTokens, names)
-  return filterTokensByNames(allTokens, expanded)
+  const needed = new Set<string>([...names, ...aliasDeps])
+  return filterTokensByNames(tokens, needed)
 }
 
 function filterTokensByNames(input: GetTokenDefsResult, names: Set<string>): GetTokenDefsResult {
@@ -148,53 +155,27 @@ function filterTokensByNames(input: GetTokenDefsResult, names: Set<string>): Get
   return tokens
 }
 
-function collectAliasDependencies(allTokens: GetTokenDefsResult, seeds: Set<string>): Set<string> {
-  const names = new Set(seeds)
-  const queue = Array.from(seeds)
-
-  const collectRefs = (entry: TokenEntry) => {
-    const values: string[] = []
-    if (typeof entry.value === 'string') values.push(entry.value)
-    else values.push(...Object.values(entry.value))
-    if (typeof entry.resolvedValue === 'string') values.push(entry.resolvedValue)
-
-    values.forEach((val) => {
-      if (typeof val !== 'string') return
-      if (!val.startsWith('--')) return
-      if (!names.has(val)) {
-        names.add(val)
-        queue.push(val)
-      }
-    })
-  }
-
-  while (queue.length) {
-    const name = queue.pop()
-    const entry = name ? allTokens[name] : undefined
-    if (entry) collectRefs(entry)
-  }
-
-  return names
-}
-
 type BuildTokensOptions = {
   seedVariables: Variable[]
   includeAllModes: boolean
   config: CodegenConfig
   pluginCode?: string
+  index?: Awaited<ReturnType<typeof getTokenIndex>>
 }
 
 async function buildTokensFromVariables({
   seedVariables,
   includeAllModes,
   config,
-  pluginCode
-}: BuildTokensOptions): Promise<GetTokenDefsResult> {
-  if (!seedVariables.length) return {}
+  pluginCode,
+  index: providedIndex
+}: BuildTokensOptions): Promise<{ tokens: GetTokenDefsResult; aliasDeps: Set<string> }> {
+  if (!seedVariables.length) return { tokens: {}, aliasDeps: new Set() }
 
-  const index = await getTokenIndex(config, pluginCode)
+  const index = providedIndex ?? (await getTokenIndex(config, pluginCode))
 
   const tokens: GetTokenDefsResult = {}
+  const aliasDeps = new Set<string>()
   const pending: Variable[] = [...seedVariables]
   const seenIds = new Set<string>()
 
@@ -205,7 +186,7 @@ async function buildTokensFromVariables({
 
     const canonicalName =
       index.canonicalNameById.get(variable.id) ??
-      (await canonicalizeVarName(variable.name, config, pluginCode))
+      (await canonicalizeName(variable.name, config, pluginCode))
     const collection = resolveVariableCollection(variable)
     const preferredModeId = pickPreferredModeId(variable, collection)
     const modeIds = includeAllModes
@@ -230,6 +211,15 @@ async function buildTokensFromVariables({
       const aliasName = mv.aliasTo
         ? await resolveAliasName(mv.aliasTo, index, config, pluginCode)
         : undefined
+      if (aliasName) {
+        aliasDeps.add(aliasName)
+      }
+      if (mv.aliasChain?.length) {
+        for (const aliasId of mv.aliasChain) {
+          const chainName = await resolveAliasName(aliasId, index, config, pluginCode)
+          if (chainName) aliasDeps.add(chainName)
+        }
+      }
       valueMap[modeKey] = aliasName ?? resolvedLiteral
     }
 
@@ -254,7 +244,7 @@ async function buildTokensFromVariables({
     tokens[canonicalName] = entry
   }
 
-  return tokens
+  return { tokens, aliasDeps }
 }
 
 function resolveVariableCollection(variable: Variable): VariableCollectionInfo | null {
@@ -424,7 +414,7 @@ async function resolveAliasName(
     const v = figma.variables.getVariableById(id)
     if (!v) return undefined
     // Ensure it still matches the plugin canonicalization semantics.
-    return await canonicalizeVarName(v.name, config, pluginCode)
+    return await canonicalizeName(v.name, config, pluginCode)
   } catch {
     return undefined
   }

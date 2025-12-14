@@ -5,7 +5,8 @@ import { joinClassNames } from '@/utils/tailwind'
 
 import type { RenderContext } from '../render'
 
-import { applyVariableTransforms, styleToClassNames } from '../style'
+import { styleToClassNames } from '../style'
+import { transform } from '../variables'
 import { buildTextBlocks, formatTextLiteral, getStyledSegments } from './segments'
 import { computeDominantStyle, omitCommon } from './style'
 import {
@@ -53,7 +54,7 @@ export async function renderTextSegments(
     }
   }
 
-  await applyVariableTransforms(runStyleMap, {
+  await transform(runStyleMap, {
     pluginCode: ctx.pluginCode,
     config: ctx.config
   })

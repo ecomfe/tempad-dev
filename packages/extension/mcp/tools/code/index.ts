@@ -25,7 +25,7 @@ import { collectCandidateVariableIds, resolveTokenDefsByNames } from '../token'
 import { collectSceneData } from './collect'
 import { buildGetCodeMessage } from './messages'
 import { renderSemanticNode } from './render'
-import { applyVariableTransforms } from './style'
+import { transform } from './variables'
 
 // Tags that should render children without extra whitespace/newlines.
 const COMPACT_TAGS = new Set([
@@ -127,7 +127,7 @@ export async function handleGetCode(
   const assetRegistry = new Map<string, AssetDescriptor>()
   const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots, config, assetRegistry)
 
-  const styleVarNames = await applyVariableTransforms(styles, {
+  const styleVarNames = await transform(styles, {
     pluginCode,
     config
   })

@@ -58,7 +58,7 @@ function parseCanonicalFromExpr(expr: string, fallbackName: string): string {
   return `--${normalizeCssVarName(fallbackName)}`
 }
 
-export async function canonicalizeVarNames(
+export async function canonicalizeNames(
   rawNames: string[],
   config: CodegenConfig,
   pluginCode?: string
@@ -89,12 +89,12 @@ export async function canonicalizeVarNames(
   })
 }
 
-export async function canonicalizeVarName(
+export async function canonicalizeName(
   rawName: string,
   config: CodegenConfig,
   pluginCode?: string
 ): Promise<string> {
-  const [canonical] = await canonicalizeVarNames([rawName], config, pluginCode)
+  const [canonical] = await canonicalizeNames([rawName], config, pluginCode)
   return canonical ?? `--${normalizeCssVarName(rawName)}`
 }
 
@@ -113,7 +113,7 @@ export async function getTokenIndex(
     const byCanonicalName = new Map<string, string[]>()
     const canonicalNameById = new Map<string, string>()
 
-    const canonicals = await canonicalizeVarNames(
+    const canonicals = await canonicalizeNames(
       variables.map((v) => v.name),
       config,
       pluginCode
