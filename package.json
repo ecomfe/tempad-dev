@@ -30,7 +30,7 @@
     "zip": "pnpm --filter @tempad-dev/extension zip",
     "npm:plugins": "pnpm --filter @tempad-dev/plugins publish --access public",
     "npm:mcp": "pnpm --filter @tempad-dev/mcp publish --access public",
-    "format:check": "pnpm exec prettier --check \"**/*.{js,ts,mjs,cjs,cts,mts,json,md,yml,yaml}\" --ignore-path .gitignore",
+    "format:check": "pnpm exec prettier --check \"**/*.{js,ts,mjs,cjs,cts,mts,json,md,yml,yaml}\"",
     "prepare": "lefthook install"
   },
   "pnpm": {
