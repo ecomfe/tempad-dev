@@ -61,7 +61,7 @@ function handleRemove(source: string) {
   <Section flat class="tp-plugins">
     <template #header>
       <div class="tp-row">Plugins</div>
-      <IconButton title="Install plugin">
+      <IconButton variant="secondary" title="Install plugin">
         <Plus @click="showImporter" />
       </IconButton>
     </template>

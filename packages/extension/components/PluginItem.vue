@@ -72,6 +72,7 @@ function handleRemove() {
     </label>
     <div class="tp-row tp-gap">
       <IconButton
+        variant="secondary"
         class="tp-plugin-item-update"
         :class="{ 'tp-plugin-item-updating': installing }"
         title="Update"
@@ -79,7 +80,7 @@ function handleRemove() {
       >
         <Refresh :spin="installing" />
       </IconButton>
-      <IconButton title="Remove" @click="handleRemove">
+      <IconButton variant="secondary" title="Remove" @click="handleRemove">
         <Minus />
       </IconButton>
     </div>

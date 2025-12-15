@@ -53,6 +53,21 @@ tempad .tp-ellipsis {
   min-width: 0;
 }
 
+tempad button {
+  display: inline-flex;
+  place-items: center;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  border: none;
+  background: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 tempad input,
 tempad select {
   cursor: default;
