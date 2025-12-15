@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useIdle, useTimeoutFn } from '@vueuse/core'
+
 import Badge from '@/components/Badge.vue'
 import IconButton from '@/components/IconButton.vue'
 import Minus from '@/components/icons/Minus.vue'
@@ -15,6 +17,8 @@ import { options, runtimeMode } from '@/ui/state'
 
 useSelection()
 useKeyLock()
+
+const HINT_IDLE_MS = 10000
 
 function toggleMinimized() {
   options.value.minimized = !options.value.minimized
@@ -56,6 +60,21 @@ const mcpBadgeActiveClass = computed(() =>
   isMcpConnected.value ? (selfActive.value ? 'tp-mcp-badge-active' : 'tp-mcp-badge-inactive') : null
 )
 
+const showHint = ref(true)
+const initialLock = ref(true)
+const { idle } = useIdle(HINT_IDLE_MS, {
+  initialState: true
+})
+
+watch(idle, (isIdle) => {
+  showHint.value = isIdle || initialLock.value
+})
+
+useTimeoutFn(() => {
+  initialLock.value = false
+  showHint.value = idle.value
+}, 3000)
+
 function activateMcp() {
   if (isMcpConnected.value) {
     activate()
@@ -64,7 +83,10 @@ function activateMcp() {
 </script>
 
 <template>
-  <Panel class="tp-main" :class="{ 'tp-main-minimized': options.minimized }">
+  <Panel
+    class="tp-main"
+    :class="{ 'tp-main-minimized': options.minimized, 'tp-main-hint': showHint }"
+  >
     <template #header>
       <div class="tp-row tp-gap-l">
         <span>TemPad Dev</span>
@@ -108,12 +130,18 @@ function activateMcp() {
 
 <style scoped>
 .tp-main {
-  transition: height 0.2s cubic-bezier(0.87, 0, 0.13, 1);
+  transition:
+    height 0.2s cubic-bezier(0.87, 0, 0.13, 1),
+    box-shadow 0.2s ease;
 }
 
 .tp-main-minimized {
   height: 41px;
   border-bottom-width: 0;
+}
+
+.tp-main-hint {
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 30%, var(--color-bg) 30%);
 }
 
 .tp-main.tp-panel-dragging,
