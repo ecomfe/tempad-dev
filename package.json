@@ -2,7 +2,6 @@
   "name": "tempad-dev",
   "description": "TemPad Dev monorepo",
   "private": true,
-  "version": "0.14.0",
   "type": "module",
   "devDependencies": {
     "@eslint/js": "^9.39.1",
