@@ -144,7 +144,6 @@ async function handleClientClick(client: McpClientDisplay) {
             v-for="client in mcpClients"
             :key="client.name"
             :title="client.tooltip"
-            variant="secondary"
             class="tp-mcp-client-button"
             :style="{
               '--tp-mcp-client-hover-color': `var(--brand-color-${client.id})`
@@ -156,7 +155,6 @@ async function handleClientClick(client: McpClientDisplay) {
           <IconButton
             title="Copy configuration"
             class="tp-mcp-client-button"
-            variant="secondary"
             @click="copy(defaultConfig, copyMessages.config)"
           >
             <Copy />

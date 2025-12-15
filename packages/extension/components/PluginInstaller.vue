@@ -85,7 +85,7 @@ function cancelImport() {
       @blur="startImport"
       @keydown.enter="startImport"
     />
-    <IconButton title="Remove" @click="cancelImport">
+    <IconButton title="Remove" @click="cancelImport" variant="secondary">
       <Minus />
     </IconButton>
   </div>
