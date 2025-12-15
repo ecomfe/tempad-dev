@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.1
+
+- Added a visual hint to help users find TemPad Dev panel easier when it overlaps with Figma's own panels.
+- Improve cursor display when measure mode is active.
+- Improved button styles.
+
 ## 0.14.0
 
 - Added MCP server support to let agents/IDEs pull code, structure, and screenshots from your current Figma selection.
