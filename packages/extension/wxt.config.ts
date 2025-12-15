@@ -41,5 +41,8 @@ export default defineConfig({
         }
       ]
     }
+  },
+  zip: {
+    artifactTemplate: 'tempad-dev-{{version}}-{{browser}}.zip'
   }
 })
