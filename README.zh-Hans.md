@@ -229,27 +229,27 @@ TemPad Dev 内置了一个 [MCP](https://modelcontextprotocol.io/) 服务器，�
 
 - **Unavailable**：本地 MCP 服务器未配置或未运行。
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-unavailable-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-unavailable-light.png">
-  <img alt="MCP 状态徽标，显示为 Unavailable。" src="packages/extension/assets/mcp-unavailable-light.png" width="720">
-</picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-unavailable-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-unavailable-light.png">
+    <img alt="MCP 状态徽标，显示为 Unavailable。" src="packages/extension/assets/mcp-unavailable-light.png" width="360">
+  </picture>
 
 - **Inactive**：TemPad Dev 已连接到本地 MCP 服务器，但由于打开了多个 Figma 标签页，此标签页当前未激活。点击徽标即可为当前标签页激活 MCP（同时会停用其他标签页的 MCP）。
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-inactive-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-inactive-light.png">
-  <img alt="MCP 状态徽标，显示为 Inactive。" src="packages/extension/assets/mcp-inactive-light.png" width="720">
-</picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-inactive-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-inactive-light.png">
+    <img alt="MCP 状态徽标，显示为 Inactive。" src="packages/extension/assets/mcp-inactive-light.png" width="360">
+  </picture>
 
 - **Active**：MCP 服务器正在运行，并且当前标签页已激活，可随时响应 MCP 工具调用。
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-active-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-active-light.png">
-  <img alt="MCP 状态徽标，显示为 Active。" src="packages/extension/assets/mcp-active-light.png" width="720">
-</picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-active-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-active-light.png">
+    <img alt="MCP 状态徽标，显示为 Active。" src="packages/extension/assets/mcp-active-light.png" width="360">
+  </picture>
 
 ### 配置项
 

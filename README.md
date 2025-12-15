@@ -230,27 +230,27 @@ When MCP is enabled, a badge appears in the TemPad Dev panel title bar showing t
 
 - **Unavailable**: The local MCP server is not configured or not running.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-unavailable-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-unavailable-light.png">
-  <img alt="MCP status badge showing Unavailable." src="packages/extension/assets/mcp-unavailable-light.png" width="720">
-</picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-unavailable-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-unavailable-light.png">
+    <img alt="MCP status badge showing Unavailable." src="packages/extension/assets/mcp-unavailable-light.png" width="360">
+  </picture>
 
 - **Inactive**: TemPad Dev is connected to a local MCP server, but this tab is not currently active because multiple Figma tabs are open. Click the badge to activate MCP for this tab (this deactivates MCP in other tabs).
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-inactive-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-inactive-light.png">
-  <img alt="MCP status badge showing Inactive." src="packages/extension/assets/mcp-inactive-light.png" width="720">
-</picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-inactive-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-inactive-light.png">
+    <img alt="MCP status badge showing Inactive." src="packages/extension/assets/mcp-inactive-light.png" width="360">
+  </picture>
 
 - **Active**: The MCP server is running, and this tab is active and ready to respond to MCP tool calls.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-active-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-active-light.png">
-  <img alt="MCP status badge showing Active." src="packages/extension/assets/mcp-active-light.png" width="720">
-</picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-active-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-active-light.png">
+    <img alt="MCP status badge showing Active." src="packages/extension/assets/mcp-active-light.png" width="360">
+  </picture>
 
 ### Configuration
 
