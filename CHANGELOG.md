@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.2
+
+- Fixed the styles of MCP client buttons.
+
 ## 0.14.1
 
 - Added a visual hint to help users find TemPad Dev panel easier when it overlaps with Figma's own panels.
