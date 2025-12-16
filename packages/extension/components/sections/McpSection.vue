@@ -143,6 +143,7 @@ async function handleClientClick(client: McpClientDisplay) {
           <IconButton
             v-for="client in mcpClients"
             :key="client.name"
+            variant="secondary"
             :title="client.tooltip"
             class="tp-mcp-client-button"
             :style="{
@@ -153,6 +154,7 @@ async function handleClientClick(client: McpClientDisplay) {
             <component :is="client.icon" class="tp-mcp-client-icon" />
           </IconButton>
           <IconButton
+            variant="secondary"
             title="Copy configuration"
             class="tp-mcp-client-button"
             @click="copy(defaultConfig, copyMessages.config)"
@@ -221,7 +223,7 @@ label {
 }
 
 .tp-mcp-client-button:hover {
-  --color-icon: var(--tp-mcp-client-hover-color) !important;
+  --icon-button-icon: var(--tp-mcp-client-hover-color) !important;
 }
 
 .tp-mcp-toggle {
