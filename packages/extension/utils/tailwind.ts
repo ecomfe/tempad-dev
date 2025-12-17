@@ -454,12 +454,10 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     valueKind: 'length',
     props: { t: 'margin-top', r: 'margin-right', b: 'margin-bottom', l: 'margin-left' }
   },
-  inset: {
-    prefix: 'inset-',
-    mode: 'side',
-    valueKind: 'length',
-    props: { t: 'top', r: 'right', b: 'bottom', l: 'left' }
-  },
+  top: { prefix: 'top', mode: 'direct', valueKind: 'length', props: { v: 'top' } },
+  right: { prefix: 'right', mode: 'direct', valueKind: 'length', props: { v: 'right' } },
+  bottom: { prefix: 'bottom', mode: 'direct', valueKind: 'length', props: { v: 'bottom' } },
+  left: { prefix: 'left', mode: 'direct', valueKind: 'length', props: { v: 'left' } },
   gap: {
     prefix: 'gap-',
     mode: 'axis',
@@ -759,7 +757,9 @@ function extractValuePart(
   familyKey: string,
   overrideKind?: ValueKind
 ): FormattedValue {
-  const isNegative = val.startsWith('-')
+  // Leading '-' indicates a negative value for Tailwind, but CSS variable names start with '--'
+  // and must not be treated as negative.
+  const isNegative = val.startsWith('-') && !val.startsWith('--')
   let inner: string = isNegative ? val.substring(1) : val
   let overrideIsKeyword: boolean | undefined
 
