@@ -32,6 +32,7 @@ export default defineConfig({
       }
     ],
     permissions: ['declarativeNetRequest', 'declarativeNetRequestWithHostAccess', 'alarms'],
+    host_permissions: ['https://www.figma.com/*'],
     declarative_net_request: {
       rule_resources: [
         {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.3
+
+- Fixed the missing `host_permissions` in manifest.json.
+
 ## 0.14.2
 
 - Fixed the styles of MCP client buttons.
