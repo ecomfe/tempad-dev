@@ -1,4 +1,4 @@
-import { canonicalizeValue, formatHexAlpha, normalizeCssVarName } from '@/utils/css'
+import { canonicalizeValue, formatHexAlpha, toVarExpr } from '@/utils/css'
 
 import {
   CODE_FONT_KEYWORDS,
@@ -16,15 +16,26 @@ export function resolveRunAttrs(
   fills: ResolvedFill[]
 ): Record<string, string> {
   const style: Record<string, string> = {}
+  let visibleSolid: ResolvedFill | undefined
+  let hasVisiblePaint = false
+  for (const fill of fills) {
+    if (!isVisiblePaint(fill.raw as Paint)) continue
+    hasVisiblePaint = true
+    if (fill.type === 'SOLID') {
+      visibleSolid = fill
+      break
+    }
+  }
 
-  const solid = fills.find((f) => f.type === 'SOLID')
-  if (solid) {
-    const rawPaint = solid.raw as SolidPaint | undefined
+  if (visibleSolid) {
+    const rawPaint = visibleSolid.raw as SolidPaint | undefined
     if (rawPaint) {
       const val = formatHexAlpha(rawPaint.color, rawPaint.opacity ?? 1)
-      const css = constructCssVar(solid.token, val)
+      const css = constructCssVar(visibleSolid.token, val)
       if (css) style.color = css
     }
+  } else if (fills.length === 0 || !hasVisiblePaint) {
+    style.color = 'transparent'
   }
 
   const { fontFamily, fontSize, lineHeight, letterSpacing, fontWeight } = typography
@@ -107,6 +118,15 @@ export function resolveTokens(textNode: TextNode, seg: StyledTextSegmentSubset) 
   })
 
   return { typography, fills }
+}
+
+function isVisiblePaint(paint?: Paint): boolean {
+  if (!paint || paint.visible === false) return false
+  if (typeof paint.opacity === 'number' && paint.opacity <= 0) return false
+  if ('gradientStops' in paint && Array.isArray(paint.gradientStops)) {
+    return paint.gradientStops.some((stop) => (stop.color?.a ?? 1) > 0)
+  }
+  return true
 }
 
 export function computeDominantStyle(runStyles: RunStyleEntry[]): Record<string, string> {
@@ -207,7 +227,7 @@ function mapTextCase(textCase?: TextCase): string | undefined {
 }
 
 function constructCssVar(token?: TokenRef | null, fallback?: string): string | undefined {
-  if (token) return `var(--${normalizeCssVarName(token.name)})`
+  if (token) return toVarExpr(token.name)
   return fallback?.trim() || undefined
 }
 

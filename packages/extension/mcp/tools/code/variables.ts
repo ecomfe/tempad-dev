@@ -5,7 +5,7 @@ import { workerUnitOptions } from '@/utils/codegen'
 import {
   canonicalizeVarName,
   extractVarNames,
-  normalizeCssVarName,
+  normalizeCustomPropertyBody,
   preprocessCssValue,
   replaceVarFunctions,
   stripFallback,
@@ -93,7 +93,7 @@ export function collectRefs(styles: Map<string, Record<string, string>>) {
             nodeId,
             property,
             code: full,
-            name: normalizeCssVarName(trimmed.slice(2)),
+            name: normalizeCustomPropertyBody(trimmed),
             value: fallback?.trim()
           }) - 1
         indices.push(refIndex)

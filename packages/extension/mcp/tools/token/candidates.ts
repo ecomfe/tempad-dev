@@ -1,7 +1,13 @@
+import { toFigmaVarExpr } from '@/utils/css'
+import { normalizeCustomPropertyName } from '@/utils/css'
+
+import { getVariableRawName } from './indexer'
+
 type VariableAlias = { id?: string } | { type?: string; id?: string }
 
-type CandidateResult = {
+export type CandidateResult = {
   variableIds: Set<string>
+  rewrites: Map<string, { canonical: string; id: string }>
 }
 
 function hasChildren(node: SceneNode): node is SceneNode & ChildrenMixin {
@@ -82,6 +88,7 @@ function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
 
 export function collectCandidateVariableIds(roots: SceneNode[]): CandidateResult {
   const variableIds = new Set<string>()
+  const rewrites = new Map<string, { canonical: string; id: string }>()
 
   const visit = (node: SceneNode) => {
     collectVariableIds(node, variableIds)
@@ -97,5 +104,27 @@ export function collectCandidateVariableIds(roots: SceneNode[]): CandidateResult
     if (root.visible) visit(root)
   })
 
-  return { variableIds }
+  // Build lookup tables based on collected ids.
+  for (const id of variableIds) {
+    const v = figma.variables.getVariableById(id)
+    if (!v) continue
+
+    const canonical = normalizeCustomPropertyName(getVariableRawName(v))
+
+    const cs = v.codeSyntax?.WEB?.trim()
+    if (cs) {
+      if (!rewrites.has(cs)) {
+        rewrites.set(cs, { canonical, id })
+      }
+    }
+
+    const cssVar = toFigmaVarExpr(v.name ?? '')?.trim()
+    if (cssVar) {
+      if (!rewrites.has(cssVar)) {
+        rewrites.set(cssVar, { canonical, id })
+      }
+    }
+  }
+
+  return { variableIds, rewrites }
 }

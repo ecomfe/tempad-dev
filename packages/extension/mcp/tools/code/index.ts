@@ -12,7 +12,7 @@ import { activePlugin } from '@/ui/state'
 import { stringifyComponent } from '@/utils/component'
 import {
   extractVarNames,
-  normalizeCssVarName,
+  normalizeCustomPropertyName,
   replaceVarFunctions,
   stripFallback,
   toVarExpr
@@ -21,11 +21,11 @@ import {
 import type { RenderContext, CodeLanguage } from './render'
 
 import { currentCodegenConfig } from '../config'
-import { collectCandidateVariableIds, resolveTokenDefsByNames } from '../token'
+import { resolveTokenDefsByNames } from '../token'
+import { applyPluginTransforms, buildVariableMappings, normalizeStyleVars } from '../token/mapping'
 import { collectSceneData } from './collect'
 import { buildGetCodeMessage } from './messages'
 import { renderSemanticNode } from './render'
-import { transform } from './variables'
 
 // Tags that should render children without extra whitespace/newlines.
 const COMPACT_TAGS = new Set([
@@ -124,13 +124,14 @@ export async function handleGetCode(
   const config = currentCodegenConfig()
   const pluginCode = activePlugin.value?.code
 
+  const mappings = buildVariableMappings(nodes)
+
   const assetRegistry = new Map<string, AssetDescriptor>()
   const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots, config, assetRegistry)
 
-  const styleVarNames = await transform(styles, {
-    pluginCode,
-    config
-  })
+  // Normalize codeSyntax-based outputs (e.g. "--ui-bg" / "$kui-color") back to canonical var(--name)
+  // BEFORE Tailwind conversion, so css->Tailwind operates on a single stable representation.
+  const usedCandidateIds = normalizeStyleVars(styles, mappings)
 
   const ctx: RenderContext = {
     styles,
@@ -160,12 +161,16 @@ export async function handleGetCode(
   const MAX_CODE_CHARS = Math.floor(MCP_MAX_PAYLOAD_BYTES * 0.6)
   const { markup, message } = buildGetCodeMessage(rawMarkup, MAX_CODE_CHARS, tree.stats)
 
+  const finalMarkup = await applyPluginTransforms(markup, pluginCode, config)
+
   // Only include tokens actually referenced in the final output.
-  const usedTokenNames = new Set<string>(styleVarNames)
-  extractVarNames(markup).forEach((n) => usedTokenNames.add(n))
+  const usedTokenNames = new Set<string>()
+  extractVarNames(finalMarkup).forEach((n) => usedTokenNames.add(n))
+  // Also capture bare custom property tokens if a plugin emits "--foo" directly.
+  finalMarkup.match(/--[A-Za-z0-9-_]+/g)?.forEach((m) => usedTokenNames.add(m))
 
   const usedTokens = await resolveTokenDefsByNames(usedTokenNames, config, pluginCode, {
-    candidateIds: () => collectCandidateVariableIds(nodes).variableIds
+    candidateIds: usedCandidateIds.size ? usedCandidateIds : mappings.variableIds
   })
 
   const codegen = {
@@ -188,7 +193,7 @@ export async function handleGetCode(
       out = replaceVarFunctions(out, ({ name, full }) => {
         const trimmed = name.trim()
         if (!trimmed.startsWith('--')) return full
-        const canonical = `--${normalizeCssVarName(trimmed.slice(2))}`
+        const canonical = normalizeCustomPropertyName(trimmed)
         const val = tokenMap.get(canonical)
         return typeof val === 'string' ? val : toVarExpr(canonical)
       })
@@ -201,7 +206,7 @@ export async function handleGetCode(
       return out
     }
 
-    const resolvedMarkup = replaceToken(markup)
+    const resolvedMarkup = replaceToken(finalMarkup)
     // If tokens are resolved, we don't need to return the token definitions
     return {
       lang: resolvedLang,
@@ -214,7 +219,7 @@ export async function handleGetCode(
 
   return {
     lang: resolvedLang,
-    code: markup,
+    code: finalMarkup,
     assets: Array.from(assetRegistry.values()),
     usedTokens,
     codegen,

@@ -23,6 +23,10 @@ export async function exportSvgEntry(
     svgString = transformSvgAttributes(svgString, config)
 
     const baseProps = extractSvgAttributes(svgString)
+    if (!Object.keys(baseProps).length) {
+      // If we failed to parse attributes, inline the SVG to avoid emitting an empty tag.
+      return { props: {}, raw: svgString }
+    }
     try {
       const asset = await ensureAssetUploaded(svgUint8, 'image/svg+xml', {
         width: Math.round(node.width),
