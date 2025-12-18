@@ -8,7 +8,7 @@ import { activePlugin } from '@/ui/state'
 import { formatHexAlpha, normalizeCssValue } from '@/utils/css'
 
 import { currentCodegenConfig } from '../config'
-import { canonicalizeName, canonicalizeNames, getTokenIndex } from './indexer'
+import { canonicalizeName, canonicalizeNames, getTokenIndex, getVariableRawName } from './indexer'
 
 type TokenModeValue = {
   modeId: string
@@ -104,7 +104,7 @@ async function resolveTokens({
 
       if (candidateVariables.length) {
         const canonicals = await canonicalizeNames(
-          candidateVariables.map((v) => v.name),
+          candidateVariables.map((v) => getVariableRawName(v)),
           config,
           pluginCode
         )
@@ -186,7 +186,7 @@ async function buildTokensFromVariables({
 
     const canonicalName =
       index.canonicalNameById.get(variable.id) ??
-      (await canonicalizeName(variable.name, config, pluginCode))
+      (await canonicalizeName(getVariableRawName(variable), config, pluginCode))
     const collection = resolveVariableCollection(variable)
     const preferredModeId = pickPreferredModeId(variable, collection)
     const modeIds = includeAllModes
@@ -204,7 +204,8 @@ async function buildTokensFromVariables({
         config,
         pluginCode,
         new Set(),
-        pending
+        pending,
+        { canonicalName, index }
       )
       const modeKey = modeName(collection, modeId)
       const resolvedLiteral = toLiteralString(mv.resolved)
@@ -307,7 +308,11 @@ async function resolveModeValue(
   config: CodegenConfig,
   pluginCode?: string,
   aliasSeen: Set<string> = new Set(),
-  pending?: Variable[]
+  pending?: Variable[],
+  ctx?: {
+    canonicalName?: string
+    index?: Awaited<ReturnType<typeof getTokenIndex>>
+  }
 ): Promise<TokenModeValue> {
   const { valuesByMode = {} } = variable
   if (aliasSeen.has(variable.id)) {
@@ -329,6 +334,14 @@ async function resolveModeValue(
     pending?.push(target)
     const targetCollection = resolveVariableCollection(target)
     const targetModeId = pickPreferredModeId(target, targetCollection, modeId) ?? modeId
+
+    let targetCanonicalName: string | undefined
+    if (ctx?.index) {
+      targetCanonicalName =
+        ctx.index.canonicalNameById.get(target.id) ??
+        (await canonicalizeName(getVariableRawName(target), config, pluginCode))
+    }
+
     const resolvedTarget = await resolveModeValue(
       target,
       targetModeId,
@@ -336,7 +349,8 @@ async function resolveModeValue(
       config,
       pluginCode,
       aliasSeen,
-      pending
+      pending,
+      { canonicalName: targetCanonicalName, index: ctx?.index }
     )
     const chain = [rawValue.id, ...(resolvedTarget.aliasChain ?? [])]
     return {
@@ -347,7 +361,12 @@ async function resolveModeValue(
     }
   }
 
-  const serialized = serializeVariableValue(rawValue, variable.resolvedType, config)
+  const serialized = serializeVariableValue(
+    rawValue,
+    variable.resolvedType,
+    config,
+    ctx?.canonicalName
+  )
   return {
     modeId,
     value: serialized ?? undefined,
@@ -378,7 +397,8 @@ function isVariableAlias(value: unknown): value is VariableAlias {
 function serializeVariableValue(
   value: unknown,
   resolvedType: Variable['resolvedType'],
-  config: CodegenConfig
+  config: CodegenConfig,
+  canonicalName?: string
 ): string | Record<string, unknown> | null {
   if (value == null) return null
 
@@ -386,7 +406,10 @@ function serializeVariableValue(
     case 'COLOR':
       return formatHexAlpha(value as RGBA, (value as RGBA).a)
     case 'FLOAT':
-      // Treat numbers as pixels and normalize (e.g. 16 -> 1rem)
+      if (isUnitlessFloatToken(canonicalName)) {
+        return String(value)
+      }
+      // Default: treat numbers as pixels and normalize (e.g. 16 -> 1rem)
       return normalizeCssValue(`${value}px`, config)
     case 'BOOLEAN':
       return (value as boolean).toString()
@@ -398,6 +421,26 @@ function serializeVariableValue(
       }
       return null
   }
+}
+
+function isUnitlessFloatToken(canonicalName?: string): boolean {
+  if (!canonicalName) return false
+  const lower = canonicalName.trim().toLowerCase()
+  if (!lower.startsWith('--')) return false
+
+  // Typography weights are unitless.
+  if (lower.startsWith('--font-weight')) return true
+  if (lower.startsWith('--fontweight')) return true
+
+  // Opacity values are unitless.
+  if (lower.startsWith('--opacity')) return true
+
+  // z-index values are unitless.
+  if (lower.startsWith('--z-index')) return true
+  if (lower === '--z') return true
+  if (lower.startsWith('--z-')) return true
+
+  return false
 }
 
 async function resolveAliasName(

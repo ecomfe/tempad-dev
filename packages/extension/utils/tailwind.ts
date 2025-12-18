@@ -11,7 +11,15 @@ export type Corner = 'tl' | 'tr' | 'br' | 'bl'
 export type Axis = 'x' | 'y'
 export type DirectField = 'v'
 export type CollapseMode = 'side' | 'corner' | 'axis' | 'direct' | 'composite'
-export type ValueKind = 'length' | 'color' | 'integer' | 'percent' | 'url' | 'any' | 'keyword'
+export type ValueKind =
+  | 'length'
+  | 'color'
+  | 'integer'
+  | 'number'
+  | 'percent'
+  | 'url'
+  | 'any'
+  | 'keyword'
 export type PropDef = string | { prop: string; defaultValue?: string }
 export type KeywordDef = string | [string, string]
 
@@ -464,12 +472,74 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     valueKind: 'length',
     props: { y: 'row-gap', x: 'column-gap' }
   },
-  width: { prefix: 'w', mode: 'direct', valueKind: 'length', props: { v: 'width' } },
-  height: { prefix: 'h', mode: 'direct', valueKind: 'length', props: { v: 'height' } },
-  minWidth: { prefix: 'min-w', mode: 'direct', valueKind: 'length', props: { v: 'min-width' } },
-  minHeight: { prefix: 'min-h', mode: 'direct', valueKind: 'length', props: { v: 'min-height' } },
-  maxWidth: { prefix: 'max-w', mode: 'direct', valueKind: 'length', props: { v: 'max-width' } },
-  maxHeight: { prefix: 'max-h', mode: 'direct', valueKind: 'length', props: { v: 'max-height' } },
+  width: {
+    prefix: 'w',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: [
+      ['auto', 'auto'],
+      ['min-content', 'min'],
+      ['max-content', 'max'],
+      ['fit-content', 'fit']
+    ],
+    props: { v: 'width' }
+  },
+  height: {
+    prefix: 'h',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: [
+      ['auto', 'auto'],
+      ['min-content', 'min'],
+      ['max-content', 'max'],
+      ['fit-content', 'fit']
+    ],
+    props: { v: 'height' }
+  },
+  minWidth: {
+    prefix: 'min-w',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: [
+      ['min-content', 'min'],
+      ['max-content', 'max'],
+      ['fit-content', 'fit']
+    ],
+    props: { v: 'min-width' }
+  },
+  minHeight: {
+    prefix: 'min-h',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: [
+      ['min-content', 'min'],
+      ['max-content', 'max'],
+      ['fit-content', 'fit']
+    ],
+    props: { v: 'min-height' }
+  },
+  maxWidth: {
+    prefix: 'max-w',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: [
+      ['min-content', 'min'],
+      ['max-content', 'max'],
+      ['fit-content', 'fit']
+    ],
+    props: { v: 'max-width' }
+  },
+  maxHeight: {
+    prefix: 'max-h',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: [
+      ['min-content', 'min'],
+      ['max-content', 'max'],
+      ['fit-content', 'fit']
+    ],
+    props: { v: 'max-height' }
+  },
   fontFamily: {
     prefix: 'font',
     mode: 'direct',
@@ -481,7 +551,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
   fontWeight: {
     prefix: 'font',
     mode: 'direct',
-    valueKind: 'any',
+    valueKind: 'number',
     keywords: [
       ['100', 'thin'],
       ['200', 'extralight'],
@@ -763,6 +833,9 @@ function extractValuePart(
   let inner: string = isNegative ? val.substring(1) : val
   let overrideIsKeyword: boolean | undefined
 
+  const kind = overrideKind || config.valueKind
+  inner = coerceNumeric(inner, kind)
+
   const keywordMap = KEYWORD_REGISTRY[familyKey]
   if (keywordMap && keywordMap[inner]) {
     return { isNegative, text: keywordMap[inner], isKeyword: true }
@@ -784,7 +857,6 @@ function extractValuePart(
 
   inner = formatArbitraryValue(inner)
 
-  const kind = overrideKind || config.valueKind
   const isStrictKeywordType = kind === 'keyword'
   let text = inner
   const isKeyword = overrideIsKeyword ?? isStrictKeywordType
@@ -796,6 +868,16 @@ function extractValuePart(
   }
 
   return { isNegative, text, isKeyword }
+}
+
+function coerceNumeric(value: string, kind: ValueKind): string {
+  if (kind !== 'number' && kind !== 'integer') return value
+  // Some upstream sources may incorrectly attach units to unitless numeric properties.
+  // Example: font-weight: 500px (invalid) -> 500.
+  if (/^(?:\d+(?:\.\d+)?|\.\d+)px$/i.test(value)) {
+    return value.replace(/px$/i, '')
+  }
+  return value
 }
 
 function buildClass(config: FamilyConfig, modifier: string, val: FormattedValue): string {

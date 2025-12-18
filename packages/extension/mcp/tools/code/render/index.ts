@@ -30,10 +30,27 @@ export async function renderSemanticNode(
 
   if (ctx.svgs.has(semantic.id)) {
     const svgEntry = ctx.svgs.get(semantic.id)!
+    const svgStyle = ctx.styles.get(semantic.id) ?? {}
+    const { classNames, props: classProps } = buildClassProps(
+      svgStyle,
+      ctx.config,
+      getClassPropName(ctx.preferredLang ?? ctx.detectedLang),
+      semantic.dataHint,
+      node,
+      { isFallback: true }
+    )
+
     if (svgEntry.raw) {
-      return raw(svgEntry.raw)
+      const mergedProps = classNames.length ? classProps : undefined
+      return raw(svgEntry.raw, mergedProps as Record<string, string> | undefined)
     }
-    const props = svgEntry.props
+
+    const props = { ...svgEntry.props }
+    if (classNames.length) {
+      props[getClassPropName(ctx.preferredLang ?? ctx.detectedLang)] =
+        classProps[getClassPropName(ctx.preferredLang ?? ctx.detectedLang)]
+    }
+
     return {
       name: 'svg',
       props,
@@ -56,13 +73,7 @@ export async function renderSemanticNode(
   const classProp = getClassPropName(langHint)
 
   const { textStyle, otherStyle } = splitTextStyles(rawStyle)
-  const cleanedTextStyle = stripDefaultTextStyles(textStyle)
-  const hoistedTextStyle =
-    node.type === 'TEXT' ? filterHoistableTextStyle(cleanedTextStyle) : cleanedTextStyle
-
-  if (node.type === 'TEXT' && inheritedTextStyle?.color && cleanedTextStyle.color) {
-    delete hoistedTextStyle.color
-  }
+  let cleanedTextStyle = stripDefaultTextStyles(textStyle)
 
   const textSegments =
     node.type === 'TEXT'
@@ -71,16 +82,58 @@ export async function renderSemanticNode(
         })
       : undefined
 
+  const renderBounds = (node as { absoluteRenderBounds?: Rect | null }).absoluteRenderBounds
+  const invisibleText =
+    node.type === 'TEXT' && textSegments?.segmentCount === 1 && renderBounds == null
+
+  if (invisibleText) {
+    cleanedTextStyle = { ...cleanedTextStyle, color: 'transparent' }
+  }
+
+  const hoistedTextStyle =
+    node.type === 'TEXT' ? filterHoistableTextStyle(cleanedTextStyle) : cleanedTextStyle
+
+  if (
+    node.type === 'TEXT' &&
+    !invisibleText &&
+    inheritedTextStyle?.color &&
+    cleanedTextStyle.color
+  ) {
+    delete hoistedTextStyle.color
+  }
+
+  const mergedCommonStyle =
+    node.type === 'TEXT' && textSegments?.commonStyle ? { ...textSegments.commonStyle } : undefined
+
+  if (invisibleText && mergedCommonStyle && 'color' in mergedCommonStyle) {
+    delete mergedCommonStyle.color
+  }
+
   const effectiveTextStyle =
-    node.type === 'TEXT' && textSegments
-      ? { ...hoistedTextStyle, ...(textSegments.commonStyle ?? {}) }
+    node.type === 'TEXT'
+      ? {
+          ...hoistedTextStyle,
+          ...(mergedCommonStyle ?? {}),
+          ...(invisibleText ? { color: 'transparent' } : {})
+        }
       : hoistedTextStyle
 
   const { appliedTextStyle, nextTextStyle } = diffTextStyles(inheritedTextStyle, effectiveTextStyle)
 
-  const baseStyleForClass = Object.keys(otherStyle).length
+  let baseStyleForClass = Object.keys(otherStyle).length
     ? { ...otherStyle, ...appliedTextStyle }
     : appliedTextStyle
+
+  // If any immediate child is absolutely positioned and parent has no positioning set, make parent relative.
+  if (!baseStyleForClass.position) {
+    const hasAbsoluteChild = semantic.children.some((child) => {
+      const childStyle = ctx.styles.get(child.id)
+      return childStyle?.position?.toLowerCase() === 'absolute'
+    })
+    if (hasAbsoluteChild) {
+      baseStyleForClass = { position: 'relative', ...baseStyleForClass }
+    }
+  }
 
   const styleForClass = pluginComponent
     ? pickChildLayoutStyles(baseStyleForClass)

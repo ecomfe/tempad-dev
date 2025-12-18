@@ -6,7 +6,6 @@ import { joinClassNames } from '@/utils/tailwind'
 import type { RenderContext } from '../render'
 
 import { styleToClassNames } from '../style'
-import { transform } from '../variables'
 import { buildTextBlocks, formatTextLiteral, getStyledSegments } from './segments'
 import { computeDominantStyle, omitCommon } from './style'
 import {
@@ -28,6 +27,7 @@ export async function renderTextSegments(
   segments: Array<DevComponent | string>
   commonStyle: Record<string, string>
   metas: SegmentStyleMeta[]
+  segmentCount: number
 }> {
   const { inheritedTextStyle, segments: providedSegments } = options
 
@@ -37,28 +37,14 @@ export async function renderTextSegments(
     return {
       segments: literal ? [literal] : [],
       commonStyle: {},
-      metas: []
+      metas: [],
+      segmentCount: 0
     }
   }
 
   const blocks = buildTextBlocks(node, rawSegments)
 
-  const runStyleMap = new Map<string, Record<string, string>>()
-  let runCounter = 0
-
-  for (const block of blocks) {
-    for (const line of block.lines) {
-      for (const run of line.runs) {
-        runStyleMap.set(`run:${runCounter++}`, run.attrs)
-      }
-    }
-  }
-
-  await transform(runStyleMap, {
-    pluginCode: ctx.pluginCode,
-    config: ctx.config
-  })
-
+  const segmentCount = rawSegments.length
   const allRunStyles: Array<{ style: Record<string, string>; weight: number }> = []
 
   for (const block of blocks) {
@@ -93,7 +79,7 @@ export async function renderTextSegments(
     }
   }
 
-  return { segments: outputSegments, commonStyle, metas: [] }
+  return { segments: outputSegments, commonStyle, metas: [], segmentCount }
 }
 
 function renderBlock(

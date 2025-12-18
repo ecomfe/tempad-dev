@@ -19,6 +19,23 @@ const PX_VALUE_RE = /\b(-?\d+(?:\.\d+)?)px\b/g
 export const QUOTES_RE = /['"]/g
 const NUMBER_RE = /^\d+(\.\d+)?$/
 
+// Figma CSS var naming normalization (matches getCSSAsync output semantics for variable names)
+const RE_NON_ASCII = /\P{ASCII}+/gu
+const RE_QUOTES = /['"]/g
+const RE_SLASH = /\//g
+const RE_SPACE_TAB = /[ \t]+/g
+const RE_WHITESPACE = /\s+/g
+const RE_FAST_PATH = /^[A-Za-z0-9_-]+$/
+
+const RE_BOUND_NON_ALPHANUM = /[^A-Za-z0-9]+/g
+const RE_HYPHENS = /-+/g
+const RE_BOUND_DIGIT = /([A-Za-z])([0-9])|([0-9])([A-Za-z])/g
+const RE_BOUND_CASE = /([a-z])([A-Z])|([A-Z])([A-Z][a-z])/g
+
+const RE_DIGIT = /^\d+$/
+const RE_CAPS = /^[A-Z]+$/
+const RE_SINGLE = /^[A-Za-z]$/
+
 function hasTopLevelComma(value: string): boolean {
   let depth = 0
   let quote: "'" | '"' | null = null
@@ -143,7 +160,7 @@ export function extractVarNames(input: string): Set<string> {
   replaceVarFunctions(input, ({ name, full }) => {
     const trimmed = name.trim()
     if (trimmed.startsWith('--')) {
-      out.add(`--${normalizeCssVarName(trimmed.slice(2))}`)
+      out.add(normalizeCustomPropertyName(trimmed))
     }
     return full
   })
@@ -560,38 +577,106 @@ export function canonicalizeVarName(value: string): string | null {
     let inner = cleaned.slice(4, -1).trim()
     if (inner.startsWith('--')) {
       inner = inner.slice(2).trim()
-      const normalized = normalizeCssVarName(inner)
-      return `--${normalized}`
+      return normalizeCustomPropertyName(inner)
     }
     return null
   }
 
   if (cleaned.startsWith('--')) {
-    const normalized = normalizeCssVarName(cleaned.slice(2))
-    return `--${normalized}`
+    return normalizeCustomPropertyName(cleaned)
   }
 
   return null
 }
 
 export function toVarExpr(name: string): string {
-  const trimmed = name.trim()
-  const canonical = trimmed.startsWith('--')
-    ? `--${normalizeCssVarName(trimmed.slice(2))}`
-    : `--${normalizeCssVarName(trimmed)}`
-  return `var(${canonical})`
+  return `var(${normalizeCustomPropertyName(name)})`
 }
 
-export function normalizeCssVarName(name: string): string {
-  const cleaned = name
+// Normalize a CSS custom property name (the portion after "--").
+// Custom property names are more permissive than regular CSS identifiers.
+// We keep it strict enough for MCP schema and Tailwind parsing:
+// - allow only [A-Za-z0-9_-]
+// - DO NOT add "var-" for numeric-leading names (e.g., "--05" is valid)
+// - collapse accidental extra dashes (e.g. var(----foo) -> "--foo")
+export function normalizeCustomPropertyBody(name: string): string {
+  if (!name) return 'var'
+  let raw = name.trim()
+  if (raw.startsWith('--')) raw = raw.slice(2)
+  raw = raw.replace(/^-+/, '')
+  // Remove unsupported characters (Figma's CSS output tends to drop punctuation)
+  raw = raw.replace(/[^A-Za-z0-9_-]/g, '')
+  return raw || 'var'
+}
+
+export function normalizeCustomPropertyName(name: string): string {
+  return `--${normalizeCustomPropertyBody(name)}`
+}
+
+// Normalize Figma variable names to CSS custom property names (matches getCSSAsync behavior).
+export function normalizeFigmaVarName(input: string): string {
+  const raw = (input ?? '')
     .trim()
-    .replace(/[^a-zA-Z0-9_-]/g, '-')
-    .replace(/-+/g, '-')
-  if (!cleaned) return 'var'
-  if (/^[0-9-]/.test(cleaned)) {
-    return `var-${cleaned.replace(/^-+/, '')}`
+    .replace(RE_NON_ASCII, '')
+    .replace(RE_QUOTES, '')
+    .replace(RE_SLASH, '-')
+    .replace(RE_SPACE_TAB, '-')
+    .replace(RE_WHITESPACE, '')
+
+  if (RE_FAST_PATH.test(raw)) return `--${raw}`
+
+  const s = raw
+    .replace(RE_BOUND_NON_ALPHANUM, '-')
+    .replace(RE_HYPHENS, '-')
+    .replace(RE_BOUND_DIGIT, '$1-$2$3-$4')
+    .replace(RE_BOUND_CASE, '$1$3-$2$4')
+
+  const parts = s.split('-').filter(Boolean)
+  const stack: string[] = []
+
+  // Merge consecutive digits AND consecutive caps
+  for (const part of parts) {
+    const prev = stack[stack.length - 1]
+
+    if (prev && RE_DIGIT.test(prev) && RE_DIGIT.test(part)) {
+      stack[stack.length - 1] += part
+    } else if (prev && RE_CAPS.test(prev) && RE_CAPS.test(part)) {
+      stack[stack.length - 1] += part
+    } else {
+      stack.push(part)
+    }
   }
-  return cleaned
+
+  // Merge runs of single letters (except the first part)
+  const merged: string[] = []
+  for (let i = 0; i < stack.length; ) {
+    if (i === 0) {
+      merged.push(stack[0])
+      i++
+      continue
+    }
+
+    if (RE_SINGLE.test(stack[i])) {
+      let j = i + 1
+      while (j < stack.length && RE_SINGLE.test(stack[j])) {
+        j++
+      }
+
+      const run = stack.slice(i, j)
+      merged.push(run.length >= 2 ? run.join('') : stack[i])
+      i = j
+    } else {
+      merged.push(stack[i])
+      i++
+    }
+  }
+
+  const out = merged.join('-').toLowerCase()
+  return out ? `--${out}` : '--unnamed'
+}
+
+export function toFigmaVarExpr(input: string): string {
+  return `var(${normalizeFigmaVarName(input)})`
 }
 
 // Preprocess raw CSS-like values so subsequent var() parsing behaves consistently.
