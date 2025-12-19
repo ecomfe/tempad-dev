@@ -589,8 +589,20 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     keywords: [['normal', 'normal-nums']],
     props: { v: { prop: 'font-variant-numeric', defaultValue: 'normal' } }
   },
-  textColor: { prefix: 'text', mode: 'direct', valueKind: 'color', props: { v: 'color' } },
-  textAlign: { prefix: 'text', mode: 'direct', valueKind: 'keyword', props: { v: 'text-align' } },
+  textColor: {
+    prefix: 'text',
+    mode: 'direct',
+    valueKind: 'color',
+    keywords: ['transparent', ['currentcolor', 'current'], ['currentColor', 'current'], 'inherit'],
+    props: { v: 'color' }
+  },
+  textAlign: {
+    prefix: 'text',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['left', 'center', 'right', 'justify', 'start', 'end', 'match-parent'],
+    props: { v: 'text-align' }
+  },
   lineHeight: {
     prefix: 'leading',
     mode: 'direct',
@@ -647,6 +659,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'decoration',
     mode: 'direct',
     valueKind: 'color',
+    keywords: ['transparent', ['currentcolor', 'current'], ['currentColor', 'current'], 'inherit'],
     props: { v: 'text-decoration-color' }
   },
   textDecorationStyle: {
@@ -677,6 +690,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'bg',
     mode: 'direct',
     valueKind: 'color',
+    keywords: ['transparent', ['currentcolor', 'current'], ['currentColor', 'current'], 'inherit'],
     props: { v: 'background-color' }
   },
   backgroundImage: {
@@ -719,8 +733,20 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     keywords: ['no-repeat', 'repeat', 'repeat-x', 'repeat-y'],
     props: { v: 'background-repeat' }
   },
-  fill: { prefix: 'fill-', mode: 'direct', valueKind: 'color', props: { v: 'fill' } },
-  stroke: { prefix: 'stroke-', mode: 'direct', valueKind: 'color', props: { v: 'stroke' } },
+  fill: {
+    prefix: 'fill-',
+    mode: 'direct',
+    valueKind: 'color',
+    keywords: ['transparent', ['currentcolor', 'current'], ['currentColor', 'current'], 'inherit'],
+    props: { v: 'fill' }
+  },
+  stroke: {
+    prefix: 'stroke-',
+    mode: 'direct',
+    valueKind: 'color',
+    keywords: ['transparent', ['currentcolor', 'current'], ['currentColor', 'current'], 'inherit'],
+    props: { v: 'stroke' }
+  },
   strokeWidth: {
     prefix: 'stroke-',
     mode: 'direct',
@@ -742,6 +768,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'border-',
     mode: 'side',
     valueKind: 'color',
+    keywords: ['transparent', ['currentcolor', 'current'], ['currentColor', 'current'], 'inherit'],
     props: {
       t: 'border-top-color',
       r: 'border-right-color',
