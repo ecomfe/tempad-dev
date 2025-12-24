@@ -46,7 +46,7 @@ function computeChildOverflow(node: SceneNode): OverflowInfo {
   const children = (node as SceneNode & ChildrenMixin).children.filter((c) => c.visible)
   if (!children.length) return none
 
-  const parentBounds = getRenderBounds(node)
+  const parentBounds = getLayoutBounds(node)
   if (!parentBounds) return none
   if (parentBounds.width === 0 || parentBounds.height === 0) return none
 
@@ -61,7 +61,7 @@ function computeChildOverflow(node: SceneNode): OverflowInfo {
   let overflowY = false
 
   for (const child of children) {
-    const bounds = getRenderBounds(child)
+    const bounds = getLayoutBounds(child)
     if (!bounds) continue
     const cx1 = bounds.x
     const cy1 = bounds.y
@@ -75,12 +75,12 @@ function computeChildOverflow(node: SceneNode): OverflowInfo {
   return { x: overflowX, y: overflowY }
 }
 
-function getRenderBounds(
+function getLayoutBounds(
   node: SceneNode
 ): { x: number; y: number; width: number; height: number } | null {
-  const renderBounds = (node as { absoluteRenderBounds?: Rect | null }).absoluteRenderBounds
-  if (renderBounds) {
-    const { x, y, width, height } = renderBounds
+  const bbox = (node as { absoluteBoundingBox?: Rect | null }).absoluteBoundingBox
+  if (bbox) {
+    const { x, y, width, height } = bbox
     if (isFinite(x) && isFinite(y) && isFinite(width) && isFinite(height)) {
       return {
         x: toDecimalPlace(x),
@@ -91,22 +91,37 @@ function getRenderBounds(
     }
   }
 
-  if ('width' in node && 'height' in node && 'x' in node && 'y' in node) {
-    const { x, y, width, height } = node as LayoutMixin
-    if (
-      typeof x === 'number' &&
-      typeof y === 'number' &&
-      typeof width === 'number' &&
-      typeof height === 'number'
-    ) {
+  const transform = (node as { absoluteTransform?: Transform | null }).absoluteTransform
+  if (transform && transform.length >= 2) {
+    const size =
+      'width' in node && 'height' in node ? { width: node.width, height: node.height } : undefined
+    if (size) {
+      const { width, height } = size
+      const points = [
+        applyTransform(transform, 0, 0),
+        applyTransform(transform, width, 0),
+        applyTransform(transform, 0, height),
+        applyTransform(transform, width, height)
+      ]
+      const xs = points.map((p) => p[0])
+      const ys = points.map((p) => p[1])
+      const minX = Math.min(...xs)
+      const maxX = Math.max(...xs)
+      const minY = Math.min(...ys)
+      const maxY = Math.max(...ys)
       return {
-        x: toDecimalPlace(x),
-        y: toDecimalPlace(y),
-        width: toDecimalPlace(width),
-        height: toDecimalPlace(height)
+        x: toDecimalPlace(minX),
+        y: toDecimalPlace(minY),
+        width: toDecimalPlace(maxX - minX),
+        height: toDecimalPlace(maxY - minY)
       }
     }
   }
 
   return null
+}
+
+function applyTransform(transform: Transform, x: number, y: number): [number, number] {
+  const [[a, c, e], [b, d, f]] = transform
+  return [a * x + c * y + e, b * x + d * y + f]
 }
