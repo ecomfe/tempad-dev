@@ -1,66 +1,86 @@
 import { raw } from '@tempad-dev/plugins'
 
-import type { SemanticNode } from '@/mcp/semantic-tree'
 import type { DevComponent } from '@/types/plugin'
 
-import { TEXT_STYLE_PROPS, canonicalizeValue, stripDefaultTextStyles } from '@/utils/css'
+import { stripDefaultTextStyles } from '@/utils/css'
 
+import type { NodeSnapshot, VisibleTree } from '../model'
 import type { RenderContext } from './types'
 
 import { renderTextSegments } from '../text'
 import { renderPluginComponent } from './plugin'
-import {
-  buildClassProps,
-  filterGridProps,
-  getClassPropName,
-  mergeClasses,
-  pickChildLayoutStyles
-} from './props'
+import { classProps, classProp, filterGridProps, mergeClass } from './props'
 
 export type { RenderContext, CodeLanguage } from './types'
 
-export async function renderSemanticNode(
-  semantic: SemanticNode,
+export async function renderTree(
+  rootId: string,
+  tree: VisibleTree,
+  ctx: RenderContext
+): Promise<DevComponent | string | null> {
+  return renderNode(rootId, tree, ctx)
+}
+
+async function renderNode(
+  nodeId: string,
+  tree: VisibleTree,
   ctx: RenderContext,
   inheritedTextStyle?: Record<string, string>,
   parentIsGrid = false
 ): Promise<DevComponent | string | null> {
-  const node = ctx.nodes.get(semantic.id)
-  if (!node) return null
+  const snapshot = tree.nodes.get(nodeId)
+  if (!snapshot) return null
+  const node = snapshot.node
 
-  if (ctx.svgs.has(semantic.id)) {
-    const svgEntry = ctx.svgs.get(semantic.id)!
-    const svgStyle = ctx.styles.get(semantic.id) ?? {}
-    const { classNames, props: classProps } = buildClassProps(
-      svgStyle,
-      ctx.config,
-      getClassPropName(ctx.preferredLang ?? ctx.detectedLang),
-      semantic.dataHint,
-      node,
-      { isFallback: true }
-    )
+  if (ctx.svgs.has(snapshot.id)) {
+    const svgEntry = ctx.svgs.get(snapshot.id)!
+    const svgStyle = ctx.layout.get(snapshot.id) ?? {}
+    const classAttr = classProp(ctx.preferredLang ?? ctx.detectedLang)
+    const { classNames, props } = classProps(svgStyle, ctx.config, classAttr, undefined, {
+      isFallback: true,
+      includeDataHint: false
+    })
 
     if (svgEntry.raw) {
-      const mergedProps = classNames.length ? classProps : undefined
+      if (isEmptySvg(svgEntry.raw)) {
+        const svgProps: Record<string, string> = { ...(svgEntry.props ?? {}) }
+        if (classNames.length) svgProps[classAttr] = props[classAttr]
+        Object.entries(props).forEach(([key, val]) => {
+          if (key === classAttr) return
+          svgProps[key] = val
+        })
+        ensureSvgSize(svgProps, snapshot)
+        return { name: 'svg', props: svgProps, children: [] }
+      }
+
+      const mergedProps = Object.keys(props).length ? props : undefined
       return raw(svgEntry.raw, mergedProps as Record<string, string> | undefined)
     }
 
-    const props = { ...svgEntry.props }
-    if (classNames.length) {
-      props[getClassPropName(ctx.preferredLang ?? ctx.detectedLang)] =
-        classProps[getClassPropName(ctx.preferredLang ?? ctx.detectedLang)]
+    const resourceUri = svgEntry.props?.['data-resource-uri']
+    if (resourceUri) {
+      const langHint = ctx.preferredLang ?? ctx.detectedLang
+      const classAttr = classProp(langHint)
+      const imgProps: Record<string, string> = { src: resourceUri }
+      if (svgEntry.props?.width) imgProps.width = String(svgEntry.props.width)
+      if (svgEntry.props?.height) imgProps.height = String(svgEntry.props.height)
+      if (classNames.length) imgProps[classAttr] = props[classAttr]
+      Object.entries(props).forEach(([key, val]) => {
+        if (key === classAttr) return
+        imgProps[key] = val
+      })
+      return { name: 'img', props: imgProps, children: [] }
     }
 
-    return {
-      name: 'svg',
-      props,
-      children: []
-    }
+    return null
   }
 
-  let rawStyle = ctx.styles.get(semantic.id) ?? {}
+  let rawStyle = ctx.styles.get(snapshot.id) ?? {}
   if (!parentIsGrid) {
     rawStyle = filterGridProps(rawStyle)
+  }
+  if (snapshot.tag === 'svg') {
+    rawStyle = ctx.layout.get(snapshot.id) ?? rawStyle
   }
 
   const pluginComponent = node.type === 'INSTANCE' ? await renderPluginComponent(node, ctx) : null
@@ -70,21 +90,37 @@ export async function renderSemanticNode(
   }
 
   const langHint = pluginComponent?.lang ?? ctx.preferredLang ?? ctx.detectedLang
-  const classProp = getClassPropName(langHint)
+  const classAttr = classProp(langHint)
+
+  const preSegments = ctx.textSegments.has(snapshot.id)
+    ? (ctx.textSegments.get(snapshot.id) ?? null)
+    : undefined
+
+  if (node.type === 'TEXT' && !rawStyle.color) {
+    const hasVisibleFill = hasVisibleTextFill(node, preSegments)
+    if (!hasVisibleFill) {
+      rawStyle = { ...rawStyle, color: 'transparent' }
+    }
+  }
 
   const { textStyle, otherStyle } = splitTextStyles(rawStyle)
   let cleanedTextStyle = stripDefaultTextStyles(textStyle)
 
   const textSegments =
     node.type === 'TEXT'
-      ? await renderTextSegments(node, classProp, ctx, {
-          inheritedTextStyle
+      ? await renderTextSegments(node, classAttr, ctx, {
+          inheritedTextStyle,
+          segments: preSegments
         })
       : undefined
 
-  const renderBounds = (node as { absoluteRenderBounds?: Rect | null }).absoluteRenderBounds
+  const renderBounds = snapshot.renderBounds
+  const hasClipAncestor = hasClippingAncestor(snapshot, tree, ctx.styles)
   const invisibleText =
-    node.type === 'TEXT' && textSegments?.segmentCount === 1 && renderBounds == null
+    node.type === 'TEXT' &&
+    textSegments?.segmentCount === 1 &&
+    renderBounds == null &&
+    !hasClipAncestor
 
   if (invisibleText) {
     cleanedTextStyle = { ...cleanedTextStyle, color: 'transparent' }
@@ -120,41 +156,23 @@ export async function renderSemanticNode(
 
   const { appliedTextStyle, nextTextStyle } = diffTextStyles(inheritedTextStyle, effectiveTextStyle)
 
-  let baseStyleForClass = Object.keys(otherStyle).length
+  const baseStyleForClass = Object.keys(otherStyle).length
     ? { ...otherStyle, ...appliedTextStyle }
     : appliedTextStyle
 
-  // If any immediate child is absolutely positioned and parent has no positioning set, make parent relative.
-  if (!baseStyleForClass.position) {
-    const hasAbsoluteChild = semantic.children.some((child) => {
-      const childStyle = ctx.styles.get(child.id)
-      return childStyle?.position?.toLowerCase() === 'absolute'
-    })
-    if (hasAbsoluteChild) {
-      baseStyleForClass = { position: 'relative', ...baseStyleForClass }
-    }
-  }
-
-  const styleForClass = pluginComponent
-    ? pickChildLayoutStyles(baseStyleForClass)
-    : baseStyleForClass
-
   const isFallback = !pluginComponent
 
-  const { classNames, props } = buildClassProps(
-    styleForClass,
-    ctx.config,
-    classProp,
-    semantic.dataHint,
-    node,
-    { isFallback }
-  )
+  const dataHint =
+    pluginComponent || snapshot.tag === 'svg' || !snapshot.dataHint
+      ? undefined
+      : { ...snapshot.dataHint, 'data-hint-id': snapshot.id }
+
+  const styleForClass = pluginComponent ? (ctx.layout.get(snapshot.id) ?? {}) : baseStyleForClass
+
+  const { props } = classProps(styleForClass, ctx.config, classAttr, dataHint, { isFallback })
 
   if (pluginComponent) {
-    const hasDataHintProp = semantic.dataHint
-      ? Object.keys(semantic.dataHint).some((key) => key in props)
-      : false
-    const pluginProps = classNames.length || hasDataHintProp ? props : undefined
+    const pluginProps = Object.keys(props).length ? props : undefined
 
     if (pluginComponent.component) {
       return mergeDevComponentProps(pluginComponent.component, pluginProps)
@@ -168,21 +186,15 @@ export async function renderSemanticNode(
 
   if (node.type === 'TEXT') {
     const segments = textSegments?.segments ?? []
-    const { classNames, props: textProps } = buildClassProps(
-      baseStyleForClass,
-      ctx.config,
-      classProp,
-      semantic.dataHint,
-      node,
-      { isFallback }
-    )
+    const { props: textProps } = classProps(baseStyleForClass, ctx.config, classAttr, dataHint, {
+      isFallback
+    })
     if (segments.length === 1) {
       const single = segments[0]
-      if (!classNames.length && !semantic.dataHint) return single ?? null
       if (single && typeof single !== 'string') return mergeDevComponentProps(single, textProps)
     }
     return {
-      name: semantic.tag || 'span',
+      name: snapshot.tag || 'span',
       props: textProps,
       children: segments.filter(Boolean)
     }
@@ -192,12 +204,12 @@ export async function renderSemanticNode(
   const display = rawStyle.display || ''
   const isCurrentGrid = display === 'grid' || display === 'inline-grid'
 
-  for (const child of semantic.children) {
-    const rendered = await renderSemanticNode(child, ctx, nextTextStyle, isCurrentGrid)
+  for (const childId of snapshot.children) {
+    const rendered = await renderNode(childId, tree, ctx, nextTextStyle, isCurrentGrid)
     if (rendered) children.push(rendered)
   }
 
-  return { name: semantic.tag || 'div', props, children }
+  return { name: snapshot.tag || 'div', props, children }
 }
 
 const HOISTABLE_TEXT_STYLE_KEYS = new Set([
@@ -205,60 +217,166 @@ const HOISTABLE_TEXT_STYLE_KEYS = new Set([
   'font-family',
   'font-size',
   'line-height',
+  'font-weight',
   'letter-spacing',
-  'text-align',
-  'text-transform'
+  'text-transform',
+  'text-decoration',
+  'text-decoration-line',
+  'text-decoration-style',
+  'text-decoration-color',
+  'text-decoration-thickness',
+  'text-decoration-skip-ink',
+  'text-underline-offset',
+  'text-underline-position'
 ])
 
-function splitTextStyles(style: Record<string, string>) {
+function splitTextStyles(styles: Record<string, string>): {
+  textStyle: Record<string, string>
+  otherStyle: Record<string, string>
+} {
   const textStyle: Record<string, string> = {}
   const otherStyle: Record<string, string> = {}
-  for (const [k, v] of Object.entries(style)) {
-    if (TEXT_STYLE_PROPS.has(k)) textStyle[k] = v
-    else otherStyle[k] = v
+  for (const [key, value] of Object.entries(styles)) {
+    if (HOISTABLE_TEXT_STYLE_KEYS.has(key)) {
+      textStyle[key] = value
+    } else {
+      otherStyle[key] = value
+    }
   }
   return { textStyle, otherStyle }
 }
 
-function filterHoistableTextStyle(style: Record<string, string>): Record<string, string> {
-  const res: Record<string, string> = {}
-  for (const [k, v] of Object.entries(style)) {
-    if (HOISTABLE_TEXT_STYLE_KEYS.has(k)) {
-      res[k] = v
+function filterHoistableTextStyle(styles: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {}
+  Object.entries(styles).forEach(([key, value]) => {
+    if (HOISTABLE_TEXT_STYLE_KEYS.has(key)) {
+      out[key] = value
     }
-  }
-  return res
+  })
+  return out
 }
 
 function diffTextStyles(
   inherited: Record<string, string> | undefined,
   current: Record<string, string>
-) {
+): { appliedTextStyle: Record<string, string>; nextTextStyle: Record<string, string> } {
   const appliedTextStyle: Record<string, string> = {}
-  const nextTextStyle = { ...(inherited || {}) }
-  for (const [k, v] of Object.entries(current)) {
-    const inheritedVal = inherited?.[k]
-    const inheritedCanonical = inheritedVal ? canonicalizeValue(k, inheritedVal) : undefined
-    const currentCanonical = canonicalizeValue(k, v)
+  const nextTextStyle: Record<string, string> = { ...(inherited ?? {}) }
 
-    if (inheritedCanonical !== currentCanonical) {
-      appliedTextStyle[k] = v
-    }
-    nextTextStyle[k] = v
+  for (const [key, value] of Object.entries(current)) {
+    if (inherited?.[key] === value) continue
+    appliedTextStyle[key] = value
+    nextTextStyle[key] = value
   }
+
   return { appliedTextStyle, nextTextStyle }
 }
 
-function mergeDevComponentProps(comp: DevComponent, extra?: Record<string, unknown>): DevComponent {
-  if (!extra) return comp
-  const props = { ...(comp.props ?? {}) }
-  for (const [k, v] of Object.entries(extra)) {
-    if (v == null) continue
-    if (k === 'class' || k === 'className') {
-      props[k] = mergeClasses(String(props[k] || ''), String(v))
-    } else {
-      props[k] = v
+function mergeDevComponentProps(
+  component: DevComponent,
+  props?: Record<string, string>
+): DevComponent {
+  if (!props || !Object.keys(props).length) return component
+  const next = { ...component }
+  const existing = (next.props ?? {}) as Record<string, string>
+  const merged: Record<string, string> = { ...existing }
+
+  Object.entries(props).forEach(([key, value]) => {
+    if (!value) return
+    if (key === 'class' || key === 'className') {
+      if (existing[key]) {
+        merged[key] = mergeClass(existing[key], value)
+      } else {
+        merged[key] = value
+      }
+      return
     }
+    merged[key] = value
+  })
+
+  next.props = merged
+  return next
+}
+
+function hasClippingAncestor(
+  snapshot: NodeSnapshot,
+  tree: VisibleTree,
+  styles: Map<string, Record<string, string>>
+): boolean {
+  let currentId = snapshot.parentId
+  while (currentId) {
+    const parent = tree.nodes.get(currentId)
+    if (!parent) break
+    const node = parent.node
+
+    const clipsContent = 'clipsContent' in node && (node as { clipsContent?: boolean }).clipsContent
+    const overflowDirection =
+      'overflowDirection' in node
+        ? (node as { overflowDirection?: string }).overflowDirection
+        : undefined
+    if (clipsContent || (overflowDirection && overflowDirection !== 'NONE')) return true
+
+    const style = styles.get(parent.id)
+    if (style) {
+      const overflow = style.overflow?.toLowerCase()
+      const overflowX = style['overflow-x']?.toLowerCase()
+      const overflowY = style['overflow-y']?.toLowerCase()
+      if ((overflow && overflow !== 'visible') || (overflowX && overflowX !== 'visible')) {
+        return true
+      }
+      if (overflowY && overflowY !== 'visible') return true
+    }
+
+    currentId = parent.parentId
   }
-  return { ...comp, props }
+  return false
+}
+
+function hasVisibleTextFill(
+  node: TextNode,
+  segments: StyledTextSegment[] | null | undefined
+): boolean {
+  const nodeFills = Array.isArray(node.fills) ? (node.fills as Paint[]) : null
+  if (nodeFills) {
+    return nodeFills.some((fill) => isVisiblePaint(fill))
+  }
+
+  if (Array.isArray(segments)) {
+    for (const seg of segments) {
+      const fills = Array.isArray(seg.fills) ? (seg.fills as Paint[]) : null
+      if (fills && fills.some((fill) => isVisiblePaint(fill))) return true
+    }
+    return false
+  }
+
+  return true
+}
+
+function isVisiblePaint(paint?: Paint): boolean {
+  if (!paint || paint.visible === false) return false
+  if (typeof paint.opacity === 'number' && paint.opacity <= 0) return false
+  if ('gradientStops' in paint && Array.isArray(paint.gradientStops)) {
+    return paint.gradientStops.some((stop) => (stop.color?.a ?? 1) > 0)
+  }
+  return true
+}
+
+function isEmptySvg(raw: string): boolean {
+  const content = raw.replace(/^[\s\S]*?<svg\b[^>]*>/i, '').replace(/<\/svg>\s*$/i, '')
+  if (!content.trim()) return true
+  const hasShape = /<(path|rect|circle|ellipse|line|polyline|polygon|image|text|use)\b/i.test(
+    content
+  )
+  return !hasShape
+}
+
+function ensureSvgSize(svgProps: Record<string, string>, snapshot: NodeSnapshot): void {
+  const hasWidth = typeof svgProps.width === 'string' && svgProps.width.trim().length > 0
+  const hasHeight = typeof svgProps.height === 'string' && svgProps.height.trim().length > 0
+  if (hasWidth && hasHeight) return
+
+  const width = snapshot.bounds?.width
+  const height = snapshot.bounds?.height
+  if (!hasWidth && typeof width === 'number' && width > 0) svgProps.width = `${width}px`
+  if (!hasHeight && typeof height === 'number' && height > 0) svgProps.height = `${height}px`
 }

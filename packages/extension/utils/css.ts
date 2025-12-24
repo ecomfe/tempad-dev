@@ -615,8 +615,14 @@ export function normalizeCustomPropertyName(name: string): string {
 
 // Normalize Figma variable names to CSS custom property names (matches getCSSAsync behavior).
 export function normalizeFigmaVarName(input: string): string {
-  const raw = (input ?? '')
-    .trim()
+  let raw = (input ?? '').trim()
+  if (!raw) return '--unnamed'
+  raw = stripFallback(preprocessCssValue(raw)).trim()
+  if (raw.startsWith('var(') && raw.endsWith(')')) {
+    raw = raw.slice(4, -1).trim()
+  }
+  if (raw.startsWith('--')) raw = raw.slice(2).trim()
+  raw = raw
     .replace(RE_NON_ASCII, '')
     .replace(RE_QUOTES, '')
     .replace(RE_SLASH, '-')

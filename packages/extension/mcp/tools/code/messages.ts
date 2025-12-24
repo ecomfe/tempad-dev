@@ -1,34 +1,42 @@
-import type { SemanticTreeStats } from '@/mcp/semantic-tree'
+import type { GetCodeWarning } from '@tempad-dev/mcp-shared'
 
-const AUTO_LAYOUT_REGEX = /data-hint-auto-layout\s*=\s*["']?(none|inferred)["']?/i
+const AUTO_LAYOUT_REGEX = /data-hint-auto-layout\s*=\s*["']?inferred["']?/i
 
-export function buildGetCodeMessage(
+export function truncateCode(
   rawMarkup: string,
-  maxCodeChars: number,
-  stats: SemanticTreeStats
-): { markup: string; message?: string } {
-  let markup = rawMarkup
-  const messages: string[] = []
-
-  if (stats.capped) {
-    messages.push(`Selection truncated at depth ${stats.depthLimit ?? stats.maxDepth}.`)
-  }
-
+  maxCodeChars: number
+): {
+  code: string
+  truncated: boolean
+} {
   if (rawMarkup.length > maxCodeChars) {
-    markup = rawMarkup.slice(0, maxCodeChars)
-    messages.push(
-      `Output truncated to fit payload limit; showing first ${maxCodeChars} characters.`
-    )
+    return { code: rawMarkup.slice(0, maxCodeChars), truncated: true }
+  }
+  return { code: rawMarkup, truncated: false }
+}
+
+export function buildGetCodeWarnings(
+  code: string,
+  maxCodeChars: number,
+  truncated: boolean
+): GetCodeWarning[] | undefined {
+  const warnings: GetCodeWarning[] = []
+
+  if (truncated) {
+    warnings.push({
+      type: 'truncated',
+      message: `Output truncated to fit payload limit; showing first ${maxCodeChars} characters.`,
+      data: { maxCodeChars }
+    })
   }
 
-  if (AUTO_LAYOUT_REGEX.test(rawMarkup)) {
-    messages.push(
-      'Detected data-hint-auto-layout=none/inferred; call get_structure and/or get_screenshot to verify hierarchy, overlap, and masks.'
-    )
+  if (AUTO_LAYOUT_REGEX.test(code)) {
+    warnings.push({
+      type: 'auto-layout',
+      message:
+        'Detected data-hint-auto-layout=inferred; call get_structure and/or get_screenshot and use data-hint-id to locate nodes.'
+    })
   }
 
-  return {
-    markup,
-    message: messages.length ? messages.join(' ') : undefined
-  }
+  return warnings.length ? warnings : undefined
 }

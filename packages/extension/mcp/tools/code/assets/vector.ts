@@ -4,6 +4,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { ensureAssetUploaded } from '@/mcp/assets'
 import { normalizeCssValue } from '@/utils/css'
+import { toDecimalPlace } from '@/utils/number'
 
 export type SvgEntry = {
   props: Record<string, string>
@@ -29,8 +30,8 @@ export async function exportSvgEntry(
     }
     try {
       const asset = await ensureAssetUploaded(svgUint8, 'image/svg+xml', {
-        width: Math.round(node.width),
-        height: Math.round(node.height)
+        width: Math.round(toDecimalPlace(node.width)),
+        height: Math.round(toDecimalPlace(node.height))
       })
       assetRegistry.set(asset.hash, asset)
       baseProps['data-resource-uri'] = asset.resourceUri
@@ -41,7 +42,13 @@ export async function exportSvgEntry(
     }
   } catch (error) {
     console.warn('[tempad-dev] Failed to export vector node:', error)
-    return null
+    return {
+      props: {
+        width: `${toDecimalPlace(node.width)}px`,
+        height: `${toDecimalPlace(node.height)}px`
+      },
+      raw: '<svg></svg>'
+    }
   }
 }
 

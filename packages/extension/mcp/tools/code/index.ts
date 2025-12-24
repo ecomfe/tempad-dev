@@ -1,31 +1,33 @@
-import type {
-  AssetDescriptor,
-  GetCodeResult,
-  GetTokenDefsResult,
-  TokenEntry
-} from '@tempad-dev/mcp-shared'
+import type { AssetDescriptor, GetCodeResult } from '@tempad-dev/mcp-shared'
 
 import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/mcp-shared'
 
-import { buildSemanticTree } from '@/mcp/semantic-tree'
 import { activePlugin } from '@/ui/state'
 import { stringifyComponent } from '@/utils/component'
-import {
-  extractVarNames,
-  normalizeCustomPropertyName,
-  replaceVarFunctions,
-  stripFallback,
-  toVarExpr
-} from '@/utils/css'
 
-import type { RenderContext, CodeLanguage } from './render'
+import type { CodeLanguage, RenderContext } from './render'
 
 import { currentCodegenConfig } from '../config'
-import { resolveTokenDefsByNames } from '../token'
-import { applyPluginTransforms, buildVariableMappings, normalizeStyleVars } from '../token/mapping'
-import { collectSceneData } from './collect'
-import { buildGetCodeMessage } from './messages'
-import { renderSemanticNode } from './render'
+import { buildVariableMappings, normalizeStyleVars } from '../token/mapping'
+import { exportVectorAssets } from './assets/export'
+import { planAssets } from './assets/plan'
+import { collectNodeData } from './collect'
+import { buildGetCodeWarnings, truncateCode } from './messages'
+import { renderTree } from './render'
+import { sanitizeStyles } from './sanitize'
+import { buildLayoutStyles } from './styles'
+import {
+  applyPluginTransformToNames,
+  buildResolvedTokenMap,
+  buildSourceNameIndex,
+  buildUsedTokens,
+  extractTokenNames,
+  filterBridge,
+  mapResolvedTokens,
+  replaceTokensWithValues,
+  rewriteTokenNamesInCode
+} from './tokens'
+import { buildVisibleTree } from './tree'
 
 // Tags that should render children without extra whitespace/newlines.
 const COMPACT_TAGS = new Set([
@@ -63,44 +65,6 @@ const COMPACT_TAGS = new Set([
   'summary'
 ])
 
-function primaryTokenValue(entry: TokenEntry): string | undefined {
-  if (typeof entry.value === 'string') return entry.value
-  if (typeof entry.resolvedValue === 'string') return entry.resolvedValue
-  if (entry.activeMode && typeof entry.value[entry.activeMode] === 'string') {
-    return entry.value[entry.activeMode]
-  }
-  const first = Object.values(entry.value)[0]
-  return typeof first === 'string' ? first : undefined
-}
-
-function resolveConcreteValue(
-  name: string,
-  allTokens: GetTokenDefsResult,
-  cache: Map<string, string | undefined>,
-  depth = 0
-): string | undefined {
-  if (cache.has(name)) return cache.get(name)
-  if (depth > 20) return undefined
-
-  const entry = allTokens[name]
-  if (!entry) {
-    cache.set(name, undefined)
-    return undefined
-  }
-  const val = primaryTokenValue(entry)
-  if (typeof val !== 'string') {
-    cache.set(name, undefined)
-    return undefined
-  }
-  if (val.startsWith('--') && val !== name) {
-    const resolved = resolveConcreteValue(val, allTokens, cache, depth + 1) ?? val
-    cache.set(name, resolved)
-    return resolved
-  }
-  cache.set(name, val)
-  return val
-}
-
 export async function handleGetCode(
   nodes: SceneNode[],
   preferredLang?: CodeLanguage,
@@ -115,10 +79,15 @@ export async function handleGetCode(
     throw new Error('The selected node is not visible.')
   }
 
-  const tree = buildSemanticTree(nodes)
-  const root = tree.roots[0]
-  if (!root) {
+  const tree = buildVisibleTree(nodes)
+  const rootId = tree.rootIds[0]
+  if (!rootId) {
     throw new Error('No renderable nodes found for the current selection.')
+  }
+  if (tree.stats.capped) {
+    console.warn(
+      `[tempad-dev] Selection truncated at depth ${tree.stats.depthLimit ?? tree.stats.maxDepth}.`
+    )
   }
 
   const config = currentCodegenConfig()
@@ -127,111 +96,135 @@ export async function handleGetCode(
   const mappings = buildVariableMappings(nodes)
 
   const assetRegistry = new Map<string, AssetDescriptor>()
-  const { nodes: nodeMap, styles, svgs } = await collectSceneData(tree.roots, config, assetRegistry)
+  const collected = await collectNodeData(tree, config, assetRegistry)
 
-  // Normalize codeSyntax-based outputs (e.g. "--ui-bg" / "$kui-color") back to canonical var(--name)
-  // BEFORE Tailwind conversion, so css->Tailwind operates on a single stable representation.
-  const usedCandidateIds = normalizeStyleVars(styles, mappings)
+  // Normalize codeSyntax outputs (e.g. "$kui-space-0") before Tailwind conversion.
+  const usedCandidateIds = normalizeStyleVars(collected.styles, mappings)
+
+  const plan = planAssets(tree)
+
+  // Post-process styles (negative gap, auto-relative, etc.) after var normalization.
+  sanitizeStyles(tree, collected.styles, plan.vectorRoots)
+  const layoutStyles = buildLayoutStyles(collected.styles, plan.vectorRoots)
+  const svgs = await exportVectorAssets(tree, plan, config, assetRegistry)
+
+  const nodeMap = new Map<string, SceneNode>()
+  collected.nodes.forEach((snap, id) => nodeMap.set(id, snap.node))
 
   const ctx: RenderContext = {
-    styles,
+    styles: collected.styles,
+    layout: layoutStyles,
     nodes: nodeMap,
     svgs,
+    textSegments: collected.textSegments,
     pluginCode,
     config,
     preferredLang
   }
 
-  const componentTree = await renderSemanticNode(root, ctx)
+  const componentTree = await renderTree(rootId, tree, ctx)
 
   if (!componentTree) {
     throw new Error('Unable to build markup for the current selection.')
   }
 
   const resolvedLang = preferredLang ?? ctx.detectedLang ?? 'jsx'
+  const rootTag = collected.nodes.get(rootId)?.tag
 
   const rawMarkup =
     typeof componentTree === 'string'
-      ? normalizeRootString(componentTree, root.tag, resolvedLang)
+      ? normalizeRootString(componentTree, rootTag, rootId, resolvedLang)
       : stringifyComponent(componentTree, {
           lang: resolvedLang,
           isInline: (tag) => COMPACT_TAGS.has(tag)
         })
 
   const MAX_CODE_CHARS = Math.floor(MCP_MAX_PAYLOAD_BYTES * 0.6)
-  const { markup, message } = buildGetCodeMessage(rawMarkup, MAX_CODE_CHARS, tree.stats)
+  let { code, truncated } = truncateCode(rawMarkup, MAX_CODE_CHARS)
 
-  const finalMarkup = await applyPluginTransforms(markup, pluginCode, config)
+  // Token pipeline: detect -> transform -> rewrite -> detect
+  const candidateIds = usedCandidateIds.size ? usedCandidateIds : mappings.variableIds
+  const variableCache = new Map<string, Variable | null>()
+  const sourceIndex = buildSourceNameIndex(candidateIds, variableCache)
+  const sourceNames = new Set(sourceIndex.keys())
+  const usedNamesRaw = extractTokenNames(code, sourceNames)
 
-  // Only include tokens actually referenced in the final output.
-  const usedTokenNames = new Set<string>()
-  extractVarNames(finalMarkup).forEach((n) => usedTokenNames.add(n))
-  // Also capture bare custom property tokens if a plugin emits "--foo" directly.
-  finalMarkup.match(/--[A-Za-z0-9-_]+/g)?.forEach((m) => usedTokenNames.add(m))
+  const { rewriteMap, finalBridge } = await applyPluginTransformToNames(
+    usedNamesRaw,
+    sourceIndex,
+    pluginCode,
+    config
+  )
 
-  const usedTokens = await resolveTokenDefsByNames(usedTokenNames, config, pluginCode, {
-    candidateIds: usedCandidateIds.size ? usedCandidateIds : mappings.variableIds
-  })
+  code = rewriteTokenNamesInCode(code, rewriteMap)
+  if (code.length > MAX_CODE_CHARS) {
+    code = code.slice(0, MAX_CODE_CHARS)
+    truncated = true
+  }
 
+  const usedNamesFinal = extractTokenNames(code, sourceNames)
+  const finalBridgeFiltered = filterBridge(finalBridge, usedNamesFinal)
+
+  const { usedTokens, tokensByCanonical, canonicalByFinal } = await buildUsedTokens(
+    usedNamesFinal,
+    finalBridgeFiltered,
+    config,
+    pluginCode,
+    variableCache
+  )
+
+  let resolvedTokens: Record<string, string> | undefined
+  if (resolveTokens) {
+    const resolvedByFinal = buildResolvedTokenMap(
+      usedNamesFinal,
+      tokensByCanonical,
+      canonicalByFinal
+    )
+    code = replaceTokensWithValues(code, resolvedByFinal)
+    if (code.length > MAX_CODE_CHARS) {
+      code = code.slice(0, MAX_CODE_CHARS)
+      truncated = true
+    }
+    resolvedTokens = mapResolvedTokens(resolvedByFinal)
+  }
+
+  const warnings = buildGetCodeWarnings(code, MAX_CODE_CHARS, truncated)
+  const assets = Array.from(assetRegistry.values())
   const codegen = {
-    preset: activePlugin.value?.name ?? 'none',
+    plugin: activePlugin.value?.name ?? 'none',
     config
   }
 
-  if (resolveTokens) {
-    const tokenCache = new Map<string, string | undefined>()
-    const tokenMap = new Map<string, string | undefined>()
-    Object.keys(usedTokens).forEach((name) => {
-      tokenMap.set(name, resolveConcreteValue(name, usedTokens, tokenCache))
-    })
-
-    const replaceToken = (input: string): string => {
-      // Always strip fallbacks (even if token isn't resolved).
-      let out = stripFallback(input)
-
-      // Replace CSS var() functions first (supports whitespace/nesting).
-      out = replaceVarFunctions(out, ({ name, full }) => {
-        const trimmed = name.trim()
-        if (!trimmed.startsWith('--')) return full
-        const canonical = normalizeCustomPropertyName(trimmed)
-        const val = tokenMap.get(canonical)
-        return typeof val === 'string' ? val : toVarExpr(canonical)
-      })
-
-      // replace bare --token (e.g., Tailwind arbitrary value: border-[--foo])
-      out = out.replace(/--[A-Za-z0-9-_]+/g, (m) => {
-        const val = tokenMap.get(m)
-        return typeof val === 'string' ? val : m
-      })
-      return out
-    }
-
-    const resolvedMarkup = replaceToken(finalMarkup)
-    // If tokens are resolved, we don't need to return the token definitions
-    return {
-      lang: resolvedLang,
-      code: resolvedMarkup,
-      assets: Array.from(assetRegistry.values()),
-      codegen,
-      ...(message ? { message } : {})
-    }
-  }
+  const tokensPayload =
+    Object.keys(usedTokens).length || (resolvedTokens && Object.keys(resolvedTokens).length)
+      ? {
+          ...(Object.keys(usedTokens).length ? { used: usedTokens } : {}),
+          ...(resolvedTokens && Object.keys(resolvedTokens).length
+            ? { resolved: resolvedTokens }
+            : {})
+        }
+      : undefined
 
   return {
     lang: resolvedLang,
-    code: finalMarkup,
-    assets: Array.from(assetRegistry.values()),
-    usedTokens,
+    code,
+    ...(assets.length ? { assets } : {}),
+    ...(tokensPayload ? { tokens: tokensPayload } : {}),
     codegen,
-    ...(message ? { message } : {})
+    ...(warnings?.length ? { warnings } : {})
   }
 }
 
-function normalizeRootString(content: string, fallbackTag: string | undefined, lang: CodeLanguage) {
+function normalizeRootString(
+  content: string,
+  fallbackTag: string | undefined,
+  nodeId: string,
+  lang: CodeLanguage
+) {
   return stringifyComponent(
     {
       name: fallbackTag || 'div',
-      props: {},
+      props: { 'data-hint-id': nodeId },
       children: [content]
     },
     {

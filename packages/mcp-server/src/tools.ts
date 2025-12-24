@@ -71,7 +71,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_code',
     description:
-      'Get a high-fidelity code snapshot for a nodeId/current selection, including assets/usedTokens and codegen preset/config. Start here, then refactor into your component/styling/file/naming conventions; strip any data-* hints. If no data-hint-auto-layout is present, layout is explicit; if any hint is none/inferred, pair with get_structure/get_screenshot to confirm hierarchy/overlap. Use data-hint-component plus repetition to decide on reusable components. Replace resource URIs with your canonical asset system as needed.',
+      'Get a high-fidelity code snapshot for a nodeId/current selection, including assets/tokens and codegen plugin/config. Start here, then refactor into your component/styling/file/naming conventions; strip any data-* hints. If no data-hint-auto-layout is present, layout is explicit; if any hint is none/inferred, pair with get_structure/get_screenshot to confirm hierarchy/overlap. Use data-hint-component plus repetition to decide on reusable components. Replace resource URIs with your canonical asset system as needed.',
     parameters: GetCodeParametersSchema,
     target: 'extension',
     format: createCodeToolResponse
@@ -141,24 +141,30 @@ export function createCodeToolResponse(payload: ToolResultMap['get_code']): Call
   const summary: string[] = []
   const codeSize = Buffer.byteLength(payload.code, 'utf8')
   summary.push(`Generated \`${payload.lang}\` snippet (${formatBytes(codeSize)}).`)
-  if (payload.message) {
-    summary.push(payload.message)
+  if (payload.warnings?.length) {
+    const warningText = payload.warnings.map((warning) => warning.message).join(' ')
+    summary.push(warningText)
   }
   summary.push(
-    payload.assets.length
+    payload.assets?.length
       ? `Assets attached: ${payload.assets.length}. Fetch bytes via resources/read using resourceUri.`
       : 'No binary assets were attached to this response.'
   )
-  const tokenCount = payload.usedTokens ? Object.keys(payload.usedTokens ?? {}).length : 0
-  if (tokenCount) {
-    summary.push(`Token references included: ${tokenCount}.`)
+  const usedTokenCount = payload.tokens?.used ? Object.keys(payload.tokens.used).length : 0
+  const resolvedTokenCount = payload.tokens?.resolved
+    ? Object.keys(payload.tokens.resolved).length
+    : 0
+  if (usedTokenCount) {
+    summary.push(`Token references included: ${usedTokenCount}.`)
+  }
+  if (resolvedTokenCount) {
+    summary.push(`Resolved token values included: ${resolvedTokenCount}.`)
   }
   summary.push('Read structuredContent for the full code string and asset metadata.')
 
-  const assetLinks =
-    payload.assets.length > 0
-      ? payload.assets.map((asset) => createAssetResourceLinkBlock(asset))
-      : []
+  const assetLinks = payload.assets?.length
+    ? payload.assets.map((asset) => createAssetResourceLinkBlock(asset))
+    : []
 
   return {
     content: [
@@ -231,7 +237,7 @@ function isCodeResult(payload: unknown): payload is ToolResultMap['get_code'] {
   return (
     typeof candidate.code === 'string' &&
     typeof candidate.lang === 'string' &&
-    Array.isArray(candidate.assets)
+    (candidate.assets === undefined || Array.isArray(candidate.assets))
   )
 }
 

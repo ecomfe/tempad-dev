@@ -1,94 +1,43 @@
 import type { AssetDescriptor } from '@tempad-dev/mcp-shared'
 
-import type { SemanticNode } from '@/mcp/semantic-tree'
 import type { CodegenConfig } from '@/utils/codegen'
 
+import { preprocessCssValue, stripFallback } from '@/utils/css'
 import { toDecimalPlace } from '@/utils/number'
 
-import type { SvgEntry } from './assets'
+import type { CollectedData, NodeSnapshot, VisibleTree } from './model'
 
-import { exportSvgEntry, hasImageFills, replaceImageUrlsWithAssets } from './assets'
-import { preprocessStyles, stripInertShadows } from './style'
+import { hasImageFills, replaceImageUrlsWithAssets } from './assets'
+import { getLayoutParent } from './layout-parent'
+import { preprocessStyles, stripInertShadows } from './styles'
+import { REQUESTED_SEGMENT_FIELDS } from './text/types'
 
-const VECTOR_LIKE_TYPES = new Set<SceneNode['type']>([
-  'VECTOR',
-  'BOOLEAN_OPERATION',
-  'STAR',
-  'LINE',
-  'ELLIPSE',
-  'POLYGON'
-])
-
-export type CollectedSceneData = {
-  nodes: Map<string, SceneNode>
-  styles: Map<string, Record<string, string>>
-  svgs: Map<string, SvgEntry>
-}
-
-export async function collectSceneData(
-  roots: SemanticNode[],
+export async function collectNodeData(
+  tree: VisibleTree,
   config: CodegenConfig,
   assetRegistry: Map<string, AssetDescriptor>
-): Promise<CollectedSceneData> {
-  const semanticNodes = flattenSemanticNodes(roots)
-  const parentById = buildSemanticParentMap(roots)
-  const nodes = new Map<string, SceneNode>()
+): Promise<CollectedData> {
   const styles = new Map<string, Record<string, string>>()
-  const svgs = new Map<string, SvgEntry>()
-  const skipped = new Set<string>()
+  const textSegments = new Map<string, StyledTextSegment[] | null>()
 
-  for (const semantic of semanticNodes) {
-    if (skipped.has(semantic.id)) continue
+  for (const id of tree.order) {
+    const snapshot = tree.nodes.get(id)
+    if (!snapshot) continue
+    const node = snapshot.node
 
-    const node = figma.getNodeById(semantic.id) as SceneNode | null
-    if (!node || !node.visible) continue
-
-    nodes.set(semantic.id, node)
-
-    const isSemanticVectorOnly = semantic.children.length > 0 && isVectorSubtree(semantic)
-
-    const isVectorOnlyContainer = isVectorContainer(node) || isSemanticVectorOnly
-
-    if (isVectorOnlyContainer && node.width > 0 && node.height > 0) {
-      const svgEntry = await exportSvgEntry(node, config, assetRegistry)
-      if (svgEntry) {
-        svgs.set(semantic.id, svgEntry)
-        skipDescendants(semantic, skipped)
-        const processed = await collectNodeStyle(node, semantic, parentById, nodes, styles)
-        if (processed) {
-          styles.set(semantic.id, processed)
-        }
-      }
-      continue
-    }
-
-    const shouldExportVector = semantic.assetKind === 'vector' && node.width > 0 && node.height > 0
-
-    if (shouldExportVector) {
-      const svgEntry = await exportSvgEntry(node, config, assetRegistry)
-      if (svgEntry) {
-        svgs.set(semantic.id, svgEntry)
-        const processed = await collectNodeStyle(node, semantic, parentById, nodes, styles)
-        if (processed) {
-          styles.set(semantic.id, processed)
-        }
-      }
-      continue
+    if (node.type === 'TEXT') {
+      const segments = collectTextSegments(node)
+      textSegments.set(id, segments)
     }
 
     try {
       const css = await node.getCSSAsync()
+      const parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
 
-      let processed = preprocessStyles(css, node)
-
-      const parentSemantic = parentById.get(semantic.id)
-      if (parentSemantic) {
-        const parentNode =
-          nodes.get(parentSemantic.id) ?? (figma.getNodeById(parentSemantic.id) as SceneNode | null)
-        const parentStyle = parentSemantic ? styles.get(parentSemantic.id) : undefined
-        if (parentNode) {
-          processed = applyConstraintsPosition(processed, node, parentNode, parentStyle)
-        }
+      let processed = preprocessStyles(preprocessRawStyle(css), node, parent?.node)
+      if (parent) {
+        processed = applyAutoLayoutAbsolutePosition(processed, snapshot, tree)
+        processed = applyConstraintsPosition(processed, snapshot, tree)
       }
 
       if (hasImageFills(node)) {
@@ -96,185 +45,200 @@ export async function collectSceneData(
       }
 
       stripInertShadows(processed, node)
-
-      styles.set(semantic.id, processed)
+      styles.set(id, processed)
     } catch (error) {
       console.warn('[tempad-dev] Failed to process node styles:', error)
     }
   }
 
-  for (const [id, entry] of Array.from(svgs.entries())) {
-    const node = nodes.get(id)
-    if (!node) {
-      svgs.delete(id)
-      continue
-    }
-    if (node.width <= 0 || node.height <= 0) {
-      svgs.delete(id)
-      continue
-    }
-    const widthAttr = Number(entry.props?.width ?? 0)
-    const heightAttr = Number(entry.props?.height ?? 0)
-    if (widthAttr <= 0 || heightAttr <= 0) {
-      svgs.delete(id)
-    }
+  return { nodes: tree.nodes, styles, textSegments }
+}
+
+function preprocessRawStyle(style: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(style)) {
+    if (value == null) continue
+    let next = preprocessCssValue(String(value))
+    next = stripFallback(next)
+    out[key] = next
   }
-
-  return { nodes, styles, svgs }
+  return out
 }
 
-function isVectorContainer(node: SceneNode): boolean {
-  if (!('children' in node)) return false
-  const visibleChildren = node.children.filter((child) => child.visible)
-  if (!visibleChildren.length) return false
-  return visibleChildren.every((child) => VECTOR_LIKE_TYPES.has(child.type))
-}
-
-function isVectorSubtree(semantic: SemanticNode): boolean {
-  if (!semantic.children.length) return semantic.assetKind === 'vector'
-  return semantic.children.every((child) => isVectorSubtree(child))
-}
-
-function buildSemanticParentMap(roots: SemanticNode[]): Map<string, SemanticNode | undefined> {
-  const map = new Map<string, SemanticNode | undefined>()
-  const walk = (node: SemanticNode, parent?: SemanticNode) => {
-    map.set(node.id, parent)
-    node.children.forEach((child) => walk(child, node))
-  }
-  roots.forEach((root) => walk(root, undefined))
-  return map
-}
-
-async function collectNodeStyle(
-  node: SceneNode,
-  semantic: SemanticNode,
-  parentById: Map<string, SemanticNode | undefined>,
-  nodes: Map<string, SceneNode>,
-  styles: Map<string, Record<string, string>>
-): Promise<Record<string, string> | null> {
+function collectTextSegments(node: TextNode): StyledTextSegment[] | null {
   try {
-    const css = await node.getCSSAsync()
-    let processed = preprocessStyles(css, node)
-
-    const parentSemantic = parentById.get(semantic.id)
-    if (parentSemantic) {
-      const parentNode =
-        nodes.get(parentSemantic.id) ?? (figma.getNodeById(parentSemantic.id) as SceneNode | null)
-      const parentStyle = parentSemantic ? styles.get(parentSemantic.id) : undefined
-      if (parentNode) {
-        processed = applyConstraintsPosition(processed, node, parentNode, parentStyle)
-      }
-    }
-
-    return processed
+    if (typeof node.getStyledTextSegments !== 'function') return null
+    const segments = node.getStyledTextSegments(REQUESTED_SEGMENT_FIELDS)
+    return Array.isArray(segments) ? segments : null
   } catch (error) {
-    console.warn('[tempad-dev] Failed to process node styles:', error)
+    console.warn('[tempad-dev] Failed to read styled text segments:', error)
     return null
   }
 }
 
 function applyConstraintsPosition(
   style: Record<string, string>,
-  node: SceneNode,
-  parent: SceneNode,
-  parentStyle?: Record<string, string>
+  node: NodeSnapshot,
+  tree: VisibleTree
 ): Record<string, string> {
-  const constraints = (node as { constraints?: Constraints }).constraints
-  if (!constraints) return style
+  if (node.node.type === 'GROUP' || node.node.type === 'BOOLEAN_OPERATION') return style
+  const currentNode = node.node
+  const parentSnapshot = getLayoutParent(tree, node)
+  if (!parentSnapshot) return style
+  const parentNode = parentSnapshot.node
 
-  const layoutMode = (parent as { layoutMode?: string }).layoutMode
+  const layoutMode = 'layoutMode' in parentNode ? parentNode.layoutMode : undefined
   if (layoutMode && layoutMode !== 'NONE') return style
+  if (hasInferredLayout(parentNode)) return style
 
-  const parentDisplay = parentStyle?.display?.toLowerCase()
-  if (parentDisplay && (parentDisplay.includes('flex') || parentDisplay.includes('grid'))) {
-    return style
-  }
-
-  const width = (node as { width?: number }).width ?? 0
-  const height = (node as { height?: number }).height ?? 0
-  const parentWidth = (parent as { width?: number }).width ?? 0
-  const parentHeight = (parent as { height?: number }).height ?? 0
+  const rawWidth = 'width' in currentNode ? currentNode.width : 0
+  const rawHeight = 'height' in currentNode ? currentNode.height : 0
+  const rawParentWidth = 'width' in parentNode ? parentNode.width : 0
+  const rawParentHeight = 'height' in parentNode ? parentNode.height : 0
+  const width = toDecimalPlace(rawWidth)
+  const height = toDecimalPlace(rawHeight)
+  const parentWidth = toDecimalPlace(rawParentWidth)
+  const parentHeight = toDecimalPlace(rawParentHeight)
 
   if (!parentWidth || !parentHeight) return style
 
-  const transform = (node as { relativeTransform?: Transform }).relativeTransform
+  const transform = 'relativeTransform' in currentNode ? currentNode.relativeTransform : undefined
   if (!transform || transform.length < 2 || transform[0].length < 3 || transform[1].length < 3) {
     return style
   }
 
-  const left = transform[0][2]
-  const top = transform[1][2]
-  const right = parentWidth - width - left
-  const bottom = parentHeight - height - top
+  const left = toDecimalPlace(transform[0][2])
+  const top = toDecimalPlace(transform[1][2])
+  const right = toDecimalPlace(parentWidth - width - left)
+  const bottom = toDecimalPlace(parentHeight - height - top)
+
+  const constraints = 'constraints' in currentNode ? currentNode.constraints : undefined
+  const result: Record<string, string> = { ...style, position: 'absolute' }
+
+  if (constraints) {
+    const h = constraints.horizontal
+    switch (h) {
+      case 'MIN':
+        result.left = `${left}px`
+        break
+      case 'MAX':
+        result.right = `${right}px`
+        break
+      case 'CENTER': {
+        const offset = width / 2 + (parentWidth / 2 - width / 2 - left)
+        result.left = `calc(50% - ${toDecimalPlace(offset)}px)`
+        break
+      }
+      case 'STRETCH':
+        result.left = `${left}px`
+        result.right = `${right}px`
+        break
+      case 'SCALE':
+        result.left = `${toDecimalPlace((left / parentWidth) * 100)}%`
+        result.right = `${toDecimalPlace((right / parentWidth) * 100)}%`
+        break
+      default:
+        break
+    }
+
+    const v = constraints.vertical
+    switch (v) {
+      case 'MIN':
+        result.top = `${top}px`
+        break
+      case 'MAX':
+        result.bottom = `${bottom}px`
+        break
+      case 'CENTER': {
+        const offset = height / 2 + (parentHeight / 2 - height / 2 - top)
+        result.top = `calc(50% - ${toDecimalPlace(offset)}px)`
+        break
+      }
+      case 'STRETCH':
+        result.top = `${top}px`
+        result.bottom = `${bottom}px`
+        break
+      case 'SCALE':
+        result.top = `${toDecimalPlace((top / parentHeight) * 100)}%`
+        result.bottom = `${toDecimalPlace((bottom / parentHeight) * 100)}%`
+        break
+      default:
+        break
+    }
+  } else {
+    // Fallback: no constraints but still have transform/size → pin by left/top.
+    result.left = `${left}px`
+    result.top = `${top}px`
+  }
+
+  // Safety net: if neither side got set, fall back to transform values.
+  if (!result.left && !result.right) result.left = `${left}px`
+  if (!result.top && !result.bottom) result.top = `${top}px`
+
+  return result
+}
+
+function applyAutoLayoutAbsolutePosition(
+  style: Record<string, string>,
+  node: NodeSnapshot,
+  tree: VisibleTree
+): Record<string, string> {
+  if (node.node.type === 'GROUP' || node.node.type === 'BOOLEAN_OPERATION') return style
+  const currentNode = node.node
+  const parentSnapshot = getLayoutParent(tree, node)
+  if (!parentSnapshot) return style
+  const parentNode = parentSnapshot.node
+
+  const parentLayout = 'layoutMode' in parentNode ? parentNode.layoutMode : undefined
+  const inferredLayout = hasInferredLayout(parentNode)
+  if ((!parentLayout || parentLayout === 'NONE') && !inferredLayout) return style
+
+  const layoutPositioning =
+    'layoutPositioning' in currentNode ? currentNode.layoutPositioning : undefined
+  if (layoutPositioning !== 'ABSOLUTE') return style
+
+  const rawWidth = 'width' in currentNode ? currentNode.width : 0
+  const rawHeight = 'height' in currentNode ? currentNode.height : 0
+  const rawParentWidth = 'width' in parentNode ? parentNode.width : 0
+  const rawParentHeight = 'height' in parentNode ? parentNode.height : 0
+  const width = toDecimalPlace(rawWidth)
+  const height = toDecimalPlace(rawHeight)
+  const parentWidth = toDecimalPlace(rawParentWidth)
+  const parentHeight = toDecimalPlace(rawParentHeight)
+
+  if (!parentWidth || !parentHeight) return style
+
+  const transform = 'relativeTransform' in currentNode ? currentNode.relativeTransform : undefined
+  if (!transform || transform.length < 2 || transform[0].length < 3 || transform[1].length < 3) {
+    return style
+  }
+
+  const left = toDecimalPlace(transform[0][2])
+  const top = toDecimalPlace(transform[1][2])
+  const right = toDecimalPlace(parentWidth - width - left)
+  const bottom = toDecimalPlace(parentHeight - height - top)
 
   const result: Record<string, string> = { ...style, position: 'absolute' }
 
-  const h = constraints.horizontal
-  switch (h) {
-    case 'MIN':
-      result.left = `${toDecimalPlace(left)}px`
-      break
-    case 'MAX':
-      result.right = `${toDecimalPlace(right)}px`
-      break
-    case 'CENTER': {
-      const offset = width / 2 + (parentWidth / 2 - width / 2 - left)
-      result.left = `calc(50% - ${toDecimalPlace(offset)}px)`
-      break
-    }
-    case 'STRETCH':
-      result.left = `${toDecimalPlace(left)}px`
-      result.right = `${toDecimalPlace(right)}px`
-      break
-    case 'SCALE':
-      result.left = `${toDecimalPlace((left / parentWidth) * 100)}%`
-      result.right = `${toDecimalPlace((right / parentWidth) * 100)}%`
-      break
-    default:
-      break
+  if (!result.left && !result.right) {
+    result.left = `${left}px`
+  }
+  if (!result.right && result.left === undefined) {
+    result.right = `${right}px`
   }
 
-  const v = constraints.vertical
-  switch (v) {
-    case 'MIN':
-      result.top = `${toDecimalPlace(top)}px`
-      break
-    case 'MAX':
-      result.bottom = `${toDecimalPlace(bottom)}px`
-      break
-    case 'CENTER': {
-      const offset = height / 2 + (parentHeight / 2 - height / 2 - top)
-      result.top = `calc(50% - ${toDecimalPlace(offset)}px)`
-      break
-    }
-    case 'STRETCH':
-      result.top = `${toDecimalPlace(top)}px`
-      result.bottom = `${toDecimalPlace(bottom)}px`
-      break
-    case 'SCALE':
-      result.top = `${toDecimalPlace((top / parentHeight) * 100)}%`
-      result.bottom = `${toDecimalPlace((bottom / parentHeight) * 100)}%`
-      break
-    default:
-      break
+  if (!result.top && !result.bottom) {
+    result.top = `${top}px`
+  }
+  if (!result.bottom && result.top === undefined) {
+    result.bottom = `${bottom}px`
   }
 
   return result
 }
 
-function skipDescendants(semantic: SemanticNode, bucket: Set<string>): void {
-  semantic.children.forEach((child) => {
-    bucket.add(child.id)
-    skipDescendants(child, bucket)
-  })
-}
-
-function flattenSemanticNodes(nodes: SemanticNode[]): SemanticNode[] {
-  const res: SemanticNode[] = []
-  const traverse = (n: SemanticNode) => {
-    res.push(n)
-    n.children.forEach(traverse)
-  }
-  nodes.forEach(traverse)
-  return res
+function hasInferredLayout(node: SceneNode): boolean {
+  if (!('inferredAutoLayout' in node)) return false
+  const inferred = (node as { inferredAutoLayout?: { layoutMode?: string } }).inferredAutoLayout
+  return !!inferred?.layoutMode && inferred.layoutMode !== 'NONE'
 }
