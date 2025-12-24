@@ -5,7 +5,7 @@ import { workerUnitOptions } from '@/utils/codegen'
 import {
   canonicalizeVarName as canonicalizeCssVarName,
   normalizeCustomPropertyBody,
-  normalizeCustomPropertyName
+  normalizeFigmaVarName
 } from '@/utils/css'
 
 export type TokenIndex = {
@@ -59,7 +59,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
 function parseCanonicalFromExpr(expr: string, fallbackName: string): string {
   const canonical = canonicalizeCssVarName(expr)
   if (canonical) return canonical
-  return normalizeCustomPropertyName(fallbackName)
+  return normalizeFigmaVarName(fallbackName)
 }
 
 export function getVariableRawName(variable: Variable): string {
@@ -124,7 +124,7 @@ export async function canonicalizeName(
   pluginCode?: string
 ): Promise<string> {
   const [canonical] = await canonicalizeNames([rawName], config, pluginCode)
-  return canonical ?? normalizeCustomPropertyName(rawName)
+  return canonical ?? normalizeFigmaVarName(rawName)
 }
 
 export async function getTokenIndex(
@@ -151,7 +151,7 @@ export async function getTokenIndex(
     for (let i = 0; i < variables.length; i++) {
       const variable = variables[i]
       const fallbackRaw = getVariableRawName(variable)
-      const canonical = canonicals[i] ?? normalizeCustomPropertyName(fallbackRaw)
+      const canonical = canonicals[i] ?? normalizeFigmaVarName(fallbackRaw)
 
       canonicalNameById.set(variable.id, canonical)
 

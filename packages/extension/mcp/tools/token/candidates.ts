@@ -1,5 +1,4 @@
-import { toFigmaVarExpr } from '@/utils/css'
-import { normalizeCustomPropertyName } from '@/utils/css'
+import { canonicalizeVarName, normalizeFigmaVarName, toFigmaVarExpr } from '@/utils/css'
 
 import { getVariableRawName } from './indexer'
 
@@ -109,11 +108,12 @@ export function collectCandidateVariableIds(roots: SceneNode[]): CandidateResult
     const v = figma.variables.getVariableById(id)
     if (!v) continue
 
-    const canonical = normalizeCustomPropertyName(getVariableRawName(v))
+    const canonical = normalizeFigmaVarName(getVariableRawName(v))
 
     const cs = v.codeSyntax?.WEB?.trim()
     if (cs) {
-      if (!rewrites.has(cs)) {
+      const canonicalFromSyntax = canonicalizeVarName(cs)
+      if (canonicalFromSyntax && !rewrites.has(cs)) {
         rewrites.set(cs, { canonical, id })
       }
     }

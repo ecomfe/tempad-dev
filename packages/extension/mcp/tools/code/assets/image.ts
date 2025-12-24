@@ -4,6 +4,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { ensureAssetUploaded } from '@/mcp/assets'
 import { BG_URL_RE } from '@/utils/css'
+import { toDecimalPlace } from '@/utils/number'
 
 const imageBytesCache = new Map<string, Promise<Uint8Array>>()
 
@@ -55,8 +56,12 @@ function replaceImageUrlsWithPlaceholder(
   let w = 100
   let h = 100
 
-  if ('width' in node && typeof node.width === 'number') w = Math.round(node.width * scale)
-  if ('height' in node && typeof node.height === 'number') h = Math.round(node.height * scale)
+  if ('width' in node && typeof node.width === 'number') {
+    w = Math.round(toDecimalPlace(node.width) * scale)
+  }
+  if ('height' in node && typeof node.height === 'number') {
+    h = Math.round(toDecimalPlace(node.height) * scale)
+  }
 
   const placeholderUrl = `https://placehold.co/${w}x${h}`
   const result = { ...style }

@@ -5,7 +5,7 @@ import { joinClassNames } from '@/utils/tailwind'
 
 import type { RenderContext } from '../render'
 
-import { styleToClassNames } from '../style'
+import { styleToClassNames } from '../styles'
 import { buildTextBlocks, formatTextLiteral, getStyledSegments } from './segments'
 import { computeDominantStyle, omitCommon } from './style'
 import {
@@ -31,7 +31,7 @@ export async function renderTextSegments(
 }> {
   const { inheritedTextStyle, segments: providedSegments } = options
 
-  const rawSegments = providedSegments ?? getStyledSegments(node)
+  const rawSegments = providedSegments === undefined ? getStyledSegments(node) : providedSegments
   if (!rawSegments || !rawSegments.length) {
     const literal = formatTextLiteral(node.characters ?? '')
     return {
@@ -72,7 +72,7 @@ export async function renderTextSegments(
   const outputSegments: Array<DevComponent | string> = []
 
   for (const block of blocks) {
-    const renderedBlock = renderBlock(block, commonStyle, classProp, ctx, node)
+    const renderedBlock = renderBlock(block, commonStyle, classProp, ctx)
     if (renderedBlock) {
       optimizeComponentTree(renderedBlock, classProp)
       outputSegments.push(renderedBlock)
@@ -86,8 +86,7 @@ function renderBlock(
   block: TextBlock,
   commonStyle: Record<string, string>,
   classProp: 'class' | 'className',
-  ctx: RenderContext,
-  node: TextNode
+  ctx: RenderContext
 ): DevComponent | null {
   const { type, lines, attrs } = block
   const { paragraphSpacing } = attrs
@@ -99,12 +98,12 @@ function renderBlock(
   const blockClasses: string[] = []
 
   if (Object.keys(commonStyle).length) {
-    blockClasses.push(...styleToClassNames(commonStyle, config, node))
+    blockClasses.push(...styleToClassNames(commonStyle, config))
   }
 
   if (paragraphSpacing > 0) {
     const mbStyle = { 'margin-bottom': `${paragraphSpacing}px` }
-    blockClasses.push(...styleToClassNames(mbStyle, config, node))
+    blockClasses.push(...styleToClassNames(mbStyle, config))
   }
 
   const cls = joinClassNames(blockClasses)
@@ -116,7 +115,7 @@ function renderBlock(
     const container: DevComponent = { name: tagName, props, children: [] }
 
     lines.forEach((line, idx) => {
-      const lineNodes = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
+      const lineNodes = buildInlineTree(line.runs, commonStyle, classProp, ctx)
       container.children.push(...lineNodes)
       if (isMultiline && idx < lines.length - 1) {
         container.children.push({ name: 'br', props: {}, children: [] })
@@ -174,7 +173,7 @@ function renderBlock(
       stack.push({ list: newList, level: currentIndent })
     }
 
-    const lineChildren = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
+    const lineChildren = buildInlineTree(line.runs, commonStyle, classProp, ctx)
     if (lineChildren.length === 0) {
       lineChildren.push({ name: 'br', props: {}, children: [] })
     }
@@ -252,8 +251,7 @@ function buildInlineTree(
   runs: TextRun[],
   commonStyle: Record<string, string>,
   classProp: 'class' | 'className',
-  ctx: RenderContext,
-  node: TextNode
+  ctx: RenderContext
 ): Array<DevComponent | string> {
   const root: { children: Array<DevComponent | string> } = { children: [] }
   const stack: StackNode[] = [{ container: root }]
@@ -295,7 +293,7 @@ function buildInlineTree(
 
     const cleanedAttrs = stripDefaultTextStyles(run.attrs)
     const style = omitCommon(cleanedAttrs, commonStyle)
-    const classNames = styleToClassNames(style, ctx.config, node)
+    const classNames = styleToClassNames(style, ctx.config)
     const cls = joinClassNames(classNames)
     const top = stack[stack.length - 1].container
 

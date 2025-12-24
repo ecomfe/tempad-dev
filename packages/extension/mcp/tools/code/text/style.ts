@@ -1,4 +1,5 @@
-import { canonicalizeValue, formatHexAlpha, toVarExpr } from '@/utils/css'
+import { canonicalizeValue, formatHexAlpha, toFigmaVarExpr } from '@/utils/css'
+import { toDecimalPlace } from '@/utils/number'
 
 import {
   CODE_FONT_KEYWORDS,
@@ -45,7 +46,7 @@ export function resolveRunAttrs(
 
   const sizeVal = constructCssVar(
     fontSize,
-    typeof seg.fontSize === 'number' ? `${seg.fontSize}px` : undefined
+    typeof seg.fontSize === 'number' ? `${toDecimalPlace(seg.fontSize)}px` : undefined
   )
   if (sizeVal) style['font-size'] = sizeVal
 
@@ -227,7 +228,7 @@ function mapTextCase(textCase?: TextCase): string | undefined {
 }
 
 function constructCssVar(token?: TokenRef | null, fallback?: string): string | undefined {
-  if (token) return toVarExpr(token.name)
+  if (token) return toFigmaVarExpr(token.name)
   return fallback?.trim() || undefined
 }
 
@@ -246,12 +247,14 @@ function formatLineHeightValue(lineHeight?: LineHeight): string | undefined {
   if (!lineHeight) return undefined
   if (lineHeight.unit === 'AUTO') return 'normal'
   if ('value' in lineHeight) {
-    return lineHeight.unit === 'PERCENT' ? `${lineHeight.value}%` : `${lineHeight.value}px`
+    const val = toDecimalPlace(lineHeight.value)
+    return lineHeight.unit === 'PERCENT' ? `${val}%` : `${val}px`
   }
   return undefined
 }
 
 function formatLetterSpacingValue(letterSpacing?: LetterSpacing): string | undefined {
   if (!letterSpacing || !('value' in letterSpacing)) return undefined
-  return letterSpacing.unit === 'PERCENT' ? `${letterSpacing.value}%` : `${letterSpacing.value}px`
+  const val = toDecimalPlace(letterSpacing.value)
+  return letterSpacing.unit === 'PERCENT' ? `${val}%` : `${val}px`
 }
