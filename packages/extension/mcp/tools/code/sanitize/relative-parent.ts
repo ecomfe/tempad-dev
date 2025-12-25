@@ -27,8 +27,6 @@ function collect(
 ): void {
   const node = tree.nodes.get(nodeId)
   if (!node) return
-  if (svgRoots?.has(node.id)) return
-
   const style = styles.get(node.id)
   if (style?.position?.toLowerCase() === 'absolute') {
     const layoutParent = getLayoutParent(tree, node)

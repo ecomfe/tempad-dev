@@ -143,7 +143,9 @@ export async function handleGetCode(
   let { code, truncated } = truncateCode(rawMarkup, MAX_CODE_CHARS)
 
   // Token pipeline: detect -> transform -> rewrite -> detect
-  const candidateIds = usedCandidateIds.size ? usedCandidateIds : mappings.variableIds
+  const candidateIds = usedCandidateIds.size
+    ? new Set<string>([...mappings.variableIds, ...usedCandidateIds])
+    : mappings.variableIds
   const variableCache = new Map<string, Variable | null>()
   const sourceIndex = buildSourceNameIndex(candidateIds, variableCache)
   const sourceNames = new Set(sourceIndex.keys())
@@ -165,7 +167,7 @@ export async function handleGetCode(
   const usedNamesFinal = extractTokenNames(code, sourceNames)
   const finalBridgeFiltered = filterBridge(finalBridge, usedNamesFinal)
 
-  const { usedTokens, tokensByCanonical, canonicalByFinal } = await buildUsedTokens(
+  const { usedTokens, tokensByCanonical, canonicalById } = await buildUsedTokens(
     usedNamesFinal,
     finalBridgeFiltered,
     config,
@@ -176,9 +178,9 @@ export async function handleGetCode(
   let resolvedTokens: Record<string, string> | undefined
   if (resolveTokens) {
     const resolvedByFinal = buildResolvedTokenMap(
-      usedNamesFinal,
+      finalBridgeFiltered,
       tokensByCanonical,
-      canonicalByFinal
+      canonicalById
     )
     code = replaceTokensWithValues(code, resolvedByFinal)
     if (code.length > MAX_CODE_CHARS) {

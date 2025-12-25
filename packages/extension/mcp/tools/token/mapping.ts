@@ -2,7 +2,11 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
 import { workerUnitOptions } from '@/utils/codegen'
-import { normalizeCustomPropertyBody, replaceVarFunctions } from '@/utils/css'
+import {
+  normalizeCustomPropertyBody,
+  normalizeFigmaVarName,
+  replaceVarFunctions
+} from '@/utils/css'
 
 import type { CandidateResult } from './candidates'
 
@@ -19,7 +23,9 @@ export function normalizeStyleVars(
   mappings: VariableMappings
 ): Set<string> {
   const used = new Set<string>()
-  if (!mappings || !mappings.rewrites.size) return used
+  if (!mappings) return used
+
+  const syntaxMap = buildCodeSyntaxIndex(mappings.variableIds)
 
   for (const style of styles.values()) {
     for (const [prop, raw] of Object.entries(style)) {
@@ -28,14 +34,39 @@ export function normalizeStyleVars(
       if (!value) continue
 
       const rewrite = mappings.rewrites.get(value)
-      if (!rewrite) continue
+      if (rewrite) {
+        style[prop] = `var(${rewrite.canonical})`
+        used.add(rewrite.id)
+      }
+    }
 
-      style[prop] = `var(${rewrite.canonical})`
-      used.add(rewrite.id)
+    for (const [prop, raw] of Object.entries(style)) {
+      if (!raw) continue
+      const value = raw.trim()
+      if (!value) continue
+
+      const matched = syntaxMap.get(value)
+      if (!matched) continue
+
+      used.add(matched)
+      style[prop] = `var(${normalizeFigmaVarName(value)})`
     }
   }
 
   return used
+}
+
+function buildCodeSyntaxIndex(variableIds: Set<string>): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const id of variableIds) {
+    const v = figma.variables.getVariableById(id)
+    if (!v) continue
+    const cs = v.codeSyntax?.WEB?.trim()
+    if (!cs) continue
+    if (cs.toLowerCase().startsWith('var(')) continue
+    if (!map.has(cs)) map.set(cs, id)
+  }
+  return map
 }
 
 export async function applyPluginTransforms(

@@ -124,7 +124,7 @@ export function buildLayoutStyles(
   for (const [id, style] of styles.entries()) {
     let layout = layoutOnly(style)
     if (svgRoots?.has(id)) {
-      layout = stripSvgSize(layout)
+      layout = stripSvgLayout(layout)
     }
     out.set(id, layout)
   }
@@ -133,15 +133,30 @@ export function buildLayoutStyles(
 
 export function styleToClassNames(style: Record<string, string>, config: CodegenConfig): string[] {
   const normalizedStyle = normalizeStyleValues(style, config)
-
   return cssToClassNames(normalizedStyle)
 }
 
-function stripSvgSize(style: Record<string, string>): Record<string, string> {
-  if (!style.width && !style.height) return style
+function stripSvgLayout(style: Record<string, string>): Record<string, string> {
+  if (
+    !style.width &&
+    !style.height &&
+    !style.overflow &&
+    !style['overflow-x'] &&
+    !style['overflow-y']
+  ) {
+    return style
+  }
   const cleaned: Record<string, string> = {}
   for (const [key, value] of Object.entries(style)) {
-    if (key === 'width' || key === 'height') continue
+    if (
+      key === 'width' ||
+      key === 'height' ||
+      key === 'overflow' ||
+      key === 'overflow-x' ||
+      key === 'overflow-y'
+    ) {
+      continue
+    }
     cleaned[key] = value
   }
   return cleaned
