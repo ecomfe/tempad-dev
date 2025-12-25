@@ -819,6 +819,13 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     mode: 'direct',
     valueKind: 'keyword',
     props: { v: 'mix-blend-mode' }
+  },
+  isolation: {
+    prefix: '',
+    mode: 'direct',
+    valueKind: 'keyword',
+    keywords: ['isolate', ['auto', 'isolation-auto']],
+    props: { v: 'isolation' }
   }
 }
 

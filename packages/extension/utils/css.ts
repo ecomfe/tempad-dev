@@ -395,11 +395,14 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
     const val = normalizeStyleValue(expanded['background'])
     if (!hasTopLevelComma(val)) {
       const parsed = parseBackgroundShorthand(val)
-      if (parsed.size) expanded['background-size'] = parsed.size
-      if (parsed.repeat) expanded['background-repeat'] = parsed.repeat
-      if (parsed.position) expanded['background-position'] = parsed.position
-      if (parsed.image) expanded['background-image'] = parsed.image
-      delete expanded['background']
+      const hasParsed = !!(parsed.size || parsed.repeat || parsed.position || parsed.image)
+      if (hasParsed) {
+        if (parsed.size) expanded['background-size'] = parsed.size
+        if (parsed.repeat) expanded['background-repeat'] = parsed.repeat
+        if (parsed.position) expanded['background-position'] = parsed.position
+        if (parsed.image) expanded['background-image'] = parsed.image
+        delete expanded['background']
+      }
     }
   }
 

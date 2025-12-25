@@ -18,10 +18,16 @@ export async function buildUsedTokens(
   usedTokens: Record<string, TokenEntry>
   tokensByCanonical: GetTokenDefsResult
   canonicalByFinal: Map<string, string>
+  canonicalById: Map<string, string>
 }> {
   const usedTokens: Record<string, TokenEntry> = {}
   if (!usedFinalNames.size || !finalBridge.size) {
-    return { usedTokens, tokensByCanonical: {}, canonicalByFinal: new Map() }
+    return {
+      usedTokens,
+      tokensByCanonical: {},
+      canonicalByFinal: new Map(),
+      canonicalById: new Map()
+    }
   }
 
   const ids = Array.from(finalBridge.values())
@@ -66,7 +72,7 @@ export async function buildUsedTokens(
     usedTokens[finalName] = remapTokenAliases(entry, canonicalToFinal)
   })
 
-  return { usedTokens, tokensByCanonical, canonicalByFinal }
+  return { usedTokens, tokensByCanonical, canonicalByFinal, canonicalById }
 }
 
 function remapTokenAliases(entry: TokenEntry, canonicalToFinal: Map<string, string>): TokenEntry {

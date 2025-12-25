@@ -46,19 +46,19 @@ function resolveConcreteValue(
 }
 
 export function buildResolvedTokenMap(
-  usedFinalNames: Set<string>,
+  nameToId: Map<string, string>,
   tokensByCanonical: GetTokenDefsResult,
-  canonicalByFinal: Map<string, string>
+  canonicalById: Map<string, string>
 ): Map<string, string | undefined> {
   const cache = new Map<string, string | undefined>()
   const resolved = new Map<string, string | undefined>()
 
-  usedFinalNames.forEach((finalName) => {
-    const canonical = canonicalByFinal.get(finalName)
+  nameToId.forEach((id, name) => {
+    const canonical = canonicalById.get(id)
     if (!canonical) return
     const val = resolveConcreteValue(canonical, tokensByCanonical, cache)
     if (typeof val === 'string' && !val.startsWith('--')) {
-      resolved.set(finalName, val)
+      resolved.set(name, val)
     }
   })
 
