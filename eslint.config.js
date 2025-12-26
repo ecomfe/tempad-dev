@@ -1,5 +1,3 @@
-import { fileURLToPath, URL } from 'node:url'
-
 import js from '@eslint/js'
 import skipFormatting from '@vue/eslint-config-prettier/skip-formatting'
 import {
@@ -10,6 +8,7 @@ import {
 import gitignore from 'eslint-config-flat-gitignore'
 import perfectionist from 'eslint-plugin-perfectionist'
 import pluginVue from 'eslint-plugin-vue'
+import { fileURLToPath, URL } from 'node:url'
 
 // Allow both TS and JS inside <script> of .vue files
 configureVueProject({ scriptLangs: ['ts', 'js'] })

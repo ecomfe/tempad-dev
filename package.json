@@ -14,6 +14,7 @@
     "eslint-plugin-vue": "^10.5.1",
     "lefthook": "^1.7.17",
     "prettier": "^3.6.2",
+    "oxfmt": "^0.20.0",
     "typescript": "^5.9.3"
   },
   "scripts": {
@@ -25,11 +26,11 @@
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
     "format": "pnpm -r format",
+    "format:check": "pnpm -r format:check",
     "typecheck": "pnpm -r typecheck",
     "zip": "pnpm --filter @tempad-dev/extension zip",
     "npm:plugins": "pnpm --filter @tempad-dev/plugins publish --access public",
     "npm:mcp": "pnpm --filter @tempad-dev/mcp publish --access public",
-    "format:check": "pnpm exec prettier --check \"**/*.{js,ts,mjs,cjs,cts,mts,json,md,yml,yaml}\"",
     "prepare": "lefthook install"
   },
   "pnpm": {
@@ -39,7 +40,7 @@
       "spawn-sync"
     ],
     "overrides": {
-      "vite": "8.0.0-beta.2"
+      "vite": "8.0.0-beta.5"
     }
   }
 }

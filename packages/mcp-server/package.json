@@ -1,20 +1,21 @@
 {
   "name": "@tempad-dev/mcp",
-  "description": "MCP server for TemPad Dev.",
   "version": "0.3.9",
-  "type": "module",
-  "main": "dist/cli.mjs",
+  "description": "MCP server for TemPad Dev.",
   "bin": "dist/cli.mjs",
   "files": [
-    "dist/**/*",
-    "README.md"
+    "README.md",
+    "dist/**/*"
   ],
+  "type": "module",
+  "main": "dist/cli.mjs",
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs",
     "lint:fix": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs --fix",
-    "format": "prettier --write \"**/*.{js,ts,jsx,tsx,cjs,mjs,cts,mts,vue,json,md,css}\" --ignore-path ../.gitignore",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
