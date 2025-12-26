@@ -2,6 +2,7 @@ import type { NodeSnapshot, VisibleTree } from '../model'
 
 export type AssetPlan = {
   vectorRoots: Set<string>
+  skippedIds: Set<string>
 }
 
 export function planAssets(tree: VisibleTree): AssetPlan {
@@ -32,7 +33,7 @@ export function planAssets(tree: VisibleTree): AssetPlan {
     }
   }
 
-  return { vectorRoots }
+  return { vectorRoots, skippedIds: skipped }
 }
 
 function computeVectorInfo(

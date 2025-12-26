@@ -10,23 +10,28 @@ import {
 
 import type { CandidateResult } from './candidates'
 
+import { getVariableByIdCached } from './cache'
 import { collectCandidateVariableIds } from './candidates'
 
 export type VariableMappings = CandidateResult
 
-export function buildVariableMappings(roots: SceneNode[]): VariableMappings {
-  return collectCandidateVariableIds(roots)
+export function buildVariableMappings(
+  roots: SceneNode[],
+  cache?: Map<string, Variable | null>
+): VariableMappings {
+  return collectCandidateVariableIds(roots, cache)
 }
 
 export function normalizeStyleVars(
   styles: Map<string, Record<string, string>>,
-  mappings: VariableMappings
+  mappings: VariableMappings,
+  cache?: Map<string, Variable | null>
 ): Set<string> {
   const used = new Set<string>()
   if (!mappings) return used
 
-  const syntaxMap = buildCodeSyntaxIndex(mappings.variableIds)
-  const replaceMap = buildReplaceMap(mappings.variableIds)
+  const syntaxMap = buildCodeSyntaxIndex(mappings.variableIds, cache)
+  const replaceMap = buildReplaceMap(mappings.variableIds, cache)
 
   for (const style of styles.values()) {
     for (const [prop, raw] of Object.entries(style)) {
@@ -56,10 +61,13 @@ export function normalizeStyleVars(
   return used
 }
 
-function buildCodeSyntaxIndex(variableIds: Set<string>): Map<string, string> {
+function buildCodeSyntaxIndex(
+  variableIds: Set<string>,
+  cache?: Map<string, Variable | null>
+): Map<string, string> {
   const map = new Map<string, string>()
   for (const id of variableIds) {
-    const v = figma.variables.getVariableById(id)
+    const v = getVariableByIdCached(id, cache)
     if (!v) continue
     const cs = v.codeSyntax?.WEB?.trim()
     if (!cs) continue
@@ -71,10 +79,13 @@ function buildCodeSyntaxIndex(variableIds: Set<string>): Map<string, string> {
 
 type ReplaceEntry = { name: string; normalized: string; id: string }
 
-function buildReplaceMap(variableIds: Set<string>): ReplaceEntry[] {
+function buildReplaceMap(
+  variableIds: Set<string>,
+  cache?: Map<string, Variable | null>
+): ReplaceEntry[] {
   const entries: ReplaceEntry[] = []
   for (const id of variableIds) {
-    const v = figma.variables.getVariableById(id)
+    const v = getVariableByIdCached(id, cache)
     if (!v) continue
 
     const normalizedName = normalizeFigmaVarName(v.name ?? '')

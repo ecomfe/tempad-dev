@@ -8,21 +8,22 @@ This document describes the implementation design for MCP `get_code` in `package
    - Exactly one visible root node required.
    - Build a visible tree with depth capping.
 
-2. **Collect data**
+2. **Plan assets and plugin overrides**
+   - Plan vector roots (vector-only containers) and mark their descendants for skipping.
+   - If a plugin is enabled, pre-resolve plugin components for instances.
+   - When a plugin returns component/code, skip collecting its descendants and reuse the cached plugin output in render.
+
+3. **Collect data**
    - `collectNodeData()`
-     - `getCSSAsync()` once per node.
+     - `getCSSAsync()` once per node (skipped nodes are excluded).
      - `getStyledTextSegments()` for text nodes.
      - Preprocess styles (clean background, expand shorthands, merge inferred layout, infer resizing, apply overflow).
      - Apply positioning (auto layout absolute, constraints).
      - Replace image fills with uploaded assets.
 
-3. **Normalize variables**
+4. **Normalize variables**
    - Normalize variable names and codeSyntax to a canonical form.
    - Capture variable usage candidates for token detection.
-
-4. **Asset planning and export**
-   - Plan vector/image export at the tree level.
-   - Export SVGs/images only once.
 
 5. **Sanitize styles**
    - Patch known layout issues (negative gap).
@@ -31,20 +32,23 @@ This document describes the implementation design for MCP `get_code` in `package
 6. **Build layout-only styles**
    - Extract layout-related CSS into a secondary map for SVG external layout.
 
-7. **Render markup**
+7. **Export assets**
+   - Export SVGs/images only once per planned asset.
+
+8. **Render markup**
    - Render nodes into JSX/HTML component tree.
    - Inject SVG content or `<img>` when applicable.
    - Apply Tailwind class conversion.
 
-8. **Token pipeline**
+9. **Token pipeline**
    - Detect token references in output code.
    - Apply plugin transforms to token names.
    - Rewrite code with transformed token names.
    - Resolve tokens to values when requested.
 
-9. **Truncate and finalize output**
-   - Enforce payload size limits.
-   - Emit warnings only for truncation or inferred auto layout.
+10. **Truncate and finalize output**
+    - Enforce payload size limits.
+    - Emit warnings only for truncation or inferred auto layout.
 
 ## Tree and layout semantics
 
@@ -106,6 +110,7 @@ This document describes the implementation design for MCP `get_code` in `package
 - Vector containers can be converted to a single SVG if all leaves are vector-like.
 - SVG nodes only receive external layout styles, not visual paint styles.
 - Placeholder SVG is emitted when export fails or is unavailable, using node width/height.
+- Vector-root descendants are not rendered; their CSS is not collected.
 
 ## Token pipeline (detailed)
 
@@ -127,3 +132,5 @@ This document describes the implementation design for MCP `get_code` in `package
 - Single-pass CSS collection per node.
 - Asset export is planned and executed once.
 - Token detection is string-based and bounded by truncation.
+- Skip CSS collection for vector-root descendants and plugin-rendered subtrees.
+- Variable candidate scan is limited to bound variables and paint references (not inferred variables).

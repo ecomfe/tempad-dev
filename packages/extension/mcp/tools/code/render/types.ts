@@ -10,6 +10,7 @@ export type RenderContext = {
   nodes: Map<string, SceneNode>
   svgs: Map<string, SvgEntry>
   textSegments: Map<string, StyledTextSegment[] | null>
+  pluginComponents?: Map<string, import('./plugin').PluginComponent | null>
   pluginCode?: string
   config: CodegenConfig
   preferredLang?: CodeLanguage

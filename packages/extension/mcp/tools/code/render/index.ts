@@ -83,7 +83,12 @@ async function renderNode(
     rawStyle = ctx.layout.get(snapshot.id) ?? rawStyle
   }
 
-  const pluginComponent = node.type === 'INSTANCE' ? await renderPluginComponent(node, ctx) : null
+  const pluginComponent =
+    node.type === 'INSTANCE'
+      ? ctx.pluginComponents?.has(node.id)
+        ? (ctx.pluginComponents.get(node.id) ?? null)
+        : await renderPluginComponent(node, ctx)
+      : null
 
   if (pluginComponent?.lang && !ctx.preferredLang && ctx.detectedLang !== 'vue') {
     ctx.detectedLang = pluginComponent.lang

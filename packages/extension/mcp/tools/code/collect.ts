@@ -15,12 +15,14 @@ import { REQUESTED_SEGMENT_FIELDS } from './text/types'
 export async function collectNodeData(
   tree: VisibleTree,
   config: CodegenConfig,
-  assetRegistry: Map<string, AssetDescriptor>
+  assetRegistry: Map<string, AssetDescriptor>,
+  skipIds?: Set<string>
 ): Promise<CollectedData> {
   const styles = new Map<string, Record<string, string>>()
   const textSegments = new Map<string, StyledTextSegment[] | null>()
 
   for (const id of tree.order) {
+    if (skipIds?.has(id)) continue
     const snapshot = tree.nodes.get(id)
     if (!snapshot) continue
     const node = snapshot.node
