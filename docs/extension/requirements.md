@@ -9,6 +9,7 @@ This document records the source requirements and hard constraints for the MCP `
 - Do not use `renderBounds` diffs for positioning.
 - Do not inject positioning containers on GROUP/BOOLEAN nodes.
 - Keep `getCSSAsync()` at most once per node.
+- If a plugin returns component/code for an instance, do not collect or render its descendants.
 
 ## Scope
 
@@ -88,6 +89,11 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 - When vector export fails or assets are unavailable, preserve layout using a placeholder SVG with node size.
 - Omit `assets` when empty.
 
+## Plugin output
+
+- If a plugin returns component/code for an instance, the instance subtree is not collected.
+- Plugin output is preferred over fallback rendering for that instance.
+
 ## Token handling
 
 - Token detection is based on the final emitted markup (after plugin transform and token rewrites).
@@ -105,9 +111,12 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 - Only emit `warnings` for truncation and inferred auto layout.
 - Other degradations should be logged to console with `[tempad-dev]` prefix.
+- The tool may log high-level timing info to console for performance diagnostics.
 
 ## Performance
 
 - `getCSSAsync` must be called at most once per node.
 - `getStyledTextSegments` only for text nodes.
 - Avoid repeated vector export calls; plan and export once per tree.
+- Skip style collection for vector-root descendants (they are not rendered).
+- Variable candidate scanning uses bound variables and paint references; inferred variables are not required.

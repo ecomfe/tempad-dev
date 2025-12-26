@@ -5,20 +5,26 @@ import { generateCodeBlocksForNode } from '@/utils/codegen'
 
 import type { CodeLanguage, RenderContext } from './types'
 
-type PluginComponent = { component?: DevComponent; code?: string; lang?: CodeLanguage }
+export type PluginComponent = { component?: DevComponent; code?: string; lang?: CodeLanguage }
 
 export async function renderPluginComponent(
   node: InstanceNode,
   ctx: RenderContext
 ): Promise<PluginComponent | null> {
   if (!ctx.pluginCode) return null
-  const { codeBlocks, devComponent } = await generateCodeBlocksForNode(
-    node,
-    ctx.config,
-    ctx.pluginCode,
-    { returnDevComponent: true }
-  )
-  const detectedLang = detectLang(codeBlocks, ctx.preferredLang)
+  return resolvePluginComponent(node, ctx.config, ctx.pluginCode, ctx.preferredLang)
+}
+
+export async function resolvePluginComponent(
+  node: InstanceNode,
+  config: RenderContext['config'],
+  pluginCode: string,
+  preferredLang?: CodeLanguage
+): Promise<PluginComponent | null> {
+  const { codeBlocks, devComponent } = await generateCodeBlocksForNode(node, config, pluginCode, {
+    returnDevComponent: true
+  })
+  const detectedLang = detectLang(codeBlocks, preferredLang)
   const componentBlock = findComponentBlock(codeBlocks, detectedLang)
   const code = componentBlock?.code.trim()
   if (!code && !devComponent) return null

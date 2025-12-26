@@ -1,5 +1,6 @@
 import { canonicalizeVarName, normalizeFigmaVarName, toFigmaVarExpr } from '@/utils/css'
 
+import { getVariableByIdCached } from './cache'
 import { getVariableRawName } from './indexer'
 
 type VariableAlias = { id?: string } | { type?: string; id?: string }
@@ -47,45 +48,49 @@ function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
     }
   }
 
-  if ('inferredVariables' in node) {
-    const { inferredVariables } = node
-    if (inferredVariables) {
-      Object.values(inferredVariables).forEach((entry) => collectVariableIdFromValue(entry, bucket))
-    }
-  }
-
-  if ('variableReferences' in node) {
-    const { variableReferences } = node
-    if (variableReferences) {
-      Object.values(variableReferences).forEach((entry) =>
-        collectVariableIdFromValue(entry, bucket)
-      )
-    }
-  }
-
   if ('fills' in node) {
     const { fills } = node
     if (Array.isArray(fills)) {
-      fills.forEach((fill) => collectVariableIdFromValue(fill, bucket))
+      fills.forEach((fill) => {
+        if (!fill || typeof fill !== 'object') return
+        const value = fill as { boundVariables?: unknown; variableReferences?: unknown }
+        if (value.boundVariables) collectVariableIdFromValue(value.boundVariables, bucket)
+        if (value.variableReferences) collectVariableIdFromValue(value.variableReferences, bucket)
+      })
     }
   }
 
   if ('strokes' in node) {
     const { strokes } = node
     if (Array.isArray(strokes)) {
-      strokes.forEach((stroke) => collectVariableIdFromValue(stroke, bucket))
+      strokes.forEach((stroke) => {
+        if (!stroke || typeof stroke !== 'object') return
+        const value = stroke as { boundVariables?: unknown; variableReferences?: unknown }
+        if (value.boundVariables) collectVariableIdFromValue(value.boundVariables, bucket)
+        if (value.variableReferences) collectVariableIdFromValue(value.variableReferences, bucket)
+      })
     }
   }
 
   if ('effects' in node) {
     const { effects } = node
     if (Array.isArray(effects)) {
-      effects.forEach((effect) => collectVariableIdFromValue(effect, bucket))
+      effects.forEach((effect) => {
+        if (!effect || typeof effect !== 'object') return
+        const value = effect as { boundVariables?: unknown; variableReferences?: unknown }
+        if (value.boundVariables) collectVariableIdFromValue(value.boundVariables, bucket)
+        if (value.variableReferences) collectVariableIdFromValue(value.variableReferences, bucket)
+      })
     }
   }
 }
 
-export function collectCandidateVariableIds(roots: SceneNode[]): CandidateResult {
+export function collectCandidateVariableIds(
+  roots: SceneNode[],
+  cache?: Map<string, Variable | null>
+): CandidateResult {
+  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
+  const startedAt = now()
   const variableIds = new Set<string>()
   const rewrites = new Map<string, { canonical: string; id: string }>()
 
@@ -103,9 +108,11 @@ export function collectCandidateVariableIds(roots: SceneNode[]): CandidateResult
     if (root.visible) visit(root)
   })
 
+  const scannedAt = now()
+
   // Build lookup tables based on collected ids.
   for (const id of variableIds) {
-    const v = figma.variables.getVariableById(id)
+    const v = getVariableByIdCached(id, cache)
     if (!v) continue
 
     const canonical = normalizeFigmaVarName(getVariableRawName(v))
@@ -125,6 +132,13 @@ export function collectCandidateVariableIds(roots: SceneNode[]): CandidateResult
       }
     }
   }
+
+  const total = Math.round((now() - startedAt) * 10) / 10
+  const scanMs = Math.round((scannedAt - startedAt) * 10) / 10
+  const buildMs = Math.round((now() - scannedAt) * 10) / 10
+  console.info(
+    `[tempad-dev] vars scan=${scanMs}ms build=${buildMs}ms total=${total}ms ids=${variableIds.size} rewrites=${rewrites.size}`
+  )
 
   return { variableIds, rewrites }
 }

@@ -20,7 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs",
     "lint:fix": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs --fix",
-    "format": "prettier --write \"**/*.{js,ts,mjs,cjs,cts,mts,json,md}\""
+    "format": "prettier --write \"**/*.{js,ts,jsx,tsx,cjs,mjs,cts,mts,vue,json,md,css}\" --ignore-path ../.gitignore"
   },
   "dependencies": {
     "zod": "^4.1.12"
