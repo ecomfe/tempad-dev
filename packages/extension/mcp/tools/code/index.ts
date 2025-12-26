@@ -4,6 +4,7 @@ import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/mcp-shared'
 
 import { activePlugin } from '@/ui/state'
 import { stringifyComponent } from '@/utils/component'
+import { simplifyColorMixToRgba } from '@/utils/css'
 
 import type { CodeLanguage, RenderContext } from './render'
 
@@ -183,6 +184,7 @@ export async function handleGetCode(
       canonicalById
     )
     code = replaceTokensWithValues(code, resolvedByFinal)
+    code = simplifyColorMixToRgba(code)
     if (code.length > MAX_CODE_CHARS) {
       code = code.slice(0, MAX_CODE_CHARS)
       truncated = true

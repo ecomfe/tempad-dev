@@ -322,6 +322,42 @@ export function normalizeStyleValues(
   return normalized
 }
 
+export function simplifyColorMixToRgba(input: string): string {
+  if (!input || !input.includes('color-mix(')) return input
+
+  return input.replace(
+    /color-mix\(\s*in\s+srgb\s*,\s*(#[0-9a-fA-F]{3,8})\s+([0-9.]+)%\s*,\s*transparent\s*\)/g,
+    (_match, hex: string, pct: string) => {
+      const parsed = parseHexColor(hex)
+      if (!parsed) return _match
+      const weight = Number(pct) / 100
+      if (!Number.isFinite(weight)) return _match
+      const alpha = toDecimalPlace(parsed.a * weight, 3)
+      return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha})`
+    }
+  )
+}
+
+function parseHexColor(input: string): { r: number; g: number; b: number; a: number } | null {
+  let hex = input.trim().replace(/^#/, '')
+  if (![3, 4, 6, 8].includes(hex.length)) return null
+
+  if (hex.length === 3 || hex.length === 4) {
+    hex = hex
+      .split('')
+      .map((c) => c + c)
+      .join('')
+  }
+
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  const a = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1
+
+  if (![r, g, b, a].every((v) => Number.isFinite(v))) return null
+  return { r, g, b, a }
+}
+
 function parseBorderShorthand(normalized: string): {
   width?: string
   style?: string
