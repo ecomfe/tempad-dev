@@ -1,8 +1,8 @@
 {
   "name": "@tempad-dev/extension",
-  "description": "TemPad Dev browser extension.",
-  "private": true,
   "version": "0.14.3",
+  "private": true,
+  "description": "TemPad Dev browser extension.",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -14,7 +14,8 @@
     "postinstall": "wxt prepare",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts",
     "lint:fix": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
-    "format": "prettier --write \"**/*.{js,ts,jsx,tsx,cjs,mjs,cts,mts,vue,json,md,css}\" --ignore-path ../.gitignore"
+    "format": "oxfmt \"!**/*.css\" && prettier --write \"**/*.css\"",
+    "format:check": "oxfmt --check \"!**/*.css\" && prettier --check \"**/*.css\""
   },
   "dependencies": {
     "@tempad-dev/mcp-shared": "workspace:^0.1.0",
@@ -26,25 +27,24 @@
     "vue": "^3.5.24"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
     "@figma/plugin-typings": "^1.121.0",
     "@rushstack/eslint-patch": "^1.15.0",
     "@types/node": "^24.10.1",
     "@types/prismjs": "^1.26.5",
     "@types/stringify-object": "^4.0.5",
-    "@eslint/js": "^9.39.1",
     "@vue/eslint-config-prettier": "^10.2.0",
     "@vue/eslint-config-typescript": "^14.6.0",
     "@wxt-dev/module-vue": "^1.0.3",
-    "eslint-config-flat-gitignore": "^2.1.0",
     "comment-mark": "^2.0.1",
     "esbuild": "^0.27.0",
     "eslint": "^9.39.1",
+    "eslint-config-flat-gitignore": "^2.1.0",
     "eslint-plugin-perfectionist": "^4.15.1",
     "eslint-plugin-vue": "^10.5.1",
     "p-limit": "^7.2.0",
     "pino": "^9.14.0",
     "playwright-chromium": "^1.56.1",
-    "prettier": "^3.6.2",
     "proper-lockfile": "^4.1.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
