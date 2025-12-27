@@ -3,6 +3,7 @@ import type { DevComponent, Plugin } from '@/types/plugin'
 
 import { serializeComponent, stringifyComponent } from '@/utils/component'
 import { serializeCSS } from '@/utils/css'
+import { logger } from '@/utils/log'
 import { evaluate } from '@/utils/module'
 import { stringify } from '@/utils/string'
 
@@ -35,7 +36,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
       plugin = (exports.default || exports.plugin) as Plugin
     }
   } catch (e) {
-    console.error(e)
+    logger.error(e)
     const message: Response = {
       id,
       error: e

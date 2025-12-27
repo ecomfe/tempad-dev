@@ -1,3 +1,5 @@
+import { logger } from '@/utils/log'
+
 type TemPadComponent = {
   code: string
   name?: string
@@ -41,7 +43,7 @@ export function getTemPadComponent(node: SceneNode): TemPadComponent | null {
         tempadData.name === 'Illustration' ? 'dls-illustrations-react' : iconNode.props.libName.v
       tempadData.name = iconNode.props.name.v?.name || iconNode.props.name.v
     } catch (e) {
-      console.error(e)
+      logger.error(e)
     }
   } else if (tempadData?.name === 'Tem.RichText') {
     tempadData.name = 'Typography'

@@ -1,6 +1,7 @@
 import rules from '@/public/rules/figma.json'
 import { GROUPS } from '@/rewrite/config'
 import { applyGroups, RULES_URL, REWRITE_RULE_ID } from '@/rewrite/shared'
+import { logger } from '@/utils/log'
 
 import type { BlobHandle, CacheEntry, Rules } from '../types/rewrite'
 
@@ -34,9 +35,9 @@ export default defineContentScript({
     loadRemoteRegex(RULES_URL).then((remoteRegex) => {
       if (remoteRegex) {
         targetRegex = remoteRegex
-        console.log('[tempad-dev] Loaded remote rewrite rules.')
+        logger.log('Loaded remote rewrite rules.')
       } else {
-        console.warn('[tempad-dev] Failed to fetch rewrite rules; using bundled rules.')
+        logger.warn('Failed to fetch rewrite rules; using bundled rules.')
       }
     })
 
@@ -82,7 +83,7 @@ export default defineContentScript({
       const { content, changed } = applyGroups(originalText, GROUPS)
 
       if (changed) {
-        console.log(`[tempad-dev] Rewrote async script: ${src}`)
+        logger.log(`Rewrote async script: ${src}`)
       }
 
       const blob = new Blob([content], { type: 'application/javascript; charset=utf-8' })

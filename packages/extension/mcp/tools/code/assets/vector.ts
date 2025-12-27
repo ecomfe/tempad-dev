@@ -4,6 +4,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { ensureAssetUploaded } from '@/mcp/assets'
 import { normalizeCssValue } from '@/utils/css'
+import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
 
 export type SvgEntry = {
@@ -37,11 +38,11 @@ export async function exportSvgEntry(
       baseProps['data-resource-uri'] = asset.resourceUri
       return { props: baseProps }
     } catch (uploadError) {
-      console.warn('[tempad-dev] Failed to upload vector asset; inlining raw SVG.', uploadError)
+      logger.warn('Failed to upload vector asset; inlining raw SVG.', uploadError)
       return { props: baseProps, raw: svgString }
     }
   } catch (error) {
-    console.warn('[tempad-dev] Failed to export vector node:', error)
+    logger.warn('Failed to export vector node:', error)
     return {
       props: {
         width: `${toDecimalPlace(node.width)}px`,

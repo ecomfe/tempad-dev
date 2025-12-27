@@ -1,3 +1,4 @@
+import { logger } from '../utils/log'
 import { GROUPS } from './config'
 import { applyGroups } from './shared'
 
@@ -24,7 +25,7 @@ async function rewriteScript() {
     const { content: afterRules, changed } = applyGroups(original, GROUPS)
 
     if (changed) {
-      console.log(`[tempad-dev] Rewrote script: ${src}`)
+      logger.log(`Rewrote script: ${src}`)
     }
 
     const content = afterRules.replaceAll('delete window.figma', 'window.figma = undefined')
@@ -38,7 +39,7 @@ async function rewriteScript() {
 
     new Function(content)()
   } catch (e) {
-    console.error(e)
+    logger.error(e)
     replaceScript(`${src}?fallback`)
   } finally {
     if (desc) {

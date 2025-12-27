@@ -7,6 +7,7 @@ import {
   normalizeCustomPropertyBody,
   normalizeFigmaVarName
 } from '@/utils/css'
+import { logger } from '@/utils/log'
 
 function looksLikeName(value: string): boolean {
   const trimmed = value.trim()
@@ -24,9 +25,7 @@ function normalizeTransformedName(output: string | undefined, fallback: string):
       return normalizeFigmaVarName(stripped)
     }
 
-    console.warn(
-      '[tempad-dev] transformVariable returned non-variable output; using fallback name.'
-    )
+    logger.warn('transformVariable returned non-variable output; using fallback name.')
   }
   return fallback
 }
@@ -75,7 +74,7 @@ export async function applyPluginTransformToNames(
     if (!variableId) return
 
     if (finalBridge.has(next) && finalBridge.get(next) !== variableId) {
-      console.warn('[tempad-dev] Duplicate token name resolved to multiple ids:', next)
+      logger.warn('Duplicate token name resolved to multiple ids:', next)
       return
     }
     finalBridge.set(next, variableId)

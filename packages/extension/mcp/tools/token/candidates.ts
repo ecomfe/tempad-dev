@@ -1,4 +1,5 @@
 import { canonicalizeVarName, normalizeFigmaVarName, toFigmaVarExpr } from '@/utils/css'
+import { logger } from '@/utils/log'
 
 import { getVariableByIdCached } from './cache'
 import { getVariableRawName } from './indexer'
@@ -136,8 +137,8 @@ export function collectCandidateVariableIds(
   const total = Math.round((now() - startedAt) * 10) / 10
   const scanMs = Math.round((scannedAt - startedAt) * 10) / 10
   const buildMs = Math.round((now() - scannedAt) * 10) / 10
-  console.info(
-    `[tempad-dev] vars scan=${scanMs}ms build=${buildMs}ms total=${total}ms ids=${variableIds.size} rewrites=${rewrites.size}`
+  logger.debug(
+    `vars scan=${scanMs}ms build=${buildMs}ms total=${total}ms ids=${variableIds.size} rewrites=${rewrites.size}`
   )
 
   return { variableIds, rewrites }

@@ -3,6 +3,7 @@ import type { AssetDescriptor } from '@tempad-dev/mcp-shared'
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { preprocessCssValue, stripFallback } from '@/utils/css'
+import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
 
 import type { CollectedData, NodeSnapshot, VisibleTree } from './model'
@@ -49,7 +50,7 @@ export async function collectNodeData(
       stripInertShadows(processed, node)
       styles.set(id, processed)
     } catch (error) {
-      console.warn('[tempad-dev] Failed to process node styles:', error)
+      logger.warn('Failed to process node styles:', error)
     }
   }
 
@@ -73,7 +74,7 @@ function collectTextSegments(node: TextNode): StyledTextSegment[] | null {
     const segments = node.getStyledTextSegments(REQUESTED_SEGMENT_FIELDS)
     return Array.isArray(segments) ? segments : null
   } catch (error) {
-    console.warn('[tempad-dev] Failed to read styled text segments:', error)
+    logger.warn('Failed to read styled text segments:', error)
     return null
   }
 }

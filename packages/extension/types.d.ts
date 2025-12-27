@@ -4,3 +4,5 @@ interface Window {
   webpackChunk_figma_web_bundler: any[] & { push: (...args: any[]) => any }
   tempadTools?: Partial<import('@/mcp/runtime').MCPHandlers>
 }
+
+declare const __DEV__: boolean
