@@ -1,5 +1,6 @@
 import rules from '@/public/rules/figma.json'
 import { RULES_URL } from '@/rewrite/shared'
+import { logger } from '@/utils/log'
 
 import type { Rules } from '../types/rewrite'
 
@@ -12,11 +13,11 @@ async function fetchRules() {
 
     if (import.meta.env.DEV) {
       newRules = rules as Rules
-      console.log('[tempad-dev] Loaded local rules (dev).')
+      logger.log('Loaded local rules (dev).')
     } else {
       const res = await fetch(RULES_URL, { cache: 'no-store' })
       if (!res.ok) {
-        console.error('[tempad-dev] Failed to fetch rules:', res.statusText)
+        logger.error('Failed to fetch rules:', res.statusText)
         return
       }
 
@@ -33,9 +34,9 @@ async function fetchRules() {
       removeRuleIds: oldIds,
       addRules: newRules
     })
-    console.log(`[tempad-dev] Updated ${newRules.length} rule${newRules.length === 1 ? '' : 's'}.`)
+    logger.log(`Updated ${newRules.length} rule${newRules.length === 1 ? '' : 's'}.`)
   } catch (error) {
-    console.error('[tempad-dev] Error fetching rules:', error)
+    logger.error('Error fetching rules:', error)
   }
 }
 

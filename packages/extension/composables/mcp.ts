@@ -16,6 +16,7 @@ import { resetUploadedAssets, setAssetServerUrl } from '@/mcp/assets'
 import { MCP_TOOL_HANDLERS } from '@/mcp/runtime'
 import { setMcpSocket } from '@/mcp/transport'
 import { options, runtimeMode } from '@/ui/state'
+import { logger } from '@/utils/log'
 
 const RECONNECT_DELAY_MS = 3000
 const IDLE_TIMEOUT_MS = 10000
@@ -68,7 +69,7 @@ export const useMcp = createSharedComposable(() => {
       try {
         socket.value.close()
       } catch (error) {
-        console.warn('[tempad-dev] Failed to close socket:', error)
+        logger.warn('Failed to close socket:', error)
       }
     }
     socket.value = null
@@ -236,12 +237,12 @@ export const useMcp = createSharedComposable(() => {
         !socket.value &&
         !isConnecting
       ) {
-        console.log('[tempad-dev] MCP connection polling resumed.')
+        logger.log('MCP connection polling resumed.')
         connect()
       }
     } else {
       if (options.value.mcpOn && !socket.value) {
-        console.log('[tempad-dev] MCP connection polling paused.')
+        logger.log('MCP connection polling paused.')
         stopReconnectTimer()
       }
     }
@@ -251,7 +252,7 @@ export const useMcp = createSharedComposable(() => {
 
   function activate() {
     if (socket.value?.readyState === WebSocket.OPEN) {
-      console.log('Activating MCP connection...')
+      logger.log('Activating MCP connection...')
       socket.value.send(JSON.stringify({ type: 'activate' }))
     }
   }

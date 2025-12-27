@@ -3,6 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { logger } from '../utils/log'
+
 interface Vendor {
   name: string
   icon: string
@@ -45,7 +47,7 @@ function getDomain(url: string) {
     const { hostname } = new URL(url)
     return hostname
   } catch {
-    console.error('Invalid URL:', url)
+    logger.error('Invalid URL:', url)
     return null
   }
 }

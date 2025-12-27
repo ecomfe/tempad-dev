@@ -2,6 +2,7 @@ import type { RequestMessage, ResponseMessage } from '@/codegen/requester'
 import type { Plugin, TransformOptions } from '@/types/plugin'
 
 import safe from '@/codegen/safe'
+import { logger } from '@/utils/log'
 import { evaluate } from '@/utils/module'
 
 export type TransformVariableReference = {
@@ -94,7 +95,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
         options
       })
     } catch (error) {
-      console.error(error)
+      logger.error(error)
       return formatVariable(ref)
     }
   })

@@ -2,6 +2,7 @@ import { chromium } from 'playwright-chromium'
 
 import { GROUPS } from '@/rewrite/config'
 import { applyGroups, groupMatches } from '@/rewrite/shared'
+import { logger } from '@/utils/log'
 
 import rules from '../public/rules/figma.json'
 
@@ -26,14 +27,14 @@ async function runCheck() {
       }
       const content = await response.text()
       scripts.push({ url, content })
-      console.log(`Captured script: <${url}>.`)
+      logger.log(`Captured script: <${url}>.`)
     })
 
     try {
       await page.goto('https://www.figma.com/login', { timeout: 10000 })
-      console.log('Logging in...')
+      logger.log('Logging in...')
     } catch {
-      console.error('Failed to load the login page. Please check your internet connection.')
+      logger.error('Failed to load the login page. Please check your internet connection.')
       return false
     }
 
@@ -43,20 +44,20 @@ async function runCheck() {
 
     try {
       await page.waitForURL(/^(?!.*login).*$/, { timeout: 10000 })
-      console.log('Logged in successfully.')
+      logger.log('Logged in successfully.')
     } catch {
-      console.error('Login failed. Please check your credentials.')
+      logger.error('Login failed. Please check your credentials.')
       return false
     }
 
     await page.waitForLoadState('load')
-    console.log(`Page loaded at <${page.url()}>.`)
+    logger.log(`Page loaded at <${page.url()}>.`)
 
-    console.log(
+    logger.log(
       `Navigating to the design file: <https://www.figma.com/design/${process.env.FIGMA_FILE_KEY}>.`
     )
     await page.goto(`https://www.figma.com/design/${process.env.FIGMA_FILE_KEY}`)
-    console.log(`Page loaded at <${page.url()}>.`)
+    logger.log(`Page loaded at <${page.url()}>.`)
 
     let matchedCount = 0
     let rewrittenCount = 0
@@ -69,32 +70,32 @@ async function runCheck() {
       }
 
       matchedCount++
-      console.log(`Matched script: <${url}>.`)
+      logger.log(`Matched script: <${url}>.`)
 
       const { changed } = applyGroups(content, GROUPS)
       if (changed) {
         rewrittenCount++
-        console.log(`Rewritable (would change): <${url}>.`)
+        logger.log(`Rewritable (would change): <${url}>.`)
       } else {
         notRewritten.push(url)
-        console.log(`Not rewritable (no change produced): <${url}>.`)
+        logger.log(`Not rewritable (no change produced): <${url}>.`)
       }
     }
 
     if (matchedCount === 0) {
-      console.log('❌ No matched script found.')
+      logger.log('❌ No matched script found.')
       return false
     }
 
-    console.log(`✅ Matched ${matchedCount} script(s).`)
+    logger.log(`✅ Matched ${matchedCount} script(s).`)
 
     if (rewrittenCount !== matchedCount) {
-      console.log('❌ Some matched scripts would not be rewritten by rules:')
-      notRewritten.forEach((url) => console.log(` - <${url}>`))
+      logger.log('❌ Some matched scripts would not be rewritten by rules:')
+      notRewritten.forEach((url) => logger.log(` - <${url}>`))
       return false
     }
 
-    console.log('✅ All matched scripts would be rewritten by rules.')
+    logger.log('✅ All matched scripts would be rewritten by rules.')
     return true
   } finally {
     await browser.close()
@@ -104,7 +105,7 @@ async function runCheck() {
 async function main() {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 1) {
-      console.log(`\nRetry attempt ${attempt} of ${MAX_RETRIES}...`)
+      logger.log(`\nRetry attempt ${attempt} of ${MAX_RETRIES}...`)
     }
 
     const success = await runCheck()
@@ -113,16 +114,16 @@ async function main() {
     }
 
     if (attempt < MAX_RETRIES) {
-      console.log(`Attempt ${attempt} failed. Waiting before retry...`)
+      logger.log(`Attempt ${attempt} failed. Waiting before retry...`)
       await new Promise((resolve) => setTimeout(resolve, 3000))
     }
   }
 
-  console.log(`❌ All ${MAX_RETRIES} attempts failed.`)
+  logger.log(`❌ All ${MAX_RETRIES} attempts failed.`)
   process.exit(1)
 }
 
 main().catch((error) => {
-  console.error('Unexpected error:', error)
+  logger.error('Unexpected error:', error)
   process.exit(1)
 })

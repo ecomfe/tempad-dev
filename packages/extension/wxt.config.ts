@@ -14,10 +14,13 @@ export default defineConfig({
       }
     }
   },
-  vite: () => ({
+  vite: (env) => ({
     plugins: [cssInjectedByJsPlugin()],
     optimizeDeps: {
       include: []
+    },
+    define: {
+      __DEV__: env.mode === 'development'
     }
   }),
   webExt: {

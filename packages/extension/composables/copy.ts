@@ -1,6 +1,7 @@
 import { useClipboard } from '@vueuse/core'
 
 import { useToast } from '@/composables'
+import { logger } from '@/utils/log'
 
 type CopySource = HTMLElement | string | null | undefined
 
@@ -22,7 +23,7 @@ export function useCopy(content?: MaybeRefOrGetter<CopySource>, options?: UseCop
         message ?? (options?.message ? toValue(options.message) : 'Copied to clipboard')
       show(resolvedMessage)
     } catch (e) {
-      console.error(e)
+      logger.error(e)
     }
   }
 }

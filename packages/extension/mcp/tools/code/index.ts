@@ -7,6 +7,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 import { activePlugin } from '@/ui/state'
 import { stringifyComponent } from '@/utils/component'
 import { simplifyColorMixToRgba } from '@/utils/css'
+import { logger } from '@/utils/log'
 
 import type { VisibleTree } from './model'
 import type { CodeLanguage, RenderContext } from './render'
@@ -100,9 +101,7 @@ export async function handleGetCode(
     throw new Error('No renderable nodes found for the current selection.')
   }
   if (tree.stats.capped) {
-    console.warn(
-      `[tempad-dev] Selection truncated at depth ${tree.stats.depthLimit ?? tree.stats.maxDepth}.`
-    )
+    logger.warn(`Selection truncated at depth ${tree.stats.depthLimit ?? tree.stats.maxDepth}.`)
   }
 
   const config = currentCodegenConfig()
@@ -278,11 +277,11 @@ export async function handleGetCode(
       : undefined
 
   const elapsed = Math.round((now() - startedAt) * 10) / 10
-  console.info(`[tempad-dev] get_code total ${elapsed}ms`)
+  logger.debug(`get_code total ${elapsed}ms`)
   if (timings.length) {
     const detail = timings.map(([label, ms]) => `${label}=${ms}ms`).join(' ')
     const info = `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assetRegistry.size}`
-    console.info(`[tempad-dev] get_code timings ${detail} (${info})`)
+    logger.debug(`get_code timings ${detail} (${info})`)
   }
 
   return {

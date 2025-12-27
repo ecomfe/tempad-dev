@@ -6,6 +6,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { activePlugin } from '@/ui/state'
 import { formatHexAlpha, normalizeCssValue } from '@/utils/css'
+import { logger } from '@/utils/log'
 
 import { currentCodegenConfig } from '../config'
 import { canonicalizeName, canonicalizeNames, getTokenIndex, getVariableRawName } from './indexer'
@@ -265,7 +266,7 @@ function resolveVariableCollection(variable: Variable): VariableCollectionInfo |
         : undefined
     }
   } catch (error) {
-    console.warn('[tempad-dev] Failed to resolve variable collection:', error)
+    logger.warn('Failed to resolve variable collection:', error)
     return null
   }
 }
@@ -280,7 +281,7 @@ function readActiveModeId(collectionId?: string): string | undefined {
   try {
     return getter(collectionId)
   } catch (error) {
-    console.warn('[tempad-dev] Failed to read active mode id:', error)
+    logger.warn('Failed to read active mode id:', error)
     return undefined
   }
 }
@@ -325,7 +326,7 @@ async function resolveModeValue(
   if (isVariableAlias(rawValue)) {
     const target = figma.variables.getVariableById(rawValue.id)
     if (!target) {
-      console.error('[tempad-dev] Missing alias target variable', {
+      logger.error('Missing alias target variable', {
         source: variable.id,
         target: rawValue.id
       })

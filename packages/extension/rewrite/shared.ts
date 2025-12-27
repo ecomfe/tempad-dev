@@ -1,5 +1,7 @@
 import type { Group } from '@/types/rewrite'
 
+import { logger } from '@/utils/log'
+
 export const RULES_URL = 'https://ecomfe.github.io/tempad-dev/figma.json'
 export const REWRITE_RULE_ID = 2
 
@@ -27,9 +29,9 @@ export function applyGroups(content: string, groups: Group[]) {
       }
 
       if (out !== before) {
-        console.log(`[tempad-dev] Applied replacement: ${pattern} -> ${replacer}`)
+        logger.log(`Applied replacement: ${pattern} -> ${replacer}`)
       } else {
-        console.warn(`[tempad-dev] Replacement had no effect: ${pattern} -> ${replacer}`)
+        logger.warn(`Replacement had no effect: ${pattern} -> ${replacer}`)
       }
     }
   }

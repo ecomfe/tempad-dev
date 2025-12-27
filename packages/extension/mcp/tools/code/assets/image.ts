@@ -4,6 +4,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { ensureAssetUploaded } from '@/mcp/assets'
 import { BG_URL_RE } from '@/utils/css'
+import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
 
 const imageBytesCache = new Map<string, Promise<Uint8Array>>()
@@ -97,7 +98,7 @@ async function collectImageFillAssets(
       assetRegistry.set(asset.hash, asset)
       assets.push(asset)
     } catch (error) {
-      console.warn('[tempad-dev] Failed to process image fill asset:', error)
+      logger.warn('Failed to process image fill asset:', error)
     }
   }
 

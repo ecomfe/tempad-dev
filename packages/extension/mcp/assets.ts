@@ -2,6 +2,8 @@ import type { AssetDescriptor } from '@tempad-dev/mcp-shared'
 
 import { MCP_ASSET_URI_PREFIX, MCP_HASH_HEX_LENGTH } from '@tempad-dev/mcp-shared'
 
+import { logger } from '@/utils/log'
+
 const uploadedAssets = new Set<string>()
 const inflightUploads = new Map<string, Promise<void>>()
 let assetServerUrl: string | null = null
@@ -28,7 +30,7 @@ export async function ensureAssetUploaded(
   const hash = await hashBytes(bytes)
 
   if (!assetServerUrl) {
-    console.error('[tempad-dev] Asset server URL is missing.')
+    logger.error('Asset server URL is missing.')
     throw new Error('Asset server URL is not configured.')
   }
 
@@ -59,9 +61,7 @@ export async function ensureAssetUploaded(
   const promise = upload(url, bytes, mimeType, metadata)
     .then(() => {
       uploadedAssets.add(uploadKey)
-      console.info(
-        `[tempad-dev] Uploaded asset ${hash.slice(0, 8)} (${mimeType}, ${size} bytes) to ${url}`
-      )
+      logger.log(`Uploaded asset ${hash.slice(0, 8)} (${mimeType}, ${size} bytes) to ${url}`)
     })
     .finally(() => {
       inflightUploads.delete(uploadKey)
@@ -93,11 +93,11 @@ async function upload(
     })
 
     if (!response.ok) {
-      console.error('[tempad-dev] Asset upload failed.', url, response.status, response.statusText)
+      logger.error('Asset upload failed.', url, response.status, response.statusText)
       throw new Error(`Upload failed with status ${response.status} ${response.statusText}`)
     }
   } catch (error) {
-    console.error('[tempad-dev] Failed to upload asset via HTTP.', error)
+    logger.error('Failed to upload asset via HTTP.', error)
     throw error instanceof Error ? error : new Error('Failed to upload asset via HTTP.')
   }
 }

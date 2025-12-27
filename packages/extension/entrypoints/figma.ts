@@ -1,5 +1,6 @@
 import { GROUPS } from '@/rewrite/config'
 import { applyGroups } from '@/rewrite/shared'
+import { logger } from '@/utils/log'
 
 export default defineUnlistedScript(() => {
   async function rewriteScript() {
@@ -25,7 +26,7 @@ export default defineUnlistedScript(() => {
       const { content: afterRules, changed } = applyGroups(original, GROUPS)
 
       if (changed) {
-        console.log(`[tempad-dev] Rewrote script: ${src}`)
+        logger.log(`Rewrote script: ${src}`)
       }
 
       const content = afterRules.replaceAll('delete window.figma', 'window.figma = undefined')
@@ -39,7 +40,7 @@ export default defineUnlistedScript(() => {
 
       new Function(content)()
     } catch (e) {
-      console.error(e)
+      logger.error(e)
       replaceScript(`${src}?fallback`)
     } finally {
       if (desc) {

@@ -3,6 +3,7 @@ import waitFor from 'p-wait-for'
 
 import { runtimeMode } from '@/ui/state'
 import { getCanvas, getLeftPanel } from '@/utils'
+import { logger } from '@/utils/log'
 
 import './style.css'
 
@@ -19,9 +20,7 @@ export default defineUnlistedScript(async () => {
     if (document.visibilityState === 'hidden') return
     runtimeMode.value = 'unavailable'
     announcedUnavailable = true
-    console.log(
-      '[tempad-dev] `window.figma` is not available. TemPad Dev is currently unavailable.'
-    )
+    logger.log('`window.figma` is not available. TemPad Dev is currently unavailable.')
   }
 
   async function ensureFigmaReady(timeout?: number): Promise<boolean> {
@@ -45,7 +44,7 @@ export default defineUnlistedScript(async () => {
       if (available) {
         runtimeMode.value = 'standard'
         if (el) el.style.display = ''
-        console.log('[tempad-dev] `window.figma` is now available. TemPad Dev is ready.')
+        logger.log('`window.figma` is now available. TemPad Dev is ready.')
         return true
       }
       if (el && document.visibilityState === 'hidden') el.style.display = 'none'
