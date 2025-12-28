@@ -98,7 +98,25 @@ async function collectImageFillAssets(
       assetRegistry.set(asset.hash, asset)
       assets.push(asset)
     } catch (error) {
-      logger.warn('Failed to process image fill asset:', error)
+      if (isImageDataMissingError(error)) {
+        try {
+          logger.warn(
+            `Image bytes unavailable for hash ${hash}, falling back to node export.`,
+            error
+          )
+          const bytes = await node.exportAsync({ format: 'PNG' })
+          cacheImageBytes(hash, bytes)
+          const mimeType = detectImageMime(bytes)
+          const asset = await ensureAssetUploaded(bytes, mimeType)
+          assetRegistry.set(asset.hash, asset)
+          assets.push(asset)
+          continue
+        } catch (fallbackError) {
+          logger.warn('Failed to export node for image fill fallback:', fallbackError)
+        }
+      } else {
+        logger.warn('Failed to process image fill asset:', error)
+      }
     }
   }
 
@@ -129,6 +147,17 @@ function loadImageBytes(hash: string): Promise<Uint8Array> {
     imageBytesCache.set(hash, promise)
   }
   return promise
+}
+
+function isImageDataMissingError(error: unknown): boolean {
+  if (!error) return false
+  const message =
+    typeof error === 'string' ? error : error instanceof Error ? error.message : String(error)
+  return message.includes('No data found for this image')
+}
+
+function cacheImageBytes(hash: string, bytes: Uint8Array): void {
+  imageBytesCache.set(hash, Promise.resolve(bytes))
 }
 
 function detectImageMime(bytes: Uint8Array): string {

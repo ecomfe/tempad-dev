@@ -13,6 +13,13 @@ import { classProps, classProp, filterGridProps, mergeClass } from './props'
 
 export type { RenderContext, CodeLanguage } from './types'
 
+const DISPLAY_KIND = new Map<string, 'flex' | 'grid'>([
+  ['flex', 'flex'],
+  ['inline-flex', 'flex'],
+  ['grid', 'grid'],
+  ['inline-grid', 'grid']
+])
+
 export async function renderTree(
   rootId: string,
   tree: VisibleTree,
@@ -209,12 +216,73 @@ async function renderNode(
   const display = rawStyle.display || ''
   const isCurrentGrid = display === 'grid' || display === 'inline-grid'
 
-  for (const childId of snapshot.children) {
+  const childIds = getOrderedChildren(snapshot, rawStyle, tree)
+  for (const childId of childIds) {
     const rendered = await renderNode(childId, tree, ctx, nextTextStyle, isCurrentGrid)
     if (rendered) children.push(rendered)
   }
 
   return { name: snapshot.tag || 'div', props, children }
+}
+
+function getOrderedChildren(
+  snapshot: NodeSnapshot,
+  style: Record<string, string>,
+  tree: VisibleTree
+): string[] {
+  const display = style.display ?? ''
+  const kind = DISPLAY_KIND.get(display)
+  if (!kind) return snapshot.children
+
+  const axis = kind === 'grid' ? 'grid' : resolveFlexAxis(snapshot.node, style)
+  if (!axis) return snapshot.children
+
+  const entries = snapshot.children.map((id, index) => {
+    const node = tree.nodes.get(id)?.node
+    const box =
+      node && 'absoluteBoundingBox' in node
+        ? (node.absoluteBoundingBox as { x: number; y: number } | null)
+        : null
+    return { id, index, box }
+  })
+
+  if (entries.some((entry) => !entry.box)) return snapshot.children
+
+  const EPS = 0.5
+  const sorted = [...entries].sort((a, b) => {
+    if (axis === 'grid') {
+      const deltaY = a.box!.y - b.box!.y
+      if (Math.abs(deltaY) > EPS) return deltaY
+      const deltaX = a.box!.x - b.box!.x
+      if (Math.abs(deltaX) > EPS) return deltaX
+      return a.index - b.index
+    }
+    const delta = a.box![axis] - b.box![axis]
+    if (Math.abs(delta) > EPS) return delta
+    return a.index - b.index
+  })
+
+  return sorted.map((entry) => entry.id)
+}
+
+function resolveFlexAxis(node: SceneNode, style: Record<string, string>): 'x' | 'y' | null {
+  const direction = style['flex-direction']
+  if (direction === 'row' || direction === 'row-reverse') return 'x'
+  if (direction === 'column' || direction === 'column-reverse') return 'y'
+
+  if ('layoutMode' in node) {
+    const layoutMode = (node as { layoutMode?: string }).layoutMode
+    if (layoutMode === 'HORIZONTAL') return 'x'
+    if (layoutMode === 'VERTICAL') return 'y'
+  }
+
+  if ('inferredAutoLayout' in node) {
+    const inferred = (node as { inferredAutoLayout?: { layoutMode?: string } }).inferredAutoLayout
+    if (inferred?.layoutMode === 'HORIZONTAL') return 'x'
+    if (inferred?.layoutMode === 'VERTICAL') return 'y'
+  }
+
+  return null
 }
 
 const HOISTABLE_TEXT_STYLE_KEYS = new Set([

@@ -56,6 +56,15 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 - If parent has no auto layout:
   - Compute absolute positioning from `constraints` + `relativeTransform`.
 
+### Flex/grid sibling ordering
+
+- When a node renders as `flex/inline-flex` or `grid/inline-grid`, sibling order is meaningful.
+- Siblings are sorted by position using `absoluteBoundingBox` only:
+  - Flex: sort by primary axis (`x` for row, `y` for column).
+  - Grid: row-major (`y` then `x`).
+  - Use stable ordering within ~0.5px to preserve original order.
+- If any child lacks `absoluteBoundingBox`, keep the original order.
+
 ### Group/boolean
 
 - GROUP and BOOLEAN_OPERATION nodes are kept in the tree for structure and hints.
@@ -110,8 +119,8 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 ## Logging
 
 - Only emit `warnings` for truncation and inferred auto layout.
-- Other degradations should be logged to console with `[tempad-dev]` prefix.
-- The tool may log high-level timing info to console for performance diagnostics.
+- Other degradations should be logged via the shared `logger` (prefix is automatic).
+- The tool may log high-level timing info via `logger.debug` for performance diagnostics.
 
 ## Performance
 
