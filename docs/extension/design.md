@@ -39,6 +39,7 @@ This document describes the implementation design for MCP `get_code` in `package
    - Render nodes into JSX/HTML component tree.
    - Inject SVG content or `<img>` when applicable.
    - Apply Tailwind class conversion.
+   - Reorder flex/grid siblings by position (see “Sibling ordering”).
 
 9. **Token pipeline**
    - Detect token references in output code.
@@ -104,6 +105,19 @@ This document describes the implementation design for MCP `get_code` in `package
 - Builds layout-only style map for SVG containers.
 - SVG roots remove width/height from layout map (SVG has own size).
 
+## Sibling ordering
+
+- Ordering is applied during render, not during tree build.
+- Triggered only when the computed `display` is:
+  - `flex` / `inline-flex` (flex ordering)
+  - `grid` / `inline-grid` (grid ordering)
+- Uses `absoluteBoundingBox` only (no fallback). If any child is missing a box, original order is preserved.
+- Flex ordering uses the primary axis:
+  - `row` / `row-reverse` → `x`
+  - `column` / `column-reverse` → `y`
+  - If `flex-direction` is missing, fall back to node’s `layoutMode` / `inferredAutoLayout.layoutMode`.
+- Grid ordering is row‑major (`y` then `x`), with a small epsilon (~0.5px) to keep stable order for near‑ties.
+
 ## SVG and asset strategy
 
 - Vector-like nodes may be exported to SVG.
@@ -134,3 +148,4 @@ This document describes the implementation design for MCP `get_code` in `package
 - Token detection is string-based and bounded by truncation.
 - Skip CSS collection for vector-root descendants and plugin-rendered subtrees.
 - Variable candidate scan is limited to bound variables and paint references (not inferred variables).
+- Logging goes through `utils/log.ts` and adds `[tempad-dev]` prefix automatically.
