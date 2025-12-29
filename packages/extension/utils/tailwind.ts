@@ -547,7 +547,13 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     props: { v: 'font-family' },
     formatter: formatFontFamily
   },
-  fontSize: { prefix: 'text', mode: 'direct', valueKind: 'length', props: { v: 'font-size' } },
+  fontSize: {
+    prefix: 'text',
+    mode: 'direct',
+    valueKind: 'length',
+    arbitraryType: 'length',
+    props: { v: 'font-size' }
+  },
   fontWeight: {
     prefix: 'font',
     mode: 'direct',
@@ -593,6 +599,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'text',
     mode: 'direct',
     valueKind: 'color',
+    arbitraryType: 'color',
     keywords: ['transparent', ['currentcolor', 'current'], ['currentColor', 'current'], 'inherit'],
     props: { v: 'color' }
   },
