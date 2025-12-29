@@ -23,6 +23,7 @@ export type TreeStats = {
   maxDepth: number
   depthLimit?: number
   capped: boolean
+  cappedNodeIds: string[]
 }
 
 export type VisibleTree = {

@@ -45,30 +45,43 @@ export async function applyPluginTransformToNames(
   const ordered = Array.from(usedNames)
   if (!ordered.length) return { rewriteMap, finalBridge }
 
-  let transformed: Array<string | undefined> = []
-  const transformIndexMap = new Map<number, number>()
-  const refs = ordered
-    .map((name, idx) => {
-      if (!name.startsWith('--')) return null
-      transformIndexMap.set(idx, transformIndexMap.size)
-      return {
-        code: `var(${name})`,
-        name: normalizeCustomPropertyBody(name)
+  if (!pluginCode) {
+    ordered.forEach((name) => {
+      const variableId = sourceIndex.get(name)
+      if (!variableId) return
+      if (finalBridge.has(name) && finalBridge.get(name) !== variableId) {
+        logger.warn('Duplicate token name resolved to multiple ids:', name)
+        return
       }
+      finalBridge.set(name, variableId)
     })
-    .filter(Boolean) as Array<{ code: string; name: string }>
+    return { rewriteMap, finalBridge }
+  }
 
-  if (pluginCode && refs.length) {
+  let transformed: Array<string | undefined> = []
+  const refs: Array<{ code: string; name: string }> = []
+  ordered.forEach((name) => {
+    if (!name.startsWith('--')) return
+    refs.push({
+      code: `var(${name})`,
+      name: normalizeCustomPropertyBody(name)
+    })
+  })
+
+  const hasTransform = refs.length > 0
+  if (hasTransform) {
     transformed = await runTransformVariableBatch(refs, workerUnitOptions(config), pluginCode)
   }
 
-  ordered.forEach((name, idx) => {
-    const transformIndex = transformIndexMap.get(idx)
-    const transformedValue =
-      transformIndex != null && transformIndex >= 0 ? transformed[transformIndex] : undefined
-    const next =
-      pluginCode && transformIndex != null ? normalizeTransformedName(transformedValue, name) : name
-    rewriteMap.set(name, next)
+  let refIndex = 0
+  ordered.forEach((name) => {
+    let next = name
+    if (hasTransform && name.startsWith('--')) {
+      const transformedValue = transformed[refIndex]
+      refIndex += 1
+      next = normalizeTransformedName(transformedValue, name)
+    }
+    if (name !== next) rewriteMap.set(name, next)
 
     const variableId = sourceIndex.get(name) ?? sourceIndex.get(next)
     if (!variableId) return

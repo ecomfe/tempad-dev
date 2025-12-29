@@ -2,8 +2,8 @@ import type { OutlineNode } from '@tempad-dev/mcp-shared'
 
 import { toPascalCase } from '@/utils/string'
 
-const NODE_CAP = 800
-const NODE_TARGET = 400
+const NODE_CAP = 2048
+const NODE_TARGET = 1536
 
 export type Bounds = {
   x: number

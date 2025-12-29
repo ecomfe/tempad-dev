@@ -1,47 +1,49 @@
-import { normalizeFigmaVarName, replaceVarFunctions } from '@/utils/css'
+import { normalizeFigmaVarName } from '@/utils/css'
+
+const TOKEN_BOUNDARY_PREFIX = '(^|[^A-Za-z0-9_-])'
+const TOKEN_BOUNDARY_SUFFIX = '(?=[^A-Za-z0-9_-]|$)'
+
+export function buildTokenRegex(plainNames?: Set<string>, global = false): RegExp | null {
+  if (!plainNames || plainNames.size === 0) return null
+
+  const names = Array.from(plainNames).filter(Boolean)
+  if (!names.length) return null
+
+  // 长度优先，避免 color-red 误吞 color-red-1
+  names.sort((a, b) => b.length - a.length)
+
+  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = names.map((name) => escapeRegex(name)).join('|')
+  if (!pattern) return null
+
+  const flags = global ? 'g' : undefined
+  return new RegExp(`${TOKEN_BOUNDARY_PREFIX}(${pattern})${TOKEN_BOUNDARY_SUFFIX}`, flags)
+}
 
 export function extractTokenNames(code: string, plainNames?: Set<string>): Set<string> {
   const out = new Set<string>()
   if (!code) return out
-  replaceVarFunctions(code, ({ name, full }) => {
-    const trimmed = name.trim()
-    if (trimmed.startsWith('--')) {
-      out.add(normalizeFigmaVarName(trimmed))
-    }
-    return full
-  })
-  code.match(/--[A-Za-z0-9-_]+/g)?.forEach((raw) => {
-    out.add(normalizeFigmaVarName(raw))
-  })
-
-  if (plainNames?.size) {
-    const names = Array.from(plainNames).filter(Boolean)
-    // 长度优先，避免 color-red 误吞 color-red-1
-    names.sort((a, b) => b.length - a.length)
-    names.forEach((name) => {
-      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const re = new RegExp(`(^|[^A-Za-z0-9_-])(${escaped})(?=[^A-Za-z0-9_-]|$)`, 'g')
-      if (re.test(code)) {
-        out.add(name)
-      }
+  if (!plainNames?.size) {
+    code.match(/--[A-Za-z0-9-_]+/g)?.forEach((raw) => {
+      out.add(normalizeFigmaVarName(raw))
     })
+    return out
+  }
+
+  const tokenRe = buildTokenRegex(plainNames, true)
+  if (tokenRe) {
+    let match: RegExpExecArray | null
+    while ((match = tokenRe.exec(code)) !== null) {
+      if (match[2]) out.add(match[2])
+    }
   }
 
   return out
 }
 
 export function createTokenMatcher(plainNames?: Set<string>): (input: string) => boolean {
-  if (!plainNames || plainNames.size === 0) return () => false
-
-  const names = Array.from(plainNames).filter(Boolean)
-  if (!names.length) return () => false
-
-  names.sort((a, b) => b.length - a.length)
-  const escaped = names.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  const pattern = escaped.join('|')
-  if (!pattern) return () => false
-
-  const re = new RegExp(`(^|[^A-Za-z0-9_-])(?:${pattern})(?=[^A-Za-z0-9_-]|$)`)
+  const re = buildTokenRegex(plainNames, false)
+  if (!re) return () => false
 
   return (input: string) => {
     if (!input) return false

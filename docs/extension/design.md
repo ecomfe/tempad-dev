@@ -51,6 +51,7 @@ This document describes the implementation design for MCP `get_code` in `package
 10. **Truncate and finalize output**
     - Enforce payload size limits.
     - Emit warnings only for truncation or inferred auto layout.
+    - If tree depth was capped, include a `depth-cap` warning with capped node ids.
 
 ## Tree and layout semantics
 
@@ -130,12 +131,18 @@ This document describes the implementation design for MCP `get_code` in `package
 ## Token pipeline (detailed)
 
 1. Build source index from variable IDs and codeSyntax.
-2. Extract raw token names from code (boundary-aware).
+2. Strip fallbacks, then extract raw token names from code (boundary-aware).
 3. Apply plugin transforms to names.
-4. Rewrite code with transformed names.
-5. Extract final used names from code.
+4. Rewrite code with transformed names (only if any rename occurs).
+5. Derive final used names from the rewrite map (no second scan).
 6. Build a single token map (direct + alias-chain tokens).
 7. Per-node resolve (only when `resolveTokens` is true).
+
+### Pipeline guards
+
+- If no source names exist, return early with no tokens.
+- If no token names are detected, skip plugin transforms and defs.
+- If rewrites yield no bridged ids, skip defs.
 
 ## Error handling
 
@@ -148,6 +155,7 @@ This document describes the implementation design for MCP `get_code` in `package
 - Single-pass CSS collection per node.
 - Asset export is planned and executed once.
 - Token detection is string-based and bounded by truncation.
+- Token detection avoids a second scan after rewrites.
 - Skip CSS collection for vector-root descendants and plugin-rendered subtrees.
 - Variable candidate scan is limited to bound variables and paint references (not inferred variables).
 - Logging goes through `utils/log.ts` and adds `[tempad-dev]` prefix automatically.

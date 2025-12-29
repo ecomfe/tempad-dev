@@ -86,7 +86,8 @@ export async function handleGetCode(
     throw new Error('No renderable nodes found for the current selection.')
   }
   if (tree.stats.capped) {
-    logger.warn(`Selection truncated at depth ${tree.stats.depthLimit ?? tree.stats.maxDepth}.`)
+    const depth = tree.stats.depthLimit ?? tree.stats.maxDepth
+    logger.warn(`[get_code] Tree depth capped at ${depth}; output may be incomplete.`)
   }
 
   const config = currentCodegenConfig()
@@ -214,7 +215,10 @@ export async function handleGetCode(
     stamp('tokens:resolve', t)
   }
 
-  const warnings = buildGetCodeWarnings(outputCode, MAX_CODE_CHARS, outputTruncated)
+  const warnings = buildGetCodeWarnings(outputCode, MAX_CODE_CHARS, outputTruncated, {
+    depthLimit: tree.stats.depthLimit,
+    cappedNodeIds: tree.stats.cappedNodeIds
+  })
   const assets = Array.from(assetRegistry.values())
   const codegen = {
     plugin: activePlugin.value?.name ?? 'none',

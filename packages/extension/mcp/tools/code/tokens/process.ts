@@ -2,6 +2,8 @@ import type { GetTokenDefsResult } from '@tempad-dev/mcp-shared'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
+import { stripFallback } from '@/utils/css'
+
 import { createTokenMatcher, extractTokenNames } from './extract'
 import { rewriteTokenNamesInCode, filterBridge } from './rewrite'
 import { buildSourceNameIndex } from './source-index'
@@ -49,7 +51,7 @@ export async function processTokens({
   now
 }: ProcessTokensInput): Promise<ProcessTokensResult> {
   const clock = now ?? (() => Date.now())
-  let code = inputCode
+  let code = stripFallback(inputCode)
   let truncated = inputTruncated
 
   const candidateIds = usedCandidateIds.size
@@ -57,10 +59,22 @@ export async function processTokens({
     : variableIds
   const sourceIndex = buildSourceNameIndex(candidateIds, variableCache)
   const sourceNames = new Set(sourceIndex.keys())
+  const emptyResult = () => ({
+    code,
+    truncated,
+    tokensByCanonical: {},
+    sourceIndex
+  })
+  if (!sourceNames.size) {
+    return emptyResult()
+  }
 
   let t = clock()
   const usedNamesRaw = extractTokenNames(code, sourceNames)
   if (stamp) stamp('tokens:detect', t)
+  if (!usedNamesRaw.size) {
+    return emptyResult()
+  }
 
   t = clock()
   const { rewriteMap, finalBridge } = await applyPluginTransformToNames(
@@ -70,23 +84,29 @@ export async function processTokens({
     config
   )
 
-  let hasRenames = false
-  for (const [key, next] of rewriteMap) {
-    if (key !== next) {
-      hasRenames = true
-      break
+  const hasRenames = rewriteMap.size > 0
+
+  if (hasRenames) {
+    code = rewriteTokenNamesInCode(code, rewriteMap)
+    if (code.length > maxChars) {
+      code = code.slice(0, maxChars)
+      truncated = true
     }
   }
 
-  code = rewriteTokenNamesInCode(code, rewriteMap)
-  if (code.length > maxChars) {
-    code = code.slice(0, maxChars)
-    truncated = true
+  let usedNamesFinal = usedNamesRaw
+  if (hasRenames) {
+    const remapped = new Set<string>()
+    usedNamesRaw.forEach((name) => {
+      remapped.add(rewriteMap.get(name) ?? name)
+    })
+    usedNamesFinal = remapped
   }
-
-  const usedNamesFinal = hasRenames ? extractTokenNames(code, sourceNames) : usedNamesRaw
   const finalBridgeFiltered = hasRenames ? filterBridge(finalBridge, usedNamesFinal) : finalBridge
   if (stamp) stamp('tokens:rewrite', t)
+  if (!finalBridgeFiltered.size) {
+    return emptyResult()
+  }
 
   t = clock()
   const { tokensByCanonical } = await buildUsedTokens(
@@ -102,8 +122,7 @@ export async function processTokens({
   if (stamp) stamp('tokens:used', t)
 
   const hasTokens = Object.keys(tokensByCanonical).length > 0
-  const tokenMatcher =
-    resolveTokens && hasTokens && usedNamesFinal.size ? createTokenMatcher(sourceNames) : undefined
+  const tokenMatcher = resolveTokens && hasTokens ? createTokenMatcher(sourceNames) : undefined
   const resolveNodeIds =
     resolveTokens && tokenMatcher
       ? collectResolveNodeIds(styles, textSegments, tokenMatcher)

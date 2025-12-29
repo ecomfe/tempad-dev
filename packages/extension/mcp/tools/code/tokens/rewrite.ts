@@ -1,35 +1,15 @@
-import { normalizeFigmaVarName, replaceVarFunctions, stripFallback } from '@/utils/css'
+import { buildTokenRegex } from './extract'
 
 export function rewriteTokenNamesInCode(code: string, rewriteMap: Map<string, string>): string {
-  if (!rewriteMap.size) return stripFallback(code)
+  if (!rewriteMap.size) return code
 
-  let out = stripFallback(code)
+  const tokenRe = buildTokenRegex(new Set(rewriteMap.keys()), true)
+  if (!tokenRe) return code
 
-  out = replaceVarFunctions(out, ({ name, full }) => {
-    const trimmed = name.trim()
-    if (!trimmed.startsWith('--')) return full
-    const canonical = normalizeFigmaVarName(trimmed)
-    const next = rewriteMap.get(canonical) ?? canonical
-    return `var(${next})`
-  })
-
-  const entries = Array.from(rewriteMap.entries())
-    .map(([key, next]) => [key.trim(), next] as const)
-    .filter(([key]) => !!key)
-    .sort((a, b) => b[0].length - a[0].length)
-
-  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = entries.length ? entries.map(([key]) => escapeRegex(key)).join('|') : ''
-  if (!pattern) return out
-
-  const bareTokenRe = new RegExp(`(^|[^A-Za-z0-9_-])(${pattern})(?=[^A-Za-z0-9_-]|$)`, 'g')
-
-  out = out.replace(bareTokenRe, (match, prefix: string, token: string) => {
+  return code.replace(tokenRe, (match, prefix: string, token: string) => {
     const next = rewriteMap.get(token) ?? token
     return `${prefix}${next}`
   })
-
-  return out
 }
 
 export function filterBridge(

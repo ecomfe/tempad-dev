@@ -21,6 +21,7 @@ This document records the source requirements and hard constraints for the MCP `
 - Exactly one node is required.
 - The node must be visible.
 - Tree traversal is capped by a depth limit (semantic-tree driven). If capped, log a warning.
+- If depth is capped, emit a `depth-cap` warning listing capped node ids so agents can call `get_code` on those nodes.
 
 ## Output contract (GetCodeResult)
 
@@ -106,6 +107,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 ## Token handling
 
 - Token detection is based on the final emitted markup (after plugin transform and token rewrites).
+- Token detection always strips `var(..., fallback)` before matching to avoid false positives.
 - Variable names are normalized consistently across Figma variable names, `codeSyntax`, and plugin transforms.
 - `tokens` is a single map keyed by canonical token name. Each entry:
   - `kind`: token kind.
@@ -117,6 +119,12 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 - When `resolveTokens` is `false`, token values remain aliases/literals as emitted by Figma/variables.
 - Collection names are assumed unique; duplicates are unsupported and should emit a warning.
 - Omit `tokens` when empty.
+
+### Token pipeline guards
+
+- If no source names exist, skip the token pipeline entirely.
+- If no tokens are detected in the code, skip plugin transform/rewrites and token defs.
+- If rewrites produce no valid bridge entries, skip token defs.
 
 ### Variable mode overrides
 
@@ -132,6 +140,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 ## Logging
 
 - Only emit `warnings` for truncation and inferred auto layout.
+- Emit `depth-cap` warnings when tree depth is capped (include node ids).
 - Other degradations should be logged via the shared `logger` (prefix is automatic).
 - The tool may log high-level timing info via `logger.debug` for performance diagnostics.
 
