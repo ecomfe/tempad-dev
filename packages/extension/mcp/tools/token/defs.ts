@@ -29,6 +29,9 @@ type VariableCollectionInfo = {
   modes?: Array<{ id: string; name?: string }>
 }
 
+const collectionIdByName = new Map<string, string>()
+const warnedDuplicateCollections = new Set<string>()
+
 export async function handleGetTokenDefs(
   names: string[],
   includeAllModes = false
@@ -55,32 +58,40 @@ export async function resolveTokenDefsByNames(
   pluginCode?: string,
   options: {
     includeAllModes?: boolean
+    resolveValues?: boolean
     candidateIds?: Set<string> | (() => Set<string>)
+    candidateNameById?: Map<string, string>
   } = {}
 ): Promise<GetTokenDefsResult> {
   return resolveTokens({
     names,
     includeAllModes: !!options.includeAllModes,
+    resolveValues: !!options.resolveValues,
     config,
     pluginCode,
-    candidateIds: options.candidateIds
+    candidateIds: options.candidateIds,
+    candidateNameById: options.candidateNameById
   })
 }
 
 type ResolveTokensOptions = {
   names: Set<string>
   includeAllModes: boolean
+  resolveValues: boolean
   config: CodegenConfig
   pluginCode?: string
   candidateIds?: Set<string> | (() => Set<string>)
+  candidateNameById?: Map<string, string>
 }
 
 async function resolveTokens({
   names,
   includeAllModes,
+  resolveValues,
   config,
   pluginCode,
-  candidateIds
+  candidateIds,
+  candidateNameById
 }: ResolveTokensOptions): Promise<GetTokenDefsResult> {
   if (!names.size) return {}
 
@@ -98,12 +109,22 @@ async function resolveTokens({
     const realized = typeof candidateIds === 'function' ? candidateIds() : candidateIds
     if (realized?.size) {
       const candidateVariables: Variable[] = []
+      const useNameById = !!candidateNameById && candidateNameById.size > 0
       for (const id of realized) {
         const v = figma.variables.getVariableById(id)
-        if (v) candidateVariables.push(v)
+        if (!v) continue
+        if (useNameById) {
+          const canonicalName = candidateNameById!.get(id)
+          if (canonicalName && remaining.has(canonicalName)) {
+            seeds.push(v)
+            remaining.delete(canonicalName)
+          }
+          continue
+        }
+        candidateVariables.push(v)
       }
 
-      if (candidateVariables.length) {
+      if (!useNameById && candidateVariables.length) {
         const canonicals = await canonicalizeNames(
           candidateVariables.map((v) => getVariableRawName(v)),
           config,
@@ -139,6 +160,7 @@ async function resolveTokens({
   const { tokens, aliasDeps } = await buildTokensFromVariables({
     seedVariables: seeds,
     includeAllModes,
+    resolveValues,
     config,
     pluginCode,
     index: index ?? undefined
@@ -159,6 +181,7 @@ function filterTokensByNames(input: GetTokenDefsResult, names: Set<string>): Get
 type BuildTokensOptions = {
   seedVariables: Variable[]
   includeAllModes: boolean
+  resolveValues: boolean
   config: CodegenConfig
   pluginCode?: string
   index?: Awaited<ReturnType<typeof getTokenIndex>>
@@ -167,6 +190,7 @@ type BuildTokensOptions = {
 async function buildTokensFromVariables({
   seedVariables,
   includeAllModes,
+  resolveValues,
   config,
   pluginCode,
   index: providedIndex
@@ -208,7 +232,7 @@ async function buildTokensFromVariables({
         pending,
         { canonicalName, index }
       )
-      const modeKey = modeName(collection, modeId)
+      const modeKey = modeKeyForCollection(collection, modeId)
       const resolvedLiteral = toLiteralString(mv.resolved)
       const aliasName = mv.aliasTo
         ? await resolveAliasName(mv.aliasTo, index, config, pluginCode)
@@ -222,25 +246,22 @@ async function buildTokensFromVariables({
           if (chainName) aliasDeps.add(chainName)
         }
       }
-      valueMap[modeKey] = aliasName ?? resolvedLiteral
+      valueMap[modeKey] = resolveValues ? resolvedLiteral : (aliasName ?? resolvedLiteral)
     }
 
     const primaryModeId = collection?.activeModeId ?? preferredModeId ?? modeIds[0]
-    const primaryModeName = primaryModeId ? modeName(collection, primaryModeId) : undefined
+    const primaryModeKey = primaryModeId
+      ? modeKeyForCollection(collection, primaryModeId)
+      : undefined
     const resolvedValue =
-      (primaryModeName && valueMap[primaryModeName]) ||
-      (modeIds.length ? valueMap[modeName(collection, modeIds[0])] : '')
+      (primaryModeKey && valueMap[primaryModeKey]) ||
+      (modeIds.length ? valueMap[modeKeyForCollection(collection, modeIds[0])] : '')
 
     const value: string | Record<string, string> = modeIds.length <= 1 ? resolvedValue : valueMap
 
     const entry: TokenEntry = {
       kind: mapResolvedType(variable.resolvedType),
       value
-    }
-
-    if (modeIds.length > 1 && primaryModeName) {
-      entry.resolvedValue = resolvedValue
-      entry.activeMode = primaryModeName
     }
 
     tokens[canonicalName] = entry
@@ -256,6 +277,7 @@ function resolveVariableCollection(variable: Variable): VariableCollectionInfo |
   try {
     const collection = figma.variables.getVariableCollectionById(collectionId)
     if (!collection) return null
+    trackCollectionName(collection)
     return {
       id: collection.id,
       name: collection.name,
@@ -268,6 +290,19 @@ function resolveVariableCollection(variable: Variable): VariableCollectionInfo |
   } catch (error) {
     logger.warn('Failed to resolve variable collection:', error)
     return null
+  }
+}
+
+function trackCollectionName(collection: VariableCollection): void {
+  if (!collection?.name) return
+  const existing = collectionIdByName.get(collection.name)
+  if (!existing) {
+    collectionIdByName.set(collection.name, collection.id)
+    return
+  }
+  if (existing !== collection.id && !warnedDuplicateCollections.has(collection.name)) {
+    warnedDuplicateCollections.add(collection.name)
+    logger.warn(`Duplicate variable collection name "${collection.name}" detected.`)
   }
 }
 
@@ -464,9 +499,11 @@ async function resolveAliasName(
   }
 }
 
-function modeName(collection: VariableCollectionInfo | null, modeId: string): string {
+function modeKeyForCollection(collection: VariableCollectionInfo | null, modeId: string): string {
   const found = collection?.modes?.find((m) => m.id === modeId)
-  return found?.name || modeId
+  const modeName = found?.name || modeId
+  const collectionName = collection?.name
+  return collectionName ? `${collectionName}:${modeName}` : modeName
 }
 
 function mapResolvedType(resolvedType?: string): TokenEntry['kind'] {

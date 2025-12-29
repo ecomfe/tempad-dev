@@ -14,8 +14,8 @@
     "postinstall": "wxt prepare",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts",
     "lint:fix": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
-    "format": "oxfmt \"!**/*.css\" && prettier --write \"**/*.css\"",
-    "format:check": "oxfmt --check \"!**/*.css\" && prettier --check \"**/*.css\""
+    "format": "oxfmt --ignore-path ../../.gitignore \"!**/*.css\" && prettier --ignore-path ../../.gitignore --write \"**/*.css\"",
+    "format:check": "oxfmt --ignore-path ../../.gitignore --check \"!**/*.css\" && prettier --ignore-path ../../.gitignore --check \"**/*.css\""
   },
   "dependencies": {
     "@tempad-dev/mcp-shared": "workspace:^0.1.0",

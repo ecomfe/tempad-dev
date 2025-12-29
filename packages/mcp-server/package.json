@@ -14,8 +14,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs",
     "lint:fix": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs --fix",
-    "format": "oxfmt",
-    "format:check": "oxfmt --check",
+    "format": "oxfmt --ignore-path ../../.gitignore",
+    "format:check": "oxfmt --ignore-path ../../.gitignore --check",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {

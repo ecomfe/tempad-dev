@@ -71,7 +71,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_code',
     description:
-      'Get a high-fidelity code snapshot for a nodeId/current selection, including assets/tokens and codegen plugin/config. Start here, then refactor into your component/styling/file/naming conventions; strip any data-* hints. If no data-hint-auto-layout is present, layout is explicit; if any hint is none/inferred, pair with get_structure/get_screenshot to confirm hierarchy/overlap. Use data-hint-component plus repetition to decide on reusable components. Replace resource URIs with your canonical asset system as needed.',
+      'Get a high-fidelity code snapshot for a nodeId/current selection, including assets/tokens and codegen plugin/config. Start here, then refactor into your component/styling/file/naming conventions; strip any data-* hints. If no data-hint-auto-layout is present, layout is explicit; if any hint is none/inferred, pair with get_structure/get_screenshot to confirm hierarchy/overlap. Use data-hint-component plus repetition to decide on reusable components. Replace resource URIs with your canonical asset system as needed. Tokens: get_code.tokens is a single map keyed by canonical token name; multi-mode values use `${collectionName}:${modeName}` keys. Nodes with explicit mode overrides include data-hint-variable-mode="Collection=Mode;Collection=Mode". Collection names are assumed unique.',
     parameters: GetCodeParametersSchema,
     target: 'extension',
     format: createCodeToolResponse
@@ -150,15 +150,9 @@ export function createCodeToolResponse(payload: ToolResultMap['get_code']): Call
       ? `Assets attached: ${payload.assets.length}. Fetch bytes via resources/read using resourceUri.`
       : 'No binary assets were attached to this response.'
   )
-  const usedTokenCount = payload.tokens?.used ? Object.keys(payload.tokens.used).length : 0
-  const resolvedTokenCount = payload.tokens?.resolved
-    ? Object.keys(payload.tokens.resolved).length
-    : 0
-  if (usedTokenCount) {
-    summary.push(`Token references included: ${usedTokenCount}.`)
-  }
-  if (resolvedTokenCount) {
-    summary.push(`Resolved token values included: ${resolvedTokenCount}.`)
+  const tokenCount = payload.tokens ? Object.keys(payload.tokens).length : 0
+  if (tokenCount) {
+    summary.push(`Token references included: ${tokenCount}.`)
   }
   summary.push('Read structuredContent for the full code string and asset metadata.')
 

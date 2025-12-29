@@ -45,7 +45,8 @@ This document describes the implementation design for MCP `get_code` in `package
    - Detect token references in output code.
    - Apply plugin transforms to token names.
    - Rewrite code with transformed token names.
-   - Resolve tokens to values when requested.
+   - Build a single `tokens` map (direct + alias-chain tokens).
+   - When `resolveTokens` is true, resolve per-node (mode-aware) before Tailwind conversion.
 
 10. **Truncate and finalize output**
     - Enforce payload size limits.
@@ -133,7 +134,8 @@ This document describes the implementation design for MCP `get_code` in `package
 3. Apply plugin transforms to names.
 4. Rewrite code with transformed names.
 5. Extract final used names from code.
-6. Build used token metadata and (optionally) resolved values.
+6. Build a single token map (direct + alias-chain tokens).
+7. Per-node resolve (only when `resolveTokens` is true).
 
 ## Error handling
 
@@ -149,3 +151,9 @@ This document describes the implementation design for MCP `get_code` in `package
 - Skip CSS collection for vector-root descendants and plugin-rendered subtrees.
 - Variable candidate scan is limited to bound variables and paint references (not inferred variables).
 - Logging goes through `utils/log.ts` and adds `[tempad-dev]` prefix automatically.
+
+## Variable modes and overrides
+
+- Mode overrides are emitted as `data-hint-variable-mode="Collection=Mode;Collection=Mode"`.
+- `tokens` values for multi-mode variables use keys `${collectionName}:${modeName}`.
+- Collection names are assumed unique; duplicates are unsupported and should be warned.

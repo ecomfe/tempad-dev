@@ -52,11 +52,12 @@ export async function renderTextSegments(
       for (const run of line.runs) {
         const cleaned = stripDefaultTextStyles({ ...run.attrs })
         pruneInheritedTextStyles(cleaned, inheritedTextStyle)
+        const resolved = ctx.resolveStyleVars ? ctx.resolveStyleVars(cleaned, node) : cleaned
 
         const hoistableCandidate: Record<string, string> = {}
-        for (const key in cleaned) {
+        for (const key in resolved) {
           if (HOIST_ALLOWLIST.has(key)) {
-            hoistableCandidate[key] = cleaned[key]
+            hoistableCandidate[key] = resolved[key]
           }
         }
 
@@ -72,7 +73,7 @@ export async function renderTextSegments(
   const outputSegments: Array<DevComponent | string> = []
 
   for (const block of blocks) {
-    const renderedBlock = renderBlock(block, commonStyle, classProp, ctx)
+    const renderedBlock = renderBlock(block, commonStyle, classProp, ctx, node)
     if (renderedBlock) {
       optimizeComponentTree(renderedBlock, classProp)
       outputSegments.push(renderedBlock)
@@ -86,7 +87,8 @@ function renderBlock(
   block: TextBlock,
   commonStyle: Record<string, string>,
   classProp: 'class' | 'className',
-  ctx: RenderContext
+  ctx: RenderContext,
+  node: TextNode
 ): DevComponent | null {
   const { type, lines, attrs } = block
   const { paragraphSpacing } = attrs
@@ -115,7 +117,7 @@ function renderBlock(
     const container: DevComponent = { name: tagName, props, children: [] }
 
     lines.forEach((line, idx) => {
-      const lineNodes = buildInlineTree(line.runs, commonStyle, classProp, ctx)
+      const lineNodes = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
       container.children.push(...lineNodes)
       if (isMultiline && idx < lines.length - 1) {
         container.children.push({ name: 'br', props: {}, children: [] })
@@ -173,7 +175,7 @@ function renderBlock(
       stack.push({ list: newList, level: currentIndent })
     }
 
-    const lineChildren = buildInlineTree(line.runs, commonStyle, classProp, ctx)
+    const lineChildren = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
     if (lineChildren.length === 0) {
       lineChildren.push({ name: 'br', props: {}, children: [] })
     }
@@ -251,7 +253,8 @@ function buildInlineTree(
   runs: TextRun[],
   commonStyle: Record<string, string>,
   classProp: 'class' | 'className',
-  ctx: RenderContext
+  ctx: RenderContext,
+  node: TextNode
 ): Array<DevComponent | string> {
   const root: { children: Array<DevComponent | string> } = { children: [] }
   const stack: StackNode[] = [{ container: root }]
@@ -292,7 +295,10 @@ function buildInlineTree(
     }
 
     const cleanedAttrs = stripDefaultTextStyles(run.attrs)
-    const style = omitCommon(cleanedAttrs, commonStyle)
+    const resolvedAttrs = ctx.resolveStyleVars
+      ? ctx.resolveStyleVars(cleanedAttrs, node)
+      : cleanedAttrs
+    const style = omitCommon(resolvedAttrs, commonStyle)
     const classNames = styleToClassNames(style, ctx.config)
     const cls = joinClassNames(classNames)
     const top = stack[stack.length - 1].container

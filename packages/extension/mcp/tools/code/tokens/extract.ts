@@ -29,3 +29,22 @@ export function extractTokenNames(code: string, plainNames?: Set<string>): Set<s
 
   return out
 }
+
+export function createTokenMatcher(plainNames?: Set<string>): (input: string) => boolean {
+  if (!plainNames || plainNames.size === 0) return () => false
+
+  const names = Array.from(plainNames).filter(Boolean)
+  if (!names.length) return () => false
+
+  names.sort((a, b) => b.length - a.length)
+  const escaped = names.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const pattern = escaped.join('|')
+  if (!pattern) return () => false
+
+  const re = new RegExp(`(^|[^A-Za-z0-9_-])(?:${pattern})(?=[^A-Za-z0-9_-]|$)`)
+
+  return (input: string) => {
+    if (!input) return false
+    return re.test(input)
+  }
+}
