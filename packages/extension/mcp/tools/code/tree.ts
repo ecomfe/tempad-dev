@@ -27,7 +27,8 @@ export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
     totalNodes: 0,
     maxDepth: 0,
     depthLimit,
-    capped: false
+    capped: false,
+    cappedNodeIds: []
   }
 
   const collectionCache = new Map<string, { name: string; modes: Map<string, string> } | null>()
@@ -142,6 +143,9 @@ export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
 
     if (depthLimit !== undefined && depth >= depthLimit) {
       stats.capped = true
+      if (!stats.cappedNodeIds.includes(snapshot.id)) {
+        stats.cappedNodeIds.push(snapshot.id)
+      }
       return
     }
 
