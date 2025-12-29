@@ -31,7 +31,7 @@ export const GetCodeParametersSchema = z.object({
   resolveTokens: z
     .boolean()
     .describe(
-      'Inline token values instead of references for quick renders; default false returns token metadata so you can map into your theming system.'
+      'Inline token values instead of references for quick renders; default false returns token metadata so you can map into your theming system. When true, values are resolved per-node (mode-aware).'
     )
     .optional()
 })
@@ -46,10 +46,7 @@ export type GetCodeResult = {
   code: string
   lang: 'vue' | 'jsx'
   assets?: AssetDescriptor[]
-  tokens?: {
-    used?: GetTokenDefsResult
-    resolved?: Record<string, string>
-  }
+  tokens?: GetTokenDefsResult
   codegen: {
     plugin: string
     config: {
@@ -67,7 +64,7 @@ export const GetTokenDefsParametersSchema = z.object({
     .array(z.string().regex(/^--[a-zA-Z0-9-_]+$/))
     .min(1)
     .describe(
-      'Canonical token names (CSS variable form) from Object.keys(get_code.tokens.used) or your own list to resolve, e.g., --color-primary.'
+      'Canonical token names (CSS variable form) from Object.keys(get_code.tokens) or your own list to resolve, e.g., --color-primary.'
     ),
   includeAllModes: z
     .boolean()
@@ -81,8 +78,6 @@ export type GetTokenDefsParametersInput = z.input<typeof GetTokenDefsParametersS
 export type TokenEntry = {
   kind: 'color' | 'number' | 'string' | 'boolean'
   value: string | Record<string, string> // single mode -> string; multi-mode -> map (mode name -> literal or alias)
-  resolvedValue?: string // value for the active mode when multi-mode
-  activeMode?: string // only present when multi-mode map is returned
 }
 
 export type GetTokenDefsResult = {

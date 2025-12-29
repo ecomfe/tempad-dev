@@ -30,7 +30,7 @@ This document records the source requirements and hard constraints for the MCP `
   - `codegen`: `{ plugin: string, config: CodegenConfig }`.
 - Optional fields (omit when empty):
   - `assets`: array of exported assets (image/vector).
-  - `tokens`: `{ used?: Record<string, TokenInfo>, resolved?: Record<string, string> }`.
+  - `tokens`: one-layer map of token entries keyed by canonical token name.
   - `warnings`: only for truncation or inferred auto layout.
 
 ## Size and truncation
@@ -107,9 +107,22 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 - Token detection is based on the final emitted markup (after plugin transform and token rewrites).
 - Variable names are normalized consistently across Figma variable names, `codeSyntax`, and plugin transforms.
-- `usedTokens` represent tokens referenced by the final code.
-- `resolvedTokens` are only emitted when `resolveTokens` is requested.
-- Omit `tokens` when both `used` and `resolved` are empty.
+- `tokens` is a single map keyed by canonical token name. Each entry:
+  - `kind`: token kind.
+  - `value`:
+    - string for single-mode value or alias.
+    - map for multi-mode, keyed by `${collectionName}:${modeName}`.
+- `tokens` includes both directly used tokens and any alias-chain tokens.
+- When `resolveTokens` is `true`, code is resolved per-node (mode-aware); token values are literals.
+- When `resolveTokens` is `false`, token values remain aliases/literals as emitted by Figma/variables.
+- Collection names are assumed unique; duplicates are unsupported and should emit a warning.
+- Omit `tokens` when empty.
+
+### Variable mode overrides
+
+- Nodes with explicit variable mode overrides emit:
+  - `data-hint-variable-mode="Collection=Mode;Collection=Mode"`.
+- This hint is for agents only and must be stripped from final output.
 
 ## Text
 

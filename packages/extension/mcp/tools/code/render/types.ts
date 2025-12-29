@@ -15,4 +15,5 @@ export type RenderContext = {
   config: CodegenConfig
   preferredLang?: CodeLanguage
   detectedLang?: CodeLanguage
+  resolveStyleVars?: (style: Record<string, string>, node?: SceneNode) => Record<string, string>
 }
