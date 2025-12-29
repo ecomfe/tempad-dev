@@ -132,7 +132,7 @@ function activateMcp() {
 .tp-main {
   transition:
     height 0.2s cubic-bezier(0.87, 0, 0.13, 1),
-    box-shadow 0.2s ease;
+    box-shadow 0.2s cubic-bezier(0.87, 0, 0.13, 1);
 }
 
 .tp-main-minimized {
@@ -141,7 +141,7 @@ function activateMcp() {
 }
 
 .tp-main-hint {
-  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 30%, var(--color-bg) 30%);
+  animation: tp-main-hint-pulse 2s cubic-bezier(0.87, 0, 0.13, 1) infinite;
 }
 
 .tp-main.tp-panel-dragging,
@@ -181,6 +181,18 @@ function activateMcp() {
   }
   50% {
     opacity: 1;
+  }
+}
+
+@keyframes tp-main-hint-pulse {
+  50% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-text) 40%, var(--color-bg) 20%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tp-main-hint {
+    animation: none;
   }
 }
 </style>
