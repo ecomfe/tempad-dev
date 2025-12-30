@@ -1,5 +1,36 @@
 "use strict";
 (() => {
+  // utils/log.ts
+  var PREFIX = "[tempad-dev]";
+  var withPrefix = (args) => {
+    if (!args.length) return [PREFIX];
+    const [first, ...rest] = args;
+    if (typeof first === "string") {
+      if (first.startsWith(PREFIX)) return args;
+      return [`${PREFIX} ${first}`, ...rest];
+    }
+    return [PREFIX, ...args];
+  };
+  var logger = {
+    log: (...args) => {
+      console.log(...withPrefix(args));
+    },
+    warn: (...args) => {
+      console.warn(...withPrefix(args));
+    },
+    error: (...args) => {
+      console.error(...withPrefix(args));
+    },
+    debug: (...args) => {
+      if (!__DEV__) return;
+      if (typeof console.debug === "function") {
+        console.debug(...withPrefix(args));
+        return;
+      }
+      console.log(...withPrefix(args));
+    }
+  };
+
   // rewrite/config.ts
   var GROUPS = [
     {
@@ -30,6 +61,10 @@
         {
           pattern: /dispnf\.fyufotjpo;00|np{\.fyufotjpo;00/g,
           replacer: "FIGMA_PLEASE_STOP"
+        },
+        {
+          pattern: /{type:"global",closePluginFunc:[A-Za-z_$][A-Za-z0-9_$]*}/,
+          replacer: '{type:"global",closePluginFunc:()=>{}}'
         }
       ]
     },
@@ -72,9 +107,9 @@
           out = out.replace(pattern, replacer);
         }
         if (out !== before) {
-          console.log(`[tempad-dev] Applied replacement: ${pattern} -> ${replacer}`);
+          logger.log(`Applied replacement: ${pattern} -> ${replacer}`);
         } else {
-          console.warn(`[tempad-dev] Replacement had no effect: ${pattern} -> ${replacer}`);
+          logger.warn(`Replacement had no effect: ${pattern} -> ${replacer}`);
         }
       }
     }
@@ -100,7 +135,7 @@
       const original = await response.text();
       const { content: afterRules, changed } = applyGroups(original, GROUPS);
       if (changed) {
-        console.log(`[tempad-dev] Rewrote script: ${src}`);
+        logger.log(`Rewrote script: ${src}`);
       }
       const content = afterRules.replaceAll("delete window.figma", "window.figma = undefined");
       Object.defineProperty(document, "currentScript", {
@@ -111,7 +146,7 @@
       });
       new Function(content)();
     } catch (e) {
-      console.error(e);
+      logger.error(e);
       replaceScript(`${src}?fallback`);
     } finally {
       if (desc) {
