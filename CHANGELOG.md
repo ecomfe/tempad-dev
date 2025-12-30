@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.4
+
+- Improved MCP tool output.
+- Improved the visual hint for TemPad Dev panel.
+- Significantly improved the performance of `get_code` tool.
+- Made TemPad Dev work seamlessly across soft navigation between pages in Figma.
+
 ## 0.14.3
 
 - Fixed the missing `host_permissions` in manifest.json.
