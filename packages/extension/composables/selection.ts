@@ -1,7 +1,7 @@
 import { useDocumentVisibility, useEventListener, useWindowFocus } from '@vueuse/core'
-import { computed, watch } from 'vue'
+import { computed, shallowRef, watch } from 'vue'
 
-import { selection, runtimeMode } from '@/ui/state'
+import { layoutReady, selection, runtimeMode } from '@/ui/state'
 import { getCanvas, getLeftPanel } from '@/utils'
 
 function isSameSelection(next: readonly SceneNode[], current: readonly SceneNode[]): boolean {
@@ -38,24 +38,49 @@ function handleKeyDown(e: KeyboardEvent) {
 }
 
 export function useSelection() {
-  const canvas = getCanvas()
-  const objectsPanel = getLeftPanel()
+  const canvas = shallowRef<HTMLElement | null>(null)
+  const objectsPanel = shallowRef<HTMLElement | null>(null)
   const documentVisibility = useDocumentVisibility()
   const focused = useWindowFocus()
   const isWindowActive = computed(() => documentVisibility.value === 'visible' && focused.value)
 
   const options = { capture: true }
 
+  function syncTargets() {
+    canvas.value = getCanvas()
+    objectsPanel.value = getLeftPanel()
+  }
+
   onMounted(() => {
-    syncSelection()
+    if (layoutReady.value) {
+      syncTargets()
+      syncSelection()
+    }
 
     useEventListener(canvas, 'click', handleClick, options)
     useEventListener(objectsPanel, 'click', handleClick, options)
     useEventListener(window, 'keydown', handleKeyDown, options)
   })
 
+  watch(
+    layoutReady,
+    (ready) => {
+      if (ready) {
+        syncTargets()
+        return
+      }
+      canvas.value = null
+      objectsPanel.value = null
+      if (selection.value.length) {
+        selection.value = []
+      }
+    },
+    { immediate: true }
+  )
+
   watch([runtimeMode, isWindowActive], ([mode, active]) => {
     if (mode !== 'standard') return
+    if (!layoutReady.value) return
     if (active) syncSelection()
   })
 }
