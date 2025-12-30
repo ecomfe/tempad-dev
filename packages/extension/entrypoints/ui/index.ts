@@ -2,7 +2,6 @@ import 'overlayscrollbars/styles/overlayscrollbars.css'
 import waitFor from 'p-wait-for'
 
 import { runtimeMode } from '@/ui/state'
-import { getCanvas, getLeftPanel } from '@/utils'
 import { logger } from '@/utils/log'
 
 import './style.css'
@@ -32,7 +31,6 @@ export default defineUnlistedScript(async () => {
     }
   }
 
-  await waitFor(() => getCanvas() != null && getLeftPanel() != null)
   const ready = await ensureFigmaReady(FIGMA_READY_TIMEOUT)
   if (!ready) {
     announceUnavailable()

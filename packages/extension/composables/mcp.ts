@@ -15,7 +15,7 @@ import type { McpToolArgs, McpToolName, MCPHandlers } from '@/mcp/runtime'
 import { resetUploadedAssets, setAssetServerUrl } from '@/mcp/assets'
 import { MCP_TOOL_HANDLERS } from '@/mcp/runtime'
 import { setMcpSocket } from '@/mcp/transport'
-import { options, runtimeMode } from '@/ui/state'
+import { layoutReady, options, runtimeMode } from '@/ui/state'
 import { logger } from '@/utils/log'
 
 const RECONNECT_DELAY_MS = 3000
@@ -65,20 +65,21 @@ export const useMcp = createSharedComposable(() => {
   }
 
   function cleanupSocket() {
-    if (socket.value) {
+    const currentSocket = socket.value
+    socket.value = null
+    setMcpSocket(null)
+    if (currentSocket) {
       try {
-        socket.value.close()
+        currentSocket.close()
       } catch (error) {
         logger.warn('Failed to close socket:', error)
       }
     }
-    socket.value = null
-    setMcpSocket(null)
   }
 
   function scheduleReconnect() {
     stopReconnectTimer()
-    if (options.value.mcpOn) {
+    if (options.value.mcpOn && layoutReady.value) {
       startReconnectTimer()
     }
   }
@@ -105,6 +106,7 @@ export const useMcp = createSharedComposable(() => {
     if (
       runtimeMode.value !== 'standard' ||
       !options.value.mcpOn ||
+      !layoutReady.value ||
       isConnecting ||
       socket.value ||
       !isWindowActive.value
@@ -234,6 +236,7 @@ export const useMcp = createSharedComposable(() => {
       if (
         runtimeMode.value === 'standard' &&
         options.value.mcpOn &&
+        layoutReady.value &&
         !socket.value &&
         !isConnecting
       ) {
@@ -241,10 +244,29 @@ export const useMcp = createSharedComposable(() => {
         connect()
       }
     } else {
-      if (options.value.mcpOn && !socket.value) {
+      if (options.value.mcpOn && layoutReady.value && !socket.value) {
         logger.log('MCP connection polling paused.')
         stopReconnectTimer()
       }
+    }
+  })
+
+  watch(layoutReady, (ready) => {
+    if (!ready) {
+      stopReconnectTimer()
+      cleanupSocket()
+      resetState()
+      resetUploadedAssets()
+      errorMessage.value = null
+      if (!options.value.mcpOn) {
+        status.value = 'disabled'
+      } else {
+        status.value = 'connecting'
+      }
+      return
+    }
+    if (runtimeMode.value === 'standard' && options.value.mcpOn && !socket.value && !isConnecting) {
+      connect()
     }
   })
 

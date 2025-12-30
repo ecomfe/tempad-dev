@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { useIdle, useTimeoutFn } from '@vueuse/core'
+import { useIdle, useIntervalFn, useTimeoutFn } from '@vueuse/core'
+import waitFor from 'p-wait-for'
 
 import Badge from '@/components/Badge.vue'
 import IconButton from '@/components/IconButton.vue'
@@ -11,12 +12,36 @@ import CodeSection from '@/components/sections/CodeSection.vue'
 import ErrorSection from '@/components/sections/ErrorSection.vue'
 import MetaSection from '@/components/sections/MetaSection.vue'
 import PrefSection from '@/components/sections/PrefSection.vue'
-import { useKeyLock, useSelection } from '@/composables'
+import { syncSelection, useKeyLock, useSelection } from '@/composables'
 import { useMcp } from '@/composables'
-import { options, runtimeMode } from '@/ui/state'
+import { layoutReady, options, runtimeMode, selection } from '@/ui/state'
+import { getCanvas, getLeftPanel } from '@/utils'
 
 useSelection()
 useKeyLock()
+
+const LAYOUT_CHECK_INTERVAL = 500
+
+function isLayoutReady() {
+  return getCanvas() != null && getLeftPanel() != null
+}
+
+useIntervalFn(
+  () => {
+    const ready = isLayoutReady()
+    if (ready !== layoutReady.value) {
+      layoutReady.value = ready
+    }
+  },
+  LAYOUT_CHECK_INTERVAL,
+  { immediate: true }
+)
+
+onMounted(() => {
+  waitFor(isLayoutReady).then(() => {
+    layoutReady.value = true
+  })
+})
 
 const HINT_IDLE_MS = 10000
 
@@ -74,6 +99,16 @@ useTimeoutFn(() => {
   initialLock.value = false
   showHint.value = idle.value
 }, 3000)
+
+watch(layoutReady, (ready) => {
+  if (ready) {
+    syncSelection()
+    return
+  }
+  if (selection.value.length) {
+    selection.value = []
+  }
+})
 
 function activateMcp() {
   if (isMcpConnected.value) {

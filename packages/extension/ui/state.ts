@@ -1,4 +1,5 @@
 import { useStorage, computedAsync } from '@vueuse/core'
+import { shallowRef } from 'vue'
 
 import { getTemPadComponent } from '@/utils'
 
@@ -49,6 +50,7 @@ export const options = useStorage<Options>('tempad-dev', {
 })
 
 export const runtimeMode = shallowRef<'standard' | 'unavailable'>('standard')
+export const layoutReady = shallowRef(false)
 export const selection = shallowRef<readonly SceneNode[]>([])
 export const selectedNode = computed(() => selection.value?.[0] ?? null)
 export const selectedTemPadComponent = computed(() => getTemPadComponent(selectedNode.value))
