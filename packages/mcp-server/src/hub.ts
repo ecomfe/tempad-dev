@@ -38,7 +38,7 @@ import { PACKAGE_VERSION, log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './share
 import { TOOL_DEFS, coercePayloadToToolResponse, createToolErrorResponse } from './tools'
 
 const SHUTDOWN_TIMEOUT = 2000
-const { wsPortCandidates, toolTimeoutMs, maxPayloadBytes, autoActivateGraceMs } =
+const { wsPortCandidates, toolTimeoutMs, maxPayloadBytes, autoActivateGraceMs, assetTtlMs } =
   getMcpServerConfig()
 
 log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Hub starting...')
@@ -113,19 +113,15 @@ const assetStore = createAssetStore()
 const assetHttpServer = createAssetHttpServer(assetStore)
 await assetHttpServer.start()
 registerAssetResources()
+scheduleAssetCleanup()
 
 function registerAssetResources(): void {
   const template = new ResourceTemplate(MCP_ASSET_URI_TEMPLATE, {
     list: async () => ({
-      resources: assetStore
-        .list()
-        .filter((record) => existsSync(record.filePath))
-        .map((record) => ({
-          uri: buildAssetResourceUri(record.hash),
-          name: formatAssetResourceName(record.hash),
-          description: `${record.mimeType} (${formatBytes(record.size)})`,
-          mimeType: record.mimeType
-        }))
+      // Intentionally keep resources/list empty: assets are ephemeral, tool-linked blobs.
+      // Resource discovery would leak across sessions/design files and add UI noise.
+      // Hosts should use resource_link from tool responses to access assets on demand.
+      resources: []
     })
   })
 
@@ -133,13 +129,47 @@ function registerAssetResources(): void {
     MCP_ASSET_RESOURCE_NAME,
     template,
     {
-      description: 'Binary assets captured by the TemPad Dev hub.'
+      description:
+        'Exported PNG/SVG assets which can serve as screenshots or be referenced in code output.'
     },
     async (_uri, variables) => {
       const hash = typeof variables.hash === 'string' ? variables.hash : ''
       return readAssetResource(hash)
     }
   )
+}
+
+function scheduleAssetCleanup(): void {
+  if (assetTtlMs <= 0) {
+    log.info('Asset TTL cleanup disabled (TEMPAD_MCP_ASSET_TTL_MS=0).')
+    return
+  }
+  pruneExpiredAssets(assetTtlMs)
+  const intervalMs = Math.min(assetTtlMs, 24 * 60 * 60 * 1000)
+  const timer = setInterval(() => {
+    pruneExpiredAssets(assetTtlMs)
+  }, intervalMs)
+  unrefTimer(timer)
+  log.info(
+    { ttlMs: assetTtlMs, intervalMs },
+    'Asset TTL cleanup enabled (list remains empty; assets are tool-linked).'
+  )
+}
+
+function pruneExpiredAssets(ttlMs: number): void {
+  const now = Date.now()
+  let removed = 0
+  let checked = 0
+  for (const record of assetStore.list()) {
+    checked += 1
+    const lastAccess = Number.isFinite(record.lastAccess) ? record.lastAccess : record.uploadedAt
+    if (!lastAccess) continue
+    if (now - lastAccess > ttlMs) {
+      assetStore.remove(record.hash)
+      removed += 1
+    }
+  }
+  log.info({ checked, removed, ttlMs }, 'Asset TTL sweep completed.')
 }
 
 async function readAssetResource(hash: string) {

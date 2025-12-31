@@ -11,6 +11,8 @@ export const MCP_AUTO_ACTIVATE_GRACE_MS = 1500
 
 // Maximum allowed size for uploaded assets (bytes).
 export const MCP_MAX_ASSET_BYTES = 8 * 1024 * 1024
+// Default asset TTL before cleanup (ms). Set to 0 to disable.
+export const MCP_ASSET_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 export const MCP_ASSET_RESOURCE_NAME = 'tempad-assets'
 export const MCP_ASSET_URI_PREFIX = 'asset://tempad/'
