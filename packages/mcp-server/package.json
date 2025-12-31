@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/mcp",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "description": "MCP server for TemPad Dev.",
   "bin": "dist/cli.mjs",
   "files": [
