@@ -85,20 +85,48 @@ const mcpBadgeActiveClass = computed(() =>
   isMcpConnected.value ? (selfActive.value ? 'tp-mcp-badge-active' : 'tp-mcp-badge-inactive') : null
 )
 
-const showHint = ref(true)
+const lowVisibility = ref(false)
 const initialLock = ref(true)
 const { idle } = useIdle(HINT_IDLE_MS, {
   initialState: true
 })
 
-watch(idle, (isIdle) => {
-  showHint.value = isIdle || initialLock.value
-})
+function getOverlapWidth(a: DOMRect, b: DOMRect) {
+  return Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left))
+}
+
+function updateHintOverlap() {
+  if (!layoutReady.value) {
+    lowVisibility.value = false
+    return
+  }
+
+  const canvas = getCanvas()
+  const panel = document.querySelector('.tp-panel.tp-main') as HTMLElement | null
+  if (!canvas || !panel) {
+    lowVisibility.value = false
+    return
+  }
+
+  const panelRect = panel.getBoundingClientRect()
+  const canvasRect = canvas.getBoundingClientRect()
+  const overlapWidth = getOverlapWidth(panelRect, canvasRect)
+
+  if (panelRect.width <= 0) {
+    lowVisibility.value = false
+    return
+  }
+
+  lowVisibility.value = overlapWidth < panelRect.width / 3
+}
+
+useIntervalFn(updateHintOverlap, LAYOUT_CHECK_INTERVAL, { immediate: true })
 
 useTimeoutFn(() => {
   initialLock.value = false
-  showHint.value = idle.value
 }, 3000)
+
+const showHint = computed(() => (idle.value || initialLock.value) && lowVisibility.value)
 
 watch(layoutReady, (ready) => {
   if (ready) {
@@ -176,7 +204,7 @@ function activateMcp() {
 }
 
 .tp-main-hint {
-  animation: tp-main-hint-pulse 2s cubic-bezier(0.87, 0, 0.13, 1) infinite;
+  animation: tp-main-hint-pulse 10s cubic-bezier(0.87, 0, 0.13, 1) infinite;
 }
 
 .tp-main.tp-panel-dragging,
@@ -220,8 +248,38 @@ function activateMcp() {
 }
 
 @keyframes tp-main-hint-pulse {
+  0%,
+  20%,
+  40%,
+  60%,
+  80%,
+  100% {
+    box-shadow: var(--elevation-100);
+  }
+  10% {
+    box-shadow:
+      var(--elevation-100),
+      0 0 0 2px #f24e1e;
+  }
+  30% {
+    box-shadow:
+      var(--elevation-100),
+      0 0 0 2px #ff7262;
+  }
   50% {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-text) 40%, var(--color-bg) 20%);
+    box-shadow:
+      var(--elevation-100),
+      0 0 0 2px #a259ff;
+  }
+  70% {
+    box-shadow:
+      var(--elevation-100),
+      0 0 0 2px #1abcfe;
+  }
+  90% {
+    box-shadow:
+      var(--elevation-100),
+      0 0 0 2px #0acf83;
   }
 }
 
