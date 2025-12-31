@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.5
+
+- Only show the panel visual hint when the panel significantly overlaps with Figma's own panels.
+
 ## 0.14.4
 
 - Improved MCP tool output.
