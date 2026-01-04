@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.6
+
+- Set a minimum panel height and refined max-height calculation.
+- Improved key lock behavior when hovering the canvas.
+- Improved Figma availability checks and layout readiness handling.
+
 ## 0.14.5
 
 - Only show the panel visual hint when the panel significantly overlaps with Figma's own panels.
