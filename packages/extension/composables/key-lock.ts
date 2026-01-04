@@ -8,6 +8,8 @@ let spacePressed = false
 let altPressed = false
 let duplicateClass: string | null = null
 let classSnapshot = new Set<string>()
+const cursorHost = shallowRef<HTMLElement | null>(null)
+const canvas = shallowRef<HTMLElement | null>(null)
 const DUPLICATE_URL_SIGNATURE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAIZElEQVR4AeyYTWxUVRTH3yD9UCEE'
 function extractHotspot(cursor: string): [number, number] | null {
@@ -28,11 +30,15 @@ function pause() {
   setLockAltKey(false)
 }
 
+function isCanvasHovered() {
+  return !!canvas.value?.matches(':hover')
+}
+
 function resume() {
-  if (spacePressed) {
+  if (spacePressed || !isCanvasHovered()) {
     return
   }
-  setLockMetaKey(options.value.deepSelectOn)
+  syncMetaLock()
   syncAltLock()
 }
 
@@ -40,8 +46,8 @@ function pauseMeasure() {
   setLockAltKey(false)
 }
 
-function resumeMeasure() {
-  syncAltLock()
+function pauseDeepSelect() {
+  setLockMetaKey(false)
 }
 
 let resuming: number | null = null
@@ -55,7 +61,7 @@ function pauseMetaThenResume() {
   resuming = setTimeout(() => {
     resuming = null
     if (!spacePressed) {
-      setLockMetaKey(options.value.deepSelectOn)
+      syncMetaLock()
     }
   }, 200)
 }
@@ -97,7 +103,13 @@ function keyup(e: KeyboardEvent) {
 }
 
 function syncAltLock() {
-  setLockAltKey(!altPressed && options.value.measureOn)
+  const hovered = isCanvasHovered()
+  setLockAltKey(hovered && !altPressed && options.value.measureOn)
+}
+
+function syncMetaLock() {
+  const hovered = isCanvasHovered()
+  setLockMetaKey(hovered && options.value.deepSelectOn)
 }
 
 function isDuplicateCursor(host: HTMLElement) {
@@ -125,8 +137,6 @@ function clearCursorCover(host: HTMLElement) {
   delete host.dataset.tpCursorOverride
 }
 
-const cursorHost = shallowRef<HTMLElement | null>(null)
-
 function reconcileCursor(host?: HTMLElement | null) {
   const target = host ?? cursorHost.value
   if (!target) return
@@ -145,8 +155,6 @@ function reconcileCursor(host?: HTMLElement | null) {
 }
 
 export function useKeyLock() {
-  const canvas = shallowRef<HTMLElement | null>(null)
-
   function syncTargets() {
     canvas.value = getCanvas()
     cursorHost.value = canvas.value?.parentElement?.parentElement as HTMLElement | null
@@ -163,7 +171,7 @@ export function useKeyLock() {
     (ready) => {
       if (ready) {
         syncTargets()
-        setLockMetaKey(options.value.deepSelectOn)
+        syncMetaLock()
         syncAltLock()
         reconcileCursor(cursorHost.value)
         return
@@ -181,7 +189,10 @@ export function useKeyLock() {
   useEventListener(canvas, 'mouseleave', pause)
   useEventListener(canvas, 'mouseenter', resume)
   useEventListener(canvas, 'pointerdown', pauseMeasure, { capture: true })
-  useEventListener('pointerup', resumeMeasure, { capture: true })
+  useEventListener(canvas, 'pointerdown', () => {
+    setTimeout(pauseDeepSelect, 0)
+  })
+  useEventListener('pointerup', resume, { capture: true })
   useEventListener(canvas, 'wheel', pauseMetaThenResume)
   useEventListener('keydown', keydown)
   useEventListener('keyup', keyup)
@@ -204,7 +215,7 @@ export function useKeyLock() {
     () => options.value.deepSelectOn,
     () => {
       if (!layoutReady.value) return
-      setLockMetaKey(options.value.deepSelectOn)
+      syncMetaLock()
     }
   )
 
