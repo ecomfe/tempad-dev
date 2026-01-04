@@ -1,6 +1,7 @@
 const NATIVE_PANEL_WIDTH = 241
 const TEMPAD_PANEL_WIDTH = 240
 const TEMPAD_PANEL_MAX_WIDTH = 500
+const TEMPAD_PANEL_MIN_HEIGHT = 40
 
 const ui = reactive({
   isUi3: false,
@@ -15,6 +16,10 @@ const ui = reactive({
 
   get tempadPanelMaxWidth() {
     return TEMPAD_PANEL_MAX_WIDTH
+  },
+
+  get tempadPanelMinHeight() {
+    return TEMPAD_PANEL_MIN_HEIGHT
   },
 
   get topBoundary() {
