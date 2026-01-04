@@ -128,7 +128,7 @@ const restrictedPosition = computed(() => {
   }
 
   const panelPixelWidth = panelWidth.value
-  const { offsetHeight: headerHeight } = header.value
+  const headerHeight = header.value.offsetHeight - 1
 
   const xMin = -panelPixelWidth / 2
   const xMax = windowWidth.value - panelPixelWidth / 2
