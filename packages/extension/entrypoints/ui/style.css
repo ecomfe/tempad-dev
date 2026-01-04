@@ -125,11 +125,6 @@ tempad input[type="number"]:focus-visible {
   outline: unset;
 }
 
-#react-page:not(:has(#fullscreen-root .gpu-view-content canvas):has(#left-panel-container))
-  ~ tempad {
-  display: none;
-}
-
 .os-scrollbar {
   --os-track-bg-hover: var(--color-scrollbartrackhover);
   --os-track-bg-active: var(--color-scrollbartrackdrag);
