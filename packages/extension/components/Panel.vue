@@ -133,7 +133,7 @@ const restrictedPosition = computed(() => {
   const xMin = -panelPixelWidth / 2
   const xMax = windowWidth.value - panelPixelWidth / 2
   const yMin = ui.topBoundary
-  const yMax = windowHeight.value - headerHeight
+  const yMax = windowHeight.value - headerHeight - ui.bottomBoundary
 
   return {
     top: Math.max(yMin, Math.min(yMax, y.value)),
@@ -144,6 +144,7 @@ const restrictedPosition = computed(() => {
 const panelMaxHeight = computed(
   () => `${windowHeight.value - restrictedPosition.value.top - ui.bottomBoundary}px`
 )
+const panelMinHeight = computed(() => `${ui.tempadPanelMinHeight}px`)
 
 const panelWidthPx = computed(() => `${panelWidth.value}px`)
 
@@ -222,6 +223,7 @@ const rightHandleCursor = computed(() => getResizeCursor('right'))
   flex-direction: column;
   width: v-bind(panelWidthPx);
   max-height: v-bind(panelMaxHeight);
+  min-height: v-bind(panelMinHeight);
   background-color: var(--color-bg);
   border-radius: var(--radius-large);
   box-shadow: var(--elevation-100);
