@@ -93,10 +93,6 @@ function handleRemove() {
   cursor: default;
 }
 
-body:not([data-fpl-version='ui3']) .tp-plugin-item-label {
-  gap: 8px;
-}
-
 .tp-plugin-item-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -116,23 +112,6 @@ body:not([data-fpl-version='ui3']) .tp-plugin-item-label {
 
 .tp-plugin-item-checkbox {
   position: relative;
-}
-
-body:not([data-fpl-version='ui3']) .tp-plugin-item-checkbox {
-  display: flex;
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
-  background-color: var(--color-bg, white);
-  border: 1px solid var(--color-icon);
-  background-clip: padding-box;
-}
-
-body:not([data-fpl-version='ui3']) .tp-plugin-item-checkbox-check {
-  fill: #fff;
-}
-
-[data-fpl-version='ui3'] .tp-plugin-item-checkbox {
   --fpl-checkbox-outer-size: 1.5rem;
   --fpl-checkbox-inner-size: 1rem;
   --fpl-checkbox-inset: calc((var(--fpl-checkbox-outer-size) - var(--fpl-checkbox-inner-size)) / 2);
@@ -147,19 +126,6 @@ body:not([data-fpl-version='ui3']) .tp-plugin-item-checkbox-check {
 .tp-plugin-item-checkbox-inner {
   position: absolute;
   inset: 0;
-}
-
-body:not([data-fpl-version='ui3']) .tp-plugin-item-checkbox-inner {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  inset: -1px;
-  border-radius: 2px;
-  border-color: var(--color-bg-brand);
-  background-color: var(--color-bg-brand);
-}
-
-[data-fpl-version='ui3'] .tp-plugin-item-checkbox-inner {
   --checkbox-first-inner-border-color: var(--color-border);
   --checkbox-second-inner-border-color: transparent;
   --checkbox-bg: var(--color-bg-secondary);
@@ -172,7 +138,7 @@ body:not([data-fpl-version='ui3']) .tp-plugin-item-checkbox-inner {
   box-sizing: border-box;
 }
 
-[data-fpl-version='ui3'] .tp-plugin-item-checkbox-inner::before {
+.tp-plugin-item-checkbox-inner::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -182,21 +148,13 @@ body:not([data-fpl-version='ui3']) .tp-plugin-item-checkbox-inner {
   box-sizing: border-box;
 }
 
-[data-fpl-version='ui3'] .tp-plugin-item-checkbox-check {
+.tp-plugin-item-checkbox-check {
   position: relative;
   width: var(--fpl-checkbox-inner-size);
   height: var(--fpl-checkbox-inner-size);
 }
 
-body:not([data-fpl-version='ui3'])
-  .tp-plugin-item-checkbox-input:not(:checked)
-  + .tp-plugin-item-checkbox
-  .tp-plugin-item-checkbox-inner {
-  display: none;
-}
-
-[data-fpl-version='ui3']
-  .tp-plugin-item-checkbox-input:not(:checked)
+.tp-plugin-item-checkbox-input:not(:checked)
   + .tp-plugin-item-checkbox
   .tp-plugin-item-checkbox-check {
   display: none;

@@ -93,7 +93,7 @@
 
 插件可以用来自定义内置的代码输出，或添加自定义的代码块。
 
-一个 TemPad Dev 插件本质上是一个简单的 JavaScript 文件，通过名为 `plugin` 的导出暴露一个插件对象。要安装插件，只需将插件文件的 URL 粘贴到 _Preferences > Plugins_ 中即可。一些内置插件也可以通过 `@{name}` 语法启用，例如 `@foo`，它对应的是我们 [插件注册表](https://github.com/ecomfe/tempad-dev/blob/main/packages/extension/plugins/available-plugins.json) 中的插件名称。
+一个 TemPad Dev 插件本质上是一个简单的 JavaScript 文件，通过 `default` 导出或名为 `plugin` 的命名导出暴露插件对象。要安装插件，只需将插件文件的 URL 粘贴到 _Preferences > Plugins_ 中即可。一些内置插件也可以通过 `@{name}` 语法启用，例如 `@foo`，它对应的是我们 [插件注册表](https://github.com/ecomfe/tempad-dev/blob/main/packages/extension/plugins/available-plugins.json) 中的插件名称。
 
 > [!NOTE]
 > 插件代码存储在浏览器的本地存储中，不支持版本管理或自动更新，需要你在 UI 中手动更新。
@@ -131,7 +131,7 @@ export default definePlugin({
 更完整的示例可以参考 [Justineo/tempad-dev-plugin-kong](https://github.com/Justineo/tempad-dev-plugin-kong/)。
 
 > [!NOTE]
-> 插件文件必须是合法的 ES Module，并且需要通过 `default` 导出插件对象。
+> 插件文件必须是合法的 ES Module，并且需要通过 `default` 导出或 `plugin` 命名导出插件对象。
 
 目前我们支持 4 种插件钩子：
 
@@ -146,7 +146,7 @@ export default definePlugin({
 
 此外，你还可以为代码块指定自定义的 `title` 和 `lang`，或者将内置代码块设置为 `false` 以隐藏它。
 
-完整的类型定义和辅助函数请参见 [`plugins/src/index.ts`](./plugins/src/index.ts)。
+完整的类型定义和辅助函数请参见 [`packages/plugins/src/index.ts`](./packages/plugins/src/index.ts)。
 
 #### 部署插件
 
@@ -159,7 +159,7 @@ https://raw.githubusercontent.com/{username}/{repo}/refs/heads/{branch}/{filenam
 > [!NOTE]
 > 插件 URL 必须支持跨域请求。GitHub 或 Gist 提供的 raw URL 通常是可用的。
 
-插件运行在 Web Worker 中，不会阻塞主线程，也无法访问 DOM，从而保证性能和安全性。插件上下文中只提供了有限的全局变量，具体可参考 [`codegen/safe.ts`](./codegen/safe.ts)。
+插件运行在 Web Worker 中，不会阻塞主线程，也无法访问 DOM，从而保证性能和安全性。插件上下文中只提供了有限的全局变量，具体可参考 [`packages/extension/codegen/safe.ts`](./packages/extension/codegen/safe.ts)。
 
 #### 分享插件
 

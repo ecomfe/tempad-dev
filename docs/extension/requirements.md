@@ -32,7 +32,7 @@ This document records the source requirements and hard constraints for the MCP `
 - Optional fields (omit when empty):
   - `assets`: array of exported assets (image/vector).
   - `tokens`: one-layer map of token entries keyed by canonical token name.
-  - `warnings`: only for truncation or inferred auto layout.
+  - `warnings`: only for truncation, inferred auto layout, or depth-cap.
 
 ## Size and truncation
 
@@ -106,7 +106,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 ## Token handling
 
-- Token detection is based on the final emitted markup (after plugin transform and token rewrites).
+- Token detection starts from the emitted markup; names may be transformed/re-written, and final used names are derived from the rewrite map (no second scan).
 - Token detection always strips `var(..., fallback)` before matching to avoid false positives.
 - Variable names are normalized consistently across Figma variable names, `codeSyntax`, and plugin transforms.
 - `tokens` is a single map keyed by canonical token name. Each entry:
@@ -139,7 +139,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 ## Logging
 
-- Only emit `warnings` for truncation and inferred auto layout.
+- Only emit `warnings` for truncation, inferred auto layout, and depth-cap.
 - Emit `depth-cap` warnings when tree depth is capped (include node ids).
 - Other degradations should be logged via the shared `logger` (prefix is automatic).
 - The tool may log high-level timing info via `logger.debug` for performance diagnostics.

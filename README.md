@@ -94,7 +94,7 @@ When you hover over a node name section in TemPad Dev's inspect panel, a corresp
 
 Plugins allow you to customize the built-in code output or add custom code blocks.
 
-A TemPad Dev plugin is a simple JavaScript file that exports a plugin object as its `plugin` named export. To install a plugin, paste the plugin file's URL into the _Preferences > Plugins_ section. Some built-in plugins can also be enabled by using `@{name}` syntax (e.g., `@foo`), which corresponds to the plugin names in our [plugin registry](https://github.com/ecomfe/tempad-dev/blob/main/packages/extension/plugins/available-plugins.json).
+A TemPad Dev plugin is a simple JavaScript file that exports a plugin object as its default export or `plugin` named export. To install a plugin, paste the plugin file's URL into the _Preferences > Plugins_ section. Some built-in plugins can also be enabled by using `@{name}` syntax (e.g., `@foo`), which corresponds to the plugin names in our [plugin registry](https://github.com/ecomfe/tempad-dev/blob/main/packages/extension/plugins/available-plugins.json).
 
 > [!NOTE]
 > Plugin code is stored in the browser's local storage. Plugins are not versioned or auto-updated, so you must manually update them from the UI.
@@ -132,14 +132,14 @@ export default definePlugin({
 See [Justineo/tempad-dev-plugin-kong](https://github.com/Justineo/tempad-dev-plugin-kong/) for more comprehensive examples.
 
 > [!NOTE]
-> Plugin file must be a valid ES module and have the plugin object as the `default` export.
+> Plugin file must be a valid ES module and export the plugin object as the `default` export or `plugin` named export.
 
 Currently, we support 4 plugin hooks:
 
 - `transform`: Converts the style object or code into a string format for the code block. Useful for custom structures, such as Tailwind CSS or UnoCSS.
 - `transformVariable`: Converts CSS variables into alternate formats, e.g., converting them to Sass variables for design tokens.
 - `transformPx`: Converts pixel values into other units or scales.
-- `transformComponent`: Converts the design component object into a dev component object or a strin for the code block. Useful for generating component code for design systems.
+- `transformComponent`: Converts the design component object into a dev component object or a string for the code block. Useful for generating component code for design systems.
 
 > [!TIP]
 > To include JavaScript variables in generated CSS, wrap the variable name in `\0` characters. This will convert it into string interpolation for JavaScript.
@@ -147,7 +147,7 @@ Currently, we support 4 plugin hooks:
 
 Additionally, you can specify a custom `title` and `lang` for the code block or hide the built-in code block by setting it to `false`.
 
-For full type definitions and helper functions, see [`plugins/src/index.ts`](./plugins/src/index.ts).
+For full type definitions and helper functions, see [`packages/plugins/src/index.ts`](./packages/plugins/src/index.ts).
 
 #### Deploying a plugin
 
@@ -160,7 +160,7 @@ https://raw.githubusercontent.com/{username}/{repo}/refs/heads/{branch}/{filenam
 > [!NOTE]
 > Plugin URLs must support cross-origin requests. Raw URLs provided by GitHub or Gist are generally suitable.
 
-Plugins run in a Web Worker, so they do not impact the main thread or access the DOM, safeguarding performance and security. Only a limited set of globals is available in the plugin context. See [`codegen/safe.ts`](./codegen/safe.ts) for details.
+Plugins run in a Web Worker, so they do not impact the main thread or access the DOM, safeguarding performance and security. Only a limited set of globals is available in the plugin context. See [`packages/extension/codegen/safe.ts`](./packages/extension/codegen/safe.ts) for details.
 
 #### Sharing a plugin
 
