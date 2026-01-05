@@ -40,7 +40,7 @@
     "esbuild": "^0.27.0",
     "eslint": "^9.39.1",
     "eslint-config-flat-gitignore": "^2.1.0",
-    "eslint-plugin-perfectionist": "^4.15.1",
+    "eslint-plugin-perfectionist": "^5.0.0",
     "eslint-plugin-vue": "^10.5.1",
     "p-limit": "^7.2.0",
     "pino": "^9.14.0",
