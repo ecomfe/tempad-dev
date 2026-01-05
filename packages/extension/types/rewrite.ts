@@ -20,5 +20,5 @@ export interface BlobHandle {
 }
 
 export type Rules = NonNullable<
-  Parameters<typeof browser.declarativeNetRequest.updateDynamicRules>[number]['addRules']
+  Parameters<typeof browser.declarativeNetRequest.updateDynamicRules>[0]['addRules']
 >
