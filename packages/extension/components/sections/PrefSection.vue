@@ -107,9 +107,6 @@ const cssUnitOptions = [
 
 label {
   cursor: default;
-}
-
-[data-fpl-version='ui3'] label {
   color: var(--color-text-secondary);
 }
 </style>

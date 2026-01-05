@@ -2,10 +2,9 @@ const NATIVE_PANEL_WIDTH = 241
 const TEMPAD_PANEL_WIDTH = 240
 const TEMPAD_PANEL_MAX_WIDTH = 500
 const TEMPAD_PANEL_MIN_HEIGHT = 40
+const TEMPAD_PANEL_SPACING = 12
 
 const ui = reactive({
-  isUi3: false,
-
   get nativePanelWidth() {
     return NATIVE_PANEL_WIDTH
   },
@@ -23,31 +22,12 @@ const ui = reactive({
   },
 
   get topBoundary() {
-    return sumLength(this.isUi3 ? 12 : '--toolbar-height', '--editor-banner-height')
+    return sumLength(TEMPAD_PANEL_SPACING, '--editor-banner-height')
   },
 
   get bottomBoundary() {
-    return this.isUi3 ? 12 : 0
+    return TEMPAD_PANEL_SPACING
   }
-})
-
-function updateIsUi3() {
-  ui.isUi3 = document.body.dataset.fplVersion === 'ui3'
-}
-
-const observer = new MutationObserver((mutations) => {
-  for (const mutation of mutations) {
-    if (mutation.type === 'attributes' && mutation.attributeName === 'data-fpl-version') {
-      updateIsUi3()
-      break
-    }
-  }
-})
-
-updateIsUi3()
-observer.observe(document.body, {
-  attributes: true,
-  attributeFilter: ['data-fpl-version']
 })
 
 function sumLength(...values: (string | number)[]): number {

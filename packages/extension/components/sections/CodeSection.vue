@@ -95,10 +95,6 @@ function open() {
 </template>
 
 <style scoped>
-[data-fpl-version='ui2'] .tp-code-header {
-  gap: var(--spacer-l, 8px);
-}
-
 .tp-code-code {
   margin-bottom: 8px;
 }

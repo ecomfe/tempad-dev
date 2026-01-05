@@ -50,7 +50,7 @@ This document describes the implementation design for MCP `get_code` in `package
 
 10. **Truncate and finalize output**
     - Enforce payload size limits.
-    - Emit warnings only for truncation or inferred auto layout.
+    - Emit warnings only for truncation, inferred auto layout, and depth-cap.
     - If tree depth was capped, include a `depth-cap` warning with capped node ids.
 
 ## Tree and layout semantics
@@ -148,7 +148,7 @@ This document describes the implementation design for MCP `get_code` in `package
 
 - Fatal: invalid selection, no renderable root, failure to build markup.
 - Non-fatal: CSS collection failure, text segment failures, export failure.
-- Warnings (output field): only truncation and inferred auto layout presence.
+- Warnings (output field): only truncation, inferred auto layout presence, and depth-cap.
 
 ## Performance notes
 
