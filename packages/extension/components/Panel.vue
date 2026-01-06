@@ -206,12 +206,18 @@ const rightHandleCursor = computed(() => getResizeCursor('right'))
       @pointerdown="startResize($event, 'right')"
       @dblclick="resetWidth('right')"
     />
-    <header ref="header" class="tp-row tp-row-justify tp-panel-header" @dblclick="toggleMinimized">
-      <slot name="header" />
-    </header>
-    <main ref="main" class="tp-panel-main">
-      <slot />
-    </main>
+    <div class="tp-panel-wrapper">
+      <header
+        ref="header"
+        class="tp-row tp-row-justify tp-panel-header"
+        @dblclick="toggleMinimized"
+      >
+        <slot name="header" />
+      </header>
+      <main ref="main" class="tp-panel-main">
+        <slot />
+      </main>
+    </div>
   </article>
 </template>
 
@@ -272,5 +278,10 @@ const rightHandleCursor = computed(() => getResizeCursor('right'))
 .tp-panel-header-icon {
   width: auto;
   height: 32px;
+}
+
+.tp-panel-wrapper {
+  border-radius: inherit;
+  overflow: hidden;
 }
 </style>
