@@ -179,7 +179,6 @@ function activateMcp() {
 
 <style scoped>
 .tp-main {
-  overflow: hidden;
   transition:
     height 0.2s cubic-bezier(0.87, 0, 0.13, 1),
     box-shadow 0.2s cubic-bezier(0.87, 0, 0.13, 1);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.7
+
+- Adjusted panel overflow clipping so resize handles stay clickable while keeping rounded corners.
+
 ## 0.14.6
 
 - Set a minimum panel height and refined max-height calculation.
