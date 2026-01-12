@@ -31,6 +31,7 @@ import type { AssetRecord, ExtensionConnection } from './types'
 
 import { createAssetHttpServer } from './asset-http-server'
 import { createAssetStore } from './asset-store'
+import { buildAssetFilename } from './asset-utils'
 import { getMcpServerConfig } from './config'
 import MCP_INSTRUCTIONS from './instructions.md?raw'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
@@ -235,9 +236,10 @@ function formatAssetResourceName(hash: string): string {
 }
 
 function buildAssetDescriptor(record: AssetRecord): AssetDescriptor {
+  const filename = buildAssetFilename(record.hash, record.mimeType)
   return {
     hash: record.hash,
-    url: `${assetHttpServer.getBaseUrl()}/assets/${record.hash}`,
+    url: `${assetHttpServer.getBaseUrl()}/assets/${filename}`,
     mimeType: record.mimeType,
     size: record.size,
     resourceUri: buildAssetResourceUri(record.hash),
