@@ -192,7 +192,7 @@ importers:
         version: 5.9.3
       unplugin-raw:
         specifier: ^0.6.3
-        version: 0.6.3(esbuild@0.27.2)
+        version: 0.6.4(esbuild@0.27.2)
       zod:
         specifier: ^4.1.12
         version: 4.3.5
@@ -3166,9 +3166,9 @@ packages:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
     engines: {node: '>= 0.8'}
 
-  unplugin-raw@0.6.3:
-    resolution: {integrity: sha512-R/AJrN3pcXOkKHF5nCVxk3Afx64jfeqQVAs/M+5npN7IWzVb0sVUlz3USW7AT5FhCs9pBuFZwdz3zgDsxQPzPQ==}
-    engines: {node: '>=20.18.0'}
+  unplugin-raw@0.6.4:
+    resolution: {integrity: sha512-Cxxk4mtLVJKwJjGVijQwVMkEOxBzBSz37jSfm44/Fw9lzo6z+oetXty5PrnkgWzKJYpeoJdBk6PnklibG0pLqg==}
+    engines: {node: '>=20.19.0'}
     peerDependencies:
       esbuild: '>=0.25.0'
     peerDependenciesMeta:
@@ -3178,10 +3178,6 @@ packages:
   unplugin-utils@0.3.1:
     resolution: {integrity: sha512-5lWVjgi6vuHhJ526bI4nlCOmkCIF3nnfXkCMDeMJrtdvxTs6ZFCM8oNufGTsDbKv/tJ/xj8RpvXjRuPBZJuJog==}
     engines: {node: '>=20.19.0'}
-
-  unplugin@2.3.10:
-    resolution: {integrity: sha512-6NCPkv1ClwH+/BGE9QeoTIl09nuiAt0gS28nn1PvYXsGKRwM2TCbFA2QiilmehPDTXIe684k4rZI1yl3A1PCUw==}
-    engines: {node: '>=18.12.0'}
 
   unplugin@2.3.11:
     resolution: {integrity: sha512-5uKD0nqiYVzlmCRs01Fhs2BdkEgBS3SAVP6ndrBsuK42iC2+JHyxM05Rm9G8+5mkmRtzMZGY8Ct5+mliZxU/Ww==}
@@ -6299,9 +6295,9 @@ snapshots:
 
   unpipe@1.0.0: {}
 
-  unplugin-raw@0.6.3(esbuild@0.27.2):
+  unplugin-raw@0.6.4(esbuild@0.27.2):
     dependencies:
-      unplugin: 2.3.10
+      unplugin: 2.3.11
       unplugin-utils: 0.3.1
     optionalDependencies:
       esbuild: 0.27.2
@@ -6310,13 +6306,6 @@ snapshots:
     dependencies:
       pathe: 2.0.3
       picomatch: 4.0.3
-
-  unplugin@2.3.10:
-    dependencies:
-      '@jridgewell/remapping': 2.3.5
-      acorn: 8.15.0
-      picomatch: 4.0.3
-      webpack-virtual-modules: 0.6.2
 
   unplugin@2.3.11:
     dependencies:
