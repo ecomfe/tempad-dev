@@ -116,7 +116,7 @@ export const MCP_CLIENTS: McpClientConfig[] = [
   {
     id: 'codex',
     name: 'Codex CLI',
-    brandColor: ['#000', '#fff'],
+    brandColor: ['#0d0d0d', '#fff'],
     supportsDeepLink: false,
     copyText: codexCliCommand,
     copyKind: 'command'

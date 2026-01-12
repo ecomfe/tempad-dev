@@ -29,6 +29,7 @@ Supported tools/resources:
 Notes:
 
 - Assets are ephemeral and tool-linked; `resources/list` is intentionally empty to avoid cross-session/design-file pollution. Use `resource_link` blocks from tool results and `resources/read` (or the HTTP fallback URL) to fetch bytes.
+- The HTTP fallback URL uses `/assets/{hash}` and may include an image extension (for example `/assets/{hash}.png`). Both forms are accepted.
 
 ## Configuration
 
