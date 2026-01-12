@@ -21,7 +21,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.24.0",
     "nanoid": "^5.1.6",
-    "pino": "^9.14.0",
+    "pino": "^10.0.0",
     "pino-pretty": "^11.2.2",
     "proper-lockfile": "^4.1.2",
     "ws": "^8.18.3"
