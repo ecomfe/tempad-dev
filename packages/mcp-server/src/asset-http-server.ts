@@ -16,6 +16,7 @@ import { URL } from 'node:url'
 
 import type { AssetStore } from './asset-store'
 
+import { buildAssetFilename, getHashFromAssetFilename, normalizeMimeType } from './asset-utils'
 import { getMcpServerConfig } from './config'
 import { ASSET_DIR, log } from './shared'
 
@@ -103,7 +104,12 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       return
     }
 
-    const hash = segments[1]
+    const filename = segments[1]
+    const hash = getHashFromAssetFilename(filename)
+    if (!hash) {
+      sendError(res, 404, 'Not Found')
+      return
+    }
 
     if (req.method === 'POST') {
       handleUpload(req, res, hash)
@@ -167,35 +173,47 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       return
     }
 
-    const mimeType = req.headers['content-type'] || 'application/octet-stream'
-    const filePath = join(ASSET_DIR, hash)
+    const contentTypeHeader = req.headers['content-type']
+    const mimeType = normalizeMimeType(
+      Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader
+    )
+    const filename = buildAssetFilename(hash, mimeType)
+    const filePath = join(ASSET_DIR, filename)
 
     const width = parseInt(req.headers['x-asset-width'] as string, 10)
     const height = parseInt(req.headers['x-asset-height'] as string, 10)
     const metadata =
       !isNaN(width) && !isNaN(height) && width > 0 && height > 0 ? { width, height } : undefined
 
-    // If asset already exists and file is present, skip write
-    if (store.has(hash) && existsSync(filePath)) {
-      // Drain request to ensure connection is clean
-      req.resume()
+    const existing = store.get(hash)
+    if (existing) {
+      let existingPath = existing.filePath
+      if (!existsSync(existingPath) && existsSync(filePath)) {
+        existing.filePath = filePath
+        existingPath = filePath
+      }
 
-      const existing = store.get(hash)!
-      let changed = false
-      if (metadata) {
-        existing.metadata = metadata
-        changed = true
-      }
-      if (existing.mimeType !== mimeType) {
-        existing.mimeType = mimeType
-        changed = true
-      }
-      if (changed) {
+      if (existsSync(existingPath)) {
+        if (existingPath !== filePath) {
+          try {
+            renameSync(existingPath, filePath)
+            existing.filePath = filePath
+            existingPath = filePath
+          } catch (error) {
+            log.warn({ error, hash }, 'Failed to rename existing asset to include extension.')
+          }
+        }
+
+        // Drain request to ensure connection is clean
+        req.resume()
+
+        if (metadata) existing.metadata = metadata
+        if (existing.mimeType !== mimeType) existing.mimeType = mimeType
+        existing.lastAccess = Date.now()
         store.upsert(existing)
+        sendOk(res, 200, 'Asset Already Exists')
+        return
       }
-      store.touch(hash)
-      sendOk(res, 200, 'Asset Already Exists')
-      return
     }
 
     const tmpPath = `${filePath}.tmp.${nanoid()}`

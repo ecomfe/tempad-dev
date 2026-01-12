@@ -1,9 +1,9 @@
-import { MCP_HASH_PATTERN } from '@tempad-dev/mcp-shared'
 import { existsSync, readFileSync, rmSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { AssetRecord } from './types'
 
+import { getHashFromAssetFilename } from './asset-utils'
 import { ASSET_DIR, ensureDir, ensureFile, log } from './shared'
 
 const INDEX_FILENAME = 'assets.json'
@@ -168,14 +168,15 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
           continue
         }
 
-        if (!MCP_HASH_PATTERN.test(file)) continue
+        const hash = getHashFromAssetFilename(file)
+        if (!hash) continue
 
-        if (!records.has(file)) {
+        if (!records.has(hash)) {
           const filePath = join(ASSET_DIR, file)
           try {
             const stat = statSync(filePath)
-            records.set(file, {
-              hash: file,
+            records.set(hash, {
+              hash,
               filePath,
               mimeType: 'application/octet-stream',
               size: stat.size,
@@ -183,7 +184,7 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
               lastAccess: stat.atimeMs
             })
             changed = true
-            log.info({ hash: file }, 'Recovered orphan asset file.')
+            log.info({ hash }, 'Recovered orphan asset file.')
           } catch (e) {
             log.warn({ error: e, file }, 'Failed to stat orphan file.')
           }
