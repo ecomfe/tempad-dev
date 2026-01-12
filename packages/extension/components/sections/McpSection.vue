@@ -5,8 +5,8 @@ import type { McpClientConfig, McpClientId } from '@/mcp/config'
 
 import IconButton from '@/components/IconButton.vue'
 import Claude from '@/components/icons/brands/Claude.vue'
+import Codex from '@/components/icons/brands/Codex.vue'
 import Cursor from '@/components/icons/brands/Cursor.vue'
-import OpenAI from '@/components/icons/brands/OpenAI.vue'
 import Trae from '@/components/icons/brands/TRAE.vue'
 import VSCode from '@/components/icons/brands/VSCode.vue'
 import Windsurf from '@/components/icons/brands/Windsurf.vue'
@@ -35,7 +35,7 @@ const CLIENT_ICONS: Record<McpClientId, unknown> = {
   cursor: Cursor,
   windsurf: Windsurf,
   claude: Claude,
-  codex: OpenAI,
+  codex: Codex,
   trae: Trae
 }
 
