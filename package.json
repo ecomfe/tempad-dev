@@ -14,7 +14,7 @@
     "eslint-plugin-vue": "^10.5.1",
     "lefthook": "^1.7.17",
     "prettier": "^3.6.2",
-    "oxfmt": "^0.20.0",
+    "oxfmt": "^0.21.0",
     "typescript": "^5.9.3"
   },
   "scripts": {
