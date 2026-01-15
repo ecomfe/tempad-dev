@@ -24,13 +24,13 @@ function resolveSingleNode(nodeId?: string): SceneNode {
   if (nodeId) {
     const node = figma.getNodeById(nodeId)
     if (!isSceneNode(node) || !node.visible) {
-      throw new Error('No valid node found for the provided nodeId.')
+      throw new Error('No visible node found for the provided nodeId.')
     }
     return node
   }
 
   if (selection.value.length !== 1 || !selection.value[0].visible) {
-    throw new Error('Select exactly one visible node to proceed.')
+    throw new Error('Select exactly one visible node (or provide nodeId) to proceed.')
   }
 
   return selection.value[0]
