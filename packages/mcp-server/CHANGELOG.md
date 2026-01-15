@@ -26,15 +26,15 @@
 
 ## 0.3.7
 
-- Maintenance release.
+- No user-visible changes (internal maintenance).
 
 ## 0.3.6
 
-- Maintenance release.
+- No user-visible changes (internal maintenance).
 
 ## 0.3.5
 
-- Maintenance release.
+- No user-visible changes (internal maintenance).
 
 ## 0.3.4
 
@@ -42,7 +42,7 @@
 
 ## 0.3.3
 
-- Maintenance release.
+- No user-visible changes (internal maintenance).
 
 ## 0.3.2
 
@@ -50,7 +50,7 @@
 
 ## 0.3.1
 
-- Maintenance release.
+- No user-visible changes (internal maintenance).
 
 ## 0.3.0
 
