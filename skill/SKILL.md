@@ -1,5 +1,5 @@
 ---
-name: implementing-figma-ui-tempad
+name: implementing-figma-ui-tempad-dev
 description: >-
   Implements UI from a Figma selection or a provided nodeId using TemPad Dev MCP as the source of truth
   (code snapshot, structure, screenshot, assets). Detects repo stack and conventions first, then outputs
