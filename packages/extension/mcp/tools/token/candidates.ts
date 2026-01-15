@@ -54,9 +54,8 @@ function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
     if (Array.isArray(fills)) {
       fills.forEach((fill) => {
         if (!fill || typeof fill !== 'object') return
-        const value = fill as { boundVariables?: unknown; variableReferences?: unknown }
-        if (value.boundVariables) collectVariableIdFromValue(value.boundVariables, bucket)
-        if (value.variableReferences) collectVariableIdFromValue(value.variableReferences, bucket)
+        if (fill.boundVariables) collectVariableIdFromValue(fill.boundVariables, bucket)
+        if (fill.variableReferences) collectVariableIdFromValue(fill.variableReferences, bucket)
       })
     }
   }
@@ -66,9 +65,8 @@ function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
     if (Array.isArray(strokes)) {
       strokes.forEach((stroke) => {
         if (!stroke || typeof stroke !== 'object') return
-        const value = stroke as { boundVariables?: unknown; variableReferences?: unknown }
-        if (value.boundVariables) collectVariableIdFromValue(value.boundVariables, bucket)
-        if (value.variableReferences) collectVariableIdFromValue(value.variableReferences, bucket)
+        if (stroke.boundVariables) collectVariableIdFromValue(stroke.boundVariables, bucket)
+        if (stroke.variableReferences) collectVariableIdFromValue(stroke.variableReferences, bucket)
       })
     }
   }
@@ -78,10 +76,28 @@ function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
     if (Array.isArray(effects)) {
       effects.forEach((effect) => {
         if (!effect || typeof effect !== 'object') return
-        const value = effect as { boundVariables?: unknown; variableReferences?: unknown }
-        if (value.boundVariables) collectVariableIdFromValue(value.boundVariables, bucket)
-        if (value.variableReferences) collectVariableIdFromValue(value.variableReferences, bucket)
+        if (effect.boundVariables) collectVariableIdFromValue(effect.boundVariables, bucket)
+        if (effect.variableReferences) collectVariableIdFromValue(effect.variableReferences, bucket)
       })
+    }
+  }
+
+  if ('fillStyleId' in node) {
+    const styleId = node.fillStyleId
+    if (styleId && typeof styleId === 'string') {
+      try {
+        const style = figma.getStyleById(styleId) as PaintStyle | null
+        if (style?.paints && Array.isArray(style.paints)) {
+          style.paints.forEach((paint) => {
+            if (!paint || paint.visible === false) return
+            if (paint.boundVariables) collectVariableIdFromValue(paint.boundVariables, bucket)
+            if (paint.variableReferences)
+              collectVariableIdFromValue(paint.variableReferences, bucket)
+          })
+        }
+      } catch {
+        // noop
+      }
     }
   }
 }
