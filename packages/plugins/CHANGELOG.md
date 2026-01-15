@@ -2,11 +2,11 @@
 
 ## 0.6.1
 
-- Maintenance release.
+- No user-visible changes (internal maintenance).
 
 ## 0.6.0
 
-- Maintenance release.
+- No user-visible changes (internal maintenance).
 
 ## 0.5.0
 
@@ -35,7 +35,7 @@
 
 ## 0.4.5
 
-- Maintenance release.
+- No user-visible changes (internal maintenance).
 
 ## 0.4.4
 
@@ -48,15 +48,15 @@
 
 ## 0.4.2
 
-- Maintenance release.
+- No user-visible changes (internal maintenance).
 
 ## 0.4.1
 
-- Maintenance release.
+- No user-visible changes (internal maintenance).
 
 ## 0.4.0
 
-- Maintenance release.
+- No user-visible changes (internal maintenance).
 
 ## 0.3.2
 
@@ -73,7 +73,7 @@
 
 ## 0.2.1
 
-- Maintenance release.
+- No user-visible changes (internal maintenance).
 
 ## 0.2.0
 
