@@ -2,11 +2,11 @@
 
 ## 0.6.1
 
-- No user-visible changes (internal maintenance).
+- Version bump only.
 
 ## 0.6.0
 
-- No user-visible changes (internal maintenance).
+- Added build/publish scripts (`build`, `prepublishOnly`).
 
 ## 0.5.0
 
@@ -35,7 +35,7 @@
 
 ## 0.4.5
 
-- No user-visible changes (internal maintenance).
+- Version bump only.
 
 ## 0.4.4
 
@@ -48,15 +48,15 @@
 
 ## 0.4.2
 
-- No user-visible changes (internal maintenance).
+- Version bump only.
 
 ## 0.4.1
 
-- No user-visible changes (internal maintenance).
+- Version bump only.
 
 ## 0.4.0
 
-- No user-visible changes (internal maintenance).
+- Version bump only.
 
 ## 0.3.2
 
@@ -73,7 +73,7 @@
 
 ## 0.2.1
 
-- No user-visible changes (internal maintenance).
+- Stopped publishing internal `dist/shared/*` artifacts.
 
 ## 0.2.0
 

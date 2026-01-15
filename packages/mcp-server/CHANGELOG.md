@@ -26,15 +26,15 @@
 
 ## 0.3.7
 
-- No user-visible changes (internal maintenance).
+- Updated package dependency classification: moved `@tempad-dev/mcp-shared` to devDependencies (bundled into `dist`).
 
 ## 0.3.6
 
-- No user-visible changes (internal maintenance).
+- Updated build bundling to include workspace-internal deps in `dist` for more reliable installs/runs.
 
 ## 0.3.5
 
-- No user-visible changes (internal maintenance).
+- Version bump only.
 
 ## 0.3.4
 
@@ -42,7 +42,7 @@
 
 ## 0.3.3
 
-- No user-visible changes (internal maintenance).
+- Version bump only.
 
 ## 0.3.2
 
@@ -50,7 +50,7 @@
 
 ## 0.3.1
 
-- No user-visible changes (internal maintenance).
+- Version bump only.
 
 ## 0.3.0
 
