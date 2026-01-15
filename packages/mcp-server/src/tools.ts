@@ -71,7 +71,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_code',
     description:
-      'Get a high-fidelity code snapshot for a nodeId/current selection (omit nodeId to use the current single selection), including assets/tokens and codegen plugin/config. Start here, then refactor into your component/styling/file/naming conventions; strip any data-* hints. Treat get_code as authoritative. If warnings include depth-cap, call get_code again once per listed nodeId to fetch each omitted subtree. If any data-hint-auto-layout="inferred" appears, you may call get_structure or get_screenshot with a nodeId (both accept nodeId; omit it to use the current single selection) to confirm hierarchy/overlap, but keep get_code as the baseline. Use data-hint-design-component plus repetition to decide on reusable components. Replace resource URIs with your canonical asset system as needed. Tokens: get_code.tokens is a single map keyed by canonical token name; multi-mode values use `${collectionName}:${modeName}` keys. Nodes with explicit mode overrides include data-hint-variable-mode="Collection=Mode;Collection=Mode". Collection names are assumed unique.',
+      'High-fidelity code snapshot for nodeId/current single selection (omit nodeId to use selection): JSX/Vue markup + Tailwind-like classes, plus assets/tokens metadata and codegen config. Start here, then refactor into repo conventions while preserving values/intent; strip any data-hint-* attributes (hints only). If warnings include depth-cap, call get_code again for each listed nodeId. If warnings include auto-layout (inferred), use get_structure/get_screenshot to confirm hierarchy/overlap (do not derive numeric values from pixels). Tokens are keyed by canonical names like `--color-primary` (multi-mode keys use `${collection}:${mode}`; node overrides may appear as data-hint-variable-mode).',
     parameters: GetCodeParametersSchema,
     target: 'extension',
     format: createCodeToolResponse
@@ -79,7 +79,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_token_defs',
     description:
-      'Resolve canonical token names to values (including modes) for tokens referenced by get_code. Use this to map into your design token/theming system, including responsive tokens.',
+      'Resolve canonical token names to literal values (optionally including all modes) for tokens referenced by get_code.',
     parameters: GetTokenDefsParametersSchema,
     target: 'extension',
     exposed: false
@@ -87,7 +87,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_screenshot',
     description:
-      'Capture a rendered screenshot for a nodeId/current selection for visual verification. Useful for confirming layering/overlap/masks/shadows/translucency when auto-layout hints are none/inferred.',
+      'Capture a rendered PNG screenshot for nodeId/current single selection for visual verification (layering/overlap/masks/effects).',
     parameters: GetScreenshotParametersSchema,
     target: 'extension',
     format: createScreenshotToolResponse
@@ -95,14 +95,14 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_structure',
     description:
-      'Get a structural + geometry outline for a nodeId/current selection to understand hierarchy and layout intent. Use when auto-layout hints are none/inferred or you need explicit bounds for refactors/component extraction.',
+      'Get a structural + geometry outline for nodeId/current single selection to understand hierarchy and layout intent.',
     parameters: GetStructureParametersSchema,
     target: 'extension'
   }),
   hubTool({
     name: 'get_assets',
     description:
-      'Resolve asset hashes to downloadable URLs/URIs for assets referenced by get_code, preserving vectors exactly. Pull bytes before routing through your asset/icon pipeline.',
+      'Resolve asset hashes to downloadable URLs/URIs for assets referenced by tool responses (preserve vectors exactly).',
     parameters: GetAssetsParametersSchema,
     target: 'hub',
     outputSchema: GetAssetsResultSchema,
@@ -117,11 +117,37 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
       : typeof error === 'string'
         ? error
         : 'Unknown error occurred.'
+
+  const troubleshooting = (() => {
+    const help: string[] = []
+
+    const isConnectivityError =
+      /no active tempad dev extension/i.test(message) ||
+      /asset server url is not configured/i.test(message) ||
+      /mcp transport is not connected/i.test(message) ||
+      /websocket/i.test(message)
+
+    if (isConnectivityError) {
+      help.push(
+        'Troubleshooting:',
+        '- In Figma, open TemPad Dev panel and enable MCP (Preferences → MCP server).',
+        '- If multiple Figma tabs are open, click the MCP badge to activate this tab.',
+        '- Keep the Figma tab active/foreground while running MCP tools.'
+      )
+    }
+
+    if (/select exactly one visible node/i.test(message)) {
+      help.push('Tip: Select exactly one visible node, or pass nodeId.')
+    }
+
+    return help.length ? `\n\n${help.join('\n')}` : ''
+  })()
+
   return {
     content: [
       {
         type: 'text' as const,
-        text: `Tool "${toolName}" failed: ${message}`
+        text: `Tool "${toolName}" failed: ${message}${troubleshooting}`
       }
     ]
   }
