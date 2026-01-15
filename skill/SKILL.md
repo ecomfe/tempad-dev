@@ -3,7 +3,7 @@ name: implementing-figma-ui-tempad
 description: >-
   Implements UI from a Figma selection or a provided nodeId using TemPad Dev MCP as the source of truth
   (code snapshot, structure, screenshot, assets). Detects repo stack and conventions first, then outputs
-  integratable code that fits the project. Never guess key styles; avoid tuning loops; when uncertain, ship a
+  integration-ready code that fits the project. Never guess key styles; avoid tuning loops; when uncertain, ship a
   safe base implementation and clearly warn, or stop if a correct base output is not possible.
 metadata:
   mcp-server: tempad-dev
@@ -11,7 +11,7 @@ metadata:
 
 # TemPad Dev: Figma to UI Implementation
 
-Implement integratable UI code from a Figma selection (or a provided `nodeId`) using TemPad Dev MCP outputs as design facts.
+Implement integration-ready UI code from a Figma selection (or a provided `nodeId`) using TemPad Dev MCP outputs as design facts.
 Fit the user’s repo conventions. Never guess key styles.
 
 ## Quick path (single pass)
@@ -120,7 +120,7 @@ Detect repo policy first (asset folders, import vs public URLs, icon pipeline).
 
 ## Stop vs warn
 
-Stop when a correct, integratable base output is not possible:
+Stop when a correct, integration-ready base output is not possible:
 
 - tool cannot read target (errors, no renderable nodes) or target is ambiguous
 - required assets cannot be retrieved when repo policy requires storing them
