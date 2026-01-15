@@ -1,7 +1,5 @@
 # Changelog
 
-> Note: This changelog was backfilled from git history (no tags) and may be incomplete.
-
 ## 0.3.12
 
 - Improved tool troubleshooting by propagating structured error codes end-to-end.
