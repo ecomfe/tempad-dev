@@ -31,7 +31,9 @@ export async function ensureAssetUploaded(
 
   if (!assetServerUrl) {
     logger.error('Asset server URL is missing.')
-    throw new Error('Asset server URL is not configured.')
+    throw new Error(
+      'Asset server URL is not configured. Ensure MCP is connected and this tab is active.'
+    )
   }
 
   const url = `${assetServerUrl}/assets/${hash}`
