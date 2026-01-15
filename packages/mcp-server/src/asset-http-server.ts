@@ -198,7 +198,6 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
           try {
             renameSync(existingPath, filePath)
             existing.filePath = filePath
-            existingPath = filePath
           } catch (error) {
             log.warn({ error, hash }, 'Failed to rename existing asset to include extension.')
           }
