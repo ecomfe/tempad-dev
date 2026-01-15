@@ -1,8 +1,14 @@
 import type { AssetDescriptor } from '@tempad-dev/mcp-shared'
 
-import { MCP_ASSET_URI_PREFIX, MCP_HASH_HEX_LENGTH } from '@tempad-dev/mcp-shared'
+import {
+  MCP_ASSET_URI_PREFIX,
+  MCP_HASH_HEX_LENGTH,
+  TEMPAD_MCP_ERROR_CODES
+} from '@tempad-dev/mcp-shared'
 
 import { logger } from '@/utils/log'
+
+import { createCodedError } from './errors'
 
 const uploadedAssets = new Set<string>()
 const inflightUploads = new Map<string, Promise<void>>()
@@ -31,7 +37,8 @@ export async function ensureAssetUploaded(
 
   if (!assetServerUrl) {
     logger.error('Asset server URL is missing.')
-    throw new Error(
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.ASSET_SERVER_NOT_CONFIGURED,
       'Asset server URL is not configured. Ensure MCP is connected and this tab is active.'
     )
   }

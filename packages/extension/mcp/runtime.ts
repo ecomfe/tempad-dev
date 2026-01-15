@@ -1,16 +1,18 @@
-import type {
-  GetCodeParametersInput,
-  GetCodeResult,
-  GetStructureParametersInput,
-  GetStructureResult,
-  GetScreenshotParametersInput,
-  GetScreenshotResult,
-  GetTokenDefsParametersInput,
-  GetTokenDefsResult
+import {
+  TEMPAD_MCP_ERROR_CODES,
+  type GetCodeParametersInput,
+  type GetCodeResult,
+  type GetScreenshotParametersInput,
+  type GetScreenshotResult,
+  type GetStructureParametersInput,
+  type GetStructureResult,
+  type GetTokenDefsParametersInput,
+  type GetTokenDefsResult
 } from '@tempad-dev/mcp-shared'
 
 import { selection } from '@/ui/state'
 
+import { createCodedError } from './errors'
 import { handleGetCode as runGetCode } from './tools/code'
 import { handleGetScreenshot as runGetScreenshot } from './tools/screenshot'
 import { handleGetStructure as runGetStructure } from './tools/structure'
@@ -24,13 +26,19 @@ function resolveSingleNode(nodeId?: string): SceneNode {
   if (nodeId) {
     const node = figma.getNodeById(nodeId)
     if (!isSceneNode(node) || !node.visible) {
-      throw new Error('No visible node found for the provided nodeId.')
+      throw createCodedError(
+        TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+        'No visible node found for the provided nodeId.'
+      )
     }
     return node
   }
 
   if (selection.value.length !== 1 || !selection.value[0].visible) {
-    throw new Error('Select exactly one visible node (or provide nodeId) to proceed.')
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION,
+      'Select exactly one visible node (or provide nodeId) to proceed.'
+    )
   }
 
   return selection.value[0]
