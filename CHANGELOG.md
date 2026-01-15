@@ -1,9 +1,11 @@
 # Changelog
 
+This changelog tracks TemPad Dev extension releases (`packages/extension`).
+For `@tempad-dev/mcp` (MCP server) releases, see `packages/mcp-server/CHANGELOG.md`.
+
 ## 0.14.8
 
-- Improved MCP tool guidance and troubleshooting (including agent-facing skill documentation).
-- Improved asset handling for MCP downloads.
+- Improved MCP troubleshooting and error messaging.
 - Added support for gradient fills in code output.
 - Updated Codex branding in MCP configuration.
 
