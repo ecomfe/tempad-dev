@@ -1,8 +1,28 @@
 {
   "name": "tempad-dev",
-  "description": "TemPad Dev monorepo",
   "private": true,
+  "description": "TemPad Dev monorepo",
   "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @tempad-dev/extension dev",
+    "build": "pnpm -r build",
+    "build:ext": "pnpm --filter @tempad-dev/extension build",
+    "build:plugins": "pnpm --filter @tempad-dev/plugins build",
+    "build:mcp": "pnpm --filter @tempad-dev/mcp build",
+    "lint": "pnpm lint:root && pnpm -r lint",
+    "lint:fix": "pnpm lint:root:fix && pnpm -r lint:fix",
+    "lint:root": "eslint . --ignore-pattern \"packages/**\"",
+    "lint:root:fix": "eslint . --fix --ignore-pattern \"packages/**\"",
+    "format": "pnpm format:root && pnpm -r format",
+    "format:check": "pnpm format:root:check && pnpm -r format:check",
+    "format:root": "oxfmt --ignore-path ./.gitignore --ignore-path ./.oxfmtignore",
+    "format:root:check": "oxfmt --ignore-path ./.gitignore --ignore-path ./.oxfmtignore --check",
+    "typecheck": "pnpm -r typecheck",
+    "zip": "pnpm --filter @tempad-dev/extension zip",
+    "npm:plugins": "pnpm --filter @tempad-dev/plugins publish --access public",
+    "npm:mcp": "pnpm --filter @tempad-dev/mcp publish --access public",
+    "prepare": "lefthook install"
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@rushstack/eslint-patch": "^1.15.0",
@@ -16,22 +36,6 @@
     "oxfmt": "^0.21.0",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3"
-  },
-  "scripts": {
-    "dev": "pnpm --filter @tempad-dev/extension dev",
-    "build": "pnpm -r build",
-    "build:ext": "pnpm --filter @tempad-dev/extension build",
-    "build:plugins": "pnpm --filter @tempad-dev/plugins build",
-    "build:mcp": "pnpm --filter @tempad-dev/mcp build",
-    "lint": "pnpm -r lint",
-    "lint:fix": "pnpm -r lint:fix",
-    "format": "pnpm -r format",
-    "format:check": "pnpm -r format:check",
-    "typecheck": "pnpm -r typecheck",
-    "zip": "pnpm --filter @tempad-dev/extension zip",
-    "npm:plugins": "pnpm --filter @tempad-dev/plugins publish --access public",
-    "npm:mcp": "pnpm --filter @tempad-dev/mcp publish --access public",
-    "prepare": "lefthook install"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
