@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.8
+
+- Improved MCP tool guidance and troubleshooting (including agent-facing skill documentation).
+- Improved asset handling for MCP downloads.
+- Added support for gradient fills in code output.
+- Updated Codex branding in MCP configuration.
+
 ## 0.14.7
 
 - Adjusted panel overflow clipping so resize handles stay clickable while keeping rounded corners.
