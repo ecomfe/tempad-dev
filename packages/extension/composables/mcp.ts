@@ -13,6 +13,7 @@ import { computed, shallowRef, watch } from 'vue'
 import type { McpToolArgs, McpToolName, MCPHandlers } from '@/mcp/runtime'
 
 import { resetUploadedAssets, setAssetServerUrl } from '@/mcp/assets'
+import { coerceToolErrorPayload } from '@/mcp/errors'
 import { MCP_TOOL_HANDLERS } from '@/mcp/runtime'
 import { setMcpSocket } from '@/mcp/transport'
 import { layoutReady, options, runtimeMode } from '@/ui/state'
@@ -308,7 +309,7 @@ export const useMcp = createSharedComposable(() => {
         JSON.stringify({
           type: 'toolResult',
           id: req,
-          error: error instanceof Error ? error.message : (error ?? 'Unknown error')
+          error: coerceToolErrorPayload(error)
         })
       )
     }

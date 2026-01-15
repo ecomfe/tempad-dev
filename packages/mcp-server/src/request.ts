@@ -1,3 +1,4 @@
+import { TEMPAD_MCP_ERROR_CODES, type TempadMcpErrorCode } from '@tempad-dev/mcp-shared'
 import { nanoid } from 'nanoid'
 
 import type { PendingToolCall } from './types'
@@ -5,6 +6,15 @@ import type { PendingToolCall } from './types'
 import { log } from './shared'
 
 const pendingCalls = new Map<string, PendingToolCall>()
+
+function createToolError(
+  code: TempadMcpErrorCode,
+  message: string
+): Error & { code: TempadMcpErrorCode } {
+  const err = new Error(message) as Error & { code: TempadMcpErrorCode }
+  err.code = code
+  return err
+}
 
 export function register<T>(
   extensionId: string,
@@ -14,7 +24,12 @@ export function register<T>(
   const promise = new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingCalls.delete(requestId)
-      reject(new Error(`Extension did not respond within ${timeout / 1000}s.`))
+      reject(
+        createToolError(
+          TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT,
+          `Extension did not respond within ${timeout / 1000}s.`
+        )
+      )
     }, timeout)
 
     pendingCalls.set(requestId, {
@@ -56,7 +71,12 @@ export function cleanupForExtension(extensionId: string): void {
     const { timer, reject: fail, extensionId: extId } = call
     if (extId === extensionId) {
       clearTimeout(timer)
-      fail(new Error('Extension disconnected before providing a result.'))
+      fail(
+        createToolError(
+          TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED,
+          'Extension disconnected before providing a result.'
+        )
+      )
       pendingCalls.delete(reqId)
       log.warn({ reqId, extId: extensionId }, 'Rejected pending call from disconnected extension.')
     }

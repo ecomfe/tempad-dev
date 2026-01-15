@@ -20,7 +20,9 @@ import {
   MCP_ASSET_RESOURCE_NAME,
   MCP_ASSET_URI_PREFIX,
   MCP_ASSET_URI_TEMPLATE,
-  MessageFromExtensionSchema
+  MessageFromExtensionSchema,
+  TEMPAD_MCP_ERROR_CODES,
+  type TempadMcpErrorCode
 } from '@tempad-dev/mcp-shared'
 import { nanoid } from 'nanoid'
 import { existsSync, rmSync, chmodSync, readFileSync, statSync } from 'node:fs'
@@ -91,6 +93,33 @@ const TOOL_DEFINITIONS: ReadonlyArray<RegisteredToolDefinition> = TOOL_DEFS.map(
 type RegisteredTool = (typeof TOOL_DEFINITIONS)[number]
 type ExtensionTool = Extract<RegisteredTool, { target: 'extension' }>
 type HubOnlyTool = Extract<RegisteredTool, { target: 'hub' }>
+
+function createCodedError(code: TempadMcpErrorCode, message: string): Error & { code: string } {
+  const err = new Error(message) as Error & { code: string }
+  err.code = code
+  return err
+}
+
+function coerceToolError(error: unknown): Error {
+  if (error instanceof Error) return error
+  if (typeof error === 'string') return new Error(error)
+  if (error && typeof error === 'object') {
+    const candidate = error as { message?: unknown; code?: unknown }
+    const message = typeof candidate.message === 'string' ? candidate.message : safeStringify(error)
+    const err = new Error(message) as Error & { code?: string }
+    if (typeof candidate.code === 'string') err.code = candidate.code
+    return err
+  }
+  return new Error(String(error))
+}
+
+function safeStringify(input: unknown): string {
+  try {
+    return JSON.stringify(input)
+  } catch {
+    return String(input)
+  }
+}
 
 function hasFormatter(tool: RegisteredToolDefinition): tool is ExtensionTool & {
   format: (payload: unknown) => ToolResponse
@@ -296,7 +325,12 @@ function registerProxiedTool<T extends ExtensionTool>(tool: T): void {
     try {
       const parsedArgs = schema.parse(args)
       const activeExt = extensions.find((e) => e.active)
-      if (!activeExt) throw new Error('No active TemPad Dev extension available.')
+      if (!activeExt) {
+        throw createCodedError(
+          TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION,
+          'No active TemPad Dev extension available.'
+        )
+      }
 
       const { promise, requestId } = register<Result>(activeExt.id, toolTimeoutMs)
 
@@ -652,7 +686,7 @@ wss.on('connection', (ws) => {
       case 'toolResult': {
         const { id, payload, error } = msg as ToolResultMessage
         if (error) {
-          reject(id, error instanceof Error ? error : new Error(String(error)))
+          reject(id, coerceToolError(error))
         } else {
           resolve(id, payload)
         }

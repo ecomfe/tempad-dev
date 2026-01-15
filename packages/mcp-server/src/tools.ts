@@ -2,6 +2,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type {
   AssetDescriptor,
   GetScreenshotResult,
+  TempadMcpErrorCode,
   ToolName,
   ToolResultMap,
   ToolSchema
@@ -14,7 +15,9 @@ import {
   GetCodeParametersSchema,
   GetScreenshotParametersSchema,
   GetStructureParametersSchema,
-  GetTokenDefsParametersSchema
+  GetTokenDefsParametersSchema,
+  TEMPAD_MCP_ERROR_CODES,
+  type TempadMcpErrorPayload
 } from '@tempad-dev/mcp-shared'
 
 export type {
@@ -110,18 +113,46 @@ export const TOOL_DEFS = [
   })
 ] as const
 
+function extractToolErrorCode(error: unknown): TempadMcpErrorCode | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  if ('code' in error && typeof error.code === 'string') {
+    return error.code as TempadMcpErrorCode
+  }
+  if ('cause' in error) {
+    const cause = (error as { cause?: unknown }).cause
+    if (cause && typeof cause === 'object') {
+      const causeCode = (cause as { code?: unknown }).code
+      if (typeof causeCode === 'string') {
+        return causeCode as TempadMcpErrorCode
+      }
+    }
+  }
+  return undefined
+}
+
+function extractToolErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message || 'Unknown error occurred.'
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object') {
+    const candidate = error as Partial<TempadMcpErrorPayload & Record<string, unknown>>
+    if (typeof candidate.message === 'string' && candidate.message.trim()) return candidate.message
+  }
+  return 'Unknown error occurred.'
+}
+
 function createToolErrorResponse(toolName: string, error: unknown): CallToolResult {
-  const message =
-    error instanceof Error
-      ? error.message || 'Unknown error occurred.'
-      : typeof error === 'string'
-        ? error
-        : 'Unknown error occurred.'
+  const message = extractToolErrorMessage(error)
+  const code = extractToolErrorCode(error)
 
   const troubleshooting = (() => {
     const help: string[] = []
 
     const isConnectivityError =
+      code === TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION ||
+      code === TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT ||
+      code === TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED ||
+      code === TEMPAD_MCP_ERROR_CODES.ASSET_SERVER_NOT_CONFIGURED ||
+      code === TEMPAD_MCP_ERROR_CODES.TRANSPORT_NOT_CONNECTED ||
       /no active tempad dev extension/i.test(message) ||
       /asset server url is not configured/i.test(message) ||
       /mcp transport is not connected/i.test(message) ||
@@ -136,7 +167,13 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
       )
     }
 
-    if (/select exactly one visible node/i.test(message)) {
+    const isSelectionError =
+      code === TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION ||
+      code === TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE ||
+      /select exactly one visible node/i.test(message) ||
+      /no visible node found/i.test(message)
+
+    if (isSelectionError) {
       help.push('Tip: Select exactly one visible node, or pass nodeId.')
     }
 
