@@ -61,7 +61,12 @@
         {
           pattern: /dispnf\.fyufotjpo;00|np{\.fyufotjpo;00/g,
           replacer: "FIGMA_PLEASE_STOP"
-        },
+        }
+      ]
+    },
+    {
+      markers: ['{type:"global",closePluginFunc:'],
+      replacements: [
         {
           pattern: /{type:"global",closePluginFunc:[A-Za-z_$][A-Za-z0-9_$]*}/,
           replacer: '{type:"global",closePluginFunc:()=>{}}'
