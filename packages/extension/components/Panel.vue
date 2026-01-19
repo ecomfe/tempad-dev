@@ -235,6 +235,15 @@ const rightHandleCursor = computed(() => getResizeCursor('right'))
   box-shadow: var(--elevation-100);
 }
 
+.tp-panel-wrapper {
+  display: flex;
+  flex-direction: column;
+  border-radius: inherit;
+  overflow: hidden;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .tp-panel-resize-handle {
   position: absolute;
   top: 0;
@@ -278,10 +287,5 @@ const rightHandleCursor = computed(() => getResizeCursor('right'))
 .tp-panel-header-icon {
   width: auto;
   height: 32px;
-}
-
-.tp-panel-wrapper {
-  border-radius: inherit;
-  overflow: hidden;
 }
 </style>
