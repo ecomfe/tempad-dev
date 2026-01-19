@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.15.1
+
+- Improved communication between loader and UI entry.
+- Make the panel scrollable again.
+
 ## 0.15.0
 
 - Adjusted startup logic for better compatibility.
