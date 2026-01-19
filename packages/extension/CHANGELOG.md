@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.2
+
+- Added an Agent skill copy shortcut in MCP preferences.
+
 ## 0.15.1
 
 - Improved communication between loader and UI entry.

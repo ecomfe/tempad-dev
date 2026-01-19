@@ -96,6 +96,8 @@ const defaultConfig = JSON.stringify(
   null,
   2
 )
+const skillInstallCommand =
+  'npx add-skill https://github.com/ecomfe/tempad-dev/tree/main/skill --skill implementing-figma-ui-tempad-dev'
 const copyMessages = {
   command: 'Copied command to clipboard',
   config: 'Copied configuration to clipboard'
@@ -136,6 +138,17 @@ async function handleClientClick(client: McpClientDisplay) {
         <span>Install</span>
       </button>
       <div v-if="clientsExpanded" class="tp-mcp-install-section">
+        <div class="tp-row tp-row-justify tp-mcp-field">
+          <label>Agent skill</label>
+          <IconButton
+            variant="secondary"
+            title="Copy add-skill command"
+            class="tp-mcp-client-button"
+            @click="copy(skillInstallCommand, copyMessages.command)"
+          >
+            <Copy />
+          </IconButton>
+        </div>
         <div class="tp-mcp-description">
           Configure your editor/agent to run the MCP server. You can use a quick setup below.
         </div>
@@ -224,6 +237,10 @@ label {
 
 .tp-mcp-client-button:hover {
   --icon-button-icon: var(--tp-mcp-client-hover-color) !important;
+}
+
+.tp-mcp-client-button:last-child {
+  margin-left: auto;
 }
 
 .tp-mcp-toggle {
