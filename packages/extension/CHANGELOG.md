@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.0
+
+- Adjusted startup logic for better compatibility.
+
 ## 0.14.8
 
 - Improved MCP troubleshooting and error messaging.
