@@ -202,7 +202,7 @@ TemPad Dev 内置了一个 [MCP](https://modelcontextprotocol.io/) 服务器，�
   <img alt="TemPad Dev MCP 偏好设置面板。" src="packages/extension/assets/mcp-config-light.png" width="240">
 </picture>
 
-1. **前置条件**：Node.js 18+，并且在 Figma 标签页中运行 TemPad Dev。
+1. **前置条件**：Node.js 18+（需要 `npx`），并且在 Figma 标签页中运行 TemPad Dev。Node.js 同时用于 MCP server 与 add-skill。
 2. 在 TemPad Dev 中打开 **Preferences → MCP server**，然后启用 **Enable MCP server**。
 3. 使用偏好设置中的快捷操作进行安装和连接，或在你的 MCP 客户端中手动添加一个 stdio 命令形式的服务器：
 
@@ -222,6 +222,14 @@ TemPad Dev 内置了一个 [MCP](https://modelcontextprotocol.io/) 服务器，�
    - `codex mcp add "TemPad Dev" -- npx -y @tempad-dev/mcp@latest`
 
 4. 使用 MCP 时，请保持 TemPad Dev 标签页处于激活状态。如果同时打开了多个 Figma 文件（也就有多个 TemPad Dev 实例），可以点击 TemPad Dev 面板中的 MCP 徽标，激活对应文件的 MCP（这会同时停用其他标签页中的 MCP）。
+
+### Agent 技能
+
+安装 TemPad Dev 技能并搭配 MCP 使用效果更佳，让你的 agent 能直接把选中节点输出为仓库可用的 UI。使用 [add-skill](https://www.npmjs.com/package/add-skill) 安装；在 Preferences → MCP server 中点击 Agent skill 旁的复制图标即可获取命令，并在终端执行。
+
+```sh
+npx add-skill https://github.com/ecomfe/tempad-dev/tree/main/skill --skill implementing-figma-ui-tempad-dev
+```
 
 ### MCP 连接状态
 
