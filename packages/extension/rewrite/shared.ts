@@ -12,10 +12,16 @@ export function groupMatches(content: string, group: Group) {
 
 export function applyGroups(content: string, groups: Group[]) {
   let out = content
-  for (const group of groups) {
+  const matchedGroups: number[] = []
+  const rewrittenGroups: number[] = []
+
+  for (const [index, group] of groups.entries()) {
     if (!groupMatches(out, group)) {
       continue
     }
+    matchedGroups.push(index)
+
+    let groupChanged = false
     for (const { pattern, replacer } of group.replacements) {
       const before = out
       if (typeof pattern === 'string') {
@@ -29,11 +35,16 @@ export function applyGroups(content: string, groups: Group[]) {
       }
 
       if (out !== before) {
+        groupChanged = true
         logger.log(`Applied replacement: ${pattern} -> ${replacer}`)
       } else {
         logger.warn(`Replacement had no effect: ${pattern} -> ${replacer}`)
       }
     }
+
+    if (groupChanged) {
+      rewrittenGroups.push(index)
+    }
   }
-  return { content: out, changed: out !== content }
+  return { content: out, changed: out !== content, matchedGroups, rewrittenGroups }
 }
