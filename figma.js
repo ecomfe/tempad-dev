@@ -98,35 +98,49 @@
     const markers = group.markers || [];
     return markers.every((marker) => content.includes(marker));
   }
-  function applyGroups(content, groups) {
+  function applyGroups(content, groups, options = {}) {
     let out = content;
     const matchedGroups = [];
     const rewrittenGroups = [];
+    const replacementStats = [];
+    const { logReplacements = true } = options;
     for (const [index, group] of groups.entries()) {
       if (!groupMatches(out, group)) {
         continue;
       }
       matchedGroups.push(index);
       let groupChanged = false;
-      for (const { pattern, replacer } of group.replacements) {
+      for (const [replacementIndex, { pattern, replacer }] of group.replacements.entries()) {
         const before = out;
         if (typeof pattern === "string") {
           out = out.replaceAll(pattern, replacer);
         } else {
           out = out.replace(pattern, replacer);
         }
-        if (out !== before) {
+        const changed = out !== before;
+        replacementStats.push({ groupIndex: index, replacementIndex, changed });
+        if (changed) {
           groupChanged = true;
-          logger.log(`Applied replacement: ${pattern} -> ${replacer}`);
+          if (logReplacements) {
+            logger.log(`Applied replacement: ${pattern} -> ${replacer}`);
+          }
         } else {
-          logger.warn(`Replacement had no effect: ${pattern} -> ${replacer}`);
+          if (logReplacements) {
+            logger.warn(`Replacement had no effect: ${pattern} -> ${replacer}`);
+          }
         }
       }
       if (groupChanged) {
         rewrittenGroups.push(index);
       }
     }
-    return { content: out, changed: out !== content, matchedGroups, rewrittenGroups };
+    return {
+      content: out,
+      changed: out !== content,
+      matchedGroups,
+      rewrittenGroups,
+      replacementStats
+    };
   }
 
   // rewrite/figma.ts
