@@ -10,6 +10,20 @@ export default defineContentScript({
   runAt: 'document_start',
   world: 'MAIN',
   main() {
+    let figma: Window['figma'] | undefined = undefined
+    Reflect.defineProperty(window, 'figma', {
+      set(val) {
+        if (val === undefined) {
+          return
+        }
+
+        figma = val
+      },
+      get() {
+        return figma
+      }
+    })
+
     function extractRegexFilter(source: Rules): RegExp | null {
       try {
         const rule = source.find((r) => r.id === REWRITE_RULE_ID)
