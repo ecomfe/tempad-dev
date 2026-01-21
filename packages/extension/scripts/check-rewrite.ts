@@ -1,7 +1,7 @@
 import { chromium } from 'playwright-chromium'
 
 import { GROUPS } from '@/rewrite/config'
-import { applyGroups, groupMatches } from '@/rewrite/shared'
+import { applyGroups } from '@/rewrite/shared'
 import { logger } from '@/utils/log'
 
 import rules from '../public/rules/figma.json'
@@ -9,6 +9,18 @@ import rules from '../public/rules/figma.json'
 const redirectRule = rules.find((rule) => rule.action.type === 'redirect')
 const ASSETS_PATTERN = new RegExp(redirectRule?.condition?.regexFilter || /a^/)
 const MAX_RETRIES = 3
+
+type RewriteGroup = (typeof GROUPS)[number]
+
+function describeGroup(group: RewriteGroup, index: number) {
+  if (group.markers?.length) {
+    return `#${index + 1} markers: ${group.markers.join(', ')}`
+  }
+  if (group.replacements[0]) {
+    return `#${index + 1} pattern: ${String(group.replacements[0].pattern)}`
+  }
+  return `#${index + 1}`
+}
 
 async function runCheck() {
   const scripts: { url: string; content: string }[] = []
@@ -59,20 +71,25 @@ async function runCheck() {
     await page.goto(`https://www.figma.com/design/${process.env.FIGMA_FILE_KEY}`)
     logger.log(`Page loaded at <${page.url()}>.`)
 
+    const groupStats = GROUPS.map(() => ({
+      matched: [] as string[],
+      rewritten: [] as string[],
+      notRewritten: [] as string[]
+    }))
+
     let matchedCount = 0
     let rewrittenCount = 0
     const notRewritten: string[] = []
 
     for (const { url, content } of scripts) {
-      const matched = GROUPS.some((group) => groupMatches(content, group))
-      if (!matched) {
+      const { changed, matchedGroups, rewrittenGroups } = applyGroups(content, GROUPS)
+      if (matchedGroups.length === 0) {
         continue
       }
 
       matchedCount++
       logger.log(`Matched script: <${url}>.`)
 
-      const { changed } = applyGroups(content, GROUPS)
       if (changed) {
         rewrittenCount++
         logger.log(`Rewritable (would change): <${url}>.`)
@@ -80,14 +97,31 @@ async function runCheck() {
         notRewritten.push(url)
         logger.log(`Not rewritable (no change produced): <${url}>.`)
       }
+
+      const rewrittenSet = new Set(rewrittenGroups)
+      for (const index of matchedGroups) {
+        groupStats[index].matched.push(url)
+        if (rewrittenSet.has(index)) {
+          groupStats[index].rewritten.push(url)
+        } else {
+          groupStats[index].notRewritten.push(url)
+        }
+      }
     }
+
+    const missingGroups = groupStats
+      .map((stat, index) => (stat.matched.length === 0 ? index : -1))
+      .filter((index) => index !== -1)
+
+    const noRewriteGroups = groupStats
+      .map((stat, index) => (stat.matched.length > 0 && stat.rewritten.length === 0 ? index : -1))
+      .filter((index) => index !== -1)
 
     if (matchedCount === 0) {
       logger.log('❌ No matched script found.')
-      return false
+    } else {
+      logger.log(`✅ Matched ${matchedCount} script(s).`)
     }
-
-    logger.log(`✅ Matched ${matchedCount} script(s).`)
 
     if (rewrittenCount !== matchedCount) {
       logger.log('❌ Some matched scripts would not be rewritten by rules:')
@@ -95,7 +129,24 @@ async function runCheck() {
       return false
     }
 
+    if (missingGroups.length > 0) {
+      logger.log('❌ Some rewrite groups were not matched by any script:')
+      missingGroups.forEach((index) => logger.log(` - ${describeGroup(GROUPS[index], index)}`))
+      return false
+    }
+
+    if (noRewriteGroups.length > 0) {
+      logger.log('❌ Some rewrite groups matched scripts but produced no rewrite:')
+      noRewriteGroups.forEach((index) => {
+        const urls = groupStats[index].matched
+        logger.log(` - ${describeGroup(GROUPS[index], index)} (matched ${urls.length} script(s))`)
+        urls.forEach((url) => logger.log(`   - <${url}>`))
+      })
+      return false
+    }
+
     logger.log('✅ All matched scripts would be rewritten by rules.')
+    logger.log(`✅ All ${GROUPS.length} rewrite groups matched and rewrote successfully.`)
     return true
   } finally {
     await browser.close()
