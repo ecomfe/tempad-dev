@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.3
+
+- Make the plugin API more stable.
+
 ## 0.15.2
 
 - Added an Agent skill copy shortcut in MCP preferences.
