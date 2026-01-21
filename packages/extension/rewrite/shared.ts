@@ -10,10 +10,16 @@ export function groupMatches(content: string, group: Group) {
   return markers.every((marker) => content.includes(marker))
 }
 
-export function applyGroups(content: string, groups: Group[]) {
+export function applyGroups(
+  content: string,
+  groups: Group[],
+  options: { logReplacements?: boolean } = {}
+) {
   let out = content
   const matchedGroups: number[] = []
   const rewrittenGroups: number[] = []
+  const replacementStats: { groupIndex: number; replacementIndex: number; changed: boolean }[] = []
+  const { logReplacements = true } = options
 
   for (const [index, group] of groups.entries()) {
     if (!groupMatches(out, group)) {
@@ -22,7 +28,7 @@ export function applyGroups(content: string, groups: Group[]) {
     matchedGroups.push(index)
 
     let groupChanged = false
-    for (const { pattern, replacer } of group.replacements) {
+    for (const [replacementIndex, { pattern, replacer }] of group.replacements.entries()) {
       const before = out
       if (typeof pattern === 'string') {
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -34,11 +40,18 @@ export function applyGroups(content: string, groups: Group[]) {
         out = out.replace(pattern, replacer)
       }
 
-      if (out !== before) {
+      const changed = out !== before
+      replacementStats.push({ groupIndex: index, replacementIndex, changed })
+
+      if (changed) {
         groupChanged = true
-        logger.log(`Applied replacement: ${pattern} -> ${replacer}`)
+        if (logReplacements) {
+          logger.log(`Applied replacement: ${pattern} -> ${replacer}`)
+        }
       } else {
-        logger.warn(`Replacement had no effect: ${pattern} -> ${replacer}`)
+        if (logReplacements) {
+          logger.warn(`Replacement had no effect: ${pattern} -> ${replacer}`)
+        }
       }
     }
 
@@ -46,5 +59,11 @@ export function applyGroups(content: string, groups: Group[]) {
       rewrittenGroups.push(index)
     }
   }
-  return { content: out, changed: out !== content, matchedGroups, rewrittenGroups }
+  return {
+    content: out,
+    changed: out !== content,
+    matchedGroups,
+    rewrittenGroups,
+    replacementStats
+  }
 }

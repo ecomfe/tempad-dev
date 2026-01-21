@@ -12,14 +12,17 @@ const MAX_RETRIES = 3
 
 type RewriteGroup = (typeof GROUPS)[number]
 
-function describeGroup(group: RewriteGroup, index: number) {
-  if (group.markers?.length) {
-    return `#${index + 1} markers: ${group.markers.join(', ')}`
-  }
-  if (group.replacements[0]) {
-    return `#${index + 1} pattern: ${String(group.replacements[0].pattern)}`
-  }
-  return `#${index + 1}`
+function describeReplacement(group: RewriteGroup, groupIndex: number, replacementIndex: number) {
+  const pattern = group.replacements[replacementIndex]?.pattern
+  const markerText = group.markers?.length ? ` markers: ${group.markers.join(', ')}` : ''
+  return `#${groupIndex + 1}.${replacementIndex + 1}${markerText} pattern: ${String(pattern)}`
+}
+
+function formatUrls(urls: string[], max = 3) {
+  if (urls.length === 0) return 'none'
+  const preview = urls.slice(0, max).map((url) => `<${url}>`)
+  const suffix = urls.length > max ? ` (+${urls.length - max} more)` : ''
+  return `${preview.join(', ')}${suffix}`
 }
 
 async function runCheck() {
@@ -39,7 +42,6 @@ async function runCheck() {
       }
       const content = await response.text()
       scripts.push({ url, content })
-      logger.log(`Captured script: <${url}>.`)
     })
 
     try {
@@ -71,83 +73,98 @@ async function runCheck() {
     await page.goto(`https://www.figma.com/design/${process.env.FIGMA_FILE_KEY}`)
     logger.log(`Page loaded at <${page.url()}>.`)
 
-    const groupStats = GROUPS.map(() => ({
-      matched: [] as string[],
-      rewritten: [] as string[],
-      notRewritten: [] as string[]
-    }))
+    const replacementStats = GROUPS.map((group) =>
+      group.replacements.map(() => ({
+        hits: [] as string[],
+        noEffect: [] as string[]
+      }))
+    )
 
     let matchedCount = 0
     let rewrittenCount = 0
     const notRewritten: string[] = []
 
     for (const { url, content } of scripts) {
-      const { changed, matchedGroups, rewrittenGroups } = applyGroups(content, GROUPS)
+      const {
+        changed,
+        matchedGroups,
+        replacementStats: scriptReplacementStats
+      } = applyGroups(content, GROUPS, { logReplacements: false })
       if (matchedGroups.length === 0) {
         continue
       }
 
       matchedCount++
-      logger.log(`Matched script: <${url}>.`)
 
       if (changed) {
         rewrittenCount++
-        logger.log(`Rewritable (would change): <${url}>.`)
       } else {
         notRewritten.push(url)
-        logger.log(`Not rewritable (no change produced): <${url}>.`)
       }
 
-      const rewrittenSet = new Set(rewrittenGroups)
-      for (const index of matchedGroups) {
-        groupStats[index].matched.push(url)
-        if (rewrittenSet.has(index)) {
-          groupStats[index].rewritten.push(url)
+      for (const {
+        groupIndex,
+        replacementIndex,
+        changed: replacementChanged
+      } of scriptReplacementStats) {
+        const stat = replacementStats[groupIndex][replacementIndex]
+        if (replacementChanged) {
+          stat.hits.push(url)
         } else {
-          groupStats[index].notRewritten.push(url)
+          stat.noEffect.push(url)
         }
       }
     }
 
-    const missingGroups = groupStats
-      .map((stat, index) => (stat.matched.length === 0 ? index : -1))
-      .filter((index) => index !== -1)
+    const missingReplacements = replacementStats.flatMap((groupStats, groupIndex) =>
+      groupStats
+        .map((stat, replacementIndex) => ({ ...stat, groupIndex, replacementIndex }))
+        .filter((stat) => stat.hits.length === 0)
+    )
 
-    const noRewriteGroups = groupStats
-      .map((stat, index) => (stat.matched.length > 0 && stat.rewritten.length === 0 ? index : -1))
-      .filter((index) => index !== -1)
+    const totalReplacements = GROUPS.reduce((total, group) => total + group.replacements.length, 0)
+    const appliedReplacements = totalReplacements - missingReplacements.length
+    const reportLines = ['Rewrite check report']
 
+    reportLines.push(`- Scripts captured: ${scripts.length}`)
+    reportLines.push(`- Scripts matched: ${matchedCount}`)
+    reportLines.push(`- Scripts rewritable: ${rewrittenCount}`)
+    reportLines.push(`- Replacements applied: ${appliedReplacements}/${totalReplacements}`)
+
+    let hasFailure = false
     if (matchedCount === 0) {
-      logger.log('❌ No matched script found.')
-    } else {
-      logger.log(`✅ Matched ${matchedCount} script(s).`)
+      hasFailure = true
+      reportLines.push('', 'FAIL: No matched scripts.')
     }
 
     if (rewrittenCount !== matchedCount) {
-      logger.log('❌ Some matched scripts would not be rewritten by rules:')
-      notRewritten.forEach((url) => logger.log(` - <${url}>`))
-      return false
+      hasFailure = true
+      reportLines.push('', 'FAIL: Some matched scripts produced no rewrite.')
+      reportLines.push(`- Not rewritable scripts: ${formatUrls(notRewritten)}`)
     }
 
-    if (missingGroups.length > 0) {
-      logger.log('❌ Some rewrite groups were not matched by any script:')
-      missingGroups.forEach((index) => logger.log(` - ${describeGroup(GROUPS[index], index)}`))
-      return false
-    }
-
-    if (noRewriteGroups.length > 0) {
-      logger.log('❌ Some rewrite groups matched scripts but produced no rewrite:')
-      noRewriteGroups.forEach((index) => {
-        const urls = groupStats[index].matched
-        logger.log(` - ${describeGroup(GROUPS[index], index)} (matched ${urls.length} script(s))`)
-        urls.forEach((url) => logger.log(`   - <${url}>`))
+    if (missingReplacements.length > 0) {
+      hasFailure = true
+      reportLines.push('', 'FAIL: Some replacements were never applied.')
+      missingReplacements.forEach(({ groupIndex, replacementIndex, noEffect }) => {
+        const group = GROUPS[groupIndex]
+        const statusText =
+          noEffect.length > 0 ? `no effect in ${noEffect.length} script(s)` : 'group never matched'
+        reportLines.push(
+          `- ${describeReplacement(group, groupIndex, replacementIndex)} | ${statusText}`
+        )
+        if (noEffect.length > 0) {
+          reportLines.push(`  Seen in: ${formatUrls(noEffect)}`)
+        }
       })
-      return false
     }
 
-    logger.log('✅ All matched scripts would be rewritten by rules.')
-    logger.log(`✅ All ${GROUPS.length} rewrite groups matched and rewrote successfully.`)
-    return true
+    if (!hasFailure) {
+      reportLines.push('', 'PASS: All replacements matched and rewrote successfully.')
+    }
+
+    logger.log(reportLines.join('\n'))
+    return !hasFailure
   } finally {
     await browser.close()
   }
