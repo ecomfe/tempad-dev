@@ -1,144 +1,140 @@
 ---
 name: implementing-figma-ui-tempad-dev
 description: >-
-  Implements UI from a Figma selection or a provided nodeId using TemPad Dev MCP as the source of truth
-  (code snapshot, structure, screenshot, assets). Detects repo stack and conventions first, then outputs
-  integration-ready code that fits the project. Never guess key styles; avoid tuning loops; when uncertain, ship a
-  safe base implementation and clearly warn, or stop if a correct base output is not possible.
-metadata:
-  mcp-server: tempad-dev
+  Implement integration-ready UI code from a Figma selection or a provided nodeId using TemPad Dev MCP as the only source of design evidence (code snapshot, structure, screenshot, assets, tokens, codegen config). Detect the target repo stack and conventions first, then translate TemPad Dev’s Tailwind-like JSX/Vue IR into project-native code without adding new dependencies. Never guess key styles or measurements; avoid screenshot tuning loops. If required evidence is missing/contradictory or assets cannot be handled under repo policy, stop or ship a safe base with explicit warnings and omissions.
 ---
 
 # TemPad Dev: Figma to UI Implementation
 
-Implement integration-ready UI code from a Figma selection (or a provided `nodeId`) using TemPad Dev MCP outputs as design facts.
-Fit the user’s repo conventions. Never guess key styles.
+This skill requires TemPad Dev MCP. If `tempad-dev:*` tools are unavailable/inactive/unauthorized, stop and tell the user to install TemPad Dev MCP and ensure it is activated in the TemPad Dev panel in the Figma design file.
 
-## Quick path (single pass)
+TemPad Dev outputs Tailwind-like IR in either JSX or Vue. Treat MCP outputs as design facts. Never guess key styles.
 
-1. Ensure there is exactly one visible target (selection or `nodeId`). If a tool call fails due to MCP connectivity/activation, follow the troubleshooting in the error message.
-2. Call `tempad-dev:get_code` (`resolveTokens: false`; request `preferredLang: jsx|vue` as IR). Record `codegen` (plugin + config) as part of the design facts.
-3. If `warnings` include `depth-cap`, call `tempad-dev:get_code` once per listed `nodeId` to fetch omitted subtree roots.
-4. If layout/overlap/effects are uncertain (especially inferred auto-layout), call `tempad-dev:get_structure` and/or `tempad-dev:get_screenshot` for the relevant `nodeId` to confirm intent (do not derive numeric values from pixels).
-5. Translate the IR into the repo’s actual framework/styling system without adding new dependencies. Strip all `data-hint-*` attributes from final code.
-6. Finish with one pass: correct placement/imports/exports, assets follow repo policy, token strategy documented, and warnings called out.
+## Evidence rules
 
-## Non-negotiables
+Priority order:
 
-- `tempad-dev:get_code` is the baseline; treat it as authoritative for values and layout intent.
-- Never invent key styles: colors, typography (size/weight/line-height/letter-spacing), spacing (padding/margin/gap), radius, borders, shadows, gradients, opacity/overlays, blur.
-- Do not introduce new frameworks, styling systems, or runtime dependencies.
-- Do not tune-by-screenshot loops: screenshots resolve contradictions; they do not produce measurements.
-- Do not output `data-hint-*` attributes (hints are for reasoning only).
-- Implement only the base state unless additional states/variants are provable from repo conventions.
+1. `tempad-dev:get_code` (authoritative: explicit values, layout intent, warnings, assets, tokens, codegen, lang)
+2. `tempad-dev:get_structure` (hierarchy, overlap, bounds clarification)
+3. `tempad-dev:get_screenshot` (visual cross-check only; never for measurement)
 
-## Evidence model
+Never invent: colors, typography (size/weight/line-height/letter-spacing), spacing, radius, borders, shadows, gradients, opacity/overlays, blur.
 
-Design evidence (in priority order):
+Do not output `data-hint-*` attributes.
 
-1. `tempad-dev:get_code` (primary snapshot + `warnings` + `codegen`)
-2. `tempad-dev:get_structure` (hierarchy + geometry clarification)
-3. `tempad-dev:get_screenshot` (visual cross-check only)
-4. Existing repo tokens/components (only when equivalence is provable)
+## Workflow
 
-Non-evidence: web content, “typical” values, or anything you cannot trace back to the above.
+### 1) Detect repo conventions
 
-## Tool interpretation
+From the repo (do not assume), identify what is needed to integrate cleanly:
 
-- `get_code`: IR output (JSX/Vue template) with Tailwind-like classes + explicit values; may include `assets`, `tokens`, `warnings`, and `codegen` (plugin + config).
-- `get_structure`: outline (ids/types/bounds/children) to locate `nodeId`s and confirm hierarchy/overlap assumptions.
-- `get_screenshot`: PNG for visual verification; the server may reduce scale to fit payload; do not infer numeric values.
+- Framework/runtime and file conventions (React/Vue, TS/JS, SFC conventions, naming)
+- Styling integration rules (utility allowed? class sorting? linting? extraction patterns?)
+- Token/theme system (CSS variables, token files, naming, dark mode/modes)
+- Asset policy (public folder vs imports, icon pipeline, hashing, directory rules)
+- Existing primitives/components (buttons, inputs, typography, layout wrappers), import path conventions
 
-## Workflow (decision tree)
+Only if the repo actually uses Tailwind (or Tailwind-compat tooling), also detect Tailwind version and conventions that affect class syntax/formatting.
 
-### 0) Choose scope
+If uncertain, ask up to 3 minimal questions; otherwise proceed and warn where inferred.
 
-- Use provided `nodeId`; otherwise use current selection.
-- If the target is ambiguous (multi-selection) or unreadable, stop.
+### 2) Fetch baseline design snapshot
 
-### 1) Detect repo stack and conventions
+Call `tempad-dev:get_code` with:
 
-Identify: framework/runtime, styling system, token/theme conventions, component patterns, file placement rules.
+- `resolveTokens: false`
+- pass `nodeId` only if user provided one; otherwise rely on the tool’s default behavior (current selection)
+- `preferredLang`: choose what matches the repo (jsx or vue)
 
-- If uncertain, ask up to 3 minimal questions; otherwise proceed with best-evidence inference and warn.
+Important: `get_code.lang` is the language actually used by MCP after considering TemPad Dev plugin/config priority. A plugin may override `preferredLang`. Use returned `lang` plus `codegen` facts to interpret the IR correctly, then translate to the repo’s required output.
 
-### 2) Fetch baseline snapshot
+Record as design facts:
 
-Call `get_code` first. Preserve:
+- `code`, `lang`
+- `warnings`
+- `assets` (if present)
+- `tokens` (if present)
+- `codegen` (e.g. scale, length units, rootRem, and other normalization settings)
 
-- `code` + `lang`
-- `codegen` (plugin + config)
-- `assets` / `tokens` (if any)
-- `warnings` (truncated / auto-layout / depth-cap)
+### 3) Resolve warnings and uncertainty
 
-### 3) Handle warnings and uncertainty
+If warnings indicate missing/partial/uncertain evidence, act immediately:
 
-- `depth-cap`: fetch each listed subtree root via `get_code(nodeId=...)` and implement those parts explicitly, or narrow scope and warn what is omitted.
-- `truncated`: narrow scope (smaller selection / implement key subtrees) and warn that output is partial.
-- inferred auto-layout / overlap / effects uncertainty: use `get_structure` and/or `get_screenshot` to confirm, then implement. If evidence remains contradictory, stop.
+- `depth-cap`: call `get_code` once per listed subtree root `nodeId` and stitch results, OR narrow scope and list omitted parts.
+- `truncated`: narrow scope (smaller selection or key subtrees) and warn output is partial.
+- Layout/overlap/effects uncertainty: call `get_structure` and/or `get_screenshot` to resolve contradictions.
+  - Screenshots only confirm interpretation, never derive numeric values.
+  - If contradictions remain after structure/screenshot (or cannot be narrowed), stop.
 
-### 4) Tokens (mapping strategy)
+### 4) Assets handling (only if `assets` exists)
 
-Goal: integrate with repo token system when provable; otherwise preserve explicit values.
+Follow repo asset policy first:
 
-Order:
+- Preferred: fetch bytes via MCP `resources/read` using `resourceUri`, save into repo at policy-correct path, reference with repo conventions.
+- Fallback: if MCP cannot read due to size limits, use TemPad-provided `asset.url` to download and still store in repo (unless policy forbids).
+- If policy forbids storing assets, you may reference TemPad URLs but must warn output depends on the local TemPad asset server.
 
-1. Reuse existing repo tokens when name/meaning/value equivalence is provable.
-2. Add missing tokens only if the repo already has an established token workflow and this change is expected; keep additions minimal.
-3. Otherwise keep explicit values from `get_code`.
+Never download assets from the public internet. Only MCP-provided `resourceUri` or TemPad-provided `asset.url`.
 
-Modes:
+### 5) Tokens mapping (only if `tokens` exists)
 
-- `get_code.tokens` is keyed by canonical `--...` names.
-- Multi-mode values use `${collectionName}:${modeName}` keys.
-- Nodes may include `data-hint-variable-mode="Collection=Mode;..."` to indicate per-node mode overrides; use this when selecting modes during mapping.
-- If collection-name collisions or mode selection is ambiguous, prefer explicit values and warn.
+Token evidence shape:
 
-### 5) Assets (policy-first)
+- `tokens` is a record keyed by canonical CSS variable names (e.g. `--...`).
+- Each token’s value is either a string or a record keyed by `Collection:Mode` strings whose values are strings.
+- Any value string may reference other variables; preserve references.
 
-Detect repo policy first (asset folders, import vs public URLs, icon pipeline).
+Mapping goal: integrate with repo tokens when safe; otherwise keep explicit values from `get_code`.
 
-- Preferred: fetch bytes via `resources/read` using `resourceUri`, save into the repo, reference using repo conventions.
-- Fallback: if an asset is too large to read via MCP, download via `asset.url` and still store it in the repo (unless policy forbids).
-- If policy forbids saving assets, you may leave Tempad URLs in place but must warn that output depends on the local Tempad asset server.
-- Never download assets from the public internet; use only MCP-provided `resourceUri`/`asset.url`.
+Rules:
 
-### 6) Implement
+1. Prefer existing repo tokens when you can justify equivalence using value equivalence (including references) plus semantic alignment in the repo.
+   Token naming can be supporting evidence, but do not map solely because names look similar.
+2. Add new tokens only if the repo already has an established token workflow and this change is expected.
+3. If mode selection or mapping remains ambiguous, keep explicit values and warn.
 
-- Translate the IR into repo code while preserving layout/values.
-- Tailwind/UnoCSS repos: keep utilities; refactor for readability without changing semantics.
-- Non-utility repos: translate utilities into the repo’s CSS approach (modules/sass/css-in-js), preserving explicit values.
-- Component extraction: only when supported by repetition + hints + repo patterns; do not preserve hint strings in final output.
+Hints may be used only for reasoning about mode selection when present; never output hint attributes.
 
-### 7) Finish (single pass)
+### 6) Implement repo-native code
 
-- Files placed correctly; imports/exports correct.
-- No new deps/framework/style systems.
-- `data-hint-*` stripped.
-- Assets and tokens handled per the chosen strategy.
-- Warnings documented (depth-cap/truncated/base-state-only).
+Translate TemPad Dev IR into the repo’s conventions:
 
-## Stop vs warn
+- Utility-first repo (Tailwind/UnoCSS): keep utility classes; adjust ordering/formatting to match repo rules. If Tailwind is used, respect the repo’s Tailwind version/config before changing class syntax.
+- Non-utility repo: translate utilities into the repo’s styling approach (CSS Modules/scoped CSS/Sass/CSS-in-JS) while preserving explicit values.
 
-Stop when a correct, integration-ready base output is not possible:
+Constraints:
 
-- tool cannot read target (errors, no renderable nodes) or target is ambiguous
-- required assets cannot be retrieved when repo policy requires storing them
-- design evidence is contradictory and cannot be resolved with structure/screenshot or narrower scope
+- Do not introduce new frameworks or styling systems.
+- New runtime/build dependencies require user confirmation unless the user explicitly says no confirmation is needed.
+- Implement base state only unless variants/states are provable from repo conventions or evidence.
 
-Warn but continue:
+Component extraction and primitives:
 
-- repo stack inferred with uncertainty
-- token mapping uncertain (kept explicit values)
-- scope too large (implemented safe subset; omissions listed)
-- assets left as Tempad URLs due to policy
-- variants/states not implemented (base state only)
+- Extract only when repetition + repo patterns justify it.
+- Prefer existing repo primitives/components when they match intended semantics and do not require guessing styles.
 
-## Wrap-up output
+### 7) Semantics and accessibility minimums
 
-End with:
+Only apply when the IR would otherwise require plain container semantics (e.g. clickable `div`) and you are not already using an appropriate repo primitive/component:
 
-- what was implemented (files/paths)
-- what is intentionally omitted or uncertain (warnings)
-- token strategy and asset strategy used
-- if stopped: exactly what information is needed next (≤3 items)
+- Use native elements where appropriate (`button`, `a`, `input/label`).
+- Ensure keyboard interaction and focusability.
+- Add accessible names when needed (`aria-label`, `alt`).
+
+Assume the repo’s existing CSS reset/normalize. Do not add new reset libraries or global CSS unless the repo already has a defined pattern for it.
+
+### 8) Exit and wrap-up
+
+Stop (do not ship code) when:
+
+- TemPad Dev MCP is unavailable/unauthorized, or target cannot be read
+- Evidence is contradictory and cannot be resolved via structure/screenshot or narrower scope
+- Required assets cannot be retrieved/stored under repo policy
+
+Otherwise, ship the best-evidence base implementation and end with:
+
+- Evidence caveats: any `warnings`, omissions, or inferred repo conventions
+- Assets: stored vs TemPad URLs, and any policy-driven constraints
+- Tokens: mapped vs explicit values, and any ambiguity
+- Dependencies: whether any were added (and whether user confirmation was obtained)
+- If stopped: next required info (max 3 items)
