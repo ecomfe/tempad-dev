@@ -24,7 +24,8 @@
     "pino": "^10.0.0",
     "pino-pretty": "^13.0.0",
     "proper-lockfile": "^4.1.2",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@tempad-dev/mcp-shared": "workspace:^0.1.0",
@@ -33,7 +34,6 @@
     "@types/ws": "^8.5.12",
     "tsdown": "^0.20.0",
     "typescript": "^5.9.3",
-    "unplugin-raw": "^0.6.3",
-    "zod": "^4.1.12"
+    "unplugin-raw": "^0.6.3"
   }
 }

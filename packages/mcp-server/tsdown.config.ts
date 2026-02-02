@@ -22,5 +22,6 @@ export default defineConfig({
   clean: true,
   outDir: 'dist',
   unbundle: false,
-  noExternal: internalDeps
+  noExternal: internalDeps,
+  inlineOnly: internalDeps
 })
