@@ -1,3 +1,4 @@
+import type { VariableDisplayMode } from '@/types/codegen'
 import type { TransformOptions } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
 
@@ -515,17 +516,37 @@ type SerializeOptions = {
   useRem: boolean
   rootFontSize: number
   scale: number
+  variableDisplay?: VariableDisplayMode
 }
 
 export function serializeCSS(
   style: Record<string, string>,
-  { toJS = false, useRem, rootFontSize, scale }: SerializeOptions,
+  { toJS = false, useRem, rootFontSize, scale, variableDisplay }: SerializeOptions,
   { transform, transformVariable, transformPx }: TransformOptions = {}
 ) {
   const options = { useRem, rootFontSize, scale }
+  const displayMode = variableDisplay
+
+  function applyDisplayMode(value: string): string {
+    if (!displayMode || displayMode === 'reference') {
+      return stripFallback(value)
+    }
+    if (displayMode === 'resolved') {
+      return replaceVarFunctions(value, ({ full, fallback }) => fallback ?? full)
+    }
+    return value
+  }
 
   function processValue(key: string, value: string) {
-    let current = normalizeStyleValue(value)
+    let current = value
+    const useDisplayMode = displayMode != null
+
+    if (useDisplayMode) {
+      current = preprocessCssValue(current)
+      current = current.replace(ZERO_UNITS_RE, '$10').trim()
+    } else {
+      current = normalizeStyleValue(current)
+    }
 
     if (typeof scale === 'number' && scale !== 1) {
       current = scalePxValue(current, scale)
@@ -542,6 +563,13 @@ export function serializeCSS(
           options
         })
       })
+    }
+
+    if (useDisplayMode) {
+      current = applyDisplayMode(current)
+      if (displayMode === 'resolved') {
+        current = simplifyColorMixToRgba(current)
+      }
     }
 
     if (KEEP_PX_PROPS.has(key)) {
