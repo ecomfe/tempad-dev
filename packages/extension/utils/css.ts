@@ -339,6 +339,17 @@ export function simplifyColorMixToRgba(input: string): string {
   )
 }
 
+export function simplifyHexAlphaToRgba(input: string): string {
+  if (!input || !input.includes('#')) return input
+
+  return input.replace(/#(?:[0-9a-fA-F]{4}|[0-9a-fA-F]{8})(?![0-9a-fA-F])/g, (match) => {
+    const parsed = parseHexColor(match)
+    if (!parsed || parsed.a >= 0.999) return match
+    const alpha = toDecimalPlace(parsed.a, 3)
+    return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha})`
+  })
+}
+
 function parseHexColor(input: string): { r: number; g: number; b: number; a: number } | null {
   let hex = input.trim().replace(/^#/, '')
   if (![3, 4, 6, 8].includes(hex.length)) return null
@@ -571,6 +582,8 @@ export function serializeCSS(
         current = simplifyColorMixToRgba(current)
       }
     }
+
+    current = simplifyHexAlphaToRgba(current)
 
     if (KEEP_PX_PROPS.has(key)) {
       return current

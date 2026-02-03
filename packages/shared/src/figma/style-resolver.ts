@@ -6,6 +6,9 @@
 import { resolveGradientFromPaints, resolveSolidFromPaints } from './gradient'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
+function hasStyleId(value: unknown): boolean {
+  return typeof value === 'string' && value.length > 0
+}
 
 /**
  * Resolves fill style for a Figma node
@@ -109,29 +112,45 @@ export async function resolveStylesFromNode(
     processed.background = processed.background.replace(/\s*,?\s*lightgray\b/i, '').trim()
   }
 
+  const resolvedFill = resolveFillStyleForNode(node)
+  const fillStyleId = 'fillStyleId' in node ? node.fillStyleId : null
+  const hasFillStyle = hasStyleId(fillStyleId)
+
   // Process background/fill styles
-  if (processed.background?.includes('var(--')) {
-    const resolved = resolveFillStyleForNode(node)
-    if (resolved?.gradient) {
-      processed.background = resolved.gradient
-    } else if (resolved?.solidColor) {
+  if (resolvedFill?.gradient) {
+    if (processed.background && hasFillStyle) {
+      processed.background = resolvedFill.gradient
+    } else if (processed['background-color'] && hasFillStyle) {
+      processed.background = resolvedFill.gradient
+      delete processed['background-color']
+    }
+  } else if (resolvedFill?.solidColor) {
+    if (processed.background && hasFillStyle) {
       // If it's a solid color, use background-color instead
-      processed['background-color'] = resolved.solidColor
+      processed['background-color'] = resolvedFill.solidColor
       delete processed.background
+    }
+    if (processed['background-color'] && hasFillStyle) {
+      processed['background-color'] = resolvedFill.solidColor
+    }
+    if (processed.color && hasFillStyle) {
+      processed.color = resolvedFill.solidColor
+    }
+    if (processed.fill && hasFillStyle) {
+      processed.fill = resolvedFill.solidColor
     }
   }
 
   const resolvedStroke = resolveStrokeStyleForNode(node)
+  const strokeStyleId = 'strokeStyleId' in node ? node.strokeStyleId : null
+  const hasStrokeStyle = hasStyleId(strokeStyleId)
 
   // Process stroke styles (border in CSS)
   if (resolvedStroke?.gradient && (processed.border || processed['border-color'])) {
     // For gradient strokes, we might need to use border-image
     processed['border-image'] = resolvedStroke.gradient
     processed['border-image-slice'] = '1'
-  } else if (
-    resolvedStroke?.solidColor &&
-    (processed.border?.includes('var(--') || processed['border-color']?.includes('var(--'))
-  ) {
+  } else if (resolvedStroke?.solidColor && hasStrokeStyle) {
     // Update border-color
     if (processed['border-color']) {
       processed['border-color'] = resolvedStroke.solidColor
@@ -151,7 +170,7 @@ export async function resolveStylesFromNode(
     // For SVG, we might need to create a gradient definition
     // For now, just use the first color of the gradient
     processed.stroke = resolvedStroke.gradient
-  } else if (processed.stroke?.includes('var(--')) {
+  } else if (processed.stroke && hasStrokeStyle) {
     if (resolvedStroke?.solidColor) {
       processed.stroke = resolvedStroke.solidColor
     }
