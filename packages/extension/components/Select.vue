@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T extends string">
-import { computed, watch } from 'vue'
+import { computed, watch, useId } from 'vue'
 
 import Chevron from '@/components/icons/Chevron.vue'
 import OptionCheck from '@/components/icons/OptionCheck.vue'
@@ -15,6 +15,7 @@ const { placeholder = 'Select…', options = [] } = defineProps<{
 }>()
 
 const model = defineModel<T | null | undefined>()
+const anchorName = `--tp-select-anchor-${useId()}`
 
 watch(
   () => options,
@@ -68,7 +69,7 @@ const selectedIndex = computed(() => {
 <style scoped>
 .tp-select {
   appearance: base-select;
-  anchor-name: --tp-select-anchor;
+  anchor-name: v-bind(anchorName);
   --tp-select-panel-padding-y: 8px;
   --tp-select-trigger-padding-left: 7px;
   --tp-select-option-height: var(--spacer-4);
@@ -166,7 +167,7 @@ const selectedIndex = computed(() => {
 }
 
 .tp-select:open::picker(select) {
-  position-anchor: --tp-select-anchor;
+  position-anchor: v-bind(anchorName);
   top: calc(
     anchor(top) - var(--tp-select-panel-padding-y) - var(--tp-select-option-height) *
       var(--tp-select-selected-index)

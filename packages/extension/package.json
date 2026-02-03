@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/extension",
-  "version": "0.15.3",
+  "version": "0.16.0",
   "private": true,
   "description": "TemPad Dev browser extension.",
   "type": "module",
