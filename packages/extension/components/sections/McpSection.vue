@@ -123,9 +123,9 @@ async function handleClientClick(client: McpClientDisplay) {
     <template #header>
       <div class="tp-row">MCP server</div>
     </template>
-    <div class="tp-row tp-row-justify tp-mcp-field">
+    <div class="tp-grid tp-grid-2 tp-mcp-field">
       <label>Enable MCP server</label>
-      <SegmentedControl :options="mcpOptions" v-model="options.mcpOn" />
+      <SegmentedControl class="tp-grid-end" :options="mcpOptions" v-model="options.mcpOn" />
     </div>
     <template v-if="options.mcpOn">
       <button
@@ -138,12 +138,12 @@ async function handleClientClick(client: McpClientDisplay) {
         <span>Install</span>
       </button>
       <div v-if="clientsExpanded" class="tp-mcp-install-section">
-        <div class="tp-row tp-row-justify tp-mcp-field">
+        <div class="tp-grid tp-grid-2 tp-mcp-field">
           <label>Agent skill</label>
           <IconButton
             variant="secondary"
             title="Copy add-skill command"
-            class="tp-mcp-client-button"
+            class="tp-mcp-client-button tp-grid-end"
             @click="copy(skillInstallCommand, copyMessages.command)"
           >
             <Copy />
