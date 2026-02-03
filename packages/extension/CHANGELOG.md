@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.0
+
+- Added a “Variable display” preference (Reference/Resolved/Both) so you can choose whether code shows variables, resolved values, or both.
+- Code output now resolves fill/stroke styles more consistently after unbinding (including gradient borders).
+
 ## 0.15.3
 
 - Make the plugin API more stable.

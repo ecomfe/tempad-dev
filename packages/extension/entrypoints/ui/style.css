@@ -33,7 +33,6 @@ tempad .tp-grid {
   display: grid;
   align-items: center;
   column-gap: var(--spacer-2);
-  row-gap: var(--spacer-1);
   grid-auto-rows: minmax(32px, auto);
 }
 
