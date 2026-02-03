@@ -33,6 +33,12 @@ const cssUnitOptions = [
   { label: 'px', value: 'px' },
   { label: 'rem', value: 'rem' }
 ] as const satisfies SelectOption[]
+
+const variableDisplayOptions = [
+  { label: 'Reference', value: 'reference' },
+  { label: 'Resolved', value: 'resolved' },
+  { label: 'Both', value: 'both' }
+] as const satisfies SelectOption[]
 </script>
 
 <template>
@@ -55,6 +61,15 @@ const cssUnitOptions = [
         class="tp-pref-input"
         :options="cssUnitOptions"
         v-model="options.cssUnit"
+      />
+    </div>
+    <div class="tp-row tp-row-justify tp-pref-field">
+      <label for="variable-display">Variable display</label>
+      <Select
+        id="variable-display"
+        class="tp-pref-input"
+        :options="variableDisplayOptions"
+        v-model="options.variableDisplay"
       />
     </div>
     <div class="tp-row tp-row-justify tp-pref-field">
