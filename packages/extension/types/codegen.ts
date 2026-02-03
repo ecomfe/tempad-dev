@@ -1,9 +1,12 @@
 import type { DesignComponent, DevComponent, SupportedLang } from '@/types/plugin'
 
+export type VariableDisplayMode = 'reference' | 'resolved' | 'both'
+
 export interface SerializeOptions {
   useRem: boolean
   rootFontSize: number
   scale: number
+  variableDisplay?: VariableDisplayMode
 }
 
 export interface RequestPayload {

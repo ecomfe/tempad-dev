@@ -38,7 +38,8 @@ async function updateCode() {
       rootFontSize: options.value.rootFontSize,
       scale: options.value.scale
     },
-    activePlugin.value?.code || undefined
+    activePlugin.value?.code || undefined,
+    { variableDisplay: options.value.variableDisplay }
   )
   codeBlocks.value = result.codeBlocks
 }

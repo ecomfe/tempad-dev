@@ -1,4 +1,11 @@
-import type { RequestPayload, ResponsePayload, SerializeOptions } from '@/types/codegen'
+import { resolveStylesFromNode } from '@tempad-dev/shared'
+
+import type {
+  RequestPayload,
+  ResponsePayload,
+  SerializeOptions,
+  VariableDisplayMode
+} from '@/types/codegen'
 import type { DesignComponent } from '@/types/plugin'
 
 import { createWorkerRequester } from '@/codegen/requester'
@@ -44,11 +51,18 @@ export async function generateCodeBlocksForNode(
   node: SceneNode,
   config: CodegenConfig,
   pluginCode?: string,
-  opts?: { returnDevComponent?: boolean }
+  opts?: { returnDevComponent?: boolean; variableDisplay?: VariableDisplayMode }
 ): Promise<ResponsePayload> {
-  const style = await node.getCSSAsync()
+  let style = await node.getCSSAsync()
+
+  // Resolve fill and stroke styles that use CSS variables
+  style = await resolveStylesFromNode(style, node)
+
   const component = getDesignComponent(node)
-  const serializeOptions: SerializeOptions = workerUnitOptions(config)
+  const serializeOptions: SerializeOptions = {
+    ...workerUnitOptions(config),
+    variableDisplay: opts?.variableDisplay
+  }
 
   return await codegen(style, component, serializeOptions, pluginCode, opts?.returnDevComponent)
 }
