@@ -1,4 +1,4 @@
-import type { TempadMcpErrorCode } from '@tempad-dev/mcp-shared'
+import type { TempadMcpErrorCode } from '@tempad-dev/shared'
 
 export type ToolErrorPayload = {
   message: string

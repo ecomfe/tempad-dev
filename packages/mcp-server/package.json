@@ -28,7 +28,7 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
-    "@tempad-dev/mcp-shared": "workspace:^0.1.0",
+    "@tempad-dev/shared": "workspace:^0.1.0",
     "@types/node": "^24.0.0",
     "@types/proper-lockfile": "^4.1.4",
     "@types/ws": "^8.5.12",

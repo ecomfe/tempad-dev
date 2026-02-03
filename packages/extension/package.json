@@ -18,8 +18,8 @@
     "format:check": "oxfmt --ignore-path ../../.gitignore --check \"!**/*.css\" && prettier --ignore-path ../../.gitignore --check \"**/*.css\""
   },
   "dependencies": {
-    "@tempad-dev/mcp-shared": "workspace:^0.1.0",
     "@tempad-dev/plugins": "workspace:^0.6.1",
+    "@tempad-dev/shared": "workspace:^0.1.0",
     "@vueuse/core": "^14.0.0",
     "overlayscrollbars": "^2.12.0",
     "p-wait-for": "^6.0.0",

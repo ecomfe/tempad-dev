@@ -5,7 +5,7 @@ import {
   MCP_MAX_PAYLOAD_BYTES,
   MCP_PORT_CANDIDATES,
   MCP_TOOL_TIMEOUT_MS
-} from '@tempad-dev/mcp-shared'
+} from '@tempad-dev/shared'
 
 function parsePositiveInt(envValue: string | undefined, fallback: number): number {
   const parsed = envValue ? Number.parseInt(envValue, 10) : Number.NaN

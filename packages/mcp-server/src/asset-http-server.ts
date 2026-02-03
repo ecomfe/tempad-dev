@@ -1,4 +1,4 @@
-import { MCP_HASH_HEX_LENGTH, MCP_HASH_PATTERN } from '@tempad-dev/mcp-shared'
+import { MCP_HASH_HEX_LENGTH, MCP_HASH_PATTERN } from '@tempad-dev/shared'
 import { nanoid } from 'nanoid'
 import { createHash } from 'node:crypto'
 import {

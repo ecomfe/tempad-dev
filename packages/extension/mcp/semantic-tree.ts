@@ -1,4 +1,4 @@
-import type { OutlineNode } from '@tempad-dev/mcp-shared'
+import type { OutlineNode } from '@tempad-dev/shared'
 
 import { toPascalCase } from '@/utils/string'
 
