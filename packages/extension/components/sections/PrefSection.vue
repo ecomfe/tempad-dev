@@ -43,55 +43,57 @@ const variableDisplayOptions = [
 
 <template>
   <Section ref="root" class="tp-pref">
-    <div class="tp-row tp-row-justify tp-pref-field">
-      <label>Tools</label>
-      <div class="tp-row tp-gap">
-        <IconButton title="Deep select" toggle v-model:selected="options.deepSelectOn">
-          <Inspect />
-        </IconButton>
-        <IconButton title="Measure to selection" toggle v-model:selected="options.measureOn">
-          <Measure />
-        </IconButton>
+    <div class="tp-grid tp-grid-2">
+      <div class="tp-grid-row tp-pref-field">
+        <label>Tools</label>
+        <div class="tp-row tp-gap-l tp-grid-end">
+          <IconButton title="Deep select" toggle v-model:selected="options.deepSelectOn">
+            <Inspect />
+          </IconButton>
+          <IconButton title="Measure to selection" toggle v-model:selected="options.measureOn">
+            <Measure />
+          </IconButton>
+        </div>
       </div>
-    </div>
-    <div class="tp-row tp-row-justify tp-pref-field">
-      <label for="css-unit">CSS unit</label>
-      <Select
-        id="css-unit"
-        class="tp-pref-input"
-        :options="cssUnitOptions"
-        v-model="options.cssUnit"
-      />
-    </div>
-    <div class="tp-row tp-row-justify tp-pref-field">
-      <label for="variable-display">Variable display</label>
-      <Select
-        id="variable-display"
-        class="tp-pref-input"
-        :options="variableDisplayOptions"
-        v-model="options.variableDisplay"
-      />
-    </div>
-    <div class="tp-row tp-row-justify tp-pref-field">
-      <label for="root-font-size">Root font size</label>
-      <input
-        id="root-font-size"
-        class="tp-pref-input"
-        ref="fontSizeInput"
-        type="number"
-        v-model.number="options.rootFontSize"
-      />
-    </div>
-    <div class="tp-row tp-row-justify tp-pref-field">
-      <label for="scale">Scale</label>
-      <input
-        id="scale"
-        class="tp-pref-input"
-        ref="scaleInput"
-        type="number"
-        step="1"
-        v-model.number="options.scale"
-      />
+      <div class="tp-grid-row tp-pref-field">
+        <label for="css-unit">CSS unit</label>
+        <Select
+          id="css-unit"
+          class="tp-pref-input"
+          :options="cssUnitOptions"
+          v-model="options.cssUnit"
+        />
+      </div>
+      <div class="tp-grid-row tp-pref-field">
+        <label for="variable-display">Variable display</label>
+        <Select
+          id="variable-display"
+          class="tp-pref-input"
+          :options="variableDisplayOptions"
+          v-model="options.variableDisplay"
+        />
+      </div>
+      <div class="tp-grid-row tp-pref-field">
+        <label for="root-font-size">Root font size</label>
+        <input
+          id="root-font-size"
+          class="tp-pref-input"
+          ref="fontSizeInput"
+          type="number"
+          v-model.number="options.rootFontSize"
+        />
+      </div>
+      <div class="tp-grid-row tp-pref-field">
+        <label for="scale">Scale</label>
+        <input
+          id="scale"
+          class="tp-pref-input"
+          ref="scaleInput"
+          type="number"
+          step="1"
+          v-model.number="options.scale"
+        />
+      </div>
     </div>
     <McpSection class="tp-pref-mcp" />
     <PluginsSection class="tp-pref-plugins" />
@@ -112,12 +114,8 @@ const variableDisplayOptions = [
   border-top: 1px solid var(--color-border);
 }
 
-.tp-pref-field + .tp-pref-field {
-  margin-top: 8px;
-}
-
 .tp-pref-input {
-  width: 80px;
+  width: 100%;
 }
 
 label {
