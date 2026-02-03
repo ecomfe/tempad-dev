@@ -1,5 +1,5 @@
-import { parseMessageToExtension } from '@tempad-dev/mcp-shared'
-import { MCP_PORT_CANDIDATES } from '@tempad-dev/mcp-shared'
+import { parseMessageToExtension } from '@tempad-dev/shared'
+import { MCP_PORT_CANDIDATES } from '@tempad-dev/shared'
 import {
   createSharedComposable,
   useDocumentVisibility,

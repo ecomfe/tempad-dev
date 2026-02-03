@@ -1,4 +1,4 @@
-import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/mcp-shared'
+import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 
 import { createCodedError } from './errors'
 

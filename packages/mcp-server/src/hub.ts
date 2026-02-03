@@ -9,7 +9,7 @@ import type {
   ToolName,
   ToolResultMap,
   ToolResultMessage
-} from '@tempad-dev/mcp-shared'
+} from '@tempad-dev/shared'
 import type { RawData } from 'ws'
 import type { ZodType } from 'zod'
 
@@ -23,7 +23,7 @@ import {
   MessageFromExtensionSchema,
   TEMPAD_MCP_ERROR_CODES,
   type TempadMcpErrorCode
-} from '@tempad-dev/mcp-shared'
+} from '@tempad-dev/shared'
 import { nanoid } from 'nanoid'
 import { existsSync, rmSync, chmodSync, readFileSync, statSync } from 'node:fs'
 import { createServer } from 'node:net'

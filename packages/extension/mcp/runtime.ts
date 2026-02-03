@@ -8,7 +8,7 @@ import {
   type GetStructureResult,
   type GetTokenDefsParametersInput,
   type GetTokenDefsResult
-} from '@tempad-dev/mcp-shared'
+} from '@tempad-dev/shared'
 
 import { selection } from '@/ui/state'
 

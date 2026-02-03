@@ -1,4 +1,4 @@
-import type { GetCodeWarning } from '@tempad-dev/mcp-shared'
+import type { GetCodeWarning } from '@tempad-dev/shared'
 
 const AUTO_LAYOUT_REGEX = /data-hint-auto-layout\s*=\s*["']?inferred["']?/i
 

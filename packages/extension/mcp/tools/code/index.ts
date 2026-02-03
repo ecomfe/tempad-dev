@@ -1,6 +1,6 @@
-import type { AssetDescriptor, GetCodeResult } from '@tempad-dev/mcp-shared'
+import type { AssetDescriptor, GetCodeResult } from '@tempad-dev/shared'
 
-import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/mcp-shared'
+import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/shared'
 
 import type { DevComponent } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'

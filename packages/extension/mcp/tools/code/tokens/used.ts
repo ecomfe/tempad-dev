@@ -1,4 +1,4 @@
-import type { GetTokenDefsResult } from '@tempad-dev/mcp-shared'
+import type { GetTokenDefsResult } from '@tempad-dev/shared'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
