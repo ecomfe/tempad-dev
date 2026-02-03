@@ -6,7 +6,7 @@ import type {
   ToolName,
   ToolResultMap,
   ToolSchema
-} from '@tempad-dev/mcp-shared'
+} from '@tempad-dev/shared'
 import type { ZodType } from 'zod'
 
 import {
@@ -18,7 +18,7 @@ import {
   GetTokenDefsParametersSchema,
   TEMPAD_MCP_ERROR_CODES,
   type TempadMcpErrorPayload
-} from '@tempad-dev/mcp-shared'
+} from '@tempad-dev/shared'
 
 export type {
   AssetDescriptor,
@@ -36,7 +36,7 @@ export type {
   ToolName,
   ToolResultMap,
   ToolSchema
-} from '@tempad-dev/mcp-shared'
+} from '@tempad-dev/shared'
 
 type BaseToolMetadata<Name extends ToolName, Schema extends ZodType> = ToolSchema<Name> & {
   parameters: Schema

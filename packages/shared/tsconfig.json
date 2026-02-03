@@ -3,6 +3,7 @@
   "include": ["**/*"],
   "compilerOptions": {
     "declaration": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": ["@figma/plugin-typings"]
   }
 }

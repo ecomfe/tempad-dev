@@ -1,4 +1,4 @@
-import { MCP_HASH_HEX_LENGTH } from '@tempad-dev/mcp-shared'
+import { MCP_HASH_HEX_LENGTH } from '@tempad-dev/shared'
 
 const HASH_FILENAME_PATTERN = new RegExp(
   `^([a-f0-9]{${MCP_HASH_HEX_LENGTH}})(?:\\.[a-z0-9]+)?$`,

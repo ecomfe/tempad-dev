@@ -1,6 +1,6 @@
-import type { GetTokenDefsResult, TokenEntry } from '@tempad-dev/mcp-shared'
+import type { GetTokenDefsResult, TokenEntry } from '@tempad-dev/shared'
 
-import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/mcp-shared'
+import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/shared'
 
 import type { CodegenConfig } from '@/utils/codegen'
 

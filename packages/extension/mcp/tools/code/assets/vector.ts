@@ -1,4 +1,4 @@
-import type { AssetDescriptor } from '@tempad-dev/mcp-shared'
+import type { AssetDescriptor } from '@tempad-dev/shared'
 
 import type { CodegenConfig } from '@/utils/codegen'
 

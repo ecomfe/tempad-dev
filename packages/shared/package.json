@@ -1,7 +1,7 @@
 {
-  "name": "@tempad-dev/mcp-shared",
+  "name": "@tempad-dev/shared",
   "version": "0.1.0",
-  "description": "Shared MCP schemas/constants used by TemPad Dev extension and MCP server.",
+  "description": "Shared utilities, schemas and constants used by TemPad Dev extension and MCP server.",
   "files": [
     "dist"
   ],
@@ -27,6 +27,7 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@figma/plugin-typings": "^1.121.0",
     "tsdown": "^0.20.0",
     "typescript": "^5.9.3"
   }

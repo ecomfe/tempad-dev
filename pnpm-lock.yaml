@@ -50,12 +50,12 @@ importers:
 
   packages/extension:
     dependencies:
-      '@tempad-dev/mcp-shared':
-        specifier: workspace:^0.1.0
-        version: link:../mcp-shared
       '@tempad-dev/plugins':
         specifier: workspace:^0.6.1
         version: link:../plugins
+      '@tempad-dev/shared':
+        specifier: workspace:^0.1.0
+        version: link:../shared
       '@vueuse/core':
         specifier: ^14.0.0
         version: 14.1.0(vue@3.5.27(typescript@5.9.3))
@@ -175,9 +175,9 @@ importers:
         specifier: ^4.1.12
         version: 4.3.6
     devDependencies:
-      '@tempad-dev/mcp-shared':
+      '@tempad-dev/shared':
         specifier: workspace:^0.1.0
-        version: link:../mcp-shared
+        version: link:../shared
       '@types/node':
         specifier: ^24.0.0
         version: 24.10.9
@@ -197,11 +197,7 @@ importers:
         specifier: ^0.6.3
         version: 0.6.4(esbuild@0.27.2)
 
-  packages/mcp-shared:
-    dependencies:
-      zod:
-        specifier: ^4.1.12
-        version: 4.3.6
+  packages/plugins:
     devDependencies:
       tsdown:
         specifier: ^0.20.0
@@ -210,8 +206,15 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  packages/plugins:
+  packages/shared:
+    dependencies:
+      zod:
+        specifier: ^4.1.12
+        version: 4.3.6
     devDependencies:
+      '@figma/plugin-typings':
+        specifier: ^1.121.0
+        version: 1.122.0
       tsdown:
         specifier: ^0.20.0
         version: 0.20.1(typescript@5.9.3)(vue-tsc@3.2.4(typescript@5.9.3))

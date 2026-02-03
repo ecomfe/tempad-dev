@@ -1,6 +1,6 @@
-import type { GetStructureResult } from '@tempad-dev/mcp-shared'
+import type { GetStructureResult } from '@tempad-dev/shared'
 
-import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/mcp-shared'
+import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/shared'
 
 import { buildSemanticTree, semanticTreeToOutline } from '@/mcp/semantic-tree'
 

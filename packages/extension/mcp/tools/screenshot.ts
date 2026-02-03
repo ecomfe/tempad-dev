@@ -1,6 +1,6 @@
-import type { GetScreenshotResult } from '@tempad-dev/mcp-shared'
+import type { GetScreenshotResult } from '@tempad-dev/shared'
 
-import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/mcp-shared'
+import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/shared'
 
 import { ensureAssetUploaded } from '@/mcp/assets'
 

@@ -1,10 +1,10 @@
-import type { AssetDescriptor } from '@tempad-dev/mcp-shared'
+import type { AssetDescriptor } from '@tempad-dev/shared'
 
 import {
   MCP_ASSET_URI_PREFIX,
   MCP_HASH_HEX_LENGTH,
   TEMPAD_MCP_ERROR_CODES
-} from '@tempad-dev/mcp-shared'
+} from '@tempad-dev/shared'
 
 import { logger } from '@/utils/log'
 
