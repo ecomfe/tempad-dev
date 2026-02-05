@@ -333,7 +333,7 @@ export function simplifyColorMixToRgba(input: string): string {
       if (!parsed) return _match
       const weight = Number(pct) / 100
       if (!Number.isFinite(weight)) return _match
-      const alpha = toDecimalPlace(parsed.a * weight, 3)
+      const alpha = formatAlpha(parsed.a * weight)
       return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha})`
     }
   )
@@ -345,9 +345,15 @@ export function simplifyHexAlphaToRgba(input: string): string {
   return input.replace(/#(?:[0-9a-fA-F]{4}|[0-9a-fA-F]{8})(?![0-9a-fA-F])/g, (match) => {
     const parsed = parseHexColor(match)
     if (!parsed || parsed.a >= 0.999) return match
-    const alpha = toDecimalPlace(parsed.a, 3)
+    const alpha = formatAlpha(parsed.a)
     return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha})`
   })
+}
+
+function formatAlpha(alpha: number): string {
+  if (!Number.isFinite(alpha)) return '0.00'
+  const clamped = Math.min(1, Math.max(0, alpha))
+  return (Math.round(clamped * 100) / 100).toFixed(2)
 }
 
 function parseHexColor(input: string): { r: number; g: number; b: number; a: number } | null {
