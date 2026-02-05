@@ -2,7 +2,7 @@
 
 ## 0.3.13
 
-- Internal: bundle the shared workspace utilities into the server build (no behavior change).
+- No longer bundle `zod` into the distribution to reduce size.
 
 ## 0.3.12
 
