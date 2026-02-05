@@ -48,6 +48,8 @@
 
 你可以配置 CSS 单位和根字体大小，将 CSS 中的 `px` 尺寸转换为 `rem`。同时也可以设置 `scale` 系数，根据实际交付需求对 `px` 数值进行缩放。
 
+在偏好设置里使用 **Variable display**（Reference/Resolved/Both）来选择代码输出展示变量引用、解析后的值，或两者同时显示。
+
 > [!WARNING]
 > 切换单位只会影响 TemPad Dev 面板中的输出，不会影响 Figma 画布本身。
 
