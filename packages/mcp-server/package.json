@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/mcp",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "description": "MCP server for TemPad Dev.",
   "bin": "dist/cli.mjs",
   "files": [
@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.24.0",
+    "@tempad-dev/shared": "workspace:^0.1.0",
     "nanoid": "^5.1.6",
     "pino": "^10.0.0",
     "pino-pretty": "^13.0.0",
@@ -28,7 +29,6 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
-    "@tempad-dev/shared": "workspace:^0.1.0",
     "@types/node": "^24.0.0",
     "@types/proper-lockfile": "^4.1.4",
     "@types/ws": "^8.5.12",

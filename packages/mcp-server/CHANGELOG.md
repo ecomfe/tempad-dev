@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.13
+
+- Internal: bundle the shared workspace utilities into the server build (no behavior change).
+
 ## 0.3.12
 
 - Improved tool troubleshooting by propagating structured error codes end-to-end.

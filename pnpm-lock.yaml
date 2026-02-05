@@ -156,6 +156,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.24.0
         version: 1.25.3(hono@4.11.3)(zod@4.3.6)
+      '@tempad-dev/shared':
+        specifier: workspace:^0.1.0
+        version: link:../shared
       nanoid:
         specifier: ^5.1.6
         version: 5.1.6
@@ -175,9 +178,6 @@ importers:
         specifier: ^4.1.12
         version: 4.3.6
     devDependencies:
-      '@tempad-dev/shared':
-        specifier: workspace:^0.1.0
-        version: link:../shared
       '@types/node':
         specifier: ^24.0.0
         version: 24.10.9
