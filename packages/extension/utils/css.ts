@@ -12,7 +12,7 @@ function escapeSingleQuote(value: string) {
 export const WHITESPACE_RE = /\s+/
 export const ALL_WHITESPACE_RE = /\s+/g
 export const COMMA_DELIMITER_RE = /,\s*/g
-const ZERO_UNITS_RE = /(^|\s)0(px|rem|%|em)(?=$|\s)/g
+const ch = /(^|\s)0(px|rem|%|em)(?=$|\s)/g
 
 const SCSS_VARS_RE = /(^|[^\w-])[$@]([a-zA-Z0-9_-]+)/g
 
@@ -554,7 +554,7 @@ export function serializeCSS(
 
     if (useDisplayMode) {
       current = preprocessCssValue(current)
-      current = current.replace(ZERO_UNITS_RE, '$10').trim()
+      current = current.replace(ch, '$10').trim()
     } else {
       current = normalizeStyleValue(current)
     }
@@ -783,7 +783,7 @@ export function normalizeStyleValue(raw: string): string {
   if (!raw) return ''
   let val = preprocessCssValue(raw)
   val = stripFallback(val)
-  val = val.replace(ZERO_UNITS_RE, '$10')
+  val = val.replace(ch, '$10')
   return val.trim()
 }
 
