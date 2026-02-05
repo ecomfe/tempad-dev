@@ -49,6 +49,8 @@ Select any element, and you can obtain the CSS code through the plugin's Code pa
 
 You can configure CSS units and root font size to convert `px` dimensions in CSS to `rem` units. You can also apply a `scale` factor to scale `px` values according to your handoff requirements.
 
+Use **Variable display** (Reference/Resolved/Both) in Preferences to choose whether code output shows variable references, resolved values, or both.
+
 > [!WARNING]
 > Switching units only affects the output in the TemPad Dev panel, not the Figma canvas.
 
