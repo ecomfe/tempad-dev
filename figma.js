@@ -43,24 +43,6 @@
       ]
     },
     {
-      markers: ["const __html__ = (() => {"],
-      replacements: [
-        {
-          pattern: /if\(\(0,([A-Za-z_$][A-Za-z0-9_$]*\.[A-Za-z_$][A-Za-z0-9_$]*)\)\(\)\)return;([A-Za-z_$][A-Za-z0-9_$]*)&&/,
-          replacer: "if((0,$1)())return;true&&"
-        }
-      ]
-    },
-    {
-      markers: ["dispnf.fyufotjpo;00", "np{.fyufotjpo;00"],
-      replacements: [
-        {
-          pattern: /dispnf\.fyufotjpo;00|np{\.fyufotjpo;00/g,
-          replacer: "FIGMA_PLEASE_STOP"
-        }
-      ]
-    },
-    {
       markers: ['{type:"global",closePluginFunc:'],
       replacements: [
         {
