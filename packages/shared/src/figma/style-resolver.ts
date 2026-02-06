@@ -3,89 +3,96 @@
  * Resolves CSS variable references from getCSSAsync to actual style values
  */
 
+import type { PaintList, ResolvedPaintStyle } from './types'
+
 import { resolveGradientFromPaints, resolveSolidFromPaints } from './gradient'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
-function hasStyleId(value: unknown): boolean {
+
+function hasStyleId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0
+}
+
+function isPaintStyle(style: BaseStyle | null): style is PaintStyle {
+  return !!style && 'paints' in style && Array.isArray(style.paints)
+}
+
+function resolvePaintStyleFromPaints(paints: PaintList): ResolvedPaintStyle | null {
+  if (!paints) return null
+  const gradient = resolveGradientFromPaints(paints)
+  if (gradient) return { gradient }
+  const solidColor = resolveSolidFromPaints(paints)
+  return solidColor ? { solidColor } : null
+}
+
+function resolvePaintStyleFromStyleId(
+  styleId: unknown,
+  kind: 'fill' | 'stroke'
+): ResolvedPaintStyle | null {
+  if (!hasStyleId(styleId)) return null
+
+  try {
+    const style = figma.getStyleById(styleId)
+    if (!isPaintStyle(style)) return null
+    return resolvePaintStyleFromPaints(style.paints)
+  } catch (error) {
+    console.warn(`Failed to resolve ${kind} style:`, error)
+    return null
+  }
+}
+
+function getNodeFillStyleId(node: SceneNode): unknown {
+  return 'fillStyleId' in node ? node.fillStyleId : null
+}
+
+function getNodeStrokeStyleId(node: SceneNode): unknown {
+  return 'strokeStyleId' in node ? node.strokeStyleId : null
+}
+
+function getNodeFillPaints(node: SceneNode): PaintList {
+  if ('fills' in node && Array.isArray(node.fills)) {
+    return node.fills
+  }
+  return null
+}
+
+function getNodeStrokePaints(node: SceneNode): PaintList {
+  if ('strokes' in node && Array.isArray(node.strokes)) {
+    return node.strokes
+  }
+  return null
+}
+
+function resolveNodePaintStyle(
+  styleId: unknown,
+  paints: PaintList,
+  kind: 'fill' | 'stroke'
+): ResolvedPaintStyle | null {
+  return resolvePaintStyleFromStyleId(styleId, kind) ?? resolvePaintStyleFromPaints(paints)
+}
+
+function patchBorderVarColor(borderValue: string, color: string): string | null {
+  const borderParts = borderValue.split(/\s+/)
+  const varIndex = borderParts.findIndex((part) => part.includes('var(--'))
+  if (varIndex < 0) return null
+  borderParts[varIndex] = color
+  return borderParts.join(' ')
 }
 
 /**
  * Resolves fill style for a Figma node
  * Handles both fillStyleId and direct fills
  */
-export function resolveFillStyleForNode(node: SceneNode): {
-  solidColor?: string
-  gradient?: string
-} | null {
-  // Try to resolve from fillStyleId first
-  if ('fillStyleId' in node && node.fillStyleId) {
-    const styleId = node.fillStyleId
-    if (typeof styleId === 'string') {
-      try {
-        const style = figma.getStyleById(styleId) as PaintStyle | null
-        if (style?.paints) {
-          const gradient = resolveGradientFromPaints(style.paints)
-          if (gradient) return { gradient }
-
-          const solid = resolveSolidFromPaints(style.paints)
-          if (solid) return { solidColor: solid }
-        }
-      } catch (e) {
-        console.warn('Failed to resolve fill style:', e)
-      }
-    }
-  }
-
-  // Fallback to direct fills
-  if ('fills' in node && Array.isArray(node.fills)) {
-    const gradient = resolveGradientFromPaints(node.fills as Paint[])
-    if (gradient) return { gradient }
-
-    const solid = resolveSolidFromPaints(node.fills as Paint[])
-    if (solid) return { solidColor: solid }
-  }
-
-  return null
+export function resolveFillStyleForNode(node: SceneNode): ResolvedPaintStyle | null {
+  return resolveNodePaintStyle(getNodeFillStyleId(node), getNodeFillPaints(node), 'fill')
 }
 
 /**
  * Resolves stroke style for a Figma node
  * Handles both strokeStyleId and direct strokes
  */
-export function resolveStrokeStyleForNode(node: SceneNode): {
-  solidColor?: string
-  gradient?: string
-} | null {
-  // Try to resolve from strokeStyleId first
-  if ('strokeStyleId' in node && node.strokeStyleId) {
-    const styleId = node.strokeStyleId
-    if (typeof styleId === 'string') {
-      try {
-        const style = figma.getStyleById(styleId) as PaintStyle | null
-        if (style?.paints) {
-          const gradient = resolveGradientFromPaints(style.paints)
-          if (gradient) return { gradient }
-
-          const solid = resolveSolidFromPaints(style.paints)
-          if (solid) return { solidColor: solid }
-        }
-      } catch (e) {
-        console.warn('Failed to resolve stroke style:', e)
-      }
-    }
-  }
-
-  // Fallback to direct strokes
-  if ('strokes' in node && Array.isArray(node.strokes)) {
-    const gradient = resolveGradientFromPaints(node.strokes as Paint[])
-    if (gradient) return { gradient }
-
-    const solid = resolveSolidFromPaints(node.strokes as Paint[])
-    if (solid) return { solidColor: solid }
-  }
-
-  return null
+export function resolveStrokeStyleForNode(node: SceneNode): ResolvedPaintStyle | null {
+  return resolveNodePaintStyle(getNodeStrokeStyleId(node), getNodeStrokePaints(node), 'stroke')
 }
 
 /**
@@ -97,15 +104,11 @@ export async function resolveStylesFromNode(
   node: SceneNode
 ): Promise<Record<string, string>> {
   const processed = { ...cssStyles }
+  const fillPaints = getNodeFillPaints(node)
 
   // Remove Figma's default lightgray fallback for image fills.
-  if (
-    processed.background &&
-    BG_URL_LIGHTGRAY_RE.test(processed.background) &&
-    'fills' in node &&
-    Array.isArray(node.fills)
-  ) {
-    const solidFill = resolveSolidFromPaints(node.fills as Paint[])
+  if (processed.background && BG_URL_LIGHTGRAY_RE.test(processed.background) && fillPaints) {
+    const solidFill = resolveSolidFromPaints(fillPaints)
     if (solidFill) {
       processed['background-color'] = solidFill
     }
@@ -113,8 +116,7 @@ export async function resolveStylesFromNode(
   }
 
   const resolvedFill = resolveFillStyleForNode(node)
-  const fillStyleId = 'fillStyleId' in node ? node.fillStyleId : null
-  const hasFillStyle = hasStyleId(fillStyleId)
+  const hasFillStyle = hasStyleId(getNodeFillStyleId(node))
 
   // Process background/fill styles
   if (resolvedFill?.gradient) {
@@ -142,8 +144,7 @@ export async function resolveStylesFromNode(
   }
 
   const resolvedStroke = resolveStrokeStyleForNode(node)
-  const strokeStyleId = 'strokeStyleId' in node ? node.strokeStyleId : null
-  const hasStrokeStyle = hasStyleId(strokeStyleId)
+  const hasStrokeStyle = hasStyleId(getNodeStrokeStyleId(node))
 
   // Process stroke styles (border in CSS)
   if (resolvedStroke?.gradient && (processed.border || processed['border-color'])) {
@@ -155,12 +156,9 @@ export async function resolveStylesFromNode(
     if (processed['border-color']) {
       processed['border-color'] = resolvedStroke.solidColor
     } else if (processed.border) {
-      // Parse and update border shorthand
-      const borderParts = processed.border.split(/\s+/)
-      const varIndex = borderParts.findIndex((part) => part.includes('var(--'))
-      if (varIndex >= 0) {
-        borderParts[varIndex] = resolvedStroke.solidColor
-        processed.border = borderParts.join(' ')
+      const patched = patchBorderVarColor(processed.border, resolvedStroke.solidColor)
+      if (patched) {
+        processed.border = patched
       }
     }
   }

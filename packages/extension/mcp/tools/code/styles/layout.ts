@@ -1,22 +1,8 @@
 import { toDecimalPlace } from '@/utils/number'
 
-type AutoLayoutLike = {
-  layoutMode?: 'HORIZONTAL' | 'VERTICAL' | 'NONE'
-  itemSpacing?: number
-  primaryAxisAlignItems?: string
-  counterAxisAlignItems?: string
-  paddingTop?: number
-  paddingRight?: number
-  paddingBottom?: number
-  paddingLeft?: number
-  layoutSizingHorizontal?: 'FIXED' | 'HUG' | 'FILL'
-  layoutSizingVertical?: 'FIXED' | 'HUG' | 'FILL'
-}
+import type { AutoLayoutLike, StyleMap } from './types'
 
-export function mergeInferredAutoLayout(
-  expandedStyle: Record<string, string>,
-  node?: SceneNode
-): Record<string, string> {
+export function mergeInferredAutoLayout(expandedStyle: StyleMap, node?: SceneNode): StyleMap {
   if (!node) return expandedStyle
   // Respect explicit grid layout from Figma; don't overwrite with inferred flex.
   const display = expandedStyle.display
@@ -29,7 +15,7 @@ export function mergeInferredAutoLayout(
     return expandedStyle
   }
 
-  const merged: Record<string, string> = expandedStyle
+  const merged: StyleMap = expandedStyle
 
   if (!merged.display?.includes('flex')) {
     merged.display = 'flex'
@@ -73,18 +59,17 @@ export function mergeInferredAutoLayout(
 }
 
 export function inferResizingStyles(
-  style: Record<string, string>,
+  style: StyleMap,
   node?: SceneNode,
   parent?: SceneNode
-): Record<string, string> {
+): StyleMap {
   if (!node || !('layoutSizingHorizontal' in node)) return style
 
   const next = style
-  const layoutNode = node as AutoLayoutLike
+  const layoutNode: AutoLayoutLike = node
 
   const parentLayoutMode = resolveParentLayoutMode(parent)
-  const layoutAlign =
-    'layoutAlign' in node ? (node as { layoutAlign?: string }).layoutAlign : undefined
+  const layoutAlign = 'layoutAlign' in node ? node.layoutAlign : undefined
 
   if (layoutAlign === 'STRETCH') {
     next['align-self'] = next['align-self'] || 'stretch'
@@ -112,11 +97,11 @@ export function inferResizingStyles(
 function resolveParentLayoutMode(parent?: SceneNode): AutoLayoutLike['layoutMode'] | undefined {
   if (!parent) return undefined
   if ('layoutMode' in parent) {
-    const layoutMode = (parent as AutoLayoutLike).layoutMode
+    const layoutMode = parent.layoutMode
     if (layoutMode && layoutMode !== 'NONE') return layoutMode
   }
   if ('inferredAutoLayout' in parent) {
-    const inferred = (parent as { inferredAutoLayout?: AutoLayoutLike }).inferredAutoLayout
+    const inferred = parent.inferredAutoLayout
     if (inferred?.layoutMode && inferred.layoutMode !== 'NONE') {
       return inferred.layoutMode
     }
@@ -125,17 +110,16 @@ function resolveParentLayoutMode(parent?: SceneNode): AutoLayoutLike['layoutMode
 }
 
 function getAutoLayoutSource(node: SceneNode): AutoLayoutLike | undefined {
-  const inferred = (node as { inferredAutoLayout?: AutoLayoutLike }).inferredAutoLayout
+  const inferred = 'inferredAutoLayout' in node ? (node.inferredAutoLayout ?? undefined) : undefined
   if ('layoutMode' in node) {
-    const layoutNode = node as AutoLayoutLike
-    if (layoutNode.layoutMode && layoutNode.layoutMode !== 'NONE') {
-      return layoutNode
+    if (node.layoutMode && node.layoutMode !== 'NONE') {
+      return node
     }
     // Fallback to inferred auto layout when Figma CSS doesn’t emit layout props
     if (inferred && inferred.layoutMode && inferred.layoutMode !== 'NONE') {
       return inferred
     }
-    return layoutNode
+    return node
   }
 
   return inferred
@@ -152,10 +136,10 @@ function mapAxisAlignToCss(value?: string): string | undefined {
   return value ? map[value] : undefined
 }
 
-function hasGap(s: Record<string, string>) {
+function hasGap(s: StyleMap) {
   return !!(s.gap || s['row-gap'] || s['column-gap'])
 }
 
-function hasAtomicPadding(s: Record<string, string>) {
+function hasAtomicPadding(s: StyleMap) {
   return !!(s['padding-top'] || s['padding-right'] || s['padding-bottom'] || s['padding-left'])
 }

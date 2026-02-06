@@ -10,10 +10,12 @@
     "build:rewrite": "esbuild ./rewrite/figma.ts --outfile=./dist/figma.js --bundle --format=iife && cp ./public/rules/figma.legacy.json ./dist/figma.json && cp ./public/rules/figma.legacy.json ./dist/figma.comply.json",
     "build:readme": "tsx ./build/readme.ts",
     "zip": "wxt zip",
-    "typecheck": "vue-tsc --noEmit",
+    "typecheck": "vue-tsc --noEmit && pnpm run check:worker-sandbox",
     "postinstall": "wxt prepare",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts",
     "lint:fix": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
+    "check:worker-sandbox": "tsx ./scripts/check-worker-sandbox.ts",
+    "check:worker-browser-sandbox": "tsx ./scripts/check-worker-sandbox.ts --browser",
     "format": "oxfmt --ignore-path ../../.gitignore \"!**/*.css\" && prettier --ignore-path ../../.gitignore --write \"**/*.css\"",
     "format:check": "oxfmt --ignore-path ../../.gitignore --check \"!**/*.css\" && prettier --ignore-path ../../.gitignore --check \"**/*.css\""
   },

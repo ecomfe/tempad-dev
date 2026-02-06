@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { Component } from 'vue'
+
 import { computed, ref } from 'vue'
 
 import type { McpClientConfig, McpClientId } from '@/mcp/config'
@@ -18,7 +20,7 @@ import Tick from '@/components/icons/Tick.vue'
 import Section from '@/components/Section.vue'
 import SegmentedControl from '@/components/SegmentedControl.vue'
 import { useCopy, useDeepLinkGuard } from '@/composables'
-import { MCP_CLIENTS, MCP_SERVER } from '@/mcp/config'
+import { MCP_CLIENTS, MCP_CLIENTS_BY_ID, MCP_SERVER } from '@/mcp/config'
 import { options } from '@/ui/state'
 
 import ExternalLink from '../icons/ExternalLink.vue'
@@ -30,7 +32,7 @@ const mcpOptions = [
 
 const clientsExpanded = ref(false)
 
-const CLIENT_ICONS: Record<McpClientId, unknown> = {
+const CLIENT_ICONS: Record<McpClientId, Component> = {
   vscode: VSCode,
   cursor: Cursor,
   windsurf: Windsurf,
@@ -41,7 +43,7 @@ const CLIENT_ICONS: Record<McpClientId, unknown> = {
 
 type McpClientDisplay = Omit<McpClientConfig, 'brandColor'> & {
   brandColor?: string
-  icon: unknown
+  icon: Component
   tooltip: string
 }
 
@@ -54,16 +56,29 @@ function resolveBrandColor(brandColor: McpClientConfig['brandColor'], theme: 'li
   return brandColor
 }
 
+function buildBrandColorMap(theme: 'light' | 'dark'): Record<McpClientId, string> {
+  return {
+    vscode: resolveBrandColor(MCP_CLIENTS_BY_ID.vscode.brandColor, theme) ?? '',
+    cursor: resolveBrandColor(MCP_CLIENTS_BY_ID.cursor.brandColor, theme) ?? '',
+    windsurf: resolveBrandColor(MCP_CLIENTS_BY_ID.windsurf.brandColor, theme) ?? '',
+    claude: resolveBrandColor(MCP_CLIENTS_BY_ID.claude.brandColor, theme) ?? '',
+    codex: resolveBrandColor(MCP_CLIENTS_BY_ID.codex.brandColor, theme) ?? '',
+    trae: resolveBrandColor(MCP_CLIENTS_BY_ID.trae.brandColor, theme) ?? ''
+  }
+}
+
+function getClientTooltip(client: McpClientConfig): string {
+  if (client.deepLink) return `Install in ${client.name}`
+  if (client.copyKind === 'command') return `Copy command for ${client.name}`
+  if (client.copyKind === 'config') return `Copy configuration for ${client.name}`
+  return client.name
+}
+
 const brandColorsByTheme = computed(() => {
-  const light = {} as Record<McpClientId, string>
-  const dark = {} as Record<McpClientId, string>
-
-  MCP_CLIENTS.forEach((client) => {
-    light[client.id] = resolveBrandColor(client.brandColor, 'light') ?? ''
-    dark[client.id] = resolveBrandColor(client.brandColor, 'dark') ?? ''
-  })
-
-  return { light, dark }
+  return {
+    light: buildBrandColorMap('light'),
+    dark: buildBrandColorMap('dark')
+  }
 })
 
 const mcpClients = computed(() =>
@@ -73,13 +88,7 @@ const mcpClients = computed(() =>
     return {
       ...rest,
       icon: CLIENT_ICONS[client.id],
-      tooltip: client.deepLink
-        ? `Install in ${client.name}`
-        : client.copyKind === 'command'
-          ? `Copy command for ${client.name}`
-          : client.copyKind === 'config'
-            ? `Copy configuration for ${client.name}`
-            : client.name
+      tooltip: getClientTooltip(client)
     } satisfies McpClientDisplay
   })
 )

@@ -3,15 +3,11 @@ import type { CodegenConfig } from '@/utils/codegen'
 import { expandShorthands, normalizeStyleValues } from '@/utils/css'
 import { cssToClassNames } from '@/utils/tailwind'
 
+import type { StyleMap, StyleStep } from './types'
+
 import { cleanFigmaSpecificStyles } from './background'
 import { inferResizingStyles, mergeInferredAutoLayout } from './layout'
 import { applyOverflowStyles } from './overflow'
-
-type StyleStep = (
-  style: Record<string, string>,
-  node?: SceneNode,
-  parent?: SceneNode
-) => Record<string, string>
 
 /**
  * Steps:
@@ -29,15 +25,11 @@ const STYLE_PIPELINE: StyleStep[] = [
   (style, node) => applyOverflowStyles(style, node)
 ]
 
-export function preprocessStyles(
-  style: Record<string, string>,
-  node?: SceneNode,
-  parent?: SceneNode
-): Record<string, string> {
+export function preprocessStyles(style: StyleMap, node?: SceneNode, parent?: SceneNode): StyleMap {
   return STYLE_PIPELINE.reduce((acc, step) => step(acc, node, parent), style)
 }
 
-export function stripInertShadows(style: Record<string, string>, node: SceneNode): void {
+export function stripInertShadows(style: StyleMap, node: SceneNode): void {
   if (!style['box-shadow']) return
   if (hasRenderableFill(node)) return
   delete style['box-shadow']
@@ -47,7 +39,7 @@ function hasRenderableFill(node: SceneNode): boolean {
   if (!('fills' in node)) return false
   const fills = node.fills
   if (!Array.isArray(fills)) return false
-  return fills.some((fill) => isFillRenderable(fill as Paint))
+  return fills.some(isFillRenderable)
 }
 
 function isFillRenderable(fill: Paint | undefined): boolean {
@@ -108,8 +100,8 @@ const LAYOUT_KEYS = new Set([
   'column-gap'
 ])
 
-export function layoutOnly(style: Record<string, string>): Record<string, string> {
-  const picked: Record<string, string> = {}
+export function layoutOnly(style: StyleMap): StyleMap {
+  const picked: StyleMap = {}
   for (const [key, value] of Object.entries(style)) {
     if (LAYOUT_KEYS.has(key)) picked[key] = value
   }
@@ -117,10 +109,10 @@ export function layoutOnly(style: Record<string, string>): Record<string, string
 }
 
 export function buildLayoutStyles(
-  styles: Map<string, Record<string, string>>,
+  styles: Map<string, StyleMap>,
   svgRoots?: Set<string>
-): Map<string, Record<string, string>> {
-  const out = new Map<string, Record<string, string>>()
+): Map<string, StyleMap> {
+  const out = new Map<string, StyleMap>()
   for (const [id, style] of styles.entries()) {
     let layout = layoutOnly(style)
     if (svgRoots?.has(id)) {
@@ -131,12 +123,12 @@ export function buildLayoutStyles(
   return out
 }
 
-export function styleToClassNames(style: Record<string, string>, config: CodegenConfig): string[] {
+export function styleToClassNames(style: StyleMap, config: CodegenConfig): string[] {
   const normalizedStyle = normalizeStyleValues(style, config)
   return cssToClassNames(normalizedStyle)
 }
 
-function stripSvgLayout(style: Record<string, string>): Record<string, string> {
+function stripSvgLayout(style: StyleMap): StyleMap {
   if (
     !style.width &&
     !style.height &&
@@ -146,7 +138,7 @@ function stripSvgLayout(style: Record<string, string>): Record<string, string> {
   ) {
     return style
   }
-  const cleaned: Record<string, string> = {}
+  const cleaned: StyleMap = {}
   for (const [key, value] of Object.entries(style)) {
     if (
       key === 'width' ||

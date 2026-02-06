@@ -30,7 +30,8 @@ watch(validity, (message) => {
 })
 
 function handleChange(e: Event) {
-  emit('change', (e.target as HTMLInputElement).checked)
+  const target = e.target as HTMLInputElement
+  emit('change', target.checked)
 }
 
 async function handleUpdate() {

@@ -31,7 +31,8 @@ function handleClick() {
 }
 
 function handleKeyDown(e: KeyboardEvent) {
-  if ((e.target as Element).classList.contains('focus-target')) {
+  const target = e.target as Element | null
+  if (target?.classList.contains('focus-target')) {
     // command + A or other shortcut that changes selection
     syncSelection()
   }

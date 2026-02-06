@@ -1,12 +1,19 @@
 export default defineUnlistedScript(async () => {
-  const { dataset } = document.currentScript as HTMLScriptElement
+  const currentScript = document.currentScript
+  if (!(currentScript instanceof HTMLScriptElement)) {
+    console.error('Failed to resolve current script element.')
+    return
+  }
+
+  const { dataset } = currentScript
 
   if (!dataset.entry) {
     console.error('No entry specified for UI script.')
     return
   }
 
-  const content = await fetch(dataset.entry).then((res) => res.text())
+  const response = await fetch(dataset.entry)
+  const content = await response.text()
   const script = document.createElement('script')
 
   script.textContent = `${content}\n//# sourceURL=${location}\n`
