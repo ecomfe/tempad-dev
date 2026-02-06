@@ -1,20 +1,18 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 type Prune<T> = T extends undefined
   ? never
-  : T extends any[]
+  : T extends readonly unknown[]
     ? PruneArray<T>
     : T extends object
       ? PruneObject<T>
       : T
 
-type PruneArray<T extends any[]> = {
+type PruneArray<T extends readonly unknown[]> = {
   [K in keyof T]: PruneArrayItem<T[K]>
 }
 
 type PruneArrayItem<Item> = Item extends undefined
   ? Item
-  : Item extends any[]
+  : Item extends readonly unknown[]
     ? PruneArray<Item>
     : Item extends object
       ? PruneObjectInArray<Item>
@@ -38,36 +36,40 @@ type PruneObject<T extends object> = {
     : never
   : never
 
-export function prune<T extends object>(obj: T): Prune<T> extends never ? undefined : Prune<T> {
-  return _prune(obj, false) as any
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function _prune(value: any, insideArray: boolean): any {
-  if (value === null || typeof value !== 'object') {
+export function prune<T extends object>(obj: T): Prune<T> extends never ? undefined : Prune<T> {
+  return pruneValue(obj, false) as Prune<T> extends never ? undefined : Prune<T>
+}
+
+function pruneValue(value: unknown, insideArray: boolean): unknown {
+  if (!isPlainObject(value) && !Array.isArray(value)) {
     return value
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => _prune(item, true))
+    return value.map((item) => pruneValue(item, true))
   }
 
-  const result: Record<string, any> = {}
-  for (const [k, v] of Object.entries(value)) {
-    if (v === undefined) continue
+  const result: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (item === undefined) continue
 
-    const pruned = _prune(v, false)
-
+    const pruned = pruneValue(item, false)
     if (pruned === undefined) continue
 
-    if (typeof pruned === 'object' && !Array.isArray(pruned) && Object.keys(pruned).length === 0) {
+    if (isPlainObject(pruned) && Object.keys(pruned).length === 0) {
       continue
     }
 
-    result[k] = pruned
+    result[key] = pruned
   }
 
   if (Object.keys(result).length === 0) {
     return insideArray ? {} : undefined
   }
+
   return result
 }

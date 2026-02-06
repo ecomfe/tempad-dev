@@ -1,22 +1,24 @@
-let id = 0
-
 export type RequestMessage<T = unknown> = {
   id: number
   payload: T
 }
 
-export type ResponseMessage<T = unknown> = {
-  id: number
-  payload?: T
-  error?: unknown
-}
+export type ResponseMessage<T = unknown> =
+  | {
+      id: number
+      payload: T
+      error?: undefined
+    }
+  | {
+      id: number
+      payload?: undefined
+      error: unknown
+    }
 
 type PendingRequest<T = unknown> = {
   resolve: (result: T) => void
   reject: (reason?: unknown) => void
 }
-
-const pending = new Map<number, PendingRequest>()
 
 type WorkerClass = {
   // Bundler-provided worker classes expose a zero-arg constructor
@@ -33,16 +35,20 @@ export function createWorkerRequester<T, U>(Worker: WorkerClass) {
   }
 
   const worker = new Worker()
+  let nextId = 0
+  const pending = new Map<number, PendingRequest<U>>()
 
   worker.onmessage = ({ data }: MessageEvent<ResponseMessage<U>>) => {
-    const { id, payload, error } = data
+    const { id } = data
 
     const request = pending.get(id)
     if (request) {
-      if (error) {
-        request.reject(error)
+      if ('error' in data) {
+        request.reject(data.error)
+      } else if ('payload' in data) {
+        request.resolve(data.payload)
       } else {
-        request.resolve(payload)
+        request.reject(new Error('Worker response missing payload.'))
       }
       pending.delete(id)
     }
@@ -50,14 +56,16 @@ export function createWorkerRequester<T, U>(Worker: WorkerClass) {
 
   const request: WorkerRequester<T, U> = function (payload: T): Promise<U> {
     return new Promise((resolve, reject) => {
-      pending.set(id, {
-        resolve: (result) => resolve(result as U),
+      const requestId = nextId
+      nextId += 1
+
+      pending.set(requestId, {
+        resolve,
         reject
       })
 
-      const message: RequestMessage<T> = { id, payload }
+      const message: RequestMessage<T> = { id: requestId, payload }
       worker.postMessage(message)
-      id++
     })
   }
 

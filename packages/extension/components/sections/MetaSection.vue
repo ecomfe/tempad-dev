@@ -38,8 +38,10 @@ const libDisplayName = computed(() => selectedTemPadComponent.value?.libDisplayN
 const libName = computed(() => selectedTemPadComponent.value?.libName)
 
 function scrollIntoView() {
-  // if we have window.figma, selection.value is certainly SceneNode[]
-  window?.figma.viewport.scrollAndZoomIntoView((selection.value as SceneNode[]) || [])
+  if (!window?.figma || selection.value.length === 0) {
+    return
+  }
+  window.figma.viewport.scrollAndZoomIntoView(selection.value)
 }
 </script>
 

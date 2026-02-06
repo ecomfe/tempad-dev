@@ -7,8 +7,12 @@ type BaseCommandConfig = {
   args: string[]
 }
 
-const stdioConfig = {
-  type: 'stdio' as const,
+type StdioCommandConfig = BaseCommandConfig & {
+  type: 'stdio'
+}
+
+const stdioConfig: StdioCommandConfig = {
+  type: 'stdio',
   command: SERVER_COMMAND,
   args: SERVER_ARGS
 }
@@ -18,6 +22,11 @@ const cursorConfig: BaseCommandConfig = {
   args: SERVER_ARGS
 }
 
+const encodedServerName = encodeURIComponent(SERVER_NAME)
+const cursorConfigJson = JSON.stringify(cursorConfig)
+const cursorConfigBase64 = toBase64(cursorConfigJson)
+const encodedCursorConfigBase64 = encodeURIComponent(cursorConfigBase64)
+
 function toBase64(input: string): string {
   if (typeof btoa === 'function') {
     return btoa(input)
@@ -25,34 +34,27 @@ function toBase64(input: string): string {
   throw new Error('Base64 encoding not supported in this environment.')
 }
 
-const vscodeDeepLink = (() => {
+function buildVscodeDeepLink(): string {
   const payload = {
     name: SERVER_NAME,
     ...stdioConfig
   }
-  const encoded = encodeURIComponent(JSON.stringify(payload))
-  return `vscode:mcp/install?${encoded}`
-})()
+  return `vscode:mcp/install?${encodeURIComponent(JSON.stringify(payload))}`
+}
 
-const cursorDeepLink = (() => {
-  const name = encodeURIComponent(SERVER_NAME)
-  const configBase64 = toBase64(JSON.stringify(cursorConfig))
-  return `cursor://anysphere.cursor-deeplink/mcp/install?name=${name}&config=${configBase64}`
-})()
+function buildCursorDeepLink(): string {
+  return `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodedServerName}&config=${cursorConfigBase64}`
+}
 
-const traeDeepLink = (() => {
+function buildTraeDeepLink(protocol: 'trae' | 'trae-cn'): string {
   const type = 'stdio'
-  const name = encodeURIComponent(SERVER_NAME)
-  const configBase64 = encodeURIComponent(toBase64(JSON.stringify(cursorConfig)))
-  return `trae-cn://trae.ai-ide/mcp-import?type=${type}&name=${name}&config=${configBase64}`
-})()
+  return `${protocol}://trae.ai-ide/mcp-import?type=${type}&name=${encodedServerName}&config=${encodedCursorConfigBase64}`
+}
 
-const traeDeepLinkIntl = (() => {
-  const type = 'stdio'
-  const name = encodeURIComponent(SERVER_NAME)
-  const configBase64 = encodeURIComponent(toBase64(JSON.stringify(cursorConfig)))
-  return `trae://trae.ai-ide/mcp-import?type=${type}&name=${name}&config=${configBase64}`
-})()
+const vscodeDeepLink = buildVscodeDeepLink()
+const cursorDeepLink = buildCursorDeepLink()
+const traeDeepLink = buildTraeDeepLink('trae-cn')
+const traeDeepLinkIntl = buildTraeDeepLink('trae')
 
 const windsurfConfigSnippet = JSON.stringify(
   {
@@ -82,22 +84,22 @@ export type McpClientConfig = {
   copyKind?: 'command' | 'config'
 }
 
-export const MCP_CLIENTS: McpClientConfig[] = [
-  {
+export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
+  vscode: {
     id: 'vscode',
     name: 'VS Code',
     brandColor: '#0098ff',
     supportsDeepLink: true,
     deepLink: vscodeDeepLink
   },
-  {
+  cursor: {
     id: 'cursor',
     name: 'Cursor',
     brandColor: ['#000', '#fff'],
     supportsDeepLink: true,
     deepLink: cursorDeepLink
   },
-  {
+  windsurf: {
     id: 'windsurf',
     name: 'Windsurf',
     brandColor: ['#0B100F', '#F0F3F2'],
@@ -105,7 +107,7 @@ export const MCP_CLIENTS: McpClientConfig[] = [
     copyText: windsurfConfigSnippet,
     copyKind: 'config'
   },
-  {
+  claude: {
     id: 'claude',
     name: 'Claude Code',
     brandColor: '#D97757',
@@ -113,7 +115,7 @@ export const MCP_CLIENTS: McpClientConfig[] = [
     copyText: claudeCliCommand,
     copyKind: 'command'
   },
-  {
+  codex: {
     id: 'codex',
     name: 'Codex CLI',
     brandColor: ['#0d0d0d', '#fff'],
@@ -121,7 +123,7 @@ export const MCP_CLIENTS: McpClientConfig[] = [
     copyText: codexCliCommand,
     copyKind: 'command'
   },
-  {
+  trae: {
     id: 'trae',
     name: 'TRAE',
     brandColor: ['#0fdc78', '#32f08c'],
@@ -129,15 +131,16 @@ export const MCP_CLIENTS: McpClientConfig[] = [
     deepLink: traeDeepLinkIntl,
     fallbackDeepLink: traeDeepLink
   }
-]
+}
 
-export const MCP_CLIENTS_BY_ID = MCP_CLIENTS.reduce<Record<McpClientId, McpClientConfig>>(
-  (acc, client) => {
-    acc[client.id] = client
-    return acc
-  },
-  {} as Record<McpClientId, McpClientConfig>
-)
+export const MCP_CLIENTS: McpClientConfig[] = [
+  MCP_CLIENTS_BY_ID.vscode,
+  MCP_CLIENTS_BY_ID.cursor,
+  MCP_CLIENTS_BY_ID.windsurf,
+  MCP_CLIENTS_BY_ID.claude,
+  MCP_CLIENTS_BY_ID.codex,
+  MCP_CLIENTS_BY_ID.trae
+]
 
 export const MCP_SERVER = {
   name: SERVER_NAME,

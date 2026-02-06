@@ -2,22 +2,41 @@
  * Gradient and color utilities for Figma styles
  */
 
+import type { PaintList } from './types'
+
 import { formatHexAlpha } from './color'
+
+function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {
+  return !!paint && paint.visible !== false
+}
+
+function isGradientPaint(paint: Paint): paint is GradientPaint {
+  return 'gradientStops' in paint && Array.isArray(paint.gradientStops)
+}
+
+function isSolidPaint(paint: Paint): paint is SolidPaint {
+  return paint.type === 'SOLID'
+}
+
+type GradientPaintWithHandles = GradientPaint & {
+  gradientHandlePositions: ReadonlyArray<Vector>
+}
+
+function hasGradientHandlePositions(paint: GradientPaint): paint is GradientPaintWithHandles {
+  return 'gradientHandlePositions' in paint && Array.isArray(paint.gradientHandlePositions)
+}
 
 /**
  * Resolves gradient from paint array
  * Returns CSS gradient string or null
  */
-export function resolveGradientFromPaints(
-  paints?: Paint[] | ReadonlyArray<Paint> | null
-): string | null {
+export function resolveGradientFromPaints(paints?: PaintList): string | null {
   if (!paints || !Array.isArray(paints)) return null
 
   // Find the first visible gradient paint
-  const gradientPaint = paints.find((paint) => {
-    if (!paint || paint.visible === false) return false
-    return 'gradientStops' in paint && Array.isArray(paint.gradientStops)
-  }) as GradientPaint | undefined
+  const gradientPaint = paints.find(
+    (paint): paint is GradientPaint => isVisiblePaint(paint) && isGradientPaint(paint)
+  )
 
   if (!gradientPaint) return null
 
@@ -48,16 +67,13 @@ export function resolveGradientFromPaints(
  * Resolves solid color from paint array
  * Returns hex color string or null
  */
-export function resolveSolidFromPaints(
-  paints?: Paint[] | ReadonlyArray<Paint> | null
-): string | null {
+export function resolveSolidFromPaints(paints?: PaintList): string | null {
   if (!paints || !Array.isArray(paints)) return null
 
   // Find the first visible solid paint
-  const solidPaint = paints.find((paint) => {
-    if (!paint || paint.visible === false) return false
-    return paint.type === 'SOLID'
-  }) as SolidPaint | undefined
+  const solidPaint = paints.find(
+    (paint): paint is SolidPaint => isVisiblePaint(paint) && isSolidPaint(paint)
+  )
 
   if (!solidPaint || !solidPaint.color) return null
 
@@ -112,14 +128,9 @@ function formatGradientStopColor(stop: ColorStop, fillOpacity: number): string {
  */
 function resolveLinearGradientAngle(paint: GradientPaint): number | null {
   // First try gradient handle positions (more accurate)
-  const handles =
-    'gradientHandlePositions' in paint
-      ? (paint as { gradientHandlePositions?: ReadonlyArray<Vector> }).gradientHandlePositions
-      : undefined
-
-  if (handles && handles.length >= 2) {
-    const start = handles[0]
-    const end = handles[1]
+  if (hasGradientHandlePositions(paint) && paint.gradientHandlePositions.length >= 2) {
+    const start = paint.gradientHandlePositions[0]
+    const end = paint.gradientHandlePositions[1]
     if (start && end) {
       const dx = end.x - start.x
       const dy = end.y - start.y

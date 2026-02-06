@@ -2,6 +2,8 @@
  * Stroke-specific utilities for Figma styles
  */
 
+import type { PaintList, ResolvedPaintStyle } from './types'
+
 import { resolveGradientFromPaints, resolveSolidFromPaints } from './gradient'
 
 /**
@@ -10,10 +12,7 @@ import { resolveGradientFromPaints, resolveSolidFromPaints } from './gradient'
  * @param paints Array of paint objects from strokes or stroke style
  * @returns Object with solidColor or gradient, or null
  */
-export function resolveStrokeFromPaints(paints?: Paint[] | ReadonlyArray<Paint> | null): {
-  solidColor?: string
-  gradient?: string
-} | null {
+export function resolveStrokeFromPaints(paints?: PaintList): ResolvedPaintStyle | null {
   if (!paints || !Array.isArray(paints)) return null
 
   // Try gradient first (as it's more complex)
@@ -37,7 +36,7 @@ export function resolveStrokeFromPaints(paints?: Paint[] | ReadonlyArray<Paint> 
  */
 export function applyStrokeToCSS(
   styles: Record<string, string>,
-  resolved: { solidColor?: string; gradient?: string } | null
+  resolved: ResolvedPaintStyle | null
 ): Record<string, string> {
   if (!resolved) return styles
 

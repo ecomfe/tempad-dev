@@ -1,23 +1,28 @@
 import {
   canonicalizeColor,
   formatHexAlpha,
+  normalizeFigmaVarName,
   parseBackgroundShorthand,
   preprocessCssValue,
+  splitByTopLevelComma,
   stripFallback,
-  normalizeFigmaVarName,
   toFigmaVarExpr
 } from '@/utils/css'
+
+import type { StyleMap } from './types'
 
 import { getVariableRawName } from '../../token/indexer'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
+const GRADIENT_FN_RE = /(linear-gradient|radial-gradient|conic-gradient)\s*\(/i
 
-export function cleanFigmaSpecificStyles(
-  style: Record<string, string>,
-  node?: SceneNode
-): Record<string, string> {
+type PaintList = Paint[] | ReadonlyArray<Paint> | null | undefined
+
+export function cleanFigmaSpecificStyles(style: StyleMap, node?: SceneNode): StyleMap {
   if (!node) return style
+
   const processed = style
+  const fills = getNodeFills(node)
   const solidStyleColor = resolveSolidFillStyle(node)
   const gradientStyle = resolveGradientFillStyle(node) ?? resolveGradientFillFromNode(node)
 
@@ -39,44 +44,31 @@ export function cleanFigmaSpecificStyles(
     if (isSolidBackground(normalized)) {
       processed['background-color'] = solidStyleColor ?? normalized
       delete processed.background
-    } else {
-      if (BG_URL_LIGHTGRAY_RE.test(bgValue) && 'fills' in node && Array.isArray(node.fills)) {
-        const parsed = parseBackgroundShorthand(bgValue)
+    } else if (BG_URL_LIGHTGRAY_RE.test(bgValue) && fills) {
+      const parsed = parseBackgroundShorthand(bgValue)
 
-        if (parsed.image) processed['background-image'] = parsed.image
-        if (parsed.size) processed['background-size'] = parsed.size
-        if (parsed.repeat) processed['background-repeat'] = parsed.repeat
-        if (parsed.position) processed['background-position'] = parsed.position
+      if (parsed.image) processed['background-image'] = parsed.image
+      if (parsed.size) processed['background-size'] = parsed.size
+      if (parsed.repeat) processed['background-repeat'] = parsed.repeat
+      if (parsed.position) processed['background-position'] = parsed.position
 
-        const solidFill = node.fills.find(
-          (f) => f.type === 'SOLID' && f.visible !== false
-        ) as SolidPaint
-
-        if (solidFill && solidFill.color) {
-          processed['background-color'] = formatHexAlpha(solidFill.color, solidFill.opacity)
-        }
-
-        delete processed.background
+      const solidFill = findVisibleSolidPaint(fills)
+      if (solidFill?.color) {
+        processed['background-color'] = formatHexAlpha(solidFill.color, solidFill.opacity)
       }
+
+      delete processed.background
     }
   }
 
-  if (
-    node.type !== 'TEXT' &&
-    !processed.background &&
-    !processed['background-color'] &&
-    'fills' in node &&
-    Array.isArray(node.fills)
-  ) {
+  if (node.type !== 'TEXT' && !processed.background && !processed['background-color'] && fills) {
     if (gradientStyle) {
       processed.background = gradientStyle
     } else if (solidStyleColor) {
       processed['background-color'] = solidStyleColor
     } else {
-      const solidFill = node.fills.find(
-        (f) => f.type === 'SOLID' && f.visible !== false
-      ) as SolidPaint
-      if (solidFill && solidFill.color) {
+      const solidFill = findVisibleSolidPaint(fills)
+      if (solidFill?.color) {
         processed['background-color'] = formatHexAlpha(solidFill.color, solidFill.opacity)
       }
     }
@@ -85,22 +77,68 @@ export function cleanFigmaSpecificStyles(
   return processed
 }
 
-function resolveSolidFillStyle(node: SceneNode): string | null {
+function getFillStyleId(node: SceneNode): string | null {
   if (!('fillStyleId' in node)) return null
   const styleId = node.fillStyleId
-  if (!styleId || typeof styleId !== 'string') return null
+  return typeof styleId === 'string' && styleId.length > 0 ? styleId : null
+}
+
+function getNodeFills(node: SceneNode): ReadonlyArray<Paint> | null {
+  if ('fills' in node && Array.isArray(node.fills)) {
+    return node.fills
+  }
+  return null
+}
+
+function isPaintStyle(style: BaseStyle | null): style is PaintStyle {
+  return !!style && 'paints' in style && Array.isArray(style.paints)
+}
+
+function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {
+  return !!paint && paint.visible !== false
+}
+
+function isSolidPaint(paint: Paint): paint is SolidPaint {
+  return paint.type === 'SOLID'
+}
+
+function isGradientPaint(paint: Paint): paint is GradientPaint {
+  return 'gradientStops' in paint && Array.isArray(paint.gradientStops)
+}
+
+function isVisibleLinearGradientPaint(paint: Paint): paint is GradientPaint {
+  return isVisiblePaint(paint) && paint.type === 'GRADIENT_LINEAR' && isGradientPaint(paint)
+}
+
+type GradientPaintWithHandles = GradientPaint & {
+  gradientHandlePositions: ReadonlyArray<Vector>
+}
+
+function hasGradientHandlePositions(paint: GradientPaint): paint is GradientPaintWithHandles {
+  return 'gradientHandlePositions' in paint && Array.isArray(paint.gradientHandlePositions)
+}
+
+function findVisibleSolidPaint(paints: ReadonlyArray<Paint>): SolidPaint | null {
+  const solid = paints.find(
+    (paint): paint is SolidPaint => isVisiblePaint(paint) && isSolidPaint(paint)
+  )
+  return solid ?? null
+}
+
+function resolveSolidFillStyle(node: SceneNode): string | null {
+  const styleId = getFillStyleId(node)
+  if (!styleId) return null
 
   try {
-    const style = figma.getStyleById(styleId) as PaintStyle | null
-    if (!style || !Array.isArray(style.paints)) return null
+    const style = figma.getStyleById(styleId)
+    if (!isPaintStyle(style)) return null
 
-    const visible = style.paints.filter((paint) => paint && paint.visible !== false)
+    const visible = style.paints.filter(isVisiblePaint)
     if (visible.length !== 1) return null
     const paint = visible[0]
-    if (!paint || paint.type !== 'SOLID') return null
+    if (!isSolidPaint(paint) || !paint.color) return null
 
-    const solid = paint as SolidPaint
-    const bound = solid.boundVariables?.color
+    const bound = paint.boundVariables?.color
     if (bound && typeof bound === 'object' && 'id' in bound && bound.id) {
       try {
         const variable = figma.variables.getVariableById(bound.id)
@@ -109,39 +147,40 @@ function resolveSolidFillStyle(node: SceneNode): string | null {
         // noop
       }
     }
-    if (!solid.color) return null
 
-    return formatHexAlpha(solid.color, solid.opacity ?? 1)
+    return formatHexAlpha(paint.color, paint.opacity ?? 1)
   } catch {
     return null
   }
 }
 
 function resolveGradientFillStyle(node: SceneNode): string | null {
-  if (!('fillStyleId' in node)) return null
-  const styleId = node.fillStyleId
-  if (!styleId || typeof styleId !== 'string') return null
+  const styleId = getFillStyleId(node)
+  if (!styleId) return null
 
   try {
-    const style = figma.getStyleById(styleId) as PaintStyle | null
-    return resolveGradientFromPaints(style?.paints)
+    const style = figma.getStyleById(styleId)
+    if (!isPaintStyle(style)) return null
+    return resolveGradientFromPaints(style.paints)
   } catch {
     return null
   }
 }
 
 function resolveGradientFillFromNode(node: SceneNode): string | null {
-  if (!('fills' in node) || !Array.isArray(node.fills)) return null
-  return resolveGradientFromPaints(node.fills as Paint[])
+  const fills = getNodeFills(node)
+  if (!fills) return null
+  return resolveGradientFromPaints(fills)
 }
 
-function resolveGradientFromPaints(paints?: Paint[] | ReadonlyArray<Paint> | null): string | null {
+function resolveGradientFromPaints(paints?: PaintList): string | null {
   if (!paints || !Array.isArray(paints)) return null
-  const visible = paints.filter((paint) => paint && paint.visible !== false)
+  const visible = paints.filter(isVisiblePaint)
   if (visible.length !== 1) return null
+
   const paint = visible[0]
-  if (!paint || !('gradientStops' in paint) || !Array.isArray(paint.gradientStops)) return null
-  const gradientPaint = paint as GradientPaint
+  if (!isGradientPaint(paint)) return null
+  const gradientPaint = paint
 
   const fillOpacity = typeof gradientPaint.opacity === 'number' ? gradientPaint.opacity : 1
   const stops = gradientPaint.gradientStops.map((stop) => {
@@ -167,14 +206,13 @@ function resolveGradientFromPaints(paints?: Paint[] | ReadonlyArray<Paint> | nul
 }
 
 function resolveGradientWithOpacity(value: string, node: SceneNode): string | null {
-  if (!value) return null
-  if (!/gradient\(/i.test(value)) return null
-  if (!('fills' in node) || !Array.isArray(node.fills)) return null
+  if (!value || !/gradient\(/i.test(value)) return null
 
-  const fill = node.fills.find((f) => f && f.visible !== false && f.type === 'GRADIENT_LINEAR') as
-    | GradientPaint
-    | undefined
-  if (!fill || !Array.isArray(fill.gradientStops)) return null
+  const fills = getNodeFills(node)
+  if (!fills) return null
+
+  const fill = fills.find(isVisibleLinearGradientPaint)
+  if (!fill) return null
 
   const fillOpacity = typeof fill.opacity === 'number' ? fill.opacity : 1
   const hasStopAlpha = fill.gradientStops.some((stop) => (stop.color?.a ?? 1) < 1)
@@ -201,8 +239,9 @@ function resolveGradientWithOpacity(value: string, node: SceneNode): string | nu
 }
 
 function parseGradient(value: string): { fn: string; args: string[] } | null {
-  const match = value.match(/(linear-gradient|radial-gradient|conic-gradient)\s*\(/i)
+  const match = value.match(GRADIENT_FN_RE)
   if (!match || match.index == null) return null
+
   const fn = match[1]
   const start = value.indexOf('(', match.index)
   if (start < 0) return null
@@ -223,50 +262,7 @@ function parseGradient(value: string): { fn: string; args: string[] } | null {
   if (end < 0) return null
 
   const inner = value.slice(start + 1, end)
-  return { fn, args: splitTopLevel(inner) }
-}
-
-function splitTopLevel(input: string): string[] {
-  const out: string[] = []
-  let depth = 0
-  let quote: '"' | "'" | null = null
-  let buf = ''
-
-  for (let i = 0; i < input.length; i += 1) {
-    const ch = input[i]
-
-    if (quote) {
-      if (ch === '\\') {
-        buf += ch
-        i += 1
-        if (i < input.length) buf += input[i]
-        continue
-      }
-      if (ch === quote) quote = null
-      buf += ch
-      continue
-    }
-
-    if (ch === '"' || ch === "'") {
-      quote = ch
-      buf += ch
-      continue
-    }
-
-    if (ch === '(') depth += 1
-    if (ch === ')') depth = Math.max(0, depth - 1)
-
-    if (ch === ',' && depth === 0) {
-      out.push(buf.trim())
-      buf = ''
-      continue
-    }
-
-    buf += ch
-  }
-
-  if (buf.trim()) out.push(buf.trim())
-  return out
+  return { fn, args: splitByTopLevelComma(inner) }
 }
 
 function formatPercent(pos: number): string {
@@ -280,8 +276,10 @@ function formatGradientStopColor(stop: ColorStop, fillOpacity: number): string {
 
   const bound = stop.boundVariables?.color
   if (bound && typeof bound === 'object' && 'id' in bound && bound.id) {
-    const v = figma.variables.getVariableById(bound.id)
-    const expr = v ? toFigmaVarExpr(getVariableRawName(v)) : `var(${normalizeFigmaVarName('')})`
+    const variable = figma.variables.getVariableById(bound.id)
+    const expr = variable
+      ? toFigmaVarExpr(getVariableRawName(variable))
+      : `var(${normalizeFigmaVarName('')})`
     if (alpha >= 0.99) return expr
     const pct = Math.round(alpha * 10000) / 100
     return `color-mix(in srgb, ${expr} ${pct}%, transparent)`
@@ -291,13 +289,9 @@ function formatGradientStopColor(stop: ColorStop, fillOpacity: number): string {
 }
 
 function resolveLinearGradientAngle(paint: GradientPaint): number | null {
-  const handles =
-    'gradientHandlePositions' in paint
-      ? (paint as { gradientHandlePositions?: ReadonlyArray<Vector> }).gradientHandlePositions
-      : undefined
-  if (handles && handles.length >= 2) {
-    const start = handles[0]
-    const end = handles[1]
+  if (hasGradientHandlePositions(paint) && paint.gradientHandlePositions.length >= 2) {
+    const start = paint.gradientHandlePositions[0]
+    const end = paint.gradientHandlePositions[1]
     if (start && end) {
       const dx = end.x - start.x
       const dy = end.y - start.y
@@ -322,6 +316,7 @@ function resolveLinearGradientAngle(paint: GradientPaint): number | null {
 function normalizeGradientAngle(dx: number, dy: number): number | null {
   if (!Number.isFinite(dx) || !Number.isFinite(dy)) return null
   if (dx === 0 && dy === 0) return null
+
   let angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90
   angle += 180
   angle = ((angle % 360) + 360) % 360
@@ -330,6 +325,7 @@ function normalizeGradientAngle(dx: number, dy: number): number | null {
 
 function isSolidBackground(value: string): boolean {
   if (!value) return false
+
   const trimmed = value.trim()
   if (!trimmed) return false
   if (/var\(\s*--[A-Za-z0-9_-]+\s*\)/i.test(trimmed)) return true

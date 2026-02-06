@@ -5,87 +5,165 @@ type TemPadComponent = {
   name?: string
   libName?: string
   libDisplayName?: string
-  link: string
+  link: string | null
 }
 
 type TemPadSource = {
-  name: string
-  libName: string
+  name?: string
+  libName?: string
 }
 
 const NS = 'tempad.baidu.com'
-const LIB_DISPLAY_NAMES = {
+
+const LIB_DISPLAY_NAMES: Record<string, string> = {
   '@baidu/one-ui': 'ONE UI',
   '@baidu/one-ui-pro': 'ONE UI Pro',
   '@baidu/one-charts': 'ONE Charts',
   '@baidu/light-ai-react': 'Light AI',
   'dls-icons-react': 'DLS Icons',
   'dls-illustrations-react': 'DLS Illus.'
-} as Record<string, string>
+}
+
+type UnknownRecord = Record<string, unknown>
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return value !== null && typeof value === 'object'
+}
+
+function parseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+function parseTemPadSource(raw: string): TemPadSource | null {
+  const parsed = parseJson(raw)
+  if (!isRecord(parsed)) return null
+
+  const source: TemPadSource = {}
+  if ('name' in parsed && typeof parsed.name === 'string') {
+    source.name = parsed.name
+  }
+  if ('libName' in parsed && typeof parsed.libName === 'string') {
+    source.libName = parsed.libName
+  }
+
+  return source
+}
+
+function toRecord(value: unknown): UnknownRecord | null {
+  return isRecord(value) ? value : null
+}
+
+function toString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function readIconMeta(tree: unknown): { libName?: string; name?: string } | null {
+  const treeRecord = toRecord(tree)
+  if (!treeRecord) return null
+
+  const slots = toRecord(treeRecord.slots)
+  const defaultSlot = toRecord(slots?.default)
+  const children = Array.isArray(defaultSlot?.children) ? defaultSlot.children : null
+  if (!children || children.length === 0) return null
+
+  const iconNode = toRecord(children[0])
+  const props = toRecord(iconNode?.props)
+  if (!props) return null
+
+  const libName = toString(toRecord(props.libName)?.v)
+  const rawName = toRecord(props.name)?.v
+  const nameFromObject = toString(toRecord(rawName)?.name)
+  const name = nameFromObject ?? toString(rawName)
+
+  if (!libName && !name) return null
+  return {
+    ...(libName ? { libName } : {}),
+    ...(name ? { name } : {})
+  }
+}
+
+function findTextChild(node: FrameNode, name: string): TextNode | null {
+  const child = node.findChild((candidate) => candidate.type === 'TEXT' && candidate.name === name)
+  return child?.type === 'TEXT' ? child : null
+}
+
+function getHyperlinkValue(target: unknown): string | null {
+  if (!isRecord(target)) return null
+  return typeof target.value === 'string' ? target.value : null
+}
 
 export function getTemPadComponent(node: SceneNode): TemPadComponent | null {
-  if (!('type' in node) || node.type !== 'FRAME' || !node.name.startsWith('🧩')) {
+  if (node.type !== 'FRAME' || !node.name.startsWith('🧩')) {
     return null
   }
 
-  const tempadData = JSON.parse(
-    node.getSharedPluginData(NS, 'source') || 'null'
-  ) as TemPadSource | null
+  const tempadData = parseTemPadSource(node.getSharedPluginData(NS, 'source') || 'null')
 
   if (
     tempadData?.libName === '@baidu/one-ui' &&
-    (tempadData?.name === 'Icon' || tempadData?.name === 'Illustration')
+    (tempadData.name === 'Icon' || tempadData.name === 'Illustration')
   ) {
-    const tree = JSON.parse(node.getSharedPluginData(NS, 'tree') || 'null')
+    const tree = parseJson(node.getSharedPluginData(NS, 'tree') || 'null')
     try {
-      const iconNode = tree.slots.default.children[0]
-      tempadData.libName =
-        tempadData.name === 'Illustration' ? 'dls-illustrations-react' : iconNode.props.libName.v
-      tempadData.name = iconNode.props.name.v?.name || iconNode.props.name.v
-    } catch (e) {
-      logger.error(e)
+      const iconMeta = readIconMeta(tree)
+      if (iconMeta) {
+        if (tempadData.name === 'Illustration') {
+          tempadData.libName = 'dls-illustrations-react'
+        } else if (iconMeta.libName) {
+          tempadData.libName = iconMeta.libName
+        }
+        if (iconMeta.name) {
+          tempadData.name = iconMeta.name
+        }
+      }
+    } catch (error) {
+      logger.error(error)
     }
   } else if (tempadData?.name === 'Tem.RichText') {
     tempadData.name = 'Typography'
     tempadData.libName = '@baidu/light-ai-react'
   }
 
-  const libDisplayName = tempadData?.libName ? LIB_DISPLAY_NAMES[tempadData.libName] : null
+  const libDisplayName =
+    tempadData?.libName && tempadData.libName in LIB_DISPLAY_NAMES
+      ? LIB_DISPLAY_NAMES[tempadData.libName]
+      : null
 
   let code = node.getSharedPluginData(NS, 'code') || null
   let link = node.getSharedPluginData(NS, 'link') || null
 
   if (!code) {
-    code = (node.findChild((n) => n.type === 'TEXT' && n.name === '代码') as TextNode)?.characters
+    code = findTextChild(node, '代码')?.characters ?? null
   }
   if (!link) {
-    link = (
-      (node.findChild((n) => n.type === 'TEXT' && n.name === '🔗') as TextNode)
-        ?.hyperlink as HyperlinkTarget
-    )?.value
+    link = getHyperlinkValue(findTextChild(node, '🔗')?.hyperlink)
   }
 
   if (!code) {
     return null
   }
 
-  code = extractJSX(code)
-
   return {
-    code,
+    code: extractJSX(code),
     link,
     name: node.name,
     ...tempadData,
-    ...(libDisplayName ? { libDisplayName } : null)
+    ...(libDisplayName ? { libDisplayName } : {})
   }
 }
 
 const COMPONENT_RE = /<>[\s\n]+<Stack[^>]*>[\s\n]+?(\s*)([\s\S]+?)[\s\n]+<\/Stack>[\s\n]+<\/>/
 const COMPONENT_PROVIDER_RE =
   /<ProviderConfig[^>]*>[\s\n]+<Stack[^>]*>[\s\n]+?(\s*)([\s\S]+?)[\s\n]+<\/Stack>[\s\n]+<\/ProviderConfig>/
+
 export function extractJSX(code: string) {
   const [, indent = '', jsx = ''] =
     code.match(COMPONENT_RE) || code.match(COMPONENT_PROVIDER_RE) || []
+
   return jsx
     .split('\n')
     .map((line) => line.replace(new RegExp(`^${indent}`), ''))

@@ -10,36 +10,43 @@ const slots = defineSlots<{
   default?(): unknown
 }>()
 
+function resolveSectionHeight(el: HTMLElement): string {
+  const styles = getComputedStyle(el)
+  const paddingTop = parseInt(styles.getPropertyValue('--tp-section-padding-top'), 10)
+  const paddingBottom = parseInt(styles.getPropertyValue('--tp-section-padding-bottom'), 10)
+  return `${el.scrollHeight + paddingTop + paddingBottom}px`
+}
+
 function beforeEnter(el: Element) {
-  ;(el as HTMLElement).style.height = '0'
+  const section = el as HTMLElement
+  section.style.height = '0'
 }
 
 function enter(el: Element) {
-  const styles = getComputedStyle(el as HTMLElement)
-  const paddingTop = parseInt(styles.getPropertyValue('--tp-section-padding-top'), 10)
-  const paddingBottom = parseInt(styles.getPropertyValue('--tp-section-padding-bottom'), 10)
-
-  ;(el as HTMLElement).style.height = `${
-    (el as HTMLElement).scrollHeight + paddingTop + paddingBottom
-  }px`
+  const section = el as HTMLElement
+  section.style.height = resolveSectionHeight(section)
 }
 
 function afterEnter(el: Element) {
-  ;(el as HTMLElement).style.height = ''
+  const section = el as HTMLElement
+  section.style.height = ''
 }
 
 function beforeLeave(el: Element) {
-  ;(el as HTMLElement).style.height = `${(el as HTMLElement).scrollHeight}px`
+  const section = el as HTMLElement
+  section.style.height = `${section.scrollHeight}px`
 }
 
 function leave(el: Element) {
-  if ((el as HTMLElement).scrollHeight) {
-    ;(el as HTMLElement).style.height = '0'
+  const section = el as HTMLElement
+  if (section.scrollHeight) {
+    section.style.height = '0'
   }
 }
 
 function afterLeave(el: Element) {
-  ;(el as HTMLElement).style.height = ''
+  const section = el as HTMLElement
+  section.style.height = ''
 }
 </script>
 

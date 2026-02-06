@@ -1,5 +1,5 @@
 import rules from '@/public/rules/figma.json'
-import { RULES_URL } from '@/rewrite/shared'
+import { isRules, loadRules, RULES_URL } from '@/rewrite/shared'
 import { logger } from '@/utils/log'
 
 import type { Rules } from '../types/rewrite'
@@ -7,21 +7,24 @@ import type { Rules } from '../types/rewrite'
 const SYNC_ALARM = 'sync-rules'
 const SYNC_INTERVAL_MINUTES = 10
 
-async function fetchRules() {
+async function syncRules() {
   try {
     let newRules: Rules
 
     if (import.meta.env.DEV) {
-      newRules = rules as Rules
-      logger.log('Loaded local rules (dev).')
-    } else {
-      const res = await fetch(RULES_URL, { cache: 'no-store' })
-      if (!res.ok) {
-        logger.error('Failed to fetch rules:', res.statusText)
+      if (!isRules(rules)) {
+        logger.error('Bundled rewrite rules are invalid.')
         return
       }
-
-      newRules = (await res.json()) as Rules
+      newRules = rules
+      logger.log('Loaded local rules (dev).')
+    } else {
+      const remoteRules = await loadRules(RULES_URL, { cache: 'no-store' })
+      if (!remoteRules) {
+        logger.error('Failed to fetch rewrite rules.')
+        return
+      }
+      newRules = remoteRules
     }
 
     const oldIds = (await browser.declarativeNetRequest.getDynamicRules()).map(({ id }) => id)
@@ -41,14 +44,14 @@ async function fetchRules() {
 }
 
 export default defineBackground(() => {
-  browser.runtime.onInstalled.addListener(fetchRules)
+  browser.runtime.onInstalled.addListener(syncRules)
 
-  browser.runtime.onStartup.addListener(fetchRules)
+  browser.runtime.onStartup.addListener(syncRules)
 
   browser.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_INTERVAL_MINUTES })
   browser.alarms.onAlarm.addListener((a) => {
     if (a.name === SYNC_ALARM) {
-      fetchRules()
+      syncRules()
     }
   })
 })

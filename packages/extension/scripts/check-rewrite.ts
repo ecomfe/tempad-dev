@@ -1,13 +1,12 @@
 import { chromium } from 'playwright-chromium'
 
 import { GROUPS } from '@/rewrite/config'
-import { applyGroups } from '@/rewrite/shared'
+import { applyGroups, getRewriteTargetRegex, isRules } from '@/rewrite/shared'
 import { logger } from '@/utils/log'
 
 import rules from '../public/rules/figma.json'
 
-const redirectRule = rules.find((rule) => rule.action.type === 'redirect')
-const ASSETS_PATTERN = new RegExp(redirectRule?.condition?.regexFilter || /a^/)
+const ASSETS_PATTERN = (isRules(rules) && getRewriteTargetRegex(rules)) || /a^/
 const MAX_RETRIES = 3
 
 type RewriteGroup = (typeof GROUPS)[number]

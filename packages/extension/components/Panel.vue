@@ -50,7 +50,6 @@ function startResize(e: PointerEvent, direction: 'left' | 'right') {
   e.stopPropagation()
 
   const target = e.currentTarget as HTMLElement
-  if (!target) return
 
   target.setPointerCapture(e.pointerId)
 
