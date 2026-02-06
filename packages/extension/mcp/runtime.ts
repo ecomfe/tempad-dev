@@ -1,14 +1,15 @@
-import {
-  TEMPAD_MCP_ERROR_CODES,
-  type GetCodeParametersInput,
-  type GetCodeResult,
-  type GetScreenshotParametersInput,
-  type GetScreenshotResult,
-  type GetStructureParametersInput,
-  type GetStructureResult,
-  type GetTokenDefsParametersInput,
-  type GetTokenDefsResult
+import type {
+  GetCodeParametersInput,
+  GetCodeResult,
+  GetScreenshotParametersInput,
+  GetScreenshotResult,
+  GetStructureParametersInput,
+  GetStructureResult,
+  GetTokenDefsParametersInput,
+  GetTokenDefsResult
 } from '@tempad-dev/shared'
+
+import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 
 import { selection } from '@/ui/state'
 
@@ -79,6 +80,12 @@ export type MCPHandlers = {
   get_structure: (args?: GetStructureParametersInput) => Promise<GetStructureResult>
 }
 
+declare global {
+  interface Window {
+    tempadTools?: Partial<MCPHandlers>
+  }
+}
+
 export const MCP_TOOL_HANDLERS: MCPHandlers = {
   get_code: handleGetCode,
   get_token_defs: handleGetTokenDefs,
@@ -93,9 +100,8 @@ function exposeToolsOnWindow(): void {
   if (typeof window === 'undefined') {
     return
   }
-  const target = window as Window & { tempadTools?: Partial<MCPHandlers> }
-  target.tempadTools = {
-    ...(target.tempadTools ?? {}),
+  window.tempadTools = {
+    ...(window.tempadTools ?? {}),
     ...MCP_TOOL_HANDLERS
   }
 }

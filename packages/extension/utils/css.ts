@@ -37,33 +37,57 @@ const RE_DIGIT = /^\d+$/
 const RE_CAPS = /^[A-Z]+$/
 const RE_SINGLE = /^[A-Za-z]$/
 
-function hasTopLevelComma(value: string): boolean {
+export function splitByTopLevelComma(input: string, keepEmpty = false): string[] {
+  if (!input) return []
+
+  const out: string[] = []
   let depth = 0
   let quote: "'" | '"' | null = null
+  let buf = ''
 
-  for (let i = 0; i < value.length; i++) {
-    const ch = value[i]
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i]
 
     if (quote) {
       if (ch === '\\') {
+        buf += ch
         i++
+        if (i < input.length) buf += input[i]
         continue
       }
       if (ch === quote) quote = null
+      buf += ch
       continue
     }
 
     if (ch === '"' || ch === "'") {
       quote = ch
+      buf += ch
       continue
     }
 
     if (ch === '(') depth++
     else if (ch === ')') depth = Math.max(0, depth - 1)
-    else if (ch === ',' && depth === 0) return true
+    else if (ch === ',' && depth === 0) {
+      const segment = buf.trim()
+      if (segment || keepEmpty) out.push(segment)
+      buf = ''
+      continue
+    }
+
+    buf += ch
   }
 
-  return false
+  const tail = buf.trim()
+  if (tail || keepEmpty) {
+    out.push(tail)
+  }
+
+  return out
+}
+
+function hasTopLevelComma(value: string): boolean {
+  return splitByTopLevelComma(value, true).length > 1
 }
 
 const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i

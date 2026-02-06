@@ -1,7 +1,6 @@
 export type Replacement = {
   pattern: string | RegExp
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  replacer: string | ((...args: any[]) => string)
+  replacer: string | ((...args: unknown[]) => string)
 }
 
 export type Group = {

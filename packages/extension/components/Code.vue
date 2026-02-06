@@ -86,9 +86,10 @@ function handleCopy() {
 }
 
 function handleClick(event: MouseEvent) {
-  const target = event.target as HTMLElement
-  if (target.closest('.token.copyable')) {
-    copy(target)
+  const target = event.target as Element | null
+  const token = target?.closest('.token.copyable')
+  if (token) {
+    copy(token as HTMLElement)
   }
 }
 </script>

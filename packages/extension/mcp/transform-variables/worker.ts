@@ -1,9 +1,9 @@
 import type { RequestMessage, ResponseMessage } from '@/codegen/requester'
 import type { Plugin, TransformOptions } from '@/types/plugin'
 
-import safe from '@/codegen/safe'
 import { logger } from '@/utils/log'
 import { evaluate } from '@/utils/module'
+import { lockdownWorker } from '@/worker/lockdown'
 
 export type TransformVariableReference = {
   code: string
@@ -108,17 +108,4 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   postMessage(message)
 }
 
-Object.getOwnPropertyNames(globalThis)
-  .filter((key) => !safe.has(key))
-  .forEach((key) => {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    globalThis[key] = undefined
-  })
-
-Object.defineProperties(globalThis, {
-  name: { value: 'transform-variable', writable: false, configurable: false },
-  onmessage: { value: undefined, writable: false, configurable: false },
-  onmessageerror: { value: undefined, writable: false, configurable: false },
-  postMessage: { value: undefined, writable: false, configurable: false }
-})
+lockdownWorker('transform-variable')

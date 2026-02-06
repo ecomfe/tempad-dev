@@ -1,3 +1,5 @@
+import type { ZodType } from 'zod'
+
 import { z } from 'zod'
 
 // Messages from hub to extension
@@ -57,24 +59,21 @@ export type ActivateMessage = z.infer<typeof ActivateMessageSchema>
 export type ToolResultMessage = z.infer<typeof ToolResultMessageSchema>
 export type MessageFromExtension = z.infer<typeof MessageFromExtensionSchema>
 
-export function parseMessageToExtension(data: string): MessageToExtension | null {
+function parseJsonWithSchema<T>(data: string, schema: ZodType<T>): T | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(data)
   } catch {
     return null
   }
-  const result = MessageToExtensionSchema.safeParse(parsed)
+  const result = schema.safeParse(parsed)
   return result.success ? result.data : null
 }
 
+export function parseMessageToExtension(data: string): MessageToExtension | null {
+  return parseJsonWithSchema(data, MessageToExtensionSchema)
+}
+
 export function parseMessageFromExtension(data: string): MessageFromExtension | null {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(data)
-  } catch {
-    return null
-  }
-  const result = MessageFromExtensionSchema.safeParse(parsed)
-  return result.success ? result.data : null
+  return parseJsonWithSchema(data, MessageFromExtensionSchema)
 }

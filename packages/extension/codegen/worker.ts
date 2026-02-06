@@ -6,13 +6,10 @@ import { serializeCSS } from '@/utils/css'
 import { logger } from '@/utils/log'
 import { evaluate } from '@/utils/module'
 import { stringify } from '@/utils/string'
+import { lockdownWorker } from '@/worker/lockdown'
 
-import type { RequestMessage, ResponseMessage } from './requester'
-
-import safe from './safe'
-
-type Request = RequestMessage<RequestPayload>
-type Response = ResponseMessage<ResponsePayload>
+type Request = import('./requester').RequestMessage<RequestPayload>
+type Response = import('./requester').ResponseMessage<ResponsePayload>
 
 const IMPORT_RE = /^\s*import\s+(([^'"\n]+|'[^']*'|"[^"]*")|\s*\(\s*[^)]*\s*\))/gm
 
@@ -144,17 +141,4 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
 }
 
 // Only expose the necessary APIs to plugins
-Object.getOwnPropertyNames(globalThis)
-  .filter((key) => !safe.has(key))
-  .forEach((key) => {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    globalThis[key] = undefined
-  })
-
-Object.defineProperties(globalThis, {
-  name: { value: 'codegen', writable: false, configurable: false },
-  onmessage: { value: undefined, writable: false, configurable: false },
-  onmessageerror: { value: undefined, writable: false, configurable: false },
-  postMessage: { value: undefined, writable: false, configurable: false }
-})
+lockdownWorker('codegen')
