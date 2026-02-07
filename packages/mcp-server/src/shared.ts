@@ -5,26 +5,52 @@ import pino from 'pino'
 
 import packageJson from '../package.json' assert { type: 'json' }
 
+export function normalizePackageVersion(version: unknown): string {
+  return typeof version === 'string' ? version : '0.0.0'
+}
+
 export function ensureDir(dirPath: string): void {
   mkdirSync(dirPath, { recursive: true, mode: 0o700 })
 }
 
 const pkg = packageJson as { version?: unknown }
-export const PACKAGE_VERSION = typeof pkg.version === 'string' ? pkg.version : '0.0.0'
+export const PACKAGE_VERSION = normalizePackageVersion(pkg.version)
 
-function resolveRuntimeDir(): string {
-  if (process.env.TEMPAD_MCP_RUNTIME_DIR) return process.env.TEMPAD_MCP_RUNTIME_DIR
-  return join(tmpdir(), 'tempad-dev', 'run')
+export function resolveRuntimeDir(
+  env: NodeJS.ProcessEnv = process.env,
+  systemTmpDir: string = tmpdir()
+): string {
+  if (env.TEMPAD_MCP_RUNTIME_DIR) return env.TEMPAD_MCP_RUNTIME_DIR
+  return join(systemTmpDir, 'tempad-dev', 'run')
 }
 
-function resolveLogDir(): string {
-  if (process.env.TEMPAD_MCP_LOG_DIR) return process.env.TEMPAD_MCP_LOG_DIR
-  return join(tmpdir(), 'tempad-dev', 'log')
+export function resolveLogDir(
+  env: NodeJS.ProcessEnv = process.env,
+  systemTmpDir: string = tmpdir()
+): string {
+  if (env.TEMPAD_MCP_LOG_DIR) return env.TEMPAD_MCP_LOG_DIR
+  return join(systemTmpDir, 'tempad-dev', 'log')
 }
 
-function resolveAssetDir(): string {
-  if (process.env.TEMPAD_MCP_ASSET_DIR) return process.env.TEMPAD_MCP_ASSET_DIR
-  return join(tmpdir(), 'tempad-dev', 'assets')
+export function resolveAssetDir(
+  env: NodeJS.ProcessEnv = process.env,
+  systemTmpDir: string = tmpdir()
+): string {
+  if (env.TEMPAD_MCP_ASSET_DIR) return env.TEMPAD_MCP_ASSET_DIR
+  return join(systemTmpDir, 'tempad-dev', 'assets')
+}
+
+export function resolveLogLevel(
+  debugValue: string | undefined = process.env.DEBUG
+): 'debug' | 'info' {
+  return debugValue ? 'debug' : 'info'
+}
+
+export function resolveSockPath(
+  platform: NodeJS.Platform = process.platform,
+  runtimeDir: string = RUNTIME_DIR
+): string {
+  return platform === 'win32' ? '\\\\.\\pipe\\tempad-mcp' : join(runtimeDir, 'mcp.sock')
 }
 
 export const RUNTIME_DIR = resolveRuntimeDir()
@@ -57,11 +83,10 @@ const prettyTransport = pino.transport({
 
 export const log = pino(
   {
-    level: process.env.DEBUG ? 'debug' : 'info',
+    level: resolveLogLevel(),
     msgPrefix: '[tempad-dev/mcp] '
   },
   prettyTransport
 )
 
-export const SOCK_PATH =
-  process.platform === 'win32' ? '\\\\.\\pipe\\tempad-mcp' : join(RUNTIME_DIR, 'mcp.sock')
+export const SOCK_PATH = resolveSockPath()
