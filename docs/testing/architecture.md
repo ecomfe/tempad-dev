@@ -135,6 +135,7 @@ Fix:
 | mcp-server | `packages/mcp-server/src/asset-utils.ts`                   | all exports                                                                                                        | Deterministic mime/hash/filename utils                           | P0       |
 | mcp-server | `packages/mcp-server/src/config.ts`                        | `getMcpServerConfig`                                                                                               | Deterministic env parsing with constant fallbacks                | P0       |
 | mcp-server | `packages/mcp-server/src/request.ts`                       | `register`, `resolve`, `reject`, `cleanupForExtension`, `cleanupAll`                                               | Deterministic pending-call lifecycle under mocked timers/logging | P0       |
+| mcp-server | `packages/mcp-server/src/asset-store.ts`                   | `createAssetStore`                                                                                                 | Deterministic asset index persistence/reconcile logic            | P1       |
 | mcp-server | `packages/mcp-server/src/tools.ts`                         | `createCodeToolResponse`, `createScreenshotToolResponse`, `coercePayloadToToolResponse`, `createToolErrorResponse` | Pure payload formatting/guard behavior                           | P1       |
 | shared     | `packages/shared/src/mcp/constants.ts`                     | exported constants and patterns                                                                                    | Deterministic protocol limits and URI/hash patterns              | P0       |
 | shared     | `packages/shared/src/mcp/errors.ts`                        | `TEMPAD_MCP_ERROR_CODES`                                                                                           | Stable error contract constants                                  | P0       |
@@ -336,6 +337,13 @@ Fix:
 - timeout rejection code and message behavior under fake timers.
 - disconnected-extension cleanup behavior (targeted reject).
 - unknown request handling logs and shutdown cleanup behavior.
+
+### mcp-server: `asset-store.ts`
+
+- index loading behavior for missing/empty/invalid index payloads.
+- upsert/touch/remove/flush persistence behavior and timer batching.
+- stale record pruning and temp-file cleanup during reconcile.
+- orphan file recovery and error handling when stat/scan/delete operations fail.
 
 ### mcp-server: `tools.ts`
 

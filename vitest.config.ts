@@ -37,6 +37,7 @@ export default defineConfig({
         'packages/mcp-server/src/tools.ts',
         'packages/mcp-server/src/config.ts',
         'packages/mcp-server/src/request.ts',
+        'packages/mcp-server/src/asset-store.ts',
         'packages/shared/src/mcp/constants.ts',
         'packages/shared/src/mcp/errors.ts',
         'packages/shared/src/mcp/protocol.ts',
