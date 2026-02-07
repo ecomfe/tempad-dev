@@ -39,4 +39,17 @@ describe('mcp/code sanitize relative-parent', () => {
 
     expect(styles.get('root')).toEqual({ position: 'sticky' })
   })
+
+  it('handles missing nodes and absolute roots without layout parents', () => {
+    const root = createSnapshot({ id: 'root' })
+    ;(root as unknown as { children?: string[] }).children = undefined
+    const tree = createTree([root])
+    tree.rootIds.push('missing-root')
+
+    const styles = new Map<string, Record<string, string>>([['root', { position: 'absolute' }]])
+
+    ensureRelativeForAbsoluteChildren(tree, styles)
+
+    expect(styles.get('root')).toEqual({ position: 'absolute' })
+  })
 })

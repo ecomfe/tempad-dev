@@ -26,7 +26,7 @@ function visit(nodeId: string, tree: VisibleTree, styles: StyleMap): void {
       if (!hasLaterInFlow) continue
 
       if (!childStyle?.['z-index']) {
-        styles.set(childId, { ...(childStyle ?? {}), 'z-index': '-1' })
+        styles.set(childId, { ...childStyle, 'z-index': '-1' })
       }
       needsIsolation.add(nodeId)
     }

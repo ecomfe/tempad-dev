@@ -26,6 +26,8 @@ export default defineConfig({
         'packages/extension/mcp/tools/code/layout-parent.ts',
         'packages/extension/mcp/tools/code/messages.ts',
         'packages/extension/mcp/tools/code/render/props.ts',
+        'packages/extension/mcp/tools/code/sanitize/relative-parent.ts',
+        'packages/extension/mcp/tools/code/sanitize/stacking.ts',
         'packages/extension/mcp/tools/code/assets/plan.ts',
         'packages/extension/mcp/tools/code/styles/normalize.ts',
         'packages/extension/mcp/tools/code/styles/prepare.ts',
