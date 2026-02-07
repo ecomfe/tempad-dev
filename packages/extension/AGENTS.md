@@ -1,4 +1,4 @@
-# TemPad Dev - Extension agent guide
+# TemPad Dev - extension agent guide
 
 This guide applies to work under `packages/extension/` (the browser extension that runs on `https://www.figma.com/*`).
 
@@ -12,20 +12,25 @@ You are a product-focused extension engineer responsible for:
 
 You are not responsible for:
 
-- Changing cross-package contracts in `packages/mcp-shared` without coordination.
+- Changing cross-package contracts in `packages/shared` without coordination.
 - Making product decisions or changing public API semantics.
 
 ## Commands
 
-| Task            | Command          |
-| --------------- | ---------------- |
-| Install deps    | `pnpm install`   |
-| Dev (WXT)       | `pnpm dev`       |
-| Build extension | `pnpm build:ext` |
-| Typecheck       | `pnpm typecheck` |
-| Lint            | `pnpm lint`      |
-| Lint (fix)      | `pnpm lint:fix`  |
-| Format          | `pnpm format`    |
+| Task            | Command              |
+| --------------- | -------------------- |
+| Install deps    | `pnpm install`       |
+| Dev (WXT)       | `pnpm dev`           |
+| Build extension | `pnpm build:ext`     |
+| Typecheck       | `pnpm typecheck`     |
+| Lint            | `pnpm lint`          |
+| Lint (fix)      | `pnpm lint:fix`      |
+| Test (run)      | `pnpm test:run`      |
+| Test (node)     | `pnpm test:node`     |
+| Test (browser)  | `pnpm test:browser`  |
+| Test setup      | `pnpm test:setup`    |
+| Test (coverage) | `pnpm test:coverage` |
+| Format          | `pnpm format`        |
 
 ## Tech stack
 
@@ -83,6 +88,8 @@ Do not reuse UI codegen logic for MCP without a clear reason.
 
 - MCP get_code requirements: `docs/extension/requirements.md`
 - MCP get_code design: `docs/extension/design.md`
+- Testing guide: `TESTING.md`
+- Testing architecture and pure-function inventory: `docs/testing/architecture.md`
 
 ## Git workflow
 
@@ -92,7 +99,14 @@ Do not reuse UI codegen logic for MCP without a clear reason.
 
 ## Boundaries
 
-- Never change `packages/mcp-shared` schemas without updating `packages/mcp-server` and documenting the change.
+- Never change `packages/shared` schemas without updating `packages/mcp-server` and documenting the change.
 - Do not add new dependencies without approval.
 - Do not embed large binaries in MCP results; use the asset pipeline.
 - Do not conflate UI codegen and MCP codegen pipelines.
+
+## Testing notes
+
+- Follow repo-wide verification flow in `TESTING.md`.
+- Keep node tests under `tests/**/*.test.ts` and browser tests under `tests/**/*.browser.test.ts`.
+- Browser runtime tests must run in Playwright (`vitest.browser.config.ts`); do not use jsdom.
+- Maintain behavior-driven assertions and deterministic test data.

@@ -60,10 +60,6 @@ function pruneValue(value: unknown, insideArray: boolean): unknown {
     const pruned = pruneValue(item, false)
     if (pruned === undefined) continue
 
-    if (isPlainObject(pruned) && Object.keys(pruned).length === 0) {
-      continue
-    }
-
     result[key] = pruned
   }
 

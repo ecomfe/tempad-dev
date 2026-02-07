@@ -321,10 +321,6 @@ function isDevComponent(value: unknown): value is DevComponent {
 function isChildrenArgument(
   value: unknown
 ): value is (DevComponent | string)[] | DevComponent | string {
-  if (value === undefined) {
-    return false
-  }
-
   if (Array.isArray(value)) {
     return true
   }
@@ -648,5 +644,5 @@ export function queryOne<T extends DesignNode = DesignNode>(
   node: ContainerNode,
   queries: (NodeQuery & { query: QueryType })[]
 ): T | null {
-  return queryAll<T>(node, queries)[0]
+  return queryAll<T>(node, queries)[0] ?? null
 }

@@ -12,7 +12,7 @@ You are a backend integration engineer responsible for:
 
 You are not responsible for:
 
-- Changing tool schemas without updating `mcp-shared`.
+- Changing tool schemas without updating `packages/shared`.
 - Implementing tool logic that belongs in the extension.
 
 ## Commands
@@ -33,6 +33,13 @@ Lint/format:
 
 ```
 pnpm -C packages/mcp-server lint:fix
+```
+
+Test:
+
+```
+pnpm -C packages/mcp-server test:run
+pnpm -C packages/mcp-server test:coverage
 ```
 
 ## Tech stack
@@ -77,10 +84,22 @@ return { image: largeBase64 }
 ## Git workflow
 
 - Do not create commits unless explicitly requested.
-- Update `packages/mcp-shared` before changing tool schemas or limits.
+- Update `packages/shared` before changing tool schemas or limits.
 
 ## Boundaries
 
 - Never return large binaries in tool results; use asset pipeline instead.
 - Do not change socket paths, asset URI formats, or payload caps without cross-package review.
 - Do not add new dependencies without approval.
+
+## Testing notes
+
+- Follow repo-wide testing workflow in `TESTING.md`.
+- Coverage architecture and strict pure inventory are documented in `docs/testing/architecture.md`.
+- Keep pure-function tests under `tests/**/*.test.ts` with deterministic inputs.
+- Strict pure coverage in this package targets:
+  - `src/asset-utils.ts`
+  - `src/tools.ts`
+  - `src/config.ts`
+  - `src/request.ts`
+- Cross-package contract changes should be validated in order: `packages/shared` -> `packages/mcp-server` -> `packages/extension`.

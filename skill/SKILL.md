@@ -4,7 +4,7 @@ description: >-
   Implement integration-ready UI code from a Figma selection or a provided nodeId using TemPad Dev MCP as the only source of design evidence (code snapshot, structure, screenshot, assets, tokens, codegen config). Detect the target repo stack and conventions first, then translate TemPad Dev’s Tailwind-like JSX/Vue IR into project-native code without adding new dependencies. Never guess key styles or measurements; avoid screenshot tuning loops. If required evidence is missing/contradictory or assets cannot be handled under repo policy, stop or ship a safe base with explicit warnings and omissions.
 ---
 
-# TemPad Dev: Figma to UI Implementation
+# TemPad Dev: Figma to UI implementation
 
 This skill requires TemPad Dev MCP. If `tempad-dev:*` tools are unavailable/inactive/unauthorized, stop and tell the user to install TemPad Dev MCP and ensure it is activated in the TemPad Dev panel in the Figma design file.
 
