@@ -8,7 +8,13 @@ export default defineConfig({
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'html'],
-      include: ['src/asset-utils.ts', 'src/tools.ts', 'src/config.ts', 'src/request.ts'],
+      include: [
+        'src/asset-utils.ts',
+        'src/tools.ts',
+        'src/config.ts',
+        'src/request.ts',
+        'src/asset-store.ts'
+      ],
       thresholds: {
         lines: 100,
         functions: 100,
