@@ -53,6 +53,7 @@ export default defineConfig({
         'mcp/tools/code/tokens/resolve.ts',
         'mcp/tools/token/candidates.ts',
         'mcp/tools/token/cache.ts',
+        'mcp/tools/token/indexer.ts',
         'mcp/tools/token/mapping.ts'
       ],
       thresholds: {
