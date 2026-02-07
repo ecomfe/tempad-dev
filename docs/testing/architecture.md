@@ -117,6 +117,7 @@ Fix:
 | extension  | `packages/extension/utils/color.ts`                             | all exports                                                                                                              | Pure color conversion/normalization                              | P0       |
 | extension  | `packages/extension/utils/module.ts`                            | `evaluate`                                                                                                               | Deterministic object-URL module evaluation lifecycle             | P1       |
 | extension  | `packages/extension/mcp/config.ts`                              | `MCP_CLIENTS_BY_ID`, `MCP_CLIENTS`, `MCP_SERVER`                                                                         | Deterministic MCP client deep link and command/config generation | P1       |
+| extension  | `packages/extension/rewrite/config.ts`                          | `GROUPS`                                                                                                                 | Stable rewrite marker and replacement contract payload           | P1       |
 | extension  | `packages/extension/utils/css.ts`                               | exported helpers                                                                                                         | Core style normalization and serialization logic                 | P0       |
 | extension  | `packages/extension/utils/tailwind.ts`                          | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                            | Deterministic CSS→class mapping                                  | P0       |
 | extension  | `packages/extension/utils/codegen.ts`                           | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                              | Unit-test via worker/runtime dependency mocks                    | P1       |
@@ -240,6 +241,12 @@ Fix:
 - command/config fallback payload generation for Claude/Codex/Windsurf.
 - deterministic client ordering and stable MCP server command metadata.
 - base64 capability guard behavior when runtime does not provide `btoa`.
+
+### extension: `rewrite/config.ts`
+
+- marker array contract stability for readonly/global-close/dev-mode patch groups.
+- regex replacement behavior for captured variable names in dev-mode unlock pattern.
+- string and regex replacement output parity with expected runtime rewritten snippets.
 
 ### extension: `rewrite/shared.ts`
 
