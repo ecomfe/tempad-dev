@@ -141,6 +141,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/styles/normalize.ts`         | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
 | extension  | `packages/extension/mcp/tools/code/styles/prepare.ts`           | `prepareStyles`                                                                                                    | Deterministic style preparation orchestration                    | P1       |
 | extension  | `packages/extension/mcp/tools/code/tokens/extract.ts`           | `buildTokenRegex`, `extractTokenNames`, `createTokenMatcher`                                                       | Deterministic token name extraction and boundary matching        | P0       |
+| extension  | `packages/extension/mcp/tools/code/tokens/index.ts`             | re-export surface                                                                                                  | Stable token pipeline export contract                            | P2       |
 | extension  | `packages/extension/mcp/tools/code/tokens/cache.ts`             | `getVariableByIdCached`                                                                                            | Deterministic cache lookup and write-through behavior            | P0       |
 | extension  | `packages/extension/mcp/tools/code/tokens/resolve.ts`           | `createStyleVarResolver`, `resolveStyleMap`                                                                        | Deterministic style token substitution pipeline                  | P1       |
 | extension  | `packages/extension/mcp/tools/code/tokens/transform.ts`         | `applyPluginTransformToNames`                                                                                      | Deterministic token rename + bridge conflict handling            | P1       |
@@ -148,6 +149,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/tokens/rewrite.ts`           | `rewriteTokenNamesInCode`, `filterBridge`                                                                          | Deterministic token rewrite and bridge filtering                 | P0       |
 | extension  | `packages/extension/mcp/tools/code/tokens/source-index.ts`      | `buildSourceNameIndex`                                                                                             | Deterministic candidate name indexing                            | P0       |
 | extension  | `packages/extension/mcp/tools/code/tokens/used.ts`              | `buildUsedTokens`                                                                                                  | Deterministic used-token set materialization and resolver wiring | P1       |
+| extension  | `packages/extension/mcp/tools/code/text/types.ts`               | `MARK_PRIORITY`, `MARK_WEIGHTS`, `HOIST_ALLOWLIST`, `TYPO_FIELDS`, `REQUESTED_SEGMENT_FIELDS`, `NEWLINE_RE`        | Stable text-segment constants and field contracts                | P2       |
 | extension  | `packages/extension/mcp/tools/code/text/index.ts`               | re-export surface                                                                                                  | Stable text render entry export contract                         | P2       |
 | extension  | `packages/extension/mcp/tools/token/candidates.ts`              | `collectCandidateVariableIds`                                                                                      | Deterministic candidate-variable traversal and rewrite mapping   | P1       |
 | extension  | `packages/extension/mcp/tools/token/indexer.ts`                 | `getVariableRawName`, `canonicalizeNames`, `canonicalizeName`, `getTokenIndex`                                     | Deterministic token canonicalization, batching, and cache/index  | P1       |
@@ -256,6 +258,10 @@ Fix:
 - plain `--token` extraction fallback path.
 - configured-name extraction and matcher fallback behavior.
 
+### extension: `mcp/tools/code/tokens/index.ts`
+
+- re-export contract behavior for token pipeline helpers.
+
 ### extension: `mcp/tools/code/tokens/process.ts`
 
 - empty source index and no-detected-token early return paths.
@@ -322,6 +328,12 @@ Fix:
 ### extension: `mcp/tools/token/index.ts`
 
 - re-export contract behavior for candidate collection and token definition resolvers.
+
+### extension: `mcp/tools/code/text/types.ts`
+
+- mark priority/weight consistency behavior.
+- hoist allowlist and code-font keyword contract stability.
+- typography/requested segment field stability and newline regex behavior.
 
 ### extension: `mcp/tools/code/text/index.ts`
 
