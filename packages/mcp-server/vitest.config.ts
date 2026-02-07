@@ -14,7 +14,8 @@ export default defineConfig({
         'src/config.ts',
         'src/request.ts',
         'src/asset-store.ts',
-        'src/asset-http-server.ts'
+        'src/asset-http-server.ts',
+        'src/shared.ts'
       ],
       thresholds: {
         lines: 100,
