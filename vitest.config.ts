@@ -24,6 +24,7 @@ export default defineConfig({
         'packages/extension/utils/css.ts',
         'packages/extension/utils/tailwind.ts',
         'packages/extension/utils/codegen.ts',
+        'packages/extension/utils/index.ts',
         'packages/extension/codegen/requester.ts',
         'packages/extension/composables/input.ts',
         'packages/extension/worker/safe.ts',

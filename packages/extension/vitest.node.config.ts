@@ -30,6 +30,7 @@ export default defineConfig({
         'utils/css.ts',
         'utils/tailwind.ts',
         'utils/codegen.ts',
+        'utils/index.ts',
         'composables/input.ts',
         'worker/safe.ts',
         'worker/lockdown.ts',
