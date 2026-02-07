@@ -102,4 +102,5 @@ return { image: largeBase64 }
   - `src/tools.ts`
   - `src/config.ts`
   - `src/request.ts`
+  - `src/asset-store.ts`
 - Cross-package contract changes should be validated in order: `packages/shared` -> `packages/mcp-server` -> `packages/extension`.
