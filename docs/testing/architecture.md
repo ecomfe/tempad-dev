@@ -163,10 +163,13 @@ Fix:
 | mcp-server | `packages/mcp-server/src/asset-http-server.ts`                  | `createAssetHttpServer`                                                                                                  | Deterministic HTTP routing and asset upload/download lifecycle   | P1       |
 | mcp-server | `packages/mcp-server/src/tools.ts`                              | `createCodeToolResponse`, `createScreenshotToolResponse`, `coercePayloadToToolResponse`, `createToolErrorResponse`       | Pure payload formatting/guard behavior                           | P1       |
 | mcp-server | `packages/mcp-server/src/shared.ts`                             | `normalizePackageVersion`, `resolveRuntimeDir`, `resolveLogDir`, `resolveAssetDir`, `resolveLogLevel`, `resolveSockPath` | Deterministic path and logger option resolution helpers          | P1       |
+| shared     | `packages/shared/src/index.ts`                                  | re-export surface                                                                                                        | Stable root contract re-export surface                           | P2       |
 | shared     | `packages/shared/src/mcp/constants.ts`                          | exported constants and patterns                                                                                          | Deterministic protocol limits and URI/hash patterns              | P0       |
 | shared     | `packages/shared/src/mcp/errors.ts`                             | `TEMPAD_MCP_ERROR_CODES`                                                                                                 | Stable error contract constants                                  | P0       |
+| shared     | `packages/shared/src/mcp/index.ts`                              | re-export surface                                                                                                        | Stable MCP contract re-export surface                            | P2       |
 | shared     | `packages/shared/src/mcp/protocol.ts`                           | `parseMessageToExtension`, `parseMessageFromExtension`                                                                   | Deterministic JSON+schema parsing                                | P0       |
 | shared     | `packages/shared/src/mcp/tools.ts`                              | schema exports (`AssetDescriptorSchema`, tool parameter/result schemas)                                                  | Deterministic Zod contracts and regex constraints                | P0       |
+| shared     | `packages/shared/src/figma/index.ts`                            | re-export surface                                                                                                        | Stable Figma utility re-export surface                           | P2       |
 | shared     | `packages/shared/src/figma/color.ts`                            | `formatHexAlpha`                                                                                                         | Pure color formatter                                             | P1       |
 | shared     | `packages/shared/src/figma/gradient.ts`                         | `resolveGradientFromPaints`, `resolveSolidFromPaints`                                                                    | Pure paint-to-CSS conversion and variable fallback formatting    | P1       |
 | shared     | `packages/shared/src/figma/stroke.ts`                           | `resolveStrokeFromPaints`, `applyStrokeToCSS`                                                                            | Pure stroke resolution and CSS patching                          | P1       |
@@ -536,6 +539,14 @@ Fix:
 - invalid JSON returns `null`.
 - schema mismatch returns `null`.
 
+### shared: `index.ts`
+
+- re-export contract behavior for MCP and Figma top-level surfaces.
+
+### shared: `mcp/index.ts`
+
+- re-export contract behavior for constants, errors, protocol parsers, and tool schemas.
+
 ### shared: `mcp/constants.ts`
 
 - stable protocol numeric limits and default timeout/ttl values.
@@ -558,6 +569,10 @@ Fix:
 - opaque output compaction (short hex where valid).
 - alpha-inclusive output behavior.
 - clamping and rounding edge cases.
+
+### shared: `figma/index.ts`
+
+- re-export contract behavior for color, gradient, stroke, and style resolver helpers.
 
 ### shared: `figma/gradient.ts`
 
