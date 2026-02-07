@@ -123,6 +123,7 @@ Fix:
 | extension  | `packages/extension/worker/lockdown.ts`                         | `lockdownWorker`                                                                                                         | Deterministic global-pruning and worker global sealing flow      | P1       |
 | extension  | `packages/extension/mcp/config.ts`                              | `MCP_CLIENTS_BY_ID`, `MCP_CLIENTS`, `MCP_SERVER`                                                                         | Deterministic MCP client deep link and command/config generation | P1       |
 | extension  | `packages/extension/mcp/assets.ts`                              | `setAssetServerUrl`, `resetUploadedAssets`, `buildAssetResourceUri`, `ensureAssetUploaded`                               | Deterministic asset hash/upload dedupe and descriptor shaping    | P1       |
+| extension  | `packages/extension/mcp/runtime.ts`                             | `MCP_TOOL_HANDLERS`                                                                                                      | Deterministic node resolution and MCP tool routing               | P1       |
 | extension  | `packages/extension/rewrite/config.ts`                          | `GROUPS`                                                                                                                 | Stable rewrite marker and replacement contract payload           | P1       |
 | extension  | `packages/extension/rewrite/figma.ts`                           | module side effect (`rewriteCurrentScript(GROUPS)`)                                                                      | Stable rewrite bootstrap invocation contract                     | P1       |
 | extension  | `packages/extension/rewrite/runtime.ts`                         | `rewriteCurrentScript`                                                                                                   | Deterministic rewrite/eval/fallback orchestration                | P1       |
@@ -284,6 +285,14 @@ Fix:
 - completed upload cache short-circuit and in-flight upload dedupe behavior.
 - hash runtime guards when `crypto.subtle.digest` is unavailable.
 - upload failure behavior for non-ok HTTP responses and non-`Error` thrown values.
+
+### extension: `mcp/runtime.ts`
+
+- handler exposure behavior for both node runtime (`window` unavailable) and browser runtime (`window.tempadTools` merge).
+- single-node resolution behavior for explicit `nodeId`, current selection fallback, and visibility/type guards.
+- coded error behavior for `NODE_NOT_VISIBLE` and `INVALID_SELECTION`.
+- token-def input guard behavior and downstream forwarding of `includeAllModes`.
+- routing behavior from tool handlers to concrete implementations (`code`, `screenshot`, `structure`) with expected args.
 
 ### extension: `rewrite/config.ts`
 

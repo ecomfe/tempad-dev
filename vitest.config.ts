@@ -27,6 +27,7 @@ export default defineConfig({
         'packages/extension/worker/lockdown.ts',
         'packages/extension/mcp/config.ts',
         'packages/extension/mcp/assets.ts',
+        'packages/extension/mcp/runtime.ts',
         'packages/extension/rewrite/config.ts',
         'packages/extension/rewrite/figma.ts',
         'packages/extension/rewrite/runtime.ts',
