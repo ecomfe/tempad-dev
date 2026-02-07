@@ -116,6 +116,7 @@ Fix:
 | extension  | `packages/extension/utils/object.ts`                            | `prune`                                                                                                                  | Pure recursive pruning logic                                     | P0       |
 | extension  | `packages/extension/utils/color.ts`                             | all exports                                                                                                              | Pure color conversion/normalization                              | P0       |
 | extension  | `packages/extension/utils/module.ts`                            | `evaluate`                                                                                                               | Deterministic object-URL module evaluation lifecycle             | P1       |
+| extension  | `packages/extension/utils/log.ts`                               | `logger`                                                                                                                 | Deterministic prefixing and dev-gated logging behavior           | P1       |
 | extension  | `packages/extension/mcp/config.ts`                              | `MCP_CLIENTS_BY_ID`, `MCP_CLIENTS`, `MCP_SERVER`                                                                         | Deterministic MCP client deep link and command/config generation | P1       |
 | extension  | `packages/extension/rewrite/config.ts`                          | `GROUPS`                                                                                                                 | Stable rewrite marker and replacement contract payload           | P1       |
 | extension  | `packages/extension/rewrite/figma.ts`                           | module side effect (`rewriteCurrentScript(GROUPS)`)                                                                      | Stable rewrite bootstrap invocation contract                     | P1       |
@@ -236,6 +237,13 @@ Fix:
 - object URL creation and module evaluation behavior.
 - URL revoke behavior after dynamic module import.
 - payload pass-through behavior from input source string into blob content.
+
+### extension: `utils/log.ts`
+
+- prefix insertion behavior for log/warn/error calls (including empty and pre-prefixed input).
+- debug suppression behavior when `__DEV__` is false.
+- debug emission behavior via `console.debug` in development mode.
+- fallback behavior to `console.log` when `console.debug` is unavailable.
 
 ### extension: `mcp/config.ts`
 
