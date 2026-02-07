@@ -49,10 +49,6 @@ export async function applyPluginTransformToNames(
     ordered.forEach((name) => {
       const variableId = sourceIndex.get(name)
       if (!variableId) return
-      if (finalBridge.has(name) && finalBridge.get(name) !== variableId) {
-        logger.warn('Duplicate token name resolved to multiple ids:', name)
-        return
-      }
       finalBridge.set(name, variableId)
     })
     return { rewriteMap, finalBridge }

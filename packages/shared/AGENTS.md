@@ -97,6 +97,7 @@ const GetCodeResultSchema = z.object({
 - Keep pure-function tests under `tests/**/*.test.ts`.
 - Strict pure coverage in this package targets:
   - `src/mcp/protocol.ts`
+  - `src/mcp/tools.ts`
   - `src/figma/color.ts`
   - `src/figma/gradient.ts`
   - `src/figma/stroke.ts`

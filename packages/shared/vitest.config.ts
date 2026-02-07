@@ -10,6 +10,7 @@ export default defineConfig({
       reporter: ['text', 'html'],
       include: [
         'src/mcp/protocol.ts',
+        'src/mcp/tools.ts',
         'src/figma/color.ts',
         'src/figma/gradient.ts',
         'src/figma/stroke.ts',
