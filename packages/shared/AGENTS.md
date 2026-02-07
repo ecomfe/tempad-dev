@@ -96,6 +96,8 @@ const GetCodeResultSchema = z.object({
 - Coverage architecture and strict pure inventory are documented in `docs/testing/architecture.md`.
 - Keep pure-function tests under `tests/**/*.test.ts`.
 - Strict pure coverage in this package targets:
+  - `src/mcp/constants.ts`
+  - `src/mcp/errors.ts`
   - `src/mcp/protocol.ts`
   - `src/mcp/tools.ts`
   - `src/figma/color.ts`

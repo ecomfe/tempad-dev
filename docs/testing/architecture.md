@@ -119,13 +119,17 @@ Fix:
 | extension  | `packages/extension/utils/tailwind.ts`                  | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                      | Deterministic CSS→class mapping                                  | P0       |
 | extension  | `packages/extension/utils/codegen.ts`                   | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                        | Unit-test via worker/runtime dependency mocks                    | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/normalize.ts` | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
+| extension  | `packages/extension/mcp/tools/code/tokens/cache.ts`     | `getVariableByIdCached`                                                                                            | Deterministic cache lookup and write-through behavior            | P0       |
 | extension  | `packages/extension/mcp/tools/code/tokens/transform.ts` | `applyPluginTransformToNames`                                                                                      | Deterministic token rename + bridge conflict handling            | P1       |
 | extension  | `packages/extension/mcp/tools/code/tokens/process.ts`   | `processTokens`                                                                                                    | Deterministic token pipeline orchestration under mocked helpers  | P1       |
+| extension  | `packages/extension/mcp/tools/code/tokens/used.ts`      | `buildUsedTokens`                                                                                                  | Deterministic used-token set materialization and resolver wiring | P1       |
 | plugins    | `packages/plugins/src/index.ts`                         | `raw`, `definePlugin`, `h`, `findChild`, `findChildren`, `findOne`, `findAll`, `queryAll`, `queryOne`              | Pure tree query/composition helpers                              | P0       |
 | mcp-server | `packages/mcp-server/src/asset-utils.ts`                | all exports                                                                                                        | Deterministic mime/hash/filename utils                           | P0       |
 | mcp-server | `packages/mcp-server/src/config.ts`                     | `getMcpServerConfig`                                                                                               | Deterministic env parsing with constant fallbacks                | P0       |
 | mcp-server | `packages/mcp-server/src/request.ts`                    | `register`, `resolve`, `reject`, `cleanupForExtension`, `cleanupAll`                                               | Deterministic pending-call lifecycle under mocked timers/logging | P0       |
 | mcp-server | `packages/mcp-server/src/tools.ts`                      | `createCodeToolResponse`, `createScreenshotToolResponse`, `coercePayloadToToolResponse`, `createToolErrorResponse` | Pure payload formatting/guard behavior                           | P1       |
+| shared     | `packages/shared/src/mcp/constants.ts`                  | exported constants and patterns                                                                                    | Deterministic protocol limits and URI/hash patterns              | P0       |
+| shared     | `packages/shared/src/mcp/errors.ts`                     | `TEMPAD_MCP_ERROR_CODES`                                                                                           | Stable error contract constants                                  | P0       |
 | shared     | `packages/shared/src/mcp/protocol.ts`                   | `parseMessageToExtension`, `parseMessageFromExtension`                                                             | Deterministic JSON+schema parsing                                | P0       |
 | shared     | `packages/shared/src/mcp/tools.ts`                      | schema exports (`AssetDescriptorSchema`, tool parameter/result schemas)                                            | Deterministic Zod contracts and regex constraints                | P0       |
 | shared     | `packages/shared/src/figma/color.ts`                    | `formatHexAlpha`                                                                                                   | Pure color formatter                                             | P1       |
@@ -208,6 +212,20 @@ Fix:
 - merged candidate id behavior when `usedCandidateIds` is non-empty.
 - resolve node id collection from style maps and text segment maps.
 
+### extension: `mcp/tools/code/tokens/cache.ts`
+
+- direct passthrough behavior when caller does not supply cache.
+- cache-hit behavior for value and explicit `null`.
+- cache-miss write-through behavior for found and missing variables.
+
+### extension: `mcp/tools/code/tokens/used.ts`
+
+- empty bridge early return behavior.
+- variable-id deduplication via bridge values.
+- canonicalization fallback behavior when plugin transform result is missing.
+- resolver payload shaping (`candidateIds`, `candidateNameById`, mode/value flags).
+- missing variable filtering behavior with stable candidate metadata.
+
 ### Extension browser runtime
 
 - `utils/dom.ts`:
@@ -276,6 +294,15 @@ Fix:
 - valid message parsing for both directions.
 - invalid JSON returns `null`.
 - schema mismatch returns `null`.
+
+### shared: `mcp/constants.ts`
+
+- stable protocol numeric limits and default timeout/ttl values.
+- asset URI prefix/template and hash pattern behavior.
+
+### shared: `mcp/errors.ts`
+
+- stable mapping of contract error code literals.
 
 ### shared: `mcp/tools.ts`
 

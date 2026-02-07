@@ -26,10 +26,6 @@ export async function buildUsedTokens(
 
   const usedIds = new Set<string>(finalBridge.values())
 
-  if (!usedIds.size) {
-    return { tokensByCanonical: {} }
-  }
-
   const variables = Array.from(usedIds)
     .map((id) => getVariableByIdCached(id, cache))
     .filter(Boolean) as Variable[]
