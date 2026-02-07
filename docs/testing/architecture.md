@@ -115,6 +115,7 @@ Fix:
 | extension  | `packages/extension/utils/string.ts`                            | exported helpers                                                                                                         | Deterministic string transforms/escaping                         | P0       |
 | extension  | `packages/extension/utils/object.ts`                            | `prune`                                                                                                                  | Pure recursive pruning logic                                     | P0       |
 | extension  | `packages/extension/utils/color.ts`                             | all exports                                                                                                              | Pure color conversion/normalization                              | P0       |
+| extension  | `packages/extension/mcp/config.ts`                              | `MCP_CLIENTS_BY_ID`, `MCP_CLIENTS`, `MCP_SERVER`                                                                         | Deterministic MCP client deep link and command/config generation | P1       |
 | extension  | `packages/extension/utils/css.ts`                               | exported helpers                                                                                                         | Core style normalization and serialization logic                 | P0       |
 | extension  | `packages/extension/utils/tailwind.ts`                          | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                            | Deterministic CSS→class mapping                                  | P0       |
 | extension  | `packages/extension/utils/codegen.ts`                           | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                              | Unit-test via worker/runtime dependency mocks                    | P1       |
@@ -223,6 +224,13 @@ Fix:
   - de-duplication of generated classes.
 - `joinClassNames`:
   - empty/falsey filtering and stable joining.
+
+### extension: `mcp/config.ts`
+
+- deep link payload generation for VS Code/Cursor/TRAE clients.
+- command/config fallback payload generation for Claude/Codex/Windsurf.
+- deterministic client ordering and stable MCP server command metadata.
+- base64 capability guard behavior when runtime does not provide `btoa`.
 
 ### extension: `rewrite/shared.ts`
 

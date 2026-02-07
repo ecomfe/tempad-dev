@@ -19,6 +19,7 @@ export default defineConfig({
         'packages/extension/utils/css.ts',
         'packages/extension/utils/tailwind.ts',
         'packages/extension/utils/codegen.ts',
+        'packages/extension/mcp/config.ts',
         'packages/extension/rewrite/shared.ts',
         'packages/extension/mcp/errors.ts',
         'packages/extension/mcp/transport.ts',
