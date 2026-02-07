@@ -85,4 +85,29 @@ describe('mcp/code render props', () => {
     expect(classProp()).toBe('className')
     expect(mergeClass('a b', 'b c')).toBe('a b c')
   })
+
+  it('keeps class prop empty when no classes exist and detects inline-grid hints', () => {
+    mocked.styleToClassNames.mockReturnValueOnce([])
+    const noClass = classProps(
+      {},
+      { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+      'className',
+      undefined
+    )
+    expect(noClass).toEqual({ classNames: [], props: {} })
+
+    mocked.styleToClassNames.mockReturnValueOnce(['u-1', 'inline-grid'])
+    const inlineGridHint = classProps(
+      {},
+      { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+      'className',
+      { 'data-hint-auto-layout': 'inferred' },
+      { isFallback: true }
+    )
+
+    expect(inlineGridHint.props).toEqual({
+      className: 'u-1 inline-grid',
+      'data-hint-auto-layout': 'inferred'
+    })
+  })
 })

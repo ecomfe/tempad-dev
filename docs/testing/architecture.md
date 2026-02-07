@@ -122,6 +122,9 @@ Fix:
 | extension  | `packages/extension/mcp/errors.ts`                         | `createCodedError`, `coerceToolErrorPayload`                                                                       | Deterministic error normalization and code tagging               | P0       |
 | extension  | `packages/extension/mcp/transport.ts`                      | `setMcpSocket`, `getMcpSocket`, `requireMcpSocket`                                                                 | Deterministic transport state guard behavior                     | P0       |
 | extension  | `packages/extension/mcp/tools/structure.ts`                | `handleGetStructure`                                                                                               | Deterministic structure payload shaping and size guarding        | P1       |
+| extension  | `packages/extension/mcp/tools/code/layout-parent.ts`       | `getLayoutParent`                                                                                                  | Deterministic ancestor lookup with type filtering                | P0       |
+| extension  | `packages/extension/mcp/tools/code/messages.ts`            | `buildTokenSummary`, `buildCandidateSummary`                                                                       | Deterministic summary message formatting                         | P0       |
+| extension  | `packages/extension/mcp/tools/code/render/props.ts`        | `classProps`, `filterGridProps`, `classProp`, `mergeClass`                                                         | Deterministic class and data-hint prop shaping                   | P1       |
 | extension  | `packages/extension/mcp/tools/code/assets/plan.ts`         | `planAssets`                                                                                                       | Deterministic vector asset grouping and descendant pruning logic | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/normalize.ts`    | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
 | extension  | `packages/extension/mcp/tools/code/styles/prepare.ts`      | `prepareStyles`                                                                                                    | Deterministic style preparation orchestration                    | P1       |
@@ -304,6 +307,22 @@ Fix:
 - depth-limit coercion behavior (`0` treated as unset).
 - semantic tree outline payload shaping behavior.
 - payload-size guard branch when serialized output exceeds protocol limits.
+
+### extension: `mcp/tools/code/layout-parent.ts`
+
+- ancestor lookup skips non-layout containers (`GROUP`, `BOOLEAN_OPERATION`).
+- missing-parent and root-node fallback behavior.
+
+### extension: `mcp/tools/code/messages.ts`
+
+- summary message formatting for token rewrite and candidate collection phases.
+- zero-count and non-zero branch wording behavior.
+
+### extension: `mcp/tools/code/render/props.ts`
+
+- class-prop generation for empty and non-empty class lists.
+- auto-layout hint gating for fallback/non-fallback paths.
+- grid-only style key stripping and class-name merge/classProp helpers.
 
 ### extension: `mcp/tools/code/assets/plan.ts`
 
