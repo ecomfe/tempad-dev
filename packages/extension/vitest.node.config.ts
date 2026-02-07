@@ -27,6 +27,7 @@ export default defineConfig({
         'utils/css.ts',
         'utils/tailwind.ts',
         'utils/codegen.ts',
+        'rewrite/shared.ts',
         'mcp/errors.ts',
         'mcp/transport.ts',
         'mcp/tools/code/styles/normalize.ts',
