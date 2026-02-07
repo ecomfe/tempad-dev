@@ -135,6 +135,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/assets/vector.ts`            | `exportSvgEntry`, `transformSvgAttributes`, `extractSvgAttributes`                                                 | Deterministic SVG export shaping and attribute normalization     | P1       |
 | extension  | `packages/extension/mcp/tools/code/assets/export.ts`            | `exportVectorAssets`                                                                                               | Deterministic vector export selection and snapshot guards        | P1       |
 | extension  | `packages/extension/mcp/tools/code/assets/image.ts`             | `hasImageFills`, `replaceImageUrlsWithAssets`                                                                      | Deterministic image-fill asset replacement and fallback behavior | P1       |
+| extension  | `packages/extension/mcp/tools/code/assets/index.ts`             | re-export surface                                                                                                  | Stable asset helper export contract                              | P2       |
 | extension  | `packages/extension/mcp/tools/code/styles/normalize.ts`         | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
 | extension  | `packages/extension/mcp/tools/code/styles/prepare.ts`           | `prepareStyles`                                                                                                    | Deterministic style preparation orchestration                    | P1       |
 | extension  | `packages/extension/mcp/tools/code/tokens/extract.ts`           | `buildTokenRegex`, `extractTokenNames`, `createTokenMatcher`                                                       | Deterministic token name extraction and boundary matching        | P0       |
@@ -148,6 +149,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/token/candidates.ts`              | `collectCandidateVariableIds`                                                                                      | Deterministic candidate-variable traversal and rewrite mapping   | P1       |
 | extension  | `packages/extension/mcp/tools/token/indexer.ts`                 | `getVariableRawName`, `canonicalizeNames`, `canonicalizeName`, `getTokenIndex`                                     | Deterministic token canonicalization, batching, and cache/index  | P1       |
 | extension  | `packages/extension/mcp/tools/token/mapping.ts`                 | `buildVariableMappings`, `normalizeStyleVars`, `applyPluginTransforms`                                             | Deterministic style token rewrite and plugin transform wiring    | P1       |
+| extension  | `packages/extension/mcp/tools/token/index.ts`                   | re-export surface                                                                                                  | Stable token API export contract                                 | P2       |
 | plugins    | `packages/plugins/src/index.ts`                                 | `raw`, `definePlugin`, `h`, `findChild`, `findChildren`, `findOne`, `findAll`, `queryAll`, `queryOne`              | Pure tree query/composition helpers                              | P0       |
 | mcp-server | `packages/mcp-server/src/asset-utils.ts`                        | all exports                                                                                                        | Deterministic mime/hash/filename utils                           | P0       |
 | mcp-server | `packages/mcp-server/src/config.ts`                             | `getMcpServerConfig`                                                                                               | Deterministic env parsing with constant fallbacks                | P0       |
@@ -314,6 +316,10 @@ Fix:
 - style map rewrite behavior for exact rewrites, code syntax aliases, and boundary-safe raw-name replacement.
 - plugin transform behavior for no-op guards and fallback to original `var(...)` on empty transform outputs.
 
+### extension: `mcp/tools/token/index.ts`
+
+- re-export contract behavior for candidate collection and token definition resolvers.
+
 ### extension: `mcp/errors.ts`
 
 - coded error creation and code attachment behavior.
@@ -407,6 +413,10 @@ Fix:
 - image-fill detection behavior for visible and hidden paints.
 - URL replacement behavior for uploaded image assets and mime-type detection.
 - fallback behavior for missing image bytes, failed node exports, and placeholder URL generation.
+
+### extension: `mcp/tools/code/assets/index.ts`
+
+- re-export contract behavior for asset planning and export helpers.
 
 ### Extension browser runtime
 
