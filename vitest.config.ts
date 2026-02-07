@@ -50,6 +50,7 @@ export default defineConfig({
         'packages/mcp-server/src/config.ts',
         'packages/mcp-server/src/request.ts',
         'packages/mcp-server/src/asset-store.ts',
+        'packages/mcp-server/src/asset-http-server.ts',
         'packages/shared/src/mcp/constants.ts',
         'packages/shared/src/mcp/errors.ts',
         'packages/shared/src/mcp/protocol.ts',
