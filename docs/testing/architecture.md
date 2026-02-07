@@ -120,6 +120,7 @@ Fix:
 | extension  | `packages/extension/utils/codegen.ts`                   | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                        | Unit-test via worker/runtime dependency mocks                    | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/normalize.ts` | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
 | extension  | `packages/extension/mcp/tools/code/tokens/cache.ts`     | `getVariableByIdCached`                                                                                            | Deterministic cache lookup and write-through behavior            | P0       |
+| extension  | `packages/extension/mcp/tools/code/tokens/resolve.ts`   | `createStyleVarResolver`, `resolveStyleMap`                                                                        | Deterministic style token substitution pipeline                  | P1       |
 | extension  | `packages/extension/mcp/tools/code/tokens/transform.ts` | `applyPluginTransformToNames`                                                                                      | Deterministic token rename + bridge conflict handling            | P1       |
 | extension  | `packages/extension/mcp/tools/code/tokens/process.ts`   | `processTokens`                                                                                                    | Deterministic token pipeline orchestration under mocked helpers  | P1       |
 | extension  | `packages/extension/mcp/tools/code/tokens/used.ts`      | `buildUsedTokens`                                                                                                  | Deterministic used-token set materialization and resolver wiring | P1       |
@@ -217,6 +218,15 @@ Fix:
 - direct passthrough behavior when caller does not supply cache.
 - cache-hit behavior for value and explicit `null`.
 - cache-miss write-through behavior for found and missing variables.
+
+### extension: `mcp/tools/code/tokens/resolve.ts`
+
+- resolver short-circuit behavior for empty styles and filtered node ids.
+- CSS variable replacement flow with token matcher and canonical-name lookup.
+- variable alias resolution (target missing and cyclic guard).
+- mode selection behavior (node overrides, active/default/fallback modes).
+- literal serialization behavior for color/float/string/boolean/object tokens.
+- style map resolution behavior across node-present and node-missing entries.
 
 ### extension: `mcp/tools/code/tokens/used.ts`
 

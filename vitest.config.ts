@@ -24,6 +24,7 @@ export default defineConfig({
         'packages/extension/mcp/tools/code/tokens/process.ts',
         'packages/extension/mcp/tools/code/tokens/used.ts',
         'packages/extension/mcp/tools/code/tokens/cache.ts',
+        'packages/extension/mcp/tools/code/tokens/resolve.ts',
         'packages/plugins/src/index.ts',
         'packages/mcp-server/src/asset-utils.ts',
         'packages/mcp-server/src/tools.ts',
