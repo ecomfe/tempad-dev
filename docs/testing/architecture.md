@@ -123,6 +123,7 @@ Fix:
 | extension  | `packages/extension/composables/input.ts`                       | `useSelectAll`                                                                                                           | Deterministic input-focus select binding                         | P1       |
 | extension  | `packages/extension/worker/safe.ts`                             | default `Set<string>`                                                                                                    | Stable allowlist contract for worker lockdown                    | P1       |
 | extension  | `packages/extension/worker/lockdown.ts`                         | `lockdownWorker`                                                                                                         | Deterministic global-pruning and worker global sealing flow      | P1       |
+| extension  | `packages/extension/mcp/index.ts`                               | re-export surface                                                                                                        | Stable MCP barrel export contract                                | P2       |
 | extension  | `packages/extension/mcp/config.ts`                              | `MCP_CLIENTS_BY_ID`, `MCP_CLIENTS`, `MCP_SERVER`                                                                         | Deterministic MCP client deep link and command/config generation | P1       |
 | extension  | `packages/extension/mcp/assets.ts`                              | `setAssetServerUrl`, `resetUploadedAssets`, `buildAssetResourceUri`, `ensureAssetUploaded`                               | Deterministic asset hash/upload dedupe and descriptor shaping    | P1       |
 | extension  | `packages/extension/mcp/runtime.ts`                             | `MCP_TOOL_HANDLERS`                                                                                                      | Deterministic node resolution and MCP tool routing               | P1       |
@@ -314,6 +315,10 @@ Fix:
 - coded error behavior for `NODE_NOT_VISIBLE` and `INVALID_SELECTION`.
 - token-def input guard behavior and downstream forwarding of `includeAllModes`.
 - routing behavior from tool handlers to concrete implementations (`code`, `screenshot`, `structure`) with expected args.
+
+### extension: `mcp/index.ts`
+
+- re-export contract behavior for MCP entry barrel (`config` + `runtime`).
 
 ### extension: `mcp/transform-variables/requester.ts`
 

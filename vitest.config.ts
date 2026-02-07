@@ -28,6 +28,7 @@ export default defineConfig({
         'packages/extension/composables/input.ts',
         'packages/extension/worker/safe.ts',
         'packages/extension/worker/lockdown.ts',
+        'packages/extension/mcp/index.ts',
         'packages/extension/mcp/config.ts',
         'packages/extension/mcp/assets.ts',
         'packages/extension/mcp/runtime.ts',
