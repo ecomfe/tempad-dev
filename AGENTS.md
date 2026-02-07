@@ -1,4 +1,4 @@
-# Tempad Dev — Agent Guide (Root)
+# Tempad Dev — agent guide (root)
 
 ## Purpose
 
@@ -8,14 +8,14 @@ Provide a single entry point for coding agents. This file links to package-level
 
 - `packages/extension/` — Figma plugin + MCP tools implementation
 - `packages/mcp-server/` — MCP server runtime
-- `packages/mcp-shared/` — shared types and contracts
+- `packages/shared/` — shared types and contracts
 - `packages/plugins/` — plugin-side code and transforms
 
 ## Start here
 
 - `packages/extension/AGENTS.md`
 - `packages/mcp-server/AGENTS.md`
-- `packages/mcp-shared/AGENTS.md`
+- `packages/shared/AGENTS.md`
 - `packages/plugins/AGENTS.md`
 
 ## Global conventions
@@ -27,9 +27,17 @@ Provide a single entry point for coding agents. This file links to package-level
 
 - Typecheck: `pnpm typecheck`
 - Lint (and format): `pnpm lint:fix`
+- Test (watch): `pnpm test`
+- Test (run): `pnpm test:run`
+- Test (coverage): `pnpm test:coverage`
+- Extension node tests: `pnpm test:ext:node`
+- Extension browser tests: `pnpm test:ext:browser`
+- Extension browser setup: `pnpm test:ext:setup`
 
 ## Doc index
 
+- `TESTING.md`
+- `docs/testing/architecture.md`
 - `docs/extension/requirements.md`
 - `docs/extension/design.md`
 
@@ -60,6 +68,8 @@ Run these at repo root unless noted.
 - Build MCP: `pnpm build:mcp`
 - Typecheck all packages: `pnpm typecheck`
 - Lint all packages: `pnpm lint` / auto-fix: `pnpm lint:fix`
+- Test all packages: `pnpm test:run`
+- Coverage report: `pnpm test:coverage`
 - Format: `pnpm format`
 - Zip extension artifact: `pnpm zip`
 
@@ -71,6 +81,7 @@ Pick the checks that match your change.
 
 - `pnpm typecheck`
 - `pnpm lint` (or `pnpm lint:fix`)
+- `pnpm test:run`
 
 2. Extension UI / codegen
 
@@ -90,5 +101,15 @@ Pick the checks that match your change.
 
 5. MCP schemas / tool behavior
 
-- If you change tool schemas/contracts: update `packages/mcp-shared` first, then `packages/mcp-server`, then `packages/extension`.
+- If you change tool schemas/contracts: update `packages/shared` first, then `packages/mcp-server`, then `packages/extension`.
 - Re-check payload limits and omission rules; see `docs/extension/requirements.md` and `docs/extension/design.md`.
+
+## Testing notes
+
+- Testing runbook and required checks: `TESTING.md`.
+- Testing architecture and pure-function inventory: `docs/testing/architecture.md`.
+- Root coverage is configured in `vitest.config.ts` to track the curated pure-function inventory.
+- Root coverage excludes build artifacts (`**/dist/**`, `**/.output/**`) to avoid polluted reports.
+- Root coverage provider is `istanbul` to avoid V8 remap parse failures under Vite 8 dependency trees.
+- Extension browser tests run in Playwright via `packages/extension/vitest.browser.config.ts`.
+- Do not introduce jsdom-based tests in this repository.

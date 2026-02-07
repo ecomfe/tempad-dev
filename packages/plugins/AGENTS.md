@@ -1,4 +1,4 @@
-# TemPad Dev - Plugins agent guide
+# TemPad Dev - plugins agent guide
 
 This guide applies to `packages/plugins/`, the public SDK for plugin authors.
 
@@ -33,6 +33,13 @@ Lint/format:
 
 ```
 pnpm -C packages/plugins lint:fix
+```
+
+Test:
+
+```
+pnpm -C packages/plugins test:run
+pnpm -C packages/plugins test:coverage
 ```
 
 ## Tech stack
@@ -81,3 +88,9 @@ Always update README examples when public types change.
 - Never introduce extension-internal concepts into the SDK.
 - Do not add runtime dependencies without approval.
 - Do not make breaking changes unless explicitly planned.
+
+## Testing notes
+
+- Follow repo-wide testing workflow in `TESTING.md`.
+- Coverage architecture and strict pure inventory are documented in `docs/testing/architecture.md`.
+- Keep coverage focused on `src/index.ts`; do not use `dist/` files for assertions.

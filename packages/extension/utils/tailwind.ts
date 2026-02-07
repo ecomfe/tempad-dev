@@ -116,7 +116,6 @@ function formatGridTemplate(val: string): FormatterResult {
 
 function formatGridLine(val: string): FormatterResult {
   const trimmed = val.trim()
-  if (!trimmed) return trimmed
 
   // Guard against invalid 0 or span 0 which Tailwind cannot represent meaningfully.
   if (/^\s*0(\D|$)/.test(trimmed) || /span\s*0/i.test(trimmed)) {
@@ -1056,17 +1055,16 @@ function collapseComposite(
 
   Object.keys(config.props).forEach((field) => {
     const val = buffer[field]
-    if (val) {
-      const atomicConfig = config.atomics[field]
-      if (atomicConfig) {
-        const formatted = extractValuePart(val, config, familyKey, atomicConfig.valueKind)
-        const tempConfig: FamilyConfig = {
-          ...config,
-          prefix: atomicConfig.prefix
-        }
-        out.push(buildClass(tempConfig, '', formatted))
-      }
+    if (!val) return
+
+    // Composite props and atomics are defined in lockstep in TAILWIND_CONFIG.
+    const atomicConfig = config.atomics[field] as AtomicFallback
+    const formatted = extractValuePart(val, config, familyKey, atomicConfig.valueKind)
+    const tempConfig: FamilyConfig = {
+      ...config,
+      prefix: atomicConfig.prefix
     }
+    out.push(buildClass(tempConfig, '', formatted))
   })
   return out
 }
@@ -1104,7 +1102,8 @@ export function cssToTailwind(rawStyle: Record<string, string>): string {
       axes[field] = val
     } else if (config.mode === 'direct') {
       buf.val = val
-    } else if (config.mode === 'composite') {
+    } else {
+      // Remaining mode is composite for PROPERTY_MAP-derived entries.
       const comp = buf.composite || (buf.composite = {})
       comp[field] = val
     }
@@ -1123,8 +1122,15 @@ export function cssToTailwind(rawStyle: Record<string, string>): string {
       classes.push(...collapseAxes(config, familyKey, buf.axes))
     } else if (config.mode === 'direct' && buf.val) {
       classes.push(buildClass(config, '', extractValuePart(buf.val, config, familyKey)))
-    } else if (config.mode === 'composite' && buf.composite) {
-      classes.push(...collapseComposite(config, familyKey, buf.composite))
+    } else {
+      // Direct-mode buffers always have val; remaining families are composite.
+      classes.push(
+        ...collapseComposite(
+          config as CompositeFamily,
+          familyKey,
+          buf.composite as Record<string, string>
+        )
+      )
     }
   }
 

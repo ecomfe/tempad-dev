@@ -2,7 +2,7 @@ import type { VariableDisplayMode } from '@/types/codegen'
 import type { TransformOptions } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
 
-import { parseNumber, toDecimalPlace } from './number'
+import { toDecimalPlace } from './number'
 import { kebabToCamel } from './string'
 
 function escapeSingleQuote(value: string) {
@@ -251,7 +251,10 @@ export function parseBackgroundShorthand(value: string) {
   if (sizeMatch) result.size = sizeMatch[1]
 
   const repeatMatch = value.match(BG_REPEAT_RE)
-  if (repeatMatch) result.repeat = repeatMatch[1] || repeatMatch[0].trim()
+  if (repeatMatch) {
+    const [, repeatToken] = repeatMatch
+    result.repeat = repeatToken.trim()
+  }
 
   const posMatch = value.match(BG_POS_RE)
   if (posMatch) result.position = posMatch[0].trim()
@@ -304,7 +307,7 @@ function parseFlexShorthand(value: string) {
       shrink = '1'
       basis = parts[1]
     }
-  } else if (parts.length >= 3) {
+  } else {
     grow = parts[0]
     shrink = parts[1]
     basis = parts[2]
@@ -315,8 +318,7 @@ function parseFlexShorthand(value: string) {
 
 function transformPxValue(value: string, transform: (value: number) => string) {
   return value.replace(PX_VALUE_RE, (_, val) => {
-    const parsed = parseNumber(val)
-    if (parsed == null) return val
+    const parsed = Number(val)
     if (parsed === 0) return '0'
     return transform(toDecimalPlace(parsed, 5))
   })
@@ -405,7 +407,6 @@ function parseHexColor(input: string): { r: number; g: number; b: number; a: num
   const b = parseInt(hex.slice(4, 6), 16)
   const a = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1
 
-  if (![r, g, b, a].every((v) => Number.isFinite(v))) return null
   return { r, g, b, a }
 }
 
@@ -1141,6 +1142,11 @@ export function canonicalizeValue(key: string, value: string): string {
   }
 
   return trimmed.replace(ALL_WHITESPACE_RE, '')
+}
+
+function formatHex(r: number, g: number, b: number): string {
+  const toHex = (n: number) => n.toString(16).padStart(2, '0')
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
 export function canonicalizeColor(value: string): string | null {

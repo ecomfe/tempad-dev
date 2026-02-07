@@ -9,6 +9,12 @@
     "build:ext": "pnpm --filter @tempad-dev/extension build",
     "build:plugins": "pnpm --filter @tempad-dev/plugins build",
     "build:mcp": "pnpm --filter @tempad-dev/mcp build",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:ext:node": "pnpm --filter @tempad-dev/extension test:node",
+    "test:ext:browser": "pnpm --filter @tempad-dev/extension test:browser",
+    "test:ext:setup": "pnpm --filter @tempad-dev/extension test:setup",
     "lint": "pnpm lint:root && pnpm -r lint",
     "lint:fix": "pnpm lint:root:fix && pnpm -r lint:fix",
     "lint:root": "eslint . --ignore-pattern \"packages/**\"",
@@ -26,6 +32,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@rushstack/eslint-patch": "^1.15.0",
+    "@vitest/coverage-istanbul": "4.0.18",
     "@vue/eslint-config-prettier": "^10.2.0",
     "@vue/eslint-config-typescript": "^14.6.0",
     "eslint": "^9.39.1",
@@ -35,7 +42,8 @@
     "lefthook": "^2.0.0",
     "oxfmt": "^0.26.0",
     "prettier": "^3.6.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "4.0.18"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
