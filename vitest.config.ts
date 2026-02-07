@@ -30,6 +30,7 @@ export default defineConfig({
         'packages/extension/mcp/tools/code/sanitize/negative-gap.ts',
         'packages/extension/mcp/tools/code/sanitize/relative-parent.ts',
         'packages/extension/mcp/tools/code/sanitize/stacking.ts',
+        'packages/extension/mcp/tools/code/sanitize/index.ts',
         'packages/extension/mcp/tools/code/styles/layout.ts',
         'packages/extension/mcp/tools/code/styles/overflow.ts',
         'packages/extension/mcp/tools/code/assets/plan.ts',
