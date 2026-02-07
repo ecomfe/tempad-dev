@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.0
+
+- Fixed gradient stroke code output so it can coexist with rounded corners by rendering a masked pseudo-element ring.
+- Simplified generated inset values for literal border widths (e.g. `-1px` instead of `calc(-1 * 1px)`).
+- Updated MCP `get_code` Tailwind class generation to emit the same pseudo-element gradient-border pattern.
+
 ## 0.16.0
 
 - Added a “Variable display” preference (Reference/Resolved/Both) so you can choose whether code shows variables, resolved values, or both.
