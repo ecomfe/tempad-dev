@@ -29,6 +29,7 @@ export default defineConfig({
         'utils/tailwind.ts',
         'utils/codegen.ts',
         'mcp/config.ts',
+        'rewrite/config.ts',
         'rewrite/shared.ts',
         'mcp/errors.ts',
         'mcp/transport.ts',
