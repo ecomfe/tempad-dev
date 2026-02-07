@@ -127,6 +127,7 @@ Fix:
 | extension  | `packages/extension/mcp/assets.ts`                              | `setAssetServerUrl`, `resetUploadedAssets`, `buildAssetResourceUri`, `ensureAssetUploaded`                               | Deterministic asset hash/upload dedupe and descriptor shaping    | P1       |
 | extension  | `packages/extension/mcp/runtime.ts`                             | `MCP_TOOL_HANDLERS`                                                                                                      | Deterministic node resolution and MCP tool routing               | P1       |
 | extension  | `packages/extension/mcp/transform-variables/requester.ts`       | `runTransformVariableBatch`                                                                                              | Deterministic worker delegation and fallback var formatting      | P1       |
+| extension  | `packages/extension/mcp/transform-variables/worker.ts`          | worker `onmessage` handler                                                                                               | Deterministic plugin-eval/cache/fallback behavior in worker path | P1       |
 | extension  | `packages/extension/rewrite/config.ts`                          | `GROUPS`                                                                                                                 | Stable rewrite marker and replacement contract payload           | P1       |
 | extension  | `packages/extension/rewrite/figma.ts`                           | module side effect (`rewriteCurrentScript(GROUPS)`)                                                                      | Stable rewrite bootstrap invocation contract                     | P1       |
 | extension  | `packages/extension/rewrite/runtime.ts`                         | `rewriteCurrentScript`                                                                                                   | Deterministic rewrite/eval/fallback orchestration                | P1       |
@@ -319,6 +320,14 @@ Fix:
 - empty-reference fast return behavior without worker invocation.
 - fallback var-expression formatting behavior when plugin code is disabled.
 - worker delegation behavior when plugin code is provided, including payload shape and result passthrough.
+
+### extension: `mcp/transform-variables/worker.ts`
+
+- module-load lockdown behavior via `lockdownWorker('transform-variable')`.
+- evaluation failure behavior (post error and early return).
+- plugin-transform cache behavior for repeated identical plugin code.
+- fallback var-expression behavior for disabled plugin, missing transform hook, and throwing transform hook.
+- cache reset behavior when plugin code is removed after prior activation.
 
 ### extension: `rewrite/config.ts`
 

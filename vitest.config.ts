@@ -32,6 +32,7 @@ export default defineConfig({
         'packages/extension/mcp/assets.ts',
         'packages/extension/mcp/runtime.ts',
         'packages/extension/mcp/transform-variables/requester.ts',
+        'packages/extension/mcp/transform-variables/worker.ts',
         'packages/extension/rewrite/config.ts',
         'packages/extension/rewrite/figma.ts',
         'packages/extension/rewrite/runtime.ts',
