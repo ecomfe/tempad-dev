@@ -23,6 +23,7 @@ export default defineConfig({
         'packages/extension/mcp/config.ts',
         'packages/extension/rewrite/config.ts',
         'packages/extension/rewrite/figma.ts',
+        'packages/extension/rewrite/runtime.ts',
         'packages/extension/rewrite/shared.ts',
         'packages/extension/mcp/errors.ts',
         'packages/extension/mcp/transport.ts',
