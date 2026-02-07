@@ -19,6 +19,21 @@ const SCSS_VARS_RE = /(^|[^\w-])[$@]([a-zA-Z0-9_-]+)/g
 const PX_VALUE_RE = /\b(-?\d+(?:\.\d+)?)px\b/g
 export const QUOTES_RE = /['"]/g
 const NUMBER_RE = /^\d+(\.\d+)?$/
+const LENGTH_LITERAL_RE = /^(-?(?:\d+\.?\d*|\.\d+))([a-z%]+)$/i
+const ZERO_BORDER_WIDTH_RE = /^0(?:\.0+)?(?:[a-z%]+)?$/i
+const JS_IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+
+const BORDER_SIDES = ['top', 'right', 'bottom', 'left'] as const
+const GRADIENT_FUNCTION_PREFIXES = [
+  'linear-gradient(',
+  'radial-gradient(',
+  'conic-gradient(',
+  'repeating-linear-gradient(',
+  'repeating-radial-gradient(',
+  'repeating-conic-gradient('
+]
+const OVERFLOW_CLIPPING_VALUES = new Set(['hidden', 'clip'])
+const RING_MASK = 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)'
 
 // Figma CSS var naming normalization (matches getCSSAsync output semantics for variable names)
 const RE_NON_ASCII = /\P{ASCII}+/gu
@@ -413,6 +428,195 @@ function parseBorderShorthand(normalized: string): {
   }
 }
 
+function extractLeadingGradient(value: string): string | null {
+  const input = value.trim()
+  if (!input) return null
+
+  const lower = input.toLowerCase()
+  if (!GRADIENT_FUNCTION_PREFIXES.some((prefix) => lower.startsWith(prefix))) {
+    return null
+  }
+
+  let depth = 0
+  let quote: '"' | "'" | null = null
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i]
+
+    if (quote) {
+      if (ch === '\\') {
+        i++
+        continue
+      }
+      if (ch === quote) quote = null
+      continue
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      continue
+    }
+
+    if (ch === '(') {
+      depth++
+      continue
+    }
+
+    if (ch === ')') {
+      depth = Math.max(0, depth - 1)
+      if (depth === 0) {
+        return input.slice(0, i + 1).trim()
+      }
+    }
+  }
+
+  return null
+}
+
+function getBorderWidth(style: Record<string, string>): string | null {
+  if (style.border) {
+    const parsed = parseBorderShorthand(normalizeStyleValue(style.border))
+    if (parsed.width) {
+      return normalizeStyleValue(parsed.width)
+    }
+  }
+
+  if (style['border-width']) {
+    return normalizeStyleValue(style['border-width'])
+  }
+
+  const sideWidths = BORDER_SIDES.map((side) => {
+    const width = style[`border-${side}-width`]
+    if (width) return normalizeStyleValue(width)
+
+    const border = style[`border-${side}`]
+    if (!border) return null
+
+    const parsed = parseBorderShorthand(normalizeStyleValue(border))
+    return parsed.width ? normalizeStyleValue(parsed.width) : null
+  })
+
+  if (sideWidths.every((width): width is string => typeof width === 'string' && width.length > 0)) {
+    const [first, ...rest] = sideWidths
+    if (rest.every((width) => width === first)) {
+      return first
+    }
+  }
+
+  return null
+}
+
+function isZeroBorderWidth(value: string): boolean {
+  return ZERO_BORDER_WIDTH_RE.test(normalizeStyleValue(value).toLowerCase())
+}
+
+function negateLengthLiteral(value: string): string | null {
+  const normalized = normalizeStyleValue(value)
+  const matched = normalized.match(LENGTH_LITERAL_RE)
+  if (!matched) {
+    return null
+  }
+
+  const [, amount, unit] = matched
+  if (amount.startsWith('-')) {
+    return `${amount.slice(1)}${unit}`
+  }
+
+  return `-${amount}${unit}`
+}
+
+function hasOverflowClipping(style: Record<string, string>): boolean {
+  const overflowValues = [style.overflow, style['overflow-x'], style['overflow-y']]
+
+  return overflowValues.some((value) => {
+    if (!value) return false
+
+    const parts = normalizeStyleValue(value).toLowerCase().split(WHITESPACE_RE).filter(Boolean)
+    return parts.some((part) => OVERFLOW_CLIPPING_VALUES.has(part))
+  })
+}
+
+function isNonRadiusBorderProperty(name: string): boolean {
+  return name.startsWith('border') && !name.includes('radius')
+}
+
+type GradientBorderSpec = {
+  gradient: string
+  borderWidth: string
+  preserveBorder: boolean
+  inset: string
+}
+
+function resolveGradientBorder(style: Record<string, string>): GradientBorderSpec | null {
+  const gradient = extractLeadingGradient(style['border-image'] ?? '')
+  if (!gradient) return null
+
+  const borderWidth = getBorderWidth(style)
+  if (!borderWidth || isZeroBorderWidth(borderWidth)) return null
+
+  const preserveBorder = !hasOverflowClipping(style)
+  const inset = preserveBorder
+    ? (negateLengthLiteral(borderWidth) ?? `calc(-1 * ${borderWidth})`)
+    : '0'
+
+  return {
+    gradient,
+    borderWidth,
+    preserveBorder,
+    inset
+  }
+}
+
+function buildGradientBorderBaseStyle(
+  style: Record<string, string>,
+  spec: GradientBorderSpec
+): Record<string, string> {
+  const base: Record<string, string> = {}
+
+  for (const [key, value] of Object.entries(style)) {
+    if (!value) continue
+    if (key === 'border-image' || key === 'border-image-slice') continue
+    if (isNonRadiusBorderProperty(key)) continue
+    base[key] = value
+  }
+
+  if (!base.position) {
+    base.position = 'relative'
+  }
+  if (!base.isolation) {
+    base.isolation = 'isolate'
+  }
+  if (spec.preserveBorder) {
+    base.border = `${spec.borderWidth} solid transparent`
+  }
+
+  return base
+}
+
+function buildGradientBorderPseudoStyle(spec: GradientBorderSpec): Record<string, string> {
+  return {
+    content: '""',
+    position: 'absolute',
+    inset: spec.inset,
+    padding: spec.borderWidth,
+    'border-radius': 'inherit',
+    background: spec.gradient,
+    'pointer-events': 'none',
+    '-webkit-mask': RING_MASK,
+    '-webkit-mask-composite': 'xor',
+    mask: RING_MASK,
+    'mask-composite': 'exclude'
+  }
+}
+
+function formatJsObjectKey(key: string): string {
+  if (JS_IDENTIFIER_RE.test(key)) {
+    return key
+  }
+
+  return `"${key.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
 export function expandShorthands(style: Record<string, string>): Record<string, string> {
   const expanded: Record<string, string> = { ...style }
 
@@ -655,15 +859,47 @@ export function serializeCSS(
     return ''
   }
 
-  let code = toJS
-    ? '{\n' +
-      Object.entries(processedStyle)
-        .map(([key, value]) => `  ${kebabToCamel(key)}: ${stringifyValue(value)}`)
-        .join(',\n') +
-      '\n}'
-    : Object.entries(processedStyle)
+  const gradientBorder = resolveGradientBorder(processedStyle)
+
+  let code = ''
+  if (gradientBorder) {
+    const baseStyle = buildGradientBorderBaseStyle(processedStyle, gradientBorder)
+    const pseudoStyle = buildGradientBorderPseudoStyle(gradientBorder)
+
+    if (toJS) {
+      const baseLines = Object.entries(baseStyle).map(
+        ([key, value]) => `  ${formatJsObjectKey(kebabToCamel(key))}: ${stringifyValue(value)}`
+      )
+      const pseudoLines = Object.entries(pseudoStyle).map(
+        ([key, value]) => `    ${formatJsObjectKey(kebabToCamel(key))}: ${stringifyValue(value)}`
+      )
+      baseLines.push(`  ${formatJsObjectKey('&::before')}: {\n${pseudoLines.join(',\n')}\n  }`)
+
+      code = `{\n${baseLines.join(',\n')}\n}`
+    } else {
+      const baseCode = Object.entries(baseStyle)
         .map(([key, value]) => `${key}: ${value};`)
         .join('\n')
+      const pseudoCode =
+        '&::before {\n' +
+        Object.entries(pseudoStyle)
+          .map(([key, value]) => `  ${key}: ${value};`)
+          .join('\n') +
+        '\n}'
+
+      code = `${baseCode}\n\n${pseudoCode}`
+    }
+  } else {
+    code = toJS
+      ? '{\n' +
+        Object.entries(processedStyle)
+          .map(([key, value]) => `  ${kebabToCamel(key)}: ${stringifyValue(value)}`)
+          .join(',\n') +
+        '\n}'
+      : Object.entries(processedStyle)
+          .map(([key, value]) => `${key}: ${value};`)
+          .join('\n')
+  }
 
   if (typeof transform === 'function') {
     code = transform({ code, style: processedStyle, options })

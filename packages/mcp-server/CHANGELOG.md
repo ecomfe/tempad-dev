@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- Minor version bump to align with TemPad Dev extension `0.17.0` release.
+- No MCP server runtime behavior changes in this release.
+
 ## 0.3.13
 
 - No longer bundle `zod` into the distribution to reduce size.
