@@ -38,6 +38,7 @@ export default defineConfig({
         'mcp/tools/code/sanitize/negative-gap.ts',
         'mcp/tools/code/sanitize/relative-parent.ts',
         'mcp/tools/code/sanitize/stacking.ts',
+        'mcp/tools/code/styles/layout.ts',
         'mcp/tools/code/assets/plan.ts',
         'mcp/tools/code/styles/normalize.ts',
         'mcp/tools/code/styles/prepare.ts',
