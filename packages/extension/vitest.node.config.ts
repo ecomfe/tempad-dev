@@ -29,6 +29,8 @@ export default defineConfig({
         'utils/css.ts',
         'utils/tailwind.ts',
         'utils/codegen.ts',
+        'worker/safe.ts',
+        'worker/lockdown.ts',
         'mcp/config.ts',
         'rewrite/config.ts',
         'rewrite/figma.ts',
