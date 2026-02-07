@@ -16,6 +16,7 @@ export default defineConfig({
         'packages/extension/utils/string.ts',
         'packages/extension/utils/object.ts',
         'packages/extension/utils/color.ts',
+        'packages/extension/utils/module.ts',
         'packages/extension/utils/css.ts',
         'packages/extension/utils/tailwind.ts',
         'packages/extension/utils/codegen.ts',
