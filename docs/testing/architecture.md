@@ -129,6 +129,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/sanitize/negative-gap.ts`    | `patchNegativeGapStyles`                                                                                           | Deterministic negative-gap normalization and compensation logic  | P1       |
 | extension  | `packages/extension/mcp/tools/code/sanitize/relative-parent.ts` | `ensureRelativeForAbsoluteChildren`                                                                                | Deterministic parent-position enforcement for absolute children  | P1       |
 | extension  | `packages/extension/mcp/tools/code/sanitize/stacking.ts`        | `applyAbsoluteStackingOrder`                                                                                       | Deterministic stacking-order correction and parent isolation     | P1       |
+| extension  | `packages/extension/mcp/tools/code/sanitize/index.ts`           | `sanitizeStyles`                                                                                                   | Deterministic sanitize patch orchestration order                 | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/layout.ts`            | `mergeInferredAutoLayout`, `inferResizingStyles`                                                                   | Deterministic inferred auto-layout and resizing style adaptation | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/overflow.ts`          | `applyOverflowStyles`                                                                                              | Deterministic overflow-direction and clipping adaptation         | P1       |
 | extension  | `packages/extension/mcp/tools/code/assets/plan.ts`              | `planAssets`                                                                                                       | Deterministic vector asset grouping and descendant pruning logic | P1       |
@@ -377,6 +378,10 @@ Fix:
 - absolute child demotion when later in-flow siblings exist.
 - parent isolation insertion and existing-isolation preservation.
 - handling for missing roots and child lists.
+
+### extension: `mcp/tools/code/sanitize/index.ts`
+
+- sanitize patch execution order and argument forwarding behavior.
 
 ### extension: `mcp/tools/code/styles/layout.ts`
 
