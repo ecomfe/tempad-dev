@@ -118,6 +118,7 @@ Fix:
 | extension  | `packages/extension/utils/css.ts`                          | exported helpers                                                                                                   | Core style normalization and serialization logic                 | P0       |
 | extension  | `packages/extension/utils/tailwind.ts`                     | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                      | Deterministic CSS→class mapping                                  | P0       |
 | extension  | `packages/extension/utils/codegen.ts`                      | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                        | Unit-test via worker/runtime dependency mocks                    | P1       |
+| extension  | `packages/extension/rewrite/shared.ts`                     | `isRules`, `getRewriteTargetRegex`, `loadRules`, `groupMatches`, `applyGroups`                                     | Deterministic rewrite-rule validation and replacement pipeline   | P1       |
 | extension  | `packages/extension/mcp/errors.ts`                         | `createCodedError`, `coerceToolErrorPayload`                                                                       | Deterministic error normalization and code tagging               | P0       |
 | extension  | `packages/extension/mcp/transport.ts`                      | `setMcpSocket`, `getMcpSocket`, `requireMcpSocket`                                                                 | Deterministic transport state guard behavior                     | P0       |
 | extension  | `packages/extension/mcp/tools/code/styles/normalize.ts`    | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
@@ -192,6 +193,13 @@ Fix:
   - de-duplication of generated classes.
 - `joinClassNames`:
   - empty/falsey filtering and stable joining.
+
+### extension: `rewrite/shared.ts`
+
+- rules payload validation and invalid-shape rejection.
+- rewrite target regex extraction and invalid-regex fallback behavior.
+- rules loading success/failure paths (`fetch` non-ok, invalid payload, thrown errors).
+- grouped replacement execution for marker matching, changed/no-op stats, and logging toggles.
 
 ### extension: `mcp/tools/code/styles/normalize.ts`
 
