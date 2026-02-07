@@ -122,6 +122,8 @@ Fix:
 | extension  | `packages/extension/rewrite/shared.ts`                          | `isRules`, `getRewriteTargetRegex`, `loadRules`, `groupMatches`, `applyGroups`                                           | Deterministic rewrite-rule validation and replacement pipeline   | P1       |
 | extension  | `packages/extension/mcp/errors.ts`                              | `createCodedError`, `coerceToolErrorPayload`                                                                             | Deterministic error normalization and code tagging               | P0       |
 | extension  | `packages/extension/mcp/transport.ts`                           | `setMcpSocket`, `getMcpSocket`, `requireMcpSocket`                                                                       | Deterministic transport state guard behavior                     | P0       |
+| extension  | `packages/extension/mcp/tools/config.ts`                        | `currentCodegenConfig`                                                                                                   | Deterministic codegen config projection from UI state            | P0       |
+| extension  | `packages/extension/mcp/tools/screenshot.ts`                    | `handleGetScreenshot`                                                                                                    | Deterministic screenshot downscale and payload guard flow        | P1       |
 | extension  | `packages/extension/mcp/tools/structure.ts`                     | `handleGetStructure`                                                                                                     | Deterministic structure payload shaping and size guarding        | P1       |
 | extension  | `packages/extension/mcp/tools/code/layout-parent.ts`            | `getLayoutParent`                                                                                                        | Deterministic ancestor lookup with type filtering                | P0       |
 | extension  | `packages/extension/mcp/tools/code/messages.ts`                 | `buildTokenSummary`, `buildCandidateSummary`                                                                             | Deterministic summary message formatting                         | P0       |
@@ -362,6 +364,17 @@ Fix:
 - transport socket set/get lifecycle behavior.
 - guard failure behavior for missing and non-open sockets.
 - open-socket happy path for `requireMcpSocket`.
+
+### extension: `mcp/tools/config.ts`
+
+- codegen setting projection behavior for `cssUnit`, `rootFontSize`, and `scale`.
+- runtime update reflection behavior across repeated reads.
+
+### extension: `mcp/tools/screenshot.ts`
+
+- first-pass screenshot success path at scale `1`.
+- downscale retry behavior (`1` -> `0.75` -> `0.5` -> `0.25`) until payload fits.
+- terminal failure behavior when all scale attempts exceed max payload bytes.
 
 ### extension: `mcp/tools/structure.ts`
 
