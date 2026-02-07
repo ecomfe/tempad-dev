@@ -30,6 +30,7 @@ export default defineConfig({
         'utils/codegen.ts',
         'mcp/config.ts',
         'rewrite/config.ts',
+        'rewrite/figma.ts',
         'rewrite/shared.ts',
         'mcp/errors.ts',
         'mcp/transport.ts',
