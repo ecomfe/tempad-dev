@@ -132,6 +132,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/sanitize/index.ts`           | `sanitizeStyles`                                                                                                   | Deterministic sanitize patch orchestration order                 | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/layout.ts`            | `mergeInferredAutoLayout`, `inferResizingStyles`                                                                   | Deterministic inferred auto-layout and resizing style adaptation | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/overflow.ts`          | `applyOverflowStyles`                                                                                              | Deterministic overflow-direction and clipping adaptation         | P1       |
+| extension  | `packages/extension/mcp/tools/code/styles/index.ts`             | re-export surface                                                                                                  | Stable style pipeline export contract                            | P2       |
 | extension  | `packages/extension/mcp/tools/code/assets/plan.ts`              | `planAssets`                                                                                                       | Deterministic vector asset grouping and descendant pruning logic | P1       |
 | extension  | `packages/extension/mcp/tools/code/assets/vector.ts`            | `exportSvgEntry`, `transformSvgAttributes`, `extractSvgAttributes`                                                 | Deterministic SVG export shaping and attribute normalization     | P1       |
 | extension  | `packages/extension/mcp/tools/code/assets/export.ts`            | `exportVectorAssets`                                                                                               | Deterministic vector export selection and snapshot guards        | P1       |
@@ -147,6 +148,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/tokens/rewrite.ts`           | `rewriteTokenNamesInCode`, `filterBridge`                                                                          | Deterministic token rewrite and bridge filtering                 | P0       |
 | extension  | `packages/extension/mcp/tools/code/tokens/source-index.ts`      | `buildSourceNameIndex`                                                                                             | Deterministic candidate name indexing                            | P0       |
 | extension  | `packages/extension/mcp/tools/code/tokens/used.ts`              | `buildUsedTokens`                                                                                                  | Deterministic used-token set materialization and resolver wiring | P1       |
+| extension  | `packages/extension/mcp/tools/code/text/index.ts`               | re-export surface                                                                                                  | Stable text render entry export contract                         | P2       |
 | extension  | `packages/extension/mcp/tools/token/candidates.ts`              | `collectCandidateVariableIds`                                                                                      | Deterministic candidate-variable traversal and rewrite mapping   | P1       |
 | extension  | `packages/extension/mcp/tools/token/indexer.ts`                 | `getVariableRawName`, `canonicalizeNames`, `canonicalizeName`, `getTokenIndex`                                     | Deterministic token canonicalization, batching, and cache/index  | P1       |
 | extension  | `packages/extension/mcp/tools/token/mapping.ts`                 | `buildVariableMappings`, `normalizeStyleVars`, `applyPluginTransforms`                                             | Deterministic style token rewrite and plugin transform wiring    | P1       |
@@ -321,6 +323,10 @@ Fix:
 
 - re-export contract behavior for candidate collection and token definition resolvers.
 
+### extension: `mcp/tools/code/text/index.ts`
+
+- re-export contract behavior for text segment rendering entrypoint.
+
 ### extension: `mcp/errors.ts`
 
 - coded error creation and code attachment behavior.
@@ -394,6 +400,10 @@ Fix:
 - explicit overflow-direction mapping for horizontal/vertical/both modes.
 - clips-content fallback behavior when child bounds exceed parent bounds.
 - bounds resolution fallback behavior for missing/non-finite/transform-only geometry.
+
+### extension: `mcp/tools/code/styles/index.ts`
+
+- re-export contract behavior for normalize and prepare style pipeline helpers.
 
 ### extension: `mcp/tools/code/assets/plan.ts`
 
