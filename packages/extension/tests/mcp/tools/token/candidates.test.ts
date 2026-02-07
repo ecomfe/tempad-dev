@@ -134,7 +134,9 @@ describe('token/candidates collectCandidateVariableIds', () => {
       'id-style-fill': { id: 'id-style-fill', name: 'Style Fill' } as unknown as Variable
     }
     vi.mocked(getVariableByIdCached).mockImplementation((id: string) => vars[id] ?? null)
-    vi.mocked(getVariableRawName).mockImplementation((variable: Variable) => variable.name)
+    vi.mocked(getVariableRawName).mockImplementation(
+      (variable: Variable) => variable.name ?? 'Unnamed'
+    )
 
     const cache = new Map<string, Variable | null>()
     const result = collectCandidateVariableIds([root], cache)
@@ -189,7 +191,9 @@ describe('token/candidates collectCandidateVariableIds', () => {
     } as unknown as PluginAPI
 
     vi.mocked(getVariableByIdCached).mockReturnValue(null)
-    vi.mocked(getVariableRawName).mockImplementation((variable: Variable) => variable.name)
+    vi.mocked(getVariableRawName).mockImplementation(
+      (variable: Variable) => variable.name ?? 'Unnamed'
+    )
 
     const result = collectCandidateVariableIds([hiddenRoot, styleErrorNode, nonStringStyleIdNode])
     expect(result.variableIds).toEqual(new Set())
@@ -224,5 +228,111 @@ describe('token/candidates collectCandidateVariableIds', () => {
     } else {
       delete (globalThis as { performance?: Performance }).performance
     }
+  })
+
+  it('handles sparse payload branches and avoids duplicate rewrite keys', () => {
+    const root = createNode({
+      id: 'sparse-root',
+      visible: true,
+      boundVariables: {
+        none: null,
+        literal: 'raw-string',
+        hidden: { visible: false, id: 'id-hidden-ignored' },
+        nested: { wrapper: { id: 'id-nested' } }
+      },
+      fills: [
+        null,
+        'invalid-fill',
+        { type: 'SOLID', visible: true },
+        {
+          type: 'SOLID',
+          visible: true,
+          variableReferences: { color: { id: 'id-fill-ref-only' } }
+        }
+      ],
+      strokes: [null, { type: 'SOLID', visible: true }],
+      effects: [null, { type: 'DROP_SHADOW', visible: true }],
+      fillStyleId: 'style-sparse'
+    })
+    const rootWithNullBound = createNode({
+      id: 'null-bound-root',
+      visible: true,
+      boundVariables: null,
+      fills: 'not-array',
+      strokes: 'not-array',
+      effects: 'not-array'
+    })
+    const rootWithNullStyle = createNode({
+      id: 'null-style-root',
+      visible: true,
+      fillStyleId: 'style-null',
+      boundVariables: { color: { id: 'id-undefined-name' } }
+    })
+
+    ;(globalThis as { figma?: PluginAPI }).figma = {
+      getStyleById: vi.fn((styleId: string) => {
+        if (styleId === 'style-sparse') {
+          return {
+            paints: [
+              {
+                type: 'SOLID',
+                visible: true,
+                variableReferences: { color: { id: 'id-style-ref' } }
+              },
+              {
+                type: 'SOLID',
+                visible: false,
+                variableReferences: { color: { id: 'id-style-hidden-ref' } }
+              }
+            ]
+          }
+        }
+        if (styleId === 'style-null') {
+          return null
+        }
+        return { paints: 'not-array' }
+      })
+    } as unknown as PluginAPI
+
+    const vars: Record<string, Variable | null> = {
+      'id-nested': {
+        id: 'id-nested',
+        name: 'Duplicate Name',
+        codeSyntax: { WEB: 'var(--dup)' }
+      } as unknown as Variable,
+      'id-fill-ref-only': {
+        id: 'id-fill-ref-only',
+        name: 'Duplicate Name',
+        codeSyntax: { WEB: 'var(--dup)' }
+      } as unknown as Variable,
+      'id-style-ref': {
+        id: 'id-style-ref',
+        name: '',
+        codeSyntax: { WEB: 'var(--dup)' }
+      } as unknown as Variable,
+      'id-undefined-name': {
+        id: 'id-undefined-name',
+        codeSyntax: { WEB: '$not-canonical' }
+      } as unknown as Variable
+    }
+    vi.mocked(getVariableByIdCached).mockImplementation((id: string) => vars[id] ?? null)
+    vi.mocked(getVariableRawName).mockImplementation(
+      (variable: Variable) => variable.name ?? 'Unnamed'
+    )
+
+    const result = collectCandidateVariableIds([root, rootWithNullBound, rootWithNullStyle])
+
+    expect(result.variableIds).toEqual(
+      new Set(['id-nested', 'id-fill-ref-only', 'id-style-ref', 'id-undefined-name'])
+    )
+    expect(result.rewrites.get('var(--dup)')).toEqual({
+      canonical: '--duplicate-name',
+      id: 'id-nested'
+    })
+    expect(result.rewrites.get('var(--duplicate-name)')).toEqual({
+      canonical: '--duplicate-name',
+      id: 'id-nested'
+    })
+    expect(result.rewrites.size).toBe(2)
   })
 })

@@ -41,7 +41,8 @@ export default defineConfig({
         'mcp/tools/code/tokens/source-index.ts',
         'mcp/tools/code/tokens/used.ts',
         'mcp/tools/code/tokens/cache.ts',
-        'mcp/tools/code/tokens/resolve.ts'
+        'mcp/tools/code/tokens/resolve.ts',
+        'mcp/tools/token/candidates.ts'
       ],
       thresholds: {
         lines: 100,
