@@ -31,6 +31,7 @@ export default defineConfig({
         'packages/extension/mcp/tools/code/sanitize/relative-parent.ts',
         'packages/extension/mcp/tools/code/sanitize/stacking.ts',
         'packages/extension/mcp/tools/code/styles/layout.ts',
+        'packages/extension/mcp/tools/code/styles/overflow.ts',
         'packages/extension/mcp/tools/code/assets/plan.ts',
         'packages/extension/mcp/tools/code/styles/normalize.ts',
         'packages/extension/mcp/tools/code/styles/prepare.ts',
