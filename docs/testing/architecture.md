@@ -118,6 +118,7 @@ Fix:
 | extension  | `packages/extension/utils/module.ts`                            | `evaluate`                                                                                                               | Deterministic object-URL module evaluation lifecycle             | P1       |
 | extension  | `packages/extension/mcp/config.ts`                              | `MCP_CLIENTS_BY_ID`, `MCP_CLIENTS`, `MCP_SERVER`                                                                         | Deterministic MCP client deep link and command/config generation | P1       |
 | extension  | `packages/extension/rewrite/config.ts`                          | `GROUPS`                                                                                                                 | Stable rewrite marker and replacement contract payload           | P1       |
+| extension  | `packages/extension/rewrite/figma.ts`                           | module side effect (`rewriteCurrentScript(GROUPS)`)                                                                      | Stable rewrite bootstrap invocation contract                     | P1       |
 | extension  | `packages/extension/utils/css.ts`                               | exported helpers                                                                                                         | Core style normalization and serialization logic                 | P0       |
 | extension  | `packages/extension/utils/tailwind.ts`                          | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                            | Deterministic CSS→class mapping                                  | P0       |
 | extension  | `packages/extension/utils/codegen.ts`                           | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                              | Unit-test via worker/runtime dependency mocks                    | P1       |
@@ -247,6 +248,11 @@ Fix:
 - marker array contract stability for readonly/global-close/dev-mode patch groups.
 - regex replacement behavior for captured variable names in dev-mode unlock pattern.
 - string and regex replacement output parity with expected runtime rewritten snippets.
+
+### extension: `rewrite/figma.ts`
+
+- import-time rewrite bootstrap behavior using `GROUPS`.
+- invocation contract between rewrite bootstrap entry and runtime rewriter.
 
 ### extension: `rewrite/shared.ts`
 
