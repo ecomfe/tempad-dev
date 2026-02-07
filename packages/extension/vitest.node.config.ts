@@ -31,6 +31,7 @@ export default defineConfig({
         'mcp/errors.ts',
         'mcp/transport.ts',
         'mcp/tools/structure.ts',
+        'mcp/tools/code/assets/plan.ts',
         'mcp/tools/code/styles/normalize.ts',
         'mcp/tools/code/styles/prepare.ts',
         'mcp/tools/code/tokens/extract.ts',

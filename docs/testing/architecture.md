@@ -122,6 +122,7 @@ Fix:
 | extension  | `packages/extension/mcp/errors.ts`                         | `createCodedError`, `coerceToolErrorPayload`                                                                       | Deterministic error normalization and code tagging               | P0       |
 | extension  | `packages/extension/mcp/transport.ts`                      | `setMcpSocket`, `getMcpSocket`, `requireMcpSocket`                                                                 | Deterministic transport state guard behavior                     | P0       |
 | extension  | `packages/extension/mcp/tools/structure.ts`                | `handleGetStructure`                                                                                               | Deterministic structure payload shaping and size guarding        | P1       |
+| extension  | `packages/extension/mcp/tools/code/assets/plan.ts`         | `planAssets`                                                                                                       | Deterministic vector asset grouping and descendant pruning logic | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/normalize.ts`    | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
 | extension  | `packages/extension/mcp/tools/code/styles/prepare.ts`      | `prepareStyles`                                                                                                    | Deterministic style preparation orchestration                    | P1       |
 | extension  | `packages/extension/mcp/tools/code/tokens/extract.ts`      | `buildTokenRegex`, `extractTokenNames`, `createTokenMatcher`                                                       | Deterministic token name extraction and boundary matching        | P0       |
@@ -295,6 +296,12 @@ Fix:
 - depth-limit coercion behavior (`0` treated as unset).
 - semantic tree outline payload shaping behavior.
 - payload-size guard branch when serialized output exceeds protocol limits.
+
+### extension: `mcp/tools/code/assets/plan.ts`
+
+- vector-group detection when all descendant leaves are vector assets.
+- mixed/malformed child graph behavior (missing child metadata).
+- defensive skip traversal behavior when descendant lookups become unavailable.
 
 ### Extension browser runtime
 
