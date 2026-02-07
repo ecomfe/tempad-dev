@@ -32,7 +32,7 @@ export function applyOverflowStyles(style: StyleMap, node?: SceneNode): StyleMap
       if (hasClipsContent(node) && overflowInfo.x) {
         if (!hasOverflow('overflow-x')) next['overflow-x'] = 'hidden'
       }
-    } else if (dir === 'BOTH') {
+    } else {
       if (!hasOverflow('overflow')) next.overflow = 'auto'
       // clipsContent is satisfied by scrolling on both axes.
     }
@@ -128,8 +128,7 @@ function getLayoutBounds(node: SceneNode): LayoutBounds | null {
 }
 
 function getOverflowDirection(node: SceneNode): OverflowDirection | undefined {
-  if (!('overflowDirection' in node)) return undefined
-  const direction = node.overflowDirection
+  const direction = (node as { overflowDirection?: unknown }).overflowDirection
   if (
     direction === 'NONE' ||
     direction === 'HORIZONTAL' ||

@@ -130,6 +130,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/sanitize/relative-parent.ts` | `ensureRelativeForAbsoluteChildren`                                                                                | Deterministic parent-position enforcement for absolute children  | P1       |
 | extension  | `packages/extension/mcp/tools/code/sanitize/stacking.ts`        | `applyAbsoluteStackingOrder`                                                                                       | Deterministic stacking-order correction and parent isolation     | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/layout.ts`            | `mergeInferredAutoLayout`, `inferResizingStyles`                                                                   | Deterministic inferred auto-layout and resizing style adaptation | P1       |
+| extension  | `packages/extension/mcp/tools/code/styles/overflow.ts`          | `applyOverflowStyles`                                                                                              | Deterministic overflow-direction and clipping adaptation         | P1       |
 | extension  | `packages/extension/mcp/tools/code/assets/plan.ts`              | `planAssets`                                                                                                       | Deterministic vector asset grouping and descendant pruning logic | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/normalize.ts`         | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
 | extension  | `packages/extension/mcp/tools/code/styles/prepare.ts`           | `prepareStyles`                                                                                                    | Deterministic style preparation orchestration                    | P1       |
@@ -358,6 +359,12 @@ Fix:
 - inferred auto-layout merge behavior across explicit, inferred-only, and `NONE` modes.
 - existing flex/gap/padding short-circuit behavior.
 - resizing inference behavior for stretch/fill/hug under different parent layout modes.
+
+### extension: `mcp/tools/code/styles/overflow.ts`
+
+- explicit overflow-direction mapping for horizontal/vertical/both modes.
+- clips-content fallback behavior when child bounds exceed parent bounds.
+- bounds resolution fallback behavior for missing/non-finite/transform-only geometry.
 
 ### extension: `mcp/tools/code/assets/plan.ts`
 
