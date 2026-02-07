@@ -51,8 +51,6 @@ function replaceImageUrlsWithPlaceholder(
   node: SceneNode,
   config: CodegenConfig
 ): Record<string, string> {
-  if (!style['background-color'] && !style['background-image'] && !style.background) return style
-
   const { scale = 1 } = config
   let w = 100
   let h = 100
