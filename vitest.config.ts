@@ -35,6 +35,7 @@ export default defineConfig({
         'packages/extension/mcp/tools/code/assets/plan.ts',
         'packages/extension/mcp/tools/code/assets/vector.ts',
         'packages/extension/mcp/tools/code/assets/export.ts',
+        'packages/extension/mcp/tools/code/assets/image.ts',
         'packages/extension/mcp/tools/code/styles/normalize.ts',
         'packages/extension/mcp/tools/code/styles/prepare.ts',
         'packages/extension/mcp/tools/code/tokens/extract.ts',
