@@ -133,6 +133,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/styles/overflow.ts`          | `applyOverflowStyles`                                                                                              | Deterministic overflow-direction and clipping adaptation         | P1       |
 | extension  | `packages/extension/mcp/tools/code/assets/plan.ts`              | `planAssets`                                                                                                       | Deterministic vector asset grouping and descendant pruning logic | P1       |
 | extension  | `packages/extension/mcp/tools/code/assets/vector.ts`            | `exportSvgEntry`, `transformSvgAttributes`, `extractSvgAttributes`                                                 | Deterministic SVG export shaping and attribute normalization     | P1       |
+| extension  | `packages/extension/mcp/tools/code/assets/export.ts`            | `exportVectorAssets`                                                                                               | Deterministic vector export selection and snapshot guards        | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/normalize.ts`         | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
 | extension  | `packages/extension/mcp/tools/code/styles/prepare.ts`           | `prepareStyles`                                                                                                    | Deterministic style preparation orchestration                    | P1       |
 | extension  | `packages/extension/mcp/tools/code/tokens/extract.ts`           | `buildTokenRegex`, `extractTokenNames`, `createTokenMatcher`                                                       | Deterministic token name extraction and boundary matching        | P0       |
@@ -393,6 +394,12 @@ Fix:
 - SVG export behavior for upload success, upload fallback (inline raw), and export failure fallback.
 - width/height attribute normalization behavior under configured CSS units.
 - root `<svg>` attribute extraction behavior and no-match fallback.
+
+### extension: `mcp/tools/code/assets/export.ts`
+
+- vector-root export behavior for snapshot missing/filtered paths.
+- zero-size snapshot guard behavior with and without render bounds.
+- null export-entry filtering behavior for final SVG map.
 
 ### Extension browser runtime
 
