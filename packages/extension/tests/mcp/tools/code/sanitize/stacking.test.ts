@@ -38,4 +38,25 @@ describe('mcp/code sanitize stacking', () => {
     expect(styles.get('a1')).toEqual({ position: 'absolute', 'z-index': '9' })
     expect(styles.get('root')).toBeUndefined()
   })
+
+  it('handles missing roots, leaf roots, and keeps existing z-index/isolation', () => {
+    const root = createSnapshot({ id: 'root', children: ['a1', 'flow'] })
+    const a1 = createSnapshot({ id: 'a1', parentId: 'root' })
+    const flow = createSnapshot({ id: 'flow', parentId: 'root' })
+    const leaf = createSnapshot({ id: 'leaf' })
+    ;(leaf as unknown as { children?: string[] }).children = undefined
+    const tree = createTree([root, a1, flow, leaf])
+    tree.rootIds.push('missing-root')
+
+    const styles = new Map<string, Record<string, string>>([
+      ['root', { isolation: 'isolate' }],
+      ['a1', { position: 'absolute', 'z-index': '3' }],
+      ['flow', { position: 'relative' }]
+    ])
+
+    applyAbsoluteStackingOrder(tree, styles)
+
+    expect(styles.get('a1')).toEqual({ position: 'absolute', 'z-index': '3' })
+    expect(styles.get('root')).toEqual({ isolation: 'isolate' })
+  })
 })
