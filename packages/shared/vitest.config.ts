@@ -11,6 +11,8 @@ export default defineConfig({
       include: [
         'src/mcp/protocol.ts',
         'src/mcp/tools.ts',
+        'src/mcp/constants.ts',
+        'src/mcp/errors.ts',
         'src/figma/color.ts',
         'src/figma/gradient.ts',
         'src/figma/stroke.ts',

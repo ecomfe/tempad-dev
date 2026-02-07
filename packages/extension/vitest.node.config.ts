@@ -29,7 +29,9 @@ export default defineConfig({
         'utils/codegen.ts',
         'mcp/tools/code/styles/normalize.ts',
         'mcp/tools/code/tokens/transform.ts',
-        'mcp/tools/code/tokens/process.ts'
+        'mcp/tools/code/tokens/process.ts',
+        'mcp/tools/code/tokens/used.ts',
+        'mcp/tools/code/tokens/cache.ts'
       ],
       thresholds: {
         lines: 100,
