@@ -109,34 +109,40 @@ Fix:
 
 ## Pure-function inventory matrix
 
-| Package    | File                                                    | Target Exports                                                                                                     | Purity Notes                                                     | Priority |
-| ---------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- | -------- |
-| extension  | `packages/extension/utils/number.ts`                    | `parseNumber`, `toDecimalPlace`                                                                                    | Fully deterministic numeric helpers                              | P0       |
-| extension  | `packages/extension/utils/string.ts`                    | exported helpers                                                                                                   | Deterministic string transforms/escaping                         | P0       |
-| extension  | `packages/extension/utils/object.ts`                    | `prune`                                                                                                            | Pure recursive pruning logic                                     | P0       |
-| extension  | `packages/extension/utils/color.ts`                     | all exports                                                                                                        | Pure color conversion/normalization                              | P0       |
-| extension  | `packages/extension/utils/css.ts`                       | exported helpers                                                                                                   | Core style normalization and serialization logic                 | P0       |
-| extension  | `packages/extension/utils/tailwind.ts`                  | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                      | Deterministic CSS→class mapping                                  | P0       |
-| extension  | `packages/extension/utils/codegen.ts`                   | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                        | Unit-test via worker/runtime dependency mocks                    | P1       |
-| extension  | `packages/extension/mcp/tools/code/styles/normalize.ts` | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
-| extension  | `packages/extension/mcp/tools/code/tokens/cache.ts`     | `getVariableByIdCached`                                                                                            | Deterministic cache lookup and write-through behavior            | P0       |
-| extension  | `packages/extension/mcp/tools/code/tokens/resolve.ts`   | `createStyleVarResolver`, `resolveStyleMap`                                                                        | Deterministic style token substitution pipeline                  | P1       |
-| extension  | `packages/extension/mcp/tools/code/tokens/transform.ts` | `applyPluginTransformToNames`                                                                                      | Deterministic token rename + bridge conflict handling            | P1       |
-| extension  | `packages/extension/mcp/tools/code/tokens/process.ts`   | `processTokens`                                                                                                    | Deterministic token pipeline orchestration under mocked helpers  | P1       |
-| extension  | `packages/extension/mcp/tools/code/tokens/used.ts`      | `buildUsedTokens`                                                                                                  | Deterministic used-token set materialization and resolver wiring | P1       |
-| plugins    | `packages/plugins/src/index.ts`                         | `raw`, `definePlugin`, `h`, `findChild`, `findChildren`, `findOne`, `findAll`, `queryAll`, `queryOne`              | Pure tree query/composition helpers                              | P0       |
-| mcp-server | `packages/mcp-server/src/asset-utils.ts`                | all exports                                                                                                        | Deterministic mime/hash/filename utils                           | P0       |
-| mcp-server | `packages/mcp-server/src/config.ts`                     | `getMcpServerConfig`                                                                                               | Deterministic env parsing with constant fallbacks                | P0       |
-| mcp-server | `packages/mcp-server/src/request.ts`                    | `register`, `resolve`, `reject`, `cleanupForExtension`, `cleanupAll`                                               | Deterministic pending-call lifecycle under mocked timers/logging | P0       |
-| mcp-server | `packages/mcp-server/src/tools.ts`                      | `createCodeToolResponse`, `createScreenshotToolResponse`, `coercePayloadToToolResponse`, `createToolErrorResponse` | Pure payload formatting/guard behavior                           | P1       |
-| shared     | `packages/shared/src/mcp/constants.ts`                  | exported constants and patterns                                                                                    | Deterministic protocol limits and URI/hash patterns              | P0       |
-| shared     | `packages/shared/src/mcp/errors.ts`                     | `TEMPAD_MCP_ERROR_CODES`                                                                                           | Stable error contract constants                                  | P0       |
-| shared     | `packages/shared/src/mcp/protocol.ts`                   | `parseMessageToExtension`, `parseMessageFromExtension`                                                             | Deterministic JSON+schema parsing                                | P0       |
-| shared     | `packages/shared/src/mcp/tools.ts`                      | schema exports (`AssetDescriptorSchema`, tool parameter/result schemas)                                            | Deterministic Zod contracts and regex constraints                | P0       |
-| shared     | `packages/shared/src/figma/color.ts`                    | `formatHexAlpha`                                                                                                   | Pure color formatter                                             | P1       |
-| shared     | `packages/shared/src/figma/gradient.ts`                 | `resolveGradientFromPaints`, `resolveSolidFromPaints`                                                              | Pure paint-to-CSS conversion and variable fallback formatting    | P1       |
-| shared     | `packages/shared/src/figma/stroke.ts`                   | `resolveStrokeFromPaints`, `applyStrokeToCSS`                                                                      | Pure stroke resolution and CSS patching                          | P1       |
-| shared     | `packages/shared/src/figma/style-resolver.ts`           | `resolveFillStyleForNode`, `resolveStrokeStyleForNode`, `resolveStylesFromNode`                                    | Deterministic style resolution under mocked Figma APIs           | P1       |
+| Package    | File                                                       | Target Exports                                                                                                     | Purity Notes                                                     | Priority |
+| ---------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- | -------- |
+| extension  | `packages/extension/utils/number.ts`                       | `parseNumber`, `toDecimalPlace`                                                                                    | Fully deterministic numeric helpers                              | P0       |
+| extension  | `packages/extension/utils/string.ts`                       | exported helpers                                                                                                   | Deterministic string transforms/escaping                         | P0       |
+| extension  | `packages/extension/utils/object.ts`                       | `prune`                                                                                                            | Pure recursive pruning logic                                     | P0       |
+| extension  | `packages/extension/utils/color.ts`                        | all exports                                                                                                        | Pure color conversion/normalization                              | P0       |
+| extension  | `packages/extension/utils/css.ts`                          | exported helpers                                                                                                   | Core style normalization and serialization logic                 | P0       |
+| extension  | `packages/extension/utils/tailwind.ts`                     | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                      | Deterministic CSS→class mapping                                  | P0       |
+| extension  | `packages/extension/utils/codegen.ts`                      | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                        | Unit-test via worker/runtime dependency mocks                    | P1       |
+| extension  | `packages/extension/mcp/errors.ts`                         | `createCodedError`, `coerceToolErrorPayload`                                                                       | Deterministic error normalization and code tagging               | P0       |
+| extension  | `packages/extension/mcp/transport.ts`                      | `setMcpSocket`, `getMcpSocket`, `requireMcpSocket`                                                                 | Deterministic transport state guard behavior                     | P0       |
+| extension  | `packages/extension/mcp/tools/code/styles/normalize.ts`    | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
+| extension  | `packages/extension/mcp/tools/code/styles/prepare.ts`      | `prepareStyles`                                                                                                    | Deterministic style preparation orchestration                    | P1       |
+| extension  | `packages/extension/mcp/tools/code/tokens/extract.ts`      | `buildTokenRegex`, `extractTokenNames`, `createTokenMatcher`                                                       | Deterministic token name extraction and boundary matching        | P0       |
+| extension  | `packages/extension/mcp/tools/code/tokens/cache.ts`        | `getVariableByIdCached`                                                                                            | Deterministic cache lookup and write-through behavior            | P0       |
+| extension  | `packages/extension/mcp/tools/code/tokens/resolve.ts`      | `createStyleVarResolver`, `resolveStyleMap`                                                                        | Deterministic style token substitution pipeline                  | P1       |
+| extension  | `packages/extension/mcp/tools/code/tokens/transform.ts`    | `applyPluginTransformToNames`                                                                                      | Deterministic token rename + bridge conflict handling            | P1       |
+| extension  | `packages/extension/mcp/tools/code/tokens/process.ts`      | `processTokens`                                                                                                    | Deterministic token pipeline orchestration under mocked helpers  | P1       |
+| extension  | `packages/extension/mcp/tools/code/tokens/rewrite.ts`      | `rewriteTokenNamesInCode`, `filterBridge`                                                                          | Deterministic token rewrite and bridge filtering                 | P0       |
+| extension  | `packages/extension/mcp/tools/code/tokens/source-index.ts` | `buildSourceNameIndex`                                                                                             | Deterministic candidate name indexing                            | P0       |
+| extension  | `packages/extension/mcp/tools/code/tokens/used.ts`         | `buildUsedTokens`                                                                                                  | Deterministic used-token set materialization and resolver wiring | P1       |
+| plugins    | `packages/plugins/src/index.ts`                            | `raw`, `definePlugin`, `h`, `findChild`, `findChildren`, `findOne`, `findAll`, `queryAll`, `queryOne`              | Pure tree query/composition helpers                              | P0       |
+| mcp-server | `packages/mcp-server/src/asset-utils.ts`                   | all exports                                                                                                        | Deterministic mime/hash/filename utils                           | P0       |
+| mcp-server | `packages/mcp-server/src/config.ts`                        | `getMcpServerConfig`                                                                                               | Deterministic env parsing with constant fallbacks                | P0       |
+| mcp-server | `packages/mcp-server/src/request.ts`                       | `register`, `resolve`, `reject`, `cleanupForExtension`, `cleanupAll`                                               | Deterministic pending-call lifecycle under mocked timers/logging | P0       |
+| mcp-server | `packages/mcp-server/src/tools.ts`                         | `createCodeToolResponse`, `createScreenshotToolResponse`, `coercePayloadToToolResponse`, `createToolErrorResponse` | Pure payload formatting/guard behavior                           | P1       |
+| shared     | `packages/shared/src/mcp/constants.ts`                     | exported constants and patterns                                                                                    | Deterministic protocol limits and URI/hash patterns              | P0       |
+| shared     | `packages/shared/src/mcp/errors.ts`                        | `TEMPAD_MCP_ERROR_CODES`                                                                                           | Stable error contract constants                                  | P0       |
+| shared     | `packages/shared/src/mcp/protocol.ts`                      | `parseMessageToExtension`, `parseMessageFromExtension`                                                             | Deterministic JSON+schema parsing                                | P0       |
+| shared     | `packages/shared/src/mcp/tools.ts`                         | schema exports (`AssetDescriptorSchema`, tool parameter/result schemas)                                            | Deterministic Zod contracts and regex constraints                | P0       |
+| shared     | `packages/shared/src/figma/color.ts`                       | `formatHexAlpha`                                                                                                   | Pure color formatter                                             | P1       |
+| shared     | `packages/shared/src/figma/gradient.ts`                    | `resolveGradientFromPaints`, `resolveSolidFromPaints`                                                              | Pure paint-to-CSS conversion and variable fallback formatting    | P1       |
+| shared     | `packages/shared/src/figma/stroke.ts`                      | `resolveStrokeFromPaints`, `applyStrokeToCSS`                                                                      | Pure stroke resolution and CSS patching                          | P1       |
+| shared     | `packages/shared/src/figma/style-resolver.ts`              | `resolveFillStyleForNode`, `resolveStrokeStyleForNode`, `resolveStylesFromNode`                                    | Deterministic style resolution under mocked Figma APIs           | P1       |
 
 ## Test scenarios by package
 
@@ -197,6 +203,12 @@ Fix:
   - normal path via `cssToClassNames`.
   - gradient-border nested path via `nestedCssToClassNames`.
 
+### extension: `mcp/tools/code/styles/prepare.ts`
+
+- normalization orchestration with `normalizeStyleVars`.
+- sanitize + layout stage wiring.
+- trace stamp behavior for present and missing trace clocks.
+
 ### extension: `mcp/tools/code/tokens/transform.ts`
 
 - no-plugin bridge behavior for known/missing source names.
@@ -205,6 +217,13 @@ Fix:
 - duplicate renamed target conflict behavior with warning path.
 - mixed token/plain-name input behavior when transform batch is skipped.
 
+### extension: `mcp/tools/code/tokens/extract.ts`
+
+- regex builder null/empty input behavior.
+- boundary-safe matching and special-character escaping.
+- plain `--token` extraction fallback path.
+- configured-name extraction and matcher fallback behavior.
+
 ### extension: `mcp/tools/code/tokens/process.ts`
 
 - empty source index and no-detected-token early return paths.
@@ -212,6 +231,19 @@ Fix:
 - used token resolution path (`buildUsedTokens`) and `resolveTokens` matcher activation.
 - merged candidate id behavior when `usedCandidateIds` is non-empty.
 - resolve node id collection from style maps and text segment maps.
+
+### extension: `mcp/tools/code/tokens/rewrite.ts`
+
+- rewrite skip behavior for empty/invalid rewrite maps.
+- boundary-safe token rewrite replacement.
+- bridge filtering by used-name set and empty-id omission.
+
+### extension: `mcp/tools/code/tokens/source-index.ts`
+
+- index population from `codeSyntax.WEB` canonical names.
+- fallback normalization path for non-`var(...)` syntax.
+- first-write-wins behavior for duplicate canonical names.
+- figma-name fallback indexing and missing-variable filtering.
 
 ### extension: `mcp/tools/code/tokens/cache.ts`
 
@@ -235,6 +267,18 @@ Fix:
 - canonicalization fallback behavior when plugin transform result is missing.
 - resolver payload shaping (`candidateIds`, `candidateNameById`, mode/value flags).
 - missing variable filtering behavior with stable candidate metadata.
+
+### extension: `mcp/errors.ts`
+
+- coded error creation and code attachment behavior.
+- error payload coercion across `Error`, string, object, and unknown inputs.
+- recognized vs unrecognized MCP error code handling.
+
+### extension: `mcp/transport.ts`
+
+- transport socket set/get lifecycle behavior.
+- guard failure behavior for missing and non-open sockets.
+- open-socket happy path for `requireMcpSocket`.
 
 ### Extension browser runtime
 
