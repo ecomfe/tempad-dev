@@ -135,6 +135,7 @@ Fix:
 | extension  | `packages/extension/utils/css.ts`                               | exported helpers                                                                                                         | Core style normalization and serialization logic                 | P0       |
 | extension  | `packages/extension/utils/tailwind.ts`                          | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                            | Deterministic CSS→class mapping                                  | P0       |
 | extension  | `packages/extension/utils/codegen.ts`                           | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                              | Unit-test via worker/runtime dependency mocks                    | P1       |
+| extension  | `packages/extension/utils/index.ts`                             | re-export surface                                                                                                        | Stable utility barrel export contract                            | P2       |
 | extension  | `packages/extension/codegen/requester.ts`                       | `createWorkerRequester`                                                                                                  | Deterministic worker request/response routing + cache behavior   | P1       |
 | extension  | `packages/extension/rewrite/shared.ts`                          | `isRules`, `getRewriteTargetRegex`, `loadRules`, `groupMatches`, `applyGroups`                                           | Deterministic rewrite-rule validation and replacement pipeline   | P1       |
 | extension  | `packages/extension/mcp/errors.ts`                              | `createCodedError`, `coerceToolErrorPayload`                                                                             | Deterministic error normalization and code tagging               | P0       |
@@ -282,6 +283,10 @@ Fix:
 - requester caching behavior by worker constructor identity.
 - response routing behavior for payload, error, and invalid payload frames.
 - unknown-response-id ignore behavior without corrupting pending requests.
+
+### extension: `utils/index.ts`
+
+- re-export contract behavior for utility barrel and transitive MCP surface.
 
 ### extension: `worker/safe.ts`
 
