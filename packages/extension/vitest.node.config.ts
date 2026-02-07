@@ -34,6 +34,7 @@ export default defineConfig({
         'worker/safe.ts',
         'worker/lockdown.ts',
         'mcp/config.ts',
+        'mcp/assets.ts',
         'rewrite/config.ts',
         'rewrite/figma.ts',
         'rewrite/runtime.ts',

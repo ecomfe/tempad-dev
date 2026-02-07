@@ -122,6 +122,7 @@ Fix:
 | extension  | `packages/extension/worker/safe.ts`                             | default `Set<string>`                                                                                                    | Stable allowlist contract for worker lockdown                    | P1       |
 | extension  | `packages/extension/worker/lockdown.ts`                         | `lockdownWorker`                                                                                                         | Deterministic global-pruning and worker global sealing flow      | P1       |
 | extension  | `packages/extension/mcp/config.ts`                              | `MCP_CLIENTS_BY_ID`, `MCP_CLIENTS`, `MCP_SERVER`                                                                         | Deterministic MCP client deep link and command/config generation | P1       |
+| extension  | `packages/extension/mcp/assets.ts`                              | `setAssetServerUrl`, `resetUploadedAssets`, `buildAssetResourceUri`, `ensureAssetUploaded`                               | Deterministic asset hash/upload dedupe and descriptor shaping    | P1       |
 | extension  | `packages/extension/rewrite/config.ts`                          | `GROUPS`                                                                                                                 | Stable rewrite marker and replacement contract payload           | P1       |
 | extension  | `packages/extension/rewrite/figma.ts`                           | module side effect (`rewriteCurrentScript(GROUPS)`)                                                                      | Stable rewrite bootstrap invocation contract                     | P1       |
 | extension  | `packages/extension/rewrite/runtime.ts`                         | `rewriteCurrentScript`                                                                                                   | Deterministic rewrite/eval/fallback orchestration                | P1       |
@@ -275,6 +276,14 @@ Fix:
 - command/config fallback payload generation for Claude/Codex/Windsurf.
 - deterministic client ordering and stable MCP server command metadata.
 - base64 capability guard behavior when runtime does not provide `btoa`.
+
+### extension: `mcp/assets.ts`
+
+- asset server URL setter/resetter behavior and stable resource URI building.
+- upload descriptor shaping (`hash`, `resourceUri`, `url`, dimensions, size) and metadata header projection.
+- completed upload cache short-circuit and in-flight upload dedupe behavior.
+- hash runtime guards when `crypto.subtle.digest` is unavailable.
+- upload failure behavior for non-ok HTTP responses and non-`Error` thrown values.
 
 ### extension: `rewrite/config.ts`
 
