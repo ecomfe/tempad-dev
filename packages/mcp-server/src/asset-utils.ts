@@ -21,7 +21,7 @@ export function getImageExtension(mimeType: string): string {
   const subtype = normalized.slice('image/'.length)
   if (!subtype) return ''
   const ext = subtype.split('+', 1)[0] || subtype
-  return ext ? `.${ext}` : ''
+  return `.${ext}`
 }
 
 export function buildAssetFilename(hash: string, mimeType: string): string {

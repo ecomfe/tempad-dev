@@ -1,6 +1,6 @@
 # TemPad Dev - MCP shared agent guide
 
-This guide applies to `packages/mcp-shared/`, the shared contract between the extension and the Hub/CLI.
+This guide applies to `packages/shared/`, the shared contract between the extension and the Hub/CLI.
 
 ## Role
 
@@ -20,19 +20,26 @@ You are not responsible for:
 Build:
 
 ```
-pnpm -C packages/mcp-shared build
+pnpm -C packages/shared build
 ```
 
 Typecheck:
 
 ```
-pnpm -C packages/mcp-shared typecheck
+pnpm -C packages/shared typecheck
 ```
 
 Lint/format:
 
 ```
-pnpm -C packages/mcp-shared lint:fix
+pnpm -C packages/shared lint:fix
+```
+
+Test:
+
+```
+pnpm -C packages/shared test:run
+pnpm -C packages/shared test:coverage
 ```
 
 ## Tech stack
@@ -43,9 +50,10 @@ pnpm -C packages/mcp-shared lint:fix
 
 ## Project structure
 
-- `src/constants.ts`: payload/asset limits and URI formats.
-- `src/tools.ts`: tool schemas and result types.
-- `src/protocol.ts`: WS message shapes.
+- `src/mcp/constants.ts`: payload and message-related limits/constants.
+- `src/mcp/tools.ts`: tool schemas and result types.
+- `src/mcp/protocol.ts`: WS message shapes.
+- `src/figma/color.ts`: color formatter utilities.
 - `src/index.ts`: public exports.
 
 ## Code style and output examples
@@ -81,3 +89,16 @@ const GetCodeResultSchema = z.object({
 - Never change the meaning or format of existing fields without a coordinated migration plan.
 - Do not change `asset://` URI formats or payload caps without assessing impact on extension and hub.
 - Do not add new dependencies without approval.
+
+## Testing notes
+
+- Follow repo-wide testing workflow in `TESTING.md`.
+- Coverage architecture and strict pure inventory are documented in `docs/testing/architecture.md`.
+- Keep pure-function tests under `tests/**/*.test.ts`.
+- Strict pure coverage in this package targets:
+  - `src/mcp/protocol.ts`
+  - `src/figma/color.ts`
+  - `src/figma/gradient.ts`
+  - `src/figma/stroke.ts`
+  - `src/figma/style-resolver.ts`
+- Validate schema changes downstream in this order: `shared` -> `mcp-server` -> `extension`.

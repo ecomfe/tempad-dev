@@ -41,9 +41,11 @@ export function applyStrokeToCSS(
   if (!resolved) return styles
 
   const processed = { ...styles }
+  const borderHasVar = processed.border?.includes('var(--') ?? false
+  const borderColorHasVar = processed['border-color']?.includes('var(--') ?? false
 
   // Handle border properties
-  if (processed.border?.includes('var(--') || processed['border-color']?.includes('var(--')) {
+  if (borderHasVar || borderColorHasVar) {
     if (resolved.gradient) {
       // For gradient strokes, use border-image
       processed['border-image'] = `${resolved.gradient} 1`
@@ -51,16 +53,14 @@ export function applyStrokeToCSS(
       // Remove conflicting border-color if present
       delete processed['border-color']
     } else if (resolved.solidColor) {
-      if (processed['border-color']) {
+      if (borderColorHasVar) {
         processed['border-color'] = resolved.solidColor
-      } else if (processed.border) {
+      } else {
         // Parse and update border shorthand
-        const borderParts = processed.border.split(/\s+/)
+        const borderParts = processed.border!.split(/\s+/)
         const varIndex = borderParts.findIndex((part) => part.includes('var(--'))
-        if (varIndex >= 0) {
-          borderParts[varIndex] = resolved.solidColor
-          processed.border = borderParts.join(' ')
-        }
+        borderParts[varIndex] = resolved.solidColor
+        processed.border = borderParts.join(' ')
       }
     }
   }

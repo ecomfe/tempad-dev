@@ -1,4 +1,4 @@
-# MCP get_code - Design
+# MCP get_code - design
 
 This document describes the implementation design for MCP `get_code` in `packages/extension/mcp/tools/code`. It aligns with the requirements and reflects the current pipeline.
 
