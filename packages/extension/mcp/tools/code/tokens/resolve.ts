@@ -124,7 +124,7 @@ function resolveVariableValue(
   if (seen.has(variable.id)) return undefined
   seen.add(variable.id)
 
-  const { valuesByMode = {} } = variable
+  const valuesByMode = variable.valuesByMode
   const rawValue = valuesByMode[modeId] ?? resolveFallbackValue(valuesByMode, modeId, collection)
 
   if (isVariableAlias(rawValue)) {
@@ -181,7 +181,7 @@ function resolveVariableCollection(
 ): VariableCollectionInfo | null {
   const collectionId = (variable as VariableWithCollection).variableCollectionId
   if (!collectionId) return null
-  if (cache.has(collectionId)) return cache.get(collectionId) ?? null
+  if (cache.has(collectionId)) return cache.get(collectionId) as VariableCollectionInfo | null
 
   try {
     const collection = figma.variables.getVariableCollectionById(collectionId)
@@ -221,7 +221,7 @@ function pickPreferredModeId(
   collection?: VariableCollectionInfo | null,
   desiredModeId?: string
 ): string | undefined {
-  const { valuesByMode = {} } = variable
+  const valuesByMode = variable.valuesByMode
   if (desiredModeId && desiredModeId in valuesByMode) return desiredModeId
   if (collection?.activeModeId && collection.activeModeId in valuesByMode) {
     return collection.activeModeId
@@ -295,15 +295,10 @@ function isUnitlessFloatToken(canonicalName?: string): boolean {
 }
 
 function toLiteralString(value: unknown): string {
-  if (value == null) return ''
   if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (typeof value === 'object') {
-    try {
-      return JSON.stringify(value)
-    } catch {
-      return String(value)
-    }
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
   }
-  return String(value ?? '')
 }

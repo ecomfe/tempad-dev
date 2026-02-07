@@ -31,7 +31,8 @@ export default defineConfig({
         'mcp/tools/code/tokens/transform.ts',
         'mcp/tools/code/tokens/process.ts',
         'mcp/tools/code/tokens/used.ts',
-        'mcp/tools/code/tokens/cache.ts'
+        'mcp/tools/code/tokens/cache.ts',
+        'mcp/tools/code/tokens/resolve.ts'
       ],
       thresholds: {
         lines: 100,
