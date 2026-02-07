@@ -117,6 +117,8 @@ Fix:
 | extension  | `packages/extension/utils/color.ts`                             | all exports                                                                                                              | Pure color conversion/normalization                              | P0       |
 | extension  | `packages/extension/utils/module.ts`                            | `evaluate`                                                                                                               | Deterministic object-URL module evaluation lifecycle             | P1       |
 | extension  | `packages/extension/utils/log.ts`                               | `logger`                                                                                                                 | Deterministic prefixing and dev-gated logging behavior           | P1       |
+| extension  | `packages/extension/utils/figma.ts`                             | `getCanvas`, `getLeftPanel`                                                                                              | Deterministic selector resolution for host panel/canvas          | P1       |
+| extension  | `packages/extension/composables/input.ts`                       | `useSelectAll`                                                                                                           | Deterministic input-focus select binding                         | P1       |
 | extension  | `packages/extension/worker/safe.ts`                             | default `Set<string>`                                                                                                    | Stable allowlist contract for worker lockdown                    | P1       |
 | extension  | `packages/extension/worker/lockdown.ts`                         | `lockdownWorker`                                                                                                         | Deterministic global-pruning and worker global sealing flow      | P1       |
 | extension  | `packages/extension/mcp/config.ts`                              | `MCP_CLIENTS_BY_ID`, `MCP_CLIENTS`, `MCP_SERVER`                                                                         | Deterministic MCP client deep link and command/config generation | P1       |
@@ -246,6 +248,16 @@ Fix:
 - debug suppression behavior when `__DEV__` is false.
 - debug emission behavior via `console.debug` in development mode.
 - fallback behavior to `console.log` when `console.debug` is unavailable.
+
+### extension: `utils/figma.ts`
+
+- canvas selector query behavior for fullscreen root rendering surface.
+- left panel selector fallback behavior (`#left-panel-container` -> island container class).
+
+### extension: `composables/input.ts`
+
+- focus-listener registration behavior through `useEventListener`.
+- null-safe target handling and `select()` invocation behavior on focused inputs.
 
 ### extension: `worker/safe.ts`
 
