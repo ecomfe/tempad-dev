@@ -33,6 +33,7 @@ export default defineConfig({
         'packages/extension/mcp/tools/code/styles/layout.ts',
         'packages/extension/mcp/tools/code/styles/overflow.ts',
         'packages/extension/mcp/tools/code/assets/plan.ts',
+        'packages/extension/mcp/tools/code/assets/vector.ts',
         'packages/extension/mcp/tools/code/styles/normalize.ts',
         'packages/extension/mcp/tools/code/styles/prepare.ts',
         'packages/extension/mcp/tools/code/tokens/extract.ts',
