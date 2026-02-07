@@ -44,7 +44,7 @@ function patchNode(nodeId: string, tree: VisibleTree, styles: StyleMap): void {
   styles.set(node.id, nextStyle)
 
   for (const childId of children) {
-    if (shouldCompensate && (overlapRow || overlapCol)) {
+    if (shouldCompensate) {
       const childStyle = styles.get(childId) ?? {}
       const nextChildStyle = { ...childStyle }
       if (!nextChildStyle['box-sizing']) nextChildStyle['box-sizing'] = 'border-box'
@@ -86,7 +86,6 @@ function parseGap(gap?: string): [number | undefined, number | undefined] {
 }
 
 function addPxOrCalc(existing: string | undefined, deltaPx: number): string {
-  if (deltaPx === 0) return existing ?? '0px'
   const px = parsePxLiteral(existing)
   if (px != null) return `${px + deltaPx}px`
   if (!existing) return `${deltaPx}px`

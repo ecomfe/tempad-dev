@@ -35,6 +35,7 @@ export default defineConfig({
         'mcp/tools/code/messages.ts',
         'mcp/tools/code/render/props.ts',
         'mcp/tools/code/variables.ts',
+        'mcp/tools/code/sanitize/negative-gap.ts',
         'mcp/tools/code/sanitize/relative-parent.ts',
         'mcp/tools/code/sanitize/stacking.ts',
         'mcp/tools/code/assets/plan.ts',
