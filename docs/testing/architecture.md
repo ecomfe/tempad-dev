@@ -115,6 +115,7 @@ Fix:
 | extension  | `packages/extension/utils/string.ts`                            | exported helpers                                                                                                         | Deterministic string transforms/escaping                         | P0       |
 | extension  | `packages/extension/utils/object.ts`                            | `prune`                                                                                                                  | Pure recursive pruning logic                                     | P0       |
 | extension  | `packages/extension/utils/color.ts`                             | all exports                                                                                                              | Pure color conversion/normalization                              | P0       |
+| extension  | `packages/extension/utils/module.ts`                            | `evaluate`                                                                                                               | Deterministic object-URL module evaluation lifecycle             | P1       |
 | extension  | `packages/extension/mcp/config.ts`                              | `MCP_CLIENTS_BY_ID`, `MCP_CLIENTS`, `MCP_SERVER`                                                                         | Deterministic MCP client deep link and command/config generation | P1       |
 | extension  | `packages/extension/utils/css.ts`                               | exported helpers                                                                                                         | Core style normalization and serialization logic                 | P0       |
 | extension  | `packages/extension/utils/tailwind.ts`                          | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                            | Deterministic CSS→class mapping                                  | P0       |
@@ -226,6 +227,12 @@ Fix:
   - de-duplication of generated classes.
 - `joinClassNames`:
   - empty/falsey filtering and stable joining.
+
+### extension: `utils/module.ts`
+
+- object URL creation and module evaluation behavior.
+- URL revoke behavior after dynamic module import.
+- payload pass-through behavior from input source string into blob content.
 
 ### extension: `mcp/config.ts`
 
