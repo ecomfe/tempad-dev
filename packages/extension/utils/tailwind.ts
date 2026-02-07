@@ -67,6 +67,7 @@ interface CompositeFamily extends FamilyConfigBase {
 }
 
 export type FamilyConfig = SideFamily | CornerFamily | AxisFamily | DirectFamily | CompositeFamily
+export type NestedStyleMap = Record<string, string | Record<string, string>>
 
 interface PropertyLookup {
   familyKey: string
@@ -838,6 +839,19 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
 
 const PROPERTY_MAP: Record<string, PropertyLookup> = {}
 const KEYWORD_REGISTRY: Record<string, Record<string, string>> = {}
+const NESTED_SELECTOR_VARIANTS: Record<string, string> = {
+  '&::before': 'before',
+  '&::after': 'after',
+  '&::placeholder': 'placeholder',
+  '&::selection': 'selection',
+  '&:hover': 'hover',
+  '&:focus': 'focus',
+  '&:focus-visible': 'focus-visible',
+  '&:focus-within': 'focus-within',
+  '&:active': 'active',
+  '&:disabled': 'disabled',
+  '&:visited': 'visited'
+}
 
 Object.keys(TAILWIND_CONFIG).forEach((key) => {
   const familyKey = key
@@ -1124,6 +1138,50 @@ function formatArbitraryValue(value: string): string {
 export function cssToClassNames(style: Record<string, string>): string[] {
   const cls = cssToTailwind(style)
   return cls ? cls.split(WHITESPACE_RE).filter(Boolean) : []
+}
+
+function cssToClassNamesWithArbitraryProperties(style: Record<string, string>): string[] {
+  const known = cssToClassNames(style)
+  const arbitrary = Object.entries(style).flatMap(([prop, rawValue]) => {
+    if (!rawValue) return []
+    if (PROPERTY_MAP[prop]) return []
+
+    const value = normalizeStyleValue(rawValue)
+    if (!value) return []
+    return `[${prop}:${formatArbitraryValue(value)}]`
+  })
+
+  return Array.from(new Set([...known, ...arbitrary]))
+}
+
+function nestedSelectorToVariant(selector: string): string | null {
+  const normalized = selector.trim().replace(ALL_WHITESPACE_RE, '')
+  return NESTED_SELECTOR_VARIANTS[normalized] ?? null
+}
+
+export function nestedCssToClassNames(style: NestedStyleMap): string[] {
+  const base: Record<string, string> = {}
+  const nestedEntries: Array<{ selector: string; style: Record<string, string> }> = []
+
+  for (const [key, value] of Object.entries(style)) {
+    if (typeof value === 'string') {
+      base[key] = value
+      continue
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+    nestedEntries.push({ selector: key, style: value })
+  }
+
+  const classNames = cssToClassNamesWithArbitraryProperties(base)
+
+  for (const entry of nestedEntries) {
+    const variant = nestedSelectorToVariant(entry.selector)
+    if (!variant) continue
+    const nestedClassNames = cssToClassNamesWithArbitraryProperties(entry.style)
+    classNames.push(...nestedClassNames.map((className) => `${variant}:${className}`))
+  }
+
+  return Array.from(new Set(classNames))
 }
 
 export function joinClassNames(classNames: string[]): string {
