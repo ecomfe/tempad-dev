@@ -146,6 +146,42 @@ describe('asset-http-server', () => {
     server.stop()
   })
 
+  it('renames existing asset path to extension-aware target when needed', async () => {
+    const store = createStoreMock()
+    const server = createAssetHttpServer(store)
+    await server.start()
+    const baseUrl = server.getBaseUrl()
+
+    const legacyPath = join(ASSET_DIR, 'abcdef12')
+    const expectedPath = join(ASSET_DIR, 'abcdef12.png')
+    trackFile(legacyPath, 'legacy')
+    store.get.mockReturnValueOnce({
+      hash: 'abcdef12',
+      filePath: legacyPath,
+      mimeType: 'application/octet-stream',
+      size: 6,
+      uploadedAt: 100,
+      lastAccess: 100
+    })
+
+    const res = await fetch(`${baseUrl}/assets/abcdef12.png`, {
+      method: 'POST',
+      headers: { 'content-type': 'image/png' },
+      body: 'ignored'
+    })
+    expect(res.status).toBe(200)
+    expect(store.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hash: 'abcdef12',
+        filePath: expectedPath,
+        mimeType: 'image/png'
+      })
+    )
+
+    createdPaths.push(expectedPath)
+    server.stop()
+  })
+
   it('returns hash mismatch and handles successful uploads', async () => {
     const store = createStoreMock()
     const server = createAssetHttpServer(store)
@@ -181,6 +217,25 @@ describe('asset-http-server', () => {
     )
 
     createdPaths.push(join(ASSET_DIR, `${hash}.png`))
+    server.stop()
+  })
+
+  it('rejects payloads that exceed the maximum configured asset size', async () => {
+    const store = createStoreMock()
+    const server = createAssetHttpServer(store)
+    await server.start()
+    const baseUrl = server.getBaseUrl()
+
+    store.get.mockReturnValue(undefined)
+    const oversizedBody = Buffer.alloc(8 * 1024 * 1024 + 1, 1)
+    const res = await fetch(`${baseUrl}/assets/abcdef12.png`, {
+      method: 'POST',
+      headers: { 'content-type': 'image/png' },
+      body: oversizedBody
+    })
+
+    expect(res.status).toBe(413)
+    expect((await res.json()) as { error: string }).toEqual({ error: 'Payload Too Large' })
     server.stop()
   })
 })
