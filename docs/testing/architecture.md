@@ -118,6 +118,8 @@ Fix:
 | extension  | `packages/extension/utils/module.ts`                            | `evaluate`                                                                                                               | Deterministic object-URL module evaluation lifecycle             | P1       |
 | extension  | `packages/extension/utils/log.ts`                               | `logger`                                                                                                                 | Deterministic prefixing and dev-gated logging behavior           | P1       |
 | extension  | `packages/extension/utils/figma.ts`                             | `getCanvas`, `getLeftPanel`                                                                                              | Deterministic selector resolution for host panel/canvas          | P1       |
+| extension  | `packages/extension/utils/dom.ts`                               | `transformHTML`                                                                                                          | Deterministic fragment transform and HTML serialization          | P1       |
+| extension  | `packages/extension/utils/keyboard.ts`                          | `setLockMetaKey`, `setLockAltKey`                                                                                        | Deterministic browser key-lock patch/restore behavior            | P1       |
 | extension  | `packages/extension/composables/input.ts`                       | `useSelectAll`                                                                                                           | Deterministic input-focus select binding                         | P1       |
 | extension  | `packages/extension/worker/safe.ts`                             | default `Set<string>`                                                                                                    | Stable allowlist contract for worker lockdown                    | P1       |
 | extension  | `packages/extension/worker/lockdown.ts`                         | `lockdownWorker`                                                                                                         | Deterministic global-pruning and worker global sealing flow      | P1       |
@@ -130,6 +132,7 @@ Fix:
 | extension  | `packages/extension/utils/css.ts`                               | exported helpers                                                                                                         | Core style normalization and serialization logic                 | P0       |
 | extension  | `packages/extension/utils/tailwind.ts`                          | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                            | Deterministic CSS→class mapping                                  | P0       |
 | extension  | `packages/extension/utils/codegen.ts`                           | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                              | Unit-test via worker/runtime dependency mocks                    | P1       |
+| extension  | `packages/extension/codegen/requester.ts`                       | `createWorkerRequester`                                                                                                  | Deterministic worker request/response routing + cache behavior   | P1       |
 | extension  | `packages/extension/rewrite/shared.ts`                          | `isRules`, `getRewriteTargetRegex`, `loadRules`, `groupMatches`, `applyGroups`                                           | Deterministic rewrite-rule validation and replacement pipeline   | P1       |
 | extension  | `packages/extension/mcp/errors.ts`                              | `createCodedError`, `coerceToolErrorPayload`                                                                             | Deterministic error normalization and code tagging               | P0       |
 | extension  | `packages/extension/mcp/transport.ts`                           | `setMcpSocket`, `getMcpSocket`, `requireMcpSocket`                                                                       | Deterministic transport state guard behavior                     | P0       |
@@ -256,10 +259,26 @@ Fix:
 - canvas selector query behavior for fullscreen root rendering surface.
 - left panel selector fallback behavior (`#left-panel-container` -> island container class).
 
+### extension: `utils/dom.ts`
+
+- fragment transform execution behavior against detached `template.content`.
+- transformed HTML serialization behavior after callback mutation.
+
+### extension: `utils/keyboard.ts`
+
+- meta-key lock and restore behavior for `MouseEvent.prototype.metaKey`.
+- alt-key lock and restore behavior for `MouseEvent.prototype.altKey`.
+
 ### extension: `composables/input.ts`
 
 - focus-listener registration behavior through `useEventListener`.
 - null-safe target handling and `select()` invocation behavior on focused inputs.
+
+### extension: `codegen/requester.ts`
+
+- requester caching behavior by worker constructor identity.
+- response routing behavior for payload, error, and invalid payload frames.
+- unknown-response-id ignore behavior without corrupting pending requests.
 
 ### extension: `worker/safe.ts`
 

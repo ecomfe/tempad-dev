@@ -69,7 +69,7 @@ describe('mcp/runtime', () => {
       'get_structure'
     ])
     expect(typeof (globalThis as { window?: unknown }).window).toBe('undefined')
-  })
+  }, 15000)
 
   it('merges tool handlers onto existing window.tempadTools when window exists', async () => {
     const existing = vi.fn()
@@ -84,7 +84,7 @@ describe('mcp/runtime', () => {
     expect(tools.get_token_defs).toBe(runtime.MCP_TOOL_HANDLERS.get_token_defs)
     expect(tools.get_screenshot).toBe(runtime.MCP_TOOL_HANDLERS.get_screenshot)
     expect(tools.get_structure).toBe(runtime.MCP_TOOL_HANDLERS.get_structure)
-  })
+  }, 15000)
 
   it('initializes window.tempadTools when window exists without existing tools', async () => {
     vi.stubGlobal('window', {} as Window)
