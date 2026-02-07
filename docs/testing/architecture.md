@@ -119,6 +119,7 @@ Fix:
 | extension  | `packages/extension/mcp/config.ts`                              | `MCP_CLIENTS_BY_ID`, `MCP_CLIENTS`, `MCP_SERVER`                                                                         | Deterministic MCP client deep link and command/config generation | P1       |
 | extension  | `packages/extension/rewrite/config.ts`                          | `GROUPS`                                                                                                                 | Stable rewrite marker and replacement contract payload           | P1       |
 | extension  | `packages/extension/rewrite/figma.ts`                           | module side effect (`rewriteCurrentScript(GROUPS)`)                                                                      | Stable rewrite bootstrap invocation contract                     | P1       |
+| extension  | `packages/extension/rewrite/runtime.ts`                         | `rewriteCurrentScript`                                                                                                   | Deterministic rewrite/eval/fallback orchestration                | P1       |
 | extension  | `packages/extension/utils/css.ts`                               | exported helpers                                                                                                         | Core style normalization and serialization logic                 | P0       |
 | extension  | `packages/extension/utils/tailwind.ts`                          | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                            | Deterministic CSS→class mapping                                  | P0       |
 | extension  | `packages/extension/utils/codegen.ts`                           | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                              | Unit-test via worker/runtime dependency mocks                    | P1       |
@@ -253,6 +254,12 @@ Fix:
 
 - import-time rewrite bootstrap behavior using `GROUPS`.
 - invocation contract between rewrite bootstrap entry and runtime rewriter.
+
+### extension: `rewrite/runtime.ts`
+
+- current-script guard behavior when script element/source is missing.
+- rewrite/eval path behavior for fetched script content and Figma delete patching.
+- fallback script replacement behavior when fetch/rewrite/eval fails.
 
 ### extension: `rewrite/shared.ts`
 
