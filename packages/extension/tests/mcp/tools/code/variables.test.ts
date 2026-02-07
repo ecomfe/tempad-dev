@@ -58,6 +58,36 @@ describe('mcp/code variables', () => {
     expect(buckets.get('node-1:size')?.matchIndices).toEqual([1])
   })
 
+  it('preprocesses comment/scss forms before collecting variable references', () => {
+    const styles = new Map<string, Record<string, string>>([
+      [
+        'node-1',
+        {
+          color: '/* theme */ $brand-primary'
+        }
+      ]
+    ])
+
+    const { references, buckets } = collectRefs(styles)
+
+    expect(styles.get('node-1')?.color).toBe(' var(--brand-primary)')
+    expect(references).toEqual([
+      {
+        nodeId: 'node-1',
+        property: 'color',
+        code: 'var(--brand-primary)',
+        name: 'brand-primary',
+        value: undefined
+      }
+    ])
+    expect(buckets.get('node-1:color')).toEqual({
+      nodeId: 'node-1',
+      property: 'color',
+      value: ' var(--brand-primary)',
+      matchIndices: [0]
+    })
+  })
+
   it('returns empty used-name set when no variable references are found', async () => {
     const styles = new Map<string, Record<string, string>>([
       ['node-1', { color: '#fff', width: '100px' }]
@@ -109,5 +139,27 @@ describe('mcp/code variables', () => {
 
     expect(styles.has('node-1')).toBe(false)
     expect(used).toEqual(new Set(['--brand']))
+  })
+
+  it('falls back to original var expression when transform result is missing for an occurrence', async () => {
+    const styles = new Map<string, Record<string, string>>([
+      [
+        'node-1',
+        {
+          color: 'var(--brand)',
+          width: 'var(--space)'
+        }
+      ]
+    ])
+
+    vi.mocked(runTransformVariableBatch).mockResolvedValue(['--brand-next'])
+
+    const used = await transform(styles, { config: CONFIG })
+
+    expect(styles.get('node-1')).toEqual({
+      color: 'var(--brand-next)',
+      width: 'var(--space)'
+    })
+    expect(used).toEqual(new Set(['--brand', '--space', '--brand-next']))
   })
 })
