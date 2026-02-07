@@ -44,6 +44,7 @@ export default defineConfig({
         'mcp/tools/code/assets/vector.ts',
         'mcp/tools/code/assets/export.ts',
         'mcp/tools/code/assets/image.ts',
+        'mcp/tools/code/assets/index.ts',
         'mcp/tools/code/styles/normalize.ts',
         'mcp/tools/code/styles/prepare.ts',
         'mcp/tools/code/tokens/extract.ts',
@@ -57,7 +58,8 @@ export default defineConfig({
         'mcp/tools/token/candidates.ts',
         'mcp/tools/token/cache.ts',
         'mcp/tools/token/indexer.ts',
-        'mcp/tools/token/mapping.ts'
+        'mcp/tools/token/mapping.ts',
+        'mcp/tools/token/index.ts'
       ],
       thresholds: {
         lines: 100,
