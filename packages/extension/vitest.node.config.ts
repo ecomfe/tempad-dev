@@ -31,6 +31,7 @@ export default defineConfig({
         'mcp/config.ts',
         'rewrite/config.ts',
         'rewrite/figma.ts',
+        'rewrite/runtime.ts',
         'rewrite/shared.ts',
         'mcp/errors.ts',
         'mcp/transport.ts',
