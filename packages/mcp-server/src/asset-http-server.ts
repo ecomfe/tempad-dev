@@ -1,4 +1,4 @@
-import { MCP_HASH_HEX_LENGTH, MCP_HASH_PATTERN } from '@tempad-dev/shared'
+import { MCP_HASH_HEX_LENGTH } from '@tempad-dev/shared'
 import { nanoid } from 'nanoid'
 import { createHash } from 'node:crypto'
 import {
@@ -168,11 +168,6 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
   }
 
   function handleUpload(req: IncomingMessage, res: ServerResponse, hash: string): void {
-    if (!MCP_HASH_PATTERN.test(hash)) {
-      sendError(res, 400, 'Invalid Hash Format')
-      return
-    }
-
     const contentTypeHeader = req.headers['content-type']
     const mimeType = normalizeMimeType(
       Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader

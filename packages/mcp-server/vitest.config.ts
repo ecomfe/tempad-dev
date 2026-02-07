@@ -13,7 +13,8 @@ export default defineConfig({
         'src/tools.ts',
         'src/config.ts',
         'src/request.ts',
-        'src/asset-store.ts'
+        'src/asset-store.ts',
+        'src/asset-http-server.ts'
       ],
       thresholds: {
         lines: 100,

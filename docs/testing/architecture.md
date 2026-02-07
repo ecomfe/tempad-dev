@@ -148,6 +148,7 @@ Fix:
 | mcp-server | `packages/mcp-server/src/config.ts`                             | `getMcpServerConfig`                                                                                               | Deterministic env parsing with constant fallbacks                | P0       |
 | mcp-server | `packages/mcp-server/src/request.ts`                            | `register`, `resolve`, `reject`, `cleanupForExtension`, `cleanupAll`                                               | Deterministic pending-call lifecycle under mocked timers/logging | P0       |
 | mcp-server | `packages/mcp-server/src/asset-store.ts`                        | `createAssetStore`                                                                                                 | Deterministic asset index persistence/reconcile logic            | P1       |
+| mcp-server | `packages/mcp-server/src/asset-http-server.ts`                  | `createAssetHttpServer`                                                                                            | Deterministic HTTP routing and asset upload/download lifecycle   | P1       |
 | mcp-server | `packages/mcp-server/src/tools.ts`                              | `createCodeToolResponse`, `createScreenshotToolResponse`, `coercePayloadToToolResponse`, `createToolErrorResponse` | Pure payload formatting/guard behavior                           | P1       |
 | shared     | `packages/shared/src/mcp/constants.ts`                          | exported constants and patterns                                                                                    | Deterministic protocol limits and URI/hash patterns              | P0       |
 | shared     | `packages/shared/src/mcp/errors.ts`                             | `TEMPAD_MCP_ERROR_CODES`                                                                                           | Stable error contract constants                                  | P0       |
@@ -427,6 +428,12 @@ Fix:
 - upsert/touch/remove/flush persistence behavior and timer batching.
 - stale record pruning and temp-file cleanup during reconcile.
 - orphan file recovery and error handling when stat/scan/delete operations fail.
+
+### mcp-server: `asset-http-server.ts`
+
+- HTTP routing guard behavior for methods, paths, and hash parsing.
+- download flow behavior across hit/miss, stat failures, and stream error handling.
+- upload flow behavior across existing assets, pipeline failures, hash checks, and temp-file lifecycle.
 
 ### mcp-server: `tools.ts`
 
