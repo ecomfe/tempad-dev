@@ -125,6 +125,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/layout-parent.ts`            | `getLayoutParent`                                                                                                  | Deterministic ancestor lookup with type filtering                | P0       |
 | extension  | `packages/extension/mcp/tools/code/messages.ts`                 | `buildTokenSummary`, `buildCandidateSummary`                                                                       | Deterministic summary message formatting                         | P0       |
 | extension  | `packages/extension/mcp/tools/code/render/props.ts`             | `classProps`, `filterGridProps`, `classProp`, `mergeClass`                                                         | Deterministic class and data-hint prop shaping                   | P1       |
+| extension  | `packages/extension/mcp/tools/code/variables.ts`                | `collectRefs`, `transform`                                                                                         | Deterministic variable-reference collection and rewrite mapping  | P1       |
 | extension  | `packages/extension/mcp/tools/code/sanitize/relative-parent.ts` | `ensureRelativeForAbsoluteChildren`                                                                                | Deterministic parent-position enforcement for absolute children  | P1       |
 | extension  | `packages/extension/mcp/tools/code/sanitize/stacking.ts`        | `applyAbsoluteStackingOrder`                                                                                       | Deterministic stacking-order correction and parent isolation     | P1       |
 | extension  | `packages/extension/mcp/tools/code/assets/plan.ts`              | `planAssets`                                                                                                       | Deterministic vector asset grouping and descendant pruning logic | P1       |
@@ -325,6 +326,12 @@ Fix:
 - class-prop generation for empty and non-empty class lists.
 - auto-layout hint gating for fallback/non-fallback paths.
 - grid-only style key stripping and class-name merge/classProp helpers.
+
+### extension: `mcp/tools/code/variables.ts`
+
+- reference collection from normalized CSS values (comments and SCSS vars).
+- transform pipeline rewrite behavior with canonical-name extraction.
+- fallback behavior when transform results are missing or target style disappears.
 
 ### extension: `mcp/tools/code/sanitize/relative-parent.ts`
 

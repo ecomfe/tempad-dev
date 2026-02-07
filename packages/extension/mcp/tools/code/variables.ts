@@ -60,8 +60,8 @@ export function transform(
 
       let occurrence = 0
       style[bucket.property] = replaceVarFunctions(bucket.value, ({ full }) => {
-        const refIndex = bucket.matchIndices[occurrence++]
-        return refIndex != null ? (replacements[refIndex] ?? full) : full
+        const refIndex = bucket.matchIndices[occurrence++]!
+        return replacements[refIndex] ?? full
       })
     }
 
@@ -102,12 +102,7 @@ export function collectRefs(styles: Map<string, Record<string, string>>) {
 
       if (hasMatch) {
         const key = `${nodeId}:${property}`
-        const bucket = buckets.get(key)
-        if (bucket) {
-          bucket.matchIndices.push(...indices)
-        } else {
-          buckets.set(key, { nodeId, property, value: normalized, matchIndices: indices })
-        }
+        buckets.set(key, { nodeId, property, value: normalized, matchIndices: indices })
       }
     }
   }
