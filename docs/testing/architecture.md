@@ -143,6 +143,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/tokens/source-index.ts`      | `buildSourceNameIndex`                                                                                             | Deterministic candidate name indexing                            | P0       |
 | extension  | `packages/extension/mcp/tools/code/tokens/used.ts`              | `buildUsedTokens`                                                                                                  | Deterministic used-token set materialization and resolver wiring | P1       |
 | extension  | `packages/extension/mcp/tools/token/candidates.ts`              | `collectCandidateVariableIds`                                                                                      | Deterministic candidate-variable traversal and rewrite mapping   | P1       |
+| extension  | `packages/extension/mcp/tools/token/indexer.ts`                 | `getVariableRawName`, `canonicalizeNames`, `canonicalizeName`, `getTokenIndex`                                     | Deterministic token canonicalization, batching, and cache/index  | P1       |
 | extension  | `packages/extension/mcp/tools/token/mapping.ts`                 | `buildVariableMappings`, `normalizeStyleVars`, `applyPluginTransforms`                                             | Deterministic style token rewrite and plugin transform wiring    | P1       |
 | plugins    | `packages/plugins/src/index.ts`                                 | `raw`, `definePlugin`, `h`, `findChild`, `findChildren`, `findOne`, `findAll`, `queryAll`, `queryOne`              | Pure tree query/composition helpers                              | P0       |
 | mcp-server | `packages/mcp-server/src/asset-utils.ts`                        | all exports                                                                                                        | Deterministic mime/hash/filename utils                           | P0       |
@@ -297,6 +298,12 @@ Fix:
 - visibility-based pruning for hidden nodes and hidden paint descriptors.
 - rewrite-map deduplication across code syntax and canonical CSS variable names.
 - fallback behavior for sparse payloads (nulls, non-arrays, missing names).
+
+### extension: `mcp/tools/token/indexer.ts`
+
+- variable raw-name extraction from `codeSyntax.WEB` and fallback to Figma variable names.
+- canonicalization batching behavior (300-size chunks), including fallback normalization for non-var outputs.
+- token index build behavior with canonical collision buckets and cache-key reuse/invalidation.
 
 ### extension: `mcp/tools/token/mapping.ts`
 

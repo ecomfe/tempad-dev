@@ -48,7 +48,6 @@ function fnv1a32(input: string): string {
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
-  if (size <= 0) return [arr]
   const out: T[][] = []
   for (let i = 0; i < arr.length; i += size) {
     out.push(arr.slice(i, i + size))
@@ -69,10 +68,6 @@ export function getVariableRawName(variable: Variable): string {
   if (typeof cs === 'string' && cs.trim()) {
     const canonical = canonicalizeCssVarName(cs.trim())
     if (canonical) return canonical.slice(2)
-
-    // Support SCSS-like codeSyntax that preprocessCssValue() understands.
-    const m = cs.trim().match(/^[$@]([A-Za-z0-9_-]+)$/)
-    if (m) return m[1]
 
     // Some teams set WEB codeSyntax directly to an identifier like "kui-color-brand".
     // Only accept safe identifiers here; everything else falls back to variable.name.
