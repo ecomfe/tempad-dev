@@ -8,8 +8,7 @@ export function buildSourceNameIndex(
 ): Map<string, string> {
   const index = new Map<string, string>()
 
-  const setIfEmpty = (name: string | undefined, id: string) => {
-    if (!name) return
+  const setIfEmpty = (name: string, id: string) => {
     if (index.has(name)) return
     index.set(name, id)
   }
