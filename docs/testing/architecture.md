@@ -132,6 +132,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/styles/layout.ts`            | `mergeInferredAutoLayout`, `inferResizingStyles`                                                                   | Deterministic inferred auto-layout and resizing style adaptation | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/overflow.ts`          | `applyOverflowStyles`                                                                                              | Deterministic overflow-direction and clipping adaptation         | P1       |
 | extension  | `packages/extension/mcp/tools/code/assets/plan.ts`              | `planAssets`                                                                                                       | Deterministic vector asset grouping and descendant pruning logic | P1       |
+| extension  | `packages/extension/mcp/tools/code/assets/vector.ts`            | `exportSvgEntry`, `transformSvgAttributes`, `extractSvgAttributes`                                                 | Deterministic SVG export shaping and attribute normalization     | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/normalize.ts`         | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
 | extension  | `packages/extension/mcp/tools/code/styles/prepare.ts`           | `prepareStyles`                                                                                                    | Deterministic style preparation orchestration                    | P1       |
 | extension  | `packages/extension/mcp/tools/code/tokens/extract.ts`           | `buildTokenRegex`, `extractTokenNames`, `createTokenMatcher`                                                       | Deterministic token name extraction and boundary matching        | P0       |
@@ -386,6 +387,12 @@ Fix:
 - vector-group detection when all descendant leaves are vector assets.
 - mixed/malformed child graph behavior (missing child metadata).
 - defensive skip traversal behavior when descendant lookups become unavailable.
+
+### extension: `mcp/tools/code/assets/vector.ts`
+
+- SVG export behavior for upload success, upload fallback (inline raw), and export failure fallback.
+- width/height attribute normalization behavior under configured CSS units.
+- root `<svg>` attribute extraction behavior and no-match fallback.
 
 ### Extension browser runtime
 
