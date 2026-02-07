@@ -53,4 +53,15 @@ describe('codegen/requester createWorkerRequester (browser)', () => {
     const requester = createWorkerRequester<{ n: number }, { ok: boolean }>(WorkerClass)
     await expect(requester({ n: 1 })).rejects.toThrow('Worker response missing payload.')
   })
+
+  it('ignores unknown response ids and resolves the matching request id', async () => {
+    const WorkerClass = createMockWorker((message, emit) => {
+      const request = message as { id: number }
+      emit({ id: request.id + 99, payload: { ok: false } })
+      emit({ id: request.id, payload: { ok: true } })
+    })
+
+    const requester = createWorkerRequester<{ n: number }, { ok: boolean }>(WorkerClass)
+    await expect(requester({ n: 1 })).resolves.toEqual({ ok: true })
+  })
 })
