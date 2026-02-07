@@ -119,12 +119,15 @@ Fix:
 | extension  | `packages/extension/utils/tailwind.ts`                  | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                      | Deterministic CSS→class mapping                                  | P0       |
 | extension  | `packages/extension/utils/codegen.ts`                   | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                        | Unit-test via worker/runtime dependency mocks                    | P1       |
 | extension  | `packages/extension/mcp/tools/code/styles/normalize.ts` | `layoutOnly`, `buildLayoutStyles`, `styleToClassNames`                                                             | Pure style map transforms                                        | P0       |
+| extension  | `packages/extension/mcp/tools/code/tokens/transform.ts` | `applyPluginTransformToNames`                                                                                      | Deterministic token rename + bridge conflict handling            | P1       |
+| extension  | `packages/extension/mcp/tools/code/tokens/process.ts`   | `processTokens`                                                                                                    | Deterministic token pipeline orchestration under mocked helpers  | P1       |
 | plugins    | `packages/plugins/src/index.ts`                         | `raw`, `definePlugin`, `h`, `findChild`, `findChildren`, `findOne`, `findAll`, `queryAll`, `queryOne`              | Pure tree query/composition helpers                              | P0       |
 | mcp-server | `packages/mcp-server/src/asset-utils.ts`                | all exports                                                                                                        | Deterministic mime/hash/filename utils                           | P0       |
 | mcp-server | `packages/mcp-server/src/config.ts`                     | `getMcpServerConfig`                                                                                               | Deterministic env parsing with constant fallbacks                | P0       |
 | mcp-server | `packages/mcp-server/src/request.ts`                    | `register`, `resolve`, `reject`, `cleanupForExtension`, `cleanupAll`                                               | Deterministic pending-call lifecycle under mocked timers/logging | P0       |
 | mcp-server | `packages/mcp-server/src/tools.ts`                      | `createCodeToolResponse`, `createScreenshotToolResponse`, `coercePayloadToToolResponse`, `createToolErrorResponse` | Pure payload formatting/guard behavior                           | P1       |
 | shared     | `packages/shared/src/mcp/protocol.ts`                   | `parseMessageToExtension`, `parseMessageFromExtension`                                                             | Deterministic JSON+schema parsing                                | P0       |
+| shared     | `packages/shared/src/mcp/tools.ts`                      | schema exports (`AssetDescriptorSchema`, tool parameter/result schemas)                                            | Deterministic Zod contracts and regex constraints                | P0       |
 | shared     | `packages/shared/src/figma/color.ts`                    | `formatHexAlpha`                                                                                                   | Pure color formatter                                             | P1       |
 | shared     | `packages/shared/src/figma/gradient.ts`                 | `resolveGradientFromPaints`, `resolveSolidFromPaints`                                                              | Pure paint-to-CSS conversion and variable fallback formatting    | P1       |
 | shared     | `packages/shared/src/figma/stroke.ts`                   | `resolveStrokeFromPaints`, `applyStrokeToCSS`                                                                      | Pure stroke resolution and CSS patching                          | P1       |
@@ -188,6 +191,22 @@ Fix:
 - `styleToClassNames`:
   - normal path via `cssToClassNames`.
   - gradient-border nested path via `nestedCssToClassNames`.
+
+### extension: `mcp/tools/code/tokens/transform.ts`
+
+- no-plugin bridge behavior for known/missing source names.
+- plugin transform rename behavior for custom properties.
+- invalid/empty transform output fallback behavior.
+- duplicate renamed target conflict behavior with warning path.
+- mixed token/plain-name input behavior when transform batch is skipped.
+
+### extension: `mcp/tools/code/tokens/process.ts`
+
+- empty source index and no-detected-token early return paths.
+- rename rewrite + truncation path and empty bridge short-circuit.
+- used token resolution path (`buildUsedTokens`) and `resolveTokens` matcher activation.
+- merged candidate id behavior when `usedCandidateIds` is non-empty.
+- resolve node id collection from style maps and text segment maps.
 
 ### Extension browser runtime
 
@@ -257,6 +276,14 @@ Fix:
 - valid message parsing for both directions.
 - invalid JSON returns `null`.
 - schema mismatch returns `null`.
+
+### shared: `mcp/tools.ts`
+
+- asset descriptor validation (`resourceUri`, URL shape, and numeric bounds).
+- get_code optional parameter acceptance and language enum rejection paths.
+- token name canonical format (`--foo-bar`) and minimum list size behavior.
+- structure depth positive integer enforcement.
+- get_assets hash list and result payload schema validation.
 
 ### shared: `figma/color.ts`
 

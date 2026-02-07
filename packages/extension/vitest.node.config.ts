@@ -27,7 +27,9 @@ export default defineConfig({
         'utils/css.ts',
         'utils/tailwind.ts',
         'utils/codegen.ts',
-        'mcp/tools/code/styles/normalize.ts'
+        'mcp/tools/code/styles/normalize.ts',
+        'mcp/tools/code/tokens/transform.ts',
+        'mcp/tools/code/tokens/process.ts'
       ],
       thresholds: {
         lines: 100,
