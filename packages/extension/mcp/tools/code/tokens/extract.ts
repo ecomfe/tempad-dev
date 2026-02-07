@@ -14,7 +14,6 @@ export function buildTokenRegex(plainNames?: Set<string>, global = false): RegEx
 
   const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const pattern = names.map((name) => escapeRegex(name)).join('|')
-  if (!pattern) return null
 
   const flags = global ? 'g' : undefined
   return new RegExp(`${TOKEN_BOUNDARY_PREFIX}(${pattern})${TOKEN_BOUNDARY_SUFFIX}`, flags)
@@ -34,7 +33,7 @@ export function extractTokenNames(code: string, plainNames?: Set<string>): Set<s
   if (tokenRe) {
     let match: RegExpExecArray | null
     while ((match = tokenRe.exec(code)) !== null) {
-      if (match[2]) out.add(match[2])
+      out.add(match[2])
     }
   }
 

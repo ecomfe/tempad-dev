@@ -22,12 +22,19 @@ describe('mcp/code tokens rewrite', () => {
     expect(rewriteTokenNamesInCode(code, new Map())).toBe(code)
   })
 
+  it('returns source code unchanged when rewrite regex cannot be built', () => {
+    const code = 'color-red'
+    expect(rewriteTokenNamesInCode(code, new Map([['', 'ignored']]))).toBe(code)
+  })
+
   it('filters bridge map to used names only', () => {
     const bridge = new Map([
       ['a', 'id-a'],
-      ['b', 'id-b']
+      ['b', 'id-b'],
+      ['empty', '']
     ])
 
     expect(filterBridge(bridge, new Set(['b', 'c']))).toEqual(new Map([['b', 'id-b']]))
+    expect(filterBridge(bridge, new Set(['empty']))).toEqual(new Map())
   })
 })
