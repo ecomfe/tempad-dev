@@ -173,7 +173,10 @@ function optimizeRuns(runs: TextRun[]): TextRun[] {
 
     let attrsMatch = true
     for (const key of prevKeys) {
-      if (canonicalizeValue(key, prev.attrs[key]) !== canonicalizeValue(key, run.attrs[key])) {
+      if (
+        !(key in run.attrs) ||
+        canonicalizeValue(key, prev.attrs[key]) !== canonicalizeValue(key, run.attrs[key])
+      ) {
         attrsMatch = false
         break
       }
