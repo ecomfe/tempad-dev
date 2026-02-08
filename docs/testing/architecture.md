@@ -571,6 +571,13 @@ Fix:
 - canonicalization batching behavior (300-size chunks), including fallback normalization for non-var outputs.
 - token index build behavior with canonical collision buckets and cache-key reuse/invalidation.
 
+### extension: `mcp/tools/token/defs.ts`
+
+- requested-name normalization behavior (`name` to `--name`) and payload-size guard branch.
+- candidate-first resolution behavior with `candidateIds`/`candidateNameById` narrowing.
+- alias resolution behavior for `resolveValues=false`, including alias-dependency materialization.
+- all-modes emission behavior with collection-mode key formatting (`collection:mode`).
+
 ### extension: `mcp/tools/token/mapping.ts`
 
 - mapping collector delegation behavior through `buildVariableMappings`.
