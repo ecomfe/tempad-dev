@@ -352,6 +352,15 @@ Fix:
 - response routing behavior for payload, error, and invalid payload frames.
 - unknown-response-id ignore behavior without corrupting pending requests.
 
+### extension: `codegen/worker.ts`
+
+- plugin code guard behavior for disallowed static `import` usage.
+- plugin evaluation error behavior and postMessage error payload fallback.
+- component code generation behavior for function/non-function transforms.
+- CSS/JS/default and extra block emission behavior (including disabled/empty paths).
+- safe JSON serialization behavior for function values in payloads.
+- worker lockdown side-effect behavior on module load.
+
 ### extension: `utils/index.ts`
 
 - re-export contract behavior for utility barrel and transitive MCP surface.

@@ -41,6 +41,7 @@ export default defineConfig({
         'composables/scrollbar.ts',
         'composables/toast.ts',
         'composables/index.ts',
+        'codegen/requester.ts',
         'worker/safe.ts',
         'worker/lockdown.ts',
         'mcp/index.ts',
