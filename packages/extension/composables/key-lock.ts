@@ -1,5 +1,5 @@
 import { useEventListener, useMutationObserver } from '@vueuse/core'
-import { shallowRef } from 'vue'
+import { shallowRef, watch } from 'vue'
 
 import { layoutReady, options } from '@/ui/state'
 import { getCanvas, setLockAltKey, setLockMetaKey } from '@/utils'
