@@ -32,6 +32,7 @@ export default defineConfig({
         'utils/codegen.ts',
         'utils/index.ts',
         'composables/input.ts',
+        'composables/index.ts',
         'worker/safe.ts',
         'worker/lockdown.ts',
         'mcp/index.ts',
