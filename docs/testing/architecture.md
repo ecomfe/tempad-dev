@@ -154,6 +154,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/structure.ts`                     | `handleGetStructure`                                                                                                     | Deterministic structure payload shaping and size guarding        | P1       |
 | extension  | `packages/extension/mcp/tools/code/layout-parent.ts`            | `getLayoutParent`                                                                                                        | Deterministic ancestor lookup with type filtering                | P0       |
 | extension  | `packages/extension/mcp/tools/code/messages.ts`                 | `buildTokenSummary`, `buildCandidateSummary`                                                                             | Deterministic summary message formatting                         | P0       |
+| extension  | `packages/extension/mcp/tools/code/render/plugin.ts`            | `renderPluginComponent`, `resolvePluginComponent`                                                                        | Deterministic plugin component/lang resolution path              | P1       |
 | extension  | `packages/extension/mcp/tools/code/render/props.ts`             | `classProps`, `filterGridProps`, `classProp`, `mergeClass`                                                               | Deterministic class and data-hint prop shaping                   | P1       |
 | extension  | `packages/extension/mcp/tools/code/variables.ts`                | `collectRefs`, `transform`                                                                                               | Deterministic variable-reference collection and rewrite mapping  | P1       |
 | extension  | `packages/extension/mcp/tools/code/sanitize/negative-gap.ts`    | `patchNegativeGapStyles`                                                                                                 | Deterministic negative-gap normalization and compensation logic  | P1       |
@@ -591,6 +592,14 @@ Fix:
 - class-prop generation for empty and non-empty class lists.
 - auto-layout hint gating for fallback/non-fallback paths.
 - grid-only style key stripping and class-name merge/classProp helpers.
+
+### extension: `mcp/tools/code/render/plugin.ts`
+
+- plugin-code guard behavior in `renderPluginComponent`.
+- preferred-language branch behavior in `resolvePluginComponent`.
+- language normalization behavior (`tsx` and unknown -> `jsx`).
+- component-block selection behavior when preferred lang exists/does not exist.
+- null-return behavior when both trimmed code and dev component are absent.
 
 ### extension: `mcp/tools/code/variables.ts`
 

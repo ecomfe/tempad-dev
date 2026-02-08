@@ -55,6 +55,7 @@ export default defineConfig({
         'packages/extension/mcp/tools/screenshot.ts',
         'packages/extension/mcp/tools/code/layout-parent.ts',
         'packages/extension/mcp/tools/code/messages.ts',
+        'packages/extension/mcp/tools/code/render/plugin.ts',
         'packages/extension/mcp/tools/code/render/props.ts',
         'packages/extension/mcp/tools/code/variables.ts',
         'packages/extension/mcp/tools/code/sanitize/negative-gap.ts',
