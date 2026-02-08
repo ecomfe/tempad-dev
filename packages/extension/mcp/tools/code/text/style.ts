@@ -17,10 +17,10 @@ export function resolveRunAttrs(
   fills: ResolvedFill[]
 ): Record<string, string> {
   const style: Record<string, string> = {}
-  let visibleSolid: ResolvedFill | undefined
+  let visibleSolid: Extract<ResolvedFill, { type: 'SOLID' }> | undefined
   let hasVisiblePaint = false
   for (const fill of fills) {
-    if (!isVisiblePaint(fill.raw as Paint)) continue
+    if (!isVisiblePaint(fill.raw)) continue
     hasVisiblePaint = true
     if (fill.type === 'SOLID') {
       visibleSolid = fill
@@ -29,9 +29,8 @@ export function resolveRunAttrs(
   }
 
   if (visibleSolid) {
-    const rawPaint = visibleSolid.raw as SolidPaint
-    const val = formatHexAlpha(rawPaint.color, rawPaint.opacity ?? 1)
-    style.color = constructCssVar(visibleSolid.token, val) as string
+    const val = formatHexAlpha(visibleSolid.raw.color, visibleSolid.raw.opacity ?? 1)
+    style.color = constructCssVar(visibleSolid.token, val)
   } else if (fills.length === 0 || !hasVisiblePaint) {
     style.color = 'transparent'
   }
@@ -47,10 +46,11 @@ export function resolveRunAttrs(
   )
   if (sizeVal) style['font-size'] = sizeVal
 
-  if (fontWeight || typeof seg.fontWeight === 'number') {
+  if (fontWeight) {
     const wVal = inferFontWeight(seg.fontName?.style, seg.fontWeight)
-    const wStr = wVal != null ? String(wVal) : undefined
-    style['font-weight'] = constructCssVar(fontWeight, wStr) as string
+    style['font-weight'] = constructCssVar(fontWeight, wVal != null ? String(wVal) : undefined)
+  } else if (typeof seg.fontWeight === 'number') {
+    style['font-weight'] = String(seg.fontWeight)
   }
 
   const lhVal = constructCssVar(lineHeight, formatLineHeightValue(seg.lineHeight))
@@ -223,6 +223,8 @@ function mapTextCase(textCase?: TextCase): string | undefined {
   return map[textCase as string]
 }
 
+function constructCssVar(token: TokenRef, fallback?: string): string
+function constructCssVar(token: TokenRef | null | undefined, fallback: string): string
 function constructCssVar(token?: TokenRef | null, fallback?: string): string | undefined {
   if (token) return toFigmaVarExpr(token.name)
   return fallback?.trim() || undefined

@@ -284,6 +284,17 @@ describe('asset-http-server unit branches', () => {
     state.requestHandler?.(createRequest({ url: '/assets/not-a-hash.png' }), badHashRes)
     expect(badHashRes.statusCode).toBe(404)
     expect(readJson(badHashRes)).toEqual({ error: 'Not Found' })
+
+    mocks.getHashFromAssetFilename.mockReturnValueOnce('invalid-hash')
+    const invalidUploadReq = createRequest({
+      method: 'POST',
+      url: '/assets/abcdef12.png'
+    })
+    const invalidUploadRes = createResponse()
+    state.requestHandler?.(invalidUploadReq, invalidUploadRes)
+    expect(invalidUploadReq.resume).toHaveBeenCalled()
+    expect(invalidUploadRes.statusCode).toBe(400)
+    expect(readJson(invalidUploadRes)).toEqual({ error: 'Invalid Hash' })
   })
 
   it('covers download stat failures and stream error handling branches', async () => {
