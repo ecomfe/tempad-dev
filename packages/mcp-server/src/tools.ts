@@ -58,6 +58,13 @@ type HubToolMetadata<Name extends ToolName, Schema extends ZodType> = BaseToolMe
   outputSchema?: ZodType
 }
 
+function getRecordProperty(record: unknown, key: string): unknown {
+  if (!record || typeof record !== 'object') {
+    return undefined
+  }
+  return Reflect.get(record, key)
+}
+
 function extTool<Name extends ToolName, Schema extends ZodType>(
   definition: ExtensionToolMetadata<Name, Schema>
 ): ExtensionToolMetadata<Name, Schema> {
@@ -114,18 +121,14 @@ export const TOOL_DEFS = [
 ] as const
 
 function extractToolErrorCode(error: unknown): TempadMcpErrorCode | undefined {
-  if (!error || typeof error !== 'object') return undefined
-  if ('code' in error && typeof error.code === 'string') {
-    return error.code as TempadMcpErrorCode
+  const code = getRecordProperty(error, 'code')
+  if (typeof code === 'string') {
+    return code as TempadMcpErrorCode
   }
-  if ('cause' in error) {
-    const cause = (error as { cause?: unknown }).cause
-    if (cause && typeof cause === 'object') {
-      const causeCode = (cause as { code?: unknown }).code
-      if (typeof causeCode === 'string') {
-        return causeCode as TempadMcpErrorCode
-      }
-    }
+  const cause = getRecordProperty(error, 'cause')
+  const causeCode = getRecordProperty(cause, 'code')
+  if (typeof causeCode === 'string') {
+    return causeCode as TempadMcpErrorCode
   }
   return undefined
 }
