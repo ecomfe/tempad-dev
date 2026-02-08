@@ -68,6 +68,13 @@ type HubToolWithHandler<T extends HubToolMetadata = HubToolMetadata> = T & {
   handler: (args: SchemaOutput<T['parameters']>) => Promise<ToolResponse>
 }
 
+function getRecordProperty(record: unknown, key: string): unknown {
+  if (!record || typeof record !== 'object') {
+    return undefined
+  }
+  return Reflect.get(record, key)
+}
+
 type RegisteredToolDefinition = ExtensionToolMetadata | HubToolWithHandler
 
 function enrichToolDefinition(tool: ToolMetadataEntry): RegisteredToolDefinition {
@@ -103,11 +110,12 @@ function createCodedError(code: TempadMcpErrorCode, message: string): Error & { 
 function coerceToolError(error: unknown): Error {
   if (error instanceof Error) return error
   if (typeof error === 'string') return new Error(error)
+  const messageValue = getRecordProperty(error, 'message')
+  const codeValue = getRecordProperty(error, 'code')
   if (error && typeof error === 'object') {
-    const candidate = error as { message?: unknown; code?: unknown }
-    const message = typeof candidate.message === 'string' ? candidate.message : safeStringify(error)
+    const message = typeof messageValue === 'string' ? messageValue : safeStringify(error)
     const err = new Error(message) as Error & { code?: string }
-    if (typeof candidate.code === 'string') err.code = candidate.code
+    if (typeof codeValue === 'string') err.code = codeValue
     return err
   }
   return new Error(String(error))

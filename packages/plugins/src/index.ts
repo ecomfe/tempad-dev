@@ -310,12 +310,11 @@ export function definePlugin(plugin: Plugin): Plugin {
 }
 
 function isDevComponent(value: unknown): value is DevComponent {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    'name' in value &&
-    typeof (value as { name?: unknown }).name === 'string'
-  )
+  if (value === null || typeof value !== 'object') {
+    return false
+  }
+  const name = Reflect.get(value, 'name')
+  return typeof name === 'string'
 }
 
 function isChildrenArgument(
