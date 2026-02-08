@@ -489,6 +489,13 @@ Fix:
   - normal path via `cssToClassNames`.
   - gradient-border nested path via `nestedCssToClassNames`.
 
+### extension: `mcp/tools/code/styles/background.ts`
+
+- solid background normalization behavior (`background` -> `background-color`).
+- url + lightgray shorthand split behavior into image/size/repeat/position/background-color fields.
+- variable-only background replacement behavior from inferred node gradient fills.
+- missing-background fallback behavior for non-text nodes with visible fills.
+
 ### extension: `mcp/tools/code/styles/prepare.ts`
 
 - normalization orchestration with `normalizeStyleVars`.
