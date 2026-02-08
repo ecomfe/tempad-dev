@@ -120,7 +120,9 @@ Fix:
 | extension  | `packages/extension/utils/figma.ts`                             | `getCanvas`, `getLeftPanel`                                                                                              | Deterministic selector resolution for host panel/canvas          | P1       |
 | extension  | `packages/extension/utils/dom.ts`                               | `transformHTML`                                                                                                          | Deterministic fragment transform and HTML serialization          | P1       |
 | extension  | `packages/extension/utils/keyboard.ts`                          | `setLockMetaKey`, `setLockAltKey`                                                                                        | Deterministic browser key-lock patch/restore behavior            | P1       |
+| extension  | `packages/extension/composables/copy.ts`                        | `useCopy`                                                                                                                | Deterministic clipboard source resolution and toast/error flow   | P1       |
 | extension  | `packages/extension/composables/input.ts`                       | `useSelectAll`                                                                                                           | Deterministic input-focus select binding                         | P1       |
+| extension  | `packages/extension/composables/toast.ts`                       | `useToast`                                                                                                               | Deterministic notify/cancel lifecycle                            | P1       |
 | extension  | `packages/extension/composables/index.ts`                       | re-export surface                                                                                                        | Stable composables barrel export contract                        | P2       |
 | extension  | `packages/extension/worker/safe.ts`                             | default `Set<string>`                                                                                                    | Stable allowlist contract for worker lockdown                    | P1       |
 | extension  | `packages/extension/worker/lockdown.ts`                         | `lockdownWorker`                                                                                                         | Deterministic global-pruning and worker global sealing flow      | P1       |
@@ -279,6 +281,19 @@ Fix:
 
 - focus-listener registration behavior through `useEventListener`.
 - null-safe target handling and `select()` invocation behavior on focused inputs.
+
+### extension: `composables/copy.ts`
+
+- explicit source/message behavior for direct copy invocations.
+- fallback content resolution and option-message getter behavior.
+- element source resolution order (`dataset.copy` -> `textContent` -> empty string).
+- clipboard error capture behavior with logger fallback.
+
+### extension: `composables/toast.ts`
+
+- notify call behavior on `show`.
+- cancel behavior on `hide` when active handler exists.
+- no-op behavior on `hide` before any `show`.
 
 ### extension: `composables/index.ts`
 
