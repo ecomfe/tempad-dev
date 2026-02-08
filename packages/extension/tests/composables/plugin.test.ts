@@ -231,13 +231,28 @@ describe('composables/plugin', () => {
 
   it('returns early when install is called while an install is already running', async () => {
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
-    fetchMock.mockImplementationOnce(() => new Promise(() => undefined))
+    let resolveFirstFetch!: (value: { status: number; text: () => Promise<string> }) => void
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFirstFetch = resolve as (value: {
+            status: number
+            text: () => Promise<string>
+          }) => void
+        })
+    )
 
     const plugin = usePluginInstall()
 
-    void plugin.install('https://cdn/long.js')
+    const first = plugin.install('https://cdn/long.js')
     const second = await plugin.install('https://cdn/second.js')
 
     expect(second).toBeNull()
+
+    resolveFirstFetch({
+      status: 500,
+      text: async () => ''
+    })
+    await first
   })
 })
