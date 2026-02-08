@@ -121,6 +121,7 @@ Fix:
 | extension  | `packages/extension/utils/dom.ts`                               | `transformHTML`                                                                                                          | Deterministic fragment transform and HTML serialization          | P1       |
 | extension  | `packages/extension/utils/keyboard.ts`                          | `setLockMetaKey`, `setLockAltKey`                                                                                        | Deterministic browser key-lock patch/restore behavior            | P1       |
 | extension  | `packages/extension/composables/input.ts`                       | `useSelectAll`                                                                                                           | Deterministic input-focus select binding                         | P1       |
+| extension  | `packages/extension/composables/index.ts`                       | re-export surface                                                                                                        | Stable composables barrel export contract                        | P2       |
 | extension  | `packages/extension/worker/safe.ts`                             | default `Set<string>`                                                                                                    | Stable allowlist contract for worker lockdown                    | P1       |
 | extension  | `packages/extension/worker/lockdown.ts`                         | `lockdownWorker`                                                                                                         | Deterministic global-pruning and worker global sealing flow      | P1       |
 | extension  | `packages/extension/mcp/index.ts`                               | re-export surface                                                                                                        | Stable MCP barrel export contract                                | P2       |
@@ -277,6 +278,10 @@ Fix:
 
 - focus-listener registration behavior through `useEventListener`.
 - null-safe target handling and `select()` invocation behavior on focused inputs.
+
+### extension: `composables/index.ts`
+
+- re-export contract behavior for composables barrel entry.
 
 ### extension: `codegen/requester.ts`
 
