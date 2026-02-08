@@ -31,6 +31,7 @@ export default defineConfig({
         'utils/tailwind.ts',
         'utils/codegen.ts',
         'utils/index.ts',
+        'utils/tempad.ts',
         'composables/input.ts',
         'composables/index.ts',
         'worker/safe.ts',
