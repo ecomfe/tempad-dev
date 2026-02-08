@@ -20,8 +20,8 @@ describe('rewrite/config', () => {
       'if(.appModel.__isReadOnly__){x()}'
     )
 
-    expect(applyFirstReplacement(1, 'const x={type:"global",closePluginFunc:abc};void x;')).toBe(
-      'const x={type:"global",closePluginFunc:()=>{}};void x;'
+    expect(applyFirstReplacement(1, 'const x={type:"global",closePluginFunc:abc};x;')).toBe(
+      'const x={type:"global",closePluginFunc:()=>{}};x;'
     )
 
     expect(
