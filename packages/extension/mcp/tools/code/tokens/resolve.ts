@@ -221,7 +221,7 @@ function pickPreferredModeId(
   collection?: VariableCollectionInfo | null,
   desiredModeId?: string
 ): string | undefined {
-  const valuesByMode = variable.valuesByMode
+  const valuesByMode = variable.valuesByMode ?? {}
   if (desiredModeId && desiredModeId in valuesByMode) return desiredModeId
   if (collection?.activeModeId && collection.activeModeId in valuesByMode) {
     return collection.activeModeId
@@ -294,11 +294,15 @@ function isUnitlessFloatToken(canonicalName?: string): boolean {
   return false
 }
 
-function toLiteralString(value: unknown): string {
+function toLiteralString(value: unknown): string | undefined {
   if (typeof value === 'string') return value
+  if (typeof value === 'symbol') return undefined
   try {
-    return JSON.stringify(value)
+    const serialized = JSON.stringify(value)
+    if (serialized !== undefined) return serialized
   } catch {
-    return String(value)
+    // fallback below
   }
+  const fallback = String(value)
+  return fallback === 'undefined' ? undefined : fallback
 }

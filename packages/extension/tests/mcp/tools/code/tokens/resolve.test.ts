@@ -334,6 +334,13 @@ describe('tokens/resolve createStyleVarResolver', () => {
   it('serializes color, string, object and circular object values', () => {
     const circular: Record<string, unknown> = {}
     circular.self = circular
+    const toJsonUndefinedObj = {
+      toJSON: () => undefined
+    }
+    const toUndefinedLiteralObj = {
+      toJSON: () => undefined,
+      toString: () => 'undefined'
+    }
 
     const color = createVariable(
       'v-color',
@@ -343,6 +350,16 @@ describe('tokens/resolve createStyleVarResolver', () => {
     const stringVar = createVariable('v-string', { m1: 'hello' }, { resolvedType: 'STRING' })
     const objectVar = createVariable('v-object', { m1: { x: 1 } }, { resolvedType: undefined })
     const circularVar = createVariable('v-circular', { m1: circular }, { resolvedType: undefined })
+    const toJsonUndefinedVar = createVariable(
+      'v-json-undefined',
+      { m1: toJsonUndefinedObj },
+      { resolvedType: undefined }
+    )
+    const toUndefinedLiteralVar = createVariable(
+      'v-undefined-literal',
+      { m1: toUndefinedLiteralObj },
+      { resolvedType: undefined }
+    )
     const nullVar = createVariable('v-null', { m1: null }, { resolvedType: undefined })
     const boolVar = createVariable('v-bool', { m1: false }, { resolvedType: 'BOOLEAN' })
     const plainNumberVar = createVariable('v-number', { m1: 42 }, { resolvedType: undefined })
@@ -352,6 +369,8 @@ describe('tokens/resolve createStyleVarResolver', () => {
       'v-string': stringVar,
       'v-object': objectVar,
       'v-circular': circularVar,
+      'v-json-undefined': toJsonUndefinedVar,
+      'v-undefined-literal': toUndefinedLiteralVar,
       'v-null': nullVar,
       'v-bool': boolVar,
       'v-number': plainNumberVar
@@ -364,6 +383,8 @@ describe('tokens/resolve createStyleVarResolver', () => {
         ['--string', 'v-string'],
         ['--object', 'v-object'],
         ['--circular', 'v-circular'],
+        ['--json-undefined', 'v-json-undefined'],
+        ['--undefined-literal', 'v-undefined-literal'],
         ['--null', 'v-null'],
         ['--bool', 'v-bool'],
         ['--number', 'v-number']
@@ -377,6 +398,8 @@ describe('tokens/resolve createStyleVarResolver', () => {
       string: 'var(--string)',
       object: 'var(--object)',
       circular: 'var(--circular)',
+      jsonUndefined: 'var(--json-undefined)',
+      undefinedLiteral: 'var(--undefined-literal)',
       nullable: 'var(--null)',
       bool: 'var(--bool)',
       number: 'var(--number)'
@@ -387,6 +410,8 @@ describe('tokens/resolve createStyleVarResolver', () => {
       string: 'hello',
       object: '{"x":1}',
       circular: '[object Object]',
+      jsonUndefined: '[object Object]',
+      undefinedLiteral: 'var(--undefined-literal)',
       nullable: 'var(--null)',
       bool: 'false',
       number: 'var(--number)'
@@ -505,6 +530,26 @@ describe('tokens/resolve createStyleVarResolver', () => {
       CONFIG
     )
     expect(resolver({ value: 'var(--no-mode)' })).toEqual({ value: 'var(--no-mode)' })
+  })
+
+  it('keeps unresolved expressions when valuesByMode is missing at runtime', () => {
+    const malformedVariable = createVariable(
+      'v-malformed',
+      undefined as unknown as Record<string, unknown>,
+      { resolvedType: 'STRING' }
+    )
+    setVariableMap({
+      'v-malformed': malformedVariable
+    })
+    vi.mocked(getVariableRawName).mockImplementation(() => 'Malformed')
+
+    const resolver = createStyleVarResolver(
+      new Map([['--malformed', 'v-malformed']]),
+      new Map(),
+      CONFIG
+    )
+
+    expect(resolver({ value: 'var(--malformed)' })).toEqual({ value: 'var(--malformed)' })
   })
 
   it('uses collection null fallback, invalid resolved modes, and undefined collection id', () => {

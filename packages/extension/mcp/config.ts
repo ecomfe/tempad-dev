@@ -43,7 +43,7 @@ function buildVscodeDeepLink(): string {
 }
 
 function buildCursorDeepLink(): string {
-  return `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodedServerName}&config=${cursorConfigBase64}`
+  return `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodedServerName}&config=${encodedCursorConfigBase64}`
 }
 
 function buildTraeDeepLink(protocol: 'trae' | 'trae-cn'): string {

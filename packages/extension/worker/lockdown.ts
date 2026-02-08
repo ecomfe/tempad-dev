@@ -4,7 +4,7 @@ export function lockdownWorker(name: string): void {
   Object.getOwnPropertyNames(globalThis)
     .filter((key) => !safe.has(key))
     .forEach((key) => {
-      Reflect.set(globalThis, key, undefined)
+      clearGlobalProperty(key)
     })
 
   Object.defineProperties(globalThis, {
@@ -13,4 +13,23 @@ export function lockdownWorker(name: string): void {
     onmessageerror: { value: undefined, writable: false, configurable: false },
     postMessage: { value: undefined, writable: false, configurable: false }
   })
+}
+
+function clearGlobalProperty(key: string): void {
+  try {
+    ;(globalThis as Record<string, unknown>)[key] = undefined
+    return
+  } catch {
+    // Fallback for non-writable but configurable properties.
+  }
+
+  try {
+    Object.defineProperty(globalThis, key, {
+      value: undefined,
+      writable: true,
+      configurable: true
+    })
+  } catch {
+    // Ignore non-configurable globals.
+  }
 }

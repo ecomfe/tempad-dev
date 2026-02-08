@@ -4,6 +4,9 @@ import { lockdownWorker } from '@/worker/lockdown'
 
 describe('worker/lockdown', () => {
   afterEach(() => {
+    Reflect.deleteProperty(globalThis, 'unsafeA')
+    Reflect.deleteProperty(globalThis, 'unsafeB')
+    Reflect.deleteProperty(globalThis, 'unsafeC')
     vi.restoreAllMocks()
   })
 
@@ -11,13 +14,23 @@ describe('worker/lockdown', () => {
     const originalGetOwnPropertyNames = Object.getOwnPropertyNames
     const originalDefineProperties = Object.defineProperties
 
+    Object.defineProperty(globalThis, 'unsafeA', {
+      value: 'value-a',
+      writable: true,
+      configurable: true
+    })
+    Object.defineProperty(globalThis, 'unsafeB', {
+      value: 'value-b',
+      writable: false,
+      configurable: true
+    })
+
     const getOwnPropertyNamesSpy = vi
       .spyOn(Object, 'getOwnPropertyNames')
       .mockImplementation((obj) => {
         if (obj === globalThis) return ['Object', 'onmessage', 'unsafeA', 'unsafeB']
         return originalGetOwnPropertyNames(obj)
       })
-    const reflectSetSpy = vi.spyOn(Reflect, 'set').mockImplementation(() => true)
     const definePropertiesSpy = vi
       .spyOn(Object, 'defineProperties')
       .mockImplementation((target, descriptors) => {
@@ -28,11 +41,8 @@ describe('worker/lockdown', () => {
     lockdownWorker('sandboxed-worker')
 
     expect(getOwnPropertyNamesSpy).toHaveBeenCalledWith(globalThis)
-    expect(reflectSetSpy).toHaveBeenCalledTimes(2)
-    expect(reflectSetSpy).toHaveBeenCalledWith(globalThis, 'unsafeA', undefined)
-    expect(reflectSetSpy).toHaveBeenCalledWith(globalThis, 'unsafeB', undefined)
-    expect(reflectSetSpy).not.toHaveBeenCalledWith(globalThis, 'Object', undefined)
-    expect(reflectSetSpy).not.toHaveBeenCalledWith(globalThis, 'onmessage', undefined)
+    expect((globalThis as Record<string, unknown>).unsafeA).toBeUndefined()
+    expect((globalThis as Record<string, unknown>).unsafeB).toBeUndefined()
 
     expect(definePropertiesSpy).toHaveBeenCalledWith(
       globalThis,
@@ -59,5 +69,35 @@ describe('worker/lockdown', () => {
         }
       })
     )
+  })
+
+  it('ignores properties that fail both assignment and defineProperty fallback', () => {
+    const originalGetOwnPropertyNames = Object.getOwnPropertyNames
+    const originalDefineProperties = Object.defineProperties
+    const originalDefineProperty = Object.defineProperty
+
+    Object.defineProperty(globalThis, 'unsafeC', {
+      value: 'locked',
+      writable: false,
+      configurable: true
+    })
+
+    vi.spyOn(Object, 'getOwnPropertyNames').mockImplementation((obj) => {
+      if (obj === globalThis) return ['unsafeC']
+      return originalGetOwnPropertyNames(obj)
+    })
+    vi.spyOn(Object, 'defineProperty').mockImplementation((obj, key, descriptor) => {
+      if (obj === globalThis && key === 'unsafeC') {
+        throw new TypeError('blocked defineProperty')
+      }
+      return originalDefineProperty(obj, key, descriptor)
+    })
+    vi.spyOn(Object, 'defineProperties').mockImplementation((target, descriptors) => {
+      if (target !== globalThis) return originalDefineProperties(target, descriptors)
+      return target as typeof globalThis
+    })
+
+    expect(() => lockdownWorker('sandboxed-worker')).not.toThrow()
+    expect((globalThis as Record<string, unknown>).unsafeC).toBe('locked')
   })
 })

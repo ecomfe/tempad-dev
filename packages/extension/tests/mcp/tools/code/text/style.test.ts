@@ -283,6 +283,16 @@ describe('mcp/code text style', () => {
     expect(attrs['font-weight']).toBe('var(--Weight-Body)')
   })
 
+  it('uses numeric font-weight fallback when weight token is absent', () => {
+    const segment = createSegment({
+      fontName: { family: 'Inter', style: 'Regular' },
+      fontWeight: 500
+    })
+
+    const attrs = resolveRunAttrs(segment as never, {}, [])
+    expect(attrs['font-weight']).toBe('500')
+  })
+
   it('resolves typography and fill tokens from segment/style/range bindings', () => {
     const figmaMock = setupFigmaMock({
       styleById: {

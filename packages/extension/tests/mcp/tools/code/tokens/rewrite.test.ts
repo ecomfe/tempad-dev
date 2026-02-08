@@ -27,6 +27,12 @@ describe('mcp/code tokens rewrite', () => {
     expect(rewriteTokenNamesInCode(code, new Map([['', 'ignored']]))).toBe(code)
   })
 
+  it('keeps original token when rewrite target is missing at runtime', () => {
+    const code = 'color-red'
+    const rewriteMap = new Map([['color-red', undefined as unknown as string]])
+    expect(rewriteTokenNamesInCode(code, rewriteMap)).toBe(code)
+  })
+
   it('filters bridge map to used names only', () => {
     const bridge = new Map([
       ['a', 'id-a'],

@@ -21,6 +21,7 @@ import { getMcpServerConfig } from './config'
 import { ASSET_DIR, log } from './shared'
 
 const LOOPBACK_HOST = '127.0.0.1'
+const HASH_HEX_PATTERN = new RegExp(`^[a-f0-9]{${MCP_HASH_HEX_LENGTH}}$`, 'i')
 const { maxAssetSizeBytes } = getMcpServerConfig()
 
 export interface AssetHttpServer {
@@ -168,6 +169,12 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
   }
 
   function handleUpload(req: IncomingMessage, res: ServerResponse, hash: string): void {
+    if (!HASH_HEX_PATTERN.test(hash)) {
+      req.resume()
+      sendError(res, 400, 'Invalid Hash')
+      return
+    }
+
     const contentTypeHeader = req.headers['content-type']
     const mimeType = normalizeMimeType(
       Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader
