@@ -30,6 +30,7 @@ export default defineConfig({
         'packages/extension/composables/deep-link.ts',
         'packages/extension/codegen/requester.ts',
         'packages/extension/composables/input.ts',
+        'packages/extension/composables/scrollbar.ts',
         'packages/extension/composables/toast.ts',
         'packages/extension/composables/index.ts',
         'packages/extension/worker/safe.ts',

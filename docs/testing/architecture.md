@@ -123,6 +123,7 @@ Fix:
 | extension  | `packages/extension/composables/copy.ts`                        | `useCopy`                                                                                                                | Deterministic clipboard source resolution and toast/error flow   | P1       |
 | extension  | `packages/extension/composables/deep-link.ts`                   | `useDeepLinkGuard`                                                                                                       | Deterministic deep-link guard, fallback, and cleanup lifecycle   | P1       |
 | extension  | `packages/extension/composables/input.ts`                       | `useSelectAll`                                                                                                           | Deterministic input-focus select binding                         | P1       |
+| extension  | `packages/extension/composables/scrollbar.ts`                   | `useScrollbar`                                                                                                           | Deterministic overlay setup and cleanup lifecycle                | P1       |
 | extension  | `packages/extension/composables/toast.ts`                       | `useToast`                                                                                                               | Deterministic notify/cancel lifecycle                            | P1       |
 | extension  | `packages/extension/composables/index.ts`                       | re-export surface                                                                                                        | Stable composables barrel export contract                        | P2       |
 | extension  | `packages/extension/worker/safe.ts`                             | default `Set<string>`                                                                                                    | Stable allowlist contract for worker lockdown                    | P1       |
@@ -296,6 +297,13 @@ Fix:
 - fallback deep-link behavior before final user-facing toast.
 - cancellation behavior for previous pending guards when a new guard starts.
 - cleanup behavior for blur/pagehide/visibility changes and on scope disposal.
+
+### extension: `composables/scrollbar.ts`
+
+- plugin registration behavior for overlayscrollbars module side effects.
+- overlay creation behavior when container is present.
+- no-op behavior when container resolves to null.
+- cleanup behavior that destroys the overlay instance.
 
 ### extension: `composables/toast.ts`
 
