@@ -342,10 +342,8 @@ describe('asset-store', () => {
   })
 
   it('persists without unref when timer handle lacks unref', () => {
-    const setTimeoutWithoutUnref = ((handler: TimerHandler) => {
-      void handler
-      return 1 as unknown as NodeJS.Timeout
-    }) as unknown as typeof setTimeout
+    const setTimeoutWithoutUnref = (() =>
+      1 as unknown as NodeJS.Timeout) as unknown as typeof setTimeout
     const clearTimeoutNoop = (() => {}) as unknown as typeof clearTimeout
 
     const setTimeoutSpy = vi
