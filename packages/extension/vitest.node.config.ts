@@ -37,6 +37,7 @@ export default defineConfig({
         'composables/deep-link.ts',
         'composables/input.ts',
         'composables/plugin.ts',
+        'composables/selection.ts',
         'composables/scrollbar.ts',
         'composables/toast.ts',
         'composables/index.ts',

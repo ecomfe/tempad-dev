@@ -1,5 +1,5 @@
 import { useDocumentVisibility, useEventListener, useWindowFocus } from '@vueuse/core'
-import { computed, shallowRef, watch } from 'vue'
+import { computed, onMounted, shallowRef, watch } from 'vue'
 
 import { layoutReady, selection, runtimeMode } from '@/ui/state'
 import { getCanvas, getLeftPanel } from '@/utils'
