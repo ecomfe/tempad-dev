@@ -125,6 +125,7 @@ Fix:
 | extension  | `packages/extension/composables/deep-link.ts`                   | `useDeepLinkGuard`                                                                                                       | Deterministic deep-link guard, fallback, and cleanup lifecycle   | P1       |
 | extension  | `packages/extension/composables/input.ts`                       | `useSelectAll`                                                                                                           | Deterministic input-focus select binding                         | P1       |
 | extension  | `packages/extension/composables/plugin.ts`                      | `usePluginInstall`                                                                                                       | Deterministic plugin install/cancel/registry resolution flow     | P1       |
+| extension  | `packages/extension/composables/selection.ts`                   | `syncSelection`, `useSelection`                                                                                          | Deterministic selection sync and watcher/event wiring            | P1       |
 | extension  | `packages/extension/composables/scrollbar.ts`                   | `useScrollbar`                                                                                                           | Deterministic overlay setup and cleanup lifecycle                | P1       |
 | extension  | `packages/extension/composables/toast.ts`                       | `useToast`                                                                                                               | Deterministic notify/cancel lifecycle                            | P1       |
 | extension  | `packages/extension/composables/index.ts`                       | re-export surface                                                                                                        | Stable composables barrel export contract                        | P2       |
@@ -322,6 +323,13 @@ Fix:
 - fetch/codegen failure behavior with deterministic validity messages.
 - cancel behavior for pending installs and stale-controller abort-before-retry behavior.
 - re-entrancy guard behavior when install is called while already installing.
+
+### extension: `composables/selection.ts`
+
+- selection sync behavior for unavailable runtime, stable ids, and changed ids.
+- click/keydown listener behavior for selection refresh in canvas and left-panel paths.
+- layout watcher behavior for target sync/reset and stale-selection clearing.
+- mode/activity watcher guards (`mode`, `layoutReady`, `active`) and active refresh behavior.
 
 ### extension: `composables/toast.ts`
 
