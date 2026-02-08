@@ -4,6 +4,7 @@ import {
   SizeObserverPlugin,
   ClickScrollPlugin
 } from 'overlayscrollbars'
+import { toValue, watchEffect } from 'vue'
 
 OverlayScrollbars.plugin([ScrollbarsHidingPlugin, SizeObserverPlugin, ClickScrollPlugin])
 
