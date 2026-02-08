@@ -265,6 +265,15 @@ Fix:
 - URL revoke behavior after dynamic module import.
 - payload pass-through behavior from input source string into blob content.
 
+### extension: `utils/component.ts`
+
+- design-component extraction behavior for instance properties and nested supported child node types.
+- instance-swap projection behavior through `figma.getNodeById` component lookup.
+- vector fill serialization behavior for solid fills and bound-variable color metadata.
+- component stringify behavior across Vue/JSX event props, booleans, objects, and compact raw tags.
+- transform-hook serialization behavior for string/object outputs and empty fallback.
+- attribute merge behavior for class merging, boolean attribute value injection, and self-closing tag inserts.
+
 ### extension: `utils/log.ts`
 
 - prefix insertion behavior for log/warn/error calls (including empty and pre-prefixed input).
