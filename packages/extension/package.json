@@ -15,7 +15,7 @@
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts",
     "lint:fix": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
     "check:worker-sandbox": "tsx ./scripts/check-worker-sandbox.ts",
-    "check:worker-browser-sandbox": "tsx ./scripts/check-worker-sandbox.ts --browser",
+    "check:worker-browser-sandbox": "tsx ./scripts/check-worker-sandbox.ts",
     "test": "vitest --config vitest.config.ts",
     "test:run": "vitest run --config vitest.config.ts",
     "test:node": "vitest run --config vitest.node.config.ts",

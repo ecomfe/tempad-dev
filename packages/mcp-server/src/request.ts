@@ -1,4 +1,6 @@
-import { TEMPAD_MCP_ERROR_CODES, type TempadMcpErrorCode } from '@tempad-dev/shared'
+import type { TempadMcpErrorCode } from '@tempad-dev/shared'
+
+import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 import { nanoid } from 'nanoid'
 
 import type { PendingToolCall } from './types'

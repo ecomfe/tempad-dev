@@ -1,7 +1,4 @@
 import { build } from 'esbuild'
-import vm from 'node:vm'
-
-import safe from '../worker/safe'
 
 type WorkerCheck = {
   entry: string
@@ -29,25 +26,6 @@ const CHECKS: WorkerCheck[] = [
     ]
   }
 ]
-
-function createSandbox(): Record<string, unknown> {
-  const sandbox: Record<string, unknown> = { __DEV__: false }
-  const source = globalThis as Record<string, unknown>
-
-  for (const key of safe) {
-    if (key in source) {
-      sandbox[key] = source[key]
-    }
-  }
-
-  if (typeof sandbox.postMessage !== 'function') {
-    sandbox.postMessage = () => undefined
-  }
-
-  sandbox.globalThis = sandbox
-
-  return sandbox
-}
 
 function isAllowedInput(input: string, allowedInputs: RegExp[]): boolean {
   return allowedInputs.some((pattern) => pattern.test(input))
@@ -136,12 +114,6 @@ async function checkWorker(check: WorkerCheck): Promise<{ entry: string; code: s
     )
   }
 
-  const sandbox = createSandbox()
-  vm.runInNewContext(output.text, sandbox, {
-    filename: `${entry}.bundle.js`,
-    timeout: 1000
-  })
-
   return { entry, code: output.text }
 }
 
@@ -211,18 +183,14 @@ async function runBrowserChecks(bundles: { entry: string; code: string }[]): Pro
 }
 
 async function main() {
-  const runBrowser =
-    process.argv.includes('--browser') || process.env.WORKER_SANDBOX_BROWSER === '1'
   const bundles: { entry: string; code: string }[] = []
 
   for (const check of CHECKS) {
     bundles.push(await checkWorker(check))
   }
 
-  if (runBrowser) {
-    await runBrowserChecks(bundles)
-    console.log('[worker-check] Browser worker probes passed.')
-  }
+  await runBrowserChecks(bundles)
+  console.log('[worker-check] Browser worker probes passed.')
 
   console.log('[worker-check] All worker dependency chains are sandbox-safe.')
 }

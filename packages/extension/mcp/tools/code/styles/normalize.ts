@@ -1,7 +1,8 @@
 import type { CodegenConfig } from '@/utils/codegen'
+import type { NestedStyleMap } from '@/utils/tailwind'
 
 import { expandShorthands, normalizeStyleValue, normalizeStyleValues } from '@/utils/css'
-import { cssToClassNames, nestedCssToClassNames, type NestedStyleMap } from '@/utils/tailwind'
+import { cssToClassNames, nestedCssToClassNames } from '@/utils/tailwind'
 
 import type { StyleMap, StyleStep } from './types'
 

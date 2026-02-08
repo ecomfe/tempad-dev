@@ -30,7 +30,7 @@ export function buildSourceNameIndex(
       if (canonical) setIfEmpty(canonical, id)
       // Match the normalized name that may appear in var(--...) outputs.
       setIfEmpty(normalizeFigmaVarName(cs), id)
-      // 非 var 的 codeSyntax 也需要被匹配到（如 rounded-2xl）
+      // Non-var codeSyntax should also be matched (for example, rounded-2xl).
       setIfEmpty(cs, id)
     }
 

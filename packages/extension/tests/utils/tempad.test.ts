@@ -283,7 +283,7 @@ describe('utils/tempad getTemPadComponent', () => {
         })
       },
       children: [
-        makeTextChild('代码', jsxStack('<Robot />')),
+        makeTextChild('Code', jsxStack('<Robot />')),
         makeTextChild('🔗', '', { value: 'https://example.test/robot' })
       ]
     })

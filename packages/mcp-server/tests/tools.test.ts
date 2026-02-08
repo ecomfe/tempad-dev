@@ -1,4 +1,6 @@
-import { TEMPAD_MCP_ERROR_CODES, type ToolResultMap } from '@tempad-dev/shared'
+import type { ToolResultMap } from '@tempad-dev/shared'
+
+import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 import { describe, expect, it } from 'vitest'
 
 import {
