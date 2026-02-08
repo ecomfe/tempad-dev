@@ -18,18 +18,7 @@ export function lockdownWorker(name: string): void {
 function clearGlobalProperty(key: string): void {
   try {
     ;(globalThis as Record<string, unknown>)[key] = undefined
-    return
-  } catch {
-    // Fallback for non-writable but configurable properties.
-  }
-
-  try {
-    Object.defineProperty(globalThis, key, {
-      value: undefined,
-      writable: true,
-      configurable: true
-    })
-  } catch {
-    // Ignore non-configurable globals.
+  } catch (error) {
+    throw new Error(`Failed to clear global property: ${key}`, { cause: error })
   }
 }
