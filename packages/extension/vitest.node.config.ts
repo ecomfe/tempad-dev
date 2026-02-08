@@ -33,6 +33,7 @@ export default defineConfig({
         'utils/index.ts',
         'utils/tempad.ts',
         'composables/copy.ts',
+        'composables/availability.ts',
         'composables/deep-link.ts',
         'composables/input.ts',
         'composables/plugin.ts',

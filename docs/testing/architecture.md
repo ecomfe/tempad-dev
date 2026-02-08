@@ -120,6 +120,7 @@ Fix:
 | extension  | `packages/extension/utils/figma.ts`                             | `getCanvas`, `getLeftPanel`                                                                                              | Deterministic selector resolution for host panel/canvas          | P1       |
 | extension  | `packages/extension/utils/dom.ts`                               | `transformHTML`                                                                                                          | Deterministic fragment transform and HTML serialization          | P1       |
 | extension  | `packages/extension/utils/keyboard.ts`                          | `setLockMetaKey`, `setLockAltKey`                                                                                        | Deterministic browser key-lock patch/restore behavior            | P1       |
+| extension  | `packages/extension/composables/availability.ts`                | `useFigmaAvailability`                                                                                                   | Deterministic runtime-availability polling and recover lifecycle | P1       |
 | extension  | `packages/extension/composables/copy.ts`                        | `useCopy`                                                                                                                | Deterministic clipboard source resolution and toast/error flow   | P1       |
 | extension  | `packages/extension/composables/deep-link.ts`                   | `useDeepLinkGuard`                                                                                                       | Deterministic deep-link guard, fallback, and cleanup lifecycle   | P1       |
 | extension  | `packages/extension/composables/input.ts`                       | `useSelectAll`                                                                                                           | Deterministic input-focus select binding                         | P1       |
@@ -291,6 +292,14 @@ Fix:
 - fallback content resolution and option-message getter behavior.
 - element source resolution order (`dataset.copy` -> `textContent` -> empty string).
 - clipboard error capture behavior with logger fallback.
+
+### extension: `composables/availability.ts`
+
+- layout polling behavior that updates `layoutReady` from canvas/panel readiness.
+- immediate can-check watcher behavior when visibility/layout gates are closed.
+- successful `waitFor(window.figma)` behavior that enters `standard` and pauses recover loop.
+- timeout/failure behavior that enters `unavailable` and starts recover loop.
+- stale async-check guard behavior that drops outdated `waitFor` results.
 
 ### extension: `composables/deep-link.ts`
 
