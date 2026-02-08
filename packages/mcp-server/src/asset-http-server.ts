@@ -1,3 +1,5 @@
+import type { IncomingMessage, ServerResponse } from 'node:http'
+
 import { MCP_HASH_HEX_LENGTH } from '@tempad-dev/shared'
 import { nanoid } from 'nanoid'
 import { createHash } from 'node:crypto'
@@ -9,7 +11,7 @@ import {
   statSync,
   unlinkSync
 } from 'node:fs'
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { pipeline, Transform } from 'node:stream'
 import { URL } from 'node:url'

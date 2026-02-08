@@ -8,8 +8,10 @@ import { evaluate } from '@/utils/module'
 import { stringify } from '@/utils/string'
 import { lockdownWorker } from '@/worker/lockdown'
 
-type Request = import('./requester').RequestMessage<RequestPayload>
-type Response = import('./requester').ResponseMessage<ResponsePayload>
+import type { RequestMessage, ResponseMessage } from './requester'
+
+type Request = RequestMessage<RequestPayload>
+type Response = ResponseMessage<ResponsePayload>
 
 const IMPORT_RE = /^\s*import\s+(([^'"\n]+|'[^']*'|"[^"]*")|\s*\(\s*[^)]*\s*\))/gm
 
