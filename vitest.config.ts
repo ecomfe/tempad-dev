@@ -37,6 +37,7 @@ export default defineConfig({
         'packages/extension/composables/toast.ts',
         'packages/extension/composables/index.ts',
         'packages/extension/ui/figma.ts',
+        'packages/extension/ui/state.ts',
         'packages/extension/worker/safe.ts',
         'packages/extension/worker/lockdown.ts',
         'packages/extension/mcp/index.ts',

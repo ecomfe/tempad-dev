@@ -1,5 +1,5 @@
 import { useStorage, computedAsync } from '@vueuse/core'
-import { shallowRef } from 'vue'
+import { computed, shallowRef } from 'vue'
 
 import { getTemPadComponent } from '@/utils'
 
