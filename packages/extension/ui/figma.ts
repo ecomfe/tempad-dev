@@ -1,3 +1,5 @@
+import { reactive } from 'vue'
+
 const NATIVE_PANEL_WIDTH = 241
 const TEMPAD_PANEL_WIDTH = 240
 const TEMPAD_PANEL_MAX_WIDTH = 500
@@ -33,7 +35,8 @@ const ui = reactive({
 function sumLength(...values: (string | number)[]): number {
   return values.reduce((total: number, val: string | number) => {
     if (typeof val === 'string') {
-      return total + parseInt(getComputedStyle(document.body).getPropertyValue(val), 10)
+      const parsed = parseInt(getComputedStyle(document.body).getPropertyValue(val), 10)
+      return total + (Number.isFinite(parsed) ? parsed : 0)
     } else {
       return total + val
     }

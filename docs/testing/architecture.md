@@ -129,6 +129,7 @@ Fix:
 | extension  | `packages/extension/composables/scrollbar.ts`                   | `useScrollbar`                                                                                                           | Deterministic overlay setup and cleanup lifecycle                | P1       |
 | extension  | `packages/extension/composables/toast.ts`                       | `useToast`                                                                                                               | Deterministic notify/cancel lifecycle                            | P1       |
 | extension  | `packages/extension/composables/index.ts`                       | re-export surface                                                                                                        | Stable composables barrel export contract                        | P2       |
+| extension  | `packages/extension/ui/figma.ts`                                | `ui`                                                                                                                     | Deterministic UI boundary constants and CSS-var boundary read    | P2       |
 | extension  | `packages/extension/worker/safe.ts`                             | default `Set<string>`                                                                                                    | Stable allowlist contract for worker lockdown                    | P1       |
 | extension  | `packages/extension/worker/lockdown.ts`                         | `lockdownWorker`                                                                                                         | Deterministic global-pruning and worker global sealing flow      | P1       |
 | extension  | `packages/extension/mcp/index.ts`                               | re-export surface                                                                                                        | Stable MCP barrel export contract                                | P2       |
@@ -682,6 +683,9 @@ Fix:
 - `codegen/requester.ts`:
   - worker requester cache behavior.
   - resolve/reject/missing-payload response handling.
+- `ui/figma.ts`:
+  - UI boundary constants for panel size/spacing.
+  - top-boundary computation from editor banner CSS variable and default fallback.
 
 ### plugins: `src/index.ts`
 
