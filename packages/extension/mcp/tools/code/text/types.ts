@@ -59,11 +59,16 @@ export interface TextBlock {
 export type TokenRef = { id: string; name: string }
 export type VariableAlias = { id?: string; type?: string }
 
-export interface ResolvedFill {
-  type: Paint['type']
-  token?: TokenRef | null
-  raw?: Paint
-}
+export type ResolvedFill =
+  | {
+      type: 'SOLID'
+      token?: TokenRef | null
+      raw: SolidPaint
+    }
+  | {
+      type: Exclude<Paint['type'], 'SOLID'>
+      raw: Paint
+    }
 
 export type SegmentStyleMeta = {
   raw: Partial<StyledTextSegmentSubset>

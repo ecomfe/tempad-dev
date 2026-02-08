@@ -47,6 +47,17 @@ describe('mcp/config', () => {
       'cursor://anysphere.cursor-deeplink/mcp/install?name=tempad-dev'
     )
     expect(cursorDeepLink).toContain('config=')
+    const cursorUrl = new URL(String(cursorDeepLink))
+    const encodedCursorConfig = cursorUrl.searchParams.get('config')
+    expect(encodedCursorConfig).toBeTruthy()
+    const decodedCursorConfigJson = Buffer.from(
+      decodeURIComponent(String(encodedCursorConfig)),
+      'base64'
+    ).toString('utf8')
+    expect(JSON.parse(decodedCursorConfigJson)).toEqual({
+      command: 'npx',
+      args: ['-y', '@tempad-dev/mcp@latest']
+    })
 
     expect(tempad.MCP_CLIENTS_BY_ID.trae.deepLink).toContain('trae://trae.ai-ide/mcp-import')
     expect(tempad.MCP_CLIENTS_BY_ID.trae.fallbackDeepLink).toContain(

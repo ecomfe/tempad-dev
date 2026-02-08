@@ -7,7 +7,8 @@ export function rewriteTokenNamesInCode(code: string, rewriteMap: Map<string, st
   if (!tokenRe) return code
 
   return code.replace(tokenRe, (match, prefix: string, token: string) => {
-    const next = rewriteMap.get(token)!
+    const next = rewriteMap.get(token)
+    if (next == null) return match
     return `${prefix}${next}`
   })
 }
