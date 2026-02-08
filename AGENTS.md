@@ -107,8 +107,8 @@ Pick the checks that match your change.
 ## Testing notes
 
 - Testing runbook and required checks: `TESTING.md`.
-- Testing architecture and pure-function inventory: `docs/testing/architecture.md`.
-- Root coverage is configured in `vitest.config.ts` to track the curated pure-function inventory.
+- Testing architecture and coverage model: `docs/testing/architecture.md`.
+- Root coverage scope is configured in `vitest.config.ts` as the single source of truth.
 - Root coverage excludes build artifacts (`**/dist/**`, `**/.output/**`) to avoid polluted reports.
 - Root coverage provider is `istanbul` to avoid V8 remap parse failures under Vite 8 dependency trees.
 - Extension browser tests run in Playwright via `packages/extension/vitest.browser.config.ts`.
