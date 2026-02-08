@@ -77,7 +77,7 @@ export function useFigmaAvailability() {
         stopRecover()
         return
       }
-      void runCheck()
+      runCheck()
     },
     { immediate: true }
   )
