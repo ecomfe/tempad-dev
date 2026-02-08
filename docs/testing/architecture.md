@@ -299,6 +299,12 @@ Fix:
 - wheel debounce behavior for meta-key temporary pause and timed resume.
 - mutation observer behavior for duplicate cursor cover apply/clear rules.
 
+### extension: `composables/dev-resources.ts`
+
+- documentation link derivation behavior across instance/component/component-set nodes.
+- dev resource fetch behavior, 403 fallback behavior, and inherited-link ordering.
+- favicon fetch success/failure behavior and null-cache dedupe for failed requests.
+
 ### extension: `composables/copy.ts`
 
 - explicit source/message behavior for direct copy invocations.
