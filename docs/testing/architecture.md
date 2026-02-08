@@ -137,6 +137,7 @@ Fix:
 | extension  | `packages/extension/utils/tailwind.ts`                          | `cssToTailwind`, `cssToClassNames`, `nestedCssToClassNames`, `joinClassNames`                                            | Deterministic CSS→class mapping                                  | P0       |
 | extension  | `packages/extension/utils/codegen.ts`                           | `codegen`, `workerUnitOptions`, `generateCodeBlocksForNode`                                                              | Unit-test via worker/runtime dependency mocks                    | P1       |
 | extension  | `packages/extension/utils/index.ts`                             | re-export surface                                                                                                        | Stable utility barrel export contract                            | P2       |
+| extension  | `packages/extension/utils/tempad.ts`                            | `getTemPadComponent`, `extractJSX`                                                                                       | Deterministic TemPad payload parsing and JSX extraction          | P1       |
 | extension  | `packages/extension/codegen/requester.ts`                       | `createWorkerRequester`                                                                                                  | Deterministic worker request/response routing + cache behavior   | P1       |
 | extension  | `packages/extension/rewrite/shared.ts`                          | `isRules`, `getRewriteTargetRegex`, `loadRules`, `groupMatches`, `applyGroups`                                           | Deterministic rewrite-rule validation and replacement pipeline   | P1       |
 | extension  | `packages/extension/mcp/errors.ts`                              | `createCodedError`, `coerceToolErrorPayload`                                                                             | Deterministic error normalization and code tagging               | P0       |
@@ -292,6 +293,15 @@ Fix:
 ### extension: `utils/index.ts`
 
 - re-export contract behavior for utility barrel and transitive MCP surface.
+
+### extension: `utils/tempad.ts`
+
+- TemPad frame guard behavior (node type/name prefix checks).
+- source/tree parsing behavior for icon and illustration metadata rewrites.
+- rich-text source remap behavior to Typography + `@baidu/light-ai-react`.
+- fallback behavior for code/link extraction from named text children.
+- malformed JSON and metadata parse failure behavior with logger error capture.
+- JSX extraction behavior for Stack/Provider wrappers and unmatched fallback.
 
 ### extension: `worker/safe.ts`
 
