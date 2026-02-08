@@ -1,7 +1,7 @@
 # Testing guide
 
 This file is the contributor runbook for testing in this repository.
-For architecture details (pure-function inventory, strict coverage model, and scenario matrix), see `docs/testing/architecture.md`.
+For architecture details (runtime split, strict coverage model, and worker sandbox checks), see `docs/testing/architecture.md`.
 
 ## Scope
 
@@ -65,7 +65,7 @@ Always:
 When changing pure utility logic or formatters:
 
 - `pnpm test:coverage`
-- Keep coverage/threshold behavior aligned with `docs/testing/architecture.md`
+- Keep coverage scope/threshold behavior aligned with Vitest configs and `docs/testing/architecture.md`
 
 When changing extension build/runtime behavior:
 

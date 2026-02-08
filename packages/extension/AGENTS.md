@@ -89,7 +89,7 @@ Do not reuse UI codegen logic for MCP without a clear reason.
 - MCP get_code requirements: `docs/extension/requirements.md`
 - MCP get_code design: `docs/extension/design.md`
 - Testing guide: `TESTING.md`
-- Testing architecture and pure-function inventory: `docs/testing/architecture.md`
+- Testing architecture and coverage model: `docs/testing/architecture.md`
 
 ## Git workflow
 
