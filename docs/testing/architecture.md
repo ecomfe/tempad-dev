@@ -292,6 +292,13 @@ Fix:
 - focus-listener registration behavior through `useEventListener`.
 - null-safe target handling and `select()` invocation behavior on focused inputs.
 
+### extension: `composables/key-lock.ts`
+
+- layout-ready transition behavior for canvas target sync and lock reset.
+- keyboard behavior for Alt/Space pause-resume logic under measure/deep-select options.
+- wheel debounce behavior for meta-key temporary pause and timed resume.
+- mutation observer behavior for duplicate cursor cover apply/clear rules.
+
 ### extension: `composables/copy.ts`
 
 - explicit source/message behavior for direct copy invocations.
