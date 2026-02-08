@@ -184,6 +184,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/tokens/used.ts`              | `buildUsedTokens`                                                                                                        | Deterministic used-token set materialization and resolver wiring      | P1       |
 | extension  | `packages/extension/mcp/tools/code/text/types.ts`               | `MARK_PRIORITY`, `MARK_WEIGHTS`, `HOIST_ALLOWLIST`, `TYPO_FIELDS`, `REQUESTED_SEGMENT_FIELDS`, `NEWLINE_RE`              | Stable text-segment constants and field contracts                     | P2       |
 | extension  | `packages/extension/mcp/tools/code/text/index.ts`               | re-export surface                                                                                                        | Stable text render entry export contract                              | P2       |
+| extension  | `packages/extension/mcp/tools/code/text/segments.ts`            | `buildTextBlocks`, `getStyledSegments`, `formatTextLiteral`                                                              | Deterministic text-run segmentation and block grouping                | P1       |
 | extension  | `packages/extension/mcp/tools/code/text/style.ts`               | `resolveRunAttrs`, `resolveTokens`, `computeDominantStyle`, `omitCommon`, `isCodeFont`, `inferFontWeight`                | Deterministic text-run style resolution and dominance heuristics      | P1       |
 | extension  | `packages/extension/mcp/tools/token/candidates.ts`              | `collectCandidateVariableIds`                                                                                            | Deterministic candidate-variable traversal and rewrite mapping        | P1       |
 | extension  | `packages/extension/mcp/tools/token/indexer.ts`                 | `getVariableRawName`, `canonicalizeNames`, `canonicalizeName`, `getTokenIndex`                                           | Deterministic token canonicalization, batching, and cache/index       | P1       |
@@ -550,6 +551,15 @@ Fix:
 ### extension: `mcp/tools/code/text/index.ts`
 
 - re-export contract behavior for text segment rendering entrypoint.
+
+### extension: `mcp/tools/code/text/segments.ts`
+
+- styled-segment retrieval behavior for success, non-array, missing API, and throw paths.
+- literal text formatting behavior for empty/whitespace and non-empty strings.
+- line splitting behavior across newline boundaries and trailing newlines.
+- run merge behavior for sticky whitespace, mark matching, attribute canonicalization, and link matching.
+- block grouping behavior for paragraph vs ordered/unordered list runs.
+- inline mark derivation behavior for bold/italic/underline/strike/code/link.
 
 ### extension: `mcp/tools/code/text/style.ts`
 
