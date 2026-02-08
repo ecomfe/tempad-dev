@@ -29,12 +29,9 @@ export function resolveRunAttrs(
   }
 
   if (visibleSolid) {
-    const rawPaint = visibleSolid.raw as SolidPaint | undefined
-    if (rawPaint) {
-      const val = formatHexAlpha(rawPaint.color, rawPaint.opacity ?? 1)
-      const css = constructCssVar(visibleSolid.token, val)
-      if (css) style.color = css
-    }
+    const rawPaint = visibleSolid.raw as SolidPaint
+    const val = formatHexAlpha(rawPaint.color, rawPaint.opacity ?? 1)
+    style.color = constructCssVar(visibleSolid.token, val) as string
   } else if (fills.length === 0 || !hasVisiblePaint) {
     style.color = 'transparent'
   }
@@ -53,8 +50,7 @@ export function resolveRunAttrs(
   if (fontWeight || typeof seg.fontWeight === 'number') {
     const wVal = inferFontWeight(seg.fontName?.style, seg.fontWeight)
     const wStr = wVal != null ? String(wVal) : undefined
-    const weightCss = constructCssVar(fontWeight, wStr)
-    if (weightCss) style['font-weight'] = weightCss
+    style['font-weight'] = constructCssVar(fontWeight, wStr) as string
   }
 
   const lhVal = constructCssVar(lineHeight, formatLineHeightValue(seg.lineHeight))
