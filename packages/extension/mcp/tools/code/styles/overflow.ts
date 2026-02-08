@@ -127,8 +127,10 @@ function getLayoutBounds(node: SceneNode): LayoutBounds | null {
   return null
 }
 
-function getOverflowDirection(node: SceneNode): OverflowDirection | undefined {
-  const direction = (node as { overflowDirection?: unknown }).overflowDirection
+function getOverflowDirection(
+  node: SceneNode & { overflowDirection: unknown }
+): OverflowDirection | undefined {
+  const direction = node.overflowDirection
   if (
     direction === 'NONE' ||
     direction === 'HORIZONTAL' ||

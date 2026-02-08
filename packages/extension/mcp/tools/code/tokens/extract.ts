@@ -9,7 +9,7 @@ export function buildTokenRegex(plainNames?: Set<string>, global = false): RegEx
   const names = Array.from(plainNames).filter(Boolean)
   if (!names.length) return null
 
-  // 长度优先，避免 color-red 误吞 color-red-1
+  // Sort by length first so color-red does not consume color-red-1.
   names.sort((a, b) => b.length - a.length)
 
   const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

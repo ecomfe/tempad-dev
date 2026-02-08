@@ -273,13 +273,15 @@ function summarizeLayoutHint(node: SceneNode): string | undefined {
   const layoutSource = resolveAutoLayoutSource(node)
   // Explicit auto layout is obvious; only hint when not explicitly set.
   if (layoutSource?.layoutMode && layoutSource.layoutMode !== 'NONE') return undefined
-  if (
-    'inferredAutoLayout' in node &&
-    (node as { inferredAutoLayout?: unknown }).inferredAutoLayout
-  ) {
+  if (hasInferredAutoLayout(node)) {
     return 'inferred'
   }
   return 'none'
+}
+
+function hasInferredAutoLayout(node: SceneNode): boolean {
+  if (!('inferredAutoLayout' in node)) return false
+  return Boolean(node.inferredAutoLayout)
 }
 
 function getLayoutKind(node: SceneNode): 'auto' | 'absolute' {

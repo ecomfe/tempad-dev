@@ -14,6 +14,8 @@ type TemPadSource = {
 }
 
 const NS = 'tempad.baidu.com'
+const CODE_TEXT_NODE_NAME = 'Code'
+const LINK_TEXT_NODE_NAME = '🔗'
 
 const LIB_DISPLAY_NAMES: Record<string, string> = {
   '@baidu/one-ui': 'ONE UI',
@@ -137,10 +139,10 @@ export function getTemPadComponent(node: SceneNode): TemPadComponent | null {
   let link = node.getSharedPluginData(NS, 'link') || null
 
   if (!code) {
-    code = findTextChild(node, '代码')?.characters ?? null
+    code = findTextChild(node, CODE_TEXT_NODE_NAME)?.characters ?? null
   }
   if (!link) {
-    link = getHyperlinkValue(findTextChild(node, '🔗')?.hyperlink)
+    link = getHyperlinkValue(findTextChild(node, LINK_TEXT_NODE_NAME)?.hyperlink)
   }
 
   if (!code) {

@@ -213,13 +213,15 @@ function resolveAutoLayoutHint(node: SceneNode): AutoLayoutHint | undefined {
   if ('layoutMode' in node && node.layoutMode && node.layoutMode !== 'NONE') {
     return undefined
   }
-  if (
-    'inferredAutoLayout' in node &&
-    (node as { inferredAutoLayout?: unknown }).inferredAutoLayout
-  ) {
+  if (hasInferredAutoLayout(node)) {
     return 'inferred'
   }
   return undefined
+}
+
+function hasInferredAutoLayout(node: SceneNode): boolean {
+  if (!('inferredAutoLayout' in node)) return false
+  return Boolean(node.inferredAutoLayout)
 }
 
 function composeDataHint(node: SceneNode): DataHint | undefined {
