@@ -35,8 +35,11 @@ export function useDeepLinkGuard(defaultOptions: DeepLinkGuardOptions = {}) {
 
     const timeout = options?.timeout ?? defaultOptions.timeout ?? DEFAULT_TIMEOUT_MS
     const message = options?.message ?? defaultOptions.message ?? DEFAULT_MESSAGE
-    const fallbackDeepLink =
-      options?.fallbackDeepLink ?? defaultOptions.fallbackDeepLink ?? undefined
+    const hasFallbackOverride =
+      options != null && Object.prototype.hasOwnProperty.call(options, 'fallbackDeepLink')
+    const fallbackDeepLink = hasFallbackOverride
+      ? options.fallbackDeepLink
+      : (defaultOptions.fallbackDeepLink ?? undefined)
 
     let cleaned = false
     let fallbackUsed = false
