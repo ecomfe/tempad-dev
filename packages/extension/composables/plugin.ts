@@ -1,3 +1,5 @@
+import { shallowRef } from 'vue'
+
 import SNAPSHOT_PLUGINS from '@/plugins/available-plugins.json'
 import { codegen } from '@/utils'
 
