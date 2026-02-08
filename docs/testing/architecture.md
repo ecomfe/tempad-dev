@@ -183,6 +183,7 @@ Fix:
 | extension  | `packages/extension/mcp/tools/code/tokens/used.ts`              | `buildUsedTokens`                                                                                                        | Deterministic used-token set materialization and resolver wiring | P1       |
 | extension  | `packages/extension/mcp/tools/code/text/types.ts`               | `MARK_PRIORITY`, `MARK_WEIGHTS`, `HOIST_ALLOWLIST`, `TYPO_FIELDS`, `REQUESTED_SEGMENT_FIELDS`, `NEWLINE_RE`              | Stable text-segment constants and field contracts                | P2       |
 | extension  | `packages/extension/mcp/tools/code/text/index.ts`               | re-export surface                                                                                                        | Stable text render entry export contract                         | P2       |
+| extension  | `packages/extension/mcp/tools/code/text/style.ts`               | `resolveRunAttrs`, `resolveTokens`, `computeDominantStyle`, `omitCommon`, `isCodeFont`, `inferFontWeight`                | Deterministic text-run style resolution and dominance heuristics | P1       |
 | extension  | `packages/extension/mcp/tools/token/candidates.ts`              | `collectCandidateVariableIds`                                                                                            | Deterministic candidate-variable traversal and rewrite mapping   | P1       |
 | extension  | `packages/extension/mcp/tools/token/indexer.ts`                 | `getVariableRawName`, `canonicalizeNames`, `canonicalizeName`, `getTokenIndex`                                           | Deterministic token canonicalization, batching, and cache/index  | P1       |
 | extension  | `packages/extension/mcp/tools/token/mapping.ts`                 | `buildVariableMappings`, `normalizeStyleVars`, `applyPluginTransforms`                                                   | Deterministic style token rewrite and plugin transform wiring    | P1       |
@@ -548,6 +549,16 @@ Fix:
 ### extension: `mcp/tools/code/text/index.ts`
 
 - re-export contract behavior for text segment rendering entrypoint.
+
+### extension: `mcp/tools/code/text/style.ts`
+
+- run-attribute resolution behavior for token-backed and literal fallback values.
+- paint visibility behavior for transparent fallback, visible solid preference, and visible non-solid guard.
+- typography token resolution order across segment bindings, text style bindings, and range bindings.
+- resilient fallback behavior for style/range/variable lookup failures.
+- dominant-style vote behavior with canonicalized values and threshold gating.
+- common-style omission behavior with canonicalized comparisons.
+- code-font detection and font-weight inference behavior for explicit, numeric, keyword, and unknown style names.
 
 ### extension: `mcp/errors.ts`
 

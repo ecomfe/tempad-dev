@@ -85,6 +85,7 @@ export default defineConfig({
         'mcp/tools/code/tokens/source-index.ts',
         'mcp/tools/code/tokens/used.ts',
         'mcp/tools/code/text/index.ts',
+        'mcp/tools/code/text/style.ts',
         'mcp/tools/code/text/types.ts',
         'mcp/tools/code/tokens/cache.ts',
         'mcp/tools/code/tokens/resolve.ts',
