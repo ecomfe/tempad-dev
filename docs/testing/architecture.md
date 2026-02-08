@@ -123,6 +123,7 @@ Fix:
 | extension  | `packages/extension/composables/copy.ts`                        | `useCopy`                                                                                                                | Deterministic clipboard source resolution and toast/error flow   | P1       |
 | extension  | `packages/extension/composables/deep-link.ts`                   | `useDeepLinkGuard`                                                                                                       | Deterministic deep-link guard, fallback, and cleanup lifecycle   | P1       |
 | extension  | `packages/extension/composables/input.ts`                       | `useSelectAll`                                                                                                           | Deterministic input-focus select binding                         | P1       |
+| extension  | `packages/extension/composables/plugin.ts`                      | `usePluginInstall`                                                                                                       | Deterministic plugin install/cancel/registry resolution flow     | P1       |
 | extension  | `packages/extension/composables/scrollbar.ts`                   | `useScrollbar`                                                                                                           | Deterministic overlay setup and cleanup lifecycle                | P1       |
 | extension  | `packages/extension/composables/toast.ts`                       | `useToast`                                                                                                               | Deterministic notify/cancel lifecycle                            | P1       |
 | extension  | `packages/extension/composables/index.ts`                       | re-export surface                                                                                                        | Stable composables barrel export contract                        | P2       |
@@ -304,6 +305,14 @@ Fix:
 - overlay creation behavior when container is present.
 - no-op behavior when container resolves to null.
 - cleanup behavior that destroys the overlay instance.
+
+### extension: `composables/plugin.ts`
+
+- direct URL install behavior with success and update toasts.
+- registry-backed plugin source resolution and snapshot fallback behavior.
+- fetch/codegen failure behavior with deterministic validity messages.
+- cancel behavior for pending installs and stale-controller abort-before-retry behavior.
+- re-entrancy guard behavior when install is called while already installing.
 
 ### extension: `composables/toast.ts`
 
