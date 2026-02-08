@@ -11,6 +11,7 @@ import type {
   DevComponent
 } from '@/types/plugin'
 
+import { rgbToHex } from './color'
 import { prune } from './object'
 import { camelToKebab, escapeHTML, looseEscapeHTML, stringify, indentAll } from './string'
 
