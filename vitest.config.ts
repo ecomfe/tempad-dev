@@ -27,6 +27,7 @@ export default defineConfig({
         'packages/extension/utils/index.ts',
         'packages/extension/utils/tempad.ts',
         'packages/extension/composables/copy.ts',
+        'packages/extension/composables/deep-link.ts',
         'packages/extension/codegen/requester.ts',
         'packages/extension/composables/input.ts',
         'packages/extension/composables/toast.ts',

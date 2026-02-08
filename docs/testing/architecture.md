@@ -121,6 +121,7 @@ Fix:
 | extension  | `packages/extension/utils/dom.ts`                               | `transformHTML`                                                                                                          | Deterministic fragment transform and HTML serialization          | P1       |
 | extension  | `packages/extension/utils/keyboard.ts`                          | `setLockMetaKey`, `setLockAltKey`                                                                                        | Deterministic browser key-lock patch/restore behavior            | P1       |
 | extension  | `packages/extension/composables/copy.ts`                        | `useCopy`                                                                                                                | Deterministic clipboard source resolution and toast/error flow   | P1       |
+| extension  | `packages/extension/composables/deep-link.ts`                   | `useDeepLinkGuard`                                                                                                       | Deterministic deep-link guard, fallback, and cleanup lifecycle   | P1       |
 | extension  | `packages/extension/composables/input.ts`                       | `useSelectAll`                                                                                                           | Deterministic input-focus select binding                         | P1       |
 | extension  | `packages/extension/composables/toast.ts`                       | `useToast`                                                                                                               | Deterministic notify/cancel lifecycle                            | P1       |
 | extension  | `packages/extension/composables/index.ts`                       | re-export surface                                                                                                        | Stable composables barrel export contract                        | P2       |
@@ -288,6 +289,13 @@ Fix:
 - fallback content resolution and option-message getter behavior.
 - element source resolution order (`dataset.copy` -> `textContent` -> empty string).
 - clipboard error capture behavior with logger fallback.
+
+### extension: `composables/deep-link.ts`
+
+- timeout-triggered toast behavior with default and custom messages.
+- fallback deep-link behavior before final user-facing toast.
+- cancellation behavior for previous pending guards when a new guard starts.
+- cleanup behavior for blur/pagehide/visibility changes and on scope disposal.
 
 ### extension: `composables/toast.ts`
 
