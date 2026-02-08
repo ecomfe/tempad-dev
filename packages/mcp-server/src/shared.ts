@@ -13,8 +13,14 @@ export function ensureDir(dirPath: string): void {
   mkdirSync(dirPath, { recursive: true, mode: 0o700 })
 }
 
-const pkg = packageJson as { version?: unknown }
-export const PACKAGE_VERSION = normalizePackageVersion(pkg.version)
+function getRecordProperty(record: unknown, key: string): unknown {
+  if (!record || typeof record !== 'object') {
+    return undefined
+  }
+  return Reflect.get(record, key)
+}
+
+export const PACKAGE_VERSION = normalizePackageVersion(getRecordProperty(packageJson, 'version'))
 
 export function resolveRuntimeDir(
   env: NodeJS.ProcessEnv = process.env,
