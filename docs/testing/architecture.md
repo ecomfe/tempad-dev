@@ -420,6 +420,14 @@ Fix:
 - token-def input guard behavior and downstream forwarding of `includeAllModes`.
 - routing behavior from tool handlers to concrete implementations (`code`, `screenshot`, `structure`) with expected args.
 
+### extension: `mcp/semantic-tree.ts`
+
+- depth suggestion behavior for over-cap and under-cap trees.
+- wrapper flattening behavior for single-child pass-through frames.
+- semantic tagging behavior for multiline text, image-filled rectangles, and vector-like nodes.
+- component/property hint behavior for variant, text, boolean, and swap properties.
+- capping behavior at depth limit, including capped-node id reporting and empty capped children.
+
 ### extension: `mcp/index.ts`
 
 - re-export contract behavior for MCP entry barrel (`config` + `runtime`).
@@ -621,6 +629,13 @@ Fix:
 - depth-limit coercion behavior (`0` treated as unset).
 - semantic tree outline payload shaping behavior.
 - payload-size guard branch when serialized output exceeds protocol limits.
+
+### extension: `mcp/tools/code/tree.ts`
+
+- tree traversal behavior for visible-only nodes with stable root/order snapshots.
+- depth-cap behavior and capped-node id collection from suggested depth limits.
+- data-hint composition behavior for design component, variable-mode, and inferred auto-layout hints.
+- variable collection conflict behavior for duplicate collection names (warn-once path).
 
 ### extension: `mcp/tools/code/layout-parent.ts`
 
