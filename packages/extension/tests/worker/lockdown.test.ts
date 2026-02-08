@@ -6,7 +6,6 @@ describe('worker/lockdown', () => {
   afterEach(() => {
     Reflect.deleteProperty(globalThis, 'unsafeA')
     Reflect.deleteProperty(globalThis, 'unsafeB')
-    Reflect.deleteProperty(globalThis, 'unsafeC')
     vi.restoreAllMocks()
   })
 
@@ -21,7 +20,7 @@ describe('worker/lockdown', () => {
     })
     Object.defineProperty(globalThis, 'unsafeB', {
       value: 'value-b',
-      writable: false,
+      writable: true,
       configurable: true
     })
 
@@ -71,33 +70,23 @@ describe('worker/lockdown', () => {
     )
   })
 
-  it('ignores properties that fail both assignment and defineProperty fallback', () => {
+  it('fails closed when a non-safe global cannot be cleared', () => {
     const originalGetOwnPropertyNames = Object.getOwnPropertyNames
-    const originalDefineProperties = Object.defineProperties
-    const originalDefineProperty = Object.defineProperty
 
-    Object.defineProperty(globalThis, 'unsafeC', {
+    Object.defineProperty(globalThis, 'unsafeB', {
       value: 'locked',
       writable: false,
       configurable: true
     })
 
     vi.spyOn(Object, 'getOwnPropertyNames').mockImplementation((obj) => {
-      if (obj === globalThis) return ['unsafeC']
+      if (obj === globalThis) return ['unsafeB']
       return originalGetOwnPropertyNames(obj)
     })
-    vi.spyOn(Object, 'defineProperty').mockImplementation((obj, key, descriptor) => {
-      if (obj === globalThis && key === 'unsafeC') {
-        throw new TypeError('blocked defineProperty')
-      }
-      return originalDefineProperty(obj, key, descriptor)
-    })
-    vi.spyOn(Object, 'defineProperties').mockImplementation((target, descriptors) => {
-      if (target !== globalThis) return originalDefineProperties(target, descriptors)
-      return target as typeof globalThis
-    })
 
-    expect(() => lockdownWorker('sandboxed-worker')).not.toThrow()
-    expect((globalThis as Record<string, unknown>).unsafeC).toBe('locked')
+    expect(() => lockdownWorker('sandboxed-worker')).toThrow(
+      'Failed to clear global property: unsafeB'
+    )
+    expect((globalThis as Record<string, unknown>).unsafeB).toBe('locked')
   })
 })
