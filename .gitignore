@@ -16,6 +16,7 @@ web-ext.config.ts
 dist
 coverage
 packages/*/coverage
+packages/extension/tests/**/__screenshots__/
 
 # Editor directories and files
 .vscode/*
