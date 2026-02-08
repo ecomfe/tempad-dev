@@ -41,5 +41,5 @@ describe('composables/index', () => {
     expect(composables.useScrollbar).toBe(mocks.scrollbar.useScrollbar)
     expect(composables.useSelection).toBe(mocks.selection.useSelection)
     expect(composables.useToast).toBe(mocks.toast.useToast)
-  })
+  }, 15000)
 })

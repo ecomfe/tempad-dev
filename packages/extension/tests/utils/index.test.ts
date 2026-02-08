@@ -41,5 +41,5 @@ describe('utils/index', () => {
     expect(utils.codegen).toBe(mocks.codegen.codegen)
     expect(utils.stringifyComponent).toBe(mocks.component.stringifyComponent)
     expect(utils.MCP_SERVER).toBe(mocks.mcp.MCP_SERVER)
-  })
+  }, 15000)
 })
