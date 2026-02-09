@@ -2,9 +2,8 @@
 
 ## 0.17.0
 
-- Fixed gradient stroke code output so it can coexist with rounded corners by rendering a masked pseudo-element ring.
-- Simplified generated inset values for literal border widths (e.g. `-1px` instead of `calc(-1 * 1px)`).
-- Updated MCP `get_code` Tailwind class generation to emit the same pseudo-element gradient-border pattern.
+- Improved Figma style resolution in code output (especially fill/stroke handling and variable consistency).
+- Improved gradient border codegen for both CSS and MCP `get_code` Tailwind output.
 
 ## 0.16.0
 
