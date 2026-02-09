@@ -1,5 +1,7 @@
 # @tempad-dev/mcp
 
+<a href="./README.zh-Hans.md"><img src="https://img.shields.io/badge/%E4%B8%AD%E6%96%87%E7%89%88%20%C2%BB-000" alt="前往中文版"></a>
+
 ## Usage
 
 ```json

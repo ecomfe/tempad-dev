@@ -263,14 +263,7 @@ npx add-skill https://github.com/ecomfe/tempad-dev/tree/main/skill --skill imple
 
 ### 配置项
 
-`@tempad-dev/mcp` 支持以下可选环境变量：
-
-- `TEMPAD_MCP_TOOL_TIMEOUT`（默认 `15000`）：工具调用超时时间，单位为毫秒。
-- `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`（默认 `1500`）：在只有一个扩展连接时，自动激活前的延迟时间。
-- `TEMPAD_MCP_MAX_ASSET_BYTES`（默认 `8388608`）：捕获的资源或截图允许的最大上传大小（字节）。
-- `TEMPAD_MCP_RUNTIME_DIR`（默认 `${TMPDIR}/tempad-dev/run`）：Hub 存储 socket 与锁文件的目录。
-- `TEMPAD_MCP_LOG_DIR`（默认 `${TMPDIR}/tempad-dev/log`）：MCP 日志目录。
-- `TEMPAD_MCP_ASSET_DIR`（默认 `${TMPDIR}/tempad-dev/assets`）：用于存储导出资源的目录，这些资源会通过 `resourceUri` 引用。
+`@tempad-dev/mcp` 的环境变量配置请参见 [`packages/mcp-server/README.zh-Hans.md`](./packages/mcp-server/README.zh-Hans.md)（[English](./packages/mcp-server/README.md)）。
 
 <details>
 <summary><h3>查看 TemPad 组件代码</h3></summary>

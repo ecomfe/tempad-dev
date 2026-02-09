@@ -264,14 +264,7 @@ When MCP is enabled, a badge appears in the TemPad Dev panel title bar showing t
 
 ### Configuration
 
-Optional environment variables for `@tempad-dev/mcp`:
-
-- `TEMPAD_MCP_TOOL_TIMEOUT` (default `15000`): Tool call timeout in milliseconds.
-- `TEMPAD_MCP_AUTO_ACTIVATE_GRACE` (default `1500`): Delay before auto-activating the sole connected extension.
-- `TEMPAD_MCP_MAX_ASSET_BYTES` (default `8388608`): Maximum upload size for captured assets/screenshots (bytes).
-- `TEMPAD_MCP_RUNTIME_DIR` (default `${TMPDIR}/tempad-dev/run`): Where the hub stores its socket/lock files.
-- `TEMPAD_MCP_LOG_DIR` (default `${TMPDIR}/tempad-dev/log`): Where MCP logs are written.
-- `TEMPAD_MCP_ASSET_DIR` (default `${TMPDIR}/tempad-dev/assets`): Storage for exported assets referenced by `resourceUri`.
+For optional environment variables, see [`packages/mcp-server/README.md`](./packages/mcp-server/README.md) ([中文](./packages/mcp-server/README.zh-Hans.md)).
 
 <details>
 <summary><h3>Inspect TemPad component code</h3></summary>
