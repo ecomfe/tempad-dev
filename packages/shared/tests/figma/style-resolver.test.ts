@@ -237,6 +237,27 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     })
   })
 
+  it('applies solid fill style to color without requiring background channels', async () => {
+    installFigmaMocks({
+      styles: {
+        fillStyle: paintStyle([solidPaint({ r: 0, g: 1, b: 0 })])
+      }
+    })
+    const node = {
+      fillStyleId: 'fillStyle'
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        color: 'var(--fill)'
+      },
+      node
+    )
+    expect(result).toEqual({
+      color: '#0F0'
+    })
+  })
+
   it('applies solid fill from node paints even when fill style id is absent', async () => {
     installFigmaMocks()
     const node = {
@@ -320,6 +341,32 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
       border: '1px solid var(--stroke)',
       'border-image': 'linear-gradient(270deg, #F00 0%, #00F 100%)',
       'border-image-slice': '1'
+    })
+  })
+
+  it('ignores empty and non-channel border keys when checking gradient stroke border channels', async () => {
+    installFigmaMocks({
+      styles: {
+        strokeStyle: paintStyle([gradientPaint()])
+      }
+    })
+    const node = {
+      strokeStyleId: 'strokeStyle'
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        border: '   ',
+        'border-radius': '4px',
+        'border-image-slice': '2'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      border: '   ',
+      'border-radius': '4px',
+      'border-image-slice': '2'
     })
   })
 

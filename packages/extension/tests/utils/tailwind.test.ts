@@ -96,6 +96,10 @@ describe('utils/tailwind cssToTailwind', () => {
     )
   })
 
+  it('keeps non-empty content values through formatter fallback', () => {
+    expect(cssToTailwind({ content: '"Label"' })).toBe('content-["Label"]')
+  })
+
   it('handles formatter-based families and grid line edge cases', () => {
     const result = cssToTailwind({
       'font-family': '"Fira Sans", serif',

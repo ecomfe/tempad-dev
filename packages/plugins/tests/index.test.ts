@@ -92,6 +92,12 @@ describe('plugins sdk helpers', () => {
       children: ['Save']
     })
 
+    expect(h('Box', null as unknown as Record<string, unknown>, 'child')).toEqual({
+      name: 'Box',
+      props: null,
+      children: ['child']
+    })
+
     expect(h('Box', undefined as unknown as string)).toEqual({
       name: 'Box',
       props: {},
