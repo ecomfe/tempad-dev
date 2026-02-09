@@ -49,6 +49,7 @@ describe('token/candidates collectCandidateVariableIds', () => {
       id: 'root',
       visible: true,
       fillStyleId: 'style-1',
+      strokeStyleId: 'style-2',
       boundVariables: {
         color: { id: 'id-bound' },
         nested: [{ id: 'id-array' }]
@@ -97,20 +98,36 @@ describe('token/candidates collectCandidateVariableIds', () => {
     })
 
     ;(globalThis as { figma?: PluginAPI }).figma = {
-      getStyleById: vi.fn(() => ({
-        paints: [
-          {
-            type: 'SOLID',
-            visible: true,
-            boundVariables: { color: { id: 'id-style-fill' } }
-          },
-          {
-            type: 'SOLID',
-            visible: false,
-            boundVariables: { color: { id: 'id-style-hidden' } }
+      getStyleById: vi.fn((styleId: string) => {
+        if (styleId === 'style-1') {
+          return {
+            paints: [
+              {
+                type: 'SOLID',
+                visible: true,
+                boundVariables: { color: { id: 'id-style-fill' } }
+              },
+              {
+                type: 'SOLID',
+                visible: false,
+                boundVariables: { color: { id: 'id-style-hidden' } }
+              }
+            ]
           }
-        ]
-      }))
+        }
+        if (styleId === 'style-2') {
+          return {
+            paints: [
+              {
+                type: 'SOLID',
+                visible: true,
+                boundVariables: { color: { id: 'id-style-stroke' } }
+              }
+            ]
+          }
+        }
+        return null
+      })
     } as unknown as PluginAPI
 
     const vars: Record<string, Variable | null> = {
@@ -131,7 +148,8 @@ describe('token/candidates collectCandidateVariableIds', () => {
       'id-effect': { id: 'id-effect', name: 'Effect' } as unknown as Variable,
       'id-effect-ref': { id: 'id-effect-ref', name: 'Effect Ref' } as unknown as Variable,
       'id-child': { id: 'id-child', name: 'Child Var' } as unknown as Variable,
-      'id-style-fill': { id: 'id-style-fill', name: 'Style Fill' } as unknown as Variable
+      'id-style-fill': { id: 'id-style-fill', name: 'Style Fill' } as unknown as Variable,
+      'id-style-stroke': { id: 'id-style-stroke', name: 'Style Stroke' } as unknown as Variable
     }
     vi.mocked(getVariableByIdCached).mockImplementation((id: string) => vars[id] ?? null)
     vi.mocked(getVariableRawName).mockImplementation(
@@ -153,6 +171,7 @@ describe('token/candidates collectCandidateVariableIds', () => {
         'id-effect-ref',
         'id-child',
         'id-style-fill',
+        'id-style-stroke',
         'id-fill-hidden'
       ])
     )
@@ -164,7 +183,7 @@ describe('token/candidates collectCandidateVariableIds', () => {
       canonical: '--primary-color',
       id: 'id-bound'
     })
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('ids=11 rewrites='))
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('ids=12 rewrites='))
   })
 
   it('skips invisible roots and tolerates style lookup failures', () => {

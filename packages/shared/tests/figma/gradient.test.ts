@@ -209,7 +209,7 @@ describe('figma/gradient resolveGradientFromPaints', () => {
     })
 
     expect(resolveGradientFromPaints([paint])).toBe(
-      'radial-gradient(color-mix(in srgb, var(--primary-color, #F00) 50%, transparent) 0%, #0000FF80 100%)'
+      'radial-gradient(color-mix(in srgb, var(--Primary-Color, #F00) 50%, transparent) 0%, #0000FF80 100%)'
     )
   })
 
@@ -243,7 +243,7 @@ describe('figma/gradient resolveGradientFromPaints', () => {
     })
 
     expect(resolveGradientFromPaints([paint])).toBe(
-      'radial-gradient(var(--primary-color, #F00) 0%, #00F 100%)'
+      'radial-gradient(var(--Primary-Color, #F00) 0%, #00F 100%)'
     )
   })
 
@@ -303,7 +303,21 @@ describe('figma/gradient resolveSolidFromPaints', () => {
     })
 
     const paints = [createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'token' })]
-    expect(resolveSolidFromPaints(paints)).toBe('var(--theme-primary-color, #0F0)')
+    expect(resolveSolidFromPaints(paints)).toBe('var(--Theme---Primary-Color, #0F0)')
+  })
+
+  it('prefers WEB codeSyntax identifier for bound solid paint variable names', () => {
+    installFigmaMocks({
+      variables: {
+        token: {
+          name: 'Theme / Primary Color',
+          codeSyntax: { WEB: 'AliasesGreengreen-40' }
+        } as Variable
+      }
+    })
+
+    const paints = [createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'token' })]
+    expect(resolveSolidFromPaints(paints)).toBe('var(--AliasesGreengreen-40, #0F0)')
   })
 
   it('falls back to literal color when bound variable resolution fails', () => {

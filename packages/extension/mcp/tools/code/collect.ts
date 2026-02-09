@@ -1,4 +1,4 @@
-import type { AssetDescriptor } from '@tempad-dev/shared'
+import { resolveStylesFromNode, type AssetDescriptor } from '@tempad-dev/shared'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
@@ -34,7 +34,8 @@ export async function collectNodeData(
     }
 
     try {
-      const css = await node.getCSSAsync()
+      let css = await node.getCSSAsync()
+      css = await resolveStylesFromNode(css, node)
       const parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
 
       let processed = preprocessStyles(preprocessRawStyle(css), node, parent?.node)

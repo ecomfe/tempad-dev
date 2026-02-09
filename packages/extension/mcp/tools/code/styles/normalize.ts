@@ -21,7 +21,8 @@ const GRADIENT_FUNCTION_PREFIXES = [
   'repeating-conic-gradient('
 ]
 const LENGTH_LITERAL_RE = /^(-?(?:\d+\.?\d*|\.\d+))([a-z%]+)$/i
-const RING_MASK = 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)'
+const RING_MASK_IMAGE = 'linear-gradient(#000 0 0), linear-gradient(#000 0 0)'
+const RING_MASK_BOX = 'content-box, border-box'
 
 /**
  * Steps:
@@ -197,9 +198,9 @@ function resolveGradientBorderClasses(style: StyleMap): GradientBorderClassResul
         'border-radius': 'inherit',
         background: gradient,
         'pointer-events': 'none',
-        '-webkit-mask': RING_MASK,
-        '-webkit-mask-composite': 'xor',
-        mask: RING_MASK,
+        'mask-image': RING_MASK_IMAGE,
+        'mask-origin': RING_MASK_BOX,
+        'mask-clip': RING_MASK_BOX,
         'mask-composite': 'exclude'
       }
     }

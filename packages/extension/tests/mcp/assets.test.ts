@@ -5,6 +5,15 @@ import {
 } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('@/utils/log', () => ({
+  logger: {
+    log: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn()
+  }
+}))
+
 import {
   buildAssetResourceUri,
   ensureAssetUploaded,

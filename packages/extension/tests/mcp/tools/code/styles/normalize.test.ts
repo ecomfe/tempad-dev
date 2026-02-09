@@ -159,7 +159,18 @@ describe('mcp/styles/normalize', () => {
 
     expect(gradient.some((item) => item.startsWith('before:'))).toBe(true)
     expect(gradient).toEqual(expect.arrayContaining(['relative', 'isolate', 'border-[1px]']))
-    expect(gradient.join(' ')).toContain('before:[content:""]')
+    expect(gradient).toEqual(
+      expect.arrayContaining([
+        "before:content-['']",
+        'before:inset-[-1px]',
+        'before:p-[1px]',
+        'before:rounded-[inherit]'
+      ])
+    )
+    expect(gradient.some((item) => item.startsWith('before:[mask-image:'))).toBe(true)
+    expect(gradient.some((item) => item.includes('-webkit-'))).toBe(false)
+    expect(gradient.some((item) => item.startsWith('before:[mask:'))).toBe(false)
+    expect(gradient.some((item) => item.startsWith('before:[-webkit-mask:'))).toBe(false)
   })
 
   it('handles gradient-border fallback branches and clipping path', () => {
@@ -206,9 +217,9 @@ describe('mcp/styles/normalize', () => {
     expect(negativeWidth.some((item) => item.includes('before:') && item.includes('inset'))).toBe(
       true
     )
-    expect(negativeWidth.some((item) => item.includes('before:') && item.includes('padding'))).toBe(
-      true
-    )
+    expect(
+      negativeWidth.some((item) => item.startsWith('before:p-') || item.startsWith('before:-p-'))
+    ).toBe(true)
 
     const sideBorder = styleToClassNames(
       {

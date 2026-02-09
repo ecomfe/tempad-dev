@@ -237,6 +237,27 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     })
   })
 
+  it('applies solid fill from node paints even when fill style id is absent', async () => {
+    installFigmaMocks()
+    const node = {
+      fills: [solidPaint({ r: 0, g: 1, b: 0 })]
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        background: 'var(--fill)',
+        color: 'var(--fill)',
+        fill: 'var(--fill)'
+      },
+      node
+    )
+    expect(result).toEqual({
+      'background-color': '#0F0',
+      color: '#0F0',
+      fill: '#0F0'
+    })
+  })
+
   it('uses border-image for gradient stroke styles', async () => {
     installFigmaMocks({
       styles: {
@@ -278,6 +299,25 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     )
     expect(result).toEqual({
       'border-color': 'var(--stroke)',
+      'border-image': 'linear-gradient(270deg, #F00 0%, #00F 100%)',
+      'border-image-slice': '1'
+    })
+  })
+
+  it('uses border-image for gradient node strokes when stroke style id is absent', async () => {
+    installFigmaMocks()
+    const node = {
+      strokes: [gradientPaint()]
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        border: '1px solid var(--stroke)'
+      },
+      node
+    )
+    expect(result).toEqual({
+      border: '1px solid var(--stroke)',
       'border-image': 'linear-gradient(270deg, #F00 0%, #00F 100%)',
       'border-image-slice': '1'
     })
@@ -351,7 +391,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     })
   })
 
-  it('does not patch stroke color when no stroke style id exists', async () => {
+  it('patches stroke color from node strokes when no stroke style id exists', async () => {
     installFigmaMocks()
     const node = {
       strokes: [solidPaint({ r: 0, g: 1, b: 0 })]
@@ -364,7 +404,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
       node
     )
     expect(result).toEqual({
-      stroke: 'var(--stroke)'
+      stroke: '#0F0'
     })
   })
 

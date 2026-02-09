@@ -83,6 +83,19 @@ describe('utils/tailwind cssToTailwind', () => {
     )
   })
 
+  it('maps shorthand and pseudo-related properties to canonical utilities', () => {
+    const result = cssToTailwind({
+      content: '""',
+      inset: '-1px',
+      padding: '1px',
+      'border-radius': 'inherit'
+    }).split(/\s+/)
+
+    expect(result).toEqual(
+      expect.arrayContaining(["content-['']", 'inset-[-1px]', 'p-[1px]', 'rounded-[inherit]'])
+    )
+  })
+
   it('handles formatter-based families and grid line edge cases', () => {
     const result = cssToTailwind({
       'font-family': '"Fira Sans", serif',
@@ -205,7 +218,7 @@ describe('utils/tailwind class extraction', () => {
       expect.arrayContaining([
         'flex',
         '[unknown:value_]',
-        'before:[content:""]',
+        "before:content-['']",
         'before:[unknown:value_]',
         'hover:flex',
         'focus:flex'
