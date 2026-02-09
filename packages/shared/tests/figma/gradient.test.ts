@@ -320,6 +320,83 @@ describe('figma/gradient resolveSolidFromPaints', () => {
     expect(resolveSolidFromPaints(paints)).toBe('var(--AliasesGreengreen-40, #0F0)')
   })
 
+  it('normalizes canonical and complex variable naming branches', () => {
+    installFigmaMocks({
+      variables: {
+        canonical: {
+          name: 'Ignored Name',
+          codeSyntax: { WEB: 'var(--Spacing-2XL, #111)' }
+        } as Variable,
+        malformedCanonical: {
+          name: 'Ignored Name',
+          codeSyntax: { WEB: '--' }
+        } as Variable,
+        complexDigits: { name: 'token(1)(2)' } as Variable,
+        complexCaps: { name: 'UI+API' } as Variable,
+        complexSingles: { name: 'name+a+b' } as Variable,
+        complexSingleRun: { name: 'name+a+12' } as Variable,
+        emptyFromSlowPath: { name: '()' } as Variable,
+        codeSyntaxFallbackToName: {
+          name: 'Theme Fallback',
+          codeSyntax: { WEB: 'theme.with.dot' }
+        } as Variable,
+        prefixed: { name: '----foo' } as Variable,
+        missingName: {} as Variable,
+        blank: { name: '   ' } as Variable
+      }
+    })
+
+    expect(
+      resolveSolidFromPaints([createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'canonical' })])
+    ).toBe('var(--Spacing-2XL, #0F0)')
+    expect(
+      resolveSolidFromPaints([
+        createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'malformedCanonical' })
+      ])
+    ).toBe('var(--var, #0F0)')
+    expect(
+      resolveSolidFromPaints([
+        createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'complexDigits' })
+      ])
+    ).toBe('var(--token-12, #0F0)')
+    expect(
+      resolveSolidFromPaints([
+        createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'complexCaps' })
+      ])
+    ).toBe('var(--uiapi, #0F0)')
+    expect(
+      resolveSolidFromPaints([
+        createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'complexSingles' })
+      ])
+    ).toBe('var(--name-ab, #0F0)')
+    expect(
+      resolveSolidFromPaints([
+        createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'complexSingleRun' })
+      ])
+    ).toBe('var(--name-a-12, #0F0)')
+    expect(
+      resolveSolidFromPaints([
+        createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'emptyFromSlowPath' })
+      ])
+    ).toBe('var(--unnamed, #0F0)')
+    expect(
+      resolveSolidFromPaints([
+        createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'codeSyntaxFallbackToName' })
+      ])
+    ).toBe('var(--Theme-Fallback, #0F0)')
+    expect(
+      resolveSolidFromPaints([createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'prefixed' })])
+    ).toBe('var(--foo, #0F0)')
+    expect(
+      resolveSolidFromPaints([
+        createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'missingName' })
+      ])
+    ).toBe('var(--unnamed, #0F0)')
+    expect(
+      resolveSolidFromPaints([createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'blank' })])
+    ).toBe('var(--unnamed, #0F0)')
+  })
+
   it('falls back to literal color when bound variable resolution fails', () => {
     installFigmaMocks({
       variableErrors: ['token']

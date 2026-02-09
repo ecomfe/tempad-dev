@@ -51,8 +51,19 @@ async function importShared() {
   return import('../src/shared')
 }
 
+async function importSharedWithPackageJson(value: unknown) {
+  vi.resetModules()
+  vi.doMock('../package.json', () => ({
+    default: value
+  }))
+  const shared = await import('../src/shared')
+  vi.doUnmock('../package.json')
+  return shared
+}
+
 afterEach(() => {
   vi.clearAllMocks()
+  vi.doUnmock('../package.json')
   for (const key of ENV_KEYS) {
     const value = originalEnv.get(key)
     if (value === undefined) {
@@ -154,6 +165,12 @@ describe('mcp-server/shared', () => {
 
     expect(shared.resolveSockPath('win32', 'C:\\runtime')).toBe('\\\\.\\pipe\\tempad-mcp')
     expect(shared.resolveSockPath('linux', '/runtime')).toBe('/runtime/mcp.sock')
+  })
+
+  it('falls back to default version when package metadata is not an object', async () => {
+    const shared = await importSharedWithPackageJson(null)
+
+    expect(shared.PACKAGE_VERSION).toBe('0.0.0')
   })
 
   it('creates directories and files through exported fs helpers', async () => {
