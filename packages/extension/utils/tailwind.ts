@@ -32,6 +32,7 @@ interface FamilyConfigBase {
   keywords?: KeywordDef[]
   formatter?: ValueFormatter
   arbitraryType?: string
+  inlineNegative?: boolean
 }
 
 interface SideFamily extends FamilyConfigBase {
@@ -124,6 +125,12 @@ function formatGridLine(val: string): FormatterResult {
   return trimmed
 }
 
+function formatContent(val: string): FormatterResult {
+  const trimmed = val.trim()
+  if (trimmed === '""' || trimmed === "''") return "''"
+  return trimmed
+}
+
 function range(start: number, end: number) {
   return Array.from({ length: end - start + 1 }, (_, i) => (start + i).toString())
 }
@@ -157,6 +164,21 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     valueKind: 'keyword',
     keywords: ['static', 'fixed', 'absolute', 'relative', 'sticky'],
     props: { v: 'position' }
+  },
+  content: {
+    prefix: 'content',
+    mode: 'direct',
+    valueKind: 'any',
+    props: { v: 'content' },
+    formatter: formatContent
+  },
+  inset: {
+    prefix: 'inset',
+    mode: 'direct',
+    valueKind: 'length',
+    keywords: ['auto'],
+    props: { v: 'inset' },
+    inlineNegative: true
   },
   overflow: {
     prefix: 'overflow',
@@ -455,6 +477,12 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     mode: 'side',
     valueKind: 'length',
     props: { t: 'padding-top', r: 'padding-right', b: 'padding-bottom', l: 'padding-left' }
+  },
+  paddingShorthand: {
+    prefix: 'p',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'padding' }
   },
   margin: {
     prefix: 'm',
@@ -805,6 +833,12 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
       bl: 'border-bottom-left-radius'
     }
   },
+  borderRadius: {
+    prefix: 'rounded',
+    mode: 'direct',
+    valueKind: 'length',
+    props: { v: 'border-radius' }
+  },
   opacity: { prefix: 'opacity', mode: 'direct', valueKind: 'percent', props: { v: 'opacity' } },
   zIndex: {
     prefix: 'z',
@@ -883,8 +917,10 @@ function extractValuePart(
 ): FormattedValue {
   // Leading '-' indicates a negative value for Tailwind, but CSS variable names start with '--'
   // and must not be treated as negative.
-  const isNegative = val.startsWith('-') && !val.startsWith('--')
+  const rawNegative = val.startsWith('-') && !val.startsWith('--')
+  const isNegative = rawNegative && !config.inlineNegative
   let inner: string = isNegative ? val.substring(1) : val
+  if (config.inlineNegative) inner = val
   let overrideIsKeyword: boolean | undefined
 
   const kind = overrideKind || config.valueKind

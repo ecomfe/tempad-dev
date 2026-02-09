@@ -603,8 +603,6 @@ function buildGradientBorderPseudoStyle(spec: GradientBorderSpec): Record<string
     'border-radius': 'inherit',
     background: spec.gradient,
     'pointer-events': 'none',
-    '-webkit-mask': RING_MASK,
-    '-webkit-mask-composite': 'xor',
     mask: RING_MASK,
     'mask-composite': 'exclude'
   }

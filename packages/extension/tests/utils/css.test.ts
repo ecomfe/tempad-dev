@@ -344,9 +344,7 @@ describe('utils/css serializeCSS regression paths', () => {
     expect(code).toContain('border: 1px solid transparent;')
     expect(code).toContain('&::before {')
     expect(code).toContain('inset: -1px;')
-    expect(code).toContain(
-      '-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);'
-    )
+    expect(code).not.toContain('-webkit-mask:')
     expect(code).toContain('mask-composite: exclude;')
   })
 

@@ -83,22 +83,28 @@ function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
   }
 
   if ('fillStyleId' in node) {
-    const styleId = node.fillStyleId
-    if (styleId && typeof styleId === 'string') {
-      try {
-        const style = figma.getStyleById(styleId) as PaintStyle | null
-        if (style?.paints && Array.isArray(style.paints)) {
-          style.paints.forEach((paint) => {
-            if (!paint || paint.visible === false) return
-            if (paint.boundVariables) collectVariableIdFromValue(paint.boundVariables, bucket)
-            if (paint.variableReferences)
-              collectVariableIdFromValue(paint.variableReferences, bucket)
-          })
-        }
-      } catch {
-        // noop
-      }
+    collectStylePaintVariableIds(node.fillStyleId, bucket)
+  }
+
+  if ('strokeStyleId' in node) {
+    collectStylePaintVariableIds(node.strokeStyleId, bucket)
+  }
+}
+
+function collectStylePaintVariableIds(styleId: unknown, bucket: Set<string>): void {
+  if (!styleId || typeof styleId !== 'string') return
+
+  try {
+    const style = figma.getStyleById(styleId) as PaintStyle | null
+    if (style?.paints && Array.isArray(style.paints)) {
+      style.paints.forEach((paint) => {
+        if (!paint || paint.visible === false) return
+        if (paint.boundVariables) collectVariableIdFromValue(paint.boundVariables, bucket)
+        if (paint.variableReferences) collectVariableIdFromValue(paint.variableReferences, bucket)
+      })
     }
+  } catch {
+    // noop
   }
 }
 
