@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Fixed deps for shared utils package and moved it to devDependencies.
+
 ## 0.4.0
 
 - Minor version bump to align with TemPad Dev extension `0.17.0` release.
