@@ -99,14 +99,14 @@ describe('figma/gradient resolveGradientFromPaints', () => {
       createGradientPaint('GRADIENT_LINEAR')
     ]
 
-    expect(resolveGradientFromPaints(paints)).toBe('linear-gradient(270deg, #F00 0%, #00F 100%)')
+    expect(resolveGradientFromPaints(paints)).toBe('linear-gradient(90deg, #F00 0%, #00F 100%)')
   })
 
   it('falls back to gradient transform when handle positions are unavailable', () => {
     const paint = createGradientPaint('GRADIENT_LINEAR', {
       handles: [] as Vector[],
       transform: [
-        [0, 0, 0],
+        [0, -1, 0],
         [1, 0, 0]
       ]
     })
