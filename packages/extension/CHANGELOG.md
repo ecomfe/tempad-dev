@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.17.1
+
+- Improved `get_code` output for masked icon/container structures so generated layout is closer to what you see in Figma.
+- Improved gradient direction output so generated code matches Figma gradient angles more closely.
+
 ## 0.17.0
 
 - Improved Figma style resolution in code output (especially fill/stroke handling and variable consistency).

@@ -17,14 +17,17 @@ const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
 const GRADIENT_FN_RE = /(linear-gradient|radial-gradient|conic-gradient)\s*\(/i
 
 type PaintList = Paint[] | ReadonlyArray<Paint> | null | undefined
+type GradientSize = { width: number; height: number }
 
 export function cleanFigmaSpecificStyles(style: StyleMap, node?: SceneNode): StyleMap {
   if (!node) return style
 
   const processed = style
   const fills = getNodeFills(node)
+  const gradientSize = getGradientSizeFromNode(node)
   const solidStyleColor = resolveSolidFillStyle(node)
-  const gradientStyle = resolveGradientFillStyle(node) ?? resolveGradientFillFromNode(node)
+  const gradientStyle =
+    resolveGradientFillStyle(node, gradientSize) ?? resolveGradientFillFromNode(node, gradientSize)
 
   if (processed.background) {
     const bgValue = processed.background
@@ -88,6 +91,18 @@ function getNodeFills(node: SceneNode): ReadonlyArray<Paint> | null {
     return node.fills
   }
   return null
+}
+
+function getGradientSizeFromNode(node: SceneNode): GradientSize | undefined {
+  if (!('width' in node) || !('height' in node)) return undefined
+
+  const width = node.width
+  const height = node.height
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return undefined
+  }
+
+  return { width, height }
 }
 
 function isPaintStyle(style: BaseStyle | null): style is PaintStyle {
@@ -154,26 +169,26 @@ function resolveSolidFillStyle(node: SceneNode): string | null {
   }
 }
 
-function resolveGradientFillStyle(node: SceneNode): string | null {
+function resolveGradientFillStyle(node: SceneNode, size?: GradientSize): string | null {
   const styleId = getFillStyleId(node)
   if (!styleId) return null
 
   try {
     const style = figma.getStyleById(styleId)
     if (!isPaintStyle(style)) return null
-    return resolveGradientFromPaints(style.paints)
+    return resolveGradientFromPaints(style.paints, size)
   } catch {
     return null
   }
 }
 
-function resolveGradientFillFromNode(node: SceneNode): string | null {
+function resolveGradientFillFromNode(node: SceneNode, size?: GradientSize): string | null {
   const fills = getNodeFills(node)
   if (!fills) return null
-  return resolveGradientFromPaints(fills)
+  return resolveGradientFromPaints(fills, size)
 }
 
-function resolveGradientFromPaints(paints?: PaintList): string | null {
+function resolveGradientFromPaints(paints?: PaintList, size?: GradientSize): string | null {
   if (!paints || !Array.isArray(paints)) return null
   const visible = paints.filter(isVisiblePaint)
   if (visible.length !== 1) return null
@@ -191,7 +206,7 @@ function resolveGradientFromPaints(paints?: PaintList): string | null {
 
   switch (gradientPaint.type) {
     case 'GRADIENT_LINEAR': {
-      const angle = resolveLinearGradientAngle(gradientPaint)
+      const angle = resolveLinearGradientAngle(gradientPaint, size)
       const args = angle == null ? stops : [`${angle}deg`, ...stops]
       return `linear-gradient(${args.join(', ')})`
     }
@@ -288,37 +303,99 @@ function formatGradientStopColor(stop: ColorStop, fillOpacity: number): string {
   return formatHexAlpha(stop.color, alpha)
 }
 
-function resolveLinearGradientAngle(paint: GradientPaint): number | null {
+function resolveLinearGradientAngle(paint: GradientPaint, size?: GradientSize): number | null {
   if (hasGradientHandlePositions(paint) && paint.gradientHandlePositions.length >= 2) {
     const start = paint.gradientHandlePositions[0]
     const end = paint.gradientHandlePositions[1]
     if (start && end) {
-      const dx = end.x - start.x
-      const dy = end.y - start.y
+      const gradientSize = normalizeGradientSize(size)
+      const dx = (end.x - start.x) * gradientSize.width
+      const dy = (end.y - start.y) * gradientSize.height
       const angle = normalizeGradientAngle(dx, dy)
       if (angle != null) return angle
     }
   }
 
-  const transform = paint.gradientTransform
+  const extracted = extractLinearGradientVectorFromTransform(paint.gradientTransform, size)
+  if (!extracted) return null
+  return normalizeGradientAngle(extracted.dx, extracted.dy)
+}
+
+function extractLinearGradientVectorFromTransform(
+  transform: Transform | null | undefined,
+  size?: GradientSize
+): { dx: number; dy: number } | null {
   if (!transform || !Array.isArray(transform) || transform.length < 2) return null
+
   const row0 = transform[0]
   const row1 = transform[1]
   if (!Array.isArray(row0) || !Array.isArray(row1) || row0.length < 2 || row1.length < 2) {
     return null
   }
 
-  const dx = row0[0]
-  const dy = row1[0]
-  return normalizeGradientAngle(dx, dy)
+  const a = row0[0]
+  const c = row0[1]
+  const e = row0[2] ?? 0
+  const b = row1[0]
+  const d = row1[1]
+  const f = row1[2] ?? 0
+  if (![a, b, c, d, e, f].every((value) => Number.isFinite(value))) {
+    return null
+  }
+
+  const det = a * d - b * c
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-8) {
+    return null
+  }
+
+  const invA = d / det
+  const invC = -c / det
+  const invE = (c * f - d * e) / det
+  const invB = -b / det
+  const invD = a / det
+  const invF = (b * e - a * f) / det
+
+  const start = applyTransform(invA, invC, invE, invB, invD, invF, 0, 0.5)
+  const end = applyTransform(invA, invC, invE, invB, invD, invF, 1, 0.5)
+  const gradientSize = normalizeGradientSize(size)
+
+  return {
+    dx: (end.x - start.x) * gradientSize.width,
+    dy: (end.y - start.y) * gradientSize.height
+  }
+}
+
+function applyTransform(
+  a: number,
+  c: number,
+  e: number,
+  b: number,
+  d: number,
+  f: number,
+  x: number,
+  y: number
+): { x: number; y: number } {
+  return {
+    x: a * x + c * y + e,
+    y: b * x + d * y + f
+  }
+}
+
+function normalizeGradientSize(size?: GradientSize): GradientSize {
+  const width = size?.width
+  const height = size?.height
+  return {
+    width: typeof width === 'number' && Number.isFinite(width) && width > 0 ? width : 1,
+    height: typeof height === 'number' && Number.isFinite(height) && height > 0 ? height : 1
+  }
 }
 
 function normalizeGradientAngle(dx: number, dy: number): number | null {
   if (!Number.isFinite(dx) || !Number.isFinite(dy)) return null
   if (dx === 0 && dy === 0) return null
 
+  // Convert from screen-space vector (x right, y down) to CSS angle.
   let angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90
-  angle += 180
   angle = ((angle % 360) + 360) % 360
   return Math.round(angle * 100) / 100
 }

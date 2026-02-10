@@ -44,7 +44,7 @@ describe('figma/stroke resolveStrokeFromPaints', () => {
       createGradientPaint(),
       createSolidPaint({ r: 1, g: 0, b: 0 })
     ])
-    expect(result).toEqual({ gradient: 'linear-gradient(270deg, #F00 0%, #00F 100%)' })
+    expect(result).toEqual({ gradient: 'linear-gradient(90deg, #F00 0%, #00F 100%)' })
   })
 
   it('falls back to solid color when gradient is absent', () => {
@@ -103,6 +103,32 @@ describe('figma/stroke applyStrokeToCSS', () => {
 
     expect(result).toEqual({
       border: '2px dashed #0F0'
+    })
+  })
+
+  it('patches trailing color variable in border shorthand with width variable present', () => {
+    const result = applyStrokeToCSS(
+      {
+        border: 'var(--border-width-20, 2px) solid var(--stroke, #000)'
+      },
+      { solidColor: '#0F0' }
+    )
+
+    expect(result).toEqual({
+      border: 'var(--border-width-20, 2px) solid #0F0'
+    })
+  })
+
+  it('keeps shorthand unchanged when only border width uses variable token', () => {
+    const result = applyStrokeToCSS(
+      {
+        border: 'var(--border-width-20, 2px) solid #000'
+      },
+      { solidColor: '#0F0' }
+    )
+
+    expect(result).toEqual({
+      border: 'var(--border-width-20, 2px) solid #000'
     })
   })
 

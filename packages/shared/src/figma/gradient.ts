@@ -36,6 +36,11 @@ type GradientPaintWithHandles = GradientPaint & {
   gradientHandlePositions: ReadonlyArray<Vector>
 }
 
+type GradientSize = {
+  width: number
+  height: number
+}
+
 function hasGradientHandlePositions(paint: GradientPaint): paint is GradientPaintWithHandles {
   return 'gradientHandlePositions' in paint && Array.isArray(paint.gradientHandlePositions)
 }
@@ -44,7 +49,7 @@ function hasGradientHandlePositions(paint: GradientPaint): paint is GradientPain
  * Resolves gradient from paint array
  * Returns CSS gradient string or null
  */
-export function resolveGradientFromPaints(paints?: PaintList): string | null {
+export function resolveGradientFromPaints(paints?: PaintList, size?: GradientSize): string | null {
   if (!paints || !Array.isArray(paints)) return null
 
   // Find the first visible gradient paint
@@ -63,7 +68,7 @@ export function resolveGradientFromPaints(paints?: PaintList): string | null {
 
   switch (gradientPaint.type) {
     case 'GRADIENT_LINEAR': {
-      const angle = resolveLinearGradientAngle(gradientPaint)
+      const angle = resolveLinearGradientAngle(gradientPaint, size)
       const args = angle == null ? stops : [`${angle}deg`, ...stops]
       return `linear-gradient(${args.join(', ')})`
     }
@@ -142,21 +147,31 @@ function formatGradientStopColor(stop: ColorStop, fillOpacity: number): string {
 /**
  * Resolves linear gradient angle from gradient paint
  */
-function resolveLinearGradientAngle(paint: GradientPaint): number | null {
+function resolveLinearGradientAngle(paint: GradientPaint, size?: GradientSize): number | null {
   // First try gradient handle positions (more accurate)
   if (hasGradientHandlePositions(paint) && paint.gradientHandlePositions.length >= 2) {
     const start = paint.gradientHandlePositions[0]
     const end = paint.gradientHandlePositions[1]
     if (start && end) {
-      const dx = end.x - start.x
-      const dy = end.y - start.y
+      const { width, height } = getGradientSize(size)
+      const dx = (end.x - start.x) * width
+      const dy = (end.y - start.y) * height
       const angle = normalizeGradientAngle(dx, dy)
       if (angle != null) return angle
     }
   }
 
   // Fallback to gradient transform
-  const transform = paint.gradientTransform
+  const extracted = extractLinearGradientVectorFromTransform(paint.gradientTransform, size)
+  if (!extracted) return null
+  const { dx, dy } = extracted
+  return normalizeGradientAngle(dx, dy)
+}
+
+function extractLinearGradientVectorFromTransform(
+  transform: Transform | null | undefined,
+  size?: GradientSize
+): { dx: number; dy: number } | null {
   if (!transform || !Array.isArray(transform) || transform.length < 2) return null
 
   const row0 = transform[0]
@@ -165,9 +180,63 @@ function resolveLinearGradientAngle(paint: GradientPaint): number | null {
     return null
   }
 
-  const dx = row0[0]
-  const dy = row1[0]
-  return normalizeGradientAngle(dx, dy)
+  const a = row0[0]
+  const c = row0[1]
+  const e = row0[2] ?? 0
+  const b = row1[0]
+  const d = row1[1]
+  const f = row1[2] ?? 0
+
+  if (![a, b, c, d, e, f].every((value) => Number.isFinite(value))) {
+    return null
+  }
+
+  const det = a * d - b * c
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-8) {
+    return null
+  }
+
+  const invA = d / det
+  const invC = -c / det
+  const invE = (c * f - d * e) / det
+  const invB = -b / det
+  const invD = a / det
+  const invF = (b * e - a * f) / det
+
+  const start = applyTransform(invA, invC, invE, invB, invD, invF, 0, 0.5)
+  const end = applyTransform(invA, invC, invE, invB, invD, invF, 1, 0.5)
+  const { width, height } = getGradientSize(size)
+
+  return {
+    dx: (end.x - start.x) * width,
+    dy: (end.y - start.y) * height
+  }
+}
+
+function applyTransform(
+  a: number,
+  c: number,
+  e: number,
+  b: number,
+  d: number,
+  f: number,
+  x: number,
+  y: number
+): { x: number; y: number } {
+  return {
+    x: a * x + c * y + e,
+    y: b * x + d * y + f
+  }
+}
+
+function getGradientSize(size?: GradientSize): GradientSize {
+  const width = size?.width
+  const height = size?.height
+
+  return {
+    width: typeof width === 'number' && Number.isFinite(width) && width > 0 ? width : 1,
+    height: typeof height === 'number' && Number.isFinite(height) && height > 0 ? height : 1
+  }
 }
 
 /**
@@ -177,9 +246,8 @@ function normalizeGradientAngle(dx: number, dy: number): number | null {
   if (!Number.isFinite(dx) || !Number.isFinite(dy)) return null
   if (dx === 0 && dy === 0) return null
 
-  // Convert to degrees and normalize
+  // Convert from screen-space vector (x right, y down) to CSS angle.
   let angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90
-  angle += 180
   angle = ((angle % 360) + 360) % 360
   return Math.round(angle * 100) / 100
 }

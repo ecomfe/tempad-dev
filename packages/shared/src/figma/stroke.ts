@@ -6,6 +6,63 @@ import type { PaintList, ResolvedPaintStyle } from './types'
 
 import { resolveGradientFromPaints, resolveSolidFromPaints } from './gradient'
 
+function splitByTopLevelWhitespace(input: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let quote: '"' | "'" | null = null
+  let buffer = ''
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i]
+
+    if (quote) {
+      if (ch === '\\') {
+        buffer += ch
+        i++
+        if (i < input.length) buffer += input[i]
+        continue
+      }
+      if (ch === quote) quote = null
+      buffer += ch
+      continue
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      buffer += ch
+      continue
+    }
+
+    if (ch === '(') depth++
+    else if (ch === ')') depth = Math.max(0, depth - 1)
+
+    if (/\s/.test(ch) && depth === 0) {
+      if (buffer) {
+        out.push(buffer)
+        buffer = ''
+      }
+      continue
+    }
+
+    buffer += ch
+  }
+
+  if (buffer) out.push(buffer)
+  return out
+}
+
+function patchBorderVarColor(borderValue: string, color: string): string | null {
+  const borderParts = splitByTopLevelWhitespace(borderValue)
+  if (!borderParts.length) return null
+
+  const lastIndex = borderParts.length - 1
+  const tail = borderParts[lastIndex].trim()
+  if (!tail.startsWith('var(') || !tail.endsWith(')')) return null
+
+  borderParts[lastIndex] = color
+  return borderParts.join(' ')
+}
+
 /**
  * Resolves stroke styles from paint array
  * Can handle both solid colors and gradients
@@ -56,11 +113,10 @@ export function applyStrokeToCSS(
       if (borderColorHasVar) {
         processed['border-color'] = resolved.solidColor
       } else {
-        // Parse and update border shorthand
-        const borderParts = processed.border!.split(/\s+/)
-        const varIndex = borderParts.findIndex((part) => part.includes('var(--'))
-        borderParts[varIndex] = resolved.solidColor
-        processed.border = borderParts.join(' ')
+        const patched = patchBorderVarColor(processed.border!, resolved.solidColor)
+        if (patched) {
+          processed.border = patched
+        }
       }
     }
   }

@@ -62,7 +62,7 @@ describe('figma/style-resolver node paint style resolution', () => {
     } as unknown as SceneNode
 
     expect(resolveFillStyleForNode(node)).toEqual({
-      gradient: 'linear-gradient(270deg, #F00 0%, #00F 100%)'
+      gradient: 'linear-gradient(90deg, #F00 0%, #00F 100%)'
     })
   })
 
@@ -173,7 +173,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
       node
     )
     expect(result).toEqual({
-      background: 'linear-gradient(270deg, #F00 0%, #00F 100%)'
+      background: 'linear-gradient(90deg, #F00 0%, #00F 100%)'
     })
   })
 
@@ -194,7 +194,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
       node
     )
     expect(result).toEqual({
-      background: 'linear-gradient(270deg, #F00 0%, #00F 100%)'
+      background: 'linear-gradient(90deg, #F00 0%, #00F 100%)'
     })
   })
 
@@ -297,7 +297,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     )
     expect(result).toEqual({
       border: '1px solid var(--stroke)',
-      'border-image': 'linear-gradient(270deg, #F00 0%, #00F 100%)',
+      'border-image': 'linear-gradient(90deg, #F00 0%, #00F 100%)',
       'border-image-slice': '1'
     })
   })
@@ -320,7 +320,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     )
     expect(result).toEqual({
       'border-color': 'var(--stroke)',
-      'border-image': 'linear-gradient(270deg, #F00 0%, #00F 100%)',
+      'border-image': 'linear-gradient(90deg, #F00 0%, #00F 100%)',
       'border-image-slice': '1'
     })
   })
@@ -339,7 +339,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     )
     expect(result).toEqual({
       border: '1px solid var(--stroke)',
-      'border-image': 'linear-gradient(270deg, #F00 0%, #00F 100%)',
+      'border-image': 'linear-gradient(90deg, #F00 0%, #00F 100%)',
       'border-image-slice': '1'
     })
   })
@@ -400,6 +400,26 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     )
     expect(withBorderShorthand).toEqual({
       border: '1px solid #0F0'
+    })
+
+    const withWidthAndColorVars = await resolveStylesFromNode(
+      {
+        border: 'var(--border-width-20, 2px) solid var(--stroke, #000)'
+      },
+      node
+    )
+    expect(withWidthAndColorVars).toEqual({
+      border: 'var(--border-width-20, 2px) solid #0F0'
+    })
+
+    const withWidthVarOnly = await resolveStylesFromNode(
+      {
+        border: 'var(--border-width-20, 2px) solid #000'
+      },
+      node
+    )
+    expect(withWidthVarOnly).toEqual({
+      border: 'var(--border-width-20, 2px) solid #000'
     })
   })
 
@@ -472,7 +492,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
       node
     )
     expect(result).toEqual({
-      stroke: 'linear-gradient(270deg, #F00 0%, #00F 100%)'
+      stroke: 'linear-gradient(90deg, #F00 0%, #00F 100%)'
     })
   })
 

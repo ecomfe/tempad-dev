@@ -10,6 +10,11 @@ import { resolveGradientFromPaints, resolveSolidFromPaints } from './gradient'
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
 const BG_URL_RE = /url\(/i
 
+type NodeDimensions = {
+  width: number
+  height: number
+}
+
 function hasStyleId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0
 }
@@ -18,9 +23,12 @@ function isPaintStyle(style: BaseStyle | null): style is PaintStyle {
   return !!style && 'paints' in style && Array.isArray(style.paints)
 }
 
-function resolvePaintStyleFromPaints(paints: PaintList): ResolvedPaintStyle | null {
+function resolvePaintStyleFromPaints(
+  paints: PaintList,
+  size?: NodeDimensions
+): ResolvedPaintStyle | null {
   if (!paints) return null
-  const gradient = resolveGradientFromPaints(paints)
+  const gradient = resolveGradientFromPaints(paints, size)
   if (gradient) return { gradient }
   const solidColor = resolveSolidFromPaints(paints)
   return solidColor ? { solidColor } : null
@@ -28,14 +36,15 @@ function resolvePaintStyleFromPaints(paints: PaintList): ResolvedPaintStyle | nu
 
 function resolvePaintStyleFromStyleId(
   styleId: unknown,
-  kind: 'fill' | 'stroke'
+  kind: 'fill' | 'stroke',
+  size?: NodeDimensions
 ): ResolvedPaintStyle | null {
   if (!hasStyleId(styleId)) return null
 
   try {
     const style = figma.getStyleById(styleId)
     if (!isPaintStyle(style)) return null
-    return resolvePaintStyleFromPaints(style.paints)
+    return resolvePaintStyleFromPaints(style.paints, size)
   } catch (error) {
     console.warn(`Failed to resolve ${kind} style:`, error)
     return null
@@ -67,16 +76,84 @@ function getNodeStrokePaints(node: SceneNode): PaintList {
 function resolveNodePaintStyle(
   styleId: unknown,
   paints: PaintList,
-  kind: 'fill' | 'stroke'
+  kind: 'fill' | 'stroke',
+  size?: NodeDimensions
 ): ResolvedPaintStyle | null {
-  return resolvePaintStyleFromStyleId(styleId, kind) ?? resolvePaintStyleFromPaints(paints)
+  return (
+    resolvePaintStyleFromStyleId(styleId, kind, size) ?? resolvePaintStyleFromPaints(paints, size)
+  )
+}
+
+function getNodeDimensions(node: SceneNode): NodeDimensions | undefined {
+  if (!('width' in node) || !('height' in node)) return undefined
+
+  const width = node.width
+  const height = node.height
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return undefined
+  }
+
+  return { width, height }
+}
+
+function splitByTopLevelWhitespace(input: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let quote: '"' | "'" | null = null
+  let buffer = ''
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i]
+
+    if (quote) {
+      if (ch === '\\') {
+        buffer += ch
+        i++
+        if (i < input.length) buffer += input[i]
+        continue
+      }
+      if (ch === quote) quote = null
+      buffer += ch
+      continue
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      buffer += ch
+      continue
+    }
+
+    if (ch === '(') depth++
+    else if (ch === ')') depth = Math.max(0, depth - 1)
+
+    if (/\s/.test(ch) && depth === 0) {
+      if (buffer) {
+        out.push(buffer)
+        buffer = ''
+      }
+      continue
+    }
+
+    buffer += ch
+  }
+
+  if (buffer) out.push(buffer)
+  return out
+}
+
+function isVarFunctionToken(value: string): boolean {
+  const trimmed = value.trim()
+  return trimmed.startsWith('var(') && trimmed.endsWith(')')
 }
 
 function patchBorderVarColor(borderValue: string, color: string): string | null {
-  const borderParts = borderValue.split(/\s+/)
-  const varIndex = borderParts.findIndex((part) => part.includes('var(--'))
-  if (varIndex < 0) return null
-  borderParts[varIndex] = color
+  const borderParts = splitByTopLevelWhitespace(borderValue)
+  if (!borderParts.length) return null
+
+  const lastIndex = borderParts.length - 1
+  if (!isVarFunctionToken(borderParts[lastIndex])) return null
+
+  borderParts[lastIndex] = color
   return borderParts.join(' ')
 }
 
@@ -96,7 +173,12 @@ function hasBorderChannels(style: Record<string, string>): boolean {
  * Handles both fillStyleId and direct fills
  */
 export function resolveFillStyleForNode(node: SceneNode): ResolvedPaintStyle | null {
-  return resolveNodePaintStyle(getNodeFillStyleId(node), getNodeFillPaints(node), 'fill')
+  return resolveNodePaintStyle(
+    getNodeFillStyleId(node),
+    getNodeFillPaints(node),
+    'fill',
+    getNodeDimensions(node)
+  )
 }
 
 /**
@@ -104,7 +186,12 @@ export function resolveFillStyleForNode(node: SceneNode): ResolvedPaintStyle | n
  * Handles both strokeStyleId and direct strokes
  */
 export function resolveStrokeStyleForNode(node: SceneNode): ResolvedPaintStyle | null {
-  return resolveNodePaintStyle(getNodeStrokeStyleId(node), getNodeStrokePaints(node), 'stroke')
+  return resolveNodePaintStyle(
+    getNodeStrokeStyleId(node),
+    getNodeStrokePaints(node),
+    'stroke',
+    getNodeDimensions(node)
+  )
 }
 
 /**
