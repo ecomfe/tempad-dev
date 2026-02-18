@@ -8,7 +8,6 @@ const DEFAULT_TOKEN_HEADROOM = 0.75
 
 export type CodeBudget = {
   maxCodeBytes: number
-  maxCodeChars: number
   estimatedTokenBudget: number
 }
 
@@ -22,7 +21,6 @@ export function resolveCodeBudget(maxPayloadBytes: number): CodeBudget {
   const maxCodeBytes = Math.max(1, Math.min(payloadByteBudget, tokenByteBudget))
   return {
     maxCodeBytes,
-    maxCodeChars: maxCodeBytes,
     estimatedTokenBudget
   }
 }

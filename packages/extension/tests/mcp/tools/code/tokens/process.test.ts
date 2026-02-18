@@ -44,8 +44,7 @@ const CONFIG: CodegenConfig = {
 }
 const BUDGET = {
   ...resolveCodeBudget(1024 * 1024),
-  maxCodeBytes: 20,
-  maxCodeChars: 20
+  maxCodeBytes: 20
 }
 
 const baseInput = () => ({
