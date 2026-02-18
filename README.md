@@ -204,7 +204,7 @@ TemPad Dev ships an [MCP](https://modelcontextprotocol.io/) server so agents/IDE
   <img alt="TemPad Dev MCP preferences panel." src="packages/extension/assets/mcp-config-light.png" width="240">
 </picture>
 
-1. **Requirements**: Node.js 18+ (with `npx`) and TemPad Dev running in a Figma tab. Node.js is required for both the MCP server and add-skill.
+1. **Requirements**: Node.js 18+ (with `npx`) and TemPad Dev running in a Figma tab. Node.js is required for both the MCP server and the skills CLI.
 2. In TemPad Dev, open **Preferences → MCP server**, then enable **Enable MCP server**.
 3. Install and connect using the quick actions in Preferences, or add the server manually to your MCP client as a stdio command:
 
@@ -227,7 +227,7 @@ TemPad Dev ships an [MCP](https://modelcontextprotocol.io/) server so agents/IDE
 
 ### Agent skill
 
-Install the TemPad Dev skill for best results when paired with MCP so coding agents can translate selections into repo-ready UI. In Preferences → MCP server, click the copy icon next to Agent skill to copy the command, then run it in your terminal.
+Install the TemPad Dev skill for best results when paired with MCP so coding agents can translate selections into repo-ready UI. The bundled skill name is `figma-design-to-code`. In Preferences → MCP server, click the copy icon next to Agent skill to copy the command, then run it in your terminal.
 
 ```sh
 npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill

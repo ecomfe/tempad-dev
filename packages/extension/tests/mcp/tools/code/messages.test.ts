@@ -7,7 +7,6 @@ describe('mcp/code messages', () => {
     expect(() =>
       assertCodeWithinBudget('<div>abc</div>', {
         maxCodeBytes: 8,
-        maxCodeChars: 8,
         estimatedTokenBudget: 2
       })
     ).toThrow('Output exceeds token/context budget')
@@ -15,7 +14,6 @@ describe('mcp/code messages', () => {
     expect(() =>
       assertCodeWithinBudget('<div>abc</div>', {
         maxCodeBytes: 20,
-        maxCodeChars: 20,
         estimatedTokenBudget: 5
       })
     ).not.toThrow()

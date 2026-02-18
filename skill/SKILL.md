@@ -1,10 +1,10 @@
 ---
-name: implementing-figma-ui-tempad-dev
+name: figma-design-to-code
 description: >-
   Implement integration-ready UI code from a Figma selection or a provided nodeId using TemPad Dev MCP as the only source of design evidence (code snapshot, structure, assets, tokens, codegen config). Detect the target repo stack and conventions first, then translate TemPad Dev’s Tailwind-like JSX/Vue IR into project-native code without adding new dependencies. Never guess key styles or measurements. If required evidence is missing/contradictory or assets cannot be handled under repo policy, stop or ship a safe base with explicit warnings and omissions.
 ---
 
-# TemPad Dev: Figma to UI implementation
+# TemPad Dev: Figma Design to Code
 
 This skill requires TemPad Dev MCP. If `tempad-dev:*` tools are unavailable/inactive/unauthorized, stop and tell the user to install TemPad Dev MCP and ensure it is activated in the TemPad Dev panel in the Figma design file.
 
@@ -60,7 +60,7 @@ Record as design facts:
 If warnings indicate missing/partial/uncertain evidence, act immediately:
 
 - `depth-cap`: call `get_code` once per listed subtree root `nodeId` and stitch results, OR narrow scope and list omitted parts.
-- `truncated`: narrow scope (smaller selection or key subtrees) and warn output is partial.
+- output budget exceeded error: narrow scope (smaller selection or key subtrees), then retry `get_code`.
 - Layout/overlap uncertainty: call `get_structure` to resolve contradictions.
   - If contradictions remain after structure (or cannot be narrowed), stop.
 
