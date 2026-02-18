@@ -226,10 +226,10 @@ TemPad Dev 内置了一个 [MCP](https://modelcontextprotocol.io/) 服务器，�
 
 ### Agent 技能
 
-安装 TemPad Dev 技能并搭配 MCP 使用效果更佳，让你的 agent 能直接把选中节点输出为仓库可用的 UI。使用 [add-skill](https://www.npmjs.com/package/add-skill) 安装；在 Preferences → MCP server 中点击 Agent skill 旁的复制图标即可获取命令，并在终端执行。
+安装 TemPad Dev 技能并搭配 MCP 使用效果更佳，让你的 agent 能直接把选中节点输出为仓库可用的 UI。在 Preferences → MCP server 中点击 Agent skill 旁的复制图标即可获取命令，并在终端执行。
 
 ```sh
-npx add-skill https://github.com/ecomfe/tempad-dev/tree/main/skill --skill implementing-figma-ui-tempad-dev
+npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill
 ```
 
 ### MCP 连接状态

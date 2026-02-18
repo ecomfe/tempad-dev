@@ -227,10 +227,10 @@ TemPad Dev ships an [MCP](https://modelcontextprotocol.io/) server so agents/IDE
 
 ### Agent skill
 
-Install the TemPad Dev skill for best results when paired with MCP so coding agents can translate selections into repo-ready UI. Install via [add-skill](https://www.npmjs.com/package/add-skill); in Preferences → MCP server, click the copy icon next to Agent skill to copy the command, then run it in your terminal.
+Install the TemPad Dev skill for best results when paired with MCP so coding agents can translate selections into repo-ready UI. In Preferences → MCP server, click the copy icon next to Agent skill to copy the command, then run it in your terminal.
 
 ```sh
-npx add-skill https://github.com/ecomfe/tempad-dev/tree/main/skill --skill implementing-figma-ui-tempad-dev
+npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill
 ```
 
 ### MCP connection status

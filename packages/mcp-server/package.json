@@ -45,6 +45,7 @@
     "@types/ws": "^8.5.12",
     "tsdown": "^0.20.0",
     "typescript": "^5.9.3",
-    "unplugin-raw": "^0.6.3"
+    "unplugin-raw": "^0.6.3",
+    "vitest": "4.0.18"
   }
 }
