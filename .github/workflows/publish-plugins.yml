@@ -34,4 +34,5 @@ jobs:
         run: pnpm install --frozen-lockfile --filter @tempad-dev/plugins...
 
       - name: Publish
-        run: cd packages/plugins && npm publish --provenance --access public
+        working-directory: packages/plugins
+        run: npm publish --access public

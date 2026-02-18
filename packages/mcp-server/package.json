@@ -2,6 +2,14 @@
   "name": "@tempad-dev/mcp",
   "version": "0.4.2",
   "description": "MCP server for TemPad Dev.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ecomfe/tempad-dev.git",
+    "directory": "packages/mcp-server"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": "dist/cli.mjs",
   "files": [
     "README.md",
