@@ -23,12 +23,11 @@
 
 - `get_code`：以 Tailwind 优先的 JSX/Vue 标记输出，并附带资源和变量引用。
 - `get_structure`：当前选中节点的层级/几何结构信息。
-- `get_screenshot`：PNG 截图，包含可下载的资源链接。
-- `tempad-assets` 资源模板（`asset://tempad/{hash}`），用于读取工具返回中引用的二进制资源。
 
 说明：
 
-- 资源是临时且与工具调用关联的；`resources/list` 故意保持为空，以避免跨会话/跨设计文件污染。请使用工具结果中的 `resource_link`，再通过 `resources/read`（或 HTTP 回退 URL）获取二进制内容。
+- 资源是临时且与工具调用关联的；图片/SVG 请直接使用工具结果中的 HTTP `asset.url` 下载。
+- MCP 不再暴露 `resources/list` / `resources/read` 用于 asset 内容读取。
 - HTTP 回退 URL 使用 `/assets/{hash}`，也可能带图片扩展名（例如 `/assets/{hash}.png`），两种形式都支持。
 
 ## 配置

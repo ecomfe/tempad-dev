@@ -1,23 +1,48 @@
 import type { GetCodeWarning } from '@tempad-dev/shared'
 
 const AUTO_LAYOUT_REGEX = /data-hint-auto-layout\s*=\s*["']?inferred["']?/i
+const DEFAULT_PAYLOAD_SHARE = 0.6
+const DEFAULT_CODE_TOKEN_BUDGET = 8000
+const DEFAULT_APPROX_BYTES_PER_TOKEN = 4
+const DEFAULT_TOKEN_HEADROOM = 0.75
+
+export type CodeBudget = {
+  maxCodeBytes: number
+  maxCodeChars: number
+  estimatedTokenBudget: number
+}
+
+export function resolveCodeBudget(maxPayloadBytes: number): CodeBudget {
+  const payloadByteBudget = Math.floor(maxPayloadBytes * DEFAULT_PAYLOAD_SHARE)
+  const estimatedTokenBudget = Math.max(
+    1,
+    Math.floor(DEFAULT_CODE_TOKEN_BUDGET * DEFAULT_TOKEN_HEADROOM)
+  )
+  const tokenByteBudget = estimatedTokenBudget * DEFAULT_APPROX_BYTES_PER_TOKEN
+  const maxCodeBytes = Math.max(1, Math.min(payloadByteBudget, tokenByteBudget))
+  return {
+    maxCodeBytes,
+    maxCodeChars: maxCodeBytes,
+    estimatedTokenBudget
+  }
+}
 
 export function truncateCode(
   rawMarkup: string,
-  maxCodeChars: number
+  maxCodeBytes: number
 ): {
   code: string
   truncated: boolean
 } {
-  if (rawMarkup.length > maxCodeChars) {
-    return { code: rawMarkup.slice(0, maxCodeChars), truncated: true }
+  if (utf8ByteLength(rawMarkup) > maxCodeBytes) {
+    return { code: sliceByUtf8Bytes(rawMarkup, maxCodeBytes), truncated: true }
   }
   return { code: rawMarkup, truncated: false }
 }
 
 export function buildGetCodeWarnings(
   code: string,
-  maxCodeChars: number,
+  budget: CodeBudget,
   truncated: boolean,
   options?: {
     depthLimit?: number
@@ -29,8 +54,12 @@ export function buildGetCodeWarnings(
   if (truncated) {
     warnings.push({
       type: 'truncated',
-      message: `Output truncated to fit payload limit; showing first ${maxCodeChars} characters.`,
-      data: { maxCodeChars }
+      message: `Output truncated to fit token/context budget (~${budget.estimatedTokenBudget} tokens; max ${budget.maxCodeBytes} UTF-8 bytes).`,
+      data: {
+        maxCodeChars: budget.maxCodeChars,
+        maxCodeBytes: budget.maxCodeBytes,
+        estimatedTokenBudget: budget.estimatedTokenBudget
+      }
     })
   }
 
@@ -38,7 +67,7 @@ export function buildGetCodeWarnings(
     warnings.push({
       type: 'auto-layout',
       message:
-        'Detected data-hint-auto-layout=inferred; call get_structure and/or get_screenshot and use data-hint-id to locate nodes.'
+        'Detected data-hint-auto-layout=inferred; call get_structure and use data-hint-id to locate nodes.'
     })
   }
 
@@ -61,4 +90,38 @@ export function buildGetCodeWarnings(
   }
 
   return warnings.length ? warnings : undefined
+}
+
+function utf8ByteLength(input: string): number {
+  let bytes = 0
+  for (const ch of input) {
+    const codePoint = ch.codePointAt(0) ?? 0
+    if (codePoint <= 0x7f) {
+      bytes += 1
+    } else if (codePoint <= 0x7ff) {
+      bytes += 2
+    } else if (codePoint <= 0xffff) {
+      bytes += 3
+    } else {
+      bytes += 4
+    }
+  }
+  return bytes
+}
+
+function sliceByUtf8Bytes(input: string, maxBytes: number): string {
+  if (maxBytes <= 0 || !input.length) return ''
+
+  let bytes = 0
+  let endIndex = 0
+
+  for (const ch of input) {
+    const codePoint = ch.codePointAt(0) ?? 0
+    const nextBytes = codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
+    if (bytes + nextBytes > maxBytes) break
+    bytes += nextBytes
+    endIndex += ch.length
+  }
+
+  return input.slice(0, endIndex)
 }

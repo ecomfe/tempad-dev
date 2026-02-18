@@ -4,6 +4,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { stripFallback } from '@/utils/css'
 
+import { truncateCode } from '../messages'
 import { createTokenMatcher, extractTokenNames } from './extract'
 import { rewriteTokenNamesInCode, filterBridge } from './rewrite'
 import { buildSourceNameIndex } from './source-index'
@@ -13,7 +14,7 @@ import { buildUsedTokens } from './used'
 type ProcessTokensInput = {
   code: string
   truncated: boolean
-  maxChars: number
+  maxBytes: number
   variableIds: Set<string>
   usedCandidateIds: Set<string>
   variableCache: Map<string, Variable | null>
@@ -38,7 +39,7 @@ type ProcessTokensResult = {
 export async function processTokens({
   code: inputCode,
   truncated: inputTruncated,
-  maxChars,
+  maxBytes,
   variableIds,
   usedCandidateIds,
   variableCache,
@@ -88,10 +89,9 @@ export async function processTokens({
 
   if (hasRenames) {
     code = rewriteTokenNamesInCode(code, rewriteMap)
-    if (code.length > maxChars) {
-      code = code.slice(0, maxChars)
-      truncated = true
-    }
+    const rewritten = truncateCode(code, maxBytes)
+    code = rewritten.code
+    truncated = truncated || rewritten.truncated
   }
 
   let usedNamesFinal = usedNamesRaw

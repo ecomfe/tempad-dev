@@ -13,19 +13,16 @@ import type {
 import type { RawData } from 'ws'
 import type { ZodType } from 'zod'
 
-import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   GetAssetsResultSchema,
-  MCP_ASSET_RESOURCE_NAME,
-  MCP_ASSET_URI_PREFIX,
-  MCP_ASSET_URI_TEMPLATE,
   MessageFromExtensionSchema,
   TEMPAD_MCP_ERROR_CODES,
   type TempadMcpErrorCode
 } from '@tempad-dev/shared'
 import { nanoid } from 'nanoid'
-import { existsSync, rmSync, chmodSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, rmSync, chmodSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { WebSocketServer } from 'ws'
 
@@ -150,32 +147,7 @@ function getToolDefinition<Name extends ToolName>(name: Name): ToolDefinitionByN
 const assetStore = createAssetStore()
 const assetHttpServer = createAssetHttpServer(assetStore)
 await assetHttpServer.start()
-registerAssetResources()
 scheduleAssetCleanup()
-
-function registerAssetResources(): void {
-  const template = new ResourceTemplate(MCP_ASSET_URI_TEMPLATE, {
-    list: async () => ({
-      // Intentionally keep resources/list empty: assets are ephemeral, tool-linked blobs.
-      // Resource discovery would leak across sessions/design files and add UI noise.
-      // Hosts should use resource_link from tool responses to access assets on demand.
-      resources: []
-    })
-  })
-
-  mcp.registerResource(
-    MCP_ASSET_RESOURCE_NAME,
-    template,
-    {
-      description:
-        'Exported PNG/SVG assets which can serve as screenshots or be referenced in code output.'
-    },
-    async (_uri, variables) => {
-      const hash = typeof variables.hash === 'string' ? variables.hash : ''
-      return readAssetResource(hash)
-    }
-  )
-}
 
 function scheduleAssetCleanup(): void {
   if (assetTtlMs <= 0) {
@@ -188,10 +160,7 @@ function scheduleAssetCleanup(): void {
     pruneExpiredAssets(assetTtlMs)
   }, intervalMs)
   unrefTimer(timer)
-  log.info(
-    { ttlMs: assetTtlMs, intervalMs },
-    'Asset TTL cleanup enabled (list remains empty; assets are tool-linked).'
-  )
+  log.info({ ttlMs: assetTtlMs, intervalMs }, 'Asset TTL cleanup enabled.')
 }
 
 function pruneExpiredAssets(ttlMs: number): void {
@@ -210,68 +179,6 @@ function pruneExpiredAssets(ttlMs: number): void {
   log.info({ checked, removed, ttlMs }, 'Asset TTL sweep completed.')
 }
 
-async function readAssetResource(hash: string) {
-  if (!hash) {
-    throw new Error('Missing asset hash in resource URI.')
-  }
-  const record = assetStore.get(hash)
-  if (!record) {
-    throw new Error(`Asset ${hash} not found.`)
-  }
-
-  if (!existsSync(record.filePath)) {
-    assetStore.remove(hash, { removeFile: false })
-    throw new Error(`Asset ${hash} file is missing.`)
-  }
-
-  const stat = statSync(record.filePath)
-  // Base64 encoding increases size by ~33% (4 bytes for every 3 bytes)
-  const estimatedSize = Math.ceil(stat.size / 3) * 4
-  if (estimatedSize > maxPayloadBytes) {
-    throw new Error(
-      `Asset ${hash} is too large (${formatBytes(stat.size)}, encoded: ${formatBytes(estimatedSize)}) to read via MCP protocol. Use HTTP download.`
-    )
-  }
-
-  assetStore.touch(hash)
-  const buffer = readFileSync(record.filePath)
-  const resourceUri = buildAssetResourceUri(hash)
-
-  if (isTextualMime(record.mimeType)) {
-    return {
-      contents: [
-        {
-          uri: resourceUri,
-          mimeType: record.mimeType,
-          text: buffer.toString('utf8')
-        }
-      ]
-    }
-  }
-
-  return {
-    contents: [
-      {
-        uri: resourceUri,
-        mimeType: record.mimeType,
-        blob: buffer.toString('base64')
-      }
-    ]
-  }
-}
-
-function isTextualMime(mimeType: string): boolean {
-  return mimeType === 'image/svg+xml' || mimeType.startsWith('text/')
-}
-
-function buildAssetResourceUri(hash: string): string {
-  return `${MCP_ASSET_URI_PREFIX}${hash}`
-}
-
-function formatAssetResourceName(hash: string): string {
-  return `asset:${hash.slice(0, 8)}`
-}
-
 function buildAssetDescriptor(record: AssetRecord): AssetDescriptor {
   const filename = buildAssetFilename(record.hash, record.mimeType)
   return {
@@ -279,24 +186,9 @@ function buildAssetDescriptor(record: AssetRecord): AssetDescriptor {
     url: `${assetHttpServer.getBaseUrl()}/assets/${filename}`,
     mimeType: record.mimeType,
     size: record.size,
-    resourceUri: buildAssetResourceUri(record.hash),
     width: record.metadata?.width,
     height: record.metadata?.height
   }
-}
-
-function createAssetResourceLinkBlock(asset: AssetDescriptor) {
-  return {
-    type: 'resource_link' as const,
-    name: formatAssetResourceName(asset.hash),
-    uri: asset.resourceUri,
-    mimeType: asset.mimeType,
-    description: `${describeAsset(asset)} - Download: ${asset.url}`
-  }
-}
-
-function describeAsset(asset: AssetDescriptor): string {
-  return `${asset.mimeType} (${formatBytes(asset.size)})`
 }
 
 function registerTools(): void {
@@ -450,16 +342,13 @@ async function handleGetAssets({ hashes }: GetAssetsParametersInput): Promise<To
   if (payload.missing.length) {
     summary.push(`Missing: ${payload.missing.join(', ')}`)
   }
-  summary.push(
-    'Use resources/read with each resourceUri or fetch the fallback URL to download bytes.'
-  )
+  summary.push('Download bytes from each asset.url.')
 
   const content = [
     {
       type: 'text' as const,
       text: summary.join('\n')
-    },
-    ...payload.assets.map((asset) => createAssetResourceLinkBlock(asset))
+    }
   ]
 
   return {
@@ -530,12 +419,6 @@ function rawDataToBuffer(raw: RawData): Buffer {
   if (Buffer.isBuffer(raw)) return raw
   if (raw instanceof ArrayBuffer) return Buffer.from(raw)
   return Buffer.concat(raw)
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function shutdown(): void {

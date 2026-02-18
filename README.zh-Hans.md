@@ -193,8 +193,7 @@ TemPad Dev 内置了一个 [MCP](https://modelcontextprotocol.io/) 服务器，�
 
 - `get_code`：默认输出高保真的 JSX/Vue + TailwindCSS 代码，同时包含相关资源以及使用的 codegen 预设和配置。
 - `get_structure`：当前选中节点的结构信息（id、类型、几何数据）。
-- `get_screenshot`：PNG 截图，包含 `resourceUri` 以及可直接下载的 HTTP URL。
-- `tempad-assets` 资源模板（`asset://tempad/{hash}`），用于访问上述工具返回的二进制资源。
+- 二进制资源会通过工具响应中的元数据 + HTTP 下载地址（`asset.url`）提供；MCP 不再暴露 asset 资源模板。
 
 ### 配置指南
 

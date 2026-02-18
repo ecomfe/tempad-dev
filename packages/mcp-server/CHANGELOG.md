@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2
+
+- Updated default tool exposure so `get_screenshot` is no longer listed in normal MCP tool discovery.
+- Updated asset guidance to URL-first downloads via `asset.url` for image and SVG bytes.
+- Removed asset retrieval through MCP `resources/read` and aligned tool summaries with the URL-first asset flow.
+
 ## 0.4.1
 
 - Fixed deps for shared utils package and moved it to devDependencies.

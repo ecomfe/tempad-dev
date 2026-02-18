@@ -33,8 +33,7 @@ describe('mcp/tools/screenshot', () => {
       hash: 'abcd1234',
       url: 'https://example.com/a.png',
       mimeType: 'image/png',
-      size: 1024,
-      resourceUri: 'asset://tempad/abcd1234'
+      size: 1024
     })
 
     const result = await handleGetScreenshot(node)
@@ -58,8 +57,7 @@ describe('mcp/tools/screenshot', () => {
         hash: 'abcd1234',
         url: 'https://example.com/a.png',
         mimeType: 'image/png',
-        size: 1024,
-        resourceUri: 'asset://tempad/abcd1234'
+        size: 1024
       }
     })
   })
@@ -77,8 +75,7 @@ describe('mcp/tools/screenshot', () => {
       hash: 'efgh5678',
       url: 'https://example.com/b.png',
       mimeType: 'image/png',
-      size: 2048,
-      resourceUri: 'asset://tempad/efgh5678'
+      size: 2048
     })
 
     const result = await handleGetScreenshot(node)

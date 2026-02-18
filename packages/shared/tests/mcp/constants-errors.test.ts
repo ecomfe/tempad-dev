@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MCP_ASSET_RESOURCE_NAME,
   MCP_ASSET_TTL_MS,
-  MCP_ASSET_URI_PREFIX,
-  MCP_ASSET_URI_TEMPLATE,
   MCP_HASH_HEX_LENGTH,
   MCP_HASH_PATTERN,
   MCP_MAX_ASSET_BYTES,
@@ -21,10 +18,7 @@ describe('mcp/constants', () => {
     expect(MCP_ASSET_TTL_MS).toBe(30 * 24 * 60 * 60 * 1000)
   })
 
-  it('exposes stable asset URI metadata and hash matcher', () => {
-    expect(MCP_ASSET_RESOURCE_NAME).toBe('tempad-assets')
-    expect(MCP_ASSET_URI_PREFIX).toBe('asset://tempad/')
-    expect(MCP_ASSET_URI_TEMPLATE).toBe('asset://tempad/{hash}')
+  it('exposes stable hash matcher metadata', () => {
     expect(MCP_HASH_HEX_LENGTH).toBe(8)
 
     expect(MCP_HASH_PATTERN.test('deadbeef')).toBe(true)

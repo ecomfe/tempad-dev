@@ -14,9 +14,5 @@ export const MCP_MAX_ASSET_BYTES = 8 * 1024 * 1024
 // Default asset TTL before cleanup (ms). Set to 0 to disable.
 export const MCP_ASSET_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
-export const MCP_ASSET_RESOURCE_NAME = 'tempad-assets'
-export const MCP_ASSET_URI_PREFIX = 'asset://tempad/'
-export const MCP_ASSET_URI_TEMPLATE = `${MCP_ASSET_URI_PREFIX}{hash}`
-
 export const MCP_HASH_HEX_LENGTH = 8
 export const MCP_HASH_PATTERN = new RegExp(`^[a-f0-9]{${MCP_HASH_HEX_LENGTH}}$`, 'i')

@@ -25,12 +25,11 @@ Supported tools/resources:
 
 - `get_code`: Tailwind-first JSX/Vue markup plus assets and token references.
 - `get_structure`: Hierarchy/geometry outline for the selection.
-- `get_screenshot`: PNG capture with a downloadable asset link.
-- `tempad-assets` resource template (`asset://tempad/{hash}`) for binaries referenced by tool responses.
 
 Notes:
 
-- Assets are ephemeral and tool-linked; `resources/list` is intentionally empty to avoid cross-session/design-file pollution. Use `resource_link` blocks from tool results and `resources/read` (or the HTTP fallback URL) to fetch bytes.
+- Assets are ephemeral and tool-linked; image/SVG bytes are downloaded via HTTP `asset.url` from tool results.
+- Asset resources are not exposed via MCP `resources/list`/`resources/read`.
 - The HTTP fallback URL uses `/assets/{hash}` and may include an image extension (for example `/assets/{hash}.png`). Both forms are accepted.
 
 ## Configuration

@@ -39,7 +39,7 @@ export async function replaceImageUrlsWithAssets(
     result[key] = result[key].replace(regex, () => {
       const asset = fills[Math.min(index, fills.length - 1)]
       index++
-      return `url('${asset.resourceUri}')`
+      return `url('${asset.url}')`
     })
   }
 

@@ -194,8 +194,7 @@ TemPad Dev ships an [MCP](https://modelcontextprotocol.io/) server so agents/IDE
 
 - `get_code`: High-fidelity JSX/Vue + TailwindCSS code output by default, plus attached assets and the codegen preset/config used.
 - `get_structure`: A structural outline (ids, types, geometry) for the current selection.
-- `get_screenshot`: A PNG capture with a `resourceUri` and direct HTTP download URL.
-- `tempad-assets` resource template (`asset://tempad/{hash}`) for any binaries returned by the tools above.
+- Binary assets are returned as metadata + HTTP download URLs (`asset.url`) in tool responses. Asset MCP resources are not exposed.
 
 ### Setup guide
 

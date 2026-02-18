@@ -6,6 +6,6 @@ Rules:
 
 - Never output any `data-hint-*` attributes from tool outputs (hints only).
 - If `get_code` warns `depth-cap`, call `get_code` again for each listed `nodeId` before implementing.
-- Use `get_structure` / `get_screenshot` only to resolve layout/overlap/masks/effects uncertainty. Screenshots are for visual verification only; do not derive numeric values from pixels.
+- Use `get_structure` only to resolve layout/overlap uncertainty; do not derive numeric values from images.
 - Tokens: `get_code.tokens` keys are canonical names (`--...`). Multi‑mode values use `${collectionName}:${modeName}`. Nodes may hint per-node overrides via `data-hint-variable-mode="Collection=Mode;..."`.
-- Assets: fetch bytes via `resources/read` using `resourceUri` when possible; fall back to `asset.url` for large blobs. Preserve SVG/vector assets exactly; never redraw vectors.
+- Assets: download bytes via `asset.url`. Asset resources are not exposed via MCP `resources/read`. Preserve SVG/vector assets exactly; never redraw vectors.

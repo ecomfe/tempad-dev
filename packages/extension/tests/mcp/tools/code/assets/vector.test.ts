@@ -48,7 +48,6 @@ describe('assets/vector', () => {
 
     const asset = {
       hash: 'asset-hash',
-      resourceUri: 'mcp-asset://hash',
       mimeType: 'image/svg+xml',
       url: 'http://assets.test/hash.svg',
       size: bytes.byteLength
@@ -63,7 +62,7 @@ describe('assets/vector', () => {
         width: '1rem',
         height: '2rem',
         viewBox: '0 0 16 32',
-        'data-resource-uri': 'mcp-asset://hash'
+        'data-asset-url': 'http://assets.test/hash.svg'
       }
     })
     expect(ensureAssetUploaded).toHaveBeenCalledWith(bytes, 'image/svg+xml', {

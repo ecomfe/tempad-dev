@@ -162,7 +162,6 @@ describe('assets/image', () => {
       const suffix = mimeType.replace('/', '-')
       return {
         hash: `asset-${suffix}`,
-        resourceUri: `asset://${suffix}`,
         url: `https://assets.local/${suffix}`,
         mimeType,
         size: 1
@@ -191,9 +190,9 @@ describe('assets/image', () => {
     const result = await replaceImageUrlsWithAssets(style, node, config, registry)
 
     expect(result.background).toBe(
-      "url('asset://image-png'), url('asset://image-jpeg'), url('asset://image-gif'), url('asset://image-webp'), url('asset://application-octet-stream'), url('asset://application-octet-stream'), linear-gradient(red, blue)"
+      "url('https://assets.local/image-png'), url('https://assets.local/image-jpeg'), url('https://assets.local/image-gif'), url('https://assets.local/image-webp'), url('https://assets.local/application-octet-stream'), url('https://assets.local/application-octet-stream'), linear-gradient(red, blue)"
     )
-    expect(result['background-image']).toBe("url('asset://image-png')")
+    expect(result['background-image']).toBe("url('https://assets.local/image-png')")
     expect(vi.mocked(ensureAssetUploaded).mock.calls.map((call) => call[1])).toEqual([
       'image/png',
       'image/jpeg',
@@ -217,7 +216,6 @@ describe('assets/image', () => {
     })
     vi.mocked(ensureAssetUploaded).mockResolvedValue({
       hash: 'asset-cache',
-      resourceUri: 'asset://cache',
       url: 'https://assets.local/cache',
       mimeType: 'image/png',
       size: 1
@@ -234,7 +232,7 @@ describe('assets/image', () => {
       new Map()
     )
 
-    expect(result.background).toBe("url('asset://cache')")
+    expect(result.background).toBe("url('https://assets.local/cache')")
     expect(getBytesAsync).toHaveBeenCalledTimes(1)
   })
 
@@ -244,7 +242,6 @@ describe('assets/image', () => {
     })
     vi.mocked(ensureAssetUploaded).mockResolvedValue({
       hash: 'asset-fallback',
-      resourceUri: 'asset://fallback',
       url: 'https://assets.local/fallback',
       mimeType: 'image/jpeg',
       size: 1
@@ -262,7 +259,7 @@ describe('assets/image', () => {
       new Map()
     )
 
-    expect(result.background).toBe("url('asset://fallback')")
+    expect(result.background).toBe("url('https://assets.local/fallback')")
     expect(logger.warn).toHaveBeenCalledWith(
       'Failed to process image fill asset, falling back to node export.'
     )

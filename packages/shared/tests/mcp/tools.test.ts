@@ -17,7 +17,6 @@ describe('mcp/tools AssetDescriptorSchema', () => {
       url: 'https://example.com/a.png',
       mimeType: 'image/png',
       size: 1024,
-      resourceUri: 'asset://tempad/deadbeef',
       width: 300,
       height: 200
     })
@@ -25,22 +24,12 @@ describe('mcp/tools AssetDescriptorSchema', () => {
     expect(parsed.success).toBe(true)
   })
 
-  it('rejects invalid resource uri or negative size', () => {
-    const invalidUri = AssetDescriptorSchema.safeParse({
-      hash: 'deadbeef',
-      url: 'https://example.com/a.png',
-      mimeType: 'image/png',
-      size: 1024,
-      resourceUri: 'asset://tempad/not-hex'
-    })
-    expect(invalidUri.success).toBe(false)
-
+  it('rejects negative size', () => {
     const invalidSize = AssetDescriptorSchema.safeParse({
       hash: 'deadbeef',
       url: 'https://example.com/a.png',
       mimeType: 'image/png',
-      size: -1,
-      resourceUri: 'asset://tempad/deadbeef'
+      size: -1
     })
     expect(invalidSize.success).toBe(false)
   })
@@ -123,8 +112,7 @@ describe('mcp/tools parameter schemas', () => {
             hash: 'deadbeef',
             url: 'https://example.com/a.png',
             mimeType: 'image/png',
-            size: 10,
-            resourceUri: 'asset://tempad/deadbeef'
+            size: 10
           }
         ],
         missing: ['beefcafe']

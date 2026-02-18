@@ -45,7 +45,7 @@ const CONFIG: CodegenConfig = {
 const baseInput = () => ({
   code: 'const a = "/*fallback*/ var(--token)";',
   truncated: false,
-  maxChars: 20,
+  maxBytes: 20,
   variableIds: new Set<string>(['var-1']),
   usedCandidateIds: new Set<string>(),
   variableCache: new Map<string, Variable | null>(),

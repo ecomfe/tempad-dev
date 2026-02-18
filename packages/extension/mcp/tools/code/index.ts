@@ -19,7 +19,7 @@ import { buildVariableMappings } from '../token/mapping'
 import { exportVectorAssets } from './assets/export'
 import { planAssets } from './assets/plan'
 import { collectNodeData } from './collect'
-import { buildGetCodeWarnings, truncateCode } from './messages'
+import { buildGetCodeWarnings, resolveCodeBudget, truncateCode } from './messages'
 import { renderTree } from './render'
 import { resolvePluginComponent } from './render/plugin'
 import { buildLayoutStyles, prepareStyles } from './styles'
@@ -140,7 +140,7 @@ export async function handleGetCode(
   })
 
   const rootTag = collected.nodes.get(rootId)?.tag
-  const MAX_CODE_CHARS = Math.floor(MCP_MAX_PAYLOAD_BYTES * 0.6)
+  const codeBudget = resolveCodeBudget(MCP_MAX_PAYLOAD_BYTES)
 
   const {
     code: rawCode,
@@ -152,7 +152,7 @@ export async function handleGetCode(
     ctx,
     rootTag,
     lang: preferredLang,
-    maxChars: MAX_CODE_CHARS,
+    maxBytes: codeBudget.maxCodeBytes,
     trace: { now, stamp }
   })
 
@@ -170,7 +170,7 @@ export async function handleGetCode(
   } = await processTokens({
     code,
     truncated,
-    maxChars: MAX_CODE_CHARS,
+    maxBytes: codeBudget.maxCodeBytes,
     variableIds: mappings.variableIds,
     usedCandidateIds,
     variableCache,
@@ -201,7 +201,7 @@ export async function handleGetCode(
         plan,
         rootTag,
         lang: resolvedLang,
-        maxChars: MAX_CODE_CHARS,
+        maxBytes: codeBudget.maxCodeBytes,
         sourceIndex,
         variableCache,
         config,
@@ -216,7 +216,7 @@ export async function handleGetCode(
     stamp('tokens:resolve', t)
   }
 
-  const warnings = buildGetCodeWarnings(outputCode, MAX_CODE_CHARS, outputTruncated, {
+  const warnings = buildGetCodeWarnings(outputCode, codeBudget, outputTruncated, {
     depthLimit: tree.stats.depthLimit,
     cappedNodeIds: tree.stats.cappedNodeIds
   })
@@ -252,7 +252,7 @@ async function renderResolvedTokens({
   plan,
   rootTag,
   lang,
-  maxChars,
+  maxBytes,
   sourceIndex,
   variableCache,
   config,
@@ -269,7 +269,7 @@ async function renderResolvedTokens({
   plan: { vectorRoots: Set<string> }
   rootTag?: string
   lang: CodeLanguage
-  maxChars: number
+  maxBytes: number
   sourceIndex: Map<string, string>
   variableCache: Map<string, Variable | null>
   config: CodegenConfig
@@ -301,7 +301,7 @@ async function renderResolvedTokens({
     ctx: resolvedCtx,
     rootTag,
     lang,
-    maxChars,
+    maxBytes,
     transform: simplifyColorMixToRgba
   })
 }
@@ -435,7 +435,7 @@ async function renderCode({
   ctx,
   rootTag,
   lang,
-  maxChars,
+  maxBytes,
   transform,
   trace
 }: {
@@ -444,7 +444,7 @@ async function renderCode({
   ctx: RenderContext
   rootTag?: string
   lang?: CodeLanguage
-  maxChars: number
+  maxBytes: number
   transform?: (markup: string) => string
   trace?: { now: () => number; stamp: (label: string, start: number) => void }
 }): Promise<{ code: string; truncated: boolean; lang: CodeLanguage }> {
@@ -463,7 +463,7 @@ async function renderCode({
 
   t = clock ? clock() : 0
   const output = transform ? transform(markup) : markup
-  const result = truncateCode(output, maxChars)
+  const result = truncateCode(output, maxBytes)
   if (trace && clock) trace.stamp('truncate', t)
   return { ...result, lang: resolvedLang }
 }
