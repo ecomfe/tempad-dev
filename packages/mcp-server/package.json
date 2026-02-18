@@ -7,9 +7,6 @@
     "url": "git+https://github.com/ecomfe/tempad-dev.git",
     "directory": "packages/mcp-server"
   },
-  "publishConfig": {
-    "access": "public"
-  },
   "bin": "dist/cli.mjs",
   "files": [
     "README.md",
@@ -17,6 +14,9 @@
   ],
   "type": "module",
   "main": "dist/cli.mjs",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
