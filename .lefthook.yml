@@ -9,5 +9,5 @@ pre-commit:
       stage_fixed: true
     format:
       glob: '*.{ts,js,mjs,cjs,cts,mts,json,md,yml,yaml,vue}'
-      run: pnpm exec prettier --write {staged_files}
+      run: pnpm exec oxfmt --ignore-path ./.gitignore {staged_files}
       stage_fixed: true

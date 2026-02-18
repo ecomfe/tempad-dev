@@ -7,9 +7,6 @@
     "url": "git+https://github.com/ecomfe/tempad-dev.git",
     "directory": "packages/plugins"
   },
-  "publishConfig": {
-    "access": "public"
-  },
   "files": [
     "dist",
     "README.md"
@@ -22,6 +19,9 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsdown",
