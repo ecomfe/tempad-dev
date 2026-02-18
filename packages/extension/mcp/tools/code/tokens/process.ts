@@ -4,7 +4,9 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { stripFallback } from '@/utils/css'
 
-import { truncateCode } from '../messages'
+import type { CodeBudget } from '../messages'
+
+import { assertCodeWithinBudget } from '../messages'
 import { createTokenMatcher, extractTokenNames } from './extract'
 import { rewriteTokenNamesInCode, filterBridge } from './rewrite'
 import { buildSourceNameIndex } from './source-index'
@@ -13,8 +15,7 @@ import { buildUsedTokens } from './used'
 
 type ProcessTokensInput = {
   code: string
-  truncated: boolean
-  maxBytes: number
+  budget: CodeBudget
   variableIds: Set<string>
   usedCandidateIds: Set<string>
   variableCache: Map<string, Variable | null>
@@ -29,7 +30,6 @@ type ProcessTokensInput = {
 
 type ProcessTokensResult = {
   code: string
-  truncated: boolean
   tokensByCanonical: GetTokenDefsResult
   sourceIndex: Map<string, string>
   tokenMatcher?: (value: string) => boolean
@@ -38,8 +38,7 @@ type ProcessTokensResult = {
 
 export async function processTokens({
   code: inputCode,
-  truncated: inputTruncated,
-  maxBytes,
+  budget,
   variableIds,
   usedCandidateIds,
   variableCache,
@@ -53,7 +52,6 @@ export async function processTokens({
 }: ProcessTokensInput): Promise<ProcessTokensResult> {
   const clock = now ?? (() => Date.now())
   let code = stripFallback(inputCode)
-  let truncated = inputTruncated
 
   const candidateIds = usedCandidateIds.size
     ? new Set<string>([...variableIds, ...usedCandidateIds])
@@ -62,7 +60,6 @@ export async function processTokens({
   const sourceNames = new Set(sourceIndex.keys())
   const emptyResult = () => ({
     code,
-    truncated,
     tokensByCanonical: {},
     sourceIndex
   })
@@ -89,9 +86,7 @@ export async function processTokens({
 
   if (hasRenames) {
     code = rewriteTokenNamesInCode(code, rewriteMap)
-    const rewritten = truncateCode(code, maxBytes)
-    code = rewritten.code
-    truncated = truncated || rewritten.truncated
+    assertCodeWithinBudget(code, budget)
   }
 
   let usedNamesFinal = usedNamesRaw
@@ -130,7 +125,6 @@ export async function processTokens({
 
   return {
     code,
-    truncated,
     tokensByCanonical,
     sourceIndex,
     tokenMatcher,

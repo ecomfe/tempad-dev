@@ -3,6 +3,7 @@
 ## 0.17.2
 
 - Updated the Agent skill install shortcut command to `npx skills add <skill-url>` in MCP preferences.
+- Updated MCP `get_code` size handling to fail fast with guidance when output exceeds budget, instead of returning truncated code.
 - Improved MCP `get_code` stability for larger selections to reduce truncated outputs in agent clients.
 - Simplified MCP `get_structure` output so hierarchy and geometry are easier to consume with lower context overhead.
 - Updated MCP asset references in generated output to use direct `asset.url` downloads.

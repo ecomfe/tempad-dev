@@ -10,6 +10,7 @@ import { stringifyComponent } from '@/utils/component'
 import { simplifyColorMixToRgba } from '@/utils/css'
 import { logger } from '@/utils/log'
 
+import type { CodeBudget } from './messages'
 import type { VisibleTree } from './model'
 import type { CodeLanguage, RenderContext } from './render'
 import type { PluginComponent } from './render/plugin'
@@ -19,7 +20,7 @@ import { buildVariableMappings } from '../token/mapping'
 import { exportVectorAssets } from './assets/export'
 import { planAssets } from './assets/plan'
 import { collectNodeData } from './collect'
-import { buildGetCodeWarnings, resolveCodeBudget, truncateCode } from './messages'
+import { assertCodeWithinBudget, buildGetCodeWarnings, resolveCodeBudget } from './messages'
 import { renderTree } from './render'
 import { resolvePluginComponent } from './render/plugin'
 import { buildLayoutStyles, prepareStyles } from './styles'
@@ -142,35 +143,28 @@ export async function handleGetCode(
   const rootTag = collected.nodes.get(rootId)?.tag
   const codeBudget = resolveCodeBudget(MCP_MAX_PAYLOAD_BYTES)
 
-  const {
-    code: rawCode,
-    truncated: rawTruncated,
-    lang: resolvedLang
-  } = await renderCode({
+  const { code: rawCode, lang: resolvedLang } = await renderCode({
     rootId,
     tree,
     ctx,
     rootTag,
     lang: preferredLang,
-    maxBytes: codeBudget.maxCodeBytes,
+    budget: codeBudget,
     trace: { now, stamp }
   })
 
   let code = rawCode
-  let truncated = rawTruncated
 
   // Token pipeline: detect -> transform -> rewrite -> detect
   const {
     code: rewrittenCode,
-    truncated: rewrittenTruncated,
     tokensByCanonical,
     sourceIndex,
     tokenMatcher,
     resolveNodeIds
   } = await processTokens({
     code,
-    truncated,
-    maxBytes: codeBudget.maxCodeBytes,
+    budget: codeBudget,
     variableIds: mappings.variableIds,
     usedCandidateIds,
     variableCache,
@@ -184,10 +178,8 @@ export async function handleGetCode(
   })
 
   code = rewrittenCode
-  truncated = rewrittenTruncated
 
   let outputCode = code
-  let outputTruncated = truncated
   if (resolveTokens && Object.keys(tokensByCanonical).length) {
     t = now()
     const hasTargetNodes = resolveNodeIds ? resolveNodeIds.size > 0 : true
@@ -201,7 +193,7 @@ export async function handleGetCode(
         plan,
         rootTag,
         lang: resolvedLang,
-        maxBytes: codeBudget.maxCodeBytes,
+        budget: codeBudget,
         sourceIndex,
         variableCache,
         config,
@@ -210,13 +202,12 @@ export async function handleGetCode(
       })
       if (resolved) {
         outputCode = resolved.code
-        outputTruncated = resolved.truncated
       }
     }
     stamp('tokens:resolve', t)
   }
 
-  const warnings = buildGetCodeWarnings(outputCode, codeBudget, outputTruncated, {
+  const warnings = buildGetCodeWarnings(outputCode, {
     depthLimit: tree.stats.depthLimit,
     cappedNodeIds: tree.stats.cappedNodeIds
   })
@@ -252,7 +243,7 @@ async function renderResolvedTokens({
   plan,
   rootTag,
   lang,
-  maxBytes,
+  budget,
   sourceIndex,
   variableCache,
   config,
@@ -269,13 +260,13 @@ async function renderResolvedTokens({
   plan: { vectorRoots: Set<string> }
   rootTag?: string
   lang: CodeLanguage
-  maxBytes: number
+  budget: CodeBudget
   sourceIndex: Map<string, string>
   variableCache: Map<string, Variable | null>
   config: CodegenConfig
   resolveNodeIds?: Set<string>
   tokenMatcher?: (value: string) => boolean
-}): Promise<{ code: string; truncated: boolean } | null> {
+}): Promise<{ code: string } | null> {
   const resolveStyleVars = createStyleVarResolver(
     sourceIndex,
     variableCache,
@@ -301,7 +292,7 @@ async function renderResolvedTokens({
     ctx: resolvedCtx,
     rootTag,
     lang,
-    maxBytes,
+    budget,
     transform: simplifyColorMixToRgba
   })
 }
@@ -435,7 +426,7 @@ async function renderCode({
   ctx,
   rootTag,
   lang,
-  maxBytes,
+  budget,
   transform,
   trace
 }: {
@@ -444,10 +435,10 @@ async function renderCode({
   ctx: RenderContext
   rootTag?: string
   lang?: CodeLanguage
-  maxBytes: number
+  budget: CodeBudget
   transform?: (markup: string) => string
   trace?: { now: () => number; stamp: (label: string, start: number) => void }
-}): Promise<{ code: string; truncated: boolean; lang: CodeLanguage }> {
+}): Promise<{ code: string; lang: CodeLanguage }> {
   const clock = trace?.now
   let t = clock ? clock() : 0
   const rendered = await renderTree(rootId, tree, ctx)
@@ -463,9 +454,9 @@ async function renderCode({
 
   t = clock ? clock() : 0
   const output = transform ? transform(markup) : markup
-  const result = truncateCode(output, maxBytes)
-  if (trace && clock) trace.stamp('truncate', t)
-  return { ...result, lang: resolvedLang }
+  assertCodeWithinBudget(output, budget)
+  if (trace && clock) trace.stamp('budget-check', t)
+  return { code: output, lang: resolvedLang }
 }
 
 function createTrace() {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
+import { resolveCodeBudget } from '@/mcp/tools/code/messages'
 import { createTokenMatcher, extractTokenNames } from '@/mcp/tools/code/tokens/extract'
 import { processTokens } from '@/mcp/tools/code/tokens/process'
 import { filterBridge, rewriteTokenNamesInCode } from '@/mcp/tools/code/tokens/rewrite'
@@ -41,11 +42,15 @@ const CONFIG: CodegenConfig = {
   rootFontSize: 16,
   scale: 1
 }
+const BUDGET = {
+  ...resolveCodeBudget(1024 * 1024),
+  maxCodeBytes: 20,
+  maxCodeChars: 20
+}
 
 const baseInput = () => ({
   code: 'const a = "/*fallback*/ var(--token)";',
-  truncated: false,
-  maxBytes: 20,
+  budget: BUDGET,
   variableIds: new Set<string>(['var-1']),
   usedCandidateIds: new Set<string>(),
   variableCache: new Map<string, Variable | null>(),
@@ -67,7 +72,6 @@ describe('tokens/process processTokens', () => {
     expect(stripFallback).toHaveBeenCalled()
     expect(result).toEqual({
       code: 'const a = " var(--token)";',
-      truncated: false,
       tokensByCanonical: {},
       sourceIndex: new Map()
     })
@@ -85,7 +89,7 @@ describe('tokens/process processTokens', () => {
     expect(applyPluginTransformToNames).not.toHaveBeenCalled()
   })
 
-  it('rewrites and truncates code, then returns early when bridge becomes empty', async () => {
+  it('throws when rewritten code exceeds the output budget', async () => {
     vi.mocked(buildSourceNameIndex).mockReturnValue(new Map([['--token', 'var-1']]))
     vi.mocked(extractTokenNames).mockReturnValue(new Set(['--token']))
     vi.mocked(applyPluginTransformToNames).mockResolvedValue({
@@ -96,24 +100,23 @@ describe('tokens/process processTokens', () => {
     vi.mocked(filterBridge).mockReturnValue(new Map())
 
     const stamps: Array<string> = []
-    const result = await processTokens({
-      ...baseInput(),
-      stamp: (label) => {
-        stamps.push(label)
-      },
-      now: (() => {
-        let t = 0
-        return () => {
-          t += 1
-          return t
-        }
-      })()
-    })
+    await expect(
+      processTokens({
+        ...baseInput(),
+        stamp: (label) => {
+          stamps.push(label)
+        },
+        now: (() => {
+          let t = 0
+          return () => {
+            t += 1
+            return t
+          }
+        })()
+      })
+    ).rejects.toThrow('Output exceeds token/context budget')
 
-    expect(result.code).toBe('X'.repeat(20))
-    expect(result.truncated).toBe(true)
-    expect(result.tokensByCanonical).toEqual({})
-    expect(stamps).toEqual(['tokens:detect', 'tokens:rewrite'])
+    expect(stamps).toEqual(['tokens:detect'])
     expect(buildUsedTokens).not.toHaveBeenCalled()
   })
 
@@ -230,7 +233,6 @@ describe('tokens/process processTokens', () => {
     expect(mergedIds).toEqual(new Set(['var-1', 'var-2']))
     expect(stamps).toEqual(['tokens:detect', 'tokens:rewrite', 'tokens:used'])
     expect(result.code).toBe('short')
-    expect(result.truncated).toBe(false)
     expect(result.resolveNodeIds).toEqual(new Set(['node-a']))
   })
 })
