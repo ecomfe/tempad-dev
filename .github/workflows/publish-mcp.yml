@@ -32,5 +32,7 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --filter @tempad-dev/mcp...
+
       - name: Publish
-        run: cd packages/mcp-server && npm publish --provenance --access public
+        working-directory: packages/mcp-server
+        run: npm publish --access public

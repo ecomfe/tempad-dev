@@ -2,6 +2,14 @@
   "name": "@tempad-dev/plugins",
   "version": "0.6.1",
   "description": "Plugin utils for TemPad Dev.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ecomfe/tempad-dev.git",
+    "directory": "packages/plugins"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "dist",
     "README.md"
