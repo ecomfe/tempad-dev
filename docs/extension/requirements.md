@@ -37,8 +37,11 @@ This document records the source requirements and hard constraints for the MCP `
 ## Size and truncation
 
 - Total payload is constrained by `MCP_MAX_PAYLOAD_BYTES`.
-- The `code` field is limited to ~60% of that cap.
-- If truncated, add a warning and truncate the code string only.
+- The `code` field budget is the minimum of:
+  - ~60% of `MCP_MAX_PAYLOAD_BYTES` (transport safety), and
+  - a conservative estimated token budget (default ~6k effective tokens after headroom).
+- Token budget uses byte-based approximation (UTF-8 bytes per token heuristic) so truncation aligns better with model/tool context limits than raw character count.
+- If truncated, add a warning and truncate the code string only (do not truncate other fields).
 
 ## Layout and positioning
 

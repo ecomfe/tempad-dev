@@ -1,6 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type {
-  AssetDescriptor,
   GetScreenshotResult,
   TempadMcpErrorCode,
   ToolName,
@@ -81,7 +80,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_code',
     description:
-      'High-fidelity code snapshot for nodeId/current single selection (omit nodeId to use selection): JSX/Vue markup + Tailwind-like classes, plus assets/tokens metadata and codegen config. Start here, then refactor into repo conventions while preserving values/intent; strip any data-hint-* attributes (hints only). If warnings include depth-cap, call get_code again for each listed nodeId. If warnings include auto-layout (inferred), use get_structure/get_screenshot to confirm hierarchy/overlap (do not derive numeric values from pixels). Tokens are keyed by canonical names like `--color-primary` (multi-mode keys use `${collection}:${mode}`; node overrides may appear as data-hint-variable-mode).',
+      'High-fidelity code snapshot for nodeId/current single selection (omit nodeId to use selection): JSX/Vue markup + Tailwind-like classes, plus assets/tokens metadata and codegen config. Start here, then refactor into repo conventions while preserving values/intent; strip any data-hint-* attributes (hints only). If warnings include depth-cap, call get_code again for each listed nodeId. If warnings include auto-layout (inferred), use get_structure to confirm hierarchy/overlap (do not derive numeric values from pixels). Tokens are keyed by canonical names like `--color-primary` (multi-mode keys use `${collection}:${mode}`; node overrides may appear as data-hint-variable-mode).',
     parameters: GetCodeParametersSchema,
     target: 'extension',
     format: createCodeToolResponse
@@ -100,19 +99,20 @@ export const TOOL_DEFS = [
       'Capture a rendered PNG screenshot for nodeId/current single selection for visual verification (layering/overlap/masks/effects).',
     parameters: GetScreenshotParametersSchema,
     target: 'extension',
-    format: createScreenshotToolResponse
+    format: createScreenshotToolResponse,
+    exposed: false
   }),
   extTool({
     name: 'get_structure',
     description:
-      'Get a structural + geometry outline for nodeId/current single selection to understand hierarchy and layout intent.',
+      'Get a compact structural + geometry outline for nodeId/current single selection to understand hierarchy and layout intent.',
     parameters: GetStructureParametersSchema,
     target: 'extension'
   }),
   hubTool({
     name: 'get_assets',
     description:
-      'Resolve asset hashes to downloadable URLs/URIs for assets referenced by tool responses (preserve vectors exactly).',
+      'Resolve asset hashes to downloadable URLs and metadata for assets referenced by tool responses (preserve vectors exactly).',
     parameters: GetAssetsParametersSchema,
     target: 'hub',
     outputSchema: GetAssetsResultSchema,
@@ -213,7 +213,7 @@ export function createCodeToolResponse(payload: ToolResultMap['get_code']): Call
   }
   summary.push(
     payload.assets?.length
-      ? `Assets attached: ${payload.assets.length}. Fetch bytes via resources/read using resourceUri.`
+      ? `Assets attached: ${payload.assets.length}. Download bytes from each asset.url.`
       : 'No binary assets were attached to this response.'
   )
   const tokenCount = payload.tokens ? Object.keys(payload.tokens).length : 0
@@ -222,17 +222,12 @@ export function createCodeToolResponse(payload: ToolResultMap['get_code']): Call
   }
   summary.push('Read structuredContent for the full code string and asset metadata.')
 
-  const assetLinks = payload.assets?.length
-    ? payload.assets.map((asset) => createAssetResourceLinkBlock(asset))
-    : []
-
   return {
     content: [
       {
         type: 'text' as const,
         text: summary.join('\n')
-      },
-      ...assetLinks
+      }
     ],
     structuredContent: payload
   }
@@ -247,29 +242,12 @@ export function createScreenshotToolResponse(
 
   const descriptionBlock = {
     type: 'text' as const,
-    text: describeScreenshot(payload)
+    text: `${describeScreenshot(payload)} - Download: ${payload.asset.url}`
   }
 
   return {
-    content: [
-      descriptionBlock,
-      {
-        type: 'text' as const,
-        text: `![Screenshot](${payload.asset.url})`
-      },
-      createResourceLinkBlock(payload.asset, payload)
-    ],
+    content: [descriptionBlock],
     structuredContent: payload
-  }
-}
-
-function createResourceLinkBlock(asset: AssetDescriptor, result: GetScreenshotResult) {
-  return {
-    type: 'resource_link' as const,
-    name: 'Screenshot',
-    uri: asset.resourceUri,
-    mimeType: asset.mimeType,
-    description: `Screenshot ${result.width}x${result.height} @${result.scale}x - Download: ${asset.url}`
   }
 }
 
@@ -299,24 +277,6 @@ function isCodeResult(payload: unknown): payload is ToolResultMap['get_code'] {
     typeof candidate.lang === 'string' &&
     (candidate.assets === undefined || Array.isArray(candidate.assets))
   )
-}
-
-function createAssetResourceLinkBlock(asset: AssetDescriptor) {
-  return {
-    type: 'resource_link' as const,
-    name: formatAssetResourceName(asset.hash),
-    uri: asset.resourceUri,
-    mimeType: asset.mimeType,
-    description: `${describeAsset(asset)} - Download: ${asset.url}`
-  }
-}
-
-function describeAsset(asset: AssetDescriptor): string {
-  return `${asset.mimeType} (${formatBytes(asset.size)})`
-}
-
-function formatAssetResourceName(hash: string): string {
-  return `asset:${hash.slice(0, 8)}`
 }
 
 export function coercePayloadToToolResponse(payload: unknown): CallToolResult {

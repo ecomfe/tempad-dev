@@ -1,10 +1,6 @@
 import type { AssetDescriptor } from '@tempad-dev/shared'
 
-import {
-  MCP_ASSET_URI_PREFIX,
-  MCP_HASH_HEX_LENGTH,
-  TEMPAD_MCP_ERROR_CODES
-} from '@tempad-dev/shared'
+import { MCP_HASH_HEX_LENGTH, TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 
 import { logger } from '@/utils/log'
 
@@ -24,10 +20,6 @@ export function resetUploadedAssets(): void {
   // We don't clear the URL here as it might be needed for subsequent calls
 }
 
-export function buildAssetResourceUri(hash: string): string {
-  return `${MCP_ASSET_URI_PREFIX}${hash}`
-}
-
 export async function ensureAssetUploaded(
   bytes: Uint8Array,
   mimeType: string,
@@ -44,14 +36,12 @@ export async function ensureAssetUploaded(
   }
 
   const url = `${assetServerUrl}/assets/${hash}`
-  const resourceUri = buildAssetResourceUri(hash)
   const size = bytes.byteLength
 
   const descriptor: AssetDescriptor = {
     hash,
     mimeType,
     size,
-    resourceUri,
     url,
     ...metadata
   }

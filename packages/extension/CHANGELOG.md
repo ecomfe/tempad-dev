@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.2
+
+- Improved MCP `get_code` stability for larger selections to reduce truncated outputs in agent clients.
+- Simplified MCP `get_structure` output so hierarchy and geometry are easier to consume with lower context overhead.
+- Updated MCP asset references in generated output to use direct `asset.url` downloads.
+
 ## 0.17.1
 
 - Improved `get_code` output for masked icon/container structures so generated layout is closer to what you see in Figma.

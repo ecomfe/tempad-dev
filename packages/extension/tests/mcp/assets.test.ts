@@ -1,8 +1,4 @@
-import {
-  MCP_ASSET_URI_PREFIX,
-  MCP_HASH_HEX_LENGTH,
-  TEMPAD_MCP_ERROR_CODES
-} from '@tempad-dev/shared'
+import { MCP_HASH_HEX_LENGTH, TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/utils/log', () => ({
@@ -14,12 +10,7 @@ vi.mock('@/utils/log', () => ({
   }
 }))
 
-import {
-  buildAssetResourceUri,
-  ensureAssetUploaded,
-  resetUploadedAssets,
-  setAssetServerUrl
-} from '@/mcp/assets'
+import { ensureAssetUploaded, resetUploadedAssets, setAssetServerUrl } from '@/mcp/assets'
 
 const DIGEST_BYTES = new Uint8Array(Array.from({ length: 32 }, (_, index) => index))
 const DIGEST_HEX = Array.from(DIGEST_BYTES)
@@ -42,10 +33,6 @@ afterEach(() => {
 })
 
 describe('mcp/assets', () => {
-  it('builds resource URIs using the MCP asset prefix', () => {
-    expect(buildAssetResourceUri('deadbeef')).toBe(`${MCP_ASSET_URI_PREFIX}deadbeef`)
-  })
-
   it('throws when crypto digest is unavailable in current runtime', async () => {
     vi.stubGlobal('crypto', {} as Crypto)
     setAssetServerUrl('http://assets.local')
@@ -99,7 +86,6 @@ describe('mcp/assets', () => {
       hash: EXPECTED_HASH,
       mimeType: 'image/png',
       size: bytes.byteLength,
-      resourceUri: `${MCP_ASSET_URI_PREFIX}${EXPECTED_HASH}`,
       url: `http://assets.local/assets/${EXPECTED_HASH}`,
       width: 300,
       height: 200

@@ -45,7 +45,6 @@ describe('tools response helpers', () => {
           url: 'https://assets.example.com/a1b2c3d4.png',
           mimeType: 'image/png',
           size: 2048,
-          resourceUri: 'asset://tempad/a1b2c3d4',
           width: 20,
           height: 10
         }
@@ -59,13 +58,7 @@ describe('tools response helpers', () => {
     expect(summaryText).toContain('Depth capped.')
     expect(summaryText).toContain('Assets attached: 1')
     expect(summaryText).toContain('Token references included: 1')
-
-    const link = result.content[1]
-    expect(link).toMatchObject({
-      type: 'resource_link',
-      name: 'asset:a1b2c3d4',
-      uri: 'asset://tempad/a1b2c3d4'
-    })
+    expect(result.content).toHaveLength(1)
   })
 
   it('formats code tool responses with no assets', () => {
@@ -74,7 +67,7 @@ describe('tools response helpers', () => {
     expect(textContent(result.content[0])).toContain('No binary assets were attached')
   })
 
-  it('formats screenshot tool responses with markdown and resource link', () => {
+  it('formats screenshot tool responses with summary text only', () => {
     const payload: ToolResultMap['get_screenshot'] = {
       format: 'png',
       width: 100,
@@ -85,24 +78,16 @@ describe('tools response helpers', () => {
         hash: 'd4c3b2a1',
         url: 'https://assets.example.com/d4c3b2a1.png',
         mimeType: 'image/png',
-        size: 2 * 1024 * 1024,
-        resourceUri: 'asset://tempad/d4c3b2a1'
+        size: 2 * 1024 * 1024
       }
     }
 
     const result = createScreenshotToolResponse(payload)
     expect(result.structuredContent).toEqual(payload)
-    expect(textContent(result.content[0])).toBe('Screenshot 100x80 @2x (2.0 MB)')
-    expect(result.content[1]).toMatchObject({
-      type: 'text',
-      text: '![Screenshot](https://assets.example.com/d4c3b2a1.png)'
-    })
-    expect(result.content[2]).toMatchObject({
-      type: 'resource_link',
-      name: 'Screenshot',
-      uri: 'asset://tempad/d4c3b2a1',
-      mimeType: 'image/png'
-    })
+    expect(textContent(result.content[0])).toBe(
+      'Screenshot 100x80 @2x (2.0 MB) - Download: https://assets.example.com/d4c3b2a1.png'
+    )
+    expect(result.content).toHaveLength(1)
   })
 
   it('coerces payloads to MCP CallToolResult', () => {

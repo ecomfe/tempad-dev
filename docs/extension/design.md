@@ -49,7 +49,7 @@ This document describes the implementation design for MCP `get_code` in `package
    - When `resolveTokens` is true, resolve per-node (mode-aware) before Tailwind conversion.
 
 10. **Truncate and finalize output**
-    - Enforce payload size limits.
+    - Enforce payload size limits using a conservative token-aware byte budget.
     - Emit warnings only for truncation, inferred auto layout, and depth-cap.
     - If tree depth was capped, include a `depth-cap` warning with capped node ids.
 
@@ -149,6 +149,15 @@ This document describes the implementation design for MCP `get_code` in `package
 - Fatal: invalid selection, no renderable root, failure to build markup.
 - Non-fatal: CSS collection failure, text segment failures, export failure.
 - Warnings (output field): only truncation, inferred auto layout presence, and depth-cap.
+
+## Output budget strategy
+
+- `get_code` truncation uses a UTF-8 byte budget, not raw character count.
+- Effective code byte budget is:
+  - `min(MCP_MAX_PAYLOAD_BYTES * 0.6, estimatedTokenBudgetBytes)`
+  - where `estimatedTokenBudgetBytes` is derived from a conservative token heuristic and headroom.
+- This reduces upstream client/model truncation (for example `...tokens truncated...`) while keeping transport safety.
+- Token rewrite stage and final render stage share the same byte-budget truncator to keep behavior consistent.
 
 ## Performance notes
 

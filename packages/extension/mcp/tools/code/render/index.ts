@@ -64,11 +64,11 @@ async function renderNode(
       return raw(svgEntry.raw, mergedProps as Record<string, string> | undefined)
     }
 
-    const resourceUri = svgEntry.props?.['data-resource-uri']
-    if (resourceUri) {
+    const assetUrl = svgEntry.props?.['data-asset-url']
+    if (assetUrl) {
       const langHint = ctx.preferredLang ?? ctx.detectedLang
       const classAttr = classProp(langHint)
-      const imgProps: Record<string, string> = { src: resourceUri }
+      const imgProps: Record<string, string> = { src: assetUrl }
       if (svgEntry.props?.width) imgProps.width = String(svgEntry.props.width)
       if (svgEntry.props?.height) imgProps.height = String(svgEntry.props.height)
       if (classNames.length) imgProps[classAttr] = props[classAttr]

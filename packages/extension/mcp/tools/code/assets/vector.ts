@@ -35,7 +35,7 @@ export async function exportSvgEntry(
         height: Math.round(toDecimalPlace(node.height))
       })
       assetRegistry.set(asset.hash, asset)
-      baseProps['data-resource-uri'] = asset.resourceUri
+      baseProps['data-asset-url'] = asset.url
       return { props: baseProps }
     } catch (uploadError) {
       logger.warn('Failed to upload vector asset; inlining raw SVG.', uploadError)

@@ -1,7 +1,7 @@
 ---
 name: implementing-figma-ui-tempad-dev
 description: >-
-  Implement integration-ready UI code from a Figma selection or a provided nodeId using TemPad Dev MCP as the only source of design evidence (code snapshot, structure, screenshot, assets, tokens, codegen config). Detect the target repo stack and conventions first, then translate TemPad Dev’s Tailwind-like JSX/Vue IR into project-native code without adding new dependencies. Never guess key styles or measurements; avoid screenshot tuning loops. If required evidence is missing/contradictory or assets cannot be handled under repo policy, stop or ship a safe base with explicit warnings and omissions.
+  Implement integration-ready UI code from a Figma selection or a provided nodeId using TemPad Dev MCP as the only source of design evidence (code snapshot, structure, assets, tokens, codegen config). Detect the target repo stack and conventions first, then translate TemPad Dev’s Tailwind-like JSX/Vue IR into project-native code without adding new dependencies. Never guess key styles or measurements. If required evidence is missing/contradictory or assets cannot be handled under repo policy, stop or ship a safe base with explicit warnings and omissions.
 ---
 
 # TemPad Dev: Figma to UI implementation
@@ -16,7 +16,6 @@ Priority order:
 
 1. `tempad-dev:get_code` (authoritative: explicit values, layout intent, warnings, assets, tokens, codegen, lang)
 2. `tempad-dev:get_structure` (hierarchy, overlap, bounds clarification)
-3. `tempad-dev:get_screenshot` (visual cross-check only; never for measurement)
 
 Never invent: colors, typography (size/weight/line-height/letter-spacing), spacing, radius, borders, shadows, gradients, opacity/overlays, blur.
 
@@ -62,19 +61,17 @@ If warnings indicate missing/partial/uncertain evidence, act immediately:
 
 - `depth-cap`: call `get_code` once per listed subtree root `nodeId` and stitch results, OR narrow scope and list omitted parts.
 - `truncated`: narrow scope (smaller selection or key subtrees) and warn output is partial.
-- Layout/overlap/effects uncertainty: call `get_structure` and/or `get_screenshot` to resolve contradictions.
-  - Screenshots only confirm interpretation, never derive numeric values.
-  - If contradictions remain after structure/screenshot (or cannot be narrowed), stop.
+- Layout/overlap uncertainty: call `get_structure` to resolve contradictions.
+  - If contradictions remain after structure (or cannot be narrowed), stop.
 
 ### 4) Assets handling (only if `assets` exists)
 
 Follow repo asset policy first:
 
-- Preferred: fetch bytes via MCP `resources/read` using `resourceUri`, save into repo at policy-correct path, reference with repo conventions.
-- Fallback: if MCP cannot read due to size limits, use TemPad-provided `asset.url` to download and still store in repo (unless policy forbids).
+- Download bytes via TemPad-provided `asset.url`, save into repo at policy-correct path, reference with repo conventions.
 - If policy forbids storing assets, you may reference TemPad URLs but must warn output depends on the local TemPad asset server.
 
-Never download assets from the public internet. Only MCP-provided `resourceUri` or TemPad-provided `asset.url`.
+Never download assets from the public internet. Only TemPad-provided `asset.url`.
 
 ### 5) Tokens mapping (only if `tokens` exists)
 
@@ -128,7 +125,7 @@ Assume the repo’s existing CSS reset/normalize. Do not add new reset libraries
 Stop (do not ship code) when:
 
 - TemPad Dev MCP is unavailable/unauthorized, or target cannot be read
-- Evidence is contradictory and cannot be resolved via structure/screenshot or narrower scope
+- Evidence is contradictory and cannot be resolved via structure or narrower scope
 - Required assets cannot be retrieved/stored under repo policy
 
 Otherwise, ship the best-evidence base implementation and end with:

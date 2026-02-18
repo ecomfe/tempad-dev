@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildGetCodeWarnings, truncateCode } from '@/mcp/tools/code/messages'
+import { buildGetCodeWarnings, resolveCodeBudget, truncateCode } from '@/mcp/tools/code/messages'
 
 describe('mcp/code messages', () => {
   it('truncates markup when over size limit', () => {
@@ -16,9 +16,10 @@ describe('mcp/code messages', () => {
 
   it('builds warning list for truncation, auto-layout and depth cap', () => {
     const ids = Array.from({ length: 55 }, (_, i) => `n-${i % 10}`)
+    const budget = resolveCodeBudget(1024 * 1024)
     const warnings = buildGetCodeWarnings(
       '<div data-hint-auto-layout="inferred"></div>',
-      1024,
+      budget,
       true,
       {
         depthLimit: 3,
@@ -28,6 +29,9 @@ describe('mcp/code messages', () => {
 
     expect(warnings).toBeDefined()
     expect(warnings?.map((item) => item.type)).toEqual(['truncated', 'auto-layout', 'depth-cap'])
+    const autoLayout = warnings?.find((item) => item.type === 'auto-layout')
+    expect(autoLayout?.message).toContain('get_structure')
+    expect(autoLayout?.message).not.toContain('get_screenshot')
 
     const depthCap = warnings?.find((item) => item.type === 'depth-cap')
     expect(depthCap?.data).toEqual({
@@ -39,12 +43,14 @@ describe('mcp/code messages', () => {
   })
 
   it('returns undefined when no warning conditions are met', () => {
-    expect(buildGetCodeWarnings('<div />', 1000, false)).toBeUndefined()
+    expect(buildGetCodeWarnings('<div />', resolveCodeBudget(1000), false)).toBeUndefined()
   })
 
   it('marks depth cap overflow and truncates id list to max 50', () => {
     const ids = Array.from({ length: 60 }, (_, i) => `id-${i}`)
-    const warnings = buildGetCodeWarnings('<div />', 1000, false, { cappedNodeIds: ids })
+    const warnings = buildGetCodeWarnings('<div />', resolveCodeBudget(1000), false, {
+      cappedNodeIds: ids
+    })
     const depthCap = warnings?.find((item) => item.type === 'depth-cap')
     const data = depthCap?.data as
       | {

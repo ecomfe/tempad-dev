@@ -43,7 +43,7 @@ You are not responsible for:
 ## Project structure
 
 - `mcp/`
-  - `tools/`: MCP tool implementations (`get_code`, `get_structure`, `get_screenshot`, `token`).
+  - `tools/`: MCP tool implementations (`get_code`, `get_structure`, `get_screenshot` internal, `token`).
   - `runtime.ts`: tool routing + validation.
   - `assets.ts`: asset upload integration.
 - `codegen/` + `components/` + `utils/`:
@@ -88,6 +88,7 @@ Do not reuse UI codegen logic for MCP without a clear reason.
 
 - MCP get_code requirements: `docs/extension/requirements.md`
 - MCP get_code design: `docs/extension/design.md`
+- MCP context/output strategy: `docs/extension/mcp-context-strategy.md`
 - Testing guide: `TESTING.md`
 - Testing architecture and coverage model: `docs/testing/architecture.md`
 

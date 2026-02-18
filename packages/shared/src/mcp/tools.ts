@@ -2,20 +2,13 @@ import type { ZodType } from 'zod'
 
 import { z } from 'zod'
 
-import { MCP_ASSET_URI_PREFIX, MCP_HASH_HEX_LENGTH, MCP_HASH_PATTERN } from './constants'
-
-const REGEXP_SPECIAL_CHARS_RE = /[.*+?^${}()|[\]\\]/g
-const MCP_ASSET_RESOURCE_URI_PATTERN = new RegExp(
-  `^${MCP_ASSET_URI_PREFIX.replace(REGEXP_SPECIAL_CHARS_RE, '\\$&')}[a-f0-9]{${MCP_HASH_HEX_LENGTH}}$`,
-  'i'
-)
+import { MCP_HASH_PATTERN } from './constants'
 
 export const AssetDescriptorSchema = z.object({
   hash: z.string().min(1),
   url: z.string().url(),
   mimeType: z.string().min(1),
   size: z.number().int().nonnegative(),
-  resourceUri: z.string().regex(MCP_ASSET_RESOURCE_URI_PATTERN),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional()
 })
