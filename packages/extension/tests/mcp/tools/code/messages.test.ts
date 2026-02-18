@@ -1,34 +1,35 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildGetCodeWarnings, resolveCodeBudget, truncateCode } from '@/mcp/tools/code/messages'
+import { assertCodeWithinBudget, buildGetCodeWarnings } from '@/mcp/tools/code/messages'
 
 describe('mcp/code messages', () => {
-  it('truncates markup when over size limit', () => {
-    expect(truncateCode('<div>abc</div>', 8)).toEqual({
-      code: '<div>abc',
-      truncated: true
-    })
-    expect(truncateCode('<div>abc</div>', 20)).toEqual({
-      code: '<div>abc</div>',
-      truncated: false
-    })
+  it('throws when markup exceeds size budget', () => {
+    expect(() =>
+      assertCodeWithinBudget('<div>abc</div>', {
+        maxCodeBytes: 8,
+        maxCodeChars: 8,
+        estimatedTokenBudget: 2
+      })
+    ).toThrow('Output exceeds token/context budget')
+
+    expect(() =>
+      assertCodeWithinBudget('<div>abc</div>', {
+        maxCodeBytes: 20,
+        maxCodeChars: 20,
+        estimatedTokenBudget: 5
+      })
+    ).not.toThrow()
   })
 
-  it('builds warning list for truncation, auto-layout and depth cap', () => {
+  it('builds warning list for auto-layout and depth cap', () => {
     const ids = Array.from({ length: 55 }, (_, i) => `n-${i % 10}`)
-    const budget = resolveCodeBudget(1024 * 1024)
-    const warnings = buildGetCodeWarnings(
-      '<div data-hint-auto-layout="inferred"></div>',
-      budget,
-      true,
-      {
-        depthLimit: 3,
-        cappedNodeIds: ids
-      }
-    )
+    const warnings = buildGetCodeWarnings('<div data-hint-auto-layout="inferred"></div>', {
+      depthLimit: 3,
+      cappedNodeIds: ids
+    })
 
     expect(warnings).toBeDefined()
-    expect(warnings?.map((item) => item.type)).toEqual(['truncated', 'auto-layout', 'depth-cap'])
+    expect(warnings?.map((item) => item.type)).toEqual(['auto-layout', 'depth-cap'])
     const autoLayout = warnings?.find((item) => item.type === 'auto-layout')
     expect(autoLayout?.message).toContain('get_structure')
     expect(autoLayout?.message).not.toContain('get_screenshot')
@@ -43,12 +44,12 @@ describe('mcp/code messages', () => {
   })
 
   it('returns undefined when no warning conditions are met', () => {
-    expect(buildGetCodeWarnings('<div />', resolveCodeBudget(1000), false)).toBeUndefined()
+    expect(buildGetCodeWarnings('<div />')).toBeUndefined()
   })
 
   it('marks depth cap overflow and truncates id list to max 50', () => {
     const ids = Array.from({ length: 60 }, (_, i) => `id-${i}`)
-    const warnings = buildGetCodeWarnings('<div />', resolveCodeBudget(1000), false, {
+    const warnings = buildGetCodeWarnings('<div />', {
       cappedNodeIds: ids
     })
     const depthCap = warnings?.find((item) => item.type === 'depth-cap')

@@ -27,41 +27,23 @@ export function resolveCodeBudget(maxPayloadBytes: number): CodeBudget {
   }
 }
 
-export function truncateCode(
-  rawMarkup: string,
-  maxCodeBytes: number
-): {
-  code: string
-  truncated: boolean
-} {
-  if (utf8ByteLength(rawMarkup) > maxCodeBytes) {
-    return { code: sliceByUtf8Bytes(rawMarkup, maxCodeBytes), truncated: true }
-  }
-  return { code: rawMarkup, truncated: false }
+export function assertCodeWithinBudget(rawMarkup: string, budget: CodeBudget): void {
+  const size = utf8ByteLength(rawMarkup)
+  if (size <= budget.maxCodeBytes) return
+
+  throw new Error(
+    `Output exceeds token/context budget (~${budget.estimatedTokenBudget} tokens; max ${budget.maxCodeBytes} UTF-8 bytes). Reduce selection size and retry, or call get_code on a smaller nodeId subtree.`
+  )
 }
 
 export function buildGetCodeWarnings(
   code: string,
-  budget: CodeBudget,
-  truncated: boolean,
   options?: {
     depthLimit?: number
     cappedNodeIds?: string[]
   }
 ): GetCodeWarning[] | undefined {
   const warnings: GetCodeWarning[] = []
-
-  if (truncated) {
-    warnings.push({
-      type: 'truncated',
-      message: `Output truncated to fit token/context budget (~${budget.estimatedTokenBudget} tokens; max ${budget.maxCodeBytes} UTF-8 bytes).`,
-      data: {
-        maxCodeChars: budget.maxCodeChars,
-        maxCodeBytes: budget.maxCodeBytes,
-        estimatedTokenBudget: budget.estimatedTokenBudget
-      }
-    })
-  }
 
   if (AUTO_LAYOUT_REGEX.test(code)) {
     warnings.push({
@@ -107,21 +89,4 @@ function utf8ByteLength(input: string): number {
     }
   }
   return bytes
-}
-
-function sliceByUtf8Bytes(input: string, maxBytes: number): string {
-  if (maxBytes <= 0 || !input.length) return ''
-
-  let bytes = 0
-  let endIndex = 0
-
-  for (const ch of input) {
-    const codePoint = ch.codePointAt(0) ?? 0
-    const nextBytes = codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
-    if (bytes + nextBytes > maxBytes) break
-    bytes += nextBytes
-    endIndex += ch.length
-  }
-
-  return input.slice(0, endIndex)
 }

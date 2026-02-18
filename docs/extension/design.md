@@ -48,9 +48,10 @@ This document describes the implementation design for MCP `get_code` in `package
    - Build a single `tokens` map (direct + alias-chain tokens).
    - When `resolveTokens` is true, resolve per-node (mode-aware) before Tailwind conversion.
 
-10. **Truncate and finalize output**
-    - Enforce payload size limits using a conservative token-aware byte budget.
-    - Emit warnings only for truncation, inferred auto layout, and depth-cap.
+10. **Enforce budget and finalize output**
+    - Validate output size using a conservative token-aware UTF-8 byte budget.
+    - If over budget, fail fast with actionable guidance (no partial code output).
+    - Emit warnings only for inferred auto layout and depth-cap.
     - If tree depth was capped, include a `depth-cap` warning with capped node ids.
 
 ## Tree and layout semantics
@@ -148,22 +149,22 @@ This document describes the implementation design for MCP `get_code` in `package
 
 - Fatal: invalid selection, no renderable root, failure to build markup.
 - Non-fatal: CSS collection failure, text segment failures, export failure.
-- Warnings (output field): only truncation, inferred auto layout presence, and depth-cap.
+- Warnings (output field): only inferred auto layout presence and depth-cap.
 
 ## Output budget strategy
 
-- `get_code` truncation uses a UTF-8 byte budget, not raw character count.
+- `get_code` output uses a UTF-8 byte budget check, not raw character count.
 - Effective code byte budget is:
   - `min(MCP_MAX_PAYLOAD_BYTES * 0.6, estimatedTokenBudgetBytes)`
   - where `estimatedTokenBudgetBytes` is derived from a conservative token heuristic and headroom.
-- This reduces upstream client/model truncation (for example `...tokens truncated...`) while keeping transport safety.
-- Token rewrite stage and final render stage share the same byte-budget truncator to keep behavior consistent.
+- If the output exceeds budget at render or token-rewrite stages, the tool throws and asks clients to reduce selection scope.
+- Token rewrite stage and final render stage share the same byte-budget guard to keep behavior consistent.
 
 ## Performance notes
 
 - Single-pass CSS collection per node.
 - Asset export is planned and executed once.
-- Token detection is string-based and bounded by truncation.
+- Token detection is string-based and bounded by budget checks.
 - Token detection avoids a second scan after rewrites.
 - Skip CSS collection for vector-root descendants and plugin-rendered subtrees.
 - Variable candidate scan is limited to bound variables and paint references (not inferred variables).

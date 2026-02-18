@@ -32,16 +32,16 @@ This document records the source requirements and hard constraints for the MCP `
 - Optional fields (omit when empty):
   - `assets`: array of exported assets (image/vector).
   - `tokens`: one-layer map of token entries keyed by canonical token name.
-  - `warnings`: only for truncation, inferred auto layout, or depth-cap.
+  - `warnings`: only for inferred auto layout or depth-cap.
 
-## Size and truncation
+## Size and budget guard
 
 - Total payload is constrained by `MCP_MAX_PAYLOAD_BYTES`.
 - The `code` field budget is the minimum of:
   - ~60% of `MCP_MAX_PAYLOAD_BYTES` (transport safety), and
   - a conservative estimated token budget (default ~6k effective tokens after headroom).
-- Token budget uses byte-based approximation (UTF-8 bytes per token heuristic) so truncation aligns better with model/tool context limits than raw character count.
-- If truncated, add a warning and truncate the code string only (do not truncate other fields).
+- Token budget uses byte-based approximation (UTF-8 bytes per token heuristic) so budget checks align better with model/tool context limits than raw character count.
+- If output exceeds the code budget at any render/rewrite stage, throw a user-facing error (do not return partial code).
 
 ## Layout and positioning
 
@@ -142,7 +142,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 ## Logging
 
-- Only emit `warnings` for truncation, inferred auto layout, and depth-cap.
+- Only emit `warnings` for inferred auto layout and depth-cap.
 - Emit `depth-cap` warnings when tree depth is capped (include node ids).
 - Other degradations should be logged via the shared `logger` (prefix is automatic).
 - The tool may log high-level timing info via `logger.debug` for performance diagnostics.
