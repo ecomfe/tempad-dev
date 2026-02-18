@@ -105,8 +105,7 @@ const defaultConfig = JSON.stringify(
   null,
   2
 )
-const skillInstallCommand =
-  'npx add-skill https://github.com/ecomfe/tempad-dev/tree/main/skill --skill implementing-figma-ui-tempad-dev'
+const skillInstallCommand = 'npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill'
 const copyMessages = {
   command: 'Copied command to clipboard',
   config: 'Copied configuration to clipboard'
@@ -151,7 +150,7 @@ async function handleClientClick(client: McpClientDisplay) {
           <label>Agent skill</label>
           <IconButton
             variant="secondary"
-            title="Copy add-skill command"
+            title="Copy skills add command"
             class="tp-mcp-client-button tp-grid-end"
             @click="copy(skillInstallCommand, copyMessages.command)"
           >
