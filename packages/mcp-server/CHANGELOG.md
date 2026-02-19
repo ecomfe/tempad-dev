@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3
+
+- Improved failed tool call reporting with explicit MCP error codes in responses.
+- Improved troubleshooting for `get_code` and other tool failures with clearer diagnostics.
+
 ## 0.4.2
 
 - Updated default tool exposure so `get_screenshot` is no longer listed in normal MCP tool discovery.

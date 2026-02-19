@@ -146,6 +146,7 @@ function extractToolErrorMessage(error: unknown): string {
 function createToolErrorResponse(toolName: string, error: unknown): CallToolResult {
   const message = extractToolErrorMessage(error)
   const code = extractToolErrorCode(error)
+  const codeLabel = code ? ` [${code}]` : ''
 
   const troubleshooting = (() => {
     const help: string[] = []
@@ -184,10 +185,11 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
   })()
 
   return {
+    isError: true,
     content: [
       {
         type: 'text' as const,
-        text: `Tool "${toolName}" failed: ${message}${troubleshooting}`
+        text: `Tool "${toolName}" failed${codeLabel}: ${message}${troubleshooting}`
       }
     ]
   }

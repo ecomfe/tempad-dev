@@ -222,6 +222,7 @@ function registerProxiedTool<T extends ExtensionTool>(tool: T): void {
 
   const schema = tool.parameters
   const handler = async (args: unknown) => {
+    let requestId: string | undefined
     try {
       const parsedArgs = schema.parse(args)
       const activeExt = extensions.find((e) => e.active)
@@ -232,24 +233,37 @@ function registerProxiedTool<T extends ExtensionTool>(tool: T): void {
         )
       }
 
-      const { promise, requestId } = register<Result>(activeExt.id, toolTimeoutMs)
+      const registration = register<Result>(activeExt.id, toolTimeoutMs)
+      requestId = registration.requestId
 
       const message: ToolCallMessage = {
         type: 'toolCall',
-        id: requestId,
+        id: registration.requestId,
         payload: {
           name: tool.name,
           args: parsedArgs
         }
       }
       activeExt.ws.send(JSON.stringify(message))
-      log.info({ tool: tool.name, req: requestId, extId: activeExt.id }, 'Forwarded tool call.')
+      log.info(
+        { tool: tool.name, req: registration.requestId, extId: activeExt.id },
+        'Forwarded tool call.'
+      )
 
-      const payload = await promise
+      const payload = await registration.promise
       return createToolResponse(tool.name, payload)
     } catch (error) {
-      log.error({ tool: tool.name, error }, 'Tool invocation failed before reaching extension.')
-      return createToolErrorResponse(tool.name, error)
+      const normalized = coerceToolError(error)
+      log.error(
+        {
+          tool: tool.name,
+          req: requestId,
+          code: getRecordProperty(normalized, 'code'),
+          message: normalized.message
+        },
+        'Tool invocation failed.'
+      )
+      return createToolErrorResponse(tool.name, normalized)
     }
   }
 
@@ -577,7 +591,17 @@ wss.on('connection', (ws) => {
       case 'toolResult': {
         const { id, payload, error } = msg as ToolResultMessage
         if (error) {
-          reject(id, coerceToolError(error))
+          const normalized = coerceToolError(error)
+          log.warn(
+            {
+              toolReq: id,
+              extId: ext.id,
+              code: getRecordProperty(normalized, 'code'),
+              message: normalized.message
+            },
+            'Received tool error from extension.'
+          )
+          reject(id, normalized)
         } else {
           resolve(id, payload)
         }
