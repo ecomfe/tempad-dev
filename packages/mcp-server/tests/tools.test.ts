@@ -113,7 +113,9 @@ describe('tools response helpers', () => {
       message: 'No active TemPad Dev extension.'
     })
 
+    expect(connectivityError.isError).toBe(true)
     expect(textContent(connectivityError.content[0])).toContain('Tool "get_code" failed')
+    expect(textContent(connectivityError.content[0])).toContain('[NO_ACTIVE_EXTENSION]')
     expect(textContent(connectivityError.content[0])).toContain('Troubleshooting:')
     expect(textContent(connectivityError.content[0])).toContain('enable MCP')
 
@@ -121,9 +123,12 @@ describe('tools response helpers', () => {
       cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION },
       message: 'Select exactly one visible node.'
     })
+    expect(selectionError.isError).toBe(true)
+    expect(textContent(selectionError.content[0])).toContain('[INVALID_SELECTION]')
     expect(textContent(selectionError.content[0])).toContain('Tip: Select exactly one visible node')
 
     const unknownError = createToolErrorResponse('get_assets', 42)
+    expect(unknownError.isError).toBe(true)
     expect(textContent(unknownError.content[0])).toBe(
       'Tool "get_assets" failed: Unknown error occurred.'
     )
