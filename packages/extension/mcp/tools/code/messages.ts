@@ -29,8 +29,12 @@ export function assertCodeWithinBudget(rawMarkup: string, budget: CodeBudget): v
   const size = utf8ByteLength(rawMarkup)
   if (size <= budget.maxCodeBytes) return
 
+  const estimatedCurrentTokens = estimateTokensFromBytes(size)
+  const overBytes = size - budget.maxCodeBytes
+  const overTokens = Math.max(1, estimatedCurrentTokens - budget.estimatedTokenBudget)
+
   throw new Error(
-    `Output exceeds token/context budget (~${budget.estimatedTokenBudget} tokens; max ${budget.maxCodeBytes} UTF-8 bytes). Reduce selection size and retry, or call get_code on a smaller nodeId subtree.`
+    `Output exceeds token/context budget (current ~${estimatedCurrentTokens} tokens / ${size} UTF-8 bytes; limit ~${budget.estimatedTokenBudget} tokens / ${budget.maxCodeBytes} UTF-8 bytes; over by ~${overTokens} tokens / ${overBytes} bytes). Reduce selection size and retry, or call get_code on a smaller nodeId subtree.`
   )
 }
 
@@ -87,4 +91,8 @@ function utf8ByteLength(input: string): number {
     }
   }
   return bytes
+}
+
+function estimateTokensFromBytes(bytes: number): number {
+  return Math.max(1, Math.ceil(bytes / DEFAULT_APPROX_BYTES_PER_TOKEN))
 }

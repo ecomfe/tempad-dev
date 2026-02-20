@@ -2,6 +2,7 @@
 
 ## 0.17.2
 
+- Improved MCP `get_code` budget errors to include current usage and overage details for faster scope adjustment.
 - Updated the Agent skill install shortcut command to `npx skills add <skill-url>` in MCP preferences.
 - Renamed the bundled Agent skill to `figma-design-to-code`.
 - Updated MCP `get_code` size handling to fail fast with guidance when output exceeds budget, instead of returning truncated code.
