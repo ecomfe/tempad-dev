@@ -11,6 +11,19 @@ describe('mcp/code messages', () => {
       })
     ).toThrow('Output exceeds token/context budget')
 
+    let message = ''
+    try {
+      assertCodeWithinBudget('<div>abc</div>', {
+        maxCodeBytes: 8,
+        estimatedTokenBudget: 2
+      })
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+    expect(message).toContain('current ~')
+    expect(message).toContain('limit ~2 tokens / 8 UTF-8 bytes')
+    expect(message).toContain('over by ~')
+
     expect(() =>
       assertCodeWithinBudget('<div>abc</div>', {
         maxCodeBytes: 20,

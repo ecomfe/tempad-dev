@@ -21,6 +21,8 @@ Never invent: colors, typography (size/weight/line-height/letter-spacing), spaci
 
 Do not output `data-hint-*` attributes.
 
+Treat advanced/rare style output as high-confidence evidence from TemPad codegen. Preserve it unless it directly conflicts with repo constraints.
+
 ## Workflow
 
 ### 1) Detect repo conventions
@@ -59,10 +61,17 @@ Record as design facts:
 
 If warnings indicate missing/partial/uncertain evidence, act immediately:
 
-- `depth-cap`: call `get_code` once per listed subtree root `nodeId` and stitch results, OR narrow scope and list omitted parts.
-- output budget exceeded error: narrow scope (smaller selection or key subtrees), then retry `get_code`.
+- `depth-cap`: call `get_code` once per listed subtree root `nodeId` and stitch results before implementing.
+  - If warning data indicates overflow (for example `cappedNodeOverflow=true`), treat evidence as incomplete and stop full implementation. Ask for narrower scope or user-prioritized subtrees.
+- output budget exceeded error: pass a smaller subtree `nodeId` to narrow scope, then retry `get_code`.
+  - Always report current consumption, limit, and overage from the error text when asking for scope changes (for example `current ~7800 tokens / 31240 bytes; limit ~6000 tokens / 24000 bytes; over by ~1800 tokens / 7240 bytes`).
 - Layout/overlap uncertainty: call `get_structure` to resolve contradictions.
   - If contradictions remain after structure (or cannot be narrowed), stop.
+
+Retry policy:
+
+- Retry once only for transient transport/connectivity failures (e.g. timeout/disconnect/no active extension after reconnect/activation).
+- Do not blind-retry deterministic errors (`depth-cap`, budget exceeded, invalid selection, node not visible). Change scope or inputs first.
 
 ### 4) Assets handling (only if `assets` exists)
 
@@ -70,6 +79,7 @@ Follow repo asset policy first:
 
 - Download bytes via TemPad-provided `asset.url`, save into repo at policy-correct path, reference with repo conventions.
 - If policy forbids storing assets, you may reference TemPad URLs but must warn output depends on the local TemPad asset server.
+- Do not read image/SVG bytes into LLM context for analysis. Treat assets as files to download/reference, not text evidence to parse.
 
 Never download assets from the public internet. Only TemPad-provided `asset.url`.
 
@@ -104,6 +114,7 @@ Constraints:
 - Do not introduce new frameworks or styling systems.
 - New runtime/build dependencies require user confirmation unless the user explicitly says no confirmation is needed.
 - Implement base state only unless variants/states are provable from repo conventions or evidence.
+- Preserve high-fidelity style details from `get_code` (including pseudo-elements/pseudo-classes, uncommon style properties, filters/masks/blend/backdrop effects, and non-default compositing details). Do not simplify them away unless required by repo constraints.
 
 Component extraction and primitives:
 
