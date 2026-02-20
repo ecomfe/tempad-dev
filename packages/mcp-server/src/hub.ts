@@ -48,13 +48,10 @@ let consumerCount = 0
 type TimeoutHandle = ReturnType<typeof setTimeout>
 let autoActivateTimer: TimeoutHandle | null = null
 let selectedWsPort = 0
-
-const mcp = new McpServer(
-  { name: 'tempad-dev-mcp', version: PACKAGE_VERSION },
-  MCP_INSTRUCTIONS ? { instructions: MCP_INSTRUCTIONS } : undefined
-)
-type McpInputSchema = Parameters<typeof mcp.registerTool>[1]['inputSchema']
-type McpOutputSchema = Parameters<typeof mcp.registerTool>[1]['outputSchema']
+const consumerSessions = new Set<McpServer>()
+type RegisterToolOptions = Parameters<McpServer['registerTool']>[1]
+type McpInputSchema = RegisterToolOptions['inputSchema']
+type McpOutputSchema = RegisterToolOptions['outputSchema']
 type ToolResponse = CallToolResult
 type SchemaOutput<Schema extends ZodType> = Schema['_output']
 type ToolMetadataEntry = (typeof TOOL_DEFS)[number]
@@ -191,26 +188,32 @@ function buildAssetDescriptor(record: AssetRecord): AssetDescriptor {
   }
 }
 
-function registerTools(): void {
+function createMcpServer(): McpServer {
+  const mcp = new McpServer(
+    { name: 'tempad-dev-mcp', version: PACKAGE_VERSION },
+    MCP_INSTRUCTIONS ? { instructions: MCP_INSTRUCTIONS } : undefined
+  )
+
   const registered: string[] = []
   for (const tool of TOOL_DEFINITIONS) {
     if ('exposed' in tool && tool.exposed === false) continue
-    registerTool(tool)
+    registerTool(mcp, tool)
     registered.push(tool.name)
   }
   log.info({ tools: registered }, 'Registered tools.')
+
+  return mcp
 }
 
-registerTools()
-function registerTool(tool: RegisteredTool): void {
+function registerTool(mcp: McpServer, tool: RegisteredTool): void {
   if (tool.target === 'extension') {
-    registerProxiedTool(tool)
+    registerProxiedTool(mcp, tool)
   } else {
-    registerLocalTool(tool)
+    registerLocalTool(mcp, tool)
   }
 }
 
-function registerProxiedTool<T extends ExtensionTool>(tool: T): void {
+function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): void {
   type Name = T['name']
   type Result = ToolResultMap[Name]
 
@@ -277,7 +280,7 @@ function registerProxiedTool<T extends ExtensionTool>(tool: T): void {
   )
 }
 
-function registerLocalTool(tool: HubOnlyTool): void {
+function registerLocalTool(mcp: McpServer, tool: HubOnlyTool): void {
   const schema = tool.parameters
   const handler = tool.handler
 
@@ -437,6 +440,12 @@ function rawDataToBuffer(raw: RawData): Buffer {
 
 function shutdown(): void {
   log.info('Hub is shutting down...')
+  consumerSessions.forEach((session) => {
+    session.close().catch((err) => {
+      log.warn({ err }, 'Failed to close MCP session during shutdown.')
+    })
+  })
+  consumerSessions.clear()
   assetStore.flush()
   assetHttpServer.stop()
   netServer.close(() => log.info('Net server closed.'))
@@ -461,11 +470,15 @@ try {
 }
 
 const netServer = createServer((sock) => {
+  const mcp = createMcpServer()
+  consumerSessions.add(mcp)
   consumerCount++
   log.info(`Consumer connected. Total: ${consumerCount}`)
   const transport = new StdioServerTransport(sock, sock)
   mcp.connect(transport).catch((err) => {
     log.error({ err }, 'Failed to attach MCP transport.')
+    consumerSessions.delete(mcp)
+    mcp.close().catch((closeErr) => log.warn({ err: closeErr }, 'MCP session close failed.'))
     transport.close().catch((closeErr) => log.warn({ err: closeErr }, 'Transport close failed.'))
     sock.destroy()
   })
@@ -474,7 +487,11 @@ const netServer = createServer((sock) => {
     transport.close().catch((closeErr) => log.warn({ err: closeErr }, 'Transport close failed.'))
   })
   sock.on('close', async () => {
-    await transport.close()
+    await transport
+      .close()
+      .catch((closeErr) => log.warn({ err: closeErr }, 'Transport close failed.'))
+    await mcp.close().catch((closeErr) => log.warn({ err: closeErr }, 'MCP session close failed.'))
+    consumerSessions.delete(mcp)
     consumerCount--
     log.info(`Consumer disconnected. Remaining: ${consumerCount}`)
     if (consumerCount === 0) {

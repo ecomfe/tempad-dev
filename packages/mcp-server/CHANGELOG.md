@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+- Improved tool call stability when multiple MCP clients are connected to the same hub.
+
 ## 0.4.3
 
 - Improved failed tool call reporting with explicit MCP error codes in responses.
