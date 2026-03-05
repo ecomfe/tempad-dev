@@ -121,7 +121,7 @@ function startHub(): ChildProcess {
 }
 
 async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
-  let releaseLock: (() => Promise<void>) | null = null
+  let releaseLock: (() => Promise<void>) | undefined
   try {
     releaseLock = await lockfile.lock(LOCK_PATH, {
       retries: { retries: 5, factor: 1.2, minTimeout: 50 },
