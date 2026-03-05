@@ -13,18 +13,12 @@ const REGISTRY_URL =
 
 async function getRegisteredPluginSource(source: string, signal?: AbortSignal) {
   const name = source.slice(1)
-  let pluginList = null
-
-  try {
-    pluginList = (await fetch(REGISTRY_URL, { cache: 'no-cache', signal }).then((res) =>
-      res.json()
-    )) as {
-      name: string
-      url: string
-    }[]
-  } catch {
-    pluginList = SNAPSHOT_PLUGINS
-  }
+  const pluginList = (await fetch(REGISTRY_URL, { cache: 'no-cache', signal })
+    .then((res) => res.json())
+    .catch(() => SNAPSHOT_PLUGINS)) as {
+    name: string
+    url: string
+  }[]
 
   const plugins = Object.fromEntries(pluginList.map(({ name, url }) => [name, url]))
 
@@ -64,7 +58,6 @@ export function usePluginInstall() {
     controller?.abort()
     controller = new AbortController()
     const { signal } = controller
-    let code: string | null = null
 
     installing.value = true
 
@@ -76,7 +69,7 @@ export function usePluginInstall() {
       if (response.status !== 200) {
         throw new Error('404: Not Found')
       }
-      code = await response.text()
+      const code = await response.text()
 
       try {
         const { pluginName } = await codegen(
