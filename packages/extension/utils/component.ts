@@ -197,38 +197,51 @@ function stringifyBaseComponent(
   // Compact Mode Check
   const shouldCompact = isInline?.(name) ?? false
 
-  const childrenString = shouldCompact
-    ? // Compact Mode: No newlines, no extra indent, join with empty string
-      children
-        .map((child): string => {
-          if (typeof child === 'string') {
-            return escapeHTML(child)
-          }
-          return stringifyBaseComponent(child, stringifyProp, 0, isInline)
-        })
-        .join('')
-    : // Block Mode: Newlines and Indentation
-      children.length === 0
-      ? ''
-      : `\n${children
-          .map((child): string => {
-            if (typeof child === 'string') {
-              const content = escapeHTML(child)
-              return `${indent + INDENT_UNIT}${content}`
-            }
-            return stringifyBaseComponent(child, stringifyProp, indentLevel + 1, isInline)
-          })
-          .join('\n')}\n${indent}`
+  let childrenString: string
+
+  if (shouldCompact) {
+    // Compact Mode: No newlines, no extra indent, join with empty string
+    childrenString = children
+      .map((child): string => {
+        if (typeof child === 'string') {
+          return escapeHTML(child)
+        }
+        return stringifyBaseComponent(child, stringifyProp, 0, isInline)
+      })
+      .join('')
+  } else if (children.length === 0) {
+    // Block Mode with no children
+    childrenString = ''
+  } else {
+    // Block Mode: Newlines and indentation
+    childrenString = `\n${children
+      .map((child): string => {
+        if (typeof child === 'string') {
+          const content = escapeHTML(child)
+          return `${indent + INDENT_UNIT}${content}`
+        }
+        return stringifyBaseComponent(child, stringifyProp, indentLevel + 1, isInline)
+      })
+      .join('\n')}\n${indent}`
+  }
 
   const appendFinalNewline = indentLevel === 0 && !shouldCompact
   const isVoidTag = VOID_HTML_TAGS.has(name.toLowerCase())
   const isCustomTag = isCustomComponentTag(name)
 
-  const [opening, closing] = childrenString
-    ? [`<${name}${propsString}>`, `</${name}>`]
-    : isVoidTag || isCustomTag
-      ? [`<${name}${propsString} />`, '']
-      : [`<${name}${propsString}></${name}>`, '']
+  let opening: string
+  let closing: string
+
+  if (childrenString) {
+    opening = `<${name}${propsString}>`
+    closing = `</${name}>`
+  } else if (isVoidTag || isCustomTag) {
+    opening = `<${name}${propsString} />`
+    closing = ''
+  } else {
+    opening = `<${name}${propsString}></${name}>`
+    closing = ''
+  }
 
   return `${indent}${opening}${childrenString}${closing}${appendFinalNewline ? '\n' : ''}`
 }

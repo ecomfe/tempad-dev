@@ -845,45 +845,47 @@ export function serializeCSS(
 
   const gradientBorder = resolveGradientBorder(processedStyle)
 
-  const code = gradientBorder
-    ? (() => {
-        const baseStyle = buildGradientBorderBaseStyle(processedStyle, gradientBorder)
-        const pseudoStyle = buildGradientBorderPseudoStyle(gradientBorder)
+  let code: string
 
-        if (toJS) {
-          const baseLines = Object.entries(baseStyle).map(
-            ([key, value]) => `  ${formatJsObjectKey(kebabToCamel(key))}: ${stringifyValue(value)}`
-          )
-          const pseudoLines = Object.entries(pseudoStyle).map(
-            ([key, value]) =>
-              `    ${formatJsObjectKey(kebabToCamel(key))}: ${stringifyValue(value)}`
-          )
-          baseLines.push(`  ${formatJsObjectKey('&::before')}: {\n${pseudoLines.join(',\n')}\n  }`)
+  if (gradientBorder) {
+    const baseStyle = buildGradientBorderBaseStyle(processedStyle, gradientBorder)
+    const pseudoStyle = buildGradientBorderPseudoStyle(gradientBorder)
 
-          return `{\n${baseLines.join(',\n')}\n}`
-        }
+    if (toJS) {
+      const baseLines = Object.entries(baseStyle).map(
+        ([key, value]) => `  ${formatJsObjectKey(kebabToCamel(key))}: ${stringifyValue(value)}`
+      )
+      const pseudoLines = Object.entries(pseudoStyle).map(
+        ([key, value]) => `    ${formatJsObjectKey(kebabToCamel(key))}: ${stringifyValue(value)}`
+      )
+      baseLines.push(`  ${formatJsObjectKey('&::before')}: {\n${pseudoLines.join(',\n')}\n  }`)
 
-        const baseCode = Object.entries(baseStyle)
-          .map(([key, value]) => `${key}: ${value};`)
-          .join('\n')
-        const pseudoCode =
-          '&::before {\n' +
-          Object.entries(pseudoStyle)
-            .map(([key, value]) => `  ${key}: ${value};`)
-            .join('\n') +
-          '\n}'
-
-        return `${baseCode}\n\n${pseudoCode}`
-      })()
-    : toJS
-      ? '{\n' +
-        Object.entries(processedStyle)
-          .map(([key, value]) => `  ${kebabToCamel(key)}: ${stringifyValue(value)}`)
-          .join(',\n') +
+      code = `{\n${baseLines.join(',\n')}\n}`
+    } else {
+      const baseCode = Object.entries(baseStyle)
+        .map(([key, value]) => `${key}: ${value};`)
+        .join('\n')
+      const pseudoCode =
+        '&::before {\n' +
+        Object.entries(pseudoStyle)
+          .map(([key, value]) => `  ${key}: ${value};`)
+          .join('\n') +
         '\n}'
-      : Object.entries(processedStyle)
-          .map(([key, value]) => `${key}: ${value};`)
-          .join('\n')
+
+      code = `${baseCode}\n\n${pseudoCode}`
+    }
+  } else if (toJS) {
+    code =
+      '{\n' +
+      Object.entries(processedStyle)
+        .map(([key, value]) => `  ${kebabToCamel(key)}: ${stringifyValue(value)}`)
+        .join(',\n') +
+      '\n}'
+  } else {
+    code = Object.entries(processedStyle)
+      .map(([key, value]) => `${key}: ${value};`)
+      .join('\n')
+  }
 
   if (typeof transform === 'function') {
     return transform({ code, style: processedStyle, options })
