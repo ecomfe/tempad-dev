@@ -11,6 +11,7 @@
 <p align="center">
   <a href="https://chrome.google.com/webstore/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc"><img src="https://img.shields.io/badge/Install%20on%20Chrome%20Web%20Store-4285F4?logo=chromewebstore&logoColor=%23fff" alt="在 Chrome Web Store 安装"></a>
   <a href="https://discord.gg/MXGXwtkEck"><img src="https://img.shields.io/badge/Chat%20on%20Discord-5865F2?logo=discord&logoColor=%23fff" alt="在 Discord 上聊天"></a>
+  <a href="https://deepwiki.com/ecomfe/tempad-dev"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
 <p align="center">
@@ -262,7 +263,7 @@ npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill
 
 ### 配置项
 
-`@tempad-dev/mcp` 的环境变量配置请参见 [`packages/mcp-server/README.zh-Hans.md`](./packages/mcp-server/README.zh-Hans.md)（[English](./packages/mcp-server/README.md)）。
+`@tempad-dev/mcp` 的环境变量配置请参见 [`packages/mcp-server/README.zh-Hans.md`](./packages/mcp-server/README.zh-Hans.md)。
 
 <details>
 <summary><h3>查看 TemPad 组件代码</h3></summary>
