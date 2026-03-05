@@ -152,12 +152,11 @@ export function replaceVarFunctions(
 
     let j = start + 4
     let depth = 1
-    let nameStart = -1
-    let nameEnd = -1
+    let nameEnd: number | undefined
     let commaIndex = -1
 
     while (j < input.length && /\s/.test(input[j])) j++
-    nameStart = j
+    const nameStart = j
 
     for (; j < input.length; j++) {
       const ch = input[j]
@@ -176,7 +175,7 @@ export function replaceVarFunctions(
       break
     }
 
-    if (commaIndex < 0) {
+    if (nameEnd === undefined) {
       nameEnd = j
     }
 
@@ -271,49 +270,35 @@ function parseBoxValues(value: string): [string, string, string, string] {
 function parseFlexShorthand(value: string) {
   const parts = value.trim().split(WHITESPACE_RE)
 
-  let grow = '1'
-  let shrink = '1'
-  let basis = '0%'
-
   if (parts.length === 1) {
     const p = parts[0]
     if (p === 'initial') {
-      grow = '0'
-      shrink = '1'
-      basis = 'auto'
-    } else if (p === 'auto') {
-      grow = '1'
-      shrink = '1'
-      basis = 'auto'
-    } else if (p === 'none') {
-      grow = '0'
-      shrink = '0'
-      basis = 'auto'
-    } else if (NUMBER_RE.test(p)) {
-      grow = p
-      shrink = '1'
-      basis = '0%'
-    } else {
-      grow = '1'
-      shrink = '1'
-      basis = p
+      return { grow: '0', shrink: '1', basis: 'auto' }
     }
-  } else if (parts.length === 2) {
-    grow = parts[0]
-    if (NUMBER_RE.test(parts[1])) {
-      shrink = parts[1]
-      basis = '0%'
-    } else {
-      shrink = '1'
-      basis = parts[1]
+    if (p === 'auto') {
+      return { grow: '1', shrink: '1', basis: 'auto' }
     }
-  } else {
-    grow = parts[0]
-    shrink = parts[1]
-    basis = parts[2]
+    if (p === 'none') {
+      return { grow: '0', shrink: '0', basis: 'auto' }
+    }
+    if (NUMBER_RE.test(p)) {
+      return { grow: p, shrink: '1', basis: '0%' }
+    }
+    return { grow: '1', shrink: '1', basis: p }
+  }
+  if (parts.length === 2) {
+    const [grow, second] = parts
+    if (NUMBER_RE.test(second)) {
+      return { grow, shrink: second, basis: '0%' }
+    }
+    return { grow, shrink: '1', basis: second }
   }
 
-  return { grow, shrink, basis }
+  return {
+    grow: parts[0],
+    shrink: parts[1],
+    basis: parts[2]
+  }
 }
 
 function transformPxValue(value: string, transform: (value: number) => string) {
@@ -860,36 +845,37 @@ export function serializeCSS(
 
   const gradientBorder = resolveGradientBorder(processedStyle)
 
-  let code = ''
-  if (gradientBorder) {
-    const baseStyle = buildGradientBorderBaseStyle(processedStyle, gradientBorder)
-    const pseudoStyle = buildGradientBorderPseudoStyle(gradientBorder)
+  const code = gradientBorder
+    ? (() => {
+        const baseStyle = buildGradientBorderBaseStyle(processedStyle, gradientBorder)
+        const pseudoStyle = buildGradientBorderPseudoStyle(gradientBorder)
 
-    if (toJS) {
-      const baseLines = Object.entries(baseStyle).map(
-        ([key, value]) => `  ${formatJsObjectKey(kebabToCamel(key))}: ${stringifyValue(value)}`
-      )
-      const pseudoLines = Object.entries(pseudoStyle).map(
-        ([key, value]) => `    ${formatJsObjectKey(kebabToCamel(key))}: ${stringifyValue(value)}`
-      )
-      baseLines.push(`  ${formatJsObjectKey('&::before')}: {\n${pseudoLines.join(',\n')}\n  }`)
+        if (toJS) {
+          const baseLines = Object.entries(baseStyle).map(
+            ([key, value]) => `  ${formatJsObjectKey(kebabToCamel(key))}: ${stringifyValue(value)}`
+          )
+          const pseudoLines = Object.entries(pseudoStyle).map(
+            ([key, value]) =>
+              `    ${formatJsObjectKey(kebabToCamel(key))}: ${stringifyValue(value)}`
+          )
+          baseLines.push(`  ${formatJsObjectKey('&::before')}: {\n${pseudoLines.join(',\n')}\n  }`)
 
-      code = `{\n${baseLines.join(',\n')}\n}`
-    } else {
-      const baseCode = Object.entries(baseStyle)
-        .map(([key, value]) => `${key}: ${value};`)
-        .join('\n')
-      const pseudoCode =
-        '&::before {\n' +
-        Object.entries(pseudoStyle)
-          .map(([key, value]) => `  ${key}: ${value};`)
-          .join('\n') +
-        '\n}'
+          return `{\n${baseLines.join(',\n')}\n}`
+        }
 
-      code = `${baseCode}\n\n${pseudoCode}`
-    }
-  } else {
-    code = toJS
+        const baseCode = Object.entries(baseStyle)
+          .map(([key, value]) => `${key}: ${value};`)
+          .join('\n')
+        const pseudoCode =
+          '&::before {\n' +
+          Object.entries(pseudoStyle)
+            .map(([key, value]) => `  ${key}: ${value};`)
+            .join('\n') +
+          '\n}'
+
+        return `${baseCode}\n\n${pseudoCode}`
+      })()
+    : toJS
       ? '{\n' +
         Object.entries(processedStyle)
           .map(([key, value]) => `  ${kebabToCamel(key)}: ${stringifyValue(value)}`)
@@ -898,10 +884,9 @@ export function serializeCSS(
       : Object.entries(processedStyle)
           .map(([key, value]) => `${key}: ${value};`)
           .join('\n')
-  }
 
   if (typeof transform === 'function') {
-    code = transform({ code, style: processedStyle, options })
+    return transform({ code, style: processedStyle, options })
   }
 
   return code
