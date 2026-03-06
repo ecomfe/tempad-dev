@@ -53,6 +53,8 @@
       "spawn-sync"
     ],
     "overrides": {
+      "@hono/node-server": "1.19.11",
+      "hono": "4.12.5",
       "vite": "8.0.0-beta.15"
     }
   }
