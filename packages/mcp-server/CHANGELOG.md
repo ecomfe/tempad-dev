@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.5
+
+- Updated `get_code` tool guidance and summaries for shell responses that list omitted child ids in inline comments.
+- Blocked unsafe MIME-derived asset extensions in asset URL handling.
+
 ## 0.4.4
 
 - Improved tool call stability when multiple MCP clients are connected to the same hub.

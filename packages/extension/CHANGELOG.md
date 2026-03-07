@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.3
+
+- Added MCP `get_code` shell fallback for over-budget selections, returning the current wrapper with inline omitted child ids and shell guidance warnings for follow-up fetches.
+- Improved shell fallback messaging and render helper organization to keep parent composition facts intact while clarifying agent consumption.
+- Fixed code block fallback escaping when Prism is unavailable.
+
 ## 0.17.2
 
 - Improved MCP `get_code` budget errors to include current usage and overage details for faster scope adjustment.
