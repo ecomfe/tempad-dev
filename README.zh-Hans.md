@@ -6,7 +6,7 @@
   </picture>
 </p>
 
-<p align="center">面向 <b>所有人</b> 的 Figma Inspect 面板。</p>
+<p align="center">Figma 上的开放交付工具</p>
 
 <p align="center">
   <a href="https://chrome.google.com/webstore/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc"><img src="https://img.shields.io/badge/Install%20on%20Chrome%20Web%20Store-4285F4?logo=chromewebstore&logoColor=%23fff" alt="在 Chrome Web Store 安装"></a>

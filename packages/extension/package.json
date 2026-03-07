@@ -2,7 +2,7 @@
   "name": "@tempad-dev/extension",
   "version": "0.17.2",
   "private": true,
-  "description": "TemPad Dev browser extension.",
+  "description": "Open handoff tooling on Figma",
   "type": "module",
   "scripts": {
     "dev": "wxt",
