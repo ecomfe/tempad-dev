@@ -7,7 +7,6 @@ import type { PaintList, ResolvedPaintStyle } from './types'
 
 import { resolveGradientFromPaints, resolveSolidFromPaints } from './gradient'
 
-const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
 const BG_URL_RE = /url\(/i
 
 type NodeDimensions = {
@@ -94,6 +93,11 @@ function getNodeDimensions(node: SceneNode): NodeDimensions | undefined {
   }
 
   return { width, height }
+}
+
+function hasLightgrayUrlFallback(value: string): boolean {
+  const normalized = value.toLowerCase()
+  return normalized.includes('url(') && normalized.includes('lightgray')
 }
 
 function splitByTopLevelWhitespace(input: string): string[] {
@@ -206,7 +210,7 @@ export async function resolveStylesFromNode(
   const fillPaints = getNodeFillPaints(node)
 
   // Remove Figma's default lightgray fallback for image fills.
-  if (processed.background && BG_URL_LIGHTGRAY_RE.test(processed.background) && fillPaints) {
+  if (processed.background && hasLightgrayUrlFallback(processed.background) && fillPaints) {
     const solidFill = resolveSolidFromPaints(fillPaints)
     if (solidFill) {
       processed['background-color'] = solidFill
