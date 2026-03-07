@@ -80,7 +80,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_code',
     description:
-      'High-fidelity code snapshot for nodeId/current single selection (omit nodeId to use selection): JSX/Vue markup + Tailwind-like classes, plus assets/tokens metadata and codegen config. Start here, then refactor into repo conventions while preserving values/intent; strip any data-hint-* attributes (hints only). If warnings include depth-cap, call get_code again for each listed nodeId. If warnings include auto-layout (inferred), use get_structure to confirm hierarchy/overlap (do not derive numeric values from pixels). Tokens are keyed by canonical names like `--color-primary` (multi-mode keys use `${collection}:${mode}`; node overrides may appear as data-hint-variable-mode).',
+      'High-fidelity code snapshot for nodeId/current single selection (omit nodeId to use selection): JSX/Vue markup + Tailwind-like classes, plus assets/tokens metadata and codegen config. Start here, then refactor into repo conventions while preserving values/intent; strip any data-hint-* attributes (hints only). If warnings include depth-cap, call get_code again for each listed nodeId. If warnings include shell, read the inline comment for omitted direct child ids and fetch them in order. If warnings include auto-layout (inferred), use get_structure to confirm hierarchy/overlap (do not derive numeric values from pixels). Tokens are keyed by canonical names like `--color-primary` (multi-mode keys use `${collection}:${mode}`; node overrides may appear as data-hint-variable-mode).',
     parameters: GetCodeParametersSchema,
     target: 'extension',
     format: createCodeToolResponse
@@ -212,6 +212,9 @@ export function createCodeToolResponse(payload: ToolResultMap['get_code']): Call
   if (payload.warnings?.length) {
     const warningText = payload.warnings.map((warning) => warning.message).join(' ')
     summary.push(warningText)
+  }
+  if (payload.warnings?.some((warning) => warning.type === 'shell')) {
+    summary.push('Read the inline code comment for omitted direct child ids.')
   }
   summary.push(
     payload.assets?.length

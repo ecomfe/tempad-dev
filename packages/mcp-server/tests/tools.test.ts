@@ -61,6 +61,25 @@ describe('tools response helpers', () => {
     expect(result.content).toHaveLength(1)
   })
 
+  it('surfaces shell warnings in code tool summaries', () => {
+    const payload: ToolResultMap['get_code'] = {
+      ...codePayload,
+      warnings: [
+        {
+          type: 'shell',
+          message:
+            'Shell response: omitted direct children ids are listed in the inline comment. Call get_code for each id in that order, then fill the results back into this shell without re-guessing parent layout.'
+        }
+      ]
+    }
+
+    const result = createCodeToolResponse(payload)
+    const summaryText = textContent(result.content[0])
+
+    expect(summaryText).toContain('Shell response')
+    expect(summaryText).toContain('inline comment')
+  })
+
   it('formats code tool responses with no assets', () => {
     const result = createCodeToolResponse(codePayload)
     expect(result.content).toHaveLength(1)
