@@ -11,12 +11,7 @@ export default defineContentScript({
         root.tabIndex = -1
         root.classList.add('js-fullscreen-prevent-event-capture')
 
-        injectScript('/loader.js', {
-          modifyScript(script) {
-            const entry = browser.runtime.getURL('/ui.js')
-            script.dataset.entry = entry
-          }
-        })
+        injectScript('/loader.js')
       }
     })
 
