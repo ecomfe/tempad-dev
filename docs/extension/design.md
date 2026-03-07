@@ -51,6 +51,7 @@ This document describes the implementation design for MCP `get_code` in `package
 10. **Enforce budget and finalize output**
     - Validate output size using a conservative token-aware UTF-8 byte budget.
     - If over budget, prefer a shell response for the current node.
+    - v1 shell fallback is correctness-first: it reuses the already-collected tree/style context rather than trying to re-run a shell-only collection path.
     - Emit warnings for inferred auto layout, depth-cap, and shell guidance.
     - If tree depth was capped, include a `depth-cap` warning with capped node ids.
     - If a shell response is returned, list omitted direct child ids in an inline comment in render order.
@@ -150,7 +151,7 @@ This document describes the implementation design for MCP `get_code` in `package
 
 - Fatal: invalid selection, no renderable root, failure to build markup.
 - Non-fatal: CSS collection failure, text segment failures, export failure.
-- Warnings (output field): only inferred auto layout presence and depth-cap.
+- Warnings (output field): inferred auto layout presence, depth-cap, and shell guidance.
 
 ## Output budget strategy
 

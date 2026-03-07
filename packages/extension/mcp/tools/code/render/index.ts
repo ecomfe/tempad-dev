@@ -5,7 +5,8 @@ import type { DevComponent } from '@/types/plugin'
 import { stripDefaultTextStyles } from '@/utils/css'
 
 import type { NodeSnapshot, VisibleTree } from '../model'
-import type { RenderContext } from './types'
+import type { PluginComponent } from './plugin'
+import type { CodeLanguage, RenderContext } from './types'
 
 import { renderTextSegments } from '../text'
 import { renderPluginComponent } from './plugin'
@@ -38,31 +39,13 @@ export async function renderShellTree(
   if (!snapshot || omittedNodeIds.length === 0) return null
   if (ctx.svgs.has(snapshot.id)) return null
 
-  const node = snapshot.node
-  if (node.type === 'TEXT') return null
-
-  const pluginComponent =
-    node.type === 'INSTANCE'
-      ? ctx.pluginComponents?.has(node.id)
-        ? (ctx.pluginComponents.get(node.id) ?? null)
-        : await renderPluginComponent(node, ctx)
-      : null
-
+  if (snapshot.node.type === 'TEXT') return null
+  const pluginComponent = await resolveSnapshotPluginComponent(snapshot, ctx)
   if (pluginComponent) return null
 
-  let rawStyle = filterGridProps(ctx.styles.get(snapshot.id) ?? {})
-  if (snapshot.tag === 'svg') {
-    rawStyle = ctx.layout.get(snapshot.id) ?? rawStyle
-  }
-
   const langHint = ctx.preferredLang ?? ctx.detectedLang
-  const classAttr = classProp(langHint)
-  const dataHint = snapshot.dataHint
-    ? { ...snapshot.dataHint, 'data-hint-id': snapshot.id }
-    : undefined
-  const { props } = classProps(rawStyle, ctx.config, classAttr, dataHint, {
-    isFallback: true
-  })
+  const rawStyle = resolveSnapshotStyle(snapshot, ctx)
+  const props = buildFallbackSnapshotProps(snapshot, ctx, rawStyle, langHint)
 
   return {
     name: snapshot.tag || 'div',
@@ -125,20 +108,8 @@ async function renderNode(
     return null
   }
 
-  let rawStyle = ctx.styles.get(snapshot.id) ?? {}
-  if (!parentIsGrid) {
-    rawStyle = filterGridProps(rawStyle)
-  }
-  if (snapshot.tag === 'svg') {
-    rawStyle = ctx.layout.get(snapshot.id) ?? rawStyle
-  }
-
-  const pluginComponent =
-    node.type === 'INSTANCE'
-      ? ctx.pluginComponents?.has(node.id)
-        ? (ctx.pluginComponents.get(node.id) ?? null)
-        : await renderPluginComponent(node, ctx)
-      : null
+  let rawStyle = resolveSnapshotStyle(snapshot, ctx, parentIsGrid)
+  const pluginComponent = await resolveSnapshotPluginComponent(snapshot, ctx)
 
   if (pluginComponent?.lang && !ctx.preferredLang && ctx.detectedLang !== 'vue') {
     ctx.detectedLang = pluginComponent.lang
@@ -314,6 +285,49 @@ function buildShellComment(lang: string | undefined, omittedNodeIds: string[]): 
     return `<!-- ${content} -->`
   }
   return `{/* ${content} */}`
+}
+
+function resolveSnapshotStyle(
+  snapshot: NodeSnapshot,
+  ctx: RenderContext,
+  parentIsGrid = false
+): Record<string, string> {
+  let rawStyle = ctx.styles.get(snapshot.id) ?? {}
+  if (!parentIsGrid) {
+    rawStyle = filterGridProps(rawStyle)
+  }
+  if (snapshot.tag === 'svg') {
+    rawStyle = ctx.layout.get(snapshot.id) ?? rawStyle
+  }
+  return rawStyle
+}
+
+async function resolveSnapshotPluginComponent(
+  snapshot: NodeSnapshot,
+  ctx: RenderContext
+): Promise<PluginComponent | null> {
+  const node = snapshot.node
+  if (node.type !== 'INSTANCE') return null
+  if (ctx.pluginComponents?.has(node.id)) {
+    return ctx.pluginComponents.get(node.id) ?? null
+  }
+  return renderPluginComponent(node, ctx)
+}
+
+function buildFallbackSnapshotProps(
+  snapshot: NodeSnapshot,
+  ctx: RenderContext,
+  style: Record<string, string>,
+  langHint: CodeLanguage | undefined
+): Record<string, string> {
+  const classAttr = classProp(langHint)
+  const dataHint = snapshot.dataHint
+    ? { ...snapshot.dataHint, 'data-hint-id': snapshot.id }
+    : undefined
+  const { props } = classProps(style, ctx.config, classAttr, dataHint, {
+    isFallback: true
+  })
+  return props
 }
 
 function resolveFlexAxis(node: SceneNode, style: Record<string, string>): 'x' | 'y' | null {
