@@ -95,38 +95,36 @@ function getNodeDimensions(node: SceneNode): NodeDimensions | undefined {
   return { width, height }
 }
 
-function hasLightgrayUrlFallback(value: string): boolean {
-  const normalized = value.toLowerCase()
-  return normalized.includes('url(') && normalized.includes('lightgray')
+function isWhitespace(char: string | undefined): boolean {
+  return char === ' ' || char === '\t' || char === '\n' || char === '\r'
 }
 
-function isAsciiLetterOrDigit(char: string | undefined): boolean {
-  if (!char) return false
-  const code = char.charCodeAt(0)
-  return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+function hasLightgrayUrlFallback(value: string): boolean {
+  return BG_URL_RE.test(value) && value.toLowerCase().includes('lightgray')
+}
+
+function getTrailingLightgrayFallbackIndex(value: string): number {
+  const parts = splitByTopLevelWhitespace(value)
+  if (!parts.some((part) => BG_URL_RE.test(part))) return -1
+
+  const fallback = parts[parts.length - 1]?.toLowerCase()
+  if (fallback !== 'lightgray') return -1
+
+  return value.toLowerCase().lastIndexOf('lightgray')
 }
 
 function stripLightgrayUrlFallback(value: string): string {
-  const normalized = value.toLowerCase()
-  const marker = 'lightgray'
-  const markerIndex = normalized.lastIndexOf(marker)
+  const markerIndex = getTrailingLightgrayFallbackIndex(value)
   if (markerIndex < 0) return value.trim()
 
-  const next = normalized[markerIndex + marker.length]
-  if (isAsciiLetterOrDigit(next) || next === '_') {
-    return value.trim()
+  let end = markerIndex
+  while (end > 0) {
+    const prev = value[end - 1]
+    if (prev !== ',' && !isWhitespace(prev)) break
+    end--
   }
 
-  let start = markerIndex
-  while (start > 0) {
-    const prev = value[start - 1]
-    if (prev !== ' ' && prev !== '\t' && prev !== '\n' && prev !== '\r' && prev !== ',') {
-      break
-    }
-    start--
-  }
-
-  return `${value.slice(0, start)}${value.slice(markerIndex + marker.length)}`.trim()
+  return value.slice(0, end).trim()
 }
 
 function splitByTopLevelWhitespace(input: string): string[] {
