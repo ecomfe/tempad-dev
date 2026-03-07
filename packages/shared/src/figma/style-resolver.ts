@@ -7,6 +7,7 @@ import type { PaintList, ResolvedPaintStyle } from './types'
 
 import { resolveGradientFromPaints, resolveSolidFromPaints } from './gradient'
 
+const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray\b/i
 const BG_URL_RE = /url\(/i
 
 type NodeDimensions = {
@@ -93,38 +94,6 @@ function getNodeDimensions(node: SceneNode): NodeDimensions | undefined {
   }
 
   return { width, height }
-}
-
-function isWhitespace(char: string | undefined): boolean {
-  return char === ' ' || char === '\t' || char === '\n' || char === '\r'
-}
-
-function hasLightgrayUrlFallback(value: string): boolean {
-  return BG_URL_RE.test(value) && value.toLowerCase().includes('lightgray')
-}
-
-function getTrailingLightgrayFallbackIndex(value: string): number {
-  const parts = splitByTopLevelWhitespace(value)
-  if (!parts.some((part) => BG_URL_RE.test(part))) return -1
-
-  const fallback = parts[parts.length - 1]?.toLowerCase()
-  if (fallback !== 'lightgray') return -1
-
-  return value.toLowerCase().lastIndexOf('lightgray')
-}
-
-function stripLightgrayUrlFallback(value: string): string {
-  const markerIndex = getTrailingLightgrayFallbackIndex(value)
-  if (markerIndex < 0) return value.trim()
-
-  let end = markerIndex
-  while (end > 0) {
-    const prev = value[end - 1]
-    if (prev !== ',' && !isWhitespace(prev)) break
-    end--
-  }
-
-  return value.slice(0, end).trim()
 }
 
 function splitByTopLevelWhitespace(input: string): string[] {
@@ -237,12 +206,12 @@ export async function resolveStylesFromNode(
   const fillPaints = getNodeFillPaints(node)
 
   // Remove Figma's default lightgray fallback for image fills.
-  if (processed.background && hasLightgrayUrlFallback(processed.background) && fillPaints) {
+  if (processed.background && BG_URL_LIGHTGRAY_RE.test(processed.background) && fillPaints) {
     const solidFill = resolveSolidFromPaints(fillPaints)
     if (solidFill) {
       processed['background-color'] = solidFill
     }
-    processed.background = stripLightgrayUrlFallback(processed.background)
+    processed.background = processed.background.replace(/\s*,?\s*lightgray\b/i, '').trim()
   }
 
   const resolvedFill = resolveFillStyleForNode(node)
