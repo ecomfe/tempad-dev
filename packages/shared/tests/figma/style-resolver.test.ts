@@ -156,7 +156,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     })
   })
 
-  it('does not strip longer color names that only share the lightgray prefix', async () => {
+  it('does not treat lightgray inside the image URL as a fallback token', async () => {
     installFigmaMocks()
     const node = {
       fills: [solidPaint({ r: 0, g: 1, b: 0 })]
@@ -164,14 +164,13 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
 
     const result = await resolveStylesFromNode(
       {
-        background: 'url("asset.png") lightgrayer'
+        background: 'url("/img/lightgray-bg.png") center / cover'
       },
       node
     )
 
     expect(result).toEqual({
-      background: 'url("asset.png") lightgrayer',
-      'background-color': '#0F0'
+      background: 'url("/img/lightgray-bg.png") center / cover'
     })
   })
 
