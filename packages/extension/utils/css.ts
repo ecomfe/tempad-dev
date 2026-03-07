@@ -6,7 +6,13 @@ import { toDecimalPlace } from './number'
 import { kebabToCamel } from './string'
 
 function escapeSingleQuote(value: string) {
-  return value.replace(/'/g, "\\'")
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
 }
 
 export const WHITESPACE_RE = /\s+/
