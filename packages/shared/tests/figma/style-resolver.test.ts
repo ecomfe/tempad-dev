@@ -156,6 +156,25 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     })
   })
 
+  it('does not strip longer color names that only share the lightgray prefix', async () => {
+    installFigmaMocks()
+    const node = {
+      fills: [solidPaint({ r: 0, g: 1, b: 0 })]
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        background: 'url("asset.png") lightgrayer'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      background: 'url("asset.png") lightgrayer',
+      'background-color': '#0F0'
+    })
+  })
+
   it('replaces fill background with gradient when fill style id resolves to gradient', async () => {
     installFigmaMocks({
       styles: {
