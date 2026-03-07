@@ -15,6 +15,10 @@ function escapeSingleQuote(value: string) {
     .replace(/\u2029/g, '\\u2029')
 }
 
+function escapeTemplateLiteralPart(value: string) {
+  return value.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
+}
+
 export const WHITESPACE_RE = /\s+/
 export const ALL_WHITESPACE_RE = /\s+/g
 export const COMMA_DELIMITER_RE = /,\s*/g
@@ -830,7 +834,9 @@ export function serializeCSS(
 
       const parts = value.split('\0')
       const template = parts
-        .map((part, index) => (index % 2 === 0 ? part.replace(/`/g, '\\`') : '${' + part + '}'))
+        .map((part, index) =>
+          index % 2 === 0 ? escapeTemplateLiteralPart(part) : '${' + part + '}'
+        )
         .join('')
 
       return '`' + template + '`'
