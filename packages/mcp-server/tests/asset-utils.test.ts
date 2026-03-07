@@ -20,10 +20,15 @@ describe('asset-utils', () => {
   it('derives image extensions with override and suffix handling', () => {
     expect(getImageExtension('image/jpeg')).toBe('.jpg')
     expect(getImageExtension('image/svg+xml')).toBe('.svg')
-    expect(getImageExtension('image/+xml')).toBe('.+xml')
+    expect(getImageExtension('image/+xml')).toBe('')
     expect(getImageExtension('image/png')).toBe('.png')
     expect(getImageExtension('text/plain')).toBe('')
     expect(getImageExtension('image/')).toBe('')
+  })
+
+  it('rejects unsafe image extensions derived from subtype', () => {
+    expect(getImageExtension('image/../../../../.ssh/authorized_keys')).toBe('')
+    expect(getImageExtension('image\\png')).toBe('')
   })
 
   it('builds asset filenames and parses hashes', () => {

@@ -6,6 +6,7 @@ const HASH_FILENAME_PATTERN = new RegExp(
 )
 
 const MIME_EXTENSION_OVERRIDES = new Map<string, string>([['image/jpeg', 'jpg']])
+const SAFE_IMAGE_EXTENSION_PATTERN = /^[a-z0-9-]+$/
 
 export function normalizeMimeType(mimeType: string | undefined): string {
   if (!mimeType) return 'application/octet-stream'
@@ -21,6 +22,7 @@ export function getImageExtension(mimeType: string): string {
   const subtype = normalized.slice('image/'.length)
   if (!subtype) return ''
   const ext = subtype.split('+', 1)[0] || subtype
+  if (!SAFE_IMAGE_EXTENSION_PATTERN.test(ext)) return ''
   return `.${ext}`
 }
 
