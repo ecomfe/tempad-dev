@@ -35,6 +35,35 @@ export function looseEscapeHTML(str: string) {
   return str.replaceAll('"', '&quot;')
 }
 
+const JS_SINGLE_QUOTE_ESCAPE_RE = /['\\\r\n\u2028\u2029]/g
+const JS_TEMPLATE_LITERAL_ESCAPE_RE = /[`\\]|\$\{/g
+
+const JS_SINGLE_QUOTE_ESCAPES: Record<string, string> = {
+  '\\': '\\\\',
+  "'": "\\'",
+  '\r': '\\r',
+  '\n': '\\n',
+  '\u2028': '\\u2028',
+  '\u2029': '\\u2029'
+}
+
+const JS_TEMPLATE_LITERAL_ESCAPES: Record<string, string> = {
+  '\\': '\\\\',
+  '`': '\\`',
+  '${': '\\${'
+}
+
+export function escapeJsSingleQuotedString(str: string) {
+  return str.replace(JS_SINGLE_QUOTE_ESCAPE_RE, (match) => JS_SINGLE_QUOTE_ESCAPES[match] ?? match)
+}
+
+export function escapeJsTemplateLiteralText(str: string) {
+  return str.replace(
+    JS_TEMPLATE_LITERAL_ESCAPE_RE,
+    (match) => JS_TEMPLATE_LITERAL_ESCAPES[match] ?? match
+  )
+}
+
 export function stringify(value: unknown) {
   return stringifyObject(value, { indent: '  ' })
 }

@@ -3,21 +3,7 @@ import type { TransformOptions } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { toDecimalPlace } from './number'
-import { kebabToCamel } from './string'
-
-function escapeJsSingleQuotedString(value: string): string {
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'")
-    .replace(/\r/g, '\\r')
-    .replace(/\n/g, '\\n')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029')
-}
-
-function escapeJsTemplateLiteralText(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
-}
+import { escapeJsSingleQuotedString, escapeJsTemplateLiteralText, kebabToCamel } from './string'
 
 export const WHITESPACE_RE = /\s+/
 export const ALL_WHITESPACE_RE = /\s+/g
