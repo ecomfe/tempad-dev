@@ -100,6 +100,35 @@ function hasLightgrayUrlFallback(value: string): boolean {
   return normalized.includes('url(') && normalized.includes('lightgray')
 }
 
+function isAsciiLetterOrDigit(char: string | undefined): boolean {
+  if (!char) return false
+  const code = char.charCodeAt(0)
+  return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+}
+
+function stripLightgrayUrlFallback(value: string): string {
+  const normalized = value.toLowerCase()
+  const marker = 'lightgray'
+  const markerIndex = normalized.lastIndexOf(marker)
+  if (markerIndex < 0) return value.trim()
+
+  const next = normalized[markerIndex + marker.length]
+  if (isAsciiLetterOrDigit(next) || next === '_') {
+    return value.trim()
+  }
+
+  let start = markerIndex
+  while (start > 0) {
+    const prev = value[start - 1]
+    if (prev !== ' ' && prev !== '\t' && prev !== '\n' && prev !== '\r' && prev !== ',') {
+      break
+    }
+    start--
+  }
+
+  return `${value.slice(0, start)}${value.slice(markerIndex + marker.length)}`.trim()
+}
+
 function splitByTopLevelWhitespace(input: string): string[] {
   const out: string[] = []
   let depth = 0
@@ -215,7 +244,7 @@ export async function resolveStylesFromNode(
     if (solidFill) {
       processed['background-color'] = solidFill
     }
-    processed.background = processed.background.replace(/\s*,?\s*lightgray\b/i, '').trim()
+    processed.background = stripLightgrayUrlFallback(processed.background)
   }
 
   const resolvedFill = resolveFillStyleForNode(node)
