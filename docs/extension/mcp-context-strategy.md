@@ -14,6 +14,7 @@ This document records the current context-control strategy for TemPad Dev MCP ou
    - Budget is computed in bytes with conservative token estimation.
    - Output is validated in UTF-8 bytes at render and rewrite stages.
    - If over budget, prefer a shell response that preserves the current node wrapper and omits direct children.
+   - v1 shell fallback optimizes correctness first, not collection cost; it may still reuse full-tree context before returning the shell.
    - Only fail fast when a usable shell cannot be generated.
 2. `get_structure` keeps existing API but output is compacted by default.
    - Limit total nodes.

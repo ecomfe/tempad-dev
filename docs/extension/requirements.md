@@ -47,6 +47,7 @@ This document records the source requirements and hard constraints for the MCP `
   - omits all direct children for that node,
   - lists omitted child ids in an inline code comment in render order,
   - emits a `shell` warning that tells agents to request those child ids in order.
+- v1 shell fallback may still depend on the already-collected full-tree context; reducing collection/export cost is a later optimization, not part of this contract.
 - Only throw a user-facing budget error when a usable shell cannot be generated.
 
 ## Layout and positioning

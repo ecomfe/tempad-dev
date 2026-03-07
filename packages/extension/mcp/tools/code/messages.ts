@@ -7,7 +7,7 @@ const DEFAULT_APPROX_BYTES_PER_TOKEN = 4
 const DEFAULT_TOKEN_HEADROOM = 0.75
 
 const SHELL_WARNING_MESSAGE =
-  'Shell response: omitted direct children ids are listed in the inline comment. Call get_code for each id in that order, then fill the results back into this shell without re-guessing parent layout.'
+  'Shell response: omitted direct child ids are listed in the inline comment. Call get_code for them in that order, then fill the results back into this shell instead of re-creating the parent layout.'
 
 export type CodeBudget = {
   maxCodeBytes: number

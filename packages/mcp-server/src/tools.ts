@@ -213,9 +213,6 @@ export function createCodeToolResponse(payload: ToolResultMap['get_code']): Call
     const warningText = payload.warnings.map((warning) => warning.message).join(' ')
     summary.push(warningText)
   }
-  if (payload.warnings?.some((warning) => warning.type === 'shell')) {
-    summary.push('Read the inline code comment for omitted direct child ids.')
-  }
   summary.push(
     payload.assets?.length
       ? `Assets attached: ${payload.assets.length}. Download bytes from each asset.url.`
