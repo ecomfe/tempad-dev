@@ -595,6 +595,18 @@ describe('utils/css serializeCSS regression paths', () => {
     expect(code).toContain(String.raw`fontFamily: 'C:\\temp\\fonts\\\'Open Sans\''`)
   })
 
+  it('escapes template literal control characters in JS object mode', () => {
+    const code = serializeCSS(
+      {
+        content: 'prefix \0tokenValue\0 suffix \\${literal} `tail`'
+      },
+      { ...baseOptions, toJS: true }
+    )
+
+    const content = Function('const tokenValue = "TOKEN"; return (' + code + ').content')()
+    expect(content).toBe('prefix TOKEN suffix \\${literal} `tail`')
+  })
+
   it('applies variable display modes and transform hooks', () => {
     const reference = serializeCSS(
       { color: 'var(--primary, #fff)' },
