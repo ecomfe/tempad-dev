@@ -5,7 +5,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 import { toDecimalPlace } from './number'
 import { kebabToCamel } from './string'
 
-function escapeSingleQuote(value: string) {
+function escapeJsSingleQuotedString(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
@@ -15,7 +15,7 @@ function escapeSingleQuote(value: string) {
     .replace(/\u2029/g, '\\u2029')
 }
 
-function escapeTemplateLiteralPart(value: string) {
+function escapeJsTemplateLiteralText(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
 }
 
@@ -835,14 +835,14 @@ export function serializeCSS(
       const parts = value.split('\0')
       const template = parts
         .map((part, index) =>
-          index % 2 === 0 ? escapeTemplateLiteralPart(part) : '${' + part + '}'
+          index % 2 === 0 ? escapeJsTemplateLiteralText(part) : '${' + part + '}'
         )
         .join('')
 
       return '`' + template + '`'
     }
 
-    return `'${escapeSingleQuote(value)}'`
+    return `'${escapeJsSingleQuotedString(value)}'`
   }
 
   const processedStyle = Object.fromEntries(
