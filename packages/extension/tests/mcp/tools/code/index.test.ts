@@ -107,6 +107,12 @@ describe('mcp/code handleGetCode', () => {
     expect(result.code).toContain('{/* omitted direct children: c,b */}')
     expect(result.warnings?.map((item) => item.type)).toEqual(['shell'])
     expect(result.warnings?.[0]?.message).toContain('Call get_code for them in that order')
+    expect(mocks.processTokens).toHaveBeenCalledWith(
+      expect.objectContaining({
+        styles: new Map([['root', { display: 'flex', 'flex-direction': 'row' }]]),
+        textSegments: new Map()
+      })
+    )
     expect(mocks.renderShellTree).toHaveBeenCalledWith(
       expect.any(String),
       tree,

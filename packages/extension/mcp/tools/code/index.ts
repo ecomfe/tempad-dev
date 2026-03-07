@@ -310,6 +310,7 @@ async function finalizeRenderedOutput(
   input: PipelineInput,
   rendered: { code: string; lang: CodeLanguage }
 ): Promise<PipelineOutput> {
+  const collected = getTokenCollectedContext(input)
   const {
     code: rewrittenCode,
     tokensByCanonical,
@@ -322,8 +323,8 @@ async function finalizeRenderedOutput(
     variableIds: input.variableIds,
     usedCandidateIds: input.usedCandidateIds,
     variableCache: input.variableCache,
-    styles: input.collected.styles,
-    textSegments: input.collected.textSegments,
+    styles: collected.styles,
+    textSegments: collected.textSegments,
     config: input.config,
     pluginCode: input.pluginCode,
     resolveTokens: input.resolveTokens,
@@ -341,6 +342,7 @@ async function finalizeRenderedOutput(
     if (hasTargetNodes) {
       const resolved = await rerenderResolvedOutput({
         ...input,
+        collected,
         lang: rendered.lang,
         sourceIndex,
         resolveNodeIds,
@@ -361,6 +363,26 @@ async function finalizeRenderedOutput(
     code: outputCode,
     ...(tokensPayload ? { tokens: tokensPayload } : {})
   }
+}
+
+function getTokenCollectedContext(input: PipelineInput): CollectedContext {
+  if (input.mode.kind !== 'shell') {
+    return input.collected
+  }
+
+  const styles = new Map<string, Record<string, string>>()
+  const rootStyle = input.collected.styles.get(input.rootId)
+  if (rootStyle) {
+    styles.set(input.rootId, rootStyle)
+  }
+
+  const textSegments = new Map<string, StyledTextSegment[] | null>()
+  const rootSegments = input.collected.textSegments.get(input.rootId)
+  if (rootSegments !== undefined) {
+    textSegments.set(input.rootId, rootSegments)
+  }
+
+  return { styles, textSegments }
 }
 
 async function rerenderResolvedOutput({
