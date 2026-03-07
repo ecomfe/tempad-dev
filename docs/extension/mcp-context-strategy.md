@@ -13,7 +13,8 @@ This document records the current context-control strategy for TemPad Dev MCP ou
 1. `get_code` keeps existing API but uses token-aware budget guards.
    - Budget is computed in bytes with conservative token estimation.
    - Output is validated in UTF-8 bytes at render and rewrite stages.
-   - If over budget, fail fast with guidance to reduce selection scope (no partial code).
+   - If over budget, prefer a shell response that preserves the current node wrapper and omits direct children.
+   - Only fail fast when a usable shell cannot be generated.
 2. `get_structure` keeps existing API but output is compacted by default.
    - Limit total nodes.
    - Normalize/trim long names.
@@ -27,6 +28,7 @@ This document records the current context-control strategy for TemPad Dev MCP ou
 
 - Different agent clients apply their own MCP/tool output limits before model context limits.
 - Partial/truncated code increases hallucination risk in downstream agents.
+- Shell responses preserve parent composition facts without relying on arbitrary string truncation.
 - Character-only truncation does not map well to model token budgets.
 - Image and SVG payloads are high-context-cost and do not need to be embedded in model input.
 

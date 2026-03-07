@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { assertCodeWithinBudget, buildGetCodeWarnings } from '@/mcp/tools/code/messages'
+import {
+  CodeBudgetExceededError,
+  assertCodeWithinBudget,
+  buildGetCodeWarnings,
+  isCodeBudgetExceededError
+} from '@/mcp/tools/code/messages'
 
 describe('mcp/code messages', () => {
   it('throws when markup exceeds size budget', () => {
@@ -12,14 +17,18 @@ describe('mcp/code messages', () => {
     ).toThrow('Output exceeds token/context budget')
 
     let message = ''
+    let budgetError: unknown
     try {
       assertCodeWithinBudget('<div>abc</div>', {
         maxCodeBytes: 8,
         estimatedTokenBudget: 2
       })
     } catch (error) {
+      budgetError = error
       message = error instanceof Error ? error.message : String(error)
     }
+    expect(budgetError).toBeInstanceOf(CodeBudgetExceededError)
+    expect(isCodeBudgetExceededError(budgetError)).toBe(true)
     expect(message).toContain('current ~')
     expect(message).toContain('limit ~2 tokens / 8 UTF-8 bytes')
     expect(message).toContain('over by ~')
@@ -56,6 +65,17 @@ describe('mcp/code messages', () => {
 
   it('returns undefined when no warning conditions are met', () => {
     expect(buildGetCodeWarnings('<div />')).toBeUndefined()
+  })
+
+  it('adds shell warning without duplicating omitted node ids in warning data', () => {
+    const warnings = buildGetCodeWarnings('<div />', {
+      shell: true
+    })
+
+    expect(warnings?.map((item) => item.type)).toEqual(['shell'])
+    expect(warnings?.[0]?.message).toContain('Shell response')
+    expect(warnings?.[0]?.message).toContain('inline comment')
+    expect(warnings?.[0]?.data).toBeUndefined()
   })
 
   it('marks depth cap overflow and truncates id list to max 50', () => {

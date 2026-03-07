@@ -28,6 +28,49 @@ export async function renderTree(
   return renderNode(rootId, tree, ctx)
 }
 
+export async function renderShellTree(
+  rootId: string,
+  tree: VisibleTree,
+  ctx: RenderContext,
+  omittedNodeIds: string[]
+): Promise<DevComponent | null> {
+  const snapshot = tree.nodes.get(rootId)
+  if (!snapshot || omittedNodeIds.length === 0) return null
+  if (ctx.svgs.has(snapshot.id)) return null
+
+  const node = snapshot.node
+  if (node.type === 'TEXT') return null
+
+  const pluginComponent =
+    node.type === 'INSTANCE'
+      ? ctx.pluginComponents?.has(node.id)
+        ? (ctx.pluginComponents.get(node.id) ?? null)
+        : await renderPluginComponent(node, ctx)
+      : null
+
+  if (pluginComponent) return null
+
+  let rawStyle = filterGridProps(ctx.styles.get(snapshot.id) ?? {})
+  if (snapshot.tag === 'svg') {
+    rawStyle = ctx.layout.get(snapshot.id) ?? rawStyle
+  }
+
+  const langHint = ctx.preferredLang ?? ctx.detectedLang
+  const classAttr = classProp(langHint)
+  const dataHint = snapshot.dataHint
+    ? { ...snapshot.dataHint, 'data-hint-id': snapshot.id }
+    : undefined
+  const { props } = classProps(rawStyle, ctx.config, classAttr, dataHint, {
+    isFallback: true
+  })
+
+  return {
+    name: snapshot.tag || 'div',
+    props,
+    children: [raw(buildShellComment(langHint, omittedNodeIds))]
+  }
+}
+
 async function renderNode(
   nodeId: string,
   tree: VisibleTree,
@@ -216,7 +259,7 @@ async function renderNode(
   const display = rawStyle.display || ''
   const isCurrentGrid = display === 'grid' || display === 'inline-grid'
 
-  const childIds = getOrderedChildren(snapshot, rawStyle, tree)
+  const childIds = getOrderedChildIds(snapshot, rawStyle, tree)
   for (const childId of childIds) {
     const rendered = await renderNode(childId, tree, ctx, nextTextStyle, isCurrentGrid)
     if (rendered) children.push(rendered)
@@ -225,7 +268,7 @@ async function renderNode(
   return { name: snapshot.tag || 'div', props, children }
 }
 
-function getOrderedChildren(
+export function getOrderedChildIds(
   snapshot: NodeSnapshot,
   style: Record<string, string>,
   tree: VisibleTree
@@ -263,6 +306,14 @@ function getOrderedChildren(
   })
 
   return sorted.map((entry) => entry.id)
+}
+
+function buildShellComment(lang: string | undefined, omittedNodeIds: string[]): string {
+  const content = `omitted direct children: ${omittedNodeIds.join(',')}`
+  if (lang === 'vue') {
+    return `<!-- ${content} -->`
+  }
+  return `{/* ${content} */}`
 }
 
 function resolveFlexAxis(node: SceneNode, style: Record<string, string>): 'x' | 'y' | null {

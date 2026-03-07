@@ -28,6 +28,7 @@ Supported tools/resources:
 
 Notes:
 
+- When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one.
 - Assets are ephemeral and tool-linked; image/SVG bytes are downloaded via HTTP `asset.url` from tool results.
 - Asset resources are not exposed via MCP `resources/list`/`resources/read`.
 - The HTTP fallback URL uses `/assets/{hash}` and may include an image extension (for example `/assets/{hash}.png`). Both forms are accepted.

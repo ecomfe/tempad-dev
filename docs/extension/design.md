@@ -50,9 +50,10 @@ This document describes the implementation design for MCP `get_code` in `package
 
 10. **Enforce budget and finalize output**
     - Validate output size using a conservative token-aware UTF-8 byte budget.
-    - If over budget, fail fast with actionable guidance (no partial code output).
-    - Emit warnings only for inferred auto layout and depth-cap.
+    - If over budget, prefer a shell response for the current node.
+    - Emit warnings for inferred auto layout, depth-cap, and shell guidance.
     - If tree depth was capped, include a `depth-cap` warning with capped node ids.
+    - If a shell response is returned, list omitted direct child ids in an inline comment in render order.
 
 ## Tree and layout semantics
 
@@ -157,7 +158,9 @@ This document describes the implementation design for MCP `get_code` in `package
 - Effective code byte budget is:
   - `min(MCP_MAX_PAYLOAD_BYTES * 0.6, estimatedTokenBudgetBytes)`
   - where `estimatedTokenBudgetBytes` is derived from a conservative token heuristic and headroom.
-- If the output exceeds budget at render or token-rewrite stages, the tool throws and asks clients to reduce selection scope.
+- If the output exceeds budget at render or token-rewrite stages, the tool first attempts to return a shell for the current node.
+- The v1 shell algorithm omits all direct children for the current node and expects clients/agents to fetch them one by one in the order written in the inline comment.
+- If a usable shell cannot be generated, the tool throws and asks clients to reduce selection scope.
 - Token rewrite stage and final render stage share the same byte-budget guard to keep behavior consistent.
 
 ## Performance notes

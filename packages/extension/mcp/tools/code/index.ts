@@ -1,4 +1,4 @@
-import type { AssetDescriptor, GetCodeResult } from '@tempad-dev/shared'
+import type { AssetDescriptor, GetCodeResult, GetTokenDefsResult } from '@tempad-dev/shared'
 
 import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/shared'
 
@@ -20,8 +20,13 @@ import { buildVariableMappings } from '../token/mapping'
 import { exportVectorAssets } from './assets/export'
 import { planAssets } from './assets/plan'
 import { collectNodeData } from './collect'
-import { assertCodeWithinBudget, buildGetCodeWarnings, resolveCodeBudget } from './messages'
-import { renderTree } from './render'
+import {
+  assertCodeWithinBudget,
+  buildGetCodeWarnings,
+  isCodeBudgetExceededError,
+  resolveCodeBudget
+} from './messages'
+import { getOrderedChildIds, renderShellTree, renderTree } from './render'
 import { resolvePluginComponent } from './render/plugin'
 import { buildLayoutStyles, prepareStyles } from './styles'
 import { createStyleVarResolver, processTokens, resolveStyleMap } from './tokens'
@@ -62,6 +67,53 @@ const COMPACT_TAGS = new Set([
   'figcaption',
   'summary'
 ])
+
+type TraceInfo = {
+  now: () => number
+  stamp: (label: string, start: number) => void
+}
+
+type CollectedContext = {
+  styles: Map<string, Record<string, string>>
+  textSegments: Map<string, StyledTextSegment[] | null>
+}
+
+type AssetPlanContext = {
+  vectorRoots: Set<string>
+}
+
+type RenderMode =
+  | { kind: 'full' }
+  | {
+      kind: 'shell'
+      omittedNodeIds: string[]
+    }
+
+type PipelineInput = {
+  mode: RenderMode
+  rootId: string
+  tree: VisibleTree
+  ctx: RenderContext
+  collected: CollectedContext
+  nodeMap: Map<string, SceneNode>
+  plan: AssetPlanContext
+  rootTag?: string
+  lang?: CodeLanguage
+  budget: CodeBudget
+  variableIds: Set<string>
+  usedCandidateIds: Set<string>
+  variableCache: Map<string, Variable | null>
+  config: CodegenConfig
+  pluginCode?: string
+  resolveTokens?: boolean
+  trace?: TraceInfo
+}
+
+type PipelineOutput = {
+  code: string
+  lang: CodeLanguage
+  tokens?: GetTokenDefsResult
+}
 
 export async function handleGetCode(
   nodes: SceneNode[],
@@ -142,20 +194,122 @@ export async function handleGetCode(
 
   const rootTag = collected.nodes.get(rootId)?.tag
   const codeBudget = resolveCodeBudget(MCP_MAX_PAYLOAD_BYTES)
-
-  const { code: rawCode, lang: resolvedLang } = await renderCode({
+  const codegen = {
+    plugin: activePlugin.value?.name ?? 'none',
+    config
+  }
+  const baseInput: Omit<PipelineInput, 'mode'> = {
     rootId,
     tree,
     ctx,
+    collected,
+    nodeMap,
+    plan,
     rootTag,
     lang: preferredLang,
     budget: codeBudget,
+    variableIds: mappings.variableIds,
+    usedCandidateIds,
+    variableCache,
+    config,
+    pluginCode,
+    resolveTokens,
     trace: { now, stamp }
-  })
+  }
+  const allAssets = Array.from(assetRegistry.values())
 
-  let code = rawCode
+  try {
+    const output = await renderPipeline({
+      ...baseInput,
+      mode: { kind: 'full' }
+    })
+    const warnings = buildGetCodeWarnings(output.code, {
+      depthLimit: tree.stats.depthLimit,
+      cappedNodeIds: tree.stats.cappedNodeIds
+    })
 
-  // Token pipeline: detect -> transform -> rewrite -> detect
+    logTrace(
+      trace,
+      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${allAssets.length}`
+    )
+
+    return buildCodeResult(output, codegen, allAssets, warnings)
+  } catch (error) {
+    if (!isCodeBudgetExceededError(error)) {
+      throw error
+    }
+
+    const shellMode = createShellMode(rootId, tree, ctx)
+    if (!shellMode) {
+      throw error
+    }
+
+    const shell = await tryRenderShell({
+      ...baseInput,
+      mode: shellMode
+    })
+    if (shell == null) {
+      throw error
+    }
+
+    const warnings = buildGetCodeWarnings(shell.code, {
+      depthLimit: tree.stats.depthLimit,
+      cappedNodeIds: tree.stats.cappedNodeIds,
+      shell: true
+    })
+    const assets = filterAssetsReferencedInCode(allAssets, shell.code)
+
+    logTrace(
+      trace,
+      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assets.length} shell`
+    )
+
+    return buildCodeResult(shell, codegen, assets, warnings)
+  }
+}
+
+async function tryRenderShell(input: PipelineInput): Promise<PipelineOutput | null> {
+  const rendered = await renderMarkup(input)
+  if (!rendered) {
+    return null
+  }
+
+  try {
+    return await finalizeRenderedOutput(input, rendered)
+  } catch (error) {
+    if (isCodeBudgetExceededError(error)) {
+      return null
+    }
+    throw error
+  }
+}
+
+function createShellMode(rootId: string, tree: VisibleTree, ctx: RenderContext): RenderMode | null {
+  const rootSnapshot = tree.nodes.get(rootId)
+  if (!rootSnapshot?.children.length) return null
+
+  const omittedNodeIds = getOrderedChildIds(rootSnapshot, ctx.styles.get(rootId) ?? {}, tree)
+  if (!omittedNodeIds.length) return null
+
+  return {
+    kind: 'shell',
+    omittedNodeIds
+  }
+}
+
+async function renderPipeline(input: PipelineInput): Promise<PipelineOutput> {
+  const rendered = await renderMarkup(input)
+  if (!rendered) {
+    throw new Error('Unable to build markup for the current selection.')
+  }
+
+  return finalizeRenderedOutput(input, rendered)
+}
+
+async function finalizeRenderedOutput(
+  input: PipelineInput,
+  rendered: { code: string; lang: CodeLanguage }
+): Promise<PipelineOutput> {
   const {
     code: rewrittenCode,
     tokensByCanonical,
@@ -163,40 +317,32 @@ export async function handleGetCode(
     tokenMatcher,
     resolveNodeIds
   } = await processTokens({
-    code,
-    budget: codeBudget,
-    variableIds: mappings.variableIds,
-    usedCandidateIds,
-    variableCache,
-    styles: collected.styles,
-    textSegments: collected.textSegments,
-    config,
-    pluginCode,
-    resolveTokens,
-    stamp,
-    now
+    code: rendered.code,
+    budget: input.budget,
+    variableIds: input.variableIds,
+    usedCandidateIds: input.usedCandidateIds,
+    variableCache: input.variableCache,
+    styles: input.collected.styles,
+    textSegments: input.collected.textSegments,
+    config: input.config,
+    pluginCode: input.pluginCode,
+    resolveTokens: input.resolveTokens,
+    stamp: input.trace?.stamp,
+    now: input.trace?.now
   })
 
-  code = rewrittenCode
+  let outputCode = rewrittenCode
 
-  let outputCode = code
-  if (resolveTokens && Object.keys(tokensByCanonical).length) {
-    t = now()
+  if (input.resolveTokens && Object.keys(tokensByCanonical).length) {
+    const now = input.trace?.now
+    const stamp = input.trace?.stamp
+    const t = now ? now() : 0
     const hasTargetNodes = resolveNodeIds ? resolveNodeIds.size > 0 : true
     if (hasTargetNodes) {
-      const resolved = await renderResolvedTokens({
-        rootId,
-        tree,
-        ctx,
-        collected,
-        nodeMap,
-        plan,
-        rootTag,
-        lang: resolvedLang,
-        budget: codeBudget,
+      const resolved = await rerenderResolvedOutput({
+        ...input,
+        lang: rendered.lang,
         sourceIndex,
-        variableCache,
-        config,
         resolveNodeIds,
         tokenMatcher
       })
@@ -204,95 +350,54 @@ export async function handleGetCode(
         outputCode = resolved.code
       }
     }
-    stamp('tokens:resolve', t)
-  }
-
-  const warnings = buildGetCodeWarnings(outputCode, {
-    depthLimit: tree.stats.depthLimit,
-    cappedNodeIds: tree.stats.cappedNodeIds
-  })
-  const assets = Array.from(assetRegistry.values())
-  const codegen = {
-    plugin: activePlugin.value?.name ?? 'none',
-    config
+    if (stamp && now) {
+      stamp('tokens:resolve', t)
+    }
   }
 
   const tokensPayload = Object.keys(tokensByCanonical).length ? tokensByCanonical : undefined
-
-  logTrace(
-    trace,
-    `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assetRegistry.size}`
-  )
-
   return {
-    lang: resolvedLang,
+    lang: rendered.lang,
     code: outputCode,
-    ...(assets.length ? { assets } : {}),
-    ...(tokensPayload ? { tokens: tokensPayload } : {}),
-    codegen,
-    ...(warnings?.length ? { warnings } : {})
+    ...(tokensPayload ? { tokens: tokensPayload } : {})
   }
 }
 
-async function renderResolvedTokens({
-  rootId,
-  tree,
-  ctx,
-  collected,
-  nodeMap,
-  plan,
-  rootTag,
-  lang,
-  budget,
+async function rerenderResolvedOutput({
   sourceIndex,
-  variableCache,
-  config,
   resolveNodeIds,
-  tokenMatcher
+  tokenMatcher,
+  ...input
 }: {
-  rootId: string
-  tree: VisibleTree
-  ctx: RenderContext
-  collected: {
-    styles: Map<string, Record<string, string>>
-  }
-  nodeMap: Map<string, SceneNode>
-  plan: { vectorRoots: Set<string> }
-  rootTag?: string
-  lang: CodeLanguage
-  budget: CodeBudget
   sourceIndex: Map<string, string>
-  variableCache: Map<string, Variable | null>
-  config: CodegenConfig
   resolveNodeIds?: Set<string>
   tokenMatcher?: (value: string) => boolean
-}): Promise<{ code: string } | null> {
+} & PipelineInput & {
+    lang: CodeLanguage
+  }): Promise<{ code: string } | null> {
   const resolveStyleVars = createStyleVarResolver(
     sourceIndex,
-    variableCache,
-    config,
+    input.variableCache,
+    input.config,
     resolveNodeIds,
     tokenMatcher
   )
-  const resolvedStyles = resolveStyleMap(collected.styles, nodeMap, resolveStyleVars)
-  if (!stylesChanged(collected.styles, resolvedStyles)) {
+  const resolvedStyles = resolveStyleMap(input.collected.styles, input.nodeMap, resolveStyleVars)
+  if (!stylesChanged(input.collected.styles, resolvedStyles)) {
     return null
   }
-  const resolvedLayout = buildLayoutStyles(resolvedStyles, plan.vectorRoots)
+  const resolvedLayout = buildLayoutStyles(resolvedStyles, input.plan.vectorRoots)
   const resolvedCtx = buildRenderContext({
-    ...ctx,
+    ...input.ctx,
     styles: resolvedStyles,
     layout: resolvedLayout,
     resolveStyleVars
   })
 
-  return renderCode({
-    rootId,
-    tree,
+  return renderMarkup({
+    ...input,
     ctx: resolvedCtx,
-    rootTag,
-    lang,
-    budget,
+    lang: input.lang,
     transform: simplifyColorMixToRgba
   })
 }
@@ -420,7 +525,8 @@ function stringifyComponentTree(
   })
 }
 
-async function renderCode({
+async function renderMarkup({
+  mode,
   rootId,
   tree,
   ctx,
@@ -429,34 +535,56 @@ async function renderCode({
   budget,
   transform,
   trace
-}: {
-  rootId: string
-  tree: VisibleTree
-  ctx: RenderContext
-  rootTag?: string
-  lang?: CodeLanguage
-  budget: CodeBudget
+}: PipelineInput & {
   transform?: (markup: string) => string
-  trace?: { now: () => number; stamp: (label: string, start: number) => void }
-}): Promise<{ code: string; lang: CodeLanguage }> {
+}): Promise<{ code: string; lang: CodeLanguage } | null> {
   const clock = trace?.now
   let t = clock ? clock() : 0
-  const rendered = await renderTree(rootId, tree, ctx)
+  const rendered =
+    mode.kind === 'shell'
+      ? await renderShellTree(rootId, tree, ctx, mode.omittedNodeIds)
+      : await renderTree(rootId, tree, ctx)
   if (!rendered) {
-    throw new Error('Unable to build markup for the current selection.')
+    return null
   }
-  if (trace && clock) trace.stamp('render', t)
+  if (trace && clock) {
+    trace.stamp(mode.kind === 'shell' ? 'render:shell' : 'render', t)
+  }
 
   const resolvedLang = lang ?? ctx.detectedLang ?? 'jsx'
   t = clock ? clock() : 0
   const markup = stringifyComponentTree(rendered, rootTag, rootId, resolvedLang)
-  if (trace && clock) trace.stamp('stringify', t)
+  if (trace && clock) {
+    trace.stamp(mode.kind === 'shell' ? 'stringify:shell' : 'stringify', t)
+  }
 
   t = clock ? clock() : 0
   const output = transform ? transform(markup) : markup
   assertCodeWithinBudget(output, budget)
-  if (trace && clock) trace.stamp('budget-check', t)
+  if (trace && clock) {
+    trace.stamp(mode.kind === 'shell' ? 'budget-check:shell' : 'budget-check', t)
+  }
   return { code: output, lang: resolvedLang }
+}
+
+function filterAssetsReferencedInCode(assets: AssetDescriptor[], code: string): AssetDescriptor[] {
+  return assets.filter((asset) => code.includes(asset.url) || code.includes(asset.hash))
+}
+
+function buildCodeResult(
+  output: PipelineOutput,
+  codegen: GetCodeResult['codegen'],
+  assets: AssetDescriptor[],
+  warnings?: GetCodeResult['warnings']
+): GetCodeResult {
+  return {
+    lang: output.lang,
+    code: output.code,
+    ...(assets.length ? { assets } : {}),
+    ...(output.tokens ? { tokens: output.tokens } : {}),
+    codegen,
+    ...(warnings?.length ? { warnings } : {})
+  }
 }
 
 function createTrace() {

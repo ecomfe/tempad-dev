@@ -32,7 +32,7 @@ This document records the source requirements and hard constraints for the MCP `
 - Optional fields (omit when empty):
   - `assets`: array of exported assets (image/vector).
   - `tokens`: one-layer map of token entries keyed by canonical token name.
-  - `warnings`: only for inferred auto layout or depth-cap.
+  - `warnings`: for inferred auto layout, depth-cap, or shell guidance.
 
 ## Size and budget guard
 
@@ -41,7 +41,13 @@ This document records the source requirements and hard constraints for the MCP `
   - ~60% of `MCP_MAX_PAYLOAD_BYTES` (transport safety), and
   - a conservative estimated token budget (default ~6k effective tokens after headroom).
 - Token budget uses byte-based approximation (UTF-8 bytes per token heuristic) so budget checks align better with model/tool context limits than raw character count.
-- If output exceeds the code budget at any render/rewrite stage, throw a user-facing error (do not return partial code).
+- If output exceeds the code budget at any render/rewrite stage, prefer returning a shell response for the current node.
+- A shell response:
+  - preserves the current node wrapper/layout markup,
+  - omits all direct children for that node,
+  - lists omitted child ids in an inline code comment in render order,
+  - emits a `shell` warning that tells agents to request those child ids in order.
+- Only throw a user-facing budget error when a usable shell cannot be generated.
 
 ## Layout and positioning
 
@@ -142,7 +148,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 ## Logging
 
-- Only emit `warnings` for inferred auto layout and depth-cap.
+- Emit `warnings` for inferred auto layout, depth-cap, and shell guidance.
 - Emit `depth-cap` warnings when tree depth is capped (include node ids).
 - Other degradations should be logged via the shared `logger` (prefix is automatic).
 - The tool may log high-level timing info via `logger.debug` for performance diagnostics.

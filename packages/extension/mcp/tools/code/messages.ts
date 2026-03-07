@@ -6,9 +6,19 @@ const DEFAULT_CODE_TOKEN_BUDGET = 8000
 const DEFAULT_APPROX_BYTES_PER_TOKEN = 4
 const DEFAULT_TOKEN_HEADROOM = 0.75
 
+const SHELL_WARNING_MESSAGE =
+  'Shell response: omitted direct children ids are listed in the inline comment. Call get_code for each id in that order, then fill the results back into this shell without re-guessing parent layout.'
+
 export type CodeBudget = {
   maxCodeBytes: number
   estimatedTokenBudget: number
+}
+
+export class CodeBudgetExceededError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CodeBudgetExceededError'
+  }
 }
 
 export function resolveCodeBudget(maxPayloadBytes: number): CodeBudget {
@@ -33,7 +43,7 @@ export function assertCodeWithinBudget(rawMarkup: string, budget: CodeBudget): v
   const overBytes = size - budget.maxCodeBytes
   const overTokens = Math.max(1, estimatedCurrentTokens - budget.estimatedTokenBudget)
 
-  throw new Error(
+  throw new CodeBudgetExceededError(
     `Output exceeds token/context budget (current ~${estimatedCurrentTokens} tokens / ${size} UTF-8 bytes; limit ~${budget.estimatedTokenBudget} tokens / ${budget.maxCodeBytes} UTF-8 bytes; over by ~${overTokens} tokens / ${overBytes} bytes). Reduce selection size and retry, or call get_code on a smaller nodeId subtree.`
   )
 }
@@ -43,6 +53,7 @@ export function buildGetCodeWarnings(
   options?: {
     depthLimit?: number
     cappedNodeIds?: string[]
+    shell?: boolean
   }
 ): GetCodeWarning[] | undefined {
   const warnings: GetCodeWarning[] = []
@@ -73,7 +84,18 @@ export function buildGetCodeWarnings(
     })
   }
 
+  if (options?.shell) {
+    warnings.push({
+      type: 'shell',
+      message: SHELL_WARNING_MESSAGE
+    })
+  }
+
   return warnings.length ? warnings : undefined
+}
+
+export function isCodeBudgetExceededError(error: unknown): error is CodeBudgetExceededError {
+  return error instanceof CodeBudgetExceededError
 }
 
 function utf8ByteLength(input: string): number {
