@@ -5,14 +5,7 @@ export default defineUnlistedScript(async () => {
     return
   }
 
-  const { dataset } = currentScript
-
-  if (!dataset.entry) {
-    console.error('No entry specified for UI script.')
-    return
-  }
-
-  const response = await fetch(dataset.entry)
+  const response = await fetch(new URL('/ui.js', currentScript.src).href)
   const content = await response.text()
   const script = document.createElement('script')
 
