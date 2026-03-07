@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useCopy } from '@/composables'
 import { transformHTML } from '@/utils/dom'
+import { escapeHTML } from '@/utils/string'
 
 import IconButton from './IconButton.vue'
 import Copy from './icons/Copy.vue'
@@ -42,7 +43,7 @@ const lang = computed(() => {
 const highlighted = computed(() => {
   const { Prism } = window
   if (!Prism || !Prism.languages[lang.value]) {
-    return code.value
+    return escapeHTML(code.value)
   }
 
   const html = Prism.highlight(code.value, Prism.languages[lang.value], lang.value)
