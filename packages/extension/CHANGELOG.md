@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.4
+
+- Hardened the injected UI loader so it always boots the bundled extension UI entry.
+- Fixed JavaScript code block escaping for backslashes and template literal control sequences.
+- Kept Figma `url(...) lightgray ...` background fallback handling aligned with real shorthand output.
+
 ## 0.17.3
 
 - Added MCP `get_code` shell fallback for over-budget selections, returning the current wrapper with inline omitted child ids and shell guidance warnings for follow-up fetches.
