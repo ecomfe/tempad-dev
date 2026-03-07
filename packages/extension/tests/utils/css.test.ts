@@ -584,6 +584,17 @@ describe('utils/css serializeCSS regression paths', () => {
     expect(code).toContain('// transformed')
   })
 
+  it('escapes backslashes in JS object string values', () => {
+    const code = serializeCSS(
+      {
+        'font-family': String.raw`C:\temp\fonts\'Open Sans'`
+      },
+      { ...baseOptions, toJS: true }
+    )
+
+    expect(code).toContain(String.raw`fontFamily: 'C:\\temp\\fonts\\\'Open Sans\''`)
+  })
+
   it('applies variable display modes and transform hooks', () => {
     const reference = serializeCSS(
       { color: 'var(--primary, #fff)' },
