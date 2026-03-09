@@ -7,71 +7,121 @@ import { normalizeCssValue } from '@/utils/css'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
 
+import { ensureSvgRootSize, extractSvgAttributes, normalizeThemeableSvg } from './svg'
+
+export { extractSvgAttributes } from './svg'
+
+export type VectorMode = 'smart' | 'snapshot'
+
 export type SvgEntry = {
   props: Record<string, string>
   raw?: string
 }
 
+type ExportOptions = {
+  themeable?: boolean
+  vectorMode?: VectorMode
+}
+
 export async function exportSvgEntry(
   node: SceneNode,
   config: CodegenConfig,
-  assetRegistry: Map<string, AssetDescriptor>
+  assetRegistry: Map<string, AssetDescriptor>,
+  options: ExportOptions = {}
 ): Promise<SvgEntry | null> {
+  const { themeable = false, vectorMode = 'smart' } = options
+  const metadata = themeable ? { themeable: true as const } : undefined
+
   try {
     const svgUint8 = await node.exportAsync({ format: 'SVG' })
-    const decoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null
-    let svgString = decoder ? decoder.decode(svgUint8) : String.fromCharCode(...svgUint8)
+    const svgString = decodeSvgBytes(svgUint8)
 
-    svgString = transformSvgAttributes(svgString, config)
-
-    const baseProps = extractSvgAttributes(svgString)
-    if (!Object.keys(baseProps).length) {
-      // If we failed to parse attributes, inline the SVG to avoid emitting an empty tag.
-      return { props: {}, raw: svgString }
+    if (themeable && vectorMode !== 'snapshot') {
+      const normalized = normalizeThemeableSvg(svgString, config, {
+        width: node.width,
+        height: node.height,
+        idPrefix: node.id
+      })
+      if (normalized) {
+        return {
+          props: normalized.props,
+          raw: normalized.content
+        }
+      }
     }
+
+    const sized = ensureSvgRootSize(svgString, config, node.width, node.height)
+    const baseProps = sized?.props ?? buildFallbackProps(node, config)
     try {
       const asset = await ensureAssetUploaded(svgUint8, 'image/svg+xml', {
         width: Math.round(toDecimalPlace(node.width)),
-        height: Math.round(toDecimalPlace(node.height))
+        height: Math.round(toDecimalPlace(node.height)),
+        ...(metadata ?? {})
       })
-      assetRegistry.set(asset.hash, asset)
-      baseProps['data-asset-url'] = asset.url
-      return { props: baseProps }
+      assetRegistry.set(asset.hash, {
+        ...asset,
+        ...(metadata ?? {})
+      })
+      return {
+        props: {
+          ...baseProps,
+          'data-asset-url': asset.url
+        }
+      }
     } catch (uploadError) {
       logger.warn('Failed to upload vector asset; inlining raw SVG.', uploadError)
-      return { props: baseProps, raw: svgString }
+      return {
+        props: baseProps,
+        raw: sized?.content ?? svgString
+      }
     }
   } catch (error) {
     logger.warn('Failed to export vector node:', error)
     return {
-      props: {
-        width: `${toDecimalPlace(node.width)}px`,
-        height: `${toDecimalPlace(node.height)}px`
-      },
+      props: buildFallbackProps(node, config),
       raw: '<svg></svg>'
     }
   }
 }
 
-export function transformSvgAttributes(svg: string, config: CodegenConfig): string {
-  const regex = /(\s|^)(width|height)=(['"])(.*?)\3/g
-  const replacer = (_match: string, prefix: string, attr: string, quote: string, val: string) => {
-    const pxVal = val.endsWith('px') ? val : `${val}px`
-    const normalized = normalizeCssValue(pxVal, config)
-    return `${prefix}${attr}=${quote}${normalized}${quote}`
+function decodeSvgBytes(bytes: Uint8Array): string {
+  if (typeof TextDecoder !== 'undefined') {
+    return new TextDecoder('utf-8').decode(bytes)
   }
-  return svg.replace(regex, replacer)
+  return String.fromCharCode(...bytes)
 }
 
-export function extractSvgAttributes(svg: string): Record<string, string> {
-  const attrs: Record<string, string> = {}
-  const match = svg.match(/<svg\s+([^>]+)>/i)
-  if (!match) return attrs
-  const attrString = match[1]
-  const regex = /([^\s=]+)\s*=\s*(['"])(.*?)\2/g
-  let m: RegExpExecArray | null
-  while ((m = regex.exec(attrString))) {
-    attrs[m[1]] = m[3]
+export function transformSvgAttributes(svg: string, config: CodegenConfig): string {
+  const attrs = extractSvgAttributes(svg)
+  if (!Object.keys(attrs).length) return svg
+
+  const width = attrs.width
+  const height = attrs.height
+  let next = svg
+  if (width) {
+    next = next.replace(
+      /(\s|^)width=(['"])(.*?)\2/i,
+      `$1width=$2${ensureSizedValue(width, config)}$2`
+    )
   }
-  return attrs
+  if (height) {
+    next = next.replace(
+      /(\s|^)height=(['"])(.*?)\2/i,
+      `$1height=$2${ensureSizedValue(height, config)}$2`
+    )
+  }
+  return next
+}
+
+function ensureSizedValue(value: string, config: CodegenConfig): string {
+  if (value.includes('%')) return value
+  const normalized = value.endsWith('px') ? value : `${value}px`
+  return normalizeCssValue(normalized, config)
+}
+
+function buildFallbackProps(node: SceneNode, config: CodegenConfig): Record<string, string> {
+  return {
+    width: normalizeCssValue(`${toDecimalPlace(node.width)}px`, config),
+    height: normalizeCssValue(`${toDecimalPlace(node.height)}px`, config)
+  }
 }

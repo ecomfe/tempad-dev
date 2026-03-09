@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+- Added themeable SVG metadata persistence through the asset HTTP server, asset store, and `get_assets` responses.
+- Updated MCP tool descriptions and instructions for smart vector delivery, Host app aware SVG integration, and single-channel `themeable` semantics.
+
 ## 0.4.5
 
 - Updated `get_code` tool guidance and summaries for shell responses that list omitted child ids in inline comments.

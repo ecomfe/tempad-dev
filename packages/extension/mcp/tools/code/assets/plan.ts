@@ -21,19 +21,20 @@ const VECTOR_LIKE_LEAF_TYPES = new Set<SceneNode['type']>([
   'RECTANGLE'
 ])
 
-export function planAssets(tree: VisibleTree): AssetPlan {
+export function planAssets(tree: VisibleTree, ignoredIds?: Set<string>): AssetPlan {
   const vectorRoots = new Set<string>()
   const skipped = new Set<string>()
-  const vectorInfo = computeVectorInfo(tree)
+  const vectorInfo = computeVectorInfo(tree, ignoredIds)
 
   for (const id of tree.order) {
+    if (ignoredIds?.has(id)) continue
     if (skipped.has(id)) continue
     const node = tree.nodes.get(id)
     if (!node) continue
 
     const children = node.children
       .map((childId) => tree.nodes.get(childId))
-      .filter(Boolean) as NodeSnapshot[]
+      .filter((child): child is NodeSnapshot => !!child && !ignoredIds?.has(child.id))
 
     const info = vectorInfo.get(id)
     const isVectorGroup =
@@ -58,11 +59,12 @@ export function planAssets(tree: VisibleTree): AssetPlan {
   return { vectorRoots, skippedIds: skipped }
 }
 
-function computeVectorInfo(tree: VisibleTree): Map<string, VectorInfo> {
+function computeVectorInfo(tree: VisibleTree, ignoredIds?: Set<string>): Map<string, VectorInfo> {
   const info = new Map<string, VectorInfo>()
 
   for (let i = tree.order.length - 1; i >= 0; i--) {
     const id = tree.order[i]
+    if (ignoredIds?.has(id)) continue
     const node = tree.nodes.get(id)
     if (!node) continue
 
@@ -89,6 +91,10 @@ function computeVectorInfo(tree: VisibleTree): Map<string, VectorInfo> {
     let nonMaskLeafCount = 0
     let hasMask = isMaskNode(node)
     for (const childId of node.children) {
+      if (ignoredIds?.has(childId)) {
+        allNonMaskVectorLike = false
+        continue
+      }
       const childInfo = info.get(childId)
       if (!childInfo || !childInfo.allNonMaskVectorLike) {
         allNonMaskVectorLike = false

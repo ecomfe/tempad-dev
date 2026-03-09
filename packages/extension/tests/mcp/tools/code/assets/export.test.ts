@@ -64,7 +64,8 @@ describe('assets/export exportVectorAssets', () => {
         skippedIds: new Set()
       },
       config,
-      new Map()
+      new Map(),
+      'smart'
     )
 
     expect(Array.from(result.keys())).toEqual(['vector-ok', 'zero-with-render'])
@@ -90,7 +91,8 @@ describe('assets/export exportVectorAssets', () => {
         skippedIds: new Set()
       },
       config,
-      new Map()
+      new Map(),
+      'snapshot'
     )
 
     expect(result).toEqual(new Map())

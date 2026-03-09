@@ -354,7 +354,8 @@ describe('asset-http-server unit branches', () => {
       headers: {
         'content-type': ['image/png'],
         'x-asset-width': '320',
-        'x-asset-height': '240'
+        'x-asset-height': '240',
+        'x-asset-themeable': 'true'
       }
     })
     const fallbackPathRes = createResponse()
@@ -365,7 +366,7 @@ describe('asset-http-server unit branches', () => {
       expect.objectContaining({
         filePath: '/tmp/mock-assets/abcdef12.png',
         mimeType: 'image/png',
-        metadata: { width: 320, height: 240 }
+        metadata: { width: 320, height: 240, themeable: true }
       })
     )
 

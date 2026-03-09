@@ -127,7 +127,11 @@ This document describes the implementation design for MCP `get_code` in `package
 
 - Vector-like nodes may be exported to SVG.
 - Vector containers can be converted to a single SVG if all leaves are vector-like.
+- Themeable vectors are single-color vectors that can safely use one contextual color channel. The current implementation rewrites safe `fill`/`stroke` values to `currentColor` and keeps node-sized `width`/`height` plus `viewBox`.
+- Fixed-color vectors preserve their internal palette and stay asset-backed unless the caller explicitly requests different fidelity handling.
+- Plugin/component output short-circuits vector export for that subtree.
 - SVG nodes only receive external layout styles, not visual paint styles.
+- The emitted inline-SVG-vs-asset choice is the tool's default delivery for the current response. Host apps may refactor to their own SVG policy, such as repo icon primitives, bundler/dev-server SVG transforms, inline SVG, or asset-backed `<img>`, as long as themeable vectors remain single-channel and fixed-color vectors keep their palette.
 - Placeholder SVG is emitted when export fails or is unavailable, using node width/height.
 - Vector-root descendants are not rendered; their CSS is not collected.
 

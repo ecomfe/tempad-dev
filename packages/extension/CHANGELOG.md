@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.0
+
+- Added smart vector delivery for MCP `get_code`: themeable single-color vectors now inline safely, fixed-color vectors stay asset-backed, and `vectorMode=snapshot` preserves asset fidelity when requested.
+- Improved vector handling with Figma-semantics-based themeable detection, safer SVG normalization for `currentColor`, stable SVG ids, and preserved node-sized dimensions.
+- Prioritized plugin/component output ahead of vector asset export and aligned docs/skill guidance with Host app specific SVG policies.
+
 ## 0.17.4
 
 - Hardened the injected UI loader so it always boots the bundled extension UI entry.

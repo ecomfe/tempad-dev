@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/extension",
-  "version": "0.17.4",
+  "version": "0.18.0",
   "private": true,
   "description": "Open handoff tooling on Figma",
   "type": "module",
@@ -33,6 +33,7 @@
     "overlayscrollbars": "^2.12.0",
     "p-wait-for": "^6.0.0",
     "stringify-object": "^6.0.0",
+    "svgson": "^5.3.1",
     "vue": "^3.5.24"
   },
   "devDependencies": {

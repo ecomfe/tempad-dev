@@ -23,7 +23,7 @@ export function resetUploadedAssets(): void {
 export async function ensureAssetUploaded(
   bytes: Uint8Array,
   mimeType: string,
-  metadata?: { width?: number; height?: number }
+  metadata?: { width?: number; height?: number; themeable?: boolean }
 ): Promise<AssetDescriptor> {
   const hash = await hashBytes(bytes)
 
@@ -76,7 +76,7 @@ async function upload(
   url: string,
   bytes: Uint8Array,
   mimeType: string,
-  metadata?: { width?: number; height?: number }
+  metadata?: { width?: number; height?: number; themeable?: boolean }
 ) {
   try {
     const headers: Record<string, string> = {
@@ -84,6 +84,7 @@ async function upload(
     }
     if (metadata?.width) headers['X-Asset-Width'] = String(metadata.width)
     if (metadata?.height) headers['X-Asset-Height'] = String(metadata.height)
+    if (metadata?.themeable) headers['X-Asset-Themeable'] = 'true'
 
     const response = await fetch(url, {
       method: 'POST',

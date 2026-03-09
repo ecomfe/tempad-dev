@@ -23,5 +23,6 @@ export interface AssetRecord {
   metadata?: {
     width?: number
     height?: number
+    themeable?: boolean
   }
 }

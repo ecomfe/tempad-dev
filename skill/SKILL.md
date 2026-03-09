@@ -63,6 +63,7 @@ Call `tempad-dev:get_code` with:
 - `resolveTokens: false` by default
 - pass `nodeId` only if user provided one; otherwise rely on the tool’s default behavior (current selection)
 - `preferredLang`: choose what matches the repo (jsx or vue)
+- `vectorMode: smart` by default; use `snapshot` only when the user explicitly wants asset-preserving vector fidelity over repo-native theming
 
 Use `resolveTokens: true` only when the user explicitly does not want design-token usage, or the task is a deliberately self-contained quick prototype rather than repo integration.
 
@@ -75,6 +76,10 @@ Record as design facts:
 - `assets` (if present)
 - `tokens` (if present)
 - `codegen` (e.g. scale, length units, rootRem, and other normalization settings)
+
+SVG asset metadata may include:
+
+- `themeable: true`: the exported SVG asset is safe to adapt to one contextual color channel when the repo needs that behavior
 
 ### 3) Resolve warnings and uncertainty
 
@@ -107,6 +112,20 @@ Follow repo asset policy first:
 - Download bytes via TemPad-provided `asset.url`, save into repo at policy-correct path, reference with repo conventions.
 - If policy forbids storing assets, you may reference TemPad URLs but must warn output depends on the local TemPad asset server.
 - Do not read image/SVG bytes into LLM context for analysis. Treat assets as files to download/reference, not text evidence to parse.
+- When a vector is already emitted as inline SVG in `code`, treat that markup as the source of truth for current usage and sizing. You may still refactor delivery to match repo policy, for example:
+  - existing icon/component primitives,
+  - import-time SVG transforms in the dev server or bundler,
+  - inline SVG,
+  - asset-backed `<img>`.
+- Choose the final delivery the way the Host app already does it. Do not introduce a new SVG pipeline if the repo already has one.
+- Preserve vector semantics when refactoring delivery:
+  - `themeable` means one context-driven color channel, typically via `currentColor`
+  - drive that color from repo styles/tokens on the wrapper or component, including CSS variables if the repo already uses them
+  - do not invent multiple SVG color props or custom CSS variables unless the repo already has an established icon API for that
+  - vectors without `themeable=true` should keep their internal palette
+- Use `asset.themeable` only when an SVG still needs repo asset handling after you account for the Host app's vector policy.
+
+If multiple SVG strategies are plausible and repo evidence does not establish one, ask the user instead of guessing.
 
 Never download assets from the public internet. Only TemPad-provided `asset.url`.
 

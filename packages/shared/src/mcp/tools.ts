@@ -10,7 +10,8 @@ export const AssetDescriptorSchema = z.object({
   mimeType: z.string().min(1),
   size: z.number().int().nonnegative(),
   width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional()
+  height: z.number().int().positive().optional(),
+  themeable: z.boolean().optional()
 })
 
 // get_code
@@ -31,6 +32,12 @@ export const GetCodeParametersSchema = z.object({
     .boolean()
     .describe(
       'Inline token values instead of references for quick renders; default false returns token metadata so you can map into your theming system. When true, values are resolved per-node (mode-aware).'
+    )
+    .optional(),
+  vectorMode: z
+    .enum(['smart', 'snapshot'])
+    .describe(
+      'Vector output mode. `smart` (default) emits inline themeable single-color SVGs and asset-backed fixed-color vectors as the tool default. `snapshot` preserves vector assets for fidelity. Final vector delivery may still be adapted to the Host app’s SVG policy.'
     )
     .optional()
 })

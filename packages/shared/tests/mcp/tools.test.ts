@@ -18,7 +18,8 @@ describe('mcp/tools AssetDescriptorSchema', () => {
       mimeType: 'image/png',
       size: 1024,
       width: 300,
-      height: 200
+      height: 200,
+      themeable: true
     })
 
     expect(parsed.success).toBe(true)
@@ -42,12 +43,18 @@ describe('mcp/tools parameter schemas', () => {
       GetCodeParametersSchema.safeParse({
         nodeId: '123:456',
         preferredLang: 'vue',
-        resolveTokens: true
+        resolveTokens: true,
+        vectorMode: 'snapshot'
       }).success
     ).toBe(true)
     expect(
       GetCodeParametersSchema.safeParse({
         preferredLang: 'svelte'
+      }).success
+    ).toBe(false)
+    expect(
+      GetCodeParametersSchema.safeParse({
+        vectorMode: 'fidelity'
       }).success
     ).toBe(false)
   })

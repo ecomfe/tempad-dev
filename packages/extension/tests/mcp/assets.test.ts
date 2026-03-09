@@ -68,8 +68,16 @@ describe('mcp/assets', () => {
 
     const bytes = new Uint8Array([10, 20, 30, 40])
 
-    const first = await ensureAssetUploaded(bytes, 'image/png', { width: 300, height: 200 })
-    const second = await ensureAssetUploaded(bytes, 'image/png', { width: 300, height: 200 })
+    const first = await ensureAssetUploaded(bytes, 'image/png', {
+      width: 300,
+      height: 200,
+      themeable: true
+    })
+    const second = await ensureAssetUploaded(bytes, 'image/png', {
+      width: 300,
+      height: 200,
+      themeable: true
+    })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
@@ -78,7 +86,8 @@ describe('mcp/assets', () => {
     expect(init.headers).toEqual({
       'Content-Type': 'image/png',
       'X-Asset-Width': '300',
-      'X-Asset-Height': '200'
+      'X-Asset-Height': '200',
+      'X-Asset-Themeable': 'true'
     })
     expect(init.body).toBeInstanceOf(Blob)
 
@@ -88,7 +97,8 @@ describe('mcp/assets', () => {
       size: bytes.byteLength,
       url: `http://assets.local/assets/${EXPECTED_HASH}`,
       width: 300,
-      height: 200
+      height: 200,
+      themeable: true
     })
     expect(second).toEqual(first)
   })
