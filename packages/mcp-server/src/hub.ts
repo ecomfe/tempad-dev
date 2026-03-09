@@ -184,7 +184,8 @@ function buildAssetDescriptor(record: AssetRecord): AssetDescriptor {
     mimeType: record.mimeType,
     size: record.size,
     width: record.metadata?.width,
-    height: record.metadata?.height
+    height: record.metadata?.height,
+    ...(record.metadata?.themeable ? { themeable: true } : {})
   }
 }
 

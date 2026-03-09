@@ -1,4 +1,9 @@
-import type { AssetDescriptor, GetCodeResult, GetTokenDefsResult } from '@tempad-dev/shared'
+import type {
+  AssetDescriptor,
+  GetCodeParametersInput,
+  GetCodeResult,
+  GetTokenDefsResult
+} from '@tempad-dev/shared'
 
 import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/shared'
 
@@ -78,10 +83,6 @@ type CollectedContext = {
   textSegments: Map<string, StyledTextSegment[] | null>
 }
 
-type AssetPlanContext = {
-  vectorRoots: Set<string>
-}
-
 type RenderMode =
   | { kind: 'full' }
   | {
@@ -96,7 +97,7 @@ type PipelineInput = {
   ctx: RenderContext
   collected: CollectedContext
   nodeMap: Map<string, SceneNode>
-  plan: AssetPlanContext
+  vectorRoots: Set<string>
   rootTag?: string
   lang?: CodeLanguage
   budget: CodeBudget
@@ -118,7 +119,8 @@ type PipelineOutput = {
 export async function handleGetCode(
   nodes: SceneNode[],
   preferredLang?: CodeLanguage,
-  resolveTokens?: boolean
+  resolveTokens?: boolean,
+  vectorMode: GetCodeParametersInput['vectorMode'] = 'smart'
 ): Promise<GetCodeResult> {
   const trace = createTrace()
   const { now, stamp } = trace
@@ -152,13 +154,13 @@ export async function handleGetCode(
   const mappings = buildVariableMappings(nodes, variableCache)
   stamp('vars', t)
 
-  t = now()
-  const plan = planAssets(tree)
-  stamp('plan-assets', t)
-
   const { pluginComponents, pluginSkipped } = pluginCode
     ? await collectPluginOutput(tree, config, pluginCode, preferredLang)
     : { pluginComponents: undefined, pluginSkipped: new Set<string>() }
+
+  t = now()
+  const plan = planAssets(tree, pluginSkipped)
+  stamp('plan-assets', t)
 
   const assetRegistry = new Map<string, AssetDescriptor>()
   const skipIds = buildSkipIds(plan.skippedIds, pluginSkipped)
@@ -176,7 +178,7 @@ export async function handleGetCode(
   })
 
   t = now()
-  const svgs = await exportVectorAssets(tree, plan, config, assetRegistry)
+  const svgs = await exportVectorAssets(tree, plan, config, assetRegistry, vectorMode)
   stamp('export-assets', t)
 
   const nodeMap = buildNodeMap(collected.nodes)
@@ -204,7 +206,7 @@ export async function handleGetCode(
     ctx,
     collected,
     nodeMap,
-    plan,
+    vectorRoots: plan.vectorRoots,
     rootTag,
     lang: preferredLang,
     budget: codeBudget,
@@ -408,7 +410,7 @@ async function rerenderResolvedOutput({
   if (!stylesChanged(input.collected.styles, resolvedStyles)) {
     return null
   }
-  const resolvedLayout = buildLayoutStyles(resolvedStyles, input.plan.vectorRoots)
+  const resolvedLayout = buildLayoutStyles(resolvedStyles, input.vectorRoots)
   const resolvedCtx = buildRenderContext({
     ...input.ctx,
     styles: resolvedStyles,

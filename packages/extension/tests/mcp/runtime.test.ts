@@ -108,10 +108,11 @@ describe('mcp/runtime', () => {
     const result = await runtime.MCP_TOOL_HANDLERS.get_code({
       nodeId: 'node-1',
       preferredLang: 'jsx',
-      resolveTokens: true
+      resolveTokens: true,
+      vectorMode: 'snapshot'
     })
 
-    expect(mocks.runGetCode).toHaveBeenCalledWith([node], 'jsx', true)
+    expect(mocks.runGetCode).toHaveBeenCalledWith([node], 'jsx', true, 'snapshot')
     expect(result).toEqual({ blocks: [] })
   })
 
@@ -149,8 +150,8 @@ describe('mcp/runtime', () => {
     await runtime.MCP_TOOL_HANDLERS.get_code({ preferredLang: 'jsx' })
     await runtime.MCP_TOOL_HANDLERS.get_code()
 
-    expect(mocks.runGetCode).toHaveBeenCalledWith([selected], 'jsx', undefined)
-    expect(mocks.runGetCode).toHaveBeenLastCalledWith([selected], undefined, undefined)
+    expect(mocks.runGetCode).toHaveBeenCalledWith([selected], 'jsx', undefined, undefined)
+    expect(mocks.runGetCode).toHaveBeenLastCalledWith([selected], undefined, undefined, undefined)
   })
 
   it('validates get_token_defs input and forwards includeAllModes', async () => {

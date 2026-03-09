@@ -47,8 +47,8 @@ function resolveSingleNode(nodeId?: string): SceneNode {
 
 async function handleGetCode(args?: GetCodeParametersInput): Promise<GetCodeResult> {
   const node = resolveSingleNode(args?.nodeId)
-  const { preferredLang, resolveTokens } = args ?? {}
-  return runGetCode([node], preferredLang, resolveTokens)
+  const { preferredLang, resolveTokens, vectorMode } = args ?? {}
+  return runGetCode([node], preferredLang, resolveTokens, vectorMode)
 }
 
 async function handleGetTokenDefs(args?: GetTokenDefsParametersInput): Promise<GetTokenDefsResult> {

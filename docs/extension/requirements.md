@@ -20,6 +20,9 @@ This document records the source requirements and hard constraints for the MCP `
 
 - Exactly one node is required.
 - The node must be visible.
+- `vectorMode` is optional:
+  - `smart` (default): emit the tool's repo-native default delivery for vectors: inline themeable single-color SVGs; keep fixed-color vectors as assets.
+  - `snapshot`: preserve vector assets for fidelity, even if a vector would otherwise be themeable.
 - Tree traversal is capped by a depth limit (semantic-tree driven). If capped, log a warning.
 - If depth is capped, emit a `depth-cap` warning listing capped node ids so agents can call `get_code` on those nodes.
 
@@ -33,6 +36,7 @@ This document records the source requirements and hard constraints for the MCP `
   - `assets`: array of exported assets (image/vector).
   - `tokens`: one-layer map of token entries keyed by canonical token name.
   - `warnings`: for inferred auto layout, depth-cap, or shell guidance.
+- SVG assets may include `themeable: true` when the vector can safely adopt a single contextual color channel.
 
 ## Size and budget guard
 
@@ -101,17 +105,28 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 ## SVG and assets
 
-- Vector assets are exported as SVG when a node (or container) is classified as vector-only.
+- Vector-only nodes or containers are classified before render as either:
+  - themeable single-color vectors, which are emitted as inline SVG in `smart` mode.
+  - fixed-color vectors, which are exported as SVG assets.
 - Images are exported as PNG/JPEG when the node is an image fill.
-- SVG must contain its own visual styles; no external fill/bg classes.
-- SVG layout is governed by external positioning only.
+- Themeable inline SVGs keep `viewBox`, retain node-sized `width`/`height`, and may rewrite safe single-color `fill`/`stroke` values to `currentColor`.
+- `themeable` means one safe contextual color channel. The Host app may drive that through `color`, including token-backed or CSS-variable-backed color on the wrapper/component. It does not imply multi-slot SVG theming.
+- The emitted markup is the tool's default delivery for the current response, not a mandatory final integration format. Clients may adapt vector delivery to repo policy, such as:
+  - existing icon/component primitives,
+  - import-time SVG transforms in the dev server or bundler,
+  - inline SVG,
+  - asset-backed `<img>` usage.
+- Any such adaptation must preserve the vector semantics:
+  - `themeable` vectors stay single-channel and context-color-driven,
+  - fixed-color vectors keep their internal palette.
+- Snapshot-preserved SVG assets may include `themeable: true` when the underlying vector is safe to adapt to a single contextual color channel, even if the current delivery stays asset-backed.
 - SVG size comes from node size (rounded), not export metadata.
 - When vector export fails or assets are unavailable, preserve layout using a placeholder SVG with node size.
 - Omit `assets` when empty.
 
 ## Plugin output
 
-- If a plugin returns component/code for an instance, the instance subtree is not collected.
+- If a plugin returns component/code for an instance, the instance subtree is not collected or exported as vector assets.
 - Plugin output is preferred over fallback rendering for that instance.
 
 ## Token handling

@@ -170,7 +170,12 @@ describe('asset-store', () => {
       hash: 'a1',
       filePath: '/mock/assets/a1.png',
       mimeType: 'image/png',
-      size: 10
+      size: 10,
+      metadata: {
+        width: 24,
+        height: 24,
+        themeable: true
+      }
     })
     store.upsert({
       hash: 'b2',
@@ -183,6 +188,11 @@ describe('asset-store', () => {
 
     expect(first.uploadedAt).toBe(first.lastAccess)
     expect(store.has('a1')).toBe(true)
+    expect(store.get('a1')?.metadata).toEqual({
+      width: 24,
+      height: 24,
+      themeable: true
+    })
     expect(store.get('b2')?.uploadedAt).toBe(100)
     expect(store.getMany(['missing', 'a1', 'b2']).map((item) => item.hash)).toEqual(['a1', 'b2'])
     expect(writeFileSync).not.toHaveBeenCalled()

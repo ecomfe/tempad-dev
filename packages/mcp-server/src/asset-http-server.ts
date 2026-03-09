@@ -17,6 +17,7 @@ import { pipeline, Transform } from 'node:stream'
 import { URL } from 'node:url'
 
 import type { AssetStore } from './asset-store'
+import type { AssetRecord } from './types'
 
 import { buildAssetFilename, getHashFromAssetFilename, normalizeMimeType } from './asset-utils'
 import { getMcpServerConfig } from './config'
@@ -87,7 +88,10 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
 
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Asset-Width, X-Asset-Height')
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, X-Asset-Width, X-Asset-Height, X-Asset-Themeable'
+    )
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204)
@@ -186,8 +190,14 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
 
     const width = parseInt(req.headers['x-asset-width'] as string, 10)
     const height = parseInt(req.headers['x-asset-height'] as string, 10)
-    const metadata =
-      !isNaN(width) && !isNaN(height) && width > 0 && height > 0 ? { width, height } : undefined
+    const themeableHeader = req.headers['x-asset-themeable']
+    const themeable =
+      (Array.isArray(themeableHeader) ? themeableHeader[0] : themeableHeader) === 'true'
+    const metadata: NonNullable<AssetRecord['metadata']> = {}
+    if (Number.isFinite(width) && width > 0) metadata.width = width
+    if (Number.isFinite(height) && height > 0) metadata.height = height
+    if (themeable) metadata.themeable = true
+    const assetMetadata = Object.keys(metadata).length ? metadata : undefined
 
     const existing = store.get(hash)
     if (existing) {
@@ -210,7 +220,12 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
         // Drain request to ensure connection is clean
         req.resume()
 
-        if (metadata) existing.metadata = metadata
+        if (assetMetadata) {
+          existing.metadata = {
+            ...existing.metadata,
+            ...assetMetadata
+          }
+        }
         if (existing.mimeType !== mimeType) existing.mimeType = mimeType
         existing.lastAccess = Date.now()
         store.upsert(existing)
@@ -284,7 +299,7 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
         filePath,
         mimeType,
         size,
-        metadata
+        metadata: assetMetadata
       })
       log.info({ hash, size }, 'Stored uploaded asset via HTTP.')
       sendOk(res, 201, 'Created', { hash, size })

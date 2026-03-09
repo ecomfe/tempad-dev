@@ -4,15 +4,17 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import type { VisibleTree } from '../model'
 import type { AssetPlan } from './plan'
-import type { SvgEntry } from './vector'
+import type { SvgEntry, VectorMode } from './vector'
 
 import { exportSvgEntry } from './vector'
+import { isThemeableVector } from './vector-semantics'
 
 export async function exportVectorAssets(
   tree: VisibleTree,
   plan: AssetPlan,
   config: CodegenConfig,
-  assetRegistry: Map<string, AssetDescriptor>
+  assetRegistry: Map<string, AssetDescriptor>,
+  vectorMode: VectorMode = 'smart'
 ): Promise<Map<string, SvgEntry>> {
   const svgs = new Map<string, SvgEntry>()
   for (const id of plan.vectorRoots) {
@@ -21,7 +23,10 @@ export async function exportVectorAssets(
     const node = snapshot.node
     const { width, height } = snapshot.bounds
     if (width <= 0 && height <= 0 && !snapshot.renderBounds) continue
-    const entry = await exportSvgEntry(node, config, assetRegistry)
+    const entry = await exportSvgEntry(node, config, assetRegistry, {
+      vectorMode,
+      themeable: isThemeableVector(tree, id)
+    })
     if (!entry) continue
     svgs.set(id, entry)
   }

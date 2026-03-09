@@ -195,4 +195,20 @@ describe('mcp/code/assets plan', () => {
     expect(result.vectorRoots).toEqual(new Set(['group', 'frame']))
     expect(result.skippedIds).toEqual(new Set(['rect', 'line', 'ellipse', 'polygon']))
   })
+
+  it('ignores plugin-skipped ids when planning vector roots', () => {
+    const tree = {
+      order: ['instance', 'vector-child', 'other-vector'],
+      nodes: new Map([
+        ['instance', node('instance', { children: ['vector-child'], type: 'INSTANCE' })],
+        ['vector-child', node('vector-child', { assetKind: 'vector', type: 'VECTOR' })],
+        ['other-vector', node('other-vector', { assetKind: 'vector', type: 'VECTOR' })]
+      ])
+    } as unknown as VisibleTree
+
+    const result = planAssets(tree, new Set(['vector-child']))
+
+    expect(result.vectorRoots).toEqual(new Set(['other-vector']))
+    expect(result.skippedIds).toEqual(new Set())
+  })
 })
