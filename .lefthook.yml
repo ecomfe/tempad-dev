@@ -1,13 +1,17 @@
 pre-commit:
   parallel: true
-  commands:
-    typecheck:
+  jobs:
+    - name: fix-and-format
+      group:
+        piped: true
+        jobs:
+          - name: lint
+            glob: '*.{ts,js,mjs,cjs,mts,cts,vue}'
+            run: pnpm exec eslint --fix {staged_files}
+            stage_fixed: true
+          - name: format
+            glob: '*.{ts,js,mjs,cjs,mts,cts,vue,json,md,yml,yaml,css}'
+            run: pnpm exec oxfmt --ignore-path ./.gitignore {staged_files}
+            stage_fixed: true
+    - name: typecheck
       run: pnpm -r typecheck
-    lint:
-      glob: '*.{ts,js,mjs,cjs,mts,cts,vue}'
-      run: pnpm exec eslint --fix {staged_files}
-      stage_fixed: true
-    format:
-      glob: '*.{ts,js,mjs,cjs,cts,mts,json,md,yml,yaml,vue}'
-      run: pnpm exec oxfmt --ignore-path ./.gitignore {staged_files}
-      stage_fixed: true

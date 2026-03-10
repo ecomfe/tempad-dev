@@ -23,8 +23,8 @@
     "test:browser:headed": "vitest run --config vitest.browser.config.ts --browser.headless=false",
     "test:setup": "pnpm exec playwright install chromium",
     "test:coverage": "vitest run --config vitest.node.config.ts --coverage",
-    "format": "oxfmt --ignore-path ../../.gitignore \"!**/*.css\" && prettier --ignore-path ../../.gitignore --write \"**/*.css\"",
-    "format:check": "oxfmt --ignore-path ../../.gitignore --check \"!**/*.css\" && prettier --ignore-path ../../.gitignore --check \"**/*.css\""
+    "format": "oxfmt --ignore-path ../../.gitignore",
+    "format:check": "oxfmt --ignore-path ../../.gitignore --check"
   },
   "dependencies": {
     "@tempad-dev/plugins": "workspace:^0.6.1",
