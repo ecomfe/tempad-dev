@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { HeroCarouselSlide } from '@/content/landing'
+
 import { HERO_CAROUSEL_SLIDES } from '@/content/landing'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
@@ -20,6 +22,7 @@ type HeroGlowSpec = {
   blur: number
 }
 
+const AUTOPLAY_DELAY_MS = 5200
 const GALLERY_TRANSITION_MS = 1320
 
 const HERO_GLOW_SPECS: readonly HeroGlowSpec[] = [
@@ -122,10 +125,20 @@ let cleanupTimer: number | undefined
 let glowFrame: number | undefined
 let motionMediaQuery: MediaQueryList | undefined
 
-const activeSlide = computed(() => HERO_CAROUSEL_SLIDES[activeIndex.value]!)
-const outgoingSlide = computed(() =>
-  outgoingIndex.value === null ? null : HERO_CAROUSEL_SLIDES[outgoingIndex.value]!
-)
+const activeSlide = computed(() => getSlideByIndex(activeIndex.value))
+const outgoingSlide = computed(() => getOptionalSlideByIndex(outgoingIndex.value))
+
+function getSlideByIndex(index: number): HeroCarouselSlide {
+  return HERO_CAROUSEL_SLIDES[index]!
+}
+
+function getOptionalSlideByIndex(index: number | null): HeroCarouselSlide | null {
+  if (index === null) {
+    return null
+  }
+
+  return getSlideByIndex(index)
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -143,6 +156,11 @@ function clearCleanupTimer(): void {
     window.clearTimeout(cleanupTimer)
     cleanupTimer = undefined
   }
+}
+
+function resetSlideAnimation(): void {
+  outgoingIndex.value = null
+  slideIsAnimating.value = false
 }
 
 function setGlowRef(index: number, element: unknown): void {
@@ -213,7 +231,7 @@ function scheduleAutoplay(): void {
 
   autoplayTimer = window.setTimeout(() => {
     advanceSlide()
-  }, 5200)
+  }, AUTOPLAY_DELAY_MS)
 }
 
 function advanceSlide(): void {
@@ -242,8 +260,7 @@ function advanceSlide(): void {
   })
 
   cleanupTimer = window.setTimeout(() => {
-    outgoingIndex.value = null
-    slideIsAnimating.value = false
+    resetSlideAnimation()
   }, GALLERY_TRANSITION_MS)
 
   scheduleAutoplay()
@@ -253,8 +270,7 @@ function handleMotionChange(event: MediaQueryListEvent): void {
   prefersReducedMotion.value = event.matches
 
   if (prefersReducedMotion.value) {
-    outgoingIndex.value = null
-    slideIsAnimating.value = false
+    resetSlideAnimation()
     clearCleanupTimer()
     stopGlowAnimation()
   } else {

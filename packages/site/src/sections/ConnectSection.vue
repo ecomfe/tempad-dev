@@ -22,6 +22,8 @@ type TerminalEntry =
   | { kind: 'divider' }
   | { kind: TerminalLineKind; segments: readonly TerminalSegment[] }
 
+type TerminalContentEntry = Exclude<TerminalEntry, { kind: 'divider' }>
+
 type RenderedTerminalEntry =
   | { kind: 'divider' }
   | {
@@ -159,10 +161,7 @@ const renderedTerminalEntries = computed<readonly RenderedTerminalEntry[]>(() =>
     entries.push({
       kind: entry.kind,
       cursor: index === activeTerminalEntryIndex.value,
-      segments:
-        index === activeTerminalEntryIndex.value
-          ? sliceSegments(entry.segments, activeTerminalCharCount.value)
-          : entry.segments
+      segments: getRenderedSegments(entry, index)
     })
   }
 
@@ -179,33 +178,46 @@ function setTerminalIdleState(): void {
   activeTerminalCharCount.value = 1
 }
 
-function getEntryLength(entry: Exclude<TerminalEntry, { kind: 'divider' }>): number {
+function getRenderedSegments(
+  entry: TerminalContentEntry,
+  index: number
+): readonly TerminalSegment[] {
+  if (index !== activeTerminalEntryIndex.value) {
+    return entry.segments
+  }
+
+  return sliceSegments(entry.segments, activeTerminalCharCount.value)
+}
+
+function getEntryLength(entry: TerminalContentEntry): number {
   return entry.segments.reduce((sum, segment) => sum + segment.text.length, 0)
 }
 
-function getEntryText(entry: Exclude<TerminalEntry, { kind: 'divider' }>): string {
+function getEntryText(entry: TerminalContentEntry): string {
   return entry.segments.map((segment) => segment.text).join('')
 }
 
-function getNextChunkCharCount(
-  entry: Exclude<TerminalEntry, { kind: 'divider' }>,
-  currentCount: number
-): number {
+function getPreferredChunkSize(kind: TerminalLineKind): number {
+  switch (kind) {
+    case 'prompt':
+      return 14 + Math.floor(Math.random() * 12)
+    case 'mcp':
+      return 18 + Math.floor(Math.random() * 14)
+    case 'sub':
+      return 16 + Math.floor(Math.random() * 12)
+    default:
+      return 22 + Math.floor(Math.random() * 18)
+  }
+}
+
+function getNextChunkCharCount(entry: TerminalContentEntry, currentCount: number): number {
   const fullText = getEntryText(entry)
 
   if (currentCount >= fullText.length) {
     return currentCount
   }
 
-  const preferredChunkSize =
-    entry.kind === 'prompt'
-      ? 14 + Math.floor(Math.random() * 12)
-      : entry.kind === 'mcp'
-        ? 18 + Math.floor(Math.random() * 14)
-        : entry.kind === 'sub'
-          ? 16 + Math.floor(Math.random() * 12)
-          : 22 + Math.floor(Math.random() * 18)
-
+  const preferredChunkSize = getPreferredChunkSize(entry.kind)
   const target = Math.min(currentCount + preferredChunkSize, fullText.length)
 
   if (target === fullText.length) {
@@ -316,9 +328,23 @@ function openDeepLink(client: McpClientConfig): void {
 }
 
 function getClientActionLabel(client: McpClientConfig): string {
-  if (client.deepLink) return 'Open'
-  if (client.copyKind === 'command') return 'Copy command'
+  if (client.deepLink) {
+    return 'Open'
+  }
+
+  if (client.copyKind === 'command') {
+    return 'Copy command'
+  }
+
   return 'Copy config'
+}
+
+function getClientCopySuccessMessage(client: McpClientConfig): string {
+  if (client.copyKind === 'command') {
+    return 'Copied install command.'
+  }
+
+  return 'Copied config snippet.'
 }
 
 function handleClientAction(client: McpClientConfig): void {
@@ -328,9 +354,7 @@ function handleClientAction(client: McpClientConfig): void {
   }
 
   if (client.copyText) {
-    const label =
-      client.copyKind === 'command' ? 'Copied install command.' : 'Copied config snippet.'
-    void writeClipboard(client.copyText, label)
+    void writeClipboard(client.copyText, getClientCopySuccessMessage(client))
   }
 }
 
@@ -408,8 +432,13 @@ function startTerminalAnimation(): void {
   if (reducedMotion) {
     activeTerminalEntryIndex.value = terminalEntries.length - 1
     const lastEntry = terminalEntries[terminalEntries.length - 1]
-    activeTerminalCharCount.value =
-      lastEntry && lastEntry.kind !== 'divider' ? getEntryLength(lastEntry) : 0
+
+    if (!lastEntry || lastEntry.kind === 'divider') {
+      activeTerminalCharCount.value = 0
+      return
+    }
+
+    activeTerminalCharCount.value = getEntryLength(lastEntry)
     return
   }
 
