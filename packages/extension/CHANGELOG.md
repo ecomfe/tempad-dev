@@ -4,6 +4,7 @@
 
 - Moved MCP configuration metadata into the shared package so the extension and other surfaces stay aligned.
 - Added the website setup flow so MCP clients can now be configured directly from the site.
+- Fixed the async script patch regression so injected rewrite patches apply reliably again.
 
 ## 0.18.0
 
