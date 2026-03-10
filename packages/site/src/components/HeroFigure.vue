@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { HeroCarouselSlide } from '@/content/landing'
 
+import { useSiteColorMode } from '@/composables/useSiteColorMode'
 import { HERO_CAROUSEL_SLIDES } from '@/content/landing'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
@@ -119,6 +120,7 @@ const slideIsAnimating = ref(false)
 const prefersReducedMotion = ref(false)
 const incomingLayerRef = ref<HTMLDivElement | null>(null)
 const glowRefs = ref<(HTMLSpanElement | null)[]>([])
+const { resolvedColorMode } = useSiteColorMode()
 
 let autoplayTimer: number | undefined
 let cleanupTimer: number | undefined
@@ -138,6 +140,10 @@ function getOptionalSlideByIndex(index: number | null): HeroCarouselSlide | null
   }
 
   return getSlideByIndex(index)
+}
+
+function getSlideImageSrc(slide: HeroCarouselSlide): string {
+  return slide.image[resolvedColorMode.value]
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -324,7 +330,7 @@ onBeforeUnmount(() => {
         <div class="site-hero-shot-media">
           <img
             class="site-hero-shot-image"
-            :src="outgoingSlide.image"
+            :src="getSlideImageSrc(outgoingSlide)"
             alt=""
             :style="{
               objectFit: outgoingSlide.objectFit ?? 'contain',
@@ -347,8 +353,8 @@ onBeforeUnmount(() => {
         <div class="site-hero-shot-media">
           <img
             class="site-hero-shot-image"
-            :src="activeSlide.image"
-            alt=""
+            :src="getSlideImageSrc(activeSlide)"
+            :alt="activeSlide.image.alt"
             :style="{
               objectFit: activeSlide.objectFit ?? 'contain',
               objectPosition: activeSlide.objectPosition ?? 'center center'

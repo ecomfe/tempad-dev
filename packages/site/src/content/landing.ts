@@ -14,11 +14,16 @@ export type SiteDetail = {
   icon: SiteDetailIconId
 }
 
+export type SiteMarketingImage = {
+  alt: string
+  dark: string
+  light: string
+}
+
 export type HeroCarouselSlide = {
   id: string
-  image: string
-  alt: string
   caption: string
+  image: SiteMarketingImage
   objectFit?: 'cover' | 'contain'
   objectPosition?: string
 }
@@ -33,46 +38,70 @@ export const SITE_LINKS = {
 
 export const HERO_NOTES = ['Free', 'Open source', 'MIT licensed'] as const
 
+function createMarketingImage(name: string, alt: string): SiteMarketingImage {
+  return {
+    alt,
+    dark: `/marketing/${name}-dark${name === 'hero' ? '.svg' : '.png'}`,
+    light: `/marketing/${name}-light${name === 'hero' ? '.svg' : '.png'}`
+  }
+}
+
+export const INSPECT_SHOT = createMarketingImage(
+  'code',
+  'TemPad Dev showing generated code for a selected frame in Figma.'
+)
+
+export const TRANSFORM_SHOT = createMarketingImage(
+  'plugins',
+  'TemPad Dev plugin output for a selected button inside Figma.'
+)
+
 export const HERO_CAROUSEL_SLIDES: readonly HeroCarouselSlide[] = [
   {
     id: 'inspect-code',
-    image: '/marketing/code-light.png',
-    alt: 'TemPad Dev showing generated code for a selected frame in Figma.',
+    image: INSPECT_SHOT,
     caption: 'Code view',
     objectFit: 'contain'
   },
   {
     id: 'transform-plugins',
-    image: '/marketing/plugins-light.png',
-    alt: 'TemPad Dev plugin output for a selected button inside Figma.',
+    image: TRANSFORM_SHOT,
     caption: 'Plugin output',
     objectFit: 'contain'
   },
   {
     id: 'inspect-deep',
-    image: '/marketing/deep-light.png',
-    alt: 'TemPad Dev showing deep selection tools inside the extension.',
+    image: createMarketingImage(
+      'deep',
+      'TemPad Dev showing deep selection tools inside the extension.'
+    ),
     caption: 'Deep selection',
     objectFit: 'contain'
   },
   {
     id: 'inspect-measure',
-    image: '/marketing/measure-light.png',
-    alt: 'TemPad Dev showing measurement tools inside the extension.',
+    image: createMarketingImage(
+      'measure',
+      'TemPad Dev showing measurement tools inside the extension.'
+    ),
     caption: 'Measure',
     objectFit: 'contain'
   },
   {
     id: 'inspect-scroll',
-    image: '/marketing/scroll-light.png',
-    alt: 'TemPad Dev showing scroll-into-view tools inside the extension.',
+    image: createMarketingImage(
+      'scroll',
+      'TemPad Dev showing scroll-into-view tools inside the extension.'
+    ),
     caption: 'Scroll into view',
     objectFit: 'contain'
   },
   {
     id: 'inspect-units',
-    image: '/marketing/unit-light.png',
-    alt: 'TemPad Dev showing units and conversion controls inside the extension.',
+    image: createMarketingImage(
+      'unit',
+      'TemPad Dev showing units and conversion controls inside the extension.'
+    ),
     caption: 'Units and scale',
     objectFit: 'contain'
   }
