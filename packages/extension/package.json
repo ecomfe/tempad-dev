@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/extension",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "private": true,
   "description": "Open handoff tooling on Figma",
   "type": "module",

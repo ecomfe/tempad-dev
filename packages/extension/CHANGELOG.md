@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.1
+
+- Moved MCP configuration metadata into the shared package so the extension and other surfaces stay aligned.
+- Added the website setup flow so MCP clients can now be configured directly from the site.
+
 ## 0.18.0
 
 - Added smart vector delivery for MCP `get_code`: themeable single-color vectors now inline safely, fixed-color vectors stay asset-backed, and `vectorMode=snapshot` preserves asset fidelity when requested.
