@@ -3,7 +3,7 @@ import type { HeroCarouselSlide } from '@/content/landing'
 
 import { useSiteColorMode } from '@/composables/useSiteColorMode'
 import { HERO_CAROUSEL_SLIDES } from '@/content/landing'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 type HeroGlowSpec = {
   id: number
@@ -126,6 +126,8 @@ let autoplayTimer: number | undefined
 let cleanupTimer: number | undefined
 let glowFrame: number | undefined
 let motionMediaQuery: MediaQueryList | undefined
+let enterAnimationFrame: number | undefined
+const preloadedModes = new Set<string>()
 
 const activeSlide = computed(() => getSlideByIndex(activeIndex.value))
 const outgoingSlide = computed(() => getOptionalSlideByIndex(outgoingIndex.value))
@@ -144,6 +146,20 @@ function getOptionalSlideByIndex(index: number | null): HeroCarouselSlide | null
 
 function getSlideImageSrc(slide: HeroCarouselSlide): string {
   return slide.image[resolvedColorMode.value]
+}
+
+function preloadCarouselImages(mode: 'light' | 'dark'): void {
+  if (preloadedModes.has(mode)) {
+    return
+  }
+
+  HERO_CAROUSEL_SLIDES.forEach((slide) => {
+    const image = new Image()
+    image.decoding = 'async'
+    image.src = slide.image[mode]
+  })
+
+  preloadedModes.add(mode)
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -228,6 +244,13 @@ function stopGlowAnimation(): void {
   }
 }
 
+function clearEnterAnimationFrame(): void {
+  if (enterAnimationFrame) {
+    window.cancelAnimationFrame(enterAnimationFrame)
+    enterAnimationFrame = undefined
+  }
+}
+
 function scheduleAutoplay(): void {
   clearAutoplay()
 
@@ -254,14 +277,19 @@ function advanceSlide(): void {
   }
 
   clearCleanupTimer()
+  clearEnterAnimationFrame()
   outgoingIndex.value = activeIndex.value
   activeIndex.value = nextIndex
   slideIsAnimating.value = false
 
   void nextTick(() => {
-    window.requestAnimationFrame(() => {
+    enterAnimationFrame = window.requestAnimationFrame(() => {
       incomingLayerRef.value?.getBoundingClientRect()
-      slideIsAnimating.value = true
+
+      enterAnimationFrame = window.requestAnimationFrame(() => {
+        slideIsAnimating.value = true
+        enterAnimationFrame = undefined
+      })
     })
   })
 
@@ -294,9 +322,18 @@ onMounted(() => {
   startGlowAnimation()
 })
 
+watch(
+  resolvedColorMode,
+  (mode) => {
+    preloadCarouselImages(mode)
+  },
+  { immediate: true }
+)
+
 onBeforeUnmount(() => {
   clearAutoplay()
   clearCleanupTimer()
+  clearEnterAnimationFrame()
   stopGlowAnimation()
   motionMediaQuery?.removeEventListener('change', handleMotionChange)
 })
@@ -331,6 +368,8 @@ onBeforeUnmount(() => {
           <img
             class="site-hero-shot-image"
             :src="getSlideImageSrc(outgoingSlide)"
+            :width="outgoingSlide.image.width"
+            :height="outgoingSlide.image.height"
             alt=""
             :style="{
               objectFit: outgoingSlide.objectFit ?? 'contain',
@@ -355,6 +394,8 @@ onBeforeUnmount(() => {
             class="site-hero-shot-image"
             :src="getSlideImageSrc(activeSlide)"
             :alt="activeSlide.image.alt"
+            :width="activeSlide.image.width"
+            :height="activeSlide.image.height"
             :style="{
               objectFit: activeSlide.objectFit ?? 'contain',
               objectPosition: activeSlide.objectPosition ?? 'center center'

@@ -19,7 +19,13 @@ const transformShotSrc = computed(() => TRANSFORM_SHOT[resolvedColorMode.value])
   >
     <div class="site-section-layout">
       <figure class="site-shot">
-        <img class="site-shot-image" :src="transformShotSrc" :alt="TRANSFORM_SHOT.alt" />
+        <img
+          class="site-shot-image"
+          :src="transformShotSrc"
+          :alt="TRANSFORM_SHOT.alt"
+          :width="TRANSFORM_SHOT.width"
+          :height="TRANSFORM_SHOT.height"
+        />
       </figure>
 
       <DetailList :items="TRANSFORM_DETAILS" />
