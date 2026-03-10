@@ -1,5 +1,6 @@
 export * from './constants'
 export * from './errors'
+export * from './install'
 export * from './protocol'
 export * from './tools'
 export * from './types'
