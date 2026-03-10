@@ -1,7 +1,13 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import DetailList from '@/components/DetailList.vue'
+import { useSiteColorMode } from '@/composables/useSiteColorMode'
 import SectionShell from '@/components/SectionShell.vue'
-import { INSPECT_DETAILS } from '@/content/landing'
+import { INSPECT_DETAILS, INSPECT_SHOT } from '@/content/landing'
+
+const { resolvedColorMode } = useSiteColorMode()
+const inspectShotSrc = computed(() => INSPECT_SHOT[resolvedColorMode.value])
 </script>
 
 <template>
@@ -13,11 +19,7 @@ import { INSPECT_DETAILS } from '@/content/landing'
   >
     <div class="site-section-layout">
       <figure class="site-shot">
-        <img
-          class="site-shot-image"
-          src="/marketing/code-light.png"
-          alt="TemPad Dev showing generated code for a selected frame in Figma."
-        />
+        <img class="site-shot-image" :src="inspectShotSrc" :alt="INSPECT_SHOT.alt" />
       </figure>
 
       <DetailList :items="INSPECT_DETAILS" />

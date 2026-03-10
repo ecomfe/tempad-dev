@@ -1,7 +1,13 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import DetailList from '@/components/DetailList.vue'
+import { useSiteColorMode } from '@/composables/useSiteColorMode'
 import SectionShell from '@/components/SectionShell.vue'
-import { TRANSFORM_DETAILS } from '@/content/landing'
+import { TRANSFORM_DETAILS, TRANSFORM_SHOT } from '@/content/landing'
+
+const { resolvedColorMode } = useSiteColorMode()
+const transformShotSrc = computed(() => TRANSFORM_SHOT[resolvedColorMode.value])
 </script>
 
 <template>
@@ -13,11 +19,7 @@ import { TRANSFORM_DETAILS } from '@/content/landing'
   >
     <div class="site-section-layout">
       <figure class="site-shot">
-        <img
-          class="site-shot-image"
-          src="/marketing/plugins-light.png"
-          alt="TemPad Dev plugin output for a selected button inside Figma."
-        />
+        <img class="site-shot-image" :src="transformShotSrc" :alt="TRANSFORM_SHOT.alt" />
       </figure>
 
       <DetailList :items="TRANSFORM_DETAILS" />

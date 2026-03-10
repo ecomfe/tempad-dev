@@ -5,6 +5,7 @@ import { MCP_CLIENTS_BY_ID, MCP_SKILL_INSTALL_COMMAND } from '@tempad-dev/shared
 import { Copy, SquareTerminal } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+import ActionButton from '@/components/ActionButton.vue'
 import BrandIcon from '@/components/BrandIcon.vue'
 import SectionShell from '@/components/SectionShell.vue'
 import { CONNECT_CLIENT_ORDER } from '@/content/landing'
@@ -523,10 +524,15 @@ onBeforeUnmount(() => {
               Install the TemPad skill so the agent can pick up the handoff workflow for the turn.
             </p>
           </div>
-          <button type="button" class="site-command-button" @click="handleCopySkill">
+          <ActionButton
+            type="button"
+            variant="primary"
+            class="site-connect-action-button"
+            @click="handleCopySkill"
+          >
             <Copy aria-hidden="true" />
             <span>Copy skill command</span>
-          </button>
+          </ActionButton>
         </div>
 
         <div class="site-connect-row">
@@ -551,10 +557,6 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
-
-        <p v-if="feedback" class="site-feedback" :class="`is-${feedback.kind}`">
-          {{ feedback.text }}
-        </p>
       </div>
 
       <article ref="terminalCardRef" class="site-agent-card">
@@ -604,5 +606,16 @@ onBeforeUnmount(() => {
         </div>
       </article>
     </div>
+
+    <Transition name="site-feedback-popup">
+      <p
+        v-if="feedback"
+        class="site-feedback site-feedback-popup"
+        :class="`is-${feedback.kind}`"
+        aria-live="polite"
+      >
+        {{ feedback.text }}
+      </p>
+    </Transition>
   </SectionShell>
 </template>

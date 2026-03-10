@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/hero-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/hero-light.svg">
-    <img alt="Shows a screenshot of the extension panel." src="packages/extension/assets/hero-light.svg" width="540" height="200">
+    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/hero-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/hero-light.svg">
+    <img alt="Shows a screenshot of the extension panel." src="packages/site/public/marketing/hero-light.svg" width="540" height="200">
   </picture>
 </p>
 
@@ -22,9 +22,9 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/code-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/code-light.png">
-    <img alt="Shows a screenshot of the extension panel." src="packages/extension/assets/code-light.png" width="720">
+    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/code-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/code-light.png">
+    <img alt="Shows a screenshot of the extension panel." src="packages/site/public/marketing/code-light.png" width="720">
   </picture>
 </p>
 
@@ -35,17 +35,17 @@
 ### Inspect CSS code
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/code-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/code-light.png">
-  <img alt="Shows the CSS and JavaScript code for a selected element." src="packages/extension/assets/code-light.png" width="720">
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/code-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/code-light.png">
+  <img alt="Shows the CSS and JavaScript code for a selected element." src="packages/site/public/marketing/code-light.png" width="720">
 </picture>
 
 Select any element, and you can obtain the CSS code through the plugin's Code panel. In addition to standard CSS code, TemPad Dev also provides styles in the form of JavaScript objects, making it convenient for use in JSX and similar scenarios.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/unit-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/unit-light.png">
-  <img alt="Shows units and root font size settings in preferences." src="packages/extension/assets/unit-light.png" width="720">
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/unit-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/unit-light.png">
+  <img alt="Shows units and root font size settings in preferences." src="packages/site/public/marketing/unit-light.png" width="720">
 </picture>
 
 You can configure CSS units and root font size to convert `px` dimensions in CSS to `rem` units. You can also apply a `scale` factor to scale `px` values according to your handoff requirements.
@@ -58,9 +58,9 @@ Use **Variable display** (Reference/Resolved/Both) in Preferences to choose whet
 ### Deep select mode
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/deep-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/deep-light.png">
-  <img alt="Shows the deep select mode in preferences." src="packages/extension/assets/deep-light.png" width="720">
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/deep-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/deep-light.png">
+  <img alt="Shows the deep select mode in preferences." src="packages/site/public/marketing/deep-light.png" width="720">
 </picture>
 
 In Figma's read-only view, selecting nodes requires double-clicking to drill down, and it often takes repeated double-clicks to select the lowest-level node. Although Figma offers a <kbd>⌘</kbd> + click shortcut, many users are unaware of this feature and need to perform extra key operations each time. Therefore, TemPad Dev provides a deep select mode in preferences.
@@ -68,9 +68,9 @@ In Figma's read-only view, selecting nodes requires double-clicking to drill dow
 ### Measure to selection mode
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/measure-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/measure-light.png">
-  <img alt="Shows the measure to selection mode in preferences." src="packages/extension/assets/measure-light.png" width="720">
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/measure-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/measure-light.png">
+  <img alt="Shows the measure to selection mode in preferences." src="packages/site/public/marketing/measure-light.png" width="720">
 </picture>
 
 In Figma's read-only view, you need to hold <kbd>⌥</kbd> and move the cursor to display the spacing between other nodes and the selected node. For similar reasons to the deep select mode, TemPad Dev provides a measure to selection mode in preferences.
@@ -78,9 +78,9 @@ In Figma's read-only view, you need to hold <kbd>⌥</kbd> and move the cursor t
 ### Scroll selection into view
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/scroll-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/scroll-light.png">
-  <img alt="Shows the scroll selection into view feature." src="packages/extension/assets/scroll-light.png" width="720">
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/scroll-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/scroll-light.png">
+  <img alt="Shows the scroll selection into view feature." src="packages/site/public/marketing/scroll-light.png" width="720">
 </picture>
 
 When you hover over a node name section in TemPad Dev's inspect panel, a corresponding button appears. Clicking it will scroll the current selection to the center of the Figma viewport. Figma has a similar <kbd>⇧2</kbd> shortcut, but it zooms in to fill the viewport, which often doesn't meet the needs. Figma actually exposes an interface in the plugin API to move and zoom to 100%, so we also provide this capability as a supplement.
@@ -90,9 +90,9 @@ When you hover over a node name section in TemPad Dev's inspect panel, a corresp
 ### Plugins
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/plugins-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/plugins-light.png">
-  <img alt="Shows the plugins section in preferences." src="packages/extension/assets/plugins-light.png" width="720">
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/plugins-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/plugins-light.png">
+  <img alt="Shows the plugins section in preferences." src="packages/site/public/marketing/plugins-light.png" width="720">
 </picture>
 
 Plugins allow you to customize the built-in code output or add custom code blocks.
@@ -200,9 +200,9 @@ TemPad Dev ships an [MCP](https://modelcontextprotocol.io/) server so agents/IDE
 ### Setup guide
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-config-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-config-light.png">
-  <img alt="TemPad Dev MCP preferences panel." src="packages/extension/assets/mcp-config-light.png" width="240">
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-light.png">
+  <img alt="TemPad Dev MCP preferences panel." src="packages/site/public/marketing/mcp-config-light.png" width="240">
 </picture>
 
 1. **Requirements**: Node.js 18+ (with `npx`) and TemPad Dev running in a Figma tab. Node.js is required for both the MCP server and the skills CLI.
@@ -241,25 +241,25 @@ When MCP is enabled, a badge appears in the TemPad Dev panel title bar showing t
 - **Unavailable**: The local MCP server is not configured or not running.
 
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-unavailable-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-unavailable-light.png">
-    <img alt="MCP status badge showing Unavailable." src="packages/extension/assets/mcp-unavailable-light.png" width="360">
+    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-unavailable-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-unavailable-light.png">
+    <img alt="MCP status badge showing Unavailable." src="packages/site/public/marketing/mcp-unavailable-light.png" width="360">
   </picture>
 
 - **Inactive**: TemPad Dev is connected to a local MCP server, but this tab is not currently active because multiple Figma tabs are open. Click the badge to activate MCP for this tab (this deactivates MCP in other tabs).
 
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-inactive-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-inactive-light.png">
-    <img alt="MCP status badge showing Inactive." src="packages/extension/assets/mcp-inactive-light.png" width="360">
+    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-inactive-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-inactive-light.png">
+    <img alt="MCP status badge showing Inactive." src="packages/site/public/marketing/mcp-inactive-light.png" width="360">
   </picture>
 
 - **Active**: The MCP server is running, and this tab is active and ready to respond to MCP tool calls.
 
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/extension/assets/mcp-active-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="packages/extension/assets/mcp-active-light.png">
-    <img alt="MCP status badge showing Active." src="packages/extension/assets/mcp-active-light.png" width="360">
+    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-active-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-active-light.png">
+    <img alt="MCP status badge showing Active." src="packages/site/public/marketing/mcp-active-light.png" width="360">
   </picture>
 
 ### Configuration

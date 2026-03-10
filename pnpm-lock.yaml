@@ -254,6 +254,9 @@ importers:
       '@tempad-dev/shared':
         specifier: workspace:^0.1.0
         version: link:../shared
+      '@vueuse/core':
+        specifier: ^14.2.1
+        version: 14.2.1(vue@3.5.29(typescript@5.9.3))
       lucide-vue-next:
         specifier: ^0.577.0
         version: 0.577.0(vue@3.5.29(typescript@5.9.3))
