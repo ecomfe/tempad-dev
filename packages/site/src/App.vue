@@ -31,13 +31,13 @@ onBeforeUnmount(() => {
   <div class="site-page">
     <header class="site-header" :class="{ 'is-scrolled': isScrolled }">
       <div class="site-container site-header-inner">
-        <a href="#top" class="site-brand" aria-label="TemPad Dev homepage">
+        <div class="site-brand">
           <BrandMark />
           <span class="site-brand-name">
             <span class="is-tempad">TemPad</span>
             <span class="is-dev">Dev</span>
           </span>
-        </a>
+        </div>
 
         <div class="site-header-actions">
           <a
