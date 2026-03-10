@@ -19,7 +19,13 @@ const inspectShotSrc = computed(() => INSPECT_SHOT[resolvedColorMode.value])
   >
     <div class="site-section-layout">
       <figure class="site-shot">
-        <img class="site-shot-image" :src="inspectShotSrc" :alt="INSPECT_SHOT.alt" />
+        <img
+          class="site-shot-image"
+          :src="inspectShotSrc"
+          :alt="INSPECT_SHOT.alt"
+          :width="INSPECT_SHOT.width"
+          :height="INSPECT_SHOT.height"
+        />
       </figure>
 
       <DetailList :items="INSPECT_DETAILS" />

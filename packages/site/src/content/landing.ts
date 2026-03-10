@@ -18,6 +18,8 @@ export type SiteMarketingImage = {
   alt: string
   dark: string
   light: string
+  width: number
+  height: number
 }
 
 export type HeroCarouselSlide = {
@@ -42,7 +44,9 @@ function createMarketingImage(name: string, alt: string): SiteMarketingImage {
   return {
     alt,
     dark: `/marketing/${name}-dark${name === 'hero' ? '.svg' : '.png'}`,
-    light: `/marketing/${name}-light${name === 'hero' ? '.svg' : '.png'}`
+    light: `/marketing/${name}-light${name === 'hero' ? '.svg' : '.png'}`,
+    width: 1440,
+    height: 960
   }
 }
 
