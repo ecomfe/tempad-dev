@@ -7,30 +7,34 @@ function restoreBtoa() {
     globalThis.btoa = originalBtoa
     return
   }
+
   Reflect.deleteProperty(globalThis, 'btoa')
 }
 
-async function importConfig() {
+async function importInstall() {
   vi.resetModules()
-  return import('../../mcp/config')
+  return import('../../src/mcp/install')
 }
 
 afterEach(() => {
   restoreBtoa()
 })
 
-describe('mcp/config', () => {
-  it('builds stable MCP server and client install metadata', async () => {
+describe('shared/mcp/install', () => {
+  it('builds stable MCP server metadata for editors and CLIs', async () => {
     globalThis.btoa = (input: string) => Buffer.from(input, 'utf8').toString('base64')
-    const tempad = await importConfig()
+    const mcp = await importInstall()
 
-    expect(tempad.MCP_SERVER).toEqual({
+    expect(mcp.MCP_SERVER).toEqual({
       name: 'tempad-dev',
       command: 'npx',
       args: ['-y', '@tempad-dev/mcp@latest']
     })
 
-    const vscodeDeepLink = tempad.MCP_CLIENTS_BY_ID.vscode.deepLink
+    expect(mcp.MCP_DEFAULT_CONFIG_SNIPPET).toContain('"tempad-dev"')
+    expect(mcp.MCP_SKILL_INSTALL_COMMAND).toContain('npx skills add')
+
+    const vscodeDeepLink = mcp.MCP_CLIENTS_BY_ID.vscode.deepLink
     expect(vscodeDeepLink).toMatch(/^vscode:mcp\/install\?/)
     const vscodePayload = decodeURIComponent(
       String(vscodeDeepLink).replace('vscode:mcp/install?', '')
@@ -42,11 +46,10 @@ describe('mcp/config', () => {
       args: ['-y', '@tempad-dev/mcp@latest']
     })
 
-    const cursorDeepLink = tempad.MCP_CLIENTS_BY_ID.cursor.deepLink
+    const cursorDeepLink = mcp.MCP_CLIENTS_BY_ID.cursor.deepLink
     expect(cursorDeepLink).toContain(
       'cursor://anysphere.cursor-deeplink/mcp/install?name=tempad-dev'
     )
-    expect(cursorDeepLink).toContain('config=')
     const cursorUrl = new URL(String(cursorDeepLink))
     const encodedCursorConfig = cursorUrl.searchParams.get('config')
     expect(encodedCursorConfig).toBeTruthy()
@@ -59,13 +62,13 @@ describe('mcp/config', () => {
       args: ['-y', '@tempad-dev/mcp@latest']
     })
 
-    expect(tempad.MCP_CLIENTS_BY_ID.trae.deepLink).toContain('trae://trae.ai-ide/mcp-import')
-    expect(tempad.MCP_CLIENTS_BY_ID.trae.fallbackDeepLink).toContain(
+    expect(mcp.MCP_CLIENTS_BY_ID.trae.deepLink).toContain('trae://trae.ai-ide/mcp-import')
+    expect(mcp.MCP_CLIENTS_BY_ID.trae.fallbackDeepLink).toContain(
       'trae-cn://trae.ai-ide/mcp-import'
     )
 
-    expect(tempad.MCP_CLIENTS_BY_ID.windsurf.copyKind).toBe('config')
-    expect(JSON.parse(String(tempad.MCP_CLIENTS_BY_ID.windsurf.copyText))).toEqual({
+    expect(mcp.MCP_CLIENTS_BY_ID.windsurf.copyKind).toBe('config')
+    expect(JSON.parse(String(mcp.MCP_CLIENTS_BY_ID.windsurf.copyText))).toEqual({
       mcpServers: {
         'tempad-dev': {
           command: 'npx',
@@ -74,19 +77,15 @@ describe('mcp/config', () => {
       }
     })
 
-    expect(tempad.MCP_CLIENTS_BY_ID.claude.copyKind).toBe('command')
-    expect(tempad.MCP_CLIENTS_BY_ID.claude.copyText).toContain('claude mcp add --transport stdio')
-    expect(tempad.MCP_CLIENTS_BY_ID.codex.copyText).toContain('codex mcp add "tempad-dev"')
+    expect(mcp.MCP_CLIENTS_BY_ID.claude.copyText).toContain('claude mcp add --transport stdio')
+    expect(mcp.MCP_CLIENTS_BY_ID.codex.copyText).toContain('codex mcp add "tempad-dev"')
+    expect(mcp.MCP_CLIENTS).toHaveLength(6)
+  })
 
-    expect(tempad.MCP_CLIENTS).toEqual([
-      tempad.MCP_CLIENTS_BY_ID.vscode,
-      tempad.MCP_CLIENTS_BY_ID.cursor,
-      tempad.MCP_CLIENTS_BY_ID.windsurf,
-      tempad.MCP_CLIENTS_BY_ID.claude,
-      tempad.MCP_CLIENTS_BY_ID.codex,
-      tempad.MCP_CLIENTS_BY_ID.trae
-    ])
-    expect(tempad.MCP_DEFAULT_CONFIG_SNIPPET).toContain('"tempad-dev"')
-    expect(tempad.MCP_SKILL_INSTALL_COMMAND).toContain('npx skills add')
+  it('falls back to Buffer when btoa is unavailable', async () => {
+    Reflect.deleteProperty(globalThis, 'btoa')
+
+    const mcp = await importInstall()
+    expect(mcp.MCP_CLIENTS_BY_ID.cursor.deepLink).toContain('config=')
   })
 })

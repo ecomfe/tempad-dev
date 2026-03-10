@@ -1,0 +1,44 @@
+{
+  "name": "@tempad-dev/site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "pnpm typecheck && pnpm build-only",
+    "preview": "vite preview",
+    "build-only": "vite build",
+    "typecheck": "vue-tsc --build",
+    "lint": "pnpm lint:oxlint && pnpm lint:eslint",
+    "lint:fix": "pnpm lint",
+    "lint:oxlint": "oxlint src eslint.config.ts vite.config.ts env.d.ts --fix",
+    "lint:eslint": "eslint . --fix --cache",
+    "format": "oxfmt src/",
+    "format:check": "oxfmt src/ --check"
+  },
+  "dependencies": {
+    "@tempad-dev/shared": "workspace:^0.1.0",
+    "lucide-vue-next": "^0.577.0",
+    "vue": "^3.5.29"
+  },
+  "devDependencies": {
+    "@tsconfig/node24": "^24.0.4",
+    "@types/node": "^24.11.0",
+    "@vitejs/plugin-vue": "^6.0.4",
+    "@vue/eslint-config-typescript": "^14.7.0",
+    "@vue/tsconfig": "^0.8.1",
+    "eslint": "^10.0.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-oxlint": "~1.50.0",
+    "eslint-plugin-vue": "~10.8.0",
+    "jiti": "^2.6.1",
+    "oxfmt": "^0.35.0",
+    "oxlint": "~1.50.0",
+    "typescript": "~5.9.3",
+    "vite": "beta",
+    "vue-tsc": "^3.2.5"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}

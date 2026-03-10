@@ -20,7 +20,12 @@ import Tick from '@/components/icons/Tick.vue'
 import Section from '@/components/Section.vue'
 import SegmentedControl from '@/components/SegmentedControl.vue'
 import { useCopy, useDeepLinkGuard } from '@/composables'
-import { MCP_CLIENTS, MCP_CLIENTS_BY_ID, MCP_SERVER } from '@/mcp/config'
+import {
+  MCP_CLIENTS,
+  MCP_CLIENTS_BY_ID,
+  MCP_DEFAULT_CONFIG_SNIPPET,
+  MCP_SKILL_INSTALL_COMMAND
+} from '@/mcp/config'
 import { options } from '@/ui/state'
 
 import ExternalLink from '../icons/ExternalLink.vue'
@@ -95,17 +100,6 @@ const mcpClients = computed(() =>
 
 const copy = useCopy()
 const guardDeepLink = useDeepLinkGuard({ timeout: 800 })
-const defaultConfig = JSON.stringify(
-  {
-    [MCP_SERVER.name]: {
-      command: MCP_SERVER.command,
-      args: MCP_SERVER.args
-    }
-  },
-  null,
-  2
-)
-const skillInstallCommand = 'npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill'
 const copyMessages = {
   command: 'Copied command to clipboard',
   config: 'Copied configuration to clipboard'
@@ -152,7 +146,7 @@ async function handleClientClick(client: McpClientDisplay) {
             variant="secondary"
             title="Copy skills add command"
             class="tp-mcp-client-button tp-grid-end"
-            @click="copy(skillInstallCommand, copyMessages.command)"
+            @click="copy(MCP_SKILL_INSTALL_COMMAND, copyMessages.command)"
           >
             <Copy />
           </IconButton>
@@ -178,7 +172,7 @@ async function handleClientClick(client: McpClientDisplay) {
             variant="secondary"
             title="Copy configuration"
             class="tp-mcp-client-button"
-            @click="copy(defaultConfig, copyMessages.config)"
+            @click="copy(MCP_DEFAULT_CONFIG_SNIPPET, copyMessages.config)"
           >
             <Copy />
           </IconButton>
