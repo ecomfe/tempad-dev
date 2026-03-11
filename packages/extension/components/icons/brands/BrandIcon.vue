@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { getMcpClientBrandSvg } from '@tempad-dev/shared/ui'
 import type { McpClientId } from '@tempad-dev/shared'
 
+import { getMcpClientBrandSvg } from '@tempad-dev/shared/ui'
 import { computed } from 'vue'
 
 const props = defineProps<{
@@ -12,17 +12,19 @@ const svgMarkup = computed(() => getMcpClientBrandSvg(props.id))
 </script>
 
 <template>
-  <span class="site-brand-icon" aria-hidden="true" v-html="svgMarkup" />
+  <span class="tp-brand-icon" aria-hidden="true" v-html="svgMarkup" />
 </template>
 
 <style scoped>
-.site-brand-icon {
+.tp-brand-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
+  height: 100%;
 }
 
-.site-brand-icon :deep(svg) {
+.tp-brand-icon :deep(svg) {
   width: 100%;
   height: 100%;
   display: block;
