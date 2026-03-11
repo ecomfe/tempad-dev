@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "Shared utilities, schemas and constants used by TemPad Dev extension and MCP server.",
   "files": [
-    "dist"
+    "dist",
+    "src/ui",
+    "src/svg-raw.d.ts"
   ],
   "type": "module",
   "main": "dist/index.js",
@@ -12,6 +14,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./ui": {
+      "types": "./src/ui/index.ts",
+      "import": "./src/ui/index.ts"
+    },
+    "./ui/brand-icons": {
+      "types": "./src/ui/brand-icons.ts",
+      "import": "./src/ui/brand-icons.ts"
     }
   },
   "scripts": {

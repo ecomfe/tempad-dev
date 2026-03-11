@@ -39,13 +39,24 @@ const commandConfig: BaseCommandConfig = {
   args: [...SERVER_ARGS]
 }
 
+type BufferLike = {
+  from(
+    input: string,
+    encoding: 'utf8'
+  ): {
+    toString(encoding: 'base64'): string
+  }
+}
+
 function toBase64(input: string): string {
   if (typeof globalThis.btoa === 'function') {
     return globalThis.btoa(input)
   }
 
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(input, 'utf8').toString('base64')
+  const bufferLike = (globalThis as { Buffer?: BufferLike }).Buffer
+
+  if (bufferLike) {
+    return bufferLike.from(input, 'utf8').toString('base64')
   }
 
   throw new Error('Base64 encoding not supported in this environment.')

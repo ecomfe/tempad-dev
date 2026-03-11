@@ -1,17 +1,10 @@
 <script setup lang="ts">
-import type { Component } from 'vue'
-
 import { computed, ref } from 'vue'
 
 import type { McpClientConfig, McpClientId } from '@/mcp/config'
 
 import IconButton from '@/components/IconButton.vue'
-import Claude from '@/components/icons/brands/Claude.vue'
-import Codex from '@/components/icons/brands/Codex.vue'
-import Cursor from '@/components/icons/brands/Cursor.vue'
-import Trae from '@/components/icons/brands/TRAE.vue'
-import VSCode from '@/components/icons/brands/VSCode.vue'
-import Windsurf from '@/components/icons/brands/Windsurf.vue'
+import BrandIcon from '@/components/icons/brands/BrandIcon.vue'
 import Collapsed from '@/components/icons/Collapsed.vue'
 import Copy from '@/components/icons/Copy.vue'
 import Expanded from '@/components/icons/Expanded.vue'
@@ -37,18 +30,8 @@ const mcpOptions = [
 
 const clientsExpanded = ref(false)
 
-const CLIENT_ICONS: Record<McpClientId, Component> = {
-  vscode: VSCode,
-  cursor: Cursor,
-  windsurf: Windsurf,
-  claude: Claude,
-  codex: Codex,
-  trae: Trae
-}
-
 type McpClientDisplay = Omit<McpClientConfig, 'brandColor'> & {
   brandColor?: string
-  icon: Component
   tooltip: string
 }
 
@@ -92,7 +75,6 @@ const mcpClients = computed(() =>
 
     return {
       ...rest,
-      icon: CLIENT_ICONS[client.id],
       tooltip: getClientTooltip(client)
     } satisfies McpClientDisplay
   })
@@ -166,7 +148,7 @@ async function handleClientClick(client: McpClientDisplay) {
             }"
             @click="handleClientClick(client)"
           >
-            <component :is="client.icon" class="tp-mcp-client-icon" />
+            <BrandIcon :id="client.id" class="tp-mcp-client-icon" />
           </IconButton>
           <IconButton
             variant="secondary"
@@ -234,7 +216,8 @@ label {
 }
 
 .tp-mcp-client-icon {
-  --icon-button-size: 14px !important;
+  width: 14px;
+  height: 14px;
 }
 
 .tp-mcp-client-button:hover {
