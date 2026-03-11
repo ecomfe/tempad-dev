@@ -11,7 +11,7 @@ import { SITE_LINKS } from '@/content/landing'
         <div class="site-hero-copy">
           <h1 class="site-hero-title">Inspect, transform, connect.</h1>
           <p class="site-hero-copy-text">
-            <span class="site-hero-copy-lead">Open handoff tooling on Figma.</span>
+            <span class="site-hero-copy-lead">Open handoff tooling for Figma.</span>
             Free and open source, made to keep design context legible, adaptable, and available to
             everyone who builds from it.
           </p>
