@@ -15,7 +15,7 @@ const transformShotSrc = computed(() => TRANSFORM_SHOT[resolvedColorMode.value])
     id="transform"
     eyebrow="Transform"
     title="Shape it your way"
-    copy="Keep the source intact, then let plugins shape the output around the conventions your team already ships."
+    copy="Keep the source intact, then let plugins shape the output to match the conventions your codebase already uses."
   >
     <div class="site-section-layout">
       <figure class="site-shot">
