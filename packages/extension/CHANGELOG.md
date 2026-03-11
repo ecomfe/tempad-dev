@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.2
+
+- Bundled Prism extra language modules locally so the extension no longer fetches remotely hosted code for syntax highlighting under Manifest V3.
+- Wait for the page's global Prism instance before loading extra languages, avoiding startup crashes when Prism is not ready yet.
+- Load Prism languages in the background and refresh code blocks once highlighting support becomes available, so the UI no longer waits on Prism startup.
+
 ## 0.18.1
 
 - Moved MCP configuration metadata into the shared package so the extension and other surfaces stay aligned.
