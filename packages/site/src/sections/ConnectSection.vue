@@ -512,7 +512,7 @@ onBeforeUnmount(() => {
     id="connect"
     eyebrow="Connect"
     title="Let it flow to code"
-    copy="With the skill and MCP server in place, the same design context can stay available from the turn to the tool call."
+    copy="With the skill and MCP server in place, the same design context stays available from the request to the tool call."
   >
     <div class="site-connect-layout">
       <div class="site-connect-setup">

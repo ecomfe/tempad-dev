@@ -15,7 +15,7 @@ const inspectShotSrc = computed(() => INSPECT_SHOT[resolvedColorMode.value])
     id="inspect"
     eyebrow="Inspect"
     title="Reveal the design"
-    copy="TemPad Dev helps surface the same selection in code, variables, and layout terms that are easier to carry into implementation."
+    copy="TemPad Dev surfaces the current selection in code, variables, and layout terms that are easier to carry into implementation."
   >
     <div class="site-section-layout">
       <figure class="site-shot">
