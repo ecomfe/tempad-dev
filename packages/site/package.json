@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@tempad-dev/shared": "workspace:^0.1.0",
+    "@vercel/analytics": "^2.0.0",
     "@vueuse/core": "^14.2.1",
     "lucide-vue-next": "^0.577.0",
     "vue": "^3.5.29"
