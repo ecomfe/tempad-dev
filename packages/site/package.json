@@ -15,8 +15,8 @@
     "lint:oxlint:fix": "oxlint src eslint.config.ts vite.config.ts env.d.ts --fix",
     "lint:eslint": "eslint . --cache",
     "lint:eslint:fix": "eslint . --fix --cache",
-    "format": "oxfmt src/",
-    "format:check": "oxfmt src/ --check"
+    "format": "oxfmt -c ../../.oxfmtrc.json src/",
+    "format:check": "oxfmt -c ../../.oxfmtrc.json src/ --check"
   },
   "dependencies": {
     "@tempad-dev/shared": "workspace:^0.1.0",
