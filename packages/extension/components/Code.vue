@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { useEventListener } from '@vueuse/core'
+
 import { useCopy } from '@/composables'
+import { PRISM_LANGUAGES_READY_EVENT } from '@/entrypoints/ui/prism'
 import { transformHTML } from '@/utils/dom'
 import { escapeHTML } from '@/utils/string'
 
@@ -29,6 +32,7 @@ const prismAlias: Record<string, string> = {
 }
 
 const STRIP_TRAILING_WS_RE = /\s+$/gm
+const prismRevision = shallowRef(0)
 
 const code = computed(() => props.code.replace(STRIP_TRAILING_WS_RE, ''))
 
@@ -41,7 +45,7 @@ const lang = computed(() => {
 })
 
 const highlighted = computed(() => {
-  const { Prism } = window
+  const Prism = prismRevision.value >= 0 ? window.Prism : window.Prism
   if (!Prism || !Prism.languages[lang.value]) {
     return escapeHTML(code.value)
   }
@@ -93,6 +97,10 @@ function handleClick(event: MouseEvent) {
     copy(token as HTMLElement)
   }
 }
+
+useEventListener(window, PRISM_LANGUAGES_READY_EVENT, () => {
+  prismRevision.value += 1
+})
 </script>
 
 <template>

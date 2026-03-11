@@ -1,25 +1,21 @@
 import waitFor from 'p-wait-for'
 
-import { evaluate } from '@/utils'
+export const PRISM_LANGUAGES_READY_EVENT = 'tempad:prism-languages-ready'
 
-const EXTRA_LANGS = ['sass', 'scss', 'less', 'stylus', 'css-extras'] as const
+const EXTRA_LANG_LOADERS = [
+  () => import('prismjs/components/prism-sass'),
+  () => import('prismjs/components/prism-scss'),
+  () => import('prismjs/components/prism-less'),
+  () => import('prismjs/components/prism-stylus'),
+  () => import('prismjs/components/prism-css-extras')
+]
 
-// We are importing this in this way is because if we use
-// `import('prismjs/components/prism-sass')` Rollup will not resolve it correctly
-// with our current setup.
-async function load(lang: (typeof EXTRA_LANGS)[number]) {
-  const response = await fetch(
-    `https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-${lang}.min.js`
-  )
-  return await response.text()
-}
+export async function loadPrismLanguages() {
+  await waitFor(() => window.Prism != null)
 
-Promise.all([waitFor(() => window.Prism != null), ...EXTRA_LANGS.map((lang) => load(lang))]).then(
-  ([, ...scripts]) => {
-    scripts.forEach((script) => {
-      evaluate(script)
-    })
+  for (const load of EXTRA_LANG_LOADERS) {
+    await load()
   }
-)
 
-export {}
+  window.dispatchEvent(new CustomEvent(PRISM_LANGUAGES_READY_EVENT))
+}
