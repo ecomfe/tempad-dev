@@ -1095,7 +1095,10 @@ html.dark .site-agent-card-head {
   .site-footer-inner {
     min-height: auto;
     padding: 14px 0;
-    align-items: flex-start;
+  }
+
+  .site-header-inner {
+    align-items: center;
   }
 
   .site-hero {

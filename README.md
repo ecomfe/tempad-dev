@@ -6,7 +6,7 @@
   </picture>
 </p>
 
-<p align="center">Open handoff tooling on Figma</p>
+<p align="center">Open handoff tooling for Figma</p>
 
 <p align="center">
   <a href="https://chrome.google.com/webstore/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc"><img src="https://img.shields.io/badge/Install%20on%20Chrome%20Web%20Store-4285F4?logo=chromewebstore&logoColor=%23fff" alt="Install on Chrome Web Store"></a>
