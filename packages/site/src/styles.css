@@ -26,6 +26,7 @@
   --site-button-secondary-border: rgb(15 23 42 / 10%);
   --site-toggle-bg: rgb(255 255 255 / 72%);
   --site-toggle-border: rgb(15 23 42 / 10%);
+  --site-header-height: 64px;
   --site-toggle-button-hover: rgb(15 23 42 / 3%);
   --site-toggle-button-active: rgb(15 23 42 / 8%);
   --site-hero-shot-border: rgb(255 255 255 / 58%);
@@ -100,6 +101,7 @@ html.dark {
 
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--site-header-height) + 16px);
   -webkit-text-size-adjust: 100%;
   scrollbar-width: thin;
   scrollbar-color: var(--site-scrollbar-thumb) var(--site-scrollbar-track);
@@ -210,6 +212,13 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+.site-header-inner {
+  min-height: var(--site-header-height);
+}
+
+.site-footer-inner {
   min-height: 64px;
 }
 
@@ -361,8 +370,16 @@ html.dark .site-button.is-primary {
 }
 
 .site-hero {
-  padding: 128px 0 88px;
+  display: grid;
+  grid-template-rows: minmax(0, 0.8fr) auto minmax(0, 1fr);
+  min-height: calc(100vh - var(--site-header-height));
+  min-height: calc(100svh - var(--site-header-height));
   overflow-x: clip;
+  scroll-margin-top: calc(var(--site-header-height) + 16px);
+}
+
+.site-hero > .site-container {
+  grid-row: 2;
 }
 
 .site-hero-layout {
@@ -372,6 +389,7 @@ html.dark .site-button.is-primary {
   align-items: center;
   position: relative;
   isolation: isolate;
+  width: 100%;
 }
 
 .site-hero-copy {
@@ -572,6 +590,7 @@ html.dark .site-button.is-primary {
 
 .site-section {
   padding: 104px 0 0;
+  scroll-margin-top: calc(var(--site-header-height) + 16px);
 }
 
 .site-section-head {
@@ -1087,22 +1106,17 @@ html.dark .site-agent-card-head {
 }
 
 @media (max-width: 640px) {
+  :root {
+    --site-header-height: 60px;
+  }
+
   .site-container {
     width: min(100% - 36px, 1080px);
   }
 
-  .site-header-inner,
   .site-footer-inner {
     min-height: auto;
     padding: 14px 0;
-  }
-
-  .site-header-inner {
-    align-items: center;
-  }
-
-  .site-hero {
-    padding: 104px 0 72px;
   }
 
   .site-hero-shot-frame {

@@ -553,7 +553,7 @@ onBeforeUnmount(() => {
               :title="`${client.name}: ${getClientActionLabel(client)}`"
               @click="handleClientAction(client)"
             >
-              <BrandIcon :id="client.id" />
+              <BrandIcon :client-id="client.id" />
             </button>
           </div>
         </div>
