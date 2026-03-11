@@ -5,10 +5,10 @@ import type { McpClientId } from '@tempad-dev/shared'
 import { computed } from 'vue'
 
 const props = defineProps<{
-  id: McpClientId
+  clientId: McpClientId
 }>()
 
-const svgMarkup = computed(() => getMcpClientBrandSvg(props.id))
+const svgMarkup = computed(() => getMcpClientBrandSvg(props.clientId))
 </script>
 
 <template>

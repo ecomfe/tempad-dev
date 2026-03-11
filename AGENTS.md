@@ -62,7 +62,9 @@ Provide a single entry point for coding agents. This file links to package-level
 Run these at repo root unless noted.
 
 - Dev extension: `pnpm dev`
+- Dev site: `pnpm dev:site`
 - Build everything: `pnpm build`
+- Build site: `pnpm build:site`
 - Build extension: `pnpm build:ext`
 - Build plugins: `pnpm build:plugins`
 - Build MCP: `pnpm build:mcp`
