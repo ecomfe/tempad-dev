@@ -33,7 +33,7 @@ Use this sequence as the default pre-PR verification.
 Root:
 
 - `pnpm test` (watch)
-- `pnpm test:run` (single run)
+- `pnpm test:run` (single run, includes extension worker sandbox check)
 - `pnpm test:coverage` (workspace coverage)
 - `pnpm test:ext:setup` (install extension browser runtime)
 - `pnpm test:ext:node` (extension node tests only)
@@ -41,7 +41,7 @@ Root:
 
 Per package:
 
-- `pnpm --filter @tempad-dev/extension test:run`
+- `pnpm --filter @tempad-dev/extension test:run` (includes worker sandbox check)
 - `pnpm --filter @tempad-dev/extension test:node`
 - `pnpm --filter @tempad-dev/extension test:browser`
 - `pnpm --filter @tempad-dev/extension test:browser:headed`
