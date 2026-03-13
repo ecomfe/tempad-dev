@@ -12,7 +12,7 @@
     "build:plugins": "pnpm --filter @tempad-dev/plugins build",
     "build:mcp": "pnpm --filter @tempad-dev/mcp build",
     "test": "vitest",
-    "test:run": "vitest run",
+    "test:run": "vitest run && pnpm --filter @tempad-dev/extension check:worker-sandbox",
     "test:coverage": "vitest run --coverage",
     "test:ext:node": "pnpm --filter @tempad-dev/extension test:node",
     "test:ext:browser": "pnpm --filter @tempad-dev/extension test:browser",

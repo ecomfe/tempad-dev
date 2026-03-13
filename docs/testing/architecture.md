@@ -43,7 +43,7 @@ Extension worker sandbox validation has two layers:
 - static dependency allowlist check in `packages/extension/scripts/check-worker-sandbox.ts`
 - runtime probe in real browser Workers (Playwright)
 
-The runtime probe is part of `check:worker-sandbox` and runs during extension typecheck.
+The runtime probe is part of `check:worker-sandbox` and runs during extension `test:run`.
 
 ## Change checklist
 
