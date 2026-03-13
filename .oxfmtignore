@@ -1,1 +1,5 @@
+# Package contents are formatted by package-level scripts.
 packages/**
+
+# Lockfile formatting is managed by pnpm.
+pnpm-lock.yaml

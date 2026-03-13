@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { getMcpClientBrandSvg } from '@tempad-dev/shared/ui'
 import type { McpClientId } from '@tempad-dev/shared'
 
+import { getMcpClientBrandSvg } from '@tempad-dev/shared/ui'
 import { computed } from 'vue'
 
 const props = defineProps<{

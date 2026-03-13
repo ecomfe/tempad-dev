@@ -2,8 +2,8 @@
 import { computed } from 'vue'
 
 import DetailList from '@/components/DetailList.vue'
-import { useSiteColorMode } from '@/composables/useSiteColorMode'
 import SectionShell from '@/components/SectionShell.vue'
+import { useSiteColorMode } from '@/composables/useSiteColorMode'
 import { TRANSFORM_DETAILS, TRANSFORM_SHOT } from '@/content/landing'
 
 const { resolvedColorMode } = useSiteColorMode()
