@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import type { SiteDetail, SiteDetailIconId } from '@/content/landing'
 import type { Component } from 'vue'
 
-import OpenSourceIcon from '@/components/icons/OpenSourceIcon.vue'
 import {
   Braces,
   Component as ComponentIcon,
@@ -10,6 +8,10 @@ import {
   SquareFunction,
   Variable
 } from 'lucide-vue-next'
+
+import type { SiteDetail, SiteDetailIconId } from '@/content/landing'
+
+import OpenSourceIcon from '@/components/icons/OpenSourceIcon.vue'
 
 defineProps<{
   items: readonly SiteDetail[]

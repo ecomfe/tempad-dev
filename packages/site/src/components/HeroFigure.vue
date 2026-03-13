@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+
 import type { HeroCarouselSlide } from '@/content/landing'
 
 import { useSiteColorMode } from '@/composables/useSiteColorMode'
 import { HERO_CAROUSEL_SLIDES } from '@/content/landing'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 type HeroGlowSpec = {
   id: number

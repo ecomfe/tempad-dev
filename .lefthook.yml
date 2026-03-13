@@ -14,4 +14,4 @@ pre-commit:
             run: pnpm exec oxfmt -c ./.oxfmtrc.json --ignore-path ./.gitignore {staged_files}
             stage_fixed: true
     - name: typecheck
-      run: pnpm -r typecheck
+      run: pnpm typecheck
