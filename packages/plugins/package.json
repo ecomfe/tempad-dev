@@ -31,7 +31,7 @@
     "test:run": "vitest run --config vitest.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage",
     "lint": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs",
-    "lint:fix": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs --fix",
+    "lint:fix": "eslint . --fix --ext .ts,.mts,.cts,.js,.mjs,.cjs",
     "format": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore",
     "format:check": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore --check",
     "prepublishOnly": "pnpm run build"

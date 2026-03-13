@@ -1,7 +1,7 @@
 :root {
-  --site-font-display: 'Instrument Serif', Georgia, serif;
-  --site-font-sans: 'Manrope', system-ui, sans-serif;
-  --site-font-mono: 'JetBrains Mono', monospace;
+  --site-font-display: "Instrument Serif", Georgia, serif;
+  --site-font-sans: "Manrope", system-ui, sans-serif;
+  --site-font-mono: "JetBrains Mono", monospace;
   --site-bg: #f6f7f9;
   --site-bg-ambient: rgb(22 104 220 / 4%);
   --site-bg-gradient-start: #f8f9fb;
@@ -191,7 +191,7 @@ code {
 }
 
 .site-header::after {
-  content: '';
+  content: "";
   position: absolute;
   left: 0;
   right: 0;
@@ -536,7 +536,7 @@ html.dark .site-button.is-primary {
 }
 
 .site-hero-shot-media::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -1047,8 +1047,8 @@ html.dark .site-agent-card-head {
   padding-left: 18px;
 }
 
-.site-terminal-line[data-cursor='true']::after {
-  content: '';
+.site-terminal-line[data-cursor="true"]::after {
+  content: "";
   display: inline-block;
   width: 0.5em;
   height: 1.1em;

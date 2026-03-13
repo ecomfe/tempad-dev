@@ -30,17 +30,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Worker sandbox check (browser)
-        run: pnpm --filter @tempad-dev/extension run check:worker-browser-sandbox
-
       - name: Type check
-        run: pnpm -r typecheck
+        run: pnpm typecheck
 
       - name: Lint
-        run: pnpm -r lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test:run
 
       - name: Format check
-        run: pnpm run format:check
+        run: pnpm format:check
 
       - name: Build project
         run: pnpm build
