@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { VisibleTree } from '@/mcp/tools/code/model'
 
+vi.mock('@/mcp/tools/token/indexer', () => ({
+  getVariableRawName: vi.fn((variable: Variable) => variable.name)
+}))
+
 import { ensureAssetUploaded } from '@/mcp/assets'
 import { normalizeThemeableSvg } from '@/mcp/tools/code/assets/svg'
 import {
@@ -9,7 +13,7 @@ import {
   extractSvgAttributes,
   transformSvgAttributes
 } from '@/mcp/tools/code/assets/vector'
-import { isThemeableVector } from '@/mcp/tools/code/assets/vector-semantics'
+import { analyzeVectorColorModel } from '@/mcp/tools/code/assets/vector-semantics'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
 
@@ -55,13 +59,16 @@ describe('assets/vector', () => {
 
     const result = await exportSvgEntry(node, remConfig, new Map(), {
       vectorMode: 'smart',
-      themeable: true
+      colorModel: { kind: 'single-channel', color: 'var(--icon-color)' }
     })
 
     expect(result?.props).toEqual({
       height: '1rem',
       viewBox: '0 0 16 16',
       width: '1rem'
+    })
+    expect(result?.presentationStyle).toEqual({
+      color: 'var(--icon-color)'
     })
     expect(result?.raw).toContain('fill="currentColor"')
     expect(ensureAssetUploaded).not.toHaveBeenCalled()
@@ -89,7 +96,7 @@ describe('assets/vector', () => {
     const registry = new Map<string, unknown>()
     const result = await exportSvgEntry(node, remConfig, registry as Map<string, never>, {
       vectorMode: 'smart',
-      themeable: false
+      colorModel: { kind: 'fixed' }
     })
 
     expect(result).toEqual({
@@ -124,7 +131,7 @@ describe('assets/vector', () => {
     const registry = new Map<string, unknown>()
     const result = await exportSvgEntry(node, pxConfig, registry as Map<string, never>, {
       vectorMode: 'snapshot',
-      themeable: true
+      colorModel: { kind: 'single-channel', color: '#222' }
     })
 
     expect(result).toEqual({
@@ -154,7 +161,8 @@ describe('assets/vector', () => {
 
     vi.mocked(ensureAssetUploaded).mockRejectedValue(new Error('upload failed'))
     const result = await exportSvgEntry(node, pxConfig, new Map(), {
-      vectorMode: 'smart'
+      vectorMode: 'smart',
+      colorModel: { kind: 'fixed' }
     })
 
     expect(result).toEqual({
@@ -225,7 +233,10 @@ describe('assets/vector', () => {
       } as unknown as SceneNode)
     ])
 
-    expect(isThemeableVector(tree, 'root')).toBe(true)
+    expect(analyzeVectorColorModel(tree, 'root')).toEqual({
+      kind: 'single-channel',
+      color: '#F00'
+    })
   })
 
   it('treats consistent stroke-only vectors as themeable', () => {
@@ -262,7 +273,10 @@ describe('assets/vector', () => {
       } as unknown as SceneNode)
     ])
 
-    expect(isThemeableVector(tree, 'root')).toBe(true)
+    expect(analyzeVectorColorModel(tree, 'root')).toEqual({
+      kind: 'single-channel',
+      color: '#000'
+    })
   })
 
   it('treats gradients and visible effects as fixed', () => {
@@ -312,8 +326,42 @@ describe('assets/vector', () => {
       } as unknown as SceneNode)
     ])
 
-    expect(isThemeableVector(gradientTree, 'root')).toBe(false)
-    expect(isThemeableVector(effectedTree, 'root')).toBe(false)
+    expect(analyzeVectorColorModel(gradientTree, 'root')).toEqual({ kind: 'fixed' })
+    expect(analyzeVectorColorModel(effectedTree, 'root')).toEqual({ kind: 'fixed' })
+  })
+
+  it('prefers bound variable colors for single-channel vectors', () => {
+    vi.stubGlobal('figma', {
+      variables: {
+        getVariableById: vi.fn((id: string) =>
+          id === 'var-color' ? ({ id, name: 'Color / Icon' } as Variable) : null
+        )
+      }
+    })
+
+    const tree = makeTree([
+      makeSnapshot('root', {
+        id: 'root',
+        type: 'RECTANGLE',
+        visible: true,
+        fills: [
+          {
+            type: 'SOLID',
+            visible: true,
+            color: { r: 1, g: 0, b: 0 },
+            opacity: 1,
+            boundVariables: { color: { id: 'var-color' } }
+          }
+        ],
+        strokes: [],
+        effects: []
+      } as unknown as SceneNode)
+    ])
+
+    expect(analyzeVectorColorModel(tree, 'root')).toEqual({
+      kind: 'single-channel',
+      color: 'var(--Color---Icon)'
+    })
   })
 
   it('normalizes themeable svg content and stabilizes ids', () => {

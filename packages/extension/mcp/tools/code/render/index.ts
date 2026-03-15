@@ -67,7 +67,10 @@ async function renderNode(
 
   if (ctx.svgs.has(snapshot.id)) {
     const svgEntry = ctx.svgs.get(snapshot.id)!
-    const svgStyle = ctx.layout.get(snapshot.id) ?? {}
+    const svgStyle = {
+      ...(ctx.layout.get(snapshot.id) ?? {}),
+      ...(svgEntry.presentationStyle ?? {})
+    }
     const classAttr = classProp(ctx.preferredLang ?? ctx.detectedLang)
     const { classNames, props } = classProps(svgStyle, ctx.config, classAttr, undefined, {
       isFallback: true,

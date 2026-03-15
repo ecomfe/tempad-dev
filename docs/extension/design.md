@@ -75,7 +75,8 @@ This document describes the implementation design for MCP `get_code` in `package
   - Children with `layoutPositioning === 'ABSOLUTE'` use absolute positioning.
   - Other children stay in flow.
 - **Inferred auto layout**
-  - Can emit flex/padding/gap (hinted), but is non-authoritative.
+  - May be promoted into emitted flex/padding/gap output.
+  - Once emitted, that auto-layout is treated as the authoritative flow model for non-absolute children in the current response.
   - Constraint-based positioning is skipped under inferred layout.
 - **No layout**
   - Constraint-based absolute positioning is applied to children.
@@ -103,6 +104,10 @@ This document describes the implementation design for MCP `get_code` in `package
 ### Sanitize (tree-level)
 
 - `patchNegativeGapStyles`
+- `canonicalizeAutoLayoutStyles`
+  - Only runs on proven single-child auto-layout containers.
+  - Resolves each axis as fixed/hug/fill/absolute/unknown.
+  - Removes only redundant size or padding expressions without changing the emitted flow model.
 - `ensureRelativeForAbsoluteChildren`
 
 ### Layout-only extraction
@@ -126,11 +131,11 @@ This document describes the implementation design for MCP `get_code` in `package
 ## SVG and asset strategy
 
 - Vector-like nodes may be exported to SVG.
-- Vector containers can be converted to a single SVG if all leaves are vector-like.
-- Themeable vectors are single-color vectors that can safely use one contextual color channel. The current implementation rewrites safe `fill`/`stroke` values to `currentColor` and keeps node-sized `width`/`height` plus `viewBox`.
+- Vector containers can be converted to a single SVG when their subtree is vector-like and the container itself does not carry wrapper semantics such as its own fill/stroke/effects/clipping or design-component hints.
+- Themeable vectors are single-color vectors that can safely use one contextual color channel. The current implementation rewrites safe `fill`/`stroke` values to `currentColor`, keeps node-sized `width`/`height` plus `viewBox`, and injects the instance color onto the emitted `svg` root markup.
 - Fixed-color vectors preserve their internal palette and stay asset-backed unless the caller explicitly requests different fidelity handling.
 - Plugin/component output short-circuits vector export for that subtree.
-- SVG nodes only receive external layout styles, not visual paint styles.
+- Inline SVG nodes receive external layout styles plus presentation color on the root markup when the vector is single-channel.
 - The emitted inline-SVG-vs-asset choice is the tool's default delivery for the current response. Host apps may refactor to their own SVG policy, such as repo icon primitives, bundler/dev-server SVG transforms, inline SVG, or asset-backed `<img>`, as long as themeable vectors remain single-channel and fixed-color vectors keep their palette.
 - Placeholder SVG is emitted when export fails or is unavailable, using node width/height.
 - Vector-root descendants are not rendered; their CSS is not collected.

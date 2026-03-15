@@ -4,12 +4,17 @@ import type { VisibleTree } from '@/mcp/tools/code/model'
 
 const mocks = vi.hoisted(() => ({
   patchNegativeGapStyles: vi.fn(),
+  canonicalizeAutoLayoutStyles: vi.fn(),
   ensureRelativeForAbsoluteChildren: vi.fn(),
   applyAbsoluteStackingOrder: vi.fn()
 }))
 
 vi.mock('@/mcp/tools/code/sanitize/negative-gap', () => ({
   patchNegativeGapStyles: mocks.patchNegativeGapStyles
+}))
+
+vi.mock('@/mcp/tools/code/sanitize/auto-layout-canonical', () => ({
+  canonicalizeAutoLayoutStyles: mocks.canonicalizeAutoLayoutStyles
 }))
 
 vi.mock('@/mcp/tools/code/sanitize/relative-parent', () => ({
@@ -31,10 +36,14 @@ describe('sanitize/index sanitizeStyles', () => {
     sanitizeStyles(tree, styles, svgRoots)
 
     expect(mocks.patchNegativeGapStyles).toHaveBeenCalledWith(tree, styles, svgRoots)
+    expect(mocks.canonicalizeAutoLayoutStyles).toHaveBeenCalledWith(tree, styles, svgRoots)
     expect(mocks.ensureRelativeForAbsoluteChildren).toHaveBeenCalledWith(tree, styles, svgRoots)
     expect(mocks.applyAbsoluteStackingOrder).toHaveBeenCalledWith(tree, styles, svgRoots)
 
     expect(mocks.patchNegativeGapStyles.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.canonicalizeAutoLayoutStyles.mock.invocationCallOrder[0]
+    )
+    expect(mocks.canonicalizeAutoLayoutStyles.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.ensureRelativeForAbsoluteChildren.mock.invocationCallOrder[0]
     )
     expect(mocks.ensureRelativeForAbsoluteChildren.mock.invocationCallOrder[0]).toBeLessThan(
@@ -49,6 +58,7 @@ describe('sanitize/index sanitizeStyles', () => {
     sanitizeStyles(tree, styles)
 
     expect(mocks.patchNegativeGapStyles).toHaveBeenLastCalledWith(tree, styles, undefined)
+    expect(mocks.canonicalizeAutoLayoutStyles).toHaveBeenLastCalledWith(tree, styles, undefined)
     expect(mocks.ensureRelativeForAbsoluteChildren).toHaveBeenLastCalledWith(
       tree,
       styles,

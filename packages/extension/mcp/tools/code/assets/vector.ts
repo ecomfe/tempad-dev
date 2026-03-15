@@ -7,6 +7,8 @@ import { normalizeCssValue } from '@/utils/css'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
 
+import type { VectorColorModel } from './vector-semantics'
+
 import { ensureSvgRootSize, extractSvgAttributes, normalizeThemeableSvg } from './svg'
 
 export { extractSvgAttributes } from './svg'
@@ -15,11 +17,12 @@ export type VectorMode = 'smart' | 'snapshot'
 
 export type SvgEntry = {
   props: Record<string, string>
+  presentationStyle?: Record<string, string>
   raw?: string
 }
 
 type ExportOptions = {
-  themeable?: boolean
+  colorModel?: VectorColorModel
   vectorMode?: VectorMode
 }
 
@@ -29,7 +32,8 @@ export async function exportSvgEntry(
   assetRegistry: Map<string, AssetDescriptor>,
   options: ExportOptions = {}
 ): Promise<SvgEntry | null> {
-  const { themeable = false, vectorMode = 'smart' } = options
+  const { colorModel = { kind: 'fixed' }, vectorMode = 'smart' } = options
+  const themeable = colorModel.kind === 'single-channel'
   const metadata = themeable ? { themeable: true as const } : undefined
 
   try {
@@ -45,6 +49,9 @@ export async function exportSvgEntry(
       if (normalized) {
         return {
           props: normalized.props,
+          presentationStyle: {
+            color: colorModel.color
+          },
           raw: normalized.content
         }
       }

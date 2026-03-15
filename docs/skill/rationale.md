@@ -77,7 +77,7 @@ affects common execution paths, especially:
 - shell recovery
 - subtree refetching
 - asset handling
-- `themeable` SVG behavior
+- `themeable` SVG behavior, including color evidence on emitted markup
 
 These are not optional edge notes. They materially affect whether the agent can
 produce trustworthy output.
@@ -141,7 +141,7 @@ They are not there to repeat the workflow.
 They exist to stabilize high-risk decisions such as:
 
 - shell recovery after budget overflow
-- `themeable: true` SVG handling
+- `themeable: true` SVG handling with emitted-root color evidence
 - ambiguous token mapping
 
 ## What future revisions should preserve
@@ -151,6 +151,7 @@ Any future revision should preserve these properties:
 - a clear single-purpose scope
 - the project / TemPad / user evidence hierarchy
 - `get_code` as the primary evidence source
+- emitted auto-layout and emitted SVG root markup treated as design evidence, not post-hoc hints
 - strict refusal to guess unsupported visual or behavioral details
 - explicit handling of TemPad failure modes
 - minimal-diff implementation style

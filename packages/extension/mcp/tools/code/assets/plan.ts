@@ -40,10 +40,11 @@ export function planAssets(tree: VisibleTree, ignoredIds?: Set<string>): AssetPl
     const isVectorGroup =
       !!info &&
       isEligibleContainer(node) &&
-      node.children.length > 1 &&
       info.allNonMaskVectorLike &&
       info.nonMaskLeafCount >= 1 &&
-      (info.hasMask || info.nonMaskLeafCount > 1)
+      !hasOwnBoxSemantics(node) &&
+      !hasDesignComponentHint(node) &&
+      (hasSingleArtworkChild(children) || info.hasMask || info.nonMaskLeafCount > 1)
 
     if (isVectorGroup) {
       vectorRoots.add(id)
@@ -114,6 +115,23 @@ function isEligibleContainer(node: NodeSnapshot): boolean {
   return node.type === 'GROUP' || node.type === 'FRAME'
 }
 
+function hasSingleArtworkChild(children: NodeSnapshot[]): boolean {
+  return children.length === 1
+}
+
+function hasDesignComponentHint(node: NodeSnapshot): boolean {
+  return Boolean(node.dataHint?.['data-hint-design-component']?.trim())
+}
+
+function hasOwnBoxSemantics(snapshot: NodeSnapshot): boolean {
+  return (
+    hasVisiblePaints(snapshot.node, 'fills') ||
+    hasVisiblePaints(snapshot.node, 'strokes') ||
+    hasVisibleEffects(snapshot.node) ||
+    hasClipping(snapshot.node)
+  )
+}
+
 function isMaskNode(snapshot: NodeSnapshot): boolean {
   const node = snapshot.node as { isMask?: boolean }
   return node.isMask === true
@@ -123,6 +141,36 @@ function isVectorLikeLeaf(snapshot: NodeSnapshot): boolean {
   if (snapshot.assetKind === 'image') return false
   if (snapshot.assetKind === 'vector') return true
   return VECTOR_LIKE_LEAF_TYPES.has(snapshot.type)
+}
+
+function hasVisiblePaints(node: SceneNode, kind: 'fills' | 'strokes'): boolean {
+  if (!(kind in node)) return false
+  const paints = (node as { fills?: unknown; strokes?: unknown })[kind]
+  if (!Array.isArray(paints)) return false
+  return paints.some((paint) => isVisiblePaint(paint))
+}
+
+function hasVisibleEffects(node: SceneNode): boolean {
+  if (!('effects' in node)) return false
+  const effects = (node as { effects?: unknown }).effects
+  if (!Array.isArray(effects)) return false
+  return effects.some((effect) => {
+    if (!effect || typeof effect !== 'object') return false
+    return !('visible' in effect) || effect.visible !== false
+  })
+}
+
+function hasClipping(node: SceneNode): boolean {
+  return 'clipsContent' in node && node.clipsContent === true
+}
+
+function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {
+  if (!paint || paint.visible === false) return false
+  if (typeof paint.opacity === 'number' && paint.opacity <= 0) return false
+  if ('gradientStops' in paint && Array.isArray(paint.gradientStops)) {
+    return paint.gradientStops.some((stop) => (stop.color?.a ?? 1) > 0)
+  }
+  return true
 }
 
 function skipDescendants(id: string, tree: VisibleTree, skipped: Set<string>): void {

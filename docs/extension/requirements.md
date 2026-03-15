@@ -99,9 +99,10 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 ## Inferred auto layout
 
-- Inferred auto layout may emit flex/gap/padding CSS for readability, but it is not authoritative.
+- Inferred auto layout remains a hint in the raw Figma model, but once `get_code` emits flex/gap/padding for that node, the emitted auto-layout becomes the authoritative flow model for non-absolute children in this response.
 - Inferred layouts are flagged with `data-hint-auto-layout="inferred"` for downstream interpretation.
 - Children under inferred layout must not be constraint-positioned, unless `layoutPositioning === 'ABSOLUTE'`.
+- Any fixed/hug/fill cleanup must preserve that emitted flow model and only remove redundant size/padding expressions.
 
 ## SVG and assets
 
@@ -109,8 +110,8 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
   - themeable single-color vectors, which are emitted as inline SVG in `smart` mode.
   - fixed-color vectors, which are exported as SVG assets.
 - Images are exported as PNG/JPEG when the node is an image fill.
-- Themeable inline SVGs keep `viewBox`, retain node-sized `width`/`height`, and may rewrite safe single-color `fill`/`stroke` values to `currentColor`.
-- `themeable` means one safe contextual color channel. The Host app may drive that through `color`, including token-backed or CSS-variable-backed color on the wrapper/component. It does not imply multi-slot SVG theming.
+- Themeable inline SVGs keep `viewBox`, retain node-sized `width`/`height`, rewrite safe single-color `fill`/`stroke` values to `currentColor`, and preserve the instance color on the emitted `svg` root markup, preferring token/class output when available.
+- `themeable` means one safe contextual color channel. The authoritative color evidence is the emitted `svg` root markup for that instance, not asset metadata. It does not imply multi-slot SVG theming.
 - The emitted markup is the tool's default delivery for the current response, not a mandatory final integration format. Clients may adapt vector delivery to repo policy, such as:
   - existing icon/component primitives,
   - import-time SVG transforms in the dev server or bundler,
@@ -120,6 +121,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
   - `themeable` vectors stay single-channel and context-color-driven,
   - fixed-color vectors keep their internal palette.
 - Snapshot-preserved SVG assets may include `themeable: true` when the underlying vector is safe to adapt to a single contextual color channel, even if the current delivery stays asset-backed.
+- Public asset metadata does not carry per-instance theme color; that remains a markup concern.
 - SVG size comes from node size (rounded), not export metadata.
 - When vector export fails or assets are unavailable, preserve layout using a placeholder SVG with node size.
 - Omit `assets` when empty.

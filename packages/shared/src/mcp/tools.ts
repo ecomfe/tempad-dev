@@ -37,7 +37,7 @@ export const GetCodeParametersSchema = z.object({
   vectorMode: z
     .enum(['smart', 'snapshot'])
     .describe(
-      'Vector output mode. `smart` (default) emits inline themeable single-color SVGs and asset-backed fixed-color vectors as the tool default. `snapshot` preserves vector assets for fidelity. Final vector delivery may still be adapted to the Host app’s SVG policy.'
+      'Vector output mode. `smart` (default) emits inline themeable single-color SVGs and asset-backed fixed-color vectors as the tool default; when themeable vectors are emitted inline, instance color is preserved on the SVG root markup. `snapshot` preserves vector assets for fidelity. Final vector delivery may still be adapted to the Host app’s SVG policy.'
     )
     .optional()
 })

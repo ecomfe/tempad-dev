@@ -9,18 +9,21 @@ type NodeOptions = {
   assetKind?: 'vector' | 'image'
   type?: SceneNode['type']
   isMask?: boolean
+  dataHint?: Record<string, string>
+  fills?: Paint[]
 }
 
 function node(
   id: string,
-  { children = [], assetKind, type = 'GROUP', isMask = false }: NodeOptions = {}
+  { children = [], assetKind, type = 'GROUP', isMask = false, dataHint, fills }: NodeOptions = {}
 ): Record<string, unknown> {
   return {
     id,
     children,
     assetKind,
     type,
-    node: { isMask }
+    dataHint,
+    node: { isMask, fills: fills ?? [] }
   }
 }
 
@@ -57,8 +60,23 @@ describe('mcp/code/assets plan', () => {
 
     const result = planAssets(tree)
 
-    expect(result.vectorRoots).toEqual(new Set(['mv', 'sv']))
-    expect(result.skippedIds).toEqual(new Set())
+    expect(result.vectorRoots).toEqual(new Set(['mv', 'single']))
+    expect(result.skippedIds).toEqual(new Set(['sv']))
+  })
+
+  it('promotes pass-through single-child shells without box semantics', () => {
+    const tree = {
+      order: ['shell', 'art'],
+      nodes: new Map([
+        ['shell', node('shell', { children: ['art'], type: 'FRAME' })],
+        ['art', node('art', { assetKind: 'vector', type: 'VECTOR' })]
+      ])
+    } as unknown as VisibleTree
+
+    const result = planAssets(tree)
+
+    expect(result.vectorRoots).toEqual(new Set(['shell']))
+    expect(result.skippedIds).toEqual(new Set(['art']))
   })
 
   it('handles missing child metadata without promoting the parent group', () => {
@@ -158,6 +176,38 @@ describe('mcp/code/assets plan', () => {
     const result = planAssets(tree)
 
     expect(result.vectorRoots).toEqual(new Set(['vector']))
+    expect(result.skippedIds).toEqual(new Set())
+  })
+
+  it('does not promote wrappers with component hints or own fills', () => {
+    const tree = {
+      order: ['component-shell', 'icon', 'button', 'bg', 'glyph'],
+      nodes: new Map([
+        [
+          'component-shell',
+          node('component-shell', {
+            children: ['icon'],
+            type: 'FRAME',
+            dataHint: { 'data-hint-design-component': 'Icon' }
+          })
+        ],
+        ['icon', node('icon', { assetKind: 'vector', type: 'VECTOR' })],
+        [
+          'button',
+          node('button', {
+            children: ['bg', 'glyph'],
+            type: 'FRAME',
+            fills: [{ type: 'SOLID', visible: true, color: { r: 1, g: 0, b: 0 } } as Paint]
+          })
+        ],
+        ['bg', node('bg', { type: 'RECTANGLE' })],
+        ['glyph', node('glyph', { assetKind: 'vector', type: 'VECTOR' })]
+      ])
+    } as unknown as VisibleTree
+
+    const result = planAssets(tree)
+
+    expect(result.vectorRoots).toEqual(new Set(['icon', 'glyph']))
     expect(result.skippedIds).toEqual(new Set())
   })
 

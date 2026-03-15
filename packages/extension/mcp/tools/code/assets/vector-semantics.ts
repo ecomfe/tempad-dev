@@ -1,10 +1,20 @@
 import { formatHexAlpha } from '@tempad-dev/shared'
 
+import { canonicalizeVarName, toFigmaVarExpr } from '@/utils/css'
+
 import type { NodeSnapshot, VisibleTree } from '../model'
 
 const PAINT_KINDS = ['fills', 'strokes'] as const
 
-export function isThemeableVector(tree: VisibleTree, rootId: string): boolean {
+export type VectorColorModel = { kind: 'fixed' } | { kind: 'single-channel'; color: string }
+
+type PaintChannel = {
+  key: string
+  color: string
+}
+
+export function analyzeVectorColorModel(tree: VisibleTree, rootId: string): VectorColorModel {
+  const channels = new Set<string>()
   const colors = new Set<string>()
   let hasVisiblePaint = false
   const stack = [rootId]
@@ -15,20 +25,30 @@ export function isThemeableVector(tree: VisibleTree, rootId: string): boolean {
     const snapshot = tree.nodes.get(id)
     if (!snapshot) continue
 
-    if (breaksThemeable(snapshot)) return false
+    if (breaksThemeable(snapshot)) return { kind: 'fixed' }
 
     for (const kind of PAINT_KINDS) {
-      const keys = collectColorKeys(snapshot.node, kind)
-      if (!keys) return false
-      if (!keys.length) continue
+      const nextChannels = collectPaintChannels(snapshot.node, kind)
+      if (!nextChannels) return { kind: 'fixed' }
+      if (!nextChannels.length) continue
       hasVisiblePaint = true
-      keys.forEach((key) => colors.add(key))
+      nextChannels.forEach((channel) => {
+        channels.add(channel.key)
+        colors.add(channel.color)
+      })
     }
 
     stack.push(...snapshot.children)
   }
 
-  return hasVisiblePaint && colors.size === 1
+  if (!hasVisiblePaint || channels.size !== 1 || colors.size !== 1) {
+    return { kind: 'fixed' }
+  }
+
+  return {
+    kind: 'single-channel',
+    color: Array.from(colors)[0]!
+  }
 }
 
 function breaksThemeable(snapshot: NodeSnapshot): boolean {
@@ -40,7 +60,10 @@ function breaksThemeable(snapshot: NodeSnapshot): boolean {
   )
 }
 
-function collectColorKeys(node: SceneNode, kind: (typeof PAINT_KINDS)[number]): string[] | null {
+function collectPaintChannels(
+  node: SceneNode,
+  kind: (typeof PAINT_KINDS)[number]
+): PaintChannel[] | null {
   if (!(kind in node)) return []
 
   const paints = (node as { fills?: unknown; strokes?: unknown })[kind]
@@ -50,16 +73,105 @@ function collectColorKeys(node: SceneNode, kind: (typeof PAINT_KINDS)[number]): 
     return []
   }
 
-  const keys: string[] = []
-  for (const paint of paints) {
+  const styleChannel = resolveStylePaintChannel(node, kind)
+  const visiblePaints = paints.filter(isVisiblePaint)
+  const channels: PaintChannel[] = []
+  for (const paint of visiblePaints) {
     if (!isVisiblePaint(paint)) continue
     if (paint.type !== 'SOLID' || !paint.color) {
       return null
     }
-    keys.push(formatHexAlpha(paint.color, 1).toLowerCase())
+    const channel =
+      styleChannel && visiblePaints.length === 1 ? styleChannel : resolvePaintChannel(paint)
+    if (!channel) return null
+    channels.push(channel)
   }
 
-  return keys
+  return channels
+}
+
+function resolvePaintChannel(paint: SolidPaint): PaintChannel | null {
+  const token = resolveVariableColor(paint.boundVariables?.color)
+  if (token) {
+    return {
+      key: `var:${token}`,
+      color: token
+    }
+  }
+
+  if (!paint.color) return null
+  const color = formatHexAlpha(paint.color, 1)
+  return {
+    key: `literal:${color.toLowerCase()}`,
+    color
+  }
+}
+
+function resolveStylePaintChannel(
+  node: SceneNode,
+  kind: (typeof PAINT_KINDS)[number]
+): PaintChannel | null {
+  const styleId = getPaintStyleId(node, kind)
+  if (!styleId) return null
+
+  try {
+    const style = figma.getStyleById(styleId)
+    if (!style || !('paints' in style) || !Array.isArray(style.paints)) return null
+
+    const visible = style.paints.filter(isVisiblePaint)
+    if (visible.length !== 1) return null
+    const paint = visible[0]
+    if (paint.type !== 'SOLID' || !paint.color) return null
+
+    const token = resolveVariableColor(paint.boundVariables?.color)
+    if (token) {
+      return {
+        key: `var:${token}`,
+        color: token
+      }
+    }
+
+    const color = formatHexAlpha(paint.color, 1)
+    return {
+      key: `literal:${color.toLowerCase()}`,
+      color
+    }
+  } catch {
+    return null
+  }
+}
+
+function getPaintStyleId(node: SceneNode, kind: (typeof PAINT_KINDS)[number]): string | null {
+  const key = kind === 'fills' ? 'fillStyleId' : 'strokeStyleId'
+  if (!(key in node)) return null
+  const styleId = (node as { fillStyleId?: unknown; strokeStyleId?: unknown })[key]
+  return typeof styleId === 'string' && styleId.length > 0 ? styleId : null
+}
+
+function resolveVariableColor(alias?: { id?: string } | null): string | null {
+  if (!alias?.id) return null
+  try {
+    const variable = figma.variables.getVariableById(alias.id)
+    if (!variable) return null
+    return toFigmaVarExpr(getVariableRawName(variable))
+  } catch {
+    return null
+  }
+}
+
+function getVariableRawName(variable: Variable): string {
+  const codeSyntax = variable.codeSyntax?.WEB
+  if (typeof codeSyntax === 'string' && codeSyntax.trim()) {
+    const canonical = canonicalizeVarName(codeSyntax.trim())
+    if (canonical) return canonical.slice(2)
+
+    const identifier = codeSyntax.trim()
+    if (/^[A-Za-z0-9_-]+$/.test(identifier)) return identifier
+  }
+
+  const raw = variable.name?.trim?.() ?? ''
+  if (raw.startsWith('--')) return raw.slice(2)
+  return raw
 }
 
 function hasRenderableStrokes(node: SceneNode): boolean {

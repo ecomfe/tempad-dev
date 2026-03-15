@@ -1,5 +1,6 @@
 import type { VisibleTree } from '../model'
 
+import { canonicalizeAutoLayoutStyles } from './auto-layout-canonical'
 import { patchNegativeGapStyles } from './negative-gap'
 import { ensureRelativeForAbsoluteChildren } from './relative-parent'
 import { applyAbsoluteStackingOrder } from './stacking'
@@ -10,6 +11,7 @@ type StylePatch = (tree: VisibleTree, styles: StyleMap, svgRoots?: Set<string>) 
 
 const STYLE_PATCHES: StylePatch[] = [
   patchNegativeGapStyles,
+  canonicalizeAutoLayoutStyles,
   ensureRelativeForAbsoluteChildren,
   applyAbsoluteStackingOrder
 ]

@@ -7,7 +7,7 @@ import type { AssetPlan } from './plan'
 import type { SvgEntry, VectorMode } from './vector'
 
 import { exportSvgEntry } from './vector'
-import { isThemeableVector } from './vector-semantics'
+import { analyzeVectorColorModel } from './vector-semantics'
 
 export async function exportVectorAssets(
   tree: VisibleTree,
@@ -25,7 +25,7 @@ export async function exportVectorAssets(
     if (width <= 0 && height <= 0 && !snapshot.renderBounds) continue
     const entry = await exportSvgEntry(node, config, assetRegistry, {
       vectorMode,
-      themeable: isThemeableVector(tree, id)
+      colorModel: analyzeVectorColorModel(tree, id)
     })
     if (!entry) continue
     svgs.set(id, entry)
