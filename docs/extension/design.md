@@ -34,6 +34,7 @@ This document describes the implementation design for MCP `get_code` in `package
 
 7. **Export assets**
    - Export SVGs/images only once per planned asset.
+   - Vector planning and themeable-color classification share the same paint/effect semantics helpers to avoid drift between asset eligibility and color-model detection.
 
 8. **Render markup**
    - Render nodes into JSX/HTML component tree.
@@ -46,7 +47,8 @@ This document describes the implementation design for MCP `get_code` in `package
    - Apply plugin transforms to token names.
    - Rewrite code with transformed token names.
    - Build a single `tokens` map (direct + alias-chain tokens).
-   - When `resolveTokens` is true, resolve per-node (mode-aware) before Tailwind conversion.
+   - When `resolveTokens` is true, resolve per-node (mode-aware) before final render.
+   - The resolve rerender applies to both collected node styles and themeable inline-SVG root presentation styles so emitted vector color evidence stays in sync with token resolution.
 
 10. **Enforce budget and finalize output**
     - Validate output size using a conservative token-aware UTF-8 byte budget.
@@ -136,6 +138,7 @@ This document describes the implementation design for MCP `get_code` in `package
 - Fixed-color vectors preserve their internal palette and stay asset-backed unless the caller explicitly requests different fidelity handling.
 - Plugin/component output short-circuits vector export for that subtree.
 - Inline SVG nodes receive external layout styles plus presentation color on the root markup when the vector is single-channel.
+- Themeable-vector eligibility and single-channel color detection reuse shared paint/effect semantics instead of maintaining separate vector-only interpretations.
 - The emitted inline-SVG-vs-asset choice is the tool's default delivery for the current response. Host apps may refactor to their own SVG policy, such as repo icon primitives, bundler/dev-server SVG transforms, inline SVG, or asset-backed `<img>`, as long as themeable vectors remain single-channel and fixed-color vectors keep their palette.
 - Placeholder SVG is emitted when export fails or is unavailable, using node width/height.
 - Vector-root descendants are not rendered; their CSS is not collected.

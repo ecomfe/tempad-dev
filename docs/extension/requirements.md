@@ -111,6 +111,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
   - fixed-color vectors, which are exported as SVG assets.
 - Images are exported as PNG/JPEG when the node is an image fill.
 - Themeable inline SVGs keep `viewBox`, retain node-sized `width`/`height`, rewrite safe single-color `fill`/`stroke` values to `currentColor`, and preserve the instance color on the emitted `svg` root markup, preferring token/class output when available.
+- Themeable-vector eligibility and single-channel color detection must share the same paint/effect visibility semantics used elsewhere in the asset pipeline; do not maintain a separate vector-only interpretation of visible paints, effects, or variable-backed solid colors.
 - `themeable` means one safe contextual color channel. The authoritative color evidence is the emitted `svg` root markup for that instance, not asset metadata. It does not imply multi-slot SVG theming.
 - The emitted markup is the tool's default delivery for the current response, not a mandatory final integration format. Clients may adapt vector delivery to repo policy, such as:
   - existing icon/component primitives,
@@ -143,6 +144,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
     - map for multi-mode, keyed by `${collectionName}:${modeName}`.
 - `tokens` includes both directly used tokens and any alias-chain tokens.
 - When `resolveTokens` is `true`, code is resolved per-node (mode-aware); token values are literals.
+- This resolve step must also update themeable inline-SVG root presentation color when that color is token-backed, so vector markup and token payload stay aligned.
 - When `resolveTokens` is `false`, token values remain aliases/literals as emitted by Figma/variables.
 - Collection names are assumed unique; duplicates are unsupported and should emit a warning.
 - Omit `tokens` when empty.
