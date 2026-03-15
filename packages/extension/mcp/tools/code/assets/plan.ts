@@ -1,5 +1,7 @@
 import type { NodeSnapshot, VisibleTree } from '../model'
 
+import { hasVisibleEffects, isVisiblePaint } from './paint'
+
 export type AssetPlan = {
   vectorRoots: Set<string>
   skippedIds: Set<string>
@@ -150,27 +152,8 @@ function hasVisiblePaints(node: SceneNode, kind: 'fills' | 'strokes'): boolean {
   return paints.some((paint) => isVisiblePaint(paint))
 }
 
-function hasVisibleEffects(node: SceneNode): boolean {
-  if (!('effects' in node)) return false
-  const effects = (node as { effects?: unknown }).effects
-  if (!Array.isArray(effects)) return false
-  return effects.some((effect) => {
-    if (!effect || typeof effect !== 'object') return false
-    return !('visible' in effect) || effect.visible !== false
-  })
-}
-
 function hasClipping(node: SceneNode): boolean {
   return 'clipsContent' in node && node.clipsContent === true
-}
-
-function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {
-  if (!paint || paint.visible === false) return false
-  if (typeof paint.opacity === 'number' && paint.opacity <= 0) return false
-  if ('gradientStops' in paint && Array.isArray(paint.gradientStops)) {
-    return paint.gradientStops.some((stop) => (stop.color?.a ?? 1) > 0)
-  }
-  return true
 }
 
 function skipDescendants(id: string, tree: VisibleTree, skipped: Set<string>): void {

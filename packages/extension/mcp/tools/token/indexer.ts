@@ -2,11 +2,10 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
 import { workerUnitOptions } from '@/utils/codegen'
-import {
-  canonicalizeVarName as canonicalizeCssVarName,
-  normalizeCustomPropertyBody,
-  normalizeFigmaVarName
-} from '@/utils/css'
+import { canonicalizeVarName as canonicalizeCssVarName, normalizeFigmaVarName } from '@/utils/css'
+
+export { getVariableRawName } from './raw-name'
+import { getVariableRawName } from './raw-name'
 
 export type TokenIndex = {
   // canonical name ("--color-primary") -> variable ids (handle collisions)
@@ -61,26 +60,6 @@ function parseCanonicalFromExpr(expr: string, fallbackName: string): string {
   return normalizeFigmaVarName(fallbackName)
 }
 
-export function getVariableRawName(variable: Variable): string {
-  // Prefer WEB codeSyntax when it can be interpreted as a CSS custom property reference.
-  // This keeps token canonical names aligned with getCSSAsync output when codeSyntax is set.
-  const cs = variable.codeSyntax?.WEB
-  if (typeof cs === 'string' && cs.trim()) {
-    const canonical = canonicalizeCssVarName(cs.trim())
-    if (canonical) return canonical.slice(2)
-
-    // Some teams set WEB codeSyntax directly to an identifier like "kui-color-brand".
-    // Only accept safe identifiers here; everything else falls back to variable.name.
-    const ident = cs.trim()
-    if (/^[A-Za-z0-9_-]+$/.test(ident)) return ident
-  }
-
-  const raw = variable.name?.trim?.() ?? ''
-  // If the Figma variable name itself starts with "--", treat that as already being a CSS var name.
-  if (raw.startsWith('--')) return raw.slice(2)
-  return raw
-}
-
 export async function canonicalizeNames(
   rawNames: string[],
   config: CodegenConfig,
@@ -89,9 +68,10 @@ export async function canonicalizeNames(
   if (!rawNames.length) return []
 
   const refs = rawNames.map((rawName) => {
-    // rawName is the body portion (without leading "--") when possible.
-    const name = normalizeCustomPropertyBody(rawName)
-    return { code: `var(--${name})`, name }
+    // Keep token canonicalization aligned with style/code output by normalizing
+    // raw Figma names through the same Figma-to-CSS variable path first.
+    const canonical = normalizeFigmaVarName(rawName)
+    return { code: `var(${canonical})`, name: canonical.slice(2) }
   })
 
   const CHUNK_SIZE = 300

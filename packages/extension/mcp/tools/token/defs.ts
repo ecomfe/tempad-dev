@@ -493,7 +493,7 @@ async function resolveAliasName(
     const v = figma.variables.getVariableById(id)
     if (!v) return undefined
     // Ensure it still matches the plugin canonicalization semantics.
-    return await canonicalizeName(v.name, config, pluginCode)
+    return await canonicalizeName(getVariableRawName(v), config, pluginCode)
   } catch {
     return undefined
   }

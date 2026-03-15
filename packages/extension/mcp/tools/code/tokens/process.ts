@@ -4,6 +4,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { stripFallback } from '@/utils/css'
 
+import type { SvgEntry } from '../assets'
 import type { CodeBudget } from '../messages'
 
 import { assertCodeWithinBudget } from '../messages'
@@ -21,6 +22,7 @@ type ProcessTokensInput = {
   variableCache: Map<string, Variable | null>
   styles: Map<string, Record<string, string>>
   textSegments: Map<string, StyledTextSegment[] | null>
+  svgs: Map<string, SvgEntry>
   config: CodegenConfig
   pluginCode?: string
   resolveTokens?: boolean
@@ -44,6 +46,7 @@ export async function processTokens({
   variableCache,
   styles,
   textSegments,
+  svgs,
   config,
   pluginCode,
   resolveTokens,
@@ -120,7 +123,7 @@ export async function processTokens({
   const tokenMatcher = resolveTokens && hasTokens ? createTokenMatcher(sourceNames) : undefined
   const resolveNodeIds =
     resolveTokens && tokenMatcher
-      ? collectResolveNodeIds(styles, textSegments, tokenMatcher)
+      ? collectResolveNodeIds(styles, textSegments, svgs, tokenMatcher)
       : undefined
 
   return {
@@ -135,6 +138,7 @@ export async function processTokens({
 function collectResolveNodeIds(
   styles: Map<string, Record<string, string>>,
   textSegments: Map<string, unknown>,
+  svgs: Map<string, SvgEntry>,
   matcher: (value: string) => boolean
 ): Set<string> {
   const ids = new Set<string>()
@@ -145,6 +149,12 @@ function collectResolveNodeIds(
 
   for (const id of textSegments.keys()) {
     ids.add(id)
+  }
+
+  for (const [id, entry] of svgs.entries()) {
+    if (entry.presentationStyle && hasTokenInStyle(entry.presentationStyle, matcher)) {
+      ids.add(id)
+    }
   }
 
   return ids

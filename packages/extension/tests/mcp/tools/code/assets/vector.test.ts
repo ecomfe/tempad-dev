@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { VisibleTree } from '@/mcp/tools/code/model'
 
-vi.mock('@/mcp/tools/token/indexer', () => ({
+vi.mock('@/mcp/tools/token/raw-name', () => ({
   getVariableRawName: vi.fn((variable: Variable) => variable.name)
 }))
 

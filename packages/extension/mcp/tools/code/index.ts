@@ -15,6 +15,7 @@ import { stringifyComponent } from '@/utils/component'
 import { simplifyColorMixToRgba } from '@/utils/css'
 import { logger } from '@/utils/log'
 
+import type { SvgEntry } from './assets'
 import type { CodeBudget } from './messages'
 import type { VisibleTree } from './model'
 import type { CodeLanguage, RenderContext } from './render'
@@ -327,6 +328,7 @@ async function finalizeRenderedOutput(
     variableCache: input.variableCache,
     styles: collected.styles,
     textSegments: collected.textSegments,
+    svgs: input.ctx.svgs,
     config: input.config,
     pluginCode: input.pluginCode,
     resolveTokens: input.resolveTokens,
@@ -407,7 +409,11 @@ async function rerenderResolvedOutput({
     tokenMatcher
   )
   const resolvedStyles = resolveStyleMap(input.collected.styles, input.nodeMap, resolveStyleVars)
-  if (!stylesChanged(input.collected.styles, resolvedStyles)) {
+  const resolvedSvgs = resolveSvgEntries(input.ctx.svgs, input.nodeMap, resolveStyleVars)
+  if (
+    !stylesChanged(input.collected.styles, resolvedStyles) &&
+    !svgEntriesChanged(input.ctx.svgs, resolvedSvgs)
+  ) {
     return null
   }
   const resolvedLayout = buildLayoutStyles(resolvedStyles, input.vectorRoots)
@@ -415,6 +421,7 @@ async function rerenderResolvedOutput({
     ...input.ctx,
     styles: resolvedStyles,
     layout: resolvedLayout,
+    svgs: resolvedSvgs,
     resolveStyleVars
   })
 
@@ -433,6 +440,46 @@ function stylesChanged(
   if (original === resolved) return false
   for (const [id, style] of resolved.entries()) {
     if (style !== original.get(id)) return true
+  }
+  return false
+}
+
+function resolveSvgEntries(
+  svgs: Map<string, SvgEntry>,
+  nodes: Map<string, SceneNode>,
+  resolver: (style: Record<string, string>, node?: SceneNode) => Record<string, string>
+): Map<string, SvgEntry> {
+  const out = new Map<string, SvgEntry>()
+
+  for (const [id, entry] of svgs.entries()) {
+    const presentationStyle = entry.presentationStyle
+    if (!presentationStyle || !Object.keys(presentationStyle).length) {
+      out.set(id, entry)
+      continue
+    }
+
+    const resolvedPresentationStyle = resolver(presentationStyle, nodes.get(id))
+    if (resolvedPresentationStyle === presentationStyle) {
+      out.set(id, entry)
+      continue
+    }
+
+    out.set(id, {
+      ...entry,
+      presentationStyle: resolvedPresentationStyle
+    })
+  }
+
+  return out
+}
+
+function svgEntriesChanged(
+  original: Map<string, SvgEntry>,
+  resolved: Map<string, SvgEntry>
+): boolean {
+  if (original === resolved) return false
+  for (const [id, entry] of resolved.entries()) {
+    if (entry !== original.get(id)) return true
   }
   return false
 }

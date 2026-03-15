@@ -104,6 +104,30 @@ describe('token/indexer', () => {
     expect(result).toEqual(['--fallback-only'])
   })
 
+  it('uses figma-style normalized variable names throughout the canonicalization pipeline', async () => {
+    const rawName = 'Text colors/Primary/color-text-primary'
+    const normalized = normalizeFigmaVarName(rawName)
+    vi.mocked(runTransformVariableBatch).mockResolvedValueOnce([undefined as unknown as string])
+
+    const result = await canonicalizeNames([rawName], config, 'plugin-standard')
+
+    expect(runTransformVariableBatch).toHaveBeenCalledWith(
+      [
+        {
+          code: `var(${normalized})`,
+          name: normalized.slice(2)
+        }
+      ],
+      {
+        useRem: true,
+        rootFontSize: 16,
+        scale: 1
+      },
+      'plugin-standard'
+    )
+    expect(result).toEqual([normalized])
+  })
+
   it('falls back to normalized figma name when canonicalize batch returns no entry', async () => {
     vi.mocked(runTransformVariableBatch).mockResolvedValueOnce([])
 

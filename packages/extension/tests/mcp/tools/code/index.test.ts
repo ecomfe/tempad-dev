@@ -9,8 +9,11 @@ const mocks = vi.hoisted(() => ({
   planAssets: vi.fn(() => ({ vectorRoots: new Set<string>(), skippedIds: new Set<string>() })),
   collectNodeData: vi.fn(),
   prepareStyles: vi.fn(),
+  buildLayoutStyles: vi.fn(() => new Map()),
   exportVectorAssets: vi.fn(() => Promise.resolve(new Map())),
   processTokens: vi.fn(),
+  createStyleVarResolver: vi.fn(),
+  resolveStyleMap: vi.fn(),
   renderTree: vi.fn(),
   renderShellTree: vi.fn(),
   getOrderedChildIds: vi.fn(),
@@ -40,7 +43,7 @@ vi.mock('@/mcp/tools/code/collect', () => ({
 
 vi.mock('@/mcp/tools/code/styles', () => ({
   prepareStyles: mocks.prepareStyles,
-  buildLayoutStyles: vi.fn(() => new Map())
+  buildLayoutStyles: mocks.buildLayoutStyles
 }))
 
 vi.mock('@/mcp/tools/code/assets/export', () => ({
@@ -49,8 +52,8 @@ vi.mock('@/mcp/tools/code/assets/export', () => ({
 
 vi.mock('@/mcp/tools/code/tokens', () => ({
   processTokens: mocks.processTokens,
-  createStyleVarResolver: vi.fn(),
-  resolveStyleMap: vi.fn()
+  createStyleVarResolver: mocks.createStyleVarResolver,
+  resolveStyleMap: mocks.resolveStyleMap
 }))
 
 vi.mock('@/mcp/tools/code/render', () => ({
@@ -155,5 +158,77 @@ describe('mcp/code handleGetCode', () => {
     await expect(
       handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
     ).rejects.toThrow('Output exceeds token/context budget')
+  })
+
+  it('rerenders themeable vector presentation styles when resolveTokens is enabled', async () => {
+    const icon = createSnapshot({ id: 'icon', type: 'VECTOR' })
+    const tree = createTree([icon])
+    const resolver = vi.fn((style: Record<string, string>) => ({
+      ...style,
+      color: style.color === 'var(--icon-color)' ? '#fff' : style.color
+    }))
+
+    vi.stubGlobal('__DEV__', false)
+    mocks.buildVisibleTree.mockReturnValue(tree)
+    mocks.planAssets.mockReturnValue({
+      vectorRoots: new Set(['icon']),
+      skippedIds: new Set<string>()
+    })
+    mocks.collectNodeData.mockResolvedValue({
+      nodes: tree.nodes,
+      styles: new Map(),
+      textSegments: new Map()
+    })
+    mocks.prepareStyles.mockImplementation(
+      ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
+        styles,
+        layout: new Map(),
+        usedCandidateIds: new Set<string>()
+      })
+    )
+    mocks.exportVectorAssets.mockResolvedValue(
+      new Map([
+        [
+          'icon',
+          {
+            props: {
+              width: '16px',
+              height: '16px',
+              viewBox: '0 0 16 16'
+            },
+            presentationStyle: {
+              color: 'var(--icon-color)'
+            },
+            raw: '<svg><path fill="currentColor" /></svg>'
+          }
+        ]
+      ])
+    )
+    mocks.processTokens.mockResolvedValue({
+      code: '<svg data-color="var(--icon-color)" />',
+      tokensByCanonical: {
+        '--icon-color': { kind: 'color', value: '#fff' }
+      },
+      sourceIndex: new Map([['--icon-color', 'var-1']]),
+      tokenMatcher: vi.fn((value: string) => value.includes('--icon-color')),
+      resolveNodeIds: new Set(['icon'])
+    })
+    mocks.createStyleVarResolver.mockReturnValue(resolver)
+    mocks.resolveStyleMap.mockImplementation(
+      (styles: Map<string, Record<string, string>>) => new Map(styles)
+    )
+    mocks.renderTree.mockImplementation(
+      async (
+        _rootId: string,
+        _tree: unknown,
+        ctx: { svgs: Map<string, { presentationStyle?: Record<string, string> }> }
+      ) => raw(`<svg data-color="${ctx.svgs.get('icon')?.presentationStyle?.color}" />`)
+    )
+
+    const { handleGetCode } = await import('@/mcp/tools/code')
+    const result = await handleGetCode([{ id: 'icon', visible: true } as SceneNode], 'jsx', true)
+
+    expect(result.code).toContain('data-color="#fff"')
+    expect(mocks.renderTree).toHaveBeenCalledTimes(2)
   })
 })

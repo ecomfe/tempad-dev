@@ -55,6 +55,7 @@ const baseInput = () => ({
   variableCache: new Map<string, Variable | null>(),
   styles: new Map<string, Record<string, string>>(),
   textSegments: new Map<string, StyledTextSegment[] | null>(),
+  svgs: new Map(),
   config: CONFIG
 })
 
@@ -145,6 +146,15 @@ describe('tokens/process processTokens', () => {
         ['node-a', { color: 'var(--token)' }],
         ['node-b', { color: '#000' }]
       ]),
+      svgs: new Map([
+        [
+          'node-svg',
+          {
+            props: {},
+            presentationStyle: { color: 'var(--token)' }
+          }
+        ]
+      ]),
       textSegments: new Map([
         ['node-c', null],
         ['node-d', []]
@@ -153,7 +163,7 @@ describe('tokens/process processTokens', () => {
 
     expect(createTokenMatcher).toHaveBeenCalledWith(new Set(['--token']))
     expect(result.tokenMatcher).toBe(matcher)
-    expect(result.resolveNodeIds).toEqual(new Set(['node-a', 'node-c', 'node-d']))
+    expect(result.resolveNodeIds).toEqual(new Set(['node-a', 'node-c', 'node-d', 'node-svg']))
   })
 
   it('does not create matcher when resolved token set is empty', async () => {
