@@ -31,6 +31,14 @@ It must also fit the target project's:
 - asset pipeline
 - reusable primitives and abstractions
 
+Project consistency does not justify erasing exact design values.
+If TemPad emits a precise value, the agent should preserve it unless local
+project evidence proves an exactly equivalent utility, token, or abstraction.
+In utility-first systems such as Tailwind, collapse arbitrary values only when
+the local theme proves an exact match, using TemPad
+`codegen.config.{cssUnit,rootFontSize,scale}` when `rem` conversion is
+involved.
+
 ### 3. The skill should stay narrow
 
 This skill is for Figma design-to-code.
@@ -64,6 +72,14 @@ scope recovery.
 
 This prevents the agent from reconstructing detailed UI from structural hints
 alone.
+
+## Pseudo-elements are first-class UI
+
+Pseudo-elements such as `::before` and `::after` are often visible parts of the
+design, not optional decoration.
+If TemPad emits `before:*`, `after:*`, `content-*`, or equivalent pseudo-
+element styling, dropping those styles is a correctness bug, not a stylistic
+tradeoff.
 
 ## Bad-weather handling stays in the main skill
 
@@ -143,6 +159,8 @@ They exist to stabilize high-risk decisions such as:
 - shell recovery after budget overflow
 - `themeable: true` SVG handling with emitted-root color evidence
 - ambiguous token mapping
+- exact-value normalization only when project equivalence is proven
+- pseudo-element preservation
 
 ## What future revisions should preserve
 
@@ -152,6 +170,8 @@ Any future revision should preserve these properties:
 - the project / TemPad / user evidence hierarchy
 - `get_code` as the primary evidence source
 - emitted auto-layout and emitted SVG root markup treated as design evidence, not post-hoc hints
+- exact rendered values preserved unless project-native equivalence is proven
+- pseudo-elements preserved as first-class rendered output
 - strict refusal to guess unsupported visual or behavioral details
 - explicit handling of TemPad failure modes
 - minimal-diff implementation style

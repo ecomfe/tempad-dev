@@ -9,7 +9,7 @@ description: >-
   hidden states, responsiveness, or behavior not shown in design or project
   evidence.
 metadata:
-  version: '4.2'
+  version: '4.3'
 ---
 
 # TemPad Dev: Figma Design to Code
@@ -62,7 +62,8 @@ TemPad Dev can prove:
 - token references and values when present
 - exported assets and whether an SVG may safely adopt one contextual color
   channel via `themeable`
-- codegen facts such as actual output language, units, scale, and root rem
+- codegen facts such as actual output language, `cssUnit`, `scale`, and
+  `rootFontSize`
 
 TemPad Dev cannot prove:
 
@@ -127,6 +128,9 @@ Establish at least:
 Only if the project actually uses Tailwind or Tailwind-compatible tooling,
 detect Tailwind version and config before changing class syntax or ordering.
 
+For Tailwind projects, also inspect the local theme scales relevant to exact-
+value mapping, especially spacing, sizing, radius, and typography.
+
 If a material implementation constraint is still missing after local evidence,
 ask the user instead of inferring it.
 
@@ -159,6 +163,9 @@ Record these as design facts:
 - `assets`, if present
 - `tokens`, if present
 - `codegen`
+
+Use `codegen.config.{cssUnit,rootFontSize,scale}` as the authoritative unit
+context for exact-value mapping.
 
 Prefer fetching the full requested top-level selection first so parent
 composition and containment are not lost.
@@ -216,12 +223,21 @@ Translate TemPad Dev output into the implementation's established patterns.
 - If the implementation is utility-first, keep utilities and match existing
   conventions. Otherwise translate generated utilities into the established
   styling approach while preserving values.
+- Preserve exact values. Do not coarsen arbitrary values such as `py-[4px]`,
+  `text-[12px]`, or `font-[600]` into named utilities unless local project
+  evidence proves the same rendered value; for `rem` output, use
+  `codegen.config.{cssUnit,rootFontSize,scale}` to convert exactly. Apply this
+  to spacing, sizing,
+  inset, gap, radius, `font-size`, `line-height`, `letter-spacing`, and
+  `font-weight`.
 - Implement the base state only unless variants, interactions, or responsive
   behavior are evidenced.
-- Preserve high-fidelity details from `get_code`, including pseudo-elements,
-  pseudo-classes, filters, masks, blend or backdrop effects, and other
-  non-default visual properties, unless implementation constraints require
-  adaptation.
+- Preserve emitted pseudo-elements. If TemPad output includes `before:`,
+  `after:`, `content-*`, or equivalent CSS, keep them or use an established
+  equivalent with the same rendered result.
+- Preserve other high-fidelity details from `get_code`, including pseudo-
+  classes, filters, masks, blend or backdrop effects, and other non-default
+  visual properties, unless implementation constraints require adaptation.
 - New runtime or build dependencies require user confirmation unless explicitly
   waived.
 - Extract new abstractions only when repetition plus established patterns

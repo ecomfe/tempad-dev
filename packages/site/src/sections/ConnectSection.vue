@@ -2,8 +2,16 @@
 import type { McpClientConfig } from '@tempad-dev/shared'
 
 import { MCP_CLIENTS_BY_ID, MCP_SKILL_INSTALL_COMMAND } from '@tempad-dev/shared'
-import { Copy, SquareTerminal } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Copy, FileText, SquareTerminal } from 'lucide-vue-next'
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch
+} from 'vue'
 
 import ActionButton from '@/components/ActionButton.vue'
 import BrandIcon from '@/components/BrandIcon.vue'
@@ -34,8 +42,11 @@ type RenderedTerminalEntry =
     }
 
 const clients = CONNECT_CLIENT_ORDER.map((id) => MCP_CLIENTS_BY_ID[id])
+const SkillPreviewDialog = defineAsyncComponent(() => import('@/components/SkillPreviewDialog.vue'))
 
 const feedback = ref<{ kind: FeedbackKind; text: string } | null>(null)
+const isSkillPreviewOpen = ref(false)
+const hasLoadedSkillPreview = ref(false)
 const activeTerminalEntryIndex = ref(0)
 const activeTerminalCharCount = ref(0)
 const terminalCardRef = ref<HTMLElement | null>(null)
@@ -363,6 +374,11 @@ function handleCopySkill(): void {
   void writeClipboard(MCP_SKILL_INSTALL_COMMAND, 'Copied skill install command.')
 }
 
+function handleOpenSkillPreview(): void {
+  hasLoadedSkillPreview.value = true
+  isSkillPreviewOpen.value = true
+}
+
 function scheduleTerminalAdvance(delay: number): void {
   terminalTimer = window.setTimeout(advanceTerminalAnimation, delay)
 }
@@ -524,15 +540,26 @@ onBeforeUnmount(() => {
               Install the TemPad skill so the agent can pick up the handoff workflow for the turn.
             </p>
           </div>
-          <ActionButton
-            type="button"
-            variant="primary"
-            class="site-connect-action-button"
-            @click="handleCopySkill"
-          >
-            <Copy aria-hidden="true" />
-            <span>Copy skill command</span>
-          </ActionButton>
+          <div class="site-connect-actions">
+            <ActionButton
+              type="button"
+              variant="primary"
+              class="site-connect-action-button"
+              @click="handleCopySkill"
+            >
+              <Copy aria-hidden="true" />
+              <span>Copy skill command</span>
+            </ActionButton>
+            <ActionButton
+              type="button"
+              variant="secondary"
+              class="site-connect-action-button"
+              @click="handleOpenSkillPreview"
+            >
+              <FileText aria-hidden="true" />
+              <span>View skill</span>
+            </ActionButton>
+          </div>
         </div>
 
         <div class="site-connect-row">
@@ -617,5 +644,11 @@ onBeforeUnmount(() => {
         {{ feedback.text }}
       </p>
     </Transition>
+
+    <SkillPreviewDialog
+      v-if="hasLoadedSkillPreview"
+      :open="isSkillPreviewOpen"
+      @close="isSkillPreviewOpen = false"
+    />
   </SectionShell>
 </template>

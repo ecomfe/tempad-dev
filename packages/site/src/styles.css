@@ -768,6 +768,12 @@ html.dark .site-button.is-primary {
   flex: none;
 }
 
+.site-connect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .site-client-quicklist {
   display: flex;
   flex-wrap: wrap;
