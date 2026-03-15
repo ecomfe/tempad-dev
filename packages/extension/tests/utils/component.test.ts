@@ -108,6 +108,43 @@ describe('utils/component', () => {
     })
   })
 
+  it('falls back to empty properties when componentProperties access throws', () => {
+    const text = createNode('TEXT', 'text-1', { characters: 'Hello' })
+    const instance = createNode(
+      'INSTANCE',
+      'instance-1',
+      {
+        mainComponent: { id: 'main-1', name: 'Broken Button' }
+      },
+      [text]
+    ) as unknown as Record<string, unknown>
+
+    Object.defineProperty(instance, 'componentProperties', {
+      configurable: true,
+      get() {
+        throw new Error('Component set for node has existing errors')
+      }
+    })
+
+    const result = getDesignComponent(instance as unknown as SceneNode)
+
+    expect(result).toEqual({
+      name: 'instance-1',
+      type: 'INSTANCE',
+      properties: {},
+      visible: true,
+      mainComponent: { id: 'main-1', name: 'Broken Button' },
+      children: [
+        {
+          name: 'text-1',
+          type: 'TEXT',
+          visible: true,
+          characters: 'Hello'
+        }
+      ]
+    })
+  })
+
   it('stringifies component trees for vue/jsx and supports compact raw tags', () => {
     const vue = stringifyComponent(
       {

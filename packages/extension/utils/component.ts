@@ -15,12 +15,17 @@ import { rgbToHex } from './color'
 import { prune } from './object'
 import { camelToKebab, escapeHTML, looseEscapeHTML, stringify, indentAll } from './string'
 
+type ComponentPropertyData = {
+  type: string
+  value: unknown
+}
+
 export function getDesignComponent(node: SceneNode): DesignComponent | null {
-  if (!('componentProperties' in node)) {
+  const componentProperties = getComponentProperties(node)
+  if (!componentProperties) {
     return null
   }
 
-  const { name, componentProperties, mainComponent } = node
   const properties: Record<string, ComponentPropertyValue> = {}
 
   for (const [name, data] of Object.entries(componentProperties)) {
@@ -37,19 +42,48 @@ export function getDesignComponent(node: SceneNode): DesignComponent | null {
         }
       }
     } else {
-      properties[key] = data.value
+      properties[key] = data.value as ComponentPropertyValue
     }
   }
 
-  const main = mainComponent ? { id: mainComponent.id, name: mainComponent.name } : null
+  const main = getMainComponentSummary(node)
 
   return {
-    name,
+    name: node.name,
     type: 'INSTANCE',
     properties,
     visible: node.visible,
     mainComponent: main,
     children: getChildren(node) ?? []
+  }
+}
+
+function getComponentProperties(node: SceneNode): Record<string, ComponentPropertyData> | null {
+  if (!('componentProperties' in node)) {
+    return null
+  }
+
+  try {
+    const properties = node.componentProperties
+    if (!properties || typeof properties !== 'object') {
+      return {}
+    }
+    return properties as Record<string, ComponentPropertyData>
+  } catch {
+    return {}
+  }
+}
+
+function getMainComponentSummary(node: SceneNode): { id: string; name: string } | null {
+  if (!('mainComponent' in node)) {
+    return null
+  }
+
+  try {
+    const mainComponent = node.mainComponent
+    return mainComponent ? { id: mainComponent.id, name: mainComponent.name } : null
+  } catch {
+    return null
   }
 }
 
