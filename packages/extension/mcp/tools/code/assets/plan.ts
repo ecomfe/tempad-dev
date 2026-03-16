@@ -34,23 +34,29 @@ export function planAssets(tree: VisibleTree, ignoredIds?: Set<string>): AssetPl
     const node = tree.nodes.get(id)
     if (!node) continue
 
-    const children = node.children
-      .map((childId) => tree.nodes.get(childId))
-      .filter((child): child is NodeSnapshot => !!child && !ignoredIds?.has(child.id))
-
     const info = vectorInfo.get(id)
-    const isVectorGroup =
+    const canBeVectorGroup =
       !!info &&
       isEligibleContainer(node) &&
       info.allNonMaskVectorLike &&
       info.nonMaskLeafCount >= 1 &&
       !hasOwnBoxSemantics(node) &&
-      !hasDesignComponentHint(node) &&
-      (hasSingleArtworkChild(children) || info.hasMask || info.nonMaskLeafCount > 1)
+      !hasDesignComponentHint(node)
 
-    if (isVectorGroup) {
+    if (canBeVectorGroup) {
+      const childIds = ignoredIds
+        ? node.children.filter((childId) => !ignoredIds.has(childId))
+        : node.children
+      const isVectorGroup =
+        childIds.length > 0 && (childIds.length === 1 || info.hasMask || info.nonMaskLeafCount > 1)
+      if (!isVectorGroup) {
+        if (node.assetKind === 'vector') {
+          vectorRoots.add(id)
+        }
+        continue
+      }
       vectorRoots.add(id)
-      children.forEach((child) => skipDescendants(child.id, tree, skipped))
+      childIds.forEach((childId) => skipDescendants(childId, tree, skipped))
       continue
     }
 
@@ -115,10 +121,6 @@ function computeVectorInfo(tree: VisibleTree, ignoredIds?: Set<string>): Map<str
 
 function isEligibleContainer(node: NodeSnapshot): boolean {
   return node.type === 'GROUP' || node.type === 'FRAME'
-}
-
-function hasSingleArtworkChild(children: NodeSnapshot[]): boolean {
-  return children.length === 1
 }
 
 function hasDesignComponentHint(node: NodeSnapshot): boolean {

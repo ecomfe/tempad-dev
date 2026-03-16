@@ -15,14 +15,10 @@ export function canonicalizeAutoLayoutStyles(tree: VisibleTree, styles: StyleMap
 
     const style = styles.get(id)
     if (!style || !isAutoLayoutContainer(style)) continue
+    if (snapshot.children.length !== 1) continue
 
-    const children = snapshot.children
-      .map((childId) => tree.nodes.get(childId))
-      .filter((child): child is NodeSnapshot => !!child)
-
-    if (children.length !== 1) continue
-
-    const child = children[0]
+    const child = tree.nodes.get(snapshot.children[0]!)
+    if (!child) continue
     const childStyle = styles.get(child.id) ?? {}
     if (isAbsolute(childStyle)) continue
 

@@ -364,6 +364,39 @@ describe('assets/vector', () => {
     })
   })
 
+  it('skips style lookups when multiple visible paints already determine the channel', () => {
+    const getStyleById = vi.fn(() => {
+      throw new Error('style lookup should be skipped')
+    })
+    vi.stubGlobal('figma', {
+      getStyleById,
+      variables: {
+        getVariableById: vi.fn()
+      }
+    })
+
+    const tree = makeTree([
+      makeSnapshot('root', {
+        id: 'root',
+        type: 'RECTANGLE',
+        visible: true,
+        fillStyleId: 'style-1',
+        fills: [
+          { type: 'SOLID', visible: true, color: { r: 0, g: 0, b: 0 }, opacity: 1 },
+          { type: 'SOLID', visible: true, color: { r: 0, g: 0, b: 0 }, opacity: 0.4 }
+        ],
+        strokes: [],
+        effects: []
+      } as unknown as SceneNode)
+    ])
+
+    expect(analyzeVectorColorModel(tree, 'root')).toEqual({
+      kind: 'single-channel',
+      color: '#000'
+    })
+    expect(getStyleById).not.toHaveBeenCalled()
+  })
+
   it('normalizes themeable svg content and stabilizes ids', () => {
     const themeable = normalizeThemeableSvg(
       '<svg width="16" height="16"><g fill="#111"><path id="shape" fill="#111" d="M0 0h16v16z"/></g></svg>',

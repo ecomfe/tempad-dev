@@ -2,6 +2,7 @@ import { formatHexAlpha } from '@tempad-dev/shared'
 
 import { toFigmaVarExpr } from '@/utils/css'
 
+import { getVariableByIdCached } from '../../token/cache'
 import { getVariableRawName } from '../../token/raw-name'
 
 export type PaintChannel = {
@@ -9,13 +10,21 @@ export type PaintChannel = {
   color: string
 }
 
+export type PaintAnalysisOptions = {
+  styleChannelCache?: Map<string, PaintChannel | null>
+  variableCache?: Map<string, Variable | null>
+}
+
 const PAINT_STYLE_KEYS = {
   fills: 'fillStyleId',
   strokes: 'strokeStyleId'
 } as const
 
-export function resolveSolidPaintChannel(paint: SolidPaint): PaintChannel | null {
-  const token = resolveVariableColor(paint.boundVariables?.color)
+export function resolveSolidPaintChannel(
+  paint: SolidPaint,
+  variableCache?: Map<string, Variable | null>
+): PaintChannel | null {
+  const token = resolveVariableColor(paint.boundVariables?.color, variableCache)
   if (token) {
     return {
       key: `var:${token}`,
@@ -33,22 +42,39 @@ export function resolveSolidPaintChannel(paint: SolidPaint): PaintChannel | null
 
 export function resolveStylePaintChannel(
   node: SceneNode,
-  kind: keyof typeof PAINT_STYLE_KEYS
+  kind: keyof typeof PAINT_STYLE_KEYS,
+  options: PaintAnalysisOptions = {}
 ): PaintChannel | null {
   const styleId = getPaintStyleId(node, kind)
   if (!styleId) return null
+  const { styleChannelCache, variableCache } = options
+  if (styleChannelCache?.has(styleId)) {
+    return styleChannelCache.get(styleId) ?? null
+  }
 
   try {
     const style = figma.getStyleById(styleId)
-    if (!style || !('paints' in style) || !Array.isArray(style.paints)) return null
+    if (!style || !('paints' in style) || !Array.isArray(style.paints)) {
+      styleChannelCache?.set(styleId, null)
+      return null
+    }
 
     const visible = style.paints.filter(isVisiblePaint)
-    if (visible.length !== 1) return null
+    if (visible.length !== 1) {
+      styleChannelCache?.set(styleId, null)
+      return null
+    }
     const paint = visible[0]
-    if (paint.type !== 'SOLID' || !paint.color) return null
+    if (paint.type !== 'SOLID' || !paint.color) {
+      styleChannelCache?.set(styleId, null)
+      return null
+    }
 
-    return resolveSolidPaintChannel(paint)
+    const channel = resolveSolidPaintChannel(paint, variableCache)
+    styleChannelCache?.set(styleId, channel)
+    return channel
   } catch {
+    styleChannelCache?.set(styleId, null)
     return null
   }
 }
@@ -104,10 +130,13 @@ function getPaintStyleId(node: SceneNode, kind: keyof typeof PAINT_STYLE_KEYS): 
   return typeof styleId === 'string' && styleId.length > 0 ? styleId : null
 }
 
-function resolveVariableColor(alias?: { id?: string } | null): string | null {
+function resolveVariableColor(
+  alias?: { id?: string } | null,
+  cache?: Map<string, Variable | null>
+): string | null {
   if (!alias?.id) return null
   try {
-    const variable = figma.variables.getVariableById(alias.id)
+    const variable = getVariableByIdCached(alias.id, cache)
     if (!variable) return null
     return toFigmaVarExpr(getVariableRawName(variable))
   } catch {
