@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- Unified MCP tool inline budget enforcement around `64 KiB` `CallToolResult` bytes and simplified `get_code` warning guidance to rely on shell inline comments and returned `data-hint-id` values.
+
 ## 0.5.0
 
 - Added themeable SVG metadata persistence through the asset HTTP server, asset store, and `get_assets` responses.

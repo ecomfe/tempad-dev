@@ -26,7 +26,7 @@
 
 说明：
 
-- 工具响应共用 `64 KiB` 的 inline budget，按 `CallToolResult` 整体响应体积计算。若选区过大而超出 `get_code` 的预算，TemPad Dev 可能返回 shell response 而不是直接失败。shell 会保留当前节点的包裹结构，并在内联代码注释中列出被省略的直接子节点 id，方便 agent 逐个继续拉取。
+- 工具响应共用 `64 KiB` 的 inline budget，按 `CallToolResult` 整体响应体积计算。若选区过大而超出 `get_code` 的预算，TemPad Dev 可能返回 shell response 而不是直接失败。shell 会保留当前节点的包裹结构，并在内联代码注释中列出被省略的直接子节点 id，方便 agent 逐个继续拉取；配套 warning 只保留最小化的提示信息，用来指向这条注释。
 - 资源是临时且与工具调用关联的；图片/SVG 请直接使用工具结果中的 HTTP `asset.url` 下载。
 - MCP 不再暴露 `resources/list` / `resources/read` 用于 asset 内容读取。
 - HTTP 回退 URL 使用 `/assets/{hash}`，也可能带图片扩展名（例如 `/assets/{hash}.png`），两种形式都支持。

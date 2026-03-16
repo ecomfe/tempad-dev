@@ -2,6 +2,8 @@
 
 ## 0.18.3
 
+- Unified MCP tool inline budgeting around a shared `64 KiB` `CallToolResult` byte limit instead of the older `get_code`-only token estimate.
+- Simplified MCP `get_code` warnings to lightweight `type + message` guidance. Shell continuation now relies on inline omitted-child comments, and depth-cap follow-up uses returned `data-hint-id` values.
 - Improved MCP `get_code` performance by adding a request-scoped cache layer that reuses node semantics, style lookups, variable lookups, paint-style summaries, and vector analysis across passes within one request.
 - Added higher-signal dev tracing for MCP `get_code`, including cache hit/miss counters and vector export result breakdowns for faster bottleneck analysis.
 

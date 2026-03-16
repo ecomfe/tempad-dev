@@ -25,7 +25,7 @@ This document records the source requirements and hard constraints for the MCP `
   - `smart` (default): emit `<svg data-src="...">` placeholders in code and preserve themeable instance color on the emitted `svg` root markup for downstream adaptation. If asset upload fails after export, inline the SVG as a fallback to preserve source of truth.
   - `snapshot`: preserve vector assets for fidelity, even if a vector would otherwise be themeable.
 - Tree traversal is capped by a depth limit (semantic-tree driven). If capped, log a warning.
-- If depth is capped, emit a `depth-cap` warning listing capped node ids so agents can call `get_code` on those nodes.
+- If depth is capped, emit a `depth-cap` warning telling agents to continue with narrower `get_code` calls using returned `data-hint-id` values.
 
 ## Output contract (GetCodeResult)
 
@@ -36,7 +36,7 @@ This document records the source requirements and hard constraints for the MCP `
 - Optional fields (omit when empty):
   - `assets`: array of exported assets (image/vector).
   - `tokens`: one-layer map of token entries keyed by canonical token name.
-  - `warnings`: for inferred auto layout, depth-cap, or shell guidance.
+  - `warnings`: lightweight `type + message` guidance for inferred auto layout, depth-cap, or shell fallback.
 - SVG assets may include `themeable: true` when the vector can safely adopt a single contextual color channel.
 
 ## Size and budget guard
@@ -48,7 +48,7 @@ This document records the source requirements and hard constraints for the MCP `
   - preserves the current node wrapper/layout markup,
   - omits all direct children for that node,
   - lists omitted child ids in an inline code comment in render order,
-  - emits a `shell` warning that tells agents to request those child ids in order and includes a recommended next `get_code` call in `warning.data`.
+  - emits a lightweight `shell` warning that points agents to that inline comment.
 - v1 shell fallback may still depend on the already-collected full-tree context; reducing collection/export cost is a later optimization, not part of this contract.
 - Only throw a user-facing budget error when a usable shell cannot be generated.
 
@@ -169,7 +169,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 ## Logging
 
 - Emit `warnings` for inferred auto layout, depth-cap, and shell guidance.
-- Emit `depth-cap` warnings when tree depth is capped (include node ids).
+- Emit `depth-cap` warnings when tree depth is capped.
 - Other degradations should be logged via the shared `logger` (prefix is automatic).
 - The tool may log high-level timing info via `logger.debug` for performance diagnostics.
 - Dev timing logs may include cache hit/miss counters and vector export result counters. These diagnostics are not part of the MCP response contract.

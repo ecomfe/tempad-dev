@@ -44,9 +44,8 @@ export const GetCodeParametersSchema = z.object({
 
 export type GetCodeParametersInput = z.input<typeof GetCodeParametersSchema>
 export type GetCodeWarning = {
-  type: 'truncated' | 'auto-layout' | 'shell' | 'depth-cap' | string
+  type: 'auto-layout' | 'shell' | 'depth-cap'
   message: string
-  data?: Record<string, unknown>
 }
 export type GetCodeResult = {
   code: string

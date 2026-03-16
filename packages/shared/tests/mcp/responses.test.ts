@@ -27,7 +27,7 @@ describe('mcp/responses helpers', () => {
     expect(measureCallToolResultBytes(result)).toBeGreaterThan(utf8Bytes('hello'))
   })
 
-  it('builds code tool summaries with continuation hints', () => {
+  it('builds code tool summaries from warning messages', () => {
     const payload: ToolResultMap['get_code'] = {
       code: '<div>Hello</div>',
       lang: 'jsx',
@@ -42,13 +42,7 @@ describe('mcp/responses helpers', () => {
       warnings: [
         {
           type: 'shell',
-          message: 'Shell response: omitted direct child ids are listed in the inline comment.',
-          data: {
-            recommendedNextArgs: {
-              nodeId: '123:456',
-              preferredLang: 'jsx'
-            }
-          }
+          message: 'Shell response: omitted direct child ids are listed in the inline comment.'
         }
       ]
     }
@@ -56,8 +50,7 @@ describe('mcp/responses helpers', () => {
     const result = buildGetCodeToolResult(payload)
     expect(result.structuredContent).toEqual(payload)
     expect(result.content?.[0]?.text).toContain('Shell response')
-    expect(result.content?.[0]?.text).toContain('Next: call get_code with')
-    expect(result.content?.[0]?.text).toContain('"nodeId":"123:456"')
+    expect(result.content?.[0]?.text).not.toContain('Next: call get_code with')
   })
 
   it('builds structure and token tool summaries with structured content', () => {

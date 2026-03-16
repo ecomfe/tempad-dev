@@ -123,11 +123,6 @@ export type GetCodeRuntimeOptions = {
   unbounded?: boolean
 }
 
-type GetCodeRequestArgs = Pick<
-  GetCodeParametersInput,
-  'preferredLang' | 'resolveTokens' | 'vectorMode'
->
-
 type RenderStep = 'render' | 'stringify' | 'transform'
 
 export async function handleGetCode(
@@ -214,7 +209,6 @@ export async function handleGetCode(
 
   const rootTag = collected.nodes.get(rootId)?.tag
   const codeBudget = runtimeOptions.unbounded ? resolveUnlimitedCodeBudget() : resolveCodeBudget()
-  const requestArgs = buildGetCodeRequestArgs(preferredLang, resolveTokens, vectorMode)
   const codegen = {
     plugin: activePlugin.value?.name ?? 'none',
     config
@@ -244,9 +238,7 @@ export async function handleGetCode(
       mode: { kind: 'full' }
     })
     const warnings = buildGetCodeWarnings(output.code, {
-      depthLimit: tree.stats.depthLimit,
-      cappedNodeIds: tree.stats.cappedNodeIds,
-      requestArgs
+      cappedNodeIds: tree.stats.cappedNodeIds
     })
     const result = buildCodeResult(output, codegen, allAssets, warnings)
     assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
@@ -276,11 +268,8 @@ export async function handleGetCode(
     }
 
     const warnings = buildGetCodeWarnings(shell.code, {
-      depthLimit: tree.stats.depthLimit,
       cappedNodeIds: tree.stats.cappedNodeIds,
-      shell: true,
-      omittedNodeIds: shellMode.omittedNodeIds,
-      requestArgs
+      shell: true
     })
     const assets = filterAssetsReferencedInCode(allAssets, shell.code)
     const result = buildCodeResult(shell, codegen, assets, warnings)
@@ -642,28 +631,6 @@ async function renderMarkup({
   const output = transform ? transform(markup) : markup
   stampRenderPhase(trace, mode, 'transform', t)
   return { code: output, lang: resolvedLang }
-}
-
-function buildGetCodeRequestArgs(
-  preferredLang?: CodeLanguage,
-  resolveTokens?: boolean,
-  vectorMode?: GetCodeParametersInput['vectorMode']
-): GetCodeRequestArgs {
-  const requestArgs: GetCodeRequestArgs = {}
-
-  if (preferredLang) {
-    requestArgs.preferredLang = preferredLang
-  }
-
-  if (resolveTokens !== undefined) {
-    requestArgs.resolveTokens = resolveTokens
-  }
-
-  if (vectorMode) {
-    requestArgs.vectorMode = vectorMode
-  }
-
-  return requestArgs
 }
 
 function createStringifyOptions(lang: CodeLanguage): {

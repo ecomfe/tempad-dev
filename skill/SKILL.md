@@ -175,10 +175,8 @@ composition and containment are not lost.
 If `get_code` warns or fails, narrow uncertainty instead of guessing.
 
 - **`depth-cap`**: keep the returned top-level result as the source of parent
-  layout and composition, then fetch the listed subtree roots with `get_code`.
-  If warning data indicates overflow such as `cappedNodeOverflow=true`, treat
-  evidence as incomplete and stop full implementation unless the user narrows
-  scope or prioritizes subtrees.
+  layout and composition, then use returned `data-hint-id` values to choose
+  narrower `get_code` follow-ups for the subtrees you still need.
 - **budget overflow or shell response**: keep the returned parent shell as the
   composition source of truth, then fetch omitted child subtrees separately and
   fill them into that known shell. Prefer the smallest parent container that
@@ -368,7 +366,7 @@ If blocked, provide at most 3 concrete next items needed from the user.
 
 ### Example: over-budget parent with recoverable shell
 
-- `get_code` returns a parent shell plus budget overflow details
+- `get_code` returns a parent shell and a shell warning
 - keep that shell as the composition source of truth
 - fetch missing child subtrees with `get_code`
 - insert them into the known parent structure

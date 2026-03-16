@@ -57,9 +57,9 @@ This document describes the implementation design for MCP `get_code` in `package
     - Validate output size using a shared `CallToolResult` UTF-8 byte budget (`64 KiB` by default).
     - If over budget, prefer a shell response for the current node.
     - v1 shell fallback is correctness-first: it reuses the already-collected tree/style context rather than trying to re-run a shell-only collection path.
-    - Emit warnings for inferred auto layout, depth-cap, and shell guidance.
-    - If tree depth was capped, include a `depth-cap` warning with capped node ids.
-    - If a shell response is returned, list omitted direct child ids in an inline comment in render order and expose the next recommended `get_code` call via `warnings.data`.
+    - Emit lightweight `type + message` warnings for inferred auto layout, depth-cap, and shell guidance.
+    - If tree depth was capped, include a `depth-cap` warning that tells agents to continue with narrower `get_code` calls using returned `data-hint-id` values.
+    - If a shell response is returned, list omitted direct child ids in an inline comment in render order and emit a `shell` warning that points agents to that comment.
 
 ## Tree and layout semantics
 
@@ -206,7 +206,7 @@ The request context is threaded through:
 
 - Fatal: invalid selection, no renderable root, failure to build markup.
 - Non-fatal: CSS collection failure, text segment failures, export failure.
-- Warnings (output field): inferred auto layout presence, depth-cap, and shell guidance.
+- Warnings (output field): lightweight `type + message` guidance for inferred auto layout, depth-cap, and shell fallback.
 
 ## Output budget strategy
 

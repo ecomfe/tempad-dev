@@ -36,7 +36,7 @@ describe('tools response helpers', () => {
   it('formats code tool responses with summaries, warnings, assets and tokens', () => {
     const payload: ToolResultMap['get_code'] = {
       ...codePayload,
-      warnings: [{ type: 'truncated', message: 'Depth capped.' }],
+      warnings: [{ type: 'depth-cap', message: 'Depth capped.' }],
       tokens: {
         '--color-primary': {
           kind: 'color',
