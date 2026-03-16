@@ -19,7 +19,7 @@ const articleRef = ref<HTMLElement | null>(null)
 const isSidebarOpen = ref(false)
 
 let previousFocusTarget: HTMLElement | null = null
-const hasSidebar = skillPreviewMeta.frontmatterEntries.length > 0 || skillPreviewMeta.toc.length > 0
+const hasSidebar = skillPreviewMeta.metadataEntries.length > 0 || skillPreviewMeta.toc.length > 0
 const mobileToggleText = skillPreviewMeta.toc.length > 0 ? 'Jump to section' : 'Skill details'
 
 watch(
@@ -224,13 +224,13 @@ function handleTocClick(id: string, event: MouseEvent): void {
               </nav>
 
               <section
-                v-if="skillPreviewMeta.frontmatterEntries.length"
+                v-if="skillPreviewMeta.metadataEntries.length"
                 class="site-skill-dialog-sidebar-section"
+                aria-label="Metadata"
               >
-                <p class="site-skill-dialog-sidebar-label">Metadata</p>
                 <dl class="site-skill-dialog-meta">
                   <div
-                    v-for="entry in skillPreviewMeta.frontmatterEntries"
+                    v-for="entry in skillPreviewMeta.metadataEntries"
                     :key="entry.key"
                     class="site-skill-dialog-meta-row"
                   >
@@ -321,7 +321,7 @@ html.dark .site-skill-dialog-shell {
 }
 
 .site-skill-dialog-body.has-sidebar {
-  grid-template-columns: minmax(0, 1fr) minmax(212px, 236px);
+  grid-template-columns: minmax(0, 1fr) minmax(244px, 272px);
   grid-template-areas: 'content sidebar';
 }
 

@@ -114,6 +114,7 @@ body {
     linear-gradient(180deg, var(--site-bg-gradient-start) 0%, var(--site-bg-gradient-end) 100%);
   color: var(--site-text);
   font-family: var(--site-font-sans);
+  hyphens: auto;
 }
 
 * {

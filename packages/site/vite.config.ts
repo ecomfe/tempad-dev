@@ -5,7 +5,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 import { parse as parseYaml } from 'yaml'
 
-type FrontmatterEntry = {
+type MetadataEntry = {
   key: string
   value: string
 }
@@ -43,39 +43,60 @@ function splitFrontmatter(source: string): { frontmatter: string; body: string }
   }
 }
 
-function flattenFrontmatterEntries(value: unknown, parentKey = ''): readonly FrontmatterEntry[] {
+const PREFERRED_METADATA_KEYS = new Map([
+  ['name', 0],
+  ['version', 1],
+  ['description', 2]
+])
+
+function flattenMetadataEntries(value: unknown, parentKey = ''): readonly MetadataEntry[] {
   if (value == null) {
     return parentKey ? [{ key: parentKey, value: 'null' }] : []
   }
 
   if (Array.isArray(value)) {
     if (!parentKey) {
-      return value.flatMap((entry) => flattenFrontmatterEntries(entry))
+      return value.flatMap((entry) => flattenMetadataEntries(entry))
     }
 
-    if (value.every((entry) => !isPlainRecord(entry) && !Array.isArray(entry))) {
-      return [{ key: parentKey, value: value.map(formatFrontmatterValue).join('\n') }]
+    if (value.some((entry) => isPlainRecord(entry) || Array.isArray(entry))) {
+      return value.flatMap((entry, index) =>
+        flattenMetadataEntries(entry, `${parentKey}[${index}]`)
+      )
     }
 
-    return value.flatMap((entry, index) =>
-      flattenFrontmatterEntries(entry, `${parentKey}[${index}]`)
-    )
+    return [{ key: parentKey, value: value.map(formatMetadataValue).join('\n') }]
   }
 
-  if (isPlainRecord(value)) {
-    return Object.entries(value).flatMap(([key, entry]) =>
-      flattenFrontmatterEntries(entry, parentKey ? `${parentKey}.${key}` : key)
-    )
+  if (!isPlainRecord(value)) {
+    return parentKey ? [{ key: parentKey, value: formatMetadataValue(value) }] : []
   }
 
-  return parentKey ? [{ key: parentKey, value: formatFrontmatterValue(value) }] : []
+  return Object.entries(value).flatMap(([key, entry]) =>
+    flattenMetadataEntries(
+      entry,
+      !parentKey && key === 'metadata' ? '' : joinMetadataKey(parentKey, key)
+    )
+  )
+}
+
+function orderMetadataEntries(entries: readonly MetadataEntry[]): readonly MetadataEntry[] {
+  return [...entries].sort((left, right) => {
+    const leftPriority = PREFERRED_METADATA_KEYS.get(left.key) ?? Number.MAX_SAFE_INTEGER
+    const rightPriority = PREFERRED_METADATA_KEYS.get(right.key) ?? Number.MAX_SAFE_INTEGER
+    return leftPriority - rightPriority
+  })
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function formatFrontmatterValue(value: unknown): string {
+function joinMetadataKey(parentKey: string, key: string): string {
+  return parentKey ? `${parentKey}.${key}` : key
+}
+
+function formatMetadataValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : String(value)
 }
 
@@ -162,12 +183,12 @@ function skillPreviewPlugin(): Plugin {
       const filePath = id.slice(0, -'?skill-preview'.length)
       const source = await readFile(filePath, 'utf8')
       const { frontmatter, body } = splitFrontmatter(source)
-      const frontmatterEntries = frontmatter.trim()
-        ? flattenFrontmatterEntries(parseYaml(frontmatter))
+      const metadataEntries = frontmatter.trim()
+        ? orderMetadataEntries(flattenMetadataEntries(parseYaml(frontmatter)))
         : []
       const { toc, html } = renderSkillPreview(body)
 
-      return `export default ${JSON.stringify({ frontmatterEntries, html, toc })}`
+      return `export default ${JSON.stringify({ metadataEntries, html, toc })}`
     }
   }
 }

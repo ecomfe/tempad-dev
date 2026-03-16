@@ -1,6 +1,6 @@
 declare module '*?skill-preview' {
   const preview: {
-    frontmatterEntries: readonly {
+    metadataEntries: readonly {
       key: string
       value: string
     }[]
