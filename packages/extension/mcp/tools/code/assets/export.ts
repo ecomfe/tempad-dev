@@ -50,7 +50,7 @@ function recordVectorEntryMetrics(entry: SvgEntry, cache?: GetCodeCacheContext):
   const metrics = cache?.metrics
   if (!metrics) return
 
-  if (entry.props['data-asset-url']) {
+  if (entry.props['data-src']) {
     metrics.vectorExportUploaded += 1
     return
   }

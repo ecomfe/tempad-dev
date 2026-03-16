@@ -35,28 +35,11 @@ export async function exportSvgEntry(
   const { colorModel = { kind: 'fixed' }, vectorMode = 'smart' } = options
   const themeable = colorModel.kind === 'single-channel'
   const metadata = themeable ? { themeable: true as const } : undefined
+  const presentationStyle = themeable ? { color: colorModel.color } : undefined
 
   try {
     const svgUint8 = await node.exportAsync({ format: 'SVG' })
     const svgString = decodeSvgBytes(svgUint8)
-
-    if (themeable && vectorMode !== 'snapshot') {
-      const normalized = normalizeThemeableSvg(svgString, config, {
-        width: node.width,
-        height: node.height,
-        idPrefix: node.id
-      })
-      if (normalized) {
-        return {
-          props: normalized.props,
-          presentationStyle: {
-            color: colorModel.color
-          },
-          raw: normalized.content
-        }
-      }
-    }
-
     const sized = ensureSvgRootSize(svgString, config, node.width, node.height)
     const baseProps = sized?.props ?? buildFallbackProps(node, config)
     try {
@@ -72,21 +55,40 @@ export async function exportSvgEntry(
       return {
         props: {
           ...baseProps,
-          'data-asset-url': asset.url
-        }
+          'data-src': asset.url
+        },
+        ...(presentationStyle ? { presentationStyle } : {})
       }
     } catch (uploadError) {
-      logger.warn('Failed to upload vector asset; inlining raw SVG.', uploadError)
+      logger.warn(
+        'Failed to upload vector asset; inlining SVG fallback to preserve source of truth.',
+        uploadError
+      )
+      const themeableFallback =
+        themeable && vectorMode !== 'snapshot'
+          ? normalizeThemeableSvg(svgString, config, {
+              width: node.width,
+              height: node.height,
+              idPrefix: node.id
+            })
+          : null
       return {
         props: baseProps,
-        raw: sized?.content ?? svgString
+        ...(themeableFallback
+          ? {
+              raw: themeableFallback.content,
+              presentationStyle
+            }
+          : {
+              raw: sized?.content ?? svgString
+            })
       }
     }
   } catch (error) {
     logger.warn('Failed to export vector node:', error)
     return {
       props: buildFallbackProps(node, config),
-      raw: '<svg></svg>'
+      ...(presentationStyle ? { presentationStyle } : {})
     }
   }
 }

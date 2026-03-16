@@ -47,7 +47,7 @@ afterEach(() => {
 })
 
 describe('assets/vector', () => {
-  it('inlines themeable vectors in smart mode without uploading assets', async () => {
+  it('uploads themeable vectors as asset-backed svg placeholders in smart mode', async () => {
     const svg = '<svg viewBox="0 0 16 16"><path fill="#111" d="M0 0h16v16z"/></svg>'
     const bytes = new TextEncoder().encode(svg)
     const node = {
@@ -56,22 +56,35 @@ describe('assets/vector', () => {
       height: 16,
       exportAsync: vi.fn(async () => bytes)
     } as unknown as SceneNode
+    const asset = {
+      hash: 'themeable-hash',
+      mimeType: 'image/svg+xml',
+      url: 'http://assets.test/themeable.svg',
+      size: bytes.byteLength
+    }
+    vi.mocked(ensureAssetUploaded).mockResolvedValue(asset)
 
-    const result = await exportSvgEntry(node, remConfig, new Map(), {
+    const registry = new Map<string, unknown>()
+    const result = await exportSvgEntry(node, remConfig, registry as Map<string, never>, {
       vectorMode: 'smart',
       colorModel: { kind: 'single-channel', color: 'var(--icon-color)' }
     })
 
-    expect(result?.props).toEqual({
-      height: '1rem',
-      viewBox: '0 0 16 16',
-      width: '1rem'
+    expect(result).toEqual({
+      props: {
+        height: '1rem',
+        viewBox: '0 0 16 16',
+        width: '1rem',
+        'data-src': 'http://assets.test/themeable.svg'
+      },
+      presentationStyle: {
+        color: 'var(--icon-color)'
+      }
     })
-    expect(result?.presentationStyle).toEqual({
-      color: 'var(--icon-color)'
+    expect(registry.get('themeable-hash')).toEqual({
+      ...asset,
+      themeable: true
     })
-    expect(result?.raw).toContain('fill="currentColor"')
-    expect(ensureAssetUploaded).not.toHaveBeenCalled()
   })
 
   it('uploads fixed vectors as assets without extra vector metadata', async () => {
@@ -104,7 +117,7 @@ describe('assets/vector', () => {
         width: '1rem',
         height: '1rem',
         viewBox: '0 0 16 16',
-        'data-asset-url': 'http://assets.test/hash.svg'
+        'data-src': 'http://assets.test/hash.svg'
       }
     })
     expect(registry.get('asset-hash')).toEqual(asset)
@@ -139,7 +152,10 @@ describe('assets/vector', () => {
         width: '20px',
         height: '10px',
         viewBox: '0 0 20 10',
-        'data-asset-url': 'http://assets.test/hash.svg'
+        'data-src': 'http://assets.test/hash.svg'
+      },
+      presentationStyle: {
+        color: '#222'
       }
     })
     expect(registry.get('asset-hash')).toEqual({
@@ -174,7 +190,7 @@ describe('assets/vector', () => {
       raw: '<svg height="10px" viewBox="0 0 20 10" width="20px"><path d="M0 0h20v10z" fill="#f00"/><path d="M0 0h10v10z" fill="#0f0"/></svg>'
     })
     expect(logger.warn).toHaveBeenCalledWith(
-      'Failed to upload vector asset; inlining raw SVG.',
+      'Failed to upload vector asset; inlining SVG fallback to preserve source of truth.',
       expect.any(Error)
     )
   })
@@ -195,8 +211,7 @@ describe('assets/vector', () => {
       props: {
         width: `${toDecimalPlace(10.456)}px`,
         height: `${toDecimalPlace(20.123)}px`
-      },
-      raw: '<svg></svg>'
+      }
     })
     expect(logger.warn).toHaveBeenCalledWith('Failed to export vector node:', expect.any(Error))
   })

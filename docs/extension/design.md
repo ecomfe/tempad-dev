@@ -41,7 +41,7 @@ This document describes the implementation design for MCP `get_code` in `package
 
 8. **Render markup**
    - Render nodes into JSX/HTML component tree.
-   - Inject SVG content or `<img>` when applicable.
+   - Emit `<svg data-src="...">` placeholders when applicable; inline SVG only as a degradation path when asset upload fails after export.
    - Apply Tailwind class conversion.
    - Reorder flex/grid siblings by position (see “Sibling ordering”).
 
@@ -51,7 +51,7 @@ This document describes the implementation design for MCP `get_code` in `package
    - Rewrite code with transformed token names.
    - Build a single `tokens` map (direct + alias-chain tokens).
    - When `resolveTokens` is true, resolve per-node (mode-aware) before final render.
-   - The resolve rerender applies to both collected node styles and themeable inline-SVG root presentation styles so emitted vector color evidence stays in sync with token resolution.
+   - The resolve rerender applies to both collected node styles and themeable vector-placeholder root presentation styles so emitted vector color evidence stays in sync with token resolution.
 
 10. **Enforce budget and finalize output**
     - Validate output size using a shared `CallToolResult` UTF-8 byte budget (`64 KiB` by default).
@@ -177,12 +177,12 @@ The request context is threaded through:
 
 - Vector-like nodes may be exported to SVG.
 - Vector containers can be converted to a single SVG when their subtree is vector-like and the container itself does not carry wrapper semantics such as its own fill/stroke/effects/clipping or design-component hints.
-- Themeable vectors are single-color vectors that can safely use one contextual color channel. The current implementation rewrites safe `fill`/`stroke` values to `currentColor`, keeps node-sized `width`/`height` plus `viewBox`, and injects the instance color onto the emitted `svg` root markup.
-- Fixed-color vectors preserve their internal palette and stay asset-backed unless the caller explicitly requests different fidelity handling.
+- Themeable vectors are single-color vectors that can safely use one contextual color channel. The current implementation keeps node-sized `width`/`height` plus `viewBox`, uploads the SVG asset, and injects the instance color onto the emitted placeholder `svg` root markup.
+- Fixed-color vectors preserve their internal palette in the uploaded SVG asset.
 - Plugin/component output short-circuits vector export for that subtree.
-- Inline SVG nodes receive external layout styles plus presentation color on the root markup when the vector is single-channel.
+- Placeholder SVG nodes receive external layout styles plus presentation color on the root markup when the vector is single-channel.
 - Themeable-vector eligibility and single-channel color detection reuse shared paint/effect semantics instead of maintaining separate vector-only interpretations.
-- The emitted inline-SVG-vs-asset choice is the tool's default delivery for the current response. Host apps may refactor to their own SVG policy, such as repo icon primitives, bundler/dev-server SVG transforms, inline SVG, or asset-backed `<img>`, as long as themeable vectors remain single-channel and fixed-color vectors keep their palette.
+- The tool emits `<svg data-src="...">` placeholders by default for the current response. If asset upload fails after export, it falls back to inline SVG so the response still carries vector structure. Host apps may refactor to their own SVG policy, such as repo icon primitives, bundler/dev-server SVG transforms, inline SVG, or asset-backed SVG usage, as long as themeable vectors remain single-channel and fixed-color vectors keep their palette.
 - Placeholder SVG is emitted when export fails or is unavailable, using node width/height.
 - Vector-root descendants are not rendered; their CSS is not collected.
 

@@ -22,7 +22,7 @@ describe('mcp/code render svg', () => {
     vi.clearAllMocks()
   })
 
-  it('applies vector presentation color on the emitted svg root markup', async () => {
+  it('renders vector placeholders as svg nodes with data-src and presentation color', async () => {
     const root = createSnapshot({ id: 'icon', type: 'VECTOR' })
     root.bounds = { x: 0, y: 0, width: 16, height: 16 }
     const tree = createTree([root])
@@ -34,6 +34,43 @@ describe('mcp/code render svg', () => {
       svgs: new Map([
         [
           'icon',
+          {
+            props: {
+              width: '16px',
+              height: '16px',
+              viewBox: '0 0 16 16',
+              'data-src': 'https://assets.test/icon.svg'
+            },
+            presentationStyle: {
+              color: 'var(--icon-color)'
+            }
+          }
+        ]
+      ]),
+      textSegments: new Map(),
+      config: { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+      preferredLang: 'jsx'
+    } as never)
+
+    const markup = stringifyComponent(rendered as never, { lang: 'jsx' })
+    expect(markup).toContain('<svg')
+    expect(markup).toContain('data-src="https://assets.test/icon.svg"')
+    expect(markup).toContain('className="relative text-[var(--icon-color)]"')
+    expect(markup).not.toContain('<img')
+  })
+
+  it('inlines raw svg fallback when asset-backed placeholder is unavailable', async () => {
+    const root = createSnapshot({ id: 'icon-fallback', type: 'VECTOR' })
+    root.bounds = { x: 0, y: 0, width: 16, height: 16 }
+    const tree = createTree([root])
+
+    const rendered = await renderTree('icon-fallback', tree, {
+      styles: new Map(),
+      layout: new Map([['icon-fallback', { position: 'relative' }]]),
+      nodes: new Map([['icon-fallback', root.node]]),
+      svgs: new Map([
+        [
+          'icon-fallback',
           {
             props: {
               width: '16px',
@@ -53,6 +90,9 @@ describe('mcp/code render svg', () => {
     } as never)
 
     const markup = stringifyComponent(rendered as never, { lang: 'jsx' })
+    expect(markup).toContain('<svg')
+    expect(markup).toContain('fill="currentColor"')
     expect(markup).toContain('className="relative text-[var(--icon-color)]"')
+    expect(markup).not.toContain('data-src=')
   })
 })

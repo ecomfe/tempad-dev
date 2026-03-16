@@ -144,7 +144,7 @@ describe('assets/export exportVectorAssets', () => {
     const cache = createGetCodeCacheContext(new Map(), { metrics: true })
 
     vi.mocked(exportSvgEntry).mockResolvedValueOnce({
-      props: { width: '10px', 'data-asset-url': 'https://assets.test/vector-ok.svg' }
+      props: { width: '10px', 'data-src': 'https://assets.test/vector-ok.svg' }
     })
 
     await exportVectorAssets(

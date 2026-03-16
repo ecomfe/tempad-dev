@@ -254,9 +254,14 @@ Follow the established asset policy first.
 - Treat assets as files to save or reference, not as text evidence to parse.
 - If policy forbids storing assets, you may reference TemPad URLs, but you must
   warn that the output depends on the local TemPad asset server.
-- If a vector is already emitted as inline SVG in `code`, treat that markup as
-  the current design truth for structure and sizing. Only refactor delivery
-  when the implementation already has another established SVG policy.
+- If a vector is emitted as `<svg data-src="...">` in `code`, treat that
+  placeholder markup as the current design truth for structure, sizing, and
+  instance color evidence. `data-src` points at the uploaded SVG asset. Only
+  refactor delivery when the implementation already has another established SVG
+  policy.
+- If TemPad falls back to inline SVG because asset upload failed, treat that
+  inline markup as the design truth for that vector instead of re-synthesizing
+  the shape from the asset metadata.
 - Do not introduce a new SVG pipeline if one is already established.
 - Preserve vector semantics:
   - `themeable: true` means one context-driven color channel, typically via

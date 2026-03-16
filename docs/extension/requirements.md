@@ -22,7 +22,7 @@ This document records the source requirements and hard constraints for the MCP `
 - Exactly one node is required.
 - The node must be visible.
 - `vectorMode` is optional:
-  - `smart` (default): emit the tool's repo-native default delivery for vectors: inline themeable single-color SVGs; keep fixed-color vectors as assets.
+  - `smart` (default): emit `<svg data-src="...">` placeholders in code and preserve themeable instance color on the emitted `svg` root markup for downstream adaptation. If asset upload fails after export, inline the SVG as a fallback to preserve source of truth.
   - `snapshot`: preserve vector assets for fidelity, even if a vector would otherwise be themeable.
 - Tree traversal is capped by a depth limit (semantic-tree driven). If capped, log a warning.
 - If depth is capped, emit a `depth-cap` warning listing capped node ids so agents can call `get_code` on those nodes.
@@ -105,23 +105,25 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 ## SVG and assets
 
 - Vector-only nodes or containers are classified before render as either:
-  - themeable single-color vectors, which are emitted as inline SVG in `smart` mode.
-  - fixed-color vectors, which are exported as SVG assets.
+  - themeable single-color vectors, which preserve one contextual color channel on the emitted placeholder `svg` root markup.
+  - fixed-color vectors, which keep their internal palette in the exported SVG asset.
 - Images are exported as PNG/JPEG when the node is an image fill.
-- Themeable inline SVGs keep `viewBox`, retain node-sized `width`/`height`, rewrite safe single-color `fill`/`stroke` values to `currentColor`, and preserve the instance color on the emitted `svg` root markup, preferring token/class output when available.
+- Vector placeholders use the form `<svg data-src="...">`, keep `viewBox`, retain node-sized `width`/`height`, and expose the uploaded asset URL via `data-src` on the emitted `svg` root markup.
+- Themeable vector placeholders preserve the instance color on the emitted `svg` root markup, preferring token/class output when available.
 - Themeable-vector eligibility and single-channel color detection must share the same paint/effect visibility semantics used elsewhere in the asset pipeline; do not maintain a separate vector-only interpretation of visible paints, effects, or variable-backed solid colors.
 - `themeable` means one safe contextual color channel. The authoritative color evidence is the emitted `svg` root markup for that instance, not asset metadata. It does not imply multi-slot SVG theming.
 - The emitted markup is the tool's default delivery for the current response, not a mandatory final integration format. Clients may adapt vector delivery to repo policy, such as:
   - existing icon/component primitives,
   - import-time SVG transforms in the dev server or bundler,
   - inline SVG,
-  - asset-backed `<img>` usage.
+  - asset-backed SVG usage.
 - Any such adaptation must preserve the vector semantics:
   - `themeable` vectors stay single-channel and context-color-driven,
   - fixed-color vectors keep their internal palette.
 - Snapshot-preserved SVG assets may include `themeable: true` when the underlying vector is safe to adapt to a single contextual color channel, even if the current delivery stays asset-backed.
 - Public asset metadata does not carry per-instance theme color; that remains a markup concern.
 - SVG size comes from node size (rounded), not export metadata.
+- If the SVG export succeeded but asset upload failed, inline the SVG fallback rather than dropping the vector structure.
 - When vector export fails or assets are unavailable, preserve layout using a placeholder SVG with node size.
 - Omit `assets` when empty.
 
@@ -142,7 +144,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
     - map for multi-mode, keyed by `${collectionName}:${modeName}`.
 - `tokens` includes both directly used tokens and any alias-chain tokens.
 - When `resolveTokens` is `true`, code is resolved per-node (mode-aware); token values are literals.
-- This resolve step must also update themeable inline-SVG root presentation color when that color is token-backed, so vector markup and token payload stay aligned.
+- This resolve step must also update themeable vector-placeholder root presentation color when that color is token-backed, so vector markup and token payload stay aligned.
 - When `resolveTokens` is `false`, token values remain aliases/literals as emitted by Figma/variables.
 - Collection names are assumed unique; duplicates are unsupported and should emit a warning.
 - Omit `tokens` when empty.

@@ -77,38 +77,23 @@ async function renderNode(
       includeDataHint: false
     })
 
+    const svgProps: Record<string, string> = { ...(svgEntry.props ?? {}) }
+    const legacyAssetUrl = svgProps['data-asset-url']
+    if (!svgProps['data-src'] && legacyAssetUrl) {
+      svgProps['data-src'] = legacyAssetUrl
+      delete svgProps['data-asset-url']
+    }
     if (svgEntry.raw) {
-      if (isEmptySvg(svgEntry.raw)) {
-        const svgProps: Record<string, string> = { ...(svgEntry.props ?? {}) }
-        if (classNames.length) svgProps[classAttr] = props[classAttr]
-        Object.entries(props).forEach(([key, val]) => {
-          if (key === classAttr) return
-          svgProps[key] = val
-        })
-        ensureSvgSize(svgProps, snapshot)
-        return { name: 'svg', props: svgProps, children: [] }
-      }
-
       const mergedProps = Object.keys(props).length ? props : undefined
       return raw(svgEntry.raw, mergedProps as Record<string, string> | undefined)
     }
-
-    const assetUrl = svgEntry.props?.['data-asset-url']
-    if (assetUrl) {
-      const langHint = ctx.preferredLang ?? ctx.detectedLang
-      const classAttr = classProp(langHint)
-      const imgProps: Record<string, string> = { src: assetUrl }
-      if (svgEntry.props?.width) imgProps.width = String(svgEntry.props.width)
-      if (svgEntry.props?.height) imgProps.height = String(svgEntry.props.height)
-      if (classNames.length) imgProps[classAttr] = props[classAttr]
-      Object.entries(props).forEach(([key, val]) => {
-        if (key === classAttr) return
-        imgProps[key] = val
-      })
-      return { name: 'img', props: imgProps, children: [] }
-    }
-
-    return null
+    if (classNames.length) svgProps[classAttr] = props[classAttr]
+    Object.entries(props).forEach(([key, val]) => {
+      if (key === classAttr) return
+      svgProps[key] = val
+    })
+    ensureSvgSize(svgProps, snapshot)
+    return { name: 'svg', props: svgProps, children: [] }
   }
 
   let rawStyle = resolveSnapshotStyle(snapshot, ctx, parentIsGrid)
@@ -500,15 +485,6 @@ function isVisiblePaint(paint?: Paint): boolean {
     return paint.gradientStops.some((stop) => (stop.color?.a ?? 1) > 0)
   }
   return true
-}
-
-function isEmptySvg(raw: string): boolean {
-  const content = raw.replace(/^[\s\S]*?<svg\b[^>]*>/i, '').replace(/<\/svg>\s*$/i, '')
-  if (!content.trim()) return true
-  const hasShape = /<(path|rect|circle|ellipse|line|polyline|polygon|image|text|use)\b/i.test(
-    content
-  )
-  return !hasShape
 }
 
 function ensureSvgSize(svgProps: Record<string, string>, snapshot: NodeSnapshot): void {
