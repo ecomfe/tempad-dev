@@ -13,6 +13,8 @@ import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 
 import { selection } from '@/ui/state'
 
+import type { GetCodeRuntimeOptions } from './tools/code'
+
 import { createCodedError } from './errors'
 import { handleGetCode as runGetCode } from './tools/code'
 import { handleGetScreenshot as runGetScreenshot } from './tools/screenshot'
@@ -46,9 +48,27 @@ function resolveSingleNode(nodeId?: string): SceneNode {
 }
 
 async function handleGetCode(args?: GetCodeParametersInput): Promise<GetCodeResult> {
+  return dispatchGetCode(args)
+}
+
+export type WindowGetCodeParametersInput = GetCodeParametersInput & {
+  _unbounded?: boolean
+}
+
+async function dispatchGetCode(
+  args?: GetCodeParametersInput,
+  runtimeOptions?: GetCodeRuntimeOptions
+): Promise<GetCodeResult> {
   const node = resolveSingleNode(args?.nodeId)
   const { preferredLang, resolveTokens, vectorMode } = args ?? {}
-  return runGetCode([node], preferredLang, resolveTokens, vectorMode)
+  return runGetCode([node], preferredLang, resolveTokens, vectorMode, runtimeOptions)
+}
+
+async function handleWindowGetCode(args?: WindowGetCodeParametersInput): Promise<GetCodeResult> {
+  const { _unbounded, ...rest } = args ?? {}
+  return dispatchGetCode(rest, {
+    unbounded: _unbounded
+  })
 }
 
 async function handleGetTokenDefs(args?: GetTokenDefsParametersInput): Promise<GetTokenDefsResult> {
@@ -80,9 +100,13 @@ export type MCPHandlers = {
   get_structure: (args?: GetStructureParametersInput) => Promise<GetStructureResult>
 }
 
+export type TempadWindowHandlers = Omit<MCPHandlers, 'get_code'> & {
+  get_code: (args?: WindowGetCodeParametersInput) => Promise<GetCodeResult>
+}
+
 declare global {
   interface Window {
-    tempadTools?: Partial<MCPHandlers>
+    tempadTools?: Partial<TempadWindowHandlers>
   }
 }
 
@@ -91,6 +115,11 @@ export const MCP_TOOL_HANDLERS: MCPHandlers = {
   get_token_defs: handleGetTokenDefs,
   get_screenshot: handleGetScreenshot,
   get_structure: handleGetStructure
+}
+
+export const WINDOW_TEMPAD_TOOL_HANDLERS: TempadWindowHandlers = {
+  ...MCP_TOOL_HANDLERS,
+  get_code: handleWindowGetCode
 }
 
 export type McpToolName = keyof MCPHandlers
@@ -102,7 +131,7 @@ function exposeToolsOnWindow(): void {
   }
   window.tempadTools = {
     ...(window.tempadTools ?? {}),
-    ...MCP_TOOL_HANDLERS
+    ...WINDOW_TEMPAD_TOOL_HANDLERS
   }
 }
 

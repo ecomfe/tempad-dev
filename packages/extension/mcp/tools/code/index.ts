@@ -31,7 +31,8 @@ import {
   assertCodeWithinBudget,
   buildGetCodeWarnings,
   isCodeBudgetExceededError,
-  resolveCodeBudget
+  resolveCodeBudget,
+  resolveUnlimitedCodeBudget
 } from './messages'
 import { getOrderedChildIds, renderShellTree, renderTree } from './render'
 import { resolvePluginComponent } from './render/plugin'
@@ -118,11 +119,16 @@ type PipelineOutput = {
   tokens?: GetTokenDefsResult
 }
 
+export type GetCodeRuntimeOptions = {
+  unbounded?: boolean
+}
+
 export async function handleGetCode(
   nodes: SceneNode[],
   preferredLang?: CodeLanguage,
   resolveTokens?: boolean,
-  vectorMode: GetCodeParametersInput['vectorMode'] = 'smart'
+  vectorMode: GetCodeParametersInput['vectorMode'] = 'smart',
+  runtimeOptions: GetCodeRuntimeOptions = {}
 ): Promise<GetCodeResult> {
   const trace = createTrace()
   const { now, stamp } = trace
@@ -199,7 +205,9 @@ export async function handleGetCode(
   })
 
   const rootTag = collected.nodes.get(rootId)?.tag
-  const codeBudget = resolveCodeBudget(MCP_MAX_PAYLOAD_BYTES)
+  const codeBudget = runtimeOptions.unbounded
+    ? resolveUnlimitedCodeBudget()
+    : resolveCodeBudget(MCP_MAX_PAYLOAD_BYTES)
   const codegen = {
     plugin: activePlugin.value?.name ?? 'none',
     config
@@ -236,7 +244,7 @@ export async function handleGetCode(
 
     logTrace(
       trace,
-      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${allAssets.length}${formatCacheMetrics(cache)}`
+      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${allAssets.length}${runtimeOptions.unbounded ? ' budget=unbounded' : ''}${formatCacheMetrics(cache)}`
     )
 
     return buildCodeResult(output, codegen, allAssets, warnings)

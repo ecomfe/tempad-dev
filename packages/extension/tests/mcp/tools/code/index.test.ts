@@ -160,6 +160,51 @@ describe('mcp/code handleGetCode', () => {
     ).rejects.toThrow('Output exceeds token/context budget')
   })
 
+  it('returns full output without shell when unbounded mode is enabled', async () => {
+    const root = createSnapshot({ id: 'root' })
+    const tree = createTree([root])
+    tree.stats.capped = true
+    tree.stats.depthLimit = 3
+    tree.stats.cappedNodeIds = ['root']
+
+    mocks.buildVisibleTree.mockReturnValue(tree)
+    mocks.collectNodeData.mockResolvedValue({
+      nodes: tree.nodes,
+      styles: new Map([['root', { display: 'flex' }]]),
+      textSegments: new Map()
+    })
+    mocks.prepareStyles.mockImplementation(
+      ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
+        styles,
+        layout: new Map(),
+        usedCandidateIds: new Set<string>()
+      })
+    )
+    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
+      code,
+      tokensByCanonical: {},
+      sourceIndex: new Map()
+    }))
+    mocks.renderTree.mockResolvedValue(
+      raw(`<div data-hint-auto-layout="inferred">${'X'.repeat(40000)}</div>`)
+    )
+    vi.stubGlobal('__DEV__', false)
+
+    const { handleGetCode } = await import('@/mcp/tools/code')
+    const result = await handleGetCode(
+      [{ id: 'root', visible: true } as SceneNode],
+      'jsx',
+      false,
+      'smart',
+      { unbounded: true }
+    )
+
+    expect(result.code).toContain('data-hint-auto-layout="inferred"')
+    expect(result.code.length).toBeGreaterThan(40000)
+    expect(result.warnings?.map((item) => item.type)).toEqual(['auto-layout', 'depth-cap'])
+    expect(mocks.renderShellTree).not.toHaveBeenCalled()
+  })
+
   it('rerenders themeable vector presentation styles when resolveTokens is enabled', async () => {
     const icon = createSnapshot({ id: 'icon', type: 'VECTOR' })
     const tree = createTree([icon])

@@ -80,7 +80,7 @@ describe('mcp/runtime', () => {
     const tools = (window as Window & { tempadTools: Record<string, unknown> }).tempadTools
 
     expect(tools.existing).toBe(existing)
-    expect(tools.get_code).toBe(runtime.MCP_TOOL_HANDLERS.get_code)
+    expect(tools.get_code).toBe(runtime.WINDOW_TEMPAD_TOOL_HANDLERS.get_code)
     expect(tools.get_token_defs).toBe(runtime.MCP_TOOL_HANDLERS.get_token_defs)
     expect(tools.get_screenshot).toBe(runtime.MCP_TOOL_HANDLERS.get_screenshot)
     expect(tools.get_structure).toBe(runtime.MCP_TOOL_HANDLERS.get_structure)
@@ -93,7 +93,7 @@ describe('mcp/runtime', () => {
     const runtime = await importRuntime()
     const tools = (window as Window & { tempadTools: Record<string, unknown> }).tempadTools
 
-    expect(tools.get_code).toBe(runtime.MCP_TOOL_HANDLERS.get_code)
+    expect(tools.get_code).toBe(runtime.WINDOW_TEMPAD_TOOL_HANDLERS.get_code)
     expect(tools.get_token_defs).toBe(runtime.MCP_TOOL_HANDLERS.get_token_defs)
     expect(tools.get_screenshot).toBe(runtime.MCP_TOOL_HANDLERS.get_screenshot)
     expect(tools.get_structure).toBe(runtime.MCP_TOOL_HANDLERS.get_structure)
@@ -112,8 +112,33 @@ describe('mcp/runtime', () => {
       vectorMode: 'snapshot'
     })
 
-    expect(mocks.runGetCode).toHaveBeenCalledWith([node], 'jsx', true, 'snapshot')
+    expect(mocks.runGetCode).toHaveBeenCalledWith([node], 'jsx', true, 'snapshot', undefined)
     expect(result).toEqual({ blocks: [] })
+  })
+
+  it('routes window get_code debug overrides only through tempadTools exposure', async () => {
+    const node = createSceneNode('node-1')
+    vi.stubGlobal('window', {} as Window)
+    setFigmaGetNodeById(node)
+    mocks.runGetCode.mockResolvedValue({ blocks: [] })
+
+    await importRuntime()
+    const tools = (
+      window as Window & {
+        tempadTools: Record<string, (args?: unknown) => Promise<unknown>>
+      }
+    ).tempadTools
+
+    expect(tools.get_code).toBeDefined()
+    await tools.get_code?.({
+      nodeId: 'node-1',
+      preferredLang: 'jsx',
+      _unbounded: true
+    })
+
+    expect(mocks.runGetCode).toHaveBeenCalledWith([node], 'jsx', undefined, undefined, {
+      unbounded: true
+    })
   })
 
   it('throws coded error when provided nodeId does not resolve to a visible scene node', async () => {
@@ -150,8 +175,20 @@ describe('mcp/runtime', () => {
     await runtime.MCP_TOOL_HANDLERS.get_code({ preferredLang: 'jsx' })
     await runtime.MCP_TOOL_HANDLERS.get_code()
 
-    expect(mocks.runGetCode).toHaveBeenCalledWith([selected], 'jsx', undefined, undefined)
-    expect(mocks.runGetCode).toHaveBeenLastCalledWith([selected], undefined, undefined, undefined)
+    expect(mocks.runGetCode).toHaveBeenCalledWith(
+      [selected],
+      'jsx',
+      undefined,
+      undefined,
+      undefined
+    )
+    expect(mocks.runGetCode).toHaveBeenLastCalledWith(
+      [selected],
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    )
   })
 
   it('validates get_token_defs input and forwards includeAllModes', async () => {

@@ -14,6 +14,11 @@ export type CodeBudget = {
   estimatedTokenBudget: number
 }
 
+const UNBOUNDED_CODE_BUDGET: CodeBudget = {
+  maxCodeBytes: Number.MAX_SAFE_INTEGER,
+  estimatedTokenBudget: Number.MAX_SAFE_INTEGER
+}
+
 export class CodeBudgetExceededError extends Error {
   constructor(message: string) {
     super(message)
@@ -33,6 +38,10 @@ export function resolveCodeBudget(maxPayloadBytes: number): CodeBudget {
     maxCodeBytes,
     estimatedTokenBudget
   }
+}
+
+export function resolveUnlimitedCodeBudget(): CodeBudget {
+  return UNBOUNDED_CODE_BUDGET
 }
 
 export function assertCodeWithinBudget(rawMarkup: string, budget: CodeBudget): void {
