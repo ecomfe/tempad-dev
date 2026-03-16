@@ -130,4 +130,43 @@ describe('assets/export exportVectorAssets', () => {
 
     expect(analyzeVectorColorModel).toHaveBeenCalledWith(tree, 'vector-ok', cache)
   })
+
+  it('records vector export metrics on the request cache', async () => {
+    const tree = {
+      rootIds: ['root'],
+      order: [],
+      stats: { totalNodes: 0, maxDepth: 0, capped: false, cappedNodeIds: [] },
+      nodes: new Map([
+        ['vector-ok', makeSnapshot('vector-ok', { width: 10, height: 20 })],
+        ['zero-no-render', makeSnapshot('zero-no-render', { width: 0, height: 0 }, null)]
+      ])
+    } as unknown as VisibleTree
+    const cache = createGetCodeCacheContext(new Map(), { metrics: true })
+
+    vi.mocked(exportSvgEntry).mockResolvedValueOnce({
+      props: { width: '10px', 'data-asset-url': 'https://assets.test/vector-ok.svg' }
+    })
+
+    await exportVectorAssets(
+      tree,
+      {
+        vectorRoots: new Set(['missing', 'zero-no-render', 'vector-ok']),
+        skippedIds: new Set()
+      },
+      config,
+      new Map(),
+      'smart',
+      cache
+    )
+
+    expect(cache.metrics).toMatchObject({
+      vectorExportCandidates: 3,
+      vectorExportSkippedMissing: 1,
+      vectorExportSkippedZeroBounds: 1,
+      vectorExportUploaded: 1,
+      vectorExportNull: 0,
+      vectorExportThemeableInline: 0,
+      vectorExportRawInline: 0
+    })
+  })
 })

@@ -7,8 +7,19 @@ const DEFAULT_METRICS = (): CacheMetrics => ({
   nodeSemanticMisses: 0,
   styleHits: 0,
   styleMisses: 0,
+  paintStyleHits: 0,
+  paintStyleMisses: 0,
   variableHits: 0,
-  variableMisses: 0
+  variableMisses: 0,
+  vectorAnalysisHits: 0,
+  vectorAnalysisMisses: 0,
+  vectorExportCandidates: 0,
+  vectorExportSkippedMissing: 0,
+  vectorExportSkippedZeroBounds: 0,
+  vectorExportNull: 0,
+  vectorExportUploaded: 0,
+  vectorExportThemeableInline: 0,
+  vectorExportRawInline: 0
 })
 
 export function createGetCodeCacheContext(
@@ -61,7 +72,12 @@ export function getPaintStyleCached(
   ctx: GetCodeCacheContext
 ): PaintStyleSummary | null {
   if (!styleId) return null
-  if (ctx.paintStyles.has(styleId)) return ctx.paintStyles.get(styleId) ?? null
+  if (ctx.paintStyles.has(styleId)) {
+    if (ctx.metrics) ctx.metrics.paintStyleHits += 1
+    return ctx.paintStyles.get(styleId) ?? null
+  }
+
+  if (ctx.metrics) ctx.metrics.paintStyleMisses += 1
 
   const style = getStyleByIdFromContext(styleId, ctx)
   if (!style || !('paints' in style) || !Array.isArray(style.paints)) {

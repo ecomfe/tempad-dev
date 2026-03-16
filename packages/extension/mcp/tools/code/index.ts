@@ -692,8 +692,26 @@ function formatCacheMetrics(cache: { metrics?: { [key: string]: number } }): str
     nodeSemanticMisses,
     styleHits,
     styleMisses,
+    paintStyleHits,
+    paintStyleMisses,
     variableHits,
-    variableMisses
+    variableMisses,
+    vectorAnalysisHits,
+    vectorAnalysisMisses,
+    vectorExportCandidates,
+    vectorExportSkippedMissing,
+    vectorExportSkippedZeroBounds,
+    vectorExportNull,
+    vectorExportUploaded,
+    vectorExportThemeableInline,
+    vectorExportRawInline
   } = cache.metrics
-  return ` cache=node(${nodeSemanticHits}/${nodeSemanticMisses}) style(${styleHits}/${styleMisses}) var(${variableHits}/${variableMisses})`
+  return [
+    `cache=node(${nodeSemanticHits}/${nodeSemanticMisses})`,
+    `style(${styleHits}/${styleMisses})`,
+    `paint-style(${paintStyleHits}/${paintStyleMisses})`,
+    `var(${variableHits}/${variableMisses})`,
+    `vector-analysis(${vectorAnalysisHits}/${vectorAnalysisMisses})`,
+    `vector-export(candidates=${vectorExportCandidates} missing=${vectorExportSkippedMissing} zero=${vectorExportSkippedZeroBounds} null=${vectorExportNull} uploaded=${vectorExportUploaded} themeable-inline=${vectorExportThemeableInline} raw-inline=${vectorExportRawInline})`
+  ].join(' ')
 }

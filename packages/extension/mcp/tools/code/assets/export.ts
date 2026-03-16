@@ -20,17 +20,47 @@ export async function exportVectorAssets(
 ): Promise<Map<string, SvgEntry>> {
   const svgs = new Map<string, SvgEntry>()
   for (const id of plan.vectorRoots) {
+    if (cache?.metrics) cache.metrics.vectorExportCandidates += 1
     const snapshot = tree.nodes.get(id)
-    if (!snapshot) continue
+    if (!snapshot) {
+      if (cache?.metrics) cache.metrics.vectorExportSkippedMissing += 1
+      continue
+    }
     const node = snapshot.node
     const { width, height } = snapshot.bounds
-    if (width <= 0 && height <= 0 && !snapshot.renderBounds) continue
+    if (width <= 0 && height <= 0 && !snapshot.renderBounds) {
+      if (cache?.metrics) cache.metrics.vectorExportSkippedZeroBounds += 1
+      continue
+    }
     const entry = await exportSvgEntry(node, config, assetRegistry, {
       vectorMode,
       colorModel: analyzeVectorColorModel(tree, id, cache)
     })
-    if (!entry) continue
+    if (!entry) {
+      if (cache?.metrics) cache.metrics.vectorExportNull += 1
+      continue
+    }
+    recordVectorEntryMetrics(entry, cache)
     svgs.set(id, entry)
   }
   return svgs
+}
+
+function recordVectorEntryMetrics(entry: SvgEntry, cache?: GetCodeCacheContext): void {
+  const metrics = cache?.metrics
+  if (!metrics) return
+
+  if (entry.props['data-asset-url']) {
+    metrics.vectorExportUploaded += 1
+    return
+  }
+
+  if (entry.presentationStyle?.color) {
+    metrics.vectorExportThemeableInline += 1
+    return
+  }
+
+  if (entry.raw) {
+    metrics.vectorExportRawInline += 1
+  }
 }

@@ -21,7 +21,11 @@ export function analyzeVectorColorModel(
   ctx?: GetCodeCacheContext
 ): VectorColorModel {
   const cached = ctx?.vectorAnalysis.get(rootId)
-  if (cached) return cached
+  if (cached) {
+    if (ctx?.metrics) ctx.metrics.vectorAnalysisHits += 1
+    return cached
+  }
+  if (ctx?.metrics) ctx.metrics.vectorAnalysisMisses += 1
 
   const channels = new Set<string>()
   const colors = new Set<string>()

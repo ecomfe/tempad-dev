@@ -69,8 +69,19 @@ export type CacheMetrics = {
   nodeSemanticMisses: number
   styleHits: number
   styleMisses: number
+  paintStyleHits: number
+  paintStyleMisses: number
   variableHits: number
   variableMisses: number
+  vectorAnalysisHits: number
+  vectorAnalysisMisses: number
+  vectorExportCandidates: number
+  vectorExportSkippedMissing: number
+  vectorExportSkippedZeroBounds: number
+  vectorExportNull: number
+  vectorExportUploaded: number
+  vectorExportThemeableInline: number
+  vectorExportRawInline: number
 }
 
 export type GetCodeCacheContext = {
