@@ -14,6 +14,8 @@ import Section from '@/components/Section.vue'
 import SegmentedControl from '@/components/SegmentedControl.vue'
 import { useCopy, useDeepLinkGuard } from '@/composables'
 import {
+  getMcpClientCopyPayload,
+  getNextMcpClientCopyVariant,
   MCP_CLIENTS,
   MCP_CLIENTS_BY_ID,
   MCP_DEFAULT_CONFIG_SNIPPET,
@@ -55,10 +57,27 @@ function buildBrandColorMap(theme: 'light' | 'dark'): Record<McpClientId, string
   }
 }
 
+const nextCopyVariantByClient = ref<Partial<Record<McpClientId, 'primary' | 'alternate'>>>({})
+
+function getCopyPayload(client: McpClientConfig) {
+  return getMcpClientCopyPayload(client, nextCopyVariantByClient.value[client.id] ?? 'primary')
+}
+
+function getNextCopyPayload(client: McpClientConfig) {
+  const currentVariant = nextCopyVariantByClient.value[client.id] ?? 'primary'
+  return getMcpClientCopyPayload(client, getNextMcpClientCopyVariant(client, currentVariant))
+}
+
+function toggleCopyVariant(client: McpClientConfig): void {
+  const currentVariant = nextCopyVariantByClient.value[client.id] ?? 'primary'
+  nextCopyVariantByClient.value[client.id] = getNextMcpClientCopyVariant(client, currentVariant)
+}
+
 function getClientTooltip(client: McpClientConfig): string {
   if (client.deepLink) return `Install in ${client.name}`
-  if (client.copyKind === 'command') return `Copy command for ${client.name}`
-  if (client.copyKind === 'config') return `Copy configuration for ${client.name}`
+  const payload = getCopyPayload(client)
+  if (payload?.kind === 'command') return `Copy command for ${client.name}`
+  if (payload?.kind === 'config') return `Copy configuration for ${client.name}`
   return client.name
 }
 
@@ -87,6 +106,15 @@ const copyMessages = {
   config: 'Copied configuration to clipboard'
 } as const
 
+function getCopyMessage(client: McpClientConfig, kind: 'command' | 'config'): string {
+  const nextPayload = getNextCopyPayload(client)
+  if (!nextPayload || nextPayload.kind === kind) {
+    return copyMessages[kind]
+  }
+  const nextLabel = nextPayload.kind === 'config' ? 'configuration' : 'command'
+  return `${copyMessages[kind]}. Click again to copy ${nextLabel}`
+}
+
 async function handleClientClick(client: McpClientDisplay) {
   if (client.deepLink) {
     guardDeepLink(client.deepLink, {
@@ -95,9 +123,10 @@ async function handleClientClick(client: McpClientDisplay) {
     })
     return
   }
-  if (client.copyText) {
-    const kind = client.copyKind === 'config' ? 'config' : 'command'
-    copy(client.copyText, copyMessages[kind])
+  const payload = getCopyPayload(client)
+  if (payload) {
+    copy(payload.text, getCopyMessage(client, payload.kind))
+    toggleCopyVariant(client)
   }
 }
 </script>

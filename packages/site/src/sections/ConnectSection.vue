@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import type { McpClientConfig } from '@tempad-dev/shared'
+import type { McpClientConfig, McpClientCopyPayload } from '@tempad-dev/shared'
 
-import { MCP_CLIENTS_BY_ID, MCP_SKILL_INSTALL_COMMAND } from '@tempad-dev/shared'
+import {
+  getMcpClientCopyPayload,
+  getNextMcpClientCopyVariant,
+  MCP_CLIENTS_BY_ID,
+  MCP_SKILL_INSTALL_COMMAND
+} from '@tempad-dev/shared'
 import { Copy, FileText, SquareTerminal } from 'lucide-vue-next'
 import {
   computed,
@@ -51,6 +56,9 @@ const activeTerminalEntryIndex = ref(0)
 const activeTerminalCharCount = ref(0)
 const terminalCardRef = ref<HTMLElement | null>(null)
 const terminalViewportRef = ref<HTMLElement | null>(null)
+const nextCopyVariantByClient = ref<
+  Partial<Record<McpClientConfig['id'], 'primary' | 'alternate'>>
+>({})
 
 const terminalEntries: readonly TerminalEntry[] = [
   {
@@ -339,12 +347,27 @@ function openDeepLink(client: McpClientConfig): void {
   window.location.href = client.deepLink
 }
 
+function getCopyPayload(client: McpClientConfig): McpClientCopyPayload | null {
+  return getMcpClientCopyPayload(client, nextCopyVariantByClient.value[client.id] ?? 'primary')
+}
+
+function getNextCopyPayload(client: McpClientConfig): McpClientCopyPayload | null {
+  const currentVariant = nextCopyVariantByClient.value[client.id] ?? 'primary'
+  return getMcpClientCopyPayload(client, getNextMcpClientCopyVariant(client, currentVariant))
+}
+
+function toggleCopyVariant(client: McpClientConfig): void {
+  const currentVariant = nextCopyVariantByClient.value[client.id] ?? 'primary'
+  nextCopyVariantByClient.value[client.id] = getNextMcpClientCopyVariant(client, currentVariant)
+}
+
 function getClientActionLabel(client: McpClientConfig): string {
   if (client.deepLink) {
     return 'Open'
   }
 
-  if (client.copyKind === 'command') {
+  const payload = getCopyPayload(client)
+  if (payload?.kind === 'command') {
     return 'Copy command'
   }
 
@@ -352,11 +375,19 @@ function getClientActionLabel(client: McpClientConfig): string {
 }
 
 function getClientCopySuccessMessage(client: McpClientConfig): string {
-  if (client.copyKind === 'command') {
-    return 'Copied install command.'
+  const payload = getCopyPayload(client)
+  if (!payload) {
+    return 'Copied config snippet.'
   }
 
-  return 'Copied config snippet.'
+  const copied = payload.kind === 'command' ? 'Copied install command.' : 'Copied config snippet.'
+  const nextPayload = getNextCopyPayload(client)
+  if (!nextPayload || nextPayload.kind === payload.kind) {
+    return copied
+  }
+
+  const nextLabel = nextPayload.kind === 'config' ? 'config' : 'command'
+  return `${copied} Click again to copy ${nextLabel}.`
 }
 
 function handleClientAction(client: McpClientConfig): void {
@@ -365,8 +396,10 @@ function handleClientAction(client: McpClientConfig): void {
     return
   }
 
-  if (client.copyText) {
-    void writeClipboard(client.copyText, getClientCopySuccessMessage(client))
+  const payload = getCopyPayload(client)
+  if (payload) {
+    void writeClipboard(payload.text, getClientCopySuccessMessage(client))
+    toggleCopyVariant(client)
   }
 }
 

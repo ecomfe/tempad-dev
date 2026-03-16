@@ -48,7 +48,28 @@ describe('composables/toast', () => {
     toast.show('second')
     toast.hide()
 
-    expect(cancelFirst).not.toHaveBeenCalled()
+    expect(cancelFirst).toHaveBeenCalledTimes(1)
+    expect(cancelSecond).toHaveBeenCalledTimes(1)
+  })
+
+  it('shares the active notification across toast instances', () => {
+    const cancelFirst = vi.fn()
+    const cancelSecond = vi.fn()
+    const notify = vi
+      .fn<(_msg: string) => NotificationHandler>()
+      .mockReturnValueOnce({ cancel: cancelFirst } as NotificationHandler)
+      .mockReturnValueOnce({ cancel: cancelSecond } as NotificationHandler)
+    vi.stubGlobal('figma', { notify })
+
+    const firstToast = useToast()
+    const secondToast = useToast()
+
+    firstToast.show('first')
+    secondToast.show('second')
+
+    expect(cancelFirst).toHaveBeenCalledTimes(1)
+
+    secondToast.hide()
     expect(cancelSecond).toHaveBeenCalledTimes(1)
   })
 })

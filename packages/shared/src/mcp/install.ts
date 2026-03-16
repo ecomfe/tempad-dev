@@ -16,6 +16,12 @@ type StdioCommandConfig = BaseCommandConfig & {
 export type McpClientId = 'vscode' | 'cursor' | 'windsurf' | 'claude' | 'codex' | 'trae'
 
 export type McpBrandColor = string | [light: string, dark: string]
+export type McpClientCopyKind = 'command' | 'config'
+export type McpClientCopyVariant = 'primary' | 'alternate'
+export type McpClientCopyPayload = {
+  kind: McpClientCopyKind
+  text: string
+}
 
 export type McpClientConfig = {
   id: McpClientId
@@ -25,7 +31,9 @@ export type McpClientConfig = {
   supportsDeepLink: boolean
   fallbackDeepLink?: string
   copyText?: string
-  copyKind?: 'command' | 'config'
+  copyKind?: McpClientCopyKind
+  alternateCopyText?: string
+  alternateCopyKind?: McpClientCopyKind
 }
 
 const stdioConfig: StdioCommandConfig = {
@@ -99,6 +107,14 @@ function buildWindsurfConfigSnippet(): string {
   )
 }
 
+function buildCodexConfigSnippet(): string {
+  return [
+    `[mcp_servers.${SERVER_NAME}]`,
+    `command = ${JSON.stringify(SERVER_COMMAND)}`,
+    `args = [${SERVER_ARGS.map((arg) => JSON.stringify(arg)).join(', ')}]`
+  ].join('\n')
+}
+
 function buildCliCommand(prefix: 'claude' | 'codex'): string {
   const args = `${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`
   if (prefix === 'claude') {
@@ -106,6 +122,38 @@ function buildCliCommand(prefix: 'claude' | 'codex'): string {
   }
 
   return `codex mcp add "${SERVER_NAME}" -- ${args}`
+}
+
+export function getMcpClientCopyPayload(
+  client: Pick<
+    McpClientConfig,
+    'copyText' | 'copyKind' | 'alternateCopyText' | 'alternateCopyKind'
+  >,
+  variant: McpClientCopyVariant = 'primary'
+): McpClientCopyPayload | null {
+  if (variant === 'alternate' && client.alternateCopyText && client.alternateCopyKind) {
+    return {
+      text: client.alternateCopyText,
+      kind: client.alternateCopyKind
+    }
+  }
+
+  if (!client.copyText) return null
+  return {
+    text: client.copyText,
+    kind: client.copyKind === 'config' ? 'config' : 'command'
+  }
+}
+
+export function getNextMcpClientCopyVariant(
+  client: Pick<McpClientConfig, 'alternateCopyText' | 'alternateCopyKind'>,
+  currentVariant: McpClientCopyVariant = 'primary'
+): McpClientCopyVariant {
+  if (!client.alternateCopyText || !client.alternateCopyKind) {
+    return 'primary'
+  }
+
+  return currentVariant === 'alternate' ? 'primary' : 'alternate'
 }
 
 export const MCP_SERVER = {
@@ -161,7 +209,9 @@ export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
     brandColor: ['#0d0d0d', '#fff'],
     supportsDeepLink: false,
     copyText: buildCliCommand('codex'),
-    copyKind: 'command'
+    copyKind: 'command',
+    alternateCopyText: buildCodexConfigSnippet(),
+    alternateCopyKind: 'config'
   },
   trae: {
     id: 'trae',

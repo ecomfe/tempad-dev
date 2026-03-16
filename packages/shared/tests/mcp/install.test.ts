@@ -78,7 +78,12 @@ describe('shared/mcp/install', () => {
     })
 
     expect(mcp.MCP_CLIENTS_BY_ID.claude.copyText).toContain('claude mcp add --transport stdio')
+    expect(mcp.MCP_CLIENTS_BY_ID.codex.copyKind).toBe('command')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.copyText).toContain('codex mcp add "tempad-dev"')
+    expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyKind).toBe('config')
+    expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyText).toBe(
+      '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@latest"]'
+    )
     expect(mcp.MCP_CLIENTS).toHaveLength(6)
   })
 

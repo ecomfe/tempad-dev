@@ -1,15 +1,22 @@
+let activeNotification: NotificationHandler | null = null
+
+function cancelActiveNotification(): void {
+  if (!activeNotification) return
+
+  activeNotification.cancel()
+  activeNotification = null
+}
+
 export function useToast() {
-  let active: NotificationHandler | null = null
+  function show(msg: string): void {
+    cancelActiveNotification()
+    activeNotification = figma.notify(msg)
+  }
 
   return {
-    show(msg: string) {
-      active = figma.notify(msg)
-    },
-    hide() {
-      if (active) {
-        active.cancel()
-        active = null
-      }
+    show,
+    hide(): void {
+      cancelActiveNotification()
     }
   }
 }
