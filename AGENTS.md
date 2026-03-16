@@ -22,6 +22,7 @@ Provide a single entry point for coding agents. This file links to package-level
 
 - Package manager: `pnpm`
 - Prefer repo-level scripts unless a package explicitly documents otherwise.
+- When creating commits, use Conventional Commits (for example: `feat: ...`, `fix: ...`, `docs: ...`, `chore: ...`).
 
 ## Common commands
 
