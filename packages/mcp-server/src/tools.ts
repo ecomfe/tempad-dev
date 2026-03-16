@@ -1,14 +1,22 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type {
+  GetAssetsResult,
   GetScreenshotResult,
   TempadMcpErrorCode,
   ToolName,
+  ToolResponseLike,
   ToolResultMap,
   ToolSchema
 } from '@tempad-dev/shared'
 import type { ZodType } from 'zod'
 
 import {
+  MCP_TOOL_INLINE_BUDGET_BYTES,
+  buildGetAssetsToolResult,
+  buildGetCodeToolResult,
+  buildGetScreenshotToolResult,
+  buildGetStructureToolResult,
+  buildGetTokenDefsToolResult,
   GetAssetsParametersSchema,
   GetAssetsResultSchema,
   GetCodeParametersSchema,
@@ -16,6 +24,7 @@ import {
   GetStructureParametersSchema,
   GetTokenDefsParametersSchema,
   TEMPAD_MCP_ERROR_CODES,
+  measureCallToolResultBytes,
   type TempadMcpErrorPayload
 } from '@tempad-dev/shared'
 
@@ -91,6 +100,7 @@ export const TOOL_DEFS = [
       'Resolve canonical token names to literal values (optionally including all modes) for tokens referenced by get_code.',
     parameters: GetTokenDefsParametersSchema,
     target: 'extension',
+    format: createTokenDefsToolResponse,
     exposed: false
   }),
   extTool({
@@ -107,7 +117,8 @@ export const TOOL_DEFS = [
     description:
       'Get a compact structural + geometry outline for nodeId/current single selection to understand hierarchy and layout intent.',
     parameters: GetStructureParametersSchema,
-    target: 'extension'
+    target: 'extension',
+    format: createStructureToolResponse
   }),
   hubTool({
     name: 'get_assets',
@@ -195,44 +206,32 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
   }
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
 export function createCodeToolResponse(payload: ToolResultMap['get_code']): CallToolResult {
   if (!isCodeResult(payload)) {
     throw new Error('Invalid get_code payload received from extension.')
   }
 
-  const summary: string[] = []
-  const codeSize = Buffer.byteLength(payload.code, 'utf8')
-  summary.push(`Generated \`${payload.lang}\` snippet (${formatBytes(codeSize)}).`)
-  if (payload.warnings?.length) {
-    const warningText = payload.warnings.map((warning) => warning.message).join(' ')
-    summary.push(warningText)
-  }
-  summary.push(
-    payload.assets?.length
-      ? `Assets attached: ${payload.assets.length}. Download bytes from each asset.url.`
-      : 'No binary assets were attached to this response.'
-  )
-  const tokenCount = payload.tokens ? Object.keys(payload.tokens).length : 0
-  if (tokenCount) {
-    summary.push(`Token references included: ${tokenCount}.`)
-  }
-  summary.push('Read structuredContent for the full code string and asset metadata.')
+  return toCallToolResult(buildGetCodeToolResult(payload))
+}
 
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: summary.join('\n')
-      }
-    ],
-    structuredContent: payload
+export function createStructureToolResponse(
+  payload: ToolResultMap['get_structure']
+): CallToolResult {
+  if (!isStructureResult(payload)) {
+    throw new Error('Invalid get_structure payload received from extension.')
   }
+
+  return toCallToolResult(buildGetStructureToolResult(payload))
+}
+
+export function createTokenDefsToolResponse(
+  payload: ToolResultMap['get_token_defs']
+): CallToolResult {
+  if (!isTokenDefsResult(payload)) {
+    throw new Error('Invalid get_token_defs payload received from extension.')
+  }
+
+  return toCallToolResult(buildGetTokenDefsToolResult(payload))
 }
 
 export function createScreenshotToolResponse(
@@ -242,19 +241,7 @@ export function createScreenshotToolResponse(
     throw new Error('Invalid get_screenshot payload received from extension.')
   }
 
-  const descriptionBlock = {
-    type: 'text' as const,
-    text: `${describeScreenshot(payload)} - Download: ${payload.asset.url}`
-  }
-
-  return {
-    content: [descriptionBlock],
-    structuredContent: payload
-  }
-}
-
-function describeScreenshot(result: GetScreenshotResult): string {
-  return `Screenshot ${result.width}x${result.height} @${result.scale}x (${formatBytes(result.bytes)})`
+  return toCallToolResult(buildGetScreenshotToolResult(payload))
 }
 
 function isScreenshotResult(payload: unknown): payload is GetScreenshotResult {
@@ -281,6 +268,23 @@ function isCodeResult(payload: unknown): payload is ToolResultMap['get_code'] {
   )
 }
 
+function isStructureResult(payload: unknown): payload is ToolResultMap['get_structure'] {
+  if (typeof payload !== 'object' || !payload) return false
+  const candidate = payload as Partial<ToolResultMap['get_structure'] & Record<string, unknown>>
+  return Array.isArray(candidate.roots)
+}
+
+function isTokenDefsResult(payload: unknown): payload is ToolResultMap['get_token_defs'] {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
+  for (const value of Object.values(payload as Record<string, unknown>)) {
+    if (!value || typeof value !== 'object') return false
+    const token = value as Partial<Record<'kind' | 'value', unknown>>
+    if (typeof token.kind !== 'string') return false
+    if (token.value === undefined) return false
+  }
+  return true
+}
+
 export function coercePayloadToToolResponse(payload: unknown): CallToolResult {
   if (
     payload &&
@@ -297,6 +301,51 @@ export function coercePayloadToToolResponse(payload: unknown): CallToolResult {
         text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2)
       }
     ]
+  }
+}
+
+export function createAssetsToolResponse(payload: GetAssetsResult): CallToolResult {
+  return toCallToolResult(buildGetAssetsToolResult(payload))
+}
+
+export function createInlineBudgetExceededToolResponse(
+  toolName: ToolName,
+  actualBytes: number
+): CallToolResult {
+  const guidance = getBudgetRetryGuidance(toolName)
+  return {
+    isError: true,
+    content: [
+      {
+        type: 'text' as const,
+        text: `Tool "${toolName}" exceeded the 64 KiB inline budget (${actualBytes} UTF-8 bytes > ${MCP_TOOL_INLINE_BUDGET_BYTES}). ${guidance}`
+      }
+    ]
+  }
+}
+
+export function isWithinInlineBudget(result: ToolResponseLike): boolean {
+  return measureCallToolResultBytes(result) <= MCP_TOOL_INLINE_BUDGET_BYTES
+}
+
+function toCallToolResult(result: ToolResponseLike): CallToolResult {
+  return result as CallToolResult
+}
+
+function getBudgetRetryGuidance(toolName: ToolName): string {
+  switch (toolName) {
+    case 'get_code':
+      return 'Reduce selection size or request a smaller nodeId subtree and retry.'
+    case 'get_structure':
+      return 'Reduce selection size or pass a smaller depth and retry.'
+    case 'get_token_defs':
+      return 'Reduce requested names or split them into smaller batches and retry.'
+    case 'get_screenshot':
+      return 'Reduce selection size or scale and retry.'
+    case 'get_assets':
+      return 'Request fewer hashes in a single call and retry.'
+    default:
+      return 'Retry with a narrower request.'
   }
 }
 

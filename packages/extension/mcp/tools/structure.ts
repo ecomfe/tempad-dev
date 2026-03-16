@@ -1,11 +1,14 @@
 import type { GetStructureResult } from '@tempad-dev/shared'
 
-import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/shared'
+import {
+  MCP_TOOL_INLINE_BUDGET_BYTES,
+  buildGetStructureToolResult,
+  measureCallToolResultBytes
+} from '@tempad-dev/shared'
 
 import { buildSemanticTree, semanticTreeToOutline } from '@/mcp/semantic-tree'
 
 const STRUCTURE_NODE_LIMIT_STEPS = [240, 180, 140, 100, 70, 50]
-const STRUCTURE_TARGET_PAYLOAD_BYTES = Math.floor(MCP_MAX_PAYLOAD_BYTES * 0.15)
 const STRUCTURE_MAX_NAME_CHARS = 48
 const STRUCTURE_COORD_PRECISION = 10
 
@@ -17,33 +20,31 @@ export function handleGetStructure(roots: SceneNode[], depthLimit?: number): Get
   const tree = buildSemanticTree(roots, { depthLimit: resolvedDepthLimit })
   const outline = semanticTreeToOutline(tree.roots)
   const compactRoots = compactStructure(outline)
-  const payload = { roots: compactRoots }
-
-  const approxSize = JSON.stringify(payload).length
-  if (approxSize > MCP_MAX_PAYLOAD_BYTES) {
-    throw new Error('Structure payload too large to return. Reduce selection or depth and retry.')
+  if (!compactRoots.length && outline.length) {
+    throw new Error(
+      'Structure tool result exceeded the 64 KiB inline budget. Reduce selection or depth and retry.'
+    )
   }
 
-  return payload
+  return { roots: compactRoots }
 }
 
 function compactStructure(roots: StructureNode[]): StructureNode[] {
   if (!roots.length) return roots
 
-  let best = compactByNodeLimit(roots, STRUCTURE_NODE_LIMIT_STEPS[0])
-  if (estimatePayloadBytes(best) <= STRUCTURE_TARGET_PAYLOAD_BYTES) {
-    return best
+  const initial = compactByNodeLimit(roots, STRUCTURE_NODE_LIMIT_STEPS[0])
+  if (estimateToolResultBytes(initial) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
+    return initial
   }
 
   for (const nodeLimit of STRUCTURE_NODE_LIMIT_STEPS.slice(1)) {
     const candidate = compactByNodeLimit(roots, nodeLimit)
-    best = candidate
-    if (estimatePayloadBytes(candidate) <= STRUCTURE_TARGET_PAYLOAD_BYTES) {
+    if (estimateToolResultBytes(candidate) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
       return candidate
     }
   }
 
-  return best
+  return []
 }
 
 function compactByNodeLimit(roots: StructureNode[], nodeLimit: number): StructureNode[] {
@@ -110,6 +111,6 @@ function sanitizeNumber(value: unknown): number {
   return Math.round(value * STRUCTURE_COORD_PRECISION) / STRUCTURE_COORD_PRECISION
 }
 
-function estimatePayloadBytes(roots: StructureNode[]): number {
-  return JSON.stringify({ roots }).length
+function estimateToolResultBytes(roots: StructureNode[]): number {
+  return measureCallToolResultBytes(buildGetStructureToolResult({ roots }))
 }

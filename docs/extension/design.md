@@ -54,12 +54,12 @@ This document describes the implementation design for MCP `get_code` in `package
    - The resolve rerender applies to both collected node styles and themeable inline-SVG root presentation styles so emitted vector color evidence stays in sync with token resolution.
 
 10. **Enforce budget and finalize output**
-    - Validate output size using a conservative token-aware UTF-8 byte budget.
+    - Validate output size using a shared `CallToolResult` UTF-8 byte budget (`64 KiB` by default).
     - If over budget, prefer a shell response for the current node.
     - v1 shell fallback is correctness-first: it reuses the already-collected tree/style context rather than trying to re-run a shell-only collection path.
     - Emit warnings for inferred auto layout, depth-cap, and shell guidance.
     - If tree depth was capped, include a `depth-cap` warning with capped node ids.
-    - If a shell response is returned, list omitted direct child ids in an inline comment in render order.
+    - If a shell response is returned, list omitted direct child ids in an inline comment in render order and expose the next recommended `get_code` call via `warnings.data`.
 
 ## Tree and layout semantics
 
@@ -210,14 +210,12 @@ The request context is threaded through:
 
 ## Output budget strategy
 
-- `get_code` output uses a UTF-8 byte budget check, not raw character count.
-- Effective code byte budget is:
-  - `min(MCP_MAX_PAYLOAD_BYTES * 0.6, estimatedTokenBudgetBytes)`
-  - where `estimatedTokenBudgetBytes` is derived from a conservative token heuristic and headroom.
-- If the output exceeds budget at render or token-rewrite stages, the tool first attempts to return a shell for the current node.
+- `get_code` output uses a UTF-8 byte budget check on the final `CallToolResult`, not raw character count or token estimation.
+- Default inline budget is `64 KiB`, measured on the serialized `CallToolResult` body (`content`, `structuredContent`, `isError`, `_meta`).
+- If the formatted result exceeds budget, the tool first attempts to return a shell for the current node.
 - The v1 shell algorithm omits all direct children for the current node and expects clients/agents to fetch them one by one in the order written in the inline comment.
 - If a usable shell cannot be generated, the tool throws and asks clients to reduce selection scope.
-- Token rewrite stage and final render stage share the same byte-budget guard to keep behavior consistent.
+- Token rewrite no longer has its own token-aware budget branch; budget enforcement happens on the finalized tool result.
 
 ## Performance notes
 

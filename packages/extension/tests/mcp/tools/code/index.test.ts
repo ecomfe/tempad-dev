@@ -97,7 +97,7 @@ describe('mcp/code handleGetCode', () => {
       tokensByCanonical: {},
       sourceIndex: new Map()
     }))
-    mocks.renderTree.mockResolvedValue(raw('X'.repeat(40000)))
+    mocks.renderTree.mockResolvedValue(raw('X'.repeat(90000)))
     mocks.getOrderedChildIds.mockReturnValue(['c', 'b'])
     mocks.renderShellTree.mockResolvedValue(
       raw('<div className="flex">{/* omitted direct children: c,b */}</div>')
@@ -148,7 +148,7 @@ describe('mcp/code handleGetCode', () => {
       tokensByCanonical: {},
       sourceIndex: new Map()
     }))
-    mocks.renderTree.mockResolvedValue(raw('X'.repeat(40000)))
+    mocks.renderTree.mockResolvedValue(raw('X'.repeat(90000)))
     mocks.getOrderedChildIds.mockReturnValue(['b'])
     mocks.renderShellTree.mockResolvedValue(null)
     vi.stubGlobal('__DEV__', false)
@@ -157,7 +157,7 @@ describe('mcp/code handleGetCode', () => {
 
     await expect(
       handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
-    ).rejects.toThrow('Output exceeds token/context budget')
+    ).rejects.toThrow('Tool result exceeds inline budget')
   })
 
   it('returns full output without shell when unbounded mode is enabled', async () => {

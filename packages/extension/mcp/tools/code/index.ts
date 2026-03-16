@@ -5,7 +5,7 @@ import type {
   GetTokenDefsResult
 } from '@tempad-dev/shared'
 
-import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/shared'
+import { buildGetCodeToolResult } from '@tempad-dev/shared'
 
 import type { DevComponent } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
@@ -16,7 +16,6 @@ import { simplifyColorMixToRgba } from '@/utils/css'
 import { logger } from '@/utils/log'
 
 import type { SvgEntry } from './assets'
-import type { CodeBudget } from './messages'
 import type { VisibleTree } from './model'
 import type { CodeLanguage, RenderContext } from './render'
 import type { PluginComponent } from './render/plugin'
@@ -28,7 +27,7 @@ import { planAssets } from './assets/plan'
 import { createGetCodeCacheContext } from './cache'
 import { collectNodeData } from './collect'
 import {
-  assertCodeWithinBudget,
+  assertToolResponseWithinBudget,
   buildGetCodeWarnings,
   isCodeBudgetExceededError,
   resolveCodeBudget,
@@ -93,6 +92,8 @@ type RenderMode =
       omittedNodeIds: string[]
     }
 
+type ShellMode = Extract<RenderMode, { kind: 'shell' }>
+
 type PipelineInput = {
   mode: RenderMode
   rootId: string
@@ -103,7 +104,6 @@ type PipelineInput = {
   vectorRoots: Set<string>
   rootTag?: string
   lang?: CodeLanguage
-  budget: CodeBudget
   variableIds: Set<string>
   usedCandidateIds: Set<string>
   variableCache: Map<string, Variable | null>
@@ -205,9 +205,12 @@ export async function handleGetCode(
   })
 
   const rootTag = collected.nodes.get(rootId)?.tag
-  const codeBudget = runtimeOptions.unbounded
-    ? resolveUnlimitedCodeBudget()
-    : resolveCodeBudget(MCP_MAX_PAYLOAD_BYTES)
+  const codeBudget = runtimeOptions.unbounded ? resolveUnlimitedCodeBudget() : resolveCodeBudget()
+  const requestArgs = {
+    ...(preferredLang ? { preferredLang } : {}),
+    ...(resolveTokens !== undefined ? { resolveTokens } : {}),
+    ...(vectorMode ? { vectorMode } : {})
+  } satisfies Pick<GetCodeParametersInput, 'preferredLang' | 'resolveTokens' | 'vectorMode'>
   const codegen = {
     plugin: activePlugin.value?.name ?? 'none',
     config
@@ -221,7 +224,6 @@ export async function handleGetCode(
     vectorRoots: plan.vectorRoots,
     rootTag,
     lang: preferredLang,
-    budget: codeBudget,
     variableIds: mappings.variableIds,
     usedCandidateIds,
     variableCache,
@@ -239,15 +241,18 @@ export async function handleGetCode(
     })
     const warnings = buildGetCodeWarnings(output.code, {
       depthLimit: tree.stats.depthLimit,
-      cappedNodeIds: tree.stats.cappedNodeIds
+      cappedNodeIds: tree.stats.cappedNodeIds,
+      requestArgs
     })
+    const result = buildCodeResult(output, codegen, allAssets, warnings)
+    assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
 
     logTrace(
       trace,
       `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${allAssets.length}${runtimeOptions.unbounded ? ' budget=unbounded' : ''}${formatCacheMetrics(cache)}`
     )
 
-    return buildCodeResult(output, codegen, allAssets, warnings)
+    return result
   } catch (error) {
     if (!isCodeBudgetExceededError(error)) {
       throw error
@@ -269,16 +274,28 @@ export async function handleGetCode(
     const warnings = buildGetCodeWarnings(shell.code, {
       depthLimit: tree.stats.depthLimit,
       cappedNodeIds: tree.stats.cappedNodeIds,
-      shell: true
+      shell: true,
+      omittedNodeIds: shellMode.omittedNodeIds,
+      requestArgs
     })
     const assets = filterAssetsReferencedInCode(allAssets, shell.code)
+    const result = buildCodeResult(shell, codegen, assets, warnings)
+
+    try {
+      assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
+    } catch (shellError) {
+      if (isCodeBudgetExceededError(shellError)) {
+        throw error
+      }
+      throw shellError
+    }
 
     logTrace(
       trace,
       `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assets.length} shell${formatCacheMetrics(cache)}`
     )
 
-    return buildCodeResult(shell, codegen, assets, warnings)
+    return result
   }
 }
 
@@ -287,18 +304,10 @@ async function tryRenderShell(input: PipelineInput): Promise<PipelineOutput | nu
   if (!rendered) {
     return null
   }
-
-  try {
-    return await finalizeRenderedOutput(input, rendered)
-  } catch (error) {
-    if (isCodeBudgetExceededError(error)) {
-      return null
-    }
-    throw error
-  }
+  return finalizeRenderedOutput(input, rendered)
 }
 
-function createShellMode(rootId: string, tree: VisibleTree, ctx: RenderContext): RenderMode | null {
+function createShellMode(rootId: string, tree: VisibleTree, ctx: RenderContext): ShellMode | null {
   const rootSnapshot = tree.nodes.get(rootId)
   if (!rootSnapshot?.children.length) return null
 
@@ -333,7 +342,6 @@ async function finalizeRenderedOutput(
     resolveNodeIds
   } = await processTokens({
     code: rendered.code,
-    budget: input.budget,
     variableIds: input.variableIds,
     usedCandidateIds: input.usedCandidateIds,
     variableCache: input.variableCache,
@@ -614,7 +622,6 @@ async function renderMarkup({
   ctx,
   rootTag,
   lang,
-  budget,
   transform,
   trace
 }: PipelineInput & {
@@ -642,9 +649,8 @@ async function renderMarkup({
 
   t = clock ? clock() : 0
   const output = transform ? transform(markup) : markup
-  assertCodeWithinBudget(output, budget)
   if (trace && clock) {
-    trace.stamp(mode.kind === 'shell' ? 'budget-check:shell' : 'budget-check', t)
+    trace.stamp(mode.kind === 'shell' ? 'transform:shell' : 'transform', t)
   }
   return { code: output, lang: resolvedLang }
 }

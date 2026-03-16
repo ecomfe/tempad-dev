@@ -2,50 +2,67 @@ import { describe, expect, it } from 'vitest'
 
 import {
   CodeBudgetExceededError,
-  assertCodeWithinBudget,
+  assertToolResponseWithinBudget,
   buildGetCodeWarnings,
   isCodeBudgetExceededError
 } from '@/mcp/tools/code/messages'
 
 describe('mcp/code messages', () => {
-  it('throws when markup exceeds size budget', () => {
+  it('throws when tool result exceeds inline budget', () => {
     expect(() =>
-      assertCodeWithinBudget('<div>abc</div>', {
-        maxCodeBytes: 8,
-        estimatedTokenBudget: 2
-      })
-    ).toThrow('Output exceeds token/context budget')
+      assertToolResponseWithinBudget(
+        {
+          content: [{ type: 'text', text: 'hello world' }]
+        },
+        {
+          maxResultBytes: 8
+        }
+      )
+    ).toThrow('Tool result exceeds inline budget')
 
     let message = ''
     let budgetError: unknown
     try {
-      assertCodeWithinBudget('<div>abc</div>', {
-        maxCodeBytes: 8,
-        estimatedTokenBudget: 2
-      })
+      assertToolResponseWithinBudget(
+        {
+          content: [{ type: 'text', text: 'hello world' }]
+        },
+        {
+          maxResultBytes: 8
+        }
+      )
     } catch (error) {
       budgetError = error
       message = error instanceof Error ? error.message : String(error)
     }
+
     expect(budgetError).toBeInstanceOf(CodeBudgetExceededError)
     expect(isCodeBudgetExceededError(budgetError)).toBe(true)
-    expect(message).toContain('current ~')
-    expect(message).toContain('limit ~2 tokens / 8 UTF-8 bytes')
-    expect(message).toContain('over by ~')
+    expect(message).toContain('UTF-8 bytes')
+    expect(message).toContain('Reduce selection size')
 
     expect(() =>
-      assertCodeWithinBudget('<div>abc</div>', {
-        maxCodeBytes: 20,
-        estimatedTokenBudget: 5
-      })
+      assertToolResponseWithinBudget(
+        {
+          content: [{ type: 'text', text: 'ok' }]
+        },
+        {
+          maxResultBytes: 128
+        }
+      )
     ).not.toThrow()
   })
 
-  it('builds warning list for auto-layout and depth cap', () => {
+  it('builds warning list for auto-layout and depth cap with continuation hints', () => {
     const ids = Array.from({ length: 55 }, (_, i) => `n-${i % 10}`)
     const warnings = buildGetCodeWarnings('<div data-hint-auto-layout="inferred"></div>', {
       depthLimit: 3,
-      cappedNodeIds: ids
+      cappedNodeIds: ids,
+      requestArgs: {
+        preferredLang: 'jsx',
+        resolveTokens: true,
+        vectorMode: 'snapshot'
+      }
     })
 
     expect(warnings).toBeDefined()
@@ -59,7 +76,14 @@ describe('mcp/code messages', () => {
       depthLimit: 3,
       cappedNodeIds: ['n-0', 'n-1', 'n-2', 'n-3', 'n-4', 'n-5', 'n-6', 'n-7', 'n-8', 'n-9'],
       cappedNodeCount: 10,
-      cappedNodeOverflow: false
+      cappedNodeOverflow: false,
+      continuationTool: 'get_code',
+      recommendedNextArgs: {
+        nodeId: 'n-0',
+        preferredLang: 'jsx',
+        resolveTokens: true,
+        vectorMode: 'snapshot'
+      }
     })
   })
 
@@ -67,15 +91,33 @@ describe('mcp/code messages', () => {
     expect(buildGetCodeWarnings('<div />')).toBeUndefined()
   })
 
-  it('adds shell warning without duplicating omitted node ids in warning data', () => {
+  it('adds shell warning data with continuation hints', () => {
     const warnings = buildGetCodeWarnings('<div />', {
-      shell: true
+      shell: true,
+      omittedNodeIds: ['a', 'b', 'c'],
+      requestArgs: {
+        preferredLang: 'vue',
+        resolveTokens: false,
+        vectorMode: 'smart'
+      }
     })
 
     expect(warnings?.map((item) => item.type)).toEqual(['shell'])
     expect(warnings?.[0]?.message).toContain('Shell response')
     expect(warnings?.[0]?.message).toContain('inline comment')
-    expect(warnings?.[0]?.data).toBeUndefined()
+    expect(warnings?.[0]?.data).toEqual({
+      strategy: 'shell',
+      omittedNodeIds: ['a', 'b', 'c'],
+      omittedNodeCount: 3,
+      omittedNodeOverflow: false,
+      continuationTool: 'get_code',
+      recommendedNextArgs: {
+        nodeId: 'a',
+        preferredLang: 'vue',
+        resolveTokens: false,
+        vectorMode: 'smart'
+      }
+    })
   })
 
   it('marks depth cap overflow and truncates id list to max 50', () => {

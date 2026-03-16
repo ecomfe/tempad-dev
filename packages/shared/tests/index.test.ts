@@ -7,9 +7,11 @@ import * as mcp from '../src/mcp'
 describe('shared root index barrel', () => {
   it('re-exports mcp and figma module surfaces', () => {
     expect(shared.MCP_MAX_PAYLOAD_BYTES).toBe(mcp.MCP_MAX_PAYLOAD_BYTES)
+    expect(shared.MCP_TOOL_INLINE_BUDGET_BYTES).toBe(mcp.MCP_TOOL_INLINE_BUDGET_BYTES)
     expect(shared.TEMPAD_MCP_ERROR_CODES).toBe(mcp.TEMPAD_MCP_ERROR_CODES)
     expect(shared.GetCodeParametersSchema).toBe(mcp.GetCodeParametersSchema)
     expect(shared.parseMessageToExtension).toBe(mcp.parseMessageToExtension)
+    expect(shared.measureCallToolResultBytes).toBe(mcp.measureCallToolResultBytes)
 
     expect(shared.formatHexAlpha).toBe(figma.formatHexAlpha)
     expect(shared.resolveGradientFromPaints).toBe(figma.resolveGradientFromPaints)

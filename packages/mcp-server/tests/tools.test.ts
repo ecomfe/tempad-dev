@@ -5,8 +5,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   coercePayloadToToolResponse,
+  createAssetsToolResponse,
   createCodeToolResponse,
+  createInlineBudgetExceededToolResponse,
   createScreenshotToolResponse,
+  createStructureToolResponse,
+  createTokenDefsToolResponse,
   createToolErrorResponse
 } from '../src/tools'
 
@@ -86,6 +90,25 @@ describe('tools response helpers', () => {
     expect(textContent(result.content[0])).toContain('No binary assets were attached')
   })
 
+  it('formats structure and token tool responses with structured content summaries', () => {
+    const structurePayload: ToolResultMap['get_structure'] = {
+      roots: [{ id: '1', name: 'Root', type: 'FRAME', x: 0, y: 0, width: 10, height: 10 }]
+    }
+    const structureResult = createStructureToolResponse(structurePayload)
+    expect(structureResult.structuredContent).toEqual(structurePayload)
+    expect(textContent(structureResult.content[0])).toContain('Returned structure outline')
+
+    const tokenPayload: ToolResultMap['get_token_defs'] = {
+      '--color-primary': {
+        kind: 'color',
+        value: '#6699CC'
+      }
+    }
+    const tokenResult = createTokenDefsToolResponse(tokenPayload)
+    expect(tokenResult.structuredContent).toEqual(tokenPayload)
+    expect(textContent(tokenResult.content[0])).toContain('Resolved 1 token definition')
+  })
+
   it('formats screenshot tool responses with summary text only', () => {
     const payload: ToolResultMap['get_screenshot'] = {
       format: 'png',
@@ -107,6 +130,32 @@ describe('tools response helpers', () => {
       'Screenshot 100x80 @2x (2.0 MB) - Download: https://assets.example.com/d4c3b2a1.png'
     )
     expect(result.content).toHaveLength(1)
+  })
+
+  it('formats asset tool responses with summary text and structured content', () => {
+    const payload: ToolResultMap['get_assets'] = {
+      assets: [
+        {
+          hash: 'deadbeef',
+          url: 'https://assets.example.com/deadbeef.png',
+          mimeType: 'image/png',
+          size: 1024
+        }
+      ],
+      missing: ['beefcafe']
+    }
+
+    const result = createAssetsToolResponse(payload)
+    expect(result.structuredContent).toEqual(payload)
+    expect(textContent(result.content[0])).toContain('Resolved 1 asset')
+    expect(textContent(result.content[0])).toContain('Missing: beefcafe')
+  })
+
+  it('formats inline budget errors with retry guidance', () => {
+    const result = createInlineBudgetExceededToolResponse('get_token_defs', 70000)
+    expect(result.isError).toBe(true)
+    expect(textContent(result.content[0])).toContain('64 KiB inline budget')
+    expect(textContent(result.content[0])).toContain('split them into smaller batches')
   })
 
   it('coerces payloads to MCP CallToolResult', () => {
@@ -187,5 +236,11 @@ describe('tools response helpers', () => {
     expect(() =>
       createScreenshotToolResponse(null as unknown as ToolResultMap['get_screenshot'])
     ).toThrow(/Invalid get_screenshot payload/)
+    expect(() =>
+      createStructureToolResponse({ roots: null } as unknown as ToolResultMap['get_structure'])
+    ).toThrow(/Invalid get_structure payload/)
+    expect(() =>
+      createTokenDefsToolResponse({ '--x': null } as unknown as ToolResultMap['get_token_defs'])
+    ).toThrow(/Invalid get_token_defs payload/)
   })
 })

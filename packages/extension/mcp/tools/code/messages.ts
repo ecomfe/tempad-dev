@@ -1,22 +1,19 @@
-import type { GetCodeWarning } from '@tempad-dev/shared'
+import type { GetCodeParametersInput, GetCodeWarning, ToolResponseLike } from '@tempad-dev/shared'
+
+import { MCP_TOOL_INLINE_BUDGET_BYTES, measureCallToolResultBytes } from '@tempad-dev/shared'
 
 const AUTO_LAYOUT_REGEX = /data-hint-auto-layout\s*=\s*["']?inferred["']?/i
-const DEFAULT_PAYLOAD_SHARE = 0.6
-const DEFAULT_CODE_TOKEN_BUDGET = 8000
-const DEFAULT_APPROX_BYTES_PER_TOKEN = 4
-const DEFAULT_TOKEN_HEADROOM = 0.75
+const MAX_WARNING_NODE_IDS = 50
 
 const SHELL_WARNING_MESSAGE =
   'Shell response: omitted direct child ids are listed in the inline comment. Call get_code for them in that order, then fill the results back into this shell instead of re-creating the parent layout.'
 
 export type CodeBudget = {
-  maxCodeBytes: number
-  estimatedTokenBudget: number
+  maxResultBytes: number
 }
 
 const UNBOUNDED_CODE_BUDGET: CodeBudget = {
-  maxCodeBytes: Number.MAX_SAFE_INTEGER,
-  estimatedTokenBudget: Number.MAX_SAFE_INTEGER
+  maxResultBytes: Number.MAX_SAFE_INTEGER
 }
 
 export class CodeBudgetExceededError extends Error {
@@ -26,17 +23,9 @@ export class CodeBudgetExceededError extends Error {
   }
 }
 
-export function resolveCodeBudget(maxPayloadBytes: number): CodeBudget {
-  const payloadByteBudget = Math.floor(maxPayloadBytes * DEFAULT_PAYLOAD_SHARE)
-  const estimatedTokenBudget = Math.max(
-    1,
-    Math.floor(DEFAULT_CODE_TOKEN_BUDGET * DEFAULT_TOKEN_HEADROOM)
-  )
-  const tokenByteBudget = estimatedTokenBudget * DEFAULT_APPROX_BYTES_PER_TOKEN
-  const maxCodeBytes = Math.max(1, Math.min(payloadByteBudget, tokenByteBudget))
+export function resolveCodeBudget(): CodeBudget {
   return {
-    maxCodeBytes,
-    estimatedTokenBudget
+    maxResultBytes: MCP_TOOL_INLINE_BUDGET_BYTES
   }
 }
 
@@ -44,16 +33,11 @@ export function resolveUnlimitedCodeBudget(): CodeBudget {
   return UNBOUNDED_CODE_BUDGET
 }
 
-export function assertCodeWithinBudget(rawMarkup: string, budget: CodeBudget): void {
-  const size = utf8ByteLength(rawMarkup)
-  if (size <= budget.maxCodeBytes) return
-
-  const estimatedCurrentTokens = estimateTokensFromBytes(size)
-  const overBytes = size - budget.maxCodeBytes
-  const overTokens = Math.max(1, estimatedCurrentTokens - budget.estimatedTokenBudget)
-
+export function assertToolResponseWithinBudget(result: ToolResponseLike, budget: CodeBudget): void {
+  const size = measureCallToolResultBytes(result)
+  if (size <= budget.maxResultBytes) return
   throw new CodeBudgetExceededError(
-    `Output exceeds token/context budget (current ~${estimatedCurrentTokens} tokens / ${size} UTF-8 bytes; limit ~${budget.estimatedTokenBudget} tokens / ${budget.maxCodeBytes} UTF-8 bytes; over by ~${overTokens} tokens / ${overBytes} bytes). Reduce selection size and retry, or call get_code on a smaller nodeId subtree.`
+    `Tool result exceeds inline budget (${size} UTF-8 bytes > ${budget.maxResultBytes} UTF-8 bytes). Reduce selection size and retry, or call get_code on a smaller nodeId subtree.`
   )
 }
 
@@ -63,6 +47,8 @@ export function buildGetCodeWarnings(
     depthLimit?: number
     cappedNodeIds?: string[]
     shell?: boolean
+    omittedNodeIds?: string[]
+    requestArgs?: Pick<GetCodeParametersInput, 'preferredLang' | 'resolveTokens' | 'vectorMode'>
   }
 ): GetCodeWarning[] | undefined {
   const warnings: GetCodeWarning[] = []
@@ -77,9 +63,7 @@ export function buildGetCodeWarnings(
 
   const cappedNodeIds = options?.cappedNodeIds ?? []
   if (cappedNodeIds.length) {
-    const MAX_IDS = 50
-    const deduped = Array.from(new Set(cappedNodeIds))
-    const list = deduped.slice(0, MAX_IDS)
+    const { list, count, overflow } = summarizeNodeIds(cappedNodeIds)
     warnings.push({
       type: 'depth-cap',
       message:
@@ -87,16 +71,35 @@ export function buildGetCodeWarnings(
       data: {
         depthLimit: options?.depthLimit,
         cappedNodeIds: list,
-        cappedNodeCount: deduped.length,
-        cappedNodeOverflow: deduped.length > list.length
+        cappedNodeCount: count,
+        cappedNodeOverflow: overflow,
+        continuationTool: 'get_code',
+        ...(list[0]
+          ? {
+              recommendedNextArgs: buildRecommendedNextArgs(list[0], options?.requestArgs)
+            }
+          : {})
       }
     })
   }
 
   if (options?.shell) {
+    const { list, count, overflow } = summarizeNodeIds(options?.omittedNodeIds ?? [])
     warnings.push({
       type: 'shell',
-      message: SHELL_WARNING_MESSAGE
+      message: SHELL_WARNING_MESSAGE,
+      data: {
+        strategy: 'shell',
+        omittedNodeIds: list,
+        omittedNodeCount: count,
+        omittedNodeOverflow: overflow,
+        continuationTool: 'get_code',
+        ...(list[0]
+          ? {
+              recommendedNextArgs: buildRecommendedNextArgs(list[0], options?.requestArgs)
+            }
+          : {})
+      }
     })
   }
 
@@ -107,23 +110,35 @@ export function isCodeBudgetExceededError(error: unknown): error is CodeBudgetEx
   return error instanceof CodeBudgetExceededError
 }
 
-function utf8ByteLength(input: string): number {
-  let bytes = 0
-  for (const ch of input) {
-    const codePoint = ch.codePointAt(0) ?? 0
-    if (codePoint <= 0x7f) {
-      bytes += 1
-    } else if (codePoint <= 0x7ff) {
-      bytes += 2
-    } else if (codePoint <= 0xffff) {
-      bytes += 3
-    } else {
-      bytes += 4
-    }
+function summarizeNodeIds(nodeIds: string[]): {
+  list: string[]
+  count: number
+  overflow: boolean
+} {
+  const deduped = Array.from(new Set(nodeIds))
+  const list = deduped.slice(0, MAX_WARNING_NODE_IDS)
+  return {
+    list,
+    count: deduped.length,
+    overflow: deduped.length > list.length
   }
-  return bytes
 }
 
-function estimateTokensFromBytes(bytes: number): number {
-  return Math.max(1, Math.ceil(bytes / DEFAULT_APPROX_BYTES_PER_TOKEN))
+function buildRecommendedNextArgs(
+  nodeId: string,
+  requestArgs?: Pick<GetCodeParametersInput, 'preferredLang' | 'resolveTokens' | 'vectorMode'>
+): {
+  nodeId: string
+  preferredLang?: 'jsx' | 'vue'
+  resolveTokens?: boolean
+  vectorMode?: 'smart' | 'snapshot'
+} {
+  return {
+    nodeId,
+    ...(requestArgs?.preferredLang ? { preferredLang: requestArgs.preferredLang } : {}),
+    ...(requestArgs?.resolveTokens !== undefined
+      ? { resolveTokens: requestArgs.resolveTokens }
+      : {}),
+    ...(requestArgs?.vectorMode ? { vectorMode: requestArgs.vectorMode } : {})
+  }
 }

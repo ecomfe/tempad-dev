@@ -1,4 +1,4 @@
-import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/shared'
+import { MCP_TOOL_INLINE_BUDGET_BYTES } from '@tempad-dev/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CodegenConfig } from '@/utils/codegen'
@@ -102,7 +102,7 @@ describe('mcp/tools/token/defs', () => {
     })
     const huge = createVariable('id-huge', 'big', {
       resolvedType: 'STRING',
-      valuesByMode: { modeA: 'x'.repeat(MCP_MAX_PAYLOAD_BYTES) }
+      valuesByMode: { modeA: 'x'.repeat(MCP_TOOL_INLINE_BUDGET_BYTES) }
     })
 
     const index = createIndex()
@@ -134,7 +134,7 @@ describe('mcp/tools/token/defs', () => {
     })
 
     await expect(mod.handleGetTokenDefs(['big'])).rejects.toThrow(
-      'Token payload too large to return. Reduce selection or requested names and retry.'
+      'Token tool result exceeded the 64 KiB inline budget. Reduce requested names or split into smaller batches and retry.'
     )
   })
 

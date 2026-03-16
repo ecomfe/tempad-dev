@@ -1,6 +1,10 @@
 import type { GetTokenDefsResult, TokenEntry } from '@tempad-dev/shared'
 
-import { MCP_MAX_PAYLOAD_BYTES } from '@tempad-dev/shared'
+import {
+  MCP_TOOL_INLINE_BUDGET_BYTES,
+  buildGetTokenDefsToolResult,
+  measureCallToolResultBytes
+} from '@tempad-dev/shared'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
@@ -42,10 +46,10 @@ export async function handleGetTokenDefs(
   const requested = new Set(names.map((n) => (n.startsWith('--') ? n : `--${n}`)))
   const tokens = await resolveTokenDefsByNames(requested, config, pluginCode, { includeAllModes })
 
-  const approxSize = JSON.stringify(tokens).length
-  if (approxSize > MCP_MAX_PAYLOAD_BYTES) {
+  const resultBytes = measureCallToolResultBytes(buildGetTokenDefsToolResult(tokens))
+  if (resultBytes > MCP_TOOL_INLINE_BUDGET_BYTES) {
     throw new Error(
-      'Token payload too large to return. Reduce selection or requested names and retry.'
+      'Token tool result exceeded the 64 KiB inline budget. Reduce requested names or split into smaller batches and retry.'
     )
   }
 

@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
-import { resolveCodeBudget } from '@/mcp/tools/code/messages'
 import { createTokenMatcher, extractTokenNames } from '@/mcp/tools/code/tokens/extract'
 import { processTokens } from '@/mcp/tools/code/tokens/process'
 import { filterBridge, rewriteTokenNamesInCode } from '@/mcp/tools/code/tokens/rewrite'
@@ -42,14 +41,9 @@ const CONFIG: CodegenConfig = {
   rootFontSize: 16,
   scale: 1
 }
-const BUDGET = {
-  ...resolveCodeBudget(1024 * 1024),
-  maxCodeBytes: 20
-}
 
 const baseInput = () => ({
   code: 'const a = "/*fallback*/ var(--token)";',
-  budget: BUDGET,
   variableIds: new Set<string>(['var-1']),
   usedCandidateIds: new Set<string>(),
   variableCache: new Map<string, Variable | null>(),
@@ -89,35 +83,28 @@ describe('tokens/process processTokens', () => {
     expect(applyPluginTransformToNames).not.toHaveBeenCalled()
   })
 
-  it('throws when rewritten code exceeds the output budget', async () => {
+  it('rewrites renamed tokens before token resolution', async () => {
     vi.mocked(buildSourceNameIndex).mockReturnValue(new Map([['--token', 'var-1']]))
     vi.mocked(extractTokenNames).mockReturnValue(new Set(['--token']))
     vi.mocked(applyPluginTransformToNames).mockResolvedValue({
       rewriteMap: new Map([['--token', '--renamed']]),
-      finalBridge: new Map()
+      finalBridge: new Map([['--renamed', 'var-1']])
     })
-    vi.mocked(rewriteTokenNamesInCode).mockReturnValue('X'.repeat(100))
-    vi.mocked(filterBridge).mockReturnValue(new Map())
+    vi.mocked(rewriteTokenNamesInCode).mockReturnValue('const a = "var(--renamed)";')
+    vi.mocked(filterBridge).mockReturnValue(new Map([['--renamed', 'var-1']]))
+    vi.mocked(buildUsedTokens).mockResolvedValue({
+      tokensByCanonical: {
+        '--renamed': {
+          kind: 'color',
+          value: '#fff'
+        }
+      }
+    })
 
-    const stamps: Array<string> = []
-    await expect(
-      processTokens({
-        ...baseInput(),
-        stamp: (label) => {
-          stamps.push(label)
-        },
-        now: (() => {
-          let t = 0
-          return () => {
-            t += 1
-            return t
-          }
-        })()
-      })
-    ).rejects.toThrow('Output exceeds token/context budget')
+    const result = await processTokens(baseInput())
 
-    expect(stamps).toEqual(['tokens:detect'])
-    expect(buildUsedTokens).not.toHaveBeenCalled()
+    expect(result.code).toBe('const a = "var(--renamed)";')
+    expect(buildUsedTokens).toHaveBeenCalled()
   })
 
   it('builds token matcher and resolve node ids when resolveTokens is enabled', async () => {

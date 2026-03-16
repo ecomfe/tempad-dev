@@ -5,9 +5,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 import { stripFallback } from '@/utils/css'
 
 import type { SvgEntry } from '../assets'
-import type { CodeBudget } from '../messages'
 
-import { assertCodeWithinBudget } from '../messages'
 import { createTokenMatcher, extractTokenNames } from './extract'
 import { rewriteTokenNamesInCode, filterBridge } from './rewrite'
 import { buildSourceNameIndex } from './source-index'
@@ -16,7 +14,6 @@ import { buildUsedTokens } from './used'
 
 type ProcessTokensInput = {
   code: string
-  budget: CodeBudget
   variableIds: Set<string>
   usedCandidateIds: Set<string>
   variableCache: Map<string, Variable | null>
@@ -40,7 +37,6 @@ type ProcessTokensResult = {
 
 export async function processTokens({
   code: inputCode,
-  budget,
   variableIds,
   usedCandidateIds,
   variableCache,
@@ -89,7 +85,6 @@ export async function processTokens({
 
   if (hasRenames) {
     code = rewriteTokenNamesInCode(code, rewriteMap)
-    assertCodeWithinBudget(code, budget)
   }
 
   let usedNamesFinal = usedNamesRaw

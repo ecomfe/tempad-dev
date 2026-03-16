@@ -17,8 +17,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   GetAssetsResultSchema,
+  MCP_TOOL_INLINE_BUDGET_BYTES,
   MessageFromExtensionSchema,
   TEMPAD_MCP_ERROR_CODES,
+  measureCallToolResultBytes,
   type TempadMcpErrorCode
 } from '@tempad-dev/shared'
 import { nanoid } from 'nanoid'
@@ -35,7 +37,13 @@ import { getMcpServerConfig } from './config'
 import MCP_INSTRUCTIONS from './instructions.md?raw'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
 import { PACKAGE_VERSION, log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
-import { TOOL_DEFS, coercePayloadToToolResponse, createToolErrorResponse } from './tools'
+import {
+  TOOL_DEFS,
+  coercePayloadToToolResponse,
+  createAssetsToolResponse,
+  createInlineBudgetExceededToolResponse,
+  createToolErrorResponse
+} from './tools'
 
 const SHUTDOWN_TIMEOUT = 2000
 const { wsPortCandidates, toolTimeoutMs, maxPayloadBytes, autoActivateGraceMs, assetTtlMs } =
@@ -321,18 +329,31 @@ function createToolResponse<Name extends ToolName>(
   toolName: Name,
   payload: ToolResultMap[Name]
 ): ToolResponse {
-  const definition = getToolDefinition(toolName)
-  if (definition && hasFormatter(definition)) {
-    try {
-      const formatter = definition.format as (input: ToolResultMap[Name]) => ToolResponse
-      return formatter(payload)
-    } catch (error) {
-      log.warn({ tool: toolName, error }, 'Failed to format tool result; returning raw payload.')
-      return coercePayloadToToolResponse(payload)
+  const rawResult = (() => {
+    const definition = getToolDefinition(toolName)
+    if (definition && hasFormatter(definition)) {
+      try {
+        const formatter = definition.format as (input: ToolResultMap[Name]) => ToolResponse
+        return formatter(payload)
+      } catch (error) {
+        log.warn({ tool: toolName, error }, 'Failed to format tool result; returning raw payload.')
+        return coercePayloadToToolResponse(payload)
+      }
     }
+
+    return coercePayloadToToolResponse(payload)
+  })()
+
+  const resultBytes = measureCallToolResultBytes(rawResult)
+  if (resultBytes > MCP_TOOL_INLINE_BUDGET_BYTES) {
+    log.warn(
+      { tool: toolName, resultBytes, inlineBudgetBytes: MCP_TOOL_INLINE_BUDGET_BYTES },
+      'Tool result exceeded inline budget; returning compact error response.'
+    )
+    return createInlineBudgetExceededToolResponse(toolName, resultBytes)
   }
 
-  return coercePayloadToToolResponse(payload)
+  return rawResult
 }
 
 async function handleGetAssets({ hashes }: GetAssetsParametersInput): Promise<ToolResponse> {
@@ -351,28 +372,7 @@ async function handleGetAssets({ hashes }: GetAssetsParametersInput): Promise<To
     missing: unique.filter((hash) => !found.has(hash))
   })
 
-  const summary: string[] = []
-  summary.push(
-    payload.assets.length
-      ? `Resolved ${payload.assets.length} asset${payload.assets.length === 1 ? '' : 's'}.`
-      : 'No assets were resolved for the requested hashes.'
-  )
-  if (payload.missing.length) {
-    summary.push(`Missing: ${payload.missing.join(', ')}`)
-  }
-  summary.push('Download bytes from each asset.url.')
-
-  const content = [
-    {
-      type: 'text' as const,
-      text: summary.join('\n')
-    }
-  ]
-
-  return {
-    content,
-    structuredContent: payload
-  }
+  return createAssetsToolResponse(payload)
 }
 
 function getActiveId(): string | null {

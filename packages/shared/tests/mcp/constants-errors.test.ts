@@ -6,6 +6,7 @@ import {
   MCP_HASH_PATTERN,
   MCP_MAX_ASSET_BYTES,
   MCP_MAX_PAYLOAD_BYTES,
+  MCP_TOOL_INLINE_BUDGET_BYTES,
   MCP_TOOL_TIMEOUT_MS
 } from '../../src/mcp/constants'
 import { TEMPAD_MCP_ERROR_CODES } from '../../src/mcp/errors'
@@ -13,6 +14,7 @@ import { TEMPAD_MCP_ERROR_CODES } from '../../src/mcp/errors'
 describe('mcp/constants', () => {
   it('exposes stable numeric defaults', () => {
     expect(MCP_MAX_PAYLOAD_BYTES).toBe(4 * 1024 * 1024)
+    expect(MCP_TOOL_INLINE_BUDGET_BYTES).toBe(64 * 1024)
     expect(MCP_TOOL_TIMEOUT_MS).toBe(15000)
     expect(MCP_MAX_ASSET_BYTES).toBe(8 * 1024 * 1024)
     expect(MCP_ASSET_TTL_MS).toBe(30 * 24 * 60 * 60 * 1000)

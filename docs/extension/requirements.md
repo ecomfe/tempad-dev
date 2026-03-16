@@ -41,17 +41,14 @@ This document records the source requirements and hard constraints for the MCP `
 
 ## Size and budget guard
 
-- Total payload is constrained by `MCP_MAX_PAYLOAD_BYTES`.
-- The `code` field budget is the minimum of:
-  - ~60% of `MCP_MAX_PAYLOAD_BYTES` (transport safety), and
-  - a conservative estimated token budget (default ~6k effective tokens after headroom).
-- Token budget uses byte-based approximation (UTF-8 bytes per token heuristic) so budget checks align better with model/tool context limits than raw character count.
-- If output exceeds the code budget at any render/rewrite stage, prefer returning a shell response for the current node.
+- Tool transport is still constrained by `MCP_MAX_PAYLOAD_BYTES`, but inline response budgeting is separate.
+- The default inline budget for `get_code` is `64 KiB`, measured on the final `CallToolResult` UTF-8 bytes.
+- If output exceeds the inline budget, prefer returning a shell response for the current node.
 - A shell response:
   - preserves the current node wrapper/layout markup,
   - omits all direct children for that node,
   - lists omitted child ids in an inline code comment in render order,
-  - emits a `shell` warning that tells agents to request those child ids in order.
+  - emits a `shell` warning that tells agents to request those child ids in order and includes a recommended next `get_code` call in `warning.data`.
 - v1 shell fallback may still depend on the already-collected full-tree context; reducing collection/export cost is a later optimization, not part of this contract.
 - Only throw a user-facing budget error when a usable shell cannot be generated.
 
