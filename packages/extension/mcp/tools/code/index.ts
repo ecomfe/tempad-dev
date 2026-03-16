@@ -123,6 +123,13 @@ export type GetCodeRuntimeOptions = {
   unbounded?: boolean
 }
 
+type GetCodeRequestArgs = Pick<
+  GetCodeParametersInput,
+  'preferredLang' | 'resolveTokens' | 'vectorMode'
+>
+
+type RenderStep = 'render' | 'stringify' | 'transform'
+
 export async function handleGetCode(
   nodes: SceneNode[],
   preferredLang?: CodeLanguage,
@@ -132,6 +139,7 @@ export async function handleGetCode(
 ): Promise<GetCodeResult> {
   const trace = createTrace()
   const { now, stamp } = trace
+  const traceInfo: TraceInfo = { now, stamp }
 
   if (nodes.length !== 1) {
     throw new Error('Select exactly one node or provide a single root node id.')
@@ -184,7 +192,7 @@ export async function handleGetCode(
     variableCache,
     vectorRoots: plan.vectorRoots,
     cache,
-    trace: { now, stamp }
+    trace: traceInfo
   })
 
   t = now()
@@ -206,11 +214,7 @@ export async function handleGetCode(
 
   const rootTag = collected.nodes.get(rootId)?.tag
   const codeBudget = runtimeOptions.unbounded ? resolveUnlimitedCodeBudget() : resolveCodeBudget()
-  const requestArgs = {
-    ...(preferredLang ? { preferredLang } : {}),
-    ...(resolveTokens !== undefined ? { resolveTokens } : {}),
-    ...(vectorMode ? { vectorMode } : {})
-  } satisfies Pick<GetCodeParametersInput, 'preferredLang' | 'resolveTokens' | 'vectorMode'>
+  const requestArgs = buildGetCodeRequestArgs(preferredLang, resolveTokens, vectorMode)
   const codegen = {
     plugin: activePlugin.value?.name ?? 'none',
     config
@@ -230,7 +234,7 @@ export async function handleGetCode(
     config,
     pluginCode,
     resolveTokens,
-    trace: { now, stamp }
+    trace: traceInfo
   }
   const allAssets = Array.from(assetRegistry.values())
 
@@ -593,10 +597,7 @@ function normalizeRootString(
       props: { 'data-hint-id': nodeId },
       children: [content]
     },
-    {
-      lang,
-      isInline: (tag) => COMPACT_TAGS.has(tag)
-    }
+    createStringifyOptions(lang)
   )
 }
 
@@ -609,10 +610,7 @@ function stringifyComponentTree(
   if (typeof component === 'string') {
     return normalizeRootString(component, rootTag, nodeId, lang)
   }
-  return stringifyComponent(component, {
-    lang,
-    isInline: (tag) => COMPACT_TAGS.has(tag)
-  })
+  return stringifyComponent(component, createStringifyOptions(lang))
 }
 
 async function renderMarkup({
@@ -629,30 +627,84 @@ async function renderMarkup({
 }): Promise<{ code: string; lang: CodeLanguage } | null> {
   const clock = trace?.now
   let t = clock ? clock() : 0
-  const rendered =
-    mode.kind === 'shell'
-      ? await renderShellTree(rootId, tree, ctx, mode.omittedNodeIds)
-      : await renderTree(rootId, tree, ctx)
+  const rendered = await renderTreeForMode(mode, rootId, tree, ctx)
   if (!rendered) {
     return null
   }
-  if (trace && clock) {
-    trace.stamp(mode.kind === 'shell' ? 'render:shell' : 'render', t)
-  }
+  stampRenderPhase(trace, mode, 'render', t)
 
   const resolvedLang = lang ?? ctx.detectedLang ?? 'jsx'
   t = clock ? clock() : 0
   const markup = stringifyComponentTree(rendered, rootTag, rootId, resolvedLang)
-  if (trace && clock) {
-    trace.stamp(mode.kind === 'shell' ? 'stringify:shell' : 'stringify', t)
-  }
+  stampRenderPhase(trace, mode, 'stringify', t)
 
   t = clock ? clock() : 0
   const output = transform ? transform(markup) : markup
-  if (trace && clock) {
-    trace.stamp(mode.kind === 'shell' ? 'transform:shell' : 'transform', t)
-  }
+  stampRenderPhase(trace, mode, 'transform', t)
   return { code: output, lang: resolvedLang }
+}
+
+function buildGetCodeRequestArgs(
+  preferredLang?: CodeLanguage,
+  resolveTokens?: boolean,
+  vectorMode?: GetCodeParametersInput['vectorMode']
+): GetCodeRequestArgs {
+  const requestArgs: GetCodeRequestArgs = {}
+
+  if (preferredLang) {
+    requestArgs.preferredLang = preferredLang
+  }
+
+  if (resolveTokens !== undefined) {
+    requestArgs.resolveTokens = resolveTokens
+  }
+
+  if (vectorMode) {
+    requestArgs.vectorMode = vectorMode
+  }
+
+  return requestArgs
+}
+
+function createStringifyOptions(lang: CodeLanguage): {
+  lang: CodeLanguage
+  isInline: (tag: string) => boolean
+} {
+  return {
+    lang,
+    isInline: isCompactTag
+  }
+}
+
+function isCompactTag(tag: string): boolean {
+  return COMPACT_TAGS.has(tag)
+}
+
+async function renderTreeForMode(
+  mode: RenderMode,
+  rootId: string,
+  tree: VisibleTree,
+  ctx: RenderContext
+): Promise<DevComponent | string | null> {
+  if (mode.kind === 'shell') {
+    return renderShellTree(rootId, tree, ctx, mode.omittedNodeIds)
+  }
+
+  return renderTree(rootId, tree, ctx)
+}
+
+function stampRenderPhase(
+  trace: TraceInfo | undefined,
+  mode: RenderMode,
+  step: RenderStep,
+  start: number
+): void {
+  if (!trace) {
+    return
+  }
+
+  const label = mode.kind === 'shell' ? `${step}:shell` : step
+  trace.stamp(label, start)
 }
 
 function filterAssetsReferencedInCode(assets: AssetDescriptor[], code: string): AssetDescriptor[] {

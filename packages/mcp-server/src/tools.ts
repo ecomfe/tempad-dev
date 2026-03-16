@@ -66,6 +66,28 @@ type HubToolMetadata<Name extends ToolName, Schema extends ZodType> = BaseToolMe
   outputSchema?: ZodType
 }
 
+const CONNECTIVITY_ERROR_CODES = new Set<TempadMcpErrorCode>([
+  TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION,
+  TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT,
+  TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED,
+  TEMPAD_MCP_ERROR_CODES.ASSET_SERVER_NOT_CONFIGURED,
+  TEMPAD_MCP_ERROR_CODES.TRANSPORT_NOT_CONNECTED
+])
+
+const SELECTION_ERROR_CODES = new Set<TempadMcpErrorCode>([
+  TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION,
+  TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE
+])
+
+const CONNECTIVITY_TROUBLESHOOTING_LINES = [
+  'Troubleshooting:',
+  '- In Figma, open TemPad Dev panel and enable MCP (Preferences → MCP server).',
+  '- If multiple Figma tabs are open, click the MCP badge to activate this tab.',
+  '- Keep the Figma tab active/foreground while running MCP tools.'
+]
+
+const SELECTION_TROUBLESHOOTING_LINE = 'Tip: Select exactly one visible node, or pass nodeId.'
+
 function getRecordProperty(record: unknown, key: string): unknown {
   if (!record || typeof record !== 'object') {
     return undefined
@@ -158,42 +180,7 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
   const message = extractToolErrorMessage(error)
   const code = extractToolErrorCode(error)
   const codeLabel = code ? ` [${code}]` : ''
-
-  const troubleshooting = (() => {
-    const help: string[] = []
-
-    const isConnectivityError =
-      code === TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION ||
-      code === TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT ||
-      code === TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED ||
-      code === TEMPAD_MCP_ERROR_CODES.ASSET_SERVER_NOT_CONFIGURED ||
-      code === TEMPAD_MCP_ERROR_CODES.TRANSPORT_NOT_CONNECTED ||
-      /no active tempad dev extension/i.test(message) ||
-      /asset server url is not configured/i.test(message) ||
-      /mcp transport is not connected/i.test(message) ||
-      /websocket/i.test(message)
-
-    if (isConnectivityError) {
-      help.push(
-        'Troubleshooting:',
-        '- In Figma, open TemPad Dev panel and enable MCP (Preferences → MCP server).',
-        '- If multiple Figma tabs are open, click the MCP badge to activate this tab.',
-        '- Keep the Figma tab active/foreground while running MCP tools.'
-      )
-    }
-
-    const isSelectionError =
-      code === TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION ||
-      code === TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE ||
-      /select exactly one visible node/i.test(message) ||
-      /no visible node found/i.test(message)
-
-    if (isSelectionError) {
-      help.push('Tip: Select exactly one visible node, or pass nodeId.')
-    }
-
-    return help.length ? `\n\n${help.join('\n')}` : ''
-  })()
+  const troubleshooting = buildTroubleshootingText(code, message)
 
   return {
     isError: true,
@@ -204,6 +191,38 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
       }
     ]
   }
+}
+
+function buildTroubleshootingText(code: TempadMcpErrorCode | undefined, message: string): string {
+  const help: string[] = []
+
+  if (isConnectivityToolError(code, message)) {
+    help.push(...CONNECTIVITY_TROUBLESHOOTING_LINES)
+  }
+
+  if (isSelectionToolError(code, message)) {
+    help.push(SELECTION_TROUBLESHOOTING_LINE)
+  }
+
+  return help.length ? `\n\n${help.join('\n')}` : ''
+}
+
+function isConnectivityToolError(code: TempadMcpErrorCode | undefined, message: string): boolean {
+  return (
+    (code ? CONNECTIVITY_ERROR_CODES.has(code) : false) ||
+    /no active tempad dev extension/i.test(message) ||
+    /asset server url is not configured/i.test(message) ||
+    /mcp transport is not connected/i.test(message) ||
+    /websocket/i.test(message)
+  )
+}
+
+function isSelectionToolError(code: TempadMcpErrorCode | undefined, message: string): boolean {
+  return (
+    (code ? SELECTION_ERROR_CODES.has(code) : false) ||
+    /select exactly one visible node/i.test(message) ||
+    /no visible node found/i.test(message)
+  )
 }
 
 export function createCodeToolResponse(payload: ToolResultMap['get_code']): CallToolResult {

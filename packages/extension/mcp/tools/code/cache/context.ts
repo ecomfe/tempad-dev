@@ -2,25 +2,27 @@ import { resolveSolidFromPaints } from '@tempad-dev/shared'
 
 import type { CacheMetrics, GetCodeCacheContext, PaintStyleSummary } from './types'
 
-const DEFAULT_METRICS = (): CacheMetrics => ({
-  nodeSemanticHits: 0,
-  nodeSemanticMisses: 0,
-  styleHits: 0,
-  styleMisses: 0,
-  paintStyleHits: 0,
-  paintStyleMisses: 0,
-  variableHits: 0,
-  variableMisses: 0,
-  vectorAnalysisHits: 0,
-  vectorAnalysisMisses: 0,
-  vectorExportCandidates: 0,
-  vectorExportSkippedMissing: 0,
-  vectorExportSkippedZeroBounds: 0,
-  vectorExportNull: 0,
-  vectorExportUploaded: 0,
-  vectorExportThemeableInline: 0,
-  vectorExportRawInline: 0
-})
+function createDefaultMetrics(): CacheMetrics {
+  return {
+    nodeSemanticHits: 0,
+    nodeSemanticMisses: 0,
+    styleHits: 0,
+    styleMisses: 0,
+    paintStyleHits: 0,
+    paintStyleMisses: 0,
+    variableHits: 0,
+    variableMisses: 0,
+    vectorAnalysisHits: 0,
+    vectorAnalysisMisses: 0,
+    vectorExportCandidates: 0,
+    vectorExportSkippedMissing: 0,
+    vectorExportSkippedZeroBounds: 0,
+    vectorExportNull: 0,
+    vectorExportUploaded: 0,
+    vectorExportThemeableInline: 0,
+    vectorExportRawInline: 0
+  }
+}
 
 export function createGetCodeCacheContext(
   variableCache = new Map<string, Variable | null>(),
@@ -32,7 +34,7 @@ export function createGetCodeCacheContext(
     paintStyles: new Map<string, PaintStyleSummary | null>(),
     nodeSemantics: new Map(),
     vectorAnalysis: new Map(),
-    metrics: options?.metrics ? DEFAULT_METRICS() : undefined
+    metrics: options?.metrics ? createDefaultMetrics() : undefined
   } as GetCodeCacheContext
 
   ctx.readers = {
@@ -45,11 +47,11 @@ export function createGetCodeCacheContext(
 
 export function getVariableByIdFromContext(id: string, ctx: GetCodeCacheContext): Variable | null {
   if (ctx.variables.has(id)) {
-    if (ctx.metrics) ctx.metrics.variableHits += 1
+    incrementMetric(ctx.metrics, 'variableHits')
     return ctx.variables.get(id) ?? null
   }
 
-  if (ctx.metrics) ctx.metrics.variableMisses += 1
+  incrementMetric(ctx.metrics, 'variableMisses')
   const variable = figma.variables.getVariableById(id)
   ctx.variables.set(id, variable ?? null)
   return variable ?? null
@@ -57,11 +59,11 @@ export function getVariableByIdFromContext(id: string, ctx: GetCodeCacheContext)
 
 export function getStyleByIdFromContext(id: string, ctx: GetCodeCacheContext): BaseStyle | null {
   if (ctx.styles.has(id)) {
-    if (ctx.metrics) ctx.metrics.styleHits += 1
+    incrementMetric(ctx.metrics, 'styleHits')
     return ctx.styles.get(id) ?? null
   }
 
-  if (ctx.metrics) ctx.metrics.styleMisses += 1
+  incrementMetric(ctx.metrics, 'styleMisses')
   const style = figma.getStyleById(id)
   ctx.styles.set(id, style ?? null)
   return style ?? null
@@ -73,11 +75,11 @@ export function getPaintStyleCached(
 ): PaintStyleSummary | null {
   if (!styleId) return null
   if (ctx.paintStyles.has(styleId)) {
-    if (ctx.metrics) ctx.metrics.paintStyleHits += 1
+    incrementMetric(ctx.metrics, 'paintStyleHits')
     return ctx.paintStyles.get(styleId) ?? null
   }
 
-  if (ctx.metrics) ctx.metrics.paintStyleMisses += 1
+  incrementMetric(ctx.metrics, 'paintStyleMisses')
 
   const style = getStyleByIdFromContext(styleId, ctx)
   if (!style || !('paints' in style) || !Array.isArray(style.paints)) {
@@ -103,6 +105,14 @@ export function getPaintStyleCached(
 
   ctx.paintStyles.set(styleId, summary)
   return summary
+}
+
+function incrementMetric(metrics: CacheMetrics | undefined, key: keyof CacheMetrics): void {
+  if (!metrics) {
+    return
+  }
+
+  metrics[key] += 1
 }
 
 function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {

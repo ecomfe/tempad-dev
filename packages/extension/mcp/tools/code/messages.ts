@@ -12,6 +12,18 @@ export type CodeBudget = {
   maxResultBytes: number
 }
 
+type CodeWarningRequestArgs = Pick<
+  GetCodeParametersInput,
+  'preferredLang' | 'resolveTokens' | 'vectorMode'
+>
+
+type RecommendedNextArgs = {
+  nodeId: string
+  preferredLang?: 'jsx' | 'vue'
+  resolveTokens?: boolean
+  vectorMode?: 'smart' | 'snapshot'
+}
+
 const UNBOUNDED_CODE_BUDGET: CodeBudget = {
   maxResultBytes: Number.MAX_SAFE_INTEGER
 }
@@ -48,7 +60,7 @@ export function buildGetCodeWarnings(
     cappedNodeIds?: string[]
     shell?: boolean
     omittedNodeIds?: string[]
-    requestArgs?: Pick<GetCodeParametersInput, 'preferredLang' | 'resolveTokens' | 'vectorMode'>
+    requestArgs?: CodeWarningRequestArgs
   }
 ): GetCodeWarning[] | undefined {
   const warnings: GetCodeWarning[] = []
@@ -61,46 +73,17 @@ export function buildGetCodeWarnings(
     })
   }
 
-  const cappedNodeIds = options?.cappedNodeIds ?? []
-  if (cappedNodeIds.length) {
-    const { list, count, overflow } = summarizeNodeIds(cappedNodeIds)
-    warnings.push({
-      type: 'depth-cap',
-      message:
-        'Tree depth capped; some subtree roots were omitted. Call get_code with nodeId for the listed ids to fetch their code.',
-      data: {
-        depthLimit: options?.depthLimit,
-        cappedNodeIds: list,
-        cappedNodeCount: count,
-        cappedNodeOverflow: overflow,
-        continuationTool: 'get_code',
-        ...(list[0]
-          ? {
-              recommendedNextArgs: buildRecommendedNextArgs(list[0], options?.requestArgs)
-            }
-          : {})
-      }
-    })
+  const depthCapWarning = buildDepthCapWarning(
+    options?.cappedNodeIds ?? [],
+    options?.depthLimit,
+    options?.requestArgs
+  )
+  if (depthCapWarning) {
+    warnings.push(depthCapWarning)
   }
 
   if (options?.shell) {
-    const { list, count, overflow } = summarizeNodeIds(options?.omittedNodeIds ?? [])
-    warnings.push({
-      type: 'shell',
-      message: SHELL_WARNING_MESSAGE,
-      data: {
-        strategy: 'shell',
-        omittedNodeIds: list,
-        omittedNodeCount: count,
-        omittedNodeOverflow: overflow,
-        continuationTool: 'get_code',
-        ...(list[0]
-          ? {
-              recommendedNextArgs: buildRecommendedNextArgs(list[0], options?.requestArgs)
-            }
-          : {})
-      }
-    })
+    warnings.push(buildShellWarning(options?.omittedNodeIds ?? [], options?.requestArgs))
   }
 
   return warnings.length ? warnings : undefined
@@ -124,21 +107,85 @@ function summarizeNodeIds(nodeIds: string[]): {
   }
 }
 
+function buildDepthCapWarning(
+  nodeIds: string[],
+  depthLimit: number | undefined,
+  requestArgs?: CodeWarningRequestArgs
+): GetCodeWarning | undefined {
+  if (!nodeIds.length) {
+    return undefined
+  }
+
+  const summary = summarizeNodeIds(nodeIds)
+  const data: Record<string, unknown> = {
+    depthLimit,
+    cappedNodeIds: summary.list,
+    cappedNodeCount: summary.count,
+    cappedNodeOverflow: summary.overflow,
+    continuationTool: 'get_code'
+  }
+
+  appendRecommendedNextArgs(data, summary.list[0], requestArgs)
+
+  return {
+    type: 'depth-cap',
+    message:
+      'Tree depth capped; some subtree roots were omitted. Call get_code with nodeId for the listed ids to fetch their code.',
+    data
+  }
+}
+
+function buildShellWarning(
+  nodeIds: string[],
+  requestArgs?: CodeWarningRequestArgs
+): GetCodeWarning {
+  const summary = summarizeNodeIds(nodeIds)
+  const data: Record<string, unknown> = {
+    strategy: 'shell',
+    omittedNodeIds: summary.list,
+    omittedNodeCount: summary.count,
+    omittedNodeOverflow: summary.overflow,
+    continuationTool: 'get_code'
+  }
+
+  appendRecommendedNextArgs(data, summary.list[0], requestArgs)
+
+  return {
+    type: 'shell',
+    message: SHELL_WARNING_MESSAGE,
+    data
+  }
+}
+
+function appendRecommendedNextArgs(
+  data: Record<string, unknown>,
+  nodeId: string | undefined,
+  requestArgs?: CodeWarningRequestArgs
+): void {
+  if (!nodeId) {
+    return
+  }
+
+  data.recommendedNextArgs = buildRecommendedNextArgs(nodeId, requestArgs)
+}
+
 function buildRecommendedNextArgs(
   nodeId: string,
-  requestArgs?: Pick<GetCodeParametersInput, 'preferredLang' | 'resolveTokens' | 'vectorMode'>
-): {
-  nodeId: string
-  preferredLang?: 'jsx' | 'vue'
-  resolveTokens?: boolean
-  vectorMode?: 'smart' | 'snapshot'
-} {
-  return {
-    nodeId,
-    ...(requestArgs?.preferredLang ? { preferredLang: requestArgs.preferredLang } : {}),
-    ...(requestArgs?.resolveTokens !== undefined
-      ? { resolveTokens: requestArgs.resolveTokens }
-      : {}),
-    ...(requestArgs?.vectorMode ? { vectorMode: requestArgs.vectorMode } : {})
+  requestArgs?: CodeWarningRequestArgs
+): RecommendedNextArgs {
+  const nextArgs: RecommendedNextArgs = { nodeId }
+
+  if (requestArgs?.preferredLang) {
+    nextArgs.preferredLang = requestArgs.preferredLang
   }
+
+  if (requestArgs?.resolveTokens !== undefined) {
+    nextArgs.resolveTokens = requestArgs.resolveTokens
+  }
+
+  if (requestArgs?.vectorMode) {
+    nextArgs.vectorMode = requestArgs.vectorMode
+  }
+
+  return nextArgs
 }
