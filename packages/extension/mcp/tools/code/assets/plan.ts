@@ -1,5 +1,7 @@
+import type { GetCodeCacheContext } from '../cache'
 import type { NodeSnapshot, VisibleTree } from '../model'
 
+import { getNodeSemanticsCached } from '../cache'
 import { hasVisibleEffects, isVisiblePaint } from './paint'
 
 export type AssetPlan = {
@@ -23,10 +25,14 @@ const VECTOR_LIKE_LEAF_TYPES = new Set<SceneNode['type']>([
   'RECTANGLE'
 ])
 
-export function planAssets(tree: VisibleTree, ignoredIds?: Set<string>): AssetPlan {
+export function planAssets(
+  tree: VisibleTree,
+  ignoredIds?: Set<string>,
+  ctx?: GetCodeCacheContext
+): AssetPlan {
   const vectorRoots = new Set<string>()
   const skipped = new Set<string>()
-  const vectorInfo = computeVectorInfo(tree, ignoredIds)
+  const vectorInfo = computeVectorInfo(tree, ignoredIds, ctx)
 
   for (const id of tree.order) {
     if (ignoredIds?.has(id)) continue
@@ -34,29 +40,23 @@ export function planAssets(tree: VisibleTree, ignoredIds?: Set<string>): AssetPl
     const node = tree.nodes.get(id)
     if (!node) continue
 
+    const children = node.children
+      .map((childId) => tree.nodes.get(childId))
+      .filter((child): child is NodeSnapshot => !!child && !ignoredIds?.has(child.id))
+
     const info = vectorInfo.get(id)
-    const canBeVectorGroup =
+    const isVectorGroup =
       !!info &&
       isEligibleContainer(node) &&
       info.allNonMaskVectorLike &&
       info.nonMaskLeafCount >= 1 &&
-      !hasOwnBoxSemantics(node) &&
-      !hasDesignComponentHint(node)
+      !hasOwnBoxSemantics(node, ctx) &&
+      !hasDesignComponentHint(node) &&
+      (hasSingleArtworkChild(children) || info.hasMask || info.nonMaskLeafCount > 1)
 
-    if (canBeVectorGroup) {
-      const childIds = ignoredIds
-        ? node.children.filter((childId) => !ignoredIds.has(childId))
-        : node.children
-      const isVectorGroup =
-        childIds.length > 0 && (childIds.length === 1 || info.hasMask || info.nonMaskLeafCount > 1)
-      if (!isVectorGroup) {
-        if (node.assetKind === 'vector') {
-          vectorRoots.add(id)
-        }
-        continue
-      }
+    if (isVectorGroup) {
       vectorRoots.add(id)
-      childIds.forEach((childId) => skipDescendants(childId, tree, skipped))
+      children.forEach((child) => skipDescendants(child.id, tree, skipped))
       continue
     }
 
@@ -68,7 +68,11 @@ export function planAssets(tree: VisibleTree, ignoredIds?: Set<string>): AssetPl
   return { vectorRoots, skippedIds: skipped }
 }
 
-function computeVectorInfo(tree: VisibleTree, ignoredIds?: Set<string>): Map<string, VectorInfo> {
+function computeVectorInfo(
+  tree: VisibleTree,
+  ignoredIds?: Set<string>,
+  ctx?: GetCodeCacheContext
+): Map<string, VectorInfo> {
   const info = new Map<string, VectorInfo>()
 
   for (let i = tree.order.length - 1; i >= 0; i--) {
@@ -78,7 +82,7 @@ function computeVectorInfo(tree: VisibleTree, ignoredIds?: Set<string>): Map<str
     if (!node) continue
 
     if (!node.children.length) {
-      if (isMaskNode(node)) {
+      if (isMaskNode(node, ctx)) {
         info.set(id, {
           allNonMaskVectorLike: true,
           nonMaskLeafCount: 0,
@@ -98,7 +102,7 @@ function computeVectorInfo(tree: VisibleTree, ignoredIds?: Set<string>): Map<str
 
     let allNonMaskVectorLike = true
     let nonMaskLeafCount = 0
-    let hasMask = isMaskNode(node)
+    let hasMask = isMaskNode(node, ctx)
     for (const childId of node.children) {
       if (ignoredIds?.has(childId)) {
         allNonMaskVectorLike = false
@@ -123,11 +127,25 @@ function isEligibleContainer(node: NodeSnapshot): boolean {
   return node.type === 'GROUP' || node.type === 'FRAME'
 }
 
+function hasSingleArtworkChild(children: NodeSnapshot[]): boolean {
+  return children.length === 1
+}
+
 function hasDesignComponentHint(node: NodeSnapshot): boolean {
   return Boolean(node.dataHint?.['data-hint-design-component']?.trim())
 }
 
-function hasOwnBoxSemantics(snapshot: NodeSnapshot): boolean {
+function hasOwnBoxSemantics(snapshot: NodeSnapshot, ctx?: GetCodeCacheContext): boolean {
+  if (ctx) {
+    const semantics = getNodeSemanticsCached(snapshot.node, ctx)
+    return (
+      semantics.paint.hasVisibleFill ||
+      semantics.paint.hasVisibleStroke ||
+      semantics.paint.hasVisibleEffect ||
+      semantics.layout.clipsContent
+    )
+  }
+
   return (
     hasVisiblePaints(snapshot.node, 'fills') ||
     hasVisiblePaints(snapshot.node, 'strokes') ||
@@ -136,7 +154,8 @@ function hasOwnBoxSemantics(snapshot: NodeSnapshot): boolean {
   )
 }
 
-function isMaskNode(snapshot: NodeSnapshot): boolean {
+function isMaskNode(snapshot: NodeSnapshot, ctx?: GetCodeCacheContext): boolean {
+  if (ctx) return getNodeSemanticsCached(snapshot.node, ctx).layout.isMask
   const node = snapshot.node as { isMask?: boolean }
   return node.isMask === true
 }

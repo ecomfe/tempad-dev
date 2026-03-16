@@ -3,16 +3,22 @@
  * Resolves CSS variable references from getCSSAsync to actual style values
  */
 
-import type { PaintList, ResolvedPaintStyle } from './types'
+import type {
+  FigmaLookupReaders,
+  NodePaintStyleInput,
+  PaintList,
+  PaintResolutionSize,
+  ResolvedPaintStyle
+} from './types'
 
 import { resolveGradientFromPaints, resolveSolidFromPaints } from './gradient'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray\b/i
 const BG_URL_RE = /url\(/i
 
-type NodeDimensions = {
-  width: number
-  height: number
+const DEFAULT_READERS: FigmaLookupReaders = {
+  getStyleById: (id) => figma.getStyleById(id),
+  getVariableById: (id) => figma.variables.getVariableById(id)
 }
 
 function hasStyleId(value: unknown): value is string {
@@ -25,66 +31,64 @@ function isPaintStyle(style: BaseStyle | null): style is PaintStyle {
 
 function resolvePaintStyleFromPaints(
   paints: PaintList,
-  size?: NodeDimensions
+  size?: PaintResolutionSize,
+  readers: FigmaLookupReaders = DEFAULT_READERS
 ): ResolvedPaintStyle | null {
   if (!paints) return null
-  const gradient = resolveGradientFromPaints(paints, size)
+  const gradient = resolveGradientFromPaints(paints, size, readers)
   if (gradient) return { gradient }
-  const solidColor = resolveSolidFromPaints(paints)
+  const solidColor = resolveSolidFromPaints(paints, readers)
   return solidColor ? { solidColor } : null
 }
 
 function resolvePaintStyleFromStyleId(
   styleId: unknown,
   kind: 'fill' | 'stroke',
-  size?: NodeDimensions
+  size?: PaintResolutionSize,
+  readers: FigmaLookupReaders = DEFAULT_READERS
 ): ResolvedPaintStyle | null {
   if (!hasStyleId(styleId)) return null
 
   try {
-    const style = figma.getStyleById(styleId)
+    const style = readers.getStyleById(styleId)
     if (!isPaintStyle(style)) return null
-    return resolvePaintStyleFromPaints(style.paints, size)
+    return resolvePaintStyleFromPaints(style.paints, size, readers)
   } catch (error) {
     console.warn(`Failed to resolve ${kind} style:`, error)
     return null
   }
 }
 
-function getNodeFillStyleId(node: SceneNode): unknown {
-  return 'fillStyleId' in node ? node.fillStyleId : null
+function getFillStyleId(input: NodePaintStyleInput): unknown {
+  return input.fillStyleId ?? null
 }
 
-function getNodeStrokeStyleId(node: SceneNode): unknown {
-  return 'strokeStyleId' in node ? node.strokeStyleId : null
+function getStrokeStyleId(input: NodePaintStyleInput): unknown {
+  return input.strokeStyleId ?? null
 }
 
-function getNodeFillPaints(node: SceneNode): PaintList {
-  if ('fills' in node && Array.isArray(node.fills)) {
-    return node.fills
-  }
-  return null
+function getFillPaints(input: NodePaintStyleInput): PaintList {
+  return input.fills ?? null
 }
 
-function getNodeStrokePaints(node: SceneNode): PaintList {
-  if ('strokes' in node && Array.isArray(node.strokes)) {
-    return node.strokes
-  }
-  return null
+function getStrokePaints(input: NodePaintStyleInput): PaintList {
+  return input.strokes ?? null
 }
 
 function resolveNodePaintStyle(
   styleId: unknown,
   paints: PaintList,
   kind: 'fill' | 'stroke',
-  size?: NodeDimensions
+  size?: PaintResolutionSize,
+  readers: FigmaLookupReaders = DEFAULT_READERS
 ): ResolvedPaintStyle | null {
   return (
-    resolvePaintStyleFromStyleId(styleId, kind, size) ?? resolvePaintStyleFromPaints(paints, size)
+    resolvePaintStyleFromStyleId(styleId, kind, size, readers) ??
+    resolvePaintStyleFromPaints(paints, size, readers)
   )
 }
 
-function getNodeDimensions(node: SceneNode): NodeDimensions | undefined {
+function getNodeDimensions(node: SceneNode): PaintResolutionSize | undefined {
   if (!('width' in node) || !('height' in node)) return undefined
 
   const width = node.width
@@ -94,6 +98,16 @@ function getNodeDimensions(node: SceneNode): NodeDimensions | undefined {
   }
 
   return { width, height }
+}
+
+function createNodePaintStyleInput(node: SceneNode): NodePaintStyleInput {
+  return {
+    fillStyleId: 'fillStyleId' in node ? node.fillStyleId : null,
+    strokeStyleId: 'strokeStyleId' in node ? node.strokeStyleId : null,
+    fills: 'fills' in node && Array.isArray(node.fills) ? node.fills : null,
+    strokes: 'strokes' in node && Array.isArray(node.strokes) ? node.strokes : null,
+    dimensions: getNodeDimensions(node)
+  }
 }
 
 function splitByTopLevelWhitespace(input: string): string[] {
@@ -172,12 +186,13 @@ function hasBorderChannels(style: Record<string, string>): boolean {
  * Resolves fill style for a Figma node
  * Handles both fillStyleId and direct fills
  */
-export function resolveFillStyleForNode(node: SceneNode): ResolvedPaintStyle | null {
+export function resolveFillStyle(input: NodePaintStyleInput, readers?: FigmaLookupReaders) {
   return resolveNodePaintStyle(
-    getNodeFillStyleId(node),
-    getNodeFillPaints(node),
+    getFillStyleId(input),
+    getFillPaints(input),
     'fill',
-    getNodeDimensions(node)
+    input.dimensions,
+    readers
   )
 }
 
@@ -185,36 +200,52 @@ export function resolveFillStyleForNode(node: SceneNode): ResolvedPaintStyle | n
  * Resolves stroke style for a Figma node
  * Handles both strokeStyleId and direct strokes
  */
-export function resolveStrokeStyleForNode(node: SceneNode): ResolvedPaintStyle | null {
+export function resolveStrokeStyle(input: NodePaintStyleInput, readers?: FigmaLookupReaders) {
   return resolveNodePaintStyle(
-    getNodeStrokeStyleId(node),
-    getNodeStrokePaints(node),
+    getStrokeStyleId(input),
+    getStrokePaints(input),
     'stroke',
-    getNodeDimensions(node)
+    input.dimensions,
+    readers
   )
+}
+
+export function resolveFillStyleForNode(
+  node: SceneNode,
+  readers?: FigmaLookupReaders
+): ResolvedPaintStyle | null {
+  return resolveFillStyle(createNodePaintStyleInput(node), readers)
+}
+
+export function resolveStrokeStyleForNode(
+  node: SceneNode,
+  readers?: FigmaLookupReaders
+): ResolvedPaintStyle | null {
+  return resolveStrokeStyle(createNodePaintStyleInput(node), readers)
 }
 
 /**
  * Main function to resolve all styles from a node
  * Replaces CSS variable references with actual values
  */
-export async function resolveStylesFromNode(
+export async function resolveStylesFromNodeData(
   cssStyles: Record<string, string>,
-  node: SceneNode
+  input: NodePaintStyleInput,
+  readers: FigmaLookupReaders = DEFAULT_READERS
 ): Promise<Record<string, string>> {
   const processed = { ...cssStyles }
-  const fillPaints = getNodeFillPaints(node)
+  const fillPaints = getFillPaints(input)
 
   // Remove Figma's default lightgray fallback for image fills.
   if (processed.background && BG_URL_LIGHTGRAY_RE.test(processed.background) && fillPaints) {
-    const solidFill = resolveSolidFromPaints(fillPaints)
+    const solidFill = resolveSolidFromPaints(fillPaints, readers)
     if (solidFill) {
       processed['background-color'] = solidFill
     }
     processed.background = processed.background.replace(/\s*,?\s*lightgray\b/i, '').trim()
   }
 
-  const resolvedFill = resolveFillStyleForNode(node)
+  const resolvedFill = resolveFillStyle(input, readers)
   const hasUrlBackground =
     typeof processed.background === 'string' && BG_URL_RE.test(processed.background)
 
@@ -243,7 +274,7 @@ export async function resolveStylesFromNode(
     }
   }
 
-  const resolvedStroke = resolveStrokeStyleForNode(node)
+  const resolvedStroke = resolveStrokeStyle(input, readers)
 
   // Process stroke styles (border in CSS)
   if (resolvedStroke?.gradient && hasBorderChannels(processed)) {
@@ -272,4 +303,12 @@ export async function resolveStylesFromNode(
   }
 
   return processed
+}
+
+export async function resolveStylesFromNode(
+  cssStyles: Record<string, string>,
+  node: SceneNode,
+  readers?: FigmaLookupReaders
+): Promise<Record<string, string>> {
+  return resolveStylesFromNodeData(cssStyles, createNodePaintStyleInput(node), readers)
 }

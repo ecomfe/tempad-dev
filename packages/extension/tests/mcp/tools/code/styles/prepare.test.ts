@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import type { GetCodeCacheContext } from '@/mcp/tools/code/cache'
 import type { VisibleTree } from '@/mcp/tools/code/model'
 import type { VariableMappings } from '@/mcp/tools/token/mapping'
 
@@ -29,6 +30,7 @@ describe('mcp/code styles prepare', () => {
     const vectorRoots = new Set(['node-1'])
     const usedCandidateIds = new Set(['var-1'])
     const layout = new Map([['node-1', { display: 'flex' }]])
+    const cache = createCache()
 
     vi.mocked(normalizeStyleVars).mockReturnValue(usedCandidateIds)
     vi.mocked(buildLayoutStyles).mockReturnValue(layout)
@@ -41,6 +43,7 @@ describe('mcp/code styles prepare', () => {
       mappings,
       variableCache,
       vectorRoots,
+      cache,
       trace: {
         now: () => {
           now += 10
@@ -53,7 +56,7 @@ describe('mcp/code styles prepare', () => {
     })
 
     expect(normalizeStyleVars).toHaveBeenCalledWith(styles, mappings, variableCache)
-    expect(sanitizeStyles).toHaveBeenCalledWith(tree, styles, vectorRoots)
+    expect(sanitizeStyles).toHaveBeenCalledWith(tree, styles, vectorRoots, cache)
     expect(buildLayoutStyles).toHaveBeenCalledWith(styles, vectorRoots)
     expect(stamps).toEqual([
       ['normalize-vars', 110],
@@ -69,6 +72,7 @@ describe('mcp/code styles prepare', () => {
   it('works without trace hooks', () => {
     const usedCandidateIds = new Set<string>()
     const layout = new Map<string, Record<string, string>>()
+    const cache = createCache()
     vi.mocked(normalizeStyleVars).mockReturnValue(usedCandidateIds)
     vi.mocked(buildLayoutStyles).mockReturnValue(layout)
 
@@ -77,10 +81,25 @@ describe('mcp/code styles prepare', () => {
       styles: new Map(),
       mappings: {} as VariableMappings,
       variableCache: new Map(),
-      vectorRoots: new Set()
+      vectorRoots: new Set(),
+      cache
     })
 
     expect(result.usedCandidateIds).toBe(usedCandidateIds)
     expect(result.layout).toBe(layout)
   })
 })
+
+function createCache(): GetCodeCacheContext {
+  return {
+    readers: {
+      getStyleById: () => null,
+      getVariableById: () => null
+    },
+    variables: new Map(),
+    styles: new Map(),
+    paintStyles: new Map(),
+    nodeSemantics: new Map(),
+    vectorAnalysis: new Map()
+  }
+}

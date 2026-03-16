@@ -1,4 +1,5 @@
 import type { VariableMappings } from '../../token/mapping'
+import type { GetCodeCacheContext } from '../cache'
 import type { VisibleTree } from '../model'
 
 import { normalizeStyleVars } from '../../token/mapping'
@@ -11,6 +12,7 @@ type PrepareStylesInput = {
   mappings: VariableMappings
   variableCache: Map<string, Variable | null>
   vectorRoots: Set<string>
+  cache: GetCodeCacheContext
   trace?: {
     now: () => number
     stamp: (label: string, start: number) => void
@@ -29,6 +31,7 @@ export function prepareStyles({
   mappings,
   variableCache,
   vectorRoots,
+  cache,
   trace
 }: PrepareStylesInput): PrepareStylesResult {
   const t0 = trace?.now?.()
@@ -36,7 +39,7 @@ export function prepareStyles({
   if (t0 != null) trace?.stamp?.('normalize-vars', t0)
 
   const t1 = trace?.now?.()
-  sanitizeStyles(tree, styles, vectorRoots)
+  sanitizeStyles(tree, styles, vectorRoots, cache)
   const layout = buildLayoutStyles(styles, vectorRoots)
   if (t1 != null) trace?.stamp?.('layout', t1)
 

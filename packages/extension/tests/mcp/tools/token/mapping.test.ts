@@ -35,6 +35,10 @@ describe('token/mapping', () => {
   it('delegates variable mapping collection to candidate collector', () => {
     const roots = [{ id: 'root' }] as unknown as SceneNode[]
     const cache = new Map<string, Variable | null>()
+    const readers = {
+      getStyleById: vi.fn(() => null),
+      getVariableById: vi.fn(() => null)
+    }
     const mappings = {
       variableIds: new Set<string>(['var-1']),
       rewrites: new Map<string, { canonical: string; id: string }>([
@@ -43,8 +47,8 @@ describe('token/mapping', () => {
     }
     vi.mocked(collectCandidateVariableIds).mockReturnValue(mappings)
 
-    expect(buildVariableMappings(roots, cache)).toBe(mappings)
-    expect(collectCandidateVariableIds).toHaveBeenCalledWith(roots, cache)
+    expect(buildVariableMappings(roots, cache, readers)).toBe(mappings)
+    expect(collectCandidateVariableIds).toHaveBeenCalledWith(roots, cache, readers)
   })
 
   it('returns empty used set when mappings are missing', () => {

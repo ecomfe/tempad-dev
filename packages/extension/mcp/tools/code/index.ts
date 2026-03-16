@@ -25,6 +25,7 @@ import { currentCodegenConfig } from '../config'
 import { buildVariableMappings } from '../token/mapping'
 import { exportVectorAssets } from './assets/export'
 import { planAssets } from './assets/plan'
+import { createGetCodeCacheContext } from './cache'
 import { collectNodeData } from './collect'
 import {
   assertCodeWithinBudget,
@@ -152,7 +153,8 @@ export async function handleGetCode(
 
   t = now()
   const variableCache = new Map<string, Variable | null>()
-  const mappings = buildVariableMappings(nodes, variableCache)
+  const cache = createGetCodeCacheContext(variableCache, { metrics: true })
+  const mappings = buildVariableMappings(nodes, variableCache, cache.readers)
   stamp('vars', t)
 
   const { pluginComponents, pluginSkipped } = pluginCode
@@ -160,13 +162,13 @@ export async function handleGetCode(
     : { pluginComponents: undefined, pluginSkipped: new Set<string>() }
 
   t = now()
-  const plan = planAssets(tree, pluginSkipped)
+  const plan = planAssets(tree, pluginSkipped, cache)
   stamp('plan-assets', t)
 
   const assetRegistry = new Map<string, AssetDescriptor>()
   const skipIds = buildSkipIds(plan.skippedIds, pluginSkipped)
   t = now()
-  const collected = await collectNodeData(tree, config, assetRegistry, skipIds)
+  const collected = await collectNodeData(tree, config, assetRegistry, cache, skipIds)
   stamp('collect', t)
 
   const { usedCandidateIds, layout: layoutStyles } = prepareStyles({
@@ -175,11 +177,12 @@ export async function handleGetCode(
     mappings,
     variableCache,
     vectorRoots: plan.vectorRoots,
+    cache,
     trace: { now, stamp }
   })
 
   t = now()
-  const svgs = await exportVectorAssets(tree, plan, config, assetRegistry, vectorMode)
+  const svgs = await exportVectorAssets(tree, plan, config, assetRegistry, vectorMode, cache)
   stamp('export-assets', t)
 
   const nodeMap = buildNodeMap(collected.nodes)
@@ -233,7 +236,7 @@ export async function handleGetCode(
 
     logTrace(
       trace,
-      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${allAssets.length}`
+      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${allAssets.length}${formatCacheMetrics(cache)}`
     )
 
     return buildCodeResult(output, codegen, allAssets, warnings)
@@ -264,7 +267,7 @@ export async function handleGetCode(
 
     logTrace(
       trace,
-      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assets.length} shell`
+      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assets.length} shell${formatCacheMetrics(cache)}`
     )
 
     return buildCodeResult(shell, codegen, assets, warnings)
@@ -680,4 +683,17 @@ function logTrace(
     const detail = trace.timings.map(([label, ms]) => `${label}=${ms}ms`).join(' ')
     logger.debug(`get_code timings ${detail} (${info})`)
   }
+}
+
+function formatCacheMetrics(cache: { metrics?: { [key: string]: number } }): string {
+  if (!cache.metrics) return ''
+  const {
+    nodeSemanticHits,
+    nodeSemanticMisses,
+    styleHits,
+    styleMisses,
+    variableHits,
+    variableMisses
+  } = cache.metrics
+  return ` cache=node(${nodeSemanticHits}/${nodeSemanticMisses}) style(${styleHits}/${styleMisses}) var(${variableHits}/${variableMisses})`
 }

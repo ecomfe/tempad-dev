@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   resolveFillStyleForNode,
   resolveStrokeStyleForNode,
+  resolveStylesFromNodeData,
   resolveStylesFromNode
 } from '../../src/figma/style-resolver'
 import { installFigmaMocks, uninstallFigmaMocks } from './test-helpers'
@@ -533,5 +534,56 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     expect(result).toEqual({
       stroke: 'var(--stroke)'
     })
+  })
+})
+
+describe('figma/style-resolver resolveStylesFromNodeData', () => {
+  it('supports injected lookup readers and keeps gradient resolution size-sensitive', async () => {
+    const readers = {
+      getStyleById: vi.fn(
+        () =>
+          ({
+            paints: [
+              {
+                type: 'GRADIENT_LINEAR',
+                visible: true,
+                opacity: 1,
+                gradientStops: [
+                  { color: { r: 1, g: 0, b: 0, a: 1 }, position: 0 },
+                  { color: { r: 0, g: 0, b: 1, a: 1 }, position: 1 }
+                ],
+                gradientHandlePositions: [
+                  { x: 0, y: 0 },
+                  { x: 1, y: 1 },
+                  { x: 0, y: 1 }
+                ]
+              }
+            ]
+          }) as unknown as PaintStyle
+      ),
+      getVariableById: vi.fn(() => null)
+    }
+
+    const tall = await resolveStylesFromNodeData(
+      { background: 'var(--fill)' },
+      {
+        fillStyleId: 'fill-style',
+        dimensions: { width: 100, height: 100 }
+      },
+      readers
+    )
+    const wide = await resolveStylesFromNodeData(
+      { background: 'var(--fill)' },
+      {
+        fillStyleId: 'fill-style',
+        dimensions: { width: 200, height: 100 }
+      },
+      readers
+    )
+
+    expect(tall.background).toBe('linear-gradient(135deg, #F00 0%, #00F 100%)')
+    expect(wide.background).toBe('linear-gradient(116.57deg, #F00 0%, #00F 100%)')
+    expect(readers.getStyleById).toHaveBeenCalledTimes(2)
+    expect(readers.getVariableById).not.toHaveBeenCalled()
   })
 })

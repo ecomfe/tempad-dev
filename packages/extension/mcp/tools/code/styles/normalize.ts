@@ -4,8 +4,10 @@ import type { NestedStyleMap } from '@/utils/tailwind'
 import { expandShorthands, normalizeStyleValue, normalizeStyleValues } from '@/utils/css'
 import { cssToClassNames, nestedCssToClassNames } from '@/utils/tailwind'
 
+import type { GetCodeCacheContext } from '../cache'
 import type { StyleMap, StyleStep } from './types'
 
+import { getNodeSemanticsCached, getPaintsFromState } from '../cache'
 import { cleanFigmaSpecificStyles } from './background'
 import { inferResizingStyles, mergeInferredAutoLayout } from './layout'
 import { applyOverflowStyles } from './overflow'
@@ -33,27 +35,39 @@ const RING_MASK_BOX = 'content-box, border-box'
  * 5) Apply overflow rules.
  */
 const STYLE_PIPELINE: StyleStep[] = [
-  (style, node) => cleanFigmaSpecificStyles(style, node),
+  (style, node, _parent, ctx) => cleanFigmaSpecificStyles(style, node, ctx),
   (style) => expandShorthands(style),
-  (style, node) => mergeInferredAutoLayout(style, node),
-  (style, node, parent) => inferResizingStyles(style, node, parent),
+  (style, node, _parent, ctx) => mergeInferredAutoLayout(style, node, ctx),
+  (style, node, parent, ctx) => inferResizingStyles(style, node, parent, ctx),
   (style, node) => applyOverflowStyles(style, node)
 ]
 
-export function preprocessStyles(style: StyleMap, node?: SceneNode, parent?: SceneNode): StyleMap {
-  return STYLE_PIPELINE.reduce((acc, step) => step(acc, node, parent), style)
+export function preprocessStyles(
+  style: StyleMap,
+  node?: SceneNode,
+  parent?: SceneNode,
+  ctx?: GetCodeCacheContext
+): StyleMap {
+  return STYLE_PIPELINE.reduce((acc, step) => step(acc, node, parent, ctx), style)
 }
 
-export function stripInertShadows(style: StyleMap, node: SceneNode): void {
+export function stripInertShadows(
+  style: StyleMap,
+  node: SceneNode,
+  ctx?: GetCodeCacheContext
+): void {
   if (!style['box-shadow']) return
-  if (hasRenderableFill(node)) return
+  if (hasRenderableFill(node, ctx)) return
   delete style['box-shadow']
 }
 
-function hasRenderableFill(node: SceneNode): boolean {
-  if (!('fills' in node)) return false
-  const fills = node.fills
-  if (!Array.isArray(fills)) return false
+function hasRenderableFill(node: SceneNode, ctx?: GetCodeCacheContext): boolean {
+  const fills = ctx
+    ? getPaintsFromState(getNodeSemanticsCached(node, ctx).paint.fillsState)
+    : 'fills' in node && Array.isArray(node.fills)
+      ? node.fills
+      : null
+  if (!fills) return false
   return fills.some(isFillRenderable)
 }
 

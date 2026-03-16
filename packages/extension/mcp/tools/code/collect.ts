@@ -1,4 +1,4 @@
-import { resolveStylesFromNode, type AssetDescriptor } from '@tempad-dev/shared'
+import { resolveStylesFromNodeData, type AssetDescriptor } from '@tempad-dev/shared'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
@@ -6,9 +6,11 @@ import { preprocessCssValue, stripFallback } from '@/utils/css'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
 
+import type { GetCodeCacheContext } from './cache'
 import type { CollectedData, NodeSnapshot, VisibleTree } from './model'
 
 import { hasImageFills, replaceImageUrlsWithAssets } from './assets'
+import { getNodeSemanticsCached, getPaintsFromState } from './cache'
 import { getLayoutParent } from './layout-parent'
 import { preprocessStyles, stripInertShadows } from './styles'
 import { REQUESTED_SEGMENT_FIELDS } from './text/types'
@@ -17,6 +19,7 @@ export async function collectNodeData(
   tree: VisibleTree,
   config: CodegenConfig,
   assetRegistry: Map<string, AssetDescriptor>,
+  cache: GetCodeCacheContext,
   skipIds?: Set<string>
 ): Promise<CollectedData> {
   const styles = new Map<string, Record<string, string>>()
@@ -35,20 +38,24 @@ export async function collectNodeData(
 
     try {
       let css = await node.getCSSAsync()
-      css = await resolveStylesFromNode(css, node)
+      css = await resolveStylesFromNodeData(
+        css,
+        createNodePaintStyleInput(snapshot, cache),
+        cache.readers
+      )
       const parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
 
-      let processed = preprocessStyles(preprocessRawStyle(css), node, parent?.node)
+      let processed = preprocessStyles(preprocessRawStyle(css), node, parent?.node, cache)
       if (parent) {
-        processed = applyAutoLayoutAbsolutePosition(processed, snapshot, tree)
-        processed = applyConstraintsPosition(processed, snapshot, tree)
+        processed = applyAutoLayoutAbsolutePosition(processed, snapshot, tree, cache)
+        processed = applyConstraintsPosition(processed, snapshot, tree, cache)
       }
 
-      if (hasImageFills(node)) {
+      if (hasImageFills(node, cache)) {
         processed = await replaceImageUrlsWithAssets(processed, node, config, assetRegistry)
       }
 
-      stripInertShadows(processed, node)
+      stripInertShadows(processed, node, cache)
       styles.set(id, processed)
     } catch (error) {
       logger.warn('Failed to process node styles:', error)
@@ -83,30 +90,27 @@ function collectTextSegments(node: TextNode): StyledTextSegment[] | null {
 function applyConstraintsPosition(
   style: Record<string, string>,
   node: NodeSnapshot,
-  tree: VisibleTree
+  tree: VisibleTree,
+  cache: GetCodeCacheContext
 ): Record<string, string> {
   if (node.node.type === 'GROUP' || node.node.type === 'BOOLEAN_OPERATION') return style
-  const currentNode = node.node
   const parentSnapshot = getLayoutParent(tree, node)
   if (!parentSnapshot) return style
-  const parentNode = parentSnapshot.node
+  const currentSemantics = getNodeSemanticsCached(node.node, cache)
+  const parentSemantics = getNodeSemanticsCached(parentSnapshot.node, cache)
 
-  const layoutMode = 'layoutMode' in parentNode ? parentNode.layoutMode : undefined
+  const layoutMode = parentSemantics.layout.layoutMode
   if (layoutMode && layoutMode !== 'NONE') return style
-  if (hasInferredLayout(parentNode)) return style
+  if (hasInferredLayout(parentSnapshot.node, cache)) return style
 
-  const rawWidth = 'width' in currentNode ? currentNode.width : 0
-  const rawHeight = 'height' in currentNode ? currentNode.height : 0
-  const rawParentWidth = 'width' in parentNode ? parentNode.width : 0
-  const rawParentHeight = 'height' in parentNode ? parentNode.height : 0
-  const width = toDecimalPlace(rawWidth)
-  const height = toDecimalPlace(rawHeight)
-  const parentWidth = toDecimalPlace(rawParentWidth)
-  const parentHeight = toDecimalPlace(rawParentHeight)
+  const width = toDecimalPlace(node.bounds.width)
+  const height = toDecimalPlace(node.bounds.height)
+  const parentWidth = toDecimalPlace(parentSnapshot.bounds.width)
+  const parentHeight = toDecimalPlace(parentSnapshot.bounds.height)
 
   if (!parentWidth || !parentHeight) return style
 
-  const transform = 'relativeTransform' in currentNode ? currentNode.relativeTransform : undefined
+  const transform = currentSemantics.geometry.relativeTransform
   if (!transform || transform.length < 2 || transform[0].length < 3 || transform[1].length < 3) {
     return style
   }
@@ -116,7 +120,7 @@ function applyConstraintsPosition(
   const right = toDecimalPlace(parentWidth - width - left)
   const bottom = toDecimalPlace(parentHeight - height - top)
 
-  const constraints = 'constraints' in currentNode ? currentNode.constraints : undefined
+  const constraints = currentSemantics.geometry.constraints
   const result: Record<string, string> = { ...style, position: 'absolute' }
 
   if (constraints) {
@@ -185,34 +189,30 @@ function applyConstraintsPosition(
 function applyAutoLayoutAbsolutePosition(
   style: Record<string, string>,
   node: NodeSnapshot,
-  tree: VisibleTree
+  tree: VisibleTree,
+  cache: GetCodeCacheContext
 ): Record<string, string> {
   if (node.node.type === 'GROUP' || node.node.type === 'BOOLEAN_OPERATION') return style
-  const currentNode = node.node
   const parentSnapshot = getLayoutParent(tree, node)
   if (!parentSnapshot) return style
-  const parentNode = parentSnapshot.node
+  const currentSemantics = getNodeSemanticsCached(node.node, cache)
+  const parentSemantics = getNodeSemanticsCached(parentSnapshot.node, cache)
 
-  const parentLayout = 'layoutMode' in parentNode ? parentNode.layoutMode : undefined
-  const inferredLayout = hasInferredLayout(parentNode)
+  const parentLayout = parentSemantics.layout.layoutMode
+  const inferredLayout = hasInferredLayout(parentSnapshot.node, cache)
   if ((!parentLayout || parentLayout === 'NONE') && !inferredLayout) return style
 
-  const layoutPositioning =
-    'layoutPositioning' in currentNode ? currentNode.layoutPositioning : undefined
+  const layoutPositioning = currentSemantics.layout.layoutPositioning
   if (layoutPositioning !== 'ABSOLUTE') return style
 
-  const rawWidth = 'width' in currentNode ? currentNode.width : 0
-  const rawHeight = 'height' in currentNode ? currentNode.height : 0
-  const rawParentWidth = 'width' in parentNode ? parentNode.width : 0
-  const rawParentHeight = 'height' in parentNode ? parentNode.height : 0
-  const width = toDecimalPlace(rawWidth)
-  const height = toDecimalPlace(rawHeight)
-  const parentWidth = toDecimalPlace(rawParentWidth)
-  const parentHeight = toDecimalPlace(rawParentHeight)
+  const width = toDecimalPlace(node.bounds.width)
+  const height = toDecimalPlace(node.bounds.height)
+  const parentWidth = toDecimalPlace(parentSnapshot.bounds.width)
+  const parentHeight = toDecimalPlace(parentSnapshot.bounds.height)
 
   if (!parentWidth || !parentHeight) return style
 
-  const transform = 'relativeTransform' in currentNode ? currentNode.relativeTransform : undefined
+  const transform = currentSemantics.geometry.relativeTransform
   if (!transform || transform.length < 2 || transform[0].length < 3 || transform[1].length < 3) {
     return style
   }
@@ -241,8 +241,28 @@ function applyAutoLayoutAbsolutePosition(
   return result
 }
 
-function hasInferredLayout(node: SceneNode): boolean {
-  if (!('inferredAutoLayout' in node)) return false
-  const inferred = (node as { inferredAutoLayout?: { layoutMode?: string } }).inferredAutoLayout
+function hasInferredLayout(node: SceneNode, cache?: GetCodeCacheContext): boolean {
+  const inferred = cache
+    ? getNodeSemanticsCached(node, cache).layout.inferredAutoLayout
+    : 'inferredAutoLayout' in node
+      ? (node as { inferredAutoLayout?: { layoutMode?: string } }).inferredAutoLayout
+      : undefined
   return !!inferred?.layoutMode && inferred.layoutMode !== 'NONE'
+}
+
+function createNodePaintStyleInput(snapshot: NodeSnapshot, cache: GetCodeCacheContext) {
+  const semantics = getNodeSemanticsCached(snapshot.node, cache)
+  const width = snapshot.bounds.width
+  const height = snapshot.bounds.height
+
+  return {
+    fillStyleId: semantics.paint.fillStyleId,
+    strokeStyleId: semantics.paint.strokeStyleId,
+    fills: getPaintsFromState(semantics.paint.fillsState),
+    strokes: getPaintsFromState(semantics.paint.strokesState),
+    dimensions:
+      Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+        ? { width, height }
+        : undefined
+  }
 }

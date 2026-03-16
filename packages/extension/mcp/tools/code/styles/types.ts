@@ -1,6 +1,13 @@
+import type { GetCodeCacheContext } from '../cache'
+
 export type StyleMap = Record<string, string>
 
-export type StyleStep = (style: StyleMap, node?: SceneNode, parent?: SceneNode) => StyleMap
+export type StyleStep = (
+  style: StyleMap,
+  node?: SceneNode,
+  parent?: SceneNode,
+  ctx?: GetCodeCacheContext
+) => StyleMap
 
 export type AutoLayoutLike = {
   layoutMode?: 'HORIZONTAL' | 'VERTICAL' | 'GRID' | 'NONE'

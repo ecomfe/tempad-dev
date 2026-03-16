@@ -7,9 +7,16 @@ import { BG_URL_RE } from '@/utils/css'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
 
+import type { GetCodeCacheContext } from '../cache'
+
+import { getNodeSemanticsCached } from '../cache'
+
 const imageBytesCache = new Map<string, Promise<Uint8Array>>()
 
-export function hasImageFills(node: SceneNode): boolean {
+export function hasImageFills(node: SceneNode, ctx?: GetCodeCacheContext): boolean {
+  if (ctx) {
+    return getNodeSemanticsCached(node, ctx).paint.hasImageFill
+  }
   return (
     'fills' in node &&
     Array.isArray(node.fills) &&

@@ -1,3 +1,5 @@
+import type { FigmaLookupReaders } from '@tempad-dev/shared'
+
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
@@ -17,9 +19,10 @@ export type VariableMappings = CandidateResult
 
 export function buildVariableMappings(
   roots: SceneNode[],
-  cache?: Map<string, Variable | null>
+  cache?: Map<string, Variable | null>,
+  readers?: FigmaLookupReaders
 ): VariableMappings {
-  return collectCandidateVariableIds(roots, cache)
+  return collectCandidateVariableIds(roots, cache, readers)
 }
 
 export function normalizeStyleVars(

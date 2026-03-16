@@ -1,3 +1,5 @@
+import type { FigmaLookupReaders } from '@tempad-dev/shared'
+
 import {
   canonicalizeColor,
   formatHexAlpha,
@@ -9,9 +11,11 @@ import {
   toFigmaVarExpr
 } from '@/utils/css'
 
+import type { GetCodeCacheContext } from '../cache'
 import type { StyleMap } from './types'
 
 import { getVariableRawName } from '../../token/indexer'
+import { getNodeSemanticsCached, getPaintStyleCached, getPaintsFromState } from '../cache'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
 const GRADIENT_FN_RE = /(linear-gradient|radial-gradient|conic-gradient)\s*\(/i
@@ -19,21 +23,31 @@ const GRADIENT_FN_RE = /(linear-gradient|radial-gradient|conic-gradient)\s*\(/i
 type PaintList = Paint[] | ReadonlyArray<Paint> | null | undefined
 type GradientSize = { width: number; height: number }
 
-export function cleanFigmaSpecificStyles(style: StyleMap, node?: SceneNode): StyleMap {
+const DEFAULT_READERS: FigmaLookupReaders = {
+  getStyleById: (id: string) => figma.getStyleById(id),
+  getVariableById: (id: string) => figma.variables.getVariableById(id)
+}
+
+export function cleanFigmaSpecificStyles(
+  style: StyleMap,
+  node?: SceneNode,
+  ctx?: GetCodeCacheContext
+): StyleMap {
   if (!node) return style
 
   const processed = style
-  const fills = getNodeFills(node)
+  const fills = getNodeFills(node, ctx)
   const gradientSize = getGradientSizeFromNode(node)
-  const solidStyleColor = resolveSolidFillStyle(node)
+  const solidStyleColor = resolveSolidFillStyle(node, ctx)
   const gradientStyle =
-    resolveGradientFillStyle(node, gradientSize) ?? resolveGradientFillFromNode(node, gradientSize)
+    resolveGradientFillStyle(node, gradientSize, ctx) ??
+    resolveGradientFillFromNode(node, gradientSize, ctx?.readers, ctx)
 
   if (processed.background) {
     const bgValue = processed.background
     const normalized = stripFallback(preprocessCssValue(bgValue)).trim()
 
-    const gradient = resolveGradientWithOpacity(normalized, node)
+    const gradient = resolveGradientWithOpacity(normalized, node, ctx)
     if (gradient) {
       processed.background = gradient
       return processed
@@ -80,13 +94,15 @@ export function cleanFigmaSpecificStyles(style: StyleMap, node?: SceneNode): Sty
   return processed
 }
 
-function getFillStyleId(node: SceneNode): string | null {
+function getFillStyleId(node: SceneNode, ctx?: GetCodeCacheContext): string | null {
+  if (ctx) return getNodeSemanticsCached(node, ctx).paint.fillStyleId
   if (!('fillStyleId' in node)) return null
   const styleId = node.fillStyleId
   return typeof styleId === 'string' && styleId.length > 0 ? styleId : null
 }
 
-function getNodeFills(node: SceneNode): ReadonlyArray<Paint> | null {
+function getNodeFills(node: SceneNode, ctx?: GetCodeCacheContext): ReadonlyArray<Paint> | null {
+  if (ctx) return getPaintsFromState(getNodeSemanticsCached(node, ctx).paint.fillsState)
   if ('fills' in node && Array.isArray(node.fills)) {
     return node.fills
   }
@@ -140,9 +156,13 @@ function findVisibleSolidPaint(paints: ReadonlyArray<Paint>): SolidPaint | null 
   return solid ?? null
 }
 
-function resolveSolidFillStyle(node: SceneNode): string | null {
-  const styleId = getFillStyleId(node)
+function resolveSolidFillStyle(node: SceneNode, ctx?: GetCodeCacheContext): string | null {
+  const styleId = getFillStyleId(node, ctx)
   if (!styleId) return null
+
+  if (ctx) {
+    return getPaintStyleCached(styleId, ctx)?.singleVisibleSolidColor ?? null
+  }
 
   try {
     const style = figma.getStyleById(styleId)
@@ -169,9 +189,18 @@ function resolveSolidFillStyle(node: SceneNode): string | null {
   }
 }
 
-function resolveGradientFillStyle(node: SceneNode, size?: GradientSize): string | null {
-  const styleId = getFillStyleId(node)
+function resolveGradientFillStyle(
+  node: SceneNode,
+  size?: GradientSize,
+  ctx?: GetCodeCacheContext
+): string | null {
+  const styleId = getFillStyleId(node, ctx)
   if (!styleId) return null
+
+  if (ctx) {
+    const paints = getPaintStyleCached(styleId, ctx)?.paints
+    return resolveGradientFromPaints(paints, size, ctx.readers)
+  }
 
   try {
     const style = figma.getStyleById(styleId)
@@ -182,13 +211,22 @@ function resolveGradientFillStyle(node: SceneNode, size?: GradientSize): string 
   }
 }
 
-function resolveGradientFillFromNode(node: SceneNode, size?: GradientSize): string | null {
-  const fills = getNodeFills(node)
+function resolveGradientFillFromNode(
+  node: SceneNode,
+  size?: GradientSize,
+  readers: FigmaLookupReaders = DEFAULT_READERS,
+  ctx?: GetCodeCacheContext
+): string | null {
+  const fills = getNodeFills(node, ctx)
   if (!fills) return null
-  return resolveGradientFromPaints(fills, size)
+  return resolveGradientFromPaints(fills, size, readers)
 }
 
-function resolveGradientFromPaints(paints?: PaintList, size?: GradientSize): string | null {
+function resolveGradientFromPaints(
+  paints?: PaintList,
+  size?: GradientSize,
+  readers: FigmaLookupReaders = DEFAULT_READERS
+): string | null {
   if (!paints || !Array.isArray(paints)) return null
   const visible = paints.filter(isVisiblePaint)
   if (visible.length !== 1) return null
@@ -200,7 +238,7 @@ function resolveGradientFromPaints(paints?: PaintList, size?: GradientSize): str
   const fillOpacity = typeof gradientPaint.opacity === 'number' ? gradientPaint.opacity : 1
   const stops = gradientPaint.gradientStops.map((stop) => {
     const pct = formatPercent(stop.position)
-    const color = formatGradientStopColor(stop, fillOpacity)
+    const color = formatGradientStopColor(stop, fillOpacity, readers)
     return `${color} ${pct}`
   })
 
@@ -220,10 +258,14 @@ function resolveGradientFromPaints(paints?: PaintList, size?: GradientSize): str
   }
 }
 
-function resolveGradientWithOpacity(value: string, node: SceneNode): string | null {
+function resolveGradientWithOpacity(
+  value: string,
+  node: SceneNode,
+  ctx?: GetCodeCacheContext
+): string | null {
   if (!value || !/gradient\(/i.test(value)) return null
 
-  const fills = getNodeFills(node)
+  const fills = getNodeFills(node, ctx)
   if (!fills) return null
 
   const fill = fills.find(isVisibleLinearGradientPaint)
@@ -245,7 +287,7 @@ function resolveGradientWithOpacity(value: string, node: SceneNode): string | nu
       angle.startsWith('to '))
   const stops = fill.gradientStops.map((stop) => {
     const pct = formatPercent(stop.position)
-    const color = formatGradientStopColor(stop, fillOpacity)
+    const color = formatGradientStopColor(stop, fillOpacity, ctx?.readers ?? DEFAULT_READERS)
     return `${color} ${pct}`
   })
 
@@ -285,13 +327,17 @@ function formatPercent(pos: number): string {
   return `${pct}%`
 }
 
-function formatGradientStopColor(stop: ColorStop, fillOpacity: number): string {
+function formatGradientStopColor(
+  stop: ColorStop,
+  fillOpacity: number,
+  readers: FigmaLookupReaders
+): string {
   const baseAlpha = stop.color?.a ?? 1
   const alpha = Math.max(0, Math.min(1, baseAlpha * fillOpacity))
 
   const bound = stop.boundVariables?.color
   if (bound && typeof bound === 'object' && 'id' in bound && bound.id) {
-    const variable = figma.variables.getVariableById(bound.id)
+    const variable = readers.getVariableById(bound.id)
     const expr = variable
       ? toFigmaVarExpr(getVariableRawName(variable))
       : `var(${normalizeFigmaVarName('')})`

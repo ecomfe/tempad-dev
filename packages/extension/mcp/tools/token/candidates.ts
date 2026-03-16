@@ -1,3 +1,5 @@
+import type { FigmaLookupReaders } from '@tempad-dev/shared'
+
 import { canonicalizeVarName, normalizeFigmaVarName, toFigmaVarExpr } from '@/utils/css'
 import { logger } from '@/utils/log'
 
@@ -5,6 +7,11 @@ import { getVariableByIdCached } from './cache'
 import { getVariableRawName } from './indexer'
 
 type VariableAlias = { id?: string } | { type?: string; id?: string }
+
+const DEFAULT_READERS: FigmaLookupReaders = {
+  getStyleById: (id: string) => figma.getStyleById(id),
+  getVariableById: (id: string) => figma.variables.getVariableById(id)
+}
 
 export type CandidateResult = {
   variableIds: Set<string>
@@ -41,7 +48,11 @@ function collectVariableIdFromValue(value: unknown, bucket: Set<string>): void {
   }
 }
 
-function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
+function collectVariableIds(
+  node: SceneNode,
+  bucket: Set<string>,
+  readers: FigmaLookupReaders = DEFAULT_READERS
+): void {
   if ('boundVariables' in node) {
     const { boundVariables } = node
     if (boundVariables) {
@@ -83,19 +94,23 @@ function collectVariableIds(node: SceneNode, bucket: Set<string>): void {
   }
 
   if ('fillStyleId' in node) {
-    collectStylePaintVariableIds(node.fillStyleId, bucket)
+    collectStylePaintVariableIds(node.fillStyleId, bucket, readers)
   }
 
   if ('strokeStyleId' in node) {
-    collectStylePaintVariableIds(node.strokeStyleId, bucket)
+    collectStylePaintVariableIds(node.strokeStyleId, bucket, readers)
   }
 }
 
-function collectStylePaintVariableIds(styleId: unknown, bucket: Set<string>): void {
+function collectStylePaintVariableIds(
+  styleId: unknown,
+  bucket: Set<string>,
+  readers: FigmaLookupReaders = DEFAULT_READERS
+): void {
   if (!styleId || typeof styleId !== 'string') return
 
   try {
-    const style = figma.getStyleById(styleId) as PaintStyle | null
+    const style = readers.getStyleById(styleId) as PaintStyle | null
     if (style?.paints && Array.isArray(style.paints)) {
       style.paints.forEach((paint) => {
         if (!paint || paint.visible === false) return
@@ -110,7 +125,8 @@ function collectStylePaintVariableIds(styleId: unknown, bucket: Set<string>): vo
 
 export function collectCandidateVariableIds(
   roots: SceneNode[],
-  cache?: Map<string, Variable | null>
+  cache?: Map<string, Variable | null>,
+  readers: FigmaLookupReaders = DEFAULT_READERS
 ): CandidateResult {
   const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
   const startedAt = now()
@@ -118,7 +134,7 @@ export function collectCandidateVariableIds(
   const rewrites = new Map<string, { canonical: string; id: string }>()
 
   const visit = (node: SceneNode) => {
-    collectVariableIds(node, variableIds)
+    collectVariableIds(node, variableIds, readers)
 
     if (hasChildren(node)) {
       node.children.forEach((child) => {

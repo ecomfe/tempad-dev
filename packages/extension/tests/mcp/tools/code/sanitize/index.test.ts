@@ -35,10 +35,20 @@ describe('sanitize/index sanitizeStyles', () => {
 
     sanitizeStyles(tree, styles, svgRoots)
 
-    expect(mocks.patchNegativeGapStyles).toHaveBeenCalledWith(tree, styles, svgRoots)
-    expect(mocks.canonicalizeAutoLayoutStyles).toHaveBeenCalledWith(tree, styles, svgRoots)
-    expect(mocks.ensureRelativeForAbsoluteChildren).toHaveBeenCalledWith(tree, styles, svgRoots)
-    expect(mocks.applyAbsoluteStackingOrder).toHaveBeenCalledWith(tree, styles, svgRoots)
+    expect(mocks.patchNegativeGapStyles).toHaveBeenCalledWith(tree, styles, svgRoots, undefined)
+    expect(mocks.canonicalizeAutoLayoutStyles).toHaveBeenCalledWith(
+      tree,
+      styles,
+      svgRoots,
+      undefined
+    )
+    expect(mocks.ensureRelativeForAbsoluteChildren).toHaveBeenCalledWith(
+      tree,
+      styles,
+      svgRoots,
+      undefined
+    )
+    expect(mocks.applyAbsoluteStackingOrder).toHaveBeenCalledWith(tree, styles, svgRoots, undefined)
 
     expect(mocks.patchNegativeGapStyles.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.canonicalizeAutoLayoutStyles.mock.invocationCallOrder[0]
@@ -57,13 +67,29 @@ describe('sanitize/index sanitizeStyles', () => {
 
     sanitizeStyles(tree, styles)
 
-    expect(mocks.patchNegativeGapStyles).toHaveBeenLastCalledWith(tree, styles, undefined)
-    expect(mocks.canonicalizeAutoLayoutStyles).toHaveBeenLastCalledWith(tree, styles, undefined)
+    expect(mocks.patchNegativeGapStyles).toHaveBeenLastCalledWith(
+      tree,
+      styles,
+      undefined,
+      undefined
+    )
+    expect(mocks.canonicalizeAutoLayoutStyles).toHaveBeenLastCalledWith(
+      tree,
+      styles,
+      undefined,
+      undefined
+    )
     expect(mocks.ensureRelativeForAbsoluteChildren).toHaveBeenLastCalledWith(
       tree,
       styles,
+      undefined,
       undefined
     )
-    expect(mocks.applyAbsoluteStackingOrder).toHaveBeenLastCalledWith(tree, styles, undefined)
+    expect(mocks.applyAbsoluteStackingOrder).toHaveBeenLastCalledWith(
+      tree,
+      styles,
+      undefined,
+      undefined
+    )
   })
 })

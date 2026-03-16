@@ -2,7 +2,7 @@
  * Gradient and color utilities for Figma styles
  */
 
-import type { PaintList } from './types'
+import type { FigmaLookupReaders, PaintList, PaintResolutionSize } from './types'
 
 import { formatHexAlpha } from './color'
 
@@ -36,9 +36,11 @@ type GradientPaintWithHandles = GradientPaint & {
   gradientHandlePositions: ReadonlyArray<Vector>
 }
 
-type GradientSize = {
-  width: number
-  height: number
+type GradientSize = PaintResolutionSize
+
+const DEFAULT_READERS: FigmaLookupReaders = {
+  getStyleById: (id) => figma.getStyleById(id),
+  getVariableById: (id) => figma.variables.getVariableById(id)
 }
 
 function hasGradientHandlePositions(paint: GradientPaint): paint is GradientPaintWithHandles {
@@ -49,7 +51,11 @@ function hasGradientHandlePositions(paint: GradientPaint): paint is GradientPain
  * Resolves gradient from paint array
  * Returns CSS gradient string or null
  */
-export function resolveGradientFromPaints(paints?: PaintList, size?: GradientSize): string | null {
+export function resolveGradientFromPaints(
+  paints?: PaintList,
+  size?: GradientSize,
+  readers: FigmaLookupReaders = DEFAULT_READERS
+): string | null {
   if (!paints || !Array.isArray(paints)) return null
 
   // Find the first visible gradient paint
@@ -62,7 +68,7 @@ export function resolveGradientFromPaints(paints?: PaintList, size?: GradientSiz
   const fillOpacity = typeof gradientPaint.opacity === 'number' ? gradientPaint.opacity : 1
   const stops = gradientPaint.gradientStops.map((stop) => {
     const pct = formatPercent(stop.position)
-    const color = formatGradientStopColor(stop, fillOpacity)
+    const color = formatGradientStopColor(stop, fillOpacity, readers)
     return `${color} ${pct}`
   })
 
@@ -86,7 +92,10 @@ export function resolveGradientFromPaints(paints?: PaintList, size?: GradientSiz
  * Resolves solid color from paint array
  * Returns hex color string or null
  */
-export function resolveSolidFromPaints(paints?: PaintList): string | null {
+export function resolveSolidFromPaints(
+  paints?: PaintList,
+  readers: FigmaLookupReaders = DEFAULT_READERS
+): string | null {
   if (!paints || !Array.isArray(paints)) return null
 
   // Find the first visible solid paint
@@ -100,7 +109,7 @@ export function resolveSolidFromPaints(paints?: PaintList): string | null {
   const bound = solidPaint.boundVariables?.color
   if (bound && typeof bound === 'object' && 'id' in bound && bound.id) {
     try {
-      const variable = figma.variables.getVariableById(bound.id)
+      const variable = readers.getVariableById(bound.id)
       if (variable) {
         const fallback = formatHexAlpha(solidPaint.color, solidPaint.opacity)
         const cssVarName = getVariableCssCustomPropertyName(variable)
@@ -117,7 +126,11 @@ export function resolveSolidFromPaints(paints?: PaintList): string | null {
 /**
  * Formats a gradient stop color
  */
-function formatGradientStopColor(stop: ColorStop, fillOpacity: number): string {
+function formatGradientStopColor(
+  stop: ColorStop,
+  fillOpacity: number,
+  readers: FigmaLookupReaders
+): string {
   const baseAlpha = stop.color?.a ?? 1
   const alpha = Math.max(0, Math.min(1, baseAlpha * fillOpacity))
 
@@ -125,7 +138,7 @@ function formatGradientStopColor(stop: ColorStop, fillOpacity: number): string {
   const bound = stop.boundVariables?.color
   if (bound && typeof bound === 'object' && 'id' in bound && bound.id) {
     try {
-      const v = figma.variables.getVariableById(bound.id)
+      const v = readers.getVariableById(bound.id)
       if (v) {
         const fallbackOpaque = formatHexAlpha(stop.color, 1)
         const fallbackAlpha = formatHexAlpha(stop.color, alpha)

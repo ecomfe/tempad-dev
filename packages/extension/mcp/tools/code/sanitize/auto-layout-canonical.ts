@@ -1,4 +1,7 @@
+import type { GetCodeCacheContext } from '../cache'
 import type { NodeSnapshot, VisibleTree } from '../model'
+
+import { getNodeSemanticsCached } from '../cache'
 
 type StyleMap = Map<string, Record<string, string>>
 type Axis = 'x' | 'y'
@@ -8,7 +11,12 @@ const FLEX_DISPLAYS = new Set(['flex', 'inline-flex'])
 const EPSILON = 0.5
 const PX_RE = /^-?\d+(?:\.\d+)?px$/i
 
-export function canonicalizeAutoLayoutStyles(tree: VisibleTree, styles: StyleMap): void {
+export function canonicalizeAutoLayoutStyles(
+  tree: VisibleTree,
+  styles: StyleMap,
+  _svgRoots?: Set<string>,
+  ctx?: GetCodeCacheContext
+): void {
   for (const id of tree.order) {
     const snapshot = tree.nodes.get(id)
     if (!snapshot) continue
@@ -22,8 +30,8 @@ export function canonicalizeAutoLayoutStyles(tree: VisibleTree, styles: StyleMap
     const childStyle = styles.get(child.id) ?? {}
     if (isAbsolute(childStyle)) continue
 
-    canonicalizeAxis('x', snapshot, style, child, childStyle)
-    canonicalizeAxis('y', snapshot, style, child, childStyle)
+    canonicalizeAxis('x', snapshot, style, child, childStyle, ctx)
+    canonicalizeAxis('y', snapshot, style, child, childStyle, ctx)
   }
 }
 
@@ -32,15 +40,16 @@ function canonicalizeAxis(
   snapshot: NodeSnapshot,
   style: Record<string, string>,
   child: NodeSnapshot,
-  childStyle: Record<string, string>
+  childStyle: Record<string, string>,
+  ctx?: GetCodeCacheContext
 ): void {
   if (hasUnsupportedAxisValues(style, axis) || hasUnsupportedAxisValues(childStyle, axis, true)) {
     return
   }
 
-  const state = resolveAxisState(axis, snapshot, style, child, childStyle)
+  const state = resolveAxisState(axis, snapshot, style, child, childStyle, ctx)
   if (state === 'fixed') {
-    canonicalizeFixedAxis(axis, snapshot, style, child, childStyle)
+    canonicalizeFixedAxis(axis, snapshot, style, child, childStyle, ctx)
     return
   }
   if (state === 'hug') {
@@ -53,12 +62,13 @@ function resolveAxisState(
   snapshot: NodeSnapshot,
   style: Record<string, string>,
   child: NodeSnapshot,
-  childStyle: Record<string, string>
+  childStyle: Record<string, string>,
+  ctx?: GetCodeCacheContext
 ): AxisState {
   if (isAbsolute(childStyle)) return 'absolute'
-  if (isFillSizing(child.node, axis)) return 'fill'
+  if (isFillSizing(child.node, axis, ctx)) return 'fill'
 
-  const ownSizing = getSizingMode(snapshot.node, axis)
+  const ownSizing = getSizingMode(snapshot.node, axis, ctx)
   if (ownSizing === 'FILL') return 'fill'
   if (ownSizing === 'HUG') return 'hug'
   if (ownSizing === 'FIXED') return 'fixed'
@@ -71,11 +81,12 @@ function canonicalizeFixedAxis(
   snapshot: NodeSnapshot,
   style: Record<string, string>,
   child: NodeSnapshot,
-  childStyle: Record<string, string>
+  childStyle: Record<string, string>,
+  ctx?: GetCodeCacheContext
 ): void {
   if (
     !hasExplicitAxisSize(style, axis) ||
-    !isCenteredOnAxis(axis, snapshot.node, style, childStyle)
+    !isCenteredOnAxis(axis, snapshot.node, style, childStyle, ctx)
   ) {
     return
   }
@@ -151,18 +162,26 @@ function keyLikeLength(value: string): boolean {
   return /(?:^|[^a-z])(min|max|fit-content|auto|stretch)(?:$|[^a-z])/i.test(value)
 }
 
-function getSizingMode(node: SceneNode, axis: Axis): 'FIXED' | 'HUG' | 'FILL' | undefined {
-  const key = axis === 'x' ? 'layoutSizingHorizontal' : 'layoutSizingVertical'
-  if (!(key in node)) return undefined
-  const value = (node as { layoutSizingHorizontal?: string; layoutSizingVertical?: string })[key]
+function getSizingMode(
+  node: SceneNode,
+  axis: Axis,
+  ctx?: GetCodeCacheContext
+): 'FIXED' | 'HUG' | 'FILL' | undefined {
+  const semantics = ctx ? getNodeSemanticsCached(node, ctx) : null
+  const value =
+    axis === 'x'
+      ? (semantics?.layout.layoutSizingHorizontal ??
+        ('layoutSizingHorizontal' in node ? node.layoutSizingHorizontal : undefined))
+      : (semantics?.layout.layoutSizingVertical ??
+        ('layoutSizingVertical' in node ? node.layoutSizingVertical : undefined))
   if (value === 'FIXED' || value === 'HUG' || value === 'FILL') {
     return value
   }
   return undefined
 }
 
-function isFillSizing(node: SceneNode, axis: Axis): boolean {
-  return getSizingMode(node, axis) === 'FILL'
+function isFillSizing(node: SceneNode, axis: Axis, ctx?: GetCodeCacheContext): boolean {
+  return getSizingMode(node, axis, ctx) === 'FILL'
 }
 
 function hasExplicitAxisSize(style: Record<string, string>, axis: Axis): boolean {
@@ -173,9 +192,10 @@ function isCenteredOnAxis(
   axis: Axis,
   node: SceneNode,
   style: Record<string, string>,
-  childStyle: Record<string, string>
+  childStyle: Record<string, string>,
+  ctx?: GetCodeCacheContext
 ): boolean {
-  const mainAxis = resolveMainAxis(node, style)
+  const mainAxis = resolveMainAxis(node, style, ctx)
   if (mainAxis === axis) {
     return (style['justify-content'] ?? '').trim().toLowerCase() === 'center'
   }
@@ -185,7 +205,11 @@ function isCenteredOnAxis(
   return (style['align-items'] ?? '').trim().toLowerCase() === 'center'
 }
 
-function resolveMainAxis(node: SceneNode, style: Record<string, string>): Axis {
+function resolveMainAxis(
+  node: SceneNode,
+  style: Record<string, string>,
+  ctx?: GetCodeCacheContext
+): Axis {
   const direction = (style['flex-direction'] ?? '').trim().toLowerCase()
   if (direction === 'column' || direction === 'column-reverse') {
     return 'y'
@@ -194,15 +218,17 @@ function resolveMainAxis(node: SceneNode, style: Record<string, string>): Axis {
     return 'x'
   }
 
-  if ('layoutMode' in node) {
-    if (node.layoutMode === 'VERTICAL') return 'y'
-    if (node.layoutMode === 'HORIZONTAL') return 'x'
-  }
+  const semantics = ctx ? getNodeSemanticsCached(node, ctx) : null
+  const layoutMode =
+    semantics?.layout.layoutMode ?? ('layoutMode' in node ? node.layoutMode : undefined)
+  if (layoutMode === 'VERTICAL') return 'y'
+  if (layoutMode === 'HORIZONTAL') return 'x'
 
-  if ('inferredAutoLayout' in node) {
-    const inferred = node.inferredAutoLayout
-    if (inferred?.layoutMode === 'VERTICAL') return 'y'
-  }
+  const inferred =
+    semantics?.layout.inferredAutoLayout ??
+    ('inferredAutoLayout' in node ? node.inferredAutoLayout : undefined)
+  if (inferred?.layoutMode === 'VERTICAL') return 'y'
+  if (inferred?.layoutMode === 'HORIZONTAL') return 'x'
 
   return 'x'
 }
