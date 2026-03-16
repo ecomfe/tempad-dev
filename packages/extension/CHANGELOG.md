@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.3
+
+- Improved MCP `get_code` performance by adding a request-scoped cache layer that reuses node semantics, style lookups, variable lookups, paint-style summaries, and vector analysis across passes within one request.
+- Added higher-signal dev tracing for MCP `get_code`, including cache hit/miss counters and vector export result breakdowns for faster bottleneck analysis.
+
 ## 0.18.2
 
 - Bundled Prism extra language modules locally so the extension no longer fetches remotely hosted code for syntax highlighting under Manifest V3.

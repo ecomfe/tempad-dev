@@ -1,6 +1,6 @@
 # MCP get_code - design
 
-This document describes the implementation design for MCP `get_code` in `packages/extension/mcp/tools/code`. It aligns with the requirements and reflects the current pipeline.
+This document describes the implementation design for MCP `get_code` in `packages/extension/mcp/tools/code`. It aligns with the requirements and reflects the current pipeline, including the request-scoped cache layer used to dedupe slow Figma reads within a single request.
 
 ## High-level pipeline
 
@@ -8,24 +8,27 @@ This document describes the implementation design for MCP `get_code` in `package
    - Exactly one visible root node required.
    - Build a visible tree with depth capping.
 
-2. **Plan assets and plugin overrides**
+2. **Create request-scoped lookup context**
+   - Create a `GetCodeCacheContext` near the existing variable cache.
+   - Build variable mappings from the raw selected roots, using shared lookup readers backed by that request context.
+
+3. **Plan assets and plugin overrides**
    - Plan vector roots (vector-only containers) and mark their descendants for skipping.
    - If a plugin is enabled, pre-resolve plugin components for instances.
    - When a plugin returns component/code, skip collecting its descendants and reuse the cached plugin output in render.
 
-3. **Collect data**
+4. **Collect data**
    - `collectNodeData()`
      - `getCSSAsync()` once per node (skipped nodes are excluded).
      - `getStyledTextSegments()` for text nodes.
+     - Resolve fill/stroke style-backed CSS through shared lookup readers instead of issuing new ad hoc style/variable lookups per pass.
      - Preprocess styles (clean background, expand shorthands, merge inferred layout, infer resizing, apply overflow).
      - Apply positioning (auto layout absolute, constraints).
      - Replace image fills with uploaded assets.
 
-4. **Normalize variables**
+5. **Normalize variables and sanitize styles**
    - Normalize variable names and codeSyntax to a canonical form.
    - Capture variable usage candidates for token detection.
-
-5. **Sanitize styles**
    - Patch known layout issues (negative gap).
    - Ensure layout parents are `position: relative` when children are absolute.
 
@@ -34,7 +37,7 @@ This document describes the implementation design for MCP `get_code` in `package
 
 7. **Export assets**
    - Export SVGs/images only once per planned asset.
-   - Vector planning and themeable-color classification share the same paint/effect semantics helpers to avoid drift between asset eligibility and color-model detection.
+   - Vector planning and themeable-color classification share the same request cache and paint/effect semantics helpers to avoid drift between asset eligibility and color-model detection.
 
 8. **Render markup**
    - Render nodes into JSX/HTML component tree.
@@ -112,6 +115,46 @@ This document describes the implementation design for MCP `get_code` in `package
   - Removes only redundant size or padding expressions without changing the emitted flow model.
 - `ensureRelativeForAbsoluteChildren`
 
+## Request-scoped cache layer
+
+### Purpose
+
+- Reduce repeated Figma property reads and lookup calls during a single `get_code` execution.
+- Keep output semantics unchanged by centralizing reads instead of adding pass-specific memoization.
+
+### Boundary
+
+- The cache context lives only in `packages/extension`.
+- Shared helpers in `packages/shared` only receive a narrow `FigmaLookupReaders` interface.
+- Shared style and gradient resolution stay reusable outside MCP because they do not depend on an extension-local cache type.
+
+### Cached data
+
+- `variables`: request-scoped `Variable | null` lookup map.
+- `styles`: request-scoped `BaseStyle | null` lookup map.
+- `paintStyles`: `PaintStyleSummary` values containing raw paints plus size-independent facts, such as visible paint count and single-solid-channel analysis.
+- `nodeSemantics`: lazy `NodeSemanticSnapshot` values keyed by `node.id`.
+- `vectorAnalysis`: per-root vector color model results.
+- `metrics`: optional counters used only for dev tracing.
+
+### Node semantics snapshot
+
+- Paint arrays are preserved as tri-state values: `missing`, `unsupported`, or `array`.
+- Layout fields include explicit and inferred auto-layout information, sizing, alignment, clipping, and mask state.
+- Geometry includes `relativeTransform` and `constraints` so positioning helpers do not need to re-read live Figma nodes.
+
+### Consumers
+
+The request context is threaded through:
+
+- variable mapping
+- asset planning
+- CSS/style collection
+- background cleanup and layout inference
+- auto-layout canonicalization
+- vector color analysis
+- asset export
+
 ### Layout-only extraction
 
 - Builds layout-only style map for SVG containers.
@@ -179,12 +222,15 @@ This document describes the implementation design for MCP `get_code` in `package
 ## Performance notes
 
 - Single-pass CSS collection per node.
+- Request-scoped cache reuse for node semantics, style lookups, paint-style summaries, variable lookups, and vector analysis.
 - Asset export is planned and executed once.
 - Token detection is string-based and bounded by budget checks.
 - Token detection avoids a second scan after rewrites.
 - Skip CSS collection for vector-root descendants and plugin-rendered subtrees.
 - Variable candidate scan is limited to bound variables and paint references (not inferred variables).
+- Paint-style cache entries store raw paints and size-independent facts only; gradient strings are still resolved against the current node size at the call site.
 - Logging goes through `utils/log.ts` and adds `[tempad-dev]` prefix automatically.
+- In dev builds, `logger.debug` may include stage timings plus cache/export counters such as node/style/paint-style/variable hit rates and vector export result breakdown.
 
 ## Variable modes and overrides
 

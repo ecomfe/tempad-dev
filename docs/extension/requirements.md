@@ -9,6 +9,7 @@ This document records the source requirements and hard constraints for the MCP `
 - Do not use `renderBounds` diffs for positioning.
 - Do not inject positioning containers on GROUP/BOOLEAN nodes.
 - Keep `getCSSAsync()` at most once per node.
+- Do not persist Figma-derived cache state across requests.
 - If a plugin returns component/code for an instance, do not collect or render its descendants.
 
 ## Scope
@@ -172,11 +173,16 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 - Emit `depth-cap` warnings when tree depth is capped (include node ids).
 - Other degradations should be logged via the shared `logger` (prefix is automatic).
 - The tool may log high-level timing info via `logger.debug` for performance diagnostics.
+- Dev timing logs may include cache hit/miss counters and vector export result counters. These diagnostics are not part of the MCP response contract.
 
 ## Performance
 
 - `getCSSAsync` must be called at most once per node.
 - `getStyledTextSegments` only for text nodes.
+- Repeated node/style/variable/vector-analysis reads should go through one request-scoped cache context instead of pass-local ad hoc caches.
+- Shared style helpers must depend only on injected lookup readers or pure paint inputs; they must not depend on an extension-local cache type.
+- Paint-style cache entries must store raw paints and size-independent facts only. Any gradient string still has to be resolved with the current node size.
 - Avoid repeated vector export calls; plan and export once per tree.
 - Skip style collection for vector-root descendants (they are not rendered).
 - Variable candidate scanning uses bound variables and paint references; inferred variables are not required.
+- Variable candidate scanning must continue from the raw selected roots rather than `VisibleTree` so depth-cap and variable collection semantics stay unchanged.
