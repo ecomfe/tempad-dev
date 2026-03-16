@@ -2,7 +2,7 @@ import vue from '@vitejs/plugin-vue'
 import { marked } from 'marked'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath, URL } from 'node:url'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import { parse as parseYaml } from 'yaml'
 
 type FrontmatterEntry = {
@@ -14,6 +14,14 @@ type TocEntry = {
   depth: number
   id: string
   text: string
+}
+
+const tocTextParser = new marked.Parser()
+const tocTextRenderer = new marked.TextRenderer()
+type InlineTokens = Parameters<typeof tocTextParser.parseInline>[0]
+
+tocTextRenderer.html = function (): string {
+  return ''
 }
 
 function splitFrontmatter(source: string): { frontmatter: string; body: string } {
@@ -71,52 +79,12 @@ function formatFrontmatterValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : String(value)
 }
 
-function collectTocEntries(markdown: string): readonly TocEntry[] {
-  const slugCounts = new Map<string, number>()
-  let isInFence = false
-
-  return markdown.split('\n').flatMap((line) => {
-    if (line.startsWith('```')) {
-      isInFence = !isInFence
-      return []
-    }
-
-    if (isInFence) {
-      return []
-    }
-
-    const match = line.match(/^(##)\s+(.+?)\s*$/)
-
-    if (!match) {
-      return []
-    }
-
-    const depth = match[1]?.length
-    const text = normalizeHeadingText(match[2] ?? '')
-
-    if (!depth || !text) {
-      return []
-    }
-
-    return [
-      {
-        depth,
-        id: slugifyHeading(text, slugCounts),
-        text
-      }
-    ]
-  })
+function normalizeHeadingText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
 }
 
-function normalizeHeadingText(value: string): string {
-  return value
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/[*_~]/g, '')
-    .replace(/<[^>]+>/g, '')
-    .replace(/\\([\\`*_{}[\]()#+\-.!])/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim()
+function extractHeadingText(tokens: InlineTokens): string {
+  return normalizeHeadingText(tocTextParser.parseInline(tokens, tocTextRenderer))
 }
 
 function slugifyHeading(value: string, slugCounts: Map<string, number>): string {
@@ -136,31 +104,54 @@ function slugifyHeading(value: string, slugCounts: Map<string, number>): string 
   return count === 0 ? base : `${base}-${count + 1}`
 }
 
-function injectHeadingIds(html: string, tocEntries: readonly TocEntry[]): string {
-  let tocIndex = 0
+function renderHeadingHtml(depth: number, content: string, id?: string): string {
+  if (!id) {
+    return `<h${depth}>${content}</h${depth}>\n`
+  }
 
-  return html.replace(/<h([2-4])>/g, (match, rawLevel) => {
-    const level = Number(rawLevel)
-    const entry = tocEntries[tocIndex]
+  return `<h${depth} id="${id}">${content}</h${depth}>\n`
+}
 
-    if (!entry || entry.depth !== level) {
-      return match
+function addExternalLinkAttributes(html: string): string {
+  if (!html.startsWith('<a ')) {
+    return html
+  }
+
+  return html.replace('<a ', '<a target="_blank" rel="noopener noreferrer" ')
+}
+
+function renderSkillPreview(markdown: string): { html: string; toc: readonly TocEntry[] } {
+  const slugCounts = new Map<string, number>()
+  const toc: TocEntry[] = []
+  const renderer = new marked.Renderer()
+  const renderLink = renderer.link.bind(renderer)
+
+  renderer.heading = function (token) {
+    const inlineTokens = token.tokens ?? []
+    const text = extractHeadingText(inlineTokens)
+    const content = this.parser.parseInline(inlineTokens)
+
+    if (token.depth !== 2 || !text) {
+      return renderHeadingHtml(token.depth, content)
     }
 
-    tocIndex += 1
+    const id = slugifyHeading(text, slugCounts)
+    const entry = { depth: token.depth, id, text }
+    toc.push(entry)
 
-    return `<h${rawLevel} id="${entry.id}">`
-  })
+    return renderHeadingHtml(token.depth, content, id)
+  }
+
+  renderer.link = function (token) {
+    return addExternalLinkAttributes(renderLink(token))
+  }
+
+  const tokens = marked.lexer(markdown)
+  const html = String(marked.parser(tokens, { renderer }))
+  return { html, toc }
 }
 
-function renderSkillPreviewHtml(markdown: string, tocEntries: readonly TocEntry[]): string {
-  return injectHeadingIds(String(marked.parse(markdown)), tocEntries).replace(
-    /<a\s+/g,
-    '<a target="_blank" rel="noopener noreferrer" '
-  )
-}
-
-function skillPreviewPlugin() {
+function skillPreviewPlugin(): Plugin {
   return {
     name: 'skill-preview',
     async load(id: string) {
@@ -174,8 +165,7 @@ function skillPreviewPlugin() {
       const frontmatterEntries = frontmatter.trim()
         ? flattenFrontmatterEntries(parseYaml(frontmatter))
         : []
-      const toc = collectTocEntries(body)
-      const html = renderSkillPreviewHtml(body, toc)
+      const { toc, html } = renderSkillPreview(body)
 
       return `export default ${JSON.stringify({ frontmatterEntries, html, toc })}`
     }
