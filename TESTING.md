@@ -9,7 +9,8 @@ For architecture details (runtime split, strict coverage model, and worker sandb
 - Test runner: `vitest`
 - Browser test runner: `@vitest/browser-playwright` + Playwright Chromium
 - Coverage provider: `istanbul`
-- Workspace test entry: root `vitest.config.ts` + `vitest.workspace.ts`
+- Root check entry: root scripts fan out to package-owned scripts
+- Root coverage entry: `vitest.config.ts`
 
 ## Quick start
 
@@ -17,7 +18,7 @@ Run from repo root:
 
 First-time setup (once per machine) for browser tests:
 
-- `pnpm test:ext:setup`
+- `pnpm --filter @tempad-dev/extension test:setup`
 
 Then run:
 
@@ -32,12 +33,12 @@ Use this sequence as the default pre-PR verification.
 
 Root:
 
-- `pnpm test` (watch)
-- `pnpm test:run` (single run, includes extension worker sandbox check)
+- `pnpm test` (watch package-owned tests in parallel)
+- `pnpm test:run` (single run via package-owned `test:run` scripts)
 - `pnpm test:coverage` (workspace coverage)
-- `pnpm test:ext:setup` (install extension browser runtime)
-- `pnpm test:ext:node` (extension node tests only)
-- `pnpm test:ext:browser` (extension browser tests only)
+- `pnpm --filter @tempad-dev/extension test:setup` (install extension browser runtime)
+- `pnpm --filter @tempad-dev/extension test:node` (extension node tests only)
+- `pnpm --filter @tempad-dev/extension test:browser` (extension browser tests only)
 
 Per package:
 
@@ -69,8 +70,8 @@ When changing pure utility logic or formatters:
 
 When changing extension build/runtime behavior:
 
-- `pnpm build:ext`
-- If packaging impacted: `pnpm zip`
+- `pnpm --filter @tempad-dev/extension build`
+- If packaging impacted: `pnpm --filter @tempad-dev/extension zip`
 
 When changing DOM/browser runtime behavior in extension:
 
@@ -116,15 +117,16 @@ When changing DOM/browser runtime behavior in extension:
 
 ### Package coverage passes but root coverage looks different
 
-- Root run aggregates workspace projects and root-level include/exclude policy.
+- Root `test:run` delegates to package `test:run` scripts.
+- Root `test:coverage` still uses the root Vitest config and root-level include/exclude policy.
 - Validate against root `vitest.config.ts` first.
 
 ### Browser tests fail to launch
 
 - Install browser runtime:
-  - `pnpm test:ext:setup`
+  - `pnpm --filter @tempad-dev/extension test:setup`
 - Re-run extension browser tests:
-  - `pnpm test:ext:browser`
+  - `pnpm --filter @tempad-dev/extension test:browser`
 
 ## Related docs
 

@@ -19,12 +19,14 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24.x'
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --filter @tempad-dev/extension...
 
       - name: Build rewrite script
         run: pnpm --filter @tempad-dev/extension run build:rewrite
