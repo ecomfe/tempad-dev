@@ -2,9 +2,10 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
+    // Keep root-managed projects to package-local node configs.
+    // Browser tests run via package-owned scripts to avoid cross-workspace runtime mixing.
     projects: [
       'packages/extension/vitest.node.config.ts',
-      'packages/extension/vitest.browser.config.ts',
       'packages/plugins/vitest.config.ts',
       'packages/mcp-server/vitest.config.ts',
       'packages/shared/vitest.config.ts'

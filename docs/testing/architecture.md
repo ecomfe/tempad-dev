@@ -12,11 +12,17 @@ For contributor workflow and commands, see `TESTING.md`.
 
 ## Runtime model
 
-- Test runner: `vitest` workspace.
+- Test execution is package-owned and root scripts orchestrate package-local commands.
 - Extension node tests: `packages/extension/vitest.node.config.ts`.
 - Extension browser tests: `packages/extension/vitest.browser.config.ts` (Playwright).
 - Other packages: package-local `vitest.config.ts`.
 - Browser behavior must be tested with Playwright; do not introduce `jsdom` in this repository.
+
+## Script ownership model
+
+- Packages own their runtime-sensitive scripts such as `test`, `test:run`, and browser-specific commands.
+- Root owns repo-level checks for root-only files and provides thin aggregation scripts such as `lint`, `format`, `typecheck`, and `test:run`.
+- Root coverage remains centralized in `vitest.config.ts` because coverage policy is shared across packages.
 
 ## Coverage model
 
@@ -72,6 +78,6 @@ When touching test architecture or coverage behavior:
 ### Browser tests fail locally
 
 - Install browser runtime once:
-  - `pnpm test:ext:setup`
+  - `pnpm --filter @tempad-dev/extension test:setup`
 - Rerun browser tests:
-  - `pnpm test:ext:browser`
+  - `pnpm --filter @tempad-dev/extension test:browser`

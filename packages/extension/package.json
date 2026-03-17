@@ -14,6 +14,7 @@
     "postinstall": "wxt prepare",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts",
     "lint:fix": "eslint . --fix --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts",
+    "check:rewrite": "tsx ./scripts/check-rewrite.ts",
     "check:worker-sandbox": "tsx ./scripts/check-worker-sandbox.ts",
     "test": "vitest --config vitest.config.ts",
     "test:run": "vitest run --config vitest.config.ts && pnpm run check:worker-sandbox",

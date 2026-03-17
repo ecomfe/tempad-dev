@@ -31,9 +31,9 @@ Provide a single entry point for coding agents. This file links to package-level
 - Test (watch): `pnpm test`
 - Test (run): `pnpm test:run`
 - Test (coverage): `pnpm test:coverage`
-- Extension node tests: `pnpm test:ext:node`
-- Extension browser tests: `pnpm test:ext:browser`
-- Extension browser setup: `pnpm test:ext:setup`
+- Extension node tests: `pnpm --filter @tempad-dev/extension test:node`
+- Extension browser tests: `pnpm --filter @tempad-dev/extension test:browser`
+- Extension browser setup: `pnpm --filter @tempad-dev/extension test:setup`
 
 ## Doc index
 
@@ -65,16 +65,16 @@ Run these at repo root unless noted.
 - Dev extension: `pnpm dev`
 - Dev site: `pnpm dev:site`
 - Build everything: `pnpm build`
-- Build site: `pnpm build:site`
-- Build extension: `pnpm build:ext`
-- Build plugins: `pnpm build:plugins`
-- Build MCP: `pnpm build:mcp`
+- Build site: `pnpm --filter @tempad-dev/site build`
+- Build extension: `pnpm --filter @tempad-dev/extension build`
+- Build plugins: `pnpm --filter @tempad-dev/plugins build`
+- Build MCP: `pnpm --filter @tempad-dev/mcp build`
 - Typecheck all packages: `pnpm typecheck`
 - Lint all packages: `pnpm lint` / auto-fix: `pnpm lint:fix`
 - Test all packages: `pnpm test:run`
 - Coverage report: `pnpm test:coverage`
 - Format: `pnpm format`
-- Zip extension artifact: `pnpm zip`
+- Zip extension artifact: `pnpm --filter @tempad-dev/extension zip`
 
 ### Verification checklist (agent-driven changes)
 
@@ -93,8 +93,8 @@ Pick the checks that match your change.
 
 3. Extension build / packaging
 
-- `pnpm build:ext`
-- `pnpm zip`
+- `pnpm --filter @tempad-dev/extension build`
+- `pnpm --filter @tempad-dev/extension zip`
 
 4. Rewrite subsystem
 

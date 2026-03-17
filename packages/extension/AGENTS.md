@@ -17,20 +17,20 @@ You are not responsible for:
 
 ## Commands
 
-| Task            | Command              |
-| --------------- | -------------------- |
-| Install deps    | `pnpm install`       |
-| Dev (WXT)       | `pnpm dev`           |
-| Build extension | `pnpm build:ext`     |
-| Typecheck       | `pnpm typecheck`     |
-| Lint            | `pnpm lint`          |
-| Lint (fix)      | `pnpm lint:fix`      |
-| Test (run)      | `pnpm test:run`      |
-| Test (node)     | `pnpm test:node`     |
-| Test (browser)  | `pnpm test:browser`  |
-| Test setup      | `pnpm test:setup`    |
-| Test (coverage) | `pnpm test:coverage` |
-| Format          | `pnpm format`        |
+| Task            | Command                                     |
+| --------------- | ------------------------------------------- |
+| Install deps    | `pnpm install`                              |
+| Dev (WXT)       | `pnpm dev`                                  |
+| Build extension | `pnpm --filter @tempad-dev/extension build` |
+| Typecheck       | `pnpm typecheck`                            |
+| Lint            | `pnpm lint`                                 |
+| Lint (fix)      | `pnpm lint:fix`                             |
+| Test (run)      | `pnpm test:run`                             |
+| Test (node)     | `pnpm test:node`                            |
+| Test (browser)  | `pnpm test:browser`                         |
+| Test setup      | `pnpm test:setup`                           |
+| Test (coverage) | `pnpm test:coverage`                        |
+| Format          | `pnpm format`                               |
 
 ## Tech stack
 
