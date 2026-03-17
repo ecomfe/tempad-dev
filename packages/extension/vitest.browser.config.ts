@@ -17,7 +17,13 @@ export default defineConfig({
     setupFiles: ['./tests/setup.browser.ts'],
     browser: {
       enabled: true,
-      provider: playwright(),
+      // Use Chromium's newer headless mode instead of chrome-headless-shell.
+      // CI logs show the shell process can stay alive and block Vitest from exiting.
+      provider: playwright({
+        launchOptions: {
+          channel: 'chromium'
+        }
+      }),
       headless: true,
       instances: [{ browser: 'chromium' }]
     }
