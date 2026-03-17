@@ -30,6 +30,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install browser runtime
+        run: pnpm --filter @tempad-dev/extension test:setup
+
       - name: Type check
         run: pnpm typecheck
 
