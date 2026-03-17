@@ -38,12 +38,33 @@ jobs:
       - name: 'Test (extension browser package)'
         run: |
           set +e
-          timeout --signal=TERM --kill-after=10s 180s pnpm --filter @tempad-dev/extension test:browser
+          timeout --signal=TERM --kill-after=5s 30s pnpm --filter @tempad-dev/extension test:browser
           status=$?
           set -e
 
           if [ "$status" -ne 0 ]; then
             echo "Extension browser package test failed or timed out with exit code $status"
+            echo "::group::Process list"
+            ps -eo pid,ppid,stat,time,comm,args
+            echo "::endgroup::"
+            echo "::group::Matching processes"
+            pgrep -af 'node|vite|vitest|chrome|playwright' || true
+            echo "::endgroup::"
+            echo "::group::Process tree"
+            pstree -ap || true
+            echo "::endgroup::"
+            exit "$status"
+          fi
+
+      - name: 'Test (root browser project)'
+        run: |
+          set +e
+          timeout --signal=TERM --kill-after=5s 30s pnpm exec vitest run --project extension-browser
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            echo "Root browser project test failed or timed out with exit code $status"
             echo "::group::Process list"
             ps -eo pid,ppid,stat,time,comm,args
             echo "::endgroup::"
