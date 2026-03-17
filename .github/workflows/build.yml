@@ -35,8 +35,29 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Test
-        run: pnpm test:run
+      - name: Test (Vitest)
+        run: |
+          set +e
+          timeout --signal=TERM --kill-after=10s 180s pnpm exec vitest run
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            echo "Vitest failed or timed out with exit code $status"
+            echo "::group::Process list"
+            ps -eo pid,ppid,stat,time,comm,args
+            echo "::endgroup::"
+            echo "::group::Matching processes"
+            pgrep -af 'node|vite|vitest|chrome|playwright' || true
+            echo "::endgroup::"
+            echo "::group::Process tree"
+            pstree -ap || true
+            echo "::endgroup::"
+            exit "$status"
+          fi
+
+      - name: Test (worker sandbox)
+        run: pnpm --filter @tempad-dev/extension check:worker-sandbox
 
       - name: Format check
         run: pnpm format:check
