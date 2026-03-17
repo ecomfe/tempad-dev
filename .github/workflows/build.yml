@@ -35,15 +35,15 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: 'Test (Vitest: browser project)'
+      - name: 'Test (extension browser package)'
         run: |
           set +e
-          timeout --signal=TERM --kill-after=10s 180s pnpm exec vitest run --project extension-browser
+          timeout --signal=TERM --kill-after=10s 180s pnpm --filter @tempad-dev/extension test:browser
           status=$?
           set -e
 
           if [ "$status" -ne 0 ]; then
-            echo "Browser Vitest failed or timed out with exit code $status"
+            echo "Extension browser package test failed or timed out with exit code $status"
             echo "::group::Process list"
             ps -eo pid,ppid,stat,time,comm,args
             echo "::endgroup::"
