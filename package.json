@@ -57,15 +57,7 @@
     ],
     "overrides": {
       "@rollup/plugin-terser>serialize-javascript": "7.0.4",
-      "@vue/compiler-core": "3.5.29",
-      "@vue/compiler-dom": "3.5.29",
-      "@vue/compiler-sfc": "3.5.29",
-      "@vue/runtime-core": "3.5.29",
-      "@vue/runtime-dom": "3.5.29",
-      "@vue/server-renderer": "3.5.29",
-      "@vue/shared": "3.5.29",
-      "vite": "8.0.0",
-      "vue": "3.5.29"
+      "vite": "8.0.0"
     }
   }
 }
