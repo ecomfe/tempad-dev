@@ -35,15 +35,40 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Test (Vitest)
+      - name: 'Test (Vitest: browser project)'
         run: |
           set +e
-          timeout --signal=TERM --kill-after=10s 180s pnpm exec vitest run
+          timeout --signal=TERM --kill-after=10s 180s pnpm exec vitest run --project extension-browser
           status=$?
           set -e
 
           if [ "$status" -ne 0 ]; then
-            echo "Vitest failed or timed out with exit code $status"
+            echo "Browser Vitest failed or timed out with exit code $status"
+            echo "::group::Process list"
+            ps -eo pid,ppid,stat,time,comm,args
+            echo "::endgroup::"
+            echo "::group::Matching processes"
+            pgrep -af 'node|vite|vitest|chrome|playwright' || true
+            echo "::endgroup::"
+            echo "::group::Process tree"
+            pstree -ap || true
+            echo "::endgroup::"
+            exit "$status"
+          fi
+
+      - name: 'Test (Vitest: non-browser projects)'
+        run: |
+          set +e
+          timeout --signal=TERM --kill-after=10s 180s pnpm exec vitest run \
+            --project extension-node \
+            --project mcp-server \
+            --project plugins \
+            --project shared
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            echo "Non-browser Vitest failed or timed out with exit code $status"
             echo "::group::Process list"
             ps -eo pid,ppid,stat,time,comm,args
             echo "::endgroup::"
