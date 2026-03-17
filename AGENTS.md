@@ -65,16 +65,16 @@ Run these at repo root unless noted.
 - Dev extension: `pnpm dev`
 - Dev site: `pnpm dev:site`
 - Build everything: `pnpm build`
-- Build site: `pnpm --filter @tempad-dev/site build`
-- Build extension: `pnpm --filter @tempad-dev/extension build`
-- Build plugins: `pnpm --filter @tempad-dev/plugins build`
-- Build MCP: `pnpm --filter @tempad-dev/mcp build`
+- Build site: `pnpm build:site`
+- Build extension: `pnpm build:ext`
+- Build plugins: `pnpm build:plugins`
+- Build MCP: `pnpm build:mcp`
 - Typecheck all packages: `pnpm typecheck`
 - Lint all packages: `pnpm lint` / auto-fix: `pnpm lint:fix`
 - Test all packages: `pnpm test:run`
 - Coverage report: `pnpm test:coverage`
 - Format: `pnpm format`
-- Zip extension artifact: `pnpm --filter @tempad-dev/extension zip`
+- Zip extension artifact: `pnpm zip`
 
 ### Verification checklist (agent-driven changes)
 
@@ -93,8 +93,8 @@ Pick the checks that match your change.
 
 3. Extension build / packaging
 
-- `pnpm --filter @tempad-dev/extension build`
-- `pnpm --filter @tempad-dev/extension zip`
+- `pnpm build:ext`
+- `pnpm zip`
 
 4. Rewrite subsystem
 

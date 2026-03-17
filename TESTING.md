@@ -70,8 +70,8 @@ When changing pure utility logic or formatters:
 
 When changing extension build/runtime behavior:
 
-- `pnpm --filter @tempad-dev/extension build`
-- If packaging impacted: `pnpm --filter @tempad-dev/extension zip`
+- `pnpm build:ext`
+- If packaging impacted: `pnpm zip`
 
 When changing DOM/browser runtime behavior in extension:
 
