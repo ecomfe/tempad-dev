@@ -5,7 +5,6 @@ import { layoutReady, selection, runtimeMode } from '@/ui/state'
 import { getCanvas, getLeftPanel } from '@/utils'
 
 function isSameSelection(next: readonly SceneNode[], current: readonly SceneNode[]): boolean {
-  if (next === current) return true
   if (next.length !== current.length) return false
   for (let i = 0; i < next.length; i += 1) {
     if (next[i]?.id !== current[i]?.id) return false

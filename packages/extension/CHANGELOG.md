@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.4
+
+- Fixed the "Scroll into view" button not appearing for selected nodes in the inspect panel.
+
 ## 0.18.3
 
 - Unified MCP tool inline budgeting around a shared `64 KiB` `CallToolResult` byte limit instead of the older `get_code`-only token estimate.

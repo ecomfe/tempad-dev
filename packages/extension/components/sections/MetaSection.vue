@@ -28,7 +28,7 @@ const title = computed(() => {
 })
 
 const showFocusButton = computed(
-  () => window.figma && selection.value && selection.value.length > 0
+  () => selection.value && selection.value.length > 0 && window.figma
 )
 
 const devResourceLinks = useDevResourceLinks(selectedNode)
@@ -56,8 +56,8 @@ function scrollIntoView() {
         >
           {{ title }}
         </Copyable>
-        <Copyable variant="block" :data-copy="libName">
-          <Badge v-if="libName" :title="libName">{{ libDisplayName || libName }}</Badge>
+        <Copyable v-if="libName" variant="block" :data-copy="libName">
+          <Badge :title="libName">{{ libDisplayName || libName }}</Badge>
         </Copyable>
       </div>
       <span class="tp-meta-title-aux tp-ellipsis" v-else>No selection</span>
