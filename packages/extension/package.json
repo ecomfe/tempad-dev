@@ -42,7 +42,7 @@
     "@types/node": "^24.10.1",
     "@types/prismjs": "^1.26.5",
     "@types/stringify-object": "^4.0.5",
-    "@vitest/browser-playwright": "4.0.18",
+    "@vitest/browser-playwright": "4.1.0",
     "@vue/eslint-config-typescript": "^14.7.0",
     "@wxt-dev/module-vue": "^1.0.3",
     "comment-mark": "^2.0.1",
@@ -60,7 +60,7 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite-plugin-css-injected-by-js": "^4.0.0",
-    "vitest": "4.0.18",
+    "vitest": "4.1.0",
     "vue-tsc": "^3.1.4",
     "wxt": "^0.20.11",
     "zod": "^4.1.12"
