@@ -51,7 +51,7 @@
       "spawn-sync"
     ],
     "overrides": {
-      "@rollup/plugin-terser>serialize-javascript": "7.0.4",
+      "@rollup/plugin-terser>serialize-javascript": "7.0.5",
       "esbuild": "0.27.4",
       "vite": "8.0.0"
     }
