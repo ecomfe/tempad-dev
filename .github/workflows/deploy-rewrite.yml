@@ -7,6 +7,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   deploy-rewrite:
     runs-on: ubuntu-latest
