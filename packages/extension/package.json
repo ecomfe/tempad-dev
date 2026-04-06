@@ -58,7 +58,7 @@
     "prismjs": "^1.30.0",
     "proper-lockfile": "^4.1.2",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.0",
     "vite-plugin-css-injected-by-js": "^4.0.0",
     "vitest": "4.1.2",
     "vue-tsc": "^3.1.4",
