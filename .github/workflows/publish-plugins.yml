@@ -7,9 +7,6 @@ permissions:
   contents: read
   id-token: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-
 jobs:
   publish:
     name: Publish @tempad-dev/plugins
@@ -23,7 +20,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
