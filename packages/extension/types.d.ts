@@ -1,3 +1,5 @@
+/// <reference types="@figma/plugin-typings" />
+
 interface Window {
   figma: PluginAPI
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

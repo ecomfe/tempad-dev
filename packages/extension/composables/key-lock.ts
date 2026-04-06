@@ -50,7 +50,7 @@ function pauseDeepSelect() {
   setLockMetaKey(false)
 }
 
-let resuming: number | null = null
+let resuming: ReturnType<typeof setTimeout> | null = null
 function pauseMetaThenResume() {
   if (resuming != null) {
     clearTimeout(resuming)
