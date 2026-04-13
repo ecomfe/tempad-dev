@@ -2,8 +2,7 @@
 
 ## 0.6.0
 
-- Improved Node.js ESM compatibility for `@tempad-dev/mcp`, reducing issues in runtimes that expect import attributes for JSON modules.
-- No changes are required to existing MCP client setup or CLI usage.
+- BREAKING: the minimum supported Node.js version for `@tempad-dev/mcp` is now `18.20.0`.
 
 ## 0.5.1
 
