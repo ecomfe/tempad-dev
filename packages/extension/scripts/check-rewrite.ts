@@ -1,4 +1,4 @@
-import { chromium } from 'playwright-chromium'
+import { chromium } from 'playwright'
 
 import { GROUPS } from '@/rewrite/config'
 import { applyGroups, getRewriteTargetRegex, isRules } from '@/rewrite/shared'

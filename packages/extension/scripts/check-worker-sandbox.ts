@@ -168,7 +168,7 @@ async function runBrowserCheck(
 }
 
 async function runBrowserChecks(bundles: { entry: string; code: string }[]): Promise<void> {
-  const { chromium } = await import('playwright-chromium')
+  const { chromium } = await import('playwright')
   const browser = await chromium.launch()
 
   try {
