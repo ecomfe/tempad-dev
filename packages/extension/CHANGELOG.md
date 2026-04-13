@@ -1,11 +1,8 @@
 # Changelog
 
-## 0.18.6
-
-- Fixed panel stacking so TemPad Dev no longer fights Figma's non-static UI layers.
-
 ## 0.18.5
 
+- Fixed panel stacking so TemPad Dev no longer fights Figma's non-static UI layers.
 - Fixed incorrect same-node multi-fill background generation in code output and MCP `get_code`.
 
 ## 0.18.4
