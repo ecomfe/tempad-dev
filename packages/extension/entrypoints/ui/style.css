@@ -164,3 +164,7 @@ tempad input[type="number"]:focus {
       auto !important;
   }
 }
+
+[class*="web_stacking--nonStaticLayer"] {
+  z-index: 1;
+}

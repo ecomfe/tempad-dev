@@ -223,7 +223,6 @@ const rightHandleCursor = computed(() => getResizeCursor('right'))
 <style scoped>
 .tp-panel {
   position: fixed;
-  z-index: 6;
   display: flex;
   flex-direction: column;
   width: v-bind(panelWidthPx);
