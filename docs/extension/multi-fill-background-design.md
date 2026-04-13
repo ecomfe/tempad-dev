@@ -11,7 +11,7 @@ The current implementation assumes that background-like fill output can be reduc
 - a single `background-color`
 - a single gradient `background`
 
-That assumption is embedded in both the shared style resolver and the extension-side MCP cleanup pipeline. As a result, the repo cannot preserve same-node multi-fill stacks as authored.
+That assumption is embedded in both the extension style resolver and the extension-side MCP cleanup pipeline. As a result, the repo cannot preserve same-node multi-fill stacks as authored.
 
 However, issue `#101` is not sufficient evidence that every visual involving "multiple layers" should be solved by emitting multiple CSS background layers:
 
@@ -90,18 +90,18 @@ Therefore, `#101` should be addressed as "same-node multi-fill stacks should sur
 
 ## Current Repository Behavior
 
-### Shared style resolver
+### Extension style resolver
 
 The UI/codegen path uses:
 
 - `packages/extension/utils/codegen.ts`
-- `packages/shared/src/figma/style-resolver.ts`
+- `packages/extension/utils/figma-style/style-resolver.ts`
 
 Current limitations:
 
-- `resolveGradientFromPaints()` in `packages/shared/src/figma/gradient.ts` picks the first visible gradient paint.
+- `resolveGradientFromPaints()` in `packages/extension/utils/figma-style/gradient.ts` picks the first visible gradient paint.
 - `resolveSolidFromPaints()` in the same file picks the first visible solid paint.
-- `ResolvedPaintStyle` in `packages/shared/src/figma/types.ts` only models one `gradient` or one `solidColor`.
+- `ResolvedPaintStyle` in `packages/extension/utils/figma-style/style-resolver.ts` only models one `gradient` or one `solidColor`.
 - `resolveStylesFromNodeData()` rewrites fill-derived CSS channels with a single resolved result.
 
 Impact:
@@ -126,13 +126,13 @@ Current limitations:
 
 Impact:
 
-- even after shared resolution, MCP fallback/injection logic still cannot produce layered backgrounds
+- even after extension style resolution, MCP fallback/injection logic still cannot produce layered backgrounds
 
 ### `getCSSAsync()` fallback gray behavior
 
-The repo already contains a compatibility rule for Figma's default gray image-fill fallback:
+The repo already contains a cleanup rule for Figma's default gray image-fill fallback:
 
-- shared path: `packages/shared/src/figma/style-resolver.ts`
+- style-resolution path: `packages/extension/utils/figma-style/style-resolver.ts`
 - MCP path: `packages/extension/mcp/tools/code/styles/background.ts`
 
 Current behavior:
@@ -335,7 +335,7 @@ If the intended design really contains independently positioned color bands, the
 
 ### Phase 1: Add layered background resolution without changing public contracts
 
-Do not change `ResolvedPaintStyle` or MCP result schemas.
+Do not change MCP result schemas. Keep the single-result resolver type internal.
 
 Instead, add new internal helpers for background stacks while keeping existing single-result helpers for stroke and simple fill consumers.
 
@@ -363,21 +363,21 @@ In practice, `kind: 'layers'` should be used for:
 
 The caller may still simplify a single gradient to `background` output for readability.
 
-### Phase 2: Refactor shared paint helpers into per-paint formatters
+### Phase 2: Refactor extension-owned paint helpers into per-paint formatters
 
-In `packages/shared/src/figma/gradient.ts`:
+In `packages/extension/utils/figma-style/gradient.ts`:
 
-- keep `resolveGradientFromPaints()` and `resolveSolidFromPaints()` for backward compatibility
+- keep the existing single-result helpers for simple fill and stroke consumers
 - extract per-paint helpers:
   - `resolveGradientPaint()`
   - `resolveSolidPaint()`
 - add a new helper that resolves an ordered background stack from multiple paints
 
-This avoids breaking current consumers while enabling stack-aware background logic.
+This keeps the helper layer small while enabling stack-aware background logic.
 
-### Phase 3: Use stack-aware logic in the shared style resolver
+### Phase 3: Use stack-aware logic in the extension style resolver
 
-In `packages/shared/src/figma/style-resolver.ts`:
+In `packages/extension/utils/figma-style/style-resolver.ts`:
 
 - replace the current fill-to-single-value rewrite in `resolveStylesFromNodeData()`
 - when fill-derived background channels are being resolved, use the new stack helper instead of `ResolvedPaintStyle`
@@ -387,9 +387,9 @@ In `packages/shared/src/figma/style-resolver.ts`:
   - stroke handling
 - keep the current `url(...) lightgray` cleanup ahead of stack resolution
 
-Important compatibility requirement:
+Important behavior requirement:
 
-- if a background contains a real image layer from `getCSSAsync()`, the shared resolver must not silently interleave inferred fill layers into that image stack in v1
+- if a background contains a real image layer from `getCSSAsync()`, the style resolver must not silently interleave inferred fill layers into that image stack in v1
 - mixed image/fill stack preservation is a follow-up feature, not part of the first implementation
 
 Expected behavior:
@@ -415,7 +415,7 @@ Important behavior requirement:
 
 Important note:
 
-The extension-side helper does not need to share the exact string formatter with the shared package, because the extension currently uses different variable formatting rules in this stage. What must be shared is the decision logic:
+The extension-side background cleanup helper does not need to share the exact string formatter with the extension style resolver, because the MCP pipeline currently uses different variable formatting rules in this stage. What must be shared is the decision logic:
 
 - visibility filtering
 - supported paint-type rules
@@ -444,12 +444,12 @@ Only after the solid/gradient-only implementation is stable:
 
 This checklist translates the design into a concrete execution sequence for the repo.
 
-### 1. Shared paint helpers
+### 1. Extension-owned paint helpers
 
 Target files:
 
-- `packages/shared/src/figma/gradient.ts`
-- `packages/shared/src/figma/types.ts` if and only if an internal helper type cannot remain file-local
+- `packages/extension/utils/figma-style/gradient.ts`
+- `packages/extension/utils/figma-style/types.ts` if and only if an internal helper type cannot remain file-local
 
 Tasks:
 
@@ -457,20 +457,20 @@ Tasks:
   - solid paint -> CSS color expression
   - gradient paint -> CSS gradient expression
 - add a stack-aware helper that resolves an ordered background stack from a paint list
-- keep `resolveGradientFromPaints()` and `resolveSolidFromPaints()` available for existing consumers
+- keep single-result helpers available for the style resolver's non-background channels
 - do not change MCP schemas or shared public contracts for the first pass
 
 Definition of done:
 
-- shared helpers can resolve one or more representable solid/gradient fills in order
+- extension-owned helpers can resolve one or more representable solid/gradient fills in order
 - hidden paints and zero-opacity paints are excluded
 - fallback gray from `getCSSAsync()` is not modeled here as a paint layer
 
-### 2. Shared style resolver integration
+### 2. Extension style resolver integration
 
 Target file:
 
-- `packages/shared/src/figma/style-resolver.ts`
+- `packages/extension/utils/figma-style/style-resolver.ts`
 
 Tasks:
 
@@ -515,7 +515,7 @@ Tasks:
 
 Definition of done:
 
-- MCP `get_code` fallback behavior matches the shared resolver's multi-fill rules
+- MCP `get_code` fallback behavior matches the extension style resolver's multi-fill rules
 - background injection when `getCSSAsync()` omits channels can now produce layered output for supported stacks
 - fallback gray never leaks into final output
 
@@ -537,12 +537,12 @@ Definition of done:
 - stack-aware resolution can reuse cached style paints where appropriate
 - no unnecessary shared contract churn is introduced
 
-### 5. Shared tests
+### 5. Extension style resolver tests
 
 Target files:
 
-- `packages/shared/tests/figma/gradient.test.ts`
-- `packages/shared/tests/figma/style-resolver.test.ts`
+- `packages/extension/tests/utils/figma-style/gradient.test.ts`
+- `packages/extension/tests/utils/figma-style/style-resolver.test.ts`
 
 Add tests for:
 
@@ -555,7 +555,7 @@ Add tests for:
 
 Definition of done:
 
-- the shared resolver behavior is locked in with explicit multi-fill regression tests
+- the extension style resolver behavior is locked in with explicit multi-fill regression tests
 
 ### 6. Extension tests
 
@@ -575,7 +575,7 @@ Add tests for:
 
 Definition of done:
 
-- MCP-side behavior is aligned with shared resolver behavior
+- MCP-side behavior is aligned with extension style resolver behavior
 - the gray fallback branch has explicit regression coverage
 
 ### 7. Manual verification
@@ -603,7 +603,7 @@ Run the repo checks that match the touched files:
 
 If only a subset is practical while iterating, the minimum useful sequence is:
 
-- targeted shared tests
+- targeted style-resolver tests
 - targeted extension tests
 - final full `pnpm test:run` before merge
 
@@ -611,24 +611,24 @@ If only a subset is practical while iterating, the minimum useful sequence is:
 
 Primary implementation targets:
 
-- `packages/shared/src/figma/gradient.ts`
-- `packages/shared/src/figma/style-resolver.ts`
-- `packages/shared/tests/figma/gradient.test.ts`
-- `packages/shared/tests/figma/style-resolver.test.ts`
+- `packages/extension/utils/figma-style/gradient.ts`
+- `packages/extension/utils/figma-style/style-resolver.ts`
+- `packages/extension/tests/utils/figma-style/gradient.test.ts`
+- `packages/extension/tests/utils/figma-style/style-resolver.test.ts`
 - `packages/extension/mcp/tools/code/styles/background.ts`
 - `packages/extension/tests/mcp/tools/code/styles/background.test.ts`
 
 Files that should not need contract changes:
 
-- `packages/shared/src/figma/types.ts`
+- `packages/extension/utils/figma-style/types.ts`
 - `packages/extension/mcp/tools/code/cache/types.ts`
 - MCP tool schemas in `packages/shared/src/mcp/tools.ts`
 
 ## Test Plan
 
-Add regression coverage for both shared and extension paths.
+Add regression coverage for both extension paths.
 
-### Shared resolver tests
+### Extension style resolver tests
 
 Add cases for:
 
@@ -682,11 +682,11 @@ Mitigation:
 
 ### 3. Shared/extension drift
 
-If the shared resolver and the extension cleanup path adopt different multi-fill rules, UI codegen and MCP output will diverge.
+If the extension style resolver and the extension cleanup path adopt different multi-fill rules, UI codegen and MCP output will diverge.
 
 Mitigation:
 
-- document shared decision rules in tests
+- document the common decision rules in tests
 - keep the extension helper behaviorally aligned even if the string formatters differ
 
 ### 4. Gray fallback regression

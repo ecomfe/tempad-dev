@@ -14,12 +14,7 @@ export default defineConfig({
         'src/mcp/protocol.ts',
         'src/mcp/tools.ts',
         'src/mcp/constants.ts',
-        'src/mcp/errors.ts',
-        'src/figma/index.ts',
-        'src/figma/color.ts',
-        'src/figma/gradient.ts',
-        'src/figma/stroke.ts',
-        'src/figma/style-resolver.ts'
+        'src/mcp/errors.ts'
       ],
       thresholds: {
         lines: 100,

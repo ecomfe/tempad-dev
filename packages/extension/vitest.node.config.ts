@@ -27,6 +27,8 @@ export default defineConfig({
         'utils/module.ts',
         'utils/log.ts',
         'utils/figma.ts',
+        'utils/figma-style/gradient.ts',
+        'utils/figma-style/style-resolver.ts',
         'utils/css.ts',
         'utils/tailwind.ts',
         'utils/codegen.ts',

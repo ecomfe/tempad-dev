@@ -20,7 +20,7 @@ The slow part was not only `getCSSAsync()`, but the repeated follow-up reads aro
 - `figma.getStyleById()`
 - `figma.variables.getVariableById()`
 
-Those reads used to be spread across asset planning, shared style resolution, background cleanup, layout inference, vector analysis, and token mapping.
+Those reads used to be spread across asset planning, extension-owned style resolution, background cleanup, layout inference, vector analysis, and token mapping.
 
 ## Implemented architecture
 
@@ -29,11 +29,11 @@ Those reads used to be spread across asset planning, shared style resolution, ba
 The cache exists only for one `handleGetCode()` execution.
 Nothing is persisted across requests.
 
-### Shared/package boundary
+### Package boundary
 
 - `packages/extension` owns the request cache.
-- `packages/shared` only sees a narrow `FigmaLookupReaders` interface.
-- Shared helpers accept readers or pure paint inputs, so non-MCP callers are still supported without importing extension internals.
+- `packages/extension` also owns the Figma style-resolution helpers used by UI codegen and `get_code`.
+- A narrow `FigmaLookupReaders` interface is still used internally so cache-backed and direct Figma lookups can share the same pure paint-resolution helpers.
 
 ### Cache context
 
@@ -59,9 +59,9 @@ It is created in `handleGetCode()` and threaded through:
 - `prepareStyles()`
 - `exportVectorAssets()`
 
-### Shared lookup readers
+### Lookup readers
 
-`packages/shared/src/figma/types.ts` exports:
+`packages/extension/utils/figma-style/types.ts` exports:
 
 ```ts
 type FigmaLookupReaders = {

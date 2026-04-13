@@ -53,7 +53,6 @@ pnpm -C packages/shared test:coverage
 - `src/mcp/constants.ts`: payload and message-related limits/constants.
 - `src/mcp/tools.ts`: tool schemas and result types.
 - `src/mcp/protocol.ts`: WS message shapes.
-- `src/figma/color.ts`: color formatter utilities.
 - `src/index.ts`: public exports.
 
 ## Code style and output examples
@@ -102,9 +101,4 @@ const GetCodeResultSchema = z.object({
   - `src/mcp/index.ts`
   - `src/mcp/protocol.ts`
   - `src/mcp/tools.ts`
-  - `src/figma/index.ts`
-  - `src/figma/color.ts`
-  - `src/figma/gradient.ts`
-  - `src/figma/stroke.ts`
-  - `src/figma/style-resolver.ts`
 - Validate schema changes downstream in this order: `shared` -> `mcp-server` -> `extension`.

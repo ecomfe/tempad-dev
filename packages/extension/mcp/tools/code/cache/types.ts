@@ -1,4 +1,4 @@
-import type { FigmaLookupReaders } from '@tempad-dev/shared'
+import type { FigmaLookupReaders } from '@/utils/figma-style/types'
 
 import type { VectorColorModel } from '../assets/vector-semantics'
 

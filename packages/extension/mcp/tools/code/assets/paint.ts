@@ -1,6 +1,5 @@
-import { formatHexAlpha } from '@tempad-dev/shared'
-
 import { toFigmaVarExpr } from '@/utils/css'
+import { formatHexAlpha } from '@/utils/css'
 
 import type { GetCodeCacheContext } from '../cache'
 

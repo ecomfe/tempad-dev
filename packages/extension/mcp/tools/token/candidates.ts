@@ -1,4 +1,4 @@
-import type { FigmaLookupReaders } from '@tempad-dev/shared'
+import type { FigmaLookupReaders } from '@/utils/figma-style/types'
 
 import { canonicalizeVarName, normalizeFigmaVarName, toFigmaVarExpr } from '@/utils/css'
 import { logger } from '@/utils/log'

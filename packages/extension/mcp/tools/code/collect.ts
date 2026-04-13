@@ -1,8 +1,9 @@
-import { resolveStylesFromNodeData, type AssetDescriptor } from '@tempad-dev/shared'
+import type { AssetDescriptor } from '@tempad-dev/shared'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { preprocessCssValue, stripFallback } from '@/utils/css'
+import { resolveStylesFromNodeData } from '@/utils/figma-style/style-resolver'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
 

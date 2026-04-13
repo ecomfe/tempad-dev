@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  resolveFillStyleForNode,
-  resolveStrokeStyleForNode,
   resolveStylesFromNodeData,
   resolveStylesFromNode
-} from '../../src/figma/style-resolver'
+} from '@/utils/figma-style/style-resolver'
+
 import { installFigmaMocks, uninstallFigmaMocks } from './test-helpers'
 
 function solidPaint(color: { r: number; g: number; b: number }): SolidPaint {
@@ -49,8 +48,8 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('figma/style-resolver node paint style resolution', () => {
-  it('prefers fill style id paints over direct node fills', () => {
+describe('figma/style-resolver paint precedence', () => {
+  it('prefers fill style paints over direct node fills', async () => {
     installFigmaMocks({
       styles: {
         fillStyle: paintStyle([gradientPaint()])
@@ -62,12 +61,19 @@ describe('figma/style-resolver node paint style resolution', () => {
       fills: [solidPaint({ r: 0, g: 1, b: 0 })]
     } as unknown as SceneNode
 
-    expect(resolveFillStyleForNode(node)).toEqual({
-      gradient: 'linear-gradient(90deg, #F00 0%, #00F 100%)'
+    const result = await resolveStylesFromNode(
+      {
+        background: 'var(--fill)'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      background: 'linear-gradient(90deg, #F00 0%, #00F 100%)'
     })
   })
 
-  it('falls back to node paints when fill style id is absent or not a paint style', () => {
+  it('falls back to node fills when fill style id is not a paint style', async () => {
     installFigmaMocks({
       styles: {
         fillStyle: {} as BaseStyle
@@ -78,32 +84,38 @@ describe('figma/style-resolver node paint style resolution', () => {
       fillStyleId: 'fillStyle',
       fills: [solidPaint({ r: 0, g: 1, b: 0 })]
     } as unknown as SceneNode
-    expect(resolveFillStyleForNode(withInvalidStyle)).toEqual({ solidColor: '#0F0' })
 
-    const withoutStyle = {
-      fills: [solidPaint({ r: 0, g: 1, b: 0 })]
-    } as unknown as SceneNode
-    expect(resolveFillStyleForNode(withoutStyle)).toEqual({ solidColor: '#0F0' })
+    const result = await resolveStylesFromNode(
+      {
+        background: 'var(--fill)'
+      },
+      withInvalidStyle
+    )
+
+    expect(result).toEqual({
+      'background-color': '#0F0'
+    })
   })
 
-  it('returns null when node has no fill or stroke fields', () => {
-    installFigmaMocks()
-
-    const node = {} as SceneNode
-    expect(resolveFillStyleForNode(node)).toBeNull()
-    expect(resolveStrokeStyleForNode(node)).toBeNull()
-  })
-
-  it('returns null when node paint arrays exist but cannot resolve to gradient or solid', () => {
+  it('leaves unresolved fill channels unchanged when node fills cannot resolve to solid or gradient', async () => {
     installFigmaMocks()
     const node = {
       fills: [{ type: 'IMAGE', visible: true }]
     } as unknown as SceneNode
 
-    expect(resolveFillStyleForNode(node)).toBeNull()
+    const result = await resolveStylesFromNode(
+      {
+        background: 'var(--fill)'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      background: 'var(--fill)'
+    })
   })
 
-  it('returns null and warns when style lookup throws', () => {
+  it('warns and falls back to node strokes when style lookup throws', async () => {
     installFigmaMocks({
       styleErrors: ['bad-style']
     })
@@ -114,7 +126,16 @@ describe('figma/style-resolver node paint style resolution', () => {
       strokes: [solidPaint({ r: 1, g: 0, b: 0 })]
     } as unknown as SceneNode
 
-    expect(resolveStrokeStyleForNode(node)).toEqual({ solidColor: '#F00' })
+    const result = await resolveStylesFromNode(
+      {
+        stroke: 'var(--stroke)'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      stroke: '#F00'
+    })
     expect(warnSpy).toHaveBeenCalled()
   })
 })

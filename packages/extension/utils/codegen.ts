@@ -1,5 +1,3 @@
-import { resolveStylesFromNode } from '@tempad-dev/shared'
-
 import type {
   RequestPayload,
   ResponsePayload,
@@ -12,6 +10,7 @@ import { createWorkerRequester } from '@/codegen/requester'
 import Codegen from '@/codegen/worker?worker&inline'
 
 import { getDesignComponent } from './component'
+import { resolveStylesFromNode } from './figma-style/style-resolver'
 
 export async function codegen(
   style: Record<string, string>,

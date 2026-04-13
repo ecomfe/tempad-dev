@@ -1,9 +1,7 @@
-import type { FigmaLookupReaders } from '@tempad-dev/shared'
-
-import type { CodegenConfig } from '@/utils/codegen'
+import type { FigmaLookupReaders } from '@/utils/figma-style/types'
 
 import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
-import { workerUnitOptions } from '@/utils/codegen'
+import { workerUnitOptions, type CodegenConfig } from '@/utils/codegen'
 import {
   normalizeCustomPropertyBody,
   normalizeFigmaVarName,

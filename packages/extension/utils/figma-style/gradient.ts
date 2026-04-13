@@ -2,31 +2,17 @@
  * Gradient and color utilities for Figma styles
  */
 
+import { getVariableRawName } from '@/mcp/tools/token/raw-name'
+
 import type { FigmaLookupReaders, PaintList, PaintResolutionSize } from './types'
 
-import { formatHexAlpha } from './color'
-
-const RE_NON_ASCII = /\P{ASCII}+/gu
-const RE_QUOTES = /['"]/g
-const RE_SLASH = /\//g
-const RE_SPACE_TAB = /[ \t]+/g
-const RE_WHITESPACE = /\s+/g
-const RE_FAST_PATH = /^[A-Za-z0-9_-]+$/
-const RE_BOUND_NON_ALPHANUM = /[^A-Za-z0-9]+/g
-const RE_HYPHENS = /-+/g
-const RE_BOUND_DIGIT = /([A-Za-z])([0-9])|([0-9])([A-Za-z])/g
-const RE_BOUND_CASE = /([a-z])([A-Z])|([A-Z])([A-Z][a-z])/g
-const RE_DIGIT = /^\d+$/
-const RE_CAPS = /^[A-Z]+$/
-const RE_SINGLE = /^[A-Za-z]$/
+import { formatHexAlpha, normalizeFigmaVarName } from '../css'
 
 function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {
   return !!paint && paint.visible !== false
 }
 
-export type ResolvedBackgroundFill =
-  | { kind: 'color'; value: string }
-  | { kind: 'layers'; value: string[] }
+type ResolvedBackgroundFill = { kind: 'color'; value: string } | { kind: 'layers'; value: string[] }
 
 type BackgroundFillResolverOptions = {
   resolveGradientPaint?: (
@@ -37,11 +23,11 @@ type BackgroundFillResolverOptions = {
   resolveSolidPaint?: (paint: SolidPaint, readers: FigmaLookupReaders) => string | null
 }
 
-export function isGradientPaint(paint: Paint): paint is GradientPaint {
+function isGradientPaint(paint: Paint): paint is GradientPaint {
   return 'gradientStops' in paint && Array.isArray(paint.gradientStops)
 }
 
-export function isSolidPaint(paint: Paint): paint is SolidPaint {
+function isSolidPaint(paint: Paint): paint is SolidPaint {
   return paint.type === 'SOLID'
 }
 
@@ -56,11 +42,17 @@ const DEFAULT_READERS: FigmaLookupReaders = {
   getVariableById: (id) => figma.variables.getVariableById(id)
 }
 
+type GradientStopColorFormatter = (
+  stop: ColorStop,
+  fillOpacity: number,
+  readers: FigmaLookupReaders
+) => string
+
 function hasGradientHandlePositions(paint: GradientPaint): paint is GradientPaintWithHandles {
   return 'gradientHandlePositions' in paint && Array.isArray(paint.gradientHandlePositions)
 }
 
-export function isRenderableBackgroundPaint(paint: Paint | null | undefined): paint is Paint {
+function isRenderableBackgroundPaint(paint: Paint | null | undefined): paint is Paint {
   if (!paint || paint.visible === false) return false
   if (typeof paint.opacity === 'number' && paint.opacity <= 0) return false
   if (isGradientPaint(paint)) {
@@ -88,18 +80,19 @@ export function resolveGradientFromPaints(
 
   if (!gradientPaint) return null
 
-  return resolveGradientPaint(gradientPaint, size, readers)
+  return resolveGradientPaintCss(gradientPaint, size, readers)
 }
 
-export function resolveGradientPaint(
+export function resolveGradientPaintCss(
   gradientPaint: GradientPaint,
   size?: GradientSize,
-  readers: FigmaLookupReaders = DEFAULT_READERS
+  readers: FigmaLookupReaders = DEFAULT_READERS,
+  formatStopColor: GradientStopColorFormatter = formatGradientStopColor
 ): string | null {
   const fillOpacity = typeof gradientPaint.opacity === 'number' ? gradientPaint.opacity : 1
   const stops = gradientPaint.gradientStops.map((stop) => {
     const pct = formatPercent(stop.position)
-    const color = formatGradientStopColor(stop, fillOpacity, readers)
+    const color = formatStopColor(stop, fillOpacity, readers)
     return `${color} ${pct}`
   })
 
@@ -137,7 +130,7 @@ export function resolveSolidFromPaints(
   return solidPaint ? resolveSolidPaint(solidPaint, readers) : null
 }
 
-export function resolveSolidPaint(
+function resolveSolidPaint(
   solidPaint: SolidPaint,
   readers: FigmaLookupReaders = DEFAULT_READERS
 ): string | null {
@@ -175,7 +168,7 @@ export function resolveBackgroundFillFromPaints(
     return null
   }
 
-  const resolveGradient = options.resolveGradientPaint ?? resolveGradientPaint
+  const resolveGradient = options.resolveGradientPaint ?? resolveGradientPaintCss
   const resolveSolid = options.resolveSolidPaint ?? resolveSolidPaint
 
   if (visible.length === 1) {
@@ -358,114 +351,6 @@ function formatPercent(pos: number): string {
   return `${pct}%`
 }
 
-/**
- * Variable naming must match MCP token indexing semantics exactly.
- */
 function getVariableCssCustomPropertyName(variable: Variable): string {
   return normalizeFigmaVarName(getVariableRawName(variable))
-}
-
-function getVariableRawName(variable: Variable): string {
-  const cs = variable.codeSyntax?.WEB
-  if (typeof cs === 'string' && cs.trim()) {
-    const canonical = canonicalizeVarName(cs.trim())
-    if (canonical) return canonical.slice(2)
-
-    const ident = cs.trim()
-    if (/^[A-Za-z0-9_-]+$/.test(ident)) return ident
-  }
-
-  const raw = variable.name?.trim?.() ?? ''
-  if (raw.startsWith('--')) return raw.slice(2)
-  return raw
-}
-
-function canonicalizeVarName(value: string): string | null {
-  const cleaned = value.trim()
-  const varMatch = cleaned.match(/^var\(\s*(--[A-Za-z0-9_-]+)(?:\s*,[\s\S]*)?\)$/)
-  if (varMatch?.[1]) {
-    return normalizeCustomPropertyName(varMatch[1])
-  }
-  if (cleaned.startsWith('--')) {
-    return normalizeCustomPropertyName(cleaned)
-  }
-  return null
-}
-
-function normalizeCustomPropertyBody(name: string): string {
-  if (!name) return 'var'
-  let raw = name.trim()
-  if (raw.startsWith('--')) raw = raw.slice(2)
-  raw = raw.replace(/^-+/, '')
-  raw = raw.replace(/[^A-Za-z0-9_-]/g, '')
-  return raw || 'var'
-}
-
-function normalizeCustomPropertyName(name: string): string {
-  return `--${normalizeCustomPropertyBody(name)}`
-}
-
-function normalizeFigmaVarName(input: string): string {
-  let raw = (input ?? '').trim()
-  if (!raw) return '--unnamed'
-
-  const canonical = canonicalizeVarName(raw)
-  if (canonical) return canonical
-
-  if (raw.startsWith('--')) raw = raw.slice(2).trim()
-  raw = raw
-    .replace(RE_NON_ASCII, '')
-    .replace(RE_QUOTES, '')
-    .replace(RE_SLASH, '-')
-    .replace(RE_SPACE_TAB, '-')
-    .replace(RE_WHITESPACE, '')
-
-  if (RE_FAST_PATH.test(raw)) return `--${raw}`
-
-  const s = raw
-    .replace(RE_BOUND_NON_ALPHANUM, '-')
-    .replace(RE_HYPHENS, '-')
-    .replace(RE_BOUND_DIGIT, '$1-$2$3-$4')
-    .replace(RE_BOUND_CASE, '$1$3-$2$4')
-
-  const parts = s.split('-').filter(Boolean)
-  const stack: string[] = []
-
-  for (const part of parts) {
-    const prev = stack[stack.length - 1]
-    if (prev && RE_DIGIT.test(prev) && RE_DIGIT.test(part)) {
-      stack[stack.length - 1] += part
-    } else if (prev && RE_CAPS.test(prev) && RE_CAPS.test(part)) {
-      stack[stack.length - 1] += part
-    } else {
-      stack.push(part)
-    }
-  }
-
-  const merged: string[] = []
-  for (let i = 0; i < stack.length; ) {
-    if (i === 0) {
-      merged.push(stack[0])
-      i += 1
-      continue
-    }
-
-    if (RE_SINGLE.test(stack[i])) {
-      let j = i + 1
-      while (j < stack.length && RE_SINGLE.test(stack[j])) {
-        j += 1
-      }
-
-      const run = stack.slice(i, j)
-      merged.push(run.length >= 2 ? run.join('') : stack[i])
-      i = j
-      continue
-    }
-
-    merged.push(stack[i])
-    i += 1
-  }
-
-  const out = merged.join('-').toLowerCase()
-  return out ? `--${out}` : '--unnamed'
 }

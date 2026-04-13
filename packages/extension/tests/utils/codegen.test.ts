@@ -19,7 +19,7 @@ vi.mock('@/codegen/worker?worker&inline', () => ({
   default: mocked.MockWorker
 }))
 
-vi.mock('@tempad-dev/shared', () => ({
+vi.mock('@/utils/figma-style/style-resolver', () => ({
   resolveStylesFromNode: mocked.resolveStylesFromNode
 }))
 

@@ -7,15 +7,13 @@ import type {
   FigmaLookupReaders,
   NodePaintStyleInput,
   PaintList,
-  PaintResolutionSize,
-  ResolvedPaintStyle
+  PaintResolutionSize
 } from './types'
 
 import {
   resolveBackgroundFillFromPaints,
   resolveGradientFromPaints,
-  resolveSolidFromPaints,
-  type ResolvedBackgroundFill
+  resolveSolidFromPaints
 } from './gradient'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray\b/i
@@ -24,6 +22,12 @@ const BG_URL_RE = /url\(/i
 const DEFAULT_READERS: FigmaLookupReaders = {
   getStyleById: (id) => figma.getStyleById(id),
   getVariableById: (id) => figma.variables.getVariableById(id)
+}
+
+type ResolvedBackgroundFill = ReturnType<typeof resolveBackgroundFillFromPaints>
+type ResolvedPaintStyle = {
+  solidColor?: string
+  gradient?: string
 }
 
 function hasStyleId(value: unknown): value is string {
@@ -227,24 +231,10 @@ function applyResolvedBackgroundFill(
 }
 
 /**
- * Resolves fill style for a Figma node
- * Handles both fillStyleId and direct fills
- */
-export function resolveFillStyle(input: NodePaintStyleInput, readers?: FigmaLookupReaders) {
-  return resolveNodePaintStyle(
-    getFillStyleId(input),
-    getFillPaints(input),
-    'fill',
-    input.dimensions,
-    readers
-  )
-}
-
-/**
  * Resolves stroke style for a Figma node
  * Handles both strokeStyleId and direct strokes
  */
-export function resolveStrokeStyle(input: NodePaintStyleInput, readers?: FigmaLookupReaders) {
+function resolveStrokeStyle(input: NodePaintStyleInput, readers?: FigmaLookupReaders) {
   return resolveNodePaintStyle(
     getStrokeStyleId(input),
     getStrokePaints(input),
@@ -252,20 +242,6 @@ export function resolveStrokeStyle(input: NodePaintStyleInput, readers?: FigmaLo
     input.dimensions,
     readers
   )
-}
-
-export function resolveFillStyleForNode(
-  node: SceneNode,
-  readers?: FigmaLookupReaders
-): ResolvedPaintStyle | null {
-  return resolveFillStyle(createNodePaintStyleInput(node), readers)
-}
-
-export function resolveStrokeStyleForNode(
-  node: SceneNode,
-  readers?: FigmaLookupReaders
-): ResolvedPaintStyle | null {
-  return resolveStrokeStyle(createNodePaintStyleInput(node), readers)
 }
 
 /**

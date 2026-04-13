@@ -4,7 +4,8 @@ import {
   resolveBackgroundFillFromPaints,
   resolveGradientFromPaints,
   resolveSolidFromPaints
-} from '../../src/figma/gradient'
+} from '@/utils/figma-style/gradient'
+
 import { installFigmaMocks, uninstallFigmaMocks } from './test-helpers'
 
 function createStop(
