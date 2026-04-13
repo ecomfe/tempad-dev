@@ -47,4 +47,4 @@ Optional environment variables:
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 18.20.0+
