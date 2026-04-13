@@ -46,7 +46,7 @@
     "@vue/eslint-config-typescript": "^14.7.0",
     "@wxt-dev/module-vue": "^1.0.3",
     "comment-mark": "^2.0.1",
-    "esbuild": "^0.27.0",
+    "esbuild": "^0.28.0",
     "eslint": "^10.0.0",
     "eslint-config-flat-gitignore": "^2.1.0",
     "eslint-plugin-perfectionist": "^5.0.0",
