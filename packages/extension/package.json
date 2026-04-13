@@ -54,7 +54,7 @@
     "jiti": "^2.6.1",
     "p-limit": "^7.2.0",
     "pino": "^10.0.0",
-    "playwright-chromium": "^1.56.1",
+    "playwright": "^1.56.1",
     "prismjs": "^1.30.0",
     "proper-lockfile": "^4.1.2",
     "tsx": "^4.20.6",

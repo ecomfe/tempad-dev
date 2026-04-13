@@ -47,7 +47,7 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "lefthook",
-      "playwright-chromium",
+      "playwright",
       "spawn-sync"
     ],
     "overrides": {
