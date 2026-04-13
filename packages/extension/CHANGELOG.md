@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.5
+
+- Fixed incorrect same-node multi-fill background generation in code output and MCP `get_code`.
+
 ## 0.18.4
 
 - Fixed the "Scroll into view" button not appearing for selected nodes in the inspect panel.
