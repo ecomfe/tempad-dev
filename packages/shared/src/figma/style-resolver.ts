@@ -11,7 +11,12 @@ import type {
   ResolvedPaintStyle
 } from './types'
 
-import { resolveGradientFromPaints, resolveSolidFromPaints } from './gradient'
+import {
+  resolveBackgroundFillFromPaints,
+  resolveGradientFromPaints,
+  resolveSolidFromPaints,
+  type ResolvedBackgroundFill
+} from './gradient'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray\b/i
 const BG_URL_RE = /url\(/i
@@ -47,12 +52,21 @@ function resolvePaintStyleFromStyleId(
   size?: PaintResolutionSize,
   readers: FigmaLookupReaders = DEFAULT_READERS
 ): ResolvedPaintStyle | null {
+  const paints = getPaintStylePaints(styleId, kind, readers)
+  return resolvePaintStyleFromPaints(paints, size, readers)
+}
+
+function getPaintStylePaints(
+  styleId: unknown,
+  kind: 'fill' | 'stroke',
+  readers: FigmaLookupReaders = DEFAULT_READERS
+): PaintList {
   if (!hasStyleId(styleId)) return null
 
   try {
     const style = readers.getStyleById(styleId)
     if (!isPaintStyle(style)) return null
-    return resolvePaintStyleFromPaints(style.paints, size, readers)
+    return style.paints
   } catch (error) {
     console.warn(`Failed to resolve ${kind} style:`, error)
     return null
@@ -182,6 +196,36 @@ function hasBorderChannels(style: Record<string, string>): boolean {
   })
 }
 
+function applyResolvedBackgroundFill(
+  style: Record<string, string>,
+  resolved: ResolvedBackgroundFill | null
+): boolean {
+  if (!resolved) return false
+
+  if (!style.background && !style['background-color']) {
+    return false
+  }
+
+  if (resolved.kind === 'layers') {
+    style.background = resolved.value.join(', ')
+    delete style['background-color']
+    return true
+  }
+
+  if (style.background) {
+    style['background-color'] = resolved.value
+    delete style.background
+    return true
+  }
+
+  if (style['background-color']) {
+    style['background-color'] = resolved.value
+    return true
+  }
+
+  return false
+}
+
 /**
  * Resolves fill style for a Figma node
  * Handles both fillStyleId and direct fills
@@ -234,38 +278,55 @@ export async function resolveStylesFromNodeData(
   readers: FigmaLookupReaders = DEFAULT_READERS
 ): Promise<Record<string, string>> {
   const processed = { ...cssStyles }
-  const fillPaints = getFillPaints(input)
+  const effectiveFillPaints =
+    getPaintStylePaints(getFillStyleId(input), 'fill', readers) ?? getFillPaints(input)
 
   // Remove Figma's default lightgray fallback for image fills.
-  if (processed.background && BG_URL_LIGHTGRAY_RE.test(processed.background) && fillPaints) {
-    const solidFill = resolveSolidFromPaints(fillPaints, readers)
+  if (
+    processed.background &&
+    BG_URL_LIGHTGRAY_RE.test(processed.background) &&
+    effectiveFillPaints
+  ) {
+    const solidFill = resolveSolidFromPaints(effectiveFillPaints, readers)
     if (solidFill) {
       processed['background-color'] = solidFill
     }
     processed.background = processed.background.replace(/\s*,?\s*lightgray\b/i, '').trim()
   }
 
-  const resolvedFill = resolveFillStyle(input, readers)
+  const resolvedFill = resolvePaintStyleFromPaints(effectiveFillPaints, input.dimensions, readers)
   const hasUrlBackground =
     typeof processed.background === 'string' && BG_URL_RE.test(processed.background)
+  const resolvedBackgroundFill = hasUrlBackground
+    ? null
+    : resolveBackgroundFillFromPaints(effectiveFillPaints, input.dimensions, readers)
+  const appliedResolvedBackgroundFill = applyResolvedBackgroundFill(
+    processed,
+    resolvedBackgroundFill
+  )
 
   // Process background/fill styles
-  if (resolvedFill?.gradient) {
-    if (processed.background && !hasUrlBackground) {
-      processed.background = resolvedFill.gradient
-    } else if (processed['background-color']) {
-      processed.background = resolvedFill.gradient
-      delete processed['background-color']
+  if (!appliedResolvedBackgroundFill) {
+    if (resolvedFill?.gradient) {
+      if (processed.background && !hasUrlBackground) {
+        processed.background = resolvedFill.gradient
+      } else if (processed['background-color']) {
+        processed.background = resolvedFill.gradient
+        delete processed['background-color']
+      }
+    } else if (resolvedFill?.solidColor) {
+      if (processed.background && !hasUrlBackground) {
+        // If it's a solid color, use background-color instead
+        processed['background-color'] = resolvedFill.solidColor
+        delete processed.background
+      }
+      if (processed['background-color']) {
+        processed['background-color'] = resolvedFill.solidColor
+      }
     }
-  } else if (resolvedFill?.solidColor) {
-    if (processed.background && !hasUrlBackground) {
-      // If it's a solid color, use background-color instead
-      processed['background-color'] = resolvedFill.solidColor
-      delete processed.background
-    }
-    if (processed['background-color']) {
-      processed['background-color'] = resolvedFill.solidColor
-    }
+  }
+
+  if (resolvedFill?.solidColor) {
     if (processed.color) {
       processed.color = resolvedFill.solidColor
     }

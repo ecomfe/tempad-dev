@@ -1,4 +1,4 @@
-import type { FigmaLookupReaders } from '@tempad-dev/shared'
+import { resolveBackgroundFillFromPaints, type FigmaLookupReaders } from '@tempad-dev/shared'
 
 import {
   canonicalizeColor,
@@ -37,11 +37,18 @@ export function cleanFigmaSpecificStyles(
 
   const processed = style
   const fills = getNodeFills(node, ctx)
+  const styleFillPaints = getFillStylePaints(node, ctx)
+  const activeFillPaints = styleFillPaints ?? fills
   const gradientSize = getGradientSizeFromNode(node)
+  const readers = ctx?.readers ?? DEFAULT_READERS
   const solidStyleColor = resolveSolidFillStyle(node, ctx)
-  const gradientStyle =
-    resolveGradientFillStyle(node, gradientSize, ctx) ??
-    resolveGradientFillFromNode(node, gradientSize, ctx?.readers, ctx)
+  const gradientStyle = resolveGradientFromPaints(activeFillPaints, gradientSize, readers)
+  const backgroundFill = resolveBackgroundFillFromPaints(activeFillPaints, gradientSize, readers, {
+    resolveGradientPaint: resolveGradientPaintValue,
+    resolveSolidPaint: resolveSolidPaintColor
+  })
+  const backgroundLayers =
+    backgroundFill?.kind === 'layers' ? backgroundFill.value.join(', ') : null
 
   if (processed.background) {
     const bgValue = processed.background
@@ -53,15 +60,29 @@ export function cleanFigmaSpecificStyles(
       return processed
     }
 
+    if (backgroundLayers && (isVarOnly(normalized) || isSolidBackground(normalized))) {
+      processed.background = backgroundLayers
+      delete processed['background-color']
+      return processed
+    }
+
     if (gradientStyle && isVarOnly(normalized)) {
       processed.background = gradientStyle
       return processed
     }
 
     if (isSolidBackground(normalized)) {
-      processed['background-color'] = solidStyleColor ?? normalized
-      delete processed.background
-    } else if (BG_URL_LIGHTGRAY_RE.test(bgValue) && fills) {
+      if (backgroundFill?.kind === 'color') {
+        processed['background-color'] = backgroundFill.value
+        delete processed.background
+      } else if (backgroundLayers) {
+        processed.background = backgroundLayers
+        delete processed['background-color']
+      } else {
+        processed['background-color'] = solidStyleColor ?? normalized
+        delete processed.background
+      }
+    } else if (BG_URL_LIGHTGRAY_RE.test(bgValue) && activeFillPaints) {
       const parsed = parseBackgroundShorthand(bgValue)
 
       if (parsed.image) processed['background-image'] = parsed.image
@@ -69,7 +90,7 @@ export function cleanFigmaSpecificStyles(
       if (parsed.repeat) processed['background-repeat'] = parsed.repeat
       if (parsed.position) processed['background-position'] = parsed.position
 
-      const solidFill = findVisibleSolidPaint(fills)
+      const solidFill = findVisibleSolidPaint(activeFillPaints)
       if (solidFill?.color) {
         processed['background-color'] = formatHexAlpha(solidFill.color, solidFill.opacity)
       }
@@ -78,13 +99,22 @@ export function cleanFigmaSpecificStyles(
     }
   }
 
-  if (node.type !== 'TEXT' && !processed.background && !processed['background-color'] && fills) {
-    if (gradientStyle) {
+  if (
+    node.type !== 'TEXT' &&
+    !processed.background &&
+    !processed['background-color'] &&
+    activeFillPaints
+  ) {
+    if (backgroundLayers) {
+      processed.background = backgroundLayers
+    } else if (backgroundFill?.kind === 'color') {
+      processed['background-color'] = backgroundFill.value
+    } else if (gradientStyle) {
       processed.background = gradientStyle
     } else if (solidStyleColor) {
       processed['background-color'] = solidStyleColor
     } else {
-      const solidFill = findVisibleSolidPaint(fills)
+      const solidFill = findVisibleSolidPaint(activeFillPaints)
       if (solidFill?.color) {
         processed['background-color'] = formatHexAlpha(solidFill.color, solidFill.opacity)
       }
@@ -161,7 +191,8 @@ function resolveSolidFillStyle(node: SceneNode, ctx?: GetCodeCacheContext): stri
   if (!styleId) return null
 
   if (ctx) {
-    return getPaintStyleCached(styleId, ctx)?.singleVisibleSolidColor ?? null
+    const paint = getPaintStyleCached(styleId, ctx)?.singleVisibleSolidPaint
+    return paint ? resolveSolidPaintColor(paint, ctx.readers) : null
   }
 
   try {
@@ -171,55 +202,49 @@ function resolveSolidFillStyle(node: SceneNode, ctx?: GetCodeCacheContext): stri
     const visible = style.paints.filter(isVisiblePaint)
     if (visible.length !== 1) return null
     const paint = visible[0]
-    if (!isSolidPaint(paint) || !paint.color) return null
-
-    const bound = paint.boundVariables?.color
-    if (bound && typeof bound === 'object' && 'id' in bound && bound.id) {
-      try {
-        const variable = figma.variables.getVariableById(bound.id)
-        if (variable) return toFigmaVarExpr(getVariableRawName(variable))
-      } catch {
-        // noop
-      }
-    }
-
-    return formatHexAlpha(paint.color, paint.opacity ?? 1)
+    return isSolidPaint(paint) ? resolveSolidPaintColor(paint) : null
   } catch {
     return null
   }
 }
 
-function resolveGradientFillStyle(
+function getFillStylePaints(
   node: SceneNode,
-  size?: GradientSize,
   ctx?: GetCodeCacheContext
-): string | null {
+): ReadonlyArray<Paint> | null {
   const styleId = getFillStyleId(node, ctx)
   if (!styleId) return null
 
   if (ctx) {
-    const paints = getPaintStyleCached(styleId, ctx)?.paints
-    return resolveGradientFromPaints(paints, size, ctx.readers)
+    return getPaintStyleCached(styleId, ctx)?.paints ?? null
   }
 
   try {
     const style = figma.getStyleById(styleId)
     if (!isPaintStyle(style)) return null
-    return resolveGradientFromPaints(style.paints, size)
+    return style.paints
   } catch {
     return null
   }
 }
 
-function resolveGradientFillFromNode(
-  node: SceneNode,
-  size?: GradientSize,
-  readers: FigmaLookupReaders = DEFAULT_READERS,
-  ctx?: GetCodeCacheContext
+function resolveSolidPaintColor(
+  paint: SolidPaint,
+  readers: FigmaLookupReaders = DEFAULT_READERS
 ): string | null {
-  const fills = getNodeFills(node, ctx)
-  if (!fills) return null
-  return resolveGradientFromPaints(fills, size, readers)
+  if (!paint.color) return null
+
+  const bound = paint.boundVariables?.color
+  if (bound && typeof bound === 'object' && 'id' in bound && bound.id) {
+    try {
+      const variable = readers.getVariableById(bound.id)
+      if (variable) return toFigmaVarExpr(getVariableRawName(variable))
+    } catch {
+      // noop
+    }
+  }
+
+  return formatHexAlpha(paint.color, paint.opacity ?? 1)
 }
 
 function resolveGradientFromPaints(
@@ -233,8 +258,14 @@ function resolveGradientFromPaints(
 
   const paint = visible[0]
   if (!isGradientPaint(paint)) return null
-  const gradientPaint = paint
+  return resolveGradientPaintValue(paint, size, readers)
+}
 
+function resolveGradientPaintValue(
+  gradientPaint: GradientPaint,
+  size?: GradientSize,
+  readers: FigmaLookupReaders = DEFAULT_READERS
+): string | null {
   const fillOpacity = typeof gradientPaint.opacity === 'number' ? gradientPaint.opacity : 1
   const stops = gradientPaint.gradientStops.map((stop) => {
     const pct = formatPercent(stop.position)

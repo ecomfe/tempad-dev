@@ -1,5 +1,3 @@
-import { resolveSolidFromPaints } from '@tempad-dev/shared'
-
 import type { CacheMetrics, GetCodeCacheContext, PaintStyleSummary } from './types'
 
 function createDefaultMetrics(): CacheMetrics {
@@ -97,10 +95,7 @@ export function getPaintStyleCached(
     paints: style.paints,
     visiblePaintCount: visiblePaints.length,
     singleVisiblePaint,
-    singleVisibleSolidPaint,
-    singleVisibleSolidColor: singleVisibleSolidPaint
-      ? resolveSolidFromPaints([singleVisibleSolidPaint], ctx.readers)
-      : null
+    singleVisibleSolidPaint
   }
 
   ctx.paintStyles.set(styleId, summary)

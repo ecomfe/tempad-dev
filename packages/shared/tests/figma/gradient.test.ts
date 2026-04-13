@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { resolveGradientFromPaints, resolveSolidFromPaints } from '../../src/figma/gradient'
+import {
+  resolveBackgroundFillFromPaints,
+  resolveGradientFromPaints,
+  resolveSolidFromPaints
+} from '../../src/figma/gradient'
 import { installFigmaMocks, uninstallFigmaMocks } from './test-helpers'
 
 function createStop(
@@ -410,5 +414,52 @@ describe('figma/gradient resolveSolidFromPaints', () => {
     installFigmaMocks()
     const paints = [createSolidPaint({ r: 1, g: 0, b: 0 }, { variableId: 'token' })]
     expect(resolveSolidFromPaints(paints)).toBe('#F00')
+  })
+})
+
+describe('figma/gradient resolveBackgroundFillFromPaints', () => {
+  it('returns a color result for a single solid fill', () => {
+    const paints = [createSolidPaint({ r: 1, g: 0, b: 0 })]
+
+    expect(resolveBackgroundFillFromPaints(paints)).toEqual({
+      kind: 'color',
+      value: '#F00'
+    })
+  })
+
+  it('returns ordered layered output for multiple visible solid and gradient fills', () => {
+    const paints = [
+      createSolidPaint({ r: 1, g: 0, b: 0 }),
+      createGradientPaint('GRADIENT_RADIAL'),
+      createSolidPaint({ r: 0, g: 1, b: 0 }, { visible: false })
+    ]
+
+    expect(resolveBackgroundFillFromPaints(paints)).toEqual({
+      kind: 'layers',
+      value: ['linear-gradient(#F00, #F00)', 'radial-gradient(#F00 0%, #00F 100%)']
+    })
+  })
+
+  it('treats zero-opacity fills and fully transparent gradients as invisible', () => {
+    const paints = [
+      createSolidPaint({ r: 1, g: 0, b: 0 }, { opacity: 0 }),
+      createGradientPaint('GRADIENT_LINEAR', {
+        stops: [
+          createStop({ r: 1, g: 0, b: 0, a: 0 }, 0),
+          createStop({ r: 0, g: 0, b: 1, a: 0 }, 1)
+        ]
+      })
+    ]
+
+    expect(resolveBackgroundFillFromPaints(paints)).toBeNull()
+  })
+
+  it('returns null when visible paints include unsupported image layers', () => {
+    const paints = [
+      { type: 'IMAGE', visible: true } as unknown as Paint,
+      createSolidPaint({ r: 1, g: 0, b: 0 })
+    ]
+
+    expect(resolveBackgroundFillFromPaints(paints)).toBeNull()
   })
 })

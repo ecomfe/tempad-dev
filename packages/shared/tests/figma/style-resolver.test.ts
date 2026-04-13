@@ -298,6 +298,108 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     })
   })
 
+  it('preserves multiple visible solid fills as layered background output', async () => {
+    installFigmaMocks()
+    const node = {
+      fills: [solidPaint({ r: 1, g: 0, b: 0 }), solidPaint({ r: 0, g: 1, b: 0 })]
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        background: 'var(--fill)'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+    })
+  })
+
+  it('preserves multiple visible solid fills when background-color is the fill channel', async () => {
+    installFigmaMocks()
+    const node = {
+      fills: [solidPaint({ r: 1, g: 0, b: 0 }), solidPaint({ r: 0, g: 1, b: 0 })]
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        'background-color': 'var(--fill)'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+    })
+  })
+
+  it('uses fill style paints before direct node fills for layered background resolution', async () => {
+    installFigmaMocks({
+      styles: {
+        fillStyle: paintStyle([solidPaint({ r: 0, g: 1, b: 0 }), solidPaint({ r: 0, g: 0, b: 1 })])
+      }
+    })
+    const node = {
+      fillStyleId: 'fillStyle',
+      fills: [solidPaint({ r: 1, g: 0, b: 0 })]
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        background: 'var(--fill)'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      background: 'linear-gradient(#0F0, #0F0), linear-gradient(#00F, #00F)'
+    })
+  })
+
+  it('does not merge image shorthand with multi-fill layers after removing lightgray fallback', async () => {
+    installFigmaMocks()
+    const node = {
+      fills: [solidPaint({ r: 1, g: 0, b: 0 }), solidPaint({ r: 0, g: 1, b: 0 })]
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        background: 'url("asset.png") lightgray'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      background: 'url("asset.png")',
+      'background-color': '#F00'
+    })
+  })
+
+  it('uses fill style paints before direct node fills when resolving lightgray fallback color', async () => {
+    installFigmaMocks({
+      styles: {
+        fillStyle: paintStyle([solidPaint({ r: 0, g: 1, b: 0 })])
+      }
+    })
+    const node = {
+      fillStyleId: 'fillStyle',
+      fills: [solidPaint({ r: 1, g: 0, b: 0 })]
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        background: 'url("asset.png") lightgray'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      background: 'url("asset.png")',
+      'background-color': '#0F0'
+    })
+  })
+
   it('uses border-image for gradient stroke styles', async () => {
     installFigmaMocks({
       styles: {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/mcp/tools/token/indexer', () => ({
   getVariableRawName: () => 'mock-variable'
@@ -17,6 +17,10 @@ function createNode(type: SceneNode['type'], overrides: Record<string, unknown> 
 }
 
 describe('mcp/tools/code/styles/background', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('converts solid background shorthand into background-color', () => {
     const style = { background: '#ff0000' }
     const node = createNode('FRAME')
@@ -61,6 +65,140 @@ describe('mcp/tools/code/styles/background', () => {
     const result = cleanFigmaSpecificStyles(style, node)
 
     expect(result.background?.startsWith('radial-gradient(')).toBe(true)
+  })
+
+  it('preserves multiple visible solid fills as layered background output', () => {
+    const style = { background: 'var(--token-bg)' }
+    const node = createNode('FRAME', {
+      fills: [
+        { type: 'SOLID', visible: true, color: { r: 1, g: 0, b: 0 }, opacity: 1 },
+        { type: 'SOLID', visible: true, color: { r: 0, g: 1, b: 0 }, opacity: 1 }
+      ]
+    })
+
+    const result = cleanFigmaSpecificStyles(style, node)
+
+    expect(result).toEqual({
+      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+    })
+  })
+
+  it('removes getCSSAsync lightgray fallback without recreating it as a background layer', () => {
+    const style = { background: 'url("image.png") lightgray 50% / cover no-repeat' }
+    const node = createNode('RECTANGLE', {
+      fills: [
+        { type: 'SOLID', visible: true, color: { r: 1, g: 0, b: 0 }, opacity: 1 },
+        { type: 'SOLID', visible: true, color: { r: 0, g: 1, b: 0 }, opacity: 1 }
+      ]
+    })
+
+    const result = cleanFigmaSpecificStyles(style, node)
+
+    expect(result.background).toBeUndefined()
+    expect(result['background-image']).toContain('url("image.png")')
+    expect(result['background-position']).toBe('50%')
+    expect(result['background-size']).toBe('cover')
+    expect(result['background-repeat']).toBe('no-repeat')
+    expect(result['background-color']).toBe('#F00')
+    expect(JSON.stringify(result)).not.toContain('lightgray')
+  })
+
+  it('uses fill style paints before direct node fills for lightgray fallback cleanup', () => {
+    vi.stubGlobal('figma', {
+      getStyleById: vi.fn((id: string) =>
+        id === 'fill-style'
+          ? ({
+              paints: [{ type: 'SOLID', visible: true, color: { r: 0, g: 1, b: 0 }, opacity: 1 }]
+            } as unknown as PaintStyle)
+          : null
+      ),
+      variables: {
+        getVariableById: vi.fn(() => null)
+      }
+    })
+
+    const style = { background: 'url("image.png") lightgray 50% / cover no-repeat' }
+    const node = createNode('RECTANGLE', {
+      fillStyleId: 'fill-style',
+      fills: [{ type: 'SOLID', visible: true, color: { r: 1, g: 0, b: 0 }, opacity: 1 }]
+    })
+
+    const result = cleanFigmaSpecificStyles(style, node)
+
+    expect(result['background-color']).toBe('#0F0')
+  })
+
+  it('uses fill style paints before direct node fills for layered background resolution', () => {
+    vi.stubGlobal('figma', {
+      getStyleById: vi.fn((id: string) =>
+        id === 'fill-style'
+          ? ({
+              paints: [
+                { type: 'SOLID', visible: true, color: { r: 0, g: 1, b: 0 }, opacity: 1 },
+                { type: 'SOLID', visible: true, color: { r: 0, g: 0, b: 1 }, opacity: 1 }
+              ]
+            } as unknown as PaintStyle)
+          : null
+      ),
+      variables: {
+        getVariableById: vi.fn(() => null)
+      }
+    })
+
+    const style = { background: 'var(--token-bg)' }
+    const node = createNode('RECTANGLE', {
+      fillStyleId: 'fill-style',
+      fills: [{ type: 'SOLID', visible: true, color: { r: 1, g: 0, b: 0 }, opacity: 1 }]
+    })
+
+    const result = cleanFigmaSpecificStyles(style, node)
+
+    expect(result).toEqual({
+      background: 'linear-gradient(#0F0, #0F0), linear-gradient(#00F, #00F)'
+    })
+  })
+
+  it('injects layered background output when background channels are missing', () => {
+    const node = createNode('RECTANGLE', {
+      fills: [
+        { type: 'SOLID', visible: true, color: { r: 1, g: 0, b: 0 }, opacity: 1 },
+        { type: 'SOLID', visible: true, color: { r: 0, g: 1, b: 0 }, opacity: 1 }
+      ]
+    })
+
+    const result = cleanFigmaSpecificStyles({}, node)
+
+    expect(result).toEqual({
+      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+    })
+  })
+
+  it('injects layered background output from fill style paints when direct fills are missing', () => {
+    vi.stubGlobal('figma', {
+      getStyleById: vi.fn((id: string) =>
+        id === 'fill-style'
+          ? ({
+              paints: [
+                { type: 'SOLID', visible: true, color: { r: 1, g: 0, b: 0 }, opacity: 1 },
+                { type: 'SOLID', visible: true, color: { r: 0, g: 1, b: 0 }, opacity: 1 }
+              ]
+            } as unknown as PaintStyle)
+          : null
+      ),
+      variables: {
+        getVariableById: vi.fn(() => null)
+      }
+    })
+
+    const node = createNode('RECTANGLE', {
+      fillStyleId: 'fill-style'
+    })
+
+    const result = cleanFigmaSpecificStyles({}, node)
+
+    expect(result).toEqual({
+      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+    })
   })
 
   it('fills missing background-color for non-text nodes only', () => {

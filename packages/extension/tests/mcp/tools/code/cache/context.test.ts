@@ -117,6 +117,7 @@ describe('code cache context', () => {
     const colorModel = analyzeVectorColorModel(tree, 'root', ctx)
 
     expect(cleaned['background-color']).toMatch(/^var\(/)
+    expect(cleaned['background-color']).not.toContain(',')
     expect(colorModel).toEqual({
       kind: 'single-channel',
       color: expect.stringMatching(/^var\(/)

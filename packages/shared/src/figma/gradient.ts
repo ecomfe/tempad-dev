@@ -24,11 +24,24 @@ function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {
   return !!paint && paint.visible !== false
 }
 
-function isGradientPaint(paint: Paint): paint is GradientPaint {
+export type ResolvedBackgroundFill =
+  | { kind: 'color'; value: string }
+  | { kind: 'layers'; value: string[] }
+
+type BackgroundFillResolverOptions = {
+  resolveGradientPaint?: (
+    paint: GradientPaint,
+    size: GradientSize | undefined,
+    readers: FigmaLookupReaders
+  ) => string | null
+  resolveSolidPaint?: (paint: SolidPaint, readers: FigmaLookupReaders) => string | null
+}
+
+export function isGradientPaint(paint: Paint): paint is GradientPaint {
   return 'gradientStops' in paint && Array.isArray(paint.gradientStops)
 }
 
-function isSolidPaint(paint: Paint): paint is SolidPaint {
+export function isSolidPaint(paint: Paint): paint is SolidPaint {
   return paint.type === 'SOLID'
 }
 
@@ -45,6 +58,16 @@ const DEFAULT_READERS: FigmaLookupReaders = {
 
 function hasGradientHandlePositions(paint: GradientPaint): paint is GradientPaintWithHandles {
   return 'gradientHandlePositions' in paint && Array.isArray(paint.gradientHandlePositions)
+}
+
+export function isRenderableBackgroundPaint(paint: Paint | null | undefined): paint is Paint {
+  if (!paint || paint.visible === false) return false
+  if (typeof paint.opacity === 'number' && paint.opacity <= 0) return false
+  if (isGradientPaint(paint)) {
+    const fillOpacity = typeof paint.opacity === 'number' ? paint.opacity : 1
+    return paint.gradientStops.some((stop) => (stop.color?.a ?? 1) * fillOpacity > 0)
+  }
+  return true
 }
 
 /**
@@ -65,6 +88,14 @@ export function resolveGradientFromPaints(
 
   if (!gradientPaint) return null
 
+  return resolveGradientPaint(gradientPaint, size, readers)
+}
+
+export function resolveGradientPaint(
+  gradientPaint: GradientPaint,
+  size?: GradientSize,
+  readers: FigmaLookupReaders = DEFAULT_READERS
+): string | null {
   const fillOpacity = typeof gradientPaint.opacity === 'number' ? gradientPaint.opacity : 1
   const stops = gradientPaint.gradientStops.map((stop) => {
     const pct = formatPercent(stop.position)
@@ -103,7 +134,14 @@ export function resolveSolidFromPaints(
     (paint): paint is SolidPaint => isVisiblePaint(paint) && isSolidPaint(paint)
   )
 
-  if (!solidPaint || !solidPaint.color) return null
+  return solidPaint ? resolveSolidPaint(solidPaint, readers) : null
+}
+
+export function resolveSolidPaint(
+  solidPaint: SolidPaint,
+  readers: FigmaLookupReaders = DEFAULT_READERS
+): string | null {
+  if (!solidPaint.color) return null
 
   // Check if color is bound to a variable
   const bound = solidPaint.boundVariables?.color
@@ -121,6 +159,53 @@ export function resolveSolidFromPaints(
   }
 
   return formatHexAlpha(solidPaint.color, solidPaint.opacity)
+}
+
+export function resolveBackgroundFillFromPaints(
+  paints?: PaintList,
+  size?: GradientSize,
+  readers: FigmaLookupReaders = DEFAULT_READERS,
+  options: BackgroundFillResolverOptions = {}
+): ResolvedBackgroundFill | null {
+  if (!paints || !Array.isArray(paints)) return null
+
+  const visible = paints.filter(isRenderableBackgroundPaint)
+  if (!visible.length) return null
+  if (visible.some((paint) => !isSolidPaint(paint) && !isGradientPaint(paint))) {
+    return null
+  }
+
+  const resolveGradient = options.resolveGradientPaint ?? resolveGradientPaint
+  const resolveSolid = options.resolveSolidPaint ?? resolveSolidPaint
+
+  if (visible.length === 1) {
+    const single = visible[0]
+    if (isSolidPaint(single)) {
+      const color = resolveSolid(single, readers)
+      return color ? { kind: 'color', value: color } : null
+    }
+    if (!isGradientPaint(single)) return null
+
+    const gradient = resolveGradient(single, size, readers)
+    return gradient ? { kind: 'layers', value: [gradient] } : null
+  }
+
+  const layers: string[] = []
+  for (const paint of visible) {
+    if (isSolidPaint(paint)) {
+      const color = resolveSolid(paint, readers)
+      if (!color) return null
+      layers.push(`linear-gradient(${color}, ${color})`)
+      continue
+    }
+    if (!isGradientPaint(paint)) return null
+
+    const gradient = resolveGradient(paint, size, readers)
+    if (!gradient) return null
+    layers.push(gradient)
+  }
+
+  return layers.length ? { kind: 'layers', value: layers } : null
 }
 
 /**

@@ -61,7 +61,6 @@ export type PaintStyleSummary = {
   visiblePaintCount: number
   singleVisiblePaint: Paint | null
   singleVisibleSolidPaint: SolidPaint | null
-  singleVisibleSolidColor: string | null
 }
 
 export type CacheMetrics = {
