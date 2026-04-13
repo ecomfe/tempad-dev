@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0
+
+- Improved Node.js ESM compatibility for `@tempad-dev/mcp`, reducing issues in runtimes that expect import attributes for JSON modules.
+- No changes are required to existing MCP client setup or CLI usage.
+
 ## 0.5.1
 
 - Unified MCP tool inline budget enforcement around `64 KiB` `CallToolResult` bytes and simplified `get_code` warning guidance to rely on shell inline comments and returned `data-hint-id` values.

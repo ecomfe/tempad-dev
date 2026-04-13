@@ -1,11 +1,9 @@
 import { closeSync, mkdirSync, openSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
 
-const require = createRequire(import.meta.url)
-const packageJson = require('../package.json') as unknown
+import packageJson from '../package.json' with { type: 'json' }
 
 export function normalizePackageVersion(version: unknown): string {
   return typeof version === 'string' ? version : '0.0.0'
