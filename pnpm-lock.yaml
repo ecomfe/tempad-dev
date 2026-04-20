@@ -285,8 +285,8 @@ importers:
         specifier: ^2.6.1
         version: 2.6.1
       marked:
-        specifier: ^17.0.4
-        version: 17.0.6
+        specifier: ^18.0.0
+        version: 18.0.2
       typescript:
         specifier: ~6.0.0
         version: 6.0.2
@@ -4358,8 +4358,8 @@ packages:
   many-keys-map@2.0.1:
     resolution: {integrity: sha512-DHnZAD4phTbZ+qnJdjoNEVU1NecYoSdbOOoVmTDH46AuxDkEVh3MxTVpXq10GtcTC6mndN9dkv1rNfpjRcLnOw==}
 
-  marked@17.0.6:
-    resolution: {integrity: sha512-gB0gkNafnonOw0obSTEGZTT86IuhILt2Wfx0mWH/1Au83kybTayroZ/V6nS25mN7u8ASy+5fMhgB3XPNrOZdmA==}
+  marked@18.0.2:
+    resolution: {integrity: sha512-NsmlUYBS/Zg57rgDWMYdnre6OTj4e+qq/JS2ot3KrYLSoHLw+sDu0Nm1ZGpRgYAq6c+b1ekaY5NzVchMCQnzcg==}
     engines: {node: '>= 20'}
     hasBin: true
 
@@ -10298,7 +10298,7 @@ snapshots:
 
   many-keys-map@2.0.1: {}
 
-  marked@17.0.6: {}
+  marked@18.0.2: {}
 
   marky@1.3.0: {}
 
