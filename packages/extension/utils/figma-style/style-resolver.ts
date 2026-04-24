@@ -15,6 +15,11 @@ import {
   resolveGradientFromPaints,
   resolveSolidFromPaints
 } from './gradient'
+import {
+  getTypography,
+  resolveTypographyVariableBinding,
+  TEXT_FIELD_CSS_PROPERTY_MAP
+} from './typography'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray\b/i
 const BG_URL_RE = /url\(/i
@@ -124,7 +129,9 @@ function createNodePaintStyleInput(node: SceneNode): NodePaintStyleInput {
     strokeStyleId: 'strokeStyleId' in node ? node.strokeStyleId : null,
     fills: 'fills' in node && Array.isArray(node.fills) ? node.fills : null,
     strokes: 'strokes' in node && Array.isArray(node.strokes) ? node.strokes : null,
-    dimensions: getNodeDimensions(node)
+    boundVariables: 'boundVariables' in node ? node.boundVariables : undefined,
+    dimensions: getNodeDimensions(node),
+    typography: getTypography(node)
   }
 }
 
@@ -337,6 +344,26 @@ export async function resolveStylesFromNodeData(
     processed.stroke = resolvedStroke.gradient
   } else if (processed.stroke && resolvedStroke?.solidColor) {
     processed.stroke = resolvedStroke.solidColor
+  }
+
+  // Process typography css variables name to var() expression
+  if (input.boundVariables && input.typography) {
+    const typography = input.typography
+    const textFields = Object.keys(TEXT_FIELD_CSS_PROPERTY_MAP) as VariableBindableTextField[]
+    for (const textField of textFields) {
+      // this textField is a bound variable, so we need to resolve it to a CSS var() expression
+      const isVariableBound = !!input.boundVariables[textField]
+      const typographyValue = typography[textField]
+      const cssPropertyName = TEXT_FIELD_CSS_PROPERTY_MAP[textField]
+      const cssVarName = processed[cssPropertyName]
+      if (cssVarName && isVariableBound && !!typographyValue) {
+        processed[cssPropertyName] = resolveTypographyVariableBinding(
+          cssVarName,
+          textField,
+          typographyValue
+        )
+      }
+    }
   }
 
   return processed
