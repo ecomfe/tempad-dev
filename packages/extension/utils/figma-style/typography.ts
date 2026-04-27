@@ -51,7 +51,10 @@ export function resolveTypographyVariableBinding(
   textField: VariableBindableTextField,
   typographyValue: LineHeight | LetterSpacing | number | string
 ): string {
-  if (!typographyValue) return ''
+  if (!typographyValue || !cssVarName) return ''
+
+  // if the cssVarName is a var() expression, return it as is
+  if (cssVarName.match(/var\(([^)]*)\)/)) return cssVarName
 
   let value = ''
   if (
