@@ -38,7 +38,7 @@
     "eslint-plugin-vue": "^10.5.1",
     "jiti": "^2.6.1",
     "lefthook": "^2.0.0",
-    "oxfmt": "^0.44.0",
+    "oxfmt": "^0.46.0",
     "typescript": "^6.0.0",
     "vitest": "4.1.4"
   },
