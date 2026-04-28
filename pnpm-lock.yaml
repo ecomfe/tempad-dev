@@ -147,8 +147,8 @@ importers:
         specifier: ^6.0.0
         version: 6.0.3
       vite-plugin-css-injected-by-js:
-        specifier: ^4.0.0
-        version: 4.0.1(vite@8.0.9(@types/node@24.12.2)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+        specifier: ^5.0.0
+        version: 5.0.1(vite@8.0.9(@types/node@24.12.2)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
       vitest:
         specifier: 4.1.5
         version: 4.1.5(@types/node@24.12.2)(@vitest/browser-playwright@4.1.5)(@vitest/coverage-istanbul@4.1.5)(vite@8.0.9(@types/node@24.12.2)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -5907,8 +5907,8 @@ packages:
       vue-tsc:
         optional: true
 
-  vite-plugin-css-injected-by-js@4.0.1:
-    resolution: {integrity: sha512-WfyRojojQyAO/KzWf+efcXpTPv6zJPXaRmr9EYq5a4v5I3PWCR7kR01hiri2lW6+rHm3a57kpwsf+iahIJi1Qw==}
+  vite-plugin-css-injected-by-js@5.0.1:
+    resolution: {integrity: sha512-JSB0jjN4VCKqG7XTUdrwiIl5gA+z2yi/tAl9WHo0X4sdyJ1yrmbLOEjf95TDoDIIuKr4GJIc7lMJG0CT88eEUQ==}
     peerDependencies:
       vite: 8.0.9
 
@@ -12320,7 +12320,7 @@ snapshots:
       vue-tsc: 3.2.7(typescript@6.0.3)
     optional: true
 
-  vite-plugin-css-injected-by-js@4.0.1(vite@8.0.9(@types/node@24.12.2)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)):
+  vite-plugin-css-injected-by-js@5.0.1(vite@8.0.9(@types/node@24.12.2)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)):
     dependencies:
       vite: 8.0.9(@types/node@24.12.2)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
 
