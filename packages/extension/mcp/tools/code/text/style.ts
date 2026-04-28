@@ -1,4 +1,5 @@
 import { canonicalizeValue, formatHexAlpha, toFigmaVarExpr } from '@/utils/css'
+import { resolveTextSegmentVariable, resolveVariableAlias } from '@/utils/figma-variables'
 import { toDecimalPlace } from '@/utils/number'
 
 import {
@@ -7,8 +8,7 @@ import {
   type ResolvedFill,
   type RunStyleEntry,
   type StyledTextSegmentSubset,
-  type TokenRef,
-  type VariableAlias
+  type TokenRef
 } from './types'
 
 export function resolveRunAttrs(
@@ -75,40 +75,19 @@ export function resolveTokens(textNode: TextNode, seg: StyledTextSegmentSubset) 
   const typography: Record<string, TokenRef> = {}
 
   TYPO_FIELDS.forEach((field) => {
-    const bindings = seg.boundVariables as Record<string, VariableAlias> | undefined
-    let token = resolveAliasToTokenSync(bindings?.[field])
-
-    if (!token && seg.textStyleId && typeof seg.textStyleId === 'string') {
-      try {
-        const style = figma.getStyleById(seg.textStyleId) as TextStyle
-        const styleBindings = style?.boundVariables as Record<string, VariableAlias> | undefined
-        token = resolveAliasToTokenSync(styleBindings?.[field])
-      } catch {
-        // noop
-      }
-    }
-
-    if (!token) {
-      try {
-        const alias = textNode.getRangeBoundVariable(
-          seg.start,
-          seg.end,
-          field as VariableBindableTextField
-        )
-        if (alias !== figma.mixed) {
-          token = resolveAliasToTokenSync(alias)
-        }
-      } catch {
-        // noop
-      }
-    }
+    const variable = resolveTextSegmentVariable(
+      textNode,
+      seg as StyledTextSegmentSubset & { boundVariables?: Record<string, unknown> },
+      field as VariableBindableTextField
+    )
+    const token = variableToTokenRef(variable)
     if (token) typography[field] = token
   })
 
   const fillRaw = Array.isArray(seg.fills) ? seg.fills : []
   const fills: ResolvedFill[] = fillRaw.map((paint) => {
     if (paint.type === 'SOLID') {
-      const colorToken = resolveAliasToTokenSync(paint.boundVariables?.color)
+      const colorToken = variableToTokenRef(resolveVariableAlias(paint.boundVariables?.color))
       return { type: 'SOLID', token: colorToken, raw: paint }
     }
     return { type: paint.type, raw: paint }
@@ -230,15 +209,8 @@ function constructCssVar(token?: TokenRef | null, fallback?: string): string | u
   return fallback?.trim() || undefined
 }
 
-function resolveAliasToTokenSync(alias: VariableAlias | null | undefined): TokenRef | null {
-  if (!alias || !alias.id) return null
-  try {
-    const variable = figma.variables.getVariableById(alias.id)
-    if (!variable) return null
-    return { id: variable.id, name: variable.name }
-  } catch {
-    return null
-  }
+function variableToTokenRef(variable: Variable | null): TokenRef | null {
+  return variable ? { id: variable.id, name: variable.name } : null
 }
 
 function formatLineHeightValue(lineHeight?: LineHeight): string | undefined {

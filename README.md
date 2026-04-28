@@ -52,6 +52,8 @@ You can configure CSS units and root font size to convert `px` dimensions in CSS
 
 Use **Variable display** (Reference/Resolved/Both) in Preferences to choose whether code output shows variable references, resolved values, or both.
 
+When a Figma variable defines `WEB codeSyntax`, the Code panel preserves that exact author-provided syntax. MCP `get_code` still emits canonical CSS variable references so agents receive a stable intermediate representation.
+
 > [!WARNING]
 > Switching units only affects the output in the TemPad Dev panel, not the Figma canvas.
 

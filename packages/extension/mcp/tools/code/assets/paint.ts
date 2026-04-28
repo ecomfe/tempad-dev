@@ -1,9 +1,8 @@
-import { toFigmaVarExpr } from '@/utils/css'
 import { formatHexAlpha } from '@/utils/css'
+import { getVariableCssExpr } from '@/utils/figma-variables'
 
 import type { GetCodeCacheContext } from '../cache'
 
-import { getVariableRawName } from '../../token/raw-name'
 import { getNodeSemanticsCached, getPaintStyleCached, getVariableByIdFromContext } from '../cache'
 
 export type PaintChannel = {
@@ -138,7 +137,7 @@ function resolveVariableColor(
       ? getVariableByIdFromContext(alias.id, ctx)
       : figma.variables.getVariableById(alias.id)
     if (!variable) return null
-    return toFigmaVarExpr(getVariableRawName(variable))
+    return getVariableCssExpr(variable)
   } catch {
     return null
   }

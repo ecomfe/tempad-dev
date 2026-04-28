@@ -7,7 +7,8 @@ const mocked = vi.hoisted(() => {
     MockWorker,
     createWorkerRequester: vi.fn(),
     resolveStylesFromNode: vi.fn(),
-    getDesignComponent: vi.fn()
+    getDesignComponent: vi.fn(),
+    formatNodeStyleForUi: vi.fn((style: Record<string, string>) => style)
   }
 })
 
@@ -21,6 +22,10 @@ vi.mock('@/codegen/worker?worker&inline', () => ({
 
 vi.mock('@/utils/figma-style/style-resolver', () => ({
   resolveStylesFromNode: mocked.resolveStylesFromNode
+}))
+
+vi.mock('@/utils/variable-output', () => ({
+  formatNodeStyleForUi: mocked.formatNodeStyleForUi
 }))
 
 vi.mock('@/utils/component', () => ({
@@ -130,6 +135,7 @@ describe('utils/codegen', () => {
 
     expect(node.getCSSAsync).toHaveBeenCalledTimes(1)
     expect(mocked.resolveStylesFromNode).toHaveBeenCalledWith(rawStyle, node)
+    expect(mocked.formatNodeStyleForUi).toHaveBeenCalledWith(resolvedStyle, node)
     expect(mocked.getDesignComponent).toHaveBeenCalledWith(node)
     expect(mocked.createWorkerRequester).toHaveBeenCalledWith(mocked.MockWorker)
     expect(request).toHaveBeenCalledWith({

@@ -51,6 +51,8 @@
 
 在偏好设置里使用 **Variable display**（Reference/Resolved/Both）来选择代码输出展示变量引用、解析后的值，或两者同时显示。
 
+当 Figma 变量定义了 `WEB codeSyntax` 时，Code 面板会原样保留这段由设计文件提供的语法。MCP `get_code` 仍会输出规范化的 CSS 变量引用，让 Agent 获得稳定的中间表示。
+
 > [!WARNING]
 > 切换单位只会影响 TemPad Dev 面板中的输出，不会影响 Figma 画布本身。
 

@@ -26,9 +26,9 @@ This document describes the implementation design for MCP `get_code` in `package
      - Apply positioning (auto layout absolute, constraints).
      - Replace image fills with uploaded assets.
 
-5. **Normalize variables and sanitize styles**
-   - Normalize variable names and codeSyntax to a canonical form.
-   - Capture variable usage candidates for token detection.
+5. **Canonicalize MCP variable output and sanitize styles**
+   - Rewrite supported variable-backed output into canonical CSS variable IR.
+   - Capture variable usage candidates for token detection and resolution.
    - Patch known layout issues (negative gap).
    - Ensure layout parents are `position: relative` when children are absolute.
 
@@ -114,6 +114,38 @@ This document describes the implementation design for MCP `get_code` in `package
   - Resolves each axis as fixed/hug/fill/absolute/unknown.
   - Removes only redundant size or padding expressions without changing the emitted flow model.
 - `ensureRelativeForAbsoluteChildren`
+
+## Variable output semantics
+
+### Product boundary
+
+- UI codegen and MCP `get_code` intentionally use different variable-output contracts.
+- Shared `figma-style` helpers are policy-neutral. They may repair Figma CSS artifacts, recover missing fill/stroke channels, and reconstruct omitted background data, but they must not decide whether a variable-backed value is emitted as exact `codeSyntax` or canonical CSS variable IR.
+- The shared layer should expose either neutral values or enough binding metadata for UI and MCP callers to format independently.
+
+### UI codegen contract
+
+- UI codegen is the human-facing export/display surface.
+- If a bound variable has `codeSyntax.WEB`, UI codegen should emit that exact string as the style value.
+- UI codegen does not validate, normalize, warn on, or silently fall back away from a present `codeSyntax.WEB`.
+- If `codeSyntax.WEB` is absent, UI codegen may fall back to the default variable expression or literal behavior already supported by the serializer/export path.
+- Differences between UI codegen output and MCP output are intentional, not bugs by themselves.
+
+### MCP `get_code` contract
+
+- `get_code` is an agent-facing IR, not a human-facing export surface.
+- When `resolveTokens` is `false`, every supported variable-backed property must emit canonical `var(--token)` output derived from variable identity rather than directly from `codeSyntax`.
+- The same variable id must resolve to the same canonical token name across paint-derived properties, typography/text-run properties, and any future layout/effect/property families that become variable-backed.
+- `codeSyntax` remains useful as source metadata and alias input for candidate discovery, rewrite bridging, and downstream export transforms, but it does not control the final emitted MCP style value.
+- When `resolveTokens` is `true`, the same supported properties should resolve from canonical IR to per-node literals without changing the token identity model.
+
+### Current implementation note
+
+- UI and MCP now share variable identity and binding discovery through `packages/extension/utils/figma-variables.ts`.
+- `packages/extension/utils/variable-output.ts` is the explicit output boundary:
+  - UI codegen formats supported variable-backed properties with exact `WEB codeSyntax` when present.
+  - MCP `get_code` formats the same supported properties as canonical CSS variable references.
+- String-based token rewrites remain a compatibility/backstop pass for legacy CSS output, alias bridging, and downstream transforms.
 
 ## Request-scoped cache layer
 

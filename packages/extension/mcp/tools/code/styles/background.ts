@@ -7,18 +7,17 @@ import {
   parseBackgroundShorthand,
   preprocessCssValue,
   splitByTopLevelComma,
-  stripFallback,
-  toFigmaVarExpr
+  stripFallback
 } from '@/utils/css'
 import {
   resolveBackgroundFillFromPaints,
   resolveGradientPaintCss
 } from '@/utils/figma-style/gradient'
+import { getVariableCssExpr } from '@/utils/figma-variables'
 
 import type { GetCodeCacheContext } from '../cache'
 import type { StyleMap } from './types'
 
-import { getVariableRawName } from '../../token/raw-name'
 import { getNodeSemanticsCached, getPaintStyleCached, getPaintsFromState } from '../cache'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
@@ -198,7 +197,7 @@ function resolveSolidPaintColor(
   if (bound && typeof bound === 'object' && 'id' in bound && bound.id) {
     try {
       const variable = readers.getVariableById(bound.id)
-      if (variable) return toFigmaVarExpr(getVariableRawName(variable))
+      if (variable) return getVariableCssExpr(variable)
     } catch {
       // noop
     }
@@ -305,9 +304,7 @@ function formatGradientStopColor(
   const bound = stop.boundVariables?.color
   if (bound && typeof bound === 'object' && 'id' in bound && bound.id) {
     const variable = readers.getVariableById(bound.id)
-    const expr = variable
-      ? toFigmaVarExpr(getVariableRawName(variable))
-      : `var(${normalizeFigmaVarName('')})`
+    const expr = variable ? getVariableCssExpr(variable) : `var(${normalizeFigmaVarName('')})`
     if (alpha >= 0.99) return expr
     const pct = Math.round(alpha * 10000) / 100
     return `color-mix(in srgb, ${expr} ${pct}%, transparent)`

@@ -3,9 +3,9 @@ import type { CodegenConfig } from '@/utils/codegen'
 import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
 import { workerUnitOptions } from '@/utils/codegen'
 import { canonicalizeVarName as canonicalizeCssVarName, normalizeFigmaVarName } from '@/utils/css'
+import { getVariableRawName } from '@/utils/figma-variables'
 
-export { getVariableRawName } from './raw-name'
-import { getVariableRawName } from './raw-name'
+export { getVariableRawName } from '@/utils/figma-variables'
 
 export type TokenIndex = {
   // canonical name ("--color-primary") -> variable ids (handle collisions)

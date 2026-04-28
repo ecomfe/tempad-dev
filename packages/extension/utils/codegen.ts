@@ -11,6 +11,7 @@ import Codegen from '@/codegen/worker?worker&inline'
 
 import { getDesignComponent } from './component'
 import { resolveStylesFromNode } from './figma-style/style-resolver'
+import { formatNodeStyleForUi } from './variable-output'
 
 export async function codegen(
   style: Record<string, string>,
@@ -56,6 +57,7 @@ export async function generateCodeBlocksForNode(
 
   // Resolve fill and stroke styles that use CSS variables
   style = await resolveStylesFromNode(style, node)
+  style = formatNodeStyleForUi(style, node)
 
   const component = getDesignComponent(node)
   const serializeOptions: SerializeOptions = {

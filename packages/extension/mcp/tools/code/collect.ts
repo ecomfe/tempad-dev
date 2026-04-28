@@ -6,6 +6,7 @@ import { preprocessCssValue, stripFallback } from '@/utils/css'
 import { resolveStylesFromNodeData } from '@/utils/figma-style/style-resolver'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
+import { formatNodeStyleForMcp } from '@/utils/variable-output'
 
 import type { GetCodeCacheContext } from './cache'
 import type { CollectedData, NodeSnapshot, VisibleTree } from './model'
@@ -44,6 +45,7 @@ export async function collectNodeData(
         createNodePaintStyleInput(snapshot, cache),
         cache.readers
       )
+      css = formatNodeStyleForMcp(css, node, cache.readers)
       const parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
 
       let processed = preprocessStyles(preprocessRawStyle(css), node, parent?.node, cache)

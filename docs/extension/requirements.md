@@ -16,6 +16,7 @@ This document records the source requirements and hard constraints for the MCP `
 
 - Applies to MCP `get_code` only (not the UI codegen pipeline).
 - Output is markup + Tailwind classes + optional assets/tokens metadata.
+- UI codegen may intentionally prefer exact `WEB codeSyntax` and is allowed to differ from MCP output semantics.
 
 ## Input constraints
 
@@ -136,7 +137,10 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 - Token detection starts from the emitted markup; names may be transformed/re-written, and final used names are derived from the rewrite map (no second scan).
 - Token detection always strips `var(..., fallback)` before matching to avoid false positives.
+- `get_code` emits canonical CSS variable IR for supported variable-backed properties when `resolveTokens` is `false`.
+- Canonical token identity is derived from variable identity and must stay stable across property families such as paint-derived channels, typography/text output, and future supported layout/effect properties.
 - Variable names are normalized consistently across Figma variable names, `codeSyntax`, and plugin transforms.
+- `codeSyntax` may be used as source metadata and alias input for detection/rewrite steps, but it must not directly dictate the final emitted MCP style value.
 - `tokens` is a single map keyed by canonical token name. Each entry:
   - `kind`: token kind.
   - `value`:

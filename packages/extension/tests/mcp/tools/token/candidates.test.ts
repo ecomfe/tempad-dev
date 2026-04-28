@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { getVariableByIdCached } from '@/mcp/tools/token/cache'
 import { collectCandidateVariableIds } from '@/mcp/tools/token/candidates'
-import { getVariableRawName } from '@/mcp/tools/token/indexer'
 import { logger } from '@/utils/log'
 
 vi.mock('@/utils/css', () => ({
-  canonicalizeVarName: vi.fn((value: string) => (value.startsWith('var(') ? '--syntax' : null)),
+  canonicalizeVarName: vi.fn((value: string) => {
+    const match = value.trim().match(/^var\(\s*(--[^,\s)]+)\s*(?:,[^)]+)?\)$/)
+    return match?.[1] ?? null
+  }),
   normalizeFigmaVarName: vi.fn((value: string) => {
     const normalized = value.trim().replace(/\s+/g, '-').toLowerCase()
     return normalized ? `--${normalized}` : '--unnamed'
@@ -25,10 +27,6 @@ vi.mock('@/utils/log', () => ({
 
 vi.mock('@/mcp/tools/token/cache', () => ({
   getVariableByIdCached: vi.fn()
-}))
-
-vi.mock('@/mcp/tools/token/indexer', () => ({
-  getVariableRawName: vi.fn()
 }))
 
 function createNode(input: Record<string, unknown>): SceneNode {
@@ -152,10 +150,6 @@ describe('token/candidates collectCandidateVariableIds', () => {
       'id-style-stroke': { id: 'id-style-stroke', name: 'Style Stroke' } as unknown as Variable
     }
     vi.mocked(getVariableByIdCached).mockImplementation((id: string) => vars[id] ?? null)
-    vi.mocked(getVariableRawName).mockImplementation(
-      (variable: Variable) => variable.name ?? 'Unnamed'
-    )
-
     const cache = new Map<string, Variable | null>()
     const result = collectCandidateVariableIds([root], cache)
 
@@ -176,11 +170,11 @@ describe('token/candidates collectCandidateVariableIds', () => {
       ])
     )
     expect(result.rewrites.get('var(--brand)')).toEqual({
-      canonical: '--primary-color',
+      canonical: '--brand',
       id: 'id-bound'
     })
     expect(result.rewrites.get('var(--primary-color)')).toEqual({
-      canonical: '--primary-color',
+      canonical: '--brand',
       id: 'id-bound'
     })
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('ids=12 rewrites='))
@@ -210,10 +204,6 @@ describe('token/candidates collectCandidateVariableIds', () => {
     } as unknown as PluginAPI
 
     vi.mocked(getVariableByIdCached).mockReturnValue(null)
-    vi.mocked(getVariableRawName).mockImplementation(
-      (variable: Variable) => variable.name ?? 'Unnamed'
-    )
-
     const result = collectCandidateVariableIds([hiddenRoot, styleErrorNode, nonStringStyleIdNode])
     expect(result.variableIds).toEqual(new Set())
     expect(result.rewrites).toEqual(new Map())
@@ -232,8 +222,6 @@ describe('token/candidates collectCandidateVariableIds', () => {
       id: 'id-1',
       name: 'Fallback Name'
     } as unknown as Variable)
-    vi.mocked(getVariableRawName).mockReturnValue('Fallback Name')
-
     const result = collectCandidateVariableIds([root])
 
     expect(result.variableIds).toEqual(new Set(['id-1']))
@@ -247,6 +235,53 @@ describe('token/candidates collectCandidateVariableIds', () => {
     } else {
       delete (globalThis as { performance?: Performance }).performance
     }
+  })
+
+  it('collects text variable ids from whole-range bindings and text styles', () => {
+    const root = createNode({
+      id: 'text-root',
+      type: 'TEXT',
+      visible: true,
+      characters: 'Hello',
+      textStyleId: 'text-style-1',
+      getRangeBoundVariable: vi.fn(
+        (_start: number, _end: number, field: VariableBindableTextField) =>
+          field === 'fontFamily'
+            ? { id: 'id-range-font' }
+            : ((globalThis as unknown as { figma: PluginAPI }).figma.mixed as symbol)
+      )
+    })
+
+    ;(globalThis as { figma?: PluginAPI }).figma = {
+      mixed: Symbol('mixed'),
+      getStyleById: vi.fn((styleId: string) => {
+        if (styleId !== 'text-style-1') return null
+        return {
+          boundVariables: {
+            fontSize: { id: 'id-style-size' }
+          }
+        }
+      })
+    } as unknown as PluginAPI
+
+    vi.mocked(getVariableByIdCached).mockImplementation((id: string) => {
+      const vars: Record<string, Variable> = {
+        'id-range-font': { id: 'id-range-font', name: 'Body Font' } as unknown as Variable,
+        'id-style-size': { id: 'id-style-size', name: 'Body Size' } as unknown as Variable
+      }
+      return vars[id] ?? null
+    })
+    const result = collectCandidateVariableIds([root])
+
+    expect(result.variableIds).toEqual(new Set(['id-range-font', 'id-style-size']))
+    expect(result.rewrites.get('var(--body-font)')).toEqual({
+      canonical: '--body-font',
+      id: 'id-range-font'
+    })
+    expect(result.rewrites.get('var(--body-size)')).toEqual({
+      canonical: '--body-size',
+      id: 'id-style-size'
+    })
   })
 
   it('handles sparse payload branches and avoids duplicate rewrite keys', () => {
@@ -335,21 +370,17 @@ describe('token/candidates collectCandidateVariableIds', () => {
       } as unknown as Variable
     }
     vi.mocked(getVariableByIdCached).mockImplementation((id: string) => vars[id] ?? null)
-    vi.mocked(getVariableRawName).mockImplementation(
-      (variable: Variable) => variable.name ?? 'Unnamed'
-    )
-
     const result = collectCandidateVariableIds([root, rootWithNullBound, rootWithNullStyle])
 
     expect(result.variableIds).toEqual(
       new Set(['id-nested', 'id-fill-ref-only', 'id-style-ref', 'id-undefined-name'])
     )
     expect(result.rewrites.get('var(--dup)')).toEqual({
-      canonical: '--duplicate-name',
+      canonical: '--dup',
       id: 'id-nested'
     })
     expect(result.rewrites.get('var(--duplicate-name)')).toEqual({
-      canonical: '--duplicate-name',
+      canonical: '--dup',
       id: 'id-nested'
     })
     expect(result.rewrites.size).toBe(2)

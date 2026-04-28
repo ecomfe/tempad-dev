@@ -2,11 +2,11 @@
  * Gradient and color utilities for Figma styles
  */
 
-import { getVariableRawName } from '@/mcp/tools/token/raw-name'
+import { getVariableCssName } from '@/utils/figma-variables'
 
 import type { FigmaLookupReaders, PaintList, PaintResolutionSize } from './types'
 
-import { formatHexAlpha, normalizeFigmaVarName } from '../css'
+import { formatHexAlpha } from '../css'
 
 function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {
   return !!paint && paint.visible !== false
@@ -143,7 +143,7 @@ function resolveSolidPaint(
       const variable = readers.getVariableById(bound.id)
       if (variable) {
         const fallback = formatHexAlpha(solidPaint.color, solidPaint.opacity)
-        const cssVarName = getVariableCssCustomPropertyName(variable)
+        const cssVarName = getVariableCssName(variable)
         return `var(${cssVarName}, ${fallback})`
       }
     } catch {
@@ -220,7 +220,7 @@ function formatGradientStopColor(
       if (v) {
         const fallbackOpaque = formatHexAlpha(stop.color, 1)
         const fallbackAlpha = formatHexAlpha(stop.color, alpha)
-        const cssVarName = getVariableCssCustomPropertyName(v)
+        const cssVarName = getVariableCssName(v)
         const varName = `var(${cssVarName}, ${fallbackOpaque})`
         if (alpha >= 0.99) return `var(${cssVarName}, ${fallbackAlpha})`
         // Use color-mix for transparency
@@ -349,8 +349,4 @@ function normalizeGradientAngle(dx: number, dy: number): number | null {
 function formatPercent(pos: number): string {
   const pct = Math.round(pos * 10000) / 100
   return `${pct}%`
-}
-
-function getVariableCssCustomPropertyName(variable: Variable): string {
-  return normalizeFigmaVarName(getVariableRawName(variable))
 }

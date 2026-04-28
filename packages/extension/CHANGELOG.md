@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.6
+
+- Improved variable output consistency. The Code panel now preserves Figma variable `WEB codeSyntax` exactly when present, so custom token syntax is respected.
+- MCP `get_code` now keeps variable-backed styles on stable CSS variable references for agent workflows, avoiding mixed `codeSyntax` and CSS variable output.
+
 ## 0.18.5
 
 - Fixed panel stacking so TemPad Dev no longer fights Figma's non-static UI layers.
