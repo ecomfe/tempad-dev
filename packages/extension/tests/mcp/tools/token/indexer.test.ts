@@ -35,27 +35,27 @@ describe('token/indexer', () => {
     delete (globalThis as { figma?: PluginAPI }).figma
   })
 
-  it('prefers usable codeSyntax names and falls back to variable names', () => {
+  it('uses Figma variable names as raw names', () => {
     expect(
       getVariableRawName({
-        name: 'Ignored Name',
+        name: 'Variable Name',
         codeSyntax: { WEB: 'var(--brand-color)' }
       } as unknown as Variable)
-    ).toBe('brand-color')
+    ).toBe('Variable Name')
 
     expect(
       getVariableRawName({
-        name: 'Ignored Name',
+        name: 'Variable Name',
         codeSyntax: { WEB: '$space_lg' }
       } as unknown as Variable)
-    ).toBe('space_lg')
+    ).toBe('Variable Name')
 
     expect(
       getVariableRawName({
-        name: 'Ignored Name',
+        name: 'Variable Name',
         codeSyntax: { WEB: 'kui-color-brand' }
       } as unknown as Variable)
-    ).toBe('kui-color-brand')
+    ).toBe('Variable Name')
 
     expect(
       getVariableRawName({

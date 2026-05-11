@@ -137,6 +137,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 - Token detection starts from the emitted markup; names may be transformed/re-written, and final used names are derived from the rewrite map (no second scan).
 - Token detection always strips `var(..., fallback)` before matching to avoid false positives.
+- `get_code` code output intentionally does not use inline `var(..., fallback)` values as the token value source; values, aliases, and modes belong in the `tokens` payload.
 - `get_code` emits canonical CSS variable IR for supported variable-backed properties when `resolveTokens` is `false`.
 - Canonical token identity is derived from variable identity and must stay stable across property families such as paint-derived channels, typography/text output, and future supported layout/effect properties.
 - Variable names are normalized consistently across Figma variable names, `codeSyntax`, and plugin transforms.

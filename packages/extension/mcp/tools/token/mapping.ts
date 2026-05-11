@@ -49,8 +49,8 @@ export function normalizeStyleVars(
 
       const matched = syntaxMap.get(value)
       if (matched) {
-        used.add(matched)
-        style[prop] = `var(${normalizeFigmaVarName(value)})`
+        used.add(matched.id)
+        style[prop] = `var(${matched.canonical})`
         continue
       }
 
@@ -65,15 +65,18 @@ export function normalizeStyleVars(
 function buildCodeSyntaxIndex(
   variableIds: Set<string>,
   cache?: Map<string, Variable | null>
-): Map<string, string> {
-  const map = new Map<string, string>()
+): Map<string, { canonical: string; id: string }> {
+  const map = new Map<string, { canonical: string; id: string }>()
   for (const id of variableIds) {
     const v = getVariableByIdCached(id, cache)
     if (!v) continue
     const cs = v.codeSyntax?.WEB?.trim()
     if (!cs) continue
     if (cs.toLowerCase().startsWith('var(')) continue
-    if (!map.has(cs)) map.set(cs, id)
+    if (!map.has(cs)) {
+      const canonical = getVariableCanonicalName(v)
+      if (canonical) map.set(cs, { canonical, id })
+    }
   }
   return map
 }
@@ -96,8 +99,8 @@ function buildReplaceMap(
 
     const cs = v.codeSyntax?.WEB?.trim()
     if (cs) {
-      const normalized = normalizeFigmaVarName(cs)
-      if (normalized && normalized !== '--unnamed') {
+      const normalized = getVariableCanonicalName(v)
+      if (normalized) {
         entries.push({ name: cs, normalized, id })
       }
     }
@@ -105,6 +108,11 @@ function buildReplaceMap(
 
   entries.sort((a, b) => b.name.length - a.name.length)
   return entries
+}
+
+function getVariableCanonicalName(variable: Variable): string | null {
+  const name = normalizeFigmaVarName(variable.name ?? '')
+  return name === '--unnamed' ? null : name
 }
 
 function replaceKnownNames(value: string, entries: ReplaceEntry[], used: Set<string>): string {

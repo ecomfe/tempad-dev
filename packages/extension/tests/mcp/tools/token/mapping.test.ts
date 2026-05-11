@@ -139,8 +139,8 @@ describe('token/mapping', () => {
 
     expect(styles.get('node-1')).toEqual({
       direct: 'var(--semantic-token)',
-      syntax: 'var(--DesignToken)',
-      replace: `var(--brand-color-strong) + var(--brand-color) + var(brand-color) + brand-colorful + ${invalidPlaceholder}`,
+      syntax: 'var(--Syntax-First)',
+      replace: `var(--Brand-Color-Strong) + var(--Brand-Color) + var(brand-color) + brand-colorful + ${invalidPlaceholder}`,
       malformed: 'var(brand-color',
       untouched: 'none',
       empty: '',

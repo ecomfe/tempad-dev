@@ -1,5 +1,5 @@
 import type { RequestPayload, ResponsePayload, CodeBlock } from '@/types/codegen'
-import type { DevComponent, Plugin } from '@/types/plugin'
+import type { DevComponent, Plugin, TransformOptions } from '@/types/plugin'
 
 import { serializeComponent, stringifyComponent } from '@/utils/component'
 import { serializeCSS } from '@/utils/css'
@@ -21,7 +21,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   const { id, payload } = data
   const codeBlocks: CodeBlock[] = []
 
-  const { style, component, options, pluginCode } = payload
+  const { style, cssVarStyle, component, options, pluginCode } = payload
   let plugin = null
   let devComponent: DevComponent | null = null
 
@@ -50,6 +50,10 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
     js: jsOptions,
     ...rest
   } = plugin?.code ?? {}
+  const styleForBlock = (blockOptions: TransformOptions | false | undefined) =>
+    blockOptions && typeof blockOptions.transformVariable === 'function'
+      ? (cssVarStyle ?? style)
+      : style
 
   if (componentOptions && component) {
     const { lang, transformComponent } = componentOptions
@@ -78,7 +82,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   }
 
   if (cssOptions !== false) {
-    const cssCode = serializeCSS(style, options, cssOptions)
+    const cssCode = serializeCSS(styleForBlock(cssOptions), options, cssOptions)
     if (cssCode) {
       codeBlocks.push({
         name: 'css',
@@ -90,7 +94,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   }
 
   if (jsOptions !== false) {
-    const jsCode = serializeCSS(style, { ...options, toJS: true }, jsOptions)
+    const jsCode = serializeCSS(styleForBlock(jsOptions), { ...options, toJS: true }, jsOptions)
     if (jsCode) {
       codeBlocks.push({
         name: 'js',
@@ -109,7 +113,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
           return null
         }
 
-        const code = serializeCSS(style, options, extraOptions)
+        const code = serializeCSS(styleForBlock(extraOptions), options, extraOptions)
         if (!code) {
           return null
         }

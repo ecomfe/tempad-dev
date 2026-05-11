@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { formatNodeStyleForMcp, formatNodeStyleForUi } from '@/utils/variable-output'
+import {
+  formatNodeStyleForCssVars,
+  formatNodeStyleForMcp,
+  formatNodeStyleForUi
+} from '@/utils/variable-output'
 
 type FigmaMock = {
   mixed: symbol
@@ -132,6 +136,32 @@ describe('utils/variable-output', () => {
       'font-family': 'var(--font-body)',
       width: 'var(--size-card)',
       height: 'var(--size-tall)'
+    })
+  })
+
+  it('keeps CSS variable fallbacks for plugin variable transforms', () => {
+    setupFigma({
+      variableById: {
+        'color-brand': createVariable('color-brand', '--brand-color', '#276EAF'),
+        'size-card': createVariable('size-card', '--size-card', 'theme.sizes.card')
+      }
+    })
+
+    const node = createTextNode({
+      getRangeBoundVariable: vi.fn(() => figma.mixed),
+      fills: []
+    })
+    const style = formatNodeStyleForCssVars(
+      {
+        color: 'var(--brand-color, #276EAF)',
+        width: '320px'
+      },
+      node
+    )
+
+    expect(style).toEqual({
+      color: 'var(--brand-color, #276EAF)',
+      width: 'var(--size-card)'
     })
   })
 

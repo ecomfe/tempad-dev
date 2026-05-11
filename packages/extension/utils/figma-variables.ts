@@ -1,6 +1,6 @@
 import type { FigmaLookupReaders } from './figma-style/types'
 
-import { canonicalizeVarName, normalizeFigmaVarName, toFigmaVarExpr } from './css'
+import { normalizeFigmaVarName, toFigmaVarExpr } from './css'
 
 const DEFAULT_READERS: FigmaLookupReaders = {
   getStyleById: (id) => figma.getStyleById(id),
@@ -56,14 +56,6 @@ type TextSegmentBindingSource = {
 }
 
 export function getVariableRawName(variable: Variable): string {
-  const codeSyntax = variable.codeSyntax?.WEB
-  if (typeof codeSyntax === 'string' && codeSyntax.trim()) {
-    const trimmed = codeSyntax.trim()
-    const canonical = canonicalizeVarName(trimmed)
-    if (canonical) return canonical.slice(2)
-    if (/^[A-Za-z0-9_-]+$/.test(trimmed)) return trimmed
-  }
-
   const raw = variable.name?.trim?.() ?? ''
   return raw.startsWith('--') ? raw.slice(2) : raw
 }

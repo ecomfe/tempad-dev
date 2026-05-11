@@ -311,7 +311,7 @@ describe('figma/gradient resolveSolidFromPaints', () => {
     expect(resolveSolidFromPaints(paints)).toBe('var(--Theme---Primary-Color, #0F0)')
   })
 
-  it('prefers WEB codeSyntax identifier for bound solid paint variable names', () => {
+  it('uses the Figma variable name for bound solid paint variable names', () => {
     installFigmaMocks({
       variables: {
         token: {
@@ -322,7 +322,7 @@ describe('figma/gradient resolveSolidFromPaints', () => {
     })
 
     const paints = [createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'token' })]
-    expect(resolveSolidFromPaints(paints)).toBe('var(--AliasesGreengreen-40, #0F0)')
+    expect(resolveSolidFromPaints(paints)).toBe('var(--Theme---Primary-Color, #0F0)')
   })
 
   it('normalizes canonical and complex variable naming branches', () => {
@@ -353,12 +353,12 @@ describe('figma/gradient resolveSolidFromPaints', () => {
 
     expect(
       resolveSolidFromPaints([createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'canonical' })])
-    ).toBe('var(--Spacing-2XL, #0F0)')
+    ).toBe('var(--Ignored-Name, #0F0)')
     expect(
       resolveSolidFromPaints([
         createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'malformedCanonical' })
       ])
-    ).toBe('var(--var, #0F0)')
+    ).toBe('var(--Ignored-Name, #0F0)')
     expect(
       resolveSolidFromPaints([
         createSolidPaint({ r: 0, g: 1, b: 0 }, { variableId: 'complexDigits' })

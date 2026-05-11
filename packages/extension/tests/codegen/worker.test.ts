@@ -42,6 +42,7 @@ type WorkerRequest = {
   id: number
   payload: {
     style: Record<string, string>
+    cssVarStyle?: Record<string, string>
     component?: Record<string, unknown>
     options: {
       useRem: boolean
@@ -375,6 +376,49 @@ describe('codegen/worker', () => {
           }
         ]
       }
+    })
+  })
+
+  it('uses variable style only for blocks that transform variables', async () => {
+    const transformVariable = vi.fn()
+    mocks.evaluate.mockResolvedValueOnce({
+      default: {
+        name: 'Variable plugin',
+        code: {
+          css: { transformVariable },
+          js: { title: 'Script' },
+          tokens: { title: 'Tokens', transformVariable }
+        }
+      }
+    })
+
+    await importWorker()
+
+    const style = { color: '#276EAF' }
+    const cssVarStyle = { color: 'var(--brand-color, #276EAF)' }
+
+    await dispatch({
+      id: 7,
+      payload: {
+        style,
+        cssVarStyle,
+        options: baseOptions,
+        pluginCode: 'export default plugin'
+      }
+    })
+
+    expect(mocks.serializeCSS).toHaveBeenNthCalledWith(1, cssVarStyle, baseOptions, {
+      transformVariable
+    })
+    expect(mocks.serializeCSS).toHaveBeenNthCalledWith(
+      2,
+      style,
+      expect.objectContaining({ toJS: true }),
+      { title: 'Script' }
+    )
+    expect(mocks.serializeCSS).toHaveBeenNthCalledWith(3, cssVarStyle, baseOptions, {
+      title: 'Tokens',
+      transformVariable
     })
   })
 })

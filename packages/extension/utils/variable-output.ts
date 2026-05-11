@@ -37,16 +37,27 @@ export function formatNodeStyleForMcp(
   return applyVariableStyle(style, node, getVariableCssExpr, readers)
 }
 
+export function formatNodeStyleForCssVars(
+  style: Record<string, string>,
+  node: SceneNode,
+  readers: FigmaLookupReaders = DEFAULT_READERS
+): Record<string, string> {
+  return applyVariableStyle(style, node, getVariableCssExpr, readers, {
+    preserveInlineFallbacks: true
+  })
+}
+
 function applyVariableStyle(
   style: Record<string, string>,
   node: SceneNode,
   format: VariableFormatter,
-  readers: FigmaLookupReaders
+  readers: FigmaLookupReaders,
+  options: { preserveInlineFallbacks?: boolean } = {}
 ): Record<string, string> {
   const next = { ...style }
   const replacements = buildReplacementMap(node, format, readers)
 
-  rewriteInlineVars(next, replacements)
+  rewriteInlineVars(next, replacements, options)
   applyBoundFields(next, node, NODE_VARIABLE_STYLE_PROPS, format, readers)
 
   if (node.type === 'TEXT') {
@@ -76,16 +87,20 @@ function buildReplacementMap(
 
 function rewriteInlineVars(
   style: Record<string, string>,
-  replacements: Map<string, Replacement>
+  replacements: Map<string, Replacement>,
+  { preserveInlineFallbacks = false }: { preserveInlineFallbacks?: boolean } = {}
 ): void {
   if (!replacements.size) return
 
   for (const [key, value] of Object.entries(style)) {
     if (!value || !value.includes('var(')) continue
 
-    style[key] = replaceVarFunctions(value, ({ full, name }) => {
+    style[key] = replaceVarFunctions(value, ({ full, name, fallback }) => {
       const replacement = replacements.get(normalizeCustomPropertyName(name.trim()))
       if (!replacement) return full
+      if (preserveInlineFallbacks && fallback && replacement.value.startsWith('var(')) {
+        return replacement.value.replace(/\)$/, `, ${fallback})`)
+      }
       return replacement.value
     })
   }

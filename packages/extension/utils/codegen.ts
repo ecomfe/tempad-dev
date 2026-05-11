@@ -11,19 +11,21 @@ import Codegen from '@/codegen/worker?worker&inline'
 
 import { getDesignComponent } from './component'
 import { resolveStylesFromNode } from './figma-style/style-resolver'
-import { formatNodeStyleForUi } from './variable-output'
+import { formatNodeStyleForCssVars, formatNodeStyleForUi } from './variable-output'
 
 export async function codegen(
   style: Record<string, string>,
   component: DesignComponent | null,
   options: SerializeOptions,
   pluginCode?: string,
-  returnDevComponent?: boolean
+  returnDevComponent?: boolean,
+  cssVarStyle?: Record<string, string>
 ): Promise<ResponsePayload> {
   const request = createWorkerRequester<RequestPayload, ResponsePayload>(Codegen)
 
   return await request({
     style,
+    ...(cssVarStyle ? { cssVarStyle } : {}),
     component: component ?? undefined,
     options,
     pluginCode,
@@ -57,7 +59,8 @@ export async function generateCodeBlocksForNode(
 
   // Resolve fill and stroke styles that use CSS variables
   style = await resolveStylesFromNode(style, node)
-  style = formatNodeStyleForUi(style, node)
+  const cssVarStyle = pluginCode ? formatNodeStyleForCssVars(style, node) : undefined
+  const uiStyle = formatNodeStyleForUi(style, node)
 
   const component = getDesignComponent(node)
   const serializeOptions: SerializeOptions = {
@@ -65,5 +68,12 @@ export async function generateCodeBlocksForNode(
     variableDisplay: opts?.variableDisplay
   }
 
-  return await codegen(style, component, serializeOptions, pluginCode, opts?.returnDevComponent)
+  return await codegen(
+    uiStyle,
+    component,
+    serializeOptions,
+    pluginCode,
+    opts?.returnDevComponent,
+    cssVarStyle
+  )
 }
