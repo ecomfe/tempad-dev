@@ -170,11 +170,11 @@ describe('token/candidates collectCandidateVariableIds', () => {
       ])
     )
     expect(result.rewrites.get('var(--brand)')).toEqual({
-      canonical: '--brand',
+      canonical: '--primary-color',
       id: 'id-bound'
     })
     expect(result.rewrites.get('var(--primary-color)')).toEqual({
-      canonical: '--brand',
+      canonical: '--primary-color',
       id: 'id-bound'
     })
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('ids=12 rewrites='))
@@ -376,11 +376,11 @@ describe('token/candidates collectCandidateVariableIds', () => {
       new Set(['id-nested', 'id-fill-ref-only', 'id-style-ref', 'id-undefined-name'])
     )
     expect(result.rewrites.get('var(--dup)')).toEqual({
-      canonical: '--dup',
+      canonical: '--duplicate-name',
       id: 'id-nested'
     })
     expect(result.rewrites.get('var(--duplicate-name)')).toEqual({
-      canonical: '--dup',
+      canonical: '--duplicate-name',
       id: 'id-nested'
     })
     expect(result.rewrites.size).toBe(2)

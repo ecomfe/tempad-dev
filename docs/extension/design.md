@@ -135,6 +135,7 @@ This document describes the implementation design for MCP `get_code` in `package
 
 - `get_code` is an agent-facing IR, not a human-facing export surface.
 - When `resolveTokens` is `false`, every supported variable-backed property must emit canonical `var(--token)` output derived from variable identity rather than directly from `codeSyntax`.
+- Inline `var(..., fallback)` values are not the source of truth for MCP token values; `tokens` carries token values, alias chains, and mode-specific values so code output can stay canonical.
 - The same variable id must resolve to the same canonical token name across paint-derived properties, typography/text-run properties, and any future layout/effect/property families that become variable-backed.
 - `codeSyntax` remains useful as source metadata and alias input for candidate discovery, rewrite bridging, and downstream export transforms, but it does not control the final emitted MCP style value.
 - When `resolveTokens` is `true`, the same supported properties should resolve from canonical IR to per-node literals without changing the token identity model.

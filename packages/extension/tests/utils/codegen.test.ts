@@ -8,7 +8,8 @@ const mocked = vi.hoisted(() => {
     createWorkerRequester: vi.fn(),
     resolveStylesFromNode: vi.fn(),
     getDesignComponent: vi.fn(),
-    formatNodeStyleForUi: vi.fn((style: Record<string, string>) => style)
+    formatNodeStyleForUi: vi.fn((style: Record<string, string>) => style),
+    formatNodeStyleForCssVars: vi.fn((style: Record<string, string>) => style)
   }
 })
 
@@ -25,7 +26,8 @@ vi.mock('@/utils/figma-style/style-resolver', () => ({
 }))
 
 vi.mock('@/utils/variable-output', () => ({
-  formatNodeStyleForUi: mocked.formatNodeStyleForUi
+  formatNodeStyleForUi: mocked.formatNodeStyleForUi,
+  formatNodeStyleForCssVars: mocked.formatNodeStyleForCssVars
 }))
 
 vi.mock('@/utils/component', () => ({
@@ -110,7 +112,11 @@ describe('utils/codegen', () => {
 
     const rawStyle = { color: 'blue' }
     const resolvedStyle = { color: 'green' }
+    const uiStyle = { color: 'theme.color.green' }
+    const cssVarStyle = { color: 'var(--green)' }
     mocked.resolveStylesFromNode.mockResolvedValue(resolvedStyle)
+    mocked.formatNodeStyleForUi.mockReturnValue(uiStyle)
+    mocked.formatNodeStyleForCssVars.mockReturnValue(cssVarStyle)
 
     const component = { name: 'Card' }
     mocked.getDesignComponent.mockReturnValue(component)
@@ -136,10 +142,12 @@ describe('utils/codegen', () => {
     expect(node.getCSSAsync).toHaveBeenCalledTimes(1)
     expect(mocked.resolveStylesFromNode).toHaveBeenCalledWith(rawStyle, node)
     expect(mocked.formatNodeStyleForUi).toHaveBeenCalledWith(resolvedStyle, node)
+    expect(mocked.formatNodeStyleForCssVars).toHaveBeenCalledWith(resolvedStyle, node)
     expect(mocked.getDesignComponent).toHaveBeenCalledWith(node)
     expect(mocked.createWorkerRequester).toHaveBeenCalledWith(mocked.MockWorker)
     expect(request).toHaveBeenCalledWith({
-      style: resolvedStyle,
+      style: uiStyle,
+      cssVarStyle,
       component,
       options: {
         useRem: true,

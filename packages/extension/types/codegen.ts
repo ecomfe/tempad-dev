@@ -11,6 +11,7 @@ export interface SerializeOptions {
 
 export interface RequestPayload {
   style: Record<string, string>
+  cssVarStyle?: Record<string, string>
   component?: DesignComponent
   options: SerializeOptions
   pluginCode?: string
