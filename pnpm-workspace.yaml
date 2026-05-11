@@ -1,2 +1,13 @@
 packages:
   - packages/*
+
+overrides:
+  '@rollup/plugin-terser>serialize-javascript': 7.0.5
+  esbuild: 0.28.0
+  vite: 8.0.10
+
+allowBuilds:
+  esbuild: true
+  lefthook: true
+  playwright: true
+  spawn-sync: true
