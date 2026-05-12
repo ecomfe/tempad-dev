@@ -67,16 +67,20 @@ definePlugin({
 
 ### 详解 Transform 钩子
 
+CSS 相关钩子（`transform`、`transformVariable` 和 `transformPx`）都会收到共享的
+`options` 对象：
+
+- `options.useRem`：用户偏好，表示是否应将 px 转换为 rem。
+- `options.rootFontSize`：用于 rem 计算的参考字体大小。
+- `options.scale`：用户配置的缩放倍率，会在单位转换前应用。
+- `options.variableDisplay`：变量输出偏好（`reference`、`resolved` 或 `both`）。
+
 ```ts
 transform({ code, style, options })
 ```
 
 - `code`：TemPad Dev 生成的规范化 CSS 字符串。
 - `style`：以 CSS 属性为 key 的普通对象。
-- `options.useRem`：用户偏好，表示是否应将 px 转换为 rem。
-- `options.rootFontSize`：用于 rem 计算的参考字体大小。
-- `options.scale`：用户配置的缩放倍率，会在单位转换前应用。
-- `options.variableDisplay`：变量输出偏好（`reference`、`resolved` 或 `both`）。
 
 ```ts
 transformVariable({ code, name, value, options })
@@ -85,14 +89,12 @@ transformVariable({ code, name, value, options })
 - `code`：完整的 `var(--token, fallback)` 片段。
 - `name`：变量令牌名称。
 - `value`：若存在，原始的 fallback 值。
-- `options.variableDisplay`：变量输出偏好（`reference`、`resolved` 或 `both`）。
 
 ```ts
 transformPx({ value, options })
 ```
 
 - `value`：TemPad Dev 即将输出的数值型像素值。
-- `options.scale`：用户配置的缩放倍率，会在单位转换前应用。
 
 ```ts
 transformComponent({ component })
