@@ -69,16 +69,20 @@ Set the block to `false` to remove it from the UI altogether.
 
 ### Transform hooks in detail
 
+CSS-related hooks (`transform`, `transformVariable`, and `transformPx`) receive a shared
+`options` object:
+
+- `options.useRem`: User preference indicating whether px should be converted to rem.
+- `options.rootFontSize`: Reference font size for rem calculations.
+- `options.scale`: User-configured scale factor applied before unit conversion.
+- `options.variableDisplay`: User preference for variable output (`reference`, `resolved`, or `both`).
+
 ```ts
 transform({ code, style, options })
 ```
 
 - `code`: Canonical CSS string TemPad Dev generated.
 - `style`: Plain object keyed by CSS property.
-- `options.useRem`: User preference indicating whether px should be converted to rem.
-- `options.rootFontSize`: Reference font size for rem calculations.
-- `options.scale`: User-configured scale factor applied before unit conversion.
-- `options.variableDisplay`: User preference for variable output (`reference`, `resolved`, or `both`).
 
 ```ts
 transformVariable({ code, name, value, options })
@@ -87,14 +91,12 @@ transformVariable({ code, name, value, options })
 - `code`: Full `var(--token, fallback)` snippet.
 - `name`: Variable token name.
 - `value`: Raw fallback value if provided.
-- `options.variableDisplay`: User preference for variable output (`reference`, `resolved`, or `both`).
 
 ```ts
 transformPx({ value, options })
 ```
 
 - `value`: Numeric pixel value that TemPad Dev is about to print.
-- `options.scale`: User-configured scale factor applied before unit conversion.
 
 ```ts
 transformComponent({ component })

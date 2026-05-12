@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.7
+
+- Updated MCP `get_code` variable output to use Figma variable names as canonical token references while still using `WEB codeSyntax` as a lookup hint.
+- Preserved CSS variable fallbacks for plugin `transformVariable` code blocks without changing the default Code panel output.
+- Exposed the user's variable display preference to plugin transform hooks.
+
 ## 0.18.6
 
 - Improved variable output consistency. The Code panel now preserves Figma variable `WEB codeSyntax` exactly when present, so custom token syntax is respected.
