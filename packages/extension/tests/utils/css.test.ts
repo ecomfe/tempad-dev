@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   canonicalizeColor,
@@ -624,6 +624,7 @@ describe('utils/css serializeCSS regression paths', () => {
     expect(resolved).toContain('color: rgba(17, 34, 51, 0.5);')
     expect(resolved).toContain('background: rgba(17, 34, 51, 0.5);')
 
+    const transformVariable = vi.fn(({ name, value }) => `token(${name}:${value ?? ''})`)
     const both = serializeCSS(
       {
         color: 'var(--brand, #fff)',
@@ -631,12 +632,23 @@ describe('utils/css serializeCSS regression paths', () => {
       },
       { ...baseOptions, variableDisplay: 'both' },
       {
-        transformVariable: ({ name, value }) => `token(${name}:${value ?? ''})`,
+        transformVariable,
         transformPx: ({ value }) => `${value / 2}u`
       }
     )
     expect(both).toContain('color: token(brand:#fff);')
     expect(both).toContain('width: 5u;')
+    expect(transformVariable).toHaveBeenCalledWith({
+      code: 'var(--brand, #fff)',
+      name: 'brand',
+      value: '#fff',
+      options: {
+        useRem: false,
+        rootFontSize: 16,
+        scale: 1,
+        variableDisplay: 'both'
+      }
+    })
   })
 
   it('covers variable transform fallback branches', () => {

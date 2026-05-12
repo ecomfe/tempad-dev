@@ -148,7 +148,7 @@ export type SupportedLang =
 interface TransformBaseParams {
   /**
    * The user preferences related to code transformation
-   * @example { useRem: true, rootFontSize: 16 }
+   * @example { useRem: true, rootFontSize: 16, scale: 1, variableDisplay: 'reference' }
    */
   options: {
     /** True when pixel values should be converted to rem units. */
@@ -156,8 +156,19 @@ interface TransformBaseParams {
 
     /** Root font size used when converting pixels to rem units. */
     rootFontSize: number
+
+    /** Scale factor applied to numeric values before unit conversion. */
+    scale: number
+
+    /** How variable references and fallback values should be displayed. */
+    variableDisplay?: VariableDisplayMode
   }
 }
+
+/**
+ * User preference for displaying variable-backed values.
+ */
+export type VariableDisplayMode = 'reference' | 'resolved' | 'both'
 
 /**
  * Parameters passed to a `transform` hook for code blocks.
