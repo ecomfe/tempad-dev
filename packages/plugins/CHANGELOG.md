@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2
+
+- Exposed `options.scale` and `options.variableDisplay` to plugin transform hook typings.
+- Documented variable display preferences for plugin authors.
+
 ## 0.6.1
 
 - Version bump only.

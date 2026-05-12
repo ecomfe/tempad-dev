@@ -743,7 +743,7 @@ export function serializeCSS(
   { toJS = false, useRem, rootFontSize, scale, variableDisplay }: SerializeOptions,
   { transform, transformVariable, transformPx }: TransformOptions = {}
 ) {
-  const options = { useRem, rootFontSize, scale }
+  const options = { useRem, rootFontSize, scale, variableDisplay }
   const displayMode = variableDisplay
 
   function applyDisplayMode(value: string): string {
