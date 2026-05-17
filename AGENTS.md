@@ -46,6 +46,7 @@ Provide a single entry point for coding agents. This file links to package-level
 
 - Keep changes minimal and consistent with existing style.
 - Avoid adding new global dependencies unless explicitly requested or approved.
+- Keep pull request descriptions concise: cover background, changes, and result; do not include a validation section unless explicitly requested.
 
 ## Contributing & verification
 
