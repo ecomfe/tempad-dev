@@ -11,7 +11,7 @@ import Codegen from '@/codegen/worker?worker&inline'
 
 import { getDesignComponent } from './component'
 import { resolveStylesFromNode } from './figma-style/style-resolver'
-import { formatNodeStyleForCssVars, formatNodeStyleForUi } from './variable-output'
+import { formatNodeStyleForPluginVariables, formatNodeStyleForUi } from './variable-output'
 
 export async function codegen(
   style: Record<string, string>,
@@ -19,13 +19,15 @@ export async function codegen(
   options: SerializeOptions,
   pluginCode?: string,
   returnDevComponent?: boolean,
-  cssVarStyle?: Record<string, string>
+  pluginVariableStyle?: Record<string, string>,
+  variableSyntax?: Record<string, string>
 ): Promise<ResponsePayload> {
   const request = createWorkerRequester<RequestPayload, ResponsePayload>(Codegen)
 
   return await request({
     style,
-    ...(cssVarStyle ? { cssVarStyle } : {}),
+    ...(pluginVariableStyle ? { pluginVariableStyle } : {}),
+    ...(variableSyntax && Object.keys(variableSyntax).length ? { variableSyntax } : {}),
     component: component ?? undefined,
     options,
     pluginCode,
@@ -55,12 +57,16 @@ export async function generateCodeBlocksForNode(
   pluginCode?: string,
   opts?: { returnDevComponent?: boolean; variableDisplay?: VariableDisplayMode }
 ): Promise<ResponsePayload> {
-  let style = await node.getCSSAsync()
+  const rawStyle = await node.getCSSAsync()
 
-  // Resolve fill and stroke styles that use CSS variables
-  style = await resolveStylesFromNode(style, node)
-  const cssVarStyle = pluginCode ? formatNodeStyleForCssVars(style, node) : undefined
-  const uiStyle = formatNodeStyleForUi(style, node)
+  // UI and plugin codegen may emit style-name vars when one CSS value safely represents the style.
+  const style = await resolveStylesFromNode(rawStyle, node, undefined, {
+    emitSafeStyleNameVars: true
+  })
+  const pluginVariableStyle = pluginCode
+    ? formatNodeStyleForPluginVariables(style, node)
+    : undefined
+  const ui = formatNodeStyleForUi(style, node)
 
   const component = getDesignComponent(node)
   const serializeOptions: SerializeOptions = {
@@ -69,11 +75,12 @@ export async function generateCodeBlocksForNode(
   }
 
   return await codegen(
-    uiStyle,
+    ui.style,
     component,
     serializeOptions,
     pluginCode,
     opts?.returnDevComponent,
-    cssVarStyle
+    pluginVariableStyle,
+    ui.variableSyntax
   )
 }

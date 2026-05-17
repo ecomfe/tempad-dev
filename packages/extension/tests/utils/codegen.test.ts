@@ -8,8 +8,12 @@ const mocked = vi.hoisted(() => {
     createWorkerRequester: vi.fn(),
     resolveStylesFromNode: vi.fn(),
     getDesignComponent: vi.fn(),
-    formatNodeStyleForUi: vi.fn((style: Record<string, string>) => style),
-    formatNodeStyleForCssVars: vi.fn((style: Record<string, string>) => style)
+    formatNodeStyleForUi: vi.fn(
+      (
+        style: Record<string, string>
+      ): { style: Record<string, string>; variableSyntax?: Record<string, string> } => ({ style })
+    ),
+    formatNodeStyleForPluginVariables: vi.fn((style: Record<string, string>) => style)
   }
 })
 
@@ -27,7 +31,7 @@ vi.mock('@/utils/figma-style/style-resolver', () => ({
 
 vi.mock('@/utils/variable-output', () => ({
   formatNodeStyleForUi: mocked.formatNodeStyleForUi,
-  formatNodeStyleForCssVars: mocked.formatNodeStyleForCssVars
+  formatNodeStyleForPluginVariables: mocked.formatNodeStyleForPluginVariables
 }))
 
 vi.mock('@/utils/component', () => ({
@@ -112,11 +116,14 @@ describe('utils/codegen', () => {
 
     const rawStyle = { color: 'blue' }
     const resolvedStyle = { color: 'green' }
+    const pluginVariableStyle = { color: 'var(--green)' }
     const uiStyle = { color: 'theme.color.green' }
-    const cssVarStyle = { color: 'var(--green)' }
-    mocked.resolveStylesFromNode.mockResolvedValue(resolvedStyle)
-    mocked.formatNodeStyleForUi.mockReturnValue(uiStyle)
-    mocked.formatNodeStyleForCssVars.mockReturnValue(cssVarStyle)
+    mocked.resolveStylesFromNode.mockResolvedValueOnce(resolvedStyle)
+    mocked.formatNodeStyleForUi.mockReturnValue({
+      style: uiStyle,
+      variableSyntax: { '--green': 'theme.color.green' }
+    })
+    mocked.formatNodeStyleForPluginVariables.mockReturnValue(pluginVariableStyle)
 
     const component = { name: 'Card' }
     mocked.getDesignComponent.mockReturnValue(component)
@@ -140,14 +147,18 @@ describe('utils/codegen', () => {
     )
 
     expect(node.getCSSAsync).toHaveBeenCalledTimes(1)
-    expect(mocked.resolveStylesFromNode).toHaveBeenCalledWith(rawStyle, node)
+    expect(mocked.resolveStylesFromNode).toHaveBeenNthCalledWith(1, rawStyle, node, undefined, {
+      emitSafeStyleNameVars: true
+    })
+    expect(mocked.resolveStylesFromNode).toHaveBeenCalledTimes(1)
     expect(mocked.formatNodeStyleForUi).toHaveBeenCalledWith(resolvedStyle, node)
-    expect(mocked.formatNodeStyleForCssVars).toHaveBeenCalledWith(resolvedStyle, node)
+    expect(mocked.formatNodeStyleForPluginVariables).toHaveBeenCalledWith(resolvedStyle, node)
     expect(mocked.getDesignComponent).toHaveBeenCalledWith(node)
     expect(mocked.createWorkerRequester).toHaveBeenCalledWith(mocked.MockWorker)
     expect(request).toHaveBeenCalledWith({
       style: uiStyle,
-      cssVarStyle,
+      pluginVariableStyle,
+      variableSyntax: { '--green': 'theme.color.green' },
       component,
       options: {
         useRem: true,

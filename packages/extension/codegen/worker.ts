@@ -12,6 +12,7 @@ import type { RequestMessage, ResponseMessage } from './requester'
 
 type Request = RequestMessage<RequestPayload>
 type Response = ResponseMessage<ResponsePayload>
+type WorkerSerializeOptions = Parameters<typeof serializeCSS>[1]
 
 const IMPORT_RE = /^\s*import\s+(([^'"\n]+|'[^']*'|"[^"]*")|\s*\(\s*[^)]*\s*\))/gm
 
@@ -21,7 +22,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   const { id, payload } = data
   const codeBlocks: CodeBlock[] = []
 
-  const { style, cssVarStyle, component, options, pluginCode } = payload
+  const { style, pluginVariableStyle, variableSyntax, component, options, pluginCode } = payload
   let plugin = null
   let devComponent: DevComponent | null = null
 
@@ -50,10 +51,22 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
     js: jsOptions,
     ...rest
   } = plugin?.code ?? {}
-  const styleForBlock = (blockOptions: TransformOptions | false | undefined) =>
-    blockOptions && typeof blockOptions.transformVariable === 'function'
-      ? (cssVarStyle ?? style)
-      : style
+  const usesVariableTransform = (blockOptions: TransformOptions | false | undefined) =>
+    !!blockOptions && typeof blockOptions.transformVariable === 'function'
+  const serializeBlock = (
+    blockOptions: TransformOptions | false | undefined,
+    serializeOptions: WorkerSerializeOptions
+  ) => {
+    const usePluginVariableStyle = usesVariableTransform(blockOptions)
+    const transformOptions = blockOptions || undefined
+    const blockStyle = usePluginVariableStyle ? (pluginVariableStyle ?? style) : style
+    const context = variableSyntax && !usePluginVariableStyle ? { variableSyntax } : undefined
+
+    if (context) {
+      return serializeCSS(blockStyle, serializeOptions, transformOptions, context)
+    }
+    return serializeCSS(blockStyle, serializeOptions, transformOptions)
+  }
 
   if (componentOptions && component) {
     const { lang, transformComponent } = componentOptions
@@ -82,7 +95,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   }
 
   if (cssOptions !== false) {
-    const cssCode = serializeCSS(styleForBlock(cssOptions), options, cssOptions)
+    const cssCode = serializeBlock(cssOptions, options)
     if (cssCode) {
       codeBlocks.push({
         name: 'css',
@@ -94,7 +107,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   }
 
   if (jsOptions !== false) {
-    const jsCode = serializeCSS(styleForBlock(jsOptions), { ...options, toJS: true }, jsOptions)
+    const jsCode = serializeBlock(jsOptions, { ...options, toJS: true })
     if (jsCode) {
       codeBlocks.push({
         name: 'js',
@@ -113,7 +126,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
           return null
         }
 
-        const code = serializeCSS(styleForBlock(extraOptions), options, extraOptions)
+        const code = serializeBlock(extraOptions, options)
         if (!code) {
           return null
         }

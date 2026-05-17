@@ -651,6 +651,45 @@ describe('utils/css serializeCSS regression paths', () => {
     })
   })
 
+  it('preserves variable web syntax while normalizing the rest of a mixed value', () => {
+    const css = serializeCSS(
+      {
+        color: 'var(--space-1, 4px)',
+        padding: '0px 4px var(--space-1, 8px)'
+      },
+      { ...baseOptions, rootFontSize: 16, useRem: true, variableDisplay: 'reference' },
+      {},
+      {
+        variableSyntax: {
+          '--space-1': '$spacing-1'
+        }
+      }
+    )
+
+    expect(css).toContain('color: $spacing-1;')
+    expect(css).toContain('padding: 0 0.25rem $spacing-1;')
+
+    const js = serializeCSS(
+      {
+        color: 'var(--space-1, 4px)'
+      },
+      { ...baseOptions, toJS: true, variableDisplay: 'reference' },
+      {},
+      { variableSyntax: { '--space-1': '$spacing-1' } }
+    )
+    expect(js).toContain("color: '$spacing-1'")
+
+    const resolved = serializeCSS(
+      {
+        color: 'var(--space-1, 4px)'
+      },
+      { ...baseOptions, variableDisplay: 'resolved' },
+      {},
+      { variableSyntax: { '--space-1': '$spacing-1' } }
+    )
+    expect(resolved).toContain('color: $spacing-1;')
+  })
+
   it('covers variable transform fallback branches', () => {
     const resolvedNoFallback = serializeCSS(
       {

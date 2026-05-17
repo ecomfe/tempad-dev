@@ -738,13 +738,43 @@ type SerializeOptions = {
   variableDisplay?: VariableDisplayMode
 }
 
+type SerializeContext = {
+  variableSyntax?: Readonly<Record<string, string>> | ReadonlyMap<string, string>
+}
+
+function createProtectedFragments() {
+  const fragments: string[] = []
+
+  return {
+    protect(value: string): string {
+      const index = fragments.length
+      fragments.push(value)
+      return `\\uE000RAW${index}\\uE000`
+    },
+    restore(value: string): string {
+      if (!fragments.length) return value
+      return value.replace(/\\uE000RAW(\d+)\\uE000/g, (match, index: string) => {
+        const fragment = fragments[Number(index)]
+        return fragment ?? match
+      })
+    }
+  }
+}
+
 export function serializeCSS(
   style: Record<string, string>,
   { toJS = false, useRem, rootFontSize, scale, variableDisplay }: SerializeOptions,
-  { transform, transformVariable, transformPx }: TransformOptions = {}
+  { transform, transformVariable, transformPx }: TransformOptions = {},
+  { variableSyntax }: SerializeContext = {}
 ) {
   const options = { useRem, rootFontSize, scale, variableDisplay }
   const displayMode = variableDisplay
+  const variableSyntaxMap =
+    variableSyntax instanceof Map ? variableSyntax : new Map(Object.entries(variableSyntax ?? {}))
+
+  function getVariableSyntax(name: string): string | undefined {
+    return variableSyntaxMap.get(normalizeCustomPropertyName(name.trim()))
+  }
 
   function applyDisplayMode(value: string): string {
     if (!displayMode || displayMode === 'reference') {
@@ -757,6 +787,7 @@ export function serializeCSS(
   }
 
   function processValue(key: string, value: string) {
+    const protectedFragments = createProtectedFragments()
     let current = value
     const useDisplayMode = displayMode != null
 
@@ -771,8 +802,17 @@ export function serializeCSS(
       current = scalePxValue(current, scale)
     }
 
-    if (typeof transformVariable === 'function') {
-      current = replaceVarFunctions(current, ({ name, fallback }) => {
+    if (variableSyntaxMap.size || typeof transformVariable === 'function') {
+      current = replaceVarFunctions(current, ({ full, name, fallback }) => {
+        const syntax = getVariableSyntax(name)
+        if (syntax) {
+          return protectedFragments.protect(syntax)
+        }
+
+        if (typeof transformVariable !== 'function') {
+          return full
+        }
+
         const trimmed = name.trim()
         const normalizedName = trimmed.startsWith('--') ? trimmed.slice(2) : trimmed
         return transformVariable({
@@ -794,7 +834,7 @@ export function serializeCSS(
     current = simplifyHexAlphaToRgba(current)
 
     if (KEEP_PX_PROPS.has(key)) {
-      return current
+      return protectedFragments.restore(current)
     }
 
     if (typeof transformPx === 'function') {
@@ -805,7 +845,7 @@ export function serializeCSS(
       current = pxToRem(current, rootFontSize)
     }
 
-    return current
+    return protectedFragments.restore(current)
   }
 
   function stringifyValue(value: string) {
