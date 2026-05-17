@@ -1,4 +1,5 @@
 export type PaintList = Paint[] | ReadonlyArray<Paint> | null | undefined
+export type PaintVariableBindings = ReadonlyArray<unknown> | null | undefined
 
 export type FigmaLookupReaders = {
   getStyleById(id: string): BaseStyle | null
@@ -15,5 +16,7 @@ export type NodePaintStyleInput = {
   strokeStyleId?: unknown
   fills?: PaintList
   strokes?: PaintList
+  fillVariableBindings?: PaintVariableBindings
+  strokeVariableBindings?: PaintVariableBindings
   dimensions?: PaintResolutionSize
 }

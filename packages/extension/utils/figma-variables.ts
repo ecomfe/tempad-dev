@@ -258,6 +258,7 @@ function collectPaintStyleVariableIds(
   try {
     const style = readers.getStyleById(styleId) as PaintStyle | null
     if (!style?.paints || !Array.isArray(style.paints)) return
+    collectVariableIdsFromValue((style as { boundVariables?: unknown }).boundVariables, ids)
     style.paints.forEach((paint) => {
       if (!paint || paint.visible === false) return
       collectVariableIdsFromValue(paint.boundVariables, ids)

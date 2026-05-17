@@ -1,12 +1,6 @@
 import type { FigmaLookupReaders } from '@/utils/figma-style/types'
 
-import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
-import { workerUnitOptions, type CodegenConfig } from '@/utils/codegen'
-import {
-  normalizeCustomPropertyBody,
-  normalizeFigmaVarName,
-  replaceVarFunctions
-} from '@/utils/css'
+import { normalizeFigmaVarName, replaceVarFunctions } from '@/utils/css'
 
 import type { CandidateResult } from './candidates'
 
@@ -150,42 +144,4 @@ function replaceKnownNames(value: string, entries: ReplaceEntry[], used: Set<str
   }
 
   return changed ? out : value
-}
-
-export async function applyPluginTransforms(
-  markup: string,
-  pluginCode: string | undefined,
-  config: CodegenConfig
-): Promise<string> {
-  if (!pluginCode) return markup
-  if (!/var\(/i.test(markup)) return markup
-
-  let out = markup
-
-  const references: { code: string; name: string; value?: string }[] = []
-
-  replaceVarFunctions(out, ({ full, name, fallback }) => {
-    const trimmed = name.trim()
-    if (!trimmed.startsWith('--')) return full
-    references.push({
-      code: full,
-      name: normalizeCustomPropertyBody(trimmed),
-      value: fallback?.trim()
-    })
-    return full
-  })
-
-  if (!references.length) return out
-
-  const results = await runTransformVariableBatch(references, workerUnitOptions(config), pluginCode)
-
-  let replaceIndex = 0
-  out = replaceVarFunctions(out, ({ full, name }) => {
-    const trimmed = name.trim()
-    if (!trimmed.startsWith('--')) return full
-    const next = results[replaceIndex++]
-    return typeof next === 'string' && next.trim() ? next : full
-  })
-
-  return out
 }

@@ -20,7 +20,11 @@ type BackgroundFillResolverOptions = {
     size: GradientSize | undefined,
     readers: FigmaLookupReaders
   ) => string | null
-  resolveSolidPaint?: (paint: SolidPaint, readers: FigmaLookupReaders) => string | null
+  resolveSolidPaint?: (
+    paint: SolidPaint,
+    readers: FigmaLookupReaders,
+    index: number
+  ) => string | null
 }
 
 function isGradientPaint(paint: Paint): paint is GradientPaint {
@@ -162,9 +166,11 @@ export function resolveBackgroundFillFromPaints(
 ): ResolvedBackgroundFill | null {
   if (!paints || !Array.isArray(paints)) return null
 
-  const visible = paints.filter(isRenderableBackgroundPaint)
+  const visible = paints
+    .map((paint, index) => ({ paint, index }))
+    .filter(({ paint }) => isRenderableBackgroundPaint(paint))
   if (!visible.length) return null
-  if (visible.some((paint) => !isSolidPaint(paint) && !isGradientPaint(paint))) {
+  if (visible.some(({ paint }) => !isSolidPaint(paint) && !isGradientPaint(paint))) {
     return null
   }
 
@@ -172,9 +178,9 @@ export function resolveBackgroundFillFromPaints(
   const resolveSolid = options.resolveSolidPaint ?? resolveSolidPaint
 
   if (visible.length === 1) {
-    const single = visible[0]
+    const { paint: single, index } = visible[0]
     if (isSolidPaint(single)) {
-      const color = resolveSolid(single, readers)
+      const color = resolveSolid(single, readers, index)
       return color ? { kind: 'color', value: color } : null
     }
     if (!isGradientPaint(single)) return null
@@ -184,9 +190,9 @@ export function resolveBackgroundFillFromPaints(
   }
 
   const layers: string[] = []
-  for (const paint of visible) {
+  for (const { paint, index } of visible) {
     if (isSolidPaint(paint)) {
-      const color = resolveSolid(paint, readers)
+      const color = resolveSolid(paint, readers, index)
       if (!color) return null
       layers.push(`linear-gradient(${color}, ${color})`)
       continue

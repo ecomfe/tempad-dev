@@ -37,9 +37,15 @@ function gradientPaint(): GradientPaint {
   } as unknown as GradientPaint
 }
 
-function paintStyle(paints: Paint[]): PaintStyle {
+function paintStyle(
+  paints: Paint[],
+  boundVariables?: Record<string, unknown>,
+  name?: string
+): PaintStyle {
   return {
-    paints
+    paints,
+    ...(name ? { name } : {}),
+    ...(boundVariables ? { boundVariables } : {})
   } as unknown as PaintStyle
 }
 
@@ -160,6 +166,32 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     })
   })
 
+  it('keeps variable bindings when stripping lightgray image fallback', async () => {
+    installFigmaMocks({
+      variables: {
+        accent: { name: 'Accent' } as Variable
+      }
+    })
+    const node = {
+      fills: [solidPaint({ r: 39 / 255, g: 110 / 255, b: 175 / 255 })],
+      boundVariables: {
+        fills: [{ id: 'accent' }]
+      }
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        background: 'url("asset.png") lightgray'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      background: 'url("asset.png")',
+      'background-color': 'var(--Accent, #276EAF)'
+    })
+  })
+
   it('strips lightgray fallback even when fills do not resolve to a solid color', async () => {
     installFigmaMocks()
     const node = {
@@ -277,6 +309,166 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     })
   })
 
+  it('resolves existing fill style variables unless safe style-name vars are requested', async () => {
+    installFigmaMocks({
+      styles: {
+        fillStyle: paintStyle(
+          [solidPaint({ r: 39 / 255, g: 110 / 255, b: 175 / 255 })],
+          undefined,
+          'Accent'
+        )
+      }
+    })
+    const node = {
+      fillStyleId: 'fillStyle'
+    } as unknown as SceneNode
+
+    const resolved = await resolveStylesFromNode(
+      {
+        background: 'var(--Accent)',
+        color: 'var(--Accent)',
+        fill: 'var(--Accent)'
+      },
+      node
+    )
+    expect(resolved).toEqual({
+      'background-color': '#276EAF',
+      color: '#276EAF',
+      fill: '#276EAF'
+    })
+
+    const withStyleNameVars = await resolveStylesFromNode(
+      {
+        background: 'var(--Accent)',
+        color: 'var(--Accent)',
+        fill: 'var(--Accent)'
+      },
+      node,
+      undefined,
+      { emitSafeStyleNameVars: true }
+    )
+    expect(withStyleNameVars).toEqual({
+      'background-color': 'var(--Accent, #276EAF)',
+      color: 'var(--Accent, #276EAF)',
+      fill: 'var(--Accent, #276EAF)'
+    })
+  })
+
+  it('resolves existing multi-fill style variables to valid background layers by default', async () => {
+    installFigmaMocks({
+      styles: {
+        fillStyle: paintStyle([solidPaint({ r: 1, g: 0, b: 0 }), solidPaint({ r: 0, g: 1, b: 0 })])
+      }
+    })
+    const node = {
+      fillStyleId: 'fillStyle'
+    } as unknown as SceneNode
+
+    const resolved = await resolveStylesFromNode(
+      {
+        background: 'var(--Accent)'
+      },
+      node
+    )
+    expect(resolved).toEqual({
+      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+    })
+
+    const withStyleNameVars = await resolveStylesFromNode(
+      {
+        background: 'var(--Accent)'
+      },
+      node,
+      undefined,
+      { emitSafeStyleNameVars: true }
+    )
+    expect(withStyleNameVars).toEqual({
+      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+    })
+  })
+
+  it('emits safe paint style variables only when requested', async () => {
+    installFigmaMocks({
+      styles: {
+        fillStyle: paintStyle(
+          [solidPaint({ r: 39 / 255, g: 110 / 255, b: 175 / 255 })],
+          undefined,
+          'Accent'
+        )
+      }
+    })
+    const node = {
+      fillStyleId: 'fillStyle'
+    } as unknown as SceneNode
+
+    const resolved = await resolveStylesFromNode(
+      {
+        fill: '#276EAF'
+      },
+      node
+    )
+    expect(resolved).toEqual({
+      fill: '#276EAF'
+    })
+
+    const preserved = await resolveStylesFromNode(
+      {
+        fill: '#276EAF'
+      },
+      node,
+      undefined,
+      {
+        emitSafeStyleNameVars: true
+      }
+    )
+    expect(preserved).toEqual({
+      fill: 'var(--Accent, #276EAF)'
+    })
+  })
+
+  it('does not synthesize paint style variables for multi-fill or gradient styles', async () => {
+    const multiStyle = paintStyle(
+      [solidPaint({ r: 1, g: 0, b: 0 }), solidPaint({ r: 0, g: 1, b: 0 })],
+      undefined,
+      'Accent'
+    )
+    const gradientStyle = paintStyle([gradientPaint()], undefined, 'Accent')
+    installFigmaMocks({
+      styles: {
+        multiStyle,
+        gradientStyle
+      }
+    })
+
+    const multi = await resolveStylesFromNode(
+      {
+        background: '#F00'
+      },
+      { fillStyleId: 'multiStyle' } as unknown as SceneNode,
+      undefined,
+      {
+        emitSafeStyleNameVars: true
+      }
+    )
+    expect(multi).toEqual({
+      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+    })
+
+    const gradient = await resolveStylesFromNode(
+      {
+        background: '#F00'
+      },
+      { fillStyleId: 'gradientStyle' } as unknown as SceneNode,
+      undefined,
+      {
+        emitSafeStyleNameVars: true
+      }
+    )
+    expect(gradient).toEqual({
+      background: 'linear-gradient(90deg, #F00 0%, #00F 100%)'
+    })
+  })
+
   it('applies solid fill style to color without requiring background channels', async () => {
     installFigmaMocks({
       styles: {
@@ -316,6 +508,64 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
       'background-color': '#0F0',
       color: '#0F0',
       fill: '#0F0'
+    })
+  })
+
+  it('restores node-level fill variable bindings before style serialization', async () => {
+    installFigmaMocks({
+      variables: {
+        accent: { name: 'Accent' } as Variable
+      }
+    })
+    const node = {
+      fills: [solidPaint({ r: 39 / 255, g: 110 / 255, b: 175 / 255 })],
+      boundVariables: {
+        fills: [{ id: 'accent' }]
+      }
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        background: 'var(--fill)',
+        color: '#276EAF',
+        fill: '#276EAF'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      'background-color': 'var(--Accent, #276EAF)',
+      color: 'var(--Accent, #276EAF)',
+      fill: 'var(--Accent, #276EAF)'
+    })
+  })
+
+  it('restores paint-style-level fill variable bindings before style serialization', async () => {
+    installFigmaMocks({
+      styles: {
+        fillStyle: paintStyle([solidPaint({ r: 39 / 255, g: 110 / 255, b: 175 / 255 })], {
+          paints: [{ id: 'accent' }]
+        })
+      },
+      variables: {
+        accent: { name: 'Accent' } as Variable
+      }
+    })
+    const node = {
+      fillStyleId: 'fillStyle'
+    } as unknown as SceneNode
+
+    const result = await resolveStylesFromNode(
+      {
+        'background-color': 'var(--fill)',
+        fill: '#276EAF'
+      },
+      node
+    )
+
+    expect(result).toEqual({
+      'background-color': 'var(--Accent, #276EAF)',
+      fill: 'var(--Accent, #276EAF)'
     })
   })
 
@@ -600,6 +850,114 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     })
   })
 
+  it('resolves existing stroke style variables unless safe style-name vars are requested', async () => {
+    installFigmaMocks({
+      styles: {
+        strokeStyle: paintStyle(
+          [solidPaint({ r: 39 / 255, g: 110 / 255, b: 175 / 255 })],
+          undefined,
+          'Accent'
+        )
+      }
+    })
+    const node = {
+      strokeStyleId: 'strokeStyle'
+    } as unknown as SceneNode
+
+    const withBorderColor = await resolveStylesFromNode(
+      {
+        'border-color': 'var(--Accent)',
+        stroke: 'var(--Accent)'
+      },
+      node
+    )
+    expect(withBorderColor).toEqual({
+      'border-color': '#276EAF',
+      stroke: '#276EAF'
+    })
+
+    const withBorderShorthand = await resolveStylesFromNode(
+      {
+        border: '1px solid var(--Accent)'
+      },
+      node
+    )
+    expect(withBorderShorthand).toEqual({
+      border: '1px solid #276EAF'
+    })
+
+    const withStyleNameBorderColor = await resolveStylesFromNode(
+      {
+        'border-color': 'var(--Accent)',
+        stroke: 'var(--Accent)'
+      },
+      node,
+      undefined,
+      { emitSafeStyleNameVars: true }
+    )
+    expect(withStyleNameBorderColor).toEqual({
+      'border-color': 'var(--Accent, #276EAF)',
+      stroke: 'var(--Accent, #276EAF)'
+    })
+
+    const withStyleNameBorderShorthand = await resolveStylesFromNode(
+      {
+        border: '1px solid var(--Accent)'
+      },
+      node,
+      undefined,
+      { emitSafeStyleNameVars: true }
+    )
+    expect(withStyleNameBorderShorthand).toEqual({
+      border: '1px solid var(--Accent, #276EAF)'
+    })
+  })
+
+  it('emits safe stroke style variables only when requested', async () => {
+    installFigmaMocks({
+      styles: {
+        strokeStyle: paintStyle(
+          [solidPaint({ r: 39 / 255, g: 110 / 255, b: 175 / 255 })],
+          undefined,
+          'Accent Stroke'
+        )
+      }
+    })
+    const node = {
+      strokeStyleId: 'strokeStyle'
+    } as unknown as SceneNode
+
+    const resolved = await resolveStylesFromNode(
+      {
+        'border-color': '#276EAF',
+        stroke: '#276EAF'
+      },
+      node
+    )
+    expect(resolved).toEqual({
+      'border-color': '#276EAF',
+      stroke: '#276EAF'
+    })
+
+    const preserved = await resolveStylesFromNode(
+      {
+        border: '1px solid #276EAF',
+        'border-color': '#276EAF',
+        stroke: '#276EAF'
+      },
+      node,
+      undefined,
+      {
+        emitSafeStyleNameVars: true
+      }
+    )
+    expect(preserved).toEqual({
+      border: '1px solid var(--Accent-Stroke, #276EAF)',
+      'border-color': 'var(--Accent-Stroke, #276EAF)',
+      stroke: 'var(--Accent-Stroke, #276EAF)'
+    })
+  })
+
   it('patches stroke color from node strokes when no stroke style id exists', async () => {
     installFigmaMocks()
     const node = {
@@ -614,6 +972,42 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     )
     expect(result).toEqual({
       stroke: '#0F0'
+    })
+  })
+
+  it('restores node-level stroke variable bindings before style serialization', async () => {
+    installFigmaMocks({
+      variables: {
+        accent: { name: 'Accent Stroke' } as Variable
+      }
+    })
+    const node = {
+      strokes: [solidPaint({ r: 39 / 255, g: 110 / 255, b: 175 / 255 })],
+      boundVariables: {
+        strokes: [{ id: 'accent' }]
+      }
+    } as unknown as SceneNode
+
+    const withBorderColor = await resolveStylesFromNode(
+      {
+        'border-color': '#276EAF',
+        stroke: '#276EAF'
+      },
+      node
+    )
+    expect(withBorderColor).toEqual({
+      'border-color': 'var(--Accent-Stroke, #276EAF)',
+      stroke: 'var(--Accent-Stroke, #276EAF)'
+    })
+
+    const withBorderShorthand = await resolveStylesFromNode(
+      {
+        border: '1px solid var(--stroke)'
+      },
+      node
+    )
+    expect(withBorderShorthand).toEqual({
+      border: '1px solid var(--Accent-Stroke, #276EAF)'
     })
   })
 

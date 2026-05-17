@@ -2,12 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { getVariableByIdCached } from '@/mcp/tools/token/cache'
 import { collectCandidateVariableIds } from '@/mcp/tools/token/candidates'
-import {
-  applyPluginTransforms,
-  buildVariableMappings,
-  normalizeStyleVars
-} from '@/mcp/tools/token/mapping'
-import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
+import { buildVariableMappings, normalizeStyleVars } from '@/mcp/tools/token/mapping'
 
 vi.mock('@/mcp/tools/token/candidates', () => ({
   collectCandidateVariableIds: vi.fn()
@@ -16,16 +11,6 @@ vi.mock('@/mcp/tools/token/candidates', () => ({
 vi.mock('@/mcp/tools/token/cache', () => ({
   getVariableByIdCached: vi.fn()
 }))
-
-vi.mock('@/mcp/transform-variables/requester', () => ({
-  runTransformVariableBatch: vi.fn()
-}))
-
-const config = {
-  cssUnit: 'rem',
-  rootFontSize: 16,
-  scale: 2
-} as const
 
 describe('token/mapping', () => {
   beforeEach(() => {
@@ -164,35 +149,5 @@ describe('token/mapping', () => {
 
     expect(used).toEqual(new Set())
     expect(styles.get('node-2')).toEqual({ color: 'brand-color', blank: '   ' })
-  })
-
-  it('returns markup unchanged when plugin code is absent or markup has no var references', async () => {
-    expect(await applyPluginTransforms('color: red;', undefined, config)).toBe('color: red;')
-    expect(await applyPluginTransforms('color: red;', 'plugin-code', config)).toBe('color: red;')
-    expect(runTransformVariableBatch).not.toHaveBeenCalled()
-  })
-
-  it('skips transform batch when markup has no custom property var references', async () => {
-    const markup = 'color: var(color); border-color: var(currentColor);'
-    expect(await applyPluginTransforms(markup, 'plugin-code', config)).toBe(markup)
-    expect(runTransformVariableBatch).not.toHaveBeenCalled()
-  })
-
-  it('applies plugin transform results and keeps original var on empty transform output', async () => {
-    vi.mocked(runTransformVariableBatch).mockResolvedValue(['tw-brand', '   '])
-
-    const input =
-      'color: var(--brand, #fff); border-color: var(--border); shadow-color: var(color);'
-    const output = await applyPluginTransforms(input, 'plugin-code', config)
-
-    expect(output).toBe('color: tw-brand; border-color: var(--border); shadow-color: var(color);')
-    expect(runTransformVariableBatch).toHaveBeenCalledWith(
-      [
-        { code: 'var(--brand, #fff)', name: 'brand', value: '#fff' },
-        { code: 'var(--border)', name: 'border', value: undefined }
-      ],
-      { useRem: true, rootFontSize: 16, scale: 2 },
-      'plugin-code'
-    )
   })
 })
