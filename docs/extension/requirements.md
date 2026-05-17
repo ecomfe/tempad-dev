@@ -142,6 +142,9 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 - Canonical token identity is derived from variable identity and must stay stable across property families such as paint-derived channels, typography/text output, and future supported layout/effect properties.
 - Variable names are normalized consistently across Figma variable names, `codeSyntax`, and plugin transforms.
 - `codeSyntax` may be used as source metadata and alias input for detection/rewrite steps, but it must not directly dictate the final emitted MCP style value.
+- Figma `{Paint,Text,Effect}Style` names are not token identities for MCP. Only Figma Variables produce `tokens` entries.
+- Variables bound inside styles, paints, text fields, or effects should be discovered and emitted according to the variable rules above.
+- Style-name CSS variables are allowed only in UI/plugin codegen paths when a single CSS value can safely represent the applied style; they must not be promoted to MCP tokens.
 - `tokens` is a single map keyed by canonical token name. Each entry:
   - `kind`: token kind.
   - `value`:

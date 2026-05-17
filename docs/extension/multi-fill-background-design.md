@@ -101,7 +101,7 @@ Current limitations:
 
 - `resolveGradientFromPaints()` in `packages/extension/utils/figma-style/gradient.ts` picks the first visible gradient paint.
 - `resolveSolidFromPaints()` in the same file picks the first visible solid paint.
-- `ResolvedPaintStyle` in `packages/extension/utils/figma-style/style-resolver.ts` only models one `gradient` or one `solidColor`.
+- `ResolvedPaintValue` in `packages/extension/utils/figma-style/style-resolver.ts` only models one `gradient` or one `solidColor`.
 - `resolveStylesFromNodeData()` rewrites fill-derived CSS channels with a single resolved result.
 
 Impact:
@@ -380,7 +380,7 @@ This keeps the helper layer small while enabling stack-aware background logic.
 In `packages/extension/utils/figma-style/style-resolver.ts`:
 
 - replace the current fill-to-single-value rewrite in `resolveStylesFromNodeData()`
-- when fill-derived background channels are being resolved, use the new stack helper instead of `ResolvedPaintStyle`
+- when fill-derived background channels are being resolved, use the new stack helper instead of `ResolvedPaintValue`
 - keep the old single-value logic for:
   - `color`
   - `fill`
