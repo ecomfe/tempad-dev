@@ -120,7 +120,8 @@ This document describes the implementation design for MCP `get_code` in `package
 ### Product boundary
 
 - UI codegen and MCP `get_code` intentionally use different variable-output contracts.
-- Shared `figma-style` helpers are policy-neutral. They may repair Figma CSS artifacts, recover missing fill/stroke channels, and reconstruct omitted background data, but they must not decide whether a variable-backed value is emitted as exact `codeSyntax` or canonical CSS variable IR.
+- Shared `figma-style` helpers are policy-neutral by default. They may repair Figma CSS artifacts, recover missing fill/stroke channels, and reconstruct omitted background data, but they must not decide whether a variable-backed value is emitted as exact `codeSyntax` or canonical CSS variable IR.
+- Safe style-name variable synthesis is an explicit caller opt-in for UI/plugin codegen; MCP does not enable it.
 - The shared layer should expose either neutral values or enough binding metadata for UI and MCP callers to format independently.
 
 ### UI codegen contract
@@ -129,7 +130,17 @@ This document describes the implementation design for MCP `get_code` in `package
 - If a bound variable has `codeSyntax.WEB`, UI codegen should emit that exact string as the style value.
 - UI codegen does not validate, normalize, warn on, or silently fall back away from a present `codeSyntax.WEB`.
 - If `codeSyntax.WEB` is absent, UI codegen may fall back to the default variable expression or literal behavior already supported by the serializer/export path.
+- When a Figma `{Paint,Text,Effect}Style` is applied, a style-name CSS variable may be emitted only when one CSS value fully and safely represents that style in the current output property.
+- Unsafe style references, such as multi-fill paints or gradients that require layered or size-sensitive CSS, must be resolved to concrete CSS rather than collapsed into `var(--StyleName)`.
 - Differences between UI codegen output and MCP output are intentional, not bugs by themselves.
+
+### Plugin variable transform contract
+
+- Plugin code blocks with `transformVariable` receive a variable-oriented style map before UI/MCP-specific formatting.
+- If the applied style has a safe single-value representation, the plugin path may synthesize `var(--StyleName, fallback)` from the style name whether `getCSSAsync()` emitted a CSS variable or a literal.
+- Unsafe style references from `getCSSAsync()` must still resolve to concrete CSS rather than being preserved for plugin transforms.
+- Current safe synthesis is limited to single visible solid paint styles for fill/stroke-like color properties. Text and effect styles must add their own safety predicates before style-name variables are synthesized.
+- The plugin path still runs the full value pipeline after variable replacement; only the protected variable fragment bypasses later unit/color normalization.
 
 ### MCP `get_code` contract
 
@@ -139,6 +150,7 @@ This document describes the implementation design for MCP `get_code` in `package
 - The same variable id must resolve to the same canonical token name across paint-derived properties, typography/text-run properties, and any future layout/effect/property families that become variable-backed.
 - `codeSyntax` remains useful as source metadata and alias input for candidate discovery, rewrite bridging, and downstream export transforms, but it does not control the final emitted MCP style value.
 - When `resolveTokens` is `true`, the same supported properties should resolve from canonical IR to per-node literals without changing the token identity model.
+- Figma style names are not MCP token identities. A style may cause variables inside its bound paints/text/effects to be discovered, but the style name itself must not create a `tokens` entry.
 
 ### Current implementation note
 
