@@ -2,9 +2,8 @@
 
 ## 0.18.8
 
-- Fixed safe single-value Figma style output so PaintStyle names can still flow through plugin `transformVariable`.
-- Kept multi-fill and gradient styles expanded as concrete CSS instead of collapsing them into unsafe style variables.
-- Improved variable and `codeSyntax` handling across UI, plugin, and MCP output paths.
+- Fixed PaintStyle variable output so safe single-color styles can flow through plugin `transformVariable`, while multi-fill and gradient styles still expand to concrete CSS.
+- Improved variable and `codeSyntax` consistency across UI, plugin, and MCP output paths.
 
 ## 0.18.7
 
