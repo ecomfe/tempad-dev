@@ -531,7 +531,7 @@ html.dark .site-skill-dialog-sidebar {
   margin: 0;
   color: var(--site-ink);
   line-height: 1.05;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.025em;
 }
 
 .site-skill-prose :deep(h1) {

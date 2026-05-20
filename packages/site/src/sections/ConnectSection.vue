@@ -560,7 +560,7 @@ onBeforeUnmount(() => {
   <SectionShell
     id="connect"
     eyebrow="Connect"
-    title="Let it flow to code"
+    title="Stream it to code"
     copy="With the skill and MCP server in place, the same design context stays available from the request to the tool call."
   >
     <div class="site-connect-layout">

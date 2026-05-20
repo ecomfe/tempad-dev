@@ -1,5 +1,5 @@
 :root {
-  --site-font-display: "Instrument Serif", Georgia, serif;
+  --site-font-display: "Encode Sans Condensed", "Manrope", system-ui, sans-serif;
   --site-font-sans: "Manrope", system-ui, sans-serif;
   --site-font-mono: "JetBrains Mono", monospace;
   --site-bg: #f6f7f9;
@@ -405,14 +405,18 @@ html.dark .site-button.is-primary {
   margin: 14px 0 0;
   color: var(--site-ink);
   font-family: var(--site-font-display);
-  font-weight: 400;
-  letter-spacing: -0.05em;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  hyphens: none;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .site-hero-title {
-  max-width: 8.6ch;
+  max-width: 10.6ch;
   font-size: clamp(3.8rem, 10vw, 6rem);
-  line-height: 0.9;
+  line-height: 0.88;
+  text-wrap: balance;
 }
 
 .site-hero-copy-text,
