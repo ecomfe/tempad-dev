@@ -16,25 +16,25 @@
   },
   "dependencies": {
     "@tempad-dev/shared": "workspace:^0.1.0",
-    "@vercel/analytics": "^2.0.0",
-    "@vueuse/core": "^14.2.1",
+    "@vercel/analytics": "^2.0.1",
+    "@vueuse/core": "^14.3.0",
     "lucide-vue-next": "^1.0.0",
-    "vue": "^3.5.29"
+    "vue": "^3.5.34"
   },
   "devDependencies": {
     "@tsconfig/node24": "^24.0.4",
-    "@types/node": "^24.11.0",
-    "@vitejs/plugin-vue": "^6.0.4",
+    "@types/node": "^24.12.4",
+    "@vitejs/plugin-vue": "^6.0.7",
     "@vue/eslint-config-typescript": "^14.7.0",
-    "@vue/tsconfig": "^0.9.0",
-    "eslint": "^10.0.2",
-    "eslint-plugin-vue": "~10.9.0",
-    "jiti": "^2.6.1",
-    "marked": "^18.0.0",
-    "typescript": "~6.0.0",
-    "vite": "8.0.13",
-    "vue-tsc": "^3.2.5",
-    "yaml": "^2.8.2"
+    "@vue/tsconfig": "^0.9.1",
+    "eslint": "^10.4.0",
+    "eslint-plugin-vue": "~10.9.1",
+    "jiti": "^2.7.0",
+    "marked": "^18.0.4",
+    "typescript": "~6.0.3",
+    "vite": "8.0.14",
+    "vue-tsc": "^3.3.2",
+    "yaml": "^2.9.0"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
