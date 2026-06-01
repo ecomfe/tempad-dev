@@ -152,7 +152,7 @@ function activateMcp() {
           MCP
         </Badge>
       </div>
-      <div class="tp-row tp-gap">
+      <div class="tp-row tp-gap-l">
         <IconButton
           v-if="runtimeMode !== 'unavailable' && !options.minimized"
           title="Preferences"

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.9
+
+- Added spacing between the Preferences and minimize buttons.
+
 ## 0.18.8
 
 - Fixed PaintStyle variable output so safe single-color styles can flow through plugin `transformVariable`, while multi-fill and gradient styles still expand to concrete CSS.
