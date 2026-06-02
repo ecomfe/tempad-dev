@@ -6,7 +6,7 @@ overrides:
   esbuild: 0.28.0
   'node-notifier>uuid': 11.1.1
   'web-ext-run>tmp': 0.2.6
-  vite: 8.0.13
+  vite: 8.0.14
 
 minimumReleaseAgeExclude:
   - tmp@0.2.6

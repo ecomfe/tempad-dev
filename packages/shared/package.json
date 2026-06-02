@@ -37,12 +37,12 @@
     "format:check": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore --check"
   },
   "dependencies": {
-    "zod": "^4.1.12"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@figma/plugin-typings": "^1.121.0",
+    "@figma/plugin-typings": "^1.127.0",
     "tsdown": "^0.22.0",
-    "typescript": "^6.0.0",
-    "vitest": "4.1.6"
+    "typescript": "^6.0.3",
+    "vitest": "4.1.7"
   }
 }
