@@ -34,7 +34,7 @@
     "p-wait-for": "^6.0.0",
     "stringify-object": "^6.0.0",
     "svgson": "^5.3.1",
-    "vue": "^3.5.34"
+    "vue": "^3.5.35"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
@@ -42,12 +42,12 @@
     "@types/node": "^24.12.4",
     "@types/prismjs": "^1.26.6",
     "@types/stringify-object": "^4.0.5",
-    "@vitest/browser-playwright": "4.1.7",
+    "@vitest/browser-playwright": "4.1.8",
     "@vue/eslint-config-typescript": "^14.7.0",
     "@wxt-dev/module-vue": "^1.0.3",
     "comment-mark": "^2.0.1",
     "esbuild": "^0.28.0",
-    "eslint": "^10.4.0",
+    "eslint": "^10.4.1",
     "eslint-config-flat-gitignore": "^2.3.0",
     "eslint-plugin-perfectionist": "^5.9.0",
     "eslint-plugin-vue": "^10.9.1",
@@ -57,11 +57,11 @@
     "playwright": "^1.60.0",
     "prismjs": "^1.30.0",
     "proper-lockfile": "^4.1.2",
-    "tsx": "^4.22.3",
+    "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "vite-plugin-css-injected-by-js": "^5.0.1",
-    "vitest": "4.1.7",
-    "vue-tsc": "^3.3.2",
+    "vitest": "4.1.8",
+    "vue-tsc": "^3.3.3",
     "wxt": "^0.20.26",
     "zod": "^4.4.3"
   }
