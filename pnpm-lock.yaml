@@ -7,7 +7,7 @@ settings:
 overrides:
   '@rollup/plugin-terser>serialize-javascript': 7.0.5
   esbuild: 0.28.0
-  node-notifier>uuid: 11.1.1
+  node-notifier>uuid: 14.0.0
   web-ext-run>tmp: 0.2.7
   vite: 8.0.16
 
@@ -3668,8 +3668,8 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
-  uuid@11.1.1:
-    resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
+  uuid@14.0.0:
+    resolution: {integrity: sha512-Qo+uWgilfSmAhXCMav1uYFynlQO7fMFiMVZsQqZRMIXp0O7rR7qjkj+cPvBHLgBqi960QCoo/PH2/6ZtVqKvrg==}
     hasBin: true
 
   vary@1.1.2:
@@ -6291,7 +6291,7 @@ snapshots:
       is-wsl: 2.2.0
       semver: 7.8.0
       shellwords: 0.1.1
-      uuid: 11.1.1
+      uuid: 14.0.0
       which: 2.0.2
 
   node-releases@2.0.37: {}
@@ -7141,7 +7141,7 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  uuid@11.1.1: {}
+  uuid@14.0.0: {}
 
   vary@1.1.2: {}
 
