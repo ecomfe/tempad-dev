@@ -3,7 +3,7 @@ packages:
 
 overrides:
   '@rollup/plugin-terser>serialize-javascript': 7.0.5
-  esbuild: 0.28.0
+  esbuild: 0.28.1
   'node-notifier>uuid': 14.0.0
   'web-ext-run>tmp': 0.2.7
   vite: 8.0.16
