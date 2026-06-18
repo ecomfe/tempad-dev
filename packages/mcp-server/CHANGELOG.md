@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1
+
+- Fixed duplicate Hub startup races by keeping a renewable lifecycle lock for the running Hub and probing stale sockets before removing them.
+- Improved MCP connection troubleshooting text for the Agent integration preferences.
+
 ## 0.6.0
 
 - BREAKING: the minimum supported Node.js version for `@tempad-dev/mcp` is now `18.20.0`.

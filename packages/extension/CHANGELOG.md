@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.10
+
+- Renamed the MCP preferences section to Agent integration and updated setup copy for the bundled agent skill plus MCP server flow.
+- Added Codex plugin setup guidance and removed the outdated Windsurf quick setup entry.
+
 ## 0.18.9
 
 - Added spacing between the Preferences and minimize buttons.
