@@ -73,7 +73,13 @@ export function ensureFile(filePath: string): void {
 }
 
 export const LOCK_PATH = join(RUNTIME_DIR, 'mcp.lock')
+export const HUB_LOCK_PATH = join(RUNTIME_DIR, 'hub.lock')
 ensureFile(LOCK_PATH)
+ensureFile(HUB_LOCK_PATH)
+
+export const HUB_BUSY_EXIT_CODE = 75
+export const HUB_LOCK_STALE_MS = 60000
+export const HUB_LOCK_UPDATE_MS = 10000
 
 const timestamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
 const pid = process.pid

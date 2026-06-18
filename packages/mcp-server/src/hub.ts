@@ -25,7 +25,8 @@ import {
 } from '@tempad-dev/shared'
 import { nanoid } from 'nanoid'
 import { existsSync, rmSync, chmodSync } from 'node:fs'
-import { createServer } from 'node:net'
+import { connect, createServer } from 'node:net'
+import lockfile from 'proper-lockfile'
 import { WebSocketServer } from 'ws'
 
 import type { AssetRecord, ExtensionConnection } from './types'
@@ -36,7 +37,17 @@ import { buildAssetFilename } from './asset-utils'
 import { getMcpServerConfig } from './config'
 import MCP_INSTRUCTIONS from './instructions.md?raw'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
-import { PACKAGE_VERSION, log, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
+import {
+  HUB_BUSY_EXIT_CODE,
+  HUB_LOCK_PATH,
+  HUB_LOCK_STALE_MS,
+  HUB_LOCK_UPDATE_MS,
+  PACKAGE_VERSION,
+  log,
+  RUNTIME_DIR,
+  SOCK_PATH,
+  ensureDir
+} from './shared'
 import {
   TOOL_DEFS,
   coercePayloadToToolResponse,
@@ -46,6 +57,7 @@ import {
 } from './tools'
 
 const SHUTDOWN_TIMEOUT = 2000
+const SOCKET_PROBE_TIMEOUT_MS = 300
 const { wsPortCandidates, toolTimeoutMs, maxPayloadBytes, autoActivateGraceMs, assetTtlMs } =
   getMcpServerConfig()
 
@@ -56,6 +68,9 @@ let consumerCount = 0
 type TimeoutHandle = ReturnType<typeof setTimeout>
 let autoActivateTimer: TimeoutHandle | null = null
 let selectedWsPort = 0
+let releaseHubLock: (() => Promise<void>) | null = null
+let shuttingDown = false
+let wss: WebSocketServer | null = null
 const consumerSessions = new Set<McpServer>()
 type RegisterToolOptions = Parameters<McpServer['registerTool']>[1]
 type McpInputSchema = RegisterToolOptions['inputSchema']
@@ -75,6 +90,103 @@ function getRecordProperty(record: unknown, key: string): unknown {
     return undefined
   }
   return Reflect.get(record, key)
+}
+
+type SocketProbeResult = 'live' | 'missing' | { staleCode: string }
+
+function classifySocketProbeError(error: NodeJS.ErrnoException): SocketProbeResult | null {
+  if (error.code === 'ENOENT') return 'missing'
+  if (error.code === 'ECONNREFUSED' || error.code === 'ENOTSOCK') {
+    return { staleCode: error.code }
+  }
+  return null
+}
+
+function probeHubSocket(): Promise<SocketProbeResult> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let socket: ReturnType<typeof connect> | null = null
+
+    function finish(callback: () => void): void {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (socket) {
+        socket.removeAllListeners()
+        socket.destroy()
+      }
+      callback()
+    }
+
+    const timer = setTimeout(() => {
+      finish(() =>
+        reject(new Error(`Timed out probing Hub socket after ${SOCKET_PROBE_TIMEOUT_MS}ms.`))
+      )
+    }, SOCKET_PROBE_TIMEOUT_MS)
+    function fail(error: NodeJS.ErrnoException): void {
+      const result = classifySocketProbeError(error)
+      finish(() => (result ? resolve(result) : reject(error)))
+    }
+
+    try {
+      socket = connect(SOCK_PATH)
+      socket.once('connect', () => finish(() => resolve('live')))
+      socket.once('error', fail)
+    } catch (error) {
+      fail(error as NodeJS.ErrnoException)
+    }
+  })
+}
+
+async function acquireHubLock(): Promise<() => Promise<void>> {
+  try {
+    return await lockfile.lock(HUB_LOCK_PATH, {
+      retries: 0,
+      stale: HUB_LOCK_STALE_MS,
+      update: HUB_LOCK_UPDATE_MS,
+      onCompromised: (err) => {
+        log.error({ err }, 'Hub lifecycle lock was compromised. Exiting.')
+        process.exit(1)
+      }
+    })
+  } catch (error) {
+    log.info({ err: error }, 'Another Hub owns the lifecycle lock. Exiting.')
+    process.exit(HUB_BUSY_EXIT_CODE)
+  }
+}
+
+async function releaseHubLockIfNeeded(): Promise<void> {
+  if (!releaseHubLock) return
+  const release = releaseHubLock
+  releaseHubLock = null
+  try {
+    await release()
+  } catch (err) {
+    log.warn({ err }, 'Failed to release Hub lifecycle lock.')
+  }
+}
+
+async function probeSocketPath(): Promise<SocketProbeResult> {
+  return process.platform === 'win32' || existsSync(SOCK_PATH) ? await probeHubSocket() : 'missing'
+}
+
+async function exitExistingHub(): Promise<never> {
+  await releaseHubLockIfNeeded()
+  log.info({ sock: SOCK_PATH }, 'Existing Hub is reachable. Exiting.')
+  process.exit(HUB_BUSY_EXIT_CODE)
+}
+
+async function cleanSocketPath(): Promise<void> {
+  const probe = await probeSocketPath()
+
+  if (probe === 'live') {
+    return await exitExistingHub()
+  }
+  if (probe === 'missing' || process.platform === 'win32') {
+    return
+  }
+  log.warn({ sock: SOCK_PATH, code: probe.staleCode }, 'Removing stale socket file.')
+  rmSync(SOCK_PATH)
 }
 
 type RegisteredToolDefinition = ExtensionToolMetadata | HubToolWithHandler
@@ -151,8 +263,6 @@ function getToolDefinition<Name extends ToolName>(name: Name): ToolDefinitionByN
 
 const assetStore = createAssetStore()
 const assetHttpServer = createAssetHttpServer(assetStore)
-await assetHttpServer.start()
-scheduleAssetCleanup()
 
 function scheduleAssetCleanup(): void {
   if (assetTtlMs <= 0) {
@@ -440,6 +550,8 @@ function rawDataToBuffer(raw: RawData): Buffer {
 }
 
 function shutdown(): void {
+  if (shuttingDown) return
+  shuttingDown = true
   log.info('Hub is shutting down...')
   consumerSessions.forEach((session) => {
     session.close().catch((err) => {
@@ -452,22 +564,12 @@ function shutdown(): void {
   netServer.close(() => log.info('Net server closed.'))
   wss?.close(() => log.info('WebSocket server closed.'))
   cleanupAll()
+  void releaseHubLockIfNeeded()
   const timer = setTimeout(() => {
     log.warn('Shutdown timed out. Forcing exit.')
     process.exit(1)
   }, SHUTDOWN_TIMEOUT)
   unrefTimer(timer)
-}
-
-try {
-  ensureDir(RUNTIME_DIR)
-  if (process.platform !== 'win32' && existsSync(SOCK_PATH)) {
-    log.warn({ sock: SOCK_PATH }, 'Removing stale socket file.')
-    rmSync(SOCK_PATH)
-  }
-} catch (error: unknown) {
-  log.error({ err: error }, 'Failed to initialize runtime environment.')
-  process.exit(1)
 }
 
 const netServer = createServer((sock) => {
@@ -501,21 +603,47 @@ const netServer = createServer((sock) => {
     }
   })
 })
-netServer.on('error', (err) => {
-  log.error({ err }, 'Net server error.')
-  process.exit(1)
-})
-netServer.listen(SOCK_PATH, () => {
-  try {
-    if (process.platform !== 'win32') chmodSync(SOCK_PATH, 0o600)
-  } catch (err) {
-    log.error({ err }, 'Failed to set socket permissions. Shutting down.')
-    process.exit(1)
-  }
-  log.info({ sock: SOCK_PATH }, 'Hub socket ready.')
-})
 
-async function startWebSocketServer(): Promise<{ wss: WebSocketServer; port: number }> {
+async function initializeHubRuntime(): Promise<void> {
+  ensureDir(RUNTIME_DIR)
+  if ((await probeSocketPath()) === 'live') {
+    await exitExistingHub()
+  }
+  releaseHubLock = await acquireHubLock()
+  await cleanSocketPath()
+  await assetHttpServer.start()
+  scheduleAssetCleanup()
+}
+
+function listenConsumerSocket(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      netServer.off('error', onError)
+      netServer.off('listening', onListening)
+    }
+    const onError = (err: Error) => {
+      cleanup()
+      reject(err)
+    }
+    const onListening = () => {
+      cleanup()
+      try {
+        if (process.platform !== 'win32') chmodSync(SOCK_PATH, 0o600)
+      } catch (err) {
+        netServer.close()
+        reject(err)
+        return
+      }
+      log.info({ sock: SOCK_PATH }, 'Hub socket ready.')
+      resolve()
+    }
+    netServer.once('error', onError)
+    netServer.once('listening', onListening)
+    netServer.listen(SOCK_PATH)
+  })
+}
+
+async function startWebSocketServer(): Promise<{ server: WebSocketServer; port: number }> {
   for (const candidate of wsPortCandidates) {
     const server = new WebSocketServer({
       host: '127.0.0.1',
@@ -536,7 +664,7 @@ async function startWebSocketServer(): Promise<{ wss: WebSocketServer; port: num
         server.once('error', onError)
         server.once('listening', onListening)
       })
-      return { wss: server, port: candidate }
+      return { server, port: candidate }
     } catch (err) {
       server.close()
       const errno = err as NodeJS.ErrnoException
@@ -544,28 +672,44 @@ async function startWebSocketServer(): Promise<{ wss: WebSocketServer; port: num
         log.warn({ port: candidate }, 'WebSocket port in use, trying next candidate.')
         continue
       }
-      log.error({ err: errno, port: candidate }, 'Failed to start WebSocket server.')
-      process.exit(1)
+      throw errno
     }
   }
 
-  log.error(
-    { candidates: wsPortCandidates },
-    'Unable to start WebSocket server on any candidate port.'
+  throw new Error(
+    `Unable to start WebSocket server on candidate ports: ${wsPortCandidates.join(', ')}.`
   )
+}
+
+async function startHubRuntime(): Promise<WebSocketServer> {
+  await initializeHubRuntime()
+  await listenConsumerSocket()
+  netServer.on('error', (err) => {
+    log.error({ err }, 'Net server error.')
+    process.exit(1)
+  })
+  const startedWebSocket = await startWebSocketServer()
+  wss = startedWebSocket.server
+  selectedWsPort = startedWebSocket.port
+  return startedWebSocket.server
+}
+
+async function abortStartup(error: unknown): Promise<never> {
+  log.error({ err: error }, 'Failed to initialize Hub runtime.')
+  assetHttpServer.stop()
+  await releaseHubLockIfNeeded()
   process.exit(1)
 }
 
-const { wss, port } = await startWebSocketServer()
-selectedWsPort = port
+const activeWss = await startHubRuntime().catch(abortStartup)
 
 // Add an error handler to prevent crashes from port conflicts, etc.
-wss.on('error', (err) => {
+activeWss.on('error', (err) => {
   log.error({ err }, 'WebSocket server critical error. Exiting.')
   process.exit(1)
 })
 
-wss.on('connection', (ws) => {
+activeWss.on('connection', (ws) => {
   const ext: ExtensionConnection = { id: nanoid(), ws, active: false }
   extensions.push(ext)
   log.info({ id: ext.id }, `Extension connected. Total: ${extensions.length}`)

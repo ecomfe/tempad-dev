@@ -9,7 +9,15 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
 
-import { PACKAGE_VERSION, log, LOCK_PATH, RUNTIME_DIR, SOCK_PATH, ensureDir } from './shared'
+import {
+  HUB_BUSY_EXIT_CODE,
+  PACKAGE_VERSION,
+  log,
+  LOCK_PATH,
+  RUNTIME_DIR,
+  SOCK_PATH,
+  ensureDir
+} from './shared'
 
 let activeSocket: Socket | null = null
 let shuttingDown = false
@@ -120,6 +128,20 @@ function startHub(): ChildProcess {
   })
 }
 
+async function waitForHubStart(child: ChildProcess): Promise<Socket> {
+  let foundExistingHub = false
+  child.once('exit', (code) => {
+    foundExistingHub = code === HUB_BUSY_EXIT_CODE
+  })
+
+  const socket = await connectWithRetry(HUB_STARTUP_TIMEOUT)
+  if (foundExistingHub) {
+    log.info('Spawned Hub found an existing lifecycle lock. Using the active Hub.')
+  }
+  child.unref()
+  return socket
+}
+
 async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
   let releaseLock: (() => Promise<void>) | undefined
   try {
@@ -143,12 +165,10 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
     }
     child = startHub()
     child.on('error', (err) => log.error({ err }, 'Hub child process error.'))
-    const socket = await connectWithRetry(HUB_STARTUP_TIMEOUT)
-    child.unref()
-    return socket
+    return await waitForHubStart(child)
   } catch (err: unknown) {
     log.error({ err }, 'Failed to start or connect to the Hub.')
-    if (child && !child.killed) {
+    if (child && !child.killed && child.exitCode === null && child.signalCode === null) {
       log.warn(`Killing stale Hub process (PID: ${child.pid})...`)
       child.kill('SIGTERM')
     }

@@ -76,6 +76,7 @@ describe('mcp-server/shared', () => {
     expect(shared.LOG_DIR).toBe('/tmp/custom-log')
     expect(shared.ASSET_DIR).toBe('/tmp/custom-assets')
     expect(shared.LOCK_PATH).toBe('/tmp/custom-run/mcp.lock')
+    expect(shared.HUB_LOCK_PATH).toBe('/tmp/custom-run/hub.lock')
     expect(shared.SOCK_PATH).toBe('/tmp/custom-run/mcp.sock')
     expect(shared.PACKAGE_VERSION).toMatch(/^\d+\.\d+\.\d+/)
 
@@ -92,6 +93,7 @@ describe('mcp-server/shared', () => {
       mode: 0o700
     })
     expect(fsMocks.openSync).toHaveBeenCalledWith('/tmp/custom-run/mcp.lock', 'a')
+    expect(fsMocks.openSync).toHaveBeenCalledWith('/tmp/custom-run/hub.lock', 'a')
     expect(fsMocks.closeSync).toHaveBeenCalledWith(42)
 
     expect(pinoMocks.pino).toHaveBeenCalledWith(
@@ -123,6 +125,7 @@ describe('mcp-server/shared', () => {
     expect(shared.LOG_DIR).toBe('/tmp/tempad-unit/tempad-dev/log')
     expect(shared.ASSET_DIR).toBe('/tmp/tempad-unit/tempad-dev/assets')
     expect(shared.LOCK_PATH).toBe('/tmp/tempad-unit/tempad-dev/run/mcp.lock')
+    expect(shared.HUB_LOCK_PATH).toBe('/tmp/tempad-unit/tempad-dev/run/hub.lock')
     expect(shared.SOCK_PATH).toBe('/tmp/tempad-unit/tempad-dev/run/mcp.sock')
     expect(pinoMocks.pino).toHaveBeenCalledWith(
       expect.objectContaining({
