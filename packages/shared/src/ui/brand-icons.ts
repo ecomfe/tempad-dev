@@ -5,12 +5,12 @@ import codex from './assets/codex.svg?raw'
 import cursor from './assets/cursor.svg?raw'
 import trae from './assets/trae.svg?raw'
 import vscode from './assets/vscode.svg?raw'
-import windsurf from './assets/windsurf.svg?raw'
+
+export type { McpClientId } from '../mcp/install'
 
 export const MCP_CLIENT_BRAND_SVGS = {
   vscode,
   cursor,
-  windsurf,
   claude,
   codex,
   trae

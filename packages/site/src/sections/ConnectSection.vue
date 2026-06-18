@@ -2,10 +2,10 @@
 import type { McpClientConfig, McpClientCopyPayload } from '@tempad-dev/shared'
 
 import {
+  AGENT_SKILL_INSTALL_COMMAND,
   getMcpClientCopyPayload,
   getNextMcpClientCopyVariant,
-  MCP_CLIENTS_BY_ID,
-  MCP_SKILL_INSTALL_COMMAND
+  MCP_CLIENTS_BY_ID
 } from '@tempad-dev/shared'
 import { Copy, FileText, SquareTerminal } from 'lucide-vue-next'
 import {
@@ -404,7 +404,7 @@ function handleClientAction(client: McpClientConfig): void {
 }
 
 function handleCopySkill(): void {
-  void writeClipboard(MCP_SKILL_INSTALL_COMMAND, 'Copied skill install command.')
+  void writeClipboard(AGENT_SKILL_INSTALL_COMMAND, 'Copied skill install command.')
 }
 
 function handleOpenSkillPreview(): void {
@@ -561,16 +561,16 @@ onBeforeUnmount(() => {
     id="connect"
     eyebrow="Connect"
     title="Stream it to code"
-    copy="With the skill and MCP server in place, the same design context stays available from the request to the tool call."
+    copy="TemPad Dev pairs an agent skill with the MCP server so agents can keep the selected Figma node in view while they edit code."
   >
     <div class="site-connect-layout">
       <div class="site-connect-setup">
         <div class="site-connect-row">
           <div class="site-connect-row-head">
             <p class="site-connect-row-step">Step 1</p>
-            <p class="site-connect-row-label">Add the skill</p>
+            <p class="site-connect-row-label">Add the agent skill</p>
             <p class="site-connect-row-copy">
-              Install the TemPad skill so the agent can pick up the handoff workflow for the turn.
+              Teach the agent the design-to-code workflow before it reads the selected node.
             </p>
           </div>
           <div class="site-connect-actions">
@@ -598,9 +598,9 @@ onBeforeUnmount(() => {
         <div class="site-connect-row">
           <div class="site-connect-row-head">
             <p class="site-connect-row-step">Step 2</p>
-            <p class="site-connect-row-label">Install the MCP server</p>
+            <p class="site-connect-row-label">Connect the MCP server</p>
             <p class="site-connect-row-copy">
-              Add TemPad to the client you already use so the same tools are available directly.
+              Add TemPad Dev to the client you already use so it can fetch selected-node evidence.
             </p>
           </div>
           <div class="site-client-quicklist">

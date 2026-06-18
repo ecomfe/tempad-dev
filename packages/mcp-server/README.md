@@ -17,9 +17,8 @@
 
 Quick setup helpers:
 
-- VS Code / Cursor / TRAE: use the deep links in TemPad Dev (Preferences → MCP server).
-- Windsurf: copy the JSON snippet from the same panel.
-- CLI: `claude mcp add --transport stdio "TemPad Dev" -- npx -y @tempad-dev/mcp@latest` or `codex mcp add "TemPad Dev" -- npx -y @tempad-dev/mcp@latest`.
+- VS Code / Cursor / TRAE: use the deep links in TemPad Dev (Preferences → Agent integration).
+- Claude Code / Codex CLI: copy or run the CLI command from the same panel.
 
 Supported tools/resources:
 

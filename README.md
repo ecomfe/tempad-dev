@@ -191,9 +191,14 @@ Current available plugins:
 <!-- availablePlugins:end -->
 <!-- prettier-ignore-end -->
 
-## MCP server
+## Agent integration
 
-TemPad Dev ships an [MCP](https://modelcontextprotocol.io/) server so agents/IDEs can pull code and context directly from the node you have selected in Figma. With the TemPad Dev panel open and MCP enabled, the server exposes:
+TemPad Dev ships an agent integration for coding agents and IDEs. The integration combines:
+
+- an [MCP](https://modelcontextprotocol.io/) server that lets agents pull code and context directly from the node you have selected in Figma
+- an agent skill that teaches the agent how to turn that evidence into repo-ready UI code
+
+With the TemPad Dev panel open and MCP enabled, the MCP server exposes:
 
 - `get_code`: High-fidelity JSX/Vue + TailwindCSS code output by default, plus attached assets and the codegen preset/config used.
 - `get_structure`: A structural outline (ids, types, geometry) for the current selection.
@@ -208,8 +213,15 @@ TemPad Dev ships an [MCP](https://modelcontextprotocol.io/) server so agents/IDE
 </picture>
 
 1. **Requirements**: Node.js 18.20.0+ (with `npx`) and TemPad Dev running in a Figma tab. Node.js is required for both the MCP server and the skills CLI.
-2. In TemPad Dev, open **Preferences → MCP server**, then enable **Enable MCP server**.
-3. Install and connect using the quick actions in Preferences, or add the server manually to your MCP client as a stdio command:
+2. In TemPad Dev, open **Preferences → Agent integration**, then enable **Enable MCP server**.
+3. Install the bundled agent integration when your client supports it. For Codex, install this repository's plugin marketplace and then install the **TemPad Dev** plugin:
+
+   ```sh
+   codex plugin marketplace add ecomfe/tempad-dev --ref main
+   codex plugin add tempad-dev@tempad-dev
+   ```
+
+   You can also install **TemPad Dev** from the Codex app plugin directory after adding the marketplace. For manual MCP clients, use the quick actions in Preferences or add the server manually as a stdio command:
 
    ```json
    {
@@ -230,7 +242,7 @@ TemPad Dev ships an [MCP](https://modelcontextprotocol.io/) server so agents/IDE
 
 ### Agent skill
 
-Install the TemPad Dev skill for best results when paired with MCP so coding agents can translate selections into repo-ready UI. The bundled skill name is `figma-design-to-code`. In Preferences → MCP server, click the copy icon next to Agent skill to copy the command, then run it in your terminal.
+The Codex plugin bundles the agent skill. For clients that need manual setup, install the TemPad Dev skill alongside MCP so coding agents can translate selections into repo-ready UI. The bundled skill name is `figma-design-to-code`. In Preferences → Agent integration, click the copy icon next to Agent skill to copy the command, then run it in your terminal.
 
 ```sh
 npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill
@@ -238,7 +250,7 @@ npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill
 
 ### MCP connection status
 
-When MCP is enabled, a badge appears in the TemPad Dev panel title bar showing the current connection status:
+When the MCP server is enabled, a badge appears in the TemPad Dev panel title bar showing the current connection status:
 
 - **Unavailable**: The local MCP server is not configured or not running.
 

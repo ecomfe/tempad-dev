@@ -32,7 +32,7 @@ describe('shared/mcp/install', () => {
     })
 
     expect(mcp.MCP_DEFAULT_CONFIG_SNIPPET).toContain('"tempad-dev"')
-    expect(mcp.MCP_SKILL_INSTALL_COMMAND).toContain('npx skills add')
+    expect(mcp.AGENT_SKILL_INSTALL_COMMAND).toContain('npx skills add')
 
     const vscodeDeepLink = mcp.MCP_CLIENTS_BY_ID.vscode.deepLink
     expect(vscodeDeepLink).toMatch(/^vscode:mcp\/install\?/)
@@ -67,16 +67,6 @@ describe('shared/mcp/install', () => {
       'trae-cn://trae.ai-ide/mcp-import'
     )
 
-    expect(mcp.MCP_CLIENTS_BY_ID.windsurf.copyKind).toBe('config')
-    expect(JSON.parse(String(mcp.MCP_CLIENTS_BY_ID.windsurf.copyText))).toEqual({
-      mcpServers: {
-        'tempad-dev': {
-          command: 'npx',
-          args: ['-y', '@tempad-dev/mcp@latest']
-        }
-      }
-    })
-
     expect(mcp.MCP_CLIENTS_BY_ID.claude.copyText).toContain('claude mcp add --transport stdio')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.copyKind).toBe('command')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.copyText).toContain('codex mcp add "tempad-dev"')
@@ -84,7 +74,7 @@ describe('shared/mcp/install', () => {
     expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyText).toBe(
       '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@latest"]'
     )
-    expect(mcp.MCP_CLIENTS).toHaveLength(6)
+    expect(mcp.MCP_CLIENTS).toHaveLength(5)
   })
 
   it('falls back to Buffer when btoa is unavailable', async () => {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { McpClientId } from '@tempad-dev/shared'
+import type { McpClientId } from '@tempad-dev/shared/ui'
 
 import { getMcpClientBrandSvg } from '@tempad-dev/shared/ui'
 import { computed } from 'vue'

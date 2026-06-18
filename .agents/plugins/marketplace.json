@@ -1,0 +1,20 @@
+{
+  "name": "tempad-dev",
+  "interface": {
+    "displayName": "TemPad Dev"
+  },
+  "plugins": [
+    {
+      "name": "tempad-dev",
+      "source": {
+        "source": "local",
+        "path": "./plugins/tempad-dev"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Design"
+    }
+  ]
+}

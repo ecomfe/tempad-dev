@@ -14,12 +14,12 @@ import Section from '@/components/Section.vue'
 import SegmentedControl from '@/components/SegmentedControl.vue'
 import { useCopy, useDeepLinkGuard } from '@/composables'
 import {
+  AGENT_SKILL_INSTALL_COMMAND,
   getMcpClientCopyPayload,
   getNextMcpClientCopyVariant,
   MCP_CLIENTS,
   MCP_CLIENTS_BY_ID,
-  MCP_DEFAULT_CONFIG_SNIPPET,
-  MCP_SKILL_INSTALL_COMMAND
+  MCP_DEFAULT_CONFIG_SNIPPET
 } from '@/mcp/config'
 import { options } from '@/ui/state'
 
@@ -50,7 +50,6 @@ function buildBrandColorMap(theme: 'light' | 'dark'): Record<McpClientId, string
   return {
     vscode: resolveBrandColor(MCP_CLIENTS_BY_ID.vscode.brandColor, theme) ?? '',
     cursor: resolveBrandColor(MCP_CLIENTS_BY_ID.cursor.brandColor, theme) ?? '',
-    windsurf: resolveBrandColor(MCP_CLIENTS_BY_ID.windsurf.brandColor, theme) ?? '',
     claude: resolveBrandColor(MCP_CLIENTS_BY_ID.claude.brandColor, theme) ?? '',
     codex: resolveBrandColor(MCP_CLIENTS_BY_ID.codex.brandColor, theme) ?? '',
     trae: resolveBrandColor(MCP_CLIENTS_BY_ID.trae.brandColor, theme) ?? ''
@@ -134,7 +133,7 @@ async function handleClientClick(client: McpClientDisplay) {
 <template>
   <Section class="tp-mcp-section" flat>
     <template #header>
-      <div class="tp-row">MCP server</div>
+      <div class="tp-row">Agent integration</div>
     </template>
     <div class="tp-grid tp-grid-2 tp-mcp-field">
       <label>Enable MCP server</label>
@@ -157,13 +156,13 @@ async function handleClientClick(client: McpClientDisplay) {
             variant="secondary"
             title="Copy skills add command"
             class="tp-mcp-client-button tp-grid-end"
-            @click="copy(MCP_SKILL_INSTALL_COMMAND, copyMessages.command)"
+            @click="copy(AGENT_SKILL_INSTALL_COMMAND, copyMessages.command)"
           >
             <Copy />
           </IconButton>
         </div>
         <div class="tp-mcp-description">
-          Configure your editor/agent to run the MCP server. You can use a quick setup below.
+          Configure your editor or agent to run the MCP server. You can use a quick setup below.
         </div>
         <div class="tp-row tp-mcp-clients">
           <IconButton
@@ -193,7 +192,7 @@ async function handleClientClick(client: McpClientDisplay) {
             target="_blank"
             rel="noopener"
             class="tp-mcp-link"
-            href="https://github.com/ecomfe/tempad-dev#mcp-server"
+            href="https://github.com/ecomfe/tempad-dev#agent-integration"
           >
             <ExternalLink />
             View setup guide
@@ -208,7 +207,6 @@ async function handleClientClick(client: McpClientDisplay) {
 :global([data-preferred-theme='light'] .tp-mcp-section) {
   --brand-color-vscode: v-bind('brandColorsByTheme.light.vscode');
   --brand-color-cursor: v-bind('brandColorsByTheme.light.cursor');
-  --brand-color-windsurf: v-bind('brandColorsByTheme.light.windsurf');
   --brand-color-claude: v-bind('brandColorsByTheme.light.claude');
   --brand-color-codex: v-bind('brandColorsByTheme.light.codex');
   --brand-color-trae: v-bind('brandColorsByTheme.light.trae');
@@ -217,7 +215,6 @@ async function handleClientClick(client: McpClientDisplay) {
 :global([data-preferred-theme='dark'] .tp-mcp-section) {
   --brand-color-vscode: v-bind('brandColorsByTheme.dark.vscode');
   --brand-color-cursor: v-bind('brandColorsByTheme.dark.cursor');
-  --brand-color-windsurf: v-bind('brandColorsByTheme.dark.windsurf');
   --brand-color-claude: v-bind('brandColorsByTheme.dark.claude');
   --brand-color-codex: v-bind('brandColorsByTheme.dark.codex');
   --brand-color-trae: v-bind('brandColorsByTheme.dark.trae');

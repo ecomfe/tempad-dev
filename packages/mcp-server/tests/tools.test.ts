@@ -185,7 +185,7 @@ describe('tools response helpers', () => {
     expect(textContent(connectivityError.content[0])).toContain('Tool "get_code" failed')
     expect(textContent(connectivityError.content[0])).toContain('[NO_ACTIVE_EXTENSION]')
     expect(textContent(connectivityError.content[0])).toContain('Troubleshooting:')
-    expect(textContent(connectivityError.content[0])).toContain('enable MCP')
+    expect(textContent(connectivityError.content[0])).toContain('enable the MCP server')
 
     const selectionError = createToolErrorResponse('get_code', {
       cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION },

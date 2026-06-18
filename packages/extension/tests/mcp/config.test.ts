@@ -64,16 +64,6 @@ describe('mcp/config', () => {
       'trae-cn://trae.ai-ide/mcp-import'
     )
 
-    expect(tempad.MCP_CLIENTS_BY_ID.windsurf.copyKind).toBe('config')
-    expect(JSON.parse(String(tempad.MCP_CLIENTS_BY_ID.windsurf.copyText))).toEqual({
-      mcpServers: {
-        'tempad-dev': {
-          command: 'npx',
-          args: ['-y', '@tempad-dev/mcp@latest']
-        }
-      }
-    })
-
     expect(tempad.MCP_CLIENTS_BY_ID.claude.copyKind).toBe('command')
     expect(tempad.MCP_CLIENTS_BY_ID.claude.copyText).toContain('claude mcp add --transport stdio')
     expect(tempad.MCP_CLIENTS_BY_ID.codex.copyKind).toBe('command')
@@ -86,12 +76,11 @@ describe('mcp/config', () => {
     expect(tempad.MCP_CLIENTS).toEqual([
       tempad.MCP_CLIENTS_BY_ID.vscode,
       tempad.MCP_CLIENTS_BY_ID.cursor,
-      tempad.MCP_CLIENTS_BY_ID.windsurf,
       tempad.MCP_CLIENTS_BY_ID.claude,
       tempad.MCP_CLIENTS_BY_ID.codex,
       tempad.MCP_CLIENTS_BY_ID.trae
     ])
     expect(tempad.MCP_DEFAULT_CONFIG_SNIPPET).toContain('"tempad-dev"')
-    expect(tempad.MCP_SKILL_INSTALL_COMMAND).toContain('npx skills add')
+    expect(tempad.AGENT_SKILL_INSTALL_COMMAND).toContain('npx skills add')
   })
 })

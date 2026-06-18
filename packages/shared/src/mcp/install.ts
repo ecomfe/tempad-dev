@@ -13,7 +13,7 @@ type StdioCommandConfig = BaseCommandConfig & {
   type: 'stdio'
 }
 
-export type McpClientId = 'vscode' | 'cursor' | 'windsurf' | 'claude' | 'codex' | 'trae'
+export type McpClientId = 'vscode' | 'cursor' | 'claude' | 'codex' | 'trae'
 
 export type McpBrandColor = string | [light: string, dark: string]
 export type McpClientCopyKind = 'command' | 'config'
@@ -95,18 +95,6 @@ function buildTraeDeepLink(protocol: 'trae' | 'trae-cn'): string {
   )}&config=${buildCursorConfigBase64()}`
 }
 
-function buildWindsurfConfigSnippet(): string {
-  return JSON.stringify(
-    {
-      mcpServers: {
-        [SERVER_NAME]: commandConfig
-      }
-    },
-    null,
-    2
-  )
-}
-
 function buildCodexConfigSnippet(): string {
   return [
     `[mcp_servers.${SERVER_NAME}]`,
@@ -170,7 +158,7 @@ export const MCP_DEFAULT_CONFIG_SNIPPET = JSON.stringify(
   2
 )
 
-export const MCP_SKILL_INSTALL_COMMAND = SKILL_INSTALL_COMMAND
+export const AGENT_SKILL_INSTALL_COMMAND = SKILL_INSTALL_COMMAND
 
 export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
   vscode: {
@@ -186,14 +174,6 @@ export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
     brandColor: ['#000', '#fff'],
     supportsDeepLink: true,
     deepLink: buildCursorDeepLink()
-  },
-  windsurf: {
-    id: 'windsurf',
-    name: 'Windsurf',
-    brandColor: ['#0B100F', '#F0F3F2'],
-    supportsDeepLink: false,
-    copyText: buildWindsurfConfigSnippet(),
-    copyKind: 'config'
   },
   claude: {
     id: 'claude',
@@ -226,7 +206,6 @@ export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
 export const MCP_CLIENTS: McpClientConfig[] = [
   MCP_CLIENTS_BY_ID.vscode,
   MCP_CLIENTS_BY_ID.cursor,
-  MCP_CLIENTS_BY_ID.windsurf,
   MCP_CLIENTS_BY_ID.claude,
   MCP_CLIENTS_BY_ID.codex,
   MCP_CLIENTS_BY_ID.trae

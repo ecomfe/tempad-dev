@@ -15,9 +15,8 @@
 
 快速配置方式：
 
-- VS Code / Cursor / TRAE：使用 TemPad Dev（Preferences → MCP server）中的深链接。
-- Windsurf：从同一面板复制 JSON 片段。
-- CLI：`claude mcp add --transport stdio "TemPad Dev" -- npx -y @tempad-dev/mcp@latest` 或 `codex mcp add "TemPad Dev" -- npx -y @tempad-dev/mcp@latest`。
+- VS Code / Cursor / TRAE：使用 TemPad Dev（Preferences → Agent integration）中的深链接。
+- Claude Code / Codex CLI：从同一面板复制或运行 CLI 命令。
 
 支持的工具和资源：
 
