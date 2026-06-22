@@ -40,13 +40,13 @@
   },
   "devDependencies": {
     "@tempad-dev/shared": "workspace:^0.1.0",
-    "@types/node": "^24.13.1",
+    "@types/node": "^24.13.2",
     "@types/proper-lockfile": "^4.1.4",
     "@types/ws": "^8.18.1",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
     "unplugin-raw": "^0.7.0",
-    "vitest": "4.1.8"
+    "vitest": "4.1.9"
   },
   "engines": {
     "node": ">=18.20.0"
