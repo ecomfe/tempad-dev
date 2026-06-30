@@ -214,6 +214,8 @@ With the TemPad Dev panel open and MCP enabled, the MCP server exposes:
 
 1. **Requirements**: Node.js 18.20.0+ (with `npx`) and TemPad Dev running in a Figma tab. Node.js is required for both the MCP server and the skills CLI.
 2. In TemPad Dev, open **Preferences → Agent integration**, then enable **Enable MCP server**.
+
+   > **Browser permissions**: TemPad Dev connects to the local MCP server over a WebSocket, which requires the browser to grant `figma.com` access to your local network. In Chrome's site permission popup for `figma.com`, make sure both **Apps on device** and **Local network** are enabled. Without these permissions the panel cannot reach the local MCP server and the connection stays **Unavailable**.
 3. Install the bundled agent integration when your client supports it. For Codex, install this repository's plugin marketplace and then install the **TemPad Dev** plugin:
 
    ```sh
