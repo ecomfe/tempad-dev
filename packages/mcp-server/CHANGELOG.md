@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.3
+
+- Improved the local browser-gateway connection flow so users do not see noisy failed WebSocket port probes while the MCP server is not running.
+
 ## 0.6.2
 
 - Added support for the extension's browser gateway connection flow, including keepalive messages and streamlined active-session state.
