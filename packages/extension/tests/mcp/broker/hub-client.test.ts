@@ -53,6 +53,18 @@ function stateMessage(activeId: string | null = null) {
   }
 }
 
+function installHubProbe(isReachable: (port: number) => boolean = () => true): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string) => {
+      const port = Number(new URL(url).port)
+      return isReachable(port)
+        ? Promise.resolve({ status: 426 } as Response)
+        : Promise.reject(new TypeError('fetch failed'))
+    })
+  )
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
@@ -63,13 +75,13 @@ describe('mcp/broker/hub-client', () => {
     const sockets: FakeWebSocket[] = []
     const snapshots: HubClientSnapshot[] = []
     vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
 
     const client = new McpHubClient(
       {
         onSnapshot: (snapshot) => snapshots.push(snapshot)
       },
       {
-        portProbe: () => true,
         reconnectDelayMs: 100,
         webSocketFactory(url) {
           const socket = new FakeWebSocket(url)
@@ -105,12 +117,12 @@ describe('mcp/broker/hub-client', () => {
   it('sends keepalive ping while the socket is open', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
     const sockets: FakeWebSocket[] = []
     const client = new McpHubClient(
       {},
       {
         keepaliveIntervalMs: 20,
-        portProbe: () => true,
         webSocketFactory(url) {
           const socket = new FakeWebSocket(url)
           sockets.push(socket)
@@ -130,11 +142,11 @@ describe('mcp/broker/hub-client', () => {
 
   it('ignores stale socket probes after a stop/start cycle', async () => {
     vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
     const sockets: FakeWebSocket[] = []
     const client = new McpHubClient(
       {},
       {
-        portProbe: () => true,
         webSocketFactory(url) {
           const socket = new FakeWebSocket(url)
           sockets.push(socket)
@@ -163,11 +175,11 @@ describe('mcp/broker/hub-client', () => {
 
   it('ignores stale events from a replaced socket', async () => {
     vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
     const sockets: FakeWebSocket[] = []
     const client = new McpHubClient(
       {},
       {
-        portProbe: () => true,
         webSocketFactory(url) {
           const socket = new FakeWebSocket(url)
           sockets.push(socket)
@@ -196,12 +208,12 @@ describe('mcp/broker/hub-client', () => {
 
   it('parses hub registration, state, and tool calls', async () => {
     vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
     const sockets: FakeWebSocket[] = []
     const toolCall = vi.fn()
     const client = new McpHubClient(
       { onToolCall: toolCall },
       {
-        portProbe: () => true,
         webSocketFactory(url) {
           const socket = new FakeWebSocket(url)
           sockets.push(socket)
@@ -240,13 +252,13 @@ describe('mcp/broker/hub-client', () => {
     vi.stubGlobal('WebSocket', { OPEN: 1 })
     const sockets: FakeWebSocket[] = []
     const probedPorts: number[] = []
+    installHubProbe((port) => {
+      probedPorts.push(port)
+      return port === 8127
+    })
     const client = new McpHubClient(
       {},
       {
-        portProbe(port) {
-          probedPorts.push(port)
-          return port === 8127
-        },
         webSocketFactory(url) {
           const socket = new FakeWebSocket(url)
           sockets.push(socket)
@@ -261,5 +273,39 @@ describe('mcp/broker/hub-client', () => {
     expect(probedPorts).toEqual([6220, 7431, 8127])
     expect(sockets).toHaveLength(1)
     expect(sockets[0]?.url).toBe('ws://127.0.0.1:8127')
+  })
+
+  it('ignores stale probe failures after stop', async () => {
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    let rejectProbe: ((reason?: unknown) => void) | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((_resolve, reject) => {
+            rejectProbe = reject
+          })
+      )
+    )
+    const sockets: FakeWebSocket[] = []
+    const client = new McpHubClient(
+      {},
+      {
+        webSocketFactory(url) {
+          const socket = new FakeWebSocket(url)
+          sockets.push(socket)
+          return socket as unknown as WebSocket
+        }
+      }
+    )
+
+    client.start()
+    await flushMicrotasks()
+    client.stop()
+    rejectProbe?.(new TypeError('fetch failed'))
+    await flushMicrotasks()
+
+    expect(client.getSnapshot()).toMatchObject({ errorMessage: null, status: 'idle' })
+    expect(sockets).toHaveLength(0)
   })
 })

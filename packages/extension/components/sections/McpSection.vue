@@ -34,7 +34,6 @@ const mcpOptions = [
 const clientsExpanded = ref(false)
 
 type McpClientDisplay = Omit<McpClientConfig, 'brandColor'> & {
-  brandColor?: string
   tooltip: string
 }
 
@@ -115,7 +114,7 @@ function getCopyMessage(client: McpClientConfig, kind: 'command' | 'config'): st
   return `${copyMessages[kind]}. Click again to copy ${nextLabel}`
 }
 
-async function handleClientClick(client: McpClientDisplay) {
+function handleClientClick(client: McpClientDisplay): void {
   if (client.deepLink) {
     guardDeepLink(client.deepLink, {
       message: `No response from ${client.name}. Please install it first.`,
@@ -180,7 +179,7 @@ function setMcpEnabled(enabled: boolean | undefined): void {
         <div class="tp-row tp-mcp-clients">
           <IconButton
             v-for="client in mcpClients"
-            :key="client.name"
+            :key="client.id"
             variant="secondary"
             :title="client.tooltip"
             class="tp-mcp-client-button"

@@ -26,12 +26,10 @@ export type McpHubClientEvents = {
   onToolCall?: (message: ToolCallMessage) => void
 }
 
-export type PortProbe = (port: number) => boolean | Promise<boolean>
 export type WebSocketFactory = (url: string) => WebSocket
 
 export type McpHubClientOptions = {
   keepaliveIntervalMs?: number
-  portProbe?: PortProbe
   reconnectDelayMs?: number
   webSocketFactory?: WebSocketFactory
 }
@@ -46,7 +44,6 @@ export class McpHubClient {
   private keepaliveTimer: IntervalHandle | null = null
   private lastSuccessfulPort: number | null = null
   private readonly keepaliveIntervalMs: number
-  private readonly portProbe: PortProbe
   private reconnectTimer: TimerHandle | null = null
   private readonly reconnectDelayMs: number
   private registeredId: string | null = null
@@ -59,7 +56,6 @@ export class McpHubClient {
     options: McpHubClientOptions = {}
   ) {
     this.keepaliveIntervalMs = options.keepaliveIntervalMs ?? KEEPALIVE_INTERVAL_MS
-    this.portProbe = options.portProbe ?? probeLocalHubPort
     this.reconnectDelayMs = options.reconnectDelayMs ?? RECONNECT_DELAY_MS
     this.webSocketFactory = options.webSocketFactory ?? ((url) => new WebSocket(url))
   }
@@ -125,11 +121,10 @@ export class McpHubClient {
     for (const candidatePort of this.getPortCandidates()) {
       if (!this.isCurrentConnection(epoch)) return
       try {
-        if (!(await this.portProbe(candidatePort))) {
-          this.errorMessage = LOCAL_HUB_UNREACHABLE_MESSAGE
-          continue
-        }
+        const isReachable = await probeLocalHubPort(candidatePort)
         if (!this.isCurrentConnection(epoch)) return
+        if (!isReachable) continue
+
         const ws = await this.openWebSocket(candidatePort)
         if (!this.isCurrentConnection(epoch)) {
           ws.close()
@@ -141,7 +136,7 @@ export class McpHubClient {
         this.startKeepalive()
         return
       } catch {
-        this.errorMessage = LOCAL_HUB_UNREACHABLE_MESSAGE
+        if (!this.isCurrentConnection(epoch)) return
       }
     }
 
