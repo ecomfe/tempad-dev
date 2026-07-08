@@ -534,8 +534,6 @@ function broadcastState(): void {
   const message: StateMessage = {
     type: 'state',
     activeId,
-    count: extensions.length,
-    port: selectedWsPort,
     assetServerUrl: assetHttpServer.getBaseUrl()
   }
   extensions.forEach((ext) => ext.ws.send(JSON.stringify(message)))
@@ -767,6 +765,9 @@ activeWss.on('connection', (ws) => {
         } else {
           resolve(id, payload)
         }
+        break
+      }
+      case 'ping': {
         break
       }
     }

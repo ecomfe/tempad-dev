@@ -10,6 +10,7 @@ describe('shared root index barrel', () => {
     expect(shared.TEMPAD_MCP_ERROR_CODES).toBe(mcp.TEMPAD_MCP_ERROR_CODES)
     expect(shared.GetCodeParametersSchema).toBe(mcp.GetCodeParametersSchema)
     expect(shared.parseMessageToExtension).toBe(mcp.parseMessageToExtension)
+    expect(shared.parsePageToBridgeMessage).toBe(mcp.parsePageToBridgeMessage)
     expect(shared.measureCallToolResultBytes).toBe(mcp.measureCallToolResultBytes)
   })
 })

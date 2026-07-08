@@ -21,6 +21,7 @@ import {
   MCP_CLIENTS_BY_ID,
   MCP_DEFAULT_CONFIG_SNIPPET
 } from '@/mcp/config'
+import { MCP_PERMISSION_REQUEST_EVENT } from '@/mcp/permissions'
 import { options } from '@/ui/state'
 
 import ExternalLink from '../icons/ExternalLink.vue'
@@ -128,6 +129,13 @@ async function handleClientClick(client: McpClientDisplay) {
     toggleCopyVariant(client)
   }
 }
+
+function setMcpEnabled(enabled: boolean | undefined): void {
+  if (enabled) {
+    window.dispatchEvent(new CustomEvent(MCP_PERMISSION_REQUEST_EVENT))
+  }
+  options.value.mcpOn = enabled === true
+}
 </script>
 
 <template>
@@ -137,7 +145,12 @@ async function handleClientClick(client: McpClientDisplay) {
     </template>
     <div class="tp-grid tp-grid-2 tp-mcp-field">
       <label>Enable MCP server</label>
-      <SegmentedControl class="tp-grid-end" :options="mcpOptions" v-model="options.mcpOn" />
+      <SegmentedControl
+        class="tp-grid-end"
+        :options="mcpOptions"
+        :model-value="options.mcpOn"
+        @update:model-value="setMcpEnabled"
+      />
     </div>
     <template v-if="options.mcpOn">
       <button

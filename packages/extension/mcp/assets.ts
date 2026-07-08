@@ -9,9 +9,23 @@ import { createCodedError } from './errors'
 const uploadedAssets = new Set<string>()
 const inflightUploads = new Map<string, Promise<void>>()
 let assetServerUrl: string | null = null
+let assetUploader: AssetUploader | null = null
+
+export type AssetUploadRequest = {
+  bytes: Uint8Array
+  hash: string
+  metadata?: { width?: number; height?: number; themeable?: boolean }
+  mimeType: string
+}
+
+export type AssetUploader = (request: AssetUploadRequest) => Promise<void>
 
 export function setAssetServerUrl(url: string | null): void {
   assetServerUrl = url
+}
+
+export function setAssetUploader(uploader: AssetUploader | null): void {
+  assetUploader = uploader
 }
 
 export function resetUploadedAssets(): void {
@@ -57,7 +71,7 @@ export async function ensureAssetUploaded(
     return descriptor
   }
 
-  const promise = upload(url, bytes, mimeType, metadata)
+  const promise = uploadAsset({ bytes, hash, metadata, mimeType })
     .then(() => {
       uploadedAssets.add(uploadKey)
       logger.log(`Uploaded asset ${hash.slice(0, 8)} (${mimeType}, ${size} bytes) to ${url}`)
@@ -72,33 +86,18 @@ export async function ensureAssetUploaded(
   return descriptor
 }
 
-async function upload(
-  url: string,
-  bytes: Uint8Array,
-  mimeType: string,
-  metadata?: { width?: number; height?: number; themeable?: boolean }
-) {
+async function uploadAsset(request: AssetUploadRequest): Promise<void> {
+  if (!assetUploader) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.TRANSPORT_NOT_CONNECTED,
+      'MCP asset upload bridge is not connected.'
+    )
+  }
   try {
-    const headers: Record<string, string> = {
-      'Content-Type': mimeType
-    }
-    if (metadata?.width) headers['X-Asset-Width'] = String(metadata.width)
-    if (metadata?.height) headers['X-Asset-Height'] = String(metadata.height)
-    if (metadata?.themeable) headers['X-Asset-Themeable'] = 'true'
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: new Blob([toArrayBuffer(bytes)], { type: mimeType })
-    })
-
-    if (!response.ok) {
-      logger.error('Asset upload failed.', url, response.status, response.statusText)
-      throw new Error(`Upload failed with status ${response.status} ${response.statusText}`)
-    }
+    await assetUploader(request)
   } catch (error) {
-    logger.error('Failed to upload asset via HTTP.', error)
-    throw error instanceof Error ? error : new Error('Failed to upload asset via HTTP.')
+    logger.error('Failed to upload asset via MCP bridge.', error)
+    throw error instanceof Error ? error : new Error('Failed to upload asset via MCP bridge.')
   }
 }
 

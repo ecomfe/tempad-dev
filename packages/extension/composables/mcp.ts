@@ -1,229 +1,134 @@
-import { parseMessageToExtension } from '@tempad-dev/shared'
-import { MCP_PORT_CANDIDATES } from '@tempad-dev/shared'
+import type { BridgeToPageMessage, PageToBridgeMessage } from '@tempad-dev/shared'
+
 import {
-  createSharedComposable,
-  useDocumentVisibility,
-  useEventListener,
-  useIdle,
-  useTimeoutFn,
-  useWindowFocus
-} from '@vueuse/core'
+  MCP_TOOL_TIMEOUT_MS,
+  TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
+  TEMPAD_MCP_BROWSER_SOURCE,
+  parseBridgeToPageMessage
+} from '@tempad-dev/shared'
+import { createSharedComposable, useEventListener } from '@vueuse/core'
 import { computed, shallowRef, watch } from 'vue'
 
-import type { McpToolArgs, McpToolName, MCPHandlers } from '@/mcp/runtime'
-
-import { resetUploadedAssets, setAssetServerUrl } from '@/mcp/assets'
+import {
+  type AssetUploadRequest,
+  resetUploadedAssets,
+  setAssetServerUrl,
+  setAssetUploader
+} from '@/mcp/assets'
 import { coerceToolErrorPayload } from '@/mcp/errors'
-import { MCP_TOOL_HANDLERS } from '@/mcp/runtime'
-import { setMcpSocket } from '@/mcp/transport'
+import { runMcpTool } from '@/mcp/runtime'
 import { layoutReady, options, runtimeMode } from '@/ui/state'
-import { logger } from '@/utils/log'
-
-const RECONNECT_DELAY_MS = 3000
-const IDLE_TIMEOUT_MS = 10000
 
 export type McpStatus = 'disabled' | 'connecting' | 'connected' | 'error'
-
-function getPortCandidates(lastSuccessfulPort: number | null): number[] {
-  if (lastSuccessfulPort && MCP_PORT_CANDIDATES.includes(lastSuccessfulPort)) {
-    return [lastSuccessfulPort, ...MCP_PORT_CANDIDATES.filter((p) => p !== lastSuccessfulPort)]
-  }
-  return MCP_PORT_CANDIDATES
+type PendingAssetUpload = {
+  reject: (error: Error) => void
+  resolve: () => void
+  timer: ReturnType<typeof setTimeout>
 }
+type AssetUploadResultMessage = Extract<BridgeToPageMessage, { type: 'mcp.assetUploadResult' }>
 
 export const useMcp = createSharedComposable(() => {
+  const sessionId = crypto.randomUUID()
+  const pageMessageBase = {
+    sessionId,
+    source: TEMPAD_MCP_BROWSER_SOURCE,
+    version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+  } satisfies Pick<PageToBridgeMessage, 'sessionId' | 'source' | 'version'>
+
   const status = shallowRef<McpStatus>('disabled')
-  const port = shallowRef<number | null>(null)
   const count = shallowRef(0)
   const activeId = shallowRef<string | null>(null)
-  const selfId = shallowRef<string | null>(null)
   const errorMessage = shallowRef<string | null>(null)
-  const socket = shallowRef<WebSocket | null>(null)
 
-  let lastSuccessfulPort: number | null = null
-  let isConnecting = false
-  const documentVisibility = useDocumentVisibility()
-  const { idle } = useIdle(IDLE_TIMEOUT_MS)
-  const focused = useWindowFocus()
+  let enabledWithBridge = false
+  const pendingAssetUploads = new Map<string, PendingAssetUpload>()
 
-  const isWindowActive = computed(() => {
-    return documentVisibility.value === 'visible' && !idle.value && focused.value
-  })
-
-  const { start: startReconnectTimer, stop: stopReconnectTimer } = useTimeoutFn(
-    () => {
-      connect()
-    },
-    RECONNECT_DELAY_MS,
-    { immediate: false }
+  const selfActive = computed(() => activeId.value === sessionId)
+  const canEnable = computed(
+    () => runtimeMode.value === 'standard' && options.value.mcpOn && layoutReady.value
   )
+
+  function postPageMessage(message: PageToBridgeMessage): void {
+    window.postMessage(message, location.origin)
+  }
 
   function resetState() {
     count.value = 0
     activeId.value = null
-    selfId.value = null
-    port.value = null
   }
 
-  function cleanupSocket() {
-    const currentSocket = socket.value
-    socket.value = null
-    setMcpSocket(null)
-    if (currentSocket) {
-      try {
-        currentSocket.close()
-      } catch (error) {
-        logger.warn('Failed to close socket:', error)
-      }
-    }
-  }
-
-  function scheduleReconnect() {
-    stopReconnectTimer()
-    if (options.value.mcpOn && layoutReady.value) {
-      startReconnectTimer()
-    }
-  }
-
-  function openWebSocket(targetPort: number): Promise<WebSocket> {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${targetPort}`)
-      const handleOpen = () => {
-        ws.removeEventListener('error', handleError)
-        resolve(ws)
-      }
-      const handleError = (event: Event) => {
-        ws.removeEventListener('open', handleOpen)
-        ws.close()
-        const err = event instanceof ErrorEvent ? event.error : null
-        reject(err ?? new Error('WebSocket connection failed'))
-      }
-      ws.addEventListener('open', handleOpen, { once: true })
-      ws.addEventListener('error', handleError, { once: true })
+  function sendEnable() {
+    enabledWithBridge = true
+    status.value = 'connecting'
+    errorMessage.value = null
+    postPageMessage({
+      ...pageMessageBase,
+      type: 'mcp.enable'
     })
   }
 
-  async function connect() {
-    if (
-      runtimeMode.value !== 'standard' ||
-      !options.value.mcpOn ||
-      !layoutReady.value ||
-      isConnecting ||
-      socket.value ||
-      !isWindowActive.value
-    ) {
-      return
-    }
-
-    isConnecting = true
-    stopReconnectTimer()
-    status.value = 'connecting'
-
-    const candidates = getPortCandidates(lastSuccessfulPort)
-
-    for (const candidatePort of candidates) {
-      try {
-        const ws = await openWebSocket(candidatePort)
-        if (!options.value.mcpOn) {
-          ws.close()
-          break
-        }
-        lastSuccessfulPort = candidatePort
-        port.value = candidatePort
-        errorMessage.value = null
-        socket.value = ws
-        setMcpSocket(ws)
-        break
-      } catch (err) {
-        errorMessage.value =
-          err instanceof Error ? err.message : 'Failed to connect to MCP WebSocket server'
-      }
-    }
-
-    if (!socket.value && options.value.mcpOn) {
-      scheduleReconnect()
-    }
-
-    isConnecting = false
+  function sendDisable() {
+    if (!enabledWithBridge) return
+    enabledWithBridge = false
+    postPageMessage({
+      ...pageMessageBase,
+      type: 'mcp.disable'
+    })
   }
-
-  async function handleMessage(event: MessageEvent<string>) {
-    const payload = typeof event.data === 'string' ? event.data : ''
-    const message = parseMessageToExtension(payload)
-
-    if (!message) {
-      errorMessage.value = 'Received malformed message from MCP server'
-      return
-    }
-
-    if (message.type === 'registered') {
-      selfId.value = message.id
-      return
-    }
-
-    if (message.type === 'state') {
-      activeId.value = message.activeId
-      count.value = message.count
-      port.value = message.port
-      setAssetServerUrl(message.assetServerUrl)
-      status.value = 'connected'
-      errorMessage.value = null
-      return
-    }
-
-    if (message.type === 'toolCall') {
-      const { name, args } = message.payload
-      if (!isMcpToolName(name)) {
-        throw new Error(`No handler registered for tool "${name}".`)
-      }
-      await processToolCall(message.id, name, args as McpToolArgs<typeof name> | undefined)
-    }
-  }
-
-  function handleClose(event: CloseEvent) {
-    if (event.wasClean === false) {
-      errorMessage.value = 'MCP connection closed unexpectedly'
-    }
-    socket.value = null
-    setMcpSocket(null)
-    resetState()
-    resetUploadedAssets()
-    if (!options.value.mcpOn) {
-      status.value = 'disabled'
-      return
-    }
-    status.value = 'connecting'
-    scheduleReconnect()
-  }
-
-  function handleError(event: Event) {
-    const message = event instanceof ErrorEvent ? event.message : 'MCP connection error'
-    errorMessage.value = message
-  }
-
-  useEventListener(socket, 'message', (event: MessageEvent<string>) => handleMessage(event))
-  useEventListener(socket, 'close', (event: CloseEvent) => handleClose(event))
-  useEventListener(socket, 'error', handleError)
 
   function start() {
-    status.value = 'connecting'
-    resetState()
-    stopReconnectTimer()
-    connect()
+    sendEnable()
   }
 
   function stop() {
-    stopReconnectTimer()
-    cleanupSocket()
+    sendDisable()
+    rejectPendingAssetUploads('MCP disabled before asset upload completed.')
     resetState()
+    setAssetServerUrl(null)
+    resetUploadedAssets()
     status.value = 'disabled'
     errorMessage.value = null
   }
 
+  async function handleBridgeMessage(event: MessageEvent<unknown>) {
+    if (event.source !== window || event.origin !== location.origin) return
+
+    const message = parseBridgeToPageMessage(event.data)
+    if (!message) return
+    if (!enabledWithBridge) return
+
+    if (message.type === 'mcp.assetUploadResult') {
+      handleAssetUploadResult(message)
+      return
+    }
+
+    if (message.type === 'mcp.state') {
+      const state = message.payload
+      if (state.sessionId !== sessionId) return
+      activeId.value = state.activeSessionId
+      count.value = state.sessionCount
+      errorMessage.value = state.errorMessage
+      status.value = state.status
+      setAssetServerUrl(state.assetServerUrl ?? null)
+      if (state.status !== 'connected') {
+        resetUploadedAssets()
+      }
+      return
+    }
+
+    if (message.type === 'mcp.toolCall') {
+      const { name, args } = message.payload
+      await processToolCall(message.callId, name, args)
+    }
+  }
+
+  useEventListener(window, 'message', (event: MessageEvent<unknown>) => handleBridgeMessage(event))
+  setAssetUploader(uploadAssetThroughBridge)
+
   watch(
-    () => options.value.mcpOn,
+    canEnable,
     (enabled) => {
-      if (enabled && runtimeMode.value === 'standard') {
+      if (enabled) {
         start()
       } else {
         stop()
@@ -232,97 +137,100 @@ export const useMcp = createSharedComposable(() => {
     { immediate: true }
   )
 
-  watch(isWindowActive, (active) => {
-    if (active) {
-      if (
-        runtimeMode.value === 'standard' &&
-        options.value.mcpOn &&
-        layoutReady.value &&
-        !socket.value &&
-        !isConnecting
-      ) {
-        logger.log('MCP connection polling resumed.')
-        connect()
-      }
-    } else {
-      if (options.value.mcpOn && layoutReady.value && !socket.value) {
-        logger.log('MCP connection polling paused.')
-        stopReconnectTimer()
-      }
-    }
-  })
-
-  watch(layoutReady, (ready) => {
-    if (!ready) {
-      stopReconnectTimer()
-      cleanupSocket()
-      resetState()
-      resetUploadedAssets()
-      errorMessage.value = null
-      if (!options.value.mcpOn) {
-        status.value = 'disabled'
-      } else {
-        status.value = 'connecting'
-      }
-      return
-    }
-    if (runtimeMode.value === 'standard' && options.value.mcpOn && !socket.value && !isConnecting) {
-      connect()
-    }
-  })
-
-  const selfActive = computed(() => !!selfId.value && selfId.value === activeId.value)
-
   function activate() {
-    if (socket.value?.readyState === WebSocket.OPEN) {
-      logger.log('Activating MCP connection...')
-      socket.value.send(JSON.stringify({ type: 'activate' }))
+    if (!enabledWithBridge) return
+    postPageMessage({
+      ...pageMessageBase,
+      type: 'mcp.activateSession'
+    })
+  }
+
+  async function processToolCall(req: string, name: string, rawArgs: unknown) {
+    try {
+      const result = await runMcpTool(name, rawArgs)
+      postPageMessage({
+        ...pageMessageBase,
+        callId: req,
+        payload: result,
+        type: 'mcp.toolResult'
+      })
+    } catch (error: unknown) {
+      postPageMessage({
+        ...pageMessageBase,
+        callId: req,
+        error: coerceToolErrorPayload(error),
+        type: 'mcp.toolResult'
+      })
     }
   }
 
-  function isMcpToolName(name: string): name is McpToolName {
-    return name in MCP_TOOL_HANDLERS
+  function uploadAssetThroughBridge(request: AssetUploadRequest): Promise<void> {
+    if (!enabledWithBridge) {
+      return Promise.reject(new Error('MCP is not connected.'))
+    }
+
+    const requestId = crypto.randomUUID()
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingAssetUploads.delete(requestId)
+        reject(new Error('MCP asset upload timed out.'))
+      }, MCP_TOOL_TIMEOUT_MS)
+      pendingAssetUploads.set(requestId, { reject, resolve, timer })
+      try {
+        postPageMessage({
+          ...pageMessageBase,
+          payload: {
+            base64: bytesToBase64(request.bytes),
+            hash: request.hash,
+            metadata: request.metadata,
+            mimeType: request.mimeType
+          },
+          requestId,
+          type: 'mcp.uploadAsset'
+        })
+      } catch (error) {
+        pendingAssetUploads.delete(requestId)
+        clearTimeout(timer)
+        reject(error instanceof Error ? error : new Error('Failed to request asset upload.'))
+      }
+    })
   }
 
-  type ToolArgsByName = { [K in McpToolName]: McpToolArgs<K> }
-
-  async function processToolCall<N extends McpToolName>(req: string, name: N, rawArgs: unknown) {
-    const currentSocket = socket.value
-    if (!currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
+  function handleAssetUploadResult(message: AssetUploadResultMessage): void {
+    if (message.sessionId !== sessionId) return
+    const pending = pendingAssetUploads.get(message.requestId)
+    if (!pending) return
+    pendingAssetUploads.delete(message.requestId)
+    clearTimeout(pending.timer)
+    if (message.error) {
+      pending.reject(new Error(message.error.message))
       return
     }
+    pending.resolve()
+  }
 
-    try {
-      const handler = MCP_TOOL_HANDLERS[name] as (
-        args: ToolArgsByName[N] | undefined
-      ) => ReturnType<MCPHandlers[N]>
-      const result = await handler(rawArgs as ToolArgsByName[N] | undefined)
-      currentSocket.send(
-        JSON.stringify({
-          type: 'toolResult',
-          id: req,
-          payload: result
-        })
-      )
-    } catch (error: unknown) {
-      currentSocket.send(
-        JSON.stringify({
-          type: 'toolResult',
-          id: req,
-          error: coerceToolErrorPayload(error)
-        })
-      )
+  function rejectPendingAssetUploads(message: string): void {
+    for (const pending of pendingAssetUploads.values()) {
+      clearTimeout(pending.timer)
+      pending.reject(new Error(message))
     }
+    pendingAssetUploads.clear()
   }
 
   return {
     status,
-    port,
     count,
-    activeId,
-    selfId,
     selfActive,
     errorMessage,
     activate
   }
 })
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+  }
+  return btoa(binary)
+}

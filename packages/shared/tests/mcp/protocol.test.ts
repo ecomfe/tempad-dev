@@ -14,16 +14,12 @@ describe('mcp/protocol', () => {
         JSON.stringify({
           type: 'state',
           activeId: 'abc',
-          count: 2,
-          port: 7431,
           assetServerUrl: 'https://assets.example.com'
         })
       )
     ).toEqual({
       type: 'state',
       activeId: 'abc',
-      count: 2,
-      port: 7431,
       assetServerUrl: 'https://assets.example.com'
     })
 
@@ -60,6 +56,8 @@ describe('mcp/protocol', () => {
       payload: { ok: true },
       error: undefined
     })
+
+    expect(parseMessageFromExtension('{"type":"ping"}')).toEqual({ type: 'ping' })
   })
 
   it('returns null for invalid json', () => {
@@ -69,6 +67,17 @@ describe('mcp/protocol', () => {
 
   it('returns null when schema validation fails', () => {
     expect(parseMessageToExtension(JSON.stringify({ type: 'state', activeId: null }))).toBeNull()
+    expect(
+      parseMessageToExtension(
+        JSON.stringify({
+          type: 'state',
+          activeId: null,
+          assetServerUrl: 'https://assets.example.com',
+          count: 1,
+          port: 6220
+        })
+      )
+    ).toBeNull()
     expect(parseMessageFromExtension(JSON.stringify({ type: 'toolResult' }))).toBeNull()
     expect(parseMessageFromExtension(JSON.stringify({ type: 'unknown' }))).toBeNull()
   })

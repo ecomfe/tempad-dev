@@ -57,7 +57,6 @@ export default defineConfig({
         'rewrite/runtime.ts',
         'rewrite/shared.ts',
         'mcp/errors.ts',
-        'mcp/transport.ts',
         'mcp/tools/config.ts',
         'mcp/tools/structure.ts',
         'mcp/tools/screenshot.ts',

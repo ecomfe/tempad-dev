@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import * as mcp from '../../src/mcp'
+import * as browserGateway from '../../src/mcp/browser-gateway'
 import * as constants from '../../src/mcp/constants'
 import * as errors from '../../src/mcp/errors'
 import * as install from '../../src/mcp/install'
@@ -19,6 +20,7 @@ describe('shared/mcp index barrel', () => {
 
     expect(mcp.parseMessageToExtension).toBe(protocol.parseMessageToExtension)
     expect(mcp.parseMessageFromExtension).toBe(protocol.parseMessageFromExtension)
+    expect(mcp.parsePageToBridgeMessage).toBe(browserGateway.parsePageToBridgeMessage)
 
     expect(mcp.AssetDescriptorSchema).toBe(tools.AssetDescriptorSchema)
     expect(mcp.GetCodeParametersSchema).toBe(tools.GetCodeParametersSchema)

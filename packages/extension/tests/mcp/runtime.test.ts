@@ -116,6 +116,30 @@ describe('mcp/runtime', () => {
     expect(result).toEqual({ blocks: [] })
   })
 
+  it('routes browser bridge calls through the runtime dispatcher', async () => {
+    const node = createSceneNode('node-1')
+    setFigmaGetNodeById(node)
+    mocks.runGetCode.mockResolvedValue({ blocks: [] })
+
+    const runtime = await importRuntime()
+    const result = await runtime.runMcpTool('get_code', {
+      nodeId: 'node-1',
+      preferredLang: 'jsx'
+    })
+
+    expect(mocks.runGetCode).toHaveBeenCalledWith([node], 'jsx', undefined, undefined, undefined)
+    expect(result).toEqual({ blocks: [] })
+  })
+
+  it('rejects unknown bridge tool names at the runtime boundary', async () => {
+    setFigmaGetNodeById(null)
+    const runtime = await importRuntime()
+
+    await expect(runtime.runMcpTool('missing', {})).rejects.toThrow(
+      'No handler registered for tool "missing".'
+    )
+  })
+
   it('routes window get_code debug overrides only through tempadTools exposure', async () => {
     const node = createSceneNode('node-1')
     vi.stubGlobal('window', {} as Window)

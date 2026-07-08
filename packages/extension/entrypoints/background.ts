@@ -1,3 +1,4 @@
+import { startMcpServiceWorkerBroker } from '@/mcp/broker/service-worker'
 import rules from '@/public/rules/figma.json'
 import { isRules, loadRules, RULES_URL } from '@/rewrite/shared'
 import { logger } from '@/utils/log'
@@ -44,6 +45,8 @@ async function syncRules() {
 }
 
 export default defineBackground(() => {
+  startMcpServiceWorkerBroker()
+
   browser.runtime.onInstalled.addListener(syncRules)
 
   browser.runtime.onStartup.addListener(syncRules)

@@ -1,0 +1,132 @@
+import { describe, expect, it } from 'vitest'
+
+import {
+  TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
+  TEMPAD_MCP_BROWSER_SOURCE,
+  parseBridgeToPageMessage,
+  parsePageToBridgeMessage
+} from '../../src/mcp/browser-gateway'
+
+const base = {
+  sessionId: 'session-1',
+  source: TEMPAD_MCP_BROWSER_SOURCE,
+  version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+} as const
+
+describe('mcp/browser-gateway', () => {
+  it('parses page-to-bridge control messages', () => {
+    expect(
+      parsePageToBridgeMessage({
+        ...base,
+        type: 'mcp.enable'
+      })
+    ).toEqual({
+      ...base,
+      type: 'mcp.enable'
+    })
+
+    expect(parsePageToBridgeMessage({ ...base, type: 'mcp.activateSession' })).toEqual({
+      ...base,
+      type: 'mcp.activateSession'
+    })
+
+    expect(
+      parsePageToBridgeMessage({
+        ...base,
+        payload: {
+          base64: 'AQID',
+          hash: 'abcdef12',
+          metadata: { height: 20, themeable: true, width: 10 },
+          mimeType: 'image/png'
+        },
+        requestId: 'upload-1',
+        type: 'mcp.uploadAsset'
+      })
+    ).toMatchObject({
+      requestId: 'upload-1',
+      type: 'mcp.uploadAsset'
+    })
+  })
+
+  it('parses bridge-to-page state and tool calls', () => {
+    expect(
+      parseBridgeToPageMessage({
+        payload: {
+          activeSessionId: 'session-1',
+          assetServerUrl: 'http://127.0.0.1:9000',
+          errorMessage: null,
+          sessionCount: 1,
+          sessionId: 'session-1',
+          status: 'connected'
+        },
+        source: TEMPAD_MCP_BROWSER_SOURCE,
+        type: 'mcp.state',
+        version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+      })
+    ).toMatchObject({
+      payload: {
+        sessionId: 'session-1',
+        status: 'connected'
+      },
+      type: 'mcp.state'
+    })
+
+    expect(
+      parseBridgeToPageMessage({
+        callId: 'call-1',
+        payload: { args: { nodeId: '1:2' }, name: 'get_code' },
+        source: TEMPAD_MCP_BROWSER_SOURCE,
+        type: 'mcp.toolCall',
+        version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+      })
+    ).toMatchObject({
+      callId: 'call-1',
+      type: 'mcp.toolCall'
+    })
+
+    expect(
+      parseBridgeToPageMessage({
+        requestId: 'upload-1',
+        sessionId: 'session-1',
+        source: TEMPAD_MCP_BROWSER_SOURCE,
+        type: 'mcp.assetUploadResult',
+        version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+      })
+    ).toEqual({
+      requestId: 'upload-1',
+      sessionId: 'session-1',
+      source: TEMPAD_MCP_BROWSER_SOURCE,
+      type: 'mcp.assetUploadResult',
+      version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+    })
+  })
+
+  it('rejects malformed or cross-protocol messages', () => {
+    expect(
+      parsePageToBridgeMessage({
+        ...base,
+        callId: 'call-1',
+        error: { code: 'NOT_A_TEMPAD_ERROR', message: 'Nope' },
+        type: 'mcp.toolResult'
+      })
+    ).toBeNull()
+    expect(parsePageToBridgeMessage({ ...base, source: 'other', type: 'mcp.enable' })).toBeNull()
+    expect(parsePageToBridgeMessage({ ...base, payload: {}, type: 'mcp.enable' })).toBeNull()
+    expect(
+      parsePageToBridgeMessage({
+        ...base,
+        payload: { base64: 'AQID', hash: 'bad', mimeType: 'image/png' },
+        requestId: 'upload-1',
+        type: 'mcp.uploadAsset'
+      })
+    ).toBeNull()
+    expect(
+      parseBridgeToPageMessage({
+        payload: { sessionId: 'session-1', status: 'connected' },
+        source: TEMPAD_MCP_BROWSER_SOURCE,
+        type: 'mcp.state',
+        version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+      })
+    ).toBeNull()
+  })
+})

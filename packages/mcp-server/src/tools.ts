@@ -212,7 +212,6 @@ function isConnectivityToolError(code: TempadMcpErrorCode | undefined, message: 
     (code ? CONNECTIVITY_ERROR_CODES.has(code) : false) ||
     /no active tempad dev extension/i.test(message) ||
     /asset server url is not configured/i.test(message) ||
-    /mcp transport is not connected/i.test(message) ||
     /websocket/i.test(message)
   )
 }

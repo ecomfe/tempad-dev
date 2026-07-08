@@ -1,3 +1,4 @@
+export * from './browser-gateway'
 export * from './constants'
 export * from './errors'
 export * from './install'

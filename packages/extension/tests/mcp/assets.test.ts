@@ -10,7 +10,12 @@ vi.mock('@/utils/log', () => ({
   }
 }))
 
-import { ensureAssetUploaded, resetUploadedAssets, setAssetServerUrl } from '@/mcp/assets'
+import {
+  ensureAssetUploaded,
+  resetUploadedAssets,
+  setAssetServerUrl,
+  setAssetUploader
+} from '@/mcp/assets'
 
 const DIGEST_BYTES = new Uint8Array(Array.from({ length: 32 }, (_, index) => index))
 const DIGEST_HEX = Array.from(DIGEST_BYTES)
@@ -29,6 +34,7 @@ function mockCryptoDigest() {
 afterEach(() => {
   resetUploadedAssets()
   setAssetServerUrl(null)
+  setAssetUploader(null)
   vi.unstubAllGlobals()
 })
 
@@ -44,8 +50,6 @@ describe('mcp/assets', () => {
 
   it('throws a coded error when asset server URL is missing', async () => {
     mockCryptoDigest()
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch)
 
     await expect(ensureAssetUploaded(new Uint8Array([1, 2, 3]), 'image/png')).rejects.toMatchObject(
       {
@@ -53,17 +57,24 @@ describe('mcp/assets', () => {
         message: expect.stringContaining('Asset server URL is not configured')
       }
     )
-    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('throws a coded error when the bridge uploader is unavailable', async () => {
+    mockCryptoDigest()
+    setAssetServerUrl('http://assets.local')
+
+    await expect(ensureAssetUploaded(new Uint8Array([1, 2, 3]), 'image/png')).rejects.toMatchObject(
+      {
+        code: TEMPAD_MCP_ERROR_CODES.TRANSPORT_NOT_CONNECTED,
+        message: 'MCP asset upload bridge is not connected.'
+      }
+    )
   })
 
   it('uploads assets once and reuses completed uploads from cache', async () => {
     mockCryptoDigest()
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      statusText: 'OK'
-    })
-    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch)
+    const uploadMock = vi.fn().mockResolvedValue(undefined)
+    setAssetUploader(uploadMock)
     setAssetServerUrl('http://assets.local')
 
     const bytes = new Uint8Array([10, 20, 30, 40])
@@ -79,17 +90,17 @@ describe('mcp/assets', () => {
       themeable: true
     })
 
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe(`http://assets.local/assets/${EXPECTED_HASH}`)
-    expect(init.method).toBe('POST')
-    expect(init.headers).toEqual({
-      'Content-Type': 'image/png',
-      'X-Asset-Width': '300',
-      'X-Asset-Height': '200',
-      'X-Asset-Themeable': 'true'
+    expect(uploadMock).toHaveBeenCalledTimes(1)
+    expect(uploadMock).toHaveBeenCalledWith({
+      bytes,
+      hash: EXPECTED_HASH,
+      metadata: {
+        height: 200,
+        themeable: true,
+        width: 300
+      },
+      mimeType: 'image/png'
     })
-    expect(init.body).toBeInstanceOf(Blob)
 
     expect(first).toEqual({
       hash: EXPECTED_HASH,
@@ -105,16 +116,12 @@ describe('mcp/assets', () => {
 
   it('deduplicates in-flight uploads for identical server/hash pairs', async () => {
     mockCryptoDigest()
-    let resolveResponse!: (value: { ok: boolean; status: number; statusText: string }) => void
-    const pending = new Promise<{ ok: boolean; status: number; statusText: string }>((resolve) => {
-      resolveResponse = resolve as (value: {
-        ok: boolean
-        status: number
-        statusText: string
-      }) => void
+    let resolveUpload!: () => void
+    const pending = new Promise<void>((resolve) => {
+      resolveUpload = resolve
     })
-    const fetchMock = vi.fn().mockReturnValue(pending)
-    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch)
+    const uploadMock = vi.fn().mockReturnValue(pending)
+    setAssetUploader(uploadMock)
     setAssetServerUrl('http://assets.local')
 
     // Subarray forces a copy path in toArrayBuffer.
@@ -124,21 +131,19 @@ describe('mcp/assets', () => {
 
     await Promise.resolve()
     await Promise.resolve()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    resolveResponse({ ok: true, status: 200, statusText: 'OK' })
+    expect(uploadMock).toHaveBeenCalledTimes(1)
+    resolveUpload()
 
     const [first, second] = await Promise.all([firstPromise, secondPromise])
     expect(first).toEqual(second)
   })
 
-  it('throws when upload endpoint returns a non-ok status', async () => {
+  it('propagates uploader errors', async () => {
     mockCryptoDigest()
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 413,
-      statusText: 'Too Large'
-    })
-    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch)
+    const uploadMock = vi
+      .fn()
+      .mockRejectedValue(new Error('Upload failed with status 413 Too Large'))
+    setAssetUploader(uploadMock)
     setAssetServerUrl('http://assets.local')
 
     await expect(ensureAssetUploaded(new Uint8Array([9, 9, 9]), 'image/png')).rejects.toThrow(
@@ -148,12 +153,12 @@ describe('mcp/assets', () => {
 
   it('normalizes non-error upload failures into Error instances', async () => {
     mockCryptoDigest()
-    const fetchMock = vi.fn().mockRejectedValue('network down')
-    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch)
+    const uploadMock = vi.fn().mockRejectedValue('network down')
+    setAssetUploader(uploadMock)
     setAssetServerUrl('http://assets.local')
 
     await expect(ensureAssetUploaded(new Uint8Array([5, 4, 3]), 'image/png')).rejects.toThrow(
-      'Failed to upload asset via HTTP.'
+      'Failed to upload asset via MCP bridge.'
     )
   })
 })

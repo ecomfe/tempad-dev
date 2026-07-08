@@ -122,8 +122,19 @@ export const WINDOW_TEMPAD_TOOL_HANDLERS: TempadWindowHandlers = {
   get_code: handleWindowGetCode
 }
 
-export type McpToolName = keyof MCPHandlers
-export type McpToolArgs<T extends McpToolName> = Parameters<MCPHandlers[T]>[0]
+type McpToolName = keyof MCPHandlers
+
+function isMcpToolName(name: string): name is McpToolName {
+  return name in MCP_TOOL_HANDLERS
+}
+
+export async function runMcpTool(name: string, args: unknown): Promise<unknown> {
+  if (!isMcpToolName(name)) {
+    throw new Error(`No handler registered for tool "${name}".`)
+  }
+  const handler = MCP_TOOL_HANDLERS[name] as (args?: unknown) => Promise<unknown>
+  return handler(args)
+}
 
 function exposeToolsOnWindow(): void {
   if (typeof window === 'undefined') {

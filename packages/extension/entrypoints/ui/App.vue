@@ -34,7 +34,7 @@ function toggleMinimized() {
   options.value.minimized = !options.value.minimized
 }
 
-const { status, selfActive, count, activate } = useMcp()
+const { status, selfActive, count, errorMessage, activate } = useMcp()
 
 const isMcpConnected = computed(() => status.value === 'connected')
 
@@ -52,7 +52,8 @@ const mcpBadgeVariant = computed(() => {
 
 const mcpBadgeTooltip = computed(() => {
   if (!isMcpConnected.value) {
-    return 'Unavailable'
+    if (status.value === 'connecting') return 'Connecting'
+    return errorMessage.value ?? 'MCP server is not running'
   }
 
   const fileCount = count.value || 0

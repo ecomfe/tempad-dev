@@ -3,29 +3,35 @@ import type { ZodType } from 'zod'
 import { z } from 'zod'
 
 // Messages from hub to extension
-export const RegisteredMessageSchema = z.object({
-  type: z.literal('registered'),
-  id: z.string()
-})
+export const RegisteredMessageSchema = z
+  .object({
+    type: z.literal('registered'),
+    id: z.string()
+  })
+  .strict()
 
-export const StateMessageSchema = z.object({
-  type: z.literal('state'),
-  activeId: z.string().nullable(),
-  count: z.number().nonnegative(),
-  port: z.number().positive(),
-  assetServerUrl: z.string().url()
-})
+export const StateMessageSchema = z
+  .object({
+    type: z.literal('state'),
+    activeId: z.string().nullable(),
+    assetServerUrl: z.string().url()
+  })
+  .strict()
 
-export const ToolCallPayloadSchema = z.object({
-  name: z.string(),
-  args: z.unknown()
-})
+export const ToolCallPayloadSchema = z
+  .object({
+    name: z.string(),
+    args: z.unknown()
+  })
+  .strict()
 
-export const ToolCallMessageSchema = z.object({
-  type: z.literal('toolCall'),
-  id: z.string(),
-  payload: ToolCallPayloadSchema
-})
+export const ToolCallMessageSchema = z
+  .object({
+    type: z.literal('toolCall'),
+    id: z.string(),
+    payload: ToolCallPayloadSchema
+  })
+  .strict()
 
 export const MessageToExtensionSchema = z.discriminatedUnion('type', [
   RegisteredMessageSchema,
@@ -34,20 +40,31 @@ export const MessageToExtensionSchema = z.discriminatedUnion('type', [
 ])
 
 // Messages from extension to hub
-export const ActivateMessageSchema = z.object({
-  type: z.literal('activate')
-})
+export const ActivateMessageSchema = z
+  .object({
+    type: z.literal('activate')
+  })
+  .strict()
 
-export const ToolResultMessageSchema = z.object({
-  type: z.literal('toolResult'),
-  id: z.string(),
-  payload: z.unknown().optional(),
-  error: z.unknown().optional()
-})
+export const ToolResultMessageSchema = z
+  .object({
+    type: z.literal('toolResult'),
+    id: z.string(),
+    payload: z.unknown().optional(),
+    error: z.unknown().optional()
+  })
+  .strict()
+
+export const PingMessageSchema = z
+  .object({
+    type: z.literal('ping')
+  })
+  .strict()
 
 export const MessageFromExtensionSchema = z.discriminatedUnion('type', [
   ActivateMessageSchema,
-  ToolResultMessageSchema
+  ToolResultMessageSchema,
+  PingMessageSchema
 ])
 
 export type RegisteredMessage = z.infer<typeof RegisteredMessageSchema>

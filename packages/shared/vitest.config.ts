@@ -11,6 +11,7 @@ export default defineConfig({
       include: [
         'src/index.ts',
         'src/mcp/index.ts',
+        'src/mcp/browser-gateway.ts',
         'src/mcp/protocol.ts',
         'src/mcp/tools.ts',
         'src/mcp/constants.ts',
