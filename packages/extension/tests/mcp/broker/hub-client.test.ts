@@ -39,8 +39,10 @@ class FakeWebSocket extends EventTarget {
   }
 }
 
-function flushMicrotasks(): Promise<void> {
-  return Promise.resolve().then(() => undefined)
+async function flushMicrotasks(): Promise<void> {
+  for (let index = 0; index < 5; index++) {
+    await Promise.resolve()
+  }
 }
 
 function stateMessage(activeId: string | null = null) {
@@ -67,6 +69,7 @@ describe('mcp/broker/hub-client', () => {
         onSnapshot: (snapshot) => snapshots.push(snapshot)
       },
       {
+        portProbe: () => true,
         reconnectDelayMs: 100,
         webSocketFactory(url) {
           const socket = new FakeWebSocket(url)
@@ -77,6 +80,7 @@ describe('mcp/broker/hub-client', () => {
     )
 
     client.start()
+    await flushMicrotasks()
     expect(sockets[0]?.url).toBe('ws://127.0.0.1:6220')
 
     sockets[0]?.fail()
@@ -92,6 +96,7 @@ describe('mcp/broker/hub-client', () => {
     client.stop()
     await flushMicrotasks()
     client.start()
+    await flushMicrotasks()
 
     expect(sockets[2]?.url).toBe('ws://127.0.0.1:7431')
     expect(snapshots.at(-1)?.status).toBe('connecting')
@@ -105,6 +110,7 @@ describe('mcp/broker/hub-client', () => {
       {},
       {
         keepaliveIntervalMs: 20,
+        portProbe: () => true,
         webSocketFactory(url) {
           const socket = new FakeWebSocket(url)
           sockets.push(socket)
@@ -114,6 +120,7 @@ describe('mcp/broker/hub-client', () => {
     )
 
     client.start()
+    await flushMicrotasks()
     sockets[0]?.open()
     await flushMicrotasks()
     vi.advanceTimersByTime(20)
@@ -127,6 +134,7 @@ describe('mcp/broker/hub-client', () => {
     const client = new McpHubClient(
       {},
       {
+        portProbe: () => true,
         webSocketFactory(url) {
           const socket = new FakeWebSocket(url)
           sockets.push(socket)
@@ -136,8 +144,10 @@ describe('mcp/broker/hub-client', () => {
     )
 
     client.start()
+    await flushMicrotasks()
     client.stop()
     client.start()
+    await flushMicrotasks()
 
     sockets[0]?.open()
     await flushMicrotasks()
@@ -157,6 +167,7 @@ describe('mcp/broker/hub-client', () => {
     const client = new McpHubClient(
       {},
       {
+        portProbe: () => true,
         webSocketFactory(url) {
           const socket = new FakeWebSocket(url)
           sockets.push(socket)
@@ -166,11 +177,13 @@ describe('mcp/broker/hub-client', () => {
     )
 
     client.start()
+    await flushMicrotasks()
     sockets[0]?.open()
     await flushMicrotasks()
     client.stop()
     await flushMicrotasks()
     client.start()
+    await flushMicrotasks()
     sockets[1]?.open()
     await flushMicrotasks()
     sockets[1]?.receive(stateMessage())
@@ -188,6 +201,7 @@ describe('mcp/broker/hub-client', () => {
     const client = new McpHubClient(
       { onToolCall: toolCall },
       {
+        portProbe: () => true,
         webSocketFactory(url) {
           const socket = new FakeWebSocket(url)
           sockets.push(socket)
@@ -197,6 +211,7 @@ describe('mcp/broker/hub-client', () => {
     )
 
     client.start()
+    await flushMicrotasks()
     sockets[0]?.open()
     await flushMicrotasks()
 
@@ -219,5 +234,32 @@ describe('mcp/broker/hub-client', () => {
       payload: { args: { nodeId: '1:2' }, name: 'get_code' },
       type: 'toolCall'
     })
+  })
+
+  it('skips WebSocket construction for unreachable candidate ports', async () => {
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    const sockets: FakeWebSocket[] = []
+    const probedPorts: number[] = []
+    const client = new McpHubClient(
+      {},
+      {
+        portProbe(port) {
+          probedPorts.push(port)
+          return port === 8127
+        },
+        webSocketFactory(url) {
+          const socket = new FakeWebSocket(url)
+          sockets.push(socket)
+          return socket as unknown as WebSocket
+        }
+      }
+    )
+
+    client.start()
+    await flushMicrotasks()
+
+    expect(probedPorts).toEqual([6220, 7431, 8127])
+    expect(sockets).toHaveLength(1)
+    expect(sockets[0]?.url).toBe('ws://127.0.0.1:8127')
   })
 })

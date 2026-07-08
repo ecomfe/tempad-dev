@@ -4,6 +4,7 @@ import { MCP_PORT_CANDIDATES, parseMessageToExtension } from '@tempad-dev/shared
 
 const RECONNECT_DELAY_MS = 3000
 const KEEPALIVE_INTERVAL_MS = 20000
+const PORT_PROBE_TIMEOUT_MS = 500
 const LOCAL_HUB_UNREACHABLE_MESSAGE =
   'MCP server is not running. Start your agent or copy the MCP configuration from Agent integration.'
 
@@ -25,10 +26,12 @@ export type McpHubClientEvents = {
   onToolCall?: (message: ToolCallMessage) => void
 }
 
+export type PortProbe = (port: number) => boolean | Promise<boolean>
 export type WebSocketFactory = (url: string) => WebSocket
 
 export type McpHubClientOptions = {
   keepaliveIntervalMs?: number
+  portProbe?: PortProbe
   reconnectDelayMs?: number
   webSocketFactory?: WebSocketFactory
 }
@@ -43,6 +46,7 @@ export class McpHubClient {
   private keepaliveTimer: IntervalHandle | null = null
   private lastSuccessfulPort: number | null = null
   private readonly keepaliveIntervalMs: number
+  private readonly portProbe: PortProbe
   private reconnectTimer: TimerHandle | null = null
   private readonly reconnectDelayMs: number
   private registeredId: string | null = null
@@ -55,6 +59,7 @@ export class McpHubClient {
     options: McpHubClientOptions = {}
   ) {
     this.keepaliveIntervalMs = options.keepaliveIntervalMs ?? KEEPALIVE_INTERVAL_MS
+    this.portProbe = options.portProbe ?? probeLocalHubPort
     this.reconnectDelayMs = options.reconnectDelayMs ?? RECONNECT_DELAY_MS
     this.webSocketFactory = options.webSocketFactory ?? ((url) => new WebSocket(url))
   }
@@ -120,6 +125,11 @@ export class McpHubClient {
     for (const candidatePort of this.getPortCandidates()) {
       if (!this.isCurrentConnection(epoch)) return
       try {
+        if (!(await this.portProbe(candidatePort))) {
+          this.errorMessage = LOCAL_HUB_UNREACHABLE_MESSAGE
+          continue
+        }
+        if (!this.isCurrentConnection(epoch)) return
         const ws = await this.openWebSocket(candidatePort)
         if (!this.isCurrentConnection(epoch)) {
           ws.close()
@@ -296,6 +306,22 @@ export class McpHubClient {
 
   private emitSnapshot(): void {
     this.events.onSnapshot?.(this.getSnapshot())
+  }
+}
+
+async function probeLocalHubPort(port: number): Promise<boolean> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), PORT_PROBE_TIMEOUT_MS)
+  try {
+    await fetch(`http://127.0.0.1:${port}/`, {
+      cache: 'no-store',
+      signal: controller.signal
+    })
+    return true
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
