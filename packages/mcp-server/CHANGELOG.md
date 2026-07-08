@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2
+
+- Added support for the extension's browser gateway connection flow, including keepalive messages and streamlined active-session state.
+- Improved MCP error handling when no active Figma session is available.
+
 ## 0.6.1
 
 - Fixed duplicate Hub startup races by keeping a renewable lifecycle lock for the running Hub and probing stale sockets before removing them.

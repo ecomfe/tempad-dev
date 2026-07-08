@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.11
+
+- MCP server access now asks for local host permission only when Agent integration is enabled, instead of requesting local access up front.
+- Improved MCP connection reliability across Figma tabs by routing local server traffic through the extension background broker and keeping one active Figma session.
+- Improved MCP asset uploads so generated image and SVG assets are uploaded through the extension background context.
+
 ## 0.18.10
 
 - Renamed the MCP preferences section to Agent integration and updated setup copy for the bundled agent skill plus MCP server flow.

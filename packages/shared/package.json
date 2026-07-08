@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/shared",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared utilities, schemas and constants used by TemPad Dev extension and MCP server.",
   "files": [
     "dist",
