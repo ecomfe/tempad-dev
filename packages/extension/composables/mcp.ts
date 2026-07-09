@@ -16,6 +16,7 @@ import {
   setAssetUploader
 } from '@/mcp/assets'
 import { coerceToolErrorPayload } from '@/mcp/errors'
+import { MCP_LOCAL_HOST_PERMISSION_ERROR, MCP_PERMISSION_REQUEST_EVENT } from '@/mcp/permissions'
 import { runMcpTool } from '@/mcp/runtime'
 import { layoutReady, options, runtimeMode } from '@/ui/state'
 
@@ -44,6 +45,9 @@ export const useMcp = createSharedComposable(() => {
   const pendingAssetUploads = new Map<string, PendingAssetUpload>()
 
   const selfActive = computed(() => activeId.value === sessionId)
+  const needsLocalHostPermission = computed(
+    () => errorMessage.value === MCP_LOCAL_HOST_PERMISSION_ERROR
+  )
   const canEnable = computed(
     () => runtimeMode.value === 'standard' && options.value.mcpOn && layoutReady.value
   )
@@ -145,6 +149,11 @@ export const useMcp = createSharedComposable(() => {
     })
   }
 
+  function requestLocalHostPermission() {
+    window.dispatchEvent(new Event(MCP_PERMISSION_REQUEST_EVENT))
+    sendEnable()
+  }
+
   async function processToolCall(req: string, name: string, rawArgs: unknown) {
     try {
       const result = await runMcpTool(name, rawArgs)
@@ -221,8 +230,10 @@ export const useMcp = createSharedComposable(() => {
     status,
     count,
     selfActive,
+    needsLocalHostPermission,
     errorMessage,
-    activate
+    activate,
+    requestLocalHostPermission
   }
 })
 

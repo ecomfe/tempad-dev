@@ -300,8 +300,13 @@ describe('mcp/broker/service-worker', () => {
     })
   })
 
-  it('checks and requests optional local host permissions', async () => {
-    const contains = vi.fn().mockResolvedValue(false)
+  it('checks local host permissions without prompting', async () => {
+    const contains = vi
+      .fn()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
     const request = vi.fn().mockResolvedValue(true)
     vi.stubGlobal('browser', {
       permissions: {
@@ -312,15 +317,16 @@ describe('mcp/broker/service-worker', () => {
     const broker = new McpServiceWorkerBroker(createHubClient()) as unknown as BrokerInternals
 
     await expect(broker.handlePermissionMessage('mcp.permissions.contains')).resolves.toEqual({
-      granted: false
-    })
-    await expect(broker.handlePermissionMessage('mcp.permissions.request')).resolves.toEqual({
       granted: true
+    })
+    await expect(broker.handlePermissionMessage('mcp.permissions.contains')).resolves.toEqual({
+      granted: false
     })
 
     expect(contains).toHaveBeenCalledWith({ origins: [MCP_LOCAL_HOST_ORIGINS[0]] })
     expect(contains).toHaveBeenCalledWith({ origins: [MCP_LOCAL_HOST_ORIGINS[1]] })
-    expect(request).toHaveBeenCalledWith({ origins: [...MCP_LOCAL_HOST_ORIGINS] })
+    expect(contains).toHaveBeenCalledTimes(4)
+    expect(request).not.toHaveBeenCalled()
   })
 
   it('requests local host permissions without awaiting first, preserving user activation', async () => {
@@ -336,8 +342,6 @@ describe('mcp/broker/service-worker', () => {
 
     const pending = broker.handlePermissionMessage('mcp.permissions.request')
 
-    // Chromium drops the sender's user activation at the first await, so request()
-    // has to have been issued synchronously, before any permissions.contains() call.
     expect(request).toHaveBeenCalledWith({ origins: [...MCP_LOCAL_HOST_ORIGINS] })
     expect(contains).not.toHaveBeenCalled()
 

@@ -97,7 +97,7 @@ export function startMcpContentBridge(): void {
       const generation = ++sessionGeneration
       if (!(await ensureLocalHostPermission())) {
         if (generation === sessionGeneration) {
-          postPermissionError(message.sessionId)
+          postMissingLocalHostPermission(message.sessionId)
         }
         return
       }
@@ -137,7 +137,7 @@ export function startMcpContentBridge(): void {
     }
   }
 
-  function postPermissionError(sessionId: string): void {
+  function postMissingLocalHostPermission(sessionId: string): void {
     window.postMessage(
       {
         payload: {
@@ -145,7 +145,7 @@ export function startMcpContentBridge(): void {
           errorMessage: MCP_LOCAL_HOST_PERMISSION_ERROR,
           sessionCount: 0,
           sessionId,
-          status: 'error'
+          status: 'connecting'
         },
         source: TEMPAD_MCP_BROWSER_SOURCE,
         type: 'mcp.state',

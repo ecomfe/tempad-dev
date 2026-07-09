@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.12
+
+- Fixed Agent integration permission prompts on Chrome and Edge so enabling the MCP server correctly asks for local host access and connects after approval.
+- Kept Agent integration enabled when local host permission is missing and made the MCP badge retry permission from a user click.
+
 ## 0.18.11
 
 - MCP server access now asks for local host permission only when Agent integration is enabled, instead of requesting local access up front.

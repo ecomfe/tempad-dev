@@ -122,9 +122,8 @@ export class McpServiceWorkerBroker {
     // listener, so request() cannot wait on a contains() check first. Re-requesting
     // an already granted origin is a no-op.
     try {
-      return Promise.resolve(browser.permissions.request({ origins: [...MCP_LOCAL_HOST_ORIGINS] }))
-        .then((granted) => ({ granted }))
-        .catch(toPermissionError)
+      const requested = browser.permissions.request({ origins: [...MCP_LOCAL_HOST_ORIGINS] })
+      return Promise.resolve(requested).then((granted) => ({ granted }), toPermissionError)
     } catch (error) {
       return Promise.resolve(toPermissionError(error))
     }
@@ -132,21 +131,15 @@ export class McpServiceWorkerBroker {
 
   private async containsLocalHostPermissions(): Promise<McpPermissionResponse> {
     try {
-      return { granted: (await this.getMissingLocalHostOrigins()).length === 0 }
+      for (const origin of MCP_LOCAL_HOST_ORIGINS) {
+        if (!(await browser.permissions.contains({ origins: [origin] }))) {
+          return { granted: false }
+        }
+      }
+      return { granted: true }
     } catch (error) {
       return toPermissionError(error)
     }
-  }
-
-  private async getMissingLocalHostOrigins(): Promise<string[]> {
-    const missingOrigins: string[] = []
-    for (const origin of MCP_LOCAL_HOST_ORIGINS) {
-      const granted = await browser.permissions.contains({ origins: [origin] })
-      if (!granted) {
-        missingOrigins.push(origin)
-      }
-    }
-    return missingOrigins
   }
 
   private enableSession(

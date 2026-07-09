@@ -3,7 +3,7 @@ export const MCP_PERMISSION_REQUEST_EVENT = 'tempad:mcp-request-local-host-permi
 export const MCP_PERMISSION_MESSAGE_SOURCE = 'tempad-dev:mcp-permissions'
 
 export const MCP_LOCAL_HOST_PERMISSION_ERROR =
-  'Local MCP permission was not granted. Enable MCP server again to allow local server access.'
+  'Local host permission is required before MCP can connect.'
 
 export type McpPermissionMessageType = 'mcp.permissions.contains' | 'mcp.permissions.request'
 

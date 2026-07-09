@@ -34,11 +34,20 @@ function toggleMinimized() {
   options.value.minimized = !options.value.minimized
 }
 
-const { status, selfActive, count, errorMessage, activate } = useMcp()
+const {
+  status,
+  selfActive,
+  count,
+  errorMessage,
+  needsLocalHostPermission,
+  activate,
+  requestLocalHostPermission
+} = useMcp()
 
 const isMcpConnected = computed(() => status.value === 'connected')
 
 const mcpBadgeTone = computed(() => {
+  if (needsLocalHostPermission.value) return 'warning'
   if (!isMcpConnected.value) return 'neutral'
   if (!selfActive.value) return 'neutral'
   return 'success'
@@ -51,6 +60,10 @@ const mcpBadgeVariant = computed(() => {
 })
 
 const mcpBadgeTooltip = computed(() => {
+  if (needsLocalHostPermission.value) {
+    return 'Local host permission is required. Click to grant access.'
+  }
+
   if (!isMcpConnected.value) {
     if (status.value === 'connecting') return 'Connecting'
     return errorMessage.value ?? 'MCP server is not running'
@@ -125,6 +138,10 @@ watch(layoutReady, (ready) => {
 })
 
 function activateMcp() {
+  if (needsLocalHostPermission.value) {
+    requestLocalHostPermission()
+    return
+  }
   if (isMcpConnected.value) {
     activate()
   }
@@ -142,7 +159,12 @@ function activateMcp() {
         <span>TemPad Dev</span>
         <Badge
           v-if="options.mcpOn && runtimeMode === 'standard'"
-          :class="['tp-mcp-badge', mcpBadgeStatusClass, mcpBadgeActiveClass]"
+          :class="[
+            'tp-mcp-badge',
+            mcpBadgeStatusClass,
+            { 'tp-mcp-badge-permission': needsLocalHostPermission },
+            mcpBadgeActiveClass
+          ]"
           :tone="mcpBadgeTone"
           :variant="mcpBadgeVariant"
           :title="mcpBadgeTooltip"
@@ -210,6 +232,16 @@ function activateMcp() {
 
 .tp-mcp-badge-connected:hover {
   border-style: solid;
+}
+
+.tp-mcp-badge-permission .tp-mcp-dot {
+  animation: tp-mcp-dot-pulse 1.2s ease-in-out infinite;
+  background-color: var(--color-icon-warning);
+}
+
+.tp-mcp-badge-permission:hover {
+  border-style: solid;
+  cursor: pointer;
 }
 
 .tp-mcp-dot {

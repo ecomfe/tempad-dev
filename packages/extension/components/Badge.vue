@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineProps<{
   title?: string
-  tone?: 'brand' | 'neutral' | 'success'
+  tone?: 'brand' | 'neutral' | 'success' | 'warning'
   variant?: 'solid' | 'dashed'
 }>()
 </script>
@@ -51,5 +51,10 @@ defineProps<{
 .tp-badge-success {
   color: var(--color-text);
   border-color: var(--color-icon-success);
+}
+
+.tp-badge-warning {
+  color: var(--color-text-warning);
+  border-color: var(--color-icon-warning);
 }
 </style>

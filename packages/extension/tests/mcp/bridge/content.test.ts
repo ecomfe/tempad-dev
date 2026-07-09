@@ -248,7 +248,7 @@ describe('mcp/bridge/content', () => {
       expect.objectContaining({
         payload: expect.objectContaining({
           errorMessage: MCP_LOCAL_HOST_PERMISSION_ERROR,
-          status: 'error'
+          status: 'connecting'
         }),
         type: 'mcp.state'
       }),
