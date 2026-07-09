@@ -28,6 +28,13 @@ import { McpSessionRegistry } from './sessions'
 
 type AssetUploadMessage = Extract<PageToBridgeMessage, { type: 'mcp.uploadAsset' }>
 
+function toPermissionError(error: unknown): McpPermissionResponse {
+  return {
+    errorMessage: error instanceof Error ? error.message : 'Failed to resolve MCP permission.',
+    granted: false
+  }
+}
+
 export type McpBrokerHubClient = Pick<
   McpHubClient,
   'getSnapshot' | 'sendActivate' | 'sendToolResult' | 'start' | 'stop'
@@ -50,9 +57,12 @@ export class McpServiceWorkerBroker {
 
   start(): void {
     browser.runtime.onConnect.addListener((port) => this.handlePort(port))
-    browser.runtime.onMessage.addListener((message) => {
+    browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (!isMcpPermissionMessage(message)) return
-      return this.handlePermissionMessage(message.type)
+      // Chromium discards a promise returned from onMessage; only a literal `true`
+      // keeps the channel open until sendResponse runs.
+      void this.handlePermissionMessage(message.type).then(sendResponse)
+      return true
     })
   }
 
@@ -100,25 +110,31 @@ export class McpServiceWorkerBroker {
     }
   }
 
-  private async handlePermissionMessage(
-    type: McpPermissionMessageType
-  ): Promise<McpPermissionResponse> {
+  private handlePermissionMessage(type: McpPermissionMessageType): Promise<McpPermissionResponse> {
+    if (type === 'mcp.permissions.request') {
+      return this.requestLocalHostPermissions()
+    }
+    return this.containsLocalHostPermissions()
+  }
+
+  private requestLocalHostPermissions(): Promise<McpPermissionResponse> {
+    // The sender's user activation only survives the synchronous part of the
+    // listener, so request() cannot wait on a contains() check first. Re-requesting
+    // an already granted origin is a no-op.
     try {
-      const missingOrigins = await this.getMissingLocalHostOrigins()
-      if (missingOrigins.length === 0) {
-        return { granted: true }
-      }
-      if (type === 'mcp.permissions.contains') {
-        return { granted: false }
-      }
-      return {
-        granted: await browser.permissions.request({ origins: missingOrigins })
-      }
+      return Promise.resolve(browser.permissions.request({ origins: [...MCP_LOCAL_HOST_ORIGINS] }))
+        .then((granted) => ({ granted }))
+        .catch(toPermissionError)
     } catch (error) {
-      return {
-        errorMessage: error instanceof Error ? error.message : 'Failed to resolve MCP permission.',
-        granted: false
-      }
+      return Promise.resolve(toPermissionError(error))
+    }
+  }
+
+  private async containsLocalHostPermissions(): Promise<McpPermissionResponse> {
+    try {
+      return { granted: (await this.getMissingLocalHostOrigins()).length === 0 }
+    } catch (error) {
+      return toPermissionError(error)
     }
   }
 

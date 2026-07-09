@@ -12,7 +12,11 @@ import type { McpBrokerHubClient } from '@/mcp/broker/service-worker'
 import type { McpBrokerPort } from '@/mcp/broker/sessions'
 
 import { McpServiceWorkerBroker } from '@/mcp/broker/service-worker'
-import { type McpPermissionMessageType, MCP_LOCAL_HOST_ORIGINS } from '@/mcp/permissions'
+import {
+  type McpPermissionMessageType,
+  createMcpPermissionMessage,
+  MCP_LOCAL_HOST_ORIGINS
+} from '@/mcp/permissions'
 
 type Listener<T> = (payload: T) => void
 type BrokerInternals = {
@@ -319,10 +323,8 @@ describe('mcp/broker/service-worker', () => {
     expect(request).toHaveBeenCalledWith({ origins: [...MCP_LOCAL_HOST_ORIGINS] })
   })
 
-  it('requests only missing optional local host permissions', async () => {
-    const contains = vi.fn(({ origins }: { origins: string[] }) =>
-      Promise.resolve(origins[0] === 'http://localhost/*')
-    )
+  it('requests local host permissions without awaiting first, preserving user activation', async () => {
+    const contains = vi.fn().mockResolvedValue(false)
     const request = vi.fn().mockResolvedValue(true)
     vi.stubGlobal('browser', {
       permissions: {
@@ -332,10 +334,79 @@ describe('mcp/broker/service-worker', () => {
     })
     const broker = new McpServiceWorkerBroker(createHubClient()) as unknown as BrokerInternals
 
-    await expect(broker.handlePermissionMessage('mcp.permissions.request')).resolves.toEqual({
-      granted: true
-    })
+    const pending = broker.handlePermissionMessage('mcp.permissions.request')
 
-    expect(request).toHaveBeenCalledWith({ origins: ['http://127.0.0.1/*'] })
+    // Chromium drops the sender's user activation at the first await, so request()
+    // has to have been issued synchronously, before any permissions.contains() call.
+    expect(request).toHaveBeenCalledWith({ origins: [...MCP_LOCAL_HOST_ORIGINS] })
+    expect(contains).not.toHaveBeenCalled()
+
+    await expect(pending).resolves.toEqual({ granted: true })
+  })
+
+  it('surfaces a request() failure as a denied permission', async () => {
+    vi.stubGlobal('browser', {
+      permissions: {
+        contains: vi.fn().mockResolvedValue(false),
+        request: vi
+          .fn()
+          .mockRejectedValue(new Error('This function must be called during a user gesture'))
+      }
+    })
+    const broker = new McpServiceWorkerBroker(createHubClient()) as unknown as BrokerInternals
+
+    await expect(broker.handlePermissionMessage('mcp.permissions.request')).resolves.toEqual({
+      errorMessage: 'This function must be called during a user gesture',
+      granted: false
+    })
+  })
+
+  it('answers permission messages over sendResponse and keeps the channel open', async () => {
+    let listener:
+      | ((message: unknown, sender: unknown, sendResponse: (response: unknown) => void) => unknown)
+      | undefined
+    const request = vi.fn().mockResolvedValue(true)
+    vi.stubGlobal('browser', {
+      permissions: { contains: vi.fn().mockResolvedValue(false), request },
+      runtime: {
+        onConnect: { addListener: vi.fn() },
+        onMessage: {
+          addListener: vi.fn((fn: typeof listener) => {
+            listener = fn
+          })
+        }
+      }
+    })
+    const broker = new McpServiceWorkerBroker(createHubClient())
+    broker.start()
+
+    const sendResponse = vi.fn()
+    // Returning a promise here is a Firefox-only affordance: Chromium closes the
+    // channel unless the listener returns literal `true`.
+    const kept = listener?.(createMcpPermissionMessage('mcp.permissions.request'), {}, sendResponse)
+    expect(kept).toBe(true)
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ granted: true }))
+  })
+
+  it('ignores unrelated runtime messages', () => {
+    let listener:
+      | ((message: unknown, sender: unknown, sendResponse: unknown) => unknown)
+      | undefined
+    vi.stubGlobal('browser', {
+      permissions: { contains: vi.fn(), request: vi.fn() },
+      runtime: {
+        onConnect: { addListener: vi.fn() },
+        onMessage: {
+          addListener: vi.fn((fn: typeof listener) => {
+            listener = fn
+          })
+        }
+      }
+    })
+    const broker = new McpServiceWorkerBroker(createHubClient())
+    broker.start()
+
+    expect(listener?.({ type: 'something.else' }, {}, vi.fn())).toBeUndefined()
   })
 })
