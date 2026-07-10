@@ -15,7 +15,7 @@ import { McpServiceWorkerBroker } from '@/mcp/broker/service-worker'
 import {
   type McpPermissionMessageType,
   createMcpPermissionMessage,
-  MCP_LOCAL_HOST_ORIGINS
+  MCP_LOCAL_HOST_ORIGIN
 } from '@/mcp/permissions'
 
 type Listener<T> = (payload: T) => void
@@ -29,10 +29,10 @@ function createHubClient(
 ): McpBrokerHubClient {
   return {
     getSnapshot: () => ({
-      activeId: null,
+      activeId: snapshot.activeId ?? null,
       assetServerUrl: snapshot.assetServerUrl ?? null,
-      errorMessage: null,
-      registeredId: null,
+      errorMessage: snapshot.errorMessage ?? null,
+      registeredId: snapshot.registeredId ?? null,
       status: snapshot.status ?? 'idle'
     }),
     sendActivate: vi.fn(),
@@ -175,6 +175,35 @@ describe('mcp/broker/service-worker', () => {
     })
   })
 
+  it('activates the hub only for an explicit session activation request', () => {
+    const snapshot: Partial<ReturnType<McpBrokerHubClient['getSnapshot']>> = {
+      activeId: 'other-gateway',
+      registeredId: 'gateway-1',
+      status: 'connected'
+    }
+    const hubClient = createHubClient(snapshot)
+    const broker = new McpServiceWorkerBroker(hubClient)
+    const session = createPort('https://www.figma.com/design/abc/File')
+
+    broker.handlePort(session.port)
+    session.message(pageMessage('mcp.enable'))
+
+    expect(hubClient.sendActivate).not.toHaveBeenCalled()
+    expect(session.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ activeSessionId: null }),
+        type: 'mcp.state'
+      })
+    )
+
+    session.message(pageMessage('mcp.activateSession'))
+
+    expect(hubClient.sendActivate).toHaveBeenCalledTimes(1)
+    snapshot.activeId = 'gateway-1'
+    session.message(pageMessage('mcp.activateSession'))
+    expect(hubClient.sendActivate).toHaveBeenCalledTimes(1)
+  })
+
   it('ignores session control messages from ports that do not own the session', () => {
     const hubClient = createHubClient()
     const broker = new McpServiceWorkerBroker(hubClient)
@@ -197,8 +226,30 @@ describe('mcp/broker/service-worker', () => {
     expect(hubClient.sendToolResult).not.toHaveBeenCalled()
   })
 
+  it('ignores tool results from ports that do not own the claimed session', () => {
+    const hubClient = createHubClient()
+    const broker = new McpServiceWorkerBroker(hubClient)
+    const owner = createPort('https://www.figma.com/design/abc/File')
+    const other = createPort('https://www.figma.com/design/def/File')
+
+    broker.handlePort(owner.port)
+    owner.message(pageMessage('mcp.enable', 'session-a'))
+    broker.handlePort(other.port)
+    other.message(pageMessage('mcp.enable', 'session-b'))
+    owner.message(pageMessage('mcp.activateSession', 'session-a'))
+    routeToolCall(broker)
+
+    other.message(toolResult('call-1', 'session-a'))
+    expect(hubClient.sendToolResult).not.toHaveBeenCalled()
+
+    owner.message(toolResult('call-1', 'session-a'))
+    expect(hubClient.sendToolResult).toHaveBeenCalledTimes(1)
+  })
+
   it('prunes sessions that fail state delivery and rebroadcasts the current count', () => {
-    const broker = new McpServiceWorkerBroker(createHubClient())
+    const broker = new McpServiceWorkerBroker(
+      createHubClient({ activeId: 'gateway-1', registeredId: 'gateway-1', status: 'connected' })
+    )
     const first = createPort('https://www.figma.com/design/abc/File')
     const second = createPort('https://www.figma.com/design/abc/File')
 
@@ -301,12 +352,7 @@ describe('mcp/broker/service-worker', () => {
   })
 
   it('checks local host permissions without prompting', async () => {
-    const contains = vi
-      .fn()
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false)
+    const contains = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
     const request = vi.fn().mockResolvedValue(true)
     vi.stubGlobal('browser', {
       permissions: {
@@ -323,9 +369,8 @@ describe('mcp/broker/service-worker', () => {
       granted: false
     })
 
-    expect(contains).toHaveBeenCalledWith({ origins: [MCP_LOCAL_HOST_ORIGINS[0]] })
-    expect(contains).toHaveBeenCalledWith({ origins: [MCP_LOCAL_HOST_ORIGINS[1]] })
-    expect(contains).toHaveBeenCalledTimes(4)
+    expect(contains).toHaveBeenCalledWith({ origins: [MCP_LOCAL_HOST_ORIGIN] })
+    expect(contains).toHaveBeenCalledTimes(2)
     expect(request).not.toHaveBeenCalled()
   })
 
@@ -342,13 +387,13 @@ describe('mcp/broker/service-worker', () => {
 
     const pending = broker.handlePermissionMessage('mcp.permissions.request')
 
-    expect(request).toHaveBeenCalledWith({ origins: [...MCP_LOCAL_HOST_ORIGINS] })
+    expect(request).toHaveBeenCalledWith({ origins: [MCP_LOCAL_HOST_ORIGIN] })
     expect(contains).not.toHaveBeenCalled()
 
     await expect(pending).resolves.toEqual({ granted: true })
   })
 
-  it('surfaces a request() failure as a denied permission', async () => {
+  it('treats a request() failure as a denied permission', async () => {
     vi.stubGlobal('browser', {
       permissions: {
         contains: vi.fn().mockResolvedValue(false),
@@ -360,7 +405,6 @@ describe('mcp/broker/service-worker', () => {
     const broker = new McpServiceWorkerBroker(createHubClient()) as unknown as BrokerInternals
 
     await expect(broker.handlePermissionMessage('mcp.permissions.request')).resolves.toEqual({
-      errorMessage: 'This function must be called during a user gesture',
       granted: false
     })
   })

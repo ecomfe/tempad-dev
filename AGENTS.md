@@ -39,8 +39,9 @@ Provide a single entry point for coding agents. This file links to package-level
 
 - `TESTING.md`
 - `docs/testing/architecture.md`
-- `docs/extension/requirements.md`
-- `docs/extension/design.md`
+- `docs/extension/mcp-get-code-requirements.md`
+- `docs/extension/mcp-get-code-design.md`
+- `docs/extension/mcp-browser-gateway-design.md`
 
 ## Guardrails
 
@@ -106,7 +107,7 @@ Pick the checks that match your change.
 5. MCP schemas / tool behavior
 
 - If you change tool schemas/contracts: update `packages/shared` first, then `packages/mcp-server`, then `packages/extension`.
-- Re-check payload limits and omission rules; see `docs/extension/requirements.md` and `docs/extension/design.md`.
+- Re-check payload limits and omission rules; see `docs/extension/mcp-get-code-requirements.md` and `docs/extension/mcp-get-code-design.md`.
 
 ## Testing notes
 

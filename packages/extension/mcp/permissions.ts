@@ -1,4 +1,4 @@
-export const MCP_LOCAL_HOST_ORIGINS = ['http://127.0.0.1/*', 'http://localhost/*'] as const
+export const MCP_LOCAL_HOST_ORIGIN = 'http://127.0.0.1/*'
 export const MCP_PERMISSION_REQUEST_EVENT = 'tempad:mcp-request-local-host-permission'
 export const MCP_PERMISSION_MESSAGE_SOURCE = 'tempad-dev:mcp-permissions'
 
@@ -13,7 +13,6 @@ export type McpPermissionMessage = {
 }
 
 export type McpPermissionResponse = {
-  errorMessage?: string
   granted: boolean
 }
 

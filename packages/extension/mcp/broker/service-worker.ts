@@ -18,22 +18,15 @@ import {
 import type { McpBrokerPort } from './sessions'
 
 import {
-  MCP_LOCAL_HOST_ORIGINS,
+  MCP_LOCAL_HOST_ORIGIN,
   type McpPermissionMessageType,
   type McpPermissionResponse,
   isMcpPermissionMessage
 } from '../permissions'
-import { type HubConnectionStatus, McpHubClient } from './hub-client'
+import { McpHubClient } from './hub-client'
 import { McpSessionRegistry } from './sessions'
 
 type AssetUploadMessage = Extract<PageToBridgeMessage, { type: 'mcp.uploadAsset' }>
-
-function toPermissionError(error: unknown): McpPermissionResponse {
-  return {
-    errorMessage: error instanceof Error ? error.message : 'Failed to resolve MCP permission.',
-    granted: false
-  }
-}
 
 export type McpBrokerHubClient = Pick<
   McpHubClient,
@@ -50,7 +43,7 @@ export class McpServiceWorkerBroker {
     this.hubClient =
       hubClient ??
       new McpHubClient({
-        onSnapshot: () => this.handleHubSnapshot(),
+        onSnapshot: () => this.broadcastState(),
         onToolCall: (message) => this.routeToolCall(message)
       })
   }
@@ -102,7 +95,7 @@ export class McpServiceWorkerBroker {
         this.activateSession(port, message.sessionId)
         break
       case 'mcp.toolResult':
-        this.forwardToolResult(message)
+        this.forwardToolResult(port, message)
         break
       case 'mcp.uploadAsset':
         void this.uploadAsset(port, message)
@@ -112,33 +105,29 @@ export class McpServiceWorkerBroker {
 
   private handlePermissionMessage(type: McpPermissionMessageType): Promise<McpPermissionResponse> {
     if (type === 'mcp.permissions.request') {
-      return this.requestLocalHostPermissions()
+      return this.requestLocalHostPermission()
     }
-    return this.containsLocalHostPermissions()
+    return this.hasLocalHostPermission()
   }
 
-  private requestLocalHostPermissions(): Promise<McpPermissionResponse> {
+  private async requestLocalHostPermission(): Promise<McpPermissionResponse> {
     // The sender's user activation only survives the synchronous part of the
     // listener, so request() cannot wait on a contains() check first. Re-requesting
     // an already granted origin is a no-op.
     try {
-      const requested = browser.permissions.request({ origins: [...MCP_LOCAL_HOST_ORIGINS] })
-      return Promise.resolve(requested).then((granted) => ({ granted }), toPermissionError)
-    } catch (error) {
-      return Promise.resolve(toPermissionError(error))
+      const granted = await browser.permissions.request({ origins: [MCP_LOCAL_HOST_ORIGIN] })
+      return { granted }
+    } catch {
+      return { granted: false }
     }
   }
 
-  private async containsLocalHostPermissions(): Promise<McpPermissionResponse> {
+  private async hasLocalHostPermission(): Promise<McpPermissionResponse> {
     try {
-      for (const origin of MCP_LOCAL_HOST_ORIGINS) {
-        if (!(await browser.permissions.contains({ origins: [origin] }))) {
-          return { granted: false }
-        }
-      }
-      return { granted: true }
-    } catch (error) {
-      return toPermissionError(error)
+      const granted = await browser.permissions.contains({ origins: [MCP_LOCAL_HOST_ORIGIN] })
+      return { granted }
+    } catch {
+      return { granted: false }
     }
   }
 
@@ -165,7 +154,6 @@ export class McpServiceWorkerBroker {
     })
 
     this.hubClient.start()
-    this.ensureHubActive()
     this.broadcastState()
   }
 
@@ -180,14 +168,18 @@ export class McpServiceWorkerBroker {
   private activateSession(port: McpBrokerPort, sessionId: string): void {
     if (this.portSessions.get(port) !== sessionId) return
     if (!this.sessions.activate(sessionId)) return
-    this.hubClient.start()
-    this.ensureHubActive()
+    const { activeId, registeredId } = this.hubClient.getSnapshot()
+    if (registeredId && activeId !== registeredId) {
+      this.hubClient.sendActivate()
+    }
     this.broadcastState()
   }
 
   private forwardToolResult(
+    port: McpBrokerPort,
     message: Extract<PageToBridgeMessage, { type: 'mcp.toolResult' }>
   ): void {
+    if (this.portSessions.get(port) !== message.sessionId) return
     const pendingSessionId = this.pendingToolCalls.get(message.callId)
     if (pendingSessionId !== message.sessionId) {
       return
@@ -226,26 +218,7 @@ export class McpServiceWorkerBroker {
   private handlePortDisconnect(port: McpBrokerPort): void {
     const sessionId = this.portSessions.get(port)
     if (!sessionId) return
-    this.unregisterSession(sessionId, 'Figma session disconnected before providing a result.')
-    this.stopHubIfIdle()
-    this.broadcastState()
-  }
-
-  private handleHubSnapshot(): void {
-    this.ensureHubActive()
-    this.broadcastState()
-  }
-
-  private ensureHubActive(): void {
-    const snapshot = this.hubClient.getSnapshot()
-    if (
-      snapshot.status === 'connected' &&
-      snapshot.registeredId &&
-      this.sessions.getActive() &&
-      snapshot.activeId !== snapshot.registeredId
-    ) {
-      this.hubClient.sendActivate()
-    }
+    this.disableSession(port, sessionId)
   }
 
   private routeToolCall(message: ToolCallMessage): void {
@@ -339,20 +312,21 @@ export class McpServiceWorkerBroker {
   }
 
   private stopHubIfIdle(): void {
-    if (this.sessions.size === 0) {
-      this.pendingToolCalls.clear()
-      this.hubClient.stop()
-    }
+    if (this.sessions.size > 0) return
+    this.pendingToolCalls.clear()
+    this.hubClient.stop()
   }
 
   private broadcastState(): void {
     const snapshot = this.hubClient.getSnapshot()
+    const brokerIsActive =
+      snapshot.registeredId !== null && snapshot.activeId === snapshot.registeredId
     const commonState = {
-      activeSessionId: this.sessions.getActiveId(),
+      activeSessionId: brokerIsActive ? this.sessions.getActiveId() : null,
       assetServerUrl: snapshot.assetServerUrl,
       errorMessage: snapshot.errorMessage,
       sessionCount: this.sessions.size,
-      status: this.toBrowserStatus(snapshot.status)
+      status: snapshot.status === 'idle' ? 'disabled' : snapshot.status
     } satisfies Omit<McpBrowserStatePayload, 'sessionId'>
 
     let removedSession = false
@@ -383,14 +357,6 @@ export class McpServiceWorkerBroker {
       }
     }
   }
-
-  private toBrowserStatus(status: HubConnectionStatus): McpBrowserStatePayload['status'] {
-    return status === 'idle' ? 'disabled' : status
-  }
-}
-
-export function startMcpServiceWorkerBroker(): void {
-  new McpServiceWorkerBroker().start()
 }
 
 async function uploadAssetToServer(

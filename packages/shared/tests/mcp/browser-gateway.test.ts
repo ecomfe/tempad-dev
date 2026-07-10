@@ -6,6 +6,7 @@ import {
   parseBridgeToPageMessage,
   parsePageToBridgeMessage
 } from '../../src/mcp/browser-gateway'
+import { MCP_MAX_ASSET_BYTES } from '../../src/mcp/constants'
 
 const base = {
   sessionId: 'session-1',
@@ -126,6 +127,31 @@ describe('mcp/browser-gateway', () => {
         source: TEMPAD_MCP_BROWSER_SOURCE,
         type: 'mcp.state',
         version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+      })
+    ).toBeNull()
+  })
+
+  it('bounds asset uploads before they enter the extension runtime', () => {
+    const maxLength = 4 * Math.ceil(MCP_MAX_ASSET_BYTES / 3)
+    const message = {
+      ...base,
+      payload: {
+        base64: 'A'.repeat(maxLength),
+        hash: 'abcdef12',
+        mimeType: 'image/png'
+      },
+      requestId: 'upload-1',
+      type: 'mcp.uploadAsset'
+    } as const
+
+    expect(parsePageToBridgeMessage(message)).not.toBeNull()
+    expect(
+      parsePageToBridgeMessage({
+        ...message,
+        payload: {
+          ...message.payload,
+          base64: `${message.payload.base64}A`
+        }
       })
     ).toBeNull()
   })

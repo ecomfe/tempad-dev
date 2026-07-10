@@ -44,6 +44,8 @@ You are not responsible for:
 
 - `mcp/`
   - `tools/`: MCP tool implementations (`get_code`, `get_structure`, `get_screenshot` internal, `token`).
+  - `bridge/`: page-to-extension runtime messaging.
+  - `broker/`: background session routing and loopback WebSocket lifecycle.
   - `runtime.ts`: tool routing + validation.
   - `assets.ts`: asset upload integration.
 - `codegen/` + `components/` + `utils/`:
@@ -84,13 +86,16 @@ return {
 
 Do not reuse UI codegen logic for MCP without a clear reason.
 
-## Design and requirements docs
+## Docs routing
 
-- MCP get_code requirements: `docs/extension/requirements.md`
-- MCP get_code design: `docs/extension/design.md`
-- MCP context/output strategy: `docs/extension/mcp-context-strategy.md`
-- Testing guide: `TESTING.md`
-- Testing architecture and coverage model: `docs/testing/architecture.md`
+| Change area                                                           | Read first                                     |
+| --------------------------------------------------------------------- | ---------------------------------------------- |
+| MCP `get_code` behavior or contract                                   | `docs/extension/mcp-get-code-requirements.md`  |
+| MCP `get_code` implementation or pipeline                             | `docs/extension/mcp-get-code-design.md`        |
+| MCP context and output strategy                                       | `docs/extension/mcp-context-strategy.md`       |
+| Browser gateway, permissions, sessions, WebSocket, or asset transport | `docs/extension/mcp-browser-gateway-design.md` |
+| Test selection and required checks                                    | `TESTING.md`                                   |
+| Test architecture or coverage scope                                   | `docs/testing/architecture.md`                 |
 
 ## Git workflow
 

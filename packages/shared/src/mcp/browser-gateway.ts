@@ -2,13 +2,15 @@ import type { ZodObject, ZodRawShape, ZodType } from 'zod'
 
 import { z } from 'zod'
 
-import { MCP_HASH_PATTERN } from './constants'
+import { MCP_HASH_PATTERN, MCP_MAX_ASSET_BYTES } from './constants'
 import { TEMPAD_MCP_ERROR_CODES } from './errors'
 
 export const TEMPAD_MCP_BROWSER_SOURCE = 'tempad-dev:mcp'
 export const TEMPAD_MCP_BROWSER_PROTOCOL_VERSION = 1
 export const TEMPAD_MCP_SESSION_PORT_NAME = 'tempad-mcp-session'
 export const TEMPAD_MCP_FIGMA_ORIGIN = 'https://www.figma.com'
+
+const MCP_MAX_ASSET_BASE64_LENGTH = 4 * Math.ceil(MCP_MAX_ASSET_BYTES / 3)
 
 const MessageBaseSchema = z
   .object({
@@ -51,7 +53,7 @@ const AssetMetadataSchema = z
 
 const AssetUploadPayloadSchema = z
   .object({
-    base64: z.string().min(1),
+    base64: z.string().min(1).max(MCP_MAX_ASSET_BASE64_LENGTH),
     hash: z.string().regex(MCP_HASH_PATTERN),
     metadata: AssetMetadataSchema.optional(),
     mimeType: z.string().min(1)

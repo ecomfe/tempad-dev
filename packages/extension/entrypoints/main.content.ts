@@ -1,7 +1,11 @@
+import { startMcpContentBridge } from '@/mcp/bridge/content'
+
 export default defineContentScript({
   matches: ['https://www.figma.com/*'],
   runAt: 'document_end',
   main(ctx) {
+    startMcpContentBridge()
+
     const ui = createIntegratedUi(ctx, {
       tag: 'tempad',
       position: 'inline',

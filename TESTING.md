@@ -131,5 +131,5 @@ When changing DOM/browser runtime behavior in extension:
 ## Related docs
 
 - Testing architecture: `docs/testing/architecture.md`
-- Extension get_code requirements: `docs/extension/requirements.md`
-- Extension get_code design: `docs/extension/design.md`
+- Extension get_code requirements: `docs/extension/mcp-get-code-requirements.md`
+- Extension get_code design: `docs/extension/mcp-get-code-design.md`

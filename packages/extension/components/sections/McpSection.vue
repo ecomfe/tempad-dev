@@ -131,7 +131,7 @@ function handleClientClick(client: McpClientDisplay): void {
 
 function setMcpEnabled(enabled: boolean | undefined): void {
   if (enabled) {
-    window.dispatchEvent(new CustomEvent(MCP_PERMISSION_REQUEST_EVENT))
+    window.dispatchEvent(new Event(MCP_PERMISSION_REQUEST_EVENT))
   }
   options.value.mcpOn = enabled === true
 }

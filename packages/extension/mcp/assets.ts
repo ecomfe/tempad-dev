@@ -1,6 +1,10 @@
-import type { AssetDescriptor } from '@tempad-dev/shared'
+import type { AssetDescriptor, PageToBridgeMessage } from '@tempad-dev/shared'
 
-import { MCP_HASH_HEX_LENGTH, TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
+import {
+  MCP_HASH_HEX_LENGTH,
+  MCP_MAX_ASSET_BYTES,
+  TEMPAD_MCP_ERROR_CODES
+} from '@tempad-dev/shared'
 
 import { logger } from '@/utils/log'
 
@@ -11,11 +15,10 @@ const inflightUploads = new Map<string, Promise<void>>()
 let assetServerUrl: string | null = null
 let assetUploader: AssetUploader | null = null
 
-export type AssetUploadRequest = {
+type AssetUploadPayload = Extract<PageToBridgeMessage, { type: 'mcp.uploadAsset' }>['payload']
+
+export type AssetUploadRequest = Omit<AssetUploadPayload, 'base64'> & {
   bytes: Uint8Array
-  hash: string
-  metadata?: { width?: number; height?: number; themeable?: boolean }
-  mimeType: string
 }
 
 export type AssetUploader = (request: AssetUploadRequest) => Promise<void>
@@ -37,8 +40,14 @@ export function resetUploadedAssets(): void {
 export async function ensureAssetUploaded(
   bytes: Uint8Array,
   mimeType: string,
-  metadata?: { width?: number; height?: number; themeable?: boolean }
+  metadata?: AssetUploadRequest['metadata']
 ): Promise<AssetDescriptor> {
+  if (bytes.byteLength > MCP_MAX_ASSET_BYTES) {
+    throw new Error(
+      `Asset is too large to upload (${bytes.byteLength} bytes; maximum ${MCP_MAX_ASSET_BYTES}).`
+    )
+  }
+
   const hash = await hashBytes(bytes)
 
   if (!assetServerUrl) {
@@ -66,8 +75,9 @@ export async function ensureAssetUploaded(
     return descriptor
   }
 
-  if (inflightUploads.has(uploadKey)) {
-    await inflightUploads.get(uploadKey)
+  const inflight = inflightUploads.get(uploadKey)
+  if (inflight) {
+    await inflight
     return descriptor
   }
 

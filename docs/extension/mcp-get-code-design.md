@@ -1,6 +1,6 @@
 # MCP get_code - design
 
-This document describes the implementation design for MCP `get_code` in `packages/extension/mcp/tools/code`. It aligns with the requirements and reflects the current pipeline, including the request-scoped cache layer used to dedupe slow Figma reads within a single request.
+This design describes MCP `get_code` in `packages/extension/mcp/tools/code`. It aligns with the requirements and reflects the current pipeline, including the request-scoped cache layer used to dedupe slow Figma reads within a single request.
 
 ## High-level pipeline
 

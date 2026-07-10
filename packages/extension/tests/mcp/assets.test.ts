@@ -1,4 +1,8 @@
-import { MCP_HASH_HEX_LENGTH, TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
+import {
+  MCP_HASH_HEX_LENGTH,
+  MCP_MAX_ASSET_BYTES,
+  TEMPAD_MCP_ERROR_CODES
+} from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/utils/log', () => ({
@@ -39,6 +43,21 @@ afterEach(() => {
 })
 
 describe('mcp/assets', () => {
+  it('rejects oversized assets before hashing or uploading', async () => {
+    const digest = vi.fn()
+    vi.stubGlobal('crypto', { subtle: { digest } })
+    const uploadMock = vi.fn()
+    setAssetUploader(uploadMock)
+    setAssetServerUrl('http://assets.local')
+
+    await expect(
+      ensureAssetUploaded(new Uint8Array(MCP_MAX_ASSET_BYTES + 1), 'image/png')
+    ).rejects.toThrow('Asset is too large to upload')
+
+    expect(digest).not.toHaveBeenCalled()
+    expect(uploadMock).not.toHaveBeenCalled()
+  })
+
   it('throws when crypto digest is unavailable in current runtime', async () => {
     vi.stubGlobal('crypto', {} as Crypto)
     setAssetServerUrl('http://assets.local')

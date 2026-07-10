@@ -1,6 +1,6 @@
 # MCP get_code - requirements
 
-This document records the source requirements and hard constraints for the MCP `get_code` tool in `packages/extension/mcp/tools/code`.
+This document records the requirements and hard constraints for the MCP `get_code` tool in `packages/extension/mcp/tools/code`.
 
 ## Non-negotiables
 

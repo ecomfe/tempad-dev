@@ -1,4 +1,8 @@
-import type { BridgeToPageMessage, PageToBridgeMessage } from '@tempad-dev/shared'
+import type {
+  BridgeToPageMessage,
+  McpBrowserStatePayload,
+  PageToBridgeMessage
+} from '@tempad-dev/shared'
 
 import {
   MCP_TOOL_TIMEOUT_MS,
@@ -20,7 +24,6 @@ import { MCP_LOCAL_HOST_PERMISSION_ERROR, MCP_PERMISSION_REQUEST_EVENT } from '@
 import { runMcpTool } from '@/mcp/runtime'
 import { layoutReady, options, runtimeMode } from '@/ui/state'
 
-export type McpStatus = 'disabled' | 'connecting' | 'connected' | 'error'
 type PendingAssetUpload = {
   reject: (error: Error) => void
   resolve: () => void
@@ -36,15 +39,15 @@ export const useMcp = createSharedComposable(() => {
     version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
   } satisfies Pick<PageToBridgeMessage, 'sessionId' | 'source' | 'version'>
 
-  const status = shallowRef<McpStatus>('disabled')
+  const status = shallowRef<McpBrowserStatePayload['status']>('disabled')
   const count = shallowRef(0)
-  const activeId = shallowRef<string | null>(null)
+  const activeSessionId = shallowRef<string | null>(null)
   const errorMessage = shallowRef<string | null>(null)
 
-  let enabledWithBridge = false
+  let enabled = false
   const pendingAssetUploads = new Map<string, PendingAssetUpload>()
 
-  const selfActive = computed(() => activeId.value === sessionId)
+  const selfActive = computed(() => activeSessionId.value === sessionId)
   const needsLocalHostPermission = computed(
     () => errorMessage.value === MCP_LOCAL_HOST_PERMISSION_ERROR
   )
@@ -56,13 +59,8 @@ export const useMcp = createSharedComposable(() => {
     window.postMessage(message, location.origin)
   }
 
-  function resetState() {
-    count.value = 0
-    activeId.value = null
-  }
-
   function sendEnable() {
-    enabledWithBridge = true
+    enabled = true
     status.value = 'connecting'
     errorMessage.value = null
     postPageMessage({
@@ -71,35 +69,29 @@ export const useMcp = createSharedComposable(() => {
     })
   }
 
-  function sendDisable() {
-    if (!enabledWithBridge) return
-    enabledWithBridge = false
-    postPageMessage({
-      ...pageMessageBase,
-      type: 'mcp.disable'
-    })
-  }
-
-  function start() {
-    sendEnable()
-  }
-
   function stop() {
-    sendDisable()
+    if (enabled) {
+      enabled = false
+      postPageMessage({
+        ...pageMessageBase,
+        type: 'mcp.disable'
+      })
+    }
     rejectPendingAssetUploads('MCP disabled before asset upload completed.')
-    resetState()
+    count.value = 0
+    activeSessionId.value = null
     setAssetServerUrl(null)
     resetUploadedAssets()
     status.value = 'disabled'
     errorMessage.value = null
   }
 
-  async function handleBridgeMessage(event: MessageEvent<unknown>) {
+  function handleBridgeMessage(event: MessageEvent<unknown>): void {
     if (event.source !== window || event.origin !== location.origin) return
 
     const message = parseBridgeToPageMessage(event.data)
     if (!message) return
-    if (!enabledWithBridge) return
+    if (!enabled) return
 
     if (message.type === 'mcp.assetUploadResult') {
       handleAssetUploadResult(message)
@@ -109,7 +101,7 @@ export const useMcp = createSharedComposable(() => {
     if (message.type === 'mcp.state') {
       const state = message.payload
       if (state.sessionId !== sessionId) return
-      activeId.value = state.activeSessionId
+      activeSessionId.value = state.activeSessionId
       count.value = state.sessionCount
       errorMessage.value = state.errorMessage
       status.value = state.status
@@ -122,18 +114,18 @@ export const useMcp = createSharedComposable(() => {
 
     if (message.type === 'mcp.toolCall') {
       const { name, args } = message.payload
-      await processToolCall(message.callId, name, args)
+      void processToolCall(message.callId, name, args)
     }
   }
 
-  useEventListener(window, 'message', (event: MessageEvent<unknown>) => handleBridgeMessage(event))
-  setAssetUploader(uploadAssetThroughBridge)
+  useEventListener(window, 'message', handleBridgeMessage)
+  setAssetUploader(uploadAsset)
 
   watch(
     canEnable,
-    (enabled) => {
-      if (enabled) {
-        start()
+    (shouldEnable) => {
+      if (shouldEnable) {
+        sendEnable()
       } else {
         stop()
       }
@@ -142,7 +134,7 @@ export const useMcp = createSharedComposable(() => {
   )
 
   function activate() {
-    if (!enabledWithBridge) return
+    if (!enabled) return
     postPageMessage({
       ...pageMessageBase,
       type: 'mcp.activateSession'
@@ -154,27 +146,27 @@ export const useMcp = createSharedComposable(() => {
     sendEnable()
   }
 
-  async function processToolCall(req: string, name: string, rawArgs: unknown) {
+  async function processToolCall(callId: string, name: string, args: unknown) {
     try {
-      const result = await runMcpTool(name, rawArgs)
+      const result = await runMcpTool(name, args)
       postPageMessage({
         ...pageMessageBase,
-        callId: req,
+        callId,
         payload: result,
         type: 'mcp.toolResult'
       })
     } catch (error: unknown) {
       postPageMessage({
         ...pageMessageBase,
-        callId: req,
+        callId,
         error: coerceToolErrorPayload(error),
         type: 'mcp.toolResult'
       })
     }
   }
 
-  function uploadAssetThroughBridge(request: AssetUploadRequest): Promise<void> {
-    if (!enabledWithBridge) {
+  function uploadAsset(request: AssetUploadRequest): Promise<void> {
+    if (!enabled) {
       return Promise.reject(new Error('MCP is not connected.'))
     }
 

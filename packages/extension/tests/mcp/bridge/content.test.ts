@@ -107,7 +107,9 @@ function createDeferred<T>() {
   return { promise, resolve }
 }
 
-function pageMessage(type: 'mcp.disable' | 'mcp.enable'): PageToBridgeMessage {
+function pageMessage(
+  type: 'mcp.activateSession' | 'mcp.disable' | 'mcp.enable'
+): PageToBridgeMessage {
   return {
     sessionId: 'session-1',
     source: TEMPAD_MCP_BROWSER_SOURCE,
@@ -175,6 +177,31 @@ describe('mcp/bridge/content', () => {
     vi.advanceTimersByTime(1000)
 
     expect(ports).toHaveLength(1)
+  })
+
+  it('ignores disconnects from a replaced runtime port', async () => {
+    vi.useFakeTimers()
+    const ports: Array<ReturnType<typeof createPort>> = []
+    const windowMock = installWindow()
+    installBrowser(ports)
+
+    startMcpContentBridge()
+    windowMock.sendPageMessage(pageMessage('mcp.enable'))
+    await flushMicrotasks()
+    ports[0]?.postMessage.mockImplementationOnce(() => {
+      throw new Error('port closed')
+    })
+
+    windowMock.sendPageMessage(pageMessage('mcp.activateSession'))
+    vi.advanceTimersByTime(1000)
+    expect(ports).toHaveLength(2)
+
+    ports[0]?.disconnect()
+    vi.advanceTimersByTime(1000)
+
+    expect(ports).toHaveLength(2)
+    windowMock.sendPageMessage(pageMessage('mcp.activateSession'))
+    expect(ports[1]?.postMessage).toHaveBeenLastCalledWith(pageMessage('mcp.activateSession'))
   })
 
   it('forwards valid broker messages back to the page', async () => {

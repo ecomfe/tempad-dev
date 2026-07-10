@@ -1,7 +1,7 @@
 import cssInjectedByJsPlugin from 'vite-plugin-css-injected-by-js'
 import { defineConfig } from 'wxt'
 
-import { MCP_LOCAL_HOST_ORIGINS } from './mcp/permissions'
+import { MCP_LOCAL_HOST_ORIGIN } from './mcp/permissions'
 
 const newElements = ['selectedcontent']
 
@@ -28,17 +28,6 @@ export default defineConfig({
   webExt: {
     disabled: true
   },
-  hooks: {
-    'build:manifestGenerated': (_wxt, manifest) => {
-      const hostPermissions = new Set(manifest.host_permissions ?? [])
-      manifest.optional_host_permissions = manifest.optional_host_permissions?.filter(
-        (origin: string) => !hostPermissions.has(origin)
-      )
-      if (manifest.optional_host_permissions?.length === 0) {
-        delete manifest.optional_host_permissions
-      }
-    }
-  },
   manifest: {
     minimum_chrome_version: '116',
     name: 'TemPad Dev',
@@ -50,7 +39,7 @@ export default defineConfig({
     ],
     permissions: ['declarativeNetRequest', 'declarativeNetRequestWithHostAccess', 'alarms'],
     host_permissions: ['https://www.figma.com/*'],
-    optional_host_permissions: [...MCP_LOCAL_HOST_ORIGINS],
+    optional_host_permissions: [MCP_LOCAL_HOST_ORIGIN],
     declarative_net_request: {
       rule_resources: [
         {

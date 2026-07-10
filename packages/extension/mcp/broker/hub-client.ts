@@ -1,16 +1,23 @@
-import type { MessageToExtension, ToolCallMessage, ToolResultMessage } from '@tempad-dev/shared'
+import type {
+  MessageToExtension,
+  RegisteredMessage,
+  StateMessage,
+  ToolCallMessage,
+  ToolResultMessage
+} from '@tempad-dev/shared'
 
 import { MCP_PORT_CANDIDATES, parseMessageToExtension } from '@tempad-dev/shared'
 
 const RECONNECT_DELAY_MS = 3000
 const KEEPALIVE_INTERVAL_MS = 20000
 const PORT_PROBE_TIMEOUT_MS = 500
+const HUB_HANDSHAKE_TIMEOUT_MS = 1000
 const LOCAL_HUB_UNREACHABLE_MESSAGE =
   'MCP server is not running. Start your agent or copy the MCP configuration from Agent integration.'
 
-export type HubConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error'
+type HubConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
-export type HubClientSnapshot = {
+type HubClientSnapshot = {
   activeId: string | null
   assetServerUrl: string | null
   errorMessage: string | null
@@ -18,47 +25,38 @@ export type HubClientSnapshot = {
   status: HubConnectionStatus
 }
 
-type TimerHandle = ReturnType<typeof setTimeout>
-type IntervalHandle = ReturnType<typeof setInterval>
-
-export type McpHubClientEvents = {
+type McpHubClientEvents = {
   onSnapshot?: (snapshot: HubClientSnapshot) => void
   onToolCall?: (message: ToolCallMessage) => void
 }
 
-export type WebSocketFactory = (url: string) => WebSocket
+type WebSocketFactory = (url: string) => WebSocket
 
-export type McpHubClientOptions = {
-  keepaliveIntervalMs?: number
-  reconnectDelayMs?: number
-  webSocketFactory?: WebSocketFactory
+type HubConnection = {
+  registered: RegisteredMessage
+  state: StateMessage
+  ws: WebSocket
 }
 
 export class McpHubClient {
   private activeId: string | null = null
   private assetServerUrl: string | null = null
+  private candidateSocket: WebSocket | null = null
   private connectPromise: Promise<void> | null = null
   private connectionEpoch = 0
   private enabled = false
   private errorMessage: string | null = null
-  private keepaliveTimer: IntervalHandle | null = null
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null
   private lastSuccessfulPort: number | null = null
-  private readonly keepaliveIntervalMs: number
-  private reconnectTimer: TimerHandle | null = null
-  private readonly reconnectDelayMs: number
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private registeredId: string | null = null
   private status: HubConnectionStatus = 'idle'
   private ws: WebSocket | null = null
-  private readonly webSocketFactory: WebSocketFactory
 
   constructor(
     private readonly events: McpHubClientEvents = {},
-    options: McpHubClientOptions = {}
-  ) {
-    this.keepaliveIntervalMs = options.keepaliveIntervalMs ?? KEEPALIVE_INTERVAL_MS
-    this.reconnectDelayMs = options.reconnectDelayMs ?? RECONNECT_DELAY_MS
-    this.webSocketFactory = options.webSocketFactory ?? ((url) => new WebSocket(url))
-  }
+    private readonly createWebSocket: WebSocketFactory = (url) => new WebSocket(url)
+  ) {}
 
   getSnapshot(): HubClientSnapshot {
     return {
@@ -92,7 +90,7 @@ export class McpHubClient {
     this.emitSnapshot()
   }
 
-  ensureConnected(): void {
+  private ensureConnected(): void {
     if (!this.enabled || this.status === 'connected' || this.connectPromise) {
       return
     }
@@ -125,14 +123,15 @@ export class McpHubClient {
         if (!this.isCurrentConnection(epoch)) return
         if (!isReachable) continue
 
-        const ws = await this.openWebSocket(candidatePort)
+        const connection = await this.openHubConnection(candidatePort)
         if (!this.isCurrentConnection(epoch)) {
-          ws.close()
+          closeWebSocket(connection.ws)
           return
         }
-        this.attachSocket(ws)
+        this.attachSocket(connection.ws)
+        this.handleHubMessage(connection.registered)
+        this.handleHubMessage(connection.state)
         this.lastSuccessfulPort = candidatePort
-        this.errorMessage = null
         this.startKeepalive()
         return
       } catch {
@@ -162,30 +161,63 @@ export class McpHubClient {
     return [...MCP_PORT_CANDIDATES]
   }
 
-  private openWebSocket(port: number): Promise<WebSocket> {
+  private openHubConnection(port: number): Promise<HubConnection> {
     return new Promise((resolve, reject) => {
-      const ws = this.webSocketFactory(`ws://127.0.0.1:${port}`)
+      const ws = this.createWebSocket(`ws://127.0.0.1:${port}`)
+      this.candidateSocket = ws
+      let registered: RegisteredMessage | null = null
+      let state: StateMessage | null = null
+      let settled = false
+
+      const timer = setTimeout(() => {
+        fail(new Error('MCP server handshake timed out'))
+      }, HUB_HANDSHAKE_TIMEOUT_MS)
 
       const cleanup = () => {
-        ws.removeEventListener('open', handleOpen)
+        clearTimeout(timer)
+        ws.removeEventListener('message', handleMessage)
+        ws.removeEventListener('close', handleClose)
         ws.removeEventListener('error', handleError)
+        if (this.candidateSocket === ws) {
+          this.candidateSocket = null
+        }
       }
-      const handleOpen = () => {
+      const fail = (error: Error) => {
+        if (settled) return
+        settled = true
         cleanup()
-        resolve(ws)
+        closeWebSocket(ws)
+        reject(error)
+      }
+      const finish = () => {
+        if (settled || !registered || !state) return
+        settled = true
+        cleanup()
+        resolve({ registered, state, ws })
+      }
+      const handleMessage = (event: Event) => {
+        const message = parseHubMessage(event)
+        if (!message) {
+          fail(new Error('Received malformed MCP server handshake'))
+          return
+        }
+        if (message.type === 'registered') {
+          registered = message
+        } else if (message.type === 'state') {
+          state = message
+        }
+        finish()
+      }
+      const handleClose = () => {
+        fail(new Error('MCP server connection closed during handshake'))
       }
       const handleError = (event: Event) => {
-        cleanup()
-        try {
-          ws.close()
-        } catch {
-          // Ignore close failures while probing candidate ports.
-        }
         const error = getErrorEventMessage(event) ?? 'open failed'
-        reject(new Error(error))
+        fail(new Error(error))
       }
 
-      ws.addEventListener('open', handleOpen, { once: true })
+      ws.addEventListener('message', handleMessage)
+      ws.addEventListener('close', handleClose, { once: true })
       ws.addEventListener('error', handleError, { once: true })
     })
   }
@@ -200,8 +232,7 @@ export class McpHubClient {
 
   private handleMessage(ws: WebSocket, event: MessageEvent<string>): void {
     if (this.ws !== ws) return
-    const payload = typeof event.data === 'string' ? event.data : ''
-    const message = parseMessageToExtension(payload)
+    const message = parseHubMessage(event)
     if (!message) {
       this.errorMessage = 'Received malformed message from MCP server'
       this.emitSnapshot()
@@ -214,7 +245,6 @@ export class McpHubClient {
     switch (message.type) {
       case 'registered':
         this.registeredId = message.id
-        this.emitSnapshot()
         break
       case 'state':
         this.activeId = message.activeId
@@ -235,14 +265,6 @@ export class McpHubClient {
     this.activeId = null
     this.assetServerUrl = null
     this.registeredId = null
-
-    if (!this.enabled) {
-      this.status = 'idle'
-      this.errorMessage = null
-      this.emitSnapshot()
-      return
-    }
-
     this.status = 'connecting'
     this.errorMessage = event.wasClean ? null : 'MCP connection closed unexpectedly'
     this.emitSnapshot()
@@ -260,7 +282,7 @@ export class McpHubClient {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       this.ensureConnected()
-    }, this.reconnectDelayMs)
+    }, RECONNECT_DELAY_MS)
   }
 
   private clearReconnectTimer(): void {
@@ -273,7 +295,7 @@ export class McpHubClient {
     this.clearKeepaliveTimer()
     this.keepaliveTimer = setInterval(() => {
       this.sendJson({ type: 'ping' })
-    }, this.keepaliveIntervalMs)
+    }, KEEPALIVE_INTERVAL_MS)
   }
 
   private clearKeepaliveTimer(): void {
@@ -284,14 +306,12 @@ export class McpHubClient {
 
   private cleanupSocket(): void {
     this.clearKeepaliveTimer()
+    const candidate = this.candidateSocket
     const current = this.ws
+    this.candidateSocket = null
     this.ws = null
-    if (!current) return
-    try {
-      current.close()
-    } catch {
-      // Ignore close failures while tearing down service-worker state.
-    }
+    closeWebSocket(candidate)
+    closeWebSocket(current)
   }
 
   private sendJson(payload: unknown): void {
@@ -301,6 +321,19 @@ export class McpHubClient {
 
   private emitSnapshot(): void {
     this.events.onSnapshot?.(this.getSnapshot())
+  }
+}
+
+function parseHubMessage(event: Event): MessageToExtension | null {
+  const data = (event as MessageEvent<unknown>).data
+  return parseMessageToExtension(typeof data === 'string' ? data : '')
+}
+
+function closeWebSocket(ws: WebSocket | null): void {
+  try {
+    ws?.close()
+  } catch {
+    // Socket teardown is best effort.
   }
 }
 

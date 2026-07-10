@@ -21,11 +21,10 @@ const RECONNECT_DELAY_MS = 1000
 type EnableMessage = Extract<PageToBridgeMessage, { type: 'mcp.enable' }>
 
 export function startMcpContentBridge(): void {
-  let lastEnableMessage: EnableMessage | null = null
+  let enableMessage: EnableMessage | null = null
   let port: ReturnType<typeof browser.runtime.connect> | null = null
   let permissionRequest: Promise<boolean> | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  let sessionGeneration = 0
 
   function clearReconnectTimer(): void {
     if (!reconnectTimer) return
@@ -34,30 +33,33 @@ export function startMcpContentBridge(): void {
   }
 
   function scheduleReconnect(): void {
-    if (!lastEnableMessage || reconnectTimer) return
+    if (!enableMessage || reconnectTimer) return
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
-      reconnect()
+      if (enableMessage) postToServiceWorker(enableMessage)
     }, RECONNECT_DELAY_MS)
   }
 
   function connect(): boolean {
     if (port) return true
+    let nextPort: ReturnType<typeof browser.runtime.connect>
     try {
-      port = browser.runtime.connect({ name: TEMPAD_MCP_SESSION_PORT_NAME })
+      nextPort = browser.runtime.connect({ name: TEMPAD_MCP_SESSION_PORT_NAME })
+      port = nextPort
       clearReconnectTimer()
     } catch {
       scheduleReconnect()
       return false
     }
 
-    port.onMessage.addListener((raw) => {
+    nextPort.onMessage.addListener((raw) => {
       const message = parseBridgeToPageMessage(raw)
       if (!message) return
       window.postMessage(message, TEMPAD_MCP_FIGMA_ORIGIN)
     })
 
-    port.onDisconnect.addListener(() => {
+    nextPort.onDisconnect.addListener(() => {
+      if (port !== nextPort) return
       port = null
       scheduleReconnect()
     })
@@ -65,27 +67,13 @@ export function startMcpContentBridge(): void {
     return true
   }
 
-  function reconnect(): void {
-    if (connect()) replayEnableMessage()
-  }
-
-  function replayEnableMessage(): void {
-    if (!port) return
-    if (lastEnableMessage) {
-      port.postMessage(lastEnableMessage)
-    }
-  }
-
-  function cachePageMessage(message: PageToBridgeMessage): void {
-    switch (message.type) {
-      case 'mcp.enable':
-        lastEnableMessage = message
-        break
-      case 'mcp.disable':
-        sessionGeneration++
-        lastEnableMessage = null
-        clearReconnectTimer()
-        break
+  function postToServiceWorker(message: PageToBridgeMessage): void {
+    if (!connect() || !port) return
+    try {
+      port.postMessage(message)
+    } catch {
+      port = null
+      scheduleReconnect()
     }
   }
 
@@ -94,25 +82,24 @@ export function startMcpContentBridge(): void {
     if (!message) return
 
     if (message.type === 'mcp.enable') {
-      const generation = ++sessionGeneration
+      enableMessage = message
       if (!(await ensureLocalHostPermission())) {
-        if (generation === sessionGeneration) {
+        if (enableMessage === message) {
           postMissingLocalHostPermission(message.sessionId)
         }
         return
       }
-      if (generation !== sessionGeneration) return
+      if (enableMessage !== message) return
+    } else {
+      if (enableMessage?.sessionId !== message.sessionId) return
+      if (message.type === 'mcp.disable') {
+        enableMessage = null
+        clearReconnectTimer()
+      }
     }
 
-    cachePageMessage(message)
     if (message.type === 'mcp.disable' && !port) return
-    if (!connect() || !port) return
-    try {
-      port.postMessage(message)
-    } catch {
-      port = null
-      scheduleReconnect()
-    }
+    postToServiceWorker(message)
   }
 
   function requestLocalHostPermission(): Promise<boolean> {
@@ -156,6 +143,8 @@ export function startMcpContentBridge(): void {
   }
 
   window.addEventListener('message', (event) => {
+    // The MCP runtime uses Figma's page-world API, so the exact Figma origin is
+    // intentionally the trust boundary. The broker still validates port/session ownership.
     if (event.source !== window || event.origin !== TEMPAD_MCP_FIGMA_ORIGIN) {
       return
     }
