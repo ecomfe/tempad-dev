@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.13
+
+- Improved Agent integration reliability across multiple Figma tabs by preserving explicit active-session ownership.
+- Validated the local MCP server handshake before selecting a WebSocket port, avoiding connections to unrelated local services.
+- Rejected oversized asset uploads before bridge transfer and limited local host access to the required `127.0.0.1` origin.
+
 ## 0.18.12
 
 - Fixed Agent integration permission prompts on Chrome and Edge so enabling the MCP server correctly asks for local host access and connects after approval.
