@@ -137,7 +137,7 @@ The runner performs these steps:
    measurement scenes:
 
    ```js
-   __TEMPAD_README_SCREENSHOTS__.stage({
+   await __TEMPAD_README_SCREENSHOTS__.stage({
      focus: scenario.figma.focus,
      selection: scenario.figma.selection,
      theme,
@@ -152,9 +152,10 @@ The runner performs these steps:
    requested variant; do not modify `data-preferred-theme` directly.
 6. Resolve the scenario pointer target after layout settles. Canvas targets use
    `__TEMPAD_README_SCREENSHOTS__.bounds(marker)`; panel targets use their declared accessible role
-   and name. Move the real Chrome pointer to the resolved point and verify its declared shape,
-   hover outline, focus selection, and tooltip. For hidden-pointer scenes, move it to the manifest's
-   out-of-crop coordinate.
+   and name. The resolved point is the arrow-tip hotspot; interactive controls use an interior
+   bottom-right anchor so the cursor body does not cover their content. Move the real Chrome pointer
+   to that point and verify its declared shape, hover outline, focus selection, and tooltip. For
+   hidden-pointer scenes, move it to the manifest's out-of-crop coordinate.
 7. Keep Figma in its minimized UI mode and capture the manifest's clip rectangle. The clip starts
    to the right of Figma's file island and ends before the properties panel; the bottom toolbar is
    below it. Do not fully hide the Figma UI: TemPad Dev intentionally hides after Figma removes the
