@@ -20,6 +20,9 @@ type Scenario = {
   }
   id: string
   intent: string
+  panel?: {
+    plugins?: string[]
+  }
   pointer: {
     shape: string
     target: {
@@ -148,6 +151,15 @@ for (const scenario of manifest.scenarios) {
   }
   if (!scenario.assertions.length) {
     errors.push(`scenarios.json: ${scenario.id} must declare pre-capture assertions`)
+  }
+
+  const plugins = scenario.panel?.plugins ?? []
+  if (scenario.id === 'plugins') {
+    if (plugins.length !== 1 || plugins[0] !== 'Kong UI') {
+      errors.push('scenarios.json: plugins must be the only scenario that enables Kong UI')
+    }
+  } else if (plugins.length) {
+    errors.push(`scenarios.json: ${scenario.id} must use the native plugin-free state`)
   }
 
   const clip = { ...manifest.capture.clip, ...scenario.clip }

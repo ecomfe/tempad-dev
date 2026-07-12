@@ -297,7 +297,7 @@
     },
     {
       "id": "scroll",
-      "intent": "Explain the scroll-to-selection affordance by keeping the frame selected while the pointer reveals the control tooltip.",
+      "intent": "Explain the scroll-to-selection affordance in the native code view by keeping the frame selected while the pointer reveals the control tooltip.",
       "fixture": "code",
       "view": "code",
       "figma": {
@@ -314,9 +314,6 @@
           }
         ]
       },
-      "panel": {
-        "plugins": ["Kong UI"]
-      },
       "pointer": {
         "visible": true,
         "shape": "default",
@@ -329,7 +326,8 @@
       },
       "assertions": [
         { "kind": "panel-title", "text": "Frame 1" },
-        { "kind": "panel-badge", "text": "Kong UI" },
+        { "kind": "panel-heading", "text": "CSS" },
+        { "kind": "panel-text-absent", "text": "Kong UI" },
         { "kind": "tooltip", "text": "Scroll into view" }
       ],
       "width": 1440,
