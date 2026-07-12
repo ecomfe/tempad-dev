@@ -1,0 +1,541 @@
+{
+  "version": 2,
+  "fixture": {
+    "file": {
+      "key": "4HPsWWxVESGJ9ka4CDdVMx",
+      "title": "TemPad Dev fixtures",
+      "url": "https://www.figma.com/design/4HPsWWxVESGJ9ka4CDdVMx/TemPad-Dev-fixtures"
+    },
+    "kongButton": {
+      "componentKey": "1ee41f133f277b708cf54a74a6c2e294be6664fb",
+      "marker": "plugins"
+    },
+    "pageName": "README Fixtures",
+    "sharedPluginData": {
+      "namespace": "tempad_dev",
+      "key": "readme_shot"
+    }
+  },
+  "capture": {
+    "viewport": {
+      "width": 1728,
+      "height": 837
+    },
+    "method": "cdp-clip",
+    "deviceScaleFactor": 2,
+    "clipScale": 1,
+    "sourceScale": 2,
+    "clip": {
+      "x": 300,
+      "y": 0,
+      "width": 720,
+      "height": 480
+    },
+    "panel": {
+      "x": 676,
+      "y": 51
+    },
+    "panelControls": {
+      "preferences": {
+        "selector": "article button",
+        "index": 0
+      },
+      "deepSelect": {
+        "selector": "article main button",
+        "index": 0,
+        "requires": "preferencesOpen"
+      },
+      "measure": {
+        "selector": "article main button",
+        "index": 1,
+        "requires": "preferencesOpen"
+      },
+      "scrollIntoView": {
+        "selector": "article main button",
+        "index": 0,
+        "requires": "preferencesClosed"
+      }
+    },
+    "canvasAnchor": {
+      "x": 392,
+      "y": 151
+    },
+    "hiddenPointer": {
+      "x": 1200,
+      "y": 700
+    },
+    "settleMs": 700,
+    "themes": ["light", "dark"],
+    "themeControl": {
+      "method": "figma-menu",
+      "path": ["Preferences", "Theme"],
+      "values": {
+        "light": "Light",
+        "dark": "Dark"
+      },
+      "canvasBackground": {
+        "method": "figma-page-background",
+        "values": {
+          "light": "#F5F5F5",
+          "dark": "#000000"
+        }
+      }
+    }
+  },
+  "baseline": {
+    "figma": {
+      "theme": "$theme",
+      "zoom": 1,
+      "selection": []
+    },
+    "panel": {
+      "preferencesOpen": false,
+      "deepSelect": false,
+      "measure": false,
+      "mcpEnabled": false,
+      "plugins": []
+    },
+    "pointer": {
+      "visible": false,
+      "shape": "default",
+      "target": {
+        "kind": "hiddenPointer"
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "id": "code",
+      "intent": "Show the selected Figma frame beside its generated CSS and JavaScript.",
+      "fixture": "code",
+      "view": "code",
+      "figma": {
+        "focus": "code",
+        "selection": ["code"],
+        "zoom": 1.5,
+        "highlight": [
+          {
+            "kind": "selection",
+            "marker": "code",
+            "handles": true,
+            "sizeLabel": true,
+            "color": "figma-blue"
+          }
+        ]
+      },
+      "pointer": {
+        "visible": false,
+        "shape": "default",
+        "target": {
+          "kind": "hiddenPointer"
+        }
+      },
+      "assertions": [
+        { "kind": "panel-title", "text": "Frame 1" },
+        { "kind": "panel-heading", "text": "CSS" },
+        { "kind": "panel-heading", "text": "JavaScript" }
+      ],
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "id": "unit",
+      "intent": "Demonstrate rem conversion by showing the selected frame, the active settings, and the generated rem values together.",
+      "fixture": "code",
+      "view": "preferences",
+      "figma": {
+        "focus": "code",
+        "selection": ["code"],
+        "zoom": 1.5,
+        "captureAnchor": {
+          "x": 392,
+          "y": 179
+        },
+        "highlight": [
+          {
+            "kind": "selection",
+            "marker": "code",
+            "handles": true,
+            "sizeLabel": true,
+            "color": "figma-blue"
+          }
+        ]
+      },
+      "panel": {
+        "preferencesOpen": true,
+        "options": {
+          "cssUnit": "rem",
+          "rootFontSize": 16,
+          "scale": 1
+        },
+        "focus": {
+          "role": "spinbutton",
+          "name": "Root font size",
+          "selectText": true
+        }
+      },
+      "pointer": {
+        "visible": true,
+        "shape": "default",
+        "target": {
+          "kind": "panel-control",
+          "role": "spinbutton",
+          "name": "Root font size",
+          "anchor": "center"
+        }
+      },
+      "assertions": [
+        { "kind": "panel-control-value", "name": "CSS unit", "value": "rem" },
+        { "kind": "panel-control-value", "name": "Root font size", "value": "16" },
+        { "kind": "panel-text", "text": "7.5rem" }
+      ],
+      "clip": {
+        "x": 300,
+        "y": 100,
+        "width": 720,
+        "height": 480
+      },
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "id": "deep",
+      "intent": "Show deep-select mode discovering a nested frame before selection, with a hover-only Figma outline and an empty selection state in the panel.",
+      "fixture": "deep_inner",
+      "view": "preferences",
+      "figma": {
+        "focus": "deep_outer",
+        "selection": [],
+        "zoom": 1,
+        "captureAnchor": {
+          "x": 402,
+          "y": 151
+        },
+        "highlight": [
+          {
+            "kind": "hover",
+            "marker": "deep_inner",
+            "handles": false,
+            "sizeLabel": false,
+            "color": "figma-blue"
+          }
+        ]
+      },
+      "panel": {
+        "preferencesOpen": true,
+        "deepSelect": true
+      },
+      "pointer": {
+        "visible": true,
+        "shape": "default",
+        "target": {
+          "kind": "canvas-node",
+          "marker": "deep_inner",
+          "anchor": "center"
+        }
+      },
+      "assertions": [
+        { "kind": "panel-tool-active", "tool": "deepSelect" },
+        { "kind": "panel-text", "text": "No selection" },
+        { "kind": "figma-selection-count", "value": 0 }
+      ],
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "id": "measure",
+      "intent": "Show measurement mode comparing the selected inner frame to its outer frame, including all four 20 px distance labels.",
+      "fixture": "measure_inner",
+      "view": "preferences",
+      "figma": {
+        "focus": "measure_outer",
+        "selection": ["measure_inner"],
+        "zoom": 1,
+        "captureAnchor": {
+          "x": 400,
+          "y": 151
+        },
+        "highlight": [
+          {
+            "kind": "selection",
+            "marker": "measure_inner",
+            "handles": true,
+            "sizeLabel": true,
+            "color": "figma-blue"
+          },
+          {
+            "kind": "measurement-target",
+            "marker": "measure_outer",
+            "distanceLabels": [20, 20, 20, 20],
+            "color": "figma-measure-orange"
+          }
+        ]
+      },
+      "panel": {
+        "preferencesOpen": true,
+        "measure": true
+      },
+      "pointer": {
+        "visible": true,
+        "shape": "default",
+        "target": {
+          "kind": "canvas-node",
+          "marker": "measure_outer",
+          "anchor": {
+            "x": 0.92,
+            "y": 0.5
+          }
+        }
+      },
+      "assertions": [
+        { "kind": "panel-tool-active", "tool": "measure" },
+        { "kind": "panel-title", "text": "Frame 2" },
+        { "kind": "measurement-labels", "values": [20, 20, 20, 20] }
+      ],
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "id": "scroll",
+      "intent": "Explain the scroll-to-selection affordance by keeping the frame selected while the pointer reveals the control tooltip.",
+      "fixture": "code",
+      "view": "code",
+      "figma": {
+        "focus": "code",
+        "selection": ["code"],
+        "zoom": 1.5,
+        "highlight": [
+          {
+            "kind": "selection",
+            "marker": "code",
+            "handles": true,
+            "sizeLabel": true,
+            "color": "figma-blue"
+          }
+        ]
+      },
+      "panel": {
+        "plugins": ["Kong UI"]
+      },
+      "pointer": {
+        "visible": true,
+        "shape": "default",
+        "target": {
+          "kind": "panel-control",
+          "control": "scrollIntoView",
+          "anchor": "center"
+        },
+        "tooltip": "Scroll into view"
+      },
+      "assertions": [
+        { "kind": "panel-title", "text": "Frame 1" },
+        { "kind": "panel-badge", "text": "Kong UI" },
+        { "kind": "tooltip", "text": "Scroll into view" }
+      ],
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "id": "plugins",
+      "intent": "Show that a real Kong Button instance is recognized and transformed into Kong UI-specific component and style output.",
+      "fixture": "plugins",
+      "view": "code",
+      "figma": {
+        "focus": "plugins",
+        "selection": ["plugins"],
+        "zoom": 1.3,
+        "captureAnchor": {
+          "x": 431,
+          "y": 180
+        },
+        "highlight": [
+          {
+            "kind": "selection",
+            "marker": "plugins",
+            "handles": true,
+            "sizeLabel": true,
+            "color": "figma-instance-purple"
+          }
+        ]
+      },
+      "panel": {
+        "plugins": ["Kong UI"]
+      },
+      "pointer": {
+        "visible": false,
+        "shape": "default",
+        "target": {
+          "kind": "hiddenPointer"
+        }
+      },
+      "assertions": [
+        { "kind": "panel-title", "text": "Button" },
+        { "kind": "panel-badge", "text": "Kong UI" },
+        { "kind": "panel-heading", "text": "Component" },
+        { "kind": "panel-text", "text": "<KButton" },
+        { "kind": "panel-heading", "text": "SCSS" },
+        { "kind": "panel-text", "text": "$kui-" }
+      ],
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "id": "mcp-config",
+      "intent": "Focus tightly on the enabled MCP server setup instructions and supported client icons.",
+      "fixture": "code",
+      "view": "mcpInstall",
+      "figma": {
+        "focus": "code",
+        "selection": ["code"]
+      },
+      "panel": {
+        "preferencesOpen": true,
+        "mcpEnabled": true,
+        "installExpanded": true
+      },
+      "pointer": {
+        "visible": false,
+        "shape": "default",
+        "target": {
+          "kind": "hiddenPointer"
+        }
+      },
+      "clip": {
+        "x": 676,
+        "y": 347,
+        "width": 240,
+        "height": 200,
+        "anchor": {
+          "kind": "panel-section",
+          "name": "Agent integration",
+          "edge": "top-left",
+          "offset": { "x": 0, "y": 75 }
+        }
+      },
+      "assertions": [
+        { "kind": "panel-text", "text": "Install" },
+        { "kind": "panel-text", "text": "Agent skill" },
+        { "kind": "panel-text", "text": "View setup guide" }
+      ],
+      "width": 480,
+      "height": 400
+    },
+    {
+      "id": "mcp-unavailable",
+      "intent": "Show the MCP badge's unavailable state: gray dot and dashed outline while preferences remain visible for context.",
+      "fixture": "code",
+      "view": "mcpStatus",
+      "mcpStatus": "unavailable",
+      "figma": {
+        "focus": "code",
+        "selection": ["code"]
+      },
+      "panel": {
+        "preferencesOpen": true,
+        "mcpEnabled": true
+      },
+      "pointer": {
+        "visible": false,
+        "shape": "default",
+        "target": {
+          "kind": "hiddenPointer"
+        }
+      },
+      "clip": {
+        "x": 617,
+        "y": 26,
+        "width": 360,
+        "height": 160,
+        "anchor": {
+          "kind": "panel",
+          "edge": "top-left",
+          "offset": { "x": -59, "y": -25 }
+        }
+      },
+      "assertions": [
+        { "kind": "mcp-status", "value": "unavailable" },
+        { "kind": "panel-control-value", "name": "CSS unit", "value": "px" }
+      ],
+      "width": 720,
+      "height": 320
+    },
+    {
+      "id": "mcp-inactive",
+      "intent": "Show the MCP badge's connected-but-inactive state: green dot with a dashed outline.",
+      "fixture": "code",
+      "view": "mcpStatus",
+      "mcpStatus": "inactive",
+      "figma": {
+        "focus": "code",
+        "selection": ["code"]
+      },
+      "panel": {
+        "preferencesOpen": true,
+        "mcpEnabled": true
+      },
+      "pointer": {
+        "visible": false,
+        "shape": "default",
+        "target": {
+          "kind": "hiddenPointer"
+        }
+      },
+      "clip": {
+        "x": 617,
+        "y": 26,
+        "width": 360,
+        "height": 160,
+        "anchor": {
+          "kind": "panel",
+          "edge": "top-left",
+          "offset": { "x": -59, "y": -25 }
+        }
+      },
+      "assertions": [
+        { "kind": "mcp-status", "value": "inactive" },
+        { "kind": "panel-control-value", "name": "CSS unit", "value": "px" }
+      ],
+      "width": 720,
+      "height": 320
+    },
+    {
+      "id": "mcp-active",
+      "intent": "Show the MCP badge's active state: green dot with a solid green outline.",
+      "fixture": "code",
+      "view": "mcpStatus",
+      "mcpStatus": "active",
+      "figma": {
+        "focus": "code",
+        "selection": ["code"]
+      },
+      "panel": {
+        "preferencesOpen": true,
+        "mcpEnabled": true
+      },
+      "pointer": {
+        "visible": false,
+        "shape": "default",
+        "target": {
+          "kind": "hiddenPointer"
+        }
+      },
+      "clip": {
+        "x": 617,
+        "y": 26,
+        "width": 360,
+        "height": 160,
+        "anchor": {
+          "kind": "panel",
+          "edge": "top-left",
+          "offset": { "x": -59, "y": -25 }
+        }
+      },
+      "assertions": [
+        { "kind": "mcp-status", "value": "active" },
+        { "kind": "panel-control-value", "name": "CSS unit", "value": "px" }
+      ],
+      "width": 720,
+      "height": 320
+    }
+  ]
+}

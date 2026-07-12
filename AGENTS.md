@@ -42,6 +42,7 @@ Provide a single entry point for coding agents. This file links to package-level
 - `docs/extension/mcp-get-code-requirements.md`
 - `docs/extension/mcp-get-code-design.md`
 - `docs/extension/mcp-browser-gateway-design.md`
+- `docs/marketing-screenshots.md`
 
 ## Guardrails
 
