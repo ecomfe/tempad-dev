@@ -181,7 +181,10 @@
           "kind": "panel-control",
           "role": "spinbutton",
           "name": "Root font size",
-          "anchor": "center"
+          "anchor": {
+            "x": 0.85,
+            "y": 0.78
+          }
         }
       },
       "assertions": [
@@ -320,7 +323,10 @@
         "target": {
           "kind": "panel-control",
           "control": "scrollIntoView",
-          "anchor": "center"
+          "anchor": {
+            "x": 0.82,
+            "y": 0.82
+          }
         },
         "tooltip": "Scroll into view"
       },

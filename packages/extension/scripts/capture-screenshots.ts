@@ -106,7 +106,7 @@ type FixtureRuntime = {
     x: number
     y: number
     zoom: number
-  }): { selection: unknown[] }
+  }): Promise<{ selection: unknown[] }>
 }
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
@@ -355,7 +355,12 @@ async function pointerPoint(page: Page, manifest: Manifest, scenario: Scenario):
       await panelControl(page, scenario),
       `${scenario.id} pointer target`
     )
-    return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+    const anchor = target.anchor ?? 'center'
+    const normalized = anchor === 'center' ? { x: 0.5, y: 0.5 } : anchor
+    return {
+      x: bounds.x + bounds.width * normalized.x,
+      y: bounds.y + bounds.height * normalized.y
+    }
   }
   fail(`Unsupported pointer target ${target.kind} in ${scenario.id}.`)
 }
@@ -375,7 +380,7 @@ async function renderPointer(page: Page, point: Point, visible: boolean): Promis
         'height:32px',
         'pointer-events:none',
         'z-index:2147483647',
-        'transform:translate(-3px,-3px)',
+        'transform:translate(-5px,-3.5px)',
         'filter:drop-shadow(0 0 7px rgba(0,152,255,.8))'
       ].join(';')
       cursor.innerHTML =

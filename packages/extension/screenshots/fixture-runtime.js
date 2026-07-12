@@ -195,13 +195,14 @@
     return page.backgrounds
   }
 
-  const stage = ({ focus, selection = [], theme, x = 392, y = 151, zoom = 1 }) => {
+  const stage = async ({ focus, selection = [], theme, x = 392, y = 151, zoom = 1 }) => {
     const focusNode = findFixture(focus)
     const selectionNodes = selection.map(findFixture)
 
     figma.currentPage = page
     if (theme) setCanvasTheme(theme)
     figma.currentPage.selection = []
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
     figma.currentPage.selection = selectionNodes
     figma.viewport.zoom = zoom
     figma.viewport.center = {
