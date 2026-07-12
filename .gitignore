@@ -15,6 +15,7 @@ stats-*.json
 web-ext.config.ts
 dist
 coverage
+.artifacts/
 packages/*/coverage
 packages/extension/tests/**/__screenshots__/
 
