@@ -386,6 +386,27 @@ async function renderPointer(page: Page, point: Point, visible: boolean): Promis
   )
 }
 
+async function stabilizeCompositor(page: Page, point: Point): Promise<void> {
+  await page.evaluate((value) => {
+    document.querySelector('#tempad-readme-compositor')?.remove()
+    const guard = document.createElement('div')
+    guard.id = 'tempad-readme-compositor'
+    guard.style.cssText = [
+      'position:fixed',
+      `left:${value.x}px`,
+      `top:${value.y}px`,
+      'width:32px',
+      'height:32px',
+      'pointer-events:none',
+      'z-index:2147483647',
+      'filter:drop-shadow(0 0 7px rgba(0,152,255,.8))'
+    ].join(';')
+    guard.innerHTML =
+      '<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 3.5 26 13l-9 3.2-3.4 9.1L5 3.5Z" fill="#111" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/></svg>'
+    document.body.append(guard)
+  }, point)
+}
+
 async function resolveClip(page: Page, manifest: Manifest, scenario: Scenario): Promise<Rect> {
   const source = { ...manifest.capture.clip, ...scenario.clip }
   const clip = { height: source.height, width: source.width, x: source.x, y: source.y }
@@ -522,6 +543,7 @@ async function captureScenario(
   const point = await pointerPoint(page, manifest, scenario)
   await page.mouse.move(point.x, point.y)
   await renderPointer(page, point, scenario.pointer.visible)
+  await stabilizeCompositor(page, manifest.capture.hiddenPointer)
   await page.waitForTimeout(scenario.pointer.tooltip ? 700 : manifest.capture.settleMs)
   await assertScenario(page, scenario, stage)
 
@@ -643,6 +665,7 @@ async function main(): Promise<void> {
         ).__TEMPAD_README_SCREENSHOTS__
         runtime.setCanvasTheme('light')
         document.querySelector('#tempad-readme-cursor')?.remove()
+        document.querySelector('#tempad-readme-compositor')?.remove()
       })
       .catch(() => undefined)
 

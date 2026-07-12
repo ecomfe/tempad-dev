@@ -168,17 +168,30 @@
   }
 
   const setCanvasTheme = (theme) => {
-    const colors = {
-      dark: { r: 0, g: 0, b: 0 },
-      light: { r: 245 / 255, g: 245 / 255, b: 245 / 255 }
+    const themes = {
+      dark: {
+        background: { r: 0, g: 0, b: 0 },
+        outer: { r: 85 / 255, g: 85 / 255, b: 85 / 255 },
+        surface: { r: 51 / 255, g: 51 / 255, b: 51 / 255 }
+      },
+      light: {
+        background: { r: 245 / 255, g: 245 / 255, b: 245 / 255 },
+        outer: { r: 0.87, g: 0.87, b: 0.87 },
+        surface: { r: 1, g: 1, b: 1 }
+      }
     }
-    const color = colors[theme]
+    const colors = themes[theme]
 
-    if (!color) {
+    if (!colors) {
       throw new Error(`Unknown README screenshot theme: ${theme}`)
     }
 
-    page.backgrounds = solid(color.r, color.g, color.b)
+    page.backgrounds = solid(colors.background.r, colors.background.g, colors.background.b)
+    code.fills = solid(colors.surface.r, colors.surface.g, colors.surface.b)
+    deepOuter.fills = solid(colors.outer.r, colors.outer.g, colors.outer.b)
+    deepInner.fills = solid(colors.surface.r, colors.surface.g, colors.surface.b)
+    measureOuter.fills = solid(colors.outer.r, colors.outer.g, colors.outer.b)
+    measureInner.fills = solid(colors.surface.r, colors.surface.g, colors.surface.b)
     return page.backgrounds
   }
 

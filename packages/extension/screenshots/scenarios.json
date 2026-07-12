@@ -381,7 +381,7 @@
     },
     {
       "id": "mcp-config",
-      "intent": "Focus tightly on the enabled MCP server setup instructions and supported client icons.",
+      "intent": "Show the complete Agent integration section with MCP enabled, install instructions expanded, and every supported client action visible.",
       "fixture": "code",
       "view": "mcpInstall",
       "figma": {
@@ -402,23 +402,25 @@
       },
       "clip": {
         "x": 676,
-        "y": 347,
+        "y": 272,
         "width": 240,
-        "height": 200,
+        "height": 254,
         "anchor": {
           "kind": "panel-section",
           "name": "Agent integration",
           "edge": "top-left",
-          "offset": { "x": 0, "y": 75 }
+          "offset": { "x": 0, "y": 0 }
         }
       },
       "assertions": [
+        { "kind": "panel-text", "text": "Agent integration" },
+        { "kind": "panel-text", "text": "Enable MCP server" },
         { "kind": "panel-text", "text": "Install" },
         { "kind": "panel-text", "text": "Agent skill" },
         { "kind": "panel-text", "text": "View setup guide" }
       ],
       "width": 480,
-      "height": 400
+      "height": 508
     },
     {
       "id": "mcp-unavailable",
