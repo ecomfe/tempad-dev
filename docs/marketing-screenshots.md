@@ -39,7 +39,7 @@ crop becomes `720 × 320`.
 | `unit`            | Same selected frame, preferences open, `rem` active, root size `16` focused with its text selected, arrow pointer over the field. |
 | `deep`            | No Figma selection, Deep Select active, arrow pointer over the nested frame, hover-only blue outline without handles.             |
 | `measure`         | Inner frame selected, Measure active, outer frame under the pointer, orange target outline and four `20` distance labels.         |
-| `scroll`          | Frame selected, Kong UI output visible, arrow pointer hovering Scroll Into View with its tooltip visible.                         |
+| `scroll`          | Frame selected in the native code view, arrow pointer hovering Scroll Into View with its tooltip visible.                         |
 | `plugins`         | Real Kong Button instance selected with Figma's purple instance highlight and Kong UI-specific output; pointer hidden.            |
 | `mcp-config`      | Complete Agent integration section with MCP enabled, expanded install instructions, client icons, and setup guide.                |
 | `mcp-unavailable` | Preferences visible with the gray-dot, dashed MCP badge.                                                                          |
@@ -130,7 +130,8 @@ The runner performs these steps:
    the page's main JavaScript world through CDP. Verify that the returned page is `README Fixtures`
    and that every marker from the scenario manifest exists.
 3. Reset TemPad Dev to the manifest baseline, then configure the scenario through its visible
-   controls. Do not read or write browser local storage.
+   controls. The baseline has no codegen plugins enabled; only `plugins` may enable Kong UI, and it
+   is captured last within each theme. Do not read or write browser local storage.
 4. Stage the Figma canvas through the helper installed by the fixture runtime. This separates the
    node used to frame the canvas from the actual selection, which is required for hover-only and
    measurement scenes:
@@ -146,7 +147,8 @@ The runner performs these steps:
    })
    ```
 
-5. Drag the TemPad Dev panel to the manifest coordinates. Use Figma's real theme menu for the
+5. Drag the TemPad Dev panel to the manifest coordinates. Capture every selected native scenario
+   for one theme before switching themes, with `plugins` last. Use Figma's real theme menu for the
    requested variant; do not modify `data-preferred-theme` directly.
 6. Resolve the scenario pointer target after layout settles. Canvas targets use
    `__TEMPAD_README_SCREENSHOTS__.bounds(marker)`; panel targets use their declared accessible role

@@ -497,6 +497,11 @@ async function assertScenario(
           fail(`${scenario.id}: tooltip ${assertion.text} is not visible.`)
         }
         break
+      case 'panel-text-absent':
+        if (assertion.text && panelText.includes(assertion.text)) {
+          fail(`${scenario.id}: panel unexpectedly contains ${assertion.text}.`)
+        }
+        break
       default:
         if (assertion.text && !panelText.includes(assertion.text)) {
           fail(`${scenario.id}: panel does not contain ${assertion.text}.`)
@@ -526,7 +531,6 @@ async function captureScenario(
     fail(`${scenario.id}: leave TemPad Dev preferences open before capturing this MCP state.`)
   }
 
-  await setFigmaTheme(page, theme)
   const stage = isStateGated ? null : await stageCanvas(page, manifest, scenario, theme)
   if (isStateGated) {
     await page.evaluate((value) => {
@@ -585,6 +589,9 @@ async function main(): Promise<void> {
       .filter(Boolean) as Theme[]
   )
   const scenarios = manifest.scenarios.filter((scenario) => selectedIds.has(scenario.id))
+  const orderedScenarios = [...scenarios].sort(
+    (a, b) => Number(a.id === 'plugins') - Number(b.id === 'plugins')
+  )
   const unknown = [...selectedIds].filter(
     (id) => !manifest.scenarios.some((scenario) => scenario.id === id)
   )
@@ -647,9 +654,10 @@ async function main(): Promise<void> {
   }
 
   try {
-    for (const scenario of scenarios) {
-      for (const theme of manifest.capture.themes) {
-        if (selectedThemes.has(theme)) {
+    for (const theme of manifest.capture.themes) {
+      if (selectedThemes.has(theme)) {
+        await setFigmaTheme(page, theme)
+        for (const scenario of orderedScenarios) {
           await captureScenario(page, manifest, scenario, theme, outputDir)
         }
       }

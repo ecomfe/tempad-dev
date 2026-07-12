@@ -201,6 +201,7 @@
 
     figma.currentPage = page
     if (theme) setCanvasTheme(theme)
+    figma.currentPage.selection = []
     figma.currentPage.selection = selectionNodes
     figma.viewport.zoom = zoom
     figma.viewport.center = {
