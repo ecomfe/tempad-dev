@@ -33,7 +33,7 @@
     "@vueuse/core": "^14.3.0",
     "overlayscrollbars": "^2.16.0",
     "p-wait-for": "^6.0.0",
-    "stringify-object": "^6.0.0",
+    "stringify-object": "^7.0.0",
     "svgson": "^5.3.1",
     "vue": "^3.5.39"
   },
