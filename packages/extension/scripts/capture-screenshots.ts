@@ -132,8 +132,8 @@ function usage(): string {
   return [
     'Capture README screenshots from an already-open, logged-in Chrome:',
     '',
-    '  pnpm screenshots:capture -- --cdp-url http://127.0.0.1:9222',
-    '  pnpm screenshots:capture -- --only code,unit,deep',
+    '  pnpm screenshots capture --cdp-url http://127.0.0.1:9222',
+    '  pnpm screenshots capture --only code,unit,deep',
     '',
     'Options:',
     '  --cdp-url <url>       Chrome DevTools endpoint (default: TEMPAD_SCREENSHOT_CDP_URL or http://127.0.0.1:9222)',

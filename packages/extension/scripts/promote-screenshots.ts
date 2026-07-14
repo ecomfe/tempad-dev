@@ -22,7 +22,7 @@ function readPngSize(buffer: Buffer): { height: number; width: number } | null {
 async function main(): Promise<void> {
   if (!process.argv.includes('--yes')) {
     throw new Error(
-      'Promotion overwrites committed marketing assets. Review screenshots:compare first, then rerun with --yes.'
+      'Promotion overwrites committed marketing assets. Review `pnpm screenshots compare` first, then rerun with --yes.'
     )
   }
 

@@ -110,16 +110,16 @@ remain Figma-owned highlight colors in either theme.
 The normal path is candidate capture, visual comparison, then explicit promotion:
 
 ```sh
-pnpm screenshots:capture
-pnpm screenshots:compare
+pnpm screenshots capture
+pnpm screenshots compare
 open .artifacts/marketing-screenshots/comparison.html
-pnpm screenshots:promote -- --yes
-pnpm screenshots:verify
+pnpm screenshots promote --yes
+pnpm screenshots verify
 ```
 
-`screenshots:capture` defaults to every scene except MCP unavailable/inactive. Use `--only` to
+`pnpm screenshots capture` defaults to every scene except MCP unavailable/inactive. Use `--only` to
 rerun a subset, for example `--only code,unit,deep`, and `--themes light` for one theme. Candidates
-never overwrite committed assets. `screenshots:compare -- --baseline-dir <path>` can compare
+never overwrite committed assets. `pnpm screenshots compare --baseline-dir <path>` can compare
 against an archived or checked-out baseline instead of the working tree.
 
 The runner performs these steps:
@@ -167,12 +167,12 @@ The runner performs these steps:
    at the same hotspot immediately before capture. A transparent off-crop compositor guard keeps
    Figma's extension layer painted for panel-only crops and is removed with the cursor afterward.
 9. Run every scenario assertion and generate the side-by-side HTML regression report. Only after
-   reviewing every row should `screenshots:promote -- --yes` replace repository assets. The lower
+   reviewing every row should `pnpm screenshots promote --yes` replace repository assets. The lower
    level processor accepts an already cropped 2× PNG, a 1× CSS-viewport capture, or a native 2×
    viewport capture and validates the output path and dimensions:
 
    ```sh
-   pnpm screenshots:process -- \
+   pnpm screenshots process \
      --scenario code \
      --theme light \
      --input /tmp/tempad-code-light.png
@@ -186,7 +186,7 @@ The runner performs these steps:
 10. The runner restores Light mode and removes its cursor overlay before disconnecting. Run:
 
 ```sh
-pnpm screenshots:verify
+pnpm screenshots verify
 ```
 
 11. Always restore Figma through `Preferences → Theme → Light` and call

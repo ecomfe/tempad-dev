@@ -45,7 +45,7 @@ function readArgument(name: string): string | null {
 
 function fail(message: string): never {
   throw new Error(
-    `${message}\nUsage: pnpm screenshots:process -- --scenario <id> --theme <light|dark> --input <path> [--output <path>] [--clip-x <pixels> --clip-y <pixels>]`
+    `${message}\nUsage: pnpm screenshots process --scenario <id> --theme <light|dark> --input <path> [--output <path>] [--clip-x <pixels> --clip-y <pixels>]`
   )
 }
 
