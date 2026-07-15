@@ -1019,7 +1019,7 @@ export function normalizeFigmaVarName(input: string): string {
 
   // Merge runs of single letters (except the first part)
   const merged: string[] = []
-  for (let i = 0; i < stack.length; ) {
+  for (let i = 0; i < stack.length;) {
     if (i === 0) {
       merged.push(stack[0])
       i++
