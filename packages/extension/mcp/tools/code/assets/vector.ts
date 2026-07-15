@@ -43,9 +43,11 @@ export async function exportSvgEntry(
     const sized = ensureSvgRootSize(svgString, config, node.width, node.height)
     const baseProps = sized?.props ?? buildFallbackProps(node, config)
     try {
+      const width = Math.round(toDecimalPlace(node.width))
+      const height = Math.round(toDecimalPlace(node.height))
       const asset = await ensureAssetUploaded(svgUint8, 'image/svg+xml', {
-        width: Math.round(toDecimalPlace(node.width)),
-        height: Math.round(toDecimalPlace(node.height)),
+        ...(width > 0 ? { width } : {}),
+        ...(height > 0 ? { height } : {}),
         ...(metadata ?? {})
       })
       assetRegistry.set(asset.hash, {
