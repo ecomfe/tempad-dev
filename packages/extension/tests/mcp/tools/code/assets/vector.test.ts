@@ -60,7 +60,8 @@ describe('assets/vector', () => {
       hash: 'themeable-hash',
       mimeType: 'image/svg+xml',
       url: 'http://assets.test/themeable.svg',
-      size: bytes.byteLength
+      size: bytes.byteLength,
+      themeable: true
     }
     vi.mocked(ensureAssetUploaded).mockResolvedValue(asset)
 
@@ -81,20 +82,22 @@ describe('assets/vector', () => {
         color: 'var(--icon-color)'
       }
     })
-    expect(registry.get('themeable-hash')).toEqual({
-      ...asset,
+    expect(ensureAssetUploaded).toHaveBeenCalledWith(bytes, 'image/svg+xml', {
+      width: 16,
+      height: 16,
       themeable: true
     })
+    expect(registry.get('themeable-hash')).toEqual(asset)
   })
 
-  it('uploads fixed vectors as assets without extra vector metadata', async () => {
+  it('uploads zero-height fixed vectors without invalid height metadata', async () => {
     const svg =
       '<svg width="16" height="16"><path fill="#111" d="M0 0h8v16z"/><path fill="#f00" d="M8 0h8v16z"/></svg>'
     const bytes = new TextEncoder().encode(svg)
     const node = {
       id: 'vector-fixed',
       width: 16,
-      height: 16,
+      height: 0,
       exportAsync: vi.fn(async () => bytes)
     } as unknown as SceneNode
 
@@ -115,11 +118,12 @@ describe('assets/vector', () => {
     expect(result).toEqual({
       props: {
         width: '1rem',
-        height: '1rem',
+        height: '0',
         viewBox: '0 0 16 16',
         'data-src': 'http://assets.test/hash.svg'
       }
     })
+    expect(ensureAssetUploaded).toHaveBeenCalledWith(bytes, 'image/svg+xml', { width: 16 })
     expect(registry.get('asset-hash')).toEqual(asset)
   })
 
@@ -137,7 +141,8 @@ describe('assets/vector', () => {
       hash: 'asset-hash',
       mimeType: 'image/svg+xml',
       url: 'http://assets.test/hash.svg',
-      size: bytes.byteLength
+      size: bytes.byteLength,
+      themeable: true
     }
     vi.mocked(ensureAssetUploaded).mockResolvedValue(asset)
 
@@ -158,10 +163,7 @@ describe('assets/vector', () => {
         color: '#222'
       }
     })
-    expect(registry.get('asset-hash')).toEqual({
-      ...asset,
-      themeable: true
-    })
+    expect(registry.get('asset-hash')).toEqual(asset)
   })
 
   it('falls back to sized raw svg when uploading vector assets fails', async () => {
