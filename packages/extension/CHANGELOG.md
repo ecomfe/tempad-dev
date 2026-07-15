@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.14
+
+- Fixed MCP `get_code` timeouts for zero-height vector nodes by omitting invalid non-positive dimensions from asset uploads.
+
 ## 0.18.13
 
 - Improved Agent integration reliability across multiple Figma tabs by preserving explicit active-session ownership.

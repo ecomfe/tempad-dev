@@ -34,7 +34,6 @@ export async function exportSvgEntry(
 ): Promise<SvgEntry | null> {
   const { colorModel = { kind: 'fixed' }, vectorMode = 'smart' } = options
   const themeable = colorModel.kind === 'single-channel'
-  const metadata = themeable ? { themeable: true as const } : undefined
   const presentationStyle = themeable ? { color: colorModel.color } : undefined
 
   try {
@@ -48,12 +47,9 @@ export async function exportSvgEntry(
       const asset = await ensureAssetUploaded(svgUint8, 'image/svg+xml', {
         ...(width > 0 ? { width } : {}),
         ...(height > 0 ? { height } : {}),
-        ...(metadata ?? {})
+        ...(themeable ? { themeable: true } : {})
       })
-      assetRegistry.set(asset.hash, {
-        ...asset,
-        ...(metadata ?? {})
-      })
+      assetRegistry.set(asset.hash, asset)
       return {
         props: {
           ...baseProps,
