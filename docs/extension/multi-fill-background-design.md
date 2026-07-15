@@ -343,9 +343,7 @@ Recommended internal abstraction:
 
 ```ts
 type ResolvedBackgroundStack =
-  | { kind: 'none' }
-  | { kind: 'color'; color: string }
-  | { kind: 'layers'; layers: string[] }
+  { kind: 'none' } | { kind: 'color'; color: string } | { kind: 'layers'; layers: string[] }
 ```
 
 This type should remain internal to background resolution logic.
