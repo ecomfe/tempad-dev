@@ -1,21 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  requestTransformVariables: vi.fn(),
-  createWorkerRequester: vi.fn()
+  requestPluginSandbox: vi.fn()
 }))
 
-vi.mock('@/codegen/requester', () => ({
-  createWorkerRequester: mocks.createWorkerRequester
-}))
-
-vi.mock('@/mcp/transform-variables/worker?worker&inline', () => ({
-  default: class MockTransformerWorker {}
+vi.mock('@/plugin-sandbox/requester', () => ({
+  requestPluginSandbox: mocks.requestPluginSandbox
 }))
 
 async function importRequester() {
   vi.resetModules()
-  mocks.createWorkerRequester.mockReturnValue(mocks.requestTransformVariables)
   return import('@/mcp/transform-variables/requester')
 }
 
@@ -38,7 +32,7 @@ describe('mcp/transform-variables/requester', () => {
     )
 
     expect(result).toEqual([])
-    expect(mocks.requestTransformVariables).not.toHaveBeenCalled()
+    expect(mocks.requestPluginSandbox).not.toHaveBeenCalled()
   })
 
   it('formats variable expressions directly when plugin code is missing', async () => {
@@ -57,11 +51,11 @@ describe('mcp/transform-variables/requester', () => {
     )
 
     expect(result).toEqual(['var(--color-primary, #fff)', 'var(--spacing-sm)'])
-    expect(mocks.requestTransformVariables).not.toHaveBeenCalled()
+    expect(mocks.requestPluginSandbox).not.toHaveBeenCalled()
   })
 
   it('delegates to worker requester when plugin code is provided', async () => {
-    mocks.requestTransformVariables.mockResolvedValue({
+    mocks.requestPluginSandbox.mockResolvedValue({
       results: ['--a', '--b']
     })
     const { runTransformVariableBatch } = await importRequester()
@@ -78,8 +72,7 @@ describe('mcp/transform-variables/requester', () => {
 
     const result = await runTransformVariableBatch(references, options, 'export default {}')
 
-    expect(mocks.createWorkerRequester).toHaveBeenCalledTimes(1)
-    expect(mocks.requestTransformVariables).toHaveBeenCalledWith({
+    expect(mocks.requestPluginSandbox).toHaveBeenCalledWith('transform-variable', {
       pluginCode: 'export default {}',
       references,
       options

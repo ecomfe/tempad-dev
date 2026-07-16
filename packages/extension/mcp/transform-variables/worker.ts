@@ -1,8 +1,8 @@
-import type { RequestMessage, ResponseMessage } from '@/codegen/requester'
+import type { WorkerRequest, WorkerResponse } from '@/codegen/protocol'
 import type { Plugin, TransformOptions } from '@/types/plugin'
 
 import { logger } from '@/utils/log'
-import { evaluate } from '@/utils/module'
+import { assertPluginModuleIsSelfContained, evaluate } from '@/utils/module'
 import { lockdownWorker } from '@/worker/lockdown'
 
 export type TransformVariableReference = {
@@ -25,8 +25,8 @@ export type TransformVariableResponsePayload = {
   results: string[]
 }
 
-type Request = RequestMessage<TransformVariableRequestPayload>
-type Response = ResponseMessage<TransformVariableResponsePayload>
+type Request = WorkerRequest<TransformVariableRequestPayload>
+type Response = WorkerResponse<TransformVariableResponsePayload>
 
 const formatVariable = (ref: TransformVariableReference): string => {
   return `var(--${ref.name}${ref.value ? `, ${ref.value}` : ''})`
@@ -34,12 +34,8 @@ const formatVariable = (ref: TransformVariableReference): string => {
 
 const postMessage = globalThis.postMessage
 
-let cachedPluginCode: string | undefined
-let cachedPlugin: Plugin | null = null
-let cachedTransformVariable: NonNullable<TransformOptions['transformVariable']> | undefined
-
 function resolveTransformVariable(
-  plugin: Plugin | null
+  plugin?: Plugin
 ): NonNullable<TransformOptions['transformVariable']> | undefined {
   if (!plugin) return undefined
   const cssBlock = plugin.code?.css
@@ -59,26 +55,16 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   let transformVariable: NonNullable<TransformOptions['transformVariable']> | undefined
 
   if (pluginCode) {
-    if (pluginCode === cachedPluginCode) {
-      transformVariable = cachedTransformVariable
-    } else {
-      try {
-        const exports = await evaluate(pluginCode)
-        cachedPlugin = (exports.default || exports.plugin) as Plugin
-        cachedPluginCode = pluginCode
-        cachedTransformVariable = resolveTransformVariable(cachedPlugin)
-        transformVariable = cachedTransformVariable
-      } catch (error) {
-        const message: Response = { id, error }
-        postMessage(message)
-        return
-      }
+    try {
+      assertPluginModuleIsSelfContained(pluginCode)
+      const exports = await evaluate(pluginCode)
+      const plugin = (exports.default || exports.plugin) as Plugin | undefined
+      transformVariable = resolveTransformVariable(plugin)
+    } catch (error) {
+      const message: Response = { id, error }
+      postMessage(message)
+      return
     }
-  } else {
-    // Reset cache when plugin is disabled.
-    cachedPluginCode = undefined
-    cachedPlugin = null
-    cachedTransformVariable = undefined
   }
 
   const results = references.map((ref) => {

@@ -44,9 +44,16 @@ export function register<T>(
   return { promise, requestId }
 }
 
-export function resolve(requestId: string, payload: unknown): void {
+export function resolve(requestId: string, extensionId: string, payload: unknown): void {
   const call = pendingCalls.get(requestId)
   if (call) {
+    if (call.extensionId !== extensionId) {
+      log.warn(
+        { reqId: requestId, expectedExtId: call.extensionId, receivedExtId: extensionId },
+        'Ignored tool result from the wrong extension.'
+      )
+      return
+    }
     const { timer, resolve: finish } = call
     clearTimeout(timer)
     finish(payload)
@@ -56,9 +63,16 @@ export function resolve(requestId: string, payload: unknown): void {
   }
 }
 
-export function reject(requestId: string, error: Error): void {
+export function reject(requestId: string, extensionId: string, error: Error): void {
   const call = pendingCalls.get(requestId)
   if (call) {
+    if (call.extensionId !== extensionId) {
+      log.warn(
+        { reqId: requestId, expectedExtId: call.extensionId, receivedExtId: extensionId },
+        'Ignored tool error from the wrong extension.'
+      )
+      return
+    }
     const { timer, reject: fail } = call
     clearTimeout(timer)
     fail(error)

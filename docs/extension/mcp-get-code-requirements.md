@@ -50,7 +50,13 @@ This document records the requirements and hard constraints for the MCP `get_cod
   - omits all direct children for that node,
   - lists omitted child ids in an inline code comment in render order,
   - emits a lightweight `shell` warning that points agents to that inline comment.
-- v1 shell fallback may still depend on the already-collected full-tree context; reducing collection/export cost is a later optimization, not part of this contract.
+- Before variable scanning or collection, a bounded preflight sums descendant text in UTF-8 bytes.
+  When descendant text alone already exceeds the response budget, and no plugin/unbounded override
+  requires the full tree, `get_code` collects only the root and skips descendant variable mapping,
+  plugin resolution, asset planning/export, and full rendering.
+- Other overflow causes still use the correctness-first fallback after normal collection. The
+  preflight is deliberately a proof, not an output-size guess, so it must not discard work for trees
+  that may still fit.
 - Only throw a user-facing budget error when a usable shell cannot be generated.
 
 ## Layout and positioning
@@ -190,6 +196,13 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 - Shared style helpers must depend only on injected lookup readers or pure paint inputs; they must not depend on an extension-local cache type.
 - Paint-style cache entries must store raw paints and size-independent facts only. Any gradient string still has to be resolved with the current node size.
 - Avoid repeated vector export calls; plan and export once per tree.
+- Bound parallel vector export work and merge results in source order; completion timing must not
+  make the agent-facing SVG or asset order nondeterministic.
+- Prepare plugin inputs at four concurrent nodes, batch at most 32 jobs per sandbox request, keep at
+  most four batch Workers active, and resolve each visible instance at most once per request.
 - Skip style collection for vector-root descendants (they are not rendered).
 - Variable candidate scanning uses bound variables and paint references; inferred variables are not required.
 - Variable candidate scanning must continue from the raw selected roots rather than `VisibleTree` so depth-cap and variable collection semantics stay unchanged.
+- Performance regressions should be gated with deterministic operation counts—collected/skipped CSS
+  reads, semantic-cache hit/miss counts, plugin preparation/batch concurrency, and vector-export
+  concurrency/order—not wall-clock thresholds.

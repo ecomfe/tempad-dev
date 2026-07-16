@@ -13,16 +13,18 @@ class FakeWebSocket extends EventTarget {
   close(): void {
     if (this.readyState === 3) return
     this.readyState = 3
-    this.dispatchEvent(new Event('close'))
+    this.dispatchClose(true)
   }
 
-  fail(): void {
-    this.dispatchEvent(new Event('error'))
+  fail(message?: string): void {
+    const event = new Event('error')
+    if (message) Object.defineProperty(event, 'message', { value: message })
+    this.dispatchEvent(event)
   }
 
-  closeFromRemote(): void {
+  closeFromRemote(wasClean = false): void {
     this.readyState = 3
-    this.dispatchEvent(new Event('close'))
+    this.dispatchClose(wasClean)
   }
 
   open(): void {
@@ -32,11 +34,21 @@ class FakeWebSocket extends EventTarget {
   }
 
   receive(payload: unknown): void {
-    this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(payload) }))
+    this.receiveRaw(JSON.stringify(payload))
+  }
+
+  receiveRaw(data: unknown): void {
+    this.dispatchEvent(new MessageEvent('message', { data }))
   }
 
   send(payload: string): void {
     this.sent.push(payload)
+  }
+
+  private dispatchClose(wasClean: boolean): void {
+    const event = new Event('close')
+    Object.defineProperty(event, 'wasClean', { value: wasClean })
+    this.dispatchEvent(event)
   }
 }
 
@@ -146,11 +158,9 @@ describe('mcp/broker/hub-client', () => {
 
     client.start()
     await flushMicrotasks()
+    completeHandshake(sockets[0]!)
     client.stop()
     client.start()
-    await flushMicrotasks()
-
-    sockets[0]?.open()
     await flushMicrotasks()
 
     expect(sockets[0]?.readyState).toBe(3)
@@ -160,6 +170,163 @@ describe('mcp/broker/hub-client', () => {
     await flushMicrotasks()
 
     expect(client.getSnapshot().status).toBe('connected')
+  })
+
+  it('retries after every candidate is unreachable', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe(() => false)
+    const sockets: FakeWebSocket[] = []
+    const client = createClient(sockets)
+
+    client.start()
+    await flushMicrotasks()
+
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(client.getSnapshot()).toMatchObject({
+      errorMessage: expect.stringContaining('MCP server is not running'),
+      status: 'error'
+    })
+
+    await vi.advanceTimersByTimeAsync(3000)
+    await flushMicrotasks()
+    expect(fetch).toHaveBeenCalledTimes(6)
+    client.stop()
+  })
+
+  it.each([
+    ['malformed traffic', '{', 'Received malformed message from MCP server'],
+    [
+      'duplicate registration',
+      JSON.stringify({ type: 'registered', id: 'replacement' }),
+      'Received duplicate registration from MCP server'
+    ],
+    [
+      'a non-loopback state update',
+      JSON.stringify({
+        activeId: 'gateway-1',
+        assetServerUrl: 'https://collector.example/assets',
+        type: 'state'
+      }),
+      'MCP server advertised a non-loopback asset URL'
+    ],
+    [
+      'a changed loopback asset endpoint',
+      JSON.stringify({
+        activeId: 'gateway-1',
+        assetServerUrl: 'http://127.0.0.1:9001/replacement',
+        type: 'state'
+      }),
+      'MCP server changed its asset server URL'
+    ]
+  ])('closes and reconnects after %s on an established connection', async (_name, raw, error) => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const snapshots: Array<ReturnType<McpHubClient['getSnapshot']>> = []
+    const client = createClient(sockets, {
+      onSnapshot: (snapshot) => snapshots.push(snapshot)
+    })
+
+    client.start()
+    await flushMicrotasks()
+    completeHandshake(sockets[0]!, 'gateway-1')
+    await flushMicrotasks()
+    sockets[0]?.receiveRaw(raw)
+
+    expect(sockets[0]?.readyState).toBe(3)
+    expect(snapshots).toContainEqual(expect.objectContaining({ errorMessage: error }))
+    expect(client.getSnapshot()).toMatchObject({
+      activeId: null,
+      assetServerUrl: null,
+      registeredId: null,
+      status: 'connecting'
+    })
+
+    await vi.advanceTimersByTimeAsync(3000)
+    await flushMicrotasks()
+    expect(sockets[1]?.url).toBe('ws://127.0.0.1:6220')
+    client.stop()
+  })
+
+  it('sends activation/results only while connected and reports live socket errors', async () => {
+    class TestErrorEvent extends Event {
+      constructor(
+        type: string,
+        readonly message: string
+      ) {
+        super(type)
+      }
+    }
+    vi.stubGlobal('ErrorEvent', TestErrorEvent)
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const snapshots: Array<ReturnType<McpHubClient['getSnapshot']>> = []
+    const client = createClient(sockets, {
+      onSnapshot: (snapshot) => snapshots.push(snapshot)
+    })
+
+    client.sendActivate()
+    client.sendToolResult({ id: 'before-connect', payload: {}, type: 'toolResult' })
+    client.start()
+    await flushMicrotasks()
+    completeHandshake(sockets[0]!)
+    await flushMicrotasks()
+    client.sendActivate()
+    client.sendToolResult({ id: 'call-1', payload: { ok: true }, type: 'toolResult' })
+    sockets[0]?.dispatchEvent(new TestErrorEvent('error', 'socket failed'))
+
+    expect(sockets[0]?.sent).toEqual([
+      JSON.stringify({ type: 'activate' }),
+      JSON.stringify({ id: 'call-1', payload: { ok: true }, type: 'toolResult' })
+    ])
+    expect(snapshots.at(-1)?.errorMessage).toBe('socket failed')
+    client.stop()
+  })
+
+  it.each([
+    ['malformed traffic', ['{']],
+    [
+      'duplicate registration',
+      [
+        JSON.stringify({ type: 'registered', id: 'gateway-1' }),
+        JSON.stringify({ type: 'registered', id: 'gateway-2' })
+      ]
+    ],
+    ['duplicate state', [JSON.stringify(stateMessage()), JSON.stringify(stateMessage())]],
+    [
+      'tool traffic',
+      [JSON.stringify({ id: 'call-1', payload: { args: {}, name: 'get_code' }, type: 'toolCall' })]
+    ],
+    [
+      'a non-loopback asset URL',
+      [
+        JSON.stringify({ type: 'registered', id: 'gateway-1' }),
+        JSON.stringify({
+          activeId: null,
+          assetServerUrl: 'https://collector.example/assets',
+          type: 'state'
+        })
+      ]
+    ]
+  ])('rejects %s during the handshake and continues probing', async (_name, messages) => {
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const client = createClient(sockets)
+
+    client.start()
+    await flushMicrotasks()
+    sockets[0]?.open()
+    messages.forEach((message) => sockets[0]?.receiveRaw(message))
+    await flushMicrotasks()
+
+    expect(sockets[0]?.readyState).toBe(3)
+    expect(sockets[1]?.url).toBe('ws://127.0.0.1:7431')
+    expect(client.getSnapshot().assetServerUrl).toBeNull()
+    client.stop()
   })
 
   it('ignores stale events from a replaced socket', async () => {

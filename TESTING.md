@@ -1,7 +1,7 @@
 # Testing guide
 
 This file is the contributor runbook for testing in this repository.
-For architecture details (runtime split, strict coverage model, and worker sandbox checks), see `docs/testing/architecture.md`.
+For architecture details (runtime split, strict coverage model, and Worker boundary checks), see `docs/testing/architecture.md`.
 
 ## Scope
 
@@ -42,7 +42,10 @@ Root:
 
 Per package:
 
-- `pnpm --filter @tempad-dev/extension test:run` (includes worker sandbox check)
+- `pnpm --filter @tempad-dev/extension test:run` (includes Worker dependency checks and the real
+  Chromium plugin-sandbox regression)
+- `pnpm --filter @tempad-dev/extension check:plugin-sandbox` (builds and loads the release extension,
+  then probes isolation, timeout, recovery, and abuse bounds)
 - `pnpm --filter @tempad-dev/extension test:node`
 - `pnpm --filter @tempad-dev/extension test:browser`
 - `pnpm --filter @tempad-dev/extension test:browser:headed`

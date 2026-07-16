@@ -72,7 +72,9 @@ vi.mock('node:stream', async () => {
 })
 
 vi.mock('node:crypto', () => ({
-  createHash: mocks.createHash
+  createHash: mocks.createHash,
+  randomBytes: () => Buffer.alloc(32, 1),
+  timingSafeEqual: (left: Buffer, right: Buffer) => left.equals(right)
 }))
 
 vi.mock('../src/config', () => ({
@@ -90,7 +92,17 @@ vi.mock('../src/asset-utils', () => ({
   getHashFromAssetFilename: mocks.getHashFromAssetFilename
 }))
 
-import { createAssetHttpServer } from '../src/asset-http-server'
+import { createAssetHttpServer as createAssetHttpServerImpl } from '../src/asset-http-server'
+
+const TEST_ACCESS_TOKEN = 'test-token'
+
+function createAssetHttpServer(store: AssetStore) {
+  return createAssetHttpServerImpl(store, {
+    accessToken: TEST_ACCESS_TOKEN,
+    maxAssetStoreBytes: 256 * 1024 * 1024,
+    maxConcurrentUploads: 4
+  })
+}
 
 type StoreMock = {
   [K in keyof AssetStore]: ReturnType<typeof vi.fn>
@@ -115,26 +127,41 @@ function createRequest(input: {
   url?: string
   headers?: Record<string, string | string[] | undefined>
 }) {
+  const url = input.url?.startsWith('/assets/') ? `/${TEST_ACCESS_TOKEN}${input.url}` : input.url
   return {
-    method: 'GET',
-    url: '/assets/abcdef12.png',
-    headers: {},
-    resume: vi.fn(),
-    ...input
+    method: input.method ?? 'GET',
+    url:
+      input.url === undefined && 'url' in input
+        ? undefined
+        : (url ?? `/${TEST_ACCESS_TOKEN}/assets/abcdef12.png`),
+    headers: input.headers ?? {},
+    resume: vi.fn()
   } as IncomingMessage & { resume: ReturnType<typeof vi.fn> }
 }
 
 function createResponse(input?: { headersSent?: boolean; keepHeadersSentOnWriteHead?: boolean }) {
-  const finishCallbacks: Array<() => void> = []
+  const callbacks = new Map<string, Array<() => void>>()
+  const addCallback = (event: string, cb: () => void) => {
+    const registered = callbacks.get(event) ?? []
+    registered.push(cb)
+    callbacks.set(event, registered)
+  }
+  const emit = (event: string) => callbacks.get(event)?.forEach((cb) => cb())
   const res = {
     statusCode: 200,
     headersSent: input?.headersSent ?? false,
     headers: {} as Record<string, string>,
     body: '',
     on: vi.fn((event: string, cb: () => void) => {
-      if (event === 'finish') finishCallbacks.push(cb)
+      addCallback(event, cb)
       return res
     }),
+    once: vi.fn((event: string, cb: () => void) => {
+      addCallback(event, cb)
+      return res
+    }),
+    setTimeout: vi.fn(),
+    destroy: vi.fn(() => emit('close')),
     setHeader: vi.fn((key: string, value: string) => {
       res.headers[key] = value
     }),
@@ -147,7 +174,7 @@ function createResponse(input?: { headersSent?: boolean; keepHeadersSentOnWriteH
     }),
     end: vi.fn((body?: string) => {
       if (body) res.body = body
-      finishCallbacks.forEach((cb) => cb())
+      emit('finish')
     })
   }
   return res
@@ -297,6 +324,82 @@ describe('asset-http-server unit branches', () => {
     expect(readJson(invalidUploadRes)).toEqual({ error: 'Invalid Hash' })
   })
 
+  it('bounds concurrent upload bodies and closes rejected connections', async () => {
+    const store = createStoreMock()
+    const server = createAssetHttpServerImpl(store, {
+      accessToken: TEST_ACCESS_TOKEN,
+      maxAssetStoreBytes: 256 * 1024 * 1024,
+      maxConcurrentUploads: 1
+    })
+    await server.start()
+
+    let finishFirst: ((error?: Error) => void) | undefined
+    mocks.pipeline.mockImplementationOnce(
+      (_req: unknown, _monitor: unknown, _writeStream: unknown, done: (error?: Error) => void) => {
+        finishFirst = done
+      }
+    )
+    state.requestHandler?.(
+      createRequest({ method: 'POST', headers: { 'content-length': '1' } }),
+      createResponse()
+    )
+
+    const rejectedRequest = createRequest({
+      method: 'POST',
+      headers: { 'content-length': '1' }
+    })
+    const rejectedResponse = createResponse()
+    state.requestHandler?.(rejectedRequest, rejectedResponse)
+
+    expect(rejectedRequest.resume).toHaveBeenCalled()
+    expect(rejectedResponse.statusCode).toBe(429)
+    expect(rejectedResponse.headers.Connection).toBe('close')
+    expect(readJson(rejectedResponse)).toEqual({ error: 'Too Many Concurrent Uploads' })
+
+    finishFirst?.(new Error('test cleanup'))
+  })
+
+  it('reserves aggregate quota across concurrent uploads', async () => {
+    const store = createStoreMock()
+    const server = createAssetHttpServerImpl(store, {
+      accessToken: TEST_ACCESS_TOKEN,
+      maxAssetSizeBytes: 8,
+      maxAssetStoreBytes: 6,
+      maxConcurrentUploads: 4
+    })
+    await server.start()
+
+    let finishFirst: ((error?: Error) => void) | undefined
+    mocks.pipeline.mockImplementationOnce(
+      (_req: unknown, _monitor: unknown, _writeStream: unknown, done: (error?: Error) => void) => {
+        finishFirst = done
+      }
+    )
+    state.requestHandler?.(
+      createRequest({
+        method: 'POST',
+        url: '/assets/abcdef12.png',
+        headers: { 'content-length': '4' }
+      }),
+      createResponse()
+    )
+
+    const rejectedRequest = createRequest({
+      method: 'POST',
+      url: '/assets/bbbbbbbb.png',
+      headers: { 'content-length': '4' }
+    })
+    const rejectedResponse = createResponse()
+    state.requestHandler?.(rejectedRequest, rejectedResponse)
+
+    expect(rejectedRequest.resume).toHaveBeenCalled()
+    expect(rejectedResponse.statusCode).toBe(507)
+    expect(readJson(rejectedResponse)).toEqual({ error: 'Asset Store Quota Exceeded' })
+    expect(mocks.pipeline).toHaveBeenCalledOnce()
+
+    finishFirst?.(new Error('test cleanup'))
+  })
+
   it('covers download stat failures and stream error handling branches', async () => {
     const store = createStoreMock()
     store.get.mockReturnValue({
@@ -329,6 +432,42 @@ describe('asset-http-server unit branches', () => {
     state.requestHandler?.(createRequest({ url: '/assets/abcdef12.png' }), sentRes)
     expect(sentRes.statusCode).toBe(200)
     expect(sentRes.end).toHaveBeenCalled()
+  })
+
+  it('bounds concurrent downloads and times out stalled responses', async () => {
+    const store = createStoreMock()
+    store.get.mockReturnValue({
+      hash: 'abcdef12',
+      filePath: '/tmp/mock-assets/abcdef12.png',
+      mimeType: 'image/png',
+      size: 10,
+      uploadedAt: 1,
+      lastAccess: 1
+    })
+    const server = createAssetHttpServer(store)
+    await server.start()
+
+    const responses = Array.from({ length: 129 }, () => createResponse())
+    responses.forEach((response) => {
+      state.requestHandler?.(createRequest({ url: '/assets/abcdef12.png' }), response)
+    })
+
+    const firstResponse = responses[0]!
+    expect(responses.slice(0, 128).every(({ statusCode }) => statusCode === 200)).toBe(true)
+    expect(firstResponse.setTimeout).toHaveBeenCalledWith(15_000, expect.any(Function))
+
+    const rejectedResponse = responses[128]!
+    expect(rejectedResponse.statusCode).toBe(429)
+    expect(rejectedResponse.headers.Connection).toBe('close')
+    expect(readJson(rejectedResponse)).toEqual({ error: 'Too Many Concurrent Downloads' })
+
+    const timeout = firstResponse.setTimeout.mock.calls[0]?.[1] as (() => void) | undefined
+    timeout?.()
+    expect(firstResponse.destroy).toHaveBeenCalledOnce()
+
+    const recoveredResponse = createResponse()
+    state.requestHandler?.(createRequest({ url: '/assets/abcdef12.png' }), recoveredResponse)
+    expect(recoveredResponse.statusCode).toBe(200)
   })
 
   it('covers existing upload paths including rename warnings and headers-sent responses', async () => {

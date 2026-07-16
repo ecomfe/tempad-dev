@@ -7,7 +7,7 @@ For contributor workflow and commands, see `TESTING.md`.
 
 - Keep tests deterministic, fast, and actionable.
 - Separate node runtime behavior from browser runtime behavior.
-- Enforce strict coverage on curated, testable pure logic.
+- Enforce full coverage on small pure packages and an explicit aggregate regression floor elsewhere.
 - Avoid configuration drift between docs and executable test configs.
 
 ## Runtime model
@@ -28,7 +28,12 @@ For contributor workflow and commands, see `TESTING.md`.
 
 - Coverage provider: `istanbul`.
 - Build artifacts are excluded from coverage (`**/dist/**`, `**/.output/**`).
-- Strict thresholds are enforced for curated pure/testable files.
+- Shared and plugin packages keep their package-owned 100% thresholds.
+- Root, extension, and MCP aggregate coverage use the thresholds in `vitest.coverage.ts`:
+  90% lines/statements/functions and 85% branches, measured across the configured scope.
+- Browser-only behavior is verified in the browser suite and excluded from node-only root coverage.
+- Adding a security- or protocol-critical source file to coverage scope is part of the same change
+  that introduces it.
 
 ### Source of truth for coverage scope
 
@@ -36,20 +41,30 @@ There is no manually maintained pure-function matrix in docs anymore.
 Coverage scope is defined only in executable Vitest configuration:
 
 - root: `vitest.config.ts`
+- shared aggregate thresholds: `vitest.coverage.ts`
 - extension node: `packages/extension/vitest.node.config.ts`
 - extension browser: `packages/extension/vitest.browser.config.ts`
 - package-level configs where applicable
 
 If a file should enter or leave strict coverage scope, update config + tests in the same PR.
 
-## Worker sandbox checks
+## Plugin sandbox boundary checks
 
-Extension worker sandbox validation has two layers:
+Extension plugin isolation and dependency validation have three layers:
 
-- static dependency allowlist check in `packages/extension/scripts/check-worker-sandbox.ts`
-- runtime probe in real browser Workers (Playwright)
+- `check:worker-sandbox` statically reviews each trusted Worker bundle's dependency graph; external
+  pnpm packages are enumerated explicitly rather than accepted through a generic `node_modules` rule
+- the same check executes the Worker bundles in Chromium, including self-contained module lexing and
+  evaluation through the CSP-compatible lexer build
+- `check:plugin-sandbox` builds the release extension, loads its generated manifest in Chromium, and
+  verifies the opaque-origin sandbox page, restrictive CSP, Figma-only embedding, fixed broker
+  protocol, payload bounds, timeout/termination, recovery, prototype isolation, blocked import
+  bypasses, and zero requests across tested loopback network channels
 
-The runtime probe is part of `check:worker-sandbox` and runs during extension `test:run`.
+Both commands run during extension `test:run`. The browser sandbox regression exercises the shipped
+architecture rather than a simulated DOM environment. It supports the application-level guarantees
+and explicit non-goals recorded in `docs/security/local-mcp-threat-model.md`; it is not evidence
+against browser-engine vulnerabilities or hard process-wide memory exhaustion.
 
 ## Change checklist
 

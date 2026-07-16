@@ -103,14 +103,23 @@ describe('mcp/browser-gateway', () => {
   })
 
   it('rejects malformed or cross-protocol messages', () => {
-    expect(
-      parsePageToBridgeMessage({
-        ...base,
-        callId: 'call-1',
-        error: { code: 'NOT_A_TEMPAD_ERROR', message: 'Nope' },
-        type: 'mcp.toolResult'
-      })
-    ).toBeNull()
+    const invalidResults = [
+      {},
+      { payload: undefined },
+      { error: undefined },
+      { error: { message: 'Nope' }, payload: {} },
+      { error: { code: 'NOT_A_TEMPAD_ERROR', message: 'Nope' } }
+    ]
+    for (const result of invalidResults) {
+      expect(
+        parsePageToBridgeMessage({
+          ...result,
+          ...base,
+          callId: 'call-1',
+          type: 'mcp.toolResult'
+        })
+      ).toBeNull()
+    }
     expect(parsePageToBridgeMessage({ ...base, source: 'other', type: 'mcp.enable' })).toBeNull()
     expect(parsePageToBridgeMessage({ ...base, payload: {}, type: 'mcp.enable' })).toBeNull()
     expect(

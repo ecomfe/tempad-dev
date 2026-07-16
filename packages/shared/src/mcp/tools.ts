@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { MCP_HASH_PATTERN } from './constants'
 
 export const AssetDescriptorSchema = z.object({
-  hash: z.string().min(1),
+  hash: z.string().regex(MCP_HASH_PATTERN),
   url: z.string().url(),
   mimeType: z.string().min(1),
   size: z.number().int().nonnegative(),
@@ -156,7 +156,7 @@ export const GetAssetsParametersSchema = z.object({
 
 export const GetAssetsResultSchema = z.object({
   assets: z.array(AssetDescriptorSchema),
-  missing: z.array(z.string().min(1))
+  missing: z.array(z.string().regex(MCP_HASH_PATTERN))
 })
 
 export type GetAssetsParametersInput = z.input<typeof GetAssetsParametersSchema>

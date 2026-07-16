@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 export const TEMPAD_MCP_ERROR_CODES = {
   NO_ACTIVE_EXTENSION: 'NO_ACTIVE_EXTENSION',
   EXTENSION_TIMEOUT: 'EXTENSION_TIMEOUT',
@@ -11,7 +13,11 @@ export const TEMPAD_MCP_ERROR_CODES = {
 export type TempadMcpErrorCode =
   (typeof TEMPAD_MCP_ERROR_CODES)[keyof typeof TEMPAD_MCP_ERROR_CODES]
 
-export type TempadMcpErrorPayload = {
-  code: TempadMcpErrorCode
-  message: string
-}
+export const TempadMcpErrorPayloadSchema = z
+  .object({
+    code: z.enum(TEMPAD_MCP_ERROR_CODES).optional(),
+    message: z.string().min(1)
+  })
+  .strict()
+
+export type TempadMcpErrorPayload = z.infer<typeof TempadMcpErrorPayloadSchema>

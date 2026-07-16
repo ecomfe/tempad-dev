@@ -50,9 +50,31 @@ describe('asset-http-server', () => {
     await server.start()
     const baseUrl = server.getBaseUrl()
 
-    const optionsRes = await fetch(`${baseUrl}/assets/abcdef12.png`, { method: 'OPTIONS' })
+    const extensionOrigin = 'chrome-extension://lgoeakbaikpkihoiphamaeopmliaimpc'
+    const optionsRes = await fetch(`${baseUrl}/assets/abcdef12.png`, {
+      method: 'OPTIONS',
+      headers: { Origin: extensionOrigin }
+    })
     expect(optionsRes.status).toBe(204)
-    expect(optionsRes.headers.get('access-control-allow-origin')).toBe('*')
+    expect(optionsRes.headers.get('access-control-allow-origin')).toBe(extensionOrigin)
+
+    const unauthenticatedUrl = `${new URL(baseUrl).origin}/assets/abcdef12.png`
+    expect((await fetch(unauthenticatedUrl)).status).toBe(404)
+    expect(
+      (
+        await fetch(unauthenticatedUrl, {
+          method: 'OPTIONS',
+          headers: { Origin: extensionOrigin }
+        })
+      ).status
+    ).toBe(404)
+    expect(
+      (
+        await fetch(`${baseUrl}/assets/abcdef12.png`, {
+          headers: { Origin: 'https://evil.example' }
+        })
+      ).status
+    ).toBe(403)
 
     const notFoundRes = await fetch(`${baseUrl}/unknown`)
     expect(notFoundRes.status).toBe(404)
@@ -62,6 +84,35 @@ describe('asset-http-server', () => {
 
     server.stop()
     expect(() => server.getBaseUrl()).toThrow('Asset HTTP server is not running.')
+  })
+
+  it('allows extension-origin asset requests only for the active extension', async () => {
+    const store = createStoreMock()
+    const activeOrigin = 'chrome-extension://lgoeakbaikpkihoiphamaeopmliaimpc'
+    const server = createAssetHttpServer(store, {
+      authorizeExtensionOrigin: (origin) => origin === activeOrigin
+    })
+    await server.start()
+    const url = `${server.getBaseUrl()}/assets/abcdef12.png`
+
+    expect(
+      (
+        await fetch(url, {
+          method: 'OPTIONS',
+          headers: { Origin: activeOrigin }
+        })
+      ).status
+    ).toBe(204)
+    expect(
+      (
+        await fetch(url, {
+          method: 'OPTIONS',
+          headers: { Origin: 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
+        })
+      ).status
+    ).toBe(403)
+
+    server.stop()
   })
 
   it('serves downloads, handles missing records, and prunes missing files', async () => {
@@ -236,6 +287,37 @@ describe('asset-http-server', () => {
 
     expect(res.status).toBe(413)
     expect((await res.json()) as { error: string }).toEqual({ error: 'Payload Too Large' })
+    server.stop()
+  })
+
+  it('rejects uploads that would exceed the aggregate asset quota', async () => {
+    const store = createStoreMock()
+    store.list.mockReturnValue([
+      {
+        hash: '11111111',
+        filePath: '/tmp/existing',
+        mimeType: 'image/png',
+        size: 5,
+        uploadedAt: 1,
+        lastAccess: 1
+      }
+    ])
+    const server = createAssetHttpServer(store, { maxAssetStoreBytes: 8 })
+    await server.start()
+
+    const body = Buffer.from('four')
+    const hash = createHash('sha256').update(body).digest('hex').slice(0, 8)
+    const res = await fetch(`${server.getBaseUrl()}/assets/${hash}.png`, {
+      method: 'POST',
+      headers: { 'content-type': 'image/png' },
+      body
+    })
+
+    expect(res.status).toBe(507)
+    expect((await res.json()) as { error: string }).toEqual({
+      error: 'Asset Store Quota Exceeded'
+    })
+    expect(store.upsert).not.toHaveBeenCalled()
     server.stop()
   })
 })

@@ -12,9 +12,10 @@ export type VariableMappings = CandidateResult
 export function buildVariableMappings(
   roots: SceneNode[],
   cache?: Map<string, Variable | null>,
-  readers?: FigmaLookupReaders
+  readers?: FigmaLookupReaders,
+  options: { traverseChildren?: boolean } = {}
 ): VariableMappings {
-  return collectCandidateVariableIds(roots, cache, readers)
+  return collectCandidateVariableIds(roots, cache, readers, options)
 }
 
 export function normalizeStyleVars(

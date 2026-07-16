@@ -19,10 +19,21 @@ export interface RequestPayload {
   returnDevComponent?: boolean
 }
 
+export type CodegenJobPayload = Omit<RequestPayload, 'pluginCode'>
+
+export interface CodegenBatchRequestPayload {
+  jobs: CodegenJobPayload[]
+  pluginCode?: string
+}
+
 export interface ResponsePayload {
   pluginName?: string
   codeBlocks: CodeBlock[]
   devComponent?: DevComponent
+}
+
+export interface CodegenBatchResponsePayload {
+  results: ResponsePayload[]
 }
 
 export type CodeBlock = {

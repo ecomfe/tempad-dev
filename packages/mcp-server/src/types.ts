@@ -3,7 +3,7 @@ import type { WebSocket } from 'ws'
 export interface ExtensionConnection {
   id: string
   ws: WebSocket
-  active: boolean
+  origin: string
 }
 
 export interface PendingToolCall {

@@ -1,8 +1,18 @@
 # Changelog
 
-## 0.18.14
+## 0.19.0
 
-- Fixed MCP `get_code` timeouts for zero-height vector nodes by omitting invalid non-positive dimensions from asset uploads.
+- Isolated programmable plugins in an opaque-origin sandbox with fresh Workers, execution limits,
+  source integrity checks, and syntax-aware external-module blocking.
+- Hardened the local Agent integration with strict WebSocket handshakes, connection-owned results,
+  same-extension session replacement, and continuous loopback asset-endpoint validation without
+  adding setup steps.
+- Improved MCP `get_code` performance for large selections with early shell fallback, batched plugin
+  execution, and bounded deterministic vector export.
+- Fixed the plugin sandbox in local extension development by bundling its Worker code into local blob
+  Workers while keeping production network access disabled.
+- Fixed MCP `get_code` timeouts for zero-height vector nodes by omitting invalid non-positive
+  dimensions from asset uploads.
 
 ## 0.18.13
 

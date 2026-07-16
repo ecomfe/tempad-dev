@@ -2,11 +2,14 @@ import type { ZodType } from 'zod'
 
 import { z } from 'zod'
 
+import { TempadMcpErrorPayloadSchema } from './errors'
+import { hasToolResultOutcome, TOOL_RESULT_OUTCOME_ERROR } from './tool-result'
+
 // Messages from hub to extension
 export const RegisteredMessageSchema = z
   .object({
     type: z.literal('registered'),
-    id: z.string()
+    id: z.string().min(1)
   })
   .strict()
 
@@ -28,7 +31,7 @@ export const ToolCallPayloadSchema = z
 export const ToolCallMessageSchema = z
   .object({
     type: z.literal('toolCall'),
-    id: z.string(),
+    id: z.string().min(1),
     payload: ToolCallPayloadSchema
   })
   .strict()
@@ -49,11 +52,12 @@ export const ActivateMessageSchema = z
 export const ToolResultMessageSchema = z
   .object({
     type: z.literal('toolResult'),
-    id: z.string(),
+    id: z.string().min(1),
     payload: z.unknown().optional(),
-    error: z.unknown().optional()
+    error: TempadMcpErrorPayloadSchema.optional()
   })
   .strict()
+  .refine(hasToolResultOutcome, { message: TOOL_RESULT_OUTCOME_ERROR })
 
 export const PingMessageSchema = z
   .object({
@@ -61,7 +65,7 @@ export const PingMessageSchema = z
   })
   .strict()
 
-export const MessageFromExtensionSchema = z.discriminatedUnion('type', [
+export const MessageFromExtensionSchema = z.union([
   ActivateMessageSchema,
   ToolResultMessageSchema,
   PingMessageSchema

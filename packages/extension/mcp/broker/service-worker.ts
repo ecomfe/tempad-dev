@@ -185,12 +185,11 @@ export class McpServiceWorkerBroker {
       return
     }
     this.pendingToolCalls.delete(message.callId)
-    this.hubClient.sendToolResult({
-      error: message.error,
-      id: message.callId,
-      payload: message.payload,
-      type: 'toolResult'
-    })
+    this.hubClient.sendToolResult(
+      message.error !== undefined
+        ? { error: message.error, id: message.callId, type: 'toolResult' }
+        : { id: message.callId, payload: message.payload, type: 'toolResult' }
+    )
   }
 
   private async uploadAsset(port: McpBrokerPort, message: AssetUploadMessage): Promise<void> {

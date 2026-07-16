@@ -34,6 +34,25 @@ export default definePlugin({
 当该文件托管在某个可访问的位置后（例如 GitHub 的 raw URL），将 URL 粘贴到
 TemPad Dev 的 **Preferences → Plugins** 面板中即可加载。
 
+托管入口必须是自包含且不超过 512 KiB 的 ES Module。正常使用时请提供 HTTPS URL；本地
+开发仍可使用 loopback HTTP。静态 import、动态 import 和 re-export 会在执行前被拒绝，
+因此请在构建阶段把运行时依赖打包进入口文件。
+
+### 运行时边界
+
+插件代码按不可信代码处理：每次调用都在 TemPad Dev 的 opaque-origin Chrome sandbox page
+内启动一个全新的 Worker。运行时不暴露 DOM 或扩展 API，阻断存储与已测试的网络通道，只
+接受有界的结构化输入输出，并在五秒后终止。因此，插件 hook 应当是确定性的、同步或短时
+运行的逻辑，不能依赖网络或持久化存储。
+
+在 MCP 组件生成中，TemPad Dev 可能让同一个插件模块实例处理最多 32 个节点，并最多并发
+四个 batch。因此，同一 batch 中后执行的 job 可以看到可变模块状态，但该状态会随 Worker
+销毁；插件不能依赖它保证正确性、协调跨节点逻辑或实现缓存。
+
+插件会收到传给 hook 的设计数据，并控制自己返回的生成代码。沙箱不会让生成内容天然适合
+执行，也不承诺抵御浏览器引擎漏洞、侧信道或蓄意内存耗尽。TemPad Dev 会将获取到的源码及
+其 SHA-256 摘要保存为本地快照，只有用户明确更新时才重新获取。
+
 ## 插件结构
 
 每个插件都会导出一个包含 `name` 与 `code` 映射的对象。`code` 映射决定 TemPad Dev 会渲染哪些代码块。你可以覆盖内置的 `css` 和 `js` 代码块，也可以引入自己的代码块：

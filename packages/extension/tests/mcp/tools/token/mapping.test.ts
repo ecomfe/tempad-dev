@@ -33,7 +33,7 @@ describe('token/mapping', () => {
     vi.mocked(collectCandidateVariableIds).mockReturnValue(mappings)
 
     expect(buildVariableMappings(roots, cache, readers)).toBe(mappings)
-    expect(collectCandidateVariableIds).toHaveBeenCalledWith(roots, cache, readers)
+    expect(collectCandidateVariableIds).toHaveBeenCalledWith(roots, cache, readers, {})
   })
 
   it('returns empty used set when mappings are missing', () => {

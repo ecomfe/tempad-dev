@@ -8,6 +8,8 @@ import { ui } from './figma'
 interface PluginData {
   name: string
   code: string
+  integrity?: string
+  resolvedUrl?: string
   source: string
 }
 

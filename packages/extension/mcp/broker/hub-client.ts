@@ -202,9 +202,24 @@ export class McpHubClient {
           return
         }
         if (message.type === 'registered') {
+          if (registered) {
+            fail(new Error('Received duplicate MCP server registration'))
+            return
+          }
           registered = message
         } else if (message.type === 'state') {
+          if (state) {
+            fail(new Error('Received duplicate MCP server state'))
+            return
+          }
+          if (!isAllowedAssetServerUrl(message.assetServerUrl)) {
+            fail(new Error('MCP server advertised a non-loopback asset URL'))
+            return
+          }
           state = message
+        } else {
+          fail(new Error('Received tool traffic during MCP server handshake'))
+          return
         }
         finish()
       }
@@ -234,11 +249,33 @@ export class McpHubClient {
     if (this.ws !== ws) return
     const message = parseHubMessage(event)
     if (!message) {
-      this.errorMessage = 'Received malformed message from MCP server'
-      this.emitSnapshot()
+      this.rejectConnectedMessage(ws, 'Received malformed message from MCP server')
+      return
+    }
+    if (message.type === 'registered') {
+      this.rejectConnectedMessage(ws, 'Received duplicate registration from MCP server')
+      return
+    }
+    if (message.type === 'state' && !isAllowedAssetServerUrl(message.assetServerUrl)) {
+      this.rejectConnectedMessage(ws, 'MCP server advertised a non-loopback asset URL')
+      return
+    }
+    if (
+      message.type === 'state' &&
+      this.assetServerUrl !== null &&
+      message.assetServerUrl !== this.assetServerUrl
+    ) {
+      this.rejectConnectedMessage(ws, 'MCP server changed its asset server URL')
       return
     }
     this.handleHubMessage(message)
+  }
+
+  private rejectConnectedMessage(ws: WebSocket, message: string): void {
+    if (this.ws !== ws) return
+    this.errorMessage = message
+    this.emitSnapshot()
+    closeWebSocket(ws)
   }
 
   private handleHubMessage(message: MessageToExtension): void {
@@ -363,4 +400,21 @@ function getErrorEventMessage(event: Event): string | null {
     return event.message
   }
   return null
+}
+
+function isAllowedAssetServerUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return (
+      url.protocol === 'http:' &&
+      url.hostname === '127.0.0.1' &&
+      url.port !== '' &&
+      url.username === '' &&
+      url.password === '' &&
+      url.search === '' &&
+      url.hash === ''
+    )
+  } catch {
+    return false
+  }
 }

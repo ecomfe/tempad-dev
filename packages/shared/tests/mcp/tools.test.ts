@@ -25,7 +25,7 @@ describe('mcp/tools AssetDescriptorSchema', () => {
     expect(parsed.success).toBe(true)
   })
 
-  it('rejects negative size', () => {
+  it('rejects negative size and non-protocol hashes', () => {
     const invalidSize = AssetDescriptorSchema.safeParse({
       hash: 'deadbeef',
       url: 'https://example.com/a.png',
@@ -33,6 +33,14 @@ describe('mcp/tools AssetDescriptorSchema', () => {
       size: -1
     })
     expect(invalidSize.success).toBe(false)
+    expect(
+      AssetDescriptorSchema.safeParse({
+        hash: 'not-a-hash',
+        url: 'https://example.com/a.png',
+        mimeType: 'image/png',
+        size: 1
+      }).success
+    ).toBe(false)
   })
 })
 
@@ -125,5 +133,8 @@ describe('mcp/tools parameter schemas', () => {
         missing: ['beefcafe']
       }).success
     ).toBe(true)
+    expect(GetAssetsResultSchema.safeParse({ assets: [], missing: ['not-a-hash'] }).success).toBe(
+      false
+    )
   })
 })

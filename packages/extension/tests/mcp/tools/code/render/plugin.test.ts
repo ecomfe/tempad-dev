@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocked = vi.hoisted(() => ({
-  generateCodeBlocksForNode: vi.fn()
+  generateCodeBlocksForNode: vi.fn(),
+  generateCodeBlocksForNodes: vi.fn()
 }))
 
 vi.mock('@/utils/codegen', () => ({
-  generateCodeBlocksForNode: mocked.generateCodeBlocksForNode
+  generateCodeBlocksForNode: mocked.generateCodeBlocksForNode,
+  generateCodeBlocksForNodes: mocked.generateCodeBlocksForNodes
 }))
 
-import { renderPluginComponent, resolvePluginComponent } from '@/mcp/tools/code/render/plugin'
+import {
+  renderPluginComponent,
+  resolvePluginComponent,
+  resolvePluginComponents
+} from '@/mcp/tools/code/render/plugin'
 
 function createCodeBlock({
   lang = 'jsx',
@@ -101,6 +107,27 @@ describe('mcp/code render plugin', () => {
       code: '<template><X /></template>',
       lang: 'vue'
     })
+  })
+
+  it('maps batched codegen responses to plugin components in source order', async () => {
+    const nodes = [{ id: 'one' }, { id: 'two' }] as InstanceNode[]
+    mocked.generateCodeBlocksForNodes.mockResolvedValue([
+      { codeBlocks: [createCodeBlock({ code: ' <One /> ' })] },
+      { codeBlocks: [createCodeBlock({ code: ' <Two /> ' })] }
+    ])
+
+    const result = await resolvePluginComponents(nodes, createConfig(), 'plugin-code', 'jsx')
+
+    expect(mocked.generateCodeBlocksForNodes).toHaveBeenCalledWith(
+      nodes,
+      createConfig(),
+      'plugin-code',
+      { returnDevComponent: true }
+    )
+    expect(result).toEqual([
+      { component: undefined, code: '<One />', lang: 'jsx' },
+      { component: undefined, code: '<Two />', lang: 'jsx' }
+    ])
   })
 
   it('normalizes tsx and unknown language blocks to jsx', async () => {

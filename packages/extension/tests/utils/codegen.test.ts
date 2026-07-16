@@ -1,11 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocked = vi.hoisted(() => {
-  class MockWorker {}
-
   return {
-    MockWorker,
-    createWorkerRequester: vi.fn(),
+    requestPluginSandbox: vi.fn(),
     resolveStylesFromNode: vi.fn(),
     getDesignComponent: vi.fn(),
     formatNodeStyleForUi: vi.fn(
@@ -17,12 +14,8 @@ const mocked = vi.hoisted(() => {
   }
 })
 
-vi.mock('@/codegen/requester', () => ({
-  createWorkerRequester: mocked.createWorkerRequester
-}))
-
-vi.mock('@/codegen/worker?worker&inline', () => ({
-  default: mocked.MockWorker
+vi.mock('@/plugin-sandbox/requester', () => ({
+  requestPluginSandbox: mocked.requestPluginSandbox
 }))
 
 vi.mock('@/utils/figma-style/style-resolver', () => ({
@@ -38,7 +31,13 @@ vi.mock('@/utils/component', () => ({
   getDesignComponent: mocked.getDesignComponent
 }))
 
-import { codegen, generateCodeBlocksForNode, workerUnitOptions } from '@/utils/codegen'
+import { PluginSandboxError } from '@/plugin-sandbox/client'
+import {
+  codegen,
+  generateCodeBlocksForNode,
+  generateCodeBlocksForNodes,
+  workerUnitOptions
+} from '@/utils/codegen'
 
 describe('utils/codegen', () => {
   beforeEach(() => {
@@ -71,10 +70,9 @@ describe('utils/codegen', () => {
     })
   })
 
-  it('dispatches codegen requests through the worker requester bridge', async () => {
-    const response = { css: '.button { color: red; }' }
-    const request = vi.fn().mockResolvedValue(response)
-    mocked.createWorkerRequester.mockReturnValue(request)
+  it('dispatches codegen requests through the plugin sandbox bridge', async () => {
+    const response = { codeBlocks: [] }
+    mocked.requestPluginSandbox.mockResolvedValue(response)
 
     const style = { color: 'red' }
     const component = { name: 'Button' } as unknown as ReturnType<typeof mocked.getDesignComponent>
@@ -82,8 +80,7 @@ describe('utils/codegen', () => {
 
     const result = await codegen(style, component, options, 'plugin()', true)
 
-    expect(mocked.createWorkerRequester).toHaveBeenCalledWith(mocked.MockWorker)
-    expect(request).toHaveBeenCalledWith({
+    expect(mocked.requestPluginSandbox).toHaveBeenCalledWith('codegen', {
       style,
       component,
       options,
@@ -94,13 +91,12 @@ describe('utils/codegen', () => {
   })
 
   it('omits component payload when input component is null', async () => {
-    const response = { css: '.button { color: red; }' }
-    const request = vi.fn().mockResolvedValue(response)
-    mocked.createWorkerRequester.mockReturnValue(request)
+    const response = { codeBlocks: [] }
+    mocked.requestPluginSandbox.mockResolvedValue(response)
 
     await codegen({ color: 'red' }, null, { useRem: false, rootFontSize: 16, scale: 1 })
 
-    expect(request).toHaveBeenCalledWith({
+    expect(mocked.requestPluginSandbox).toHaveBeenCalledWith('codegen', {
       style: { color: 'red' },
       component: undefined,
       options: { useRem: false, rootFontSize: 16, scale: 1 },
@@ -110,9 +106,8 @@ describe('utils/codegen', () => {
   })
 
   it('resolves node style/component data before sending generation request', async () => {
-    const response = { css: '.card { color: green; }' }
-    const request = vi.fn().mockResolvedValue(response)
-    mocked.createWorkerRequester.mockReturnValue(request)
+    const response = { codeBlocks: [] }
+    mocked.requestPluginSandbox.mockResolvedValue(response)
 
     const rawStyle = { color: 'blue' }
     const resolvedStyle = { color: 'green' }
@@ -154,8 +149,7 @@ describe('utils/codegen', () => {
     expect(mocked.formatNodeStyleForUi).toHaveBeenCalledWith(resolvedStyle, node)
     expect(mocked.formatNodeStyleForPluginVariables).toHaveBeenCalledWith(resolvedStyle, node)
     expect(mocked.getDesignComponent).toHaveBeenCalledWith(node)
-    expect(mocked.createWorkerRequester).toHaveBeenCalledWith(mocked.MockWorker)
-    expect(request).toHaveBeenCalledWith({
+    expect(mocked.requestPluginSandbox).toHaveBeenCalledWith('codegen', {
       style: uiStyle,
       pluginVariableStyle,
       variableSyntax: { '--green': 'theme.color.green' },
@@ -170,5 +164,80 @@ describe('utils/codegen', () => {
       returnDevComponent: true
     })
     expect(result).toEqual(response)
+  })
+
+  it('prepares four nodes at a time and batches sandbox jobs without repeating plugin code', async () => {
+    let activePreparation = 0
+    let maxActivePreparation = 0
+    let activeRequests = 0
+    let maxActiveRequests = 0
+    const nodes = Array.from({ length: 129 }, (_, index) => ({
+      id: `node-${index}`,
+      getCSSAsync: vi.fn(async () => {
+        activePreparation += 1
+        maxActivePreparation = Math.max(maxActivePreparation, activePreparation)
+        await Promise.resolve()
+        activePreparation -= 1
+        return { color: `color-${index}` }
+      })
+    })) as unknown as SceneNode[]
+    mocked.resolveStylesFromNode.mockImplementation(async (style) => style)
+    mocked.requestPluginSandbox.mockImplementation(async (_worker, payload) => {
+      const jobs = (payload as { jobs: unknown[] }).jobs
+      activeRequests += 1
+      maxActiveRequests = Math.max(maxActiveRequests, activeRequests)
+      await Promise.resolve()
+      activeRequests -= 1
+      return { results: jobs.map(() => ({ codeBlocks: [] })) }
+    })
+
+    const results = await generateCodeBlocksForNodes(
+      nodes,
+      { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+      'plugin-code',
+      { returnDevComponent: true }
+    )
+
+    expect(results).toHaveLength(nodes.length)
+    expect(maxActivePreparation).toBe(4)
+    expect(maxActiveRequests).toBe(4)
+    expect(mocked.requestPluginSandbox).toHaveBeenCalledTimes(5)
+    expect(
+      mocked.requestPluginSandbox.mock.calls.map(
+        ([, payload]) => (payload as { jobs: unknown[] }).jobs.length
+      )
+    ).toEqual([32, 32, 32, 32, 1])
+    for (const [, payload] of mocked.requestPluginSandbox.mock.calls) {
+      const batch = payload as { jobs: Array<Record<string, unknown>>; pluginCode?: string }
+      expect(batch.pluginCode).toBe('plugin-code')
+      expect(batch.jobs.every((job) => !Object.hasOwn(job, 'pluginCode'))).toBe(true)
+    }
+  })
+
+  it('splits timed-out batches so a slow aggregate does not break valid per-node work', async () => {
+    const nodes = Array.from({ length: 2 }, (_, index) => ({
+      getCSSAsync: vi.fn(async () => ({ color: `color-${index}` }))
+    })) as unknown as SceneNode[]
+    mocked.resolveStylesFromNode.mockImplementation(async (style) => style)
+    mocked.requestPluginSandbox.mockImplementation(async (_worker, payload) => {
+      const jobs = (payload as { jobs: unknown[] }).jobs
+      if (jobs.length > 1) {
+        throw new PluginSandboxError('timeout', 'batch timeout')
+      }
+      return { results: [{ codeBlocks: [] }] }
+    })
+
+    await expect(
+      generateCodeBlocksForNodes(
+        nodes,
+        { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+        'plugin-code'
+      )
+    ).resolves.toHaveLength(2)
+    expect(
+      mocked.requestPluginSandbox.mock.calls.map(
+        ([, payload]) => (payload as { jobs: unknown[] }).jobs.length
+      )
+    ).toEqual([2, 1, 1])
   })
 })

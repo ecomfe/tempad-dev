@@ -209,6 +209,30 @@ describe('token/candidates collectCandidateVariableIds', () => {
     expect(result.rewrites).toEqual(new Map())
   })
 
+  it('can limit candidate scanning to the selected root', () => {
+    const root = createNode({
+      id: 'root',
+      visible: true,
+      boundVariables: { color: { id: 'id-root' } },
+      children: [
+        createNode({
+          id: 'child',
+          visible: true,
+          boundVariables: { color: { id: 'id-child' } }
+        })
+      ]
+    })
+    vi.mocked(getVariableByIdCached).mockImplementation(
+      (id: string) => ({ id, name: id }) as unknown as Variable
+    )
+
+    const result = collectCandidateVariableIds([root], undefined, undefined, {
+      traverseChildren: false
+    })
+
+    expect(result.variableIds).toEqual(new Set(['id-root']))
+  })
+
   it('falls back to Date.now when performance is unavailable', () => {
     const performanceOriginal = globalThis.performance
     vi.stubGlobal('performance', undefined)

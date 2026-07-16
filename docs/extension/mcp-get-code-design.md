@@ -8,16 +8,23 @@ This design describes MCP `get_code` in `packages/extension/mcp/tools/code`. It 
    - Exactly one visible root node required.
    - Build a visible tree with depth capping.
 
-2. **Create request-scoped lookup context**
+2. **Preflight the response budget**
+   - Sum descendant text using UTF-8 bytes and stop as soon as it alone exceeds the inline budget.
+   - Disable the early shell path for plugin output and unbounded debug calls because those modes
+     require full-tree semantics.
+   - When the preflight proves overflow, scan variables and collect styles for the root only, skip
+     asset planning/export and full rendering, then emit the existing shell contract.
+
+3. **Create request-scoped lookup context**
    - Create a `GetCodeCacheContext` near the existing variable cache.
    - Build variable mappings from the raw selected roots, using shared lookup readers backed by that request context.
 
-3. **Plan assets and plugin overrides**
+4. **Plan assets and plugin overrides**
    - Plan vector roots (vector-only containers) and mark their descendants for skipping.
    - If a plugin is enabled, pre-resolve plugin components for instances.
    - When a plugin returns component/code, skip collecting its descendants and reuse the cached plugin output in render.
 
-4. **Collect data**
+5. **Collect data**
    - `collectNodeData()`
      - `getCSSAsync()` once per node (skipped nodes are excluded).
      - `getStyledTextSegments()` for text nodes.
@@ -26,37 +33,41 @@ This design describes MCP `get_code` in `packages/extension/mcp/tools/code`. It 
      - Apply positioning (auto layout absolute, constraints).
      - Replace image fills with uploaded assets.
 
-5. **Canonicalize MCP variable output and sanitize styles**
+6. **Canonicalize MCP variable output and sanitize styles**
    - Rewrite supported variable-backed output into canonical CSS variable IR.
    - Capture variable usage candidates for token detection and resolution.
    - Patch known layout issues (negative gap).
    - Ensure layout parents are `position: relative` when children are absolute.
 
-6. **Build layout-only styles**
+7. **Build layout-only styles**
    - Extract layout-related CSS into a secondary map for SVG external layout.
 
-7. **Export assets**
+8. **Export assets**
    - Export SVGs/images only once per planned asset.
+   - Export independent vector roots in bounded batches of two, using a per-root asset map that is
+     merged in source order so timing cannot change response ordering.
    - Vector planning and themeable-color classification share the same request cache and paint/effect semantics helpers to avoid drift between asset eligibility and color-model detection.
 
-8. **Render markup**
+9. **Render markup**
    - Render nodes into JSX/HTML component tree.
    - Emit `<svg data-src="...">` placeholders when applicable; inline SVG only as a degradation path when asset upload fails after export.
    - Apply Tailwind class conversion.
    - Reorder flex/grid siblings by position (see “Sibling ordering”).
 
-9. **Token pipeline**
-   - Detect token references in output code.
-   - Apply plugin transforms to token names.
-   - Rewrite code with transformed token names.
-   - Build a single `tokens` map (direct + alias-chain tokens).
-   - When `resolveTokens` is true, resolve per-node (mode-aware) before final render.
-   - The resolve rerender applies to both collected node styles and themeable vector-placeholder root presentation styles so emitted vector color evidence stays in sync with token resolution.
+10. **Token pipeline**
 
-10. **Enforce budget and finalize output**
+- Detect token references in output code.
+- Apply plugin transforms to token names.
+- Rewrite code with transformed token names.
+- Build a single `tokens` map (direct + alias-chain tokens).
+- When `resolveTokens` is true, resolve per-node (mode-aware) before final render.
+- The resolve rerender applies to both collected node styles and themeable vector-placeholder root presentation styles so emitted vector color evidence stays in sync with token resolution.
+
+11. **Enforce budget and finalize output**
     - Validate output size using a shared `CallToolResult` UTF-8 byte budget (`64 KiB` by default).
     - If over budget, prefer a shell response for the current node.
-    - v1 shell fallback is correctness-first: it reuses the already-collected tree/style context rather than trying to re-run a shell-only collection path.
+    - Overflow not proven by the preflight remains correctness-first and reuses the already-collected
+      tree/style context instead of rerunning the request.
     - Emit lightweight `type + message` warnings for inferred auto layout, depth-cap, and shell guidance.
     - If tree depth was capped, include a `depth-cap` warning that tells agents to continue with narrower `get_code` calls using returned `data-hint-id` values.
     - If a shell response is returned, list omitted direct child ids in an inline comment in render order and emit a `shell` warning that points agents to that comment.
@@ -267,6 +278,17 @@ The request context is threaded through:
 - Single-pass CSS collection per node.
 - Request-scoped cache reuse for node semantics, style lookups, paint-style summaries, variable lookups, and vector analysis.
 - Asset export is planned and executed once.
+- A descendant-text preflight can bypass descendant collection and all asset work when UTF-8 text
+  alone proves the response cannot fit. Tests assert that it short-circuits before scanning the rest
+  of a large synthetic tree.
+- Plugin inputs are prepared four at a time, then sent in batches of at most 32 jobs with at most
+  four sandbox Workers active.
+- Independent vector roots export in bounded batches of two; SVG and asset ordering remains the
+  source-tree order.
+- Deterministic regression fixtures assert one CSS read per collected node, no CSS reads for omitted
+  descendants, one semantic extraction per node across repeated layout reads, bounded plugin input
+  preparation and Worker batches, and at most two active vector exports with source-order output.
+  These are operation-count guards rather than machine-dependent timing benchmarks.
 - Token detection is string-based and bounded by budget checks.
 - Token detection avoids a second scan after rewrites.
 - Skip CSS collection for vector-root descendants and plugin-rendered subtrees.

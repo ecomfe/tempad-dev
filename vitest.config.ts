@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config'
 
+import { AGGREGATE_COVERAGE_THRESHOLDS } from './vitest.coverage'
+
 export default defineConfig({
   test: {
     // Keep root-managed projects to package-local node configs.
@@ -20,8 +22,6 @@ export default defineConfig({
         'packages/extension/utils/module.ts',
         'packages/extension/utils/log.ts',
         'packages/extension/utils/figma.ts',
-        'packages/extension/utils/dom.ts',
-        'packages/extension/utils/keyboard.ts',
         'packages/extension/utils/css.ts',
         'packages/extension/utils/tailwind.ts',
         'packages/extension/utils/codegen.ts',
@@ -30,21 +30,26 @@ export default defineConfig({
         'packages/extension/composables/availability.ts',
         'packages/extension/composables/copy.ts',
         'packages/extension/composables/deep-link.ts',
-        'packages/extension/codegen/requester.ts',
+        'packages/extension/codegen/worker.ts',
         'packages/extension/composables/input.ts',
         'packages/extension/composables/plugin.ts',
         'packages/extension/composables/selection.ts',
         'packages/extension/composables/scrollbar.ts',
         'packages/extension/composables/toast.ts',
         'packages/extension/composables/index.ts',
-        'packages/extension/ui/figma.ts',
-        'packages/extension/ui/state.ts',
+        'packages/extension/plugin-sandbox/limits.ts',
+        'packages/extension/plugin-sandbox/protocol.ts',
+        'packages/extension/plugin-sandbox/validation.ts',
         'packages/extension/worker/safe.ts',
         'packages/extension/worker/lockdown.ts',
         'packages/extension/mcp/index.ts',
         'packages/extension/mcp/config.ts',
         'packages/extension/mcp/assets.ts',
         'packages/extension/mcp/runtime.ts',
+        'packages/extension/mcp/bridge/content.ts',
+        'packages/extension/mcp/broker/hub-client.ts',
+        'packages/extension/mcp/broker/service-worker.ts',
+        'packages/extension/mcp/broker/sessions.ts',
         'packages/extension/mcp/transform-variables/requester.ts',
         'packages/extension/mcp/transform-variables/worker.ts',
         'packages/extension/rewrite/config.ts',
@@ -69,6 +74,7 @@ export default defineConfig({
         'packages/extension/mcp/tools/code/styles/index.ts',
         'packages/extension/mcp/tools/code/assets/plan.ts',
         'packages/extension/mcp/tools/code/assets/vector.ts',
+        'packages/extension/mcp/tools/code/budget-preflight.ts',
         'packages/extension/mcp/tools/code/assets/export.ts',
         'packages/extension/mcp/tools/code/assets/image.ts',
         'packages/extension/mcp/tools/code/assets/index.ts',
@@ -99,6 +105,10 @@ export default defineConfig({
         'packages/mcp-server/src/request.ts',
         'packages/mcp-server/src/asset-store.ts',
         'packages/mcp-server/src/asset-http-server.ts',
+        'packages/mcp-server/src/extension-registry.ts',
+        'packages/mcp-server/src/extension-socket.ts',
+        'packages/mcp-server/src/security.ts',
+        'packages/mcp-server/src/websocket-server.ts',
         'packages/mcp-server/src/shared.ts',
         'packages/shared/src/index.ts',
         'packages/shared/src/mcp/browser-gateway.ts',
@@ -106,14 +116,11 @@ export default defineConfig({
         'packages/shared/src/mcp/errors.ts',
         'packages/shared/src/mcp/index.ts',
         'packages/shared/src/mcp/protocol.ts',
-        'packages/shared/src/mcp/tools.ts',
-        'packages/shared/src/figma/color.ts',
-        'packages/shared/src/figma/gradient.ts',
-        'packages/shared/src/figma/index.ts',
-        'packages/shared/src/figma/stroke.ts',
-        'packages/shared/src/figma/style-resolver.ts'
+        'packages/shared/src/mcp/tool-result.ts',
+        'packages/shared/src/mcp/tools.ts'
       ],
-      exclude: ['**/dist/**', '**/.output/**']
+      exclude: ['**/dist/**', '**/.output/**'],
+      thresholds: AGGREGATE_COVERAGE_THRESHOLDS
     }
   }
 })

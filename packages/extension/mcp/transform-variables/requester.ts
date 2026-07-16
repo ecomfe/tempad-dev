@@ -1,12 +1,8 @@
-import { createWorkerRequester } from '@/codegen/requester'
+import { PLUGIN_SANDBOX_WORKER } from '@/plugin-sandbox/protocol'
+import { requestPluginSandbox } from '@/plugin-sandbox/requester'
+import { validateTransformVariableResponse } from '@/plugin-sandbox/validation'
 
-import type {
-  TransformVariableReference,
-  TransformVariableRequestPayload,
-  TransformVariableResponsePayload
-} from './worker'
-
-import TransformerWorker from './worker?worker&inline'
+import type { TransformVariableReference, TransformVariableRequestPayload } from './worker'
 
 export type VariableReference = TransformVariableReference & {
   nodeId: string
@@ -18,11 +14,6 @@ export type TransformVariableOptions = {
   rootFontSize: number
   scale: number
 }
-
-const requestTransformVariables = createWorkerRequester<
-  TransformVariableRequestPayload,
-  TransformVariableResponsePayload
->(TransformerWorker)
 
 export async function runTransformVariableBatch(
   references: TransformVariableReference[],
@@ -37,11 +28,15 @@ export async function runTransformVariableBatch(
     return references.map(formatVariableExpression)
   }
 
-  const { results } = await requestTransformVariables({
-    pluginCode,
-    references,
-    options
-  })
+  const response = await requestPluginSandbox<TransformVariableRequestPayload, unknown>(
+    PLUGIN_SANDBOX_WORKER.transformVariable,
+    {
+      pluginCode,
+      references,
+      options
+    }
+  )
+  const { results } = validateTransformVariableResponse(response)
   return results
 }
 

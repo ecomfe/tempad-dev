@@ -1,7 +1,7 @@
-import type { CodeBlock } from '@/types/codegen'
+import type { CodeBlock, ResponsePayload } from '@/types/codegen'
 import type { DevComponent } from '@/types/plugin'
 
-import { generateCodeBlocksForNode } from '@/utils/codegen'
+import { generateCodeBlocksForNode, generateCodeBlocksForNodes } from '@/utils/codegen'
 
 import type { CodeLanguage, RenderContext } from './types'
 
@@ -21,9 +21,28 @@ export async function resolvePluginComponent(
   pluginCode: string,
   preferredLang?: CodeLanguage
 ): Promise<PluginComponent | null> {
-  const { codeBlocks, devComponent } = await generateCodeBlocksForNode(node, config, pluginCode, {
+  const response = await generateCodeBlocksForNode(node, config, pluginCode, {
     returnDevComponent: true
   })
+  return resolvePluginComponentResponse(response, preferredLang)
+}
+
+export async function resolvePluginComponents(
+  nodes: InstanceNode[],
+  config: RenderContext['config'],
+  pluginCode: string,
+  preferredLang?: CodeLanguage
+): Promise<Array<PluginComponent | null>> {
+  const responses = await generateCodeBlocksForNodes(nodes, config, pluginCode, {
+    returnDevComponent: true
+  })
+  return responses.map((response) => resolvePluginComponentResponse(response, preferredLang))
+}
+
+function resolvePluginComponentResponse(
+  { codeBlocks, devComponent }: ResponsePayload,
+  preferredLang?: CodeLanguage
+): PluginComponent | null {
   const detectedLang = detectLang(codeBlocks, preferredLang)
   const componentBlock = findComponentBlock(codeBlocks, detectedLang)
   const code = componentBlock?.code.trim()

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import safe from '@/worker/safe'
 
 describe('worker/safe', () => {
-  it('contains essential intrinsic globals for sandbox survival', () => {
+  it('contains the intrinsic globals required by the Worker runtime', () => {
     expect(safe.has('Object')).toBe(true)
     expect(safe.has('Function')).toBe(true)
     expect(safe.has('Array')).toBe(true)

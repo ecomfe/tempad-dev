@@ -3,7 +3,8 @@ import type { ZodObject, ZodRawShape, ZodType } from 'zod'
 import { z } from 'zod'
 
 import { MCP_HASH_PATTERN, MCP_MAX_ASSET_BYTES } from './constants'
-import { TEMPAD_MCP_ERROR_CODES } from './errors'
+import { TempadMcpErrorPayloadSchema } from './errors'
+import { hasToolResultOutcome, TOOL_RESULT_OUTCOME_ERROR } from './tool-result'
 
 export const TEMPAD_MCP_BROWSER_SOURCE = 'tempad-dev:mcp'
 export const TEMPAD_MCP_BROWSER_PROTOCOL_VERSION = 1
@@ -36,13 +37,6 @@ function messageSchema<
     .strict()
 }
 
-const ToolErrorSchema = z
-  .object({
-    code: z.enum(TEMPAD_MCP_ERROR_CODES).optional(),
-    message: z.string()
-  })
-  .strict()
-
 const AssetMetadataSchema = z
   .object({
     height: z.number().int().positive().optional(),
@@ -72,7 +66,7 @@ const PageActivateSessionMessageSchema = messageSchema(
 
 const PageToolResultMessageSchema = messageSchema(PageMessageBaseSchema, 'mcp.toolResult', {
   callId: z.string().min(1),
-  error: ToolErrorSchema.optional(),
+  error: TempadMcpErrorPayloadSchema.optional(),
   payload: z.unknown().optional()
 })
 
@@ -81,13 +75,22 @@ const PageAssetUploadMessageSchema = messageSchema(PageMessageBaseSchema, 'mcp.u
   requestId: z.string().min(1)
 })
 
-export const PageToBridgeMessageSchema = z.discriminatedUnion('type', [
-  PageEnableMessageSchema,
-  PageDisableMessageSchema,
-  PageActivateSessionMessageSchema,
-  PageToolResultMessageSchema,
-  PageAssetUploadMessageSchema
-])
+export const PageToBridgeMessageSchema = z
+  .discriminatedUnion('type', [
+    PageEnableMessageSchema,
+    PageDisableMessageSchema,
+    PageActivateSessionMessageSchema,
+    PageToolResultMessageSchema,
+    PageAssetUploadMessageSchema
+  ])
+  .refine(
+    (message) => {
+      return message.type !== 'mcp.toolResult' || hasToolResultOutcome(message)
+    },
+    {
+      message: TOOL_RESULT_OUTCOME_ERROR
+    }
+  )
 
 const McpBrowserStateStatusSchema = z.enum(['disabled', 'connecting', 'connected', 'error'])
 
@@ -120,7 +123,7 @@ const BridgeAssetUploadResultMessageSchema = messageSchema(
   MessageBaseSchema,
   'mcp.assetUploadResult',
   {
-    error: ToolErrorSchema.optional(),
+    error: TempadMcpErrorPayloadSchema.optional(),
     requestId: z.string().min(1),
     sessionId: z.string().min(1)
   }

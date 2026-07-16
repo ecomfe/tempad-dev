@@ -23,7 +23,8 @@ function hasChildren(node: SceneNode): node is SceneNode & ChildrenMixin {
 export function collectCandidateVariableIds(
   roots: SceneNode[],
   cache?: Map<string, Variable | null>,
-  readers: FigmaLookupReaders = DEFAULT_READERS
+  readers: FigmaLookupReaders = DEFAULT_READERS,
+  options: { traverseChildren?: boolean } = {}
 ): CandidateResult {
   const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
   const startedAt = now()
@@ -33,7 +34,7 @@ export function collectCandidateVariableIds(
   const visit = (node: SceneNode) => {
     collectNodeVariableIdsInto(node, variableIds, readers)
 
-    if (hasChildren(node)) {
+    if (options.traverseChildren !== false && hasChildren(node)) {
       node.children.forEach((child) => {
         if (child.visible) visit(child)
       })

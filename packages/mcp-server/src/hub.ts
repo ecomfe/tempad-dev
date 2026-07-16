@@ -3,14 +3,11 @@ import type {
   AssetDescriptor,
   GetAssetsParametersInput,
   GetAssetsResult,
-  RegisteredMessage,
   StateMessage,
   ToolCallMessage,
   ToolName,
-  ToolResultMap,
-  ToolResultMessage
+  ToolResultMap
 } from '@tempad-dev/shared'
-import type { RawData } from 'ws'
 import type { ZodType } from 'zod'
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -18,25 +15,27 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   GetAssetsResultSchema,
   MCP_TOOL_INLINE_BUDGET_BYTES,
-  MessageFromExtensionSchema,
   TEMPAD_MCP_ERROR_CODES,
   measureCallToolResultBytes,
   type TempadMcpErrorCode
 } from '@tempad-dev/shared'
-import { nanoid } from 'nanoid'
+import { randomUUID } from 'node:crypto'
 import { existsSync, rmSync, chmodSync } from 'node:fs'
 import { connect, createServer } from 'node:net'
 import lockfile from 'proper-lockfile'
 import { WebSocketServer } from 'ws'
 
-import type { AssetRecord, ExtensionConnection } from './types'
+import type { AssetRecord } from './types'
 
 import { createAssetHttpServer } from './asset-http-server'
 import { createAssetStore } from './asset-store'
 import { buildAssetFilename } from './asset-utils'
 import { getMcpServerConfig } from './config'
+import { ExtensionRegistry } from './extension-registry'
+import { attachExtensionSocket } from './extension-socket'
 import MCP_INSTRUCTIONS from './instructions.md?raw'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
+import { createExtensionOriginPolicy } from './security'
 import {
   HUB_BUSY_EXIT_CODE,
   HUB_LOCK_PATH,
@@ -55,18 +54,26 @@ import {
   createInlineBudgetExceededToolResponse,
   createToolErrorResponse
 } from './tools'
+import { startExtensionWebSocketServer } from './websocket-server'
 
 const SHUTDOWN_TIMEOUT = 2000
 const SOCKET_PROBE_TIMEOUT_MS = 300
-const { wsPortCandidates, toolTimeoutMs, maxPayloadBytes, autoActivateGraceMs, assetTtlMs } =
-  getMcpServerConfig()
+const {
+  wsPortCandidates,
+  toolTimeoutMs,
+  maxPayloadBytes,
+  maxExtensionConnections,
+  autoActivateGraceMs,
+  assetTtlMs,
+  allowedExtensionOrigins
+} = getMcpServerConfig()
+const extensionOriginPolicy = createExtensionOriginPolicy(allowedExtensionOrigins)
 
 log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Hub starting...')
 
-const extensions: ExtensionConnection[] = []
+const extensionRegistry = new ExtensionRegistry(autoActivateGraceMs)
 let consumerCount = 0
 type TimeoutHandle = ReturnType<typeof setTimeout>
-let autoActivateTimer: TimeoutHandle | null = null
 let selectedWsPort = 0
 let releaseHubLock: (() => Promise<void>) | null = null
 let shuttingDown = false
@@ -262,7 +269,10 @@ function getToolDefinition<Name extends ToolName>(name: Name): ToolDefinitionByN
 }
 
 const assetStore = createAssetStore()
-const assetHttpServer = createAssetHttpServer(assetStore)
+const assetHttpServer = createAssetHttpServer(assetStore, {
+  authorizeExtensionOrigin: (origin) =>
+    extensionRegistry.getActive()?.origin === origin.toLowerCase()
+})
 
 function scheduleAssetCleanup(): void {
   if (assetTtlMs <= 0) {
@@ -347,7 +357,7 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
     let requestId: string | undefined
     try {
       const parsedArgs = schema.parse(args)
-      const activeExt = extensions.find((e) => e.active)
+      const activeExt = extensionRegistry.getActive()
       if (!activeExt) {
         throw createCodedError(
           TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION,
@@ -485,41 +495,6 @@ async function handleGetAssets({ hashes }: GetAssetsParametersInput): Promise<To
   return createAssetsToolResponse(payload)
 }
 
-function getActiveId(): string | null {
-  return extensions.find((e) => e.active)?.id ?? null
-}
-
-function setActive(targetId: string | null): void {
-  extensions.forEach((e) => {
-    e.active = targetId !== null && e.id === targetId
-  })
-}
-
-function clearAutoActivateTimer(): void {
-  if (autoActivateTimer) {
-    clearTimeout(autoActivateTimer)
-    autoActivateTimer = null
-  }
-}
-
-function scheduleAutoActivate(): void {
-  clearAutoActivateTimer()
-
-  if (extensions.length !== 1 || getActiveId()) {
-    return
-  }
-
-  const target = extensions[0]
-  autoActivateTimer = setTimeout(() => {
-    autoActivateTimer = null
-    if (extensions.length === 1 && !getActiveId()) {
-      setActive(target.id)
-      log.info({ id: target.id }, 'Auto-activated sole extension after grace period.')
-      broadcastState()
-    }
-  }, autoActivateGraceMs)
-}
-
 function unrefTimer(timer: TimeoutHandle): void {
   if (typeof timer === 'object' && timer !== null) {
     const handle = timer as NodeJS.Timeout
@@ -530,21 +505,14 @@ function unrefTimer(timer: TimeoutHandle): void {
 }
 
 function broadcastState(): void {
-  const activeId = getActiveId()
+  const activeId = extensionRegistry.getActiveId()
   const message: StateMessage = {
     type: 'state',
     activeId,
     assetServerUrl: assetHttpServer.getBaseUrl()
   }
-  extensions.forEach((ext) => ext.ws.send(JSON.stringify(message)))
-  log.debug({ activeId, count: extensions.length }, 'Broadcasted state.')
-}
-
-function rawDataToBuffer(raw: RawData): Buffer {
-  if (typeof raw === 'string') return Buffer.from(raw)
-  if (Buffer.isBuffer(raw)) return raw
-  if (raw instanceof ArrayBuffer) return Buffer.from(raw)
-  return Buffer.concat(raw)
+  extensionRegistry.list().forEach((ext) => ext.ws.send(JSON.stringify(message)))
+  log.debug({ activeId, count: extensionRegistry.size }, 'Broadcasted state.')
 }
 
 function shutdown(): void {
@@ -558,6 +526,7 @@ function shutdown(): void {
   })
   consumerSessions.clear()
   assetStore.flush()
+  extensionRegistry.dispose()
   assetHttpServer.stop()
   netServer.close(() => log.info('Net server closed.'))
   wss?.close(() => log.info('WebSocket server closed.'))
@@ -642,41 +611,24 @@ function listenConsumerSocket(): Promise<void> {
 }
 
 async function startWebSocketServer(): Promise<{ server: WebSocketServer; port: number }> {
-  for (const candidate of wsPortCandidates) {
-    const server = new WebSocketServer({
-      host: '127.0.0.1',
-      port: candidate,
-      maxPayload: maxPayloadBytes
-    })
-
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const onError = (err: NodeJS.ErrnoException) => {
-          server.off('listening', onListening)
-          reject(err)
-        }
-        const onListening = () => {
-          server.off('error', onError)
-          resolve()
-        }
-        server.once('error', onError)
-        server.once('listening', onListening)
-      })
-      return { server, port: candidate }
-    } catch (err) {
-      server.close()
-      const errno = err as NodeJS.ErrnoException
-      if (errno.code === 'EADDRINUSE') {
-        log.warn({ port: candidate }, 'WebSocket port in use, trying next candidate.')
-        continue
-      }
-      throw errno
+  return startExtensionWebSocketServer({
+    maxConnections: maxExtensionConnections,
+    maxPayloadBytes,
+    originPolicy: extensionOriginPolicy,
+    portCandidates: wsPortCandidates,
+    onPortInUse: (port) => {
+      log.warn({ port }, 'WebSocket port in use, trying next candidate.')
+    },
+    onConnectionLimit: (limit) => {
+      log.warn({ limit }, 'Rejected WebSocket handshake at the extension connection limit.')
+    },
+    onRejectedHandshake: (origin, path) => {
+      log.warn(
+        { origin: origin || '<missing>', path: path || '<missing>' },
+        'Rejected unauthorized WebSocket handshake.'
+      )
     }
-  }
-
-  throw new Error(
-    `Unable to start WebSocket server on candidate ports: ${wsPortCandidates.join(', ')}.`
-  )
+  })
 }
 
 async function startHubRuntime(): Promise<WebSocketServer> {
@@ -707,90 +659,67 @@ activeWss.on('error', (err) => {
   process.exit(1)
 })
 
-activeWss.on('connection', (ws) => {
-  const ext: ExtensionConnection = { id: nanoid(), ws, active: false }
-  extensions.push(ext)
-  log.info({ id: ext.id }, `Extension connected. Total: ${extensions.length}`)
-
-  const message: RegisteredMessage = { type: 'registered', id: ext.id }
-  ws.send(JSON.stringify(message))
-  broadcastState()
-  scheduleAutoActivate()
-
-  ws.on('message', (raw: RawData, isBinary: boolean) => {
-    if (isBinary) {
-      log.warn({ extId: ext.id }, 'Unexpected binary message received.')
-      return
-    }
-
-    const messageBuffer = rawDataToBuffer(raw)
-
-    let parsedJson: unknown
-    try {
-      parsedJson = JSON.parse(messageBuffer.toString('utf-8'))
-    } catch (e: unknown) {
-      log.warn({ err: e, extId: ext.id }, 'Failed to parse message.')
-      return
-    }
-
-    const parseResult = MessageFromExtensionSchema.safeParse(parsedJson)
-    if (!parseResult.success) {
-      log.warn({ error: parseResult.error.flatten(), extId: ext.id }, 'Invalid message shape.')
-      return
-    }
-    const msg = parseResult.data
-
-    switch (msg.type) {
-      case 'activate': {
-        setActive(ext.id)
-        log.info({ id: ext.id }, 'Extension activated.')
-        broadcastState()
-        scheduleAutoActivate()
-        break
+activeWss.on('connection', (ws, request) => {
+  attachExtensionSocket(ws, {
+    createId: randomUUID,
+    origin: request.headers.origin ?? '',
+    registry: extensionRegistry,
+    onActivationRejected: (extensionId, activeExtensionId) => {
+      log.warn(
+        { activeId: activeExtensionId, id: extensionId },
+        'Rejected activation from a different extension Origin.'
+      )
+    },
+    onActivated: (extensionId) => {
+      log.info({ id: extensionId }, 'Extension activated.')
+    },
+    onAutoActivated: (extensionId) => {
+      log.info({ id: extensionId }, 'Auto-activated sole extension after grace period.')
+    },
+    onConnected: (extensionId) => {
+      log.info({ id: extensionId }, `Extension connected. Total: ${extensionRegistry.size}`)
+    },
+    onDisconnected: (extensionId, wasActive) => {
+      log.info({ id: extensionId }, `Extension disconnected. Remaining: ${extensionRegistry.size}`)
+      cleanupForExtension(extensionId)
+      if (wasActive) log.warn({ id: extensionId }, 'Active extension disconnected.')
+    },
+    onProtocolWarning: (warning) => {
+      if (warning.kind === 'binary') {
+        log.warn({ extId: warning.extensionId }, 'Unexpected binary message received.')
+      } else if (warning.kind === 'json') {
+        log.warn({ err: warning.error, extId: warning.extensionId }, 'Failed to parse message.')
+      } else {
+        log.warn({ error: warning.error, extId: warning.extensionId }, 'Invalid message shape.')
       }
-      case 'toolResult': {
-        const { id, payload, error } = msg as ToolResultMessage
-        if (error) {
-          const normalized = coerceToolError(error)
-          log.warn(
-            {
-              toolReq: id,
-              extId: ext.id,
-              code: getRecordProperty(normalized, 'code'),
-              message: normalized.message
-            },
-            'Received tool error from extension.'
-          )
-          reject(id, normalized)
-        } else {
-          resolve(id, payload)
-        }
-        break
-      }
-      case 'ping': {
-        break
-      }
+    },
+    onSocketError: (extensionId, error) => {
+      log.warn({ err: error, extId: extensionId }, 'Extension WebSocket error.')
+    },
+    onStateChange: broadcastState,
+    onToolError: (requestId, extensionId, error) => {
+      const normalized = coerceToolError(error)
+      log.warn(
+        {
+          toolReq: requestId,
+          extId: extensionId,
+          code: getRecordProperty(normalized, 'code'),
+          message: normalized.message
+        },
+        'Received tool error from extension.'
+      )
+      reject(requestId, extensionId, normalized)
+    },
+    onToolResult: (requestId, extensionId, payload) => {
+      resolve(requestId, extensionId, payload)
     }
-  })
-
-  ws.on('close', () => {
-    const index = extensions.findIndex((e) => e.id === ext.id)
-    if (index > -1) extensions.splice(index, 1)
-
-    log.info({ id: ext.id }, `Extension disconnected. Remaining: ${extensions.length}`)
-    cleanupForExtension(ext.id)
-
-    if (ext.active) {
-      log.warn({ id: ext.id }, 'Active extension disconnected.')
-      setActive(null)
-    }
-
-    broadcastState()
-    scheduleAutoActivate()
   })
 })
 
-log.info({ port: selectedWsPort }, 'WebSocket server ready.')
+log.info(
+  { port: selectedWsPort, extensionOriginPolicy: extensionOriginPolicy.mode },
+  'WebSocket server ready.'
+)
 
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)

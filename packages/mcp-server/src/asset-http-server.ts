@@ -21,11 +21,30 @@ import type { AssetRecord } from './types'
 
 import { buildAssetFilename, getHashFromAssetFilename, normalizeMimeType } from './asset-utils'
 import { getMcpServerConfig } from './config'
+import {
+  createCapabilityToken,
+  createExtensionOriginPolicy,
+  isAllowedExtensionOrigin,
+  secretsEqual
+} from './security'
 import { ASSET_DIR, log } from './shared'
 
 const LOOPBACK_HOST = '127.0.0.1'
 const HASH_HEX_PATTERN = new RegExp(`^[a-f0-9]{${MCP_HASH_HEX_LENGTH}}$`, 'i')
-const { maxAssetSizeBytes } = getMcpServerConfig()
+const ASSET_REQUEST_TIMEOUT_MS = 15_000
+const ASSET_HEADERS_TIMEOUT_MS = 5_000
+const ASSET_KEEP_ALIVE_TIMEOUT_MS = 5_000
+const ASSET_MAX_HEADERS = 32
+const ASSET_MAX_CONNECTIONS = 128
+const ASSET_MAX_CONCURRENT_DOWNLOADS = 128
+
+export interface AssetHttpServerOptions {
+  accessToken?: string
+  maxAssetSizeBytes?: number
+  maxAssetStoreBytes?: number
+  maxConcurrentUploads?: number
+  authorizeExtensionOrigin?: (origin: string) => boolean
+}
 
 export interface AssetHttpServer {
   start(): Promise<void>
@@ -33,9 +52,26 @@ export interface AssetHttpServer {
   getBaseUrl(): string
 }
 
-export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
+export function createAssetHttpServer(
+  store: AssetStore,
+  options: AssetHttpServerOptions = {}
+): AssetHttpServer {
+  const config = getMcpServerConfig()
+  const accessToken = options.accessToken ?? createCapabilityToken()
+  const maxAssetSizeBytes = options.maxAssetSizeBytes ?? config.maxAssetSizeBytes
+  const maxAssetStoreBytes = options.maxAssetStoreBytes ?? config.maxAssetStoreBytes
+  const maxConcurrentUploads = options.maxConcurrentUploads ?? config.maxConcurrentAssetUploads
+  const originPolicy = createExtensionOriginPolicy(config.allowedExtensionOrigins)
   const server = createServer(handleRequest)
+  server.requestTimeout = ASSET_REQUEST_TIMEOUT_MS
+  server.headersTimeout = ASSET_HEADERS_TIMEOUT_MS
+  server.keepAliveTimeout = ASSET_KEEP_ALIVE_TIMEOUT_MS
+  server.maxHeadersCount = ASSET_MAX_HEADERS
+  server.maxConnections = ASSET_MAX_CONNECTIONS
   let port: number | null = null
+  let activeDownloads = 0
+  let activeUploads = 0
+  let reservedUploadBytes = 0
 
   async function start(): Promise<void> {
     if (port !== null) return
@@ -69,7 +105,7 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
 
   function getBaseUrl(): string {
     if (port === null) throw new Error('Asset HTTP server is not running.')
-    return `http://${LOOPBACK_HOST}:${port}`
+    return `http://${LOOPBACK_HOST}:${port}/${accessToken}`
   }
 
   function handleRequest(req: IncomingMessage, res: ServerResponse): void {
@@ -78,26 +114,13 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       log.info(
         {
           method: req.method,
-          url: req.url,
+          route: redactAssetRequestUrl(req.url),
           status: res.statusCode,
           durationMs: Date.now() - startedAt
         },
         'HTTP asset request completed.'
       )
     })
-
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    res.setHeader(
-      'Access-Control-Allow-Headers',
-      'Content-Type, X-Asset-Width, X-Asset-Height, X-Asset-Themeable'
-    )
-
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204)
-      res.end()
-      return
-    }
 
     if (!req.url) {
       sendError(res, 400, 'Missing URL')
@@ -106,12 +129,42 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
 
     const url = new URL(req.url, getBaseUrl())
     const segments = url.pathname.split('/').filter(Boolean)
-    if (segments.length !== 2 || segments[0] !== 'assets') {
+    if (
+      segments.length !== 3 ||
+      !secretsEqual(segments[0] ?? '', accessToken) ||
+      segments[1] !== 'assets'
+    ) {
       sendError(res, 404, 'Not Found')
       return
     }
 
-    const filename = segments[1]
+    const origin = getHeader(req, 'origin')
+    if (
+      origin &&
+      (!isAllowedExtensionOrigin(origin, originPolicy) ||
+        (options.authorizeExtensionOrigin && !options.authorizeExtensionOrigin(origin)))
+    ) {
+      sendError(res, 403, 'Forbidden')
+      return
+    }
+
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin)
+      res.setHeader('Vary', 'Origin')
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, X-Asset-Width, X-Asset-Height, X-Asset-Themeable'
+      )
+    }
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
+
+    const filename = segments[2]
     const hash = getHashFromAssetFilename(filename)
     if (!hash) {
       sendError(res, 404, 'Not Found')
@@ -153,10 +206,31 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       return
     }
 
+    if (activeDownloads >= ASSET_MAX_CONCURRENT_DOWNLOADS) {
+      res.setHeader('Connection', 'close')
+      sendError(res, 429, 'Too Many Concurrent Downloads')
+      return
+    }
+
+    activeDownloads += 1
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      activeDownloads -= 1
+    }
+    res.once('finish', release)
+    res.once('close', release)
+    res.setTimeout(ASSET_REQUEST_TIMEOUT_MS, () => res.destroy())
+
     res.writeHead(200, {
       'Content-Type': record.mimeType,
       'Content-Length': stat.size.toString(),
-      'Cache-Control': 'public, max-age=31536000, immutable'
+      'Cache-Control': 'private, max-age=31536000, immutable',
+      'Content-Disposition': `attachment; filename="${buildAssetFilename(hash, record.mimeType)}"`,
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff'
     })
 
     const stream = createReadStream(record.filePath)
@@ -181,18 +255,25 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
       return
     }
 
-    const contentTypeHeader = req.headers['content-type']
-    const mimeType = normalizeMimeType(
-      Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader
-    )
+    const declaredSize = parseContentLength(req)
+    if (declaredSize === 'invalid') {
+      req.resume()
+      sendError(res, 400, 'Invalid Content-Length')
+      return
+    }
+    if (declaredSize !== null && declaredSize > maxAssetSizeBytes) {
+      req.resume()
+      sendError(res, 413, 'Payload Too Large')
+      return
+    }
+
+    const mimeType = normalizeMimeType(getHeader(req, 'content-type'))
     const filename = buildAssetFilename(hash, mimeType)
     const filePath = join(ASSET_DIR, filename)
 
-    const width = parseInt(req.headers['x-asset-width'] as string, 10)
-    const height = parseInt(req.headers['x-asset-height'] as string, 10)
-    const themeableHeader = req.headers['x-asset-themeable']
-    const themeable =
-      (Array.isArray(themeableHeader) ? themeableHeader[0] : themeableHeader) === 'true'
+    const width = parseInt(getHeader(req, 'x-asset-width') ?? '', 10)
+    const height = parseInt(getHeader(req, 'x-asset-height') ?? '', 10)
+    const themeable = getHeader(req, 'x-asset-themeable') === 'true'
     const metadata: NonNullable<AssetRecord['metadata']> = {}
     if (Number.isFinite(width) && width > 0) metadata.width = width
     if (Number.isFinite(height) && height > 0) metadata.height = height
@@ -229,15 +310,34 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
         if (existing.mimeType !== mimeType) existing.mimeType = mimeType
         existing.lastAccess = Date.now()
         store.upsert(existing)
-        sendOk(res, 200, 'Asset Already Exists')
+        sendJson(res, 200, { message: 'Asset Already Exists' })
         return
       }
+    }
+
+    if (activeUploads >= maxConcurrentUploads) {
+      req.resume()
+      res.setHeader('Connection', 'close')
+      sendError(res, 429, 'Too Many Concurrent Uploads')
+      return
+    }
+
+    const reservationBytes = declaredSize ?? maxAssetSizeBytes
+    if (
+      getStoredAssetBytes(store, hash) + reservedUploadBytes + reservationBytes >
+      maxAssetStoreBytes
+    ) {
+      req.resume()
+      sendError(res, 507, 'Asset Store Quota Exceeded')
+      return
     }
 
     const tmpPath = `${filePath}.tmp.${nanoid()}`
     const writeStream = createWriteStream(tmpPath)
     const hasher = createHash('sha256')
     let size = 0
+    activeUploads += 1
+    reservedUploadBytes += reservationBytes
 
     const cleanup = () => {
       if (existsSync(tmpPath)) {
@@ -262,6 +362,8 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
     })
 
     pipeline(req, monitor, writeStream, (err) => {
+      activeUploads -= 1
+      reservedUploadBytes -= reservationBytes
       if (err) {
         cleanup()
         if (err.message === 'PayloadTooLarge') {
@@ -285,6 +387,12 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
         return
       }
 
+      if (getStoredAssetBytes(store, hash) + reservedUploadBytes + size > maxAssetStoreBytes) {
+        cleanup()
+        sendError(res, 507, 'Asset Store Quota Exceeded')
+        return
+      }
+
       try {
         renameSync(tmpPath, filePath)
       } catch (error) {
@@ -302,8 +410,22 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
         metadata: assetMetadata
       })
       log.info({ hash, size }, 'Stored uploaded asset via HTTP.')
-      sendOk(res, 201, 'Created', { hash, size })
+      sendJson(res, 201, { message: 'Created', hash, size })
     })
+  }
+
+  function redactAssetRequestUrl(requestUrl: string | undefined): string | undefined {
+    if (!requestUrl) return requestUrl
+    try {
+      const url = new URL(requestUrl, `http://${LOOPBACK_HOST}`)
+      const segments = url.pathname.split('/').filter(Boolean)
+      if (segments.length >= 1 && secretsEqual(segments[0] ?? '', accessToken)) {
+        segments[0] = '<capability>'
+      }
+      return `/${segments.join('/')}`
+    } catch {
+      return '<invalid>'
+    }
   }
 
   function sendError(
@@ -312,32 +434,14 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
     message: string,
     details?: Record<string, unknown>
   ): void {
-    if (!res.headersSent) {
-      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
-    }
-    res.end(
-      JSON.stringify({
-        error: message,
-        ...details
-      })
-    )
+    sendJson(res, status, { error: message, ...details })
   }
 
-  function sendOk(
-    res: ServerResponse,
-    status: number,
-    message: string,
-    data?: Record<string, unknown>
-  ): void {
+  function sendJson(res: ServerResponse, status: number, payload: Record<string, unknown>): void {
     if (!res.headersSent) {
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
     }
-    res.end(
-      JSON.stringify({
-        message,
-        ...data
-      })
-    )
+    res.end(JSON.stringify(payload))
   }
 
   return {
@@ -345,4 +449,24 @@ export function createAssetHttpServer(store: AssetStore): AssetHttpServer {
     stop,
     getBaseUrl
   }
+}
+
+function getHeader(req: IncomingMessage, name: string): string | undefined {
+  const value = req.headers[name]
+  return Array.isArray(value) ? value[0] : value
+}
+
+function parseContentLength(req: IncomingMessage): number | null | 'invalid' {
+  const value = getHeader(req, 'content-length')
+  if (value === undefined) return null
+  if (!/^\d+$/.test(value)) return 'invalid'
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 'invalid'
+}
+
+function getStoredAssetBytes(store: AssetStore, excludeHash?: string): number {
+  return store.list().reduce((total, record) => {
+    if (record.hash === excludeHash) return total
+    return Number.isFinite(record.size) && record.size > 0 ? total + record.size : total
+  }, 0)
 }

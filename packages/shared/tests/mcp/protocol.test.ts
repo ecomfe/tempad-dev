@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseMessageFromExtension, parseMessageToExtension } from '../../src/mcp/protocol'
+import {
+  ToolResultMessageSchema,
+  parseMessageFromExtension,
+  parseMessageToExtension
+} from '../../src/mcp/protocol'
 
 describe('mcp/protocol', () => {
   it('parses valid messages to extension', () => {
@@ -79,6 +83,34 @@ describe('mcp/protocol', () => {
       )
     ).toBeNull()
     expect(parseMessageFromExtension(JSON.stringify({ type: 'toolResult' }))).toBeNull()
+    expect(
+      parseMessageFromExtension(
+        JSON.stringify({ type: 'toolResult', id: 'call-1', error: 'plain string' })
+      )
+    ).toBeNull()
+    expect(
+      parseMessageFromExtension(
+        JSON.stringify({ type: 'toolResult', id: 'call-1', error: null, payload: {} })
+      )
+    ).toBeNull()
+    const invalidResults = [
+      { payload: undefined },
+      { error: undefined },
+      {},
+      {
+        error: { message: 'failed' },
+        payload: {}
+      }
+    ]
+    for (const result of invalidResults) {
+      expect(
+        ToolResultMessageSchema.safeParse({
+          ...result,
+          type: 'toolResult',
+          id: 'call-1'
+        }).success
+      ).toBe(false)
+    }
     expect(parseMessageFromExtension(JSON.stringify({ type: 'unknown' }))).toBeNull()
   })
 })

@@ -1,4 +1,5 @@
 interface Window {
+  readonly __TEMPAD_PLUGIN_SANDBOX_URL__?: string
   DebuggingHelpers: {
     logSelected?: () => string
     logNode?: (id: string) => string

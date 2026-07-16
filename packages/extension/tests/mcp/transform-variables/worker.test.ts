@@ -2,13 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   evaluate: vi.fn(),
+  assertPluginModuleIsSelfContained: vi.fn(),
   postMessage: vi.fn(),
   lockdownWorker: vi.fn(),
   loggerError: vi.fn()
 }))
 
 vi.mock('@/utils/module', () => ({
-  evaluate: mocks.evaluate
+  evaluate: mocks.evaluate,
+  assertPluginModuleIsSelfContained: mocks.assertPluginModuleIsSelfContained
 }))
 
 vi.mock('@/worker/lockdown', () => ({
@@ -110,7 +112,27 @@ describe('mcp/transform-variables/worker', () => {
     })
   })
 
-  it('caches plugin transform function by plugin code', async () => {
+  it('rejects plugin module loading before evaluation', async () => {
+    const error = new Error('External module loading is not allowed in plugins.')
+    mocks.assertPluginModuleIsSelfContained.mockImplementationOnce(() => {
+      throw error
+    })
+    await importWorker()
+
+    await dispatch({
+      id: 12,
+      payload: {
+        pluginCode: 'void import("https://example.com/plugin.js")',
+        references: [{ code: 'x', name: 'token-x' }],
+        options
+      }
+    })
+
+    expect(mocks.evaluate).not.toHaveBeenCalled()
+    expect(mocks.postMessage).toHaveBeenCalledWith({ id: 12, error })
+  })
+
+  it('evaluates each request independently', async () => {
     const transformVariable = vi.fn(({ name }: { name: string }) => `mapped(${name})`)
     mocks.evaluate.mockResolvedValue({
       default: {
@@ -141,7 +163,7 @@ describe('mcp/transform-variables/worker', () => {
       }
     })
 
-    expect(mocks.evaluate).toHaveBeenCalledTimes(1)
+    expect(mocks.evaluate).toHaveBeenCalledTimes(2)
     expect(transformVariable).toHaveBeenCalledTimes(2)
     expect(mocks.postMessage).toHaveBeenNthCalledWith(1, {
       id: 3,
@@ -184,7 +206,7 @@ describe('mcp/transform-variables/worker', () => {
     })
   })
 
-  it('resets cached transform when plugin code is removed', async () => {
+  it('does not retain a transform when plugin code is removed', async () => {
     const transformVariable = vi.fn(({ name }: { name: string }) => `mapped(${name})`)
     mocks.evaluate.mockResolvedValue({
       default: {

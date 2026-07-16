@@ -162,9 +162,16 @@ https://raw.githubusercontent.com/{username}/{repo}/refs/heads/{branch}/{filenam
 ```
 
 > [!NOTE]
-> 插件 URL 必须支持跨域请求。GitHub 或 Gist 提供的 raw URL 通常是可用的。
+> 插件 URL 必须使用 HTTPS 并支持跨域请求；本地开发仍可使用 loopback HTTP URL。GitHub 或
+> Gist 提供的 raw URL 通常可用。插件入口文件上限为 512 KiB，且必须是自包含 ES Module；
+> 请在构建时打包依赖，不要在运行时加载。
 
-插件运行在 Web Worker 中，不会阻塞主线程，也无法访问 DOM，从而保证性能和安全性。插件上下文中只提供了有限的全局变量，具体可参考 [`packages/extension/codegen/safe.ts`](./packages/extension/codegen/safe.ts)。
+在扩展能力边界上，插件代码按不可信代码处理。每次调用都会在 opaque-origin Chrome
+sandboxed extension page 内启动一个全新的 Worker，并在完成或五秒超时后强制终止。
+沙箱不暴露扩展 API 或 DOM，阻断存储与已测试的网络通道，并对结构化输入输出做有界校验。
+插件仍会看到传给其 hook 的设计数据，也完全控制自己返回的代码；浏览器引擎漏洞、侧信道、
+蓄意内存压力以及不安全的生成内容不属于该边界。仍建议审查插件来源。准确保证与非目标见
+[威胁模型](./docs/security/local-mcp-threat-model.md)。
 
 #### 分享插件
 
@@ -195,7 +202,9 @@ https://raw.githubusercontent.com/{username}/{repo}/refs/heads/{branch}/{filenam
 TemPad Dev 内置了面向编码 agent 和 IDE 的 Agent 集成。该集成包含：
 
 - 一个 [MCP](https://modelcontextprotocol.io/) 服务器，使 agent 可以直接从你在 Figma 中选中的节点拉取代码和上下文
-- 一个 agent skill，用于指导 agent 将这些证据转换成仓库可用的 UI 代码
+- 一个 agent skill，用于指导 agent 在当前仓库中理解并使用这些证据
+
+Figma 也提供官方的 [remote 与 desktop MCP server](https://developers.figma.com/docs/figma-mcp-server/)，并建议大多数用户优先使用 remote server。TemPad Dev 的定位是一个开放、强调本地控制的补充方案，适合明确需要可审计的浏览器扩展链路、现有只读检查流程、可编程输出插件、规范化的 agent-facing 代码/token IR，以及显式上下文预算的团队。TemPad Dev 提供设计证据与代码起点；最终仍由 coding agent 结合目标仓库完成适配、验证和实现。
 
 打开 TemPad Dev 面板并启用 MCP 后，MCP 服务器会暴露以下能力：
 

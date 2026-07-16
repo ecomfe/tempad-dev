@@ -14,7 +14,9 @@ This document records the current context-control strategy for TemPad Dev MCP ou
    - Budget is computed on the final `CallToolResult` UTF-8 bytes (`64 KiB` default).
    - If over budget, prefer a shell response that preserves the current node wrapper and omits direct children.
    - Warnings stay lightweight (`type + message` only); shell continuation lives in the inline omitted-child comment, and depth-cap recovery relies on returned `data-hint-id` values.
-   - v1 shell fallback optimizes correctness first, not collection cost; it may still reuse full-tree context before returning the shell.
+   - A bounded descendant-text preflight enters a root-only shell path when UTF-8 text alone proves
+     the response cannot fit, avoiding descendant variables, plugins, collection, assets, and full
+     rendering. Other overflow causes still reuse full-tree context for correctness.
    - Only fail fast when a usable shell cannot be generated.
 2. `get_structure` keeps existing API but output is compacted by default.
    - Limit total nodes.

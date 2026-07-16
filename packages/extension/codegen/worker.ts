@@ -1,49 +1,57 @@
-import type { RequestPayload, ResponsePayload, CodeBlock } from '@/types/codegen'
+import type {
+  CodeBlock,
+  CodegenBatchRequestPayload,
+  CodegenBatchResponsePayload,
+  CodegenJobPayload,
+  RequestPayload,
+  ResponsePayload
+} from '@/types/codegen'
 import type { DevComponent, Plugin, TransformOptions } from '@/types/plugin'
 
 import { serializeComponent, stringifyComponent } from '@/utils/component'
 import { serializeCSS } from '@/utils/css'
 import { logger } from '@/utils/log'
-import { evaluate } from '@/utils/module'
+import { assertPluginModuleIsSelfContained, evaluate } from '@/utils/module'
 import { stringify } from '@/utils/string'
 import { lockdownWorker } from '@/worker/lockdown'
 
-import type { RequestMessage, ResponseMessage } from './requester'
+import type { WorkerRequest, WorkerResponse } from './protocol'
 
-type Request = RequestMessage<RequestPayload>
-type Response = ResponseMessage<ResponsePayload>
+type Request = WorkerRequest<RequestPayload | CodegenBatchRequestPayload>
+type Response = WorkerResponse<ResponsePayload | CodegenBatchResponsePayload>
 type WorkerSerializeOptions = Parameters<typeof serializeCSS>[1]
-
-const IMPORT_RE = /^\s*import\s+(([^'"\n]+|'[^']*'|"[^"]*")|\s*\(\s*[^)]*\s*\))/gm
 
 const postMessage = globalThis.postMessage
 
 globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
   const { id, payload } = data
+  try {
+    const plugin = await loadPlugin(payload.pluginCode)
+    const result = isBatchRequest(payload)
+      ? { results: payload.jobs.map((job) => generateCodegenPayload(job, plugin)) }
+      : generateCodegenPayload(payload, plugin)
+    postSafe({ id, payload: result })
+  } catch (error) {
+    logger.error(error)
+    postMessage({ id, error } satisfies Response)
+  }
+}
+
+async function loadPlugin(pluginCode: string | undefined): Promise<Plugin | null> {
+  if (!pluginCode) return null
+  assertPluginModuleIsSelfContained(pluginCode)
+  const exports = await evaluate(pluginCode)
+  return ((exports.default || exports.plugin) as Plugin | undefined) ?? null
+}
+
+function generateCodegenPayload(
+  payload: CodegenJobPayload,
+  plugin: Plugin | null
+): ResponsePayload {
   const codeBlocks: CodeBlock[] = []
 
-  const { style, pluginVariableStyle, variableSyntax, component, options, pluginCode } = payload
-  let plugin = null
+  const { style, pluginVariableStyle, variableSyntax, component, options } = payload
   let devComponent: DevComponent | null = null
-
-  try {
-    if (pluginCode) {
-      if (IMPORT_RE.test(pluginCode)) {
-        throw new Error('`import` is not allowed in plugins.')
-      }
-
-      const exports = await evaluate(pluginCode)
-      plugin = (exports.default || exports.plugin) as Plugin
-    }
-  } catch (e) {
-    logger.error(e)
-    const message: Response = {
-      id,
-      error: e
-    }
-    postMessage(message)
-    return
-  }
 
   const {
     component: componentOptions,
@@ -87,8 +95,8 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
     if (componentCode) {
       codeBlocks.push({
         name: 'component',
-        title: componentOptions?.title ?? 'Component',
-        lang: componentOptions?.lang ?? 'jsx',
+        title: componentOptions.title ?? 'Component',
+        lang: componentOptions.lang ?? 'jsx',
         code: componentCode
       })
     }
@@ -140,23 +148,27 @@ globalThis.onmessage = async ({ data }: MessageEvent<Request>) => {
       .filter((item): item is CodeBlock => item != null)
   )
 
-  const message: Response = {
-    id,
-    payload: {
-      codeBlocks,
-      pluginName: plugin?.name,
-      ...(payload.returnDevComponent && devComponent ? { devComponent } : {})
-    }
+  return {
+    codeBlocks,
+    pluginName: plugin?.name,
+    ...(payload.returnDevComponent && devComponent ? { devComponent } : {})
   }
+}
 
-  const safe = JSON.parse(
+function postSafe(message: Response): void {
+  const safe: Response = JSON.parse(
     JSON.stringify(message, (_, v) => {
       if (typeof v === 'function') return stringify(v)
       return v
     })
   )
-
   postMessage(safe)
+}
+
+function isBatchRequest(
+  payload: RequestPayload | CodegenBatchRequestPayload
+): payload is CodegenBatchRequestPayload {
+  return 'jobs' in payload && Array.isArray(payload.jobs)
 }
 
 // Only expose the necessary APIs to plugins

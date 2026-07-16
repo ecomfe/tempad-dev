@@ -163,9 +163,19 @@ https://raw.githubusercontent.com/{username}/{repo}/refs/heads/{branch}/{filenam
 ```
 
 > [!NOTE]
-> Plugin URLs must support cross-origin requests. Raw URLs provided by GitHub or Gist are generally suitable.
+> Plugin URLs must use HTTPS and support cross-origin requests. Loopback HTTP URLs remain available
+> for local development. Raw URLs provided by GitHub or Gist are generally suitable. Plugin entry
+> files are limited to 512 KiB and must be self-contained ES modules; bundle dependencies instead of
+> loading them at runtime.
 
-Plugins run in a Web Worker, so they do not impact the main thread or access the DOM, safeguarding performance and security. Only a limited set of globals is available in the plugin context. See [`packages/extension/codegen/safe.ts`](./packages/extension/codegen/safe.ts) for details.
+Plugin code is treated as untrusted at the extension capability boundary. Each call runs in a fresh,
+forcibly terminated Worker inside an opaque-origin Chrome sandbox page with a restrictive CSP. The
+sandbox has no extension APIs or DOM access, blocks storage and tested network channels, validates
+bounded structured input/output, and times out after five seconds. A plugin still receives the design
+data passed to its hooks and fully controls the code it returns; browser-engine vulnerabilities,
+side channels, deliberate memory pressure, and unsafe generated output are outside this boundary.
+Review plugin sources accordingly. See [the threat model](./docs/security/local-mcp-threat-model.md)
+for the exact guarantees and non-goals.
 
 #### Sharing a plugin
 
@@ -196,7 +206,9 @@ Current available plugins:
 TemPad Dev ships an agent integration for coding agents and IDEs. The integration combines:
 
 - an [MCP](https://modelcontextprotocol.io/) server that lets agents pull code and context directly from the node you have selected in Figma
-- an agent skill that teaches the agent how to turn that evidence into repo-ready UI code
+- an agent skill that teaches the agent how to interpret that evidence in the current repository
+
+Figma also provides official [remote and desktop MCP servers](https://developers.figma.com/docs/figma-mcp-server/), with the remote server recommended for most users. TemPad Dev is an open, local-control complement for teams that specifically want an inspectable browser-extension pipeline, the existing read-only inspection workflow, programmable output plugins, canonical agent-facing code/token IR, and an explicit context budget. It provides design evidence and a code starting point; the coding agent remains responsible for adapting that evidence to the repository, validating behavior, and producing the final implementation.
 
 With the TemPad Dev panel open and MCP enabled, the MCP server exposes:
 

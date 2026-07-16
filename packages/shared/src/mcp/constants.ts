@@ -13,6 +13,12 @@ export const MCP_AUTO_ACTIVATE_GRACE_MS = 1500
 
 // Maximum allowed size for uploaded assets (bytes).
 export const MCP_MAX_ASSET_BYTES = 8 * 1024 * 1024
+// Maximum aggregate size of the local asset store (bytes).
+export const MCP_MAX_ASSET_STORE_BYTES = 256 * 1024 * 1024
+// Maximum number of asset request bodies accepted concurrently.
+export const MCP_MAX_CONCURRENT_ASSET_UPLOADS = 4
+// Maximum simultaneous browser extension connections to one local Hub.
+export const MCP_MAX_EXTENSION_CONNECTIONS = 16
 // Default asset TTL before cleanup (ms). Set to 0 to disable.
 export const MCP_ASSET_TTL_MS = 30 * 24 * 60 * 60 * 1000
 

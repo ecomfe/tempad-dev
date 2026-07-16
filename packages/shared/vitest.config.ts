@@ -13,6 +13,7 @@ export default defineConfig({
         'src/mcp/index.ts',
         'src/mcp/browser-gateway.ts',
         'src/mcp/protocol.ts',
+        'src/mcp/tool-result.ts',
         'src/mcp/tools.ts',
         'src/mcp/constants.ts',
         'src/mcp/errors.ts'

@@ -123,6 +123,39 @@ afterEach(() => {
 })
 
 describe('mcp/broker/service-worker', () => {
+  it('wires runtime ports while ignoring unrelated ports, invalid senders, and malformed traffic', () => {
+    let connectListener: ((port: McpBrokerPort) => void) | undefined
+    vi.stubGlobal('browser', {
+      permissions: { contains: vi.fn(), request: vi.fn() },
+      runtime: {
+        onConnect: {
+          addListener: vi.fn((listener: typeof connectListener) => {
+            connectListener = listener
+          })
+        },
+        onMessage: { addListener: vi.fn() }
+      }
+    })
+    const hubClient = createHubClient()
+    const broker = new McpServiceWorkerBroker(hubClient)
+    broker.start()
+
+    const unrelated = createPort('https://www.figma.com/design/abc/File')
+    Object.assign(unrelated.port, { name: 'other-port' })
+    connectListener?.(unrelated.port)
+    expect(unrelated.port.onMessage.addListener).not.toHaveBeenCalled()
+
+    const malformedSender = createPort('not a URL')
+    connectListener?.(malformedSender.port)
+    expect(malformedSender.port.disconnect).toHaveBeenCalledTimes(1)
+
+    const valid = createPort('https://www.figma.com/design/abc/File')
+    connectListener?.(valid.port)
+    valid.message({ type: 'not-tempad' })
+    expect(valid.port.onMessage.addListener).toHaveBeenCalledTimes(1)
+    expect(hubClient.start).not.toHaveBeenCalled()
+  })
+
   it('rejects session ports without a Figma sender URL', () => {
     const broker = new McpServiceWorkerBroker(createHubClient())
     const { port } = createPort()
@@ -168,11 +201,43 @@ describe('mcp/broker/service-worker', () => {
     session.message(toolResult('call-1'))
 
     expect(hubClient.sendToolResult).toHaveBeenCalledWith({
-      error: undefined,
       id: 'call-1',
       payload: { ok: true },
       type: 'toolResult'
     })
+
+    routeToolCall(broker)
+    const { payload: _payload, ...failedResult } = toolResult('call-1')
+    session.message({ ...failedResult, error: { message: 'failed' } })
+    expect(hubClient.sendToolResult).toHaveBeenLastCalledWith({
+      error: { message: 'failed' },
+      id: 'call-1',
+      type: 'toolResult'
+    })
+  })
+
+  it('rejects pending work when one port replaces and then disables its session', () => {
+    const hubClient = createHubClient()
+    const broker = new McpServiceWorkerBroker(hubClient)
+    const session = createPort('https://www.figma.com/design/abc/File')
+
+    broker.handlePort(session.port)
+    session.message(pageMessage('mcp.enable', 'session-a'))
+    session.message(pageMessage('mcp.activateSession', 'session-a'))
+    routeToolCall(broker)
+    session.message(pageMessage('mcp.enable', 'session-b'))
+
+    expect(hubClient.sendToolResult).toHaveBeenCalledWith({
+      error: {
+        code: TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED,
+        message: 'Figma session was replaced before providing a result.'
+      },
+      id: 'call-1',
+      type: 'toolResult'
+    })
+
+    session.message(pageMessage('mcp.disable', 'session-b'))
+    expect(hubClient.stop).toHaveBeenCalledTimes(1)
   })
 
   it('activates the hub only for an explicit session activation request', () => {
@@ -276,6 +341,40 @@ describe('mcp/broker/service-worker', () => {
     )
   })
 
+  it('contains active-session delivery failure without stopping another live session', () => {
+    const hubClient = createHubClient()
+    const broker = new McpServiceWorkerBroker(hubClient)
+    const failing = createPort('https://www.figma.com/design/abc/File')
+    const survivor = createPort('https://www.figma.com/design/def/File')
+
+    broker.handlePort(failing.port)
+    failing.message(pageMessage('mcp.enable', 'session-a'))
+    broker.handlePort(survivor.port)
+    survivor.message(pageMessage('mcp.enable', 'session-b'))
+    failing.message(pageMessage('mcp.activateSession', 'session-a'))
+    failing.postMessage.mockImplementation(() => {
+      throw new Error('port closed')
+    })
+
+    routeToolCall(broker)
+
+    expect(hubClient.sendToolResult).toHaveBeenCalledWith({
+      error: {
+        code: TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED,
+        message: 'Figma session disconnected before receiving a tool call.'
+      },
+      id: 'call-1',
+      type: 'toolResult'
+    })
+    expect(hubClient.stop).not.toHaveBeenCalled()
+    expect(survivor.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ sessionCount: 1 }),
+        type: 'mcp.state'
+      })
+    )
+  })
+
   it('uploads assets through the hub asset server for the owning session', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 201, statusText: 'Created' })
     vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch)
@@ -335,6 +434,39 @@ describe('mcp/broker/service-worker', () => {
     )
   })
 
+  it('reports non-successful asset uploads and cleans up failed result delivery', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 507, statusText: 'Quota' })
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch)
+    const hubClient = createHubClient({ assetServerUrl: 'http://127.0.0.1:9000' })
+    const broker = new McpServiceWorkerBroker(hubClient)
+    const session = createPort('https://www.figma.com/design/abc/File')
+
+    broker.handlePort(session.port)
+    session.message(pageMessage('mcp.enable'))
+    session.postMessage.mockClear()
+    session.message(assetUpload())
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(session.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        error: { message: 'Upload failed with status 507 Quota' },
+        requestId: 'upload-1',
+        type: 'mcp.assetUploadResult'
+      })
+    )
+
+    session.postMessage.mockImplementation(() => {
+      throw new Error('port closed')
+    })
+    session.message({ ...assetUpload(), requestId: 'upload-2' })
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(hubClient.stop).toHaveBeenCalledTimes(1)
+  })
+
   it('returns a coded error when no active session can receive a tool call', () => {
     const hubClient = createHubClient()
     const broker = new McpServiceWorkerBroker(hubClient)
@@ -352,7 +484,11 @@ describe('mcp/broker/service-worker', () => {
   })
 
   it('checks local host permissions without prompting', async () => {
-    const contains = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    const contains = vi
+      .fn()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new Error('permissions unavailable'))
     const request = vi.fn().mockResolvedValue(true)
     vi.stubGlobal('browser', {
       permissions: {
@@ -368,9 +504,12 @@ describe('mcp/broker/service-worker', () => {
     await expect(broker.handlePermissionMessage('mcp.permissions.contains')).resolves.toEqual({
       granted: false
     })
+    await expect(broker.handlePermissionMessage('mcp.permissions.contains')).resolves.toEqual({
+      granted: false
+    })
 
     expect(contains).toHaveBeenCalledWith({ origins: [MCP_LOCAL_HOST_ORIGIN] })
-    expect(contains).toHaveBeenCalledTimes(2)
+    expect(contains).toHaveBeenCalledTimes(3)
     expect(request).not.toHaveBeenCalled()
   })
 

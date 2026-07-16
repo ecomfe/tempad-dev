@@ -24,6 +24,7 @@ import { currentCodegenConfig } from '../config'
 import { buildVariableMappings } from '../token/mapping'
 import { exportVectorAssets } from './assets/export'
 import { planAssets } from './assets/plan'
+import { preflightGetCodeBudget } from './budget-preflight'
 import { createGetCodeCacheContext } from './cache'
 import { collectNodeData } from './collect'
 import {
@@ -34,7 +35,7 @@ import {
   resolveUnlimitedCodeBudget
 } from './messages'
 import { getOrderedChildIds, renderShellTree, renderTree } from './render'
-import { resolvePluginComponent } from './render/plugin'
+import { resolvePluginComponents } from './render/plugin'
 import { buildLayoutStyles, prepareStyles } from './styles'
 import { createStyleVarResolver, processTokens, resolveStyleMap } from './tokens'
 import { buildVisibleTree } from './tree'
@@ -159,26 +160,44 @@ export async function handleGetCode(
 
   const config = currentCodegenConfig()
   const pluginCode = activePlugin.value?.code
+  const codeBudget = runtimeOptions.unbounded ? resolveUnlimitedCodeBudget() : resolveCodeBudget()
+  const budgetPreflight = preflightGetCodeBudget(tree, rootId, {
+    maxResultBytes: codeBudget.maxResultBytes,
+    pluginEnabled: !!pluginCode,
+    unbounded: !!runtimeOptions.unbounded
+  })
+  const earlyShell = budgetPreflight.kind === 'shell'
 
   t = now()
   const variableCache = new Map<string, Variable | null>()
   const cache = createGetCodeCacheContext(variableCache, { metrics: true })
-  const mappings = buildVariableMappings(nodes, variableCache, cache.readers)
+  const mappings = buildVariableMappings(nodes, variableCache, cache.readers, {
+    traverseChildren: !earlyShell
+  })
   stamp('vars', t)
 
-  const { pluginComponents, pluginSkipped } = pluginCode
-    ? await collectPluginOutput(tree, config, pluginCode, preferredLang)
-    : { pluginComponents: undefined, pluginSkipped: new Set<string>() }
+  const { pluginComponents, pluginSkipped } =
+    pluginCode && !earlyShell
+      ? await collectPluginOutput(tree, config, pluginCode, preferredLang)
+      : { pluginComponents: undefined, pluginSkipped: new Set<string>() }
 
   t = now()
-  const plan = planAssets(tree, pluginSkipped, cache)
+  const plan = earlyShell
+    ? { vectorRoots: new Set<string>(), skippedIds: new Set<string>() }
+    : planAssets(tree, pluginSkipped, cache)
   stamp('plan-assets', t)
 
   const assetRegistry = new Map<string, AssetDescriptor>()
-  const skipIds = buildSkipIds(plan.skippedIds, pluginSkipped)
+  const skipIds = earlyShell
+    ? new Set(tree.order.filter((id) => id !== rootId))
+    : buildSkipIds(plan.skippedIds, pluginSkipped)
   t = now()
   const collected = await collectNodeData(tree, config, assetRegistry, cache, skipIds)
   stamp('collect', t)
+
+  if (earlyShell) {
+    ensureEarlyShellRootPositioning(rootId, tree, collected.styles)
+  }
 
   const { usedCandidateIds, layout: layoutStyles } = prepareStyles({
     tree,
@@ -191,7 +210,9 @@ export async function handleGetCode(
   })
 
   t = now()
-  const svgs = await exportVectorAssets(tree, plan, config, assetRegistry, vectorMode, cache)
+  const svgs = earlyShell
+    ? new Map<string, SvgEntry>()
+    : await exportVectorAssets(tree, plan, config, assetRegistry, vectorMode, cache)
   stamp('export-assets', t)
 
   const nodeMap = buildNodeMap(collected.nodes)
@@ -208,7 +229,6 @@ export async function handleGetCode(
   })
 
   const rootTag = collected.nodes.get(rootId)?.tag
-  const codeBudget = runtimeOptions.unbounded ? resolveUnlimitedCodeBudget() : resolveCodeBudget()
   const codegen = {
     plugin: activePlugin.value?.name ?? 'none',
     config
@@ -231,6 +251,32 @@ export async function handleGetCode(
     trace: traceInfo
   }
   const allAssets = Array.from(assetRegistry.values())
+
+  if (earlyShell) {
+    const shellMode = createShellMode(rootId, tree, ctx)
+    const shell = shellMode
+      ? await tryRenderShell({
+          ...baseInput,
+          mode: shellMode
+        })
+      : null
+    if (!shell) {
+      throw new Error('Unable to build an early shell for the oversized selection.')
+    }
+
+    const warnings = buildGetCodeWarnings(shell.code, {
+      cappedNodeIds: tree.stats.cappedNodeIds,
+      shell: true
+    })
+    const assets = filterAssetsReferencedInCode(allAssets, shell.code)
+    const result = buildCodeResult(shell, codegen, assets, warnings)
+    assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
+    logTrace(
+      trace,
+      `nodes=${tree.order.length} collected=1 assets=${assets.length} shell=early preflightNodes=${budgetPreflight.scannedDescendants}${formatCacheMetrics(cache)}`
+    )
+    return result
+  }
 
   try {
     const output = await renderPipeline({
@@ -290,6 +336,19 @@ export async function handleGetCode(
 
     return result
   }
+}
+
+function ensureEarlyShellRootPositioning(
+  rootId: string,
+  tree: VisibleTree,
+  styles: Map<string, Record<string, string>>
+): void {
+  const root = tree.nodes.get(rootId)
+  if (!root?.children.length) return
+  if (root.node.type === 'GROUP' || root.node.type === 'BOOLEAN_OPERATION') return
+  const style = styles.get(rootId)
+  if (!style || (style.position && style.position !== 'static')) return
+  styles.set(rootId, { ...style, position: 'relative' })
 }
 
 async function tryRenderShell(input: PipelineInput): Promise<PipelineOutput | null> {
@@ -506,13 +565,23 @@ async function collectPluginOutput(
   pluginSkipped: Set<string>
 }> {
   const pluginComponents = new Map<string, PluginComponent | null>()
+  const instances: Array<{ id: string; node: InstanceNode }> = []
   for (const id of tree.order) {
     const snapshot = tree.nodes.get(id)
-    if (!snapshot) continue
-    if (snapshot.node.type !== 'INSTANCE') continue
-    const component = await resolvePluginComponent(snapshot.node, config, pluginCode, preferredLang)
-    pluginComponents.set(id, component)
+    if (snapshot?.node.type === 'INSTANCE') {
+      instances.push({ id: snapshot.id, node: snapshot.node })
+    }
   }
+
+  const components = await resolvePluginComponents(
+    instances.map(({ node }) => node),
+    config,
+    pluginCode,
+    preferredLang
+  )
+  instances.forEach(({ id }, resultIndex) => {
+    pluginComponents.set(id, components[resultIndex] ?? null)
+  })
   const pluginSkipped = new Set<string>()
 
   if (pluginComponents.size) {

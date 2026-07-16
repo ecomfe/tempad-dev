@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { PluginData } from '@/composables'
 
-import { usePluginInstall } from '@/composables'
+import { isAllowedPluginSource, usePluginInstall } from '@/composables'
 
 import IconButton from './IconButton.vue'
 import Minus from './icons/Minus.vue'
@@ -27,8 +27,6 @@ watch(validity, async (message) => {
   input.value?.reportValidity()
 })
 
-const BUILT_IN_SOURCE_RE = /@[a-z\d_-]+/
-
 function validate() {
   const sourceInput = input.value
   if (!sourceInput) {
@@ -40,7 +38,7 @@ function validate() {
     return false
   }
 
-  if (!BUILT_IN_SOURCE_RE.test(source.value) && !URL.canParse(source.value)) {
+  if (!isAllowedPluginSource(source.value)) {
     validity.value = 'Please enter a valid source.'
     return false
   }

@@ -10,6 +10,8 @@ import { usePluginInstall, useToast } from '@/composables'
 const props = defineProps<{
   name: string
   source: string
+  integrity?: string
+  resolvedUrl?: string
   checked: boolean
 }>()
 
@@ -21,6 +23,16 @@ const emit = defineEmits<{
 
 const { validity, installing, install, cancel } = usePluginInstall()
 const { show } = useToast()
+
+const sourceDetails = computed(() =>
+  [
+    props.source,
+    props.resolvedUrl && props.resolvedUrl !== props.source ? props.resolvedUrl : null,
+    props.integrity ?? null
+  ]
+    .filter(Boolean)
+    .join('\n')
+)
 
 watch(validity, (message) => {
   if (message) {
@@ -65,8 +77,8 @@ function handleRemove() {
       </span>
       <span
         class="tp-plugin-item-name"
-        :data-tooltip="source || null"
-        :data-tooltip-type="source ? 'text' : null"
+        :data-tooltip="sourceDetails || null"
+        :data-tooltip-type="sourceDetails ? 'text' : null"
       >
         {{ name }}
       </span>

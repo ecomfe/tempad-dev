@@ -12,11 +12,19 @@ export default defineUnlistedScript(async () => {
     return
   }
 
-  const response = await fetch(dataset.entry)
+  const entry = new URL(dataset.entry)
+  if (entry.protocol !== 'chrome-extension:') {
+    console.error('Invalid UI script entry URL.')
+    return
+  }
+
+  const response = await fetch(entry)
   const content = await response.text()
   const script = document.createElement('script')
+  const sandboxUrl = new URL('/plugin-sandbox.html', entry).href
+  const bootstrap = `Object.defineProperty(globalThis, "__TEMPAD_PLUGIN_SANDBOX_URL__", { value: ${JSON.stringify(sandboxUrl)}, configurable: false, enumerable: false, writable: false });\n`
 
-  script.textContent = `${content}\n//# sourceURL=${location}\n`
+  script.textContent = `${bootstrap}${content}\n//# sourceURL=${location}\n`
   document.body.appendChild(script)
 
   script.onload = () => {

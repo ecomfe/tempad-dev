@@ -21,17 +21,27 @@ const installedPlugins = computed(() => Object.values(options.value.plugins || {
 function handleInstalled({
   source,
   code,
+  integrity,
+  resolvedUrl,
   pluginName
 }: {
   source: string
   code: string
+  integrity: string
+  resolvedUrl: string
   pluginName: string
 }) {
   if (!options.value.plugins) {
     options.value.plugins = {}
   }
 
-  options.value.plugins[source] = { name: pluginName, source, code }
+  options.value.plugins[source] = {
+    name: pluginName,
+    source,
+    code,
+    integrity,
+    resolvedUrl
+  }
 
   if (!options.value.activePluginSource) {
     options.value.activePluginSource = source
@@ -74,10 +84,12 @@ function handleRemove(source: string) {
         @cancel="isImporterShown = false"
       />
       <PluginItem
-        v-for="{ name, source } in installedPlugins"
+        v-for="{ integrity, name, resolvedUrl, source } in installedPlugins"
         :key="source"
         :checked="source === options.activePluginSource"
         :source="source"
+        :integrity="integrity"
+        :resolved-url="resolvedUrl"
         :name="name"
         @updated="handleInstalled"
         @change="handleActiveChange(source, $event)"

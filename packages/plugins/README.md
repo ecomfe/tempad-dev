@@ -36,6 +36,29 @@ export default definePlugin({
 Once the file is hosted somewhere accessible (e.g. GitHub raw URL), paste the URL into
 TemPad Dev's **Preferences → Plugins** panel to load it.
 
+The hosted entry must be a self-contained ES module no larger than 512 KiB. Use HTTPS in normal
+usage; loopback HTTP remains available for local development. Bundle runtime dependencies into the
+entry because static imports, dynamic imports, and re-exports are rejected before evaluation.
+
+### Runtime boundary
+
+Plugin code is evaluated as untrusted code in a fresh Worker inside TemPad Dev's opaque-origin Chrome
+sandbox page. The runtime has no DOM or extension APIs, blocks storage and tested network channels,
+accepts only bounded structured input/output, and terminates each call after five seconds. This means
+plugin hooks should be deterministic, synchronous or short-lived, and free of network or persistent
+storage assumptions.
+
+For MCP component generation, TemPad Dev may evaluate one plugin module against a batch of up to 32
+nodes, with at most four batches in flight. Mutable module state can therefore be observed by later
+jobs in the same batch, but it is discarded with that Worker and must not be used for correctness,
+cross-node coordination, or caching.
+
+The plugin receives the design data supplied to its hook and controls the generated code it returns.
+The sandbox does not make generated output safe to execute, nor does it claim to contain browser-engine
+vulnerabilities, side channels, or deliberate memory exhaustion. TemPad Dev stores the fetched source
+as a local snapshot with its SHA-256 digest and updates it only when the user explicitly requests an
+update.
+
 ## Plugin anatomy
 
 Each plugin exports an object with a `name` and a `code` map. The code map determines the blocks TemPad Dev will render. You may override the built-in `css` and `js` blocks or introduce your own:

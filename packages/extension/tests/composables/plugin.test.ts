@@ -13,20 +13,41 @@ vi.mock('@/plugins/available-plugins.json', () => ({
   default: [{ name: 'snapshot-plugin', url: 'https://snapshot/plugin.js' }]
 }))
 
-import { usePluginInstall } from '@/composables/plugin'
+import {
+  isAllowedPluginSource,
+  MAX_PLUGIN_SOURCE_BYTES,
+  usePluginInstall
+} from '@/composables/plugin'
 
 type MockResponse = {
+  body?: ReadableStream<Uint8Array> | null
+  headers?: { get: (name: string) => string | null }
   status?: number
+  statusText?: string
   text?: () => Promise<string>
-  json?: () => Promise<unknown>
+  url?: string
 }
+
+function response(input: MockResponse = {}): MockResponse {
+  return {
+    headers: { get: () => null },
+    status: 200,
+    statusText: '',
+    text: async () => '',
+    url: '',
+    ...input
+  }
+}
+
+let fetchMock: ReturnType<typeof vi.fn>
 
 describe('composables/plugin', () => {
   beforeEach(() => {
     vi.stubGlobal('figma', {
       notify: mocks.notify
     })
-    vi.stubGlobal('fetch', vi.fn())
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
     mocks.codegen.mockReset()
     mocks.notify.mockReset()
   })
@@ -37,11 +58,7 @@ describe('composables/plugin', () => {
   })
 
   it('installs from direct URL and shows install toast', async () => {
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
-    fetchMock.mockResolvedValueOnce({
-      status: 200,
-      text: async () => 'export default {}'
-    } satisfies MockResponse)
+    fetchMock.mockResolvedValueOnce(response({ text: async () => 'export default {}' }))
     mocks.codegen.mockResolvedValueOnce({ pluginName: 'DemoPlugin' })
 
     const plugin = usePluginInstall()
@@ -49,7 +66,9 @@ describe('composables/plugin', () => {
 
     expect(installed).toEqual({
       code: 'export default {}',
+      integrity: 'sha256:9aeb8d59b4d483ca6298e9a450fbf37dfd2b4c63990135ab1d040d76314087ec',
       pluginName: 'DemoPlugin',
+      resolvedUrl: 'https://cdn/plugin.js',
       source: 'https://cdn/plugin.js'
     })
     expect(plugin.validity.value).toBe('')
@@ -58,11 +77,7 @@ describe('composables/plugin', () => {
   })
 
   it('shows update toast when install is called in update mode', async () => {
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
-    fetchMock.mockResolvedValueOnce({
-      status: 200,
-      text: async () => 'export default {}'
-    } satisfies MockResponse)
+    fetchMock.mockResolvedValueOnce(response({ text: async () => 'export default {}' }))
     mocks.codegen.mockResolvedValueOnce({ pluginName: 'UpdatePlugin' })
 
     const plugin = usePluginInstall()
@@ -72,15 +87,14 @@ describe('composables/plugin', () => {
   })
 
   it('resolves registered source from remote registry', async () => {
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
     fetchMock
-      .mockResolvedValueOnce({
-        json: async () => [{ name: 'registered-plugin', url: 'https://registry/plugin.js' }]
-      } satisfies MockResponse)
-      .mockResolvedValueOnce({
-        status: 200,
-        text: async () => 'export default {}'
-      } satisfies MockResponse)
+      .mockResolvedValueOnce(
+        response({
+          text: async () =>
+            JSON.stringify([{ name: 'registered-plugin', url: 'https://registry/plugin.js' }])
+        })
+      )
+      .mockResolvedValueOnce(response({ text: async () => 'export default {}' }))
     mocks.codegen.mockResolvedValueOnce({ pluginName: 'RegisteredPlugin' })
 
     const plugin = usePluginInstall()
@@ -92,11 +106,9 @@ describe('composables/plugin', () => {
   })
 
   it('falls back to snapshot registry when remote registry fetch fails', async () => {
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
-    fetchMock.mockRejectedValueOnce(new Error('registry down')).mockResolvedValueOnce({
-      status: 200,
-      text: async () => 'export default {}'
-    } satisfies MockResponse)
+    fetchMock
+      .mockRejectedValueOnce(new Error('registry down'))
+      .mockResolvedValueOnce(response({ text: async () => 'export default {}' }))
     mocks.codegen.mockResolvedValueOnce({ pluginName: 'SnapshotPlugin' })
 
     const plugin = usePluginInstall()
@@ -107,10 +119,7 @@ describe('composables/plugin', () => {
   })
 
   it('reports unregistered plugin names as fetch failures', async () => {
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
-    fetchMock.mockResolvedValueOnce({
-      json: async () => []
-    } satisfies MockResponse)
+    fetchMock.mockResolvedValueOnce(response({ text: async () => '[]' }))
 
     const plugin = usePluginInstall()
     const installed = await plugin.install('@missing-plugin')
@@ -122,25 +131,22 @@ describe('composables/plugin', () => {
   })
 
   it('reports non-200 responses as fetch failures', async () => {
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
-    fetchMock.mockResolvedValueOnce({
-      status: 500,
-      text: async () => 'bad'
-    } satisfies MockResponse)
+    fetchMock.mockResolvedValueOnce(
+      response({
+        status: 500,
+        text: async () => 'bad'
+      })
+    )
 
     const plugin = usePluginInstall()
     const installed = await plugin.install('https://cdn/404.js')
 
     expect(installed).toBeNull()
-    expect(plugin.validity.value).toBe('Failed to fetch the script content: 404: Not Found')
+    expect(plugin.validity.value).toBe('Failed to fetch the script content: 500: Request failed')
   })
 
   it('handles empty plugin names from codegen result', async () => {
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
-    fetchMock.mockResolvedValueOnce({
-      status: 200,
-      text: async () => 'export default {}'
-    } satisfies MockResponse)
+    fetchMock.mockResolvedValueOnce(response({ text: async () => 'export default {}' }))
     mocks.codegen.mockResolvedValueOnce({ pluginName: '' })
 
     const plugin = usePluginInstall()
@@ -150,38 +156,21 @@ describe('composables/plugin', () => {
     expect(plugin.validity.value).toBe('The plugin name must not be empty.')
   })
 
-  it('handles codegen failures with unknown error payloads', async () => {
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
-    fetchMock.mockResolvedValueOnce({
-      status: 200,
-      text: async () => 'export default {}'
-    } satisfies MockResponse)
-    mocks.codegen.mockRejectedValueOnce('boom')
+  it.each([
+    ['unknown payloads', 'boom', 'Unknown error'],
+    ['Error instances', new Error('invalid plugin output'), 'invalid plugin output']
+  ])('reports codegen failures from %s', async (_case, error, message) => {
+    fetchMock.mockResolvedValueOnce(response({ text: async () => 'export default {}' }))
+    mocks.codegen.mockRejectedValueOnce(error)
 
     const plugin = usePluginInstall()
     const installed = await plugin.install('https://cdn/eval-error.js')
 
     expect(installed).toBeNull()
-    expect(plugin.validity.value).toBe('Failed to evaluate the code: Unknown error')
-  })
-
-  it('handles codegen failures with Error instances', async () => {
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
-    fetchMock.mockResolvedValueOnce({
-      status: 200,
-      text: async () => 'export default {}'
-    } satisfies MockResponse)
-    mocks.codegen.mockRejectedValueOnce(new Error('invalid plugin output'))
-
-    const plugin = usePluginInstall()
-    const installed = await plugin.install('https://cdn/eval-error-message.js')
-
-    expect(installed).toBeNull()
-    expect(plugin.validity.value).toBe('Failed to evaluate the code: invalid plugin output')
+    expect(plugin.validity.value).toBe(`Failed to evaluate the code: ${message}`)
   })
 
   it('handles non-Error fetch failures with network fallback message', async () => {
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
     fetchMock.mockRejectedValueOnce('offline')
 
     const plugin = usePluginInstall()
@@ -191,8 +180,7 @@ describe('composables/plugin', () => {
     expect(plugin.validity.value).toBe('Failed to fetch the script content: Network error')
   })
 
-  it('supports canceling a pending install and aborting stale controller on retry', async () => {
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
+  it('cancels a pending install without allowing its stale result to win', async () => {
     const abortSpy = vi.spyOn(AbortController.prototype, 'abort')
 
     let resolveFirstFetch: (value: MockResponse) => void = () => undefined
@@ -203,10 +191,7 @@ describe('composables/plugin', () => {
             resolveFirstFetch = (value) => resolve(value)
           })
       )
-      .mockResolvedValueOnce({
-        status: 200,
-        text: async () => 'export default {}'
-      } satisfies MockResponse)
+      .mockResolvedValueOnce(response({ text: async () => 'export default {}' }))
 
     mocks.codegen.mockResolvedValueOnce({ pluginName: 'RetriedPlugin' })
 
@@ -220,25 +205,24 @@ describe('composables/plugin', () => {
 
     const retried = await plugin.install('https://cdn/retry.js')
     expect(retried?.pluginName).toBe('RetriedPlugin')
-    expect(abortSpy).toHaveBeenCalledTimes(2)
+    expect(abortSpy).toHaveBeenCalledOnce()
 
-    resolveFirstFetch({
-      status: 500,
-      text: async () => ''
-    })
-    await first
+    resolveFirstFetch(
+      response({
+        status: 500,
+        text: async () => ''
+      })
+    )
+    expect(await first).toBeNull()
+    expect(plugin.validity.value).toBe('')
   })
 
   it('returns early when install is called while an install is already running', async () => {
-    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
-    let resolveFirstFetch!: (value: { status: number; text: () => Promise<string> }) => void
+    let resolveFirstFetch!: (value: MockResponse) => void
     fetchMock.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          resolveFirstFetch = resolve as (value: {
-            status: number
-            text: () => Promise<string>
-          }) => void
+          resolveFirstFetch = resolve as (value: MockResponse) => void
         })
     )
 
@@ -249,10 +233,119 @@ describe('composables/plugin', () => {
 
     expect(second).toBeNull()
 
-    resolveFirstFetch({
-      status: 500,
-      text: async () => ''
-    })
+    resolveFirstFetch(
+      response({
+        status: 500,
+        text: async () => ''
+      })
+    )
     await first
+  })
+
+  it('accepts registered, HTTPS, and loopback development sources only', () => {
+    expect(isAllowedPluginSource('@nuxt/pro')).toBe(true)
+    expect(isAllowedPluginSource('https://cdn.example/plugin.js')).toBe(true)
+    expect(isAllowedPluginSource('http://localhost:5173/plugin.js')).toBe(true)
+    expect(isAllowedPluginSource('http://127.0.0.1/plugin.js')).toBe(true)
+    expect(isAllowedPluginSource('http://[::1]/plugin.js')).toBe(true)
+
+    expect(isAllowedPluginSource('@nuxt/pro?next')).toBe(false)
+    expect(isAllowedPluginSource('http://cdn.example/plugin.js')).toBe(false)
+    expect(isAllowedPluginSource('javascript:alert(1)')).toBe(false)
+    expect(isAllowedPluginSource('https://user:secret@cdn.example/plugin.js')).toBe(false)
+  })
+
+  it('does not misclassify URLs containing @ as registered plugin names', async () => {
+    fetchMock.mockResolvedValueOnce(response({ text: async () => 'export default {}' }))
+    mocks.codegen.mockResolvedValueOnce({ pluginName: 'VersionedPlugin' })
+
+    const plugin = usePluginInstall()
+    await plugin.install('https://cdn.example/plugin@2.js')
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://cdn.example/plugin@2.js')
+  })
+
+  it('rejects insecure remote sources before fetching', async () => {
+    const plugin = usePluginInstall()
+
+    expect(await plugin.install('http://cdn.example/plugin.js')).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(plugin.validity.value).toContain('Plugin URLs must use HTTPS')
+  })
+
+  it('rejects HTTPS redirects to loopback while preserving explicit local development', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        response({
+          text: async () => 'export default {}',
+          url: 'http://127.0.0.1/plugin.js'
+        })
+      )
+      .mockResolvedValueOnce(
+        response({
+          text: async () => 'export default {}',
+          url: 'http://127.0.0.1/plugin.js'
+        })
+      )
+    mocks.codegen.mockResolvedValueOnce({ pluginName: 'LocalPlugin' })
+
+    const plugin = usePluginInstall()
+    expect(await plugin.install('https://cdn.example/plugin.js')).toBeNull()
+    expect(plugin.validity.value).toContain('Plugin URLs must use HTTPS')
+
+    expect(await plugin.install('http://127.0.0.1/plugin.js')).toMatchObject({
+      pluginName: 'LocalPlugin',
+      resolvedUrl: 'http://127.0.0.1/plugin.js'
+    })
+  })
+
+  it('rejects HTML and oversized plugin responses before evaluation', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        response({
+          headers: { get: (name) => (name === 'content-type' ? 'text/html; charset=utf-8' : null) },
+          text: async () => '<html></html>'
+        })
+      )
+      .mockResolvedValueOnce(
+        response({
+          headers: {
+            get: (name) => (name === 'content-length' ? String(MAX_PLUGIN_SOURCE_BYTES + 1) : null)
+          },
+          text: async () => 'not read'
+        })
+      )
+
+    const plugin = usePluginInstall()
+    expect(await plugin.install('https://cdn.example/html')).toBeNull()
+    expect(plugin.validity.value).toContain('returned an HTML document')
+
+    expect(await plugin.install('https://cdn.example/large.js')).toBeNull()
+    expect(plugin.validity.value).toContain('exceeds the 512 KiB limit')
+    expect(mocks.codegen).not.toHaveBeenCalled()
+  })
+
+  it('stops reading a streamed response once the plugin size limit is exceeded', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(new Uint8Array(MAX_PLUGIN_SOURCE_BYTES + 1), { status: 200 })
+    )
+
+    const plugin = usePluginInstall()
+    expect(await plugin.install('https://cdn.example/streamed-large.js')).toBeNull()
+    expect(plugin.validity.value).toContain('exceeds the 512 KiB limit')
+    expect(mocks.codegen).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the bundled registry when live registry data is malformed', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response({ text: async () => '{bad json' }))
+      .mockResolvedValueOnce(response({ text: async () => 'export default {}' }))
+    mocks.codegen.mockResolvedValueOnce({ pluginName: 'SnapshotPlugin' })
+
+    const plugin = usePluginInstall()
+    const installed = await plugin.install('@snapshot-plugin')
+
+    expect(installed?.resolvedUrl).toBe('https://snapshot/plugin.js')
   })
 })

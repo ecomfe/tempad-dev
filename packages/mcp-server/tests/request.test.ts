@@ -29,7 +29,7 @@ describe('mcp-server/request', () => {
     const { promise, requestId } = register<{ ok: boolean }>('ext-1', 1000)
     expect(requestId).toBe('req-1')
 
-    resolve(requestId, { ok: true })
+    resolve(requestId, 'ext-1', { ok: true })
     await expect(promise).resolves.toEqual({ ok: true })
   })
 
@@ -39,7 +39,7 @@ describe('mcp-server/request', () => {
     const { promise, requestId } = register('ext-1', 1000)
     const err = new Error('tool failed')
 
-    reject(requestId, err)
+    reject(requestId, 'ext-1', err)
     await expect(promise).rejects.toBe(err)
   })
 
@@ -60,8 +60,8 @@ describe('mcp-server/request', () => {
   it('warns when resolving or rejecting unknown calls', () => {
     const warnSpy = vi.mocked(log.warn)
 
-    resolve('missing-id', { ok: true })
-    reject('missing-id', new Error('missing'))
+    resolve('missing-id', 'ext-1', { ok: true })
+    reject('missing-id', 'ext-1', new Error('missing'))
 
     expect(warnSpy).toHaveBeenCalledWith(
       { reqId: 'missing-id' },
@@ -86,7 +86,7 @@ describe('mcp-server/request', () => {
       message: 'Extension disconnected before providing a result.'
     })
 
-    resolve(second.requestId, { done: true })
+    resolve(second.requestId, 'ext-b', { done: true })
     await expect(second.promise).resolves.toEqual({ done: true })
   })
 
@@ -101,6 +101,36 @@ describe('mcp-server/request', () => {
     expect(debugSpy).toHaveBeenCalledWith(
       { reqId: 'req-shutdown' },
       'Rejected pending tool call due to shutdown.'
+    )
+  })
+
+  it('ignores results and errors from a different extension connection', async () => {
+    vi.mocked(nanoid).mockReturnValueOnce('req-result').mockReturnValueOnce('req-error')
+    const result = register<{ ok: boolean }>('ext-owner', 1000)
+    const failure = register('ext-owner', 1000)
+
+    resolve(result.requestId, 'ext-attacker', { ok: false })
+    reject(failure.requestId, 'ext-attacker', new Error('spoofed'))
+    resolve(result.requestId, 'ext-owner', { ok: true })
+    reject(failure.requestId, 'ext-owner', new Error('real'))
+
+    await expect(result.promise).resolves.toEqual({ ok: true })
+    await expect(failure.promise).rejects.toThrow('real')
+    expect(log.warn).toHaveBeenCalledWith(
+      {
+        reqId: 'req-result',
+        expectedExtId: 'ext-owner',
+        receivedExtId: 'ext-attacker'
+      },
+      'Ignored tool result from the wrong extension.'
+    )
+    expect(log.warn).toHaveBeenCalledWith(
+      {
+        reqId: 'req-error',
+        expectedExtId: 'ext-owner',
+        receivedExtId: 'ext-attacker'
+      },
+      'Ignored tool error from the wrong extension.'
     )
   })
 })

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   renderTree: vi.fn(),
   renderShellTree: vi.fn(),
   getOrderedChildIds: vi.fn(),
+  resolvePluginComponents: vi.fn(),
   buildVisibleTree: vi.fn(),
   activePlugin: { value: undefined as { name?: string; code?: string } | undefined }
 }))
@@ -60,6 +61,10 @@ vi.mock('@/mcp/tools/code/render', () => ({
   renderTree: mocks.renderTree,
   renderShellTree: mocks.renderShellTree,
   getOrderedChildIds: mocks.getOrderedChildIds
+}))
+
+vi.mock('@/mcp/tools/code/render/plugin', () => ({
+  resolvePluginComponents: mocks.resolvePluginComponents
 }))
 
 vi.mock('@/mcp/tools/code/tree', () => ({
@@ -123,6 +128,68 @@ describe('mcp/code handleGetCode', () => {
       ['c', 'b']
     )
     expect(result.assets).toBeUndefined()
+  })
+
+  it('uses a root-only shell path when descendant text alone exceeds the budget', async () => {
+    const root = createSnapshot({ id: 'root', children: ['copy'] })
+    const copy = createSnapshot({ id: 'copy', type: 'TEXT', parentId: 'root' })
+    copy.node = {
+      id: 'copy',
+      type: 'TEXT',
+      visible: true,
+      characters: '文'.repeat(30_000)
+    } as unknown as TextNode
+    const tree = createTree([root, copy])
+
+    mocks.buildVisibleTree.mockReturnValue(tree)
+    mocks.collectNodeData.mockResolvedValue({
+      nodes: tree.nodes,
+      styles: new Map([['root', { display: 'flex' }]]),
+      textSegments: new Map()
+    })
+    mocks.prepareStyles.mockImplementation(
+      ({ styles }: { styles: Map<string, Record<string, string>> }) => ({
+        styles,
+        layout: new Map(),
+        usedCandidateIds: new Set<string>()
+      })
+    )
+    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
+      code,
+      tokensByCanonical: {},
+      sourceIndex: new Map()
+    }))
+    mocks.getOrderedChildIds.mockReturnValue(['copy'])
+    mocks.renderShellTree.mockResolvedValue(
+      raw('<div className="relative flex">{/* omitted direct children: copy */}</div>')
+    )
+    vi.stubGlobal('__DEV__', false)
+
+    const { handleGetCode } = await import('@/mcp/tools/code')
+    const result = await handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
+
+    expect(result.warnings?.map((warning) => warning.type)).toEqual(['shell'])
+    expect(mocks.buildVariableMappings).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.any(Map),
+      expect.any(Object),
+      { traverseChildren: false }
+    )
+    expect(mocks.collectNodeData).toHaveBeenCalledWith(
+      tree,
+      expect.any(Object),
+      expect.any(Map),
+      expect.any(Object),
+      new Set(['copy'])
+    )
+    expect(mocks.prepareStyles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        styles: new Map([['root', { display: 'flex', position: 'relative' }]])
+      })
+    )
+    expect(mocks.planAssets).not.toHaveBeenCalled()
+    expect(mocks.exportVectorAssets).not.toHaveBeenCalled()
+    expect(mocks.renderTree).not.toHaveBeenCalled()
   })
 
   it('preserves the original budget error when a shell cannot be rendered', async () => {
@@ -275,5 +342,44 @@ describe('mcp/code handleGetCode', () => {
 
     expect(result.code).toContain('data-color="#fff"')
     expect(mocks.renderTree).toHaveBeenCalledTimes(2)
+  })
+
+  it('resolves all plugin instances through one batched collection call', async () => {
+    const instances = Array.from({ length: 10 }, (_, index) =>
+      createSnapshot({ id: `instance-${index}`, type: 'INSTANCE' })
+    )
+    const tree = createTree(instances)
+
+    mocks.activePlugin.value = { name: 'test-plugin', code: 'plugin-code' }
+    mocks.buildVisibleTree.mockReturnValue(tree)
+    mocks.resolvePluginComponents.mockResolvedValue(instances.map(() => null))
+    mocks.collectNodeData.mockResolvedValue({
+      nodes: tree.nodes,
+      styles: new Map(),
+      textSegments: new Map()
+    })
+    mocks.prepareStyles.mockReturnValue({
+      styles: new Map(),
+      layout: new Map(),
+      usedCandidateIds: new Set<string>()
+    })
+    mocks.renderTree.mockResolvedValue(raw('<div />'))
+    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
+      code,
+      tokensByCanonical: {},
+      sourceIndex: new Map()
+    }))
+    vi.stubGlobal('__DEV__', false)
+
+    const { handleGetCode } = await import('@/mcp/tools/code')
+    await handleGetCode([instances[0]?.node as SceneNode], 'jsx', false)
+
+    expect(mocks.resolvePluginComponents).toHaveBeenCalledOnce()
+    expect(mocks.resolvePluginComponents).toHaveBeenCalledWith(
+      instances.map((snapshot) => snapshot.node),
+      { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+      'plugin-code',
+      'jsx'
+    )
   })
 })

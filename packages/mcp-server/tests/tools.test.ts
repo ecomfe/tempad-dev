@@ -206,6 +206,12 @@ describe('tools response helpers', () => {
       'Tool "get_assets" failed: Unknown error occurred.'
     )
 
+    const unknownCode = createToolErrorResponse('get_assets', {
+      code: 'NOT_A_TEMPAD_ERROR',
+      message: 'failed'
+    })
+    expect(textContent(unknownCode.content[0])).toBe('Tool "get_assets" failed: failed')
+
     const nonObjectCause = createToolErrorResponse('get_assets', {
       cause: 'timeout',
       message: 'websocket connection failed'

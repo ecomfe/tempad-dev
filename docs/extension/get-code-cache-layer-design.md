@@ -154,6 +154,8 @@ This keeps performance investigation architectural instead of adding throwaway t
 
 Within one request, `getCSSAsync()` is still called once per collected node.
 The cache layer reduces the expensive reads around that call, not the safety boundary of the call itself.
+Regression fixtures enforce that count, assert zero CSS reads for skipped descendants, and verify
+that repeated layout-semantic access produces one cache miss followed by hits per node.
 
 ## Current limitations
 
@@ -161,7 +163,9 @@ The request cache removed a large amount of duplicate lookup work, but the next 
 
 - `collectNodeData()` still dominates large selections.
 - `NodeSemanticSnapshot` currently reads paint, layout, and geometry together on first miss.
-- Shell fallback still reuses already-collected full-tree context, so some asset/export work can still happen before a shell response is returned.
+- The descendant-text preflight now avoids full collection and asset/export work when text alone
+  proves the response cannot fit. Overflow caused by markup, token metadata, or formatted response
+  overhead still falls back after full collection.
 
 ## Next work
 
@@ -169,4 +173,7 @@ The next useful optimization steps are:
 
 1. Split node semantics into lazier paint/layout/geometry buckets.
 2. Add finer-grained `collect` trace stages, especially around `getCSSAsync()` and per-node post-processing.
-3. Revisit vector export/upload concurrency only after the cache and `collect` traces show that export is again the dominant cost.
+3. Measure markup-heavy and vector-heavy overflow fixtures that the text preflight cannot prove, then
+   decide whether a safe second checkpoint can skip export without guessing final output.
+4. Measure the bounded two-root vector export batches on realistic vector-heavy fixtures before
+   changing that cap; preserve the current source-order merge if the cap changes.

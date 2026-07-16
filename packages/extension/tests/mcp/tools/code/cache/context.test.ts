@@ -42,6 +42,28 @@ describe('code cache context', () => {
     })
   })
 
+  it('extracts inferred-layout semantics once per node across repeated pipeline reads', () => {
+    const ctx = createGetCodeCacheContext(new Map(), { metrics: true })
+    const nodes = Array.from(
+      { length: 12 },
+      (_, index) =>
+        ({
+          id: `layout-${index}`,
+          type: 'FRAME',
+          visible: true,
+          inferredAutoLayout: { layoutMode: index % 2 ? 'VERTICAL' : 'HORIZONTAL' }
+        }) as unknown as SceneNode
+    )
+
+    nodes.forEach((node) => getNodeSemanticsCached(node, ctx))
+    nodes.forEach((node) => getNodeSemanticsCached(node, ctx))
+
+    expect(ctx.metrics).toMatchObject({
+      nodeSemanticHits: nodes.length,
+      nodeSemanticMisses: nodes.length
+    })
+  })
+
   it('dedupes style and variable lookups across style cleanup and vector analysis', () => {
     const getStyleById = vi.fn((id: string) =>
       id === 'style-fill'

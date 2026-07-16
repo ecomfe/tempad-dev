@@ -1,9 +1,24 @@
-import { build } from 'esbuild'
+import { bundleSandboxWorker } from '../build/plugin-sandbox-workers'
 
 type WorkerCheck = {
   entry: string
   allowedInputs: RegExp[]
 }
+
+const CODEGEN_WORKER_DEPENDENCIES = [
+  'es-module-lexer',
+  'function-timeout',
+  'get-own-enumerable-keys',
+  'identifier-regex',
+  'is-identifier',
+  'is-obj',
+  'is-regexp',
+  'quote-js-string',
+  'reserved-identifiers',
+  'stringify-object',
+  'super-regex',
+  'time-span'
+]
 
 const CHECKS: WorkerCheck[] = [
   {
@@ -13,7 +28,7 @@ const CHECKS: WorkerCheck[] = [
       /^worker\//,
       /^utils\//,
       /^\.\.\/plugins\/dist\//,
-      /^\.\.\/\.\.\/node_modules\//
+      ...CODEGEN_WORKER_DEPENDENCIES.map(createPnpmDependencyPattern)
     ]
   },
   {
@@ -22,10 +37,17 @@ const CHECKS: WorkerCheck[] = [
       /^mcp\/transform-variables\/worker\.ts$/,
       /^worker\//,
       /^utils\//,
-      /^\.\.\/\.\.\/node_modules\//
+      createPnpmDependencyPattern('es-module-lexer')
     ]
   }
 ]
+
+function createPnpmDependencyPattern(packageName: string): RegExp {
+  const escapedName = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(
+    `^\\.\\.\\/\\.\\.\\/node_modules\\/\\.pnpm\\/${escapedName}@[^/]+\\/node_modules\\/${escapedName}(?:\\/|$)`
+  )
+}
 
 function isAllowedInput(input: string, allowedInputs: RegExp[]): boolean {
   return allowedInputs.some((pattern) => pattern.test(input))
@@ -40,6 +62,7 @@ function getProbeRequest(entry: string): unknown {
     return {
       id: 1,
       payload: {
+        pluginCode: 'export default { name: "worker-probe", code: {} }',
         style: {},
         options: { useRem: false, rootFontSize: 16, scale: 1 }
       }
@@ -50,6 +73,7 @@ function getProbeRequest(entry: string): unknown {
     return {
       id: 1,
       payload: {
+        pluginCode: 'export default { name: "worker-probe", code: {} }',
         references: [],
         options: { useRem: false, rootFontSize: 16, scale: 1 }
       }
@@ -70,7 +94,11 @@ function assertProbeResponse(entry: string, response: unknown): void {
 
   if (entry === 'codegen/worker.ts') {
     const payload = response.payload
-    if (!isRecord(payload) || !Array.isArray(payload.codeBlocks)) {
+    if (
+      !isRecord(payload) ||
+      !Array.isArray(payload.codeBlocks) ||
+      payload.pluginName !== 'worker-probe'
+    ) {
       throw new Error('[worker-check] codegen worker probe response shape is invalid.')
     }
     return
@@ -87,34 +115,19 @@ function assertProbeResponse(entry: string, response: unknown): void {
 
 async function checkWorker(check: WorkerCheck): Promise<{ entry: string; code: string }> {
   const { entry, allowedInputs } = check
-  const result = await build({
-    entryPoints: [entry],
-    bundle: true,
-    write: false,
-    metafile: true,
-    platform: 'browser',
-    format: 'iife',
-    logLevel: 'silent'
-  })
-
-  const output = result.outputFiles[0]
-  if (!output) {
-    throw new Error(`[worker-check] No output for ${entry}`)
-  }
-
-  const inputs = Object.keys(result.metafile.inputs)
+  const { code, inputs } = await bundleSandboxWorker(entry)
   const disallowed = inputs.filter((input) => !isAllowedInput(input, allowedInputs))
   if (disallowed.length > 0) {
     throw new Error(
       [
         `[worker-check] Unexpected dependency in ${entry}:`,
         ...disallowed.map((item) => `  - ${item}`),
-        '[worker-check] Update allowlist only after confirming the module chain is sandbox-safe.'
+        '[worker-check] Update the allowlist only after reviewing the Worker trust boundary.'
       ].join('\n')
     )
   }
 
-  return { entry, code: output.text }
+  return { entry, code }
 }
 
 async function runBrowserCheck(
@@ -183,16 +196,12 @@ async function runBrowserChecks(bundles: { entry: string; code: string }[]): Pro
 }
 
 async function main() {
-  const bundles: { entry: string; code: string }[] = []
-
-  for (const check of CHECKS) {
-    bundles.push(await checkWorker(check))
-  }
+  const bundles = await Promise.all(CHECKS.map(checkWorker))
 
   await runBrowserChecks(bundles)
   console.log('[worker-check] Browser worker probes passed.')
 
-  console.log('[worker-check] All worker dependency chains are sandbox-safe.')
+  console.log('[worker-check] All worker dependency chains match the reviewed allowlist.')
 }
 
 main().catch((error) => {

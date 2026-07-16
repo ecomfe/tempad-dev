@@ -78,6 +78,7 @@ const SELECTION_ERROR_CODES = new Set<TempadMcpErrorCode>([
   TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION,
   TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE
 ])
+const KNOWN_ERROR_CODES = new Set<string>(Object.values(TEMPAD_MCP_ERROR_CODES))
 
 const CONNECTIVITY_TROUBLESHOOTING_LINES = [
   'Troubleshooting:',
@@ -155,15 +156,15 @@ export const TOOL_DEFS = [
 
 function extractToolErrorCode(error: unknown): TempadMcpErrorCode | undefined {
   const code = getRecordProperty(error, 'code')
-  if (typeof code === 'string') {
-    return code as TempadMcpErrorCode
-  }
+  if (isTempadMcpErrorCode(code)) return code
   const cause = getRecordProperty(error, 'cause')
   const causeCode = getRecordProperty(cause, 'code')
-  if (typeof causeCode === 'string') {
-    return causeCode as TempadMcpErrorCode
-  }
+  if (isTempadMcpErrorCode(causeCode)) return causeCode
   return undefined
+}
+
+function isTempadMcpErrorCode(value: unknown): value is TempadMcpErrorCode {
+  return typeof value === 'string' && KNOWN_ERROR_CODES.has(value)
 }
 
 function extractToolErrorMessage(error: unknown): string {

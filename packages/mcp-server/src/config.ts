@@ -2,6 +2,9 @@ import {
   MCP_AUTO_ACTIVATE_GRACE_MS,
   MCP_ASSET_TTL_MS,
   MCP_MAX_ASSET_BYTES,
+  MCP_MAX_ASSET_STORE_BYTES,
+  MCP_MAX_CONCURRENT_ASSET_UPLOADS,
+  MCP_MAX_EXTENSION_CONNECTIONS,
   MCP_MAX_PAYLOAD_BYTES,
   MCP_PORT_CANDIDATES,
   MCP_TOOL_TIMEOUT_MS
@@ -33,6 +36,24 @@ function resolveAssetTtlMs(): number {
   return parseNonNegativeInt(process.env.TEMPAD_MCP_ASSET_TTL_MS, MCP_ASSET_TTL_MS)
 }
 
+function resolveMaxAssetStoreBytes(): number {
+  return parsePositiveInt(process.env.TEMPAD_MCP_MAX_ASSET_STORE_BYTES, MCP_MAX_ASSET_STORE_BYTES)
+}
+
+function resolveMaxConcurrentAssetUploads(): number {
+  return parsePositiveInt(
+    process.env.TEMPAD_MCP_MAX_CONCURRENT_ASSET_UPLOADS,
+    MCP_MAX_CONCURRENT_ASSET_UPLOADS
+  )
+}
+
+function resolveMaxExtensionConnections(): number {
+  return parsePositiveInt(
+    process.env.TEMPAD_MCP_MAX_EXTENSION_CONNECTIONS,
+    MCP_MAX_EXTENSION_CONNECTIONS
+  )
+}
+
 export function getMcpServerConfig() {
   return {
     wsPortCandidates: [...MCP_PORT_CANDIDATES],
@@ -40,6 +61,10 @@ export function getMcpServerConfig() {
     maxPayloadBytes: MCP_MAX_PAYLOAD_BYTES,
     autoActivateGraceMs: resolveAutoActivateGraceMs(),
     maxAssetSizeBytes: resolveMaxAssetSizeBytes(),
+    maxAssetStoreBytes: resolveMaxAssetStoreBytes(),
+    maxConcurrentAssetUploads: resolveMaxConcurrentAssetUploads(),
+    maxExtensionConnections: resolveMaxExtensionConnections(),
+    allowedExtensionOrigins: process.env.TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS,
     assetTtlMs: resolveAssetTtlMs()
   }
 }

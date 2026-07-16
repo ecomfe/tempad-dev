@@ -2,6 +2,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
+import { AGGREGATE_COVERAGE_THRESHOLDS } from '../../vitest.coverage'
+
 const rootDir = fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig({
@@ -43,13 +45,20 @@ export default defineConfig({
         'composables/scrollbar.ts',
         'composables/toast.ts',
         'composables/index.ts',
-        'codegen/requester.ts',
+        'plugin-sandbox/limits.ts',
+        'plugin-sandbox/protocol.ts',
+        'plugin-sandbox/validation.ts',
+        'codegen/worker.ts',
         'worker/safe.ts',
         'worker/lockdown.ts',
         'mcp/index.ts',
         'mcp/config.ts',
         'mcp/assets.ts',
         'mcp/runtime.ts',
+        'mcp/bridge/content.ts',
+        'mcp/broker/hub-client.ts',
+        'mcp/broker/service-worker.ts',
+        'mcp/broker/sessions.ts',
         'mcp/transform-variables/requester.ts',
         'mcp/transform-variables/worker.ts',
         'rewrite/config.ts',
@@ -74,6 +83,7 @@ export default defineConfig({
         'mcp/tools/code/styles/index.ts',
         'mcp/tools/code/assets/plan.ts',
         'mcp/tools/code/assets/vector.ts',
+        'mcp/tools/code/budget-preflight.ts',
         'mcp/tools/code/assets/export.ts',
         'mcp/tools/code/assets/image.ts',
         'mcp/tools/code/assets/index.ts',
@@ -98,13 +108,7 @@ export default defineConfig({
         'mcp/tools/token/mapping.ts',
         'mcp/tools/token/index.ts'
       ],
-      thresholds: {
-        lines: 100,
-        functions: 100,
-        branches: 100,
-        statements: 100,
-        perFile: true
-      }
+      thresholds: AGGREGATE_COVERAGE_THRESHOLDS
     }
   }
 })

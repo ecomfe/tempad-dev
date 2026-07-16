@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   stringifyComponent: vi.fn(),
   serializeCSS: vi.fn(),
   evaluate: vi.fn(),
+  assertPluginModuleIsSelfContained: vi.fn(),
   stringify: vi.fn((value: unknown) => `[stringified:${String(value)}]`),
   lockdownWorker: vi.fn(),
   loggerError: vi.fn(),
@@ -21,7 +22,8 @@ vi.mock('@/utils/css', () => ({
 }))
 
 vi.mock('@/utils/module', () => ({
-  evaluate: mocks.evaluate
+  evaluate: mocks.evaluate,
+  assertPluginModuleIsSelfContained: mocks.assertPluginModuleIsSelfContained
 }))
 
 vi.mock('@/utils/string', () => ({
@@ -40,20 +42,27 @@ vi.mock('@/utils/log', () => ({
 
 type WorkerRequest = {
   id: number
-  payload: {
-    style: Record<string, string>
-    pluginVariableStyle?: Record<string, string>
-    variableSyntax?: Record<string, string>
-    component?: Record<string, unknown>
-    options: {
-      useRem: boolean
-      rootFontSize: number
-      scale: number
-      toJS?: boolean
-    }
-    pluginCode?: string
-    returnDevComponent?: boolean
+  payload:
+    | WorkerJob
+    | {
+        jobs: WorkerJob[]
+        pluginCode?: string
+      }
+}
+
+type WorkerJob = {
+  style: Record<string, string>
+  pluginVariableStyle?: Record<string, string>
+  variableSyntax?: Record<string, string>
+  component?: Record<string, unknown>
+  options: {
+    useRem: boolean
+    rootFontSize: number
+    scale: number
+    toJS?: boolean
   }
+  pluginCode?: string
+  returnDevComponent?: boolean
 }
 
 async function importWorker() {
@@ -104,7 +113,10 @@ describe('codegen/worker', () => {
     expect(mocks.lockdownWorker).toHaveBeenCalledWith('codegen')
   })
 
-  it('rejects plugin code that uses static import statements', async () => {
+  it('rejects plugin code that loads external modules', async () => {
+    mocks.assertPluginModuleIsSelfContained.mockImplementationOnce(() => {
+      throw new Error('External module loading is not allowed in plugins.')
+    })
     await importWorker()
 
     await dispatch({
@@ -121,7 +133,7 @@ describe('codegen/worker', () => {
     const firstMessage = mocks.postMessage.mock.calls[0]?.[0] as { error?: unknown }
     const { error } = firstMessage
     expect(error).toBeInstanceOf(Error)
-    expect((error as Error).message).toContain('`import` is not allowed')
+    expect((error as Error).message).toContain('External module loading is not allowed')
   })
 
   it('posts an error when plugin evaluation throws', async () => {
@@ -422,6 +434,46 @@ describe('codegen/worker', () => {
     expect(mocks.serializeCSS).toHaveBeenNthCalledWith(3, pluginVariableStyle, baseOptions, {
       title: 'Tokens',
       transformVariable
+    })
+  })
+
+  it('evaluates plugin code once for a batch of codegen jobs', async () => {
+    mocks.evaluate.mockResolvedValueOnce({
+      default: {
+        name: 'Batch plugin',
+        code: { css: {}, js: false }
+      }
+    })
+    await importWorker()
+
+    await dispatch({
+      id: 8,
+      payload: {
+        pluginCode: 'export default batchPlugin',
+        jobs: [
+          { style: { color: 'red' }, options: baseOptions },
+          { style: { color: 'blue' }, options: baseOptions }
+        ]
+      }
+    })
+
+    expect(mocks.assertPluginModuleIsSelfContained).toHaveBeenCalledOnce()
+    expect(mocks.evaluate).toHaveBeenCalledOnce()
+    expect(mocks.serializeCSS).toHaveBeenCalledTimes(2)
+    expect(mocks.postMessage).toHaveBeenCalledWith({
+      id: 8,
+      payload: {
+        results: [
+          {
+            pluginName: 'Batch plugin',
+            codeBlocks: [{ name: 'css', title: 'CSS', lang: 'css', code: 'css-code' }]
+          },
+          {
+            pluginName: 'Batch plugin',
+            codeBlocks: [{ name: 'css', title: 'CSS', lang: 'css', code: 'css-code' }]
+          }
+        ]
+      }
     })
   })
 })

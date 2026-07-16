@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0
+
+- Hardened local WebSocket admission, active-extension routing, and connection-owned tool results
+  while preserving the existing zero-configuration connection flow.
+- Protected the asset HTTP server with capability URLs, extension-origin CORS checks, aggregate
+  quotas, bounded concurrency, and request timeouts.
+- Tightened browser-gateway result validation and expanded real-socket, abuse-limit, and lifecycle
+  regression coverage.
+
 ## 0.6.3
 
 - Improved the local browser-gateway connection flow so users do not see noisy failed WebSocket port probes while the MCP server is not running.

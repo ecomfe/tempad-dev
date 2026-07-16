@@ -169,4 +169,57 @@ describe('assets/export exportVectorAssets', () => {
       vectorExportRawInline: 0
     })
   })
+
+  it('bounds vector export concurrency and preserves deterministic asset order', async () => {
+    const ids = ['aaaaaaaa', 'bbbbbbbb', 'cccccccc']
+    const tree = {
+      rootIds: ['root'],
+      order: [],
+      stats: { totalNodes: 0, maxDepth: 0, capped: false, cappedNodeIds: [] },
+      nodes: new Map(ids.map((id) => [id, makeSnapshot(id, { width: 10, height: 10 })]))
+    } as unknown as VisibleTree
+    const started: string[] = []
+    const finish = new Map<string, () => void>()
+    let active = 0
+    let maxActive = 0
+
+    vi.mocked(exportSvgEntry).mockImplementation((node, _config, registry) => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      started.push(node.id)
+      return new Promise((resolve) => {
+        finish.set(node.id, () => {
+          registry.set(node.id, {
+            hash: node.id,
+            mimeType: 'image/svg+xml',
+            size: 1,
+            url: `http://assets.test/${node.id}.svg`
+          })
+          active -= 1
+          resolve({ props: { id: node.id } })
+        })
+      })
+    })
+
+    const assetRegistry = new Map()
+    const pending = exportVectorAssets(
+      tree,
+      { vectorRoots: new Set(ids), skippedIds: new Set() },
+      config,
+      assetRegistry
+    )
+
+    expect(started).toEqual(['aaaaaaaa', 'bbbbbbbb'])
+    finish.get('bbbbbbbb')?.()
+    await Promise.resolve()
+    expect(started).toEqual(['aaaaaaaa', 'bbbbbbbb'])
+
+    finish.get('aaaaaaaa')?.()
+    await vi.waitFor(() => expect(started).toEqual(ids))
+    finish.get('cccccccc')?.()
+
+    await expect(pending).resolves.toEqual(new Map(ids.map((id) => [id, { props: { id } }])))
+    expect([...assetRegistry.keys()]).toEqual(ids)
+    expect(maxActive).toBe(2)
+  })
 })

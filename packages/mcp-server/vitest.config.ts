@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config'
 
+import { AGGREGATE_COVERAGE_THRESHOLDS } from '../../vitest.coverage'
+
 export default defineConfig({
   test: {
     name: 'mcp-server',
@@ -15,15 +17,13 @@ export default defineConfig({
         'src/request.ts',
         'src/asset-store.ts',
         'src/asset-http-server.ts',
+        'src/extension-registry.ts',
+        'src/extension-socket.ts',
+        'src/security.ts',
+        'src/websocket-server.ts',
         'src/shared.ts'
       ],
-      thresholds: {
-        lines: 100,
-        functions: 100,
-        branches: 100,
-        statements: 100,
-        perFile: true
-      }
+      thresholds: AGGREGATE_COVERAGE_THRESHOLDS
     }
   }
 })
