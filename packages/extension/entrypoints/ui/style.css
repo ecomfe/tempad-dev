@@ -146,7 +146,9 @@ tempad input[type="number"]:focus {
 [data-testid="design-toolbelt-wrapper"]:has([class^="toolbelt_banner--container"])
   [class^="mode_toggle_switch_divider"],
 [data-testid="design-toolbelt-wrapper"]:has([class^="toolbelt_banner--container"])
-  [class^="mode_switcher_toggle--toggleWrapper"] {
+  [class^="mode_switcher_toggle--toggleWrapper"],
+[data-testid="design-toolbelt-wrapper"]:has([class^="toolbelt_banner--container"])
+  [class^="toolbelt_mode_segmented_control--container"] {
   display: none !important;
 }
 
