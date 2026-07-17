@@ -319,7 +319,7 @@ function buildAssetDescriptor(record: AssetRecord): AssetDescriptor {
 
 function createMcpServer(): McpServer {
   const mcp = new McpServer(
-    { name: 'tempad-dev-mcp', version: PACKAGE_VERSION },
+    { name: 'tempad-dev', title: 'TemPad Dev', version: PACKAGE_VERSION },
     MCP_INSTRUCTIONS ? { instructions: MCP_INSTRUCTIONS } : undefined
   )
 
