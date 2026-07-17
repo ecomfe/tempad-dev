@@ -42,7 +42,8 @@ type Scenario = {
       role: string
       selectText?: boolean
     }
-    installExpanded?: boolean
+    setupExpanded?: boolean
+    setupTarget?: string
     mcpEnabled?: boolean
     measure?: boolean
     options?: {
@@ -277,9 +278,13 @@ async function configureScenario(page: Page, scenario: Scenario): Promise<void> 
   if (panel.mcpEnabled !== undefined) await setMcpEnabled(page, panel.mcpEnabled)
   await setKongPlugin(page, panel.plugins?.includes('Kong UI') ?? false)
 
-  if (panel.installExpanded) {
-    const install = page.locator('article main button.tp-mcp-toggle')
-    if ((await install.getAttribute('aria-expanded')) !== 'true') await install.click()
+  if (panel.setupExpanded) {
+    const setup = page.locator('article main button.tp-mcp-toggle')
+    if ((await setup.getAttribute('aria-expanded')) !== 'true') await setup.click()
+  }
+  if (panel.setupTarget) {
+    const target = page.getByRole('button', { name: panel.setupTarget, exact: true })
+    if ((await target.getAttribute('aria-pressed')) !== 'true') await target.click()
   }
 
   await ensurePreferences(page, panel.preferencesOpen ?? false)
@@ -468,7 +473,7 @@ async function assertScenario(
       case 'mcp-status':
         break
       case 'panel-control-state': {
-        if (assertion.name === 'Enable MCP server') {
+        if (assertion.name === 'MCP access') {
           const enabled = await page
             .getByRole('radio', { name: 'Enabled', exact: true })
             .isChecked()

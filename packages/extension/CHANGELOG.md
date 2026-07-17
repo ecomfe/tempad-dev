@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.19.1
+
+- Hid Figma's inactive mode switcher in read-only files after its toolbar structure changed.
+- Redesigned Agent integration around compact agent selection and client-specific deep-link, plugin,
+  CLI, and config paths for Codex, Cursor, Claude Code, Gemini, VS Code, and TRAE.
+
 ## 0.19.0
 
 - Isolated programmable plugins in an opaque-origin sandbox with fresh Workers, execution limits,

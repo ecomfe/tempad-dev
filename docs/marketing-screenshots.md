@@ -28,7 +28,7 @@ MCP state, pointer target, tooltip, crop, and assertions from that file. Do not 
 choices from memory or make new visual decisions during a routine capture.
 
 All PNG assets use 2× density: the standard `720 × 480` README viewport becomes `1440 × 960`, the
-complete `240 × 254` Agent integration section becomes `480 × 508`, and the `360 × 160` status
+complete `240 × 206` Agent integration section becomes `480 × 412`, and the `360 × 160` status
 crop becomes `720 × 320`.
 
 ## Scenario intent
@@ -41,7 +41,7 @@ crop becomes `720 × 320`.
 | `measure`         | Inner frame selected, Measure active, outer frame under the pointer, orange target outline and four `20` distance labels.         |
 | `scroll`          | Frame selected in the native code view, arrow pointer hovering Scroll Into View with its tooltip visible.                         |
 | `plugins`         | Real Kong Button instance selected with Figma's purple instance highlight and Kong UI-specific output; pointer hidden.            |
-| `mcp-config`      | Complete Agent integration section with MCP enabled, expanded install instructions, client icons, and setup guide.                |
+| `mcp-config`      | Agent integration with MCP enabled, Codex selected, and its plugin prompt/CLI paths visible.                                      |
 | `mcp-unavailable` | Preferences visible with the gray-dot, dashed MCP badge.                                                                          |
 | `mcp-inactive`    | Preferences visible with the green-dot, dashed MCP badge.                                                                         |
 | `mcp-active`      | Preferences visible with the green-dot, solid-green MCP badge.                                                                    |
@@ -61,7 +61,7 @@ appear in the crop.
 | `deep`                   | Outer frame top-left `(402, 151)`, zoom `1`; centers the nested hover target without selection handles.              |
 | `measure`                | Outer frame top-left `(400, 151)`, zoom `1`; leaves room for all four distance labels and the right-side pointer.    |
 | `plugins`                | Button top-left `(431, 180)`, zoom `1.3`; gives the real 66 × 40 Kong instance the same visual weight as the source. |
-| `mcp-config`             | Panel-section crop `(676, 272, 240, 254)`; includes the complete Agent integration section without canvas padding.   |
+| `mcp-config`             | Panel-section crop `(676, 272, 240, 206)`; includes the complete Agent integration section without canvas padding.   |
 | `mcp-*` status snapshots | Header/context crop `(617, 26, 360, 160)`; no canvas geometry is included.                                           |
 
 The dark canvas stays black while fixture surfaces switch to `#333` and nested outer frames to

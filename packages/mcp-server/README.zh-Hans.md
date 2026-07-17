@@ -5,7 +5,7 @@
 ```json
 {
   "mcpServers": {
-    "TemPad Dev": {
+    "tempad-dev": {
       "command": "npx",
       "args": ["-y", "@tempad-dev/mcp@latest"]
     }
@@ -15,8 +15,11 @@
 
 快速配置方式：
 
-- VS Code / Cursor / TRAE：使用 TemPad Dev（Preferences → Agent integration）中的深链接。
-- Claude Code / Codex CLI：从同一面板复制或运行 CLI 命令。
+- Codex / Claude Code：在 TemPad Dev（**Preferences → Agent integration**）中安装 agent plugin，一次配置 MCP 与 agent skill。
+- VS Code / Cursor / TRAE：使用同一面板中的 MCP deep link。
+- Gemini 及其它客户端：从同一面板复制 MCP CLI 命令或 config。
+
+所有支持路径和 fallback 请参见[完整配置指南](../../README.zh-Hans.md#agent-集成)。
 
 支持的工具和资源：
 

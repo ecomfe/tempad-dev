@@ -72,15 +72,39 @@ describe('mcp/config', () => {
     expect(tempad.MCP_CLIENTS_BY_ID.codex.alternateCopyText).toBe(
       '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@latest"]'
     )
+    expect(tempad.MCP_CLIENTS_BY_ID.gemini.copyText).toContain('gemini mcp add --scope user')
 
     expect(tempad.MCP_CLIENTS).toEqual([
       tempad.MCP_CLIENTS_BY_ID.vscode,
       tempad.MCP_CLIENTS_BY_ID.cursor,
       tempad.MCP_CLIENTS_BY_ID.claude,
       tempad.MCP_CLIENTS_BY_ID.codex,
+      tempad.MCP_CLIENTS_BY_ID.gemini,
       tempad.MCP_CLIENTS_BY_ID.trae
     ])
     expect(tempad.MCP_DEFAULT_CONFIG_SNIPPET).toContain('"tempad-dev"')
+    expect(tempad.AGENT_INTEGRATIONS.map(({ id }) => id)).toEqual([
+      'codex',
+      'cursor',
+      'claude',
+      'gemini',
+      'vscode',
+      'trae'
+    ])
+    expect(tempad.AGENT_INTEGRATIONS_BY_ID.codex.actions[0]).toEqual(
+      expect.objectContaining({
+        id: 'plugin-prompt',
+        value: expect.stringMatching(/^codex:\/\/new\?prompt=/)
+      })
+    )
+    expect(tempad.AGENT_INTEGRATIONS_BY_ID.claude.actions[0]?.value).toMatch(
+      /^claude-cli:\/\/open\?q=/
+    )
+    expect(tempad.AGENT_INTEGRATIONS_BY_ID.cursor.actions.map(({ id }) => id)).toEqual([
+      'mcp-deep-link',
+      'mcp-config',
+      'skill-cli'
+    ])
     expect(tempad.AGENT_SKILL_INSTALL_COMMAND).toContain('npx skills add')
   })
 })

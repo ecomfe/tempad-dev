@@ -7,7 +7,7 @@
 ```json
 {
   "mcpServers": {
-    "TemPad Dev": {
+    "tempad-dev": {
       "command": "npx",
       "args": ["-y", "@tempad-dev/mcp@latest"]
     }
@@ -17,8 +17,11 @@
 
 Quick setup helpers:
 
-- VS Code / Cursor / TRAE: use the deep links in TemPad Dev (Preferences → Agent integration).
-- Claude Code / Codex CLI: copy or run the CLI command from the same panel.
+- Codex / Claude Code: install the agent plugin from TemPad Dev (**Preferences → Agent integration**) to get MCP and the agent skill together.
+- VS Code / Cursor / TRAE: use the MCP deep link in the same panel.
+- Gemini and other clients: copy the MCP CLI command or configuration from the same panel.
+
+See the [complete setup guide](../../README.md#agent-integration) for every supported path and its fallback.
 
 Supported tools/resources:
 

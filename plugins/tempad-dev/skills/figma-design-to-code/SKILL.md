@@ -202,7 +202,7 @@ Retry policy:
 If TemPad MCP appears unavailable, inactive, or pointed at the wrong file, stop
 and tell the user to:
 
-- enable the MCP server in TemPad Dev Preferences > Agent integration
+- enable MCP access in TemPad Dev Preferences > Agent integration
 - keep the correct TemPad Dev / Figma tab active
 - use the MCP badge in the TemPad Dev panel to activate the correct file if
   multiple Figma tabs are open

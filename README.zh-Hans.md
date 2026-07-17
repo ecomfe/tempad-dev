@@ -217,40 +217,74 @@ Figma 也提供官方的 [remote 与 desktop MCP server](https://developers.figm
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-light.png">
-  <img alt="TemPad Dev MCP 偏好设置面板。" src="packages/site/public/marketing/mcp-config-light.png" width="240">
+  <img alt="TemPad Dev Agent integration，展示 Codex plugin 配置选项。" src="packages/site/public/marketing/mcp-config-light.png" width="240">
 </picture>
 
-1. **前置条件**：Node.js 18.20.0+（需要 `npx`），并且在 Figma 标签页中运行 TemPad Dev。Node.js 同时用于 MCP 服务器与 skills CLI。
-2. 在 TemPad Dev 中打开 **Preferences → Agent integration**，然后启用 **Enable MCP server**。出现提示时，请允许访问 `127.0.0.1`，以便 TemPad Dev 连接本地 MCP 服务器。如果关闭或拒绝了提示，可以点击 MCP 徽标重试。
-3. 如果你的客户端支持，请安装内置的 Agent 集成。对于 Codex，请先安装此仓库的插件市场，然后安装 **TemPad Dev** 插件：
+#### 1. 启用 MCP access
 
-   ```sh
-   codex plugin marketplace add ecomfe/tempad-dev --ref main
-   codex plugin add tempad-dev@tempad-dev
-   ```
+安装 Node.js 18.20.0 或更高版本并确保 `npx` 可用，然后在希望 agent 检查的 Figma 标签页中保持 TemPad Dev 打开。在 TemPad Dev 中进入 **Preferences → Agent integration** 并启用 **MCP access**。出现提示时，请允许访问 `127.0.0.1`；这是浏览器扩展与本地 MCP server 之间的 loopback 连接。如果关闭或拒绝了提示，可以点击 MCP 徽标重试。
 
-   添加插件市场后，你也可以从 Codex app 的插件目录安装 **TemPad Dev**。对于手动配置的 MCP 客户端，可以使用偏好设置中的快捷操作，或手动添加一个 stdio 命令形式的服务器：
+#### 2. 选择 agent
 
-   ```json
-   {
-     "mcpServers": {
-       "TemPad Dev": {
-         "command": "npx",
-         "args": ["-y", "@tempad-dev/mcp@latest"]
-       }
-     }
-   }
-   ```
+展开 **Agent setup** 并选择一个图标。这里的选择只用于显示该 agent 可用的配置路径，不会绑定、激活或保存 agent 选择。每组操作都将最简单的可用路径排在最前面。
 
-   如果你的客户端使用 CLI 安装器，以下命令效果等同：
-   - `claude mcp add --transport stdio "TemPad Dev" -- npx -y @tempad-dev/mcp@latest`
-   - `codex mcp add "TemPad Dev" -- npx -y @tempad-dev/mcp@latest`
+| Agent         | 优先使用                                           | 其它选项                        |
+| ------------- | -------------------------------------------------- | ------------------------------- |
+| Codex         | **Plugin install** — 打开预填 prompt 的 Codex task | **Plugin CLI**                  |
+| Claude Code   | **Plugin install** — 打开终端并预填 prompt         | **Plugin CLI**                  |
+| Cursor        | **MCP install**                                    | **MCP config**、**Agent skill** |
+| Gemini        | **MCP CLI**                                        | **MCP config**、**Agent skill** |
+| VS Code       | **MCP install**                                    | **MCP CLI**、**Agent skill**    |
+| TRAE          | **MCP install**                                    | **Agent skill**                 |
+| ⋯ Other agent | **MCP config**                                     | **Agent skill**                 |
 
-4. 使用 MCP 时，请保持 TemPad Dev 打开并启用 MCP。如果同时打开了多个 Figma 文件（也就有多个 TemPad Dev 实例），可以点击 TemPad Dev 面板中的 MCP 徽标，激活对应文件的 MCP（这会同时停用其他标签页中的 MCP）。
+Codex 和 Claude Code 使用同时包含 MCP 连接与 agent skill 的 Agent plugin；对应的 CLI 配置命令为：
+
+```sh
+# Codex
+codex plugin marketplace add ecomfe/tempad-dev --ref main
+codex plugin add tempad-dev@tempad-dev
+
+# Claude Code
+claude plugin marketplace add ecomfe/tempad-dev
+claude plugin install tempad-dev@tempad-dev
+```
+
+#### 3. 执行配置操作
+
+- 外链图标会打开 MCP 直接安装入口或预填的安装 prompt，不会静默执行命令；请在目标应用中检查并确认配置。
+- 剪贴板图标会复制对应的 CLI 命令或 config；请在目标客户端中运行或粘贴。
+- 如果 deep link 没有打开，请先确认客户端已安装并升级到当前版本，然后使用下一项 CLI 或 config 路径。Claude Code 会在用户首次在交互会话中发送 prompt 后注册 URL handler。
+
+#### 4. 保持 Figma 上下文连接
+
+使用期间请保持 TemPad Dev 打开并启用 MCP。如果多个 Figma 文件都启用了 MCP，请点击目标文件面板中的 MCP 徽标；该文件会成为 agent 当前访问的上下文。
+
+#### 手动配置 MCP
+
+对于其它客户端，选择 ellipsis 图标并复制 **MCP config**。支持常见 `mcpServers` JSON 结构的客户端可以直接使用下面的 stdio 配置：
+
+```json
+{
+  "mcpServers": {
+    "tempad-dev": {
+      "command": "npx",
+      "args": ["-y", "@tempad-dev/mcp@latest"]
+    }
+  }
+}
+```
+
+下面的客户端命令配置的是同一个 server：
+
+- `claude mcp add --transport stdio "tempad-dev" -- npx -y @tempad-dev/mcp@latest`
+- `codex mcp add "tempad-dev" -- npx -y @tempad-dev/mcp@latest`
+- `gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest`
+- `code --add-mcp '{"name":"tempad-dev","command":"npx","args":["-y","@tempad-dev/mcp@latest"]}'`
 
 ### Agent 技能
 
-Codex 插件会内置 agent skill。对于需要手动配置的客户端，建议将 TemPad Dev skill 与 MCP 一起安装，让 coding agent 可以将选中节点转换为仓库可用的 UI。内置 skill 名称为 `figma-design-to-code`。在 Preferences → Agent integration 中点击 Agent skill 旁的复制图标即可获取命令，并在终端执行。
+Codex 和 Claude Code 插件已经包含 agent skill。对于 Cursor、Gemini、VS Code、TRAE 和手动配置的客户端，请在配置 MCP 后选择对应客户端或 ellipsis 图标，再复制 **Agent skill**。安装后的 skill 名称为 `figma-design-to-code`，用于指导 coding agent 将 TemPad Dev 提供的设计证据转换成适配目标仓库的 UI。
 
 ```sh
 npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill

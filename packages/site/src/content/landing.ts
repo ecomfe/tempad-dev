@@ -147,4 +147,11 @@ export const TRANSFORM_DETAILS: readonly SiteDetail[] = [
   }
 ] as const
 
-export const CONNECT_CLIENT_ORDER: McpClientId[] = ['vscode', 'cursor', 'claude', 'codex', 'trae']
+export const CONNECT_CLIENT_ORDER: McpClientId[] = [
+  'codex',
+  'cursor',
+  'claude',
+  'gemini',
+  'vscode',
+  'trae'
+]

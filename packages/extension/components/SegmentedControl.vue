@@ -35,7 +35,7 @@ watch(
 </script>
 
 <template>
-  <div class="tp-segmented-control">
+  <div class="tp-segmented-control" role="radiogroup">
     <div
       v-for="option in options"
       :key="String(option.value)"

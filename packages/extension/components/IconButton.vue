@@ -23,6 +23,8 @@ function handleClick() {
       'tp-button-selected': selected
     }"
     :type="type || 'button'"
+    :aria-label="title || undefined"
+    :aria-pressed="toggle ? !!selected : undefined"
     :data-tooltip="title || null"
     :data-tooltip-type="title ? 'text' : null"
     @click="handleClick"
@@ -90,7 +92,7 @@ function handleClick() {
 }
 
 :slotted(.tp-button svg) {
-  width: var(--icon-button-size);
-  height: var(--icon-button-size);
+  width: var(--icon-button-icon-size);
+  height: var(--icon-button-icon-size);
 }
 </style>

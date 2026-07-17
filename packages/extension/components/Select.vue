@@ -71,6 +71,7 @@ const selectedIndex = computed(() => {
   appearance: base-select;
   anchor-name: v-bind(anchorName);
   --tp-select-panel-padding-y: 8px;
+  --tp-select-picker-offset-left: 7px;
   --tp-select-trigger-padding-left: 7px;
   --tp-select-option-height: var(--spacer-4);
   --tp-select-selected-index: v-bind(selectedIndex);
@@ -172,7 +173,7 @@ const selectedIndex = computed(() => {
     anchor(top) - var(--tp-select-panel-padding-y) - var(--tp-select-option-height) *
       var(--tp-select-selected-index)
   );
-  left: calc(anchor(left) - var(--tp-select-trigger-padding-left));
+  left: calc(anchor(left) - var(--tp-select-picker-offset-left));
   margin: 0;
   border-radius: var(--radius-large);
   padding: var(--tp-select-panel-padding-y) var(--spacer-2);
@@ -190,8 +191,9 @@ const selectedIndex = computed(() => {
 
 .tp-select-option {
   display: flex;
+  flex: 0 0 var(--tp-select-option-height);
   align-items: center;
-  min-height: var(--tp-select-option-height);
+  height: var(--tp-select-option-height);
   width: var(--tp-select-width, 100%);
   padding: 0;
   border-radius: var(--radius-medium);

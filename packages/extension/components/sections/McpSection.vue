@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-import type { McpClientConfig, McpClientId } from '@/mcp/config'
+import type {
+  AgentIntegrationAction,
+  AgentIntegrationConfig,
+  AgentIntegrationId
+} from '@/mcp/config'
 
 import IconButton from '@/components/IconButton.vue'
 import BrandIcon from '@/components/icons/brands/BrandIcon.vue'
 import Collapsed from '@/components/icons/Collapsed.vue'
 import Copy from '@/components/icons/Copy.vue'
+import Ellipsis from '@/components/icons/Ellipsis.vue'
 import Expanded from '@/components/icons/Expanded.vue'
 import Minus from '@/components/icons/Minus.vue'
 import Tick from '@/components/icons/Tick.vue'
@@ -14,12 +19,11 @@ import Section from '@/components/Section.vue'
 import SegmentedControl from '@/components/SegmentedControl.vue'
 import { useCopy, useDeepLinkGuard } from '@/composables'
 import {
+  AGENT_INTEGRATIONS,
+  AGENT_INTEGRATIONS_BY_ID,
   AGENT_SKILL_INSTALL_COMMAND,
-  getMcpClientCopyPayload,
-  getNextMcpClientCopyVariant,
-  MCP_CLIENTS,
   MCP_CLIENTS_BY_ID,
-  MCP_DEFAULT_CONFIG_SNIPPET
+  MCP_SERVERS_CONFIG_SNIPPET
 } from '@/mcp/config'
 import { MCP_PERMISSION_REQUEST_EVENT } from '@/mcp/permissions'
 import { options } from '@/ui/state'
@@ -31,109 +35,79 @@ const mcpOptions = [
   { label: 'Enabled', value: true, icon: Tick }
 ]
 
-const clientsExpanded = ref(false)
+const agentColors = Object.fromEntries(
+  AGENT_INTEGRATIONS.map(({ id }) => {
+    const color = MCP_CLIENTS_BY_ID[id].brandColor
+    const light = Array.isArray(color) ? color[0] : color
 
-type McpClientDisplay = Omit<McpClientConfig, 'brandColor'> & {
-  tooltip: string
-}
-
-function resolveBrandColor(brandColor: McpClientConfig['brandColor'], theme: 'light' | 'dark') {
-  if (!brandColor) return undefined
-  if (Array.isArray(brandColor)) {
-    const [lightColor, darkColor] = brandColor
-    return theme === 'dark' ? (darkColor ?? lightColor) : (lightColor ?? darkColor)
-  }
-  return brandColor
-}
-
-function buildBrandColorMap(theme: 'light' | 'dark'): Record<McpClientId, string> {
-  return {
-    vscode: resolveBrandColor(MCP_CLIENTS_BY_ID.vscode.brandColor, theme) ?? '',
-    cursor: resolveBrandColor(MCP_CLIENTS_BY_ID.cursor.brandColor, theme) ?? '',
-    claude: resolveBrandColor(MCP_CLIENTS_BY_ID.claude.brandColor, theme) ?? '',
-    codex: resolveBrandColor(MCP_CLIENTS_BY_ID.codex.brandColor, theme) ?? '',
-    trae: resolveBrandColor(MCP_CLIENTS_BY_ID.trae.brandColor, theme) ?? ''
-  }
-}
-
-const nextCopyVariantByClient = ref<Partial<Record<McpClientId, 'primary' | 'alternate'>>>({})
-
-function getCopyPayload(client: McpClientConfig) {
-  return getMcpClientCopyPayload(client, nextCopyVariantByClient.value[client.id] ?? 'primary')
-}
-
-function getNextCopyPayload(client: McpClientConfig) {
-  const currentVariant = nextCopyVariantByClient.value[client.id] ?? 'primary'
-  return getMcpClientCopyPayload(client, getNextMcpClientCopyVariant(client, currentVariant))
-}
-
-function toggleCopyVariant(client: McpClientConfig): void {
-  const currentVariant = nextCopyVariantByClient.value[client.id] ?? 'primary'
-  nextCopyVariantByClient.value[client.id] = getNextMcpClientCopyVariant(client, currentVariant)
-}
-
-function getClientTooltip(client: McpClientConfig): string {
-  if (client.deepLink) return `Install in ${client.name}`
-  const payload = getCopyPayload(client)
-  if (payload?.kind === 'command') return `Copy command for ${client.name}`
-  if (payload?.kind === 'config') return `Copy configuration for ${client.name}`
-  return client.name
-}
-
-const brandColorsByTheme = computed(() => {
-  return {
-    light: buildBrandColorMap('light'),
-    dark: buildBrandColorMap('dark')
-  }
-})
-
-const mcpClients = computed(() =>
-  MCP_CLIENTS.map((client) => {
-    const { brandColor, ...rest } = client
-
-    return {
-      ...rest,
-      tooltip: getClientTooltip(client)
-    } satisfies McpClientDisplay
+    return [id, { light, dark: Array.isArray(color) ? (color[1] ?? color[0]) : color }]
   })
-)
+) as Record<(typeof AGENT_INTEGRATIONS)[number]['id'], { light?: string; dark?: string }>
+
+type SetupTarget = Pick<AgentIntegrationConfig, 'actions' | 'name'> & {
+  id: AgentIntegrationId | 'other'
+}
+
+const otherSetup = {
+  id: 'other',
+  name: 'Other agent',
+  actions: [
+    {
+      id: 'mcp-config',
+      label: 'MCP config',
+      kind: 'config',
+      value: MCP_SERVERS_CONFIG_SNIPPET
+    },
+    {
+      id: 'skill-cli',
+      label: 'Agent skill',
+      kind: 'command',
+      value: AGENT_SKILL_INSTALL_COMMAND
+    }
+  ]
+} satisfies SetupTarget
+
+const setupExpanded = ref(false)
+const selectedTargetId = ref<SetupTarget['id'] | null>(null)
+const selectedSetup = computed<SetupTarget | null>(() => {
+  const id = selectedTargetId.value
+  if (!id) return null
+  return id === 'other' ? otherSetup : AGENT_INTEGRATIONS_BY_ID[id]
+})
 
 const copy = useCopy()
 const guardDeepLink = useDeepLinkGuard({ timeout: 800 })
-const copyMessages = {
-  command: 'Copied command to clipboard',
-  config: 'Copied configuration to clipboard'
-} as const
-
-function getCopyMessage(client: McpClientConfig, kind: 'command' | 'config'): string {
-  const nextPayload = getNextCopyPayload(client)
-  if (!nextPayload || nextPayload.kind === kind) {
-    return copyMessages[kind]
-  }
-  const nextLabel = nextPayload.kind === 'config' ? 'configuration' : 'command'
-  return `${copyMessages[kind]}. Click again to copy ${nextLabel}`
-}
-
-function handleClientClick(client: McpClientDisplay): void {
-  if (client.deepLink) {
-    guardDeepLink(client.deepLink, {
-      message: `No response from ${client.name}. Please install it first.`,
-      fallbackDeepLink: client.fallbackDeepLink
-    })
-    return
-  }
-  const payload = getCopyPayload(client)
-  if (payload) {
-    copy(payload.text, getCopyMessage(client, payload.kind))
-    toggleCopyVariant(client)
-  }
-}
 
 function setMcpEnabled(enabled: boolean | undefined): void {
   if (enabled) {
     window.dispatchEvent(new Event(MCP_PERMISSION_REQUEST_EVENT))
   }
   options.value.mcpOn = enabled === true
+}
+
+function handleSetupAction(
+  action: Pick<AgentIntegrationAction, 'fallbackValue' | 'kind' | 'value'>,
+  agentName?: string
+): void {
+  if (action.kind === 'deep-link') {
+    guardDeepLink(action.value, {
+      message: `No response from ${agentName}. Please install it first.`,
+      fallbackDeepLink: action.fallbackValue
+    })
+    return
+  }
+
+  const message = action.kind === 'command' ? 'Copied setup command' : 'Copied MCP configuration'
+  copy(action.value, message)
+}
+
+function setSetupTarget(id: SetupTarget['id'], selected: boolean | undefined): void {
+  selectedTargetId.value = selected === true ? id : null
+}
+
+function getActionTitle(action: AgentIntegrationAction, agentName: string): string {
+  const verb = action.kind === 'deep-link' ? 'Open' : 'Copy'
+  return `${verb} ${action.label} for ${agentName}`
 }
 </script>
 
@@ -142,8 +116,9 @@ function setMcpEnabled(enabled: boolean | undefined): void {
     <template #header>
       <div class="tp-row">Agent integration</div>
     </template>
+
     <div class="tp-grid tp-grid-2 tp-mcp-field">
-      <label>Enable MCP server</label>
+      <label>MCP access</label>
       <SegmentedControl
         class="tp-grid-end"
         :options="mcpOptions"
@@ -151,119 +126,129 @@ function setMcpEnabled(enabled: boolean | undefined): void {
         @update:model-value="setMcpEnabled"
       />
     </div>
+
     <template v-if="options.mcpOn">
       <button
         type="button"
         class="tp-row tp-mcp-toggle"
-        :aria-expanded="clientsExpanded"
-        @click="clientsExpanded = !clientsExpanded"
+        :aria-expanded="setupExpanded"
+        @click="setupExpanded = !setupExpanded"
       >
-        <component :is="clientsExpanded ? Expanded : Collapsed" class="tp-mcp-toggle-icon" />
-        <span>Install</span>
+        <component :is="setupExpanded ? Expanded : Collapsed" class="tp-mcp-toggle-icon" />
+        <span>Agent setup</span>
       </button>
-      <div v-if="clientsExpanded" class="tp-mcp-install-section">
-        <div class="tp-grid tp-grid-2 tp-mcp-field">
-          <label>Agent skill</label>
+
+      <div v-if="setupExpanded" class="tp-mcp-setup">
+        <div class="tp-row tp-mcp-agents" role="group" aria-label="Setup target">
           <IconButton
+            v-for="agent in AGENT_INTEGRATIONS"
+            :key="agent.id"
+            toggle
             variant="secondary"
-            title="Copy skills add command"
-            class="tp-mcp-client-button tp-grid-end"
-            @click="copy(AGENT_SKILL_INSTALL_COMMAND, copyMessages.command)"
-          >
-            <Copy />
-          </IconButton>
-        </div>
-        <div class="tp-mcp-description">
-          Configure your editor or agent to run the MCP server. You can use a quick setup below.
-        </div>
-        <div class="tp-row tp-mcp-clients">
-          <IconButton
-            v-for="client in mcpClients"
-            :key="client.id"
-            variant="secondary"
-            :title="client.tooltip"
-            class="tp-mcp-client-button"
+            class="tp-mcp-agent-button"
+            :title="agent.name"
+            :selected="selectedTargetId === agent.id"
             :style="{
-              '--tp-mcp-client-hover-color': `var(--brand-color-${client.id})`
+              '--tp-mcp-agent-color-light': agentColors[agent.id].light,
+              '--tp-mcp-agent-color-dark': agentColors[agent.id].dark
             }"
-            @click="handleClientClick(client)"
+            @update:selected="setSetupTarget(agent.id, $event)"
           >
-            <BrandIcon :id="client.id" class="tp-mcp-client-icon" />
+            <BrandIcon :id="agent.id" class="tp-mcp-agent-icon" />
           </IconButton>
           <IconButton
+            toggle
             variant="secondary"
-            title="Copy configuration"
-            class="tp-mcp-client-button"
-            @click="copy(MCP_DEFAULT_CONFIG_SNIPPET, copyMessages.config)"
+            class="tp-mcp-other-button"
+            title="Other agent"
+            :selected="selectedTargetId === 'other'"
+            @update:selected="setSetupTarget('other', $event)"
           >
-            <Copy />
+            <Ellipsis />
           </IconButton>
         </div>
-        <div class="tp-row">
-          <a
-            target="_blank"
-            rel="noopener"
-            class="tp-mcp-link"
-            href="https://github.com/ecomfe/tempad-dev#agent-integration"
+
+        <div v-if="selectedSetup" class="tp-mcp-actions">
+          <div
+            v-for="action in selectedSetup.actions"
+            :key="action.id"
+            class="tp-row tp-row-justify tp-mcp-action"
           >
-            <ExternalLink />
-            View setup guide
-          </a>
+            <span>{{ action.label }}</span>
+            <IconButton
+              variant="secondary"
+              :class="{ 'tp-mcp-deep-link-button': action.kind === 'deep-link' }"
+              :title="getActionTitle(action, selectedSetup.name)"
+              @click="handleSetupAction(action, selectedSetup.name)"
+            >
+              <ExternalLink v-if="action.kind === 'deep-link'" />
+              <Copy v-else />
+            </IconButton>
+          </div>
         </div>
+
+        <a
+          target="_blank"
+          rel="noopener"
+          class="tp-mcp-link"
+          href="https://github.com/ecomfe/tempad-dev#agent-integration"
+        >
+          <ExternalLink />
+          Setup guide
+        </a>
       </div>
     </template>
   </Section>
 </template>
 
 <style scoped>
-:global([data-preferred-theme='light'] .tp-mcp-section) {
-  --brand-color-vscode: v-bind('brandColorsByTheme.light.vscode');
-  --brand-color-cursor: v-bind('brandColorsByTheme.light.cursor');
-  --brand-color-claude: v-bind('brandColorsByTheme.light.claude');
-  --brand-color-codex: v-bind('brandColorsByTheme.light.codex');
-  --brand-color-trae: v-bind('brandColorsByTheme.light.trae');
-}
-
-:global([data-preferred-theme='dark'] .tp-mcp-section) {
-  --brand-color-vscode: v-bind('brandColorsByTheme.dark.vscode');
-  --brand-color-cursor: v-bind('brandColorsByTheme.dark.cursor');
-  --brand-color-claude: v-bind('brandColorsByTheme.dark.claude');
-  --brand-color-codex: v-bind('brandColorsByTheme.dark.codex');
-  --brand-color-trae: v-bind('brandColorsByTheme.dark.trae');
-}
-
-.tp-mcp-field + .tp-mcp-field {
-  margin-top: 8px;
-}
-
 label {
   cursor: default;
   color: var(--color-text-secondary);
 }
 
-.tp-mcp-install-section {
+.tp-mcp-setup {
   margin-top: 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
-.tp-mcp-clients {
-  flex-wrap: wrap;
+.tp-mcp-agents {
   gap: 2px;
 }
 
-.tp-mcp-client-icon {
+.tp-mcp-agent-icon {
   width: 14px;
   height: 14px;
+  color: var(--color-icon-secondary);
+  filter: grayscale(1);
 }
 
-.tp-mcp-client-button:hover {
-  --icon-button-icon: var(--tp-mcp-client-hover-color) !important;
+.tp-mcp-agent-button:hover .tp-mcp-agent-icon,
+.tp-mcp-agent-button[aria-pressed='true'] .tp-mcp-agent-icon {
+  color: var(--tp-mcp-agent-color-light);
+  filter: none;
 }
 
-.tp-mcp-client-button:last-child {
+:global([data-preferred-theme='dark'] .tp-mcp-agent-button:hover .tp-mcp-agent-icon),
+:global(
+  [data-preferred-theme='dark'] .tp-mcp-agent-button[aria-pressed='true'] .tp-mcp-agent-icon
+) {
+  color: var(--tp-mcp-agent-color-dark);
+}
+
+.tp-mcp-other-button {
   margin-left: auto;
+}
+
+.tp-mcp-action {
+  height: 24px;
+  color: var(--color-text);
+}
+
+.tp-mcp-deep-link-button {
+  --icon-button-icon-size: 16px;
 }
 
 .tp-mcp-toggle {
@@ -278,15 +263,10 @@ label {
   --color-icon: var(--color-text-secondary);
 }
 
-.tp-mcp-description {
-  color: var(--color-text-secondary);
-  line-height: 16px;
-  letter-spacing: calc(0.005px + var(--text-tracking-pos, 0) * 11px);
-}
-
 .tp-mcp-link {
   display: inline-flex;
   align-items: center;
+  align-self: flex-start;
   gap: var(--spacer-2);
   height: 24px;
   outline: none;
@@ -295,5 +275,11 @@ label {
   text-decoration: none;
   color: var(--color-text-brand);
   cursor: pointer;
+}
+
+.tp-mcp-link svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
 }
 </style>
