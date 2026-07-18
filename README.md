@@ -221,7 +221,7 @@ With the TemPad Dev panel open and MCP enabled, the MCP server exposes:
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-light.png">
-  <img alt="TemPad Dev Agent integration with Codex plugin setup options." src="packages/site/public/marketing/mcp-config-light.png" width="240">
+  <img alt="TemPad Dev Agent integration with agent plugin setup options." src="packages/site/public/marketing/mcp-config-light.png" width="240">
 </picture>
 
 #### 1. Enable MCP access

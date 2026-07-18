@@ -8,7 +8,7 @@
       "name": "tempad-dev",
       "source": {
         "source": "local",
-        "path": "./plugins/tempad-dev"
+        "path": "./agent-plugins/tempad-dev"
       },
       "policy": {
         "installation": "AVAILABLE",

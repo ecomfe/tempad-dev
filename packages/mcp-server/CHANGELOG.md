@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1
+
+- Aligned MCP server identity metadata around the stable `tempad-dev` name and human-readable
+  `TemPad Dev` title.
+
 ## 0.7.0
 
 - Hardened local WebSocket admission, active-extension routing, and connection-owned tool results

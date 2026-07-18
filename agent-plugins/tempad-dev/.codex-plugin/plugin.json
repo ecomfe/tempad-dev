@@ -1,6 +1,6 @@
 {
   "name": "tempad-dev",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Use the TemPad Dev agent integration to turn selected Figma nodes into repo-ready UI code.",
   "author": {
     "name": "TemPad Dev"
@@ -13,7 +13,7 @@
   "interface": {
     "displayName": "TemPad Dev",
     "shortDescription": "Use Figma selections as agent-ready design evidence.",
-    "longDescription": "TemPad Dev packages the figma-design-to-code agent skill with MCP server configuration so Codex can inspect selected Figma nodes and implement project-consistent UI code.",
+    "longDescription": "TemPad Dev packages the figma-design-to-code agent skill with MCP server configuration so coding agents can inspect selected Figma nodes and implement project-consistent UI code.",
     "developerName": "TemPad Dev",
     "category": "Design",
     "capabilities": ["Agent integration", "MCP", "Design-to-code", "Frontend"],

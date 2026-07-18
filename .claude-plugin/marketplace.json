@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "tempad-dev",
-      "source": "./plugins/tempad-dev",
+      "source": "./agent-plugins/tempad-dev",
       "description": "Use selected Figma nodes as agent-ready evidence for project-consistent UI implementation.",
       "category": "Design"
     }

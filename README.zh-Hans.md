@@ -217,7 +217,7 @@ Figma 也提供官方的 [remote 与 desktop MCP server](https://developers.figm
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-light.png">
-  <img alt="TemPad Dev Agent integration，展示 Codex plugin 配置选项。" src="packages/site/public/marketing/mcp-config-light.png" width="240">
+  <img alt="TemPad Dev Agent integration，展示 agent plugin 配置选项。" src="packages/site/public/marketing/mcp-config-light.png" width="240">
 </picture>
 
 #### 1. 启用 MCP access

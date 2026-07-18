@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.19.1
+## 0.20.0
 
 - Hid Figma's inactive mode switcher in read-only files after its toolbar structure changed.
 - Redesigned Agent integration around compact agent selection and client-specific deep-link, plugin,

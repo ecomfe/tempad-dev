@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const check = process.argv.includes('--check')
 const source = 'skill/SKILL.md'
-const target = 'plugins/tempad-dev/skills/figma-design-to-code/SKILL.md'
+const target = 'agent-plugins/tempad-dev/skills/figma-design-to-code/SKILL.md'
 const sourcePath = join(root, source)
 const targetPath = join(root, target)
 
@@ -17,7 +17,7 @@ if (current === content) {
 }
 
 if (check) {
-  console.error(`${target} is out of sync with ${source}. Run pnpm sync:codex-plugin.`)
+  console.error(`${target} is out of sync with ${source}. Run pnpm sync:agent-plugin.`)
   process.exit(1)
 }
 

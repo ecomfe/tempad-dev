@@ -10,6 +10,7 @@ Provide a single entry point for coding agents. This file links to package-level
 - `packages/mcp-server/` — MCP server runtime
 - `packages/shared/` — shared types and contracts
 - `packages/plugins/` — plugin-side code and transforms
+- `agent-plugins/` — shared agent plugin bundles and platform manifests
 
 ## Start here
 
