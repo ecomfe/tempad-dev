@@ -70,10 +70,28 @@ function handleRemove(source: string) {
 <template>
   <Section flat class="tp-plugins">
     <template #header>
-      <div class="tp-row">Plugins</div>
-      <IconButton variant="secondary" title="Install plugin">
-        <Plus @click="showImporter" />
-      </IconButton>
+      <button
+        v-if="!installedPlugins.length"
+        type="button"
+        class="tp-plugins-add"
+        data-tooltip="Install plugin"
+        data-tooltip-type="text"
+        @click="showImporter"
+      >
+        <span>Plugins</span>
+        <Plus />
+      </button>
+      <template v-else>
+        <div class="tp-row">Plugins</div>
+        <IconButton
+          variant="secondary"
+          class="tp-plugins-add-button"
+          title="Install plugin"
+          @click="showImporter"
+        >
+          <Plus />
+        </IconButton>
+      </template>
     </template>
     <div class="tp-plugins-list">
       <PluginInstaller
@@ -101,6 +119,39 @@ function handleRemove(source: string) {
 </template>
 
 <style scoped>
+.tp-plugins-add {
+  --icon-button-icon: var(--color-icon-secondary);
+  align-self: stretch;
+  flex: 1;
+  justify-content: space-between;
+  margin-right: calc(-1 * var(--spacer-2));
+  margin-left: calc(-1 * var(--spacer-3));
+  padding-right: var(--spacer-2);
+  padding-left: var(--spacer-3);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.tp-plugins-add:hover {
+  --icon-button-icon: var(--color-icon-hover);
+  color: var(--color-text-secondary-hover);
+}
+
+.tp-plugins-add:focus-visible {
+  outline: 1px solid var(--color-border-selected);
+  outline-offset: -1px;
+}
+
+.tp-plugins-add .tp-icon {
+  width: var(--spacer-4);
+  height: var(--spacer-4);
+  color: var(--icon-button-icon);
+}
+
+.tp-plugins-add-button {
+  --icon-button-icon: var(--color-icon-hover);
+}
+
 .tp-plugins-list {
   display: flex;
   flex-direction: column;

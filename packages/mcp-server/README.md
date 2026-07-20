@@ -15,13 +15,7 @@
 }
 ```
 
-Quick setup helpers:
-
-- Codex / Claude Code: install the agent plugin from TemPad Dev (**Preferences → Agent integration**) to get MCP and the agent skill together.
-- VS Code / Cursor / TRAE: use the MCP deep link in the same panel.
-- Gemini and other clients: copy the MCP CLI command or configuration from the same panel.
-
-See the [complete setup guide](../../README.md#agent-integration) for every supported path and its fallback.
+For agent-specific setup, open TemPad Dev's **Preferences → Agent integration → Set up agents**. It provides guided paths for Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, and TRAE, plus **Other** for compatible clients not listed.
 
 Supported tools/resources:
 

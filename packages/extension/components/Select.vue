@@ -48,7 +48,7 @@ const selectedIndex = computed(() => {
     <button type="button" class="tp-select-trigger">
       <span class="tp-select-value">
         <span class="tp-select-placeholder">{{ placeholder }}</span>
-        <selectedcontent class="tp-select-selected" />
+        <component :is="'selectedcontent'" class="tp-select-selected" />
       </span>
       <Chevron class="tp-select-chevron" aria-hidden="true" />
     </button>

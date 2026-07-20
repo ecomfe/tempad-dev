@@ -42,7 +42,6 @@ type Scenario = {
       role: string
       selectText?: boolean
     }
-    setupExpanded?: boolean
     setupTarget?: string
     mcpEnabled?: boolean
     measure?: boolean
@@ -185,7 +184,7 @@ async function setFigmaTheme(page: Page, theme: Theme): Promise<void> {
 }
 
 async function minimizeFigmaUi(page: Page): Promise<void> {
-  const collapse = page.getByRole('button', { name: /Collapse UI for file named/ })
+  const collapse = page.getByRole('button', { name: /Collapse UI for file named|Minimize UI/ })
   if (await collapse.count()) {
     await collapse.click()
     await page.waitForTimeout(350)
@@ -248,11 +247,21 @@ async function setMcpEnabled(page: Page, enabled: boolean): Promise<void> {
 
 async function setKongPlugin(page: Page, enabled: boolean): Promise<void> {
   const checkbox = page.getByRole('checkbox', { name: 'Kong UI', exact: true })
-  if ((await checkbox.isChecked()) !== enabled) await checkbox.click()
+  if ((await checkbox.isChecked()) !== enabled) await checkbox.setChecked(enabled, { force: true })
   await page.waitForTimeout(250)
 }
 
+async function closeSetupDialog(page: Page): Promise<void> {
+  const tempad = page.locator('tempad')
+  const setupDialog = tempad.getByRole('dialog', { name: 'Set up agents', exact: true })
+  if (await setupDialog.count()) {
+    await setupDialog.getByRole('button', { name: 'Close', exact: true }).click()
+    await setupDialog.waitFor({ state: 'detached' })
+  }
+}
+
 async function resetPanel(page: Page): Promise<void> {
+  await closeSetupDialog(page)
   await ensurePreferences(page, true)
   await setSelect(page, 'CSS unit', 'px')
   await setSelect(page, 'Variable display', 'Both')
@@ -278,13 +287,10 @@ async function configureScenario(page: Page, scenario: Scenario): Promise<void> 
   if (panel.mcpEnabled !== undefined) await setMcpEnabled(page, panel.mcpEnabled)
   await setKongPlugin(page, panel.plugins?.includes('Kong UI') ?? false)
 
-  if (panel.setupExpanded) {
-    const setup = page.locator('article main button.tp-mcp-toggle')
-    if ((await setup.getAttribute('aria-expanded')) !== 'true') await setup.click()
-  }
   if (panel.setupTarget) {
-    const target = page.getByRole('button', { name: panel.setupTarget, exact: true })
-    if ((await target.getAttribute('aria-pressed')) !== 'true') await target.click()
+    await page.locator('tempad').getByRole('button', { name: 'Set up agents', exact: true }).click()
+    const target = page.locator('tempad').getByRole('tab', { name: panel.setupTarget, exact: true })
+    if ((await target.getAttribute('aria-selected')) !== 'true') await target.click()
   }
 
   await ensurePreferences(page, panel.preferencesOpen ?? false)
@@ -434,6 +440,13 @@ async function resolveClip(page: Page, manifest: Manifest, scenario: Scenario): 
     const box = await expectRect(section, `${anchor.name} section`)
     return { ...clip, x: box.x + offset.x, y: box.y + offset.y }
   }
+  if (anchor.kind === 'dialog') {
+    const dialog = await expectRect(
+      page.locator('tempad').getByRole('dialog', { name: anchor.name, exact: true }),
+      `${anchor.name ?? 'Open'} dialog`
+    )
+    return { ...clip, x: dialog.x + offset.x, y: dialog.y + offset.y }
+  }
   fail(`Unsupported clip anchor ${anchor.kind} in ${scenario.id}.`)
 }
 
@@ -459,6 +472,7 @@ async function assertScenario(
   stage: { selection: unknown[] } | null
 ): Promise<void> {
   const panelText = await page.locator('article main').innerText()
+  let dialogText: string | undefined
   if (scenario.mcpStatus) await assertMcpStatus(page, scenario.mcpStatus)
 
   for (const assertion of scenario.assertions) {
@@ -512,6 +526,16 @@ async function assertScenario(
           fail(`${scenario.id}: panel unexpectedly contains ${assertion.text}.`)
         }
         break
+      case 'dialog-text': {
+        dialogText ??= await page
+          .locator('tempad')
+          .getByRole('dialog', { name: 'Set up agents', exact: true })
+          .innerText()
+        if (assertion.text && !dialogText.includes(assertion.text)) {
+          fail(`${scenario.id}: dialog does not contain ${assertion.text}.`)
+        }
+        break
+      }
       default:
         if (assertion.text && !panelText.includes(assertion.text)) {
           fail(`${scenario.id}: panel does not contain ${assertion.text}.`)
@@ -666,6 +690,7 @@ async function main(): Promise<void> {
   try {
     for (const theme of manifest.capture.themes) {
       if (selectedThemes.has(theme)) {
+        await closeSetupDialog(page)
         await setFigmaTheme(page, theme)
         for (const scenario of orderedScenarios) {
           await captureScenario(page, manifest, scenario, theme, outputDir)

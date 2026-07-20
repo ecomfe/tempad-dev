@@ -1,5 +1,3 @@
-import type { McpClientId } from '@tempad-dev/shared'
-
 export type SiteDetailIconId =
   | 'braces'
   | 'component'
@@ -146,12 +144,3 @@ export const TRANSFORM_DETAILS: readonly SiteDetail[] = [
     icon: 'open-source'
   }
 ] as const
-
-export const CONNECT_CLIENT_ORDER: McpClientId[] = [
-  'codex',
-  'cursor',
-  'claude',
-  'gemini',
-  'vscode',
-  'trae'
-]

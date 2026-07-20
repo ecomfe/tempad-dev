@@ -221,78 +221,14 @@ With the TemPad Dev panel open and MCP enabled, the MCP server exposes:
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-light.png">
-  <img alt="TemPad Dev Agent integration with agent plugin setup options." src="packages/site/public/marketing/mcp-config-light.png" width="240">
+  <img alt="TemPad Dev agent setup dialog." src="packages/site/public/marketing/mcp-config-light.png" width="600">
 </picture>
 
-#### 1. Enable MCP access
+1. Install Node.js 18.20.0 or later with `npx`. Keep TemPad Dev open in the Figma tab you want the agent to inspect, then enable **Preferences → Agent integration → MCP access**. When prompted, allow the loopback connection to `127.0.0.1`.
+2. Select **Set up agents**, choose Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, or TRAE, and follow the displayed path. Use **Other** for another compatible client. The choice only changes the instructions shown; it does not bind or activate an agent.
+3. Prefer the direct action when offered. Every fallback command or config is shown in full for review and copying. Codex and Claude Code plugins include both MCP and the `figma-design-to-code` skill; the other paths show the two required steps separately.
 
-Install Node.js 18.20.0 or later with `npx`, then keep TemPad Dev open in the Figma tab you want the agent to inspect. In TemPad Dev, open **Preferences → Agent integration** and enable **MCP access**. When prompted, allow access to `127.0.0.1`; this is the loopback connection between the browser extension and the local MCP server. If the prompt is dismissed or denied, click the MCP badge to retry.
-
-#### 2. Choose an agent
-
-Expand **Agent setup** and select an icon. This selection only reveals setup options for that agent; it does not bind, activate, or save an agent choice. Options are ordered with the simplest supported path first.
-
-| Agent         | Start with                                                    | Other options                   |
-| ------------- | ------------------------------------------------------------- | ------------------------------- |
-| Codex         | **Plugin install** — opens a prefilled Codex task             | **Plugin CLI**                  |
-| Claude Code   | **Plugin install** — opens a terminal with a prefilled prompt | **Plugin CLI**                  |
-| Cursor        | **MCP install**                                               | **MCP config**, **Agent skill** |
-| Gemini        | **MCP CLI**                                                   | **MCP config**, **Agent skill** |
-| VS Code       | **MCP install**                                               | **MCP CLI**, **Agent skill**    |
-| TRAE          | **MCP install**                                               | **Agent skill**                 |
-| ⋯ Other agent | **MCP config**                                                | **Agent skill**                 |
-
-Codex and Claude Code use an agent plugin that bundles both the MCP connection and the agent skill. Their equivalent CLI setup commands are:
-
-```sh
-# Codex
-codex plugin marketplace add ecomfe/tempad-dev --ref main
-codex plugin add tempad-dev@tempad-dev
-
-# Claude Code
-claude plugin marketplace add ecomfe/tempad-dev
-claude plugin install tempad-dev@tempad-dev
-```
-
-#### 3. Run a setup option
-
-- An external-link icon opens a direct MCP installer or a prefilled installation prompt. It never silently executes a command; review and confirm the setup in the target app.
-- A clipboard icon copies the displayed CLI command or configuration. Run or paste it in the named client.
-- If a deep link does not open, make sure the client is installed and current, then use the next CLI or config option. Claude Code registers its URL handler after you send the first prompt in an interactive session.
-
-#### 4. Keep the Figma context connected
-
-Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files have MCP enabled, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context.
-
-#### Manual MCP configuration
-
-For another client, select the ellipsis icon and copy **MCP config**. Clients that accept the common `mcpServers` JSON shape can use this stdio configuration directly:
-
-```json
-{
-  "mcpServers": {
-    "tempad-dev": {
-      "command": "npx",
-      "args": ["-y", "@tempad-dev/mcp@latest"]
-    }
-  }
-}
-```
-
-These client-specific commands configure the same server:
-
-- `claude mcp add --transport stdio "tempad-dev" -- npx -y @tempad-dev/mcp@latest`
-- `codex mcp add "tempad-dev" -- npx -y @tempad-dev/mcp@latest`
-- `gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest`
-- `code --add-mcp '{"name":"tempad-dev","command":"npx","args":["-y","@tempad-dev/mcp@latest"]}'`
-
-### Agent skill
-
-The Codex and Claude Code plugins already include the agent skill. For Cursor, Gemini, VS Code, TRAE, and manual clients, select the relevant client or the ellipsis icon and copy **Agent skill** after configuring MCP. The installed skill is named `figma-design-to-code` and teaches the coding agent how to turn TemPad Dev's design evidence into repository-aware UI.
-
-```sh
-npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill
-```
+Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context.
 
 ### MCP connection status
 

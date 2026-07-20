@@ -813,9 +813,42 @@ html.dark .site-button.is-primary {
   background: var(--site-toggle-button-hover);
 }
 
+.site-client-icon-button[aria-selected="true"] {
+  color: var(--site-ink);
+  border-color: var(--site-client-button-border-hover);
+  background: var(--site-toggle-button-active);
+}
+
+.site-client-icon-button:focus-visible {
+  outline: 2px solid var(--site-accent);
+  outline-offset: 2px;
+}
+
 .site-client-icon-button .site-brand-icon {
   width: 15px;
   height: 15px;
+}
+
+.site-connect-agent-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.site-connect-agent-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.site-connect-agent-copy p {
+  margin: 0;
+  color: var(--site-text-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.site-connect-agent-copy .site-connect-agent-name {
+  color: var(--site-ink);
+  font-weight: 700;
 }
 
 @supports (corner-shape: superellipse(1)) {

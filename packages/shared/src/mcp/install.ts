@@ -5,7 +5,10 @@ const REPOSITORY = 'ecomfe/tempad-dev'
 const MARKETPLACE_NAME = 'tempad-dev'
 const PLUGIN_NAME = 'tempad-dev'
 
-const SKILL_INSTALL_COMMAND = 'npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill'
+const SKILL_URL = 'https://github.com/ecomfe/tempad-dev/tree/main/skill'
+const SKILL_INSTALL_COMMAND = `npx skills add ${SKILL_URL}`
+
+type SkillAgentId = 'cursor' | 'github-copilot' | 'opencode' | 'trae' | 'trae-cn'
 
 type BaseCommandConfig = {
   command: string
@@ -16,7 +19,14 @@ type StdioCommandConfig = BaseCommandConfig & {
   type: 'stdio'
 }
 
-export type AgentIntegrationId = 'codex' | 'cursor' | 'claude' | 'gemini' | 'vscode' | 'trae'
+export type AgentIntegrationId =
+  | 'codex'
+  | 'cursor'
+  | 'claude'
+  | 'gemini'
+  | 'vscode'
+  | 'opencode'
+  | 'trae'
 export type McpClientId = AgentIntegrationId
 
 export type McpBrandColor = string | [light: string, dark: string]
@@ -133,6 +143,20 @@ function buildMcpConfigSnippet(): string {
   )
 }
 
+const OPENCODE_CONFIG_SNIPPET = JSON.stringify(
+  {
+    $schema: 'https://opencode.ai/config.json',
+    mcp: {
+      [SERVER_NAME]: {
+        type: 'local',
+        command: [SERVER_COMMAND, ...SERVER_ARGS]
+      }
+    }
+  },
+  null,
+  2
+)
+
 function buildCliCommand(prefix: 'claude' | 'codex' | 'gemini' | 'vscode'): string {
   const args = `${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`
   if (prefix === 'claude') {
@@ -172,6 +196,10 @@ function buildPluginSetupDeepLink(prefix: 'claude' | 'codex'): string {
   const prompt = `Install the TemPad Dev agent plugin by running this command, then confirm that its MCP server and figma-design-to-code skill are available:\n\n${command}`
   const target = prefix === 'claude' ? 'claude-cli://open?q=' : 'codex://new?prompt='
   return `${target}${encodeURIComponent(prompt)}`
+}
+
+function buildSkillInstallCommand(...agents: SkillAgentId[]): string {
+  return `${SKILL_INSTALL_COMMAND} --global ${agents.map((agent) => `--agent ${agent}`).join(' ')}`
 }
 
 export function getMcpClientCopyPayload(
@@ -267,6 +295,14 @@ export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
     alternateCopyText: buildMcpConfigSnippet(),
     alternateCopyKind: 'config'
   },
+  opencode: {
+    id: 'opencode',
+    name: 'OpenCode',
+    brandColor: ['#211e1e', '#f1ecec'],
+    supportsDeepLink: false,
+    copyText: OPENCODE_CONFIG_SNIPPET,
+    copyKind: 'config'
+  },
   trae: {
     id: 'trae',
     name: 'TRAE',
@@ -283,6 +319,7 @@ export const MCP_CLIENTS: McpClientConfig[] = [
   MCP_CLIENTS_BY_ID.claude,
   MCP_CLIENTS_BY_ID.codex,
   MCP_CLIENTS_BY_ID.gemini,
+  MCP_CLIENTS_BY_ID.opencode,
   MCP_CLIENTS_BY_ID.trae
 ]
 
@@ -325,7 +362,7 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
         id: 'skill-cli',
         label: 'Agent skill',
         kind: 'command',
-        value: SKILL_INSTALL_COMMAND
+        value: buildSkillInstallCommand('cursor')
       }
     ]
   },
@@ -358,16 +395,10 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
         value: buildCliCommand('gemini')
       },
       {
-        id: 'mcp-config',
-        label: 'MCP config',
-        kind: 'config',
-        value: buildMcpConfigSnippet()
-      },
-      {
         id: 'skill-cli',
         label: 'Agent skill',
         kind: 'command',
-        value: SKILL_INSTALL_COMMAND
+        value: `gemini skills install ${SKILL_URL}`
       }
     ]
   },
@@ -391,7 +422,25 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
         id: 'skill-cli',
         label: 'Agent skill',
         kind: 'command',
-        value: SKILL_INSTALL_COMMAND
+        value: buildSkillInstallCommand('github-copilot')
+      }
+    ]
+  },
+  opencode: {
+    id: 'opencode',
+    name: 'OpenCode',
+    actions: [
+      {
+        id: 'mcp-config',
+        label: 'MCP config',
+        kind: 'config',
+        value: OPENCODE_CONFIG_SNIPPET
+      },
+      {
+        id: 'skill-cli',
+        label: 'Agent skill',
+        kind: 'command',
+        value: buildSkillInstallCommand('opencode')
       }
     ]
   },
@@ -410,7 +459,7 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
         id: 'skill-cli',
         label: 'Agent skill',
         kind: 'command',
-        value: SKILL_INSTALL_COMMAND
+        value: buildSkillInstallCommand('trae', 'trae-cn')
       }
     ]
   }
@@ -422,5 +471,6 @@ export const AGENT_INTEGRATIONS: AgentIntegrationConfig[] = [
   AGENT_INTEGRATIONS_BY_ID.claude,
   AGENT_INTEGRATIONS_BY_ID.gemini,
   AGENT_INTEGRATIONS_BY_ID.vscode,
+  AGENT_INTEGRATIONS_BY_ID.opencode,
   AGENT_INTEGRATIONS_BY_ID.trae
 ]

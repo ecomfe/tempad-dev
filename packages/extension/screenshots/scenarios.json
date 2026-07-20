@@ -385,7 +385,7 @@
     },
     {
       "id": "mcp-config",
-      "intent": "Show Codex's app prompt and CLI plugin setup paths without crowding the panel with every agent's actions.",
+      "intent": "Show the focused agent setup workflow in a Figma-native modal without crowding the main panel.",
       "fixture": "code",
       "view": "mcpInstall",
       "figma": {
@@ -395,7 +395,6 @@
       "panel": {
         "preferencesOpen": true,
         "mcpEnabled": true,
-        "setupExpanded": true,
         "setupTarget": "Codex"
       },
       "pointer": {
@@ -406,13 +405,13 @@
         }
       },
       "clip": {
-        "x": 676,
-        "y": 272,
-        "width": 240,
-        "height": 206,
+        "x": 0,
+        "y": 0,
+        "width": 600,
+        "height": 480,
         "anchor": {
-          "kind": "panel-section",
-          "name": "Agent integration",
+          "kind": "dialog",
+          "name": "Set up agents",
           "edge": "top-left",
           "offset": { "x": 0, "y": 0 }
         }
@@ -420,13 +419,16 @@
       "assertions": [
         { "kind": "panel-text", "text": "Agent integration" },
         { "kind": "panel-text", "text": "MCP access" },
-        { "kind": "panel-text", "text": "Agent setup" },
-        { "kind": "panel-text", "text": "Plugin install" },
-        { "kind": "panel-text", "text": "Plugin CLI" },
-        { "kind": "panel-text", "text": "Setup guide" }
+        { "kind": "panel-text", "text": "Set up agents" },
+        { "kind": "dialog-text", "text": "Codex" },
+        { "kind": "dialog-text", "text": "Recommended" },
+        { "kind": "dialog-text", "text": "TemPad Dev plugin" },
+        { "kind": "dialog-text", "text": "Continue in Codex" },
+        { "kind": "dialog-text", "text": "Or run in your terminal:" },
+        { "kind": "dialog-text", "text": "codex plugin marketplace add" }
       ],
-      "width": 480,
-      "height": 412
+      "width": 1200,
+      "height": 960
     },
     {
       "id": "mcp-unavailable",

@@ -3,8 +3,14 @@
 ## 0.20.0
 
 - Hid Figma's inactive mode switcher in read-only files after its toolbar structure changed.
-- Redesigned Agent integration around compact agent selection and client-specific deep-link, plugin,
-  CLI, and config paths for Codex, Cursor, Claude Code, Gemini, VS Code, and TRAE.
+- Redesigned Agent integration as a Figma-aligned setup dialog with focused guidance for Codex,
+  Cursor, Claude Code, Gemini, VS Code, OpenCode, TRAE, and other MCP-compatible agents.
+- Added the best available setup path for each agent, including one-click links, agent plugins,
+  native CLI commands, and copyable manual MCP and skill configuration.
+- Improved setup readability and interaction details with wrapping command blocks, full-block copy
+  highlighting, accessible navigation, and refreshed light and dark marketing screenshots.
+- Aligned the website and README setup guidance with the same supported agents and recommended
+  integration paths.
 
 ## 0.19.0
 

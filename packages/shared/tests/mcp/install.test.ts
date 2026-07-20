@@ -86,7 +86,16 @@ describe('shared/mcp/install', () => {
     expect(mcp.MCP_CLIENTS_BY_ID.gemini.copyText).toBe(
       'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest'
     )
-    expect(mcp.MCP_CLIENTS).toHaveLength(6)
+    expect(JSON.parse(mcp.MCP_CLIENTS_BY_ID.opencode.copyText ?? '')).toEqual({
+      $schema: 'https://opencode.ai/config.json',
+      mcp: {
+        'tempad-dev': {
+          type: 'local',
+          command: ['npx', '-y', '@tempad-dev/mcp@latest']
+        }
+      }
+    })
+    expect(mcp.MCP_CLIENTS).toHaveLength(7)
   })
 
   it('describes the supported app and CLI setup paths', async () => {
@@ -99,6 +108,7 @@ describe('shared/mcp/install', () => {
       'claude',
       'gemini',
       'vscode',
+      'opencode',
       'trae'
     ])
 
@@ -133,14 +143,27 @@ describe('shared/mcp/install', () => {
       'npx'
     )
     expect(cursor.actions.map(({ id }) => id)).toEqual(['mcp-deep-link', 'mcp-config', 'skill-cli'])
+    expect(cursor.actions[2]?.value).toBe(
+      'npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill --global --agent cursor'
+    )
 
     const gemini = mcp.AGENT_INTEGRATIONS_BY_ID.gemini
-    expect(gemini.actions.map(({ id }) => id)).toEqual(['mcp-cli', 'mcp-config', 'skill-cli'])
+    expect(gemini.actions.map(({ id }) => id)).toEqual(['mcp-cli', 'skill-cli'])
     expect(gemini.actions[0]?.value).toContain('gemini mcp add --scope user')
+    expect(gemini.actions[1]?.value).toBe(
+      'gemini skills install https://github.com/ecomfe/tempad-dev/tree/main/skill'
+    )
 
     const vscode = mcp.AGENT_INTEGRATIONS_BY_ID.vscode
     expect(vscode.actions.map(({ id }) => id)).toEqual(['mcp-deep-link', 'mcp-cli', 'skill-cli'])
     expect(vscode.actions[1]?.value).toContain('code --add-mcp')
+    expect(vscode.actions[2]?.value).toContain('--global --agent github-copilot')
+
+    const opencode = mcp.AGENT_INTEGRATIONS_BY_ID.opencode
+    expect(opencode.actions.map(({ id }) => id)).toEqual(['mcp-config', 'skill-cli'])
+    expect(opencode.actions[0]?.value).toBe(mcp.MCP_CLIENTS_BY_ID.opencode.copyText)
+    expect(opencode.actions[1]?.value).toContain('--global --agent opencode')
+
     expect(mcp.AGENT_INTEGRATIONS_BY_ID.trae.actions[0]).toEqual(
       expect.objectContaining({
         id: 'mcp-deep-link',
@@ -150,6 +173,9 @@ describe('shared/mcp/install', () => {
       })
     )
     expect(mcp.AGENT_INTEGRATIONS_BY_ID.trae.actions[1]?.id).toBe('skill-cli')
+    expect(mcp.AGENT_INTEGRATIONS_BY_ID.trae.actions[1]?.value).toContain(
+      '--global --agent trae --agent trae-cn'
+    )
   })
 
   it('falls back to Buffer when btoa is unavailable', async () => {

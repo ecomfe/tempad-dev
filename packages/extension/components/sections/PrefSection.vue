@@ -3,7 +3,7 @@ import IconButton from '@/components/IconButton.vue'
 import Inspect from '@/components/icons/Inspect.vue'
 import Measure from '@/components/icons/Measure.vue'
 import Section from '@/components/Section.vue'
-import McpSection from '@/components/sections/McpSection.vue'
+import AgentIntegrationSection from '@/components/sections/AgentIntegrationSection.vue'
 import PluginsSection from '@/components/sections/PluginsSection.vue'
 import Select, { type SelectOption } from '@/components/Select.vue'
 import { useSelectAll } from '@/composables'
@@ -95,7 +95,7 @@ const variableDisplayOptions = [
         />
       </div>
     </div>
-    <McpSection class="tp-pref-mcp" />
+    <AgentIntegrationSection class="tp-pref-agent-integration" />
     <PluginsSection class="tp-pref-plugins" />
   </Section>
 </template>
@@ -105,7 +105,7 @@ const variableDisplayOptions = [
   --tp-section-padding-bottom: 0;
 }
 
-.tp-pref-mcp,
+.tp-pref-agent-integration,
 .tp-pref-plugins {
   margin-top: 12px;
   margin-left: -12px;

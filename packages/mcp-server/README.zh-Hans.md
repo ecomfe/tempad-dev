@@ -13,13 +13,7 @@
 }
 ```
 
-快速配置方式：
-
-- Codex / Claude Code：在 TemPad Dev（**Preferences → Agent integration**）中安装 agent plugin，一次配置 MCP 与 agent skill。
-- VS Code / Cursor / TRAE：使用同一面板中的 MCP deep link。
-- Gemini 及其它客户端：从同一面板复制 MCP CLI 命令或 config。
-
-所有支持路径和 fallback 请参见[完整配置指南](../../README.zh-Hans.md#agent-集成)。
+如需针对不同 agent 配置，请打开 TemPad Dev 的 **Preferences → Agent integration → Set up agents**。界面提供 Codex、Cursor、Claude Code、Gemini、VS Code、OpenCode 和 TRAE 的引导路径；未列出的兼容客户端可选择 **Other**。
 
 支持的工具和资源：
 

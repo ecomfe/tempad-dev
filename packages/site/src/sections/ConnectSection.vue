@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import type { McpClientConfig, McpClientCopyPayload } from '@tempad-dev/shared'
-
-import {
-  AGENT_SKILL_INSTALL_COMMAND,
-  getMcpClientCopyPayload,
-  getNextMcpClientCopyVariant,
-  MCP_CLIENTS_BY_ID
+import type {
+  AgentIntegrationAction,
+  AgentIntegrationConfig,
+  AgentIntegrationId
 } from '@tempad-dev/shared'
-import { Copy, FileText, SquareTerminal } from 'lucide-vue-next'
+
+import { AGENT_INTEGRATIONS } from '@tempad-dev/shared'
+import { Copy, ExternalLink, FileText, SquareTerminal } from 'lucide-vue-next'
 import {
   computed,
   defineAsyncComponent,
@@ -21,7 +20,7 @@ import {
 import ActionButton from '@/components/ActionButton.vue'
 import BrandIcon from '@/components/BrandIcon.vue'
 import SectionShell from '@/components/SectionShell.vue'
-import { CONNECT_CLIENT_ORDER } from '@/content/landing'
+import { SITE_LINKS } from '@/content/landing'
 
 type FeedbackKind = 'success' | 'info' | 'error'
 
@@ -46,7 +45,7 @@ type RenderedTerminalEntry =
       segments: readonly TerminalSegment[]
     }
 
-const clients = CONNECT_CLIENT_ORDER.map((id) => MCP_CLIENTS_BY_ID[id])
+const agents = AGENT_INTEGRATIONS
 const SkillPreviewDialog = defineAsyncComponent(() => import('@/components/SkillPreviewDialog.vue'))
 
 const feedback = ref<{ kind: FeedbackKind; text: string } | null>(null)
@@ -54,11 +53,15 @@ const isSkillPreviewOpen = ref(false)
 const hasLoadedSkillPreview = ref(false)
 const activeTerminalEntryIndex = ref(0)
 const activeTerminalCharCount = ref(0)
+const selectedAgentId = ref<AgentIntegrationId>('codex')
 const terminalCardRef = ref<HTMLElement | null>(null)
 const terminalViewportRef = ref<HTMLElement | null>(null)
-const nextCopyVariantByClient = ref<
-  Partial<Record<McpClientConfig['id'], 'primary' | 'alternate'>>
->({})
+const selectedAgent = computed(() => agents.find(({ id }) => id === selectedAgentId.value)!)
+const selectedAgentDescription = computed(() =>
+  selectedAgent.value.actions.some(({ id }) => id === 'plugin-prompt')
+    ? 'Install the plugin to add MCP access and the design skill together.'
+    : 'Connect the MCP server, then add the design skill.'
+)
 
 const terminalEntries: readonly TerminalEntry[] = [
   {
@@ -308,9 +311,7 @@ async function writeClipboard(text: string, successMessage: string): Promise<voi
   }
 }
 
-function openDeepLink(client: McpClientConfig): void {
-  if (!client.deepLink) return
-
+function openDeepLink(action: AgentIntegrationAction, agent: AgentIntegrationConfig): void {
   let cleaned = false
 
   const cleanup = (): void => {
@@ -331,80 +332,57 @@ function openDeepLink(client: McpClientConfig): void {
   const timeoutId = window.setTimeout(() => {
     cleanup()
 
-    if (client.fallbackDeepLink) {
-      window.location.href = client.fallbackDeepLink
-      showFeedback(`Trying the fallback install link for ${client.name}…`, 'info')
+    if (action.fallbackValue) {
+      window.location.href = action.fallbackValue
+      showFeedback(`Trying the fallback install link for ${agent.name}…`, 'info')
       return
     }
 
-    showFeedback(`No response from ${client.name}. Install it first, then try again.`, 'info')
+    showFeedback(`No response from ${agent.name}. Install it first, then try again.`, 'info')
   }, 850)
 
   window.addEventListener('blur', cleanup, { once: true })
   window.addEventListener('pagehide', cleanup, { once: true })
   document.addEventListener('visibilitychange', handleVisibilityChange)
 
-  window.location.href = client.deepLink
+  window.location.href = action.value
 }
 
-function getCopyPayload(client: McpClientConfig): McpClientCopyPayload | null {
-  return getMcpClientCopyPayload(client, nextCopyVariantByClient.value[client.id] ?? 'primary')
-}
-
-function getNextCopyPayload(client: McpClientConfig): McpClientCopyPayload | null {
-  const currentVariant = nextCopyVariantByClient.value[client.id] ?? 'primary'
-  return getMcpClientCopyPayload(client, getNextMcpClientCopyVariant(client, currentVariant))
-}
-
-function toggleCopyVariant(client: McpClientConfig): void {
-  const currentVariant = nextCopyVariantByClient.value[client.id] ?? 'primary'
-  nextCopyVariantByClient.value[client.id] = getNextMcpClientCopyVariant(client, currentVariant)
-}
-
-function getClientActionLabel(client: McpClientConfig): string {
-  if (client.deepLink) {
-    return 'Open'
+function getActionLabel(action: AgentIntegrationAction, agent: AgentIntegrationConfig): string {
+  switch (action.id) {
+    case 'plugin-prompt':
+      return `Continue in ${agent.name}`
+    case 'plugin-cli':
+      return 'Copy plugin command'
+    case 'mcp-deep-link':
+      return 'Install MCP server'
+    case 'mcp-cli':
+      return 'Copy MCP command'
+    case 'mcp-config':
+      return 'Copy MCP config'
+    case 'skill-cli':
+      return 'Copy skill command'
   }
-
-  const payload = getCopyPayload(client)
-  if (payload?.kind === 'command') {
-    return 'Copy command'
-  }
-
-  return 'Copy config'
 }
 
-function getClientCopySuccessMessage(client: McpClientConfig): string {
-  const payload = getCopyPayload(client)
-  if (!payload) {
-    return 'Copied config snippet.'
-  }
-
-  const copied = payload.kind === 'command' ? 'Copied install command.' : 'Copied config snippet.'
-  const nextPayload = getNextCopyPayload(client)
-  if (!nextPayload || nextPayload.kind === payload.kind) {
-    return copied
-  }
-
-  const nextLabel = nextPayload.kind === 'config' ? 'config' : 'command'
-  return `${copied} Click again to copy ${nextLabel}.`
-}
-
-function handleClientAction(client: McpClientConfig): void {
-  if (client.deepLink) {
-    openDeepLink(client)
+function handleAgentAction(action: AgentIntegrationAction): void {
+  if (action.kind === 'deep-link') {
+    openDeepLink(action, selectedAgent.value)
     return
   }
 
-  const payload = getCopyPayload(client)
-  if (payload) {
-    void writeClipboard(payload.text, getClientCopySuccessMessage(client))
-    toggleCopyVariant(client)
-  }
+  const message = action.kind === 'config' ? 'Copied MCP config.' : 'Copied setup command.'
+  void writeClipboard(action.value, message)
 }
 
-function handleCopySkill(): void {
-  void writeClipboard(AGENT_SKILL_INSTALL_COMMAND, 'Copied skill install command.')
+function selectAdjacentAgent(direction: -1 | 1): void {
+  const index = agents.findIndex(({ id }) => id === selectedAgentId.value)
+  const nextIndex = (index + direction + agents.length) % agents.length
+  selectedAgentId.value = agents[nextIndex]?.id ?? 'codex'
+
+  nextTick(() =>
+    document.querySelector<HTMLElement>(`#site-agent-tab-${selectedAgentId.value}`)?.focus()
+  )
 }
 
 function handleOpenSkillPreview(): void {
@@ -568,20 +546,21 @@ onBeforeUnmount(() => {
         <div class="site-connect-row">
           <div class="site-connect-row-head">
             <p class="site-connect-row-step">Step 1</p>
-            <p class="site-connect-row-label">Add the agent skill</p>
+            <p class="site-connect-row-label">Open TemPad Dev in Figma</p>
             <p class="site-connect-row-copy">
-              Teach the agent the design-to-code workflow before it reads the selected node.
+              Enable MCP access under Preferences → Agent integration, then keep the panel open in
+              the file you want the agent to inspect.
             </p>
           </div>
           <div class="site-connect-actions">
             <ActionButton
-              type="button"
+              :href="SITE_LINKS.install"
+              external
               variant="primary"
               class="site-connect-action-button"
-              @click="handleCopySkill"
             >
-              <Copy aria-hidden="true" />
-              <span>Copy skill command</span>
+              <ExternalLink aria-hidden="true" />
+              <span>Install extension</span>
             </ActionButton>
             <ActionButton
               type="button"
@@ -598,23 +577,57 @@ onBeforeUnmount(() => {
         <div class="site-connect-row">
           <div class="site-connect-row-head">
             <p class="site-connect-row-step">Step 2</p>
-            <p class="site-connect-row-label">Connect the MCP server</p>
+            <p class="site-connect-row-label">Set up your agent</p>
             <p class="site-connect-row-copy">
-              Add TemPad Dev to the client you already use so it can fetch selected-node evidence.
+              Choose a supported agent to use its shortest available setup path.
             </p>
           </div>
-          <div class="site-client-quicklist">
+          <div class="site-client-quicklist" role="tablist" aria-label="Agent">
             <button
-              v-for="client in clients"
-              :key="client.id"
+              v-for="agent in agents"
+              :id="`site-agent-tab-${agent.id}`"
+              :key="agent.id"
               type="button"
+              role="tab"
               class="site-client-icon-button"
-              :aria-label="`${client.name}: ${getClientActionLabel(client)}`"
-              :title="`${client.name}: ${getClientActionLabel(client)}`"
-              @click="handleClientAction(client)"
+              :aria-label="agent.name"
+              :aria-selected="selectedAgentId === agent.id"
+              aria-controls="site-connect-agent-panel"
+              :tabindex="selectedAgentId === agent.id ? 0 : -1"
+              :title="agent.name"
+              @click="selectedAgentId = agent.id"
+              @keydown.left.prevent="selectAdjacentAgent(-1)"
+              @keydown.up.prevent="selectAdjacentAgent(-1)"
+              @keydown.right.prevent="selectAdjacentAgent(1)"
+              @keydown.down.prevent="selectAdjacentAgent(1)"
             >
-              <BrandIcon :client-id="client.id" />
+              <BrandIcon :client-id="agent.id" />
             </button>
+          </div>
+          <div
+            id="site-connect-agent-panel"
+            class="site-connect-agent-panel"
+            role="tabpanel"
+            :aria-labelledby="`site-agent-tab-${selectedAgent.id}`"
+          >
+            <div class="site-connect-agent-copy">
+              <p class="site-connect-agent-name">{{ selectedAgent.name }}</p>
+              <p>{{ selectedAgentDescription }}</p>
+            </div>
+            <div class="site-connect-actions">
+              <ActionButton
+                v-for="(action, index) in selectedAgent.actions"
+                :key="action.id"
+                type="button"
+                :variant="index === 0 ? 'primary' : 'secondary'"
+                class="site-connect-action-button"
+                @click="handleAgentAction(action)"
+              >
+                <ExternalLink v-if="action.kind === 'deep-link'" aria-hidden="true" />
+                <Copy v-else aria-hidden="true" />
+                <span>{{ getActionLabel(action, selectedAgent) }}</span>
+              </ActionButton>
+            </div>
           </div>
         </div>
       </div>

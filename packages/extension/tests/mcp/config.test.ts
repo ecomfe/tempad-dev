@@ -1,110 +1,25 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as shared from '@tempad-dev/shared'
+import { describe, expect, it } from 'vitest'
 
-const originalBtoa = globalThis.btoa
+import * as config from '../../mcp/config'
 
-function restoreBtoa() {
-  if (originalBtoa) {
-    globalThis.btoa = originalBtoa
-    return
-  }
-  Reflect.deleteProperty(globalThis, 'btoa')
-}
-
-async function importConfig() {
-  vi.resetModules()
-  return import('../../mcp/config')
-}
-
-afterEach(() => {
-  restoreBtoa()
-})
+const exports = [
+  'AGENT_INTEGRATIONS',
+  'AGENT_INTEGRATIONS_BY_ID',
+  'AGENT_SKILL_INSTALL_COMMAND',
+  'getMcpClientCopyPayload',
+  'getNextMcpClientCopyVariant',
+  'MCP_CLIENTS',
+  'MCP_CLIENTS_BY_ID',
+  'MCP_DEFAULT_CONFIG_SNIPPET',
+  'MCP_SERVERS_CONFIG_SNIPPET',
+  'MCP_SERVER'
+] as const
 
 describe('mcp/config', () => {
-  it('builds stable MCP server and client install metadata', async () => {
-    globalThis.btoa = (input: string) => Buffer.from(input, 'utf8').toString('base64')
-    const tempad = await importConfig()
-
-    expect(tempad.MCP_SERVER).toEqual({
-      name: 'tempad-dev',
-      command: 'npx',
-      args: ['-y', '@tempad-dev/mcp@latest']
-    })
-
-    const vscodeDeepLink = tempad.MCP_CLIENTS_BY_ID.vscode.deepLink
-    expect(vscodeDeepLink).toMatch(/^vscode:mcp\/install\?/)
-    const vscodePayload = decodeURIComponent(
-      String(vscodeDeepLink).replace('vscode:mcp/install?', '')
-    )
-    expect(JSON.parse(vscodePayload)).toEqual({
-      name: 'tempad-dev',
-      type: 'stdio',
-      command: 'npx',
-      args: ['-y', '@tempad-dev/mcp@latest']
-    })
-
-    const cursorDeepLink = tempad.MCP_CLIENTS_BY_ID.cursor.deepLink
-    expect(cursorDeepLink).toContain(
-      'cursor://anysphere.cursor-deeplink/mcp/install?name=tempad-dev'
-    )
-    expect(cursorDeepLink).toContain('config=')
-    const cursorUrl = new URL(String(cursorDeepLink))
-    const encodedCursorConfig = cursorUrl.searchParams.get('config')
-    expect(encodedCursorConfig).toBeTruthy()
-    const decodedCursorConfigJson = Buffer.from(
-      decodeURIComponent(String(encodedCursorConfig)),
-      'base64'
-    ).toString('utf8')
-    expect(JSON.parse(decodedCursorConfigJson)).toEqual({
-      command: 'npx',
-      args: ['-y', '@tempad-dev/mcp@latest']
-    })
-
-    expect(tempad.MCP_CLIENTS_BY_ID.trae.deepLink).toContain('trae://trae.ai-ide/mcp-import')
-    expect(tempad.MCP_CLIENTS_BY_ID.trae.fallbackDeepLink).toContain(
-      'trae-cn://trae.ai-ide/mcp-import'
-    )
-
-    expect(tempad.MCP_CLIENTS_BY_ID.claude.copyKind).toBe('command')
-    expect(tempad.MCP_CLIENTS_BY_ID.claude.copyText).toContain('claude mcp add --transport stdio')
-    expect(tempad.MCP_CLIENTS_BY_ID.codex.copyKind).toBe('command')
-    expect(tempad.MCP_CLIENTS_BY_ID.codex.copyText).toContain('codex mcp add "tempad-dev"')
-    expect(tempad.MCP_CLIENTS_BY_ID.codex.alternateCopyKind).toBe('config')
-    expect(tempad.MCP_CLIENTS_BY_ID.codex.alternateCopyText).toBe(
-      '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@latest"]'
-    )
-    expect(tempad.MCP_CLIENTS_BY_ID.gemini.copyText).toContain('gemini mcp add --scope user')
-
-    expect(tempad.MCP_CLIENTS).toEqual([
-      tempad.MCP_CLIENTS_BY_ID.vscode,
-      tempad.MCP_CLIENTS_BY_ID.cursor,
-      tempad.MCP_CLIENTS_BY_ID.claude,
-      tempad.MCP_CLIENTS_BY_ID.codex,
-      tempad.MCP_CLIENTS_BY_ID.gemini,
-      tempad.MCP_CLIENTS_BY_ID.trae
-    ])
-    expect(tempad.MCP_DEFAULT_CONFIG_SNIPPET).toContain('"tempad-dev"')
-    expect(tempad.AGENT_INTEGRATIONS.map(({ id }) => id)).toEqual([
-      'codex',
-      'cursor',
-      'claude',
-      'gemini',
-      'vscode',
-      'trae'
-    ])
-    expect(tempad.AGENT_INTEGRATIONS_BY_ID.codex.actions[0]).toEqual(
-      expect.objectContaining({
-        id: 'plugin-prompt',
-        value: expect.stringMatching(/^codex:\/\/new\?prompt=/)
-      })
-    )
-    expect(tempad.AGENT_INTEGRATIONS_BY_ID.claude.actions[0]?.value).toMatch(
-      /^claude-cli:\/\/open\?q=/
-    )
-    expect(tempad.AGENT_INTEGRATIONS_BY_ID.cursor.actions.map(({ id }) => id)).toEqual([
-      'mcp-deep-link',
-      'mcp-config',
-      'skill-cli'
-    ])
-    expect(tempad.AGENT_SKILL_INSTALL_COMMAND).toContain('npx skills add')
+  it('re-exports the shared install metadata', () => {
+    for (const name of exports) {
+      expect(config[name]).toBe(shared[name])
+    }
   })
 })
