@@ -829,9 +829,24 @@ html.dark .site-button.is-primary {
   height: 15px;
 }
 
-.site-connect-agent-panel {
+.site-connect-agent-panels {
   display: grid;
+  grid-template-rows: auto auto;
   gap: 12px;
+}
+
+.site-connect-agent-panel {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  display: grid;
+  grid-template-rows: subgrid;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.site-connect-agent-panel.is-selected {
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .site-connect-agent-copy {

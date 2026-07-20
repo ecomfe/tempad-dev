@@ -56,12 +56,11 @@ const activeTerminalCharCount = ref(0)
 const selectedAgentId = ref<AgentIntegrationId>('codex')
 const terminalCardRef = ref<HTMLElement | null>(null)
 const terminalViewportRef = ref<HTMLElement | null>(null)
-const selectedAgent = computed(() => agents.find(({ id }) => id === selectedAgentId.value)!)
-const selectedAgentDescription = computed(() =>
-  selectedAgent.value.actions.some(({ id }) => id === 'plugin-prompt')
+function getAgentDescription(agent: AgentIntegrationConfig): string {
+  return agent.actions.some(({ id }) => id === 'plugin-prompt')
     ? 'Install the plugin to add MCP access and the design skill together.'
     : 'Connect the MCP server, then add the design skill.'
-)
+}
 
 const terminalEntries: readonly TerminalEntry[] = [
   {
@@ -365,9 +364,9 @@ function getActionLabel(action: AgentIntegrationAction, agent: AgentIntegrationC
   }
 }
 
-function handleAgentAction(action: AgentIntegrationAction): void {
+function handleAgentAction(action: AgentIntegrationAction, agent: AgentIntegrationConfig): void {
   if (action.kind === 'deep-link') {
-    openDeepLink(action, selectedAgent.value)
+    openDeepLink(action, agent)
     return
   }
 
@@ -592,7 +591,7 @@ onBeforeUnmount(() => {
               class="site-client-icon-button"
               :aria-label="agent.name"
               :aria-selected="selectedAgentId === agent.id"
-              aria-controls="site-connect-agent-panel"
+              :aria-controls="`site-connect-agent-panel-${agent.id}`"
               :tabindex="selectedAgentId === agent.id ? 0 : -1"
               :title="agent.name"
               @click="selectedAgentId = agent.id"
@@ -604,29 +603,36 @@ onBeforeUnmount(() => {
               <BrandIcon :client-id="agent.id" />
             </button>
           </div>
-          <div
-            id="site-connect-agent-panel"
-            class="site-connect-agent-panel"
-            role="tabpanel"
-            :aria-labelledby="`site-agent-tab-${selectedAgent.id}`"
-          >
-            <div class="site-connect-agent-copy">
-              <p class="site-connect-agent-name">{{ selectedAgent.name }}</p>
-              <p>{{ selectedAgentDescription }}</p>
-            </div>
-            <div class="site-connect-actions">
-              <ActionButton
-                v-for="(action, index) in selectedAgent.actions"
-                :key="action.id"
-                type="button"
-                :variant="index === 0 ? 'primary' : 'secondary'"
-                class="site-connect-action-button"
-                @click="handleAgentAction(action)"
-              >
-                <ExternalLink v-if="action.kind === 'deep-link'" aria-hidden="true" />
-                <Copy v-else aria-hidden="true" />
-                <span>{{ getActionLabel(action, selectedAgent) }}</span>
-              </ActionButton>
+          <div class="site-connect-agent-panels">
+            <div
+              v-for="agent in agents"
+              :id="`site-connect-agent-panel-${agent.id}`"
+              :key="agent.id"
+              class="site-connect-agent-panel"
+              :class="{ 'is-selected': selectedAgentId === agent.id }"
+              role="tabpanel"
+              :aria-labelledby="`site-agent-tab-${agent.id}`"
+              :aria-hidden="selectedAgentId === agent.id ? undefined : 'true'"
+              :inert="selectedAgentId !== agent.id"
+            >
+              <div class="site-connect-agent-copy">
+                <p class="site-connect-agent-name">{{ agent.name }}</p>
+                <p>{{ getAgentDescription(agent) }}</p>
+              </div>
+              <div class="site-connect-actions">
+                <ActionButton
+                  v-for="(action, index) in agent.actions"
+                  :key="action.id"
+                  type="button"
+                  :variant="index === 0 ? 'primary' : 'secondary'"
+                  class="site-connect-action-button"
+                  @click="handleAgentAction(action, agent)"
+                >
+                  <ExternalLink v-if="action.kind === 'deep-link'" aria-hidden="true" />
+                  <Copy v-else aria-hidden="true" />
+                  <span>{{ getActionLabel(action, agent) }}</span>
+                </ActionButton>
+              </div>
             </div>
           </div>
         </div>
