@@ -849,6 +849,24 @@ html.dark .site-button.is-primary {
   pointer-events: auto;
 }
 
+.site-connect-agent-panel .site-connect-actions {
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.site-connect-agent-panel .site-connect-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.site-connect-agent-panel .site-button {
+  flex: none;
+  padding-right: 10px;
+  padding-left: 8px;
+  white-space: nowrap;
+}
+
 .site-connect-agent-copy {
   display: grid;
   gap: 4px;
@@ -864,6 +882,12 @@ html.dark .site-button.is-primary {
 .site-connect-agent-copy .site-connect-agent-name {
   color: var(--site-ink);
   font-weight: 700;
+}
+
+.site-connect-agent-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @supports (corner-shape: superellipse(1)) {

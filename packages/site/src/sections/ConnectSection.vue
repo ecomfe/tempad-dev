@@ -58,8 +58,8 @@ const terminalCardRef = ref<HTMLElement | null>(null)
 const terminalViewportRef = ref<HTMLElement | null>(null)
 function getAgentDescription(agent: AgentIntegrationConfig): string {
   return agent.actions.some(({ id }) => id === 'plugin-prompt')
-    ? 'Install the plugin to add MCP access and the design skill together.'
-    : 'Connect the MCP server, then add the design skill.'
+    ? 'The plugin adds MCP access and the design skill.'
+    : 'Add MCP access and the design skill.'
 }
 
 const terminalEntries: readonly TerminalEntry[] = [
@@ -350,17 +350,17 @@ function openDeepLink(action: AgentIntegrationAction, agent: AgentIntegrationCon
 function getActionLabel(action: AgentIntegrationAction, agent: AgentIntegrationConfig): string {
   switch (action.id) {
     case 'plugin-prompt':
-      return `Continue in ${agent.name}`
+      return `Open ${agent.name}`
     case 'plugin-cli':
-      return 'Copy plugin command'
+      return 'Plugin command'
     case 'mcp-deep-link':
-      return 'Install MCP server'
+      return 'Install MCP'
     case 'mcp-cli':
-      return 'Copy MCP command'
+      return 'MCP command'
     case 'mcp-config':
-      return 'Copy MCP config'
+      return 'MCP config'
     case 'skill-cli':
-      return 'Copy skill command'
+      return 'Skill command'
   }
 }
 
@@ -617,7 +617,9 @@ onBeforeUnmount(() => {
             >
               <div class="site-connect-agent-copy">
                 <p class="site-connect-agent-name">{{ agent.name }}</p>
-                <p>{{ getAgentDescription(agent) }}</p>
+                <p class="site-connect-agent-description" :title="getAgentDescription(agent)">
+                  {{ getAgentDescription(agent) }}
+                </p>
               </div>
               <div class="site-connect-actions">
                 <ActionButton
