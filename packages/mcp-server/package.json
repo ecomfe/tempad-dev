@@ -40,10 +40,10 @@
   },
   "devDependencies": {
     "@tempad-dev/shared": "workspace:^0.1.0",
-    "@types/node": "^24.13.2",
+    "@types/node": "^24.13.3",
     "@types/proper-lockfile": "^4.1.4",
     "@types/ws": "^8.18.1",
-    "tsdown": "^0.22.3",
+    "tsdown": "^0.22.7",
     "typescript": "^6.0.3",
     "unplugin-raw": "^0.7.0",
     "vitest": "4.1.10"
