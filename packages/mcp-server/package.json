@@ -44,7 +44,7 @@
     "@types/proper-lockfile": "^4.1.4",
     "@types/ws": "^8.18.1",
     "tsdown": "^0.22.7",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "unplugin-raw": "^0.7.0",
     "vitest": "4.1.10"
   },
