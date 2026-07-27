@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => {
   }
   const runtimeMode = { value: 'standard' }
   const layoutReady = { value: true }
+  const canvasWritesOn = { value: false }
   const listeners: Array<(event: MessageEvent<unknown>) => void> = []
   const window = {
     dispatchEvent: vi.fn(),
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => {
   }
 
   return {
+    canvasWritesOn,
     layoutReady,
     listeners,
     options,
@@ -78,6 +80,7 @@ vi.mock('@/mcp/runtime', () => ({
 }))
 
 vi.mock('@/ui/state', () => ({
+  canvasWritesOn: mocks.canvasWritesOn,
   layoutReady: mocks.layoutReady,
   options: mocks.options,
   runtimeMode: mocks.runtimeMode
@@ -132,6 +135,7 @@ function receive(message: BridgeToPageMessage): void {
 describe('composables/mcp', () => {
   beforeEach(() => {
     mocks.options.value.mcpOn = true
+    mocks.canvasWritesOn.value = false
     mocks.runtimeMode.value = 'standard'
     mocks.layoutReady.value = true
     mocks.listeners.length = 0
@@ -144,14 +148,16 @@ describe('composables/mcp', () => {
     vi.stubGlobal('location', { origin: ORIGIN })
   })
 
-  it('keeps MCP enabled and retries permission from user action', () => {
+  it('keeps MCP enabled but drops writes while retrying local-host permission', () => {
     const mcp = useMcp()
     const sessionId = getPostedMessage('mcp.enable').sessionId
+    mocks.canvasWritesOn.value = true
 
     receive(bridgeState(sessionId, 'connecting', MCP_LOCAL_HOST_PERMISSION_ERROR))
 
     expect(mcp.needsLocalHostPermission.value).toBe(true)
     expect(mocks.options.value.mcpOn).toBe(true)
+    expect(mocks.canvasWritesOn.value).toBe(false)
     expect(
       mocks.window.postMessage.mock.calls.some(
         ([payload]) => (payload as PageToBridgeMessage).type === 'mcp.disable'
@@ -180,5 +186,14 @@ describe('composables/mcp', () => {
         ([payload]) => (payload as PageToBridgeMessage).type === 'mcp.disable'
       )
     ).toBe(false)
+  })
+
+  it('turns off session canvas writes when MCP cannot stay enabled', () => {
+    mocks.options.value.mcpOn = false
+    mocks.canvasWritesOn.value = true
+
+    useMcp()
+
+    expect(mocks.canvasWritesOn.value).toBe(false)
   })
 })

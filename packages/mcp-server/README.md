@@ -20,11 +20,14 @@ For agent-specific setup, open TemPad Dev's **Preferences → Agent integration 
 Supported tools/resources:
 
 - `get_code`: Tailwind-first JSX/Vue markup plus assets and token references.
+- `get_design_system`: Query-ranked Figma components and variables from the active page/file.
+- `apply_canvas`: One declarative create/update result, reconciled locally against the live canvas.
 - `get_structure`: Hierarchy/geometry outline for the selection.
 
 Notes:
 
 - Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
+- `apply_canvas` is disabled by default. Enable **Canvas writes** in Agent integration only when you want the connected agent to modify the active Figma file.
 - Assets are ephemeral and tool-linked; image/SVG bytes are downloaded via the capability-bearing HTTP `asset.url` from tool results. Treat the full URL as a temporary secret and do not persist it in logs.
 - Asset resources are not exposed via MCP `resources/list`/`resources/read`.
 - The HTTP fallback URL uses `/{capability}/assets/{hash}` and may include an image extension (for example `/{capability}/assets/{hash}.png`). Both filename forms are accepted.

@@ -127,15 +127,16 @@ describe('shared/mcp/install', () => {
         value: expect.stringContaining('codex plugin marketplace add ecomfe/tempad-dev')
       })
     ])
-    expect(decodeURIComponent(codex.actions[0]?.value ?? '')).toContain(
-      'codex plugin add tempad-dev@tempad-dev'
-    )
+    const codexPluginPrompt = decodeURIComponent(codex.actions[0]?.value ?? '')
+    expect(codexPluginPrompt).toContain('codex plugin add tempad-dev@tempad-dev')
+    expect(codexPluginPrompt).toContain('figma-design-to-code')
+    expect(codexPluginPrompt).toContain('figma-canvas-authoring')
 
     const claude = mcp.AGENT_INTEGRATIONS_BY_ID.claude
     expect(claude.actions[0]?.value).toMatch(/^claude-cli:\/\/open\?q=/)
-    expect(decodeURIComponent(claude.actions[0]?.value ?? '')).toContain(
-      'claude plugin install tempad-dev@tempad-dev'
-    )
+    const claudePluginPrompt = decodeURIComponent(claude.actions[0]?.value ?? '')
+    expect(claudePluginPrompt).toContain('claude plugin install tempad-dev@tempad-dev')
+    expect(claudePluginPrompt).toContain('figma-canvas-authoring')
 
     const cursor = mcp.AGENT_INTEGRATIONS_BY_ID.cursor
     expect(JSON.parse(cursor.actions[1]?.value ?? '')).toHaveProperty(

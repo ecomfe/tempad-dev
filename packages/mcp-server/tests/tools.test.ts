@@ -4,9 +4,12 @@ import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 import { describe, expect, it } from 'vitest'
 
 import {
+  TOOL_DEFS,
   coercePayloadToToolResponse,
+  createApplyCanvasToolResponse,
   createAssetsToolResponse,
   createCodeToolResponse,
+  createDesignSystemToolResponse,
   createInlineBudgetExceededToolResponse,
   createScreenshotToolResponse,
   createStructureToolResponse,
@@ -33,6 +36,15 @@ function textContent(block: unknown): string {
 }
 
 describe('tools response helpers', () => {
+  it('exposes result-oriented canvas authoring tools', () => {
+    expect(TOOL_DEFS.filter((tool) => tool.exposed !== false).map((tool) => tool.name)).toEqual([
+      'get_code',
+      'get_design_system',
+      'apply_canvas',
+      'get_structure'
+    ])
+  })
+
   it('formats code tool responses with summaries, warnings, assets and tokens', () => {
     const payload: ToolResultMap['get_code'] = {
       ...codePayload,
@@ -109,6 +121,36 @@ describe('tools response helpers', () => {
     expect(textContent(tokenResult.content[0])).toContain('Resolved 1 token definition')
   })
 
+  it('formats design-system discovery and canvas apply responses', () => {
+    const designSystemPayload: ToolResultMap['get_design_system'] = {
+      page: { id: '0:1', name: 'Design system' },
+      components: [
+        {
+          id: '1:1',
+          key: 'button-key',
+          name: 'Button',
+          remote: true
+        }
+      ],
+      variables: []
+    }
+    const designSystemResult = createDesignSystemToolResponse(designSystemPayload)
+    expect(designSystemResult.structuredContent).toEqual(designSystemPayload)
+    expect(textContent(designSystemResult.content[0])).toContain('Found 1 component')
+
+    const applyPayload: ToolResultMap['apply_canvas'] = {
+      rootNodeId: '2:1',
+      nodeIdsByKey: { root: '2:1' },
+      createdNodeIds: [],
+      updatedNodeIds: ['2:1'],
+      mutationCount: 1
+    }
+    const applyResult = createApplyCanvasToolResponse(applyPayload)
+    expect(applyResult.structuredContent).toEqual(applyPayload)
+    expect(textContent(applyResult.content[0])).toContain('Applied 1 canvas mutation')
+    expect(textContent(applyResult.content[0])).toContain('Reuse nodeIdsByKey')
+  })
+
   it('formats screenshot tool responses with summary text only', () => {
     const payload: ToolResultMap['get_screenshot'] = {
       format: 'png',
@@ -156,6 +198,13 @@ describe('tools response helpers', () => {
     expect(result.isError).toBe(true)
     expect(textContent(result.content[0])).toContain('64 KiB inline budget')
     expect(textContent(result.content[0])).toContain('split them into smaller batches')
+
+    expect(
+      textContent(createInlineBudgetExceededToolResponse('apply_canvas', 70000).content[0])
+    ).toContain('smaller desired subtree')
+    expect(
+      textContent(createInlineBudgetExceededToolResponse('get_design_system', 70000).content[0])
+    ).toContain('narrower design-system query')
   })
 
   it('coerces payloads to MCP CallToolResult', () => {
@@ -248,5 +297,32 @@ describe('tools response helpers', () => {
     expect(() =>
       createTokenDefsToolResponse({ '--x': null } as unknown as ToolResultMap['get_token_defs'])
     ).toThrow(/Invalid get_token_defs payload/)
+    expect(() =>
+      createDesignSystemToolResponse({
+        page: null
+      } as unknown as ToolResultMap['get_design_system'])
+    ).toThrow(/Invalid get_design_system payload/)
+    expect(() =>
+      createDesignSystemToolResponse(null as unknown as ToolResultMap['get_design_system'])
+    ).toThrow(/Invalid get_design_system payload/)
+    expect(() =>
+      createApplyCanvasToolResponse({
+        rootNodeId: '1:1'
+      } as ToolResultMap['apply_canvas'])
+    ).toThrow(/Invalid apply_canvas payload/)
+    expect(() =>
+      createApplyCanvasToolResponse(null as unknown as ToolResultMap['apply_canvas'])
+    ).toThrow(/Invalid apply_canvas payload/)
+    expect(() =>
+      createApplyCanvasToolResponse(
+        Object.assign([], {
+          rootNodeId: '1:1',
+          nodeIdsByKey: {},
+          createdNodeIds: [],
+          updatedNodeIds: [],
+          mutationCount: 0
+        }) as unknown as ToolResultMap['apply_canvas']
+      )
+    ).toThrow(/Invalid apply_canvas payload/)
   })
 })

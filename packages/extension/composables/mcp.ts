@@ -22,7 +22,7 @@ import {
 import { coerceToolErrorPayload } from '@/mcp/errors'
 import { MCP_LOCAL_HOST_PERMISSION_ERROR, MCP_PERMISSION_REQUEST_EVENT } from '@/mcp/permissions'
 import { runMcpTool } from '@/mcp/runtime'
-import { layoutReady, options, runtimeMode } from '@/ui/state'
+import { canvasWritesOn, layoutReady, options, runtimeMode } from '@/ui/state'
 
 type PendingAssetUpload = {
   reject: (error: Error) => void
@@ -107,6 +107,7 @@ export const useMcp = createSharedComposable(() => {
       status.value = state.status
       setAssetServerUrl(state.assetServerUrl ?? null)
       if (state.status !== 'connected') {
+        canvasWritesOn.value = false
         resetUploadedAssets()
       }
       return
@@ -127,6 +128,7 @@ export const useMcp = createSharedComposable(() => {
       if (shouldEnable) {
         sendEnable()
       } else {
+        canvasWritesOn.value = false
         stop()
       }
     },

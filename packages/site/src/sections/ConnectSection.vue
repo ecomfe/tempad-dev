@@ -58,8 +58,8 @@ const terminalCardRef = ref<HTMLElement | null>(null)
 const terminalViewportRef = ref<HTMLElement | null>(null)
 function getAgentDescription(agent: AgentIntegrationConfig): string {
   return agent.actions.some(({ id }) => id === 'plugin-prompt')
-    ? 'The plugin adds MCP access and the design skill.'
-    : 'Add MCP access and the design skill.'
+    ? 'The plugin adds MCP access and design skills.'
+    : 'Add MCP access and a design skill.'
 }
 
 const terminalEntries: readonly TerminalEntry[] = [
