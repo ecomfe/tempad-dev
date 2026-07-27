@@ -193,7 +193,7 @@ function buildPluginSetupCommand(prefix: 'claude' | 'codex'): string {
 
 function buildPluginSetupDeepLink(prefix: 'claude' | 'codex'): string {
   const command = buildPluginSetupCommand(prefix)
-  const prompt = `Install the TemPad Dev agent plugin by running this command, then confirm that its MCP server and figma-design-to-code skill are available:\n\n${command}`
+  const prompt = `Install the TemPad Dev agent plugin by running this command, then confirm that its MCP server plus figma-design-to-code and figma-canvas-authoring skills are available:\n\n${command}`
   const target = prefix === 'claude' ? 'claude-cli://open?q=' : 'codex://new?prompt='
   return `${target}${encodeURIComponent(prompt)}`
 }

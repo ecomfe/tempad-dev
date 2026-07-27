@@ -5,7 +5,9 @@ const mocks = vi.hoisted(() => ({
   selection: {
     value: [] as Array<{ visible: boolean }>
   },
+  runApplyCanvas: vi.fn(),
   runGetCode: vi.fn(),
+  runGetDesignSystem: vi.fn(),
   runGetScreenshot: vi.fn(),
   runGetStructure: vi.fn(),
   runGetTokenDefs: vi.fn()
@@ -17,6 +19,14 @@ vi.mock('@/ui/state', () => ({
 
 vi.mock('@/mcp/tools/code', () => ({
   handleGetCode: mocks.runGetCode
+}))
+
+vi.mock('@/mcp/tools/canvas', () => ({
+  handleApplyCanvas: mocks.runApplyCanvas
+}))
+
+vi.mock('@/mcp/tools/design-system', () => ({
+  handleGetDesignSystem: mocks.runGetDesignSystem
 }))
 
 vi.mock('@/mcp/tools/screenshot', () => ({
@@ -63,7 +73,9 @@ describe('mcp/runtime', () => {
     const runtime = await importRuntime()
 
     expect(Object.keys(runtime.MCP_TOOL_HANDLERS)).toEqual([
+      'apply_canvas',
       'get_code',
+      'get_design_system',
       'get_token_defs',
       'get_screenshot',
       'get_structure'
@@ -80,7 +92,9 @@ describe('mcp/runtime', () => {
     const tools = (window as Window & { tempadTools: Record<string, unknown> }).tempadTools
 
     expect(tools.existing).toBe(existing)
+    expect(tools.apply_canvas).toBe(runtime.MCP_TOOL_HANDLERS.apply_canvas)
     expect(tools.get_code).toBe(runtime.WINDOW_TEMPAD_TOOL_HANDLERS.get_code)
+    expect(tools.get_design_system).toBe(runtime.MCP_TOOL_HANDLERS.get_design_system)
     expect(tools.get_token_defs).toBe(runtime.MCP_TOOL_HANDLERS.get_token_defs)
     expect(tools.get_screenshot).toBe(runtime.MCP_TOOL_HANDLERS.get_screenshot)
     expect(tools.get_structure).toBe(runtime.MCP_TOOL_HANDLERS.get_structure)
@@ -93,7 +107,9 @@ describe('mcp/runtime', () => {
     const runtime = await importRuntime()
     const tools = (window as Window & { tempadTools: Record<string, unknown> }).tempadTools
 
+    expect(tools.apply_canvas).toBe(runtime.MCP_TOOL_HANDLERS.apply_canvas)
     expect(tools.get_code).toBe(runtime.WINDOW_TEMPAD_TOOL_HANDLERS.get_code)
+    expect(tools.get_design_system).toBe(runtime.MCP_TOOL_HANDLERS.get_design_system)
     expect(tools.get_token_defs).toBe(runtime.MCP_TOOL_HANDLERS.get_token_defs)
     expect(tools.get_screenshot).toBe(runtime.MCP_TOOL_HANDLERS.get_screenshot)
     expect(tools.get_structure).toBe(runtime.MCP_TOOL_HANDLERS.get_structure)

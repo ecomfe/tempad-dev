@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Design in Figma'
+  short_description: 'Create Figma designs from its existing design system'
+  default_prompt: 'Use $figma-canvas-authoring to create a settings screen in the active Figma file using its existing components and variables.'

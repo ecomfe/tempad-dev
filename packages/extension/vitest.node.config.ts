@@ -67,6 +67,8 @@ export default defineConfig({
         'rewrite/shared.ts',
         'mcp/errors.ts',
         'mcp/tools/config.ts',
+        'mcp/tools/canvas.ts',
+        'mcp/tools/design-system.ts',
         'mcp/tools/structure.ts',
         'mcp/tools/screenshot.ts',
         'mcp/tools/code/layout-parent.ts',

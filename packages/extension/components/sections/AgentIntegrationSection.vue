@@ -8,9 +8,9 @@ import Tick from '@/components/icons/Tick.vue'
 import Section from '@/components/Section.vue'
 import SegmentedControl from '@/components/SegmentedControl.vue'
 import { MCP_PERMISSION_REQUEST_EVENT } from '@/mcp/permissions'
-import { options } from '@/ui/state'
+import { canvasWritesOn, options } from '@/ui/state'
 
-const mcpOptions = [
+const toggleOptions = [
   { label: 'Disabled', value: false, icon: Minus },
   { label: 'Enabled', value: true, icon: Tick }
 ]
@@ -22,6 +22,9 @@ function setMcpEnabled(enabled: boolean | undefined): void {
     window.dispatchEvent(new Event(MCP_PERMISSION_REQUEST_EVENT))
   }
   options.value.mcpOn = enabled === true
+  if (!enabled) {
+    canvasWritesOn.value = false
+  }
 }
 </script>
 
@@ -35,13 +38,23 @@ function setMcpEnabled(enabled: boolean | undefined): void {
       <label>MCP access</label>
       <SegmentedControl
         class="tp-grid-end"
-        :options="mcpOptions"
+        :options="toggleOptions"
         :model-value="options.mcpOn"
         @update:model-value="setMcpEnabled"
       />
     </div>
 
     <div v-if="options.mcpOn" class="tp-grid">
+      <div class="tp-grid tp-grid-2">
+        <label>Canvas writes</label>
+        <SegmentedControl
+          class="tp-grid-end"
+          :options="toggleOptions"
+          :model-value="canvasWritesOn"
+          @update:model-value="canvasWritesOn = $event === true"
+        />
+      </div>
+
       <Button class="tp-agent-setup-button" @click="setupOpen = true">Set up agents</Button>
     </div>
 

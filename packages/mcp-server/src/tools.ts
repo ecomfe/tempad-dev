@@ -1,7 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type {
   GetAssetsResult,
-  GetScreenshotResult,
   TempadMcpErrorCode,
   ToolName,
   ToolResponseLike,
@@ -11,29 +10,36 @@ import type {
 import type { ZodType } from 'zod'
 
 import {
+  ApplyCanvasParametersSchema,
   MCP_TOOL_INLINE_BUDGET_BYTES,
+  buildApplyCanvasToolResult,
   buildGetAssetsToolResult,
   buildGetCodeToolResult,
+  buildGetDesignSystemToolResult,
   buildGetScreenshotToolResult,
   buildGetStructureToolResult,
   buildGetTokenDefsToolResult,
   GetAssetsParametersSchema,
   GetAssetsResultSchema,
   GetCodeParametersSchema,
+  GetDesignSystemParametersSchema,
   GetScreenshotParametersSchema,
   GetStructureParametersSchema,
   GetTokenDefsParametersSchema,
   TEMPAD_MCP_ERROR_CODES,
-  measureCallToolResultBytes,
-  type TempadMcpErrorPayload
+  measureCallToolResultBytes
 } from '@tempad-dev/shared'
 
 export type {
+  ApplyCanvasParametersInput,
+  ApplyCanvasResult,
   AssetDescriptor,
   GetAssetsParametersInput,
   GetAssetsResult,
   GetCodeParametersInput,
   GetCodeResult,
+  GetDesignSystemParametersInput,
+  GetDesignSystemResult,
   GetScreenshotParametersInput,
   GetScreenshotResult,
   GetStructureParametersInput,
@@ -89,11 +95,12 @@ const CONNECTIVITY_TROUBLESHOOTING_LINES = [
 
 const SELECTION_TROUBLESHOOTING_LINE = 'Tip: Select exactly one visible node, or pass nodeId.'
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
 function getRecordProperty(record: unknown, key: string): unknown {
-  if (!record || typeof record !== 'object') {
-    return undefined
-  }
-  return Reflect.get(record, key)
+  return isRecord(record) ? record[key] : undefined
 }
 
 function extTool<Name extends ToolName, Schema extends ZodType>(
@@ -116,6 +123,22 @@ export const TOOL_DEFS = [
     parameters: GetCodeParametersSchema,
     target: 'extension',
     format: createCodeToolResponse
+  }),
+  extTool({
+    name: 'get_design_system',
+    description:
+      'Return a compact, query-ranked set of Figma components and variables from the current page/file. Reuse returned ids/keys in apply_canvas.',
+    parameters: GetDesignSystemParametersSchema,
+    target: 'extension',
+    format: createDesignSystemToolResponse
+  }),
+  extTool({
+    name: 'apply_canvas',
+    description:
+      'Apply one declarative canvas tree. Create adds a FRAME tree; update safely reconciles within targetNodeId, preserving omissions and skipping unchanged values. Requires Canvas writes.',
+    parameters: ApplyCanvasParametersSchema,
+    target: 'extension',
+    format: createApplyCanvasToolResponse
   }),
   extTool({
     name: 'get_token_defs',
@@ -170,9 +193,8 @@ function isTempadMcpErrorCode(value: unknown): value is TempadMcpErrorCode {
 function extractToolErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message || 'Unknown error occurred.'
   if (typeof error === 'string') return error
-  if (error && typeof error === 'object') {
-    const candidate = error as Partial<TempadMcpErrorPayload & Record<string, unknown>>
-    if (typeof candidate.message === 'string' && candidate.message.trim()) return candidate.message
+  if (isRecord(error)) {
+    if (typeof error.message === 'string' && error.message.trim()) return error.message
   }
   return 'Unknown error occurred.'
 }
@@ -226,90 +248,115 @@ function isSelectionToolError(code: TempadMcpErrorCode | undefined, message: str
 }
 
 export function createCodeToolResponse(payload: ToolResultMap['get_code']): CallToolResult {
-  if (!isCodeResult(payload)) {
-    throw new Error('Invalid get_code payload received from extension.')
-  }
+  return formatToolResult('get_code', payload, isCodeResult, buildGetCodeToolResult)
+}
 
-  return toCallToolResult(buildGetCodeToolResult(payload))
+export function createDesignSystemToolResponse(
+  payload: ToolResultMap['get_design_system']
+): CallToolResult {
+  return formatToolResult(
+    'get_design_system',
+    payload,
+    isDesignSystemResult,
+    buildGetDesignSystemToolResult
+  )
+}
+
+export function createApplyCanvasToolResponse(
+  payload: ToolResultMap['apply_canvas']
+): CallToolResult {
+  return formatToolResult('apply_canvas', payload, isApplyCanvasResult, buildApplyCanvasToolResult)
 }
 
 export function createStructureToolResponse(
   payload: ToolResultMap['get_structure']
 ): CallToolResult {
-  if (!isStructureResult(payload)) {
-    throw new Error('Invalid get_structure payload received from extension.')
-  }
-
-  return toCallToolResult(buildGetStructureToolResult(payload))
+  return formatToolResult('get_structure', payload, isStructureResult, buildGetStructureToolResult)
 }
 
 export function createTokenDefsToolResponse(
   payload: ToolResultMap['get_token_defs']
 ): CallToolResult {
-  if (!isTokenDefsResult(payload)) {
-    throw new Error('Invalid get_token_defs payload received from extension.')
-  }
-
-  return toCallToolResult(buildGetTokenDefsToolResult(payload))
+  return formatToolResult('get_token_defs', payload, isTokenDefsResult, buildGetTokenDefsToolResult)
 }
 
 export function createScreenshotToolResponse(
   payload: ToolResultMap['get_screenshot']
 ): CallToolResult {
-  if (!isScreenshotResult(payload)) {
-    throw new Error('Invalid get_screenshot payload received from extension.')
-  }
-
-  return toCallToolResult(buildGetScreenshotToolResult(payload))
+  return formatToolResult(
+    'get_screenshot',
+    payload,
+    isScreenshotResult,
+    buildGetScreenshotToolResult
+  )
 }
 
-function isScreenshotResult(payload: unknown): payload is GetScreenshotResult {
-  if (typeof payload !== 'object' || !payload) return false
-  const candidate = payload as Partial<GetScreenshotResult & Record<string, unknown>>
+function formatToolResult<Result>(
+  toolName: ToolName,
+  payload: Result,
+  isValid: (payload: unknown) => payload is Result,
+  build: (payload: Result) => ToolResponseLike
+): CallToolResult {
+  if (!isValid(payload)) throw new Error(`Invalid ${toolName} payload received from extension.`)
+  return toCallToolResult(build(payload))
+}
+
+function isScreenshotResult(payload: unknown): payload is ToolResultMap['get_screenshot'] {
   return (
-    typeof candidate.asset === 'object' &&
-    candidate.asset !== null &&
-    typeof candidate.width === 'number' &&
-    typeof candidate.height === 'number' &&
-    typeof candidate.scale === 'number' &&
-    typeof candidate.bytes === 'number' &&
-    typeof candidate.format === 'string'
+    isRecord(payload) &&
+    isRecord(payload.asset) &&
+    typeof payload.width === 'number' &&
+    typeof payload.height === 'number' &&
+    typeof payload.scale === 'number' &&
+    typeof payload.bytes === 'number' &&
+    typeof payload.format === 'string'
+  )
+}
+
+function isDesignSystemResult(payload: unknown): payload is ToolResultMap['get_design_system'] {
+  return (
+    isRecord(payload) &&
+    isRecord(payload.page) &&
+    Array.isArray(payload.components) &&
+    Array.isArray(payload.variables)
+  )
+}
+
+function isApplyCanvasResult(payload: unknown): payload is ToolResultMap['apply_canvas'] {
+  return (
+    isRecord(payload) &&
+    typeof payload.rootNodeId === 'string' &&
+    isRecord(payload.nodeIdsByKey) &&
+    Array.isArray(payload.createdNodeIds) &&
+    Array.isArray(payload.updatedNodeIds) &&
+    typeof payload.mutationCount === 'number'
   )
 }
 
 function isCodeResult(payload: unknown): payload is ToolResultMap['get_code'] {
-  if (typeof payload !== 'object' || !payload) return false
-  const candidate = payload as Partial<ToolResultMap['get_code'] & Record<string, unknown>>
   return (
-    typeof candidate.code === 'string' &&
-    typeof candidate.lang === 'string' &&
-    (candidate.assets === undefined || Array.isArray(candidate.assets))
+    isRecord(payload) &&
+    typeof payload.code === 'string' &&
+    typeof payload.lang === 'string' &&
+    (payload.assets === undefined || Array.isArray(payload.assets))
   )
 }
 
 function isStructureResult(payload: unknown): payload is ToolResultMap['get_structure'] {
-  if (typeof payload !== 'object' || !payload) return false
-  const candidate = payload as Partial<ToolResultMap['get_structure'] & Record<string, unknown>>
-  return Array.isArray(candidate.roots)
+  return isRecord(payload) && Array.isArray(payload.roots)
 }
 
 function isTokenDefsResult(payload: unknown): payload is ToolResultMap['get_token_defs'] {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
-  for (const value of Object.values(payload as Record<string, unknown>)) {
-    if (!value || typeof value !== 'object') return false
-    const token = value as Partial<Record<'kind' | 'value', unknown>>
-    if (typeof token.kind !== 'string') return false
-    if (token.value === undefined) return false
+  if (!isRecord(payload)) return false
+  for (const token of Object.values(payload)) {
+    if (!isRecord(token) || typeof token.kind !== 'string' || token.value === undefined)
+      return false
   }
   return true
 }
 
 export function coercePayloadToToolResponse(payload: unknown): CallToolResult {
-  if (
-    payload &&
-    typeof payload === 'object' &&
-    Array.isArray((payload as CallToolResult).content)
-  ) {
+  if (isRecord(payload) && Array.isArray(payload.content)) {
     return payload as CallToolResult
   }
 
@@ -353,8 +400,12 @@ function toCallToolResult(result: ToolResponseLike): CallToolResult {
 
 function getBudgetRetryGuidance(toolName: ToolName): string {
   switch (toolName) {
+    case 'apply_canvas':
+      return 'Submit a smaller desired subtree and retry.'
     case 'get_code':
       return 'Reduce selection size or request a smaller nodeId subtree and retry.'
+    case 'get_design_system':
+      return 'Use a narrower design-system query and retry.'
     case 'get_structure':
       return 'Reduce selection size or pass a smaller depth and retry.'
     case 'get_token_defs':

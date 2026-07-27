@@ -4,6 +4,11 @@ Treat tool outputs as design facts. Refactor only to match the user’s repo con
 
 Rules:
 
+- For Figma authoring, combine Host design-system guidance with one `get_design_system` call. Prefer
+  returned components and semantic variables, use primitives or literals only for gaps, then send
+  one declarative `apply_canvas` result; do not emulate individual Figma Plugin API calls.
+- Reuse `nodeIdsByKey` returned by `apply_canvas` when refining existing generated content. Omitted
+  fields and children are preserved; deletion is not supported.
 - Never output any `data-hint-*` attributes from tool outputs (hints only).
 - If `get_code` warns `depth-cap`, keep the returned parent code as composition evidence and use returned `data-hint-id` values to choose narrower `get_code` follow-ups.
 - If `get_code` warns `shell`, read the inline code comment for omitted direct child ids, then call `get_code` for those ids in order and fill the results back into the returned shell.

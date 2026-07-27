@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0-alpha.0
+
+- Added the `get_design_system` and `apply_canvas` tool contracts, extension routing, result
+  validation, and concise agent guidance for declarative Figma authoring.
+- Added tool-budget retry guidance for design-system discovery and canvas writes.
+
 ## 0.7.1
 
 - Aligned MCP server identity metadata around the stable `tempad-dev` name and human-readable

@@ -4,7 +4,9 @@ import type { ToolResponseLike } from '../../src/mcp/responses'
 import type { ToolResultMap } from '../../src/mcp/tools'
 
 import {
+  buildApplyCanvasToolResult,
   buildGetCodeToolResult,
+  buildGetDesignSystemToolResult,
   buildGetStructureToolResult,
   buildGetTokenDefsToolResult,
   measureCallToolResultBytes,
@@ -69,5 +71,38 @@ describe('mcp/responses helpers', () => {
       }
     })
     expect(tokens.content?.[0]?.text).toContain('Resolved 1 token definition')
+  })
+
+  it('builds design-system and canvas-apply summaries', () => {
+    const designSystem = buildGetDesignSystemToolResult({
+      page: { id: '0:1', name: 'Components' },
+      components: [
+        {
+          id: '1:1',
+          key: 'button-key',
+          name: 'Button',
+          remote: false
+        }
+      ],
+      variables: [],
+      warnings: ['No variables were found.']
+    })
+    expect(designSystem.content?.[0]?.text).toContain(
+      'Found 1 component and 0 variables on page "Components".'
+    )
+    expect(designSystem.content?.[0]?.text).toContain('No variables were found.')
+
+    const applied = buildApplyCanvasToolResult({
+      rootNodeId: '2:1',
+      nodeIdsByKey: { root: '2:1' },
+      createdNodeIds: ['2:1'],
+      updatedNodeIds: [],
+      mutationCount: 2,
+      warnings: ['One optional property was skipped.']
+    })
+    expect(applied.content?.[0]?.text).toContain('Applied 2 canvas mutations')
+    expect(applied.content?.[0]?.text).toContain('1 node created and 0 nodes updated')
+    expect(applied.content?.[0]?.text).toContain('One optional property was skipped.')
+    expect(applied.content?.[0]?.text).toContain('Root node: 2:1')
   })
 })

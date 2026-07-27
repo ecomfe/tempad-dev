@@ -2,8 +2,9 @@
 
 This plugin packages the TemPad Dev agent integration for Codex and Claude Code. It bundles:
 
-- the `figma-design-to-code` agent skill
-- the TemPad Dev MCP server configuration for selected-node design evidence
+- `figma-design-to-code` for turning Figma evidence into project-consistent UI code
+- `figma-canvas-authoring` for designing in Figma with the active file's components and variables
+- the TemPad Dev MCP server configuration for design evidence and opt-in canvas authoring
 
 Install it for Codex:
 
@@ -24,6 +25,8 @@ claude plugin install tempad-dev@tempad-dev
 The plugin appears in Claude Desktop after the marketplace is added. Both clients use the same
 skill and MCP server configuration from this directory.
 
-Before using the integration, open TemPad Dev in Figma, then open **Preferences -> Agent integration** and enable **MCP access**.
+Before using the integration, open TemPad Dev in Figma, then open **Preferences -> Agent
+integration** and enable **MCP access**. Enable **Canvas writes** separately only when the agent
+should modify the active Figma file.
 
 For app, CLI, direct MCP, and manual fallbacks, see the [complete setup guide](../../README.md#agent-integration).

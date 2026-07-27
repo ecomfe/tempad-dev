@@ -18,11 +18,14 @@
 支持的工具和资源：
 
 - `get_code`：以 Tailwind 优先的 JSX/Vue 标记输出，并附带资源和变量引用。
+- `get_design_system`：从当前页面/文件中返回按查询排序的 Figma 组件和变量。
+- `apply_canvas`：提交一次声明式创建或更新结果，由扩展与实时画布在本地进行增量协调。
 - `get_structure`：当前选中节点的层级/几何结构信息。
 
 说明：
 
 - 工具响应共用 `64 KiB` 的 inline budget，按 `CallToolResult` 整体响应体积计算。若选区过大而超出 `get_code` 的预算，TemPad Dev 可能返回 shell response 而不是直接失败。shell 会保留当前节点的包裹结构，并在内联代码注释中列出被省略的直接子节点 id，方便 agent 逐个继续拉取；配套 warning 只保留最小化的提示信息，用来指向这条注释。
+- `apply_canvas` 默认禁用。只有在希望已连接的 agent 修改当前 Figma 文件时，才在 Agent integration 中启用 **Canvas writes**。
 - 资源是临时且与工具调用关联的；图片/SVG 请直接使用工具结果中带 capability 的 HTTP `asset.url` 下载。完整 URL 应视作临时密钥，不要持久化到日志中。
 - MCP 不再暴露 `resources/list` / `resources/read` 用于 asset 内容读取。
 - HTTP 回退 URL 使用 `/{capability}/assets/{hash}`，也可能带图片扩展名（例如 `/{capability}/assets/{hash}.png`），两种文件名形式都支持。
