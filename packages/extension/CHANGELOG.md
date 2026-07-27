@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.0
+
+- Added opt-in Figma canvas authoring for agents with query-ranked design-system discovery and one
+  declarative create or update result.
+- Added safe incremental reconciliation with explicit update scopes, stable node identities,
+  component and variable reuse, no-op detection, validation, and automatic undo on failure.
+- Added the `figma-canvas-authoring` agent skill, including a grounded workflow for empty Figma
+  documents.
+
 ## 0.20.0
 
 - Hid Figma's inactive mode switcher in read-only files after its toolbar structure changed.

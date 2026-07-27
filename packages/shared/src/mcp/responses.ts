@@ -1,6 +1,8 @@
 import type {
+  ApplyCanvasResult,
   GetAssetsResult,
   GetCodeResult,
+  GetDesignSystemResult,
   GetScreenshotResult,
   GetStructureResult,
   GetTokenDefsResult
@@ -51,6 +53,24 @@ export function buildGetCodeToolResult(payload: GetCodeResult): ToolResponseLike
   summary.push('Read structuredContent for the full code string and metadata.')
 
   return buildTextToolResult(summary.join('\n'), payload)
+}
+
+export function buildGetDesignSystemToolResult(payload: GetDesignSystemResult): ToolResponseLike {
+  const summary = `Found ${formatCount(payload.components.length, 'component')} and ${formatCount(payload.variables.length, 'variable')} on page "${payload.page.name}".`
+  const warnings = payload.warnings?.length ? `\n${payload.warnings.join('\n')}` : ''
+  return buildTextToolResult(
+    `${summary}${warnings}\nRead structuredContent for stable component and variable references.`,
+    payload
+  )
+}
+
+export function buildApplyCanvasToolResult(payload: ApplyCanvasResult): ToolResponseLike {
+  const summary = `Applied ${formatCount(payload.mutationCount, 'canvas mutation')}: ${formatCount(payload.createdNodeIds.length, 'node')} created and ${formatCount(payload.updatedNodeIds.length, 'node')} updated.`
+  const warnings = payload.warnings?.length ? `\n${payload.warnings.join('\n')}` : ''
+  return buildTextToolResult(
+    `${summary}${warnings}\nRoot node: ${payload.rootNodeId}. Reuse nodeIdsByKey for later updates.`,
+    payload
+  )
 }
 
 export function buildGetStructureToolResult(payload: GetStructureResult): ToolResponseLike {

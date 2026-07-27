@@ -16,7 +16,9 @@ import { selection } from '@/ui/state'
 import type { GetCodeRuntimeOptions } from './tools/code'
 
 import { createCodedError } from './errors'
+import { handleApplyCanvas } from './tools/canvas'
 import { handleGetCode as runGetCode } from './tools/code'
+import { handleGetDesignSystem } from './tools/design-system'
 import { handleGetScreenshot as runGetScreenshot } from './tools/screenshot'
 import { handleGetStructure as runGetStructure } from './tools/structure'
 import { handleGetTokenDefs as runGetTokenDefs } from './tools/token'
@@ -93,12 +95,16 @@ async function handleGetStructure(args?: GetStructureParametersInput): Promise<G
   return runGetStructure([root], depth)
 }
 
-export type MCPHandlers = {
-  get_code: (args?: GetCodeParametersInput) => Promise<GetCodeResult>
-  get_token_defs: (args?: GetTokenDefsParametersInput) => Promise<GetTokenDefsResult>
-  get_screenshot: (args?: GetScreenshotParametersInput) => Promise<GetScreenshotResult>
-  get_structure: (args?: GetStructureParametersInput) => Promise<GetStructureResult>
+export const MCP_TOOL_HANDLERS = {
+  apply_canvas: handleApplyCanvas,
+  get_code: handleGetCode,
+  get_design_system: handleGetDesignSystem,
+  get_token_defs: handleGetTokenDefs,
+  get_screenshot: handleGetScreenshot,
+  get_structure: handleGetStructure
 }
+
+export type MCPHandlers = typeof MCP_TOOL_HANDLERS
 
 export type TempadWindowHandlers = Omit<MCPHandlers, 'get_code'> & {
   get_code: (args?: WindowGetCodeParametersInput) => Promise<GetCodeResult>
@@ -108,13 +114,6 @@ declare global {
   interface Window {
     tempadTools?: Partial<TempadWindowHandlers>
   }
-}
-
-export const MCP_TOOL_HANDLERS: MCPHandlers = {
-  get_code: handleGetCode,
-  get_token_defs: handleGetTokenDefs,
-  get_screenshot: handleGetScreenshot,
-  get_structure: handleGetStructure
 }
 
 export const WINDOW_TEMPAD_TOOL_HANDLERS: TempadWindowHandlers = {

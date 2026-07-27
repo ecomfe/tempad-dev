@@ -201,14 +201,16 @@ sandboxed extension page 内启动一个全新的 Worker，并在完成或五秒
 
 TemPad Dev 内置了面向编码 agent 和 IDE 的 Agent 集成。该集成包含：
 
-- 一个 [MCP](https://modelcontextprotocol.io/) 服务器，使 agent 可以直接从你在 Figma 中选中的节点拉取代码和上下文
-- 一个 agent skill，用于指导 agent 在当前仓库中理解并使用这些证据
+- 一个 [MCP](https://modelcontextprotocol.io/) 服务器，使 agent 可以检查 Figma，并在显式启用写入后提交声明式画布结果
+- 两个 agent skill：一个用于根据 Figma 证据实现代码，另一个用于基于当前文件的 design system 在 Figma 画布上进行设计
 
-Figma 也提供官方的 [remote 与 desktop MCP server](https://developers.figma.com/docs/figma-mcp-server/)，并建议大多数用户优先使用 remote server。TemPad Dev 的定位是一个开放、强调本地控制的补充方案，适合明确需要可审计的浏览器扩展链路、现有只读检查流程、可编程输出插件、规范化的 agent-facing 代码/token IR，以及显式上下文预算的团队。TemPad Dev 提供设计证据与代码起点；最终仍由 coding agent 结合目标仓库完成适配、验证和实现。
+Figma 也提供官方的 [remote 与 desktop MCP server](https://developers.figma.com/docs/figma-mcp-server/)，并建议大多数用户优先使用 remote server。TemPad Dev 的定位是一个开放、强调本地控制的补充方案，适合明确需要可审计的浏览器扩展链路、本地检查与按需启用的声明式画布创作、可编程输出插件、规范化的 agent-facing 代码/token IR，以及显式上下文预算的团队。TemPad Dev 提供设计证据与代码起点；最终仍由 coding agent 结合目标仓库完成适配、验证和实现。
 
 打开 TemPad Dev 面板并启用 MCP 后，MCP 服务器会暴露以下能力：
 
 - `get_code`：默认输出高保真的 JSX/Vue + TailwindCSS 代码，同时包含相关资源以及使用的 codegen 预设和配置。
+- `get_design_system`：返回按查询排序的原生 Figma 组件和变量引用。
+- `apply_canvas`：提交声明式目标结果，由扩展与实时画布安全地进行增量协调；需要单独启用仅当前会话有效的 **Canvas writes**。
 - `get_structure`：当前选中节点的结构信息（id、类型、几何数据）。
 - 二进制资源会通过工具响应中的元数据 + HTTP 下载地址（`asset.url`）提供；MCP 不再暴露 asset 资源模板。
 
@@ -220,9 +222,9 @@ Figma 也提供官方的 [remote 与 desktop MCP server](https://developers.figm
   <img alt="TemPad Dev agent setup 对话框。" src="packages/site/public/marketing/mcp-config-light.png" width="600">
 </picture>
 
-1. 安装 Node.js 18.20.0 或更高版本并确保 `npx` 可用。在希望 agent 检查的 Figma 标签页中保持 TemPad Dev 打开，然后启用 **Preferences → Agent integration → MCP access**。出现提示时，请允许连接到 loopback 地址 `127.0.0.1`。
+1. 安装 Node.js 18.20.0 或更高版本并确保 `npx` 可用。在希望 agent 检查的 Figma 标签页中保持 TemPad Dev 打开，然后启用 **Preferences → Agent integration → MCP access**。出现提示时，请允许连接到 loopback 地址 `127.0.0.1`。只有在希望 agent 修改该文件时，才另外启用 **Canvas writes**。
 2. 点击 **Set up agents**，选择 Codex、Cursor、Claude Code、Gemini、VS Code、OpenCode 或 TRAE，然后按界面显示的路径配置。其它兼容客户端请选择 **Other**。这里的选择只会切换说明，不会绑定或激活 agent。
-3. 如果界面提供直接操作，请优先使用。所有备用命令和 config 都会完整显示，便于检查和复制。Codex 与 Claude Code 的 plugin 同时包含 MCP 和 `figma-design-to-code` skill；其它路径会分别展示两个必要步骤。
+3. 如果界面提供直接操作，请优先使用。所有备用命令和 config 都会完整显示，便于检查和复制。Codex 与 Claude Code 的 plugin 同时包含 MCP、`figma-design-to-code` 和 `figma-canvas-authoring` skill；其它路径会分别展示 MCP 与独立 skill 的配置步骤。
 
 使用期间请保持 TemPad Dev 打开并启用 MCP。如果连接了多个 Figma 文件，请点击目标文件面板中的 MCP 徽标；该文件会成为 agent 当前访问的上下文。
 
