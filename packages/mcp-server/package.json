@@ -7,7 +7,9 @@
     "url": "git+https://github.com/ecomfe/tempad-dev.git",
     "directory": "packages/mcp-server"
   },
-  "bin": "dist/cli.mjs",
+  "bin": {
+    "mcp": "dist/cli.mjs"
+  },
   "files": [
     "README.md",
     "dist/**/*"
