@@ -13,7 +13,7 @@ import { canvasWritesOn } from '@/ui/state'
 
 import { createCodedError } from '../errors'
 
-const CANVAS_KEY_NAMESPACE = 'tempad-dev'
+const CANVAS_KEY_NAMESPACE = 'tempad_dev'
 const CANVAS_KEY_NAME = 'canvas-key'
 const SUPPORTED_NODE_TYPES = new Set<CanvasNodeSpec['type']>([
   'ELLIPSE',
