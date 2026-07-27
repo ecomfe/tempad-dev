@@ -14,6 +14,13 @@ vi.mock('@/ui/state', () => ({
 import { handleApplyCanvas } from '@/mcp/tools/canvas'
 
 const MIXED = Symbol('mixed')
+const SHARED_PLUGIN_DATA_NAMESPACE_PATTERN = /^[A-Za-z0-9_.]+$/
+
+function assertSharedPluginDataNamespace(namespace: string): void {
+  if (!SHARED_PLUGIN_DATA_NAMESPACE_PATTERN.test(namespace)) {
+    throw new Error('The namespace can only consist of alphanumeric characters, _ or .')
+  }
+}
 const PAGE = {
   id: '0:1',
   name: 'Page 1',
@@ -93,9 +100,11 @@ function createFixture(): FigmaFixture {
       layoutSizingVertical: 'FIXED',
       boundVariables,
       getSharedPluginData(namespace: string, key: string) {
+        assertSharedPluginDataNamespace(namespace)
         return pluginData.get(`${namespace}:${key}`) ?? ''
       },
       setSharedPluginData(namespace: string, key: string, value: string) {
+        assertSharedPluginDataNamespace(namespace)
         pluginData.set(`${namespace}:${key}`, value)
       },
       resize(width: number, height: number) {
@@ -556,7 +565,7 @@ describe('mcp/tools/canvas', () => {
     const owner = fixture.createNode('RECTANGLE')
     const frame = root as unknown as FrameNode
     frame.insertChild(0, owner)
-    owner.setSharedPluginData('tempad-dev', 'canvas-key', 'root')
+    owner.setSharedPluginData('tempad_dev', 'canvas-key', 'root')
 
     await expect(
       handleApplyCanvas({
@@ -586,8 +595,8 @@ describe('mcp/tools/canvas', () => {
     PAGE.children.splice(PAGE.children.indexOf(nested), 1)
     nested.parent = group
     root.children.push(group)
-    root.setSharedPluginData('tempad-dev', 'canvas-key', 'root')
-    nested.setSharedPluginData('tempad-dev', 'canvas-key', 'root/nested')
+    root.setSharedPluginData('tempad_dev', 'canvas-key', 'root')
+    nested.setSharedPluginData('tempad_dev', 'canvas-key', 'root/nested')
     fixture.nodes.set(group.id, group)
 
     const result = await handleApplyCanvas({
