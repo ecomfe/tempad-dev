@@ -13,11 +13,17 @@ Rules:
   for that resource or explicitly asks to create or extend a design system, and follow the skill's
   exact progressive reference. If that reference is unavailable, do not guess advanced native
   shapes.
+- A requested composition must use newly authored components as native instances. Author before or
+  after the composition; exact returned ids need no refreshed catalog. Never leave equivalent
+  primitive copies as final usages.
 - Before visually inventive canvas work, ground an unspecified style in permitted product evidence,
   a clearly applicable installed skill, or the canvas skill's targeted research reference. Do not
   silently fall back to generic model styling.
 - Describe one native desired result through `apply_canvas`, and let TemPad Dev validate, diff, and
   execute it. Never emit Plugin API operations or arbitrary JavaScript.
+- Treat each create root as an independent composition. Do not inspect the canvas for free space or
+  maintain a coordinate ledger, and never use root translation to place it. TemPad Dev calculates
+  every create position from the new root and the destination page's top-level rendered bounds.
 - Scope updates by exact node identity. Omission preserves existing state; only explicit removal
   removes managed content.
 - For design-to-code, use `get_code` as visual implementation evidence and `get_structure` only for

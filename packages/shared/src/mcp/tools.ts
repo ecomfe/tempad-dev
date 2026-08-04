@@ -1760,7 +1760,7 @@ export const CanvasFigmaPropertiesSchema = z
     locked: z.boolean().optional(),
     aspectRatioLocked: z.boolean().optional(),
     relativeTransform: CanvasRelativeTransformSchema.describe(
-      'Native translation, rotation, and skew matrix. Auto Layout children require zero translation because Figma computes their position. Width and height remain separate.'
+      'Native translation, rotation, and skew matrix. Auto Layout computes child translation. Create roots preserve the axes but use automatic placement. Width and height remain separate.'
     ).optional(),
     mask: z
       .enum(['ALPHA', 'VECTOR', 'LUMINANCE'])
@@ -1997,6 +1997,17 @@ export type CanvasAssets = z.infer<typeof CanvasAssetsSchema>
 
 const CanvasNativeBindingSchema = z
   .object({
+    component: z
+      .object({
+        id: z.string().min(1)
+      })
+      .strict()
+      .describe('Exact live component or component-set id from prior canvas work.')
+      .optional(),
+    componentProperties: z
+      .record(z.string().min(1), CanvasComponentPropertyValueSchema)
+      .describe('Values keyed by an exact Figma property name or a TemPad-authored stable key.')
+      .optional(),
     variables: z
       .record(z.string(), z.object({ variableKey: CanvasStableKeySchema }).strict().nullable())
       .describe('Local authored-variable bindings and explicit null removals.')
@@ -2024,6 +2035,10 @@ const CanvasNativeBindingSchema = z
       .optional()
   })
   .strict()
+  .refine((binding) => !binding.componentProperties || binding.component, {
+    message: 'componentProperties require a component reference.',
+    path: ['componentProperties']
+  })
 
 type CanvasApplyScope = {
   mode: 'create' | 'update'

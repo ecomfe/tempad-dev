@@ -152,7 +152,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'apply_canvas',
     description:
-      "Apply one declarative Canvas HTML desired result using primitives, optional catalog resources, and optional native Figma state. It works without get_design_system or catalogId. Create local variables, styles, or components only when explicitly requested, and follow the canvas-authoring skill's exact progressive reference instead of guessing shapes. Create adds one root; update reconciles stable data-key identities inside targetNodeId, preserves omissions, and removes only explicit removeKeys. Requires MCP access and edit access; TemPad Dev validates, diffs, applies one undoable patch, and verifies it.",
+      "Apply one declarative Canvas HTML desired result using primitives, optional catalog resources, and optional native Figma state. It works without get_design_system or catalogId; native bindings may instantiate exact live component ids returned by earlier canvas work. Create local variables, styles, or components only when explicitly requested, and follow the canvas-authoring skill's exact progressive reference instead of guessing shapes. Create adds and auto-positions one non-overlapping root; its transform translation is ignored. Update reconciles stable data-key identities inside targetNodeId, preserves omissions, and removes only explicit removeKeys. Requires MCP access and edit access; TemPad Dev validates, diffs, applies one undoable patch, and verifies it.",
     annotations: CANVAS_WRITE_ANNOTATIONS,
     parameters: ApplyCanvasParametersSchema,
     target: 'extension',
