@@ -27,8 +27,9 @@
 - Added bounded SVG and PNG/JPEG/GIF authoring through inline SVG or full-SHA-256 local asset
   references, with a hash-only reverse bridge, SVG sanitization, stable wrappers, and cached native
   image handles.
-- Made Canvas authoring available whenever MCP access is enabled in an editable Figma Design file;
-  native read-only rejection remains the permission boundary.
+- Made Canvas authoring available whenever MCP access is enabled and
+  `window.INITIAL_OPTIONS.editor_type` is `design`; native read-only rejection remains the file
+  permission boundary.
 - Kept native canvas-validation feedback compact and actionable with bounded field paths.
 - Stabilized derived Auto Layout geometry after text reflow and other Figma setters, and verify
   actual fixed and cross-axis fill dimensions instead of trusting sizing-mode labels alone.

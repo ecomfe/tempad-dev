@@ -450,10 +450,8 @@ evidence-based pass.
 
 - MCP access is disabled by default. While it is enabled, authoring is available in editable Figma
   Design files; Dev Mode and native read-only rejections fail with stable errors.
-- The Plugin API exposes the editor surface but not the current file permission. The extension
-  rejects non-Design editors before parsing and normalizes Figma's native read-only mutation
-  rejection to `CANVAS_READ_ONLY`; it does not infer permission from unstable DOM or private app
-  state.
+- The extension requires `window.INITIAL_OPTIONS.editor_type === "design"` before parsing and
+  normalizes any remaining native read-only mutation rejection to `CANVAS_READ_ONLY`.
 - Only one apply may run per connected session.
 - Update cannot write outside `targetNodeId` or its explicitly declared resource/page scope.
 - Remote resources are imported or referenced, never edited or deleted.
