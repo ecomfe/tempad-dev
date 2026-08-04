@@ -25,10 +25,10 @@ function parseSpec<Result>(parse: () => Result, fallback = 'Canvas input is inva
 }
 
 function assertCanvasAvailable(): void {
-  if (figma.editorType !== 'figma') {
+  if (typeof window === 'undefined' || window.INITIAL_OPTIONS?.editor_type !== 'design') {
     throw createCodedError(
       TEMPAD_MCP_ERROR_CODES.CANVAS_UNSUPPORTED_EDITOR,
-      'Canvas authoring is supported only in Figma Design files.'
+      'Canvas authoring is available only when the current Figma editor type is design.'
     )
   }
   if (applyInProgress) {

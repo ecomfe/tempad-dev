@@ -1920,6 +1920,9 @@ function createFixture(): FigmaFixture {
       )
     }
   } as unknown as PluginAPI)
+  vi.stubGlobal('window', {
+    INITIAL_OPTIONS: { editor_type: 'design' }
+  } as unknown as Window)
 
   return {
     commitUndo,
@@ -2028,12 +2031,21 @@ describe('mcp/tools/canvas', () => {
       markup: '<div data-key="root" class="w-[120px] h-[80px]"></div>'
     }
 
-    Object.assign(figma, { editorType: 'figjam' })
+    vi.stubGlobal('window', {} as Window)
     await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.CANVAS_UNSUPPORTED_EDITOR
     })
 
-    Object.assign(figma, { editorType: 'figma' })
+    vi.stubGlobal('window', {
+      INITIAL_OPTIONS: { editor_type: 'whiteboard' }
+    } as unknown as Window)
+    await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_UNSUPPORTED_EDITOR
+    })
+
+    vi.stubGlobal('window', {
+      INITIAL_OPTIONS: { editor_type: 'design' }
+    } as unknown as Window)
     vi.mocked(figma.createFrame).mockImplementationOnce(() => {
       throw new Error('Cannot write to internal and read-only nodes')
     })
