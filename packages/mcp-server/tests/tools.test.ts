@@ -387,6 +387,15 @@ describe('tools response helpers', () => {
     expect(() =>
       createDesignSystemToolResponse({
         catalogId: 'ds_1',
+        components: [{ ref: 'c1' }],
+        variables: [],
+        collections: [],
+        styles: []
+      } as unknown as ToolResultMap['get_design_system'])
+    ).toThrow(/Invalid get_design_system payload/)
+    expect(() =>
+      createDesignSystemToolResponse({
+        catalogId: 'ds_1',
         components: [],
         variables: [],
         collections: [],
@@ -417,6 +426,22 @@ describe('tools response helpers', () => {
     ).toThrow(/Invalid apply_canvas payload/)
     expect(() =>
       createApplyCanvasToolResponse(null as unknown as ToolResultMap['apply_canvas'])
+    ).toThrow(/Invalid apply_canvas payload/)
+    expect(() =>
+      createApplyCanvasToolResponse({
+        rootNodeId: '1:1',
+        nodeIdsByKey: { root: 1 },
+        createdNodeIds: [],
+        updatedNodeIds: [],
+        removedNodeIds: [],
+        mutationCount: 0,
+        verification: {
+          status: 'passed',
+          nodesChecked: 1,
+          referencesChecked: 0,
+          warnings: []
+        }
+      } as unknown as ToolResultMap['apply_canvas'])
     ).toThrow(/Invalid apply_canvas payload/)
     expect(() =>
       createApplyCanvasToolResponse({

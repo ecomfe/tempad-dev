@@ -9,11 +9,14 @@
   "mcpServers": {
     "tempad-dev": {
       "command": "npx",
-      "args": ["-y", "@tempad-dev/mcp@latest"]
+      "args": ["-y", "@tempad-dev/mcp@alpha"]
     }
   }
 }
 ```
+
+Canvas authoring is currently available on the `alpha` tag (`0.8.0-alpha.0`); `latest` remains on
+the stable `0.7.x` line.
 
 For agent-specific setup, open TemPad Dev's **Preferences → Agent integration → Set up agents**. It provides guided paths for Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, and TRAE, plus **Other** for compatible clients not listed.
 

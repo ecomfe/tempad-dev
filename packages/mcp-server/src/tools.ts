@@ -11,6 +11,7 @@ import type { ZodType } from 'zod'
 
 import {
   ApplyCanvasParametersSchema,
+  ApplyCanvasResultSchema,
   MCP_TOOL_INLINE_BUDGET_BYTES,
   buildApplyCanvasToolResult,
   buildGetAssetsToolResult,
@@ -23,6 +24,7 @@ import {
   GetAssetsResultSchema,
   GetCodeParametersSchema,
   GetDesignSystemParametersSchema,
+  GetDesignSystemResultSchema,
   GetScreenshotParametersSchema,
   GetStructureParametersSchema,
   GetTokenDefsParametersSchema,
@@ -332,37 +334,11 @@ function isScreenshotResult(payload: unknown): payload is ToolResultMap['get_scr
 }
 
 function isDesignSystemResult(payload: unknown): payload is ToolResultMap['get_design_system'] {
-  return (
-    isRecord(payload) &&
-    typeof payload.catalogId === 'string' &&
-    Array.isArray(payload.components) &&
-    Array.isArray(payload.variables) &&
-    Array.isArray(payload.collections) &&
-    Array.isArray(payload.styles) &&
-    (payload.shaders === undefined || Array.isArray(payload.shaders)) &&
-    (payload.nextCursor === undefined ||
-      (typeof payload.nextCursor === 'number' &&
-        Number.isInteger(payload.nextCursor) &&
-        payload.nextCursor >= 0))
-  )
+  return GetDesignSystemResultSchema.safeParse(payload).success
 }
 
 function isApplyCanvasResult(payload: unknown): payload is ToolResultMap['apply_canvas'] {
-  return (
-    isRecord(payload) &&
-    typeof payload.rootNodeId === 'string' &&
-    (payload.rootRemoved === undefined || payload.rootRemoved === true) &&
-    isRecord(payload.nodeIdsByKey) &&
-    Array.isArray(payload.createdNodeIds) &&
-    Array.isArray(payload.updatedNodeIds) &&
-    Array.isArray(payload.removedNodeIds) &&
-    typeof payload.mutationCount === 'number' &&
-    isRecord(payload.verification) &&
-    (payload.verification.status === 'passed' || payload.verification.status === 'warning') &&
-    typeof payload.verification.nodesChecked === 'number' &&
-    typeof payload.verification.referencesChecked === 'number' &&
-    Array.isArray(payload.verification.warnings)
-  )
+  return ApplyCanvasResultSchema.safeParse(payload).success
 }
 
 function isCodeResult(payload: unknown): payload is ToolResultMap['get_code'] {
