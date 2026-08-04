@@ -4,8 +4,20 @@ Use this reference only when the user explicitly requests a reusable local
 component or an explicitly requested design-system task requires one. This
 reference explains representation; it is not a reason to componentize an
 ordinary screen or create a component library. New local components do not
-require `get_design_system`; a catalog is needed only when a property or nested
-instance deliberately references an existing component.
+require `get_design_system`. Use a catalog when discovery or normalized library
+props are useful; use an exact returned live ID for a component the agent just
+authored.
+
+When a composition uses a new component, its final usage nodes must be native
+Figma instances. Either:
+
+- author the component first, then use its returned `rootNodeId` or exact entry
+  from `nodeIdsByKey` in the composition;
+- stabilize the composition first, then author the component and replace each
+  managed primitive usage. Give a replacement a new `data-key` when needed and
+  list the old key in `removeKeys`.
+
+Never leave a visually equivalent primitive copy as the final usage.
 
 Copy a complete recipe and change its design facts. Do not infer TemPad's
 component shape from raw Plugin API calls.
@@ -57,6 +69,29 @@ references inside the same result. They are not the generated Figma property
 names. Supported authored property definitions are `BOOLEAN`, `TEXT`, and
 `INSTANCE_SWAP`. Link sublayers with `visible`, `characters`, or
 `mainComponent` respectively.
+
+## Consume an authored component directly
+
+Use the exact live ID returned by the component's `apply_canvas` result. For a
+TemPad-authored component, `componentProperties` accepts the same stable
+property keys used in its definition. This complete follow-up call needs no
+catalog:
+
+```json
+{
+  "mode": "create",
+  "markup": "<div data-key=\"screen\" class=\"flex flex-col w-[320px] h-[200px] p-[24px]\"><div data-key=\"screen/action\" class=\"w-[160px] h-[48px]\"></div></div>",
+  "native": {
+    "screen/action": {
+      "component": { "id": "ComponentID:created-button" },
+      "componentProperties": { "label": "Save", "show-label": true }
+    }
+  }
+}
+```
+
+Replace the illustrative ID with the exact returned ID. Do not invent a live
+ID or use this shortcut for an unidentified library component.
 
 ## Variant set
 

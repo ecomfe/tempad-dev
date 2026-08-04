@@ -11,33 +11,42 @@ Choose icon sources in this order:
 3. one established, permissively licensed library whose stroke/fill style,
    corner treatment, and optical weight fit the surrounding design.
 
-When the file has no icon assets, use a frontend icon library as the fallback.
-Prefer one established by the target product. Otherwise infer outline, fill, or
-duotone; weight; geometry; size/density; and states. Choose by fit and coverage.
+When the file has no icon assets, do not fall back to the first familiar
+frontend library. Select the source before selecting individual glyphs:
 
-Use these families as reference points, not a preferred set or allowlist:
+1. Write an icon profile without library names: outline, fill, or duotone;
+   optical weight; corner and terminal geometry; base size and UI density;
+   required states or variants; and the semantic coverage this composition
+   actually needs.
+2. If the target product establishes a library, verify and use it. Otherwise
+   derive an established, permissively licensed candidate from the profile and
+   inspect the actual required glyphs, SVG fidelity, states, coverage, license,
+   and platform fit.
+3. If the choice materially shapes expression or the first candidate fits only
+   because it is familiar, compare one or two candidates that differ on the
+   profile's decisive dimension. Skip the comparison for a low-consequence
+   choice with a clear fit.
+4. Choose by contextual fit and coverage. Do not select an unusual family
+   merely to manufacture variety.
 
-- Lucide: neutral rounded outlines with adjustable stroke;
-- Phosphor: expressive geometry; thin, light, regular, bold, fill, and duotone;
-- Material Symbols: systematic outlined, rounded, and sharp styles; fill and weight variation;
-- Radix Icons: compact, crisp 15x15 interface icons for dense controls;
-- Iconoir: light, airy outlines with a characteristic 1.5 stroke.
-
-If none fits or lacks required semantics or variants, inspect two or three
-different libraries in official documentation. Other trustworthy, permissively
-licensed sources remain valid; never force a listed family or treat
-“general-purpose” as a visual direction. Use the selected family consistently
+A familiar general-purpose library must pass the same comparison as every
+other candidate. After committing, use the selected family consistently
 without claiming design-system provenance or adding a frontend dependency.
 
 Keep one coherent icon family within a composition. Preserve source geometry
 from its installed package or official distribution; do not redraw from memory,
-use Unicode UI icons, or assemble icons from frames and text. Import a compact
-trusted SVG directly:
+use Unicode UI icons, or assemble icons from frames and text. This complete
+Direct call imports one compact trusted SVG:
 
 ```json
 {
+  "mode": "create",
+  "markup": "<div data-key=\"search-icon\" class=\"size-[24px]\"></div>",
   "assets": {
-    "search": { "type": "SVG", "svg": "<svg viewBox=\"0 0 24 24\">...</svg>" }
+    "search": {
+      "type": "SVG",
+      "svg": "<svg viewBox=\"0 0 24 24\"><circle cx=\"11\" cy=\"11\" r=\"7\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"m16 16 5 5\" fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-width=\"2\"/></svg>"
+    }
   },
   "native": {
     "search-icon": {
@@ -47,7 +56,7 @@ trusted SVG directly:
 }
 ```
 
-The matching `div` must be childless and supplies the wrapper size and layout.
+The matching `div` is childless and supplies the wrapper size and layout.
 `color` resolves SVG `currentColor`; omit it for complete explicit-color SVGs.
 Use a Hub `{ "type": "SVG", "assetHash": "<full lowercase SHA-256>" }`
 declaration for larger exact SVG content. If no trustworthy source is
@@ -59,12 +68,19 @@ Prefer a catalog Text style or typography variables because they carry the
 file's real type system. Otherwise infer type from trusted project evidence.
 For an empty file without such evidence, choose a small, coherent type palette
 for the product and content rather than defaulting every design to the same
-family.
+family. For a materially type-led direction, first define the content,
+platform, language coverage, tone, and density requirements, then compare two
+or three available candidates when no candidate clearly satisfies them. A
+familiar family must still satisfy the contextual requirements.
 
 Use one primary family unless the concept clearly benefits from a deliberate
 display/body pairing. Confirm that every exact Figma family/style is available;
 do not guess style names. Express exact whole-node fonts through
-`figma.text.fontName` and use ranges only for intentional mixed typography.
+`figma.text.fontName` and use ranges only for intentional mixed typography. To
+apply an exact family, also load the exact whole-node font reference routed by
+`SKILL.md`. A `font-sans` class does not prove a named family: either apply the
+named family through a real Text style, variable, or exact native font, or keep
+the brief at the level of typography roles without naming one.
 
 ## Images and illustrations
 

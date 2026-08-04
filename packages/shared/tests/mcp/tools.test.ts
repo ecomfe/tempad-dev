@@ -173,7 +173,7 @@ describe('mcp/tools canvas authoring schemas', () => {
     ).toBe(false)
   })
 
-  it('accepts inline catalog refs and rejects raw component identities', () => {
+  it('accepts inline catalog refs and exact live component ids', () => {
     const result = ApplyCanvasPublicParametersSchema.safeParse({
       mode: 'create',
       catalogId: 'ds_1',
@@ -195,7 +195,19 @@ describe('mcp/tools canvas authoring schemas', () => {
         markup: '<div data-key="save" class="w-[120px] h-[40px]"></div>',
         native: {
           save: {
-            component: { id: '1:2', key: 'button-key' }
+            component: { id: '1:2' },
+            componentProperties: { label: 'Save', disabled: false }
+          }
+        }
+      }).success
+    ).toBe(true)
+    expect(
+      ApplyCanvasPublicParametersSchema.safeParse({
+        mode: 'create',
+        markup: '<div data-key="save" class="w-[120px] h-[40px]"></div>',
+        native: {
+          save: {
+            component: { key: 'button-key' }
           }
         }
       }).success

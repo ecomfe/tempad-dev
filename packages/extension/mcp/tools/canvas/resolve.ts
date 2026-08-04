@@ -68,9 +68,10 @@ function resolveNativeBinding(
   binding: NonNullable<ApplyCanvasParameters['native']>[string],
   catalog: DesignSystemCatalog | undefined
 ): CanvasBinding {
-  const variableModes = binding.variableModes
+  const { variableModes: inputModes, figma: inputFigma, ...direct } = binding
+  const variableModes = inputModes
     ? Object.fromEntries(
-        Object.entries(binding.variableModes).map(([collectionRef, modeRef]) => {
+        Object.entries(inputModes).map(([collectionRef, modeRef]) => {
           const collection = catalogEntry(catalog, collectionRef)
           const mode = modeRef === null ? null : catalogEntry(catalog, modeRef)
           if (collection && collection.kind !== 'collection') {
@@ -93,12 +94,9 @@ function resolveNativeBinding(
       )
     : undefined
   return {
-    ...(binding.variables ? { variables: binding.variables } : {}),
+    ...direct,
     ...(variableModes ? { variableModes } : {}),
-    ...(binding.styles ? { styles: binding.styles } : {}),
-    ...(binding.figma
-      ? { figma: resolveDeep(binding.figma, catalog) as CanvasBinding['figma'] }
-      : {})
+    ...(inputFigma ? { figma: resolveDeep(inputFigma, catalog) as CanvasBinding['figma'] } : {})
   }
 }
 

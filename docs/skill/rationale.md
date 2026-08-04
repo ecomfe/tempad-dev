@@ -1,187 +1,171 @@
-# RATIONALE
+# Agent skill quality model
 
 ## Purpose
 
-This document explains the intent behind the `figma-design-to-code` skill.
-It is a maintenance aid, not runtime instruction.
+This document records the maintenance model for TemPad Dev's
+`figma-design-to-code` and `figma-canvas-authoring` skills. It is not runtime
+instruction.
 
-The skill exists to help an agent turn TemPad Dev MCP design evidence into
-project-consistent UI code.
+The objective is not to make a skill comprehensive. A skill is valuable only
+when its marginal procedural guidance improves task outcomes more than its
+context cost, instruction interference, and maintenance risk.
 
-## Core principles
+## Epistemic basis
 
-### 1. This is an evidence-translation skill
+### Keep the task focal
 
-The skill is designed around three sources of truth:
+Michael Polanyi described knowing as an integration from subsidiary
+particulars toward a focal whole. Applied here, the requested product result is
+the focal object. Tool syntax, catalog entries, project conventions, examples,
+and rules are subsidiary clues that should support judgment and then recede.
 
-- project files and project instructions for implementation truth
-- TemPad Dev output for design truth
-- the user for missing product or implementation decisions
+When the workflow makes agents optimize the checklist, maximize catalog reuse,
+or explain every choice, those particulars have displaced the result. A good
+skill therefore states the outcome and authority boundaries first, then loads
+technical particulars only when the task encounters them.
 
-The agent should not guess what it cannot prove.
+### Codify cues and invariants, not an imaginary complete expertise
 
-### 2. Project consistency matters more than raw codegen
+Polanyi's point is not merely that some knowledge has not yet been written
+down. Skilled judgment depends on context-sensitive integration that rules
+cannot fully replace. A skill should explicitly encode:
 
-A good result is not just visually similar output.
-It must also fit the target project's:
+- fragile tool contracts and irreversible safety boundaries;
+- perceptual and diagnostic cues that tell the agent which branch it is in;
+- source-of-truth boundaries and stop conditions;
+- a few complete examples where exact shape matters;
+- feedback that lets the agent correct action in the real environment.
 
-- framework and file conventions
-- styling system
-- token workflow
-- asset pipeline
-- reusable primitives and abstractions
+It should leave contextual synthesis, composition, and representation choices
+open when several approaches can satisfy the evidence. More prose is not a
+substitute for situated judgment.
 
-Project consistency does not justify erasing exact design values.
-If TemPad emits a precise value, the agent should preserve it unless local
-project evidence proves an exactly equivalent utility, token, or abstraction.
-In utility-first systems such as Tailwind, collapse arbitrary values only when
-the local theme proves an exact match, using TemPad
-`codegen.config.{cssUnit,rootFontSize,scale}` when `rem` conversion is
-involved.
+### Let local practice carry collective knowledge
 
-### 3. The skill should stay narrow
+Project instructions, nearby code, existing components, tokens, Figma
+resources, and current product language contain the team's practical
+tradition. The skills read that local practice before applying general model
+memory. This is more reliable than attempting to copy all possible framework,
+design-system, or organizational knowledge into a universal skill.
 
-This skill is for Figma design-to-code.
-It should not become a general policy layer for unrelated concerns such as
-routing, analytics, i18n architecture, CMS strategy, or other orthogonal
-systems.
+## Related research translated into design rules
 
-Those concerns should come from project instruction files such as `AGENTS.md`.
+- **Cognitive apprenticeship:** model fragile actions with complete examples;
+  scaffold the core path; route advanced cases to focused references; verify
+  in authentic project or Figma activity.
+- **Cognitive load and expertise reversal:** remove explanation the model
+  already knows, avoid split attention and duplicated rules, and disclose
+  specialist branches only when their cues occur.
+- **Design fixation:** frame requirements before naming a familiar source.
+  Contrast alternatives when an early example could materially anchor the
+  result, but do not turn anti-fixation into mandatory research ceremony.
+- **Naturalistic decision making:** expose recognizable cues, expected state,
+  anomalies, and workable next actions. Do not require exhaustive option
+  scoring when local evidence already makes one path clear.
+- **Agent Skills practice:** keep activation metadata discriminative, keep the
+  main file on the universal execution path, move mutually exclusive and rare
+  detail into directly routed references, and validate on representative tasks.
 
-### 4. The skill must be honest about uncertainty
+## Quality tests
 
-The skill should stop, ask, or warn when evidence is incomplete.
-It should not invent hidden states, responsive behavior, business logic, or
-visual details that are not supported by project or design evidence.
+Evaluate every instruction against these questions:
 
-## Why the skill is structured this way
+1. **Activation precision:** Does the description say what the skill does,
+   when it applies, and adjacent tasks it excludes?
+2. **Focal outcome:** Can the agent tell what successful work is before seeing
+   procedures and prohibitions?
+3. **Authority:** Does each evidence source have a bounded job, with conflict
+   and uncertainty handling?
+4. **Decision topology:** Does the main file contain only universal decisions,
+   with branch cues that point directly to optional detail?
+5. **Freedom calibration:** Are safety and private protocols exact while
+   product and implementation judgment remain contextual?
+6. **Actionability:** Can the agent perform every instruction with information
+   and tools actually available in the current task?
+7. **Failure quality:** Do deterministic errors change scope or inputs instead
+   of causing blind retries, guesses, or destructive fallback?
+8. **Feedback integrity:** Does verification observe the actual result, and
+   does iteration require new evidence rather than taste-driven looping?
+9. **Context economy:** Would deleting this sentence preserve behavior? Is the
+   same rule repeated in server instructions, tool descriptions, or another
+   loaded file?
+10. **Transfer:** Does the skill succeed on varied realistic prompts without
+    access to the maintainer's diagnosis or intended answer?
 
-## Evidence first
+Treat these as tests, not headings that every runtime skill must repeat.
 
-The workflow starts by reading local project evidence before implementing.
-This is intentional.
+## Current architecture
 
-Most design-to-code failures come from violating project conventions rather
-than from failing to extract visible UI from the design.
+### `figma-design-to-code`
 
-## `get_code` before `get_structure`
+The universal path is: establish the minimal project envelope, read one
+trustworthy top-level design snapshot, separate facts from adaptations and
+gaps, implement the smallest coherent change, then use the project's real
+verification path.
 
-TemPad Dev `get_code` is treated as the primary design-evidence source.
-`get_structure` is only a structural aid for hierarchy, geometry, overlap, and
-scope recovery.
+Rare large-selection and connection recovery lives in
+`references/recovery.md`. Asset and token translation lives in
+`references/assets-and-tokens.md` and loads only when those facts are present.
+This keeps normal UI work from paying the attention cost of every bad-weather
+branch while retaining exact recovery procedures.
 
-This prevents the agent from reconstructing detailed UI from structural hints
-alone.
+The skill preserves these invariants:
 
-## Pseudo-elements are first-class UI
+- project evidence governs implementation representation;
+- TemPad `get_code` governs visible design facts;
+- the user governs missing product intent;
+- `get_structure` never substitutes for missing style truth;
+- exact values are changed only by proven project-native equivalence;
+- unevidenced states and behavior are not invented;
+- the handoff reports only branches that actually occurred.
 
-Pseudo-elements such as `::before` and `::after` are often visible parts of the
-design, not optional decoration.
-If TemPad emits `before:*`, `after:*`, `content-*`, or equivalent pseudo-
-element styling, dropping those styles is a correctness bug, not a stylistic
-tradeoff.
+### `figma-canvas-authoring`
 
-## Bad-weather handling stays in the main skill
+The main file routes by user intent and consequence: reuse an accessible design
+system, compose directly, or author reusable resources only when explicitly
+requested. Declarative desired state and stable identity remain hard
+boundaries. Native schema, design-system, and visual-asset particulars remain
+progressive references.
 
-TemPad-specific failure handling remains in the core skill because it directly
-affects common execution paths, especially:
+Unspecified visual direction uses evidence as subsidiary support. It frames
+the product problem before searching, researches only unresolved material
+decisions, creates contrast only when fixation risk matters, and validates the
+visible canvas against one compact hypothesis. This avoids both common model
+defaults and the opposite failure of performing a research ritual instead of
+designing.
 
-- unavailable, inactive, or wrong-file MCP state
-- large selections
-- `depth-cap`
-- budget overflow
-- shell recovery
-- subtree refetching
-- asset handling
-- `themeable` SVG behavior, including color evidence on emitted markup
+## Packaging and validation
 
-These are not optional edge notes. They materially affect whether the agent can
-produce trustworthy output.
+- Keep `SKILL.md` frontmatter limited to fields that affect discovery or a real
+  compatibility requirement.
+- Keep `agents/openai.yaml` synchronized with the actual skill scope.
+- Keep reference links one level from `SKILL.md` and state exactly when to read
+  each file.
+- Validate complete private-protocol examples against the public schema.
+- Run the skill validator, generate the development plugin, and forward-test
+  consequential revisions with clean task-local context.
 
-## Smallest safe change
+## Sources
 
-The skill prefers the smallest safe change that satisfies the design evidence.
-It avoids unrelated refactors and unnecessary abstraction unless local project
-patterns clearly justify them.
-
-## Why some things are intentionally excluded
-
-### No separate “existing repo” vs “greenfield” modes
-
-That distinction was intentionally removed.
-The meaningful decision is whether enough implementation evidence exists, not
-which lifecycle label applies.
-
-### No project-wide policy authoring
-
-The skill does not define new policy for orthogonal concerns.
-If such a concern materially affects implementation and is not already defined,
-the agent should ask the user or stop.
-
-### No built-in universal verification matrix
-
-Lint, format, typecheck, build, tests, preview, or screenshot comparison are
-project-defined concerns.
-The skill should use the narrowest relevant checks already defined by the
-project and supported by the current host or client.
-
-If no such path exists, the result should be reported as unverified.
-
-### No automatic claim of visual completeness
-
-Unless the project already has a reliable preview, screenshot, or design-
-comparison workflow, final visual confirmation belongs to the user.
-
-## Why the final version did not use extra packaging complexity
-
-### No `compatibility` field
-
-It was removed because the most obvious candidates for that field, such as Node
-version or active tab state, were either:
-
-- lower-level setup requirements for TemPad itself, or
-- runtime troubleshooting facts
-
-They did not add enough value as packaging metadata.
-
-### No `references/` split yet
-
-A reference split was considered and rejected for now.
-The current skill is still compact enough, and the most valuable TemPad-
-specific details are needed on the main execution path.
-
-## Examples philosophy
-
-Examples are kept only as boundary fixtures.
-They are not there to repeat the workflow.
-They exist to stabilize high-risk decisions such as:
-
-- shell recovery after budget overflow
-- `themeable: true` SVG handling with emitted-root color evidence
-- ambiguous token mapping
-- exact-value normalization only when project equivalence is proven
-- pseudo-element preservation
-
-## What future revisions should preserve
-
-Any future revision should preserve these properties:
-
-- a clear single-purpose scope
-- the project / TemPad / user evidence hierarchy
-- `get_code` as the primary evidence source
-- emitted auto-layout and emitted SVG root markup treated as design evidence, not post-hoc hints
-- exact rendered values preserved unless project-native equivalence is proven
-- pseudo-elements preserved as first-class rendered output
-- strict refusal to guess unsupported visual or behavioral details
-- explicit handling of TemPad failure modes
-- minimal-diff implementation style
-- truthful handoff, including what remains unverified
-
-## Summary
-
-The skill is built on four commitments:
-
-1. design-to-code is an evidence problem, not a guessing problem
-2. project consistency matters more than raw codegen purity
-3. the skill should stay narrow and avoid absorbing orthogonal concerns
-4. truthful handoff matters as much as implementation quality
+- Michael Polanyi,
+  [_The Tacit Dimension_](https://press.uchicago.edu/ucp/books/book/chicago/T/bo6035368.html)
+  (1966), especially the from-to structure of tacit knowing.
+- Hadjimichael, Pyrko, and Tsoukas,
+  [Beyond Tacit Knowledge](https://doi.org/10.5465/amr.2022.0289), _Academy of
+  Management Review_ 49(4), 2024.
+- Collins, Brown, and Newman,
+  [Cognitive Apprenticeship](https://apps.dtic.mil/sti/pdfs/ADA178530.pdf),
+  1987 report.
+- Kalyuga, Chandler, and Sweller,
+  [Levels of Expertise and Instructional Design](https://doi.org/10.1518/001872098779480587),
+  _Human Factors_ 40(1), 1998.
+- Klein,
+  [Naturalistic Decision Making](https://doi.org/10.1518/001872008X288385),
+  _Human Factors_ 50(3), 2008.
+- Jansson and Smith,
+  [Design Fixation](<https://doi.org/10.1016/0142-694X(91)90003-F>), _Design
+  Studies_ 12(1), 1991.
+- [Agent Skills specification](https://agentskills.io/specification) and
+  [skill-creation best practices](https://agentskills.io/skill-creation/best-practices).
+- Figma,
+  [Create skills for the Figma MCP server](https://developers.figma.com/docs/figma-mcp-server/create-skills/).

@@ -825,6 +825,7 @@ function createFixture(): FigmaFixture {
       })
       if (type === 'COMPONENT') {
         Object.assign(node, {
+          createInstance: vi.fn(() => createInstance(node as unknown as ComponentNode)),
           createSlot: vi.fn(() => {
             const owner =
               node.parent?.type === 'COMPONENT_SET'
@@ -1210,6 +1211,71 @@ function createFixture(): FigmaFixture {
     return node
   }
 
+  function createInstance(component: ComponentNode): InstanceNode {
+    const instance = createNode('INSTANCE')
+    let mainComponent = component
+    let scaleFactor = 1
+    const overrides: Array<{ id: string; overriddenFields: NodeChangeProperty[] }> = []
+    const definitions =
+      component.parent?.type === 'COMPONENT_SET'
+        ? component.parent.componentPropertyDefinitions
+        : component.componentPropertyDefinitions
+    Object.defineProperties(instance, {
+      mainComponent: {
+        get: () => mainComponent,
+        set: (value: ComponentNode) => {
+          mainComponent = value
+          overrides.splice(0)
+        }
+      },
+      overrides: { get: () => overrides },
+      scaleFactor: {
+        get: () => scaleFactor,
+        set: (value: number) => {
+          const ratio = value / scaleFactor
+          scaleFactor = value
+          instance.width *= ratio
+          instance.height *= ratio
+        }
+      }
+    })
+    Object.assign(instance, {
+      isExposedInstance: false,
+      componentProperties: Object.fromEntries(
+        Object.entries(definitions)
+          .filter(([, property]) => property.type !== 'SLOT')
+          .map(([name, property]) => [
+            name,
+            {
+              type: property.type,
+              value: property.defaultValue,
+              ...(property.boundVariables
+                ? { boundVariables: { value: property.boundVariables.defaultValue } }
+                : {})
+            }
+          ])
+      ),
+      getMainComponentAsync: vi.fn(async () => mainComponent),
+      swapComponent: vi.fn((next: ComponentNode) => {
+        mainComponent = next
+      }),
+      setProperties: vi.fn((properties: Record<string, string | boolean | VariableAlias>) => {
+        for (const [name, value] of Object.entries(properties)) {
+          const current = instance.componentProperties[name]
+          instance.componentProperties[name] =
+            typeof value === 'object'
+              ? {
+                  type: current?.type ?? 'TEXT',
+                  value: current?.value ?? '',
+                  boundVariables: { value }
+                }
+              : { type: current?.type ?? 'TEXT', value }
+        }
+      })
+    })
+    return instance as unknown as InstanceNode
+  }
+
   function wrapNodes(
     type: 'BOOLEAN_OPERATION' | 'GROUP',
     children: readonly MutableNode[],
@@ -1261,13 +1327,13 @@ function createFixture(): FigmaFixture {
     Icon: { type: 'INSTANCE_SWAP', defaultValue: 'component:1' },
     Content: { type: 'SLOT', defaultValue: '' }
   } satisfies ComponentPropertyDefinitions
-  const componentSet = {
+  const componentSet = withSharedPluginData({
     id: 'component-set:1',
     type: 'COMPONENT_SET',
     parent: PAGE,
     componentPropertyDefinitions
-  } as unknown as ComponentSetNode
-  const component = {
+  }) as unknown as ComponentSetNode
+  const component = withSharedPluginData({
     id: 'component:1',
     type: 'COMPONENT',
     key: 'component-key',
@@ -1277,65 +1343,8 @@ function createFixture(): FigmaFixture {
         ([, definition]) => definition.type !== 'VARIANT'
       )
     ),
-    createInstance: () => {
-      const instance = createNode('INSTANCE')
-      let scaleFactor = 1
-      let mainComponent = component as ComponentNode
-      const overrides: Array<{ id: string; overriddenFields: NodeChangeProperty[] }> = []
-      Object.defineProperties(instance, {
-        mainComponent: {
-          get: () => mainComponent,
-          set: (value: ComponentNode) => {
-            mainComponent = value
-            overrides.splice(0)
-          }
-        },
-        overrides: {
-          get: () => overrides
-        }
-      })
-      Object.assign(instance, {
-        isExposedInstance: false,
-        componentProperties: {
-          Label: { type: 'TEXT', value: 'Default' },
-          Disabled: { type: 'BOOLEAN', value: false },
-          State: { type: 'VARIANT', value: 'Default' },
-          Icon: { type: 'INSTANCE_SWAP', value: 'component:1' }
-        },
-        getMainComponentAsync: vi.fn(() => Promise.resolve(mainComponent)),
-        swapComponent: vi.fn((next: ComponentNode) => {
-          mainComponent = next
-        }),
-        setProperties: vi.fn((properties: Record<string, string | boolean | VariableAlias>) => {
-          for (const [name, value] of Object.entries(properties)) {
-            const current = instance.componentProperties[name]
-            if (typeof value === 'object') {
-              instance.componentProperties[name] = {
-                type: current?.type ?? 'TEXT',
-                value: current?.value ?? '',
-                boundVariables: { value }
-              }
-            } else {
-              instance.componentProperties[name] = {
-                type: current?.type ?? 'TEXT',
-                value
-              }
-            }
-          }
-        })
-      })
-      Object.defineProperty(instance, 'scaleFactor', {
-        get: () => scaleFactor,
-        set: (value: number) => {
-          const ratio = value / scaleFactor
-          scaleFactor = value
-          instance.width *= ratio
-          instance.height *= ratio
-        }
-      })
-      return instance as unknown as InstanceNode
-    }
-  } as unknown as ComponentNode
+    createInstance: () => createInstance(component)
+  }) as unknown as ComponentNode
   nodes.set(componentSet.id, componentSet)
   nodes.set(component.id, component)
 
@@ -2118,7 +2127,7 @@ describe('mcp/tools/canvas', () => {
     expect(action.componentProperties.Disabled?.value).toBe(true)
   })
 
-  it('places implicit create roots without overlap and honors an explicit transform', async () => {
+  it('auto-places every create root and preserves only explicit transform axes', async () => {
     const fixture = createFixture()
     const create = (key: string) =>
       applyCanvas({
@@ -2137,21 +2146,24 @@ describe('mcp/tools/canvas', () => {
     expect(second).toMatchObject({ x: 630, y: 350 })
     expect(third).toMatchObject({ x: 810, y: 350 })
 
-    const explicitResult = await applyCanvas({
+    const transformedResult = await applyCanvas({
       mode: 'create',
-      markup: '<div data-key="explicit" class="w-[100px] h-[100px]"></div>',
+      markup: '<div data-key="transformed" class="w-[100px] h-[100px]"></div>',
       bindings: {
-        explicit: {
+        transformed: {
           figma: {
             relativeTransform: [
-              [1, 0, 40],
+              [1, 0.25, 40],
               [0, 1, 60]
             ]
           }
         }
       }
     })
-    expect(fixture.getNode(explicitResult.rootNodeId)).toMatchObject({ x: 40, y: 60 })
+    expect(fixture.getNode(transformedResult.rootNodeId).relativeTransform).toEqual([
+      [1, 0.25, 990],
+      [0, 1, 350]
+    ])
   })
 
   it('stabilizes nested fill geometry after height-auto-resizing text reflows', async () => {
@@ -2242,7 +2254,7 @@ describe('mcp/tools/canvas', () => {
     expect(fixture.triggerUndo).toHaveBeenCalledOnce()
   })
 
-  it('reconciles freeform positions and exact native transforms idempotently', async () => {
+  it('auto-places a transformed root and updates exact native transforms idempotently', async () => {
     const fixture = createFixture()
     const rootTransform: Transform = [
       [0, 1, 40],
@@ -2271,17 +2283,21 @@ describe('mcp/tools/canvas', () => {
     const offset = fixture.getNode(created.nodeIdsByKey.offset!)
     const transformed = fixture.getNode(created.nodeIdsByKey.transformed!)
 
-    expect(root.relativeTransform).toEqual(rootTransform)
+    expect(root.relativeTransform).toEqual([
+      [0, 1, 300],
+      [-1, 0, 280]
+    ])
     expect(offset).toMatchObject({ layoutPositioning: 'AUTO', x: -4, y: 8 })
     expect(transformed.relativeTransform).toEqual(childTransform)
 
-    await expect(
-      applyCanvas({
-        ...input,
-        mode: 'update',
-        targetNodeId: created.rootNodeId
-      })
-    ).resolves.toMatchObject({ mutationCount: 0 })
+    const update = {
+      ...input,
+      mode: 'update' as const,
+      targetNodeId: created.rootNodeId
+    }
+    await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 1 })
+    expect(root.relativeTransform).toEqual(rootTransform)
+    await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
   it('reconciles Auto Layout transform axes without owning derived translation', async () => {
@@ -3024,6 +3040,64 @@ describe('mcp/tools/canvas', () => {
       characters: expect.stringMatching(/^Label#/)
     })
     await expect(applyCanvas(deleted)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('replaces a primitive draft with an instance of a freshly authored component', async () => {
+    const fixture = createFixture()
+    const draft = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/action-draft" class="flex flex-row items-center justify-center w-[160px] h-[48px]"><span data-key="screen/action-draft/label" class="w-fit h-fit">Continue</span></div></div>'
+    })
+    const authored = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="button" class="flex flex-row items-center justify-center w-[160px] h-[48px]"><span data-key="button/label" class="w-fit h-fit">Continue</span></div>',
+      native: {
+        button: {
+          figma: {
+            component: {
+              type: 'COMPONENT',
+              properties: {
+                label: {
+                  type: 'TEXT',
+                  name: 'Label',
+                  defaultValue: 'Continue'
+                }
+              }
+            }
+          }
+        },
+        'button/label': {
+          figma: {
+            componentPropertyReferences: { characters: 'label' }
+          }
+        }
+      }
+    })
+
+    const replaced = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: draft.rootNodeId,
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/action" class="w-[160px] h-[48px]"></div></div>',
+      native: {
+        'screen/action': {
+          component: { id: authored.rootNodeId },
+          componentProperties: { label: 'Save' }
+        }
+      },
+      removeKeys: ['screen/action-draft']
+    })
+
+    const action = fixture.getNode(replaced.nodeIdsByKey['screen/action']!) as InstanceNode
+    const mainComponent = await action.getMainComponentAsync()
+    expect(mainComponent?.id).toBe(authored.rootNodeId)
+    expect(Object.values(action.componentProperties)).toContainEqual({
+      type: 'TEXT',
+      value: 'Save'
+    })
+    expect((fixture.getNode(draft.rootNodeId) as FrameNode).children).toEqual([action])
   })
 
   it.each([

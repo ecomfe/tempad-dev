@@ -14,6 +14,7 @@ task intent
   -> explicit design-system authoring branch only when requested
   -> optional get_design_system() for permitted existing-resource reuse
   -> optional exact skill reference for authored Figma-only resources
+  -> optionally consume exact live component ids returned by earlier canvas work
   -> apply_canvas(desired result)
   -> resolve refs + validate
   -> diff latest canvas
@@ -70,68 +71,53 @@ shape and routing descriptions, while a matching skill reference supplies a comp
 example only when the result needs that capability. The extension remains the strict validator and
 executor.
 
-## Style grounding
+## Style grounding and open-world source choice
 
-Canvas correctness does not supply design taste. When a task requires material visual invention,
-the agent follows this evidence ladder:
+Canvas correctness does not supply design judgment. The objective is a result that fits the user's
+task, audience, platform, constraints, and intended expression. Design systems, reference products,
+icon libraries, and typefaces are evidence or materials toward that result, not defaults justified
+by familiarity, popularity, or authority.
 
-1. explicit user direction;
-2. permitted project, product, and Figma evidence;
-3. a clearly applicable installed brand, domain, or visual-design skill;
-4. bounded current research into the product domain.
+The progressive skill uses a relevance-first, bounded divergence–convergence process:
 
-An empty file and adjectives such as “clean” or “modern” are not style evidence. If the first three
-sources do not establish a direction, the progressive style reference asks the agent to inspect two
-or three current sources with different roles: production or official domain guidance for product
-behavior, a strong product or editorial reference for art direction, and authoritative
-accessibility or regulatory guidance when relevant. It retains only a short working brief and does
-not feed page dumps or a mood board into the main task.
+1. **Frame the focal problem before sources.** Record domain, audience, task, platform, intended
+   character, hard constraints, and the material decisions still open. Candidate names do not
+   appear at this stage.
+2. **Apply an evidence ladder.** Explicit user direction comes first, then permitted project and
+   Figma evidence, then an installed skill only when it contains applicable visual conventions,
+   then targeted current research. A procedural skill is not automatically style evidence.
+3. **Gate every external source for relevance.** A source must share material context with the
+   target or be authoritative for the exact decision at hand. Platform guidance has authority only
+   within its platform; an adjacent visual reference must name the principle that transfers.
+4. **Create meaningful contrast when fixation risk matters.** If a material direction remains open
+   and the first candidate is merely familiar, salient, or weakly matched, inspect one or two
+   alternatives that differ on the decision dimension. Skip comparison when strong local evidence
+   already determines the choice or its consequence is minor. Diversity is useful in the input to
+   a consequential comparison, not as a quota for every decision or for the final artifact.
+5. **Commit coherently.** Select by contextual fit, coverage, constraints, and tradeoffs. Do not
+   average incompatible references or reward novelty for its own sake.
+6. **Verify the artifact rather than the story.** Every briefed commitment must be visible in the
+   final screenshot. If it is absent, the agent corrects the canvas or removes the claim.
 
-References are used as particulars from which the agent forms one domain-appropriate direction,
-not as a surface to copy. This distinction matters because examples can either support problem
-formulation or cause fixation depending on how they are presented. The workflow therefore assigns
-each source a question, extracts principles, rejects unsupported model-default patterns, and checks
-the rendered canvas against the brief once. It does not ask the model to produce a persuasive style
-rationale: recent generative-UI evaluation shows that stated rationale and implemented UI can
-diverge.
+Reference roles remain separate: similar deployed products inform behavior and hierarchy;
+platform, accessibility, and regulatory guidance supplies scoped constraints; expressive references
+inform visual language only when the transferable principle is explicit. Asset selection follows
+the same rule: derive an icon or type profile from the composition's needs, inspect the required
+assets, compare alternatives only when the decision is consequential, then use one coherent source.
+A named typeface is a verifiable canvas commitment: bind it through an actual Text style, variable,
+or exact native font. A generic `font-sans` class does not establish that family.
 
-This belongs in a skill reference rather than the MCP protocol. Style judgment is contextual,
-open-ended knowledge; adding a `style` field, a domain taxonomy, or another tool would turn weak
-labels into false precision while increasing always-on context. The protocol continues to carry
+The resulting brief is a compact decision trace, not a mood board. Research stops when each material
+open decision has sufficient evidence. Exact reproduction, mechanical edits, explicit user choices,
+and established project sources do not trigger ceremonial exploration.
+
+This remains a progressive skill concern rather than a new MCP tool or `style` field because source
+selection is contextual and open-world. Encoding it as protocol state would add a brittle taxonomy
+to every request. Research on example presentation supports framing before named candidates to
+reduce fixation ([Formulating or Fixating](https://doi.org/10.1145/3613904.3642653)), while UI
+evaluation supports checking the rendered artifact instead of trusting its rationale
+([Design Theater](https://arxiv.org/abs/2607.22928)). The MCP protocol therefore continues to carry
 only the desired native result.
-
-The decision is supported by several complementary findings:
-
-- Polanyi's account of tacit knowledge explains why practiced judgment cannot be reduced to an
-  exhaustive rule set; project evidence, examples, and skills carry subsidiary know-how while the
-  agent attends to the whole design ([The Tacit Dimension](https://press.uchicago.edu/ucp/books/book/chicago/T/bo6035368.html)).
-- A controlled creativity study found that generative assistance improved individual outputs but
-  made outputs more similar in aggregate. It studied writing rather than UI, so it is evidence of a
-  general homogenization risk, not a direct UI result
-  ([Doshi and Hauser, 2024](https://doi.org/10.1126/sciadv.adn5290)).
-- UI-specific work reports generic LLM-generated interfaces and better alignment when task and user
-  preferences guide inference ([AlignUI](https://arxiv.org/abs/2601.17614)). A recent generative-UI
-  benchmark likewise found visual/layout convergence and gaps between claimed and implemented
-  principles ([Design Theater](https://arxiv.org/abs/2607.22928)).
-- Controlled research on examples found that contextualized examples supported formulation better
-  than list presentation, which was associated with more fixation
-  ([Formulating or Fixating](https://arxiv.org/abs/2401.11022)).
-- Current Figma practice treats skills as a carrier for team judgment and web/project context as
-  inputs that shape the result, matching this separation between capability and point of view
-  ([Figma skills](https://www.figma.com/blog/got-skills-make-the-figma-agent-a-better-collaborator/),
-  [context and custom tools](https://www.figma.com/blog/agent-custom-tools-context-skills/)).
-
-This follows Polanyi's distinction between focal and subsidiary awareness: the agent attends to the
-design outcome while relying on compact protocol exemplars rather than reconstructing every native
-operation. It also addresses empirical tool-use failures: API-use research reports wrong arguments
-and hallucinated APIs, while multi-turn agent benchmarks show inconsistent rule following even for
-frontier models. Exact examples, conditional routing, strict validation, and a bounded visual check
-are therefore correctness mechanisms, not optional prompt decoration. See
-[The Tacit Dimension](https://press.uchicago.edu/ucp/books/book/chicago/T/bo6035368.html),
-[Gorilla](https://arxiv.org/abs/2305.15334),
-[$\tau$-bench](https://arxiv.org/abs/2406.12045),
-[Design2Code](https://arxiv.org/abs/2403.03163), and the
-[MCP tool contract](https://modelcontextprotocol.io/specification/draft/server/tools).
 
 ## Design-system retrieval
 
@@ -249,6 +235,11 @@ type ApplyCanvasInput = {
   native?: Record<
     string,
     {
+      component?: { id: string }
+      componentProperties?: Record<
+        string,
+        string | boolean | { variable: { id?: string; key?: string; variableKey?: string } }
+      >
       variables?: Record<string, { variableKey: string } | null>
       variableModes?: Record<string, string | null>
       styles?: {
@@ -276,6 +267,13 @@ authored resources, mode overrides, and Figma-only state. Advanced fields expose
 and precise routing descriptions at the MCP layer, while their exact shapes and complete examples
 load progressively from the canvas-authoring skill. The extension validates them against the
 complete private native schema after short refs are expanded.
+
+An exact live component ID returned by prior `apply_canvas` work can be bound directly without
+creating or refreshing a catalog. This keeps component authoring order flexible: the agent may
+author definitions before composing, or compose first and later replace managed primitive usages
+with instances. For TemPad-authored definitions, direct `componentProperties` may use the stable
+property keys recorded during authoring. Catalog tags remain the normalized path for discovered
+components and library reuse.
 
 The model can use exact `{ ref: "…" }` objects inside advanced state. The resolver expands them to
 the correct component, variable, collection, mode, style, or shader identity and rejects:
@@ -359,11 +357,11 @@ rules are recorded in [Canvas SVG and image assets](./mcp-canvas-assets-design.m
 
 ## Create and update semantics
 
-Create describes one complete new root. Without an explicit root `relativeTransform`, the extension
-centers the result near the current viewport and, when occupied, places it in the first available
-position to the right. It reads only top-level bounds from that destination page; the model does not
-maintain a coordinate ledger. An explicit transform remains authoritative when placement is part
-of the requested result.
+Create describes one complete new root. The extension starts near the current viewport center,
+checks the new root's rendered bounds against top-level bounds on the destination page, and when
+occupied moves the whole result to the first available position to the right. A root
+`relativeTransform` may supply rotation or skew axes, but its translation never controls create
+placement. The model does not inspect the canvas for free space or maintain a coordinate ledger.
 
 Update is an incremental declarative patch scoped by `targetNodeId`:
 

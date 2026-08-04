@@ -16,6 +16,10 @@ Turn product intent into one native, editable Figma result. Decide what to
 design; let TemPad Dev resolve resources, validate native state, diff the latest
 canvas, and apply the safe patch.
 
+Keep the requested design outcome focal. Treat file evidence, references,
+catalog entries, syntax, and tool calls as subsidiary support for that outcome,
+not as a checklist to maximize or a design direction in themselves.
+
 Require the intended Figma tab to have MCP access and the current Figma Design
 file to be editable. Never bypass that boundary or send raw Plugin API
 operations.
@@ -59,6 +63,8 @@ it is available.
 - Keep repeated elements and states consistent, and use concise realistic copy.
 - Use real component or library icons and real or generated imagery. Never
   imitate them with text glyphs or primitive mosaics.
+- Treat familiar visual sources as candidates, not defaults; familiarity does
+  not settle a material product, platform, or expressive decision.
 - Design the smallest result that feels complete for the requested task.
 
 ## Workflow
@@ -76,29 +82,56 @@ it is available.
    or project evidence and a clearly applicable installed skill. If material
    visual invention remains underspecified, read
    [style-grounding.md](references/style-grounding.md). Skip this branch for
-   exact reproduction and mechanical edits.
+   exact reproduction and mechanical edits. Frame the design problem before
+   naming an external source so the first familiar pattern does not silently
+   become the brief.
 3. **Choose one resource path.**
+   After explicit user direction, use this default: silence is not an opt-out,
+   but catalog availability is not relevance. For an update, preserve existing
+   resource usage and consult the catalog only when choosing or replacing a
+   resource. For new work, choose Reuse only when permitted file or project
+   evidence establishes an applicable system whose consistency matters;
+   otherwise choose Direct. Ask only when a material resource boundary cannot
+   be inferred.
    - **Reuse:** when existing design-system consistency is allowed and relevant,
      read [design-system-reuse.md](references/design-system-reuse.md).
    - **Direct:** use primitives, literal values, and allowed external assets.
      Do not call `get_design_system`, send `catalogId`, or use catalog refs.
    - **Author:** only when the user explicitly requests a local reusable
      component, variable, style, or design-system extension. Read
-     [design-system-authoring.md](references/design-system-authoring.md). An
+     [design-system-authoring.md](references/design-system-authoring.md).
+     Component order is flexible, but the final composition must use authored
+     components as native instances; an exact returned ID needs no catalog. An
      empty file or repeated UI does not imply this request.
-4. **Load only exact syntax needed.** Always read
-   [canvas-html.md](references/canvas-html.md), then only the capability
-   references selected below. Copy complete examples for private native shapes;
-   never infer them from the Figma Plugin API or from validation failures.
+4. **Load only exact syntax needed.** Skip Canvas HTML for `markup: null`. When
+   trustworthy target markup is already available and the update preserves its
+   element structure, always read
+   [Elements and identity](references/canvas-html.md#elements-and-identity), then
+   read [Layout](references/canvas-html.md#layout) only for sizing or layout class
+   changes and
+   [Appearance and text](references/canvas-html.md#appearance-and-text) only for
+   appearance or text class changes. Text characters, a known catalog prop, a
+   known variable or style link, and native state on known nodes need no other
+   Canvas HTML section. Preserve every unaffected element, attribute, and class;
+   leave markup unchanged for a native-only update. For a create or an update
+   that changes element structure, read [canvas-html.md](references/canvas-html.md)
+   in full. Then load only the capability references selected below. Copy
+   complete examples for private native shapes; never infer them from the Figma
+   Plugin API or from validation failures.
 5. **Apply one desired result.** Call `apply_canvas` once per coherent root. If
    a genuinely large result must be split, divide it at meaningful screen or
-   section boundaries, never into node-level operations. On create, omit root
-   translation unless exact placement is part of the request; TemPad Dev places
-   unspecified roots on the current page without overlap.
-6. **Verify once.** Read structural verification. For a new composition or
-   material visual change, normally call `get_screenshot` once on the result
-   root; skip it for mechanical text, token, prop, or hierarchy-only edits.
-   Make at most one evidence-based correction.
+   section boundaries, never into node-level operations. Never inspect the
+   canvas for free space, carry coordinates across calls, or use root
+   translation to place a create result. TemPad Dev calculates every new root's
+   position from its rendered size and the destination page's existing
+   top-level bounds.
+6. **Close the feedback loop.** Read structural verification. For a new
+   composition or material visual change, normally call `get_screenshot` once
+   on the result root; skip it for mechanical text, token, prop, or
+   hierarchy-only edits.
+   Correct a concrete mismatch and recheck only when the correction itself is
+   visually consequential. Stop when the requested result passes the evidence;
+   do not continue tuning without a new observation or requirement.
 
 Do not turn this workflow into repeated API-like mutations.
 
@@ -110,10 +143,14 @@ Load a reference only when its capability is part of the requested result:
   [document-geometry.md](references/document-geometry.md)
 - native paints, media, effects, shaders, grids, or guides:
   [paints-effects.md](references/paints-effects.md)
-- rich text, range styles, lists, or hyperlinks:
+- exact whole-node fonts, rich text, range styles, lists, or hyperlinks:
   [rich-text.md](references/rich-text.md)
-- icon sources, typeface choice, or generated imagery:
-  [visual-assets.md](references/visual-assets.md)
+- icon source selection or exact SVG import:
+  [Icons](references/visual-assets.md#icons)
+- typeface choice:
+  [Typefaces](references/visual-assets.md#typefaces)
+- sourced or generated imagery:
+  [Images and illustrations](references/visual-assets.md#images-and-illustrations)
 - authored components, variant sets, properties, or Slots:
   [component-authoring.md](references/component-authoring.md)
 - local variables, collections, modes, or bindings:
