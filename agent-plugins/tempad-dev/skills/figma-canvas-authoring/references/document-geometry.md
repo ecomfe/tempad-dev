@@ -46,7 +46,9 @@ path/network clears it.
 - `figma.name` sets the display-layer name; `data-key` remains identity.
 - `locked` and `aspectRatioLocked` set native interaction state.
 - `relativeTransform` is a complete native 2×3 unit-axis transform. Width and
-  height carry scale. Do not combine it with `rotate-*`.
+  height carry scale. Do not combine it with `rotate-*`. On a create root,
+  TemPad Dev preserves rotation and skew axes but replaces translation with its
+  automatic non-overlapping page placement.
 - `stroke` carries weight(s), alignment, caps, joins, miter, and dashes.
 - `corners` carries radius/radii and smoothing.
 - `mask` is `"ALPHA"`, `"VECTOR"`, `"LUMINANCE"`, or `null`.

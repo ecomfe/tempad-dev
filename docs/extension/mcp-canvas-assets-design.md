@@ -415,7 +415,10 @@ or logo.
 
 TemPad imports exact caller-provided content; it does not search for assets, determine copyright
 status, or grant usage rights. The authoring skill should prefer project-approved, user-supplied, or
-permissively licensed sources and keep one icon family coherent.
+permissively licensed sources and keep one icon family coherent. In a clean context it derives an
+icon profile from the product and composition, inspects fitting candidates from official sources,
+and compares materially distinct options only when the decision is consequential or the first fit
+rests on familiarity. It intentionally ships no named fallback list.
 
 Do not log SVG source, raster bytes, remote URL queries, capability URLs, or upload tokens. Logs may
 contain only asset key, content hash, MIME type, byte count, dimensions, and bounded failure code.

@@ -1,7 +1,7 @@
 import type { ApplyCanvasParameters } from '@tempad-dev/shared'
 
 import { ApplyCanvasParametersSchema } from '@tempad-dev/shared'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
@@ -15,10 +15,34 @@ const AUTHORING_REFERENCE_DIR = new URL(
   import.meta.url
 )
 
-function referenceExamples(file: string): unknown[] {
-  const markdown = readFileSync(new URL(file, AUTHORING_REFERENCE_DIR), 'utf8')
-  return [...markdown.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) => JSON.parse(match[1]!))
+type ReferenceExample = {
+  file: string
+  number: number
+  value: Record<string, unknown>
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function referenceExamples(): ReferenceExample[] {
+  const examples: ReferenceExample[] = []
+  for (const file of readdirSync(AUTHORING_REFERENCE_DIR).filter((name) => name.endsWith('.md'))) {
+    const markdown = readFileSync(new URL(file, AUTHORING_REFERENCE_DIR), 'utf8')
+    let number = 0
+    for (const match of markdown.matchAll(/```json\n([\s\S]*?)\n```/g)) {
+      number += 1
+      const value: unknown = JSON.parse(match[1]!)
+      if (!isRecord(value) || (!('mode' in value) && !('markup' in value))) continue
+      examples.push({ file, number, value })
+    }
+  }
+  return examples.sort((left, right) =>
+    left.file === right.file ? left.number - right.number : left.file.localeCompare(right.file)
+  )
+}
+
+const REFERENCE_EXAMPLES = referenceExamples()
 
 function catalog() {
   return registerDesignSystemCatalog([
@@ -88,33 +112,30 @@ function catalog() {
   ])
 }
 
-describe('mcp/tools/canvas catalog resolution', () => {
-  it.each(['canvas-html.md', 'variables.md', 'styles.md', 'component-authoring.md'])(
-    'keeps every complete %s recipe executable',
-    (file) => {
-      const examples = referenceExamples(file)
-      expect(examples.length).toBeGreaterThan(0)
-      for (const example of examples) {
-        const input = ApplyCanvasParametersSchema.parse(example)
-        const resolved = resolveCanvasInput(input)
-        expect(() => parseCanvasMarkup(resolved.input, resolved.catalog)).not.toThrow()
-      }
-    }
-  )
+describe('mcp/tools/canvas authoring references and catalog resolution', () => {
+  it('discovers every documented complete recipe without a file allowlist', () => {
+    expect(REFERENCE_EXAMPLES.map(({ file, number }) => `${file}#${number}`)).toEqual(
+      expect.arrayContaining([
+        'canvas-html.md#1',
+        'component-authoring.md#1',
+        'component-authoring.md#2',
+        'component-authoring.md#3',
+        'design-system-reuse.md#1',
+        'styles.md#1',
+        'variables.md#1',
+        'visual-assets.md#1'
+      ])
+    )
+  })
 
-  it('keeps the complete design-system reuse recipe executable', () => {
-    const designSystem = catalog()
-    const examples = referenceExamples('design-system-reuse.md')
-    expect(examples.length).toBeGreaterThan(0)
-
-    for (const example of examples) {
-      const input = ApplyCanvasParametersSchema.parse({
-        ...(example as Record<string, unknown>),
-        catalogId: designSystem.id
-      })
-      const resolved = resolveCanvasInput(input)
-      expect(() => parseCanvasMarkup(resolved.input, resolved.catalog)).not.toThrow()
-    }
+  it.each(REFERENCE_EXAMPLES)('keeps $file recipe #$number executable', ({ value }) => {
+    const designSystem = value.catalogId === undefined ? undefined : catalog()
+    const input = ApplyCanvasParametersSchema.parse({
+      ...value,
+      ...(designSystem ? { catalogId: designSystem.id } : {})
+    })
+    const resolved = resolveCanvasInput(input)
+    expect(() => parseCanvasMarkup(resolved.input, resolved.catalog)).not.toThrow()
   })
 
   it('returns bounded validation feedback with actionable paths', () => {

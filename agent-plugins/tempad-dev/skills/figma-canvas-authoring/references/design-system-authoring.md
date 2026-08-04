@@ -42,6 +42,9 @@ requested scope requires.
 ## Validate through use
 
 Judge a resource in representative composition, not from its definition alone.
+For components, follow [component-authoring.md](component-authoring.md): the
+representative composition must contain native instances of the new definition.
+
 Create only the smallest examples needed to exercise meaningful content,
 states, and layout behavior. Check native bindings, Auto Layout, text resizing,
 property behavior, and visual consistency. In the workflow's final visual

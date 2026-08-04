@@ -53,6 +53,7 @@ describe('tools response helpers', () => {
     expect(designSystem?.description).toContain('Do not call after a user opt-out')
     expect(designSystem?.description).toContain('merely to create new local resources')
     expect(applyCanvas?.description).toContain('works without get_design_system or catalogId')
+    expect(applyCanvas?.description).toContain('exact live component id')
     expect(applyCanvas?.description).toContain('only when explicitly requested')
     expect(applyCanvas?.description).toContain('exact progressive reference')
   })

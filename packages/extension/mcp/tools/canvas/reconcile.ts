@@ -625,6 +625,10 @@ function componentPropertyOwner(node: BaseNode): ComponentPropertyOwner | null {
   return null
 }
 
+function componentDefinitionOwner(component: ComponentNode): ComponentPropertyOwner {
+  return component.parent?.type === 'COMPONENT_SET' ? component.parent : component
+}
+
 function componentPropertyKeys(
   owner: ComponentPropertyOwner,
   state: ApplyState
@@ -1418,14 +1422,12 @@ async function preflightComponentProperties(
   component: ComponentNode,
   state: ApplyState
 ): Promise<void> {
-  const definitions =
-    component.parent?.type === 'COMPONENT_SET'
-      ? component.parent.componentPropertyDefinitions
-      : component.componentPropertyDefinitions
-  for (const [name, value] of Object.entries(spec.componentProperties ?? {})) {
-    const definition = definitions[name]
+  const owner = componentDefinitionOwner(component)
+  for (const [key, value] of Object.entries(spec.componentProperties ?? {})) {
+    const name = componentPropertyName(owner, key, state) ?? key
+    const definition = owner.componentPropertyDefinitions[name]
     if (!definition) {
-      specError(`Component "${component.id}" has no property "${name}" for "${spec.key}".`)
+      specError(`Component "${component.id}" has no property "${key}" for "${spec.key}".`)
     }
     if (definition.type === 'SLOT') {
       specError(`Slot property "${name}" on "${spec.key}" cannot be set with componentProperties.`)
@@ -1713,8 +1715,7 @@ function createSlotNode(
   if (!component || component.remote) {
     specError(`New slot "${spec.key}" must be nested inside a local authored component.`)
   }
-  const owner: ComponentPropertyOwner =
-    component.parent?.type === 'COMPONENT_SET' ? component.parent : component
+  const owner = componentDefinitionOwner(component)
   componentPropertyKeys(owner, state)
   const previousNames = new Set(Object.keys(owner.componentPropertyDefinitions))
   const slot = component.createSlot()
@@ -3601,8 +3602,8 @@ async function applyComponent(
   state: ApplyState
 ): Promise<void> {
   const instance = spec.figma?.instance
+  const component = resolvedComponent(spec.component!, state)
   if (!preservesComponentPropertyReference(node, spec, 'mainComponent')) {
-    const component = await resolveComponent(spec.component!, state)
     const currentComponent = await node.getMainComponentAsync()
     if (currentComponent?.id !== component.id) {
       if (instance?.preserveOverrides === false) node.mainComponent = component
@@ -3626,15 +3627,16 @@ async function applyComponent(
     state
   )
 
-  const changedProperties = Object.entries(spec.componentProperties ?? {}).filter(
-    ([name, value]) => {
-      const current = node.componentProperties[name]
-      return isComponentPropertyVariable(value)
-        ? current?.boundVariables?.value?.id !==
-            resolvedVariable(value.variable, state.variables).id
-        : current?.value !== value || current?.boundVariables?.value !== undefined
-    }
+  const owner = componentDefinitionOwner(component)
+  const desiredProperties = Object.entries(spec.componentProperties ?? {}).map(
+    ([key, value]) => [componentPropertyName(owner, key, state) ?? key, value] as const
   )
+  const changedProperties = desiredProperties.filter(([name, value]) => {
+    const current = node.componentProperties[name]
+    return isComponentPropertyVariable(value)
+      ? current?.boundVariables?.value?.id !== resolvedVariable(value.variable, state.variables).id
+      : current?.value !== value || current?.boundVariables?.value !== undefined
+  })
   if (changedProperties.length) {
     node.setProperties(
       Object.fromEntries(
@@ -4921,12 +4923,21 @@ function placeCreatedRoot(node: SupportedCanvasNode, page: PageNode, state: Appl
     }
   }
 
-  const x = node.x + candidate.x - bounds.x
-  const y = node.y + candidate.y - bounds.y
-  if (node.x === x && node.y === y) return
-  node.x = x
-  node.y = y
-  markMutation(state, node)
+  const deltaX = candidate.x - bounds.x
+  const deltaY = candidate.y - bounds.y
+  if (deltaX !== 0 || deltaY !== 0) {
+    const transform = node.relativeTransform
+    node.relativeTransform = [
+      [transform[0][0], transform[0][1], transform[0][2] + deltaX],
+      [transform[1][0], transform[1][1], transform[1][2] + deltaY]
+    ]
+    markMutation(state, node)
+  }
+
+  const placed = placementBounds(node)
+  if (!placed || obstacles.some((obstacle) => placementOverlap(placed, obstacle))) {
+    specError(`Created root "${node.id}" could not be placed without overlap.`)
+  }
 }
 
 function createApplyState(
@@ -5294,7 +5305,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
       target ?? undefined
     )
     await applyCanvasKeyReferences(rootSpec, state)
-    if (input.mode === 'create' && rootSpec.figma?.relativeTransform === undefined) {
+    if (input.mode === 'create') {
       placeCreatedRoot(root, page, state)
     }
     applyMask(root, rootSpec, state)

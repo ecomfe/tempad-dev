@@ -19,8 +19,9 @@ This document records the current context-control strategy for TemPad Dev MCP ou
      request; an empty file or ordinary composition never triggers it.
    - Material visual invention must have a grounded direction. Explicit user and project evidence
      come first, then an applicable installed skill; only an unresolved style loads the targeted
-     research reference. The agent retains a brief under twelve lines instead of page dumps or a
-     mood board.
+     research reference. Familiar or authoritative sources remain unverified candidates until they
+     pass a task-, domain-, and platform-relevance gate. The agent retains a brief under ten
+     lines instead of page dumps or a mood board.
    - Task-specific workflows, syntax, examples, and advanced native features live in skills and
      their progressive references.
    - Tool results carry factual recovery instructions only when that condition occurs.
@@ -88,7 +89,10 @@ This document records the current context-control strategy for TemPad Dev MCP ou
   valid design-system facts while presenting its output as task-specific.
 - Style is contextual judgment rather than protocol state. Keeping its evidence and synthesis in a
   progressive skill reference avoids a permanent style taxonomy while preventing an unspecified
-  request from collapsing to the model's highest-probability visual defaults.
+  request from collapsing to the model's highest-probability visual defaults. The reference frames
+  requirements before candidate names, creates contrast when a salient default could materially
+  fixate the result, and keeps coherence after selection; it does not prescribe a rotating catalog
+  of aesthetics or mandatory research ceremony.
 
 ## Non-goals
 

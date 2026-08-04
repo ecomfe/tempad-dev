@@ -1,80 +1,78 @@
 # Ground an unspecified visual direction
 
-Use this reference only for new or materially redesigned UI whose visual style
-is not sufficiently established by the user, permitted file or project
-evidence, or a clearly applicable installed skill. Skip exact reproduction and
+Use this reference only for new or materially redesigned UI whose visual
+direction is not established by the user, permitted file or project evidence,
+or a clearly applicable installed skill. Skip exact reproduction and
 mechanical edits.
 
-## Decide whether evidence is sufficient
+## Frame the design problem
 
-A named brand or design system, representative screens, concrete visual
-references, or a relevant skill with real conventions can establish direction.
-Broad adjectives such as “clean,” “modern,” or “premium” cannot do so alone.
+Before naming a source, fix:
 
-Apply evidence in this order:
+- the audience, core task, and platform;
+- the intended character and trust posture;
+- the hard constraints and only the visual decisions that remain material.
+
+Treat remembered patterns and named systems as evidence for those decisions,
+not as the direction itself. Broad adjectives such as “clean,” “modern,” or
+“premium” do not settle a direction. Familiarity, fame, and official status do
+not prove relevance; transfer an adjacent-domain idea only when its principle
+fits this product problem.
+
+## Use the nearest sufficient evidence
+
+Prefer evidence in this order:
 
 1. explicit user requirements and prohibitions;
 2. permitted project, product, and Figma evidence;
-3. a clearly relevant installed brand, domain, or visual-design skill;
+3. an applicable installed brand, domain, or visual-design skill;
 4. targeted current research.
 
-Use a skill as design evidence only when its stated scope matches the task. Do
-not install, invoke, or combine unrelated skills merely to add style. If the
-user forbids external research, honor that boundary. When no sufficient local
-evidence or applicable skill remains, ask for direction instead of using an
-unacknowledged generic default.
+Use an installed skill as design evidence only when its actual conventions fit
+the task. When available evidence settles a choice, stop. If external research
+is prohibited and a material decision remains unresolved, ask the user.
 
-## Research narrowly
+Research only an unresolved material decision:
 
-Identify the product domain, primary audience, core task, platform, and desired
-tone. Then inspect two or three current, distinct references with explicit
-roles:
+1. Form one question from the audience, task, platform, character, and
+   constraint.
+2. Start with the nearest credible source. Extract the applicable principle and
+   its authority boundary, not a surface to copy.
+3. Use one source when it answers the question clearly. Compare one
+   meaningfully different alternative only when the consequence is material and
+   the first candidate may owe its appeal to familiarity or weak contextual
+   fit.
+4. Commit as soon as the evidence supports one coherent direction.
 
-- use a real production product, official domain design system, or documented
-  pattern library for interaction, hierarchy, density, and trust conventions;
-- use a strong product or editorial reference for visual language, typography,
-  composition, iconography, and imagery;
-- include an authoritative accessibility or regulatory source when the domain
-  makes it material.
-
-Prefer deployed products, official systems, and expert case studies that match
-the actual domain. Inspiration galleries and template marketplaces may inform
-art direction, but never use them as the sole source for product behavior or
-quality. Avoid AI-generated galleries and generic trend lists.
-
-Do not imitate one reference wholesale. Assign each source a question, extract
-the relevant principle, and synthesize one direction for this task. This keeps
-examples subsidiary to the design problem and reduces fixation on a single
-surface treatment.
+A deployed product in a similar domain and platform can inform hierarchy,
+density, interaction, and trust conventions. Platform, accessibility, and
+regulatory guidance constrain only their actual scope. Strong product work,
+editorial work, or an expert case study can inform expression when its
+principle fits. Inspiration galleries may suggest art direction but never
+establish product behavior or quality; avoid AI-generated galleries and generic
+trend lists.
 
 Retain only a compact working brief:
 
 ```txt
-Audience + task:
-Reference roles: 2–3 titles or URLs, one purpose each
-Domain conventions:
-Visual stance:
-Decisions: typography; color; density/shape; icon language; imagery
-Avoid: unsupported domain risks and visual clichés
+Intent: audience; task; platform; character
+Evidence: source -> principle -> relevance
+Direction: one coherent visual hypothesis
+Commitments: type; color; density/shape; icons; imagery
+Avoid: domain risks; unsupported patterns; clichés
 ```
 
-Keep the brief under twelve short lines. Do not paste page dumps, long quotes,
-or a mood board into the design task. If a relevant installed skill already
-settles part of the direction, research only the missing domain facts.
+Keep it under eight short lines. It is a working note, not a deliverable. Do not
+paste page dumps, long quotes, research transcripts, or a mood board into the
+design task.
 
 ## Apply and verify
 
-Make the chosen direction visible in the hierarchy, spacing rhythm, type,
-color, shape language, icons, and imagery. Prefer one coherent point of view to
-an average of the references. Do not copy protected brand assets or distinctive
-trade dress.
+Make the direction visible through hierarchy, spacing rhythm, type, color,
+shape language, icons, and imagery. Synthesize rather than average incompatible
+references or copy protected brand assets and distinctive trade dress.
 
-Reject unsupported model defaults such as interchangeable card grids,
-decorative gradients, excessive pills and rounding, glass panels, generic
-illustrations, and inflated marketing copy. Any of these may still be correct
-when the user, domain, or references support it.
-
-Use the final screenshot to compare the canvas—not the rationale—against the
-brief. Check whether the domain conventions, visual stance, and concrete
-decisions are actually present, and whether an unsupported generic pattern has
-reappeared.
+Judge the final screenshot, not the rationale, against the brief. Correct only
+concrete mismatches and confirm that an unsupported familiar default has not
+displaced the chosen direction. Do not collect more references or continue
+tuning without new evidence.
