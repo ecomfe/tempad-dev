@@ -2,7 +2,7 @@
   "mcpServers": {
     "tempad-dev": {
       "command": "npx",
-      "args": ["-y", "@tempad-dev/mcp@alpha"]
+      "args": ["-y", "@tempad-dev/mcp@0.8.0-alpha.0"]
     }
   }
 }

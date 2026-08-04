@@ -7,6 +7,7 @@ import type {
 } from '@tempad-dev/shared'
 
 import {
+  MCP_MAX_ASSET_BYTES,
   TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
   TEMPAD_MCP_BROWSER_SOURCE,
   TEMPAD_MCP_ERROR_CODES,
@@ -17,6 +18,9 @@ import {
 
 import type { McpBrokerPort } from './sessions'
 
+import { readBoundedResponseBytes } from '../bounded-response'
+import { base64ToBytes, bytesToBase64, digestMatchesAssetHash, sha256Hex } from '../encoding'
+import { coerceToolErrorPayload, createCodedError } from '../errors'
 import {
   MCP_LOCAL_HOST_ORIGIN,
   type McpPermissionMessageType,
@@ -27,6 +31,10 @@ import { McpHubClient } from './hub-client'
 import { McpSessionRegistry } from './sessions'
 
 type AssetUploadMessage = Extract<PageToBridgeMessage, { type: 'mcp.uploadAsset' }>
+type AssetDownloadMessage = Extract<PageToBridgeMessage, { type: 'mcp.downloadAsset' }>
+type AssetDownloadResultPayload = NonNullable<
+  Extract<BridgeToPageMessage, { type: 'mcp.assetDownloadResult' }>['payload']
+>
 
 export type McpBrokerHubClient = Pick<
   McpHubClient,
@@ -99,6 +107,9 @@ export class McpServiceWorkerBroker {
         break
       case 'mcp.uploadAsset':
         void this.uploadAsset(port, message)
+        break
+      case 'mcp.downloadAsset':
+        void this.downloadAsset(port, message)
         break
     }
   }
@@ -214,6 +225,28 @@ export class McpServiceWorkerBroker {
     }
   }
 
+  private async downloadAsset(port: McpBrokerPort, message: AssetDownloadMessage): Promise<void> {
+    if (this.portSessions.get(port) !== message.sessionId) return
+    const { assetServerUrl } = this.hubClient.getSnapshot()
+    if (!assetServerUrl) {
+      this.sendAssetDownloadResult(port, message, undefined, {
+        code: TEMPAD_MCP_ERROR_CODES.ASSET_SERVER_NOT_CONFIGURED,
+        message: 'Asset server URL is not configured.'
+      })
+      return
+    }
+    try {
+      const payload = await downloadAssetFromServer(assetServerUrl, message.payload.hash)
+      this.sendAssetDownloadResult(port, message, payload)
+    } catch (error) {
+      const payload = coerceToolErrorPayload(error)
+      this.sendAssetDownloadResult(port, message, undefined, {
+        code: payload.code ?? TEMPAD_MCP_ERROR_CODES.ASSET_BRIDGE_UNAVAILABLE,
+        message: payload.message
+      })
+    }
+  }
+
   private handlePortDisconnect(port: McpBrokerPort): void {
     const sessionId = this.portSessions.get(port)
     if (!sessionId) return
@@ -310,6 +343,32 @@ export class McpServiceWorkerBroker {
     }
   }
 
+  private sendAssetDownloadResult(
+    port: McpBrokerPort,
+    request: AssetDownloadMessage,
+    payload?: AssetDownloadResultPayload,
+    error?: { code?: TempadMcpErrorCode; message: string }
+  ): void {
+    const message: BridgeToPageMessage = {
+      ...(error ? { error } : { payload: payload! }),
+      requestId: request.requestId,
+      sessionId: request.sessionId,
+      source: TEMPAD_MCP_BROWSER_SOURCE,
+      type: 'mcp.assetDownloadResult',
+      version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+    }
+    try {
+      port.postMessage(message)
+    } catch {
+      this.unregisterSession(
+        request.sessionId,
+        'Figma session disconnected before receiving asset download result.'
+      )
+      this.stopHubIfIdle()
+      this.broadcastState()
+    }
+  }
+
   private stopHubIfIdle(): void {
     if (this.sessions.size > 0) return
     this.pendingToolCalls.clear()
@@ -363,13 +422,52 @@ async function uploadAssetToServer(
   payload: AssetUploadMessage['payload']
 ): Promise<void> {
   const response = await fetch(`${assetServerUrl}/assets/${payload.hash}`, {
-    body: new Blob([base64ToArrayBuffer(payload.base64)], { type: payload.mimeType }),
+    body: new Blob([base64ToBytes(payload.base64)], { type: payload.mimeType }),
     headers: buildAssetUploadHeaders(payload),
     method: 'POST'
   })
 
   if (!response.ok) {
     throw new Error(`Upload failed with status ${response.status} ${response.statusText}`)
+  }
+}
+
+async function downloadAssetFromServer(
+  assetServerUrl: string,
+  hash: string
+): Promise<AssetDownloadResultPayload> {
+  const response = await fetch(`${assetServerUrl}/assets/${hash}`, { method: 'GET' })
+  if (response.status === 404) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.ASSET_NOT_FOUND,
+      `Asset "${hash}" was not found in the local store.`
+    )
+  }
+  if (!response.ok) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.ASSET_BRIDGE_UNAVAILABLE,
+      `Asset download failed with status ${response.status} ${response.statusText}.`
+    )
+  }
+  const tooLarge = () =>
+    createCodedError(
+      TEMPAD_MCP_ERROR_CODES.ASSET_TOO_LARGE,
+      `Asset "${hash}" exceeds the ${MCP_MAX_ASSET_BYTES}-byte bridge limit.`
+    )
+  const bytes = await readBoundedResponseBytes(response, MCP_MAX_ASSET_BYTES, tooLarge)
+  const actual = await sha256Hex(bytes)
+  if (!digestMatchesAssetHash(actual, hash)) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.ASSET_HASH_MISMATCH,
+      `Asset "${hash}" did not match its SHA-256 digest.`
+    )
+  }
+  return {
+    base64: bytesToBase64(bytes),
+    mimeType:
+      response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() ||
+      'application/octet-stream',
+    size: bytes.byteLength
   }
 }
 
@@ -381,14 +479,4 @@ function buildAssetUploadHeaders(payload: AssetUploadMessage['payload']): Record
   if (payload.metadata?.height) headers['X-Asset-Height'] = String(payload.metadata.height)
   if (payload.metadata?.themeable) headers['X-Asset-Themeable'] = 'true'
   return headers
-}
-
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binary = atob(base64)
-  const buffer = new ArrayBuffer(binary.length)
-  const bytes = new Uint8Array(buffer)
-  for (let index = 0; index < binary.length; index++) {
-    bytes[index] = binary.charCodeAt(index)
-  }
-  return buffer
 }

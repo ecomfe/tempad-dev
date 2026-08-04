@@ -13,6 +13,7 @@ const base = {
   source: TEMPAD_MCP_BROWSER_SOURCE,
   version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
 } as const
+const hash = 'a'.repeat(64)
 
 describe('mcp/browser-gateway', () => {
   it('parses page-to-bridge control messages', () => {
@@ -36,7 +37,7 @@ describe('mcp/browser-gateway', () => {
         ...base,
         payload: {
           base64: 'AQID',
-          hash: 'abcdef12',
+          hash,
           metadata: { height: 20, themeable: true, width: 10 },
           mimeType: 'image/png'
         },
@@ -47,6 +48,14 @@ describe('mcp/browser-gateway', () => {
       requestId: 'upload-1',
       type: 'mcp.uploadAsset'
     })
+    expect(
+      parsePageToBridgeMessage({
+        ...base,
+        payload: { hash },
+        requestId: 'download-1',
+        type: 'mcp.downloadAsset'
+      })
+    ).toMatchObject({ requestId: 'download-1', type: 'mcp.downloadAsset' })
   })
 
   it('parses bridge-to-page state and tool calls', () => {
@@ -100,6 +109,20 @@ describe('mcp/browser-gateway', () => {
       type: 'mcp.assetUploadResult',
       version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
     })
+    expect(
+      parseBridgeToPageMessage({
+        payload: {
+          base64: 'AQID',
+          mimeType: 'image/png',
+          size: 3
+        },
+        requestId: 'download-1',
+        sessionId: 'session-1',
+        source: TEMPAD_MCP_BROWSER_SOURCE,
+        type: 'mcp.assetDownloadResult',
+        version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+      })
+    ).toMatchObject({ requestId: 'download-1', type: 'mcp.assetDownloadResult' })
   })
 
   it('rejects malformed or cross-protocol messages', () => {
@@ -146,7 +169,7 @@ describe('mcp/browser-gateway', () => {
       ...base,
       payload: {
         base64: 'A'.repeat(maxLength),
-        hash: 'abcdef12',
+        hash,
         mimeType: 'image/png'
       },
       requestId: 'upload-1',

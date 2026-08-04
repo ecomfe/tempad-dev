@@ -72,14 +72,16 @@ describe('mcp/runtime', () => {
     setFigmaGetNodeById(null)
     const runtime = await importRuntime()
 
-    expect(Object.keys(runtime.MCP_TOOL_HANDLERS)).toEqual([
-      'apply_canvas',
-      'get_code',
-      'get_design_system',
-      'get_token_defs',
-      'get_screenshot',
-      'get_structure'
-    ])
+    expect(new Set(Object.keys(runtime.MCP_TOOL_HANDLERS))).toEqual(
+      new Set([
+        'apply_canvas',
+        'get_code',
+        'get_design_system',
+        'get_token_defs',
+        'get_screenshot',
+        'get_structure'
+      ])
+    )
     expect(typeof (globalThis as { window?: unknown }).window).toBe('undefined')
   }, 15000)
 
@@ -91,13 +93,7 @@ describe('mcp/runtime', () => {
     const runtime = await importRuntime()
     const tools = (window as Window & { tempadTools: Record<string, unknown> }).tempadTools
 
-    expect(tools.existing).toBe(existing)
-    expect(tools.apply_canvas).toBe(runtime.MCP_TOOL_HANDLERS.apply_canvas)
-    expect(tools.get_code).toBe(runtime.WINDOW_TEMPAD_TOOL_HANDLERS.get_code)
-    expect(tools.get_design_system).toBe(runtime.MCP_TOOL_HANDLERS.get_design_system)
-    expect(tools.get_token_defs).toBe(runtime.MCP_TOOL_HANDLERS.get_token_defs)
-    expect(tools.get_screenshot).toBe(runtime.MCP_TOOL_HANDLERS.get_screenshot)
-    expect(tools.get_structure).toBe(runtime.MCP_TOOL_HANDLERS.get_structure)
+    expect(tools).toEqual({ existing, ...runtime.WINDOW_TEMPAD_TOOL_HANDLERS })
   }, 15000)
 
   it('initializes window.tempadTools when window exists without existing tools', async () => {
@@ -107,12 +103,7 @@ describe('mcp/runtime', () => {
     const runtime = await importRuntime()
     const tools = (window as Window & { tempadTools: Record<string, unknown> }).tempadTools
 
-    expect(tools.apply_canvas).toBe(runtime.MCP_TOOL_HANDLERS.apply_canvas)
-    expect(tools.get_code).toBe(runtime.WINDOW_TEMPAD_TOOL_HANDLERS.get_code)
-    expect(tools.get_design_system).toBe(runtime.MCP_TOOL_HANDLERS.get_design_system)
-    expect(tools.get_token_defs).toBe(runtime.MCP_TOOL_HANDLERS.get_token_defs)
-    expect(tools.get_screenshot).toBe(runtime.MCP_TOOL_HANDLERS.get_screenshot)
-    expect(tools.get_structure).toBe(runtime.MCP_TOOL_HANDLERS.get_structure)
+    expect(tools).toEqual(runtime.WINDOW_TEMPAD_TOOL_HANDLERS)
   })
 
   it('routes get_code to tool implementation with resolved node and options', async () => {
@@ -147,14 +138,17 @@ describe('mcp/runtime', () => {
     expect(result).toEqual({ blocks: [] })
   })
 
-  it('rejects unknown bridge tool names at the runtime boundary', async () => {
-    setFigmaGetNodeById(null)
-    const runtime = await importRuntime()
+  it.each(['missing', 'toString'])(
+    'rejects unknown bridge tool name "%s" at the runtime boundary',
+    async (name) => {
+      setFigmaGetNodeById(null)
+      const runtime = await importRuntime()
 
-    await expect(runtime.runMcpTool('missing', {})).rejects.toThrow(
-      'No handler registered for tool "missing".'
-    )
-  })
+      await expect(runtime.runMcpTool(name, {})).rejects.toThrow(
+        `No handler registered for tool "${name}".`
+      )
+    }
+  )
 
   it('routes window get_code debug overrides only through tempadTools exposure', async () => {
     const node = createSceneNode('node-1')

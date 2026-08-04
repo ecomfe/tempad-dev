@@ -20,15 +20,26 @@ For agent-specific setup, open TemPad Dev's **Preferences → Agent integration 
 Supported tools/resources:
 
 - `get_code`: Tailwind-first JSX/Vue markup plus assets and token references.
-- `get_design_system`: Query-ranked Figma components and variables from the active page/file.
-- `apply_canvas`: One declarative create/update result, reconciled locally against the live canvas.
-- `get_structure`: Hierarchy/geometry outline for the selection.
+- `get_design_system`: An immutable, deterministic catalog. It returns compact pages of component
+  definitions on accessible pages plus local or directly referenced variable, collection/mode,
+  style, and shader definitions without inspecting canvas usage. Cursor continuation exposes
+  omitted definitions; exact-ref lookup returns one bounded definition.
+- `apply_canvas`: One restricted HTML + deterministic Tailwind utility desired result using primitives, catalog
+  component tags, short design-system refs, typed Figma-only state, sanitized SVG, and
+  content-addressed images. The extension resolves, validates, diffs, applies, and structurally
+  verifies the result.
+- `get_screenshot`: A bounded rendered PNG for selective visual validation.
+- `get_structure`: Hierarchy/geometry outline for the selection, including stable authoring keys on
+  TemPad-managed nodes.
 
 Notes:
 
 - Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
-- `apply_canvas` is disabled by default. Enable **Canvas writes** in Agent integration only when you want the connected agent to modify the active Figma file.
+- `apply_canvas` is available whenever MCP access is enabled and the current Figma Design file is
+  editable. Dev Mode and view-only files remain read-only.
 - Assets are ephemeral and tool-linked; image/SVG bytes are downloaded via the capability-bearing HTTP `asset.url` from tool results. Treat the full URL as a temporary secret and do not persist it in logs.
+- Canvas authoring may refer to content already in the local asset store by its full SHA-256 digest;
+  bytes stay inside the extension bridge and never enter the tool payload.
 - Asset resources are not exposed via MCP `resources/list`/`resources/read`.
 - The HTTP fallback URL uses `/{capability}/assets/{hash}` and may include an image extension (for example `/{capability}/assets/{hash}.png`). Both filename forms are accepted.
 

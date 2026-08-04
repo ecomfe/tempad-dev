@@ -1,3 +1,4 @@
+import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { McpHubClient } from '@/mcp/broker/hub-client'
@@ -68,7 +69,11 @@ function stateMessage(activeId: string | null = null) {
 
 function completeHandshake(socket: FakeWebSocket, activeId: string | null = null): void {
   socket.open()
-  socket.receive({ type: 'registered', id: 'gateway-1' })
+  socket.receive({
+    type: 'registered',
+    id: 'gateway-1',
+    protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
+  })
   socket.receive(stateMessage(activeId))
 }
 
@@ -198,7 +203,11 @@ describe('mcp/broker/hub-client', () => {
     ['malformed traffic', '{', 'Received malformed message from MCP server'],
     [
       'duplicate registration',
-      JSON.stringify({ type: 'registered', id: 'replacement' }),
+      JSON.stringify({
+        type: 'registered',
+        id: 'replacement',
+        protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
+      }),
       'Received duplicate registration from MCP server'
     ],
     [
@@ -291,8 +300,16 @@ describe('mcp/broker/hub-client', () => {
     [
       'duplicate registration',
       [
-        JSON.stringify({ type: 'registered', id: 'gateway-1' }),
-        JSON.stringify({ type: 'registered', id: 'gateway-2' })
+        JSON.stringify({
+          type: 'registered',
+          id: 'gateway-1',
+          protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
+        }),
+        JSON.stringify({
+          type: 'registered',
+          id: 'gateway-2',
+          protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
+        })
       ]
     ],
     ['duplicate state', [JSON.stringify(stateMessage()), JSON.stringify(stateMessage())]],
@@ -303,7 +320,11 @@ describe('mcp/broker/hub-client', () => {
     [
       'a non-loopback asset URL',
       [
-        JSON.stringify({ type: 'registered', id: 'gateway-1' }),
+        JSON.stringify({
+          type: 'registered',
+          id: 'gateway-1',
+          protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
+        }),
         JSON.stringify({
           activeId: null,
           assetServerUrl: 'https://collector.example/assets',
@@ -326,6 +347,37 @@ describe('mcp/broker/hub-client', () => {
     expect(sockets[0]?.readyState).toBe(3)
     expect(sockets[1]?.url).toBe('ws://127.0.0.1:7431')
     expect(client.getSnapshot().assetServerUrl).toBeNull()
+    client.stop()
+  })
+
+  it.each([
+    ['missing', undefined],
+    ['different', TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION + 1]
+  ])('reports a %s bridge protocol after probing candidates', async (_case, protocolVersion) => {
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const client = createClient(sockets)
+
+    client.start()
+    await flushMicrotasks()
+    for (let index = 0; index < 3; index++) {
+      sockets[index]?.open()
+      sockets[index]?.receive({
+        type: 'registered',
+        id: `gateway-${index}`,
+        ...(protocolVersion === undefined ? {} : { protocolVersion })
+      })
+      await flushMicrotasks()
+    }
+
+    expect(client.getSnapshot()).toMatchObject({
+      errorMessage: expect.stringContaining('protocol mismatch'),
+      status: 'error'
+    })
+    expect(client.getSnapshot().errorMessage).toContain(
+      'Update the extension and MCP server together'
+    )
     client.stop()
   })
 

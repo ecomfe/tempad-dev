@@ -1,4 +1,4 @@
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import type {
   GetAssetsResult,
   TempadMcpErrorCode,
@@ -30,6 +30,8 @@ import {
   measureCallToolResultBytes
 } from '@tempad-dev/shared'
 
+import { getRecordProperty } from './shared'
+
 export type {
   ApplyCanvasParametersInput,
   ApplyCanvasResult,
@@ -53,6 +55,7 @@ export type {
 } from '@tempad-dev/shared'
 
 type BaseToolMetadata<Name extends ToolName, Schema extends ZodType> = ToolSchema<Name> & {
+  annotations: ToolAnnotations
   parameters: Schema
   format?: (payload: ToolResultMap[Name]) => CallToolResult
 }
@@ -71,6 +74,20 @@ type HubToolMetadata<Name extends ToolName, Schema extends ZodType> = BaseToolMe
   target: 'hub'
   outputSchema?: ZodType
 }
+
+const READ_ONLY_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false
+} satisfies ToolAnnotations
+
+const CANVAS_WRITE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: true
+} satisfies ToolAnnotations
 
 const CONNECTIVITY_ERROR_CODES = new Set<TempadMcpErrorCode>([
   TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION,
@@ -99,10 +116,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function getRecordProperty(record: unknown, key: string): unknown {
-  return isRecord(record) ? record[key] : undefined
-}
-
 function extTool<Name extends ToolName, Schema extends ZodType>(
   definition: ExtensionToolMetadata<Name, Schema>
 ): ExtensionToolMetadata<Name, Schema> {
@@ -119,7 +132,8 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_code',
     description:
-      'High-fidelity code snapshot for nodeId/current single selection (omit nodeId to use selection): JSX/Vue markup + Tailwind-like classes, plus assets/tokens metadata and codegen config. `vectorMode=smart` (default) emits `<svg data-src="...">` placeholders in code and preserves themeable instance color on the emitted SVG root markup for downstream adaptation; if asset upload fails after export, the tool may inline the SVG as a fallback to preserve source of truth. `vectorMode=snapshot` preserves vector assets for fidelity. Host apps should still refactor vector delivery to repo policy where needed (existing icon/component primitives, import-time SVG transforms, inline SVG, or asset-backed SVG usage). SVG asset metadata may include `themeable=true`, meaning the exported asset can safely adopt one contextual color channel. Start here, then refactor into repo conventions while preserving values/intent; strip any data-hint-* attributes (hints only). If warnings include depth-cap, use returned data-hint-id values to continue with narrower get_code calls. If warnings include shell, read the inline comment for omitted direct child ids and fetch them in order. If warnings include auto-layout (inferred), use get_structure to confirm hierarchy/overlap (do not derive numeric values from pixels). Tokens are keyed by canonical names like `--color-primary` (multi-mode keys use `${collection}:${mode}`; node overrides may appear as data-hint-variable-mode).',
+      'Read high-fidelity implementation evidence for nodeId or the current single selection as JSX/Vue markup, Tailwind-like classes, tokens, assets, and codegen facts. Start here for Figma-to-code and follow returned warnings when narrower reads are required.',
+    annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetCodeParametersSchema,
     target: 'extension',
     format: createCodeToolResponse
@@ -127,7 +141,8 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_design_system',
     description:
-      'Return a compact, query-ranked set of Figma components and variables from the current page/file. Reuse returned ids/keys in apply_canvas.',
+      "Read a bounded deterministic catalog only when canvas authoring is allowed to reuse the file's existing design system. Do not call after a user opt-out or merely to create new local resources. When used, start with no arguments; continue omitted definitions with catalogId plus cursor, or read one definition with catalogId plus ref. Reuse only returned tags, props, values, and refs.",
+    annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetDesignSystemParametersSchema,
     target: 'extension',
     format: createDesignSystemToolResponse
@@ -135,7 +150,8 @@ export const TOOL_DEFS = [
   extTool({
     name: 'apply_canvas',
     description:
-      'Apply one declarative canvas tree. Create adds a FRAME tree; update safely reconciles within targetNodeId, preserving omissions and skipping unchanged values. Requires Canvas writes.',
+      "Apply one declarative Canvas HTML desired result using primitives, optional catalog resources, and optional native Figma state. It works without get_design_system or catalogId. Create local variables, styles, or components only when explicitly requested, and follow the canvas-authoring skill's exact progressive reference instead of guessing shapes. Create adds one root; update reconciles stable data-key identities inside targetNodeId, preserves omissions, and removes only explicit removeKeys. Requires MCP access and edit access; TemPad Dev validates, diffs, applies one undoable patch, and verifies it.",
+    annotations: CANVAS_WRITE_ANNOTATIONS,
     parameters: ApplyCanvasParametersSchema,
     target: 'extension',
     format: createApplyCanvasToolResponse
@@ -144,6 +160,7 @@ export const TOOL_DEFS = [
     name: 'get_token_defs',
     description:
       'Resolve canonical token names to literal values (optionally including all modes) for tokens referenced by get_code.',
+    annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetTokenDefsParametersSchema,
     target: 'extension',
     format: createTokenDefsToolResponse,
@@ -152,16 +169,17 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_screenshot',
     description:
-      'Capture a rendered PNG screenshot for nodeId/current single selection for visual verification (layering/overlap/masks/effects).',
+      'Capture one bounded rendered PNG for nodeId or the current single selection. Normally use one final check after a new composition or material visual change; skip routine text, token, prop, and hierarchy-only edits.',
+    annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetScreenshotParametersSchema,
     target: 'extension',
-    format: createScreenshotToolResponse,
-    exposed: false
+    format: createScreenshotToolResponse
   }),
   extTool({
     name: 'get_structure',
     description:
-      'Get a compact structural + geometry outline for nodeId/current single selection to understand hierarchy and layout intent.',
+      'Get a compact structural + geometry outline for nodeId/current single selection, including stable authoring keys on TemPad-managed nodes.',
+    annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetStructureParametersSchema,
     target: 'extension',
     format: createStructureToolResponse
@@ -170,6 +188,7 @@ export const TOOL_DEFS = [
     name: 'get_assets',
     description:
       'Resolve asset hashes to downloadable URLs and metadata for assets referenced by tool responses. SVG asset metadata may include `themeable=true` when the underlying vector can safely adopt one contextual color channel.',
+    annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetAssetsParametersSchema,
     target: 'hub',
     outputSchema: GetAssetsResultSchema,
@@ -193,9 +212,8 @@ function isTempadMcpErrorCode(value: unknown): value is TempadMcpErrorCode {
 function extractToolErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message || 'Unknown error occurred.'
   if (typeof error === 'string') return error
-  if (isRecord(error)) {
-    if (typeof error.message === 'string' && error.message.trim()) return error.message
-  }
+  const message = getRecordProperty(error, 'message')
+  if (typeof message === 'string' && message.trim()) return message
   return 'Unknown error occurred.'
 }
 
@@ -316,9 +334,16 @@ function isScreenshotResult(payload: unknown): payload is ToolResultMap['get_scr
 function isDesignSystemResult(payload: unknown): payload is ToolResultMap['get_design_system'] {
   return (
     isRecord(payload) &&
-    isRecord(payload.page) &&
+    typeof payload.catalogId === 'string' &&
     Array.isArray(payload.components) &&
-    Array.isArray(payload.variables)
+    Array.isArray(payload.variables) &&
+    Array.isArray(payload.collections) &&
+    Array.isArray(payload.styles) &&
+    (payload.shaders === undefined || Array.isArray(payload.shaders)) &&
+    (payload.nextCursor === undefined ||
+      (typeof payload.nextCursor === 'number' &&
+        Number.isInteger(payload.nextCursor) &&
+        payload.nextCursor >= 0))
   )
 }
 
@@ -326,10 +351,17 @@ function isApplyCanvasResult(payload: unknown): payload is ToolResultMap['apply_
   return (
     isRecord(payload) &&
     typeof payload.rootNodeId === 'string' &&
+    (payload.rootRemoved === undefined || payload.rootRemoved === true) &&
     isRecord(payload.nodeIdsByKey) &&
     Array.isArray(payload.createdNodeIds) &&
     Array.isArray(payload.updatedNodeIds) &&
-    typeof payload.mutationCount === 'number'
+    Array.isArray(payload.removedNodeIds) &&
+    typeof payload.mutationCount === 'number' &&
+    isRecord(payload.verification) &&
+    (payload.verification.status === 'passed' || payload.verification.status === 'warning') &&
+    typeof payload.verification.nodesChecked === 'number' &&
+    typeof payload.verification.referencesChecked === 'number' &&
+    Array.isArray(payload.verification.warnings)
   )
 }
 
@@ -405,17 +437,15 @@ function getBudgetRetryGuidance(toolName: ToolName): string {
     case 'get_code':
       return 'Reduce selection size or request a smaller nodeId subtree and retry.'
     case 'get_design_system':
-      return 'Use a narrower design-system query and retry.'
+      return 'Continue from another catalog cursor or avoid the oversized exact definition.'
     case 'get_structure':
       return 'Reduce selection size or pass a smaller depth and retry.'
     case 'get_token_defs':
       return 'Reduce requested names or split them into smaller batches and retry.'
     case 'get_screenshot':
-      return 'Reduce selection size or scale and retry.'
+      return 'Pass a smaller nodeId and retry.'
     case 'get_assets':
       return 'Request fewer hashes in a single call and retry.'
-    default:
-      return 'Retry with a narrower request.'
   }
 }
 

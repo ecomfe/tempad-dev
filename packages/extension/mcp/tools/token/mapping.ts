@@ -140,7 +140,7 @@ function replaceKnownNames(value: string, entries: ReplaceEntry[], used: Set<str
   if (placeholders.length) {
     out = out.replace(/__VAR_(\d+)__/g, (_match, index: string) => {
       const i = Number(index)
-      return Number.isFinite(i) ? placeholders[i] : _match
+      return Number.isFinite(i) ? (placeholders[i] ?? _match) : _match
     })
   }
 

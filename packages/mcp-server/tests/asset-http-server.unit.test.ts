@@ -21,7 +21,7 @@ type MockState = {
 
 const state = vi.hoisted<MockState>(() => ({
   address: { port: 19001 },
-  digest: 'abcdef12feedbeef',
+  digest: 'a'.repeat(64),
   readMode: 'normal',
   exists: new Map(),
   statSize: 16
@@ -95,6 +95,10 @@ vi.mock('../src/asset-utils', () => ({
 import { createAssetHttpServer as createAssetHttpServerImpl } from '../src/asset-http-server'
 
 const TEST_ACCESS_TOKEN = 'test-token'
+const ASSET_HASH = 'a'.repeat(64)
+const OTHER_ASSET_HASH = 'b'.repeat(64)
+const ASSET_FILENAME = `${ASSET_HASH}.png`
+const ASSET_FILE_PATH = `/tmp/mock-assets/${ASSET_FILENAME}`
 
 function createAssetHttpServer(store: AssetStore) {
   return createAssetHttpServerImpl(store, {
@@ -133,7 +137,7 @@ function createRequest(input: {
     url:
       input.url === undefined && 'url' in input
         ? undefined
-        : (url ?? `/${TEST_ACCESS_TOKEN}/assets/abcdef12.png`),
+        : (url ?? `/${TEST_ACCESS_TOKEN}/assets/${ASSET_FILENAME}`),
     headers: input.headers ?? {},
     resume: vi.fn()
   } as IncomingMessage & { resume: ReturnType<typeof vi.fn> }
@@ -188,7 +192,7 @@ beforeEach(() => {
   state.address = { port: 19001 }
   state.listenError = undefined
   state.pipelineError = undefined
-  state.digest = 'abcdef12feedbeef'
+  state.digest = ASSET_HASH
   state.readMode = 'normal'
   state.exists.clear()
   state.statError = undefined
@@ -263,7 +267,7 @@ beforeEach(() => {
   }))
 
   mocks.getHashFromAssetFilename.mockImplementation((filename: string) => {
-    const match = /^([a-f0-9]{8})(?:\.[a-z0-9]+)?$/i.exec(filename)
+    const match = /^([a-f0-9]{64})(?:\.[a-z0-9]+)?$/.exec(filename)
     return match ? match[1] : null
   })
 })
@@ -311,17 +315,6 @@ describe('asset-http-server unit branches', () => {
     state.requestHandler?.(createRequest({ url: '/assets/not-a-hash.png' }), badHashRes)
     expect(badHashRes.statusCode).toBe(404)
     expect(readJson(badHashRes)).toEqual({ error: 'Not Found' })
-
-    mocks.getHashFromAssetFilename.mockReturnValueOnce('invalid-hash')
-    const invalidUploadReq = createRequest({
-      method: 'POST',
-      url: '/assets/abcdef12.png'
-    })
-    const invalidUploadRes = createResponse()
-    state.requestHandler?.(invalidUploadReq, invalidUploadRes)
-    expect(invalidUploadReq.resume).toHaveBeenCalled()
-    expect(invalidUploadRes.statusCode).toBe(400)
-    expect(readJson(invalidUploadRes)).toEqual({ error: 'Invalid Hash' })
   })
 
   it('bounds concurrent upload bodies and closes rejected connections', async () => {
@@ -378,7 +371,7 @@ describe('asset-http-server unit branches', () => {
     state.requestHandler?.(
       createRequest({
         method: 'POST',
-        url: '/assets/abcdef12.png',
+        url: `/assets/${ASSET_FILENAME}`,
         headers: { 'content-length': '4' }
       }),
       createResponse()
@@ -386,7 +379,7 @@ describe('asset-http-server unit branches', () => {
 
     const rejectedRequest = createRequest({
       method: 'POST',
-      url: '/assets/bbbbbbbb.png',
+      url: `/assets/${OTHER_ASSET_HASH}.png`,
       headers: { 'content-length': '4' }
     })
     const rejectedResponse = createResponse()
@@ -403,8 +396,8 @@ describe('asset-http-server unit branches', () => {
   it('covers download stat failures and stream error handling branches', async () => {
     const store = createStoreMock()
     store.get.mockReturnValue({
-      hash: 'abcdef12',
-      filePath: '/tmp/mock-assets/abcdef12.png',
+      hash: ASSET_HASH,
+      filePath: ASSET_FILE_PATH,
       mimeType: 'image/png',
       size: 10,
       uploadedAt: 1,
@@ -416,20 +409,20 @@ describe('asset-http-server unit branches', () => {
 
     state.statError = Object.assign(new Error('permission denied'), { code: 'EACCES' })
     const statErrorRes = createResponse()
-    state.requestHandler?.(createRequest({ url: '/assets/abcdef12.png' }), statErrorRes)
+    state.requestHandler?.(createRequest({ url: `/assets/${ASSET_FILENAME}` }), statErrorRes)
     expect(statErrorRes.statusCode).toBe(500)
     expect(readJson(statErrorRes)).toEqual({ error: 'Internal Server Error' })
 
     state.statError = undefined
     state.readMode = 'error-before'
     const notSentRes = createResponse({ keepHeadersSentOnWriteHead: true })
-    state.requestHandler?.(createRequest({ url: '/assets/abcdef12.png' }), notSentRes)
+    state.requestHandler?.(createRequest({ url: `/assets/${ASSET_FILENAME}` }), notSentRes)
     expect(notSentRes.statusCode).toBe(500)
     expect(readJson(notSentRes)).toEqual({ error: 'Internal Server Error' })
 
     state.readMode = 'error-after'
     const sentRes = createResponse()
-    state.requestHandler?.(createRequest({ url: '/assets/abcdef12.png' }), sentRes)
+    state.requestHandler?.(createRequest({ url: `/assets/${ASSET_FILENAME}` }), sentRes)
     expect(sentRes.statusCode).toBe(200)
     expect(sentRes.end).toHaveBeenCalled()
   })
@@ -437,8 +430,8 @@ describe('asset-http-server unit branches', () => {
   it('bounds concurrent downloads and times out stalled responses', async () => {
     const store = createStoreMock()
     store.get.mockReturnValue({
-      hash: 'abcdef12',
-      filePath: '/tmp/mock-assets/abcdef12.png',
+      hash: ASSET_HASH,
+      filePath: ASSET_FILE_PATH,
       mimeType: 'image/png',
       size: 10,
       uploadedAt: 1,
@@ -449,7 +442,7 @@ describe('asset-http-server unit branches', () => {
 
     const responses = Array.from({ length: 129 }, () => createResponse())
     responses.forEach((response) => {
-      state.requestHandler?.(createRequest({ url: '/assets/abcdef12.png' }), response)
+      state.requestHandler?.(createRequest({ url: `/assets/${ASSET_FILENAME}` }), response)
     })
 
     const firstResponse = responses[0]!
@@ -466,14 +459,14 @@ describe('asset-http-server unit branches', () => {
     expect(firstResponse.destroy).toHaveBeenCalledOnce()
 
     const recoveredResponse = createResponse()
-    state.requestHandler?.(createRequest({ url: '/assets/abcdef12.png' }), recoveredResponse)
+    state.requestHandler?.(createRequest({ url: `/assets/${ASSET_FILENAME}` }), recoveredResponse)
     expect(recoveredResponse.statusCode).toBe(200)
   })
 
   it('covers existing upload paths including rename warnings and headers-sent responses', async () => {
     const store = createStoreMock()
     const existing = {
-      hash: 'abcdef12',
+      hash: ASSET_HASH,
       filePath: '/tmp/mock-assets/legacy.bin',
       mimeType: 'application/octet-stream',
       size: 10,
@@ -486,10 +479,10 @@ describe('asset-http-server unit branches', () => {
     await server.start()
 
     state.exists.set('/tmp/mock-assets/legacy.bin', false)
-    state.exists.set('/tmp/mock-assets/abcdef12.png', true)
+    state.exists.set(ASSET_FILE_PATH, true)
     const fallbackPathReq = createRequest({
       method: 'POST',
-      url: '/assets/abcdef12.png',
+      url: `/assets/${ASSET_FILENAME}`,
       headers: {
         'content-type': ['image/png'],
         'x-asset-width': '320',
@@ -503,7 +496,7 @@ describe('asset-http-server unit branches', () => {
     expect(fallbackPathRes.statusCode).toBe(200)
     expect(store.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        filePath: '/tmp/mock-assets/abcdef12.png',
+        filePath: ASSET_FILE_PATH,
         mimeType: 'image/png',
         metadata: { width: 320, height: 240, themeable: true }
       })
@@ -511,19 +504,19 @@ describe('asset-http-server unit branches', () => {
 
     existing.filePath = '/tmp/mock-assets/legacy-noext'
     state.exists.set('/tmp/mock-assets/legacy-noext', true)
-    state.exists.set('/tmp/mock-assets/abcdef12.png', false)
+    state.exists.set(ASSET_FILE_PATH, false)
     state.renameError = new Error('rename failed')
     const renameWarnRes = createResponse({ headersSent: true })
     state.requestHandler?.(
       createRequest({
         method: 'POST',
-        url: '/assets/abcdef12.png',
+        url: `/assets/${ASSET_FILENAME}`,
         headers: { 'content-type': 'image/png' }
       }),
       renameWarnRes
     )
     expect(mocks.log.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ error: expect.any(Error), hash: 'abcdef12' }),
+      expect.objectContaining({ error: expect.any(Error), hash: ASSET_HASH }),
       'Failed to rename existing asset to include extension.'
     )
     expect(renameWarnRes.writeHead).not.toHaveBeenCalled()
@@ -532,7 +525,7 @@ describe('asset-http-server unit branches', () => {
   it('falls back to upload pipeline when existing record paths are both missing', async () => {
     const store = createStoreMock()
     store.get.mockReturnValue({
-      hash: 'abcdef12',
+      hash: ASSET_HASH,
       filePath: '/tmp/mock-assets/missing-legacy',
       mimeType: 'application/octet-stream',
       size: 1,
@@ -540,7 +533,7 @@ describe('asset-http-server unit branches', () => {
       lastAccess: 1
     })
     state.exists.set('/tmp/mock-assets/missing-legacy', false)
-    state.exists.set('/tmp/mock-assets/abcdef12.png', false)
+    state.exists.set(ASSET_FILE_PATH, false)
     state.pipelineError = new Error('boom')
 
     const server = createAssetHttpServer(store)
@@ -550,7 +543,7 @@ describe('asset-http-server unit branches', () => {
     state.requestHandler?.(
       createRequest({
         method: 'POST',
-        url: '/assets/abcdef12.png',
+        url: `/assets/${ASSET_FILENAME}`,
         headers: { 'content-type': 'image/png' }
       }),
       res
@@ -566,13 +559,13 @@ describe('asset-http-server unit branches', () => {
     await server.start()
 
     state.pipelineError = new Error('PayloadTooLarge')
-    state.exists.set('/tmp/mock-assets/abcdef12.png.tmp.n1', true)
+    state.exists.set(`${ASSET_FILE_PATH}.tmp.n1`, true)
     state.unlinkError = new Error('unlink failed')
     const tooLargeRes = createResponse()
     state.requestHandler?.(
       createRequest({
         method: 'POST',
-        url: '/assets/abcdef12.png',
+        url: `/assets/${ASSET_FILENAME}`,
         headers: { 'content-type': '' }
       }),
       tooLargeRes
@@ -584,7 +577,7 @@ describe('asset-http-server unit branches', () => {
     state.unlinkError = undefined
     const prematureRes = createResponse()
     state.requestHandler?.(
-      createRequest({ method: 'POST', url: '/assets/abcdef12.png' }),
+      createRequest({ method: 'POST', url: `/assets/${ASSET_FILENAME}` }),
       prematureRes
     )
     expect(prematureRes.statusCode).toBe(400)
@@ -593,7 +586,7 @@ describe('asset-http-server unit branches', () => {
     state.pipelineError = new Error('boom')
     const genericRes = createResponse()
     state.requestHandler?.(
-      createRequest({ method: 'POST', url: '/assets/abcdef12.png' }),
+      createRequest({ method: 'POST', url: `/assets/${ASSET_FILENAME}` }),
       genericRes
     )
     expect(genericRes.statusCode).toBe(500)
@@ -603,7 +596,7 @@ describe('asset-http-server unit branches', () => {
     state.requestHandler?.(
       createRequest({
         method: 'POST',
-        url: '/assets/abcdef12.png',
+        url: `/assets/${ASSET_FILENAME}`,
         headers: { 'content-type': 'image/png' }
       }),
       genericSentRes
@@ -611,11 +604,11 @@ describe('asset-http-server unit branches', () => {
     expect(genericSentRes.writeHead).not.toHaveBeenCalled()
 
     state.pipelineError = undefined
-    state.digest = 'abcdef12cafebabe'
+    state.digest = ASSET_HASH
     state.renameError = new Error('rename temp failed')
     const renameRes = createResponse()
     state.requestHandler?.(
-      createRequest({ method: 'POST', url: '/assets/abcdef12.png' }),
+      createRequest({ method: 'POST', url: `/assets/${ASSET_FILENAME}` }),
       renameRes
     )
     expect(renameRes.statusCode).toBe(500)

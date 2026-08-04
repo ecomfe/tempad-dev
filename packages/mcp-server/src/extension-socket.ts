@@ -1,7 +1,11 @@
 import type { TempadMcpErrorPayload } from '@tempad-dev/shared'
 import type { RawData, WebSocket } from 'ws'
 
-import { MessageFromExtensionSchema, type RegisteredMessage } from '@tempad-dev/shared'
+import {
+  MessageFromExtensionSchema,
+  TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+  type RegisteredMessage
+} from '@tempad-dev/shared'
 
 import type { ExtensionRegistry } from './extension-registry'
 import type { ExtensionConnection } from './types'
@@ -38,7 +42,11 @@ export function attachExtensionSocket(
   options.registry.add(extension)
   options.onConnected?.(extension.id)
 
-  const registered: RegisteredMessage = { id: extension.id, type: 'registered' }
+  const registered: RegisteredMessage = {
+    id: extension.id,
+    protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+    type: 'registered'
+  }
   ws.send(JSON.stringify(registered))
   options.onStateChange()
   scheduleAutoActivation(options)

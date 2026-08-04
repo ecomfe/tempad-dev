@@ -1,27 +1,35 @@
-import type { AssetDescriptor, PageToBridgeMessage } from '@tempad-dev/shared'
+import type { AssetDescriptor, BridgeToPageMessage, PageToBridgeMessage } from '@tempad-dev/shared'
 
-import {
-  MCP_HASH_HEX_LENGTH,
-  MCP_MAX_ASSET_BYTES,
-  TEMPAD_MCP_ERROR_CODES
-} from '@tempad-dev/shared'
+import { MCP_MAX_ASSET_BYTES, TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 
 import { logger } from '@/utils/log'
 
+import { base64ToBytes, digestMatchesAssetHash, sha256Hex } from './encoding'
 import { createCodedError } from './errors'
 
 const uploadedAssets = new Set<string>()
 const inflightUploads = new Map<string, Promise<void>>()
+const downloadedAssets = new Map<string, Promise<DownloadedAsset>>()
+let assetCacheGeneration = 0
 let assetServerUrl: string | null = null
 let assetUploader: AssetUploader | null = null
+let assetDownloader: AssetDownloader | null = null
 
 type AssetUploadPayload = Extract<PageToBridgeMessage, { type: 'mcp.uploadAsset' }>['payload']
+type AssetDownloadPayload = NonNullable<
+  Extract<BridgeToPageMessage, { type: 'mcp.assetDownloadResult' }>['payload']
+>
 
 export type AssetUploadRequest = Omit<AssetUploadPayload, 'base64'> & {
   bytes: Uint8Array
 }
 
-export type AssetUploader = (request: AssetUploadRequest) => Promise<void>
+type AssetUploader = (request: AssetUploadRequest) => Promise<void>
+type DownloadedAsset = {
+  bytes: Uint8Array
+  mimeType: string
+}
+export type AssetDownloader = (hash: string) => Promise<AssetDownloadPayload>
 
 export function setAssetServerUrl(url: string | null): void {
   assetServerUrl = url
@@ -31,10 +39,26 @@ export function setAssetUploader(uploader: AssetUploader | null): void {
   assetUploader = uploader
 }
 
-export function resetUploadedAssets(): void {
+export function setAssetDownloader(downloader: AssetDownloader | null): void {
+  assetDownloader = downloader
+}
+
+export function resetAssetCache(): void {
+  assetCacheGeneration += 1
   uploadedAssets.clear()
   inflightUploads.clear()
-  // We don't clear the URL here as it might be needed for subsequent calls
+  downloadedAssets.clear()
+}
+
+export function downloadAsset(hash: string): Promise<DownloadedAsset> {
+  const cached = downloadedAssets.get(hash)
+  if (cached) return cached
+  const promise = requestAsset(hash).catch((error) => {
+    if (downloadedAssets.get(hash) === promise) downloadedAssets.delete(hash)
+    throw error
+  })
+  downloadedAssets.set(hash, promise)
+  return promise
 }
 
 export async function ensureAssetUploaded(
@@ -48,7 +72,7 @@ export async function ensureAssetUploaded(
     )
   }
 
-  const hash = await hashBytes(bytes)
+  const hash = await sha256Hex(bytes)
 
   if (!assetServerUrl) {
     logger.error('Asset server URL is missing.')
@@ -70,6 +94,7 @@ export async function ensureAssetUploaded(
   }
 
   const uploadKey = `${assetServerUrl}::${hash}`
+  const generation = assetCacheGeneration
 
   if (uploadedAssets.has(uploadKey)) {
     return descriptor
@@ -83,11 +108,11 @@ export async function ensureAssetUploaded(
 
   const promise = uploadAsset({ bytes, hash, metadata, mimeType })
     .then(() => {
-      uploadedAssets.add(uploadKey)
+      if (generation === assetCacheGeneration) uploadedAssets.add(uploadKey)
       logger.log(`Uploaded asset ${hash.slice(0, 8)} (${mimeType}, ${size} bytes) to ${url}`)
     })
     .finally(() => {
-      inflightUploads.delete(uploadKey)
+      if (inflightUploads.get(uploadKey) === promise) inflightUploads.delete(uploadKey)
     })
 
   inflightUploads.set(uploadKey, promise)
@@ -111,28 +136,26 @@ async function uploadAsset(request: AssetUploadRequest): Promise<void> {
   }
 }
 
-async function hashBytes(bytes: Uint8Array): Promise<string> {
-  if (typeof crypto?.subtle?.digest === 'function') {
-    const digest = await crypto.subtle.digest('SHA-256', toArrayBuffer(bytes))
-    const fullHex = bufferToHex(new Uint8Array(digest))
-    return fullHex.slice(0, MCP_HASH_HEX_LENGTH)
+async function requestAsset(hash: string): Promise<DownloadedAsset> {
+  if (!assetDownloader) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.ASSET_BRIDGE_UNAVAILABLE,
+      'MCP asset download bridge is not connected.'
+    )
   }
-  throw new Error('crypto.subtle.digest is unavailable in this environment.')
-}
-
-function bufferToHex(buffer: Uint8Array): string {
-  return Array.from(buffer)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const buffer = bytes.buffer
-  const isArrayBuffer = typeof ArrayBuffer !== 'undefined' && buffer instanceof ArrayBuffer
-  if (bytes.byteOffset === 0 && bytes.byteLength === buffer.byteLength && isArrayBuffer) {
-    return buffer
+  const payload = await assetDownloader(hash)
+  const bytes = base64ToBytes(payload.base64)
+  if (bytes.byteLength !== payload.size) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.ASSET_HASH_MISMATCH,
+      `Asset "${hash}" size did not match its descriptor.`
+    )
   }
-  const copy = new Uint8Array(bytes.byteLength)
-  copy.set(bytes)
-  return copy.buffer
+  if (!digestMatchesAssetHash(await sha256Hex(bytes), hash)) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.ASSET_HASH_MISMATCH,
+      `Asset "${hash}" did not match its SHA-256 digest.`
+    )
+  }
+  return { bytes, mimeType: payload.mimeType }
 }

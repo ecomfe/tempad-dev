@@ -1,7 +1,7 @@
 {
   "name": "tempad-dev",
-  "version": "0.1.0",
-  "description": "Turn Figma evidence into UI code and create native designs from an existing Figma design system.",
+  "version": "0.1.2",
+  "description": "Turn Figma evidence into UI code and create native Figma designs.",
   "author": {
     "name": "TemPad Dev"
   },

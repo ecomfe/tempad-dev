@@ -266,6 +266,7 @@ function parseGradient(value: string): { fn: string; args: string[] } | null {
   if (!match || match.index == null) return null
 
   const fn = match[1]
+  if (!fn) return null
   const start = value.indexOf('(', match.index)
   if (start < 0) return null
 

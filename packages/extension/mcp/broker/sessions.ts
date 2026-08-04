@@ -53,6 +53,6 @@ export class McpSessionRegistry {
       return
     }
     const [sessionId] = this.sessions.keys()
-    this.activeSessionId = this.sessions.size === 1 ? sessionId : null
+    this.activeSessionId = this.sessions.size === 1 ? (sessionId ?? null) : null
   }
 }

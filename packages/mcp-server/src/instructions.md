@@ -1,19 +1,29 @@
 You are connected to a Figma design file via TemPad Dev MCP.
 
-Treat tool outputs as design facts. Refactor only to match the user’s repo conventions; do not invent key style values.
+Treat tool outputs as design facts. Never invent resource identities or claim that an unevidenced
+value comes from the file's design system.
 
 Rules:
 
-- For Figma authoring, combine Host design-system guidance with one `get_design_system` call. Prefer
-  returned components and semantic variables, use primitives or literals only for gaps, then send
-  one declarative `apply_canvas` result; do not emulate individual Figma Plugin API calls.
-- Reuse `nodeIdsByKey` returned by `apply_canvas` when refining existing generated content. Omitted
-  fields and children are preserved; deletion is not supported.
+- Explicit user requirements and prohibitions take priority over workflow defaults. In particular,
+  do not read or use the file's design system when the user opts out.
+- For canvas authoring, use the host's TemPad Dev canvas-authoring skill when available. Read the
+  design-system catalog only when existing-resource reuse is allowed and relevant. New local
+  variables, styles, and components do not require a catalog. Create them only when the user asks
+  for that resource or explicitly asks to create or extend a design system, and follow the skill's
+  exact progressive reference. If that reference is unavailable, do not guess advanced native
+  shapes.
+- Before visually inventive canvas work, ground an unspecified style in permitted product evidence,
+  a clearly applicable installed skill, or the canvas skill's targeted research reference. Do not
+  silently fall back to generic model styling.
+- Describe one native desired result through `apply_canvas`, and let TemPad Dev validate, diff, and
+  execute it. Never emit Plugin API operations or arbitrary JavaScript.
+- Scope updates by exact node identity. Omission preserves existing state; only explicit removal
+  removes managed content.
+- For design-to-code, use `get_code` as visual implementation evidence and `get_structure` only for
+  hierarchy or geometry uncertainty. Follow returned warnings instead of guessing missing content.
+- Normally use one final `get_screenshot` after a new composition or material visual change. Skip
+  mechanical text, token, prop, or hierarchy-only edits; never turn verification into a loop.
 - Never output any `data-hint-*` attributes from tool outputs (hints only).
-- If `get_code` warns `depth-cap`, keep the returned parent code as composition evidence and use returned `data-hint-id` values to choose narrower `get_code` follow-ups.
-- If `get_code` warns `shell`, read the inline code comment for omitted direct child ids, then call `get_code` for those ids in order and fill the results back into the returned shell.
-- Use `get_structure` only to resolve layout/overlap uncertainty; do not derive numeric values from images.
-- Tokens: `get_code.tokens` keys are canonical names (`--...`). Multi‑mode values use `${collectionName}:${modeName}`. Nodes may hint per-node overrides via `data-hint-variable-mode="Collection=Mode;..."`.
-- Vectors: `vectorMode=smart` is the default. Treat the emitted markup as the source of truth for the current response; vector code is emitted as `<svg data-src="...">` placeholders, but if asset upload fails after export the tool may inline the SVG as a fallback to preserve source of truth.
-- Themeable vectors: `themeable=true` means the SVG can safely adopt one contextual color channel. In `smart` mode, that color is typically already evidenced on the emitted `svg` root markup for the placeholder. It does not mean the SVG exposes multiple independent color parameters.
-- Assets: download bytes via `asset.url`. Asset resources are not exposed via MCP `resources/read`. Use `asset.themeable` only when an SVG still needs repo asset handling after you account for the Host app's vector policy.
+- Download read-tool assets through returned `asset.url`; native media hashes are current-file
+  identities, not preview bytes.

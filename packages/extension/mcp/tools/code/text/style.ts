@@ -30,7 +30,8 @@ export function resolveRunAttrs(
 
   if (visibleSolid) {
     const val = formatHexAlpha(visibleSolid.raw.color, visibleSolid.raw.opacity ?? 1)
-    style.color = constructCssVar(visibleSolid.token, val)
+    const colorValue = constructCssVar(visibleSolid.token, val)
+    if (colorValue) style.color = colorValue
   } else if (fills.length === 0 || !hasVisiblePaint) {
     style.color = 'transparent'
   }
@@ -48,7 +49,8 @@ export function resolveRunAttrs(
 
   if (fontWeight) {
     const wVal = inferFontWeight(seg.fontName?.style, seg.fontWeight)
-    style['font-weight'] = constructCssVar(fontWeight, wVal != null ? String(wVal) : undefined)
+    const weightValue = constructCssVar(fontWeight, wVal != null ? String(wVal) : undefined)
+    if (weightValue) style['font-weight'] = weightValue
   } else if (typeof seg.fontWeight === 'number') {
     style['font-weight'] = String(seg.fontWeight)
   }
@@ -115,12 +117,13 @@ export function computeDominantStyle(runStyles: RunStyleEntry[]): Record<string,
     totalWeight += weight
     for (const [key, value] of Object.entries(style)) {
       const normalized = canonicalizeValue(key, value)
-      if (!counts[key]) counts[key] = {}
+      const bucket = (counts[key] ??= {})
+      const entry = bucket[normalized]
 
-      if (!counts[key][normalized]) {
-        counts[key][normalized] = { raw: value, score: weight }
+      if (!entry) {
+        bucket[normalized] = { raw: value, score: weight }
       } else {
-        counts[key][normalized].score += weight
+        entry.score += weight
       }
     }
   }
@@ -128,12 +131,10 @@ export function computeDominantStyle(runStyles: RunStyleEntry[]): Record<string,
   const dominant: Record<string, string> = {}
   const threshold = totalWeight * 0.5
 
-  for (const key in counts) {
-    const bucket = counts[key]
+  for (const [key, bucket] of Object.entries(counts)) {
     let bestValue: { raw: string; score: number } | undefined
 
-    for (const norm in bucket) {
-      const entry = bucket[norm]
+    for (const entry of Object.values(bucket)) {
       if (!bestValue || entry.score > bestValue.score) {
         bestValue = entry
       }
@@ -155,7 +156,11 @@ export function omitCommon(
   const result: Record<string, string> = {}
 
   for (const [key, value] of Object.entries(style)) {
-    if (!common[key] || canonicalizeValue(key, value) !== canonicalizeValue(key, common[key])) {
+    const commonValue = common[key]
+    if (
+      commonValue === undefined ||
+      canonicalizeValue(key, value) !== canonicalizeValue(key, commonValue)
+    ) {
       result[key] = value
     }
   }
@@ -202,8 +207,6 @@ function mapTextCase(textCase?: TextCase): string | undefined {
   return map[textCase as string]
 }
 
-function constructCssVar(token: TokenRef, fallback?: string): string
-function constructCssVar(token: TokenRef | null | undefined, fallback: string): string
 function constructCssVar(token?: TokenRef | null, fallback?: string): string | undefined {
   if (token) return toFigmaVarExpr(token.name)
   return fallback?.trim() || undefined

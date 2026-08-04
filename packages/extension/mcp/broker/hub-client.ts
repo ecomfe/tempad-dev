@@ -6,7 +6,11 @@ import type {
   ToolResultMessage
 } from '@tempad-dev/shared'
 
-import { MCP_PORT_CANDIDATES, parseMessageToExtension } from '@tempad-dev/shared'
+import {
+  MCP_PORT_CANDIDATES,
+  TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+  parseMessageToExtension
+} from '@tempad-dev/shared'
 
 const RECONNECT_DELAY_MS = 3000
 const KEEPALIVE_INTERVAL_MS = 20000
@@ -37,6 +41,8 @@ type HubConnection = {
   state: StateMessage
   ws: WebSocket
 }
+
+class McpBridgeProtocolMismatchError extends Error {}
 
 export class McpHubClient {
   private activeId: string | null = null
@@ -116,6 +122,7 @@ export class McpHubClient {
     this.errorMessage = null
     this.emitSnapshot()
 
+    let protocolMismatch: McpBridgeProtocolMismatchError | null = null
     for (const candidatePort of this.getPortCandidates()) {
       if (!this.isCurrentConnection(epoch)) return
       try {
@@ -134,15 +141,18 @@ export class McpHubClient {
         this.lastSuccessfulPort = candidatePort
         this.startKeepalive()
         return
-      } catch {
+      } catch (error) {
         if (!this.isCurrentConnection(epoch)) return
+        if (error instanceof McpBridgeProtocolMismatchError) {
+          protocolMismatch = error
+        }
       }
     }
 
     if (!this.isCurrentConnection(epoch)) return
     this.cleanupSocket()
     this.status = 'error'
-    this.errorMessage = LOCAL_HUB_UNREACHABLE_MESSAGE
+    this.errorMessage = protocolMismatch?.message ?? LOCAL_HUB_UNREACHABLE_MESSAGE
     this.emitSnapshot()
     this.scheduleReconnect()
   }
@@ -196,6 +206,11 @@ export class McpHubClient {
         resolve({ registered, state, ws })
       }
       const handleMessage = (event: Event) => {
+        const registration = inspectHubRegistration(event)
+        if (registration && registration.protocolVersion !== TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION) {
+          fail(createProtocolMismatchError(registration.protocolVersion))
+          return
+        }
         const message = parseHubMessage(event)
         if (!message) {
           fail(new Error('Received malformed MCP server handshake'))
@@ -247,6 +262,14 @@ export class McpHubClient {
 
   private handleMessage(ws: WebSocket, event: MessageEvent<string>): void {
     if (this.ws !== ws) return
+    const registration = inspectHubRegistration(event)
+    if (registration && registration.protocolVersion !== TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION) {
+      this.rejectConnectedMessage(
+        ws,
+        createProtocolMismatchError(registration.protocolVersion).message
+      )
+      return
+    }
     const message = parseHubMessage(event)
     if (!message) {
       this.rejectConnectedMessage(ws, 'Received malformed message from MCP server')
@@ -364,6 +387,30 @@ export class McpHubClient {
 function parseHubMessage(event: Event): MessageToExtension | null {
   const data = (event as MessageEvent<unknown>).data
   return parseMessageToExtension(typeof data === 'string' ? data : '')
+}
+
+function inspectHubRegistration(event: Event): { protocolVersion: number } | null {
+  const data = (event as MessageEvent<unknown>).data
+  if (typeof data !== 'string') return null
+  try {
+    const value: unknown = JSON.parse(data)
+    if (typeof value !== 'object' || value === null || !('type' in value)) return null
+    if (value.type !== 'registered') return null
+    const protocolVersion = 'protocolVersion' in value ? value.protocolVersion : Number.NaN
+    return {
+      protocolVersion: typeof protocolVersion === 'number' ? protocolVersion : Number.NaN
+    }
+  } catch {
+    return null
+  }
+}
+
+function createProtocolMismatchError(protocolVersion: number): McpBridgeProtocolMismatchError {
+  const received = Number.isFinite(protocolVersion) ? String(protocolVersion) : 'missing or invalid'
+  return new McpBridgeProtocolMismatchError(
+    `TemPad Dev protocol mismatch: the extension requires ${TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION}, ` +
+      `but the MCP server reported ${received}. Update the extension and MCP server together.`
+  )
 }
 
 function closeWebSocket(ws: WebSocket | null): void {

@@ -13,8 +13,8 @@ vi.mock('@/utils/variable-output', () => ({
 }))
 
 vi.mock('@/mcp/tools/code/assets', () => ({
-  hasImageFills: vi.fn(() => false),
-  replaceImageUrlsWithAssets: vi.fn((style) => Promise.resolve(style))
+  hasMediaFills: vi.fn(() => false),
+  replaceMediaUrlsWithAssets: vi.fn((style) => Promise.resolve(style))
 }))
 
 vi.mock('@/mcp/tools/code/styles', () => ({

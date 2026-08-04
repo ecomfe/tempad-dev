@@ -2,12 +2,36 @@
 
 ## 0.21.0
 
-- Added opt-in Figma canvas authoring for agents with query-ranked design-system discovery and one
-  declarative create or update result.
-- Added safe incremental reconciliation with explicit update scopes, stable node identities,
-  component and variable reuse, no-op detection, validation, and automatic undo on failure.
-- Added the `figma-canvas-authoring` agent skill, including a grounded workflow for empty Figma
-  documents.
+- Added Figma canvas authoring through one declarative result instead of agent-generated
+  Plugin API calls.
+- Added an immutable deterministic design-system catalog with compact component tags, short refs,
+  deterministic cursor pagination, bounded plain/Markdown summaries, non-English prop labels, and
+  exact one-resource detail lookup. The catalog reads component definitions from pages Figma
+  already makes accessible and file-level resources without scanning usage or loading pages.
+- Added safe native reconciliation against the latest canvas with stable identities, scoped
+  incremental updates, explicit deletion, no-op convergence, dependency preflight, one Undo
+  boundary and structural verification. Managed identities can be recovered through
+  `get_structure` in a later agent session.
+- Added deterministic non-overlapping placement for separate create results without requiring the
+  agent to track prior canvas coordinates.
+- Exposed bounded screenshots as a separate read-only validation step.
+- Added a strict HTML + Tailwind utility common path, including native default scales wherever they
+  map deterministically to Figma, and typed Figma-only state for native geometry, layout, text,
+  paints/effects/media, variables, native styles, pages, authored
+  components/variants, instances, and Slots.
+- Added a progressive `figma-canvas-authoring` skill that follows explicit user resource
+  constraints, conditionally reuses accessible design-system definitions, provides executable
+  recipes for authored local resources, handles empty documents without inventing a design system,
+  grounds unspecified visual direction in project evidence, applicable skills, or bounded domain
+  research, and requests visual verification only when it can change the next decision.
+- Added bounded SVG and PNG/JPEG/GIF authoring through inline SVG or full-SHA-256 local asset
+  references, with a hash-only reverse bridge, SVG sanitization, stable wrappers, and cached native
+  image handles.
+- Made Canvas authoring available whenever MCP access is enabled in an editable Figma Design file;
+  native read-only rejection remains the permission boundary.
+- Kept native canvas-validation feedback compact and actionable with bounded field paths.
+- Stabilized derived Auto Layout geometry after text reflow and other Figma setters, and verify
+  actual fixed and cross-axis fill dimensions instead of trusting sizing-mode labels alone.
 
 ## 0.20.0
 

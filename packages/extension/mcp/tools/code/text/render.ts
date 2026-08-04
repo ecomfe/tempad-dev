@@ -55,9 +55,9 @@ export async function renderTextSegments(
         const resolved = ctx.resolveStyleVars ? ctx.resolveStyleVars(cleaned, node) : cleaned
 
         const hoistableCandidate: Record<string, string> = {}
-        for (const key in resolved) {
+        for (const [key, value] of Object.entries(resolved)) {
           if (HOIST_ALLOWLIST.has(key)) {
-            hoistableCandidate[key] = resolved[key]
+            hoistableCandidate[key] = value
           }
         }
 
@@ -140,18 +140,23 @@ function renderBlock(
 
   const rootList: DevComponent = { name: rootTag, props: { [classProp]: rootCls }, children: [] }
 
-  const stack: ListStackItem[] = [{ list: rootList, level: lines[0]?.attrs.indentation || 1 }]
+  const rootStackItem: ListStackItem = {
+    list: rootList,
+    level: lines[0]?.attrs.indentation || 1
+  }
+  const stack: ListStackItem[] = [rootStackItem]
 
   for (const line of lines) {
     const currentIndent = line.attrs.indentation
 
-    while (stack.length > 0 && currentIndent < stack[stack.length - 1].level) {
+    while (stack.length > 1) {
+      const activeItem = stack.at(-1)
+      if (!activeItem || currentIndent >= activeItem.level) break
       stack.pop()
     }
 
-    if (stack.length > 0 && currentIndent > stack[stack.length - 1].level) {
-      const parentStackItem = stack[stack.length - 1]
-
+    const parentStackItem = stack.at(-1) ?? rootStackItem
+    if (currentIndent > parentStackItem.level) {
       if (!parentStackItem.lastLi) {
         const dummyLi: DevComponent = { name: 'li', props: {}, children: [] }
         parentStackItem.list.children.push(dummyLi)
@@ -182,7 +187,7 @@ function renderBlock(
 
     const li: DevComponent = { name: 'li', props: {}, children: lineChildren }
 
-    const activeItem = stack[stack.length - 1]
+    const activeItem = stack.at(-1) ?? rootStackItem
     activeItem.list.children.push(li)
     activeItem.lastLi = li
   }
@@ -229,8 +234,8 @@ function optimizeComponentTree(node: DevComponent | string, classProp: string) {
   ])
 
   if (UNWRAP_WHITELIST.has(node.name) && node.children && node.children.length === 1) {
-    const child = node.children[0]
-    if (typeof child !== 'string' && child.name === 'span') {
+    const [child] = node.children
+    if (child && typeof child !== 'string' && child.name === 'span') {
       const childProps = child.props || {}
       const extraChildProps = Object.keys(childProps).filter((key) => key !== classProp)
       if (extraChildProps.length === 0) {
@@ -266,8 +271,10 @@ function buildInlineTree(
 
     let k = 0
     while (k < sortedMarks.length && k < stack.length - 1) {
-      const { markType, linkHref } = stack[k + 1]
+      const stackNode = stack[k + 1]
       const currentMark = sortedMarks[k]
+      if (!stackNode || !currentMark) break
+      const { markType, linkHref } = stackNode
 
       if (markType === currentMark && (currentMark !== 'link' || linkHref === run.link)) {
         k++
@@ -283,9 +290,11 @@ function buildInlineTree(
 
     while (stack.length - 1 < sortedMarks.length) {
       const mark = sortedMarks[stack.length - 1]
+      const parent = stack.at(-1)
+      if (!mark || !parent) break
       const component = createMarkComponent(mark, run)
 
-      stack[stack.length - 1].container.children.push(component)
+      parent.container.children.push(component)
 
       stack.push({
         container: component,
@@ -301,7 +310,7 @@ function buildInlineTree(
     const style = omitCommon(resolvedAttrs, commonStyle)
     const classNames = styleToClassNames(style, ctx.config)
     const cls = joinClassNames(classNames)
-    const top = stack[stack.length - 1].container
+    const top = stack.at(-1)?.container ?? root
 
     if (cls) {
       top.children.push({

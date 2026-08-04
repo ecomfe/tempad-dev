@@ -213,7 +213,7 @@ function splitByTopLevelWhitespace(input: string): string[] {
   let buffer = ''
 
   for (let i = 0; i < input.length; i++) {
-    const ch = input[i]
+    const ch = input.charAt(i)
 
     if (quote) {
       if (ch === '\\') {
@@ -283,6 +283,7 @@ function replaceBorderShorthandColor(borderValue: string, color: string): string
 
   const lastIndex = borderParts.length - 1
   const current = borderParts[lastIndex]
+  if (!current) return null
   if (!isVarFunctionToken(current) && !(color.startsWith('var(') && isCssColorValue(current))) {
     return null
   }

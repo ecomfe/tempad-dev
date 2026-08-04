@@ -269,7 +269,7 @@ function parseBorderShorthand(normalized: string): { width?: string } {
   const matched = normalized.match(/^\s*(\S+)\s+(\S+)\s+(.+)\s*$/)
   if (matched) {
     const [, width] = matched
-    return { width: width.trim() }
+    if (width) return { width: width.trim() }
   }
 
   const parts = normalized.split(/\s+/).filter(Boolean)
@@ -278,7 +278,7 @@ function parseBorderShorthand(normalized: string): { width?: string } {
 
 function parseBoxValues(value: string): [string, string, string, string] {
   const parts = value.trim().split(/\s+/)
-  const [t, r = t, b = t, l = r] = parts
+  const [t = '', r = t, b = t, l = r] = parts
   return [t, r, b, l]
 }
 
@@ -292,11 +292,9 @@ function getBorderWidth(style: StyleMap): string | null {
     return parsed.width ? normalizeStyleValue(parsed.width) : null
   })
 
-  if (sideWidths.every((width): width is string => typeof width === 'string' && width.length > 0)) {
-    const [first, ...rest] = sideWidths
-    if (rest.every((width) => width === first)) {
-      return first
-    }
+  const [first] = sideWidths
+  if (first && sideWidths.every((width) => width === first)) {
+    return first
   }
 
   const borderWidth = style['border-width']
@@ -336,6 +334,7 @@ function negateLengthLiteral(value: string): string | null {
   if (!matched) return null
 
   const [, amount, unit] = matched
+  if (!amount || !unit) return null
   if (amount.startsWith('-')) {
     return `${amount.slice(1)}${unit}`
   }

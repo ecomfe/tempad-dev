@@ -1,19 +1,11 @@
+import { isVectorLikeNode } from '@/mcp/semantic-tree'
 import { toDecimalPlace } from '@/utils/number'
 
 import type { LayoutBounds, OverflowDirection, StyleMap } from './types'
 
-const VECTOR_LIKE_TYPES = new Set<SceneNode['type']>([
-  'VECTOR',
-  'BOOLEAN_OPERATION',
-  'STAR',
-  'LINE',
-  'ELLIPSE',
-  'POLYGON'
-])
-
 export function applyOverflowStyles(style: StyleMap, node?: SceneNode): StyleMap {
   if (!node || !('overflowDirection' in node)) return style
-  if (VECTOR_LIKE_TYPES.has(node.type)) return style
+  if (isVectorLikeNode(node)) return style
 
   const dir = getOverflowDirection(node)
   const next = style

@@ -1,5 +1,7 @@
 export const MCP_PORT_CANDIDATES = [6220, 7431, 8127]
 
+export const TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION = 1
+
 // Upper bound for MCP message payloads in bytes.
 export const MCP_MAX_PAYLOAD_BYTES = 4 * 1024 * 1024
 // Default inline budget for tool responses measured on CallToolResult bytes.
@@ -22,5 +24,8 @@ export const MCP_MAX_EXTENSION_CONNECTIONS = 16
 // Default asset TTL before cleanup (ms). Set to 0 to disable.
 export const MCP_ASSET_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
-export const MCP_HASH_HEX_LENGTH = 8
-export const MCP_HASH_PATTERN = new RegExp(`^[a-f0-9]{${MCP_HASH_HEX_LENGTH}}$`, 'i')
+export const MCP_HASH_HEX_LENGTH = 64
+export const MCP_LEGACY_HASH_HEX_LENGTH = 8
+export const MCP_HASH_PATTERN = new RegExp(
+  `^(?:[a-f0-9]{${MCP_HASH_HEX_LENGTH}}|[a-f0-9]{${MCP_LEGACY_HASH_HEX_LENGTH}})$`
+)

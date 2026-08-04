@@ -75,8 +75,7 @@ function computeVectorInfo(
 ): Map<string, VectorInfo> {
   const info = new Map<string, VectorInfo>()
 
-  for (let i = tree.order.length - 1; i >= 0; i--) {
-    const id = tree.order[i]
+  for (const id of [...tree.order].reverse()) {
     if (ignoredIds?.has(id)) continue
     const node = tree.nodes.get(id)
     if (!node) continue

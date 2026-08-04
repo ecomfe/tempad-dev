@@ -27,6 +27,12 @@ vi.mock('@/mcp/tools/code/sanitize/stacking', () => ({
 
 import { sanitizeStyles } from '@/mcp/tools/code/sanitize'
 
+function firstInvocationOrder(mock: { mock: { invocationCallOrder: number[] } }): number {
+  const [order] = mock.mock.invocationCallOrder
+  if (order === undefined) throw new Error('Expected mock to be called')
+  return order
+}
+
 describe('sanitize/index sanitizeStyles', () => {
   it('applies all style patches in declared order', () => {
     const tree = { nodes: new Map(), order: [] } as unknown as VisibleTree
@@ -50,14 +56,14 @@ describe('sanitize/index sanitizeStyles', () => {
     )
     expect(mocks.applyAbsoluteStackingOrder).toHaveBeenCalledWith(tree, styles, svgRoots, undefined)
 
-    expect(mocks.patchNegativeGapStyles.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.canonicalizeAutoLayoutStyles.mock.invocationCallOrder[0]
+    expect(firstInvocationOrder(mocks.patchNegativeGapStyles)).toBeLessThan(
+      firstInvocationOrder(mocks.canonicalizeAutoLayoutStyles)
     )
-    expect(mocks.canonicalizeAutoLayoutStyles.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.ensureRelativeForAbsoluteChildren.mock.invocationCallOrder[0]
+    expect(firstInvocationOrder(mocks.canonicalizeAutoLayoutStyles)).toBeLessThan(
+      firstInvocationOrder(mocks.ensureRelativeForAbsoluteChildren)
     )
-    expect(mocks.ensureRelativeForAbsoluteChildren.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.applyAbsoluteStackingOrder.mock.invocationCallOrder[0]
+    expect(firstInvocationOrder(mocks.ensureRelativeForAbsoluteChildren)).toBeLessThan(
+      firstInvocationOrder(mocks.applyAbsoluteStackingOrder)
     )
   })
 
