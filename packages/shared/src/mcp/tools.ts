@@ -237,22 +237,105 @@ export type DesignSystemCatalogShader = {
   summary?: string
 }
 
-export type GetDesignSystemResult = {
-  catalogId: string
-  components: DesignSystemCatalogComponent[]
-  variables: DesignSystemCatalogVariable[]
-  collections: DesignSystemCatalogCollection[]
-  styles: DesignSystemCatalogStyle[]
-  shaders?: DesignSystemCatalogShader[]
-  details?: {
-    ref: string
-    kind: 'collection' | 'component' | 'mode' | 'shader' | 'style' | 'variable'
-    definition: unknown
-  }
-  nextCursor?: number
-  omitted?: Record<string, number>
-  warnings?: string[]
-}
+const DesignSystemCatalogPropertySchema = z
+  .object({
+    type: z.enum(['boolean', 'instance', 'text', 'variant']),
+    label: z.string().optional(),
+    default: z.union([z.string(), z.boolean()]).optional(),
+    options: z.array(z.string()).optional(),
+    omittedOptions: z.number().int().nonnegative().optional()
+  })
+  .strict()
+
+const DesignSystemCatalogComponentSchema = z
+  .object({
+    ref: z.string().min(1),
+    tag: z.string().min(1),
+    name: z.string(),
+    summary: z.string().optional(),
+    page: z.string().optional(),
+    variantCount: z.number().int().nonnegative().optional(),
+    nativeSize: z
+      .object({
+        width: z.number().finite().nonnegative(),
+        height: z.number().finite().nonnegative()
+      })
+      .strict()
+      .optional(),
+    props: z.record(z.string(), DesignSystemCatalogPropertySchema),
+    omittedProps: z.number().int().nonnegative().optional()
+  })
+  .strict()
+
+const DesignSystemCatalogVariableSchema = z
+  .object({
+    ref: z.string().min(1),
+    name: z.string(),
+    collection: z.string(),
+    type: z.enum(['boolean', 'color', 'number', 'string']),
+    scopes: z.array(z.string()).optional(),
+    defaultValue: z.union([z.string(), z.number().finite(), z.boolean()]).optional()
+  })
+  .strict()
+
+const DesignSystemCatalogCollectionSchema = z
+  .object({
+    ref: z.string().min(1),
+    name: z.string(),
+    modes: z.array(
+      z
+        .object({
+          ref: z.string().min(1),
+          name: z.string()
+        })
+        .strict()
+    ),
+    defaultModeRef: z.string().min(1)
+  })
+  .strict()
+
+const DesignSystemCatalogStyleSchema = z
+  .object({
+    ref: z.string().min(1),
+    name: z.string(),
+    type: z.enum(['effect', 'grid', 'paint', 'text']),
+    signature: z.string(),
+    summary: z.string().optional()
+  })
+  .strict()
+
+const DesignSystemCatalogShaderSchema = z
+  .object({
+    ref: z.string().min(1),
+    name: z.string(),
+    type: z.enum(['effect', 'fill']),
+    summary: z.string().optional()
+  })
+  .strict()
+
+export const GetDesignSystemResultSchema = z
+  .object({
+    catalogId: z.string().min(1),
+    components: z.array(DesignSystemCatalogComponentSchema),
+    variables: z.array(DesignSystemCatalogVariableSchema),
+    collections: z.array(DesignSystemCatalogCollectionSchema),
+    styles: z.array(DesignSystemCatalogStyleSchema),
+    shaders: z.array(DesignSystemCatalogShaderSchema).optional(),
+    details: z
+      .object({
+        ref: z.string().min(1),
+        kind: z.enum(['collection', 'component', 'mode', 'shader', 'style', 'variable']),
+        definition: z.unknown()
+      })
+      .strict()
+      .optional(),
+    nextCursor: z.number().int().nonnegative().optional(),
+    omitted: z.record(z.string(), z.number().int().nonnegative()).optional(),
+    warnings: z.array(z.string()).optional()
+  })
+  .strict()
+
+export type GetDesignSystemResult = z.output<typeof GetDesignSystemResultSchema>
 
 // apply_canvas
 export type CanvasDesignReference = { id: string; key?: string } | { id?: never; key: string }
@@ -2082,25 +2165,35 @@ export const CanvasResolvedApplyParametersSchema = z
 
 export type CanvasResolvedApplyParameters = z.output<typeof CanvasResolvedApplyParametersSchema>
 
-export type ApplyCanvasResult = {
-  rootNodeId: string
-  rootRemoved?: true
-  nodeIdsByKey: Record<string, string>
-  createdNodeIds: string[]
-  updatedNodeIds: string[]
-  removedNodeIds: string[]
-  mutationCount: number
-  verification: {
-    status: 'passed' | 'warning'
-    nodesChecked: number
-    referencesChecked: number
-    warnings: Array<{
-      code: string
-      message: string
-      key?: string
-    }>
-  }
-}
+export const ApplyCanvasResultSchema = z
+  .object({
+    rootNodeId: z.string().min(1),
+    rootRemoved: z.literal(true).optional(),
+    nodeIdsByKey: z.record(z.string(), z.string().min(1)),
+    createdNodeIds: z.array(z.string().min(1)),
+    updatedNodeIds: z.array(z.string().min(1)),
+    removedNodeIds: z.array(z.string().min(1)),
+    mutationCount: z.number().int().nonnegative(),
+    verification: z
+      .object({
+        status: z.enum(['passed', 'warning']),
+        nodesChecked: z.number().int().nonnegative(),
+        referencesChecked: z.number().int().nonnegative(),
+        warnings: z.array(
+          z
+            .object({
+              code: z.string().min(1),
+              message: z.string(),
+              key: z.string().optional()
+            })
+            .strict()
+        )
+      })
+      .strict()
+  })
+  .strict()
+
+export type ApplyCanvasResult = z.output<typeof ApplyCanvasResultSchema>
 
 // get_assets (hub only)
 export const GetAssetsParametersSchema = z.object({

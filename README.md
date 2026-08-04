@@ -238,6 +238,9 @@ With the TemPad Dev panel open and MCP enabled, the MCP server exposes:
 2. Select **Set up agents**, choose Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, or TRAE, and follow the displayed path. Use **Other** for another compatible client. The choice only changes the instructions shown; it does not bind or activate an agent.
 3. Prefer the direct action when offered. Every fallback command or config is shown in full for review and copying. Codex and Claude Code plugins include MCP plus the `figma-design-to-code` and `figma-canvas-authoring` skills; the other paths show MCP and standalone skill setup separately.
 
+During the `0.8.0` prerelease, direct MCP setup uses `@tempad-dev/mcp@alpha`; `latest` remains on
+`0.7.x`. The Codex and Claude Code plugins pin the exact prerelease version.
+
 Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context.
 
 ### MCP connection status

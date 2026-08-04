@@ -28,7 +28,7 @@ describe('shared/mcp/install', () => {
     expect(mcp.MCP_SERVER).toEqual({
       name: 'tempad-dev',
       command: 'npx',
-      args: ['-y', '@tempad-dev/mcp@latest']
+      args: ['-y', '@tempad-dev/mcp@alpha']
     })
 
     expect(mcp.MCP_DEFAULT_CONFIG_SNIPPET).toContain('"tempad-dev"')
@@ -36,7 +36,7 @@ describe('shared/mcp/install', () => {
       mcpServers: {
         'tempad-dev': {
           command: 'npx',
-          args: ['-y', '@tempad-dev/mcp@latest']
+          args: ['-y', '@tempad-dev/mcp@alpha']
         }
       }
     })
@@ -51,7 +51,7 @@ describe('shared/mcp/install', () => {
       name: 'tempad-dev',
       type: 'stdio',
       command: 'npx',
-      args: ['-y', '@tempad-dev/mcp@latest']
+      args: ['-y', '@tempad-dev/mcp@alpha']
     })
 
     const cursorDeepLink = mcp.MCP_CLIENTS_BY_ID.cursor.deepLink
@@ -67,7 +67,7 @@ describe('shared/mcp/install', () => {
     ).toString('utf8')
     expect(JSON.parse(decodedCursorConfigJson)).toEqual({
       command: 'npx',
-      args: ['-y', '@tempad-dev/mcp@latest']
+      args: ['-y', '@tempad-dev/mcp@alpha']
     })
 
     expect(mcp.MCP_CLIENTS_BY_ID.trae.deepLink).toContain('trae://trae.ai-ide/mcp-import')
@@ -81,17 +81,17 @@ describe('shared/mcp/install', () => {
     expect(mcp.MCP_CLIENTS_BY_ID.codex.copyText).toContain('codex mcp add "tempad-dev"')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyKind).toBe('config')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyText).toBe(
-      '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@latest"]'
+      '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@alpha"]'
     )
     expect(mcp.MCP_CLIENTS_BY_ID.gemini.copyText).toBe(
-      'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest'
+      'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@alpha'
     )
     expect(JSON.parse(mcp.MCP_CLIENTS_BY_ID.opencode.copyText ?? '')).toEqual({
       $schema: 'https://opencode.ai/config.json',
       mcp: {
         'tempad-dev': {
           type: 'local',
-          command: ['npx', '-y', '@tempad-dev/mcp@latest']
+          command: ['npx', '-y', '@tempad-dev/mcp@alpha']
         }
       }
     })

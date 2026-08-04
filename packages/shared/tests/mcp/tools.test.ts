@@ -3,12 +3,14 @@ import { z } from 'zod'
 
 import {
   ApplyCanvasParametersSchema as ApplyCanvasPublicParametersSchema,
+  ApplyCanvasResultSchema,
   CanvasResolvedApplyParametersSchema as ApplyCanvasParametersSchema,
   AssetDescriptorSchema,
   GetAssetsParametersSchema,
   GetAssetsResultSchema,
   GetCodeParametersSchema,
   GetDesignSystemParametersSchema,
+  GetDesignSystemResultSchema,
   GetScreenshotParametersSchema,
   GetStructureParametersSchema,
   GetTokenDefsParametersSchema
@@ -2083,6 +2085,79 @@ describe('mcp/tools canvas authoring schemas', () => {
           }
         }
       })
+    ).toBe(false)
+  })
+})
+
+describe('mcp/tools canvas authoring result schemas', () => {
+  it('validates complete design-system catalog entries', () => {
+    expect(
+      GetDesignSystemResultSchema.safeParse({
+        catalogId: 'ds_1',
+        components: [
+          {
+            ref: 'c1',
+            tag: 'Button',
+            name: 'Button',
+            props: {
+              label: { type: 'text', default: 'Save' }
+            }
+          }
+        ],
+        variables: [],
+        collections: [],
+        styles: [],
+        nextCursor: 1
+      }).success
+    ).toBe(true)
+    expect(
+      GetDesignSystemResultSchema.safeParse({
+        catalogId: 'ds_1',
+        components: [{ ref: 'c1' }],
+        variables: [],
+        collections: [],
+        styles: []
+      }).success
+    ).toBe(false)
+    expect(
+      GetDesignSystemResultSchema.safeParse({
+        catalogId: 'ds_1',
+        components: [],
+        variables: [],
+        collections: [],
+        styles: [],
+        details: { ref: 'c1', kind: 'component' }
+      }).success
+    ).toBe(false)
+  })
+
+  it('validates canvas result collection values and verification details', () => {
+    const result = {
+      rootNodeId: '1:1',
+      nodeIdsByKey: { root: '1:1' },
+      createdNodeIds: ['1:1'],
+      updatedNodeIds: [],
+      removedNodeIds: [],
+      mutationCount: 1,
+      verification: {
+        status: 'passed',
+        nodesChecked: 1,
+        referencesChecked: 0,
+        warnings: []
+      }
+    }
+    expect(ApplyCanvasResultSchema.safeParse(result).success).toBe(true)
+    expect(
+      ApplyCanvasResultSchema.safeParse({
+        ...result,
+        nodeIdsByKey: { root: 1 }
+      }).success
+    ).toBe(false)
+    expect(
+      ApplyCanvasResultSchema.safeParse({
+        ...result,
+        verification: { ...result.verification, warnings: [{}] }
+      }).success
     ).toBe(false)
   })
 })

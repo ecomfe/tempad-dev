@@ -1,6 +1,6 @@
 const SERVER_NAME = 'tempad-dev'
 const SERVER_COMMAND = 'npx'
-const SERVER_ARGS = ['-y', '@tempad-dev/mcp@latest'] as const
+const SERVER_ARGS = ['-y', '@tempad-dev/mcp@alpha'] as const
 const REPOSITORY = 'ecomfe/tempad-dev'
 const MARKETPLACE_NAME = 'tempad-dev'
 const PLUGIN_NAME = 'tempad-dev'
