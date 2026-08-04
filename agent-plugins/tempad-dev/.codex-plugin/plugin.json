@@ -1,7 +1,7 @@
 {
   "name": "tempad-dev",
-  "version": "0.1.1",
-  "description": "Use TemPad Dev to turn Figma evidence into UI code and create native designs from an existing Figma design system.",
+  "version": "0.1.2",
+  "description": "Use TemPad Dev to turn Figma evidence into UI code and create native Figma designs.",
   "author": {
     "name": "TemPad Dev"
   },
@@ -21,8 +21,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "TemPad Dev",
-    "shortDescription": "Read Figma evidence and create design-system-grounded canvas content.",
-    "longDescription": "TemPad Dev packages skills for implementing Figma designs in code and authoring native Figma content from the active file's design system, together with its MCP server configuration.",
+    "shortDescription": "Read Figma evidence and author native canvas content.",
+    "longDescription": "TemPad Dev packages skills for implementing Figma designs in code and authoring native Figma content with optional accessible design-system resources, together with its MCP server configuration.",
     "developerName": "TemPad Dev",
     "category": "Design",
     "capabilities": [
@@ -37,9 +37,11 @@
     "defaultPrompt": [
       "Use TemPad Dev to implement the selected Figma node.",
       "Inspect the selected Figma node with TemPad Dev.",
-      "Create a Figma design using the active file's components and variables."
+      "Create a native Figma design while following my resource constraints."
     ],
-    "brandColor": "#0098FF"
+    "brandColor": "#0098FF",
+    "composerIcon": "./assets/icon-padded.svg",
+    "logo": "./assets/icon-padded.svg"
   },
   "mcpServers": "./.mcp.json"
 }

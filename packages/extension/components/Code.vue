@@ -37,20 +37,17 @@ const prismRevision = shallowRef(0)
 const code = computed(() => props.code.replace(STRIP_TRAILING_WS_RE, ''))
 
 const lang = computed(() => {
-  if (prismAlias[props.lang]) {
-    return prismAlias[props.lang]
-  }
-
-  return props.lang
+  return prismAlias[props.lang] ?? props.lang
 })
 
 const highlighted = computed(() => {
   const Prism = prismRevision.value >= 0 ? window.Prism : window.Prism
-  if (!Prism || !Prism.languages[lang.value]) {
+  const language = Prism?.languages[lang.value]
+  if (!Prism || !language) {
     return escapeHTML(code.value)
   }
 
-  const html = Prism.highlight(code.value, Prism.languages[lang.value], lang.value)
+  const html = Prism.highlight(code.value, language, lang.value)
 
   return transformHTML(html, (tpl) => {
     tpl.querySelectorAll<HTMLElement>('.token.variable, .token.constant').forEach((el) => {

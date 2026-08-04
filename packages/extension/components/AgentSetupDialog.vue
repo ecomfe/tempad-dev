@@ -105,7 +105,7 @@ function selectManualSetup(): void {
 }
 
 function getStepDescription(id: ActionGroupId): string {
-  if (id === 'plugin') return 'Adds the MCP server and design skill together.'
+  if (id === 'plugin') return 'Adds the MCP server and design skills together.'
   if (id === 'skill') return 'Adds the repo-aware workflow for implementing selected designs.'
   if (selectedSetup.value.id === 'other') return 'Adds the local TemPad Dev server.'
   return `Lets ${selectedSetup.value.name} access the Figma file open in this browser.`
@@ -197,7 +197,7 @@ function getCopyTitle(action: AgentIntegrationAction): string {
             </span>
             <h2>{{ selectedSetup.name }}</h2>
           </div>
-          <p v-if="pluginStep">Install the plugin to add both MCP access and the design skill.</p>
+          <p v-if="pluginStep">Install the plugin to add MCP access and both design skills.</p>
           <p v-else-if="selectedSetup.id === 'other'">
             Use the same two parts with any compatible agent.
           </p>

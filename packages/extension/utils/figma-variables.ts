@@ -156,7 +156,7 @@ export function getSingleVariableId(value: unknown): string | null {
         .map((entry) => getSingleVariableId(entry))
         .filter((id): id is string => typeof id === 'string' && id.length > 0)
     )
-    return ids.size === 1 ? [...ids][0] : null
+    return ids.size === 1 ? (ids.values().next().value ?? null) : null
   }
 
   if (typeof value !== 'object') return null

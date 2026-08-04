@@ -2,6 +2,7 @@ import type { ZodType } from 'zod'
 
 import { z } from 'zod'
 
+import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION } from './constants'
 import { TempadMcpErrorPayloadSchema } from './errors'
 import { hasToolResultOutcome, TOOL_RESULT_OUTCOME_ERROR } from './tool-result'
 
@@ -9,7 +10,8 @@ import { hasToolResultOutcome, TOOL_RESULT_OUTCOME_ERROR } from './tool-result'
 export const RegisteredMessageSchema = z
   .object({
     type: z.literal('registered'),
-    id: z.string().min(1)
+    id: z.string().min(1),
+    protocolVersion: z.literal(TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION)
   })
   .strict()
 

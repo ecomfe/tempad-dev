@@ -39,6 +39,9 @@ This document records the requirements and hard constraints for the MCP `get_cod
   - `tokens`: one-layer map of token entries keyed by canonical token name.
   - `warnings`: lightweight `type + message` guidance for inferred auto layout, depth-cap, or shell fallback.
 - SVG assets may include `themeable: true` when the vector can safely adopt a single contextual color channel.
+- Exact native-byte image assets include their current-file `figmaImageHash`. When any native bytes
+  are unavailable, the rendered-node fallback instead includes ordered unique
+  `figmaImageHashes` for every visible image fill.
 
 ## Size and budget guard
 
@@ -114,7 +117,13 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 - Vector-only nodes or containers are classified before render as either:
   - themeable single-color vectors, which preserve one contextual color channel on the emitted placeholder `svg` root markup.
   - fixed-color vectors, which keep their internal palette in the exported SVG asset.
-- Images are exported as PNG/JPEG when the node is an image fill.
+- Image fills are exported from their exact native bytes when available.
+- Native image fills retain current-file identities as `figmaImageHash` on exact native-byte assets
+  or ordered unique `figmaImageHashes` on a composited fallback; preview bytes do not replace those
+  separately reported identities.
+- Video fills use one composited PNG node preview because the Plugin API has no video-byte reader.
+  Its asset descriptor retains ordered unique current-file identities as `figmaVideoHashes`; those
+  hashes describe the native fills, not the preview bytes.
 - Vector placeholders use the form `<svg data-src="...">`, keep `viewBox`, retain node-sized `width`/`height`, and expose the uploaded asset URL via `data-src` on the emitted `svg` root markup.
 - Themeable vector placeholders preserve the instance color on the emitted `svg` root markup, preferring token/class output when available.
 - Themeable-vector eligibility and single-channel color detection must share the same paint/effect visibility semantics used elsewhere in the asset pipeline; do not maintain a separate vector-only interpretation of visible paints, effects, or variable-backed solid colors.

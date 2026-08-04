@@ -35,6 +35,12 @@ type SegmentInput = StyledTextSegmentSubset & {
 }
 type SegmentHyperlink = StyledTextSegmentSubset['hyperlink']
 
+function at<T>(items: readonly T[], index: number): T {
+  const item = items[index]
+  if (item === undefined) throw new Error(`Expected item at index ${index}`)
+  return item
+}
+
 function createSegment(overrides: Partial<SegmentInput> = {}): SegmentInput {
   return {
     characters: 'T',
@@ -108,10 +114,12 @@ describe('mcp/code text segments', () => {
     ])
 
     expect(blocks).toHaveLength(1)
-    expect(blocks[0]).toMatchObject({ type: 'paragraph' })
-    expect(blocks[0].lines).toHaveLength(1)
-    expect(blocks[0].lines[0].runs).toEqual([])
-    expect(blocks[0].lines[0].attrs).toMatchObject({
+    const block = at(blocks, 0)
+    const line = at(block.lines, 0)
+    expect(block).toMatchObject({ type: 'paragraph' })
+    expect(block.lines).toHaveLength(1)
+    expect(line.runs).toEqual([])
+    expect(line.attrs).toMatchObject({
       listType: 'NONE',
       listSpacing: 0,
       paragraphSpacing: 12
@@ -166,8 +174,9 @@ describe('mcp/code text segments', () => {
     ])
 
     expect(blocks).toHaveLength(1)
-    const [run] = blocks[0].lines[0].runs
-    expect(blocks[0].type).toBe('paragraph')
+    const block = at(blocks, 0)
+    const run = at(at(block.lines, 0).runs, 0)
+    expect(block.type).toBe('paragraph')
     expect(run.text).toBe('A B')
     expect(run.link).toBe('https://example.com')
     expect([...run.marks].sort()).toEqual(['bold', 'italic', 'link', 'underline'])
@@ -197,7 +206,7 @@ describe('mcp/code text segments', () => {
       createSegment({ characters: 'I5', fontStyle: 'ITALIC', __attrs: { z: '1' } })
     ])
 
-    const runs = blocks[0].lines[0].runs
+    const runs = at(at(blocks, 0).lines, 0).runs
     expect(runs.map((run) => run.text)).toEqual([
       'B',
       ' ',
@@ -220,7 +229,7 @@ describe('mcp/code text segments', () => {
       createSegment({ characters: 'B', fontStyle: 'ITALIC', __attrs: { k: '1' } })
     ])
 
-    expect(blocks[0].lines[0].runs.map((run) => run.text)).toEqual(['A', ' ', 'B'])
+    expect(at(at(blocks, 0).lines, 0).runs.map((run) => run.text)).toEqual(['A', ' ', 'B'])
   })
 
   it('handles code-font, strikethrough and non-url hyperlinks', () => {
@@ -240,12 +249,14 @@ describe('mcp/code text segments', () => {
       })
     ])
 
-    const runs = blocks[0].lines[0].runs
+    const runs = at(at(blocks, 0).lines, 0).runs
+    const codeRun = at(runs, 0)
+    const linkRun = at(runs, 1)
     expect(runs).toHaveLength(2)
-    expect(runs[0].attrs['font-family']).toBeUndefined()
-    expect([...runs[0].marks].sort()).toEqual(['code', 'strike'])
-    expect(runs[1].link).toBeUndefined()
-    expect(runs[1].marks.has('link')).toBe(true)
+    expect(codeRun.attrs['font-family']).toBeUndefined()
+    expect([...codeRun.marks].sort()).toEqual(['code', 'strike'])
+    expect(linkRun.link).toBeUndefined()
+    expect(linkRun.marks.has('link')).toBe(true)
   })
 
   it('falls back to default weight and line attrs when list options are absent', () => {
@@ -270,7 +281,7 @@ describe('mcp/code text segments', () => {
       })
     ])
 
-    const line = blocks[0].lines[0]
+    const line = at(at(blocks, 0).lines, 0)
     expect(line.attrs).toMatchObject({
       listType: 'NONE',
       indentation: 0,
@@ -278,7 +289,7 @@ describe('mcp/code text segments', () => {
       paragraphSpacing: 0
     })
 
-    const [run] = line.runs
+    const run = at(line.runs, 0)
     expect(run.marks.has('code')).toBe(true)
     expect(run.marks.has('bold')).toBe(false)
     expect(run.attrs['font-family']).toBeUndefined()
@@ -296,7 +307,7 @@ describe('mcp/code text segments', () => {
       })
     ])
 
-    const [run] = blocks[0].lines[0].runs
+    const run = at(at(at(blocks, 0).lines, 0).runs, 0)
     expect(run.marks.has('code')).toBe(false)
     expect(run.marks.has('bold')).toBe(false)
     expect(run.attrs['font-family']).toBe('Inter')
@@ -323,12 +334,14 @@ describe('mcp/code text segments', () => {
     ])
 
     expect(blocks).toHaveLength(2)
-    expect(blocks[0].type).toBe('ordered-list')
-    expect(blocks[0].lines).toHaveLength(2)
-    expect(blocks[0].lines[0].attrs).toMatchObject({ listType: 'ORDERED', listSpacing: 8 })
+    const ordered = at(blocks, 0)
+    const unordered = at(blocks, 1)
+    expect(ordered.type).toBe('ordered-list')
+    expect(ordered.lines).toHaveLength(2)
+    expect(at(ordered.lines, 0).attrs).toMatchObject({ listType: 'ORDERED', listSpacing: 8 })
 
-    expect(blocks[1].type).toBe('unordered-list')
-    expect(blocks[1].lines).toHaveLength(2)
-    expect(blocks[1].lines[0].attrs).toMatchObject({ listType: 'UNORDERED', listSpacing: 6 })
+    expect(unordered.type).toBe('unordered-list')
+    expect(unordered.lines).toHaveLength(2)
+    expect(at(unordered.lines, 0).attrs).toMatchObject({ listType: 'UNORDERED', listSpacing: 6 })
   })
 })

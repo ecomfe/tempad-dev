@@ -33,6 +33,13 @@ jobs:
       - name: Install browser runtime
         run: pnpm --filter @tempad-dev/extension test:setup
 
+      - name: Check agent plugin
+        run: pnpm agent-plugin:dev && test -z "$(git status --porcelain --untracked-files=all -- agent-plugins/tempad-dev)"
+
+      - name: Verify published MCP version
+        if: github.event_name == 'push'
+        run: npm view "@tempad-dev/mcp@$(node -p "require('./packages/mcp-server/package.json').version")" version
+
       - name: Type check
         run: pnpm typecheck
 

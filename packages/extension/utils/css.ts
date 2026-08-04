@@ -151,7 +151,7 @@ export function replaceVarFunctions(
     let nameEnd: number | undefined
     let commaIndex = -1
 
-    while (j < input.length && /\s/.test(input[j])) j++
+    while (j < input.length && /\s/.test(input.charAt(j))) j++
     const nameStart = j
 
     for (; j < input.length; j++) {
@@ -175,7 +175,7 @@ export function replaceVarFunctions(
       nameEnd = j
     }
 
-    while (nameEnd > nameStart && /\s/.test(input[nameEnd - 1])) nameEnd--
+    while (nameEnd > nameStart && /\s/.test(input.charAt(nameEnd - 1))) nameEnd--
 
     const full = input.slice(start, j + 1)
     const name = input.slice(nameStart, nameEnd)
@@ -217,15 +217,20 @@ export function formatHexAlpha(
   const b = toHex(color.b)
 
   if (opacity >= 0.99) {
-    if (r[0] === r[1] && g[0] === g[1] && b[0] === b[1]) {
-      return `#${r[0]}${g[0]}${b[0]}`
+    if (r.charAt(0) === r.charAt(1) && g.charAt(0) === g.charAt(1) && b.charAt(0) === b.charAt(1)) {
+      return `#${r.charAt(0)}${g.charAt(0)}${b.charAt(0)}`
     }
     return `#${r}${g}${b}`
   }
 
   const a = toHex(opacity)
-  if (r[0] === r[1] && g[0] === g[1] && b[0] === b[1] && a[0] === a[1]) {
-    return `#${r[0]}${g[0]}${b[0]}${a[0]}`
+  if (
+    r.charAt(0) === r.charAt(1) &&
+    g.charAt(0) === g.charAt(1) &&
+    b.charAt(0) === b.charAt(1) &&
+    a.charAt(0) === a.charAt(1)
+  ) {
+    return `#${r.charAt(0)}${g.charAt(0)}${b.charAt(0)}${a.charAt(0)}`
   }
 
   return `#${r}${g}${b}${a}`
@@ -243,11 +248,12 @@ export function parseBackgroundShorthand(value: string) {
   if (urlMatch) result.image = urlMatch[0]
 
   const sizeMatch = value.match(BG_SIZE_RE)
-  if (sizeMatch) result.size = sizeMatch[1]
+  const sizeToken = sizeMatch?.[1]
+  if (sizeToken) result.size = sizeToken
 
   const repeatMatch = value.match(BG_REPEAT_RE)
-  if (repeatMatch) {
-    const [, repeatToken] = repeatMatch
+  const repeatToken = repeatMatch?.[1]
+  if (repeatToken) {
     result.repeat = repeatToken.trim()
   }
 
@@ -259,42 +265,38 @@ export function parseBackgroundShorthand(value: string) {
 
 function parseBoxValues(value: string): [string, string, string, string] {
   const parts = value.trim().split(WHITESPACE_RE)
-  const [t, r = t, b = t, l = r] = parts
+  const [t = '', r = t, b = t, l = r] = parts
   return [t, r, b, l]
 }
 
-function parseFlexShorthand(value: string) {
+function parseFlexShorthand(value: string): { grow: string; shrink: string; basis: string } | null {
   const parts = value.trim().split(WHITESPACE_RE)
+  const [grow, second, basis] = parts
+  if (!grow) return null
 
   if (parts.length === 1) {
-    const p = parts[0]
-    if (p === 'initial') {
+    if (grow === 'initial') {
       return { grow: '0', shrink: '1', basis: 'auto' }
     }
-    if (p === 'auto') {
+    if (grow === 'auto') {
       return { grow: '1', shrink: '1', basis: 'auto' }
     }
-    if (p === 'none') {
+    if (grow === 'none') {
       return { grow: '0', shrink: '0', basis: 'auto' }
     }
-    if (NUMBER_RE.test(p)) {
-      return { grow: p, shrink: '1', basis: '0%' }
+    if (NUMBER_RE.test(grow)) {
+      return { grow, shrink: '1', basis: '0%' }
     }
-    return { grow: '1', shrink: '1', basis: p }
+    return { grow: '1', shrink: '1', basis: grow }
   }
-  if (parts.length === 2) {
-    const [grow, second] = parts
+  if (parts.length === 2 && second) {
     if (NUMBER_RE.test(second)) {
       return { grow, shrink: second, basis: '0%' }
     }
     return { grow, shrink: '1', basis: second }
   }
 
-  return {
-    grow: parts[0],
-    shrink: parts[1],
-    basis: parts[2]
-  }
+  return second && basis ? { grow, shrink: second, basis } : null
 }
 
 function transformPxValue(value: string, transform: (value: number) => string) {
@@ -399,7 +401,9 @@ function parseBorderShorthand(normalized: string): {
   const matched = normalized.match(/^\s*(\S+)\s+(\S+)\s+(.+)\s*$/)
   if (matched) {
     const [, width, style, color] = matched
-    return { width, style, color: color.trim() }
+    if (width && style && color) {
+      return { width, style, color: color.trim() }
+    }
   }
 
   const parts = normalized.split(WHITESPACE_RE).filter(Boolean)
@@ -478,11 +482,9 @@ function getBorderWidth(style: Record<string, string>): string | null {
     return parsed.width ? normalizeStyleValue(parsed.width) : null
   })
 
-  if (sideWidths.every((width): width is string => typeof width === 'string' && width.length > 0)) {
-    const [first, ...rest] = sideWidths
-    if (rest.every((width) => width === first)) {
-      return first
-    }
+  const [first] = sideWidths
+  if (first && sideWidths.every((width) => width === first)) {
+    return first
   }
 
   return null
@@ -500,6 +502,7 @@ function negateLengthLiteral(value: string): string | null {
   }
 
   const [, amount, unit] = matched
+  if (!amount || !unit) return null
   if (amount.startsWith('-')) {
     return `${amount.slice(1)}${unit}`
   }
@@ -632,19 +635,21 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
 
   if (expanded['gap']) {
     const val = normalizeStyleValue(expanded['gap'])
-    const parts = val.trim().split(WHITESPACE_RE)
-    expanded['row-gap'] = parts[0]
-    expanded['column-gap'] = parts[1] || parts[0]
+    const [rowGap = '', columnGap = rowGap] = val.trim().split(WHITESPACE_RE)
+    expanded['row-gap'] = rowGap
+    expanded['column-gap'] = columnGap
     delete expanded['gap']
   }
 
   if (expanded['flex']) {
     const val = normalizeStyleValue(expanded['flex'])
-    const { grow, shrink, basis } = parseFlexShorthand(val)
-    expanded['flex-grow'] = grow
-    expanded['flex-shrink'] = shrink
-    expanded['flex-basis'] = basis
-    delete expanded['flex']
+    const parsed = parseFlexShorthand(val)
+    if (parsed) {
+      expanded['flex-grow'] = parsed.grow
+      expanded['flex-shrink'] = parsed.shrink
+      expanded['flex-basis'] = parsed.basis
+      delete expanded['flex']
+    }
   }
 
   if (expanded['background']) {
@@ -665,9 +670,10 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
   if (expanded['grid-row']) {
     const val = normalizeStyleValue(expanded['grid-row'])
     const parts = val.split(/\s*\/\s*/)
-    if (parts.length > 1) {
-      const start = parts[0].trim()
-      const end = parts[1].trim()
+    const [startPart, endPart] = parts
+    if (startPart !== undefined && endPart !== undefined) {
+      const start = startPart.trim()
+      const end = endPart.trim()
 
       if (start.startsWith('span')) {
         expanded['grid-row-span'] = start.replace(/^span\s*/, '')
@@ -687,9 +693,10 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
   if (expanded['grid-column']) {
     const val = normalizeStyleValue(expanded['grid-column'])
     const parts = val.split(/\s*\/\s*/)
-    if (parts.length > 1) {
-      const start = parts[0].trim()
-      const end = parts[1].trim()
+    const [startPart, endPart] = parts
+    if (startPart !== undefined && endPart !== undefined) {
+      const start = startPart.trim()
+      const end = endPart.trim()
 
       if (start.startsWith('span')) {
         expanded['grid-column-span'] = start.replace(/^span\s*/, '')
@@ -1020,23 +1027,28 @@ export function normalizeFigmaVarName(input: string): string {
   // Merge runs of single letters (except the first part)
   const merged: string[] = []
   for (let i = 0; i < stack.length;) {
+    const current = stack[i]
+    if (!current) {
+      i++
+      continue
+    }
     if (i === 0) {
-      merged.push(stack[0])
+      merged.push(current)
       i++
       continue
     }
 
-    if (RE_SINGLE.test(stack[i])) {
+    if (RE_SINGLE.test(current)) {
       let j = i + 1
-      while (j < stack.length && RE_SINGLE.test(stack[j])) {
+      while (j < stack.length && RE_SINGLE.test(stack[j] ?? '')) {
         j++
       }
 
       const run = stack.slice(i, j)
-      merged.push(run.length >= 2 ? run.join('') : stack[i])
+      merged.push(run.length >= 2 ? run.join('') : current)
       i = j
     } else {
-      merged.push(stack[i])
+      merged.push(current)
       i++
     }
   }
@@ -1178,8 +1190,11 @@ export function canonicalizeColor(value: string): string | null {
   }
   const rgb = value.match(/^rgba?\(([^)]+)\)$/)
   if (rgb) {
-    const parts = rgb[1].split(',').map((p) => p.trim())
+    const rawParts = rgb[1]
+    if (!rawParts) return null
+    const parts = rawParts.split(',').map((p) => p.trim())
     const [r, g, b, a = '1'] = parts
+    if (r === undefined || g === undefined || b === undefined) return null
     const toInt = (v: string) => {
       const n = Number(v)
       return Number.isFinite(n) ? Math.round(n) : null
@@ -1209,8 +1224,13 @@ export function canonicalizeColor(value: string): string | null {
 }
 
 function compressHex(hex: string): string {
-  if (hex.length === 7 && hex[1] === hex[2] && hex[3] === hex[4] && hex[5] === hex[6]) {
-    return `#${hex[1]}${hex[3]}${hex[5]}`
+  if (
+    hex.length === 7 &&
+    hex.charAt(1) === hex.charAt(2) &&
+    hex.charAt(3) === hex.charAt(4) &&
+    hex.charAt(5) === hex.charAt(6)
+  ) {
+    return `#${hex.charAt(1)}${hex.charAt(3)}${hex.charAt(5)}`
   }
   return hex
 }

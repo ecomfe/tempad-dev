@@ -23,7 +23,7 @@ type TokenModeValue = {
   aliasChain?: string[]
 }
 
-type VariableAlias = { id?: string } | { type?: string; id?: string }
+type VariableAlias = { id: string; type?: string }
 type VariableWithCollection = Variable & { variableCollectionId?: string; resolvedType?: string }
 type VariableCollectionInfo = {
   id?: string
@@ -135,8 +135,7 @@ async function resolveTokens({
           pluginCode
         )
 
-        for (let i = 0; i < candidateVariables.length; i++) {
-          const v = candidateVariables[i]
+        for (const [i, v] of candidateVariables.entries()) {
           const canonical = canonicals[i]
           if (canonical && remaining.has(canonical)) {
             seeds.push(v)
@@ -257,9 +256,11 @@ async function buildTokensFromVariables({
     const primaryModeKey = primaryModeId
       ? modeKeyForCollection(collection, primaryModeId)
       : undefined
+    const fallbackModeId = modeIds[0]
     const resolvedValue =
-      (primaryModeKey && valueMap[primaryModeKey]) ||
-      (modeIds.length ? valueMap[modeKeyForCollection(collection, modeIds[0])] : '')
+      (primaryModeKey ? valueMap[primaryModeKey] : undefined) ||
+      (fallbackModeId ? valueMap[modeKeyForCollection(collection, fallbackModeId)] : '') ||
+      ''
 
     const value: string | Record<string, string> = modeIds.length <= 1 ? resolvedValue : valueMap
 

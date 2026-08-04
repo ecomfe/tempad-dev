@@ -13,7 +13,7 @@ export function ensureDir(dirPath: string): void {
   mkdirSync(dirPath, { recursive: true, mode: 0o700 })
 }
 
-function getRecordProperty(record: unknown, key: string): unknown {
+export function getRecordProperty(record: unknown, key: string): unknown {
   if (!record || typeof record !== 'object') {
     return undefined
   }

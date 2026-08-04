@@ -137,11 +137,11 @@ export async function handleGetCode(
   const { now, stamp } = trace
   const traceInfo: TraceInfo = { now, stamp }
 
-  if (nodes.length !== 1) {
+  const [node] = nodes
+  if (nodes.length !== 1 || !node) {
     throw new Error('Select exactly one node or provide a single root node id.')
   }
 
-  const node = nodes[0]
   if (!node.visible) {
     throw new Error('The selected node is not visible.')
   }
@@ -286,12 +286,13 @@ export async function handleGetCode(
     const warnings = buildGetCodeWarnings(output.code, {
       cappedNodeIds: tree.stats.cappedNodeIds
     })
-    const result = buildCodeResult(output, codegen, allAssets, warnings)
+    const assets = filterAssetsReferencedInCode(allAssets, output.code)
+    const result = buildCodeResult(output, codegen, assets, warnings)
     assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
 
     logTrace(
       trace,
-      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${allAssets.length}${runtimeOptions.unbounded ? ' budget=unbounded' : ''}${formatCacheMetrics(cache)}`
+      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assets.length}${runtimeOptions.unbounded ? ' budget=unbounded' : ''}${formatCacheMetrics(cache)}`
     )
 
     return result
