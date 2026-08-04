@@ -94,6 +94,7 @@ Do not reuse UI codegen logic for MCP without a clear reason.
 | MCP `get_code` implementation or pipeline                             | `docs/extension/mcp-get-code-design.md`         |
 | MCP context and output strategy                                       | `docs/extension/mcp-context-strategy.md`        |
 | MCP canvas authoring                                                  | `docs/extension/mcp-canvas-authoring-design.md` |
+| MCP canvas SVG and image assets                                       | `docs/extension/mcp-canvas-assets-design.md`    |
 | Browser gateway, permissions, sessions, WebSocket, or asset transport | `docs/extension/mcp-browser-gateway-design.md`  |
 | Test selection and required checks                                    | `TESTING.md`                                    |
 | Test architecture or coverage scope                                   | `docs/testing/architecture.md`                  |

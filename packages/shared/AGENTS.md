@@ -23,6 +23,12 @@ Build:
 pnpm -C packages/shared build
 ```
 
+Watch during development (normally use root `pnpm dev` so MCP and extension code are watched too):
+
+```
+pnpm -C packages/shared dev
+```
+
 Typecheck:
 
 ```

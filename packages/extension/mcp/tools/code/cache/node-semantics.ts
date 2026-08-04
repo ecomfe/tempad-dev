@@ -1,3 +1,5 @@
+import { isVisibleMediaPaint } from '@/mcp/media'
+
 import type { GetCodeCacheContext, NodeSemanticSnapshot, PaintArrayState } from './types'
 
 export function getNodeSemanticsCached(
@@ -25,7 +27,7 @@ export function getNodeSemanticsCached(
       hasVisibleFill: hasVisiblePaints(fillsState),
       hasVisibleStroke: hasVisiblePaints(strokesState),
       hasRenderableStroke: hasRenderableStrokes(node),
-      hasImageFill: hasImageFill(fillsState),
+      hasMediaFill: hasMediaFill(fillsState),
       hasVisibleEffect: hasVisibleEffects(node)
     },
     layout: {
@@ -142,9 +144,9 @@ function hasVisiblePaints(state: PaintArrayState): boolean {
   return state.paints.some(isVisiblePaint)
 }
 
-function hasImageFill(state: PaintArrayState): boolean {
+function hasMediaFill(state: PaintArrayState): boolean {
   if (state.kind !== 'array') return false
-  return state.paints.some((paint) => paint.type === 'IMAGE' && paint.visible !== false)
+  return state.paints.some(isVisibleMediaPaint)
 }
 
 function hasRenderableStrokes(node: SceneNode): boolean {

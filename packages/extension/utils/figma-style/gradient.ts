@@ -178,7 +178,9 @@ export function resolveBackgroundFillFromPaints(
   const resolveSolid = options.resolveSolidPaint ?? resolveSolidPaint
 
   if (visible.length === 1) {
-    const { paint: single, index } = visible[0]
+    const [entry] = visible
+    if (!entry) return null
+    const { paint: single, index } = entry
     if (isSolidPaint(single)) {
       const color = resolveSolid(single, readers, index)
       return color ? { kind: 'color', value: color } : null

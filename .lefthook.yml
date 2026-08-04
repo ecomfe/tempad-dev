@@ -5,10 +5,6 @@ pre-commit:
       group:
         piped: true
         jobs:
-          - name: sync-agent-plugin
-            glob: '{skill/SKILL.md,agent-plugins/tempad-dev/skills/figma-design-to-code/SKILL.md}'
-            run: pnpm sync:agent-plugin
-            stage_fixed: true
           - name: lint
             glob: '*.{ts,js,mjs,cjs,mts,cts,vue}'
             run: pnpm exec eslint --fix {staged_files}

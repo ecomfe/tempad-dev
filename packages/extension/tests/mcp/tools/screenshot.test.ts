@@ -1,7 +1,11 @@
+import { MCP_MAX_ASSET_BYTES } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ensureAssetUploaded } from '@/mcp/assets'
 import { handleGetScreenshot } from '@/mcp/tools/screenshot'
+
+const SCREENSHOT_HASH = 'a'.repeat(64)
+const SCALED_SCREENSHOT_HASH = 'b'.repeat(64)
 
 vi.mock('@/mcp/assets', () => ({
   ensureAssetUploaded: vi.fn()
@@ -30,7 +34,7 @@ describe('mcp/tools/screenshot', () => {
     const bytes = new Uint8Array(1024)
     const node = createNode(new Map([[1, bytes]]))
     vi.mocked(ensureAssetUploaded).mockResolvedValue({
-      hash: 'abcd1234',
+      hash: SCREENSHOT_HASH,
       url: 'https://example.com/a.png',
       mimeType: 'image/png',
       size: 1024
@@ -54,7 +58,7 @@ describe('mcp/tools/screenshot', () => {
       scale: 1,
       bytes: 1024,
       asset: {
-        hash: 'abcd1234',
+        hash: SCREENSHOT_HASH,
         url: 'https://example.com/a.png',
         mimeType: 'image/png',
         size: 1024
@@ -63,7 +67,7 @@ describe('mcp/tools/screenshot', () => {
   })
 
   it('falls back to lower scales until payload fits', async () => {
-    const oversized = new Uint8Array(4 * 1024 * 1024)
+    const oversized = new Uint8Array(MCP_MAX_ASSET_BYTES + 1)
     const fitting = new Uint8Array(2048)
     const node = createNode(
       new Map([
@@ -72,7 +76,7 @@ describe('mcp/tools/screenshot', () => {
       ])
     )
     vi.mocked(ensureAssetUploaded).mockResolvedValue({
-      hash: 'efgh5678',
+      hash: SCALED_SCREENSHOT_HASH,
       url: 'https://example.com/b.png',
       mimeType: 'image/png',
       size: 2048
@@ -98,8 +102,8 @@ describe('mcp/tools/screenshot', () => {
     expect(result.bytes).toBe(2048)
   })
 
-  it('throws when all scale attempts exceed the transport limit', async () => {
-    const oversized = new Uint8Array(4 * 1024 * 1024)
+  it('throws when all scale attempts exceed the asset upload limit', async () => {
+    const oversized = new Uint8Array(MCP_MAX_ASSET_BYTES + 1)
     const node = createNode(
       new Map([
         [1, oversized],
@@ -110,7 +114,7 @@ describe('mcp/tools/screenshot', () => {
     )
 
     await expect(handleGetScreenshot(node)).rejects.toThrow(
-      'Screenshot payload too large to return. Reduce selection size or scale and retry.'
+      'Screenshot exceeds the asset upload limit at every supported scale. Reduce selection size and retry.'
     )
     expect(node.exportAsync).toHaveBeenCalledTimes(4)
     expect(ensureAssetUploaded).not.toHaveBeenCalled()

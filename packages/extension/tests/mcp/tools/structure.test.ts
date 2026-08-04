@@ -46,6 +46,53 @@ describe('mcp/tools/structure', () => {
     expect(buildSemanticTree).toHaveBeenCalledWith([], { depthLimit: 3 })
   })
 
+  it('returns stable authoring keys only for managed nodes', () => {
+    const child = {
+      id: 'child-1',
+      visible: true,
+      getSharedPluginData: vi.fn(() => 'managed/child')
+    }
+    const root = {
+      id: 'root-1',
+      children: [child],
+      getSharedPluginData: vi.fn(() => '')
+    }
+    vi.mocked(buildSemanticTree).mockReturnValue({ roots: [] } as unknown as ReturnType<
+      typeof buildSemanticTree
+    >)
+    vi.mocked(semanticTreeToOutline).mockReturnValue([
+      {
+        id: 'root-1',
+        name: 'Root',
+        type: 'FRAME',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        children: [
+          {
+            id: 'child-1',
+            name: 'Child',
+            type: 'TEXT',
+            x: 0,
+            y: 0,
+            width: 20,
+            height: 10
+          }
+        ]
+      }
+    ])
+
+    const result = handleGetStructure([root as unknown as SceneNode])
+
+    expect(result.roots[0]).toMatchObject({
+      id: 'root-1',
+      children: [{ id: 'child-1', authoringKey: 'managed/child' }]
+    })
+    expect(result.roots[0]).not.toHaveProperty('authoringKey')
+    expect(child.getSharedPluginData).toHaveBeenCalledWith('tempad_dev', 'canvas-key')
+  })
+
   it('compacts large outlines to keep structure output small', () => {
     vi.mocked(buildSemanticTree).mockReturnValue({ roots: [] } as unknown as ReturnType<
       typeof buildSemanticTree

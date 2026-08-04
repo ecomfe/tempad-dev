@@ -7,9 +7,7 @@
     "url": "git+https://github.com/ecomfe/tempad-dev.git",
     "directory": "packages/mcp-server"
   },
-  "bin": {
-    "mcp": "dist/cli.mjs"
-  },
+  "bin": "dist/cli.mjs",
   "files": [
     "README.md",
     "dist/**/*"
@@ -21,6 +19,7 @@
   },
   "scripts": {
     "build": "tsdown",
+    "dev": "tsdown --watch --no-clean",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest --config vitest.config.ts",
     "test:run": "vitest run --config vitest.config.ts",

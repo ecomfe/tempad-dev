@@ -87,7 +87,8 @@ async function renderNode(
       const mergedProps = Object.keys(props).length ? props : undefined
       return raw(svgEntry.raw, mergedProps as Record<string, string> | undefined)
     }
-    if (classNames.length) svgProps[classAttr] = props[classAttr]
+    const className = props[classAttr]
+    if (classNames.length && className) svgProps[classAttr] = className
     Object.entries(props).forEach(([key, val]) => {
       if (key === classAttr) return
       svgProps[key] = val

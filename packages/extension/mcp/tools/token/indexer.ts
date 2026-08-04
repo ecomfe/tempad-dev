@@ -87,9 +87,8 @@ export async function canonicalizeNames(
     results.push(...transformed)
   }
 
-  return results.map((expr, idx) => {
-    const fallback = refs[idx]
-    return parseCanonicalFromExpr(expr ?? fallback.code, fallback.name)
+  return refs.map((fallback, idx) => {
+    return parseCanonicalFromExpr(results[idx] ?? fallback.code, fallback.name)
   })
 }
 
@@ -123,8 +122,7 @@ export async function getTokenIndex(
       pluginCode
     )
 
-    for (let i = 0; i < variables.length; i++) {
-      const variable = variables[i]
+    for (const [i, variable] of variables.entries()) {
       const fallbackRaw = getVariableRawName(variable)
       const canonical = canonicals[i] ?? normalizeFigmaVarName(fallbackRaw)
 

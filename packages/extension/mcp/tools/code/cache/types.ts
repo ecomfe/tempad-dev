@@ -29,7 +29,7 @@ export type NodeSemanticSnapshot = {
     hasVisibleFill: boolean
     hasVisibleStroke: boolean
     hasRenderableStroke: boolean
-    hasImageFill: boolean
+    hasMediaFill: boolean
     hasVisibleEffect: boolean
   }
   layout: {

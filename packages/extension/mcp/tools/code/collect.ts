@@ -11,7 +11,7 @@ import { formatNodeStyleForMcp } from '@/utils/variable-output'
 import type { GetCodeCacheContext } from './cache'
 import type { CollectedData, NodeSnapshot, VisibleTree } from './model'
 
-import { hasImageFills, replaceImageUrlsWithAssets } from './assets'
+import { hasMediaFills, replaceMediaUrlsWithAssets } from './assets'
 import { getNodeSemanticsCached, getPaintsFromState } from './cache'
 import { getLayoutParent } from './layout-parent'
 import { preprocessStyles, stripInertShadows } from './styles'
@@ -54,8 +54,8 @@ export async function collectNodeData(
         processed = applyConstraintsPosition(processed, snapshot, tree, cache)
       }
 
-      if (hasImageFills(node, cache)) {
-        processed = await replaceImageUrlsWithAssets(processed, node, config, assetRegistry)
+      if (hasMediaFills(node, cache)) {
+        processed = await replaceMediaUrlsWithAssets(processed, node, config, assetRegistry)
       }
 
       stripInertShadows(processed, node, cache)

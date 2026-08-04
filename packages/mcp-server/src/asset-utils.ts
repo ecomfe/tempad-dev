@@ -1,11 +1,9 @@
-import { MCP_HASH_HEX_LENGTH } from '@tempad-dev/shared'
+import { MCP_HASH_HEX_LENGTH, MCP_LEGACY_HASH_HEX_LENGTH } from '@tempad-dev/shared'
 
 const HASH_FILENAME_PATTERN = new RegExp(
-  `^([a-f0-9]{${MCP_HASH_HEX_LENGTH}})(?:\\.[a-z0-9]+)?$`,
-  'i'
+  `^([a-f0-9]{${MCP_HASH_HEX_LENGTH}}|[a-f0-9]{${MCP_LEGACY_HASH_HEX_LENGTH}})(?:\\.[a-z0-9]+)?$`
 )
 
-const MIME_EXTENSION_OVERRIDES = new Map<string, string>([['image/jpeg', 'jpg']])
 const SAFE_IMAGE_EXTENSION_PATTERN = /^[a-z0-9-]+$/
 
 export function normalizeMimeType(mimeType: string | undefined): string {
@@ -17,8 +15,7 @@ export function normalizeMimeType(mimeType: string | undefined): string {
 export function getImageExtension(mimeType: string): string {
   const normalized = normalizeMimeType(mimeType)
   if (!normalized.startsWith('image/')) return ''
-  const override = MIME_EXTENSION_OVERRIDES.get(normalized)
-  if (override) return `.${override}`
+  if (normalized === 'image/jpeg') return '.jpg'
   const subtype = normalized.slice('image/'.length)
   if (!subtype) return ''
   const ext = subtype.split('+', 1)[0] || subtype

@@ -1,3 +1,4 @@
+import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket, WebSocketServer } from 'ws'
 
@@ -66,7 +67,11 @@ describe('extension socket lifecycle', () => {
 
     expect(onConnected).toHaveBeenCalledWith('ext-1')
     expect(received).toEqual([
-      { id: 'ext-1', type: 'registered' },
+      {
+        id: 'ext-1',
+        protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+        type: 'registered'
+      },
       {
         activeId: null,
         assetServerUrl: 'http://127.0.0.1:1234/capability',

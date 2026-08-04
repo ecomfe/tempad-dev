@@ -54,6 +54,20 @@ const AssetUploadPayloadSchema = z
   })
   .strict()
 
+const AssetDownloadPayloadSchema = z
+  .object({
+    hash: z.string().regex(MCP_HASH_PATTERN)
+  })
+  .strict()
+
+const AssetDownloadResultPayloadSchema = z
+  .object({
+    base64: z.string().min(1).max(MCP_MAX_ASSET_BASE64_LENGTH),
+    mimeType: z.string().min(1),
+    size: z.number().int().nonnegative().max(MCP_MAX_ASSET_BYTES)
+  })
+  .strict()
+
 const PageEnableMessageSchema = messageSchema(PageMessageBaseSchema, 'mcp.enable', {})
 
 const PageDisableMessageSchema = messageSchema(PageMessageBaseSchema, 'mcp.disable', {})
@@ -75,29 +89,30 @@ const PageAssetUploadMessageSchema = messageSchema(PageMessageBaseSchema, 'mcp.u
   requestId: z.string().min(1)
 })
 
+const PageAssetDownloadMessageSchema = messageSchema(PageMessageBaseSchema, 'mcp.downloadAsset', {
+  payload: AssetDownloadPayloadSchema,
+  requestId: z.string().min(1)
+})
+
 export const PageToBridgeMessageSchema = z
   .discriminatedUnion('type', [
     PageEnableMessageSchema,
     PageDisableMessageSchema,
     PageActivateSessionMessageSchema,
     PageToolResultMessageSchema,
-    PageAssetUploadMessageSchema
+    PageAssetUploadMessageSchema,
+    PageAssetDownloadMessageSchema
   ])
-  .refine(
-    (message) => {
-      return message.type !== 'mcp.toolResult' || hasToolResultOutcome(message)
-    },
-    {
-      message: TOOL_RESULT_OUTCOME_ERROR
-    }
-  )
+  .refine((message) => message.type !== 'mcp.toolResult' || hasToolResultOutcome(message), {
+    message: TOOL_RESULT_OUTCOME_ERROR
+  })
 
 const McpBrowserStateStatusSchema = z.enum(['disabled', 'connecting', 'connected', 'error'])
 
 export const McpBrowserStatePayloadSchema = z
   .object({
     activeSessionId: z.string().nullable(),
-    assetServerUrl: z.string().nullable().optional(),
+    assetServerUrl: z.string().nullable(),
     errorMessage: z.string().nullable(),
     sessionCount: z.number().nonnegative(),
     sessionId: z.string(),
@@ -129,11 +144,30 @@ const BridgeAssetUploadResultMessageSchema = messageSchema(
   }
 )
 
-export const BridgeToPageMessageSchema = z.discriminatedUnion('type', [
-  BridgeStateMessageSchema,
-  BridgeToolCallMessageSchema,
-  BridgeAssetUploadResultMessageSchema
-])
+const BridgeAssetDownloadResultMessageSchema = messageSchema(
+  MessageBaseSchema,
+  'mcp.assetDownloadResult',
+  {
+    error: TempadMcpErrorPayloadSchema.optional(),
+    payload: AssetDownloadResultPayloadSchema.optional(),
+    requestId: z.string().min(1),
+    sessionId: z.string().min(1)
+  }
+)
+
+export const BridgeToPageMessageSchema = z
+  .discriminatedUnion('type', [
+    BridgeStateMessageSchema,
+    BridgeToolCallMessageSchema,
+    BridgeAssetUploadResultMessageSchema,
+    BridgeAssetDownloadResultMessageSchema
+  ])
+  .refine(
+    (message) => message.type !== 'mcp.assetDownloadResult' || hasToolResultOutcome(message),
+    {
+      message: 'Asset download result requires exactly one of payload or error.'
+    }
+  )
 
 export type PageToBridgeMessage = z.infer<typeof PageToBridgeMessageSchema>
 export type McpBrowserStatePayload = z.infer<typeof McpBrowserStatePayloadSchema>

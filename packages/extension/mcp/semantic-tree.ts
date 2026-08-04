@@ -1,5 +1,6 @@
 import type { OutlineNode } from '@tempad-dev/shared'
 
+import { isVisibleMediaPaint } from '@/mcp/media'
 import { toPascalCase } from '@/utils/string'
 
 const NODE_CAP = 2048
@@ -88,6 +89,10 @@ const VECTOR_LIKE_TYPES = new Set<SceneNode['type']>([
   'POLYGON'
 ])
 
+export function isVectorLikeNode(node: SceneNode): boolean {
+  return VECTOR_LIKE_TYPES.has(node.type)
+}
+
 function getBounds(node: SceneNode): Bounds {
   return { x: node.x, y: node.y, width: node.width, height: node.height }
 }
@@ -110,44 +115,35 @@ function isWrapper(node: SceneNode): boolean {
   )
 }
 
-function resolveTag(node: SceneNode): string {
-  const { type } = node
-  if (type === 'TEXT') {
+export function resolveSemanticTag(node: SceneNode): string {
+  if (node.type === 'TEXT') {
     return node.characters.includes('\n') ? 'p' : 'span'
   }
 
-  if (VECTOR_LIKE_TYPES.has(type)) {
+  if (isVectorLikeNode(node)) {
     return 'svg'
   }
 
-  if (type === 'RECTANGLE' && Array.isArray(node.fills)) {
-    const { fills } = node
-    const hasImageFill = fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
-    if (hasImageFill) return 'img'
+  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
+    if (node.fills.some(isVisibleMediaPaint)) return 'img'
   }
 
   return 'div'
 }
 
-function classifyAsset(node: SceneNode): { isAsset: boolean; assetKind?: 'vector' | 'image' } {
-  const { type } = node
-  if (VECTOR_LIKE_TYPES.has(type)) {
-    return { isAsset: true, assetKind: 'vector' }
+export function classifySemanticAsset(node: SceneNode): 'vector' | 'image' | undefined {
+  if (isVectorLikeNode(node)) return 'vector'
+
+  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
+    if (node.fills.some(isVisibleMediaPaint)) return 'image'
   }
 
-  if (type === 'RECTANGLE' && Array.isArray(node.fills)) {
-    const { fills } = node
-    const hasImageFill = fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
-    if (hasImageFill) {
-      return { isAsset: true, assetKind: 'image' }
-    }
-  }
+  return undefined
+}
 
-  if (type === 'ELLIPSE' || type === 'POLYGON' || type === 'STAR') {
-    return { isAsset: true, assetKind: 'vector' }
-  }
-
-  return { isAsset: false }
+function describeAsset(node: SceneNode): Pick<SemanticNode, 'isAsset' | 'assetKind'> {
+  const assetKind = classifySemanticAsset(node)
+  return assetKind ? { isAsset: true, assetKind } : { isAsset: false }
 }
 
 function hasExplicitOverflow(node: SceneNode): boolean {
@@ -309,13 +305,13 @@ function visit(
       id: node.id,
       name: node.name,
       type: node.type,
-      tag: resolveTag(node),
+      tag: resolveSemanticTag(node),
       depth,
       index,
       layout: getLayoutKind(node),
       bounds: getBounds(node),
       isComponentInstance: node.type === 'INSTANCE',
-      ...classifyAsset(node),
+      ...describeAsset(node),
       autoLayout: extractAutoLayout(node),
       capped: true,
       children: []
@@ -343,13 +339,13 @@ function visit(
     id: node.id,
     name: node.name,
     type: node.type,
-    tag: resolveTag(node),
+    tag: resolveSemanticTag(node),
     depth,
     index,
     layout: getLayoutKind(node),
     bounds: getBounds(node),
     isComponentInstance: node.type === 'INSTANCE',
-    ...classifyAsset(node),
+    ...describeAsset(node),
     autoLayout: extractAutoLayout(node),
     children
   }
@@ -385,8 +381,8 @@ export function suggestDepthLimit(roots: SceneNode[]): number | undefined {
   }
 
   let cumulative = 0
-  for (let i = 0; i < counts.length; i += 1) {
-    cumulative += counts[i]
+  for (const [i, count] of counts.entries()) {
+    cumulative += count
     if (cumulative > NODE_TARGET) {
       return i
     }

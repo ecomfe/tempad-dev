@@ -1,344 +1,482 @@
 # MCP canvas authoring
 
-Status: implemented v1
+Status: implemented
 
 ## Decision
 
-TemPad Dev exposes two canvas-authoring tools:
-
-- `get_design_system` gives an external agent a compact set of real Figma components and variables.
-- `apply_canvas` accepts one declarative desired result and applies it to the canvas.
-
-The agent does not emit or call individual Figma Plugin API methods. It sends one result tree. The
-trusted extension compares that tree with the live Figma nodes, skips unchanged values, and performs
-the required Plugin API calls locally.
-
-This keeps the public surface small:
+TemPad Dev gives an agent one declarative authoring language and keeps Figma operations inside the
+extension:
 
 ```txt
-project context + get_design_system
-                  |
-                  v
-          one CanvasSpec result
-                  |
-                  v
-live canvas -> reconcile -> validated Figma API calls -> live canvas
+task intent
+  -> ground material visual invention in user / project / skill / research evidence
+  -> choose reuse or direct resources from the user's constraints
+  -> explicit design-system authoring branch only when requested
+  -> optional get_design_system() for permitted existing-resource reuse
+  -> optional exact skill reference for authored Figma-only resources
+  -> apply_canvas(desired result)
+  -> resolve refs + validate
+  -> diff latest canvas
+  -> one undoable native patch
+  -> structural verification
+  -> optional get_screenshot validation
 ```
 
-TemPad Dev is a connector and deterministic executor. It is not a second agent runtime, a planning
-service, or a canvas operating system.
+The model never emits Plugin API calls or an operation sequence. It describes the result once.
+TemPad Dev chooses the safe operations against the latest live document.
 
-## Goals
+User constraints govern routing. A request to avoid the file's design system skips
+`get_design_system`, `catalogId`, catalog tags, and catalog refs. Creating new local variables,
+styles, or components also does not require a catalog. The agent creates them only when the user
+requests that resource or explicitly asks to create or extend a design system. Detailed modeling
+guidance and executable resource shapes remain in progressive references rather than the core
+skill or server instructions.
 
-- Create one native, editable Figma frame tree in one MCP call.
-- Incrementally update an explicitly scoped existing subtree.
-- Reuse existing components and bind existing variables by stable Figma identity.
-- Preserve content the agent did not explicitly describe.
-- Make a repeated identical result a no-op.
-- Put safety, scope, and reversibility ahead of the absolute shortest API call sequence.
-- Give the agent stable node IDs for later refinements.
+The model-visible surface remains five tools:
 
-## Non-goals for v1
+- `get_code` reads visible design as implementation evidence;
+- `get_structure` reads hierarchy and geometry when composition is ambiguous and exposes stable
+  authoring keys for managed nodes when an update resumes without prior call context;
+- `get_design_system` conditionally reads deterministic pages of discoverable design-system facts;
+- `apply_canvas` is the only mutating tool;
+- `get_screenshot` returns bounded visual evidence only when pixels affect the next decision.
 
-- Deleting nodes.
-- Creating or publishing variables, components, component sets, styles, or libraries.
-- Detaching instances.
-- Arbitrary JavaScript or raw Plugin API execution.
-- File-wide synchronization or a persistent code-to-Figma database.
-- Library-wide crawling.
-- Native text, paint, effect, or grid styles.
-- Inferring a project's design language from screenshots alone.
-- Guaranteeing that a subjective design choice is good.
+## Why this is the right level
 
-## Public tool 1: `get_design_system`
+UI models have strong priors for HTML, common utility classes, and component props. They have much
+weaker priors for large Figma node graphs and long imperative Plugin API traces. The public language
+therefore uses:
 
-Input:
+- `div` for frame-like composition;
+- `span` for editable text;
+- returned custom tags for real Figma component instances;
+- a strict Tailwind utility subset for common layout and appearance, including native default
+  spacing, sizing, border, radius, opacity, rotation, and typography scales plus exact arbitrary
+  pixel/color values;
+- a typed `figma` extension for native state that HTML cannot represent honestly.
 
-```ts
-type GetDesignSystemInput = {
-  query?: string
-}
+This is one dialect, not parallel “simple” and “advanced” languages. The native extension is an
+escape hatch inside the same desired-result document. The agent pays for advanced detail only when
+the task needs it.
+
+Custom component tags are better than generic TemPad primitives because they are both familiar to
+models and specific to the active design system. A returned `<Button>` carries more useful prior
+meaning than `<TempadComponent>`, while `data-ref` still binds it to an exact Figma resource.
+
+The same principle does not make a private Figma resource schema familiar. `variableCollections`,
+local styles, component properties, and Slots have no broadly trained web syntax. Their mechanics
+therefore stay subsidiary to the design task: the always-visible schema exposes the stable outer
+shape and routing descriptions, while a matching skill reference supplies a complete executable
+example only when the result needs that capability. The extension remains the strict validator and
+executor.
+
+## Style grounding
+
+Canvas correctness does not supply design taste. When a task requires material visual invention,
+the agent follows this evidence ladder:
+
+1. explicit user direction;
+2. permitted project, product, and Figma evidence;
+3. a clearly applicable installed brand, domain, or visual-design skill;
+4. bounded current research into the product domain.
+
+An empty file and adjectives such as “clean” or “modern” are not style evidence. If the first three
+sources do not establish a direction, the progressive style reference asks the agent to inspect two
+or three current sources with different roles: production or official domain guidance for product
+behavior, a strong product or editorial reference for art direction, and authoritative
+accessibility or regulatory guidance when relevant. It retains only a short working brief and does
+not feed page dumps or a mood board into the main task.
+
+References are used as particulars from which the agent forms one domain-appropriate direction,
+not as a surface to copy. This distinction matters because examples can either support problem
+formulation or cause fixation depending on how they are presented. The workflow therefore assigns
+each source a question, extracts principles, rejects unsupported model-default patterns, and checks
+the rendered canvas against the brief once. It does not ask the model to produce a persuasive style
+rationale: recent generative-UI evaluation shows that stated rationale and implemented UI can
+diverge.
+
+This belongs in a skill reference rather than the MCP protocol. Style judgment is contextual,
+open-ended knowledge; adding a `style` field, a domain taxonomy, or another tool would turn weak
+labels into false precision while increasing always-on context. The protocol continues to carry
+only the desired native result.
+
+The decision is supported by several complementary findings:
+
+- Polanyi's account of tacit knowledge explains why practiced judgment cannot be reduced to an
+  exhaustive rule set; project evidence, examples, and skills carry subsidiary know-how while the
+  agent attends to the whole design ([The Tacit Dimension](https://press.uchicago.edu/ucp/books/book/chicago/T/bo6035368.html)).
+- A controlled creativity study found that generative assistance improved individual outputs but
+  made outputs more similar in aggregate. It studied writing rather than UI, so it is evidence of a
+  general homogenization risk, not a direct UI result
+  ([Doshi and Hauser, 2024](https://doi.org/10.1126/sciadv.adn5290)).
+- UI-specific work reports generic LLM-generated interfaces and better alignment when task and user
+  preferences guide inference ([AlignUI](https://arxiv.org/abs/2601.17614)). A recent generative-UI
+  benchmark likewise found visual/layout convergence and gaps between claimed and implemented
+  principles ([Design Theater](https://arxiv.org/abs/2607.22928)).
+- Controlled research on examples found that contextualized examples supported formulation better
+  than list presentation, which was associated with more fixation
+  ([Formulating or Fixating](https://arxiv.org/abs/2401.11022)).
+- Current Figma practice treats skills as a carrier for team judgment and web/project context as
+  inputs that shape the result, matching this separation between capability and point of view
+  ([Figma skills](https://www.figma.com/blog/got-skills-make-the-figma-agent-a-better-collaborator/),
+  [context and custom tools](https://www.figma.com/blog/agent-custom-tools-context-skills/)).
+
+This follows Polanyi's distinction between focal and subsidiary awareness: the agent attends to the
+design outcome while relying on compact protocol exemplars rather than reconstructing every native
+operation. It also addresses empirical tool-use failures: API-use research reports wrong arguments
+and hallucinated APIs, while multi-turn agent benchmarks show inconsistent rule following even for
+frontier models. Exact examples, conditional routing, strict validation, and a bounded visual check
+are therefore correctness mechanisms, not optional prompt decoration. See
+[The Tacit Dimension](https://press.uchicago.edu/ucp/books/book/chicago/T/bo6035368.html),
+[Gorilla](https://arxiv.org/abs/2305.15334),
+[$\tau$-bench](https://arxiv.org/abs/2406.12045),
+[Design2Code](https://arxiv.org/abs/2403.03163), and the
+[MCP tool contract](https://modelcontextprotocol.io/specification/draft/server/tools).
+
+## Design-system retrieval
+
+`get_design_system` is conditional evidence retrieval, not a canvas-authoring preflight. Use it
+only when the user permits existing-resource reuse and that evidence is relevant. When used, it
+starts without arguments and returns definitions only. It never inspects instances, applied
+resources, text ranges, or other canvas usage, and it does not perform text, semantic, or relevance
+retrieval.
+
+A normal call returns an immutable catalog with:
+
+- `catalogId`;
+- deterministic, name-ordered component families from pages that are already accessible;
+- local variables and variables directly referenced by returned definitions, with default-mode
+  values when materialized;
+- collections and mode refs;
+- Paint, Text, Effect, and Grid style signatures;
+- fill/effect shaders;
+- omitted counts, `nextCursor`, and factual read warnings when applicable.
+
+The normal result targets 16 KiB. Components, variables, and styles are interleaved first.
+Collections/modes and shaders follow as progressive native detail. When more resources remain, the
+caller continues the immutable catalog with its `catalogId` and returned cursor. Components are
+grouped by family and expose only:
+
+- short `ref`;
+- generated tag;
+- name, source page, variant count, and optional summary;
+- native size;
+- supported prop names, types, defaults, variant options, and a semantic label when the generated
+  attribute name would otherwise lose the native meaning;
+- explicit omission counts when compact props or options are truncated.
+
+Other resources use short refs such as:
+
+```txt
+c1       component
+v3       variable
+k2       collection
+m2_1     mode in collection k2
+s4       native style
+h1       shader
 ```
 
-The optional query ranks results for a concrete task such as `settings form`, `primary button`, or
-`数据表格`. Matching is Unicode-aware.
+The short refs are meaningful only with their `catalogId`. Catalogs are session-local, immutable,
+bounded to eight recent catalogs, and rejected if the connected Figma file changes.
 
-Output:
+When one resource could change the design decision, the caller sends its exact `ref` with the same
+`catalogId`. Every detail response remains bounded by the shared 64 KiB limit. Component detail is
+a normalized usage contract rather than a raw subtree dump: metadata, property definitions, valid
+variant tuples, default-variant Auto Layout, semantic text/instance/slot anatomy, and a
+`previewNodeId` for an optional screenshot. Descriptions, options, variants, traversal, and anatomy
+are explicitly bounded and report omissions.
 
-```ts
-type GetDesignSystemResult = {
-  page: {
-    id: string
-    name: string
-  }
-  components: Array<{
-    id: string
-    key: string
-    name: string
-    description?: string
-    componentSetName?: string
-    properties?: Record<
-      string,
-      {
-        type: 'BOOLEAN' | 'INSTANCE_SWAP' | 'SLOT' | 'TEXT' | 'VARIANT'
-        defaultValue: string | boolean
-        options?: string[]
-      }
-    >
-    remote: boolean
-  }>
-  variables: Array<{
-    id: string
-    key: string
-    name: string
-    collectionName: string
-    description?: string
-    remote: boolean
-    resolvedType: 'BOOLEAN' | 'COLOR' | 'FLOAT' | 'STRING'
-    scopes?: string[]
-  }>
-  warnings?: string[]
-}
-```
+This paging-plus-detail retrieval is deliberate. The extension reports facts without pretending to
+understand task relevance. The agent reads catalog pages only until it has enough evidence and retrieves
+exact detail only when that detail changes the intended result.
 
-### Discovery rules
+### Discovery boundary
 
-Components include:
+The extension discovers:
 
-- local components on the current page
-- main components of instances already used on the current page
+- local component definitions on pages whose contents Figma already makes accessible, through one
+  optimized type-filtered query per page;
+- local variables and variable definitions referenced by component defaults, styles, shaders,
+  aliases, and extended collections;
+- local native style definitions;
+- shaders returned by Figma's shader API.
 
-Variables include:
+Figma does not expose a direct local-component listing API or a loaded-page predicate. TemPad Dev
+therefore attempts the native type-indexed query without calling `PageNode.loadAsync()` and skips
+pages Figma refuses to expose. It never walks every node in JavaScript and never resolves canvas
+instances merely to infer definitions. Figma's public Plugin API also does not enumerate unused
+subscribed-library components or styles; the variables team-library API is not a general component
+catalog.
 
-- local variables in the current file
-- remote variables currently bound to nodes on the current page
+The Figma UI has its own lazy, server-backed Assets index, but its React state and internal stores
+are private, mount-dependent, and unstable. They are not a correctness dependency. In particular,
+TemPad Dev never calls the UI store's synchronous `getState()` path and never treats names from that
+index as sufficient design-system evidence.
 
-Remote collection names are resolved when Figma makes them available. Results are ranked
-deterministically and capped at 40 components and 60 variables.
+`get_design_system` never calls `loadAllPagesAsync()` or `PageNode.loadAsync()`. Page loading remains
+a write-only concern when `apply_canvas` explicitly targets a different page or must prove that an
+explicit node/variable deletion has no surviving cross-page consumer; ordinary current-page create
+and update paths do neither.
 
-The tool deliberately does not scan every subscribed library. A known library key can still be used
-by `apply_canvas`, which imports and validates it through Figma.
+This boundary is intentional. Component names are explicit knowledge, but their practical design
+meaning is carried by valid variants, exposed properties, layout, nested instances, slots, and
+visual form. The compact catalog preserves attention for the task; exact component detail exposes
+that actionable structure only after the agent has selected a plausible resource. Optional
+`get_screenshot(previewNodeId)` supplies the remaining visual evidence without placing an image in
+every discovery response.
 
-## Public tool 2: `apply_canvas`
+## Empty documents
 
-Input:
+The agent follows this order:
+
+1. obey the user's chosen resource strategy;
+2. use discoverable file resources only when reuse is allowed;
+3. use trusted user or project evidence;
+4. if a draft is acceptable, create a small coherent primitive result and disclose that it is not
+   design-system-backed;
+5. stop only when the user requires a named design system and no evidence for it exists.
+
+TemPad Dev does not generate a token library or component system merely to make a single screen.
+
+## Public `apply_canvas` contract
 
 ```ts
 type ApplyCanvasInput = {
   mode: 'create' | 'update'
   targetNodeId?: string
-  root: CanvasNodeSpec
+  catalogId?: string
+  markup: string | null
+  native?: Record<
+    string,
+    {
+      variables?: Record<string, { variableKey: string } | null>
+      variableModes?: Record<string, string | null>
+      styles?: {
+        fill?: { styleKey: string } | null
+        stroke?: { styleKey: string } | null
+        text?: { styleKey: string } | null
+        effect?: { styleKey: string } | null
+        grid?: { styleKey: string } | null
+      }
+      figma?: Record<string, unknown>
+    }
+  >
+  variableCollections?: Record<string, unknown>
+  styles?: Record<string, unknown>
+  assets?: Record<string, unknown>
+  removeKeys?: string[]
+  page?: Record<string, unknown>
 }
 ```
 
-`CanvasNodeSpec` is a recursive result description:
+The public schema stays below 8 KiB; expanding the complete native schema would be roughly 190 KiB
+before other instructions or task evidence. Common catalog variable/style refs live beside their
+element as `data-var-*` and `data-style-*` attributes. The `native` sidecar is reserved for local
+authored resources, mode overrides, and Figma-only state. Advanced fields expose object boundaries
+and precise routing descriptions at the MCP layer, while their exact shapes and complete examples
+load progressively from the canvas-authoring skill. The extension validates them against the
+complete private native schema after short refs are expanded.
 
-```ts
-type CanvasNodeSpec = {
-  key: string
-  nodeId?: string
-  type: 'FRAME' | 'TEXT' | 'RECTANGLE' | 'ELLIPSE' | 'LINE' | 'INSTANCE'
-  name?: string
-  visible?: boolean
-  position?: {
-    x?: number
-    y?: number
+The model can use exact `{ ref: "…" }` objects inside advanced state. The resolver expands them to
+the correct component, variable, collection, mode, style, or shader identity and rejects:
+
+- a ref without its catalog;
+- an unknown or expired ref;
+- a resource of the wrong kind;
+- a mode paired with the wrong collection;
+- a catalog from another Figma file;
+- a `{ ref }` object containing additional fields.
+
+## Canvas HTML
+
+Every element has one stable `data-key`. `data-node-id` may adopt an exact live node during update.
+
+```jsx
+<div
+  data-key="settings"
+  data-var-fill="v1"
+  data-var-gap="v4"
+  class="flex flex-col w-[960px] h-[720px] gap-[24px] p-[32px]"
+>
+  <span
+    data-key="settings/title"
+    data-style-text="s2"
+    class="w-fit h-fit text-[24px] font-semibold"
+  >
+    Team settings
+  </span>
+  <TextField data-key="settings/name" data-ref="c3" label="Team name" value="Platform" />
+  <Button data-key="settings/save" data-ref="c1" variant="Primary" label="Save" />
+</div>
+```
+
+```json
+{
+  "catalogId": "ds_…",
+  "native": {
+    "settings": {
+      "variableModes": { "k1": "m1_2" }
+    }
   }
-  size?: {
-    width?: number
-    height?: number
-    horizontal?: 'FILL' | 'FIXED' | 'HUG'
-    vertical?: 'FILL' | 'FIXED' | 'HUG'
-  }
-  layout?: {
-    mode?: 'HORIZONTAL' | 'NONE' | 'VERTICAL'
-    gap?: number
-    padding?:
-      | number
-      | {
-          top?: number
-          right?: number
-          bottom?: number
-          left?: number
-        }
-    primaryAlign?: 'CENTER' | 'MAX' | 'MIN' | 'SPACE_BETWEEN'
-    counterAlign?: 'BASELINE' | 'CENTER' | 'MAX' | 'MIN'
-  }
-  appearance?: {
-    fill?: `#${string}` | null
-    stroke?: `#${string}` | null
-    strokeWeight?: number
-    cornerRadius?: number
-    opacity?: number
-  }
-  text?: {
-    characters?: string
-    fontFamily?: string
-    fontStyle?: string
-    fontSize?: number
-    lineHeight?: number
-    letterSpacing?: number
-    alignHorizontal?: 'CENTER' | 'JUSTIFIED' | 'LEFT' | 'RIGHT'
-    alignVertical?: 'BOTTOM' | 'CENTER' | 'TOP'
-  }
-  component?: {
-    id?: string
-    key?: string
-  }
-  componentProperties?: Record<string, string | boolean>
-  variables?: CanvasVariableBindings
-  children?: CanvasNodeSpec[]
 }
 ```
 
-Design-system references require at least one real `id` or `key`. Component references are allowed
-only on `INSTANCE` nodes. Text properties are allowed only on `TEXT`; layout and children are
-allowed only on `FRAME`.
+Primitive tags are case-insensitive. Catalog tags preserve case, are childless, require their
+returned `data-ref`, accept only returned props, and default to the component's native width and
+height when sizing classes are omitted.
 
-`CanvasVariableBindings` maps `fill`, `stroke`, `width`, `height`, `gap`, four padding fields,
-`cornerRadius`, `opacity`, and the five font fields to the same `{ id?, key? }` reference shape.
+The parser fails closed on unknown elements, attributes, classes, or contradictory state. Native
+Tailwind v4 utilities are accepted when their default value has a deterministic Figma equivalent;
+arbitrary pixel/color values remain available off scale. It is not a browser and does not execute
+CSS, JavaScript, project theme extensions, Tailwind variants/plugins, or remote page content. The
+exact supported subset is documented in the canvas-authoring skill.
 
-### Create mode
+## Native extension
 
-- `root.type` must be `FRAME`.
-- Existing `nodeId` values and `targetNodeId` are rejected.
-- Figma creates one frame tree on the current page.
-- If neither root coordinate is supplied, the root is centered in the current viewport.
+`native[data-key].figma` covers persistent Figma Design state with no honest HTML equivalent,
+including:
 
-### Update mode
+- sections, intrinsic groups, and non-destructive Boolean operations;
+- rectangles, lines, ellipses, polygons, stars, vector paths, and vector networks;
+- native transforms, masks, corners, stroke geometry, blends, and aspect-ratio state;
+- Paint, Effect, and Grid stacks, media, Pattern paints, and shaders;
+- guides and wrapping/grid-specific layout state;
+- rich-text ranges, lists, decorations, and node/URL hyperlinks;
+- authored components, component sets, properties, sublayer references, Slots, and instance state;
+- explicit variable modes and same-result node/resource references.
 
-- `targetNodeId` is required.
-- The live target must have the same type as the desired root.
-- Existing nodes may be matched by explicit `nodeId` or stable `key`.
-- Every referenced existing node must be the target or its descendant.
-- Omitted fields remain unchanged.
-- Omitted children remain in Figma; v1 never deletes them.
-- Supplied children are reconciled in their supplied order. A node is moved only when its current
-  parent or index differs.
+Top-level `variableCollections`, `styles`, and `page` support the corresponding native resources and
+document state. These are advanced result fields, not additional mutation tools.
 
-Output:
+The private schema remains the source of truth for the exact shapes and contradictions. Full
+capability boundaries are recorded in
+[Canvas authoring coverage](./mcp-canvas-authoring-coverage.md).
 
-```ts
-type ApplyCanvasResult = {
-  rootNodeId: string
-  nodeIdsByKey: Record<string, string>
-  createdNodeIds: string[]
-  updatedNodeIds: string[]
-  mutationCount: number
-  warnings?: string[]
-}
-```
+Small inline or Hub-backed SVG documents and Hub-backed PNG/JPEG/GIF paints use the same
+declarative result. The extension resolves them before mutation, imports them through Figma's native
+SVG/image APIs, and keeps bytes out of model-visible payloads. Exact limits, ownership, and transport
+rules are recorded in [Canvas SVG and image assets](./mcp-canvas-assets-design.md).
 
-The agent should retain `nodeIdsByKey` and reuse those IDs during later updates.
+## Create and update semantics
 
-## Identity
+Create describes one complete new root. Without an explicit root `relativeTransform`, the extension
+centers the result near the current viewport and, when occupied, places it in the first available
+position to the right. It reads only top-level bounds from that destination page; the model does not
+maintain a coordinate ledger. An explicit transform remains authoritative when placement is part
+of the requested result.
 
-Names are presentation, not identity. The reconciler never finds a target by node name.
+Update is an incremental declarative patch scoped by `targetNodeId`:
 
-Identity uses:
+- supplied nodes and fields state desired values;
+- omitted live fields and children are preserved;
+- `removeKeys` explicitly asserts that owned descendants must be absent;
+- `markup: null` is the isolated assertion that the managed update root itself must be absent.
 
-1. `nodeId` when the agent supplies one
-2. otherwise the stable `key` stored as shared plugin data on generated or adopted nodes
+Omission never means deletion. Stable identity comes from `data-key`, not layer names. Repeating an
+identical desired result is a no-op. `get_structure` returns that key as `authoringKey` on
+TemPad-managed nodes, so a later session can recover identity from the live canvas instead of
+guessing or recreating it.
 
-Keys must be unique within a result. Node IDs must also be unique. If a key already identifies a
-different live node, the write fails instead of guessing.
+The extension reads the latest canvas immediately before reconciliation, so the diff is between the
+new desired result and current live state—not between two model messages. It minimizes mutations
+subject to stronger constraints:
 
-No identity database or background synchronization service is needed. Figma node IDs plus local
-shared plugin data are enough for the first version.
+1. correct native result;
+2. scope and ownership safety;
+3. dependency-safe ordering;
+4. one Undo boundary and rollback on failure;
+5. no-op convergence;
+6. only then, fewer Plugin API calls.
 
 ## Reconciliation
 
-The extension performs the diff against current live Figma state at call time:
+The local deterministic pipeline is:
 
-1. Parse and validate the complete input.
-2. Resolve the explicit update scope, if any.
-3. Index stable keys inside that scope.
-4. Walk the desired tree.
-5. Reuse a matching live node or create the requested native node.
-6. Move it only when its parent or supplied index differs.
-7. Compare each supplied property and write only changed values.
-8. Resolve components and variables by live ID or importable key.
-9. Return stable identities and the actual mutation count.
+1. parse and validate the public input;
+2. load the catalog and expand short/deep refs;
+3. validate the resolved input with the complete native schema;
+4. normalize component tags into native instance bindings;
+5. parse Canvas HTML and utility classes into a typed tree;
+6. preflight identity, scope, resources, fonts, media, dependencies, and deletion safety;
+7. create or adopt nodes and resources;
+8. apply layout, content, appearance, links, bindings, and supplied child order in dependency order;
+9. apply late references and stabilize deterministic geometry after derived-layout setters;
+10. remove explicitly absent owned state;
+11. verify the live result;
+12. commit one Undo boundary, or undo the whole attempt on failure.
 
-Component and variable lookups are cached within the call. Repeated identical input against
-unchanged live state produces zero mutations.
+The agent is not involved in any of these Plugin API steps.
 
-When both a literal field and a variable binding describe the same property, the variable binding
-wins. The executor does not repeatedly overwrite a binding with its literal and then bind it again.
+Resolved native-schema failures return a bounded list of field paths and messages rather than the
+complete validator diagnostic. This preserves enough evidence to repair advanced state without
+consuming the next turn with repetitive union errors.
 
-This is a safe-minimal patch, not a graph-search problem. The executor avoids unnecessary writes,
-but it will not trade away validation, scope checks, deterministic ordering, or rollback just to
-reduce the API-call count.
+## Verification
 
-## Safety floor
+Structural verification is mandatory. It checks:
 
-### Explicit write capability
+- native node type and stable key;
+- identity map;
+- parent and child order;
+- finite geometry;
+- declared sizing modes, fixed dimensions, and deterministic cross-axis fill geometry;
+- Text auto-resize mode and non-empty intrinsic geometry;
+- direct component identity;
+- direct variable, style, and mode links;
+- mask state.
 
-Canvas writes have a separate session-only toggle under Agent integration. It defaults to disabled
-and is reset when MCP access is disabled or unavailable. Read tools remain usable without enabling
-writes.
+`apply_canvas` returns counts and factual warnings:
 
-### Editor and schema checks
-
-- Authoring runs only in Figma Design files.
-- One result contains at most 100 nodes.
-- A result is at most 12 levels deep.
-- Colors use `#RRGGBB` or `#RRGGBBAA`.
-- Unknown input fields are rejected.
-- Only the six supported native node types can be authored.
-
-### Scope and concurrency
-
-- Update mode requires one explicit root.
-- Existing targets outside that root are rejected.
-- Only one `apply_canvas` call runs at a time in the active extension instance.
-- No delete operation exists.
-
-### References and fallback
-
-- Missing components, variables, fonts, or component properties fail the call.
-- The executor does not redraw a missing component from primitives.
-- It does not replace a failed variable binding with a literal.
-- Mixed-font text is preserved when font fields are omitted. Replacing mixed fonts requires both
-  `fontFamily` and `fontStyle`.
-
-### Undo and failure behavior
-
-The extension starts a Figma undo boundary before mutation and commits one boundary after success.
-If an operation fails, it triggers Figma Undo before returning the error. If automatic rollback is
-not available, the error says so and directs recovery through Figma Undo.
-
-The actual editor mutation remains the final edit-permission check: a read-only or otherwise
-unsupported Figma context rejects the write and returns a coded failure.
-
-## Agent workflow
-
-The intended flow is short:
-
-```txt
-1. Read the repository's design-system rules and nearby implementation.
-2. Call get_design_system with the concrete task.
-3. Prefer returned components and semantic variables.
-4. Send one apply_canvas result.
-5. Inspect the result with get_code or get_structure when useful.
-6. Send one updated result only if refinement is needed.
+```ts
+type Verification = {
+  status: 'passed' | 'warning'
+  nodesChecked: number
+  referencesChecked: number
+  warnings: Array<{
+    code: string
+    message: string
+    key?: string
+  }>
+}
 ```
 
-Repository evidence supplies high-level principles. Figma supplies native identities and live canvas
-state. TemPad Dev should not invent a design language when neither source provides one.
+`get_screenshot` is a separate read-only validation tool. It returns one bounded PNG as a linked MCP
+resource backed by the existing capability URL; structured content contains metadata, not binary
+bytes. A new composition or material visual change normally receives one final check. Routine text,
+token, prop, and hierarchy-only edits do not need it, and any correction remains bounded to one
+evidence-based pass.
 
-## Implementation map
+## Safety boundaries
 
-- Shared contracts and coded errors: `packages/shared/src/mcp/`
-- MCP tool definitions and agent instructions: `packages/mcp-server/src/`
-- Runtime routing: `packages/extension/mcp/runtime.ts`
-- Design-system discovery: `packages/extension/mcp/tools/design-system.ts`
-- Canvas reconciliation: `packages/extension/mcp/tools/canvas.ts`
-- Session write toggle: `packages/extension/components/sections/AgentIntegrationSection.vue`
+- MCP access is disabled by default. While it is enabled, authoring is available in editable Figma
+  Design files; Dev Mode and native read-only rejections fail with stable errors.
+- The Plugin API exposes the editor surface but not the current file permission. The extension
+  rejects non-Design editors before parsing and normalizes Figma's native read-only mutation
+  rejection to `CANVAS_READ_ONLY`; it does not infer permission from unstable DOM or private app
+  state.
+- Only one apply may run per connected session.
+- Update cannot write outside `targetNodeId` or its explicitly declared resource/page scope.
+- Remote resources are imported or referenced, never edited or deleted.
+- Managed resources are removed only after every live consumer is cleared or removed.
+- Manual or unkeyed content is never deleted by omission.
+- Components with surviving instances, dependency targets, masks, intrinsic-container operands, and
+  other live references block unsafe removal.
+- Unsupported, ambiguous, or internally contradictory inputs fail before mutation.
+- Any mutation-stage failure rolls back the entire apply.
+- MCP annotations mark all reads as read-only and `apply_canvas` as potentially destructive and
+  non-idempotent because its create mode can add another root. These hints improve client routing;
+  deterministic scope, ownership, validation, and rollback remain the actual safety boundary.
 
-Both authoring tools are in the extension's node-coverage scope, with behavioral tests for their
-contracts, reconciliation, and safety boundaries.
+## Deliberate non-goals
 
-Do not add more tools merely because the Plugin API has more methods. Extend this surface only when a
-real authoring task cannot be expressed safely. Prefer extending the same discovery-and-apply model
-unless the workflow is genuinely different.
+- no tool per Plugin API method;
+- no imperative patch language;
+- no agent-side diff planning;
+- no browser-grade HTML/CSS renderer;
+- no automatic design-system invention;
+- no routine screenshot loop;
+- no Dev Mode metadata, Dev Resources, exports, prototypes, FigJam, Slides, Widgets, Draw, Motion,
+  or Make authoring.
+
+The core product remains a small bridge: retrieve the right design facts, describe one result, and
+let deterministic local code make it native and safe.

@@ -55,8 +55,8 @@ export function resolveStylePaintChannel(
 
     const visible = style.paints.filter(isVisiblePaint)
     if (visible.length !== 1) return null
-    const paint = visible[0]
-    if (paint.type !== 'SOLID' || !paint.color) return null
+    const [paint] = visible
+    if (paint?.type !== 'SOLID') return null
 
     return resolveSolidPaintChannel(paint)
   } catch {

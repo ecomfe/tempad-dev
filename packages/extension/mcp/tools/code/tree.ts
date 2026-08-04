@@ -1,18 +1,9 @@
-import { suggestDepthLimit } from '@/mcp/semantic-tree'
+import { classifySemanticAsset, resolveSemanticTag, suggestDepthLimit } from '@/mcp/semantic-tree'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
 import { toPascalCase } from '@/utils/string'
 
 import type { AutoLayoutHint, DataHint, NodeSnapshot, TreeStats, VisibleTree } from './model'
-
-const VECTOR_LIKE_TYPES = new Set<SceneNode['type']>([
-  'VECTOR',
-  'BOOLEAN_OPERATION',
-  'STAR',
-  'LINE',
-  'ELLIPSE',
-  'POLYGON'
-])
 
 type ComponentPropertyValueLike =
   | { type: 'BOOLEAN'; value: boolean }
@@ -106,7 +97,7 @@ export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
     const snapshot: NodeSnapshot = {
       id: node.id,
       type: node.type,
-      tag: resolveTag(node),
+      tag: resolveSemanticTag(node),
       name: node.name ?? '',
       visible: node.visible,
       parentId,
@@ -118,7 +109,7 @@ export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
         height: toDecimalPlace(node.height)
       },
       renderBounds: getRenderBounds(node),
-      assetKind: classifyAsset(node),
+      assetKind: classifySemanticAsset(node),
       node
     }
 
@@ -165,30 +156,6 @@ export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
   })
 
   return { rootIds, nodes, order, stats }
-}
-
-function resolveTag(node: SceneNode): string {
-  if (node.type === 'TEXT') {
-    return node.characters.includes('\n') ? 'p' : 'span'
-  }
-  if (VECTOR_LIKE_TYPES.has(node.type)) return 'svg'
-  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
-    const hasImageFill = node.fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
-    if (hasImageFill) return 'img'
-  }
-  return 'div'
-}
-
-function classifyAsset(node: SceneNode): 'vector' | 'image' | undefined {
-  if (VECTOR_LIKE_TYPES.has(node.type)) return 'vector'
-  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
-    const hasImageFill = node.fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
-    if (hasImageFill) return 'image'
-  }
-  if (node.type === 'ELLIPSE' || node.type === 'POLYGON' || node.type === 'STAR') {
-    return 'vector'
-  }
-  return undefined
 }
 
 function getRenderBounds(

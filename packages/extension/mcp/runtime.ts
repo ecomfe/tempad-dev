@@ -39,25 +39,22 @@ function resolveSingleNode(nodeId?: string): SceneNode {
     return node
   }
 
-  if (selection.value.length !== 1 || !selection.value[0].visible) {
+  const [selectedNode] = selection.value
+  if (selection.value.length !== 1 || !selectedNode?.visible) {
     throw createCodedError(
       TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION,
       'Select exactly one visible node (or provide nodeId) to proceed.'
     )
   }
 
-  return selection.value[0]
-}
-
-async function handleGetCode(args?: GetCodeParametersInput): Promise<GetCodeResult> {
-  return dispatchGetCode(args)
+  return selectedNode
 }
 
 export type WindowGetCodeParametersInput = GetCodeParametersInput & {
   _unbounded?: boolean
 }
 
-async function dispatchGetCode(
+async function handleGetCode(
   args?: GetCodeParametersInput,
   runtimeOptions?: GetCodeRuntimeOptions
 ): Promise<GetCodeResult> {
@@ -68,7 +65,7 @@ async function dispatchGetCode(
 
 async function handleWindowGetCode(args?: WindowGetCodeParametersInput): Promise<GetCodeResult> {
   const { _unbounded, ...rest } = args ?? {}
-  return dispatchGetCode(rest, {
+  return handleGetCode(rest, {
     unbounded: _unbounded
   })
 }
@@ -121,10 +118,8 @@ export const WINDOW_TEMPAD_TOOL_HANDLERS: TempadWindowHandlers = {
   get_code: handleWindowGetCode
 }
 
-type McpToolName = keyof MCPHandlers
-
-function isMcpToolName(name: string): name is McpToolName {
-  return name in MCP_TOOL_HANDLERS
+function isMcpToolName(name: string): name is keyof MCPHandlers {
+  return Object.hasOwn(MCP_TOOL_HANDLERS, name)
 }
 
 export async function runMcpTool(name: string, args: unknown): Promise<unknown> {
