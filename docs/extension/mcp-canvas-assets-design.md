@@ -21,8 +21,10 @@ Do not add icon, image-search, SVG-operation, or upload tools to the model-visib
 put raster bytes or large SVG documents in MCP JSON. A capable host may upload generated binary
 assets to the Hub outside model context; the model sees only a content hash.
 
-Image generation may run in an isolated subagent when the host supports it. That is an optional
-agent-orchestration optimization, not part of the TemPad protocol.
+Image generation may run in an isolated subagent when the host supports it and the canvas-authoring
+delegation gate passes. The main agent fixes the art brief, remains the only Canvas writer, and owns
+placement and final judgment. This is an optional agent-orchestration optimization, not part of the
+TemPad protocol.
 
 This extends the existing declarative language rather than creating a second asset dialect.
 
@@ -258,7 +260,8 @@ The optional host upload capability should be advertised through client-private 
 metadata, not server instructions or tool results. It reuses a separate random loopback upload
 capability and the existing asset limits. It is not another model-callable tool.
 
-When the host supports subagents, delegate nontrivial image generation:
+When the host supports subagents and generation is separable, importable, verifiable, and worth its
+coordination cost, delegate nontrivial image generation:
 
 1. The main design agent sends a compact brief: layout role, subject, aspect ratio, palette/style,
    important empty space, and negative constraints.
@@ -270,10 +273,10 @@ When the host supports subagents, delegate nontrivial image generation:
 4. The main agent owns placement and crop, and verifies the final composition when pixels can
    change the decision. It does not need to inspect intermediate candidates.
 
-Do not delegate exact project assets, icon-library SVGs, existing Figma images, or direct URL
-imports. Do not spawn an image subagent when it cannot return an importable reference. Clients
-without subagents follow the same asset contract directly; TemPad neither exposes a subagent tool
-nor assumes one exists.
+Do not delegate exact project assets, icon-library SVGs, existing Figma images, direct URL imports,
+crop/placement decisions, or final acceptance. Do not spawn an image subagent when it cannot return
+an importable reference. Clients without subagents follow the same asset contract directly; TemPad
+neither exposes a subagent tool nor assumes one exists.
 
 Do not accept:
 
