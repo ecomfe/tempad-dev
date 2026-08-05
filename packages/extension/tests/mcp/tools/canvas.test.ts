@@ -1972,7 +1972,7 @@ function createSpec(text = 'Hello'): CanvasResolvedApplyParameters {
         data-key="card"
         class="flex flex-row w-[320px] h-[200px] gap-[8px] pt-[16px] items-center justify-between bg-[#336699] border-[2px] border-[#112233] rounded-[12px] opacity-[0.8]"
       >
-        <span data-key="card/title" class="grow w-fit h-fit font-semibold text-[18px] leading-[24px] tracking-[0.5px] text-center">${text}</span>
+        <span data-key="card/title" class="grow w-fit h-fit min-w-[1px] font-semibold text-[18px] leading-[24px] tracking-[0.5px] text-center">${text}</span>
         <div data-key="card/body" class="w-[80px] h-[40px] bg-[#ABCDEF] rounded-[8px]"></div>
         <div data-key="card/dot" class="w-[12px] h-[12px]"></div>
         <div data-key="card/divider" class="w-[120px] h-[1px] bg-[#000000]"></div>
@@ -2121,6 +2121,7 @@ describe('mcp/tools/canvas', () => {
     expect(title.layoutGrow).toBe(1)
     expect(title.layoutSizingHorizontal).toBe('FILL')
     expect(title.textAutoResize).toBe('HEIGHT')
+    expect(title.width).toBeGreaterThan(0)
     expect(fixture.loadFontAsync).toHaveBeenCalledWith({
       family: 'Inter',
       style: 'Semi Bold'
@@ -3105,6 +3106,57 @@ describe('mcp/tools/canvas', () => {
       value: 'Save'
     })
     expect((fixture.getNode(draft.rootNodeId) as FrameNode).children).toEqual([action])
+  })
+
+  it('creates multiple instances of a freshly authored keyed component', async () => {
+    const fixture = createFixture()
+    const authored = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="track" class="flex flex-row items-center w-[280px] h-[56px]"><span data-key="track/title" class="w-fit h-fit">Track</span></div>',
+      native: {
+        track: {
+          figma: {
+            component: { type: 'COMPONENT' }
+          }
+        }
+      }
+    })
+
+    const screen = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[320px] h-[200px] gap-[8px]"><div data-key="screen/track-1" class="w-[280px] h-[56px]"></div><div data-key="screen/track-2" class="w-[280px] h-[56px]"></div></div>',
+      native: {
+        'screen/track-1': { component: { id: authored.rootNodeId } },
+        'screen/track-2': { component: { id: authored.rootNodeId } }
+      }
+    })
+
+    const first = fixture.getNode(screen.nodeIdsByKey['screen/track-1']!) as InstanceNode
+    const second = fixture.getNode(screen.nodeIdsByKey['screen/track-2']!) as InstanceNode
+    expect(first.type).toBe('INSTANCE')
+    expect(second.type).toBe('INSTANCE')
+    expect(first.getSharedPluginData('tempad_dev', 'canvas-key')).toBe('screen/track-1')
+    expect(second.getSharedPluginData('tempad_dev', 'canvas-key')).toBe('screen/track-2')
+  })
+
+  it('makes newly added frames transparent when update markup omits a background', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"></div>'
+    })
+
+    const updated = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId,
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/overlay" class="w-[120px] h-[80px]"></div></div>'
+    })
+
+    const overlay = fixture.getNode(updated.nodeIdsByKey['screen/overlay']!) as FrameNode
+    expect(overlay.fills).toEqual([])
   })
 
   it.each([
@@ -6382,7 +6434,7 @@ describe('mcp/tools/canvas', () => {
           class="flex flex-row flex-wrap content-between box-border overflow-hidden w-[400px] h-[240px] gap-x-[8px] gap-y-[12px]"
         >
           <span data-key="one" class="grow w-fit h-fit min-w-[80px] max-w-[160px]">One</span>
-          <span data-key="two" class="grow w-fit h-fit">Two</span>
+          <span data-key="two" class="grow w-fit h-fit min-w-[1px]">Two</span>
           <div data-key="badge" class="absolute left-[16px] top-[20px] w-[24px] h-[24px]"></div>
         </div>
       `
@@ -6430,7 +6482,7 @@ describe('mcp/tools/canvas', () => {
           class="flex flex-row flex-nowrap content-normal box-content overflow-visible w-[400px] h-[240px] gap-[8px]"
         >
           <span data-key="one" class="grow w-fit h-fit min-w-none max-w-none">One</span>
-          <span data-key="two" class="grow w-fit h-fit">Two</span>
+          <span data-key="two" class="grow w-fit h-fit min-w-[1px]">Two</span>
           <div data-key="badge" class="static w-[24px] h-[24px]"></div>
         </div>
       `
@@ -8796,6 +8848,32 @@ describe('mcp/tools/canvas', () => {
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringContaining('Rollback did not preserve pre-existing node')
+    })
+  })
+
+  it('reports when rollback changes a referenced component', async () => {
+    const fixture = createFixture()
+    const component = fixture.createNode('COMPONENT') as unknown as ComponentNode
+    component.resize(280, 56)
+    vi.mocked(figma.util.solidPaint).mockImplementationOnce(() => {
+      throw new Error('paint unavailable')
+    })
+    fixture.triggerUndo.mockImplementationOnce(() => {
+      component.resize(100, 100)
+    })
+
+    await expect(
+      applyCanvasFromTool({
+        mode: 'create',
+        markup:
+          '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/track" class="w-[280px] h-[56px]"></div><div data-key="screen/surface" class="w-[280px] h-[56px] bg-[#112233]"></div></div>',
+        native: {
+          'screen/track': { component: { id: component.id } }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      message: expect.stringContaining('Rollback changed pre-existing node')
     })
   })
 
