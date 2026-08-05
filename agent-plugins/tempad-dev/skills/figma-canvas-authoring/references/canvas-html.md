@@ -22,6 +22,8 @@ This complete Direct call creates one primitive result without catalog state:
 ## Elements and identity
 
 - Use `div`, `span`, or a component tag returned by the active catalog.
+- Never use `<br>`: an unknown tag is resolved as a catalog component. Put a
+  literal line break inside `span` text and add `whitespace-pre-wrap` instead.
 - Give every element one unique `data-key` of letters, numbers, `. / : _ -`.
 - Use `data-node-id` only in update mode to adopt an exact live node.
 - Use no arbitrary attributes on `div` or `span`. Common catalog links use
