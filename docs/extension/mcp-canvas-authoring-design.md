@@ -86,17 +86,20 @@ The progressive skill uses a relevance-first, bounded divergence–convergence p
 2. **Apply an evidence ladder.** Explicit user direction comes first, then permitted project and
    Figma evidence, then an installed skill only when it contains applicable visual conventions,
    then targeted current research. A procedural skill is not automatically style evidence.
-3. **Gate every external source for relevance.** A source must share material context with the
+3. **Cover behavior and expression.** Net-new visual invention uses one deployed same/adjacent-domain
+   product to ground hierarchy, density, interaction, and trust, plus one meaningfully distinct
+   product, editorial, or expert reference to ground visual expression. Concrete project evidence
+   may fill either role; broad adjectives fill neither.
+4. **Gate every external source for relevance.** A source must share material context with the
    target or be authoritative for the exact decision at hand. Platform guidance has authority only
    within its platform; an adjacent visual reference must name the principle that transfers.
-4. **Create meaningful contrast when fixation risk matters.** If a material direction remains open
-   and the first candidate is merely familiar, salient, or weakly matched, inspect one or two
-   alternatives that differ on the decision dimension. Skip comparison when strong local evidence
-   already determines the choice or its consequence is minor. Diversity is useful in the input to
-   a consequential comparison, not as a quota for every decision or for the final artifact.
-5. **Commit coherently.** Select by contextual fit, coverage, constraints, and tradeoffs. Do not
+5. **Create meaningful contrast when fixation risk matters.** If a material direction remains open
+   and the first candidate is merely familiar, salient, or weakly matched, inspect an alternative
+   that differs on the decision dimension. Skip extra comparison when strong local evidence already
+   determines the choice or its consequence is minor.
+6. **Commit coherently.** Select by contextual fit, coverage, constraints, and tradeoffs. Do not
    average incompatible references or reward novelty for its own sake.
-6. **Verify the artifact rather than the story.** Every briefed commitment must be visible in the
+7. **Verify the artifact rather than the story.** Every briefed commitment must be visible in the
    final screenshot. If it is absent, the agent corrects the canvas or removes the claim.
 
 Reference roles remain separate: similar deployed products inform behavior and hierarchy;
@@ -414,10 +417,16 @@ The local deterministic pipeline is:
 
 A newly created instance may expose its main component's shared plugin data. Reconciliation treats
 that inherited data as definition state, not ownership of the new usage, and writes the instance's
-own requested canvas key. Existing nodes still reject ownership reassignment. After a failed
-mutation, rollback also verifies that the update root and exact pre-existing node/component
-references remain resolvable; losing one is reported as rollback failure instead of the original
-validation error.
+own requested canvas key based on explicit reconcile state rather than incidental bookkeeping.
+Existing nodes still reject ownership reassignment. Newly created Frames and Components normalize
+an omitted fill to transparent even during update; explicit paint, style, or variable state then
+overrides that baseline. Growing Text that transiently collapses to zero width is reflowed through a
+bounded fixed-to-fill transition before verification.
+
+After a failed mutation, rollback verifies that the update root remains resolvable. Exact
+pre-existing node/component references also retain their type, parent, canvas key, geometry, and
+direct child identities; losing or changing one is reported as rollback failure instead of masking
+partial corruption with the original validation error.
 
 The agent is not involved in any of these Plugin API steps.
 
@@ -434,7 +443,7 @@ Structural verification is mandatory. It checks:
 - parent and child order;
 - finite geometry;
 - declared sizing modes, fixed dimensions, and deterministic cross-axis fill geometry;
-- Text auto-resize mode and non-empty intrinsic geometry;
+- Text auto-resize mode, non-empty intrinsic geometry, and non-collapsed growing text;
 - direct component identity;
 - direct variable, style, and mode links;
 - mask state.
@@ -459,9 +468,11 @@ later Author call can consume an exact component created by the preceding result
 
 `get_screenshot` is a separate read-only validation tool. It returns one bounded PNG as a linked MCP
 resource backed by the existing capability URL; structured content contains metadata, not binary
-bytes. A new composition or material visual change normally receives one final check. Routine text,
-token, prop, and hierarchy-only edits do not need it, and any correction remains bounded to one
-evidence-based pass.
+bytes. The client must open that resource before claiming pixel-level verification. For new visual
+invention, the representative screen is checked before its language propagates, then the final board
+and materially distinct screens are checked for defects that a board overview may hide. Routine
+text, token, prop, and hierarchy-only edits do not need screenshots; corrections recheck only the
+affected composition.
 
 ## Safety boundaries
 

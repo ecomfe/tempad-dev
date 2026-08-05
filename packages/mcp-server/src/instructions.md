@@ -16,9 +16,13 @@ Rules:
 - A requested composition must use newly authored components as native instances. Author before or
   after the composition; exact returned ids need no refreshed catalog. Never leave equivalent
   primitive copies as final usages.
-- Before visually inventive canvas work, ground an unspecified style in permitted product evidence,
-  a clearly applicable installed skill, or the canvas skill's targeted research reference. Do not
-  silently fall back to generic model styling.
+- Before any net-new or materially redesigned product UI without a concrete visual reference or
+  representative existing screen/system evidence, use the canvas skill's style-grounding reference.
+  Product category and broad adjectives are not concrete visual evidence. Retain its compact brief
+  before the first write; do not silently fall back to generic model styling.
+- When custom focal imagery is appropriate and an image-generation capability is available, use it
+  before layout if the result can be imported. Never replace focal imagery with primitive mosaics or
+  a hand-built geometric SVG unless that is the explicit art direction.
 - Describe one native desired result through `apply_canvas`, and let TemPad Dev validate, diff, and
   execute it. Never emit Plugin API operations or arbitrary JavaScript.
 - Treat each create root as an independent composition. Do not inspect the canvas for free space or
@@ -28,8 +32,12 @@ Rules:
   removes managed content.
 - For design-to-code, use `get_code` as visual implementation evidence and `get_structure` only for
   hierarchy or geometry uncertainty. Follow returned warnings instead of guessing missing content.
-- Normally use one final `get_screenshot` after a new composition or material visual change. Skip
-  mechanical text, token, prop, or hierarchy-only edits; never turn verification into a loop.
+- For a new composition or material visual change, open the representative-screen screenshot before
+  propagation, then inspect the final board and every materially distinct screen where defects can
+  hide. A local `resource_link` is expected bounded output and must be opened before claiming visual
+  verification. Check overlap, clipping, collapsed text, unexpected fills, hierarchy, spacing,
+  content density, asset fidelity, and dead space. Recheck only affected compositions after a fix.
+  Skip screenshots for mechanical text, token, prop, or hierarchy-only edits.
 - Never output any `data-hint-*` attributes from tool outputs (hints only).
 - Download read-tool assets through returned `asset.url`; native media hashes are current-file
   identities, not preview bytes.

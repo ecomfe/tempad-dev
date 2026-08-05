@@ -240,6 +240,10 @@ Cache resolved bytes and imported Figma image hashes by content hash for the act
 
 ### Agent-generated images
 
+When custom focal imagery is appropriate and a generation capability is
+available, generation runs before layout instead of substituting hand-built
+Canvas geometry.
+
 Support three factual capability levels:
 
 1. The generator returns a public HTTPS PNG/JPEG/GIF URL: use `imageUrl`.
@@ -385,9 +389,10 @@ Extend mandatory structural verification:
 - all existing paint fields still match.
 
 Do not export SVG or image bytes into the result. Return only normal mutation counts and bounded
-warnings. A new composition or materially changed SVG, illustration, crop, or generated image
-normally gets one final screenshot after apply. Mechanical text, token, prop, and hierarchy updates
-skip it; one evidence-based correction is the default ceiling.
+warnings. A new visual direction checks its representative image-led composition before
+propagation, then checks the final board and any materially distinct crop or treatment where a
+defect could hide. Mechanical text, token, prop, and hierarchy updates skip screenshots;
+corrections recheck only affected compositions.
 
 ## Context budget
 
@@ -478,7 +483,7 @@ At minimum cover:
 - broker disconnect during download;
 - failure after asset import rolls back canvas changes;
 - apply output and error messages stay within the inline budget;
-- a material SVG/image composition requests at most one final screenshot and no binary response.
+- material SVG/image compositions use bounded linked screenshots rather than binary responses.
 
 Client integrations that provide generated-image upload separately verify that only the final hash
 or public URL—not bytes, candidate history, or generation transcripts—enters model-visible
