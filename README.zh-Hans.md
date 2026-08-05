@@ -231,10 +231,9 @@ Figma 也提供官方的 [remote 与 desktop MCP server](https://developers.figm
 
 1. 安装 Node.js 18.20.0 或更高版本并确保 `npx` 可用。在希望 agent 检查的 Figma 标签页中保持 TemPad Dev 打开，然后启用 **Preferences → Agent integration → MCP access**。出现提示时，请允许连接到 loopback 地址 `127.0.0.1`。启用 MCP access 且当前 Figma Design 文件可编辑时，即可进行画布创作。
 2. 点击 **Set up agents**，选择 Codex、Cursor、Claude Code、Gemini、VS Code、OpenCode 或 TRAE，然后按界面显示的路径配置。其它兼容客户端请选择 **Other**。这里的选择只会切换说明，不会绑定或激活 agent。
-3. 如果界面提供直接操作，请优先使用。所有备用命令和 config 都会完整显示，便于检查和复制。Codex 与 Claude Code 的 plugin 同时包含 MCP、`figma-design-to-code` 和 `figma-canvas-authoring` skill；其它路径会分别展示 MCP 与独立 skill 的配置步骤。
+3. 如果界面提供直接操作，请优先使用。所有备用命令和 config 都会完整显示，便于检查和复制。Codex 与 Claude Code 的 plugin 同时包含 MCP、`figma-design-to-code` 和 `figma-canvas-authoring` skill；其它路径会分别展示 MCP 与两个独立 skill 的配置步骤。
 
-在 `0.8.0` 预发布期间，直接配置 MCP 时使用 `@tempad-dev/mcp@alpha`；`latest` 仍指向
-`0.7.x`。Codex 与 Claude Code plugin 会固定到具体的预发布版本。
+所有基于 `npx` 的配置路径都使用 `@tempad-dev/mcp@latest`。
 
 使用期间请保持 TemPad Dev 打开并启用 MCP。如果连接了多个 Figma 文件，请点击目标文件面板中的 MCP 徽标；该文件会成为 agent 当前访问的上下文。
 

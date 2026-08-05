@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0
+
+- Released declarative Figma canvas authoring as a stable MCP workflow.
+- Expanded `apply_canvas` with typed native layout, text, paint/effect, variable/style, page,
+  component/variant, instance, Slot, SVG, and local raster-asset authoring.
+- Hardened create and incremental-update reconciliation with deterministic placement, editor-type
+  and native permission gates, compact validation errors, dependency-aware rollback, no-op
+  convergence, one Undo boundary, and post-write structural verification.
+- Added stable managed-identity recovery through `get_structure` and bounded visual validation
+  through the read-only `get_screenshot` tool.
+- Updated agent setup for the stable `@tempad-dev/mcp@latest` release and paired the new
+  `figma-canvas-authoring` skill with the existing `figma-design-to-code` skill.
+
 ## 0.8.0-alpha.0
 
 - Added `get_design_system`, which builds a compact immutable catalog with deterministic cursor

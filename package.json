@@ -4,7 +4,7 @@
   "description": "TemPad Dev monorepo",
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @tempad-dev/shared build && pnpm -r --parallel --filter @tempad-dev/shared --filter @tempad-dev/mcp --filter @tempad-dev/extension dev",
+    "dev": "pnpm --filter @tempad-dev/shared build && pnpm --filter @tempad-dev/mcp build && pnpm -r --parallel --filter @tempad-dev/shared --filter @tempad-dev/mcp --filter @tempad-dev/extension dev",
     "dev:site": "pnpm --filter @tempad-dev/site dev",
     "build": "pnpm -r build",
     "build:site": "pnpm --filter @tempad-dev/site build",

@@ -58,8 +58,8 @@ const terminalCardRef = ref<HTMLElement | null>(null)
 const terminalViewportRef = ref<HTMLElement | null>(null)
 function getAgentDescription(agent: AgentIntegrationConfig): string {
   return agent.actions.some(({ id }) => id === 'plugin-prompt')
-    ? 'The plugin adds MCP access and design skills.'
-    : 'Add MCP access and design skills.'
+    ? 'The plugin adds MCP access and both agent skills.'
+    : 'Add MCP access and both agent skills.'
 }
 
 const terminalEntries: readonly TerminalEntry[] = [
@@ -360,7 +360,11 @@ function getActionLabel(action: AgentIntegrationAction, agent: AgentIntegrationC
     case 'mcp-config':
       return 'MCP config'
     case 'skill-cli':
-      return 'Skill command'
+      return 'Skills command'
+    case 'skill-design-to-code-cli':
+      return 'Code skill command'
+    case 'skill-canvas-authoring-cli':
+      return 'Canvas skill command'
   }
 }
 
@@ -537,8 +541,8 @@ onBeforeUnmount(() => {
   <SectionShell
     id="connect"
     eyebrow="Connect"
-    title="Stream it to code"
-    copy="TemPad Dev pairs an agent skill with the MCP server so agents can keep the selected Figma node in view while they edit code."
+    title="Connect design and code"
+    copy="TemPad Dev pairs MCP access with two agent skills so agents can implement Figma designs in code and create or edit native Figma designs."
   >
     <div class="site-connect-layout">
       <div class="site-connect-setup">
@@ -548,7 +552,7 @@ onBeforeUnmount(() => {
             <p class="site-connect-row-label">Open TemPad Dev in Figma</p>
             <p class="site-connect-row-copy">
               Enable MCP access under Preferences → Agent integration, then keep the panel open in
-              the file you want the agent to inspect.
+              the file you want the agent to inspect or, when editable, update.
             </p>
           </div>
           <div class="site-connect-actions">

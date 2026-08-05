@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const originalBtoa = globalThis.btoa
+const SKILLS_SOURCE_URL =
+  'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev/skills'
+const DESIGN_TO_CODE_SKILL_URL = `${SKILLS_SOURCE_URL}/figma-design-to-code`
+const CANVAS_AUTHORING_SKILL_URL = `${SKILLS_SOURCE_URL}/figma-canvas-authoring`
+const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill figma-design-to-code figma-canvas-authoring`
 
 function restoreBtoa() {
   if (originalBtoa) {
@@ -28,7 +33,7 @@ describe('shared/mcp/install', () => {
     expect(mcp.MCP_SERVER).toEqual({
       name: 'tempad-dev',
       command: 'npx',
-      args: ['-y', '@tempad-dev/mcp@alpha']
+      args: ['-y', '@tempad-dev/mcp@latest']
     })
 
     expect(mcp.MCP_DEFAULT_CONFIG_SNIPPET).toContain('"tempad-dev"')
@@ -36,11 +41,11 @@ describe('shared/mcp/install', () => {
       mcpServers: {
         'tempad-dev': {
           command: 'npx',
-          args: ['-y', '@tempad-dev/mcp@alpha']
+          args: ['-y', '@tempad-dev/mcp@latest']
         }
       }
     })
-    expect(mcp.AGENT_SKILL_INSTALL_COMMAND).toContain('npx skills add')
+    expect(mcp.AGENT_SKILLS_INSTALL_COMMAND).toBe(SKILLS_INSTALL_COMMAND)
 
     const vscodeDeepLink = mcp.MCP_CLIENTS_BY_ID.vscode.deepLink
     expect(vscodeDeepLink).toMatch(/^vscode:mcp\/install\?/)
@@ -51,7 +56,7 @@ describe('shared/mcp/install', () => {
       name: 'tempad-dev',
       type: 'stdio',
       command: 'npx',
-      args: ['-y', '@tempad-dev/mcp@alpha']
+      args: ['-y', '@tempad-dev/mcp@latest']
     })
 
     const cursorDeepLink = mcp.MCP_CLIENTS_BY_ID.cursor.deepLink
@@ -67,7 +72,7 @@ describe('shared/mcp/install', () => {
     ).toString('utf8')
     expect(JSON.parse(decodedCursorConfigJson)).toEqual({
       command: 'npx',
-      args: ['-y', '@tempad-dev/mcp@alpha']
+      args: ['-y', '@tempad-dev/mcp@latest']
     })
 
     expect(mcp.MCP_CLIENTS_BY_ID.trae.deepLink).toContain('trae://trae.ai-ide/mcp-import')
@@ -81,17 +86,17 @@ describe('shared/mcp/install', () => {
     expect(mcp.MCP_CLIENTS_BY_ID.codex.copyText).toContain('codex mcp add "tempad-dev"')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyKind).toBe('config')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyText).toBe(
-      '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@alpha"]'
+      '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@latest"]'
     )
     expect(mcp.MCP_CLIENTS_BY_ID.gemini.copyText).toBe(
-      'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@alpha'
+      'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest'
     )
     expect(JSON.parse(mcp.MCP_CLIENTS_BY_ID.opencode.copyText ?? '')).toEqual({
       $schema: 'https://opencode.ai/config.json',
       mcp: {
         'tempad-dev': {
           type: 'local',
-          command: ['npx', '-y', '@tempad-dev/mcp@alpha']
+          command: ['npx', '-y', '@tempad-dev/mcp@latest']
         }
       }
     })
@@ -144,16 +149,16 @@ describe('shared/mcp/install', () => {
       'npx'
     )
     expect(cursor.actions.map(({ id }) => id)).toEqual(['mcp-deep-link', 'mcp-config', 'skill-cli'])
-    expect(cursor.actions[2]?.value).toBe(
-      'npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill --global --agent cursor'
-    )
 
     const gemini = mcp.AGENT_INTEGRATIONS_BY_ID.gemini
-    expect(gemini.actions.map(({ id }) => id)).toEqual(['mcp-cli', 'skill-cli'])
+    expect(gemini.actions.map(({ id }) => id)).toEqual([
+      'mcp-cli',
+      'skill-design-to-code-cli',
+      'skill-canvas-authoring-cli'
+    ])
     expect(gemini.actions[0]?.value).toContain('gemini mcp add --scope user')
-    expect(gemini.actions[1]?.value).toBe(
-      'gemini skills install https://github.com/ecomfe/tempad-dev/tree/main/skill'
-    )
+    expect(gemini.actions[1]?.value).toBe(`gemini skills install ${DESIGN_TO_CODE_SKILL_URL}`)
+    expect(gemini.actions[2]?.value).toBe(`gemini skills install ${CANVAS_AUTHORING_SKILL_URL}`)
 
     const vscode = mcp.AGENT_INTEGRATIONS_BY_ID.vscode
     expect(vscode.actions.map(({ id }) => id)).toEqual(['mcp-deep-link', 'mcp-cli', 'skill-cli'])
@@ -173,10 +178,17 @@ describe('shared/mcp/install', () => {
         fallbackValue: expect.stringMatching(/^trae-cn:\/\//)
       })
     )
-    expect(mcp.AGENT_INTEGRATIONS_BY_ID.trae.actions[1]?.id).toBe('skill-cli')
-    expect(mcp.AGENT_INTEGRATIONS_BY_ID.trae.actions[1]?.value).toContain(
-      '--global --agent trae --agent trae-cn'
-    )
+    for (const [id, agent] of [
+      ['cursor', 'cursor'],
+      ['vscode', 'github-copilot'],
+      ['opencode', 'opencode'],
+      ['trae', 'trae']
+    ] as const) {
+      const skillAction = mcp.AGENT_INTEGRATIONS_BY_ID[id].actions.find(
+        ({ id: actionId }) => actionId === 'skill-cli'
+      )
+      expect(skillAction?.value).toBe(`${SKILLS_INSTALL_COMMAND} --global --agent ${agent}`)
+    }
   })
 
   it('falls back to Buffer when btoa is unavailable', async () => {
