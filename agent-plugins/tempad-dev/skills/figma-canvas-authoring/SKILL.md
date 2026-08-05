@@ -65,7 +65,10 @@ it is available.
   imitate them with text glyphs or primitive mosaics.
 - Treat familiar visual sources as candidates, not defaults; familiarity does
   not settle a material product, platform, or expressive decision.
-- Design the smallest result that feels complete for the requested task.
+- Choose the smallest coherent scope, but preserve the realistic content
+  density, product-specific detail, and one signature visual idea needed for a
+  high-quality result. Do not leave unexplained dead zones merely to simplify
+  the composition.
 
 ## Workflow
 
@@ -79,16 +82,20 @@ it is available.
    ambiguous, do not ask, infer, create, rename, reorder, or target another
    page; write to the current page.
 2. **Ground the visual direction.** Follow the user first, then permitted file
-   or project evidence and a clearly applicable installed skill. If material
-   visual invention remains underspecified, read
-   [style-grounding.md](references/style-grounding.md). Skip this branch for
-   exact reproduction and mechanical edits. Frame the design problem before
-   naming an external source so the first familiar pattern does not silently
-   become the brief. For net-new, materially distinct screens with no evidenced
-   expressive direction, complete and screenshot the most representative screen
-   first; correct any direction-level mismatch before propagating its visual
-   language. When imagery carries content identity, brand expression, or primary
-   visual hierarchy, choose an importable source before layout and read
+   or project evidence and a clearly applicable installed skill. For every
+   net-new or materially redesigned product UI without a concrete visual
+   reference or representative existing screen/system evidence, read
+   [style-grounding.md](references/style-grounding.md) before any
+   `apply_canvas` call. Product category and broad adjectives such as “simple,”
+   “elegant,” or “premium” are not concrete visual evidence. Skip this branch
+   only for exact reproduction and mechanical edits. Frame the design problem
+   before naming an external source so the first familiar pattern does not
+   silently become the brief, and retain the compact working brief required by
+   the reference. For net-new, materially distinct screens, complete and
+   screenshot the most representative screen first; correct any direction-level
+   mismatch before propagating its visual language. When imagery carries content
+   identity, brand expression, or primary visual hierarchy, choose an importable
+   source before layout and read
    [Images and illustrations](references/visual-assets.md#images-and-illustrations).
 3. **Choose one resource path.**
    After explicit user direction, use this default: silence is not an opt-out,
@@ -135,12 +142,18 @@ it is available.
    calculates every new root's position from its rendered size and the
    destination page's existing top-level bounds.
 6. **Close the feedback loop.** Read structural verification. For a new
-   composition or material visual change, normally call `get_screenshot` once
-   on the result root; skip it for mechanical text, token, prop, or
-   hierarchy-only edits.
-   Correct a concrete mismatch and recheck only when the correction itself is
-   visually consequential. Stop when the requested result passes the evidence;
-   do not continue tuning without a new observation or requirement.
+   composition or material visual change, open the `get_screenshot` result for
+   the representative screen before propagation, then inspect the final board
+   and every materially distinct screen where a defect could hide. A returned
+   local `resource_link` is the expected bounded screenshot output: fetch or
+   open it before claiming visual verification. Skip screenshots only for
+   mechanical text, token, prop, or hierarchy-only edits. Check for clipping,
+   overlap, collapsed text, unexpected fills, weak hierarchy, inconsistent
+   spacing, implausible content density, low-fidelity assets, and unexplained
+   dead space. Diagnose a concrete defect with `get_structure` or `get_code`,
+   correct it, and re-screenshot the affected composition. Stop when the
+   requested result passes this evidence; do not continue tuning without a new
+   observation or requirement.
 
 Do not turn this workflow into repeated API-like mutations.
 

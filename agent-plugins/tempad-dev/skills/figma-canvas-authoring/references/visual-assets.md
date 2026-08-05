@@ -91,14 +91,18 @@ SVG only when it is the explicit art direction, never as a fallback for focal im
 Choose imagery in this order:
 
 1. a real project, user-supplied, or current-file asset;
-2. an appropriate licensed source;
-3. generated imagery when the agent can return a source accepted by the
-   connected Canvas tool.
+2. generated imagery when a distinctive focal asset fits the direction and the
+   agent can return a source accepted by the connected Canvas tool;
+3. an appropriate licensed source for documentary or real-world content, or
+   when no generated result can be imported.
 
-For generation, use an available image-generation skill or tool. Specify the
-subject, role in the layout, aspect ratio, palette, lighting or rendering style,
-and important empty space. Match the surrounding art direction instead of
-generating a generic stock image or drawing a plausible Canvas substitute.
+When image generation is available, the composition calls for custom focal art,
+and the user has not prohibited it, invoke the image-generation skill or tool
+before layout. Do not hand-build an SVG collage, gradient-and-circle substitute,
+or primitive illustration merely because it is faster. Specify the subject,
+role in the layout, aspect ratio, palette, lighting or rendering style, and
+important empty space. Match the surrounding art direction instead of
+generating generic stock imagery or drawing a plausible Canvas substitute.
 
 When subagents are available and generation needs real visual exploration,
 delegate it with that compact brief. Ask for one selected importable reference,
@@ -115,7 +119,9 @@ supported. The main agent still owns placement and crop and should judge the
 result in the final composition rather than loading intermediate candidates
 into its context.
 
-If no usable asset can be imported, never fake a photo or illustration with
-DOM-like frames, gradients, emoji, or primitive mosaics. Omit optional imagery.
-When the layout must reserve media space, use one honest neutral asset frame
-and report that it remains an unfilled slot.
+If a generated result is local-only and the connected host cannot upload it,
+use an importable licensed source when that still fits the brief. If no usable
+asset can be imported, never fake a photo or illustration with DOM-like frames,
+gradients, emoji, or primitive mosaics. Omit optional imagery. When the layout
+must reserve media space, use one honest neutral asset frame and report that it
+remains an unfilled slot.

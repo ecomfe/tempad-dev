@@ -1,9 +1,10 @@
 # Ground an unspecified visual direction
 
-Use this reference only for new or materially redesigned UI whose visual
-direction is not established by the user, permitted file or project evidence,
-or a clearly applicable installed skill. Skip exact reproduction and
-mechanical edits.
+Use this reference for every new or materially redesigned UI whose visual
+direction is not established by a concrete user reference, representative
+permitted file or project evidence, or a clearly applicable installed skill.
+Product category and broad adjectives do not establish a visual direction.
+Skip exact reproduction and mechanical edits.
 
 ## Frame the design problem
 
@@ -32,17 +33,30 @@ Use an installed skill as design evidence only when its actual conventions fit
 the task. When available evidence settles a choice, stop. If external research
 is prohibited and a material decision remains unresolved, ask the user.
 
-Research only an unresolved material decision:
+For net-new visual invention, use two current, meaningfully distinct references
+unless permitted evidence already fills one of these roles:
+
+1. a deployed product in the same or an adjacent domain and platform, to ground
+   hierarchy, density, interaction, and trust conventions;
+2. strong product, editorial, or expert case-study work whose principles fit
+   the intended expression, to ground typography, image treatment, shape
+   language, and signature detail.
+
+Add platform, accessibility, or regulatory guidance only when it materially
+constrains the result. A single external source is sufficient only when concrete
+user or project evidence already establishes the other role. Do not replace
+these roles with two near-identical inspiration-gallery images.
+
+Research only unresolved material decisions:
 
 1. Form one question from the audience, task, platform, character, and
    constraint.
-2. Start with the nearest credible source. Extract the applicable principle and
-   its authority boundary, not a surface to copy.
-3. Use one source when it answers the question clearly. Compare one
-   meaningfully different alternative only when the consequence is material and
-   the first candidate may owe its appeal to familiarity or weak contextual
-   fit.
-4. Commit as soon as the evidence supports one coherent direction.
+2. Start with the nearest credible source for each required role. Extract the
+   applicable principle and its authority boundary, not a surface to copy.
+3. Compare sources only on the material decision they are meant to inform;
+   reject a familiar pattern when contextual fit is weak.
+4. Commit as soon as both behavioral and expressive evidence support one
+   coherent direction.
 
 A deployed product in a similar domain and platform can inform hierarchy,
 density, interaction, and trust conventions. Platform, accessibility, and
@@ -59,10 +73,12 @@ Intent: audience; task; platform; character
 Evidence: source -> principle -> relevance
 Direction: one coherent visual hypothesis
 Commitments: type; color; density/shape; icons; imagery
+Quality bar: realistic density; signature detail; asset fidelity
 Avoid: domain risks; unsupported patterns; clichés
 ```
 
-Keep it under eight short lines. It is a working note, not a deliverable. Do not
+Keep it under ten short lines and write it before the first `apply_canvas` call.
+It is a working note, not a deliverable. Do not
 paste page dumps, long quotes, research transcripts, or a mood board into the
 design task.
 

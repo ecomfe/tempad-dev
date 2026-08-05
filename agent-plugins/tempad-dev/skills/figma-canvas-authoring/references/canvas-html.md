@@ -56,7 +56,11 @@ Use `w-full` only on the cross axis of `flex-col`, `h-full` only on the cross
 axis of `flex-row`, and `grow` on the main axis; use `grow-0` to clear growth.
 `grow` sets native main-axis growth but does not replace the required width and
 height classes: for example, use `grow w-fit h-[3px]` for a horizontal track in
-a row. Grid children may fill their cell. Direct width and height variables
+a row. Give growing text in a fixed or otherwise constrained row a meaningful
+positive `min-w-*`; `grow w-fit` text can otherwise collapse before Figma
+resolves the remaining width. Before applying a fixed Auto Layout frame, budget
+its main axis as padding + gaps + fixed/minimum child extents so content cannot
+overrun the container. Grid children may fill their cell. Direct width and height variables
 require fixed-size fallbacks. Fixed sizes are at least `0.01px`; native lines
 use `h-[0px]`.
 
@@ -122,6 +126,10 @@ Frame appearance:
 - `rounded`, `rounded-none|xs|sm|md|lg|xl|2xl|3xl|4xl|full`, or `rounded-[Npx]`;
   prefix the value with `t`, `r`, `b`, `l`, `tl`, `tr`, `br`, or `bl` for individual sides/corners
 - `overflow-hidden`, `overflow-visible`
+
+A newly created frame is transparent when its background is omitted, including
+when the frame is introduced by an update. Use an explicit background class
+when the frame should render a fill.
 
 Shared appearance:
 
