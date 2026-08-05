@@ -498,8 +498,18 @@ async function selectVariable(
     variable = figma.variables.createVariable(spec.name, collection, spec.type)
     mutations.count += 1
   }
-  if (variable.remote || variable.variableCollectionId !== collection.id) {
+  if (variable.remote) {
     specError(`Variable "${variable.id}" is not editable in collection "${collection.id}".`)
+  }
+  if (variable.variableCollectionId !== collection.id) {
+    if (keyed?.id === variable.id) {
+      specError(
+        `Variable authoring key "${key}" already identifies variable "${variable.id}" in collection "${variable.variableCollectionId}" and cannot be reused in collection "${collection.id}". Authoring keys are file-wide; use a namespaced key.`
+      )
+    }
+    specError(
+      `Variable "${variable.id}" belongs to collection "${variable.variableCollectionId}", not "${collection.id}".`
+    )
   }
   if (spec.type !== undefined && variable.resolvedType !== spec.type) {
     specError(`Variable "${variable.id}" is ${variable.resolvedType}, expected ${spec.type}.`)

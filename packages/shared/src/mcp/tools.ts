@@ -916,7 +916,7 @@ export const CanvasVariableModesSchema = z
 
 export type CanvasVariableModes = z.infer<typeof CanvasVariableModesSchema>
 
-const CanvasVariableScopeSchema = z.enum([
+const CANVAS_VARIABLE_SCOPES = [
   'ALL_SCOPES',
   'TEXT_CONTENT',
   'CORNER_RADIUS',
@@ -939,7 +939,11 @@ const CanvasVariableScopeSchema = z.enum([
   'LETTER_SPACING',
   'PARAGRAPH_SPACING',
   'PARAGRAPH_INDENT'
-])
+] as const
+
+const CanvasVariableScopeSchema = z.enum(CANVAS_VARIABLE_SCOPES, {
+  error: `Invalid variable scope. Use one of: ${CANVAS_VARIABLE_SCOPES.join(', ')}.`
+})
 
 const CanvasVariableValueSchema = z.union([
   z.boolean(),
@@ -2099,7 +2103,7 @@ export const ApplyCanvasParametersSchema = z
       .max(MAX_CANVAS_MARKUP_LENGTH)
       .nullable()
       .describe(
-        'Desired div/span tree. Use catalog component tags directly; bind catalog variables and styles with data-var-<field>="vN" and data-style-<field>="sN". Use "none" to unlink.'
+        `Desired div/span tree with at most ${MAX_CANVAS_NODES} elements and ${MAX_CANVAS_DEPTH} levels. Use catalog component tags directly; bind catalog variables and styles with data-var-<field>="vN" and data-style-<field>="sN". Use "none" to unlink.`
       ),
     native: z
       .record(CanvasStableKeySchema, CanvasNativeBindingSchema)
@@ -2108,13 +2112,13 @@ export const ApplyCanvasParametersSchema = z
     variableCollections: z
       .record(CanvasStableKeySchema, z.unknown())
       .describe(
-        'Optional local variable collections, modes, and variables. This does not require catalogId; load the skill variables/styles reference and follow its complete example.'
+        'Optional local variable collections, modes, and variables keyed by file-wide authoring identities. This does not require catalogId; load the skill variables reference for the exact scopes and complete example.'
       )
       .optional(),
     styles: z
       .record(CanvasStableKeySchema, z.unknown())
       .describe(
-        'Optional local Paint, Text, Effect, and Grid styles. This does not require catalogId; load the skill variables/styles reference and follow its complete example.'
+        'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide authoring identities. This does not require catalogId; load the skill styles reference and follow its complete example.'
       )
       .optional(),
     assets: z
@@ -2154,16 +2158,16 @@ export const CanvasResolvedApplyParametersSchema = z
       .max(MAX_CANVAS_MARKUP_LENGTH)
       .nullable()
       .describe(
-        'One well-formed div/span tree using the documented Tailwind utility subset. In update mode, null asserts that the managed target itself must be absent.'
+        `One well-formed div/span tree using the documented Tailwind utility subset, with at most ${MAX_CANVAS_NODES} elements and ${MAX_CANVAS_DEPTH} levels. In update mode, null asserts that the managed target itself must be absent.`
       ),
     bindings: CanvasBindingsSchema.describe(
       'Optional Figma component, variable, style, and typed native data keyed by markup data-key.'
     ).optional(),
     variableCollections: CanvasVariableCollectionsSchema.describe(
-      'Optional local base or extended variable collections, modes, variables, and inherited-value overrides keyed by stable authoring identities. Omission preserves resources; null explicitly removes an unconsumed managed resource.'
+      'Optional local base or extended variable collections, modes, variables, and inherited-value overrides keyed by file-wide stable authoring identities. Omission preserves resources; null explicitly removes an unconsumed managed resource.'
     ).optional(),
     styles: CanvasStylesSchema.describe(
-      'Optional local Paint, Text, Effect, and Grid styles keyed by stable authoring identities. Omission preserves resources; null explicitly removes an unconsumed managed style.'
+      'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide stable authoring identities. Omission preserves resources; null explicitly removes an unconsumed managed style.'
     ).optional(),
     assets: CanvasAssetsSchema.describe(
       'Call-scoped inline SVG or content-addressed SVG/image assets referenced by native desired state.'

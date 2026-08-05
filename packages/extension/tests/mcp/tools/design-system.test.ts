@@ -668,6 +668,27 @@ describe('mcp/tools/design-system', () => {
     expect(result.styles).toEqual([])
   })
 
+  it('tolerates missing optional descriptions from the Figma runtime', async () => {
+    const accent = variable('variable:accent', 'Accent', 'collection:colors')
+    const heading = style('style:heading', 'Heading', 'TEXT')
+    Reflect.deleteProperty(accent, 'description')
+    Reflect.deleteProperty(heading, 'description')
+    Reflect.deleteProperty(heading, 'descriptionMarkdown')
+    stubFigma({
+      localCollections: [collection('collection:colors', 'Colors', { variableIds: [accent.id] })],
+      localStyles: [heading],
+      localVariables: [accent]
+    })
+
+    const result = await handleGetDesignSystem({})
+
+    expect(result.variables[0]).toMatchObject({ name: 'Accent' })
+    expect(result.variables[0]).not.toHaveProperty('description')
+    expect(result.styles[0]).toMatchObject({ name: 'Heading' })
+    expect(result.styles[0]).not.toHaveProperty('description')
+    expect(result.styles[0]).not.toHaveProperty('descriptionMarkdown')
+  })
+
   it('rejects unknown or expired exact refs', async () => {
     stubFigma()
 

@@ -130,6 +130,7 @@ type ApplyState = {
   keyedNodes: Map<string, SupportedCanvasNode>
   mutations: MutationCounter
   nodeIdsByKey: Record<string, string>
+  protectedNodeIds: Set<string>
   removalNodeIds: Set<string>
   referencedNodeIds: Set<string>
   scope: SupportedCanvasNode | null
@@ -315,6 +316,7 @@ async function preflightNodeReference(
       `${context} "${reference.nodeId}" does not exist${sceneOnly ? ' or is not a scene node' : ''}.`
     )
   }
+  state.protectedNodeIds.add(node.id)
   state.referencedNodeIds.add(node.id)
 }
 
@@ -607,7 +609,9 @@ function setNodeKey(state: ApplyState, node: SupportedCanvasNode, key: string): 
   const currentKey = node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME)
   if (currentKey === key) return
   if (currentKey) {
-    specError(`Node "${node.id}" is already owned by canvas key "${currentKey}".`)
+    if (node.type !== 'INSTANCE' || !state.createdNodeIds.has(node.id)) {
+      specError(`Node "${node.id}" is already owned by canvas key "${currentKey}".`)
+    }
   }
   node.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME, key)
   markMutation(state, node)
@@ -741,8 +745,11 @@ async function resolveComponent(reference: CanvasDesignReference, state: ApplySt
     const node = figma.getNodeById(reference.id)
     if (node?.type === 'COMPONENT') {
       component = node
+      state.protectedNodeIds.add(node.id)
     } else if (node?.type === 'COMPONENT_SET') {
       component = node.defaultVariant
+      state.protectedNodeIds.add(node.id)
+      state.protectedNodeIds.add(component.id)
     }
   } else {
     component = await figma.importComponentByKeyAsync(reference.key)
@@ -4959,6 +4966,7 @@ function createApplyState(
     keyedNodes: target ? collectKeyedNodes(target) : new Map(),
     mutations: { count: 0 },
     nodeIdsByKey: Object.create(null) as Record<string, string>,
+    protectedNodeIds: new Set(target ? [target.id] : []),
     removalNodeIds: new Set(),
     referencedNodeIds: new Set(),
     scope: target,
@@ -5211,10 +5219,19 @@ async function verifyAppliedNode(
   return { nodes, references }
 }
 
-async function withUndoBoundary<T>(
-  apply: () => Promise<T>,
-  mutations: MutationCounter
-): Promise<T> {
+async function verifyRollbackProtectedNodes(state: ApplyState): Promise<void> {
+  const protectedIds = [...state.protectedNodeIds].filter((id) => !state.createdNodeIds.has(id))
+  const nodes = await Promise.all(protectedIds.map((id) => figma.getNodeByIdAsync(id)))
+  const missing = protectedIds.filter((_, index) => !nodes[index])
+  if (!missing.length) return
+  const shown = missing.slice(0, 8)
+  const suffix = missing.length > shown.length ? ` and ${missing.length - shown.length} more` : ''
+  throw new Error(
+    `Rollback did not preserve pre-existing node${missing.length === 1 ? '' : 's'} ${shown.join(', ')}${suffix}`
+  )
+}
+
+async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): Promise<T> {
   try {
     figma.commitUndo()
     const result = await apply()
@@ -5222,14 +5239,16 @@ async function withUndoBoundary<T>(
     return result
   } catch (error) {
     const readOnly = canvasReadOnlyError(error)
-    if (mutations.count > 0) {
+    if (state.mutations.count > 0) {
       try {
         figma.triggerUndo()
-      } catch {
+        await verifyRollbackProtectedNodes(state)
+      } catch (rollbackError) {
         if (readOnly) throw readOnly
+        const detail = rollbackError instanceof Error ? ` ${rollbackError.message}.` : ''
         throw createCodedError(
           TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
-          'Canvas apply failed and automatic rollback was not available. Use Figma Undo.'
+          `Canvas apply failed and automatic rollback was not available.${detail} Use Figma Undo.`
         )
       }
     }
@@ -5256,7 +5275,7 @@ async function removeUpdateRoot(targetNodeId: string): Promise<ApplyCanvasResult
       specError(`Verification failed: root "${candidate.id}" is still present.`)
     }
     return removedRootResult(candidate.id, removedNodeIds, state)
-  }, state.mutations)
+  }, state)
 }
 
 export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCanvasResult> {
@@ -5322,5 +5341,5 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
       mutationCount: state.mutations.count,
       verification: passedVerification(verified.nodes, verified.references)
     }
-  }, state.mutations)
+  }, state)
 }

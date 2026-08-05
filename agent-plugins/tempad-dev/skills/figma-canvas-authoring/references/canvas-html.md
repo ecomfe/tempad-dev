@@ -2,6 +2,9 @@
 
 Canvas HTML is a desired-result language, not browser rendering.
 
+One `apply_canvas` markup tree may contain at most 100 elements and 12 levels.
+Split larger work only at meaningful screen or section boundaries.
+
 Prefer the supported native Tailwind utilities below; use arbitrary pixel values only when the
 result is off the default scale. Numeric spacing utilities use Tailwind v4's default `4px` unit. Theme
 extensions, variants, plugins, and utilities whose meaning depends on a browser viewport or CSS
@@ -50,9 +53,12 @@ Every primitive needs one width and one height. Supported fixed forms are:
   `min-h-none`, or `max-h-none` to clear a bound in an update
 
 Use `w-full` only on the cross axis of `flex-col`, `h-full` only on the cross
-axis of `flex-row`, and `grow` on the main axis; use `grow-0` to clear growth. Grid children may
-fill their cell. Direct width and height variables require fixed-size fallbacks. Fixed
-sizes are at least `0.01px`; native lines use `h-[0px]`.
+axis of `flex-row`, and `grow` on the main axis; use `grow-0` to clear growth.
+`grow` sets native main-axis growth but does not replace the required width and
+height classes: for example, use `grow w-fit h-[3px]` for a horizontal track in
+a row. Grid children may fill their cell. Direct width and height variables
+require fixed-size fallbacks. Fixed sizes are at least `0.01px`; native lines
+use `h-[0px]`.
 
 ## Layout
 
@@ -78,6 +84,27 @@ For grid use:
 
 Give a manual grid child both row and column starts or neither. Auto-flow
 children use source order and cannot set explicit starts.
+
+For a coherent board larger than one call, first create one fixed parent:
+
+```json
+{
+  "mode": "create",
+  "markup": "<div data-key=\"app/board\" class=\"flex flex-row items-start w-[1280px] h-[844px] gap-[24px]\"></div>"
+}
+```
+
+Then append one bounded screen per update. Keep the root key and classes stable,
+target its returned ID, and omit previously added children so they remain in
+place:
+
+```json
+{
+  "mode": "update",
+  "targetNodeId": "FrameID:app-board",
+  "markup": "<div data-key=\"app/board\" class=\"flex flex-row items-start w-[1280px] h-[844px] gap-[24px]\"><div data-key=\"app/home\" class=\"flex flex-col w-[390px] h-full\"></div></div>"
+}
+```
 
 For deliberate freeform composition, omit layout classes and give every described child
 `absolute left-N top-N`, the negative forms `-left-N -top-N`, exact `[Npx]` values, or a native

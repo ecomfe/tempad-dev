@@ -84,6 +84,10 @@ the brief at the level of typography roles without naming one.
 
 ## Images and illustrations
 
+When an image carries content identity, brand expression, or primary visual
+hierarchy, choose an importable source before layout. Use a hand-built geometric
+SVG only when it is the explicit art direction, never as a fallback for focal imagery.
+
 Choose imagery in this order:
 
 1. a real project, user-supplied, or current-file asset;
@@ -91,9 +95,10 @@ Choose imagery in this order:
 3. generated imagery when the agent can return a source accepted by the
    connected Canvas tool.
 
-For generation, specify the subject, role in the layout, aspect ratio, palette,
-lighting or rendering style, and important empty space. Match the surrounding
-art direction instead of generating a generic stock image.
+For generation, use an available image-generation skill or tool. Specify the
+subject, role in the layout, aspect ratio, palette, lighting or rendering style,
+and important empty space. Match the surrounding art direction instead of
+generating a generic stock image or drawing a plausible Canvas substitute.
 
 When subagents are available and generation needs real visual exploration,
 delegate it with that compact brief. Ask for one selected importable reference,

@@ -5,7 +5,7 @@ import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 import { createCodedError } from '../../errors'
 
 const MAX_SCHEMA_ISSUES = 4
-const MAX_SCHEMA_MESSAGE_CHARS = 240
+const MAX_SCHEMA_MESSAGE_CHARS = 384
 const READ_ONLY_ERROR_PATTERN = /\b(?:read|view)[ -]?only\b|\bedit access\b|\bpermission to edit\b/i
 
 export function formatSchemaError(error: ZodError): string {
