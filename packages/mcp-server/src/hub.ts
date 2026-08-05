@@ -30,7 +30,7 @@ import type { AssetRecord } from './types'
 import { createAssetHttpServer } from './asset-http-server'
 import { createAssetStore } from './asset-store'
 import { buildAssetFilename } from './asset-utils'
-import { getMcpServerConfig } from './config'
+import { getMcpServerConfig, getToolTimeoutMs } from './config'
 import { ExtensionRegistry } from './extension-registry'
 import { attachExtensionSocket } from './extension-socket'
 import MCP_INSTRUCTIONS from './instructions.md?raw'
@@ -59,15 +59,15 @@ import { startExtensionWebSocketServer } from './websocket-server'
 
 const SHUTDOWN_TIMEOUT = 2000
 const SOCKET_PROBE_TIMEOUT_MS = 300
+const serverConfig = getMcpServerConfig()
 const {
   wsPortCandidates,
-  toolTimeoutMs,
   maxPayloadBytes,
   maxExtensionConnections,
   autoActivateGraceMs,
   assetTtlMs,
   allowedExtensionOrigins
-} = getMcpServerConfig()
+} = serverConfig
 const extensionOriginPolicy = createExtensionOriginPolicy(allowedExtensionOrigins)
 
 log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Hub starting...')
@@ -362,7 +362,7 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
         )
       }
 
-      const registration = register<Result>(activeExt.id, toolTimeoutMs)
+      const registration = register<Result>(activeExt.id, getToolTimeoutMs(tool.name, serverConfig))
       requestId = registration.requestId
 
       const message: ToolCallMessage = {

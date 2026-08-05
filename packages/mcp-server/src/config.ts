@@ -1,4 +1,5 @@
 import {
+  type ToolName,
   MCP_AUTO_ACTIVATE_GRACE_MS,
   MCP_ASSET_TTL_MS,
   MCP_MAX_ASSET_BYTES,
@@ -7,6 +8,7 @@ import {
   MCP_MAX_EXTENSION_CONNECTIONS,
   MCP_MAX_PAYLOAD_BYTES,
   MCP_PORT_CANDIDATES,
+  MCP_GET_CODE_TIMEOUT_MS,
   MCP_TOOL_TIMEOUT_MS
 } from '@tempad-dev/shared'
 
@@ -22,6 +24,11 @@ function parseNonNegativeInt(envValue: string | undefined, fallback: number): nu
 
 function resolveToolTimeoutMs(): number {
   return parsePositiveInt(process.env.TEMPAD_MCP_TOOL_TIMEOUT, MCP_TOOL_TIMEOUT_MS)
+}
+
+function resolveGetCodeTimeoutMs(): number {
+  const fallback = parsePositiveInt(process.env.TEMPAD_MCP_TOOL_TIMEOUT, MCP_GET_CODE_TIMEOUT_MS)
+  return parsePositiveInt(process.env.TEMPAD_MCP_GET_CODE_TIMEOUT, fallback)
 }
 
 function resolveAutoActivateGraceMs(): number {
@@ -58,6 +65,7 @@ export function getMcpServerConfig() {
   return {
     wsPortCandidates: [...MCP_PORT_CANDIDATES],
     toolTimeoutMs: resolveToolTimeoutMs(),
+    getCodeTimeoutMs: resolveGetCodeTimeoutMs(),
     maxPayloadBytes: MCP_MAX_PAYLOAD_BYTES,
     autoActivateGraceMs: resolveAutoActivateGraceMs(),
     maxAssetSizeBytes: resolveMaxAssetSizeBytes(),
@@ -67,4 +75,11 @@ export function getMcpServerConfig() {
     allowedExtensionOrigins: process.env.TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS,
     assetTtlMs: resolveAssetTtlMs()
   }
+}
+
+export function getToolTimeoutMs(
+  tool: ToolName,
+  config: Pick<ReturnType<typeof getMcpServerConfig>, 'getCodeTimeoutMs' | 'toolTimeoutMs'>
+): number {
+  return tool === 'get_code' ? config.getCodeTimeoutMs : config.toolTimeoutMs
 }
