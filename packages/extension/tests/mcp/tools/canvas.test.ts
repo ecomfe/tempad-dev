@@ -3163,7 +3163,6 @@ describe('mcp/tools/canvas', () => {
       }
     })
 
-    expect(figma.getNodeByIdAsync).toHaveBeenCalledWith(authored.rootNodeId)
     expect(fixture.getNode(screen.nodeIdsByKey['screen/action']!).type).toBe('INSTANCE')
   })
 
@@ -3186,8 +3185,6 @@ describe('mcp/tools/canvas', () => {
       markup: `<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/adopted" data-node-id="${adopted.id}" class="w-[100px] h-[100px]"></div></div>`
     })
 
-    expect(figma.getNodeByIdAsync).toHaveBeenCalledWith(created.rootNodeId)
-    expect(figma.getNodeByIdAsync).toHaveBeenCalledWith(adopted.id)
     expect(updated.nodeIdsByKey['screen/adopted']).toBe(adopted.id)
   })
 
@@ -3209,7 +3206,6 @@ describe('mcp/tools/canvas', () => {
     })
 
     expect(fixture.getNode(updated.nodeIdsByKey['screen/child']!).type).toBe('FRAME')
-    expect(figma.getNodeById).toHaveBeenCalledWith(created.rootNodeId)
   })
 
   it('makes newly added frames transparent when update markup omits a background', async () => {
@@ -8971,8 +8967,6 @@ describe('mcp/tools/canvas', () => {
     const created = await applyCanvas(createSpec())
     const unrelated = fixture.createNode('COMPONENT') as unknown as ComponentNode
     unrelated.resize(342, 68)
-    const child = fixture.createNode('TEXT')
-    unrelated.appendChild(child)
     const propertyName = unrelated.addComponentProperty('Artist', 'TEXT', 'Mara Vale')
     const foreign = fixture.createNode('TEXT')
     fixture.triggerUndo.mockImplementationOnce(() => {

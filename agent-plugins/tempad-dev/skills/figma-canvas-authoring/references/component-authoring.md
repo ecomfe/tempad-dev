@@ -31,14 +31,11 @@ degraded component delivery; if a reusable component is itself required, that
 part of the task remains incomplete. Remove an unused temporary definition only
 when safe and not itself a requested deliverable.
 
-If a previously verified definition later reads back as an empty default-sized
-component or has lost its properties, treat that as transaction corruption,
-not an ordinary component edit. Do not rebuild it in place and assume create
-placement will run again: update deliberately preserves the root's current
-page coordinates. Re-read the exact definition and its intended usage, then
-stop and report the corruption. After a fixed MCP session is available, remove
-and recreate the unused managed definition when safe; if instances exist, do
-not remove or substitute it.
+If a verified definition becomes empty, default-sized, or loses properties,
+treat it as transaction corruption. Do not rebuild it in place: update preserves
+its page coordinates. Re-read the definition and intended usage, then stop and
+report it. With a fixed MCP session, remove and recreate it only when unused;
+never remove or substitute a definition with instances.
 
 Copy a complete recipe and change its design facts. Do not infer TemPad's
 component shape from raw Plugin API calls.

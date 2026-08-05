@@ -16,17 +16,13 @@ Rules:
 - A requested composition must use newly authored components as native instances. Author before or
   after the composition; exact returned ids need no refreshed catalog. Never leave equivalent
   primitive copies as final usages.
-- Before any net-new or materially redesigned product UI without a concrete visual reference or
-  representative existing screen/system evidence, use the canvas skill's style-grounding reference.
-  Product category and broad adjectives are not concrete visual evidence. Retain its compact brief
-  before the first write; do not silently fall back to generic model styling.
-- When custom focal imagery is appropriate and an image-generation capability is available, use it
-  before layout if the result can be imported. Never replace focal imagery with primitive mosaics or
-  a hand-built geometric SVG unless that is the explicit art direction.
-- When subagents are available, delegate only stable, isolated, verifiable research, asset,
-  inventory, or visual-QA work whose benefit exceeds coordination cost. Give each worker a bounded
-  brief and output contract. The primary agent remains the manager, synthesizer, and only Canvas
-  writer; keep coupled design judgment and evolving shared state local.
+- Before net-new or materially redesigned UI without a concrete reference or representative
+  screen/system, use the canvas skill's style-grounding reference and retain its compact brief.
+  Category and broad adjectives are not visual evidence.
+- Choose an importable focal-image route before layout. Generate when the brief requires custom art;
+  never imitate focal imagery with primitive mosaics or unintended geometric SVG.
+- Delegate only isolated, verifiable research, asset, inventory, or visual-QA work that is worth the
+  handoff. The primary agent retains design judgment and remains the only Canvas writer.
 - Describe one native desired result through `apply_canvas`, and let TemPad Dev validate, diff, and
   execute it. Never emit Plugin API operations or arbitrary JavaScript.
 - Treat each create root as an independent composition. Do not inspect the canvas for free space or
@@ -37,11 +33,10 @@ Rules:
 - For design-to-code, use `get_code` as visual implementation evidence and `get_structure` only for
   hierarchy or geometry uncertainty. Follow returned warnings instead of guessing missing content.
 - For a new composition or material visual change, open the representative-screen screenshot before
-  propagation, then inspect the final board and every materially distinct screen where defects can
-  hide. A local `resource_link` is expected bounded output and must be opened before claiming visual
-  verification. Check overlap, clipping, collapsed text, unexpected fills, hierarchy, spacing,
-  content density, asset fidelity, and dead space. Recheck only affected compositions after a fix.
-  Skip screenshots for mechanical text, token, prop, or hierarchy-only edits.
+  propagation, then inspect the final board and materially distinct screens. Open a local
+  `resource_link` before claiming visual verification; check overlap, clipping, collapsed text,
+  fills, hierarchy, spacing, density, assets, and dead space. Recheck only affected compositions;
+  skip mechanical text, token, prop, or hierarchy-only edits.
 - Never output any `data-hint-*` attributes from tool outputs (hints only).
 - Download read-tool assets through returned `asset.url`; native media hashes are current-file
   identities, not preview bytes.

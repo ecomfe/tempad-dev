@@ -1,5 +1,4 @@
 import {
-  type ToolName,
   MCP_AUTO_ACTIVATE_GRACE_MS,
   MCP_ASSET_TTL_MS,
   MCP_MAX_ASSET_BYTES,
@@ -75,11 +74,4 @@ export function getMcpServerConfig() {
     allowedExtensionOrigins: process.env.TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS,
     assetTtlMs: resolveAssetTtlMs()
   }
-}
-
-export function getToolTimeoutMs(
-  tool: ToolName,
-  config: Pick<ReturnType<typeof getMcpServerConfig>, 'getCodeTimeoutMs' | 'toolTimeoutMs'>
-): number {
-  return tool === 'get_code' ? config.getCodeTimeoutMs : config.toolTimeoutMs
 }

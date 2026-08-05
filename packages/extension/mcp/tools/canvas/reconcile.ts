@@ -140,8 +140,7 @@ type ApplyState = {
   keyedNodes: Map<string, SupportedCanvasNode>
   mutations: MutationCounter
   nodeIdsByKey: Record<string, string>
-  protectedNodeIds: Set<string>
-  protectedNodeSnapshots: Map<string, ProtectedNodeSnapshot>
+  protectedNodes: Map<string, ProtectedNodeSnapshot | null>
   removalNodeIds: Set<string>
   referencedNodeIds: Set<string>
   scope: SupportedCanvasNode | null
@@ -188,13 +187,11 @@ function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
 }
 
 function protectNode(state: ApplyState, node: BaseNode, snapshot = true): void {
-  state.protectedNodeIds.add(node.id)
-  if (
-    snapshot &&
-    !state.createdNodeIds.has(node.id) &&
-    !state.protectedNodeSnapshots.has(node.id)
-  ) {
-    state.protectedNodeSnapshots.set(node.id, snapshotProtectedNode(node))
+  if (state.createdNodeIds.has(node.id)) return
+  if (snapshot && !state.protectedNodes.get(node.id)) {
+    state.protectedNodes.set(node.id, snapshotProtectedNode(node))
+  } else if (!state.protectedNodes.has(node.id)) {
+    state.protectedNodes.set(node.id, null)
   }
 }
 
@@ -345,24 +342,19 @@ function* walkNodes(roots: Iterable<BaseNode>, descendIntoInstances = true): Gen
   }
 }
 
+function* walkSpecs(spec: CanvasNodeSpec): Generator<CanvasNodeSpec> {
+  yield spec
+  for (const child of spec.children ?? []) yield* walkSpecs(child)
+}
+
 function collectDesiredKeys(root: CanvasNodeSpec): Set<string> {
-  const keys = new Set<string>()
-  const stack = [root]
-  while (stack.length) {
-    const spec = stack.pop()!
-    keys.add(spec.key)
-    stack.push(...(spec.children ?? []))
-  }
-  return keys
+  return new Set([...walkSpecs(root)].map((spec) => spec.key))
 }
 
 async function resolveExplicitNodes(root: CanvasNodeSpec, state: ApplyState): Promise<void> {
   const ids = new Set<string>()
-  const stack = [root]
-  while (stack.length) {
-    const spec = stack.pop()!
+  for (const spec of walkSpecs(root)) {
     if (spec.nodeId) ids.add(spec.nodeId)
-    stack.push(...(spec.children ?? []))
   }
   const orderedIds = [...ids]
   const nodes = await Promise.all(orderedIds.map(lookupNodeById))
@@ -685,19 +677,14 @@ function markMutation(state: ApplyState, node: BaseNode): void {
   }
 }
 
-function setNodeKey(
-  state: ApplyState,
-  node: SupportedCanvasNode,
-  key: string,
-  newlyReconciled = false
-): void {
+function setNodeKey(state: ApplyState, node: SupportedCanvasNode, key: string): void {
   const currentKey = node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME)
   if (currentKey === key) {
     state.keyedNodes.set(key, node)
     return
   }
   if (currentKey) {
-    if (node.type !== 'INSTANCE' || !newlyReconciled) {
+    if (node.type !== 'INSTANCE' || !state.createdNodeIds.has(node.id)) {
       specError(`Node "${node.id}" is already owned by canvas key "${currentKey}".`)
     }
   }
@@ -4460,16 +4447,14 @@ async function applyNodeProperties(
 
 function collectSvgColors(root: CanvasNodeSpec): Map<string, Set<string | undefined>> {
   const colors = new Map<string, Set<string | undefined>>()
-  const visit = (spec: CanvasNodeSpec): void => {
+  for (const spec of walkSpecs(root)) {
     const svg = spec.figma?.svg
     if (svg) {
       const values = colors.get(svg.assetKey) ?? new Set<string | undefined>()
       values.add(svg.color)
       colors.set(svg.assetKey, values)
     }
-    for (const child of spec.children ?? []) visit(child)
   }
-  visit(root)
   return colors
 }
 
@@ -4989,7 +4974,7 @@ async function reconcileNode(
     (spec.type === 'SLOT' ? createSlotNode(spec, parent, state) : await createNode(spec, state))
 
   if (parent) moveIntoParent(node, parent, index, state)
-  setNodeKey(state, node, spec.key, !existing)
+  setNodeKey(state, node, spec.key)
   if (!isIntrinsicNode(node)) {
     await applyNodeProperties(node, spec, state, parent)
   }
@@ -5119,8 +5104,7 @@ function createApplyState(
     keyedNodes: target ? collectKeyedNodes(target) : new Map(),
     mutations: { count: 0 },
     nodeIdsByKey: Object.create(null) as Record<string, string>,
-    protectedNodeIds: new Set(),
-    protectedNodeSnapshots: new Map(),
+    protectedNodes: new Map(),
     removalNodeIds: new Set(),
     referencedNodeIds: new Set(),
     scope: target,
@@ -5387,7 +5371,8 @@ async function verifyAppliedNode(
 }
 
 async function verifyRollbackProtectedNodes(state: ApplyState): Promise<void> {
-  const protectedIds = [...state.protectedNodeIds].filter((id) => !state.createdNodeIds.has(id))
+  const protectedEntries = [...state.protectedNodes]
+  const protectedIds = protectedEntries.map(([id]) => id)
   const nodes = await Promise.all(protectedIds.map(lookupNodeById))
   const missing = protectedIds.filter((_, index) => !nodes[index])
   if (missing.length) {
@@ -5398,15 +5383,12 @@ async function verifyRollbackProtectedNodes(state: ApplyState): Promise<void> {
     )
   }
 
-  const changed = protectedIds.filter((id, index) => {
-    const expected = state.protectedNodeSnapshots.get(id)
-    const node = nodes[index]
-    return (
-      !!expected &&
-      !!node &&
-      JSON.stringify(snapshotProtectedNode(node)) !== JSON.stringify(expected)
-    )
-  })
+  const changed = protectedEntries
+    .filter(([, expected], index) => {
+      const node = nodes[index]
+      return expected && node && !nativeValueEqual(snapshotProtectedNode(node), expected)
+    })
+    .map(([id]) => id)
   if (!changed.length) return
   const shown = changed.slice(0, 8)
   const suffix = changed.length > shown.length ? ` and ${changed.length - shown.length} more` : ''

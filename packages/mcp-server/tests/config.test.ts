@@ -12,7 +12,7 @@ import {
 } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { getMcpServerConfig, getToolTimeoutMs } from '../src/config'
+import { getMcpServerConfig } from '../src/config'
 
 const ENV_KEYS = [
   'TEMPAD_MCP_TOOL_TIMEOUT',
@@ -115,18 +115,9 @@ describe('mcp-server/config getMcpServerConfig', () => {
     })
   })
 
-  it('uses the general override as the get_code fallback and selects per-tool limits', () => {
+  it('uses the general override as the get_code fallback', () => {
     process.env.TEMPAD_MCP_TOOL_TIMEOUT = '22000'
-    delete process.env.TEMPAD_MCP_GET_CODE_TIMEOUT
 
-    const config = getMcpServerConfig()
-    expect(config.getCodeTimeoutMs).toBe(22000)
-    expect(getToolTimeoutMs('get_code', config)).toBe(22000)
-    expect(getToolTimeoutMs('apply_canvas', config)).toBe(22000)
-
-    process.env.TEMPAD_MCP_GET_CODE_TIMEOUT = '45000'
-    const specialized = getMcpServerConfig()
-    expect(getToolTimeoutMs('get_code', specialized)).toBe(45000)
-    expect(getToolTimeoutMs('apply_canvas', specialized)).toBe(22000)
+    expect(getMcpServerConfig().getCodeTimeoutMs).toBe(22000)
   })
 })

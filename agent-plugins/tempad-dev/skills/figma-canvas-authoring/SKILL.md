@@ -61,26 +61,23 @@ it is available.
 - Use a small, consistent set of type, spacing, and color roles. Avoid generic
   card grids and unsupported visual conventions.
 - Keep repeated elements and states consistent, and use concise realistic copy.
-- Use real component or library icons and intentionally sourced imagery. Never
-  imitate either with text glyphs or primitive mosaics.
-- Choose existing, licensed, generated, or intentionally geometric imagery by
-  its content role, required distinctiveness, rights, and importability. No
-  source type is a default merely because its tool is available.
+- Use real component or library icons. Choose existing, licensed, generated, or
+  intentionally geometric imagery by its role, distinctiveness, rights, and
+  importability; no source is a default. Never imitate either with text glyphs
+  or primitive mosaics.
 - Treat familiar visual sources as candidates, not defaults; familiarity does
   not settle a material product, platform, or expressive decision.
-- Choose the smallest coherent scope, but preserve the realistic content
-  density, product-specific detail, and one signature visual idea needed for a
-  high-quality result. Do not leave unexplained dead zones merely to simplify
-  the composition.
+- Choose the smallest coherent scope that preserves realistic density,
+  product-specific detail, and one signature visual idea. Do not simplify into
+  unexplained dead zones.
 
 ## Delegation boundary
 
-When the host provides subagents and the task contains materially independent
-research, asset exploration or generation, read-only inventory, or visual QA,
-read [delegation.md](references/delegation.md) after fixing the main task's scope
-and brief and before spawning. Keep the work local unless its delegation gate
-passes. The main agent alone integrates the whole, makes design decisions, and
-writes to the Canvas.
+When subagents are available for materially independent research, asset work,
+read-only inventory, or visual QA, read
+[delegation.md](references/delegation.md) after fixing the task scope and brief.
+Delegate only when its gate passes; the main agent integrates, decides, and
+remains the only Canvas writer.
 
 ## Workflow
 
@@ -94,22 +91,17 @@ writes to the Canvas.
    ambiguous, do not ask, infer, create, rename, reorder, or target another
    page; write to the current page.
 2. **Ground the visual direction.** Follow the user first, then permitted file
-   or project evidence and a clearly applicable installed skill. For every
-   net-new or materially redesigned product UI without a concrete visual
-   reference or representative existing screen/system evidence, read
-   [style-grounding.md](references/style-grounding.md) before any
-   `apply_canvas` call. Product category and broad adjectives such as “simple,”
-   “elegant,” or “premium” are not concrete visual evidence. Skip this branch
-   only for exact reproduction and mechanical edits. Frame the design problem
-   before naming an external source so the first familiar pattern does not
-   silently become the brief, and retain the compact working brief required by
-   the reference. For net-new, materially distinct screens, complete and
-   screenshot the most representative screen first; correct any direction-level
-   mismatch before propagating its visual language. A research scout may gather
-   bounded evidence only after the main agent frames the problem and the
-   delegation gate passes; the main agent chooses the direction. When imagery
-   carries content identity, brand expression, or primary visual hierarchy,
-   choose its source route and an importable asset before layout, then read
+   or project evidence and a clearly applicable installed skill. Before any
+   net-new or materially redesigned product UI without a concrete reference or
+   representative existing screen/system, read
+   [style-grounding.md](references/style-grounding.md); category and broad
+   adjectives are not visual evidence. Skip only exact reproduction and
+   mechanical edits. Frame the problem and retain the reference's compact brief
+   before research. Complete and screenshot the representative screen before
+   propagating its language. A research scout may gather evidence only after
+   the brief is fixed and the delegation gate passes; the main agent chooses
+   the direction. When imagery carries identity, expression, or primary
+   hierarchy, choose an importable source route before layout, then read
    [Images and illustrations](references/visual-assets.md#images-and-illustrations).
 3. **Choose one resource path.**
    After explicit user direction, use this default: silence is not an opt-out,
@@ -156,24 +148,17 @@ writes to the Canvas.
    calculates every new root's position from its rendered size and the
    destination page's existing top-level bounds.
 6. **Close the feedback loop.** Read structural verification. For a new
-   composition or material visual change, open the `get_screenshot` result for
-   the representative screen before propagation, then inspect the final board
-   and every materially distinct screen where a defect could hide. A returned
-   local `resource_link` is the expected bounded screenshot output: fetch or
-   open it before claiming visual verification. Skip screenshots only for
-   mechanical text, token, prop, or hierarchy-only edits. Check for clipping,
-   overlap, collapsed text, unexpected fills, weak hierarchy, inconsistent
-   spacing, implausible content density, low-fidelity assets, and unexplained
-   dead space. Diagnose a concrete defect with `get_structure` or `get_code`,
-   correct it, and re-screenshot the affected composition. Stop when the
-   requested result passes this evidence; do not continue tuning without a new
-   observation or requirement. Final board inspection must include every
-   delivered top-level root, including authored component definitions as well
-   as screens; an isolated screen screenshot cannot reveal page-level overlap
-   with a component or another root. When an independent review materially
-   improves confidence and the delegation gate passes, a fresh QA scout may
-   inspect the screenshot; the main agent verifies its observations and
-   retains final judgment.
+   composition or material visual change, open the representative-screen
+   `get_screenshot` result before propagation, then inspect the final board and
+   materially distinct screens. Open a returned local `resource_link` before
+   claiming visual verification. Include every delivered top-level root—screens
+   and authored definitions—because isolated screenshots hide page-level
+   overlap. Skip screenshots for mechanical text, token, prop, or hierarchy
+   edits. Check clipping, overlap, collapsed text, fills, hierarchy, spacing,
+   density, asset fidelity, and dead space. Diagnose with `get_structure` or
+   `get_code`; correct and re-screenshot only affected compositions. Stop when
+   the evidence passes. A fresh QA scout may review when the delegation gate
+   passes; the main agent verifies its observations and retains final judgment.
 
 Do not turn this workflow into repeated API-like mutations.
 
