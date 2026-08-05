@@ -2,6 +2,11 @@
 
 This design describes MCP `get_code` in `packages/extension/mcp/tools/code`. It aligns with the requirements and reflects the current pipeline, including the request-scoped cache layer used to dedupe slow Figma reads within a single request.
 
+The Hub gives `get_code` a bounded 30-second default deadline because its codegen, vector export,
+and asset work can legitimately exceed the 15-second general tool deadline on larger selections.
+`TEMPAD_MCP_GET_CODE_TIMEOUT` overrides this deadline; the existing
+`TEMPAD_MCP_TOOL_TIMEOUT` remains the fallback when operators set a general override.
+
 ## High-level pipeline
 
 1. **Validate selection**
