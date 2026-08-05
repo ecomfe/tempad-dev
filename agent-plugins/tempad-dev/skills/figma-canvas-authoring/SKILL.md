@@ -70,6 +70,15 @@ it is available.
   high-quality result. Do not leave unexplained dead zones merely to simplify
   the composition.
 
+## Delegation boundary
+
+When the host provides subagents and the task contains materially independent
+research, asset exploration or generation, read-only inventory, or visual QA,
+read [delegation.md](references/delegation.md) after fixing the main task's scope
+and brief and before spawning. Keep the work local unless its delegation gate
+passes. The main agent alone integrates the whole, makes design decisions, and
+writes to the Canvas.
+
 ## Workflow
 
 1. **Fix the scope.** Choose one create or update target. Use `get_code` only
@@ -93,9 +102,11 @@ it is available.
    silently become the brief, and retain the compact working brief required by
    the reference. For net-new, materially distinct screens, complete and
    screenshot the most representative screen first; correct any direction-level
-   mismatch before propagating its visual language. When imagery carries content
-   identity, brand expression, or primary visual hierarchy, choose an importable
-   source before layout and read
+   mismatch before propagating its visual language. A research scout may gather
+   bounded evidence only after the main agent frames the problem and the
+   delegation gate passes; the main agent chooses the direction. When imagery
+   carries content identity, brand expression, or primary visual hierarchy,
+   choose an importable source before layout and read
    [Images and illustrations](references/visual-assets.md#images-and-illustrations).
 3. **Choose one resource path.**
    After explicit user direction, use this default: silence is not an opt-out,
@@ -153,7 +164,10 @@ it is available.
    dead space. Diagnose a concrete defect with `get_structure` or `get_code`,
    correct it, and re-screenshot the affected composition. Stop when the
    requested result passes this evidence; do not continue tuning without a new
-   observation or requirement.
+   observation or requirement. When an independent review materially improves
+   confidence and the delegation gate passes, a fresh QA scout may inspect the
+   screenshot; the main agent verifies its observations and retains final
+   judgment.
 
 Do not turn this workflow into repeated API-like mutations.
 
@@ -179,6 +193,8 @@ Load a reference only when its capability is part of the requested result:
   [variables.md](references/variables.md)
 - local Paint, Text, Effect, or Grid styles and bindings:
   [styles.md](references/styles.md)
+- isolated research, asset, inventory, or visual-QA delegation:
+  [delegation.md](references/delegation.md)
 
 ## Create and update
 

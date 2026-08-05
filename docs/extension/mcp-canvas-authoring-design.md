@@ -10,6 +10,7 @@ extension:
 ```txt
 task intent
   -> ground material visual invention in user / project / skill / research evidence
+  -> optionally delegate isolated evidence, asset, inventory, or QA work
   -> choose reuse or direct resources from the user's constraints
   -> explicit design-system authoring branch only when requested
   -> optional get_design_system() for permitted existing-resource reuse
@@ -121,6 +122,49 @@ reduce fixation ([Formulating or Fixating](https://doi.org/10.1145/3613904.36426
 evaluation supports checking the rendered artifact instead of trusting its rationale
 ([Design Theater](https://arxiv.org/abs/2607.22928)). The MCP protocol therefore continues to carry
 only the desired native result.
+
+## Delegation and tacit integration
+
+Polanyi begins _The Tacit Dimension_ with the claim that “we can know more than we can tell.” His
+point is operationally important for design agents: a handoff can make requirements, evidence, and
+constraints explicit, but it cannot exhaust the situated judgment formed from the user, product,
+canvas, references, and emerging composition. Design decomposition therefore has real information
+loss; adding more agents does not automatically add more design intelligence
+([University of Chicago Press](https://press.uchicago.edu/ucp/books/book/chicago/T/bo6035368.html)).
+
+The orchestration model follows from first principles:
+
+1. Parallel workers create value through independent search, specialized tools, context isolation,
+   or a fresh review perspective.
+2. Handoffs cost context, introduce interpretation error, and can duplicate work.
+3. Coupled decisions and shared mutations require ordered awareness of the whole.
+4. Verifiable evidence and persistent artifact references cross an agent boundary with less loss
+   than broad summaries or delegated taste.
+5. Final accountability cannot be parallelized: one agent must resolve conflicts, synthesize the
+   evidence, and judge the rendered result.
+
+The resulting invariant is **one writer, bounded scouts**. The main design agent uses a manager
+pattern, remains the only Canvas writer, and may delegate only when a subtask is separable,
+compressible into a task-local brief, isolated from shared mutations, independently verifiable, and
+worth its coordination cost. This aligns with OpenAI's manager pattern for workflows that require a
+single agent to retain control and synthesis
+([OpenAI](https://openai.com/business/guides-and-resources/a-practical-guide-to-building-ai-agents/)).
+
+Eligible workers gather style evidence, produce one importable image asset, inventory exact facts,
+or audit a supplied screenshot. They receive one objective, frozen context, permitted tools and
+sources, exclusions, an output format, and a stop condition. Anthropic reports the same practical
+requirement: without explicit objectives, formats, tool/source guidance, and task boundaries,
+subagents duplicate work and leave gaps
+([Anthropic](https://www.anthropic.com/engineering/multi-agent-research-system)). Workers return raw
+references or compact factual findings rather than a design verdict, preserving the evidence the
+main agent needs for its own integrated judgment.
+
+Do not delegate interpretation of ambiguous user intent, final direction, interdependent
+page/component construction, concurrent updates to the same root, or final acceptance. Use one
+worker by default and normally no more than two concurrent workers with non-overlapping objectives.
+Independent QA happens after the representative composition exists and receives the screenshot and
+frozen brief without the creator's rationale or suspected defects. The main agent verifies every
+finding against the live canvas before deciding whether to edit.
 
 ## Design-system retrieval
 
