@@ -1239,7 +1239,13 @@ function createFixture(): FigmaFixture {
         }
       }
     })
+    const getOwnSharedPluginData = instance.getSharedPluginData.bind(instance)
     Object.assign(instance, {
+      getSharedPluginData: vi.fn(
+        (namespace: string, key: string) =>
+          getOwnSharedPluginData(namespace, key) ||
+          mainComponent.getSharedPluginData(namespace, key)
+      ),
       isExposedInstance: false,
       componentProperties: Object.fromEntries(
         Object.entries(definitions)
@@ -3093,6 +3099,7 @@ describe('mcp/tools/canvas', () => {
     const action = fixture.getNode(replaced.nodeIdsByKey['screen/action']!) as InstanceNode
     const mainComponent = await action.getMainComponentAsync()
     expect(mainComponent?.id).toBe(authored.rootNodeId)
+    expect(action.getSharedPluginData('tempad_dev', 'canvas-key')).toBe('screen/action')
     expect(Object.values(action.componentProperties)).toContainEqual({
       type: 'TEXT',
       value: 'Save'
@@ -7433,6 +7440,51 @@ describe('mcp/tools/canvas', () => {
     })
   })
 
+  it('explains that variable authoring keys are file-wide across collections', async () => {
+    createFixture()
+    const markup = '<div data-key="root" class="w-[100px] h-[100px]"></div>'
+    await applyCanvas({
+      mode: 'create',
+      markup,
+      variableCollections: {
+        'product/theme': {
+          name: 'Theme',
+          modes: { light: { name: 'Light' } },
+          variables: {
+            'product/color/surface': {
+              name: 'Color/Surface',
+              type: 'COLOR',
+              values: { light: { r: 1, g: 1, b: 1 } }
+            }
+          }
+        }
+      }
+    })
+
+    await expect(
+      applyCanvas({
+        mode: 'create',
+        markup: '<div data-key="other" class="w-[100px] h-[100px]"></div>',
+        variableCollections: {
+          'marketing/theme': {
+            name: 'Marketing',
+            modes: { light: { name: 'Light' } },
+            variables: {
+              'product/color/surface': {
+                name: 'Color/Surface',
+                type: 'COLOR',
+                values: { light: { r: 0, g: 0, b: 0 } }
+              }
+            }
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining('Authoring keys are file-wide')
+    })
+  })
+
   it('removes managed variables and modes after clearing node, page, and inherited-mode consumers', async () => {
     const fixture = createFixture()
     const markup = '<div data-key="root" class="w-[100px] h-[100px] bg-[#FFFFFF]"></div>'
@@ -8724,6 +8776,27 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE
     })
     expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    expect(fixture.nodes.has(created.rootNodeId)).toBe(true)
+  })
+
+  it('reports when rollback removes the pre-existing update root', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas(createSpec())
+    const foreign = fixture.createNode('TEXT')
+    fixture.triggerUndo.mockImplementationOnce(() => {
+      fixture.getNode(created.rootNodeId).remove()
+    })
+
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: created.rootNodeId,
+        markup: `<div data-key="card" class="flex flex-col w-[320px] h-[200px]"><span data-key="foreign" data-node-id="${foreign.id}" class="w-full h-fit">Foreign</span></div>`
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      message: expect.stringContaining('Rollback did not preserve pre-existing node')
+    })
   })
 
   it('wraps Figma failures and reports when automatic rollback is unavailable', async () => {

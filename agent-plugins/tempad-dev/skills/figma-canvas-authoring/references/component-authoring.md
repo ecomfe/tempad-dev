@@ -19,6 +19,18 @@ Figma instances. Either:
 
 Never leave a visually equivalent primitive copy as the final usage.
 
+Before expanding a composition around a new component, create the smallest real
+definition needed and use its exact returned `rootNodeId` or `nodeIdsByKey`
+entry in one representative native instance. Continue only after structural
+verification confirms that component reference. If the tool does not return an
+exact ID, rejects the instance, or cannot verify its reference, stop creating
+component resources. Never represent a failed instance with a primitive or
+claim the component deliverable is complete. Continue independent Direct screen
+work only when it remains a valid requested outcome and explicitly report the
+degraded component delivery; if a reusable component is itself required, that
+part of the task remains incomplete. Remove an unused temporary definition only
+when safe and not itself a requested deliverable.
+
 Copy a complete recipe and change its design facts. Do not infer TemPad's
 component shape from raw Plugin API calls.
 

@@ -84,7 +84,12 @@ it is available.
    [style-grounding.md](references/style-grounding.md). Skip this branch for
    exact reproduction and mechanical edits. Frame the design problem before
    naming an external source so the first familiar pattern does not silently
-   become the brief.
+   become the brief. For net-new, materially distinct screens with no evidenced
+   expressive direction, complete and screenshot the most representative screen
+   first; correct any direction-level mismatch before propagating its visual
+   language. When imagery carries content identity, brand expression, or primary
+   visual hierarchy, choose an importable source before layout and read
+   [Images and illustrations](references/visual-assets.md#images-and-illustrations).
 3. **Choose one resource path.**
    After explicit user direction, use this default: silence is not an opt-out,
    but catalog availability is not relevance. For an update, preserve existing
@@ -120,11 +125,15 @@ it is available.
    Plugin API or from validation failures.
 5. **Apply one desired result.** Call `apply_canvas` once per coherent root. If
    a genuinely large result must be split, divide it at meaningful screen or
-   section boundaries, never into node-level operations. Never inspect the
-   canvas for free space, carry coordinates across calls, or use root
-   translation to place a create result. TemPad Dev calculates every new root's
-   position from its rendered size and the destination page's existing
-   top-level bounds.
+   section boundaries, never into node-level operations. When those screens
+   must remain one movable board, create one fixed-size Auto Layout parent and
+   append one bounded screen or section per update to that same root; keep its
+   key stable and omit already-added children so they are preserved. Use
+   independent roots when their relative organization is not part of the
+   deliverable. Never inspect the canvas for free space, carry coordinates
+   across calls, or use root translation to place a create result. TemPad Dev
+   calculates every new root's position from its rendered size and the
+   destination page's existing top-level bounds.
 6. **Close the feedback loop.** Read structural verification. For a new
    composition or material visual change, normally call `get_screenshot` once
    on the result root; skip it for mechanical text, token, prop, or

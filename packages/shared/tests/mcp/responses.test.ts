@@ -129,8 +129,10 @@ describe('mcp/responses helpers', () => {
     )
     expect(applied.content?.[0]?.text).toContain('One optional property was skipped.')
     expect(applied.content?.[0]?.text).toContain('Root node: 2:1')
+    expect(applied.content?.[0]?.text).toContain('structuredContent.nodeIdsByKey')
     expect(applied.structuredContent).toEqual({
       rootNodeId: '2:1',
+      nodeIdsByKey: { root: '2:1' },
       mutationCount: 2,
       nodeChanges: { created: 1, updated: 0, removed: 1 },
       verification: {

@@ -30,6 +30,9 @@ use a separate narrow runtime message validated by the background worker.
 6. A 20-second ping keeps the Manifest V3 service worker alive. A disconnected content port or
    WebSocket reconnects while its session remains enabled.
 
+The bridge protocol version covers the shared tool contract as well as transport messages. Bump it
+whenever a Hub and extension built from different revisions must not exchange tool calls.
+
 The hub chooses the active browser connection. Inside that connection, the broker chooses the
 active Figma session. A sole session is selected automatically; switching sessions is explicit.
 Broker activation is sent to the hub only from that explicit user action. Pending tool results are

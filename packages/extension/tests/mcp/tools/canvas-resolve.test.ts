@@ -152,6 +152,29 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
     expect(message).toContain('1 more validation issue omitted.')
   })
 
+  it('lists every legal variable scope for an invalid scope', () => {
+    const input = ApplyCanvasParametersSchema.parse({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+      variableCollections: {
+        theme: {
+          name: 'Theme',
+          modes: { light: { name: 'Light' } },
+          variables: {
+            border: {
+              name: 'Color/Border',
+              type: 'COLOR',
+              scopes: ['ALL_STROKES'],
+              values: { light: { r: 0, g: 0, b: 0 } }
+            }
+          }
+        }
+      }
+    })
+
+    expect(() => resolveCanvasInput(input)).toThrow(/STROKE_COLOR.*PARAGRAPH_INDENT/)
+  })
+
   it('resolves short refs and compiles catalog tags into native instances', () => {
     const designSystem = catalog()
     const input = ApplyCanvasParametersSchema.parse({

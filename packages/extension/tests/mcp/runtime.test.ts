@@ -175,12 +175,25 @@ describe('mcp/runtime', () => {
     })
   })
 
-  it('throws coded error when provided nodeId does not resolve to a visible scene node', async () => {
+  it('distinguishes missing, unsupported, and hidden node ids', async () => {
     setFigmaGetNodeById(null)
     const runtime = await importRuntime()
 
     await expect(runtime.MCP_TOOL_HANDLERS.get_code({ nodeId: 'missing' })).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE
+      code: TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+      message: expect.stringContaining('does not exist')
+    })
+
+    setFigmaGetNodeById({ id: 'document', type: 'DOCUMENT' } as unknown as BaseNode)
+    await expect(runtime.MCP_TOOL_HANDLERS.get_code({ nodeId: 'document' })).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+      message: expect.stringContaining('not a supported scene node')
+    })
+
+    setFigmaGetNodeById(createSceneNode('hidden', false))
+    await expect(runtime.MCP_TOOL_HANDLERS.get_code({ nodeId: 'hidden' })).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+      message: expect.stringContaining('is hidden')
     })
   })
 
