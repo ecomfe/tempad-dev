@@ -3191,6 +3191,27 @@ describe('mcp/tools/canvas', () => {
     expect(updated.nodeIdsByKey['screen/adopted']).toBe(adopted.id)
   })
 
+  it('falls back to the synchronous current-page lookup when the async backend is unavailable', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"></div>'
+    })
+    vi.mocked(figma.getNodeByIdAsync).mockRejectedValue(
+      new TypeError("Cannot read properties of undefined (reading 'getNodeByIdAsync')")
+    )
+
+    const updated = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId,
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/child" class="w-[100px] h-[80px]"></div></div>'
+    })
+
+    expect(fixture.getNode(updated.nodeIdsByKey['screen/child']!).type).toBe('FRAME')
+    expect(figma.getNodeById).toHaveBeenCalledWith(created.rootNodeId)
+  })
+
   it('makes newly added frames transparent when update markup omits a background', async () => {
     const fixture = createFixture()
     const created = await applyCanvasFromTool({
@@ -6780,6 +6801,47 @@ describe('mcp/tools/canvas', () => {
       removedNodeIds: [],
       mutationCount: 0
     })
+  })
+
+  it('does not read variant-only component properties while validating unrelated removal', async () => {
+    const fixture = createFixture()
+    const authored = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="set" class="flex flex-row w-[200px] h-[80px]"><div data-key="variant" class="w-[120px] h-[40px]"></div></div>',
+      native: {
+        set: { figma: { component: { type: 'COMPONENT_SET' } } },
+        variant: {
+          figma: {
+            name: 'State=Default',
+            component: { type: 'COMPONENT' }
+          }
+        }
+      }
+    })
+    const variant = fixture.getNode(authored.nodeIdsByKey.variant!)
+    Object.defineProperty(variant, 'componentPropertyDefinitions', {
+      configurable: true,
+      get: () => {
+        throw new Error('Variant definitions belong to the component set')
+      }
+    })
+    const removable = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="temporary" class="w-[240px] h-[24px]"></div>'
+    })
+
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: removable.rootNodeId,
+        markup: null
+      })
+    ).resolves.toMatchObject({
+      rootRemoved: true,
+      removedNodeIds: [removable.rootNodeId]
+    })
+    expect(variant.removed).toBe(false)
   })
 
   it('rejects update-root removal when its subtree is not fully managed', async () => {

@@ -160,6 +160,16 @@ function isSceneNode(node: BaseNode | null): node is SceneNode {
   return !!node && 'x' in node && 'y' in node
 }
 
+async function lookupNodeById(id: string): Promise<BaseNode | null> {
+  try {
+    const node = await figma.getNodeByIdAsync(id)
+    if (node) return node
+  } catch {
+    // The rewritten Figma runtime can expose the method before its async lookup backend is ready.
+  }
+  return figma.getNodeById(id)
+}
+
 function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
   return {
     childIds: 'children' in node ? node.children.map((child) => child.id) : null,
@@ -336,7 +346,7 @@ async function resolveExplicitNodes(root: CanvasNodeSpec, state: ApplyState): Pr
     stack.push(...(spec.children ?? []))
   }
   const orderedIds = [...ids]
-  const nodes = await Promise.all(orderedIds.map((id) => figma.getNodeByIdAsync(id)))
+  const nodes = await Promise.all(orderedIds.map(lookupNodeById))
   for (const [index, id] of orderedIds.entries()) {
     const node = nodes[index] ?? null
     state.explicitNodes.set(id, isSupportedSceneNode(node) ? node : null)
@@ -359,7 +369,7 @@ async function preflightNodeReference(
     }
     return
   }
-  const node = await figma.getNodeByIdAsync(reference.nodeId)
+  const node = await lookupNodeById(reference.nodeId)
   if (!node || (sceneOnly && !isSceneNode(node))) {
     specError(
       `${context} "${reference.nodeId}" does not exist${sceneOnly ? ' or is not a scene node' : ''}.`
@@ -503,7 +513,10 @@ function collectSceneReferences(node: SceneNode, references: RemovalReferences):
   if (node.type === 'VECTOR') {
     collectReferences(node.vectorNetwork.regions, references)
   }
-  if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
+  if (
+    node.type === 'COMPONENT_SET' ||
+    (node.type === 'COMPONENT' && node.parent?.type !== 'COMPONENT_SET')
+  ) {
     collectComponentReferences(node.componentPropertyDefinitions, references)
   } else if (node.type === 'INSTANCE') {
     collectComponentReferences(node.componentProperties, references)
@@ -798,7 +811,7 @@ async function resolveComponent(reference: CanvasDesignReference, state: ApplySt
 
   let component: ComponentNode | null = null
   if (reference.id !== undefined) {
-    const node = await figma.getNodeByIdAsync(reference.id)
+    const node = await lookupNodeById(reference.id)
     if (node?.type === 'COMPONENT') {
       component = node
       protectNode(state, node)
@@ -1511,7 +1524,7 @@ async function preflightComponentProperties(
       specError(`Component property "${name}" on "${spec.key}" has no variant "${value}".`)
     }
     if (definition.type !== 'INSTANCE_SWAP') continue
-    const replacement = await figma.getNodeByIdAsync(value as string)
+    const replacement = await lookupNodeById(value as string)
     if (replacement?.type !== 'COMPONENT' && replacement?.type !== 'COMPONENT_SET') {
       specError(
         `Instance-swap property "${name}" on "${spec.key}" must reference a component node.`
@@ -5356,7 +5369,7 @@ async function verifyAppliedNode(
 
 async function verifyRollbackProtectedNodes(state: ApplyState): Promise<void> {
   const protectedIds = [...state.protectedNodeIds].filter((id) => !state.createdNodeIds.has(id))
-  const nodes = await Promise.all(protectedIds.map((id) => figma.getNodeByIdAsync(id)))
+  const nodes = await Promise.all(protectedIds.map(lookupNodeById))
   const missing = protectedIds.filter((_, index) => !nodes[index])
   if (missing.length) {
     const shown = missing.slice(0, 8)
@@ -5410,7 +5423,7 @@ async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): 
 }
 
 async function removeUpdateRoot(targetNodeId: string): Promise<ApplyCanvasResult> {
-  const candidate = await figma.getNodeByIdAsync(targetNodeId)
+  const candidate = await lookupNodeById(targetNodeId)
   if (!candidate) return removedRootResult(targetNodeId)
   if (!isSupportedSceneNode(candidate)) {
     scopeError('The requested removal target is not a supported scene node.')
@@ -5423,7 +5436,7 @@ async function removeUpdateRoot(targetNodeId: string): Promise<ApplyCanvasResult
 
   return withUndoBoundary(async () => {
     const removedNodeIds = await applyRemovals([candidate], state)
-    if (await figma.getNodeByIdAsync(candidate.id)) {
+    if (await lookupNodeById(candidate.id)) {
       specError(`Verification failed: root "${candidate.id}" is still present.`)
     }
     return removedRootResult(candidate.id, removedNodeIds, state)
@@ -5436,7 +5449,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
   const rootSpec = input.root
   let target: SupportedCanvasNode | null = null
   if (input.mode === 'update') {
-    const candidate = await figma.getNodeByIdAsync(input.targetNodeId!)
+    const candidate = await lookupNodeById(input.targetNodeId!)
     if (!isSupportedSceneNode(candidate)) {
       scopeError('The requested update target does not exist or is not a supported scene node.')
     }
