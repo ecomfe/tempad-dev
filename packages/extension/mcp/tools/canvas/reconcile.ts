@@ -118,6 +118,7 @@ type ComponentPropertyContext = {
 
 type ProtectedNodeSnapshot = {
   childIds: string[] | null
+  componentPropertyNames: string[] | null
   geometry: { height: number; width: number; x: number; y: number } | null
   key: string
   parentId: string | null
@@ -173,6 +174,10 @@ async function lookupNodeById(id: string): Promise<BaseNode | null> {
 function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
   return {
     childIds: 'children' in node ? node.children.map((child) => child.id) : null,
+    componentPropertyNames:
+      node.type === 'COMPONENT' || node.type === 'COMPONENT_SET'
+        ? Object.keys(node.componentPropertyDefinitions).sort()
+        : null,
     geometry: isSceneNode(node)
       ? { height: node.height, width: node.width, x: node.x, y: node.y }
       : null,
@@ -190,6 +195,19 @@ function protectNode(state: ApplyState, node: BaseNode, snapshot = true): void {
     !state.protectedNodeSnapshots.has(node.id)
   ) {
     state.protectedNodeSnapshots.set(node.id, snapshotProtectedNode(node))
+  }
+}
+
+function topLevelPageChild(node: BaseNode, page: PageNode): BaseNode | null {
+  let current: BaseNode | null = node
+  while (current?.parent && current.parent.id !== page.id) current = current.parent
+  return current?.parent?.id === page.id ? current : null
+}
+
+function protectUnrelatedPageRoots(state: ApplyState, page: PageNode): void {
+  const mutableRoot = state.scope ? topLevelPageChild(state.scope, page) : null
+  for (const child of page.children) {
+    if (child.id !== mutableRoot?.id) protectNode(state, child)
   }
 }
 
@@ -281,6 +299,7 @@ async function resolveResultPage(
   if (index !== undefined && index > maxIndex) {
     specError(`Page index ${index} exceeds the maximum index ${maxIndex}.`)
   }
+  if (!createsPage && !state.scope) protectUnrelatedPageRoots(state, page ?? containing)
   if (createsPage) {
     page = figma.createPage()
     state.mutations.count += 1
@@ -5398,6 +5417,7 @@ async function verifyRollbackProtectedNodes(state: ApplyState): Promise<void> {
 
 async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): Promise<T> {
   try {
+    if (state.scope) protectUnrelatedPageRoots(state, containingPage(state.scope))
     figma.commitUndo()
     const result = await apply()
     figma.commitUndo()
@@ -5406,6 +5426,9 @@ async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): 
     const readOnly = canvasReadOnlyError(error)
     if (state.mutations.count > 0) {
       try {
+        // Make this partial attempt the newest history entry before undoing. In a long-lived
+        // plugin session, the preceding entry may be an earlier successful apply.
+        figma.commitUndo()
         figma.triggerUndo()
         await verifyRollbackProtectedNodes(state)
       } catch (rollbackError) {
