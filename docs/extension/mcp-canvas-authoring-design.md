@@ -442,6 +442,11 @@ subject to stronger constraints:
 5. no-op convergence;
 6. only then, fewer Plugin API calls.
 
+Exact update targets, adopted `data-node-id` descendants, and direct component IDs are resolved
+through Figma's asynchronous lookup API before synchronous preflight and reconciliation. This keeps
+exact-ID authoring compatible with dynamic-page document access; the reconciler then carries the
+resolved live nodes in request state instead of depending on later synchronous lookups.
+
 ## Reconciliation
 
 The local deterministic pipeline is:
@@ -464,8 +469,10 @@ that inherited data as definition state, not ownership of the new usage, and wri
 own requested canvas key based on explicit reconcile state rather than incidental bookkeeping.
 Existing nodes still reject ownership reassignment. Newly created Frames and Components normalize
 an omitted fill to transparent even during update; explicit paint, style, or variable state then
-overrides that baseline. Growing Text that transiently collapses to zero width is reflowed through a
-bounded fixed-to-fill transition before verification.
+overrides that baseline. Main-axis `grow` is validated by its effective `FILL` sizing mode, so a
+primitive track may use `grow w-fit` inside a row without being misclassified as a freeform
+hug-sized Frame. Growing Text that transiently collapses to zero width is reflowed through a bounded
+fixed-to-fill transition before verification.
 
 After a failed mutation, rollback verifies that the update root remains resolvable. Exact
 pre-existing node/component references also retain their type, parent, canvas key, geometry, and
