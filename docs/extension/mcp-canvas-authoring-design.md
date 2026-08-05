@@ -111,6 +111,14 @@ assets, compare alternatives only when the decision is consequential, then use o
 A named typeface is a verifiable canvas commitment: bind it through an actual Text style, variable,
 or exact native font. A generic `font-sans` class does not establish that family.
 
+Imagery has no fixed generated-versus-stock priority after relevant project, user, and current-file
+assets. The agent first fixes the image's semantic role, literal-content requirements, crop,
+expression, rights, and importable delivery form. Licensed real-world imagery is preferred for
+factual authenticity and replaceable editorial atmosphere; generation is preferred for materially
+specific, fictional, conceptual, or signature art direction. Purpose-built geometry is valid only
+when geometry is itself the direction. Tool availability never decides the route, and an
+unimportable custom result cannot silently become a primitive collage or generic stock substitute.
+
 The resulting brief is a compact decision trace, not a mood board. Research stops when each material
 open decision has sufficient evidence. Exact reproduction, mechanical edits, explicit user choices,
 and established project sources do not trigger ceremonial exploration.

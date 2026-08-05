@@ -61,8 +61,11 @@ it is available.
 - Use a small, consistent set of type, spacing, and color roles. Avoid generic
   card grids and unsupported visual conventions.
 - Keep repeated elements and states consistent, and use concise realistic copy.
-- Use real component or library icons and real or generated imagery. Never
-  imitate them with text glyphs or primitive mosaics.
+- Use real component or library icons and intentionally sourced imagery. Never
+  imitate either with text glyphs or primitive mosaics.
+- Choose existing, licensed, generated, or intentionally geometric imagery by
+  its content role, required distinctiveness, rights, and importability. No
+  source type is a default merely because its tool is available.
 - Treat familiar visual sources as candidates, not defaults; familiarity does
   not settle a material product, platform, or expressive decision.
 - Choose the smallest coherent scope, but preserve the realistic content
@@ -106,7 +109,7 @@ writes to the Canvas.
    bounded evidence only after the main agent frames the problem and the
    delegation gate passes; the main agent chooses the direction. When imagery
    carries content identity, brand expression, or primary visual hierarchy,
-   choose an importable source before layout and read
+   choose its source route and an importable asset before layout, then read
    [Images and illustrations](references/visual-assets.md#images-and-illustrations).
 3. **Choose one resource path.**
    After explicit user direction, use this default: silence is not an opt-out,

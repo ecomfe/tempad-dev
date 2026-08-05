@@ -85,40 +85,62 @@ the brief at the level of typography roles without naming one.
 ## Images and illustrations
 
 When an image carries content identity, brand expression, or primary visual
-hierarchy, choose an importable source before layout. Use a hand-built geometric
-SVG only when it is the explicit art direction, never as a fallback for focal imagery.
+hierarchy, choose its source route and an importable asset before layout. Tool
+availability does not decide the art direction. Use a hand-built geometric SVG
+only when geometry is the intended visual language, never as a fallback for a
+photo or focal illustration.
 
-Choose imagery in this order:
+First write a compact asset brief:
 
-1. a real project, user-supplied, or current-file asset;
-2. generated imagery when a distinctive focal asset fits the direction and the
-   agent can return a source accepted by the connected Canvas tool;
-3. an appropriate licensed source for documentary or real-world content, or
-   when no generated result can be imported.
+- role: factual evidence, documentary context, product content, expressive
+  focal art, or supporting atmosphere;
+- subject and any content that must be literally true;
+- aspect ratio, focal point, crop, and useful negative space;
+- tone, palette, lighting, or rendering treatment;
+- rights or attribution constraints and one Canvas-accepted delivery form.
 
-When image generation is available, the composition calls for custom focal art,
-and the user has not prohibited it, invoke the image-generation skill or tool
-before layout. Do not hand-build an SVG collage, gradient-and-circle substitute,
-or primitive illustration merely because it is faster. Specify the subject,
-role in the layout, aspect ratio, palette, lighting or rendering style, and
-important empty space. Match the surrounding art direction instead of
-generating generic stock imagery or drawing a plausible Canvas substitute.
+Always prefer a relevant project, user-supplied, or current-file asset. When
+none fits, choose the least complex route that fully satisfies the brief:
 
-Delegate generation only when the main skill's delegation gate passes. Keep
-exact asset reuse, icon SVGs, and direct URL imports in the main task. Do not
-delegate when the worker cannot return a source the Canvas tool can import.
+- **Licensed real-world or stock source:** use for documentary content,
+  recognizable places or activities, authentic human context, and replaceable
+  editorial atmosphere when bespoke authorship is not required. Unsplash or
+  another stock provider is a candidate, not a default. Verify that the exact
+  asset permits the intended use, note any attribution requirement, and obtain
+  a stable direct HTTPS image URL with sufficient resolution—not a search
+  thumbnail or webpage URL.
+- **Generated image:** use when the user requests it or the composition needs a
+  specific fictional, impossible, conceptual, brand-expressive, or signature
+  scene that a licensed source cannot faithfully supply. Require an importable
+  result before making it structural to the layout. Do not generate merely
+  because ImageGen is available.
+- **Purpose-built vector or geometric art:** use when the brief intentionally
+  calls for diagrams, patterns, abstract geometry, or a vector illustration
+  language. Do not assemble primitive mosaics to imitate photography, icons,
+  or a generated illustration.
 
-Apply a public generated result as an IMAGE paint using `imageUrl`; an existing
+When licensed and generated routes both fit, prefer licensed imagery for
+factual authenticity and efficient delivery; prefer generation for exact
+composition and material distinctiveness. Reject both generic stock clichés
+and novelty that does not serve the product. Never select an asset solely by
+provider familiarity.
+
+After choosing generation, invoke the image-generation skill or tool before
+layout. Specify the subject, layout role, aspect ratio, palette, lighting or
+rendering style, and important empty space. Delegate generation only when the
+main skill's delegation gate passes and the worker can return a Canvas-accepted
+source. Keep exact reuse and direct URL imports in the main task.
+
+Apply a public image as an IMAGE paint using `imageUrl`; an existing
 current-file `imageHash` is also valid. For content already in the local Hub,
 declare `{ "type": "IMAGE", "assetHash": "<full lowercase SHA-256>" }` and use
 its alias as the paint's `assetKey`. Inline bytes and local-only paths are not
-supported. The main agent still owns placement and crop and should judge the
-result in the final composition rather than loading intermediate candidates
-into its context.
+supported. The main agent owns placement and crop and judges the asset in the
+final composition.
 
-If a generated result is local-only and the connected host cannot upload it,
-use an importable licensed source when that still fits the brief. If no usable
-asset can be imported, never fake a photo or illustration with DOM-like frames,
-gradients, emoji, or primitive mosaics. Omit optional imagery. When the layout
-must reserve media space, use one honest neutral asset frame and report that it
-remains an unfilled slot.
+If a chosen result is local-only and the host cannot upload it, switch to an
+importable licensed source only when it still satisfies the brief. Do not
+silently replace materially custom imagery with generic stock. If no usable
+asset can be imported, never fake it with frames, gradients, emoji, or primitive
+mosaics. Omit optional imagery; for required media, keep one honest neutral
+slot and report the unfilled asset requirement.
