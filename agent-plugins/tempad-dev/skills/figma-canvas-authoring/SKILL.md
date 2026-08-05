@@ -167,10 +167,13 @@ writes to the Canvas.
    dead space. Diagnose a concrete defect with `get_structure` or `get_code`,
    correct it, and re-screenshot the affected composition. Stop when the
    requested result passes this evidence; do not continue tuning without a new
-   observation or requirement. When an independent review materially improves
-   confidence and the delegation gate passes, a fresh QA scout may inspect the
-   screenshot; the main agent verifies its observations and retains final
-   judgment.
+   observation or requirement. Final board inspection must include every
+   delivered top-level root, including authored component definitions as well
+   as screens; an isolated screen screenshot cannot reveal page-level overlap
+   with a component or another root. When an independent review materially
+   improves confidence and the delegation gate passes, a fresh QA scout may
+   inspect the screenshot; the main agent verifies its observations and
+   retains final judgment.
 
 Do not turn this workflow into repeated API-like mutations.
 

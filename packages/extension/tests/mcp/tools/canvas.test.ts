@@ -8946,6 +8946,8 @@ describe('mcp/tools/canvas', () => {
     const fixture = createFixture()
     const created = await applyCanvas(createSpec())
     const foreign = fixture.createNode('TEXT')
+    fixture.commitUndo.mockClear()
+    fixture.triggerUndo.mockClear()
 
     await expect(
       applyCanvas({
@@ -8956,8 +8958,37 @@ describe('mcp/tools/canvas', () => {
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE
     })
+    expect(fixture.commitUndo).toHaveBeenCalledTimes(2)
     expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    expect(fixture.commitUndo.mock.invocationCallOrder[1]).toBeLessThan(
+      fixture.triggerUndo.mock.invocationCallOrder[0]!
+    )
     expect(fixture.nodes.has(created.rootNodeId)).toBe(true)
+  })
+
+  it('reports when rollback changes an unrelated existing top-level root', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas(createSpec())
+    const unrelated = fixture.createNode('COMPONENT') as unknown as ComponentNode
+    unrelated.resize(342, 68)
+    const child = fixture.createNode('TEXT')
+    unrelated.appendChild(child)
+    const propertyName = unrelated.addComponentProperty('Artist', 'TEXT', 'Mara Vale')
+    const foreign = fixture.createNode('TEXT')
+    fixture.triggerUndo.mockImplementationOnce(() => {
+      delete unrelated.componentPropertyDefinitions[propertyName]
+    })
+
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: created.rootNodeId,
+        markup: `<div data-key="card" class="flex flex-col w-[320px] h-[200px]"><span data-key="foreign" data-node-id="${foreign.id}" class="w-full h-fit">Foreign</span></div>`
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      message: expect.stringContaining(`Rollback changed pre-existing node ${unrelated.id}`)
+    })
   })
 
   it('reports when rollback removes the pre-existing update root', async () => {
