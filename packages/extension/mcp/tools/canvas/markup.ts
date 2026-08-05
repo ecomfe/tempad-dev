@@ -1127,6 +1127,10 @@ function compileElement(
     markupError(`Text case on "${key}" cannot use both a class and a Figma property.`)
   }
 
+  const parentMode = parent?.layout?.mode ?? 'NONE'
+  const horizontalMode = classes.grow && parentMode === 'HORIZONTAL' ? 'FILL' : classes.width.mode
+  const verticalMode = classes.grow && parentMode === 'VERTICAL' ? 'FILL' : classes.height.mode
+
   if (isFrameContainerType(type)) {
     if (classes.flex && classes.grid) {
       markupError(`Container "${key}" cannot combine flex and grid layout.`)
@@ -1173,11 +1177,7 @@ function compileElement(
         markupError(`Cross-axis gap on "${key}" requires flex-wrap.`)
       }
     }
-    if (
-      (classes.width.mode === 'HUG' || classes.height.mode === 'HUG') &&
-      !classes.flex &&
-      !classes.grid
-    ) {
+    if ((horizontalMode === 'HUG' || verticalMode === 'HUG') && !classes.flex && !classes.grid) {
       markupError(`Hug-sized frame "${key}" must use auto layout.`)
     }
   }
@@ -1201,7 +1201,6 @@ function compileElement(
     markupError(`Text "${key}" may use w-fit only together with h-fit.`)
   }
 
-  const parentMode = parent?.layout?.mode ?? 'NONE'
   const relativeTransform = binding?.figma?.relativeTransform
   if (type === 'LINE' && classes.grow && parentMode === 'VERTICAL') {
     markupError(`Line "${key}" cannot grow on a vertical axis; its height is always zero.`)
@@ -1292,8 +1291,6 @@ function compileElement(
   validateEffects(key, type, binding)
   validateFigmaLayout(key, type, binding, classes)
 
-  const horizontalMode = classes.grow && parentMode === 'HORIZONTAL' ? 'FILL' : classes.width.mode
-  const verticalMode = classes.grow && parentMode === 'VERTICAL' ? 'FILL' : classes.height.mode
   const autoResize = textAutoResize(horizontalMode, verticalMode)
   if (binding?.figma?.aspectRatioLocked === true && type === 'TEXT' && autoResize !== 'NONE') {
     markupError(`Aspect-ratio lock on auto-resizing text "${key}" is not supported by Figma.`)

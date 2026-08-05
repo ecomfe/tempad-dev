@@ -3141,6 +3141,56 @@ describe('mcp/tools/canvas', () => {
     expect(second.getSharedPluginData('tempad_dev', 'canvas-key')).toBe('screen/track-2')
   })
 
+  it('resolves an exact component id through the async dynamic-page lookup', async () => {
+    const fixture = createFixture()
+    const authored = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="button" class="w-[160px] h-[48px]"></div>',
+      native: {
+        button: { figma: { component: { type: 'COMPONENT' } } }
+      }
+    })
+    vi.mocked(figma.getNodeById).mockImplementation((id: string) =>
+      id === authored.rootNodeId ? null : (fixture.nodes.get(id) ?? null)
+    )
+
+    const screen = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/action" class="w-[160px] h-[48px]"></div></div>',
+      native: {
+        'screen/action': { component: { id: authored.rootNodeId } }
+      }
+    })
+
+    expect(figma.getNodeByIdAsync).toHaveBeenCalledWith(authored.rootNodeId)
+    expect(fixture.getNode(screen.nodeIdsByKey['screen/action']!).type).toBe('INSTANCE')
+  })
+
+  it('resolves update targets and adopted descendants through async dynamic-page lookups', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"></div>'
+    })
+    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const adopted = fixture.createNode('FRAME')
+    root.appendChild(adopted)
+    vi.mocked(figma.getNodeById).mockImplementation((id: string) =>
+      id === created.rootNodeId || id === adopted.id ? null : (fixture.nodes.get(id) ?? null)
+    )
+
+    const updated = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId,
+      markup: `<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/adopted" data-node-id="${adopted.id}" class="w-[100px] h-[100px]"></div></div>`
+    })
+
+    expect(figma.getNodeByIdAsync).toHaveBeenCalledWith(created.rootNodeId)
+    expect(figma.getNodeByIdAsync).toHaveBeenCalledWith(adopted.id)
+    expect(updated.nodeIdsByKey['screen/adopted']).toBe(adopted.id)
+  })
+
   it('makes newly added frames transparent when update markup omits a background', async () => {
     const fixture = createFixture()
     const created = await applyCanvasFromTool({
@@ -6496,6 +6546,23 @@ describe('mcp/tools/canvas', () => {
     })
     expect(one).toMatchObject({ minWidth: null, maxWidth: null })
     expect(badge.layoutPositioning).toBe('AUTO')
+  })
+
+  it('validates a growing primitive frame by its effective fill size', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="row" class="flex flex-row w-[240px] h-[24px]"><div data-key="row/track" class="grow w-fit h-[4px] bg-[#2563EB] rounded-full"></div></div>'
+    })
+
+    const track = fixture.getNode(created.nodeIdsByKey['row/track']!)
+    expect(track).toMatchObject({
+      layoutGrow: 1,
+      layoutSizingHorizontal: 'FILL',
+      layoutSizingVertical: 'FIXED',
+      height: 4
+    })
   })
 
   it('reconciles against live state, skips an unchanged result, and preserves omissions', async () => {

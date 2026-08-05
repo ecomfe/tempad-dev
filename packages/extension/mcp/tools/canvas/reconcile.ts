@@ -131,6 +131,7 @@ type ApplyState = {
   componentPropertyKeys: Map<string, Record<string, string>>
   createdNodeIds: Set<string>
   desiredKeys: Set<string>
+  explicitNodes: Map<string, SupportedCanvasNode | null>
   fontLoads: Map<string, Promise<void>>
   imageHashes: Map<string, string>
   imageAssetKeys: Set<string>
@@ -326,6 +327,22 @@ function collectDesiredKeys(root: CanvasNodeSpec): Set<string> {
   return keys
 }
 
+async function resolveExplicitNodes(root: CanvasNodeSpec, state: ApplyState): Promise<void> {
+  const ids = new Set<string>()
+  const stack = [root]
+  while (stack.length) {
+    const spec = stack.pop()!
+    if (spec.nodeId) ids.add(spec.nodeId)
+    stack.push(...(spec.children ?? []))
+  }
+  const orderedIds = [...ids]
+  const nodes = await Promise.all(orderedIds.map((id) => figma.getNodeByIdAsync(id)))
+  for (const [index, id] of orderedIds.entries()) {
+    const node = nodes[index] ?? null
+    state.explicitNodes.set(id, isSupportedSceneNode(node) ? node : null)
+  }
+}
+
 type CanvasNodeReference = { nodeId: string } | { canvasKey: string }
 
 async function preflightNodeReference(
@@ -353,8 +370,7 @@ async function preflightNodeReference(
 }
 
 function resolveCanvasKey(key: string, state: ApplyState): SupportedCanvasNode {
-  const nodeId = state.nodeIdsByKey[key]
-  const node = (nodeId ? figma.getNodeById(nodeId) : state.keyedNodes.get(key)) ?? null
+  const node = state.keyedNodes.get(key) ?? null
   if (!isSupportedSceneNode(node)) {
     specError(`Canvas key "${key}" did not resolve to a reconciled scene node.`)
   }
@@ -644,13 +660,17 @@ function setNodeKey(
   newlyReconciled = false
 ): void {
   const currentKey = node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME)
-  if (currentKey === key) return
+  if (currentKey === key) {
+    state.keyedNodes.set(key, node)
+    return
+  }
   if (currentKey) {
     if (node.type !== 'INSTANCE' || !newlyReconciled) {
       specError(`Node "${node.id}" is already owned by canvas key "${currentKey}".`)
     }
   }
   node.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME, key)
+  state.keyedNodes.set(key, node)
   markMutation(state, node)
 }
 
@@ -732,8 +752,7 @@ function findExistingNode(
 ): SupportedCanvasNode | null {
   if (forcedNode) return forcedNode
   if (spec.nodeId) {
-    const node = figma.getNodeById(spec.nodeId)
-    return isSupportedSceneNode(node) ? node : null
+    return state.explicitNodes.get(spec.nodeId) ?? null
   }
   return state.keyedNodes.get(spec.key) ?? null
 }
@@ -779,7 +798,7 @@ async function resolveComponent(reference: CanvasDesignReference, state: ApplySt
 
   let component: ComponentNode | null = null
   if (reference.id !== undefined) {
-    const node = figma.getNodeById(reference.id)
+    const node = await figma.getNodeByIdAsync(reference.id)
     if (node?.type === 'COMPONENT') {
       component = node
       protectNode(state, node)
@@ -4427,7 +4446,7 @@ async function applyCanvasKeyReferences(
   state: ApplyState,
   parent?: CanvasParentNode
 ): Promise<void> {
-  const node = figma.getNodeById(state.nodeIdsByKey[spec.key]!)
+  const node = state.keyedNodes.get(spec.key) ?? null
   if (!isSupportedSceneNode(node)) {
     specError(`Desired node "${spec.key}" was not reconciled.`)
   }
@@ -5060,6 +5079,7 @@ function createApplyState(
     componentPropertyKeys: new Map(),
     createdNodeIds: new Set(),
     desiredKeys,
+    explicitNodes: new Map(),
     fontLoads: new Map(),
     imageHashes: new Map(),
     imageAssetKeys: new Set(),
@@ -5306,7 +5326,7 @@ async function verifyAppliedNode(
 
   const childSpecs = spec.children ?? []
   const childNodes = childSpecs.map((child) => {
-    const candidate = figma.getNodeById(state.nodeIdsByKey[child.key]!)
+    const candidate = state.keyedNodes.get(child.key) ?? null
     if (!isSupportedSceneNode(candidate)) {
       specError(`Verification failed for "${child.key}": desired child is missing.`)
     }
@@ -5390,7 +5410,7 @@ async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): 
 }
 
 async function removeUpdateRoot(targetNodeId: string): Promise<ApplyCanvasResult> {
-  const candidate = figma.getNodeById(targetNodeId)
+  const candidate = await figma.getNodeByIdAsync(targetNodeId)
   if (!candidate) return removedRootResult(targetNodeId)
   if (!isSupportedSceneNode(candidate)) {
     scopeError('The requested removal target is not a supported scene node.')
@@ -5403,7 +5423,7 @@ async function removeUpdateRoot(targetNodeId: string): Promise<ApplyCanvasResult
 
   return withUndoBoundary(async () => {
     const removedNodeIds = await applyRemovals([candidate], state)
-    if (figma.getNodeById(candidate.id)) {
+    if (await figma.getNodeByIdAsync(candidate.id)) {
       specError(`Verification failed: root "${candidate.id}" is still present.`)
     }
     return removedRootResult(candidate.id, removedNodeIds, state)
@@ -5416,7 +5436,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
   const rootSpec = input.root
   let target: SupportedCanvasNode | null = null
   if (input.mode === 'update') {
-    const candidate = figma.getNodeById(input.targetNodeId!)
+    const candidate = await figma.getNodeByIdAsync(input.targetNodeId!)
     if (!isSupportedSceneNode(candidate)) {
       scopeError('The requested update target does not exist or is not a supported scene node.')
     }
@@ -5433,6 +5453,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
 
   return withUndoBoundary(async () => {
     const page = await resolveResultPage(input.page, target, state)
+    await resolveExplicitNodes(rootSpec, state)
     await validateRemovalComponents(outermostNodes(removalNodes))
     preflightMasks(rootSpec, state, target)
     preflightContainers(rootSpec, state, target)
