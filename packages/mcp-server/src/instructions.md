@@ -23,6 +23,10 @@ Rules:
 - When custom focal imagery is appropriate and an image-generation capability is available, use it
   before layout if the result can be imported. Never replace focal imagery with primitive mosaics or
   a hand-built geometric SVG unless that is the explicit art direction.
+- When subagents are available, delegate only stable, isolated, verifiable research, asset,
+  inventory, or visual-QA work whose benefit exceeds coordination cost. Give each worker a bounded
+  brief and output contract. The primary agent remains the manager, synthesizer, and only Canvas
+  writer; keep coupled design judgment and evolving shared state local.
 - Describe one native desired result through `apply_canvas`, and let TemPad Dev validate, diff, and
   execute it. Never emit Plugin API operations or arbitrary JavaScript.
 - Treat each create root as an independent composition. Do not inspect the canvas for free space or

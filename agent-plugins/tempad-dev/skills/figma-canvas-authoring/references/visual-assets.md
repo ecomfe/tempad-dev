@@ -104,12 +104,9 @@ role in the layout, aspect ratio, palette, lighting or rendering style, and
 important empty space. Match the surrounding art direction instead of
 generating generic stock imagery or drawing a plausible Canvas substitute.
 
-When subagents are available and generation needs real visual exploration,
-delegate it with that compact brief. Ask for one selected importable reference,
-its MIME type and dimensions, and a short description—not bytes, discarded
-candidates, or the generation transcript. Keep exact asset reuse, icon SVGs,
-and direct URL imports in the main task. Do not delegate when the subagent
-cannot return a source the Canvas tool can import.
+Delegate generation only when the main skill's delegation gate passes. Keep
+exact asset reuse, icon SVGs, and direct URL imports in the main task. Do not
+delegate when the worker cannot return a source the Canvas tool can import.
 
 Apply a public generated result as an IMAGE paint using `imageUrl`; an existing
 current-file `imageHash` is also valid. For content already in the local Hub,
