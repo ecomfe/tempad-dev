@@ -50,10 +50,9 @@ Provide a single entry point for coding agents. This file links to package-level
   agent task or plugin reload, not an agent-plugin rebuild or reinstall.
 - Keep Codex and Claude support equivalent. Both development manifests must launch the same
   working-tree MCP runtime.
-- Release MCP configuration must use the exact version from `packages/mcp-server/package.json`,
-  never a movable npm dist-tag or a local path. Publish that MCP version before exposing the
-  matching Git marketplace commit.
-- See `agent-plugins/tempad-dev/README.md` for the Codex and Claude installation and refresh commands.
+- Release MCP configuration must use `@tempad-dev/mcp@latest`, never an alpha tag, fixed version,
+  or local path.
+- See `agent-plugins/tempad-dev/README.md` for the Codex and Claude installation commands.
 
 ## Doc index
 

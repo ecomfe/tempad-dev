@@ -7,13 +7,11 @@
   "mcpServers": {
     "tempad-dev": {
       "command": "npx",
-      "args": ["-y", "@tempad-dev/mcp@alpha"]
+      "args": ["-y", "@tempad-dev/mcp@latest"]
     }
   }
 }
 ```
-
-画布创作能力目前通过 `alpha` tag（`0.8.0-alpha.0`）提供；`latest` 仍指向稳定的 `0.7.x` 版本。
 
 如需针对不同 agent 配置，请打开 TemPad Dev 的 **Preferences → Agent integration → Set up agents**。界面提供 Codex、Cursor、Claude Code、Gemini、VS Code、OpenCode 和 TRAE 的引导路径；未列出的兼容客户端可选择 **Other**。
 
