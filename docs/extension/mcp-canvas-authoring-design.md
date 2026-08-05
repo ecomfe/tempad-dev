@@ -484,10 +484,13 @@ primitive track may use `grow w-fit` inside a row without being misclassified as
 hug-sized Frame. Growing Text that transiently collapses to zero width is reflowed through a bounded
 fixed-to-fill transition before verification.
 
-After a failed mutation, rollback verifies that the update root remains resolvable. Exact
-pre-existing node/component references also retain their type, parent, canvas key, geometry, and
-direct child identities; losing or changing one is reported as rollback failure instead of masking
-partial corruption with the original validation error.
+After a failed mutation, reconciliation commits the partial attempt as the newest history entry
+before triggering Undo. This keeps rollback scoped to that attempt in a long-lived plugin session
+instead of consuming the preceding successful apply. Rollback verifies that the update root remains
+resolvable. Exact pre-existing node/component references and unrelated top-level roots on the result
+page also retain their type, parent, canvas key, geometry, and direct child identities; losing or
+changing one is reported as rollback failure instead of masking partial corruption with the original
+validation error.
 
 The agent is not involved in any of these Plugin API steps.
 

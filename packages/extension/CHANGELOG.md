@@ -19,8 +19,9 @@
 - Restricted canvas writes to editable Figma Design files and stabilized Auto Layout verification
   after text reflow and native Figma setter updates.
 - Fixed freshly authored component instances inheriting the definition's managed identity, added
-  rollback survivor checks and clearer node-state diagnostics, and documented file-wide resource
-  keys plus canvas size and variable-scope constraints.
+  rollback survivor checks, isolated failed-attempt Undo from preceding successful applies, guarded
+  unrelated page roots against rollback corruption, and documented file-wide resource keys plus
+  canvas size and variable-scope constraints.
 
 ## 0.20.0
 
