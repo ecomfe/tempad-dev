@@ -103,33 +103,26 @@ Always prefer a relevant project, user-supplied, or current-file asset. When
 none fits, choose the least complex route that fully satisfies the brief:
 
 - **Licensed real-world or stock source:** use for documentary content,
-  recognizable places or activities, authentic human context, and replaceable
-  editorial atmosphere when bespoke authorship is not required. Unsplash or
-  another stock provider is a candidate, not a default. Verify that the exact
-  asset permits the intended use, note any attribution requirement, and obtain
-  a stable direct HTTPS image URL with sufficient resolution—not a search
-  thumbnail or webpage URL.
+  recognizable places or activities, authentic human context, or replaceable
+  editorial atmosphere. Treat Unsplash and other providers as candidates.
+  Verify use and attribution rights, then obtain a sufficiently large direct
+  HTTPS image URL—not a thumbnail or webpage.
 - **Generated image:** use when the user requests it or the composition needs a
-  specific fictional, impossible, conceptual, brand-expressive, or signature
-  scene that a licensed source cannot faithfully supply. Require an importable
-  result before making it structural to the layout. Do not generate merely
-  because ImageGen is available.
+  fictional, impossible, conceptual, brand-expressive, or signature scene that
+  licensed imagery cannot supply. Require an importable result before making it
+  structural; tool availability alone is not a reason to generate.
 - **Purpose-built vector or geometric art:** use when the brief intentionally
   calls for diagrams, patterns, abstract geometry, or a vector illustration
   language. Do not assemble primitive mosaics to imitate photography, icons,
   or a generated illustration.
 
-When licensed and generated routes both fit, prefer licensed imagery for
-factual authenticity and efficient delivery; prefer generation for exact
-composition and material distinctiveness. Reject both generic stock clichés
-and novelty that does not serve the product. Never select an asset solely by
-provider familiarity.
+When both routes fit, prefer licensed imagery for factual authenticity and
+efficient delivery, and generation for exact composition or distinctiveness.
+Reject stock clichés, irrelevant novelty, and provider familiarity as a reason.
 
-After choosing generation, invoke the image-generation skill or tool before
-layout. Specify the subject, layout role, aspect ratio, palette, lighting or
-rendering style, and important empty space. Delegate generation only when the
-main skill's delegation gate passes and the worker can return a Canvas-accepted
-source. Keep exact reuse and direct URL imports in the main task.
+After choosing generation, pass the asset brief to the image-generation skill
+or tool before layout. Delegate only when the gate passes and the worker can
+return a Canvas-accepted source. Keep exact reuse and direct imports local.
 
 Apply a public image as an IMAGE paint using `imageUrl`; an existing
 current-file `imageHash` is also valid. For content already in the local Hub,

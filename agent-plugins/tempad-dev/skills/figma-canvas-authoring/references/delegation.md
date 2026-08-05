@@ -1,10 +1,9 @@
 # Delegate bounded evidence work
 
-Treat design judgment as partly tacit: no handoff can fully encode the situated
-whole formed from the user, product, canvas, references, and emerging
-composition. Delegate subsidiary evidence and isolated production, never the
-focal design judgment. The main agent remains the manager, synthesizer, and only
-Canvas writer.
+Design judgment is partly tacit: no handoff fully encodes the user, product,
+canvas, references, and emerging composition. Delegate evidence and isolated
+production, never focal judgment. The main agent synthesizes and remains the
+only Canvas writer.
 
 ## Pass the delegation gate
 
@@ -23,9 +22,8 @@ Spawn the smallest useful number of subagents only when every condition holds:
 5. **Worth coordinating:** parallelism, specialized capability, or an
    independent perspective materially outweighs handoff and synthesis cost.
 
-Keep the work local when any condition fails. Do not spawn merely to shorten the
-main agent's reasoning, satisfy a workflow ritual, or obtain another aesthetic
-opinion.
+Keep work local when any condition fails. Do not delegate for ritual,
+convenience, or another unsupported aesthetic opinion.
 
 ## Write a complete handoff
 
@@ -38,13 +36,10 @@ Give each subagent:
 - explicit exclusions and the no-Canvas-write boundary;
 - an exact output contract and stop condition.
 
-The main agent reads every required Canvas reference and establishes the
-resource and safety boundaries itself; never delegate interpretation of this
-skill. A worker may follow its own capability skill for its isolated task.
-
-Use a fresh or minimum-context worker when the host supports it. Send raw
-screenshots, reference links, or asset briefs instead of the main agent's
-conclusion. Ask for evidence, not agreement. Avoid overlapping assignments.
+The main agent reads required Canvas references and sets resource and safety
+boundaries; never delegate this skill's interpretation. Use a fresh or
+minimum-context worker when possible, send source evidence rather than the main
+agent's conclusion, and avoid overlapping assignments.
 
 ## Delegate only suitable tracks
 
@@ -57,20 +52,17 @@ problem. Return only:
 source; evidence role; transferable principle; relevance; authority/copying boundary
 ```
 
-The scout does not choose the final direction. One scout may cover the required
-behavioral and expressive roles when the questions are explicit; use two only
-when the search spaces are genuinely independent.
+The scout does not choose the direction. One may cover behavioral and
+expressive roles when both questions are explicit; use two only for independent
+search spaces.
 
 ### Asset scout
 
-Delegate nontrivial image generation or source exploration only after the main
-agent fixes the asset's layout role, subject, aspect ratio, palette/style,
-important empty space, and negative constraints. Return one selected importable
-`imageUrl` or `assetHash` per frozen asset role, MIME type, dimensions, and a
-short factual description. Delegate a batch only when every role is fixed and
-the total remains bounded. Do not return bytes, discarded candidates, or a
-generation transcript. The main agent owns crop, placement, and final visual
-judgment.
+Delegate generation or source exploration only after fixing the asset's role,
+subject, aspect ratio, palette/style, empty space, and exclusions. Return one
+importable `imageUrl` or `assetHash` per role, with MIME type, dimensions, and a
+factual description. Return no bytes, discarded candidates, or transcript. The
+main agent owns crop, placement, and judgment.
 
 ### Independent QA scout
 
@@ -83,29 +75,22 @@ severity; screen/node or region; observed defect; visible evidence; violated con
 ```
 
 The scout does not edit, redesign, or declare completion. The main agent checks
-each observation against the live canvas and decides the correction.
+each observation against the live canvas.
 
 ### Inventory scout
 
-Delegate a deterministic, read-only inventory only when it spans enough
-independent material to save real time—for example, checking several supplied
-screens for the same defect or verifying candidate icon coverage and licenses.
-Return exact findings and references, not a new design proposal.
+Delegate read-only inventory only when enough independent material makes it
+worthwhile, such as checking several screens or icon candidates. Return exact
+findings and references, not a design proposal.
 
 ## Orchestrate conservatively
 
-- Use one worker by default and normally no more than two concurrent workers
-  with non-overlapping objectives.
-- Keep the main agent productive while workers run; do not delegate the critical
-  path when the main task can finish faster locally.
-- Let only the main agent interpret ambiguous user intent, resolve conflicts,
-  combine evidence, choose the direction, and call `apply_canvas`.
-- Resolve conflicting worker results by inspecting their evidence, never by
-  voting or averaging.
-- Treat a worker result as an input, not a decision. Discard claims that exceed
-  the assignment or cannot be independently checked.
-- Stop spawning when sufficient evidence exists. More workers do not create a
-  stronger design direction by themselves.
+- Default to one worker and at most two concurrent, non-overlapping workers.
+- Keep the main agent productive; do not delegate a faster local critical path.
+- Only the main agent interprets ambiguous intent, resolves conflicts, chooses
+  the direction, and calls `apply_canvas`.
+- Resolve conflicts from evidence, not voting. Discard unverifiable or
+  out-of-scope claims, and stop when evidence is sufficient.
 
 Never delegate interdependent page/component construction, component
 authoring plus instance placement, updates to the same root, final composition,
