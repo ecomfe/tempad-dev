@@ -445,7 +445,9 @@ subject to stronger constraints:
 Exact update targets, adopted `data-node-id` descendants, and direct component IDs are resolved
 through Figma's asynchronous lookup API before synchronous preflight and reconciliation. This keeps
 exact-ID authoring compatible with dynamic-page document access; the reconciler then carries the
-resolved live nodes in request state instead of depending on later synchronous lookups.
+resolved live nodes in request state instead of depending on later synchronous lookups. The
+rewritten runtime has a current-page synchronous fallback for the brief state where it exposes the
+async method before its lookup backend is ready.
 
 ## Reconciliation
 
