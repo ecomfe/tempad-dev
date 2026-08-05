@@ -2,37 +2,25 @@
 
 ## 0.21.0
 
-- Added Figma canvas authoring through one declarative result instead of agent-generated
-  Plugin API calls.
-- Added an immutable deterministic design-system catalog with compact component tags, short refs,
-  deterministic cursor pagination, bounded plain/Markdown summaries, non-English prop labels, and
-  exact one-resource detail lookup. The catalog reads component definitions from pages Figma
-  already makes accessible and file-level resources without scanning usage or loading pages.
-- Added safe native reconciliation against the latest canvas with stable identities, scoped
-  incremental updates, explicit deletion, no-op convergence, dependency preflight, one Undo
-  boundary and structural verification. Managed identities can be recovered through
-  `get_structure` in a later agent session.
-- Added deterministic non-overlapping placement for separate create results without requiring the
-  agent to track prior canvas coordinates.
-- Exposed bounded screenshots as a separate read-only validation step.
-- Added a strict HTML + Tailwind utility common path, including native default scales wherever they
-  map deterministically to Figma, and typed Figma-only state for native geometry, layout, text,
-  paints/effects/media, variables, native styles, pages, authored
-  components/variants, instances, and Slots.
-- Added a progressive `figma-canvas-authoring` skill that follows explicit user resource
-  constraints, conditionally reuses accessible design-system definitions, provides executable
-  recipes for authored local resources, handles empty documents without inventing a design system,
-  grounds unspecified visual direction in project evidence, applicable skills, or bounded domain
-  research, and requests visual verification only when it can change the next decision.
-- Added bounded SVG and PNG/JPEG/GIF authoring through inline SVG or full-SHA-256 local asset
-  references, with a hash-only reverse bridge, SVG sanitization, stable wrappers, and cached native
-  image handles.
-- Made Canvas authoring available whenever MCP access is enabled and
-  `window.INITIAL_OPTIONS.editor_type` is `design`; native read-only rejection remains the file
-  permission boundary.
-- Kept native canvas-validation feedback compact and actionable with bounded field paths.
-- Stabilized derived Auto Layout geometry after text reflow and other Figma setters, and verify
-  actual fixed and cross-axis fill dimensions instead of trusting sizing-mode labels alone.
+- Added native Figma canvas authoring through declarative `apply_canvas` results instead of
+  agent-generated Plugin API calls.
+- Added `get_design_system` for bounded discovery and exact lookup of accessible components,
+  variables, collections and modes, native styles, and shaders through stable short references.
+- Added safe create, update, and delete reconciliation against the latest canvas, with stable
+  managed identities, dependency preflight and rollback, one Undo boundary, no-op convergence,
+  structural verification, and identity recovery through `get_structure`.
+- Expanded authoring coverage across HTML and Tailwind utilities, native geometry and layout, rich
+  text, paints and effects, variables and styles, pages, components and variants, instances, Slots,
+  inline SVG, and local PNG/JPEG/GIF assets.
+- Added deterministic non-overlapping placement for independent creates, bounded read-only
+  screenshot validation, and compact field-level error feedback.
+- Added the `figma-canvas-authoring` skill to the Codex and Claude plugins and standalone agent
+  setup, alongside the existing `figma-design-to-code` skill.
+- Restricted canvas writes to editable Figma Design files and stabilized Auto Layout verification
+  after text reflow and native Figma setter updates.
+- Fixed freshly authored component instances inheriting the definition's managed identity, added
+  rollback survivor checks and clearer node-state diagnostics, and documented file-wide resource
+  keys plus canvas size and variable-scope constraints.
 
 ## 0.20.0
 

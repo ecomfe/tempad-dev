@@ -30,10 +30,22 @@ function isSceneNode(node: BaseNode | null): node is SceneNode {
 function resolveSingleNode(nodeId?: string): SceneNode {
   if (nodeId) {
     const node = figma.getNodeById(nodeId)
-    if (!isSceneNode(node) || !node.visible) {
+    if (!node) {
       throw createCodedError(
         TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
-        'No visible node found for the provided nodeId.'
+        `Node "${nodeId}" does not exist in the current document.`
+      )
+    }
+    if (!isSceneNode(node)) {
+      throw createCodedError(
+        TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+        `Node "${nodeId}" exists but is not a supported scene node.`
+      )
+    }
+    if (!node.visible) {
+      throw createCodedError(
+        TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+        `Node "${nodeId}" exists but is hidden.`
       )
     }
     return node

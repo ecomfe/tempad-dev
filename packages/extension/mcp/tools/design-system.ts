@@ -282,7 +282,7 @@ async function collectVariables(referencedDefinitionIds: Set<string>, warnings: 
 
     return {
       variables: variables.map((variable) => {
-        const description = variable.description.trim()
+        const description = boundedText(variable.description)
         const scopes = variable.scopes?.map(String)
         const variableAuthoringKey = readAuthoringKey(variable, CANVAS_VARIABLE_KEY_NAME)
         const valuesByMode = describeVariableValues(variable.valuesByMode)
@@ -486,8 +486,8 @@ function describeLayoutGrid(grid: LayoutGrid): CanvasFigmaLayoutGrid {
 }
 
 function describeStyle(style: BaseStyle) {
-  const description = style.description.trim()
-  const descriptionMarkdown = style.descriptionMarkdown.trim()
+  const description = boundedText(style.description)
+  const descriptionMarkdown = boundedText(style.descriptionMarkdown)
   const documentationLinks = documentationUris(style)
   const styleAuthoringKey = readAuthoringKey(style, CANVAS_STYLE_KEY_NAME)
   const metadata = {

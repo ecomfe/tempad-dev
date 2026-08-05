@@ -199,11 +199,13 @@ describe('tools response helpers', () => {
     const applyResult = createApplyCanvasToolResponse(applyPayload)
     expect(applyResult.structuredContent).toEqual({
       rootNodeId: '2:1',
+      nodeIdsByKey: { root: '2:1' },
       mutationCount: 1,
       nodeChanges: { created: 0, updated: 1, removed: 0 },
       verification: applyPayload.verification
     })
     expect(textContent(applyResult.content[0])).toContain('Applied 1 canvas mutation')
+    expect(textContent(applyResult.content[0])).toContain('structuredContent.nodeIdsByKey')
 
     const removalResult = createApplyCanvasToolResponse({
       rootNodeId: '2:1',

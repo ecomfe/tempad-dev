@@ -5,20 +5,21 @@ design-system extension that needs one. Do not extract styles from an ordinary
 screen. New local resources do not require a catalog; use `catalogId` only when
 a nested `{ "ref": "…" }` deliberately reuses an existing catalog resource.
 
-Copy this complete recipe and change its design facts. Stable object keys
-connect same-call resources; they are not Figma names or IDs.
+Copy this complete recipe and change its design facts. Style authoring keys
+persist file-wide so later calls can recover the same resources; they are not
+Figma names or IDs. Namespace them by product and role.
 
 ```json
 {
   "mode": "create",
   "markup": "<div data-key=\"card\" class=\"flex flex-col w-[320px] h-[200px] gap-[12px] p-[24px] bg-[#FFFFFF]\"><span data-key=\"card/title\" class=\"w-fit h-fit text-[20px]\">Account</span></div>",
   "styles": {
-    "surface": {
+    "product/style/surface": {
       "type": "PAINT",
       "name": "Color/Surface",
       "paints": [{ "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 } }]
     },
-    "heading": {
+    "product/style/heading": {
       "type": "TEXT",
       "name": "Typography/Heading",
       "fontName": { "family": "Inter", "style": "Semi Bold" },
@@ -29,12 +30,12 @@ connect same-call resources; they are not Figma names or IDs.
   "native": {
     "card": {
       "styles": {
-        "fill": { "styleKey": "surface" }
+        "fill": { "styleKey": "product/style/surface" }
       }
     },
     "card/title": {
       "styles": {
-        "text": { "styleKey": "heading" }
+        "text": { "styleKey": "product/style/heading" }
       }
     }
   }

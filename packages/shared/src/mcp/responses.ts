@@ -95,9 +95,13 @@ export function buildApplyCanvasToolResult(payload: ApplyCanvasResult): ToolResp
   const root = payload.rootRemoved
     ? `Root node is absent: ${payload.rootNodeId}. Repeating the same assertion is safe.`
     : `Root node: ${payload.rootNodeId}.`
-  return buildTextToolResult(`${summary}\n${verification}${warnings}\n${root}`, {
+  const identities = payload.rootRemoved
+    ? ''
+    : '\nRead structuredContent.nodeIdsByKey before a follow-up update or component instance call.'
+  return buildTextToolResult(`${summary}\n${verification}${warnings}\n${root}${identities}`, {
     rootNodeId: payload.rootNodeId,
     ...(payload.rootRemoved ? { rootRemoved: true } : {}),
+    nodeIdsByKey: payload.nodeIdsByKey,
     mutationCount: payload.mutationCount,
     nodeChanges,
     verification: payload.verification

@@ -268,6 +268,15 @@ and precise routing descriptions at the MCP layer, while their exact shapes and 
 load progressively from the canvas-authoring skill. The extension validates them against the
 complete private native schema after short refs are expanded.
 
+One markup tree is bounded to 100 elements and 12 levels. These limits are part of the public tool
+description and the Canvas HTML reference so an agent can split a large composition before calling
+the tool; the parser still rejects an oversized tree before any mutation.
+
+Local collection, variable, and style authoring keys persist as file-wide identities. They must be
+namespaced by product and role rather than reused as collection-local shorthand. Variable mode keys
+remain scoped to their collection. Same-result bindings use these identities immediately, while
+later results use them to recover and update the same managed resources.
+
 An exact live component ID returned by prior `apply_canvas` work can be bound directly without
 creating or refreshing a catalog. This keeps component authoring order flexible: the agent may
 author definitions before composing, or compose first and later replace managed primitive usages
@@ -403,6 +412,13 @@ The local deterministic pipeline is:
 11. verify the live result;
 12. commit one Undo boundary, or undo the whole attempt on failure.
 
+A newly created instance may expose its main component's shared plugin data. Reconciliation treats
+that inherited data as definition state, not ownership of the new usage, and writes the instance's
+own requested canvas key. Existing nodes still reject ownership reassignment. After a failed
+mutation, rollback also verifies that the update root and exact pre-existing node/component
+references remain resolvable; losing one is reported as rollback failure instead of the original
+validation error.
+
 The agent is not involved in any of these Plugin API steps.
 
 Resolved native-schema failures return a bounded list of field paths and messages rather than the
@@ -437,6 +453,9 @@ type Verification = {
   }>
 }
 ```
+
+Its structured result also returns `rootNodeId` and the bounded `nodeIdsByKey` identity map so a
+later Author call can consume an exact component created by the preceding result.
 
 `get_screenshot` is a separate read-only validation tool. It returns one bounded PNG as a linked MCP
 resource backed by the existing capability URL; structured content contains metadata, not binary
