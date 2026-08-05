@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process'
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,14 +8,7 @@ const devMarketplaceRoot = join(root, '.dev')
 const devAgentPluginRoot = join(devMarketplaceRoot, 'plugins/tempad-dev-dev')
 const devName = 'tempad-dev-dev'
 
-const mcpPackage = readJson(join(root, 'packages/mcp-server/package.json'))
-
 syncAgentPluginSource()
-execFileSync(
-  'pnpm',
-  ['exec', 'oxfmt', '-c', './.oxfmtrc.json', 'agent-plugins/tempad-dev/.mcp.json'],
-  { cwd: root, stdio: 'inherit' }
-)
 buildDevAgentPlugin()
 
 console.log(`Built development agent plugin at ${relative(root, devAgentPluginRoot)}.`)
@@ -34,15 +26,6 @@ function syncAgentPluginSource() {
     join(agentPluginRoot, 'assets/icon-padded.svg'),
     join(agentPluginRoot, 'skills/figma-canvas-authoring/assets/icon.svg')
   )
-
-  writeJson(join(agentPluginRoot, '.mcp.json'), {
-    mcpServers: {
-      'tempad-dev': {
-        command: 'npx',
-        args: ['-y', `${mcpPackage.name}@${mcpPackage.version}`]
-      }
-    }
-  })
 }
 
 function buildDevAgentPlugin() {

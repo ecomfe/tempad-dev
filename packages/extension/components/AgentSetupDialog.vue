@@ -17,7 +17,7 @@ import { useCopy, useDeepLinkGuard } from '@/composables'
 import {
   AGENT_INTEGRATIONS,
   AGENT_INTEGRATIONS_BY_ID,
-  AGENT_SKILL_INSTALL_COMMAND,
+  AGENT_SKILLS_INSTALL_COMMAND,
   MCP_SERVERS_CONFIG_SNIPPET
 } from '@/mcp/config'
 
@@ -40,13 +40,15 @@ const actionGroups: Record<AgentIntegrationAction['id'], ActionGroupId> = {
   'mcp-deep-link': 'mcp',
   'mcp-cli': 'mcp',
   'mcp-config': 'mcp',
-  'skill-cli': 'skill'
+  'skill-cli': 'skill',
+  'skill-design-to-code-cli': 'skill',
+  'skill-canvas-authoring-cli': 'skill'
 }
 
 const groupLabels: Record<ActionGroupId, string> = {
   plugin: 'TemPad Dev plugin',
   mcp: 'MCP server',
-  skill: 'Design skill'
+  skill: 'Agent skills'
 }
 
 const otherSetup = {
@@ -61,9 +63,9 @@ const otherSetup = {
     },
     {
       id: 'skill-cli',
-      label: 'Agent skill',
+      label: 'Agent skills',
       kind: 'command',
-      value: AGENT_SKILL_INSTALL_COMMAND
+      value: AGENT_SKILLS_INSTALL_COMMAND
     }
   ]
 } satisfies SetupTarget
@@ -105,10 +107,11 @@ function selectManualSetup(): void {
 }
 
 function getStepDescription(id: ActionGroupId): string {
-  if (id === 'plugin') return 'Adds the MCP server and design skills together.'
-  if (id === 'skill') return 'Adds the repo-aware workflow for implementing selected designs.'
-  if (selectedSetup.value.id === 'other') return 'Adds the local TemPad Dev server.'
-  return `Lets ${selectedSetup.value.name} access the Figma file open in this browser.`
+  if (id === 'plugin') return 'Adds MCP access plus both design workflows.'
+  if (id === 'skill')
+    return 'Adds workflows for implementing designs in code and authoring native Figma designs.'
+  const agent = selectedSetup.value.id === 'other' ? 'your agent' : selectedSetup.value.name
+  return `Lets ${agent} inspect the open Figma file and author native designs when it is editable.`
 }
 
 function selectAdjacentTarget(direction: -1 | 1): void {
@@ -141,6 +144,7 @@ function getActionLabel(action: AgentIntegrationAction): string {
 
 function getCopyHint(action: AgentIntegrationAction, index: number): string {
   if (index > 0) {
+    if (action.id === 'skill-canvas-authoring-cli') return 'Then run in your terminal:'
     return action.kind === 'config' ? 'Or configure manually:' : 'Or run in your terminal:'
   }
 
@@ -197,11 +201,11 @@ function getCopyTitle(action: AgentIntegrationAction): string {
             </span>
             <h2>{{ selectedSetup.name }}</h2>
           </div>
-          <p v-if="pluginStep">Install the plugin to add MCP access and both design skills.</p>
+          <p v-if="pluginStep">Install the plugin to add MCP access and both agent skills.</p>
           <p v-else-if="selectedSetup.id === 'other'">
-            Use the same two parts with any compatible agent.
+            Set up MCP access and both agent skills with any compatible agent.
           </p>
-          <p v-else>Connect the MCP server, then add the design skill.</p>
+          <p v-else>Connect the MCP server, then add both agent skills.</p>
         </div>
 
         <section class="tp-agent-dialog-plan">

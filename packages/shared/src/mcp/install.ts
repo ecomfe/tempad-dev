@@ -1,14 +1,18 @@
 const SERVER_NAME = 'tempad-dev'
 const SERVER_COMMAND = 'npx'
-const SERVER_ARGS = ['-y', '@tempad-dev/mcp@alpha'] as const
+const SERVER_ARGS = ['-y', '@tempad-dev/mcp@latest'] as const
 const REPOSITORY = 'ecomfe/tempad-dev'
 const MARKETPLACE_NAME = 'tempad-dev'
 const PLUGIN_NAME = 'tempad-dev'
 
-const SKILL_URL = 'https://github.com/ecomfe/tempad-dev/tree/main/skill'
-const SKILL_INSTALL_COMMAND = `npx skills add ${SKILL_URL}`
+const SKILLS_SOURCE_URL =
+  'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev/skills'
+const DESIGN_TO_CODE_SKILL_NAME = 'figma-design-to-code'
+const CANVAS_AUTHORING_SKILL_NAME = 'figma-canvas-authoring'
+const SKILL_NAMES = [DESIGN_TO_CODE_SKILL_NAME, CANVAS_AUTHORING_SKILL_NAME] as const
+const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill ${SKILL_NAMES.join(' ')}`
 
-type SkillAgentId = 'cursor' | 'github-copilot' | 'opencode' | 'trae' | 'trae-cn'
+type SkillAgentId = 'cursor' | 'github-copilot' | 'opencode' | 'trae'
 
 type BaseCommandConfig = {
   command: string
@@ -51,7 +55,15 @@ export type McpClientConfig = {
 }
 
 export type AgentIntegrationAction = {
-  id: 'plugin-prompt' | 'plugin-cli' | 'mcp-deep-link' | 'mcp-cli' | 'mcp-config' | 'skill-cli'
+  id:
+    | 'plugin-prompt'
+    | 'plugin-cli'
+    | 'mcp-deep-link'
+    | 'mcp-cli'
+    | 'mcp-config'
+    | 'skill-cli'
+    | 'skill-design-to-code-cli'
+    | 'skill-canvas-authoring-cli'
   label: string
   kind: 'deep-link' | McpClientCopyKind
   value: string
@@ -198,8 +210,13 @@ function buildPluginSetupDeepLink(prefix: 'claude' | 'codex'): string {
   return `${target}${encodeURIComponent(prompt)}`
 }
 
-function buildSkillInstallCommand(...agents: SkillAgentId[]): string {
-  return `${SKILL_INSTALL_COMMAND} --global ${agents.map((agent) => `--agent ${agent}`).join(' ')}`
+function buildSkillsInstallCommand(...agents: SkillAgentId[]): string {
+  const targets = agents.map((agent) => `--agent ${agent}`).join(' ')
+  return `${SKILLS_INSTALL_COMMAND} --global ${targets}`
+}
+
+function buildGeminiSkillInstallCommand(skillName: (typeof SKILL_NAMES)[number]): string {
+  return `gemini skills install ${SKILLS_SOURCE_URL}/${skillName}`
 }
 
 export function getMcpClientCopyPayload(
@@ -250,7 +267,7 @@ export const MCP_DEFAULT_CONFIG_SNIPPET = JSON.stringify(
 
 export const MCP_SERVERS_CONFIG_SNIPPET = buildMcpConfigSnippet()
 
-export const AGENT_SKILL_INSTALL_COMMAND = SKILL_INSTALL_COMMAND
+export const AGENT_SKILLS_INSTALL_COMMAND = SKILLS_INSTALL_COMMAND
 
 export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
   vscode: {
@@ -360,9 +377,9 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
       },
       {
         id: 'skill-cli',
-        label: 'Agent skill',
+        label: 'Agent skills',
         kind: 'command',
-        value: buildSkillInstallCommand('cursor')
+        value: buildSkillsInstallCommand('cursor')
       }
     ]
   },
@@ -395,10 +412,16 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
         value: buildCliCommand('gemini')
       },
       {
-        id: 'skill-cli',
-        label: 'Agent skill',
+        id: 'skill-design-to-code-cli',
+        label: 'Design-to-code skill',
         kind: 'command',
-        value: `gemini skills install ${SKILL_URL}`
+        value: buildGeminiSkillInstallCommand(DESIGN_TO_CODE_SKILL_NAME)
+      },
+      {
+        id: 'skill-canvas-authoring-cli',
+        label: 'Canvas authoring skill',
+        kind: 'command',
+        value: buildGeminiSkillInstallCommand(CANVAS_AUTHORING_SKILL_NAME)
       }
     ]
   },
@@ -420,9 +443,9 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
       },
       {
         id: 'skill-cli',
-        label: 'Agent skill',
+        label: 'Agent skills',
         kind: 'command',
-        value: buildSkillInstallCommand('github-copilot')
+        value: buildSkillsInstallCommand('github-copilot')
       }
     ]
   },
@@ -438,9 +461,9 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
       },
       {
         id: 'skill-cli',
-        label: 'Agent skill',
+        label: 'Agent skills',
         kind: 'command',
-        value: buildSkillInstallCommand('opencode')
+        value: buildSkillsInstallCommand('opencode')
       }
     ]
   },
@@ -457,9 +480,9 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
       },
       {
         id: 'skill-cli',
-        label: 'Agent skill',
+        label: 'Agent skills',
         kind: 'command',
-        value: buildSkillInstallCommand('trae', 'trae-cn')
+        value: buildSkillsInstallCommand('trae')
       }
     ]
   }
