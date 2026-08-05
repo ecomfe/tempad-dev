@@ -14,11 +14,9 @@ Before naming a source, fix:
 - the intended character and trust posture;
 - the hard constraints and only the visual decisions that remain material.
 
-Treat remembered patterns and named systems as evidence for those decisions,
-not as the direction itself. Broad adjectives such as “clean,” “modern,” or
-“premium” do not settle a direction. Familiarity, fame, and official status do
-not prove relevance; transfer an adjacent-domain idea only when its principle
-fits this product problem.
+Treat remembered patterns and named systems as evidence, not the direction.
+Familiarity, fame, and official status do not prove relevance; transfer an
+adjacent-domain idea only when its principle fits this product problem.
 
 ## Use the nearest sufficient evidence
 
@@ -45,7 +43,8 @@ unless permitted evidence already fills one of these roles:
 Add platform, accessibility, or regulatory guidance only when it materially
 constrains the result. A single external source is sufficient only when concrete
 user or project evidence already establishes the other role. Do not replace
-these roles with two near-identical inspiration-gallery images.
+these roles with near-identical gallery images; galleries cannot establish
+product behavior or quality.
 
 Research only unresolved material decisions:
 
@@ -57,14 +56,6 @@ Research only unresolved material decisions:
    reject a familiar pattern when contextual fit is weak.
 4. Commit as soon as both behavioral and expressive evidence support one
    coherent direction.
-
-A deployed product in a similar domain and platform can inform hierarchy,
-density, interaction, and trust conventions. Platform, accessibility, and
-regulatory guidance constrain only their actual scope. Strong product work,
-editorial work, or an expert case study can inform expression when its
-principle fits. Inspiration galleries may suggest art direction but never
-establish product behavior or quality; avoid AI-generated galleries and generic
-trend lists.
 
 Retain only a compact working brief:
 
@@ -78,9 +69,8 @@ Avoid: domain risks; unsupported patterns; clichés
 ```
 
 Keep it under ten short lines and write it before the first `apply_canvas` call.
-It is a working note, not a deliverable. Do not
-paste page dumps, long quotes, research transcripts, or a mood board into the
-design task.
+It is a working note, not a deliverable; omit page dumps, long quotes, research
+transcripts, and mood boards.
 
 ## Apply and verify
 
