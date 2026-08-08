@@ -136,6 +136,11 @@ binding; equivalent raw literals do not demonstrate system usage.
 
 Close the authored system only after concrete consumers exist:
 
+- Close the resource plan as a whole around decisions that should evolve
+  together. One useful component does not settle an unrelated shared
+  typography or layout decision, just as a color variable does not settle
+  reusable behavior; each may still remain local when its coordination value
+  does not justify a native resource.
 - Reconcile each authored component with the usages that justified it. Revise
   its contract and replace same-responsibility local copies with instances, or
   remove a definition that concrete use no longer justifies.
@@ -157,8 +162,8 @@ delivery limitation, not design judgment; continue closing unaffected resources.
 Never add a swatch, specimen, or definition panel solely to silence a warning or
 stand in for final usage. A staged authoring call may warn temporarily.
 
-If the strongest candidate remains local, state the reason briefly in the
-handoff; do not emit an exhaustive candidate inventory.
+If the strongest remaining shared decision stays literal or local, state the
+reason briefly in the handoff; do not emit an exhaustive candidate inventory.
 
 Keep examples when the user requests documentation/specimens or the requested
 handoff materially benefits from them. Requesting a local design system alone

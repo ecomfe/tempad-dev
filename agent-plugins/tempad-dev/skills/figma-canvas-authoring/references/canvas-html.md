@@ -211,6 +211,10 @@ Text:
 - `text-shadow-[...]` for an exact pixel text-shadow list with a color and two
   or three pixel lengths; `text-shadow-none` clears it
 
+A `span` is one Figma TEXT node, so `bg-*` and `text-*` both target that node's
+single fill channel. For colored text on a background, put the background on a
+parent `div` and the text color on its child `span`.
+
 Shadow classes compile to the node's native Figma effect stack. Do not combine
 them with a direct `figma.effects` binding or an Effect style on the same node;
 use one source for that stack.
