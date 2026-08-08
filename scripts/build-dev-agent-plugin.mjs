@@ -1,6 +1,7 @@
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isDeepStrictEqual } from 'node:util'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const agentPluginRoot = join(root, 'agent-plugins/tempad-dev')
@@ -153,6 +154,7 @@ function readJson(path) {
 }
 
 function writeJson(path, value) {
+  if (existsSync(path) && isDeepStrictEqual(readJson(path), value)) return
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
 }

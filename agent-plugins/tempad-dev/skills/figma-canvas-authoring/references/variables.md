@@ -5,6 +5,14 @@ design-system extension that needs one. Do not extract tokens from an ordinary
 screen. New local resources do not require a catalog; use `catalogId` only when
 a nested `{ "ref": "…" }` deliberately reuses an existing catalog resource.
 
+## Contents
+
+- [Author variables](#author-variables)
+- [Bind and verify](#bind-and-verify)
+- [Update and remove](#update-and-remove)
+
+## Author variables
+
 Copy this complete recipe and change its design facts. Collection and variable
 authoring keys persist file-wide so later calls can recover the same resources;
 they are not Figma names or IDs. Before the first write, choose one
@@ -78,6 +86,8 @@ Use `STROKE_COLOR` for a stroke color; `ALL_STROKES` is not a valid scope.
 combined with `FRAME_FILL`, `SHAPE_FILL`, or `TEXT_FILL`; it may coexist with a
 non-fill color scope such as `STROKE_COLOR`.
 
+## Bind and verify
+
 `native[key].variables` binds variables by their file-wide authoring key. Use the exact supported
 field name, such as `fill`, `stroke`, `gap`, `paddingTop`, `width`, `visible`,
 `fontSize`, or `characters`. Keep the matching literal class when Figma needs
@@ -107,6 +117,8 @@ variable authored in the same call matches none of that variable's direct mode
 values, including values reached through same-call aliases. Align the literal
 fallback with a real mode or bind the variable that actually owns the value;
 otherwise the native binding silently changes the declared markup result.
+
+## Update and remove
 
 Omitted fields preserve managed resource state. A top-level `null` removes a
 managed variable, mode, or collection only when the user explicitly requires

@@ -2132,26 +2132,26 @@ export const ApplyCanvasParametersSchema = z
     variableCollections: z
       .record(CanvasStableKeySchema, z.unknown())
       .describe(
-        'Optional local variable collections, modes, and variables keyed by file-wide authoring identities. Choose one collision-resistant system prefix before the first write and reuse it across calls. This does not require catalogId; load the skill variables reference for exact scopes, binding closure, and the complete example.'
+        'Optional local variable collections, modes, and variables keyed by file-wide authoring identities. This does not require catalogId; use the canvas-authoring variables reference for the exact shape.'
       )
       .optional(),
     styles: z
       .record(CanvasStableKeySchema, z.unknown())
       .describe(
-        'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide authoring identities. This does not require catalogId; load the skill styles reference for binding closure and its complete example.'
+        'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide authoring identities. This does not require catalogId; use the canvas-authoring styles reference for the exact shape.'
       )
       .optional(),
     assets: z
       .record(CanvasStableKeySchema, z.unknown())
       .describe(
-        'Optional call-scoped SVG or content-addressed media assets. Declare an asset only after its source and medium are established. A content-image role cannot be replaced by agent-authored primitives or newly invented SVG unless the user or applicable visual evidence explicitly establishes vector illustration. Load the skill visual-assets reference before using it.'
+        'Optional call-scoped SVG or content-addressed image assets. Use the canvas-authoring visual-assets reference for accepted delivery forms.'
       )
       .optional(),
     removeKeys: CanvasRemoveKeysSchema.optional(),
     page: z
       .record(z.string(), z.unknown())
       .describe(
-        'Optional local page identity and desired state. Load the skill document-geometry reference before using it.'
+        'Optional local page identity and desired state. Use the canvas-authoring document-geometry reference for the exact shape.'
       )
       .optional()
   })

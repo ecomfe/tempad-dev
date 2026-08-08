@@ -134,7 +134,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_code',
     description:
-      'Read high-fidelity implementation evidence for nodeId or the current single selection as JSX/Vue markup, Tailwind-like classes, tokens, assets, and codegen facts. Start here for Figma-to-code and follow returned warnings when narrower reads are required.',
+      'Read high-fidelity Figma-to-code evidence for nodeId or the current single selection as JSX/Vue markup, classes, tokens, assets, codegen facts, and bounded warnings.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetCodeParametersSchema,
     target: 'extension',
@@ -143,7 +143,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_design_system',
     description:
-      "Read a bounded deterministic catalog only when canvas authoring is allowed to reuse the file's existing design system. Do not call after a user opt-out or merely to create new local resources. When used, start with no arguments; continue omitted definitions with catalogId plus cursor, or read one definition with catalogId plus ref. Reuse only returned tags, props, values, and refs.",
+      'Read a bounded deterministic catalog of accessible components, variables, styles, and shaders for permitted canvas reuse. Start without arguments; continue with catalogId plus cursor, or inspect one returned ref with catalogId plus ref.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetDesignSystemParametersSchema,
     target: 'extension',
@@ -152,7 +152,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'apply_canvas',
     description:
-      "Apply one declarative Canvas HTML desired result using primitives, optional catalog resources, and optional native Figma state. It works without get_design_system or catalogId; native bindings may instantiate exact live component ids returned by earlier canvas work. Create local variables, styles, or components only when explicitly requested, and follow the canvas-authoring skill's exact progressive reference instead of guessing shapes. Create adds and auto-positions one non-overlapping root; its transform translation is ignored. Update reconciles stable data-key identities inside targetNodeId, preserves omissions, and removes only explicit removeKeys. Requires MCP access and edit access; TemPad Dev validates, diffs, applies one undoable patch, and verifies it.",
+      'Create or update one native Figma root from declarative Canvas HTML plus optional catalog and native state. Create auto-positions a new root; update reconciles stable data-key identities, preserves omissions, and removes only explicit removeKeys. TemPad Dev validates, applies one undoable patch, and verifies it. Follow the canvas-authoring skill for workflow and opaque native shapes.',
     annotations: CANVAS_WRITE_ANNOTATIONS,
     parameters: ApplyCanvasParametersSchema,
     target: 'extension',
@@ -171,7 +171,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_screenshot',
     description:
-      'Capture one bounded rendered PNG for nodeId or the current single selection. Normally use one final check after a new composition or material visual change; skip routine text, token, prop, and hierarchy-only edits.',
+      'Capture one bounded rendered PNG for nodeId or the current single selection for visual inspection.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetScreenshotParametersSchema,
     target: 'extension',

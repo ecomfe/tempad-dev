@@ -4,6 +4,12 @@ Read this reference only when the user explicitly asks to create or supplement
 a design system. Do not enter this workflow for ordinary canvas composition,
 an empty file, or repeated visual elements alone.
 
+## Contents
+
+- [Establish the basis](#establish-the-basis)
+- [Model only demonstrated decisions](#model-only-demonstrated-decisions)
+- [Validate through use](#validate-through-use)
+
 ## Establish the basis
 
 Treat the user's requested scope as the boundary. Use permitted existing
