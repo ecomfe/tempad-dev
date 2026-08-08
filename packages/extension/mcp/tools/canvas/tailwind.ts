@@ -501,7 +501,11 @@ function assign<T extends keyof CanvasClasses>(
   token: string
 ): void {
   if (classes.assigned.has(field)) {
-    classError(`Class "${token}" conflicts with another ${field} class.`)
+    const hint =
+      field === 'fill'
+        ? ' Use one fill class per node; a label with a background needs a parent div and a child span for its text color.'
+        : ''
+    classError(`Class "${token}" conflicts with another ${field} class.${hint}`)
   }
   classes.assigned.add(field)
   classes[field] = value

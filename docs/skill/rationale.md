@@ -196,6 +196,10 @@ agent-authored primitives or SVG from silently substituting for an image role.
   language across otherwise unrelated capability references.
 - Run the skill validator, generate the development plugin, and forward-test
   consequential revisions with clean task-local context.
+- Count a forward test only when the live Figma tab runs the matching extension
+  bundle, the clean task loads the intended Skill and MCP build, and the host
+  can display the returned screenshot pixels. A resource link, shell crop, or
+  screenshot metadata alone is not visual inspection.
 
 ## Sources
 

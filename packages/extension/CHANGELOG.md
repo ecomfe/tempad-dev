@@ -60,6 +60,9 @@
   consumers, and made oversized or multi-root Canvas recovery point to one-root partial updates.
 - Kept authored-system closure outcome-based instead of prescribing resource counts or tool
   sequences, and made instance type mismatches explain partial-update preservation directly.
+- Made fill-conflict errors explain the Figma text/background boundary instead of leaving agents to
+  retry the same label markup, and clarified that authored-system closure covers independently
+  shared resource decisions without prescribing an inventory.
 
 ## 0.20.0
 

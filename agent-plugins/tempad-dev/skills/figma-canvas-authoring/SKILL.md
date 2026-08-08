@@ -128,6 +128,7 @@ Do not turn this workflow into repeated API-like mutations.
 ## Reference routing
 
 Load each reference only after its branch or capability is selected.
+Resolve every relative link from the directory containing this `SKILL.md`.
 
 Decision and evidence:
 
