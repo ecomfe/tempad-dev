@@ -1281,6 +1281,14 @@ describe('canvas markup', () => {
     expect(result.root.figma?.effects).toEqual(effects)
   })
 
+  it('explains how to separate a label background from its text fill', () => {
+    expect(() =>
+      parse(
+        '<span data-key="label" class="w-[96px] h-[32px] bg-[#E4D5B8] text-[#7B4A23]">Label</span>'
+      )
+    ).toThrow(/parent div and a child span/)
+  })
+
   it('compiles exact box and inset shadow utilities to native effects', () => {
     const result = parse(
       '<div data-key="root" class="w-[320px] h-[200px] shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_2px_4px_-2px_rgba(0,0,0,0.1)] inset-shadow-[0_1px_1px_rgba(0,0,0,0.05)]"></div>'
