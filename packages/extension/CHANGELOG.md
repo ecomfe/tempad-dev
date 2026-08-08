@@ -1,5 +1,8 @@
 # Changelog
 
+- Require an explicit Figma-tab choice when multiple MCP sessions appear or a new Hub connects,
+  preventing a stale tab route from silently receiving canvas writes.
+
 ## 0.21.0
 
 - Added native Figma canvas authoring through declarative `apply_canvas` results instead of

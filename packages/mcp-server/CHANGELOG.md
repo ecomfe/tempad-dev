@@ -1,5 +1,8 @@
 # Changelog
 
+- Clarified that the MCP badge, rather than browser foreground state, selects the Figma session
+  receiving tool calls.
+
 ## 0.8.0
 
 - Released declarative Figma canvas authoring as a stable MCP workflow.

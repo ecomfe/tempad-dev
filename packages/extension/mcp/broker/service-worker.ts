@@ -42,6 +42,7 @@ export type McpBrokerHubClient = Pick<
 >
 
 export class McpServiceWorkerBroker {
+  private connectedHubId: string | null = null
   private readonly hubClient: McpBrokerHubClient
   private readonly pendingToolCalls = new Map<string, string>()
   private readonly portSessions = new WeakMap<McpBrokerPort, string>()
@@ -51,7 +52,7 @@ export class McpServiceWorkerBroker {
     this.hubClient =
       hubClient ??
       new McpHubClient({
-        onSnapshot: () => this.broadcastState(),
+        onSnapshot: (snapshot) => this.handleHubSnapshot(snapshot),
         onToolCall: (message) => this.routeToolCall(message)
       })
   }
@@ -251,6 +252,14 @@ export class McpServiceWorkerBroker {
     const sessionId = this.portSessions.get(port)
     if (!sessionId) return
     this.disableSession(port, sessionId)
+  }
+
+  private handleHubSnapshot(snapshot: ReturnType<McpBrokerHubClient['getSnapshot']>): void {
+    if (snapshot.registeredId && snapshot.registeredId !== this.connectedHubId) {
+      this.sessions.resetActive()
+    }
+    this.connectedHubId = snapshot.registeredId
+    this.broadcastState()
   }
 
   private routeToolCall(message: ToolCallMessage): void {

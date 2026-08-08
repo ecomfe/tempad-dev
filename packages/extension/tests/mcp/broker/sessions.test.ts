@@ -21,16 +21,38 @@ describe('mcp/broker/sessions', () => {
     expect(registry.getActive()?.sessionId).toBe('session-a')
   })
 
-  it('keeps explicit active session across multiple sessions', () => {
+  it('requires explicit activation when another session introduces ambiguity', () => {
     const registry = new McpSessionRegistry()
 
     registry.register({ port: createPort(), sessionId: 'session-a' })
     registry.register({ port: createPort(), sessionId: 'session-b' })
 
-    expect(registry.getActiveId()).toBe('session-a')
+    expect(registry.getActiveId()).toBeNull()
     expect(registry.activate('session-b')).toBe(true)
     expect(registry.getActiveId()).toBe('session-b')
     expect(registry.activate('missing')).toBe(false)
+  })
+
+  it('preserves activation when the same session replaces its port', () => {
+    const registry = new McpSessionRegistry()
+
+    registry.register({ port: createPort(), sessionId: 'session-a' })
+    registry.register({ port: createPort(), sessionId: 'session-a' })
+
+    expect(registry.getActiveId()).toBe('session-a')
+  })
+
+  it('resets ambiguous routing while retaining a sole session', () => {
+    const registry = new McpSessionRegistry()
+
+    registry.register({ port: createPort(), sessionId: 'session-a' })
+    registry.resetActive()
+    expect(registry.getActiveId()).toBe('session-a')
+
+    registry.register({ port: createPort(), sessionId: 'session-b' })
+    registry.activate('session-b')
+    registry.resetActive()
+    expect(registry.getActiveId()).toBeNull()
   })
 
   it('recomputes active session after unregister', () => {
@@ -38,6 +60,7 @@ describe('mcp/broker/sessions', () => {
 
     registry.register({ port: createPort(), sessionId: 'session-a' })
     registry.register({ port: createPort(), sessionId: 'session-b' })
+    registry.activate('session-a')
     registry.unregister('session-a')
 
     expect(registry.getActiveId()).toBe('session-b')

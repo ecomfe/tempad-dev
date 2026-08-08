@@ -108,8 +108,7 @@ const KNOWN_ERROR_CODES = new Set<string>(Object.values(TEMPAD_MCP_ERROR_CODES))
 const CONNECTIVITY_TROUBLESHOOTING_LINES = [
   'Troubleshooting:',
   '- In Figma, open TemPad Dev panel and enable the MCP server in Preferences → Agent integration.',
-  '- If multiple Figma tabs are open, click the MCP badge to activate this tab.',
-  '- Keep the Figma tab active/foreground while using the MCP server.'
+  "- If multiple Figma tabs are open, click the intended tab's MCP badge; foregrounding it alone does not activate it."
 ]
 
 const SELECTION_TROUBLESHOOTING_LINE = 'Tip: Select exactly one visible node, or pass nodeId.'
