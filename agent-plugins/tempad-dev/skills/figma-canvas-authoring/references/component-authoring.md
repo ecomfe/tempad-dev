@@ -49,6 +49,14 @@ unless the call changes component metadata or properties.
 Copy a complete recipe and change its design facts. Do not infer TemPad's
 component shape from raw Plugin API calls.
 
+## Contents
+
+- [Define the contract from real usages](#define-the-contract-from-real-usages)
+- [Component and properties](#component-and-properties)
+- [Consume an authored component directly](#consume-an-authored-component-directly)
+- [Variant set](#variant-set)
+- [Slots and instances](#slots-and-instances)
+
 ## Define the contract from real usages
 
 Before creating a definition, compare every intended usage and separate stable

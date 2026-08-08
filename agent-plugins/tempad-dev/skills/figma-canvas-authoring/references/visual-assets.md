@@ -26,6 +26,12 @@ silently change an asset's subject, style, or medium because another route is
 easier to import. If a required source cannot be delivered faithfully, report
 the limitation instead of disguising a substitute as intent.
 
+## Contents
+
+- [Icons](#icons)
+- [Typefaces](#typefaces)
+- [Images and illustrations](#images-and-illustrations)
+
 ## Icons
 
 Use an applicable current-file, catalog, project, or user-supplied source when
