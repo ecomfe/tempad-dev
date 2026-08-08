@@ -30,7 +30,16 @@ export class McpSessionRegistry {
   }
 
   register(session: McpBrokerSession): void {
+    const isNew = !this.sessions.has(session.sessionId)
     this.sessions.set(session.sessionId, session)
+    if (isNew && this.sessions.size > 1) {
+      this.activeSessionId = null
+    }
+    this.autoActivateSoleSession()
+  }
+
+  resetActive(): void {
+    this.activeSessionId = null
     this.autoActivateSoleSession()
   }
 

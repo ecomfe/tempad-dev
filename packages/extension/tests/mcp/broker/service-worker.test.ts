@@ -23,6 +23,7 @@ const ASSET_HASH = '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011c
 
 type Listener<T> = (payload: T) => void
 type BrokerInternals = {
+  handleHubSnapshot: (snapshot: ReturnType<McpBrokerHubClient['getSnapshot']>) => void
   handlePermissionMessage: (type: McpPermissionMessageType) => Promise<{ granted: boolean }>
   routeToolCall: (message: ToolCallMessage) => void
 }
@@ -281,6 +282,43 @@ describe('mcp/broker/service-worker', () => {
     snapshot.activeId = 'gateway-1'
     session.message(pageMessage('mcp.activateSession'))
     expect(hubClient.sendActivate).toHaveBeenCalledTimes(1)
+  })
+
+  it('requires a new explicit tab choice when a hub reconnects with multiple sessions', () => {
+    const snapshot: Partial<ReturnType<McpBrokerHubClient['getSnapshot']>> = {
+      activeId: 'gateway-1',
+      registeredId: 'gateway-1',
+      status: 'connected'
+    }
+    const hubClient = createHubClient(snapshot)
+    const broker = new McpServiceWorkerBroker(hubClient)
+    const internals = broker as unknown as BrokerInternals
+    const first = createPort('https://www.figma.com/design/abc/File')
+    const second = createPort('https://www.figma.com/design/def/File')
+
+    broker.handlePort(first.port)
+    first.message(pageMessage('mcp.enable', 'session-a'))
+    broker.handlePort(second.port)
+    second.message(pageMessage('mcp.enable', 'session-b'))
+    second.message(pageMessage('mcp.activateSession', 'session-b'))
+
+    snapshot.activeId = 'gateway-2'
+    snapshot.registeredId = 'gateway-2'
+    internals.handleHubSnapshot(hubClient.getSnapshot())
+    internals.routeToolCall({
+      id: 'call-after-reconnect',
+      payload: { args: undefined, name: 'get_code' },
+      type: 'toolCall'
+    })
+
+    expect(hubClient.sendToolResult).toHaveBeenLastCalledWith({
+      error: {
+        code: TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION,
+        message: 'No active TemPad Dev Figma session available.'
+      },
+      id: 'call-after-reconnect',
+      type: 'toolResult'
+    })
   })
 
   it('ignores session control messages from ports that do not own the session', () => {
