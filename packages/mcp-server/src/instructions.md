@@ -1,4 +1,5 @@
-You are connected to the current Figma file through TemPad Dev MCP.
+You are connected to the Figma session selected by the TemPad Dev MCP badge. With multiple Figma
+tabs, foregrounding a tab does not select it; the intended tab's badge must be active.
 
 Treat tool outputs as file-scoped facts. Never invent node IDs, resource refs, library keys, token
 origins, or design-system intent. Respect the user's scope and resource constraints.

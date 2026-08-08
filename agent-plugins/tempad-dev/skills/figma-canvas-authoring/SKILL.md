@@ -21,8 +21,8 @@ platform, accessibility, content, and visual-design requirements from the user,
 permitted evidence, an applicable skill, or targeted research. Examples explain
 mechanics only.
 
-Require the intended Figma tab to have MCP access and the current Figma Design
-file to be editable. Never bypass that boundary or emit raw Plugin API
+Require the intended Figma tab's MCP badge to be active and the current Figma
+Design file to be editable. Never bypass that boundary or emit raw Plugin API
 operations.
 
 ## Authority and quality
