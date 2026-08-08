@@ -6,6 +6,7 @@ const SKILLS_SOURCE_URL =
 const DESIGN_TO_CODE_SKILL_URL = `${SKILLS_SOURCE_URL}/figma-design-to-code`
 const CANVAS_AUTHORING_SKILL_URL = `${SKILLS_SOURCE_URL}/figma-canvas-authoring`
 const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill figma-design-to-code figma-canvas-authoring`
+const PLUGIN_INSTALL_COMMAND = 'npx plugins add ecomfe/tempad-dev'
 
 function restoreBtoa() {
   if (originalBtoa) {
@@ -46,6 +47,7 @@ describe('shared/mcp/install', () => {
       }
     })
     expect(mcp.AGENT_SKILLS_INSTALL_COMMAND).toBe(SKILLS_INSTALL_COMMAND)
+    expect(mcp.AGENT_PLUGIN_INSTALL_COMMAND).toBe(PLUGIN_INSTALL_COMMAND)
 
     const vscodeDeepLink = mcp.MCP_CLIENTS_BY_ID.vscode.deepLink
     expect(vscodeDeepLink).toMatch(/^vscode:mcp\/install\?/)
@@ -129,26 +131,28 @@ describe('shared/mcp/install', () => {
         id: 'plugin-cli',
         label: 'Plugin CLI',
         kind: 'command',
-        value: expect.stringContaining('codex plugin marketplace add ecomfe/tempad-dev')
+        value: `${PLUGIN_INSTALL_COMMAND} --target codex`
       })
     ])
     const codexPluginPrompt = decodeURIComponent(codex.actions[0]?.value ?? '')
-    expect(codexPluginPrompt).toContain('codex plugin add tempad-dev@tempad-dev')
+    expect(codexPluginPrompt).toContain(`${PLUGIN_INSTALL_COMMAND} --target codex`)
     expect(codexPluginPrompt).toContain('figma-design-to-code')
     expect(codexPluginPrompt).toContain('figma-canvas-authoring')
 
     const claude = mcp.AGENT_INTEGRATIONS_BY_ID.claude
     expect(claude.actions[0]?.value).toMatch(/^claude-cli:\/\/open\?q=/)
     const claudePluginPrompt = decodeURIComponent(claude.actions[0]?.value ?? '')
-    expect(claudePluginPrompt).toContain('claude plugin install tempad-dev@tempad-dev')
+    expect(claudePluginPrompt).toContain(`${PLUGIN_INSTALL_COMMAND} --target claude-code`)
     expect(claudePluginPrompt).toContain('figma-canvas-authoring')
 
     const cursor = mcp.AGENT_INTEGRATIONS_BY_ID.cursor
-    expect(JSON.parse(cursor.actions[1]?.value ?? '')).toHaveProperty(
-      'mcpServers.tempad-dev.command',
-      'npx'
-    )
-    expect(cursor.actions.map(({ id }) => id)).toEqual(['mcp-deep-link', 'mcp-config', 'skill-cli'])
+    expect(cursor.actions).toEqual([
+      expect.objectContaining({
+        id: 'plugin-cli',
+        kind: 'command',
+        value: `${PLUGIN_INSTALL_COMMAND} --target cursor`
+      })
+    ])
 
     const gemini = mcp.AGENT_INTEGRATIONS_BY_ID.gemini
     expect(gemini.actions.map(({ id }) => id)).toEqual([
@@ -161,9 +165,13 @@ describe('shared/mcp/install', () => {
     expect(gemini.actions[2]?.value).toBe(`gemini skills install ${CANVAS_AUTHORING_SKILL_URL}`)
 
     const vscode = mcp.AGENT_INTEGRATIONS_BY_ID.vscode
-    expect(vscode.actions.map(({ id }) => id)).toEqual(['mcp-deep-link', 'mcp-cli', 'skill-cli'])
-    expect(vscode.actions[1]?.value).toContain('code --add-mcp')
-    expect(vscode.actions[2]?.value).toContain('--global --agent github-copilot')
+    expect(vscode.actions).toEqual([
+      expect.objectContaining({
+        id: 'plugin-cli',
+        kind: 'command',
+        value: `${PLUGIN_INSTALL_COMMAND} --target vscode`
+      })
+    ])
 
     const opencode = mcp.AGENT_INTEGRATIONS_BY_ID.opencode
     expect(opencode.actions.map(({ id }) => id)).toEqual(['mcp-config', 'skill-cli'])
@@ -179,8 +187,6 @@ describe('shared/mcp/install', () => {
       })
     )
     for (const [id, agent] of [
-      ['cursor', 'cursor'],
-      ['vscode', 'github-copilot'],
       ['opencode', 'opencode'],
       ['trae', 'trae']
     ] as const) {

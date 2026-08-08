@@ -282,6 +282,7 @@ function normalizeCatalogElement(
     tag: 'div',
     text: '',
     children: [],
+    lineBreakOffsets: [],
     attributes: {
       'data-key': key,
       ...(element.attributes['data-node-id']
@@ -299,8 +300,20 @@ function hasText(value: string): boolean {
   return /[^\t\n\f\r ]/.test(value)
 }
 
-function textContent(value: string, preserve: boolean): string {
-  return preserve ? value : value.replace(/[\t\n\f\r ]+/g, ' ').trim()
+function textContent(value: string, preserve: boolean, lineBreakOffsets: number[]): string {
+  const normalize = preserve
+    ? (segment: string) => segment
+    : (segment: string) => segment.replace(/[\t\n\f\r ]+/g, ' ').trim()
+  if (!lineBreakOffsets.length) return normalize(value)
+
+  let start = 0
+  const segments = lineBreakOffsets.map((offset) => {
+    const segment = normalize(value.slice(start, offset))
+    start = offset
+    return segment
+  })
+  segments.push(normalize(value.slice(start)))
+  return segments.join('\n')
 }
 
 function textAutoResize(
@@ -505,6 +518,33 @@ function validateEffects(
   }
 }
 
+function applyClassEffects(
+  key: string,
+  type: CanvasNodeSpec['type'],
+  binding: CanvasBinding | undefined,
+  classes: CanvasClasses
+): CanvasBinding | undefined {
+  const hasBoxShadows = classes.boxShadows !== undefined || classes.insetShadows !== undefined
+  const hasTextShadows = classes.textShadows !== undefined
+  if (!hasBoxShadows && !hasTextShadows) return binding
+  if (type === 'TEXT' ? hasBoxShadows : hasTextShadows) {
+    markupError(
+      `${type === 'TEXT' ? 'Box' : 'Text'} shadow classes are not supported on ${type} node "${key}".`
+    )
+  }
+  if (binding?.figma?.effects !== undefined) {
+    markupError(`Shadow classes and direct effects cannot be combined on "${key}".`)
+  }
+  if (binding?.styles?.effect) {
+    markupError(`Shadow classes and an effect style cannot be combined on "${key}".`)
+  }
+  const effects =
+    type === 'TEXT'
+      ? classes.textShadows!
+      : [...(classes.boxShadows ?? []), ...(classes.insetShadows ?? [])]
+  return { ...binding, figma: { ...binding?.figma, effects } }
+}
+
 function validatePaints(
   key: string,
   type: CanvasNodeSpec['type'],
@@ -682,6 +722,57 @@ function validateSizeBounds(
   }
 }
 
+function hasStrokePaint(binding: CanvasBinding | undefined, classes: CanvasClasses): boolean {
+  if (binding?.figma?.strokes !== undefined) return binding.figma.strokes.length > 0
+  return (
+    classes.stroke !== undefined ||
+    binding?.styles?.stroke != null ||
+    binding?.variables?.stroke != null
+  )
+}
+
+function includedStrokeSize(
+  axis: 'height' | 'width',
+  binding: CanvasBinding | undefined,
+  classes: CanvasClasses
+): number {
+  if (
+    classes.strokesIncluded === false ||
+    binding?.figma?.stroke?.align !== 'INSIDE' ||
+    !hasStrokePaint(binding, classes)
+  ) {
+    return 0
+  }
+  const appearance = strokeAppearance(binding, classes, true)
+  if (appearance.strokeWeight !== undefined) return appearance.strokeWeight * 2
+  return axis === 'width'
+    ? (appearance.strokeLeftWeight ?? 0) + (appearance.strokeRightWeight ?? 0)
+    : (appearance.strokeTopWeight ?? 0) + (appearance.strokeBottomWeight ?? 0)
+}
+
+function validateNewAutoLayoutMinimum(
+  key: string,
+  binding: CanvasBinding | undefined,
+  classes: CanvasClasses
+): void {
+  for (const [axis, start, end] of [
+    ['width', 'left', 'right'],
+    ['height', 'top', 'bottom']
+  ] as const) {
+    const size = classes[axis]!
+    if (size.mode !== 'FIXED' || size.value === undefined) continue
+    const minimum =
+      (classes.padding[start] ?? 0) +
+      (classes.padding[end] ?? 0) +
+      includedStrokeSize(axis, binding, classes)
+    if (size.value < minimum) {
+      markupError(
+        `${axis} on new Auto Layout "${key}" must be at least ${minimum}px to fit its padding and included inside stroke.`
+      )
+    }
+  }
+}
+
 type GridPlacement = {
   columns: number
   rows: number
@@ -843,7 +934,9 @@ function compileElement(
 ): CanvasNodeSpec {
   state.count += 1
   if (state.count > MAX_CANVAS_NODES) {
-    markupError(`Canvas markup may contain at most ${MAX_CANVAS_NODES} elements.`)
+    markupError(
+      `Canvas markup contains more than ${MAX_CANVAS_NODES} elements. Keep one root and split the update at a meaningful screen or section boundary; omitted siblings are preserved.`
+    )
   }
   if (depth > MAX_CANVAS_DEPTH) {
     markupError(`Canvas markup may be at most ${MAX_CANVAS_DEPTH} levels deep.`)
@@ -872,15 +965,18 @@ function compileElement(
     markupError(`Element "${key}" cannot combine gap-[Npx] with gap-x/y-[Npx].`)
   }
 
-  const binding = state.bindings[key]
+  const declaredBinding = state.bindings[key]
+  const type = nodeType(element, declaredBinding)
+  const binding = applyClassEffects(key, type, declaredBinding, classes)
   const shapeType = binding?.figma?.shape?.type
-  const type = nodeType(element, binding)
   const nativeStroke = binding?.figma?.stroke
   const nativeCorners = binding?.figma?.corners
   const hasStrokeClasses = classes.strokeWeight !== undefined || hasFields(classes.strokeWeights)
   const hasCornerClasses = classes.cornerRadius !== undefined || hasFields(classes.cornerRadii)
   const characters =
-    element.tag === 'span' ? textContent(element.text, !!classes.preserveWhitespace) : ''
+    element.tag === 'span'
+      ? textContent(element.text, !!classes.preserveWhitespace, element.lineBreakOffsets)
+      : ''
 
   if ((nativeStroke?.weight !== undefined || nativeStroke?.weights) && hasStrokeClasses) {
     markupError(`Stroke weights on "${key}" cannot use both classes and Figma properties.`)
@@ -960,6 +1056,7 @@ function compileElement(
     markupError(`SVG wrapper "${key}" cannot define an internal layout.`)
   }
   if (
+    state.mode === 'create' &&
     (isFrameContainerType(type) || type === 'SECTION' || hasShapeAppearance(type)) &&
     !binding?.styles?.stroke &&
     binding?.figma?.strokes === undefined &&
@@ -1228,10 +1325,18 @@ function compileElement(
     if (classes.absolute) markupError('Canvas markup root cannot use absolute positioning.')
   } else if (!classes.absolute) {
     if (classes.width.mode === 'FILL' && parentMode !== 'VERTICAL' && parentMode !== 'GRID') {
-      markupError(`w-full on "${key}" requires a flex-col parent; use grow on a row main axis.`)
+      markupError(
+        parentMode === 'NONE'
+          ? `w-full on "${key}" cannot resolve in a freeform parent; add flex-col or grid to the parent, or use a fixed width with absolute offsets or a relative transform.`
+          : `w-full on "${key}" requires a flex-col parent; use grow on a row main axis.`
+      )
     }
     if (classes.height.mode === 'FILL' && parentMode !== 'HORIZONTAL' && parentMode !== 'GRID') {
-      markupError(`h-full on "${key}" requires a flex-row parent; use grow on a column main axis.`)
+      markupError(
+        parentMode === 'NONE'
+          ? `h-full on "${key}" cannot resolve in a freeform parent; add flex-row or grid to the parent, or use a fixed height with absolute offsets or a relative transform.`
+          : `h-full on "${key}" requires a flex-row parent; use grow on a column main axis.`
+      )
     }
     if (classes.grow && parentMode === 'GRID') {
       markupError(`grow on "${key}" is not supported in grid; use w-full or h-full.`)
@@ -1284,6 +1389,9 @@ function compileElement(
   }
   validateSizeBounds(key, 'width', classes.width, classes.minWidth, classes.maxWidth)
   validateSizeBounds(key, 'height', classes.height, classes.minHeight, classes.maxHeight)
+  if (state.mode === 'create' && isFrameContainerType(type) && (classes.flex || classes.grid)) {
+    validateNewAutoLayoutMinimum(key, binding, classes)
+  }
 
   validatePaints(key, type, binding, classes)
   validateVariables(key, type, binding, classes)
@@ -1469,7 +1577,7 @@ function compileElement(
             ? { itemsPositioning: classes.gridFlow ?? ('MANUAL' as const) }
             : {}),
           ...(classes.strokesIncluded !== undefined || includeDefaults
-            ? { strokesIncluded: classes.strokesIncluded ?? false }
+            ? { strokesIncluded: classes.strokesIncluded ?? true }
             : {})
         }
       : classes.flex
@@ -1498,7 +1606,7 @@ function compileElement(
               ? { wrap: classes.wrap ?? ('NO_WRAP' as const) }
               : {}),
             ...(classes.strokesIncluded !== undefined || includeDefaults
-              ? { strokesIncluded: classes.strokesIncluded ?? false }
+              ? { strokesIncluded: classes.strokesIncluded ?? true }
               : {})
           }
         : ({ mode: 'NONE' } as const)

@@ -9,7 +9,7 @@ import { ApplyCanvasParametersSchema, TEMPAD_MCP_ERROR_CODES } from '@tempad-dev
 import type { DesignSystemCatalog } from '../design-system-catalog'
 
 import { createCodedError } from '../../errors'
-import { formatSchemaError, specError } from './errors'
+import { errorMessage, formatSchemaError, specError } from './errors'
 import { parseCanvasMarkup } from './markup'
 import { reconcileCanvas } from './reconcile'
 import { resolveCanvasInput } from './resolve'
@@ -20,7 +20,7 @@ function parseSpec<Result>(parse: () => Result, fallback = 'Canvas input is inva
   try {
     return parse()
   } catch (error) {
-    specError(typeof error === 'string' ? error : error instanceof Error ? error.message : fallback)
+    specError(errorMessage(error, fallback))
   }
 }
 
@@ -55,7 +55,7 @@ export async function applyResolvedCanvas(
     if (error instanceof Error && 'code' in error) throw error
     throw createCodedError(
       TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
-      error instanceof Error ? error.message : 'Canvas apply failed.'
+      errorMessage(error, 'Canvas apply failed.')
     )
   } finally {
     applyInProgress = false

@@ -1,6 +1,7 @@
 export {
   AGENT_INTEGRATIONS,
   AGENT_INTEGRATIONS_BY_ID,
+  AGENT_PLUGIN_INSTALL_COMMAND,
   AGENT_SKILLS_INSTALL_COMMAND,
   getMcpClientCopyPayload,
   getNextMcpClientCopyVariant,

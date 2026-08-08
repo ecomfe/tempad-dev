@@ -1,3 +1,5 @@
+import type { CanvasFigmaEffect } from '@tempad-dev/shared'
+
 import {
   TAILWIND_ALIGN_ITEMS,
   TAILWIND_FONT_WEIGHTS,
@@ -167,6 +169,19 @@ const TEXT_DECORATIONS = {
   underline: 'UNDERLINE',
   'line-through': 'STRIKETHROUGH'
 } as const
+type CanvasShadowEffect = Extract<CanvasFigmaEffect, { type: 'DROP_SHADOW' | 'INNER_SHADOW' }>
+
+const SHADOW_FAMILIES = {
+  shadow: { field: 'boxShadows', options: {} },
+  'inset-shadow': {
+    field: 'insetShadows',
+    options: { type: 'INNER_SHADOW' as const }
+  },
+  'text-shadow': {
+    field: 'textShadows',
+    options: { type: 'DROP_SHADOW' as const, text: true }
+  }
+} as const
 
 function classValues(values: Record<string, string>, prefix = ''): Record<string, string> {
   return Object.fromEntries(
@@ -229,6 +244,9 @@ export type CanvasClasses = {
   visible?: boolean
   blendMode?: BlendMode
   rotation?: number
+  boxShadows?: CanvasShadowEffect[]
+  insetShadows?: CanvasShadowEffect[]
+  textShadows?: CanvasShadowEffect[]
   fontFamily?: string
   fontStyle?: string
   fontSize?: number
@@ -299,6 +317,131 @@ function color(raw: string): `#${string}` | null {
   if (raw === 'black') return '#000000'
   const arbitrary = /^\[(#(?:[\dA-Fa-f]{3}|[\dA-Fa-f]{4}|[\dA-Fa-f]{6}|[\dA-Fa-f]{8}))\]$/.exec(raw)
   return (arbitrary?.[1] as `#${string}` | undefined) ?? null
+}
+
+function splitShadowValue(value: string, separator: ',' | ' '): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let start = 0
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!
+    if (character === '(') depth += 1
+    else if (character === ')') depth -= 1
+    else if (depth === 0 && (separator === ',' ? character === ',' : /\s/.test(character))) {
+      const part = value.slice(start, index).trim()
+      if (part) parts.push(part)
+      start = index + 1
+    }
+  }
+  const part = value.slice(start).trim()
+  if (part) parts.push(part)
+  return parts
+}
+
+function cssChannel(raw: string): number | null {
+  const percentage = /^(\d+(?:\.\d+)?|\.\d+)%$/.exec(raw)
+  const value = percentage ? Number(percentage[1]) / 100 : Number(raw) / 255
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : null
+}
+
+function cssAlpha(raw: string): number | null {
+  const percentage = /^(\d+(?:\.\d+)?|\.\d+)%$/.exec(raw)
+  const value = percentage ? Number(percentage[1]) / 100 : Number(raw)
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : null
+}
+
+function cssColor(raw: string): RGBA | null {
+  if (raw === 'black') return { r: 0, g: 0, b: 0, a: 1 }
+  if (raw === 'white') return { r: 1, g: 1, b: 1, a: 1 }
+  if (raw === 'transparent') return { r: 0, g: 0, b: 0, a: 0 }
+
+  const hex = /^#([\dA-Fa-f]{3}|[\dA-Fa-f]{4}|[\dA-Fa-f]{6}|[\dA-Fa-f]{8})$/.exec(raw)
+  if (hex) {
+    const compact = hex[1]!
+    const expanded =
+      compact.length < 6 ? [...compact].map((character) => character.repeat(2)).join('') : compact
+    return {
+      r: Number.parseInt(expanded.slice(0, 2), 16) / 255,
+      g: Number.parseInt(expanded.slice(2, 4), 16) / 255,
+      b: Number.parseInt(expanded.slice(4, 6), 16) / 255,
+      a: expanded.length === 8 ? Number.parseInt(expanded.slice(6, 8), 16) / 255 : 1
+    }
+  }
+
+  const functional = /^rgba?\((.*)\)$/.exec(raw)
+  if (!functional) return null
+  const body = functional[1]!.trim()
+  let channels: string[]
+  let alpha = '1'
+  if (body.includes(',')) {
+    const parts = body.split(',').map((part) => part.trim())
+    if (parts.length !== 3 && parts.length !== 4) return null
+    channels = parts.slice(0, 3)
+    alpha = parts[3] ?? alpha
+  } else {
+    const [channelValue, alphaValue, ...rest] = body.split('/').map((part) => part.trim())
+    if (rest.length || !channelValue || (!alphaValue && body.includes('/'))) return null
+    channels = channelValue.split(/\s+/)
+    alpha = alphaValue ?? alpha
+  }
+  if (channels.length !== 3) return null
+  const r = cssChannel(channels[0]!)
+  const g = cssChannel(channels[1]!)
+  const b = cssChannel(channels[2]!)
+  const a = cssAlpha(alpha)
+  return r === null || g === null || b === null || a === null ? null : { r, g, b, a }
+}
+
+function shadowLength(raw: string): number | null {
+  if (/^-?0(?:\.0+)?$/.test(raw)) return 0
+  const match = /^(-?(?:\d+(?:\.\d+)?|\.\d+))px$/.exec(raw)
+  return match ? Number(match[1]) : null
+}
+
+function parseShadowEffects(
+  raw: string,
+  token: string,
+  options: { type?: CanvasShadowEffect['type']; text?: boolean } = {}
+): CanvasShadowEffect[] {
+  const layers = splitShadowValue(raw.replaceAll('_', ' '), ',')
+  if (!layers.length) classError(`Invalid shadow class "${token}".`)
+  return layers.map((layer) => {
+    const values: number[] = []
+    let color: RGBA | undefined
+    let inset = false
+    for (const part of splitShadowValue(layer, ' ')) {
+      if (part === 'inset') {
+        if (options.text || inset || options.type === 'DROP_SHADOW') {
+          classError(`Invalid shadow class "${token}".`)
+        }
+        inset = true
+        continue
+      }
+      const parsedColor = cssColor(part)
+      if (parsedColor) {
+        if (color) classError(`Shadow class "${token}" has more than one color per layer.`)
+        color = parsedColor
+        continue
+      }
+      const length = shadowLength(part)
+      if (length === null) classError(`Invalid shadow value "${part}" in class "${token}".`)
+      values.push(length)
+    }
+
+    const maximum = options.text ? 3 : 4
+    if (values.length < 2 || values.length > maximum || !color || (values[2] ?? 0) < 0) {
+      classError(
+        `Shadow class "${token}" requires a color and ${options.text ? 'two or three' : 'two to four'} px lengths per layer.`
+      )
+    }
+    return {
+      type: options.type ?? (inset ? 'INNER_SHADOW' : 'DROP_SHADOW'),
+      color,
+      offset: { x: values[0]!, y: values[1]! },
+      radius: values[2] ?? 0,
+      ...(values[3] === undefined ? {} : { spread: values[3] })
+    } as CanvasShadowEffect
+  })
 }
 
 function lineHeight(raw: string, token: string): LineHeight | null {
@@ -711,6 +854,19 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       if (numeric > 1) classError(`Opacity class "${token}" must be between 0 and 1.`)
       assign(classes, 'opacity', numeric, token)
       continue
+    }
+
+    const shadow = /^(shadow|inset-shadow|text-shadow)-(?:\[(.+)\]|none)$/.exec(token)
+    if (shadow) {
+      const family = SHADOW_FAMILIES[shadow[1] as keyof typeof SHADOW_FAMILIES]
+      const effects = shadow[2] ? parseShadowEffects(shadow[2], token, family.options) : []
+      assign(classes, family.field, effects, token)
+      continue
+    }
+    if (/^(?:shadow|inset-shadow|text-shadow)-/.test(token)) {
+      classError(
+        `Shadow class "${token}" needs an exact bracketed value or "none"; use a native effect style or binding for a reusable token.`
+      )
     }
 
     if (token === 'font-sans') {

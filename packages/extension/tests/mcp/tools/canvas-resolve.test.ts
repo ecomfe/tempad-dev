@@ -175,6 +175,31 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
     expect(() => resolveCanvasInput(input)).toThrow(/STROKE_COLOR.*PARAGRAPH_INDENT/)
   })
 
+  it('rejects mutually exclusive variable scopes during input resolution', () => {
+    const input = ApplyCanvasParametersSchema.parse({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+      variableCollections: {
+        theme: {
+          name: 'Theme',
+          modes: { light: { name: 'Light' } },
+          variables: {
+            surface: {
+              name: 'Color/Surface',
+              type: 'COLOR',
+              scopes: ['ALL_FILLS', 'TEXT_FILL'],
+              values: { light: { r: 1, g: 1, b: 1 } }
+            }
+          }
+        }
+      }
+    })
+
+    expect(() => resolveCanvasInput(input)).toThrow(
+      /ALL_FILLS cannot be combined with FRAME_FILL, SHAPE_FILL, or TEXT_FILL/
+    )
+  })
+
   it('resolves short refs and compiles catalog tags into native instances', () => {
     const designSystem = catalog()
     const input = ApplyCanvasParametersSchema.parse({

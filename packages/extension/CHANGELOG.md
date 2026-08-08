@@ -14,14 +14,52 @@
   inline SVG, and local PNG/JPEG/GIF assets.
 - Added deterministic non-overlapping placement for independent creates, bounded read-only
   screenshot validation, and compact field-level error feedback.
-- Added the `figma-canvas-authoring` skill to the Codex and Claude plugins and standalone agent
-  setup, alongside the existing `figma-design-to-code` skill.
+- Added the `figma-canvas-authoring` skill to the portable Agent Plugin, compatibility packages,
+  and standalone agent setup, alongside the existing `figma-design-to-code` skill.
+- Made the Agent Plugins 1.0 package the primary installation and packaging source for compatible
+  agents, while retaining native manifests and direct MCP plus skill setup as compatibility paths.
 - Restricted canvas writes to editable Figma Design files and stabilized Auto Layout verification
   after text reflow and native Figma setter updates.
 - Fixed freshly authored component instances inheriting the definition's managed identity, added
   rollback survivor checks, isolated failed-attempt Undo from preceding successful applies, guarded
   unrelated page roots against rollback corruption, and documented file-wide resource keys plus
   canvas size and variable-scope constraints.
+- Fixed exact variant and component-set instance creation, preserved authored root types on partial
+  component updates, ignored stale removed-node lookups, and limited Auto Layout sizing setters to
+  native contexts that support them.
+- Tightened visual-evidence, asset-medium, component-coverage, and screenshot-inspection guidance,
+  and normalized plain `<br>` elements inside span text to native line breaks.
+- Rejected mutually exclusive variable scopes before mutation, disallowed agent-authored primitive
+  or SVG substitutions for content-image roles, and moved asset-medium, screenshot, and file-wide
+  namespace checks closer to their authoring actions.
+- Fixed deletion of managed SVG wrappers and their opaque imported descendants, avoided reloading
+  the already accessible current page during removal checks, and preserved native Figma error text
+  even when the runtime throws a cross-realm error object.
+- Clarified fill-sized child errors in freeform Canvas HTML parents so recovery points directly to
+  the missing parent layout mode and its valid alternatives.
+- Identified unresolved variable references by their exact authoring, native, or library key so
+  cross-call token bindings expose typos directly.
+- Warned when a same-call variable binding silently overrides a literal fallback that matches none
+  of the variable's direct mode values, including locally authored aliases.
+- Reused the non-variant component-property capability check during variable-removal scans so files
+  containing component-set variants no longer fail unrelated token cleanup.
+- Clarified component closure so expressible state differences strengthen a shared contract when
+  stable anatomy should evolve together, without turning repetition into a component threshold.
+- Documented direct component-set consumption and variant selection so authored state contracts can
+  be instantiated without falling back to local copies.
+- Kept fixed text sizing stable when Figma normalizes auto-resize during truncation updates.
+- Clarified that a representative token binding proves connectivity but does not close an intended
+  shared semantic role whose coordinated consumers remain literal.
+- Required fetched SVG inputs to be checked as actual SVG content before declaration, avoiding
+  recoverable Canvas failures caused by CDN error bodies saved under icon filenames.
+- Tightened authored-system closure so a retained local rationale addresses the strongest component
+  candidate actually reviewed, while material typography and layout roles are evaluated independently.
+- Required generated imagery to have a confirmed Canvas import route before generation, and made
+  clipped text glyphs an explicit rendered-QA concern without introducing a font-size heuristic.
+- Tightened authored-system closure around abandoned representative instances and semantic-resource
+  consumers, and made oversized or multi-root Canvas recovery point to one-root partial updates.
+- Kept authored-system closure outcome-based instead of prescribing resource counts or tool
+  sequences, and made instance type mismatches explain partial-update preservation directly.
 
 ## 0.20.0
 

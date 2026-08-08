@@ -20,6 +20,11 @@ Keep the requested design outcome focal. Treat file evidence, references,
 catalog entries, syntax, and tool calls as subsidiary support for that outcome,
 not as a checklist to maximize or a design direction in themselves.
 
+This skill governs Figma authoring and delivery, not product-domain, platform,
+accessibility, content, or visual-design requirements. Derive those requirements
+from the user, permitted project evidence, or targeted research. Examples in
+this skill demonstrate mechanics only; never promote them into requirements.
+
 Require the intended Figma tab to have MCP access and the current Figma Design
 file to be editable. Never bypass that boundary or send raw Plugin API
 operations.
@@ -29,9 +34,10 @@ operations.
 Apply this order:
 
 1. explicit user requirements and prohibitions;
-2. permitted project and file evidence;
-3. this skill's defaults;
-4. general design heuristics.
+2. applicable requirements established by permitted project and file evidence
+   or targeted research;
+3. this skill's Figma authoring and safety constraints;
+4. situated design judgment consistent with that evidence.
 
 Never let a default workflow override the user. Safety, edit permission, exact
 scope, and declarative-only writes remain hard boundaries.
@@ -40,9 +46,9 @@ scope, and declarative-only writes remain hard boundaries.
 
 Before writing, determine:
 
-- the task, content hierarchy, primary action, and smallest complete scope;
+- the requested outcome and smallest complete scope;
 - whether this is a create or an update, and the exact update target;
-- the visual direction and the evidence permitted to ground it;
+- the relevant evidence and any material design decisions it leaves unresolved;
 - whether to reuse existing resources, compose directly, or explicitly author
   a requested design-system resource;
 - which native capabilities the result actually needs.
@@ -53,23 +59,21 @@ it is available.
 
 ## Quality floor
 
-- Make the primary task and action obvious before adding secondary content.
-- Reuse local terminology, interaction patterns, density, and visual rhythm
-  when evidence exists.
-- Establish hierarchy through layout, alignment, spacing, and type before
-  borders, shadows, or decorative containers.
-- Use a small, consistent set of type, spacing, and color roles. Avoid generic
-  card grids and unsupported visual conventions.
-- Keep repeated elements and states consistent, and use concise realistic copy.
-- Use real component or library icons. Choose existing, licensed, generated, or
-  intentionally geometric imagery by its role, distinctiveness, rights, and
-  importability; no source is a default. Never imitate either with text glyphs
-  or primitive mosaics.
-- Treat familiar visual sources as candidates, not defaults; familiarity does
-  not settle a material product, platform, or expressive decision.
-- Choose the smallest coherent scope that preserves realistic density,
-  product-specific detail, and one signature visual idea. Do not simplify into
-  unexplained dead zones.
+- Ground each material design decision in an explicit requirement, applicable
+  evidence, targeted research, or a clearly identified low-consequence
+  assumption. Neither tool availability nor a skill example is design evidence.
+- Deliver one coherent result whose content, states, assets, and reusable
+  resources agree with the established brief and with one another.
+- Preserve the identity and fidelity of supplied or selected sources. Do not
+  silently replace a required asset, representation, or behavior with something
+  easier for the current toolchain.
+- Make the Figma result complete, editable, intentionally structured, and free
+  of observed unintended visual or structural defects. Disclose any accepted
+  limitation instead of redefining it as intent.
+
+The brief and its evidence determine the task-specific quality criteria. This
+skill requires that they be established and verified; it does not predefine
+their design answers.
 
 ## Delegation boundary
 
@@ -90,19 +94,25 @@ remains the only Canvas writer.
    available task evidence clearly requires one. If page context is missing or
    ambiguous, do not ask, infer, create, rename, reorder, or target another
    page; write to the current page.
-2. **Ground the visual direction.** Follow the user first, then permitted file
-   or project evidence and a clearly applicable installed skill. Before any
-   net-new or materially redesigned product UI without a concrete reference or
-   representative existing screen/system, read
-   [style-grounding.md](references/style-grounding.md); category and broad
-   adjectives are not visual evidence. Skip only exact reproduction and
-   mechanical edits. Frame the problem and retain the reference's compact brief
-   before research. Complete and screenshot the representative screen before
-   propagating its language. A research scout may gather evidence only after
-   the brief is fixed and the delegation gate passes; the main agent chooses
-   the direction. When imagery carries identity, expression, or primary
-   hierarchy, choose an importable source route before layout, then read
-   [Images and illustrations](references/visual-assets.md#images-and-illustrations).
+2. **Ground unresolved design decisions.** Follow the user first, then permitted
+   file or project evidence and a clearly applicable installed skill. For
+   net-new work without a concrete reference or representative established
+   screen or system, treat the overall visual language as a material unresolved
+   decision; broad adjectives and permission to be creative do not settle it.
+   A domain skill may establish relevant constraints, but generic prose does not
+   settle a direction-defining visual language without an exact visual
+   specification or an inspected visual artifact.
+   For net-new or materially redesigned work with other unresolved material
+   decisions, read [style-grounding.md](references/style-grounding.md). Skip it
+   when exact reproduction, a mechanical edit, or established evidence already
+   determines the result. Retain the reference's compact decision trace before
+   writing, then complete and inspect one representative composition before
+   propagation. A research scout may gather evidence only after the question is
+   fixed and the delegation gate passes; the main agent decides. Treat a
+   pictographic control or content-bearing or salient image as a visual-asset
+   decision before choosing its representation. Read
+   [Visual assets](references/visual-assets.md) before using text, primitives,
+   SVG, remote media, or generation for that role.
 3. **Choose one resource path.**
    After explicit user direction, use this default: silence is not an opt-out,
    but catalog availability is not relevance. For an update, preserve existing
@@ -118,10 +128,24 @@ remains the only Canvas writer.
    - **Author:** only when the user explicitly requests a local reusable
      component, variable, style, or design-system extension. Read
      [design-system-authoring.md](references/design-system-authoring.md).
-     Component order is flexible, but the final composition must use authored
-     components as native instances; an exact returned ID needs no catalog. An
-     empty file or repeated UI does not imply this request.
-4. **Load only exact syntax needed.** Skip Canvas HTML for `markup: null`. When
+     Identify reusable responsibilities from concrete consumers, meaningful
+     state or content differences, expected shared evolution, and abstraction
+     cost before selecting resources. For systems spanning several usages,
+     prefer working from known foundations and a representative composition
+     toward justified abstractions; an already established, high-confidence
+     pattern may be authored first and proven immediately. Once a component
+     responsibility is selected, use instances for its final usages. Bind
+     variables/styles only to consumers that perform their named semantic role.
+     "Create your own design system" does not by itself require a visible
+     specimen board; a definition, swatch, mismatched binding, or equal literal
+     is not usage. An exact returned component ID needs no catalog. An empty file
+     or repeated UI does not imply this request.
+4. **Load exact syntax just in time.** Do not batch-load every reference that
+   might become relevant. Read a capability reference only after selecting that
+   capability, immediately before its first use. A requested design system does
+   not by itself select variables, styles, and components as a bundle; load only
+   the resource types justified by concrete consumers. Skip Canvas HTML for
+   `markup: null`. When
    trustworthy target markup is already available and the update preserves its
    element structure, always read
    [Elements and identity](references/canvas-html.md#elements-and-identity), then
@@ -147,18 +171,37 @@ remains the only Canvas writer.
    across calls, or use root translation to place a create result. TemPad Dev
    calculates every new root's position from its rendered size and the
    destination page's existing top-level bounds.
-6. **Close the feedback loop.** Read structural verification. For a new
+6. **Close authored-system scope.** On the Author path, follow the closure
+   procedure in [design-system-authoring.md](references/design-system-authoring.md)
+   after concrete consumers exist. Resolve authoring warnings, verify native
+   component usage and semantic variable/style coverage, inspect materially
+   distinct states, and briefly disclose any justified remaining divergence.
+7. **Verify the delivered result.** Read structural verification. For a new
    composition or material visual change, open the representative-screen
    `get_screenshot` result before propagation, then inspect the final board and
-   materially distinct screens. Open a returned local `resource_link` before
-   claiming visual verification. Include every delivered top-level root—screens
-   and authored definitions—because isolated screenshots hide page-level
-   overlap. Skip screenshots for mechanical text, token, prop, or hierarchy
-   edits. Check clipping, overlap, collapsed text, fills, hierarchy, spacing,
-   density, asset fidelity, and dead space. Diagnose with `get_structure` or
-   `get_code`; correct and re-screenshot only affected compositions. Stop when
-   the evidence passes. A fresh QA scout may review when the delegation gate
-   passes; the main agent verifies its observations and retains final judgment.
+   materially distinct screens. When the screenshot asset includes
+   `localPath`, open that file directly with the host's image-viewing
+   capability; otherwise download and open the returned `resource_link`.
+   Receiving or copying either reference is not visual inspection. If the PNG cannot be opened,
+   stop before propagation or a visual-verification claim. When page-level
+   placement is part of the deliverable, a root was resized after placement, or
+   the final report claims that multiple top-level roots do not overlap, compare
+   their page-space bounds with `get_structure`; isolated screenshots cannot
+   prove that relationship. Skip screenshots for mechanical text, token, prop,
+   or hierarchy edits. Compare the rendered result with the user requirements,
+   established evidence, and retained brief. Inspect for unintended overlap,
+   clipping (including glyph ink cut by its text box or a clipping ancestor),
+   collapsed content, obscured or unreadable text, inconsistent states, missing
+   or substituted assets, incorrect native bindings, and other visible or
+   structural defects. Do not infer a task-specific design rule from this defect
+   inventory. Diagnose with `get_structure` or `get_code`. A repair
+   is valid only when it also preserves unaffected established content, state,
+   assets, and relationships; hiding a defect by weakening one of those creates
+   a new defect. Correct and re-screenshot only affected compositions. Stop when
+   the evidence passes.
+   Never claim verification before correcting, accepting with reason, or
+   disclosing every observed defect. A fresh QA scout may review when the
+   delegation gate passes; the main agent retains final judgment.
 
 Do not turn this workflow into repeated API-like mutations.
 
@@ -172,11 +215,11 @@ Load a reference only when its capability is part of the requested result:
   [paints-effects.md](references/paints-effects.md)
 - exact whole-node fonts, rich text, range styles, lists, or hyperlinks:
   [rich-text.md](references/rich-text.md)
-- icon source selection or exact SVG import:
+- icon or SVG asset import:
   [Icons](references/visual-assets.md#icons)
-- typeface choice:
+- exact native font delivery:
   [Typefaces](references/visual-assets.md#typefaces)
-- sourced or generated imagery:
+- image or illustration asset delivery:
   [Images and illustrations](references/visual-assets.md#images-and-illustrations)
 - authored components, variant sets, properties, or Slots:
   [component-authoring.md](references/component-authoring.md)
@@ -206,6 +249,8 @@ from `get_structure.authoringKey` instead of inventing replacements.
 ## Safety
 
 - Never write outside the target scope or use names as identity.
+- Treat an instance as an authoring boundary: update its root or its component
+  definition, never target or remove a definition-derived sublayer.
 - Never remove unkeyed or manual content, externally referenced nodes,
   unmanaged resources, or a component that still has instances.
 - Never mutate remote resources, publish, detach or reset instances, or execute

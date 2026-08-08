@@ -8,6 +8,15 @@ const MAX_SCHEMA_ISSUES = 4
 const MAX_SCHEMA_MESSAGE_CHARS = 384
 const READ_ONLY_ERROR_PATTERN = /\b(?:read|view)[ -]?only\b|\bedit access\b|\bpermission to edit\b/i
 
+export function errorMessage(error: unknown, fallback = ''): string {
+  if (typeof error === 'string') return error || fallback
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message) return message
+  }
+  return fallback
+}
+
 export function formatSchemaError(error: ZodError): string {
   const issues = error.issues.slice(0, MAX_SCHEMA_ISSUES).map((issue) => {
     const message =
@@ -46,9 +55,10 @@ export function scopeError(message: string): never {
 export function canvasReadOnlyError(error: unknown): Error | null {
   // The Plugin API exposes no file-permission flag, so normalize its native mutation error.
   if (
-    !(error instanceof Error) ||
+    !error ||
+    typeof error !== 'object' ||
     'code' in error ||
-    !READ_ONLY_ERROR_PATTERN.test(error.message)
+    !READ_ONLY_ERROR_PATTERN.test(errorMessage(error))
   ) {
     return null
   }

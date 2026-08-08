@@ -8,7 +8,8 @@ import {
 
 import { buildSemanticTree, semanticTreeToOutline } from '@/mcp/semantic-tree'
 
-import { CANVAS_NODE_KEY_NAME, readAuthoringKey } from './canvas/identity'
+import { readOwnedNodeKey } from './canvas/identity'
+import { walkAuthoringNodes } from './canvas/traversal'
 
 const STRUCTURE_NODE_LIMIT_STEPS = [240, 180, 140, 100, 70, 50] as const
 const STRUCTURE_MAX_NAME_CHARS = 48
@@ -114,22 +115,11 @@ function collectAuthoringKeys(
   addIds(outline)
   if (!remaining.size) return keys
 
-  const visit = (node: SceneNode): boolean => {
-    if (remaining.delete(node.id)) {
-      const key = readAuthoringKey(node, CANVAS_NODE_KEY_NAME)
-      if (key) keys.set(node.id, key)
-      if (!remaining.size) return true
-    }
-    if ('children' in node) {
-      for (const child of node.children) {
-        if (child.visible && visit(child)) return true
-      }
-    }
-    return false
-  }
-
-  for (const root of roots) {
-    if (visit(root)) break
+  for (const node of walkAuthoringNodes(roots)) {
+    if (!remaining.delete(node.id)) continue
+    const key = readOwnedNodeKey(node)
+    if (key) keys.set(node.id, key)
+    if (!remaining.size) break
   }
   return keys
 }

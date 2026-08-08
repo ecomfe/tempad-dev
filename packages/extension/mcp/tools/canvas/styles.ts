@@ -19,6 +19,7 @@ type CanvasStyleResourceState = {
 export type CanvasStyleState = {
   byKey: Map<string, BaseStyle>
   cache: Map<string, BaseStyle>
+  createdStyleKeys: Set<string>
   indexed: boolean
   removals: Array<{ key: string; style: BaseStyle }>
   resources: CanvasStyleResourceState[]
@@ -70,6 +71,7 @@ async function selectStyle(
     specError(`Style key "${key}" does not identify "${explicit.id}".`)
   }
   let style = explicit ?? keyed
+  const isNew = !style
   if (!style) {
     if (!spec.name) specError(`New ${spec.type} style "${key}" requires a name.`)
     style = createStyle(spec.type)
@@ -83,6 +85,7 @@ async function selectStyle(
   indexStyle(state.byKey, key, style)
   state.cache.set(`id:${style.id}`, style)
   if (style.key) state.cache.set(`key:${style.key}`, style)
+  if (isNew) state.createdStyleKeys.add(key)
   return style
 }
 
@@ -90,6 +93,7 @@ export function createStyleState(): CanvasStyleState {
   return {
     byKey: new Map(),
     cache: new Map(),
+    createdStyleKeys: new Set(),
     indexed: false,
     removals: [],
     resources: []

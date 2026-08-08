@@ -21,6 +21,21 @@ A style owns its channel. Do not combine a non-null fill/stroke style with a
 whole-node variable on the same paint. A styled stroke still needs literal,
 typed, or variable-bound geometry. `null` unlinks; omission preserves.
 
+## Resolve shadow references before applying
+
+A named scale such as `shadow-md` refers to its governing theme; it is not
+portable effect geometry. Resolve that reference before writing the desired
+result:
+
+- on Reuse, bind the matching catalog Effect style;
+- on Author, create and bind a local Effect style only when the requested
+  system justifies that reusable resource;
+- on Direct, use an exact `shadow-[...]` class or typed `figma.effects` value.
+
+Do not assume Tailwind defaults or create a token merely to make a named class
+resolvable. `shadow-none`, `inset-shadow-none`, and `text-shadow-none` remain
+explicit clear operations.
+
 ## Native paint and effect stacks
 
 `figma.fills` and `figma.strokes` support ordered native:

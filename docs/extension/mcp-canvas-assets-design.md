@@ -26,6 +26,11 @@ delegation gate passes. The main agent fixes the art brief, remains the only Can
 placement and final judgment. This is an optional agent-orchestration optimization, not part of the
 TemPad protocol.
 
+Asset-medium selection remains an evidence decision. Creative latitude, Canvas editability, and
+delivery convenience do not establish a geometric or vector language. When several assets represent
+distinct content, the chosen existing, licensed, generated, or vector route must preserve the
+distinctions the composition depends on instead of substituting one reusable placeholder motif.
+
 This extends the existing declarative language rather than creating a second asset dialect.
 
 ## Figma facts
@@ -40,6 +45,10 @@ Figma provides two different vector paths:
 Direct SVG import is therefore the correct path for frontend icon-library SVG. Requiring the agent
 to translate arbitrary SVG into `VectorPath` would spend context, invite geometry errors, and lose
 supported SVG structure.
+
+The expected layer shape is a managed Frame containing one native imported SVG subtree. TemPad does
+not flatten its Vector descendants because that can change strokes, holes, masks, multicolor art,
+and exact source replacement.
 
 Figma has no image node. Images are content handles used by
 [`ImagePaint`](https://developers.figma.com/docs/plugins/api/Paint/). The Plugin API accepts:
@@ -92,6 +101,13 @@ type CanvasAssets = Record<
 
 Asset keys are call-scoped aliases. They deduplicate one source used by several nodes, but do not
 create a Figma design-system resource and do not need to remain stable across calls.
+
+The asset manifest is a delivery contract, not a medium selector. Before declaring a material
+asset, the agent records which user requirement, inspected evidence, or explicit brief decision
+establishes its subject and medium. A content-image role uses a sourced, generated, supplied, or
+current-file asset; availability of inline SVG does not justify replacing it with primitives or
+newly invented vector artwork. Agent-authored vectors require an independently established
+illustration, diagram, pattern, or decorative-geometry role.
 
 Allow at most 32 declarations and 64 KiB of inline SVG across one call. Every declaration must be
 referenced, every reference must exist and match the required type, and `markup: null` cannot carry
@@ -360,6 +376,10 @@ diff individual SVG layers, or promise stable descendant IDs. Manual edits insid
 preserved while the declared source digest is unchanged and replaced only when the caller supplies
 different SVG content or color.
 
+Removal treats the marked imported root and all of its descendants as one owned unit when its
+managed wrapper, or an owned ancestor containing that wrapper, is explicitly removed. Unmarked
+siblings remain manual content and still block deletion.
+
 ### Images
 
 Resolve `assetKey` bytes with `figma.createImage(bytes)`, then replace it with the resulting native
@@ -392,9 +412,9 @@ Extend mandatory structural verification:
 - all existing paint fields still match.
 
 Do not export SVG or image bytes into the result. Return only normal mutation counts and bounded
-warnings. A new visual direction checks its representative image-led composition before
-propagation, then checks the final board and any materially distinct crop or treatment where a
-defect could hide. Mechanical text, token, prop, and hierarchy updates skip screenshots;
+warnings. A composition containing a consequential visual asset checks one representative usage
+before propagation, then checks the final board and any materially distinct crop or treatment where
+a defect could hide. Mechanical text, token, prop, and hierarchy updates skip screenshots;
 corrections recheck only affected compositions.
 
 ## Context budget
@@ -422,8 +442,11 @@ or logo.
 ## Provenance and privacy
 
 TemPad imports exact caller-provided content; it does not search for assets, determine copyright
-status, or grant usage rights. The authoring skill should prefer project-approved, user-supplied, or
-permissively licensed sources and keep one icon family coherent. In a clean context it derives an
+status, or grant usage rights. The authoring workflow preserves enough source and rights evidence
+for the intended use. It requires item-level attribution or license records only when source terms,
+user or project policy, or the requested handoff makes them material. The skill should prefer
+project-approved, user-supplied, or permissively licensed sources and keep one icon family
+coherent. In a clean context it derives an
 icon profile from the product and composition, inspects fitting candidates from official sources,
 and compares materially distinct options only when the decision is consequential or the first fit
 rests on familiarity. It intentionally ships no named fallback list.

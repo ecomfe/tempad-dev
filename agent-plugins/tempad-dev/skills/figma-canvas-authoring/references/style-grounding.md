@@ -1,84 +1,87 @@
-# Ground an unspecified visual direction
+# Ground unresolved design decisions
 
-Use this reference for every new or materially redesigned UI whose visual
-direction is not established by a concrete user reference, representative
-permitted file or project evidence, or a clearly applicable installed skill.
-Product category and broad adjectives do not establish a visual direction.
-Skip exact reproduction and mechanical edits.
+Use this reference only when a material design decision is not established by
+the user, permitted project or Figma evidence, or a clearly applicable installed
+skill. Skip exact reproduction, mechanical edits, and decisions already settled
+by sufficient evidence.
 
-## Frame the design problem
+This reference defines an evidence process, not a UX checklist or style guide.
+It does not prescribe which product concerns must matter, how many sources to
+inspect, or what conclusion to reach. Determine those from the actual task.
 
-Before naming a source, fix:
+## Isolate the uncertainty
 
-- the audience, core task, and platform;
-- the intended character and trust posture;
-- the hard constraints and only the visual decisions that remain material.
+Before research:
 
-Treat remembered patterns and named systems as evidence, not the direction.
-Familiarity, fame, and official status do not prove relevance; transfer an
-adjacent-domain idea only when its principle fits this product problem.
+1. inventory the requirements and evidence already available;
+2. name only the unresolved decisions that could materially change the result;
+3. separate missing evidence from low-consequence choices the agent can make and
+   identify as assumptions.
 
-## Use the nearest sufficient evidence
+Do not research a broad category when one decision is unresolved. Do not turn a
+remembered convention, a tool affordance, or an example from this skill into a
+requirement.
 
-Prefer evidence in this order:
+Broad qualitative words can state an intended effect without determining the
+choices that produce it. When materially different interpretations remain
+plausible, the decision is still unresolved.
 
-1. explicit user requirements and prohibitions;
-2. permitted project, product, and Figma evidence;
-3. an applicable installed brand, domain, or visual-design skill;
-4. targeted current research.
+For a net-new result without a concrete reference or representative established
+screen or system, the direction-defining visual language is material. Giving the
+agent creative latitude assigns that decision to the agent; it does not make the
+decision low-consequence.
 
-Use an installed skill as design evidence only when its actual conventions fit
-the task. When available evidence settles a choice, stop. If external research
-is prohibited and a material decision remains unresolved, ask the user.
+## Obtain sufficient evidence
 
-For net-new visual invention, use two current, meaningfully distinct references
-unless permitted evidence already fills one of these roles:
+For each unresolved decision, choose the nearest credible source whose authority
+actually covers that decision. Project and current-file evidence usually has the
+closest product context; external primary guidance may establish scoped
+requirements; inspected products or visual artifacts may establish applicable
+precedent. These are possible evidence roles, not a mandatory source list.
 
-1. a deployed product in the same or an adjacent domain and platform, to ground
-   hierarchy, density, interaction, and trust conventions;
-2. strong product, editorial, or expert case-study work whose principles fit
-   the intended expression, to ground typography, image treatment, shape
-   language, and signature detail.
+Open the source needed to support the claim. Search snippets and remembered
+summaries are discovery leads, not inspected evidence. Record:
 
-Add platform, accessibility, or regulatory guidance only when it materially
-constrains the result. A single external source is sufficient only when concrete
-user or project evidence already establishes the other role. Do not replace
-these roles with near-identical gallery images; galleries cannot establish
-product behavior or quality.
+- the exact source or artifact identity;
+- the requirement or principle it supports;
+- why it applies here and where its authority stops;
+- the resulting decision or remaining uncertainty.
 
-Research only unresolved material decisions:
+Use as many distinct sources as the unresolved decision genuinely needs—no
+fixed minimum or comparison ceremony. Stop when the material uncertainty is
+resolved. If required evidence is unavailable or prohibited, ask the user when
+the choice would materially change the deliverable; otherwise state the
+assumption.
 
-1. Form one question from the audience, task, platform, character, and
-   constraint.
-2. Start with the nearest credible source for each required role. Extract the
-   applicable principle and its authority boundary, not a surface to copy.
-3. Compare sources only on the material decision they are meant to inform;
-   reject a familiar pattern when contextual fit is weak.
-4. Commit as soon as both behavioral and expressive evidence support one
-   coherent direction.
+Match the evidence medium to the decision. Textual guidance, including generic
+guidance from another skill, may establish a workflow or behavioral principle;
+a direction-defining visual decision needs an inspected visual artifact or an
+exact visual specification. Search results, product descriptions, and prose
+about navigation do not by themselves establish composition, typography, color,
+density, or imagery.
 
-Retain only a compact working brief:
+Judge sufficiency per decision. Evidence about an asset, isolated convention,
+or tool constraint does not ground unrelated composition or visual-language
+choices.
+
+## Retain a compact decision trace
+
+Keep a short working note before the first `apply_canvas` call:
 
 ```txt
-Intent: audience; task; platform; character
-Evidence: source -> principle -> relevance
-Direction: one coherent visual hypothesis
-Commitments: type; color; density/shape; icons; imagery
-Quality bar: realistic density; signature detail; asset fidelity
-Avoid: domain risks; unsupported patterns; clichés
+Outcome: requested result and scope
+Known: applicable user, project, and file evidence
+Open decision -> source -> applicable finding -> decision
+Assumptions: only unresolved low-consequence choices
+Verification: result-specific evidence to inspect in Figma
 ```
 
-Keep it under ten short lines and write it before the first `apply_canvas` call.
-It is a working note, not a deliverable; omit page dumps, long quotes, research
-transcripts, and mood boards.
+Include only lines the current task needs. This note is not a deliverable or a
+mood board.
 
 ## Apply and verify
 
-Make the direction visible through hierarchy, spacing rhythm, type, color,
-shape language, icons, and imagery. Synthesize rather than average incompatible
-references or copy protected brand assets and distinctive trade dress.
-
-Judge the final screenshot, not the rationale, against the brief. Correct only
-concrete mismatches and confirm that an unsupported familiar default has not
-displaced the chosen direction. Do not collect more references or continue
-tuning without new evidence.
+Translate the decisions into one coherent composition. Judge the rendered
+artifact against the task-specific trace, not against generic advice in this
+skill. Correct concrete mismatches; do not add more research or continue tuning
+without a remaining material uncertainty or observed defect.

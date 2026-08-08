@@ -48,7 +48,7 @@ export function buildGetCodeToolResult(payload: GetCodeResult): ToolResponseLike
 
   summary.push(
     payload.assets?.length
-      ? `Assets attached: ${payload.assets.length}. Download bytes from each asset.url.`
+      ? `Assets attached: ${payload.assets.length}. Use asset.localPath directly when present; otherwise download asset.url.`
       : 'No binary assets were attached to this response.'
   )
 
@@ -90,7 +90,7 @@ export function buildApplyCanvasToolResult(payload: ApplyCanvasResult): ToolResp
   const summary = `Applied ${formatCount(payload.mutationCount, 'canvas mutation')}: ${formatCount(nodeChanges.created, 'node')} created, ${formatCount(nodeChanges.updated, 'node')} updated, and ${formatCount(nodeChanges.removed, 'node')} removed.`
   const verification = `Structural verification ${payload.verification.status}: ${formatCount(payload.verification.nodesChecked, 'node')} and ${formatCount(payload.verification.referencesChecked, 'native reference')} checked.`
   const warnings = payload.verification.warnings.length
-    ? `\n${payload.verification.warnings.map(({ key, message }) => `${key ? `${key}: ` : ''}${message}`).join('\n')}`
+    ? `\n${payload.verification.warnings.map(({ code, key, message }) => `${code}${key ? ` (${key})` : ''}: ${message}`).join('\n')}`
     : ''
   const root = payload.rootRemoved
     ? `Root node is absent: ${payload.rootNodeId}. Repeating the same assertion is safe.`
@@ -136,11 +136,14 @@ export function buildGetTokenDefsToolResult(payload: GetTokenDefsResult): ToolRe
 }
 
 export function buildGetScreenshotToolResult(payload: GetScreenshotResult): ToolResponseLike {
+  const access = payload.asset.localPath
+    ? `Open the local PNG directly with an image viewer: ${payload.asset.localPath}.`
+    : 'Download and open the linked PNG with an image viewer.'
   return {
     content: [
       {
         type: 'text',
-        text: `${describeScreenshot(payload)}. Inspect the linked PNG for visual verification.`
+        text: `${describeScreenshot(payload)}. ${access} Receiving the asset reference alone is not visual verification. If this is a representative-screen check, inspect it before applying dependent screens.`
       },
       {
         type: 'resource_link',
@@ -165,7 +168,7 @@ export function buildGetAssetsToolResult(payload: GetAssetsResult): ToolResponse
   if (payload.missing.length) {
     summary.push(`Missing: ${payload.missing.join(', ')}`)
   }
-  summary.push('Download bytes from each asset.url.')
+  summary.push('Use asset.localPath directly when present; otherwise download asset.url.')
 
   return buildTextToolResult(summary.join('\n'), payload)
 }

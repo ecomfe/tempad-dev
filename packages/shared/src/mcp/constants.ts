@@ -12,6 +12,8 @@ export const MCP_TOOL_INLINE_BUDGET_BYTES = 64 * 1024
 export const MCP_TOOL_TIMEOUT_MS = 15000
 // Default timeout for get_code, whose bounded asset and codegen work can exceed the general limit.
 export const MCP_GET_CODE_TIMEOUT_MS = 30000
+// Default timeout for apply_canvas, which may import remote media before mutating the document.
+export const MCP_APPLY_CANVAS_TIMEOUT_MS = 120000
 
 // Grace period before auto-activating the sole extension (ms).
 export const MCP_AUTO_ACTIVATE_GRACE_MS = 1500
