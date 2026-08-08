@@ -42,10 +42,13 @@ This document records the current context-control strategy for TemPad Dev MCP ou
    - Iteratively reduce node cap until the formatted result enters the shared inline budget.
 4. `get_screenshot` is visible but selective.
    - It returns one bounded PNG through an MCP `resource_link` to the existing capability URL.
+   - When the local Hub owns the bytes, the descriptor also exposes the same ephemeral file through
+     `asset.localPath`, avoiding a loopback download from sandboxed local clients.
    - Normally use one final check for a new composition or material visual change; skip mechanical
      text, token, prop, and hierarchy-only edits.
 5. Image/SVG bytes do not enter tool JSON.
-   - Read-tool outputs expose temporary `asset.url` links; asset resources are not exposed via MCP
+   - Read-tool outputs expose a temporary `asset.localPath` when local bytes are available and retain
+     `asset.url` as the capability-bearing fallback; asset resources are not exposed via MCP
      `resources/read`.
    - Canvas inputs use small inline SVG or a full Hub SHA-256 hash. Hash-addressed bytes cross only
      the bounded extension bridge.

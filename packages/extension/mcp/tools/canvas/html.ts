@@ -2,6 +2,7 @@ import { MAX_CANVAS_DEPTH } from '@tempad-dev/shared'
 
 export type CanvasMarkupElement = {
   attributes: Record<string, string>
+  lineBreakOffsets: number[]
   children: CanvasMarkupElement[]
   tag: string
   text: string
@@ -35,7 +36,11 @@ function decodeEntities(value: string): string {
       continue
     }
     const end = value.indexOf(';', index + 1)
-    if (end < 0) htmlError('HTML entities must end with ";".')
+    if (end < 0 || /\s/.test(value.slice(index + 1, end))) {
+      result += '&'
+      index += 1
+      continue
+    }
     const entity = value.slice(index + 1, end)
     if (Object.hasOwn(HTML_ENTITIES, entity)) {
       result += HTML_ENTITIES[entity]
@@ -71,7 +76,9 @@ class CanvasHtmlParser {
     const root = this.parseElement(1)
     this.skipWhitespace()
     if (this.index !== this.source.length) {
-      htmlError('Canvas markup must contain exactly one root element.')
+      htmlError(
+        'Canvas markup must contain exactly one root element. For a partial update, include the target or a bounded ancestor as that root; omitted siblings are preserved.'
+      )
     }
     return root
   }
@@ -86,6 +93,9 @@ class CanvasHtmlParser {
     }
     const rawTag = this.readName()
     if (!rawTag) htmlError('Expected an element name.')
+    if (rawTag.toLowerCase() === 'br') {
+      htmlError('Canvas HTML supports <br> only inside span text.')
+    }
     const tag = normalizeTag(rawTag)
     const attributes: Record<string, string> = Object.create(null) as Record<string, string>
     let selfClosing = false
@@ -116,9 +126,10 @@ class CanvasHtmlParser {
       attributes[name] = decodeEntities(this.source.slice(this.index, end))
       this.index = end + 1
     }
-    if (selfClosing) return { attributes, children: [], tag, text: '' }
+    if (selfClosing) return { attributes, children: [], lineBreakOffsets: [], tag, text: '' }
 
     const children: CanvasMarkupElement[] = []
+    const lineBreakOffsets: number[] = []
     let text = ''
     while (true) {
       if (this.index >= this.source.length) htmlError(`Missing closing </${tag}>.`)
@@ -132,6 +143,10 @@ class CanvasHtmlParser {
         break
       }
       if (this.peek('<')) {
+        if (tag === 'span' && this.consumeLineBreak()) {
+          lineBreakOffsets.push(text.length)
+          continue
+        }
         children.push(this.parseElement(depth + 1))
       } else {
         const end = this.source.indexOf('<', this.index)
@@ -140,7 +155,14 @@ class CanvasHtmlParser {
         this.index = textEnd
       }
     }
-    return { attributes, children, tag, text }
+    return { attributes, children, lineBreakOffsets, tag, text }
+  }
+
+  private consumeLineBreak(): boolean {
+    const match = /^<br\s*\/?>/i.exec(this.source.slice(this.index))
+    if (!match) return false
+    this.index += match[0].length
+    return true
   }
 
   private expect(value: string): void {

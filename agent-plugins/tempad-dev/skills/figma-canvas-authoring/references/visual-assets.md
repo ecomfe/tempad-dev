@@ -1,42 +1,43 @@
-# Icons, type, and imagery
+# Deliver visual assets in Figma
 
-Use real visual sources; a plausible-looking substitute is not the intended asset.
+Use this reference when the result needs icons, exact fonts, images, or
+illustrations. It governs source integrity and Canvas delivery, not whether the
+product needs an asset or what that asset should look like. Derive those design
+decisions from the user, applicable evidence, or targeted research.
+
+Classify the role before choosing a medium. When the role is an image—media
+whose job is to depict content—fulfill it with a sourced, generated, supplied,
+or current-file asset. Do not assemble it from Figma primitives or newly
+invented SVG. Use agent-authored vector work only when the user or applicable
+visual evidence independently establishes the role as vector illustration,
+diagram, pattern, or decorative geometry. Never reclassify an image as one of
+those roles because drawing it is easier. Creative latitude, native editability,
+delivery speed, and tool availability do not establish the intended medium.
+
+For material assets, preserve enough evidence for the intended use:
+
+- identity and content fidelity;
+- provenance and applicable usage rights;
+- sufficient source quality;
+- a delivery form accepted by Canvas.
+
+Catalog entries and available tools are candidates, not design evidence. Do not
+silently change an asset's subject, style, or medium because another route is
+easier to import. If a required source cannot be delivered faithfully, report
+the limitation instead of disguising a substitute as intent.
 
 ## Icons
 
-Choose icon sources in this order:
+Use an applicable current-file, catalog, project, or user-supplied source when
+permitted. Otherwise select a trustworthy source that satisfies the established
+brief and record any license constraint. Import its exact SVG geometry; do not
+redraw a known icon from memory or replace it with a text character.
+Before declaring a fetched SVG, verify that the response is SVG content rather
+than a redirect, error document, or missing-asset message; a plausible URL or
+filename does not establish a valid asset.
 
-1. a suitable icon component returned by the catalog;
-2. the project's established icon library or supplied asset;
-3. one established, permissively licensed library whose stroke/fill style,
-   corner treatment, and optical weight fit the surrounding design.
-
-When the file has no icon assets, do not fall back to the first familiar
-frontend library. Select the source before selecting individual glyphs:
-
-1. Write an icon profile without library names: outline, fill, or duotone;
-   optical weight; corner and terminal geometry; base size and UI density;
-   required states or variants; and the semantic coverage this composition
-   actually needs.
-2. If the target product establishes a library, verify and use it. Otherwise
-   derive an established, permissively licensed candidate from the profile and
-   inspect the actual required glyphs, SVG fidelity, states, coverage, license,
-   and platform fit.
-3. If the choice materially shapes expression or the first candidate fits only
-   because it is familiar, compare one or two candidates that differ on the
-   profile's decisive dimension. Skip the comparison for a low-consequence
-   choice with a clear fit.
-4. Choose by contextual fit and coverage. Do not select an unusual family
-   merely to manufacture variety.
-
-A familiar general-purpose library must pass the same comparison as every
-other candidate. After committing, use the selected family consistently
-without claiming design-system provenance or adding a frontend dependency.
-
-Keep one coherent icon family within a composition. Preserve source geometry
-from its installed package or official distribution; do not redraw from memory,
-use Unicode UI icons, or assemble icons from frames and text. This complete
-Direct call imports one compact trusted SVG:
+This complete Direct call demonstrates SVG import mechanics. Its content,
+dimensions, and color are syntax examples, not design defaults:
 
 ```json
 {
@@ -56,84 +57,80 @@ Direct call imports one compact trusted SVG:
 }
 ```
 
-The matching `div` is childless and supplies the wrapper size and layout.
-`color` resolves SVG `currentColor`; omit it for complete explicit-color SVGs.
+The matching `div` is childless and supplies wrapper geometry. `color` resolves
+SVG `currentColor`; omit it for complete explicit-color SVGs. Figma may import
+one SVG as a Frame with Vector descendants. Treat that editable subtree as one
+opaque asset; do not flatten or reconcile it.
+
 Use a Hub `{ "type": "SVG", "assetHash": "<full lowercase SHA-256>" }`
-declaration for larger exact SVG content. If no trustworthy source is
-available, omit a nonessential icon instead of inventing one.
+declaration for larger exact SVG content. If no faithful source is available,
+omit a nonessential icon or report a required gap rather than inventing one.
 
 ## Typefaces
 
-Prefer a catalog Text style or typography variables because they carry the
-file's real type system. Otherwise infer type from trusted project evidence.
-For an empty file without such evidence, choose a small, coherent type palette
-for the product and content rather than defaulting every design to the same
-family. For a materially type-led direction, first define the content,
-platform, language coverage, tone, and density requirements, then compare two
-or three available candidates when no candidate clearly satisfies them. A
-familiar family must still satisfy the contextual requirements.
+Derive typeface choice from the established brief and evidence. Reuse an
+applicable catalog Text style, typography variable, project font, or supplied
+reference when available. Confirm that every exact Figma family and style is
+available; never guess style names.
 
-Use one primary family unless the concept clearly benefits from a deliberate
-display/body pairing. Confirm that every exact Figma family/style is available;
-do not guess style names. Express exact whole-node fonts through
-`figma.text.fontName` and use ranges only for intentional mixed typography. To
-apply an exact family, also load the exact whole-node font reference routed by
-`SKILL.md`. A `font-sans` class does not prove a named family: either apply the
-named family through a real Text style, variable, or exact native font, or keep
-the brief at the level of typography roles without naming one.
+Express exact whole-node fonts through `figma.text.fontName` and use ranges only
+for intentional mixed typography. Load the exact whole-node font reference
+routed by `SKILL.md` when applying one. A generic `font-sans` class does not
+prove delivery of a named family: bind the actual style, variable, or exact
+native font, or leave the brief at the level the evidence supports.
 
 ## Images and illustrations
 
-When an image carries content identity, brand expression, or primary visual
-hierarchy, choose its source route and an importable asset before layout. Tool
-availability does not decide the art direction. Use a hand-built geometric SVG
-only when geometry is the intended visual language, never as a fallback for a
-photo or focal illustration.
+Choose among an existing asset, a licensed remote source, generation, or
+purpose-built vector work from the established design decision. The skill does
+not assign a global priority to those routes. Before layout depends on the
+asset, confirm that the chosen result satisfies its required content, fidelity,
+rights, and import path.
 
-First write a compact asset brief:
+Treat the medium as part of the material decision. A content-image role does not
+fall back to agent-authored primitives or SVG when its intended asset is missing;
+source or generate the image, use an explicit neutral placeholder when that does
+not change the outcome, or disclose the gap. Exact supplied or sourced vector
+art remains valid when vector is the asset's actual medium. When several assets
+represent distinct content, verify that the selected route preserves the
+distinctions the composition depends on.
 
-- role: factual evidence, documentary context, product content, expressive
-  focal art, or supporting atmosphere;
-- subject and any content that must be literally true;
-- aspect ratio, focal point, crop, and useful negative space;
-- tone, palette, lighting, or rendering treatment;
-- rights or attribution constraints and one Canvas-accepted delivery form.
+Keep a compact working trace at the granularity needed to recover each material
+asset decision:
 
-Always prefer a relevant project, user-supplied, or current-file asset. When
-none fits, choose the least complex route that fully satisfies the brief:
+```txt
+role -> governing evidence or brief decision -> subject and medium -> source/rights -> import/crop
+```
 
-- **Licensed real-world or stock source:** use for documentary content,
-  recognizable places or activities, authentic human context, or replaceable
-  editorial atmosphere. Treat Unsplash and other providers as candidates.
-  Verify use and attribution rights, then obtain a sufficiently large direct
-  HTTPS image URL—not a thumbnail or webpage.
-- **Generated image:** use when the user requests it or the composition needs a
-  fictional, impossible, conceptual, brand-expressive, or signature scene that
-  licensed imagery cannot supply. Require an importable result before making it
-  structural; tool availability alone is not a reason to generate.
-- **Purpose-built vector or geometric art:** use when the brief intentionally
-  calls for diagrams, patterns, abstract geometry, or a vector illustration
-  language. Do not assemble primitive mosaics to imitate photography, icons,
-  or a generated illustration.
+Require an exact asset page, creator record, license record, or attribution only
+when the source terms, user or project policy, or requested handoff makes that
+detail material. Do not turn ordinary draft imagery into a per-asset citation
+exercise. Assets that share one recoverable route and the same applicable terms
+may share a trace when individual identity is not material.
 
-When both routes fit, prefer licensed imagery for factual authenticity and
-efficient delivery, and generation for exact composition or distinctiveness.
-Reject stock clichés, irrelevant novelty, and provider familiarity as a reason.
+If no cited evidence or explicit brief decision establishes a material medium,
+that decision remains open; do not make the asset first and call its medium
+intentional afterward.
 
-After choosing generation, pass the asset brief to the image-generation skill
-or tool before layout. Delegate only when the gate passes and the worker can
-return a Canvas-accepted source. Keep exact reuse and direct imports local.
+When generation is the established route, resolve how its output will reach a
+Canvas-accepted form before invoking the image-generation skill or tool. A local
+path alone is not importable by Canvas. If the current environment has no bridge,
+choose another brief-compatible image source before generating, or disclose the
+gap when generation itself is required. Do not generate first and then silently
+switch to a different medium or generic source because the result cannot be
+uploaded.
 
-Apply a public image as an IMAGE paint using `imageUrl`; an existing
-current-file `imageHash` is also valid. For content already in the local Hub,
-declare `{ "type": "IMAGE", "assetHash": "<full lowercase SHA-256>" }` and use
-its alias as the paint's `assetKey`. Inline bytes and local-only paths are not
-supported. The main agent owns placement and crop and judges the asset in the
-final composition.
+Apply a public image as an IMAGE paint using `imageUrl`; an existing current-file
+`imageHash` is also valid. For content already in the local Hub, declare
+`{ "type": "IMAGE", "assetHash": "<full lowercase SHA-256>" }` and use its
+alias as the paint's `assetKey`. Inline bytes and local-only paths are not
+supported. Remote URLs must resolve directly to an accessible image rather than
+to a webpage or thumbnail.
 
-If a chosen result is local-only and the host cannot upload it, switch to an
-importable licensed source only when it still satisfies the brief. Do not
-silently replace materially custom imagery with generic stock. If no usable
-asset can be imported, never fake it with frames, gradients, emoji, or primitive
-mosaics. Omit optional imagery; for required media, keep one honest neutral
-slot and report the unfilled asset requirement.
+The main agent owns placement and crop and verifies the delivered asset in the
+final composition. Keep identity and crop stable across repeated usages unless
+the brief establishes a real variation. If required media remains unavailable,
+report the gap; omit optional media or use a neutral slot only when doing so does
+not change the requested outcome. A neutral slot is an explicit fallback, not
+representative content or proof that a reusable content contract supports real
+variation.

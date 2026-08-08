@@ -422,10 +422,10 @@
         { "kind": "panel-text", "text": "Set up agents" },
         { "kind": "dialog-text", "text": "Codex" },
         { "kind": "dialog-text", "text": "Recommended" },
-        { "kind": "dialog-text", "text": "TemPad Dev plugin" },
+        { "kind": "dialog-text", "text": "Portable Agent Plugin" },
         { "kind": "dialog-text", "text": "Continue in Codex" },
         { "kind": "dialog-text", "text": "Or run in your terminal:" },
-        { "kind": "dialog-text", "text": "codex plugin marketplace add" }
+        { "kind": "dialog-text", "text": "npx plugins add ecomfe/tempad-dev --target codex" }
       ],
       "width": 1200,
       "height": 960

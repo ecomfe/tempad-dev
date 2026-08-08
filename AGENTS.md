@@ -43,11 +43,18 @@ Provide a single entry point for coding agents. This file links to package-level
   plugin is distributed through the Git marketplace, not npm.
 - `.dev/plugins/tempad-dev-dev/` is the ignored local build. Generate it with
   `pnpm agent-plugin:dev`; do not edit generated files under `.dev/`.
-- Run `pnpm agent-plugin:dev` after changing the shared skill, agent-plugin manifests, icons, or
-  marketplace metadata. Ordinary `pnpm build` must not modify agent-plugin artifacts.
+- Run `pnpm agent-plugin:dev` after every change that affects the generated `tempad-dev-dev`
+  contents, including the shared skill, agent-plugin manifests, icons, or marketplace metadata.
+  Ordinary `pnpm build` must not modify agent-plugin artifacts.
+- Before asking the user to test a changed development plugin, reinstall the generated cachebuster
+  with `codex plugin add tempad-dev-dev@tempad-dev-dev` and use a new task. Generation alone does
+  not update Codex's installed skill cache.
 - `pnpm dev` watches the extension, shared package, and MCP server. The generated development
   plugin points directly at the current checkout's MCP build, so MCP-only changes require a new
   agent task or plugin reload, not an agent-plugin rebuild or reinstall.
+- After an extension-side rebuild, refresh the target Figma tab before testing. An open tab can keep
+  its previous page-context runtime even when WXT has emitted the new bundle; reinstalling the Codex
+  agent plugin does not reload that browser runtime. Verify that MCP reconnects before the test.
 - Keep Codex and Claude support equivalent. Both development manifests must launch the same
   working-tree MCP runtime.
 - Release MCP configuration must use `@tempad-dev/mcp@latest`, never an alpha tag, fixed version,

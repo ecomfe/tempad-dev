@@ -1,4 +1,5 @@
 import {
+  MCP_APPLY_CANVAS_TIMEOUT_MS,
   MCP_ASSET_TTL_MS,
   MCP_AUTO_ACTIVATE_GRACE_MS,
   MCP_MAX_ASSET_BYTES,
@@ -17,6 +18,7 @@ import { getMcpServerConfig } from '../src/config'
 const ENV_KEYS = [
   'TEMPAD_MCP_TOOL_TIMEOUT',
   'TEMPAD_MCP_GET_CODE_TIMEOUT',
+  'TEMPAD_MCP_APPLY_CANVAS_TIMEOUT',
   'TEMPAD_MCP_AUTO_ACTIVATE_GRACE',
   'TEMPAD_MCP_MAX_ASSET_BYTES',
   'TEMPAD_MCP_MAX_ASSET_STORE_BYTES',
@@ -52,6 +54,7 @@ describe('mcp-server/config getMcpServerConfig', () => {
       wsPortCandidates: [...MCP_PORT_CANDIDATES],
       toolTimeoutMs: MCP_TOOL_TIMEOUT_MS,
       getCodeTimeoutMs: MCP_GET_CODE_TIMEOUT_MS,
+      applyCanvasTimeoutMs: MCP_APPLY_CANVAS_TIMEOUT_MS,
       maxPayloadBytes: MCP_MAX_PAYLOAD_BYTES,
       autoActivateGraceMs: MCP_AUTO_ACTIVATE_GRACE_MS,
       maxAssetSizeBytes: MCP_MAX_ASSET_BYTES,
@@ -66,6 +69,7 @@ describe('mcp-server/config getMcpServerConfig', () => {
   it('parses valid positive and non-negative integer overrides', () => {
     process.env.TEMPAD_MCP_TOOL_TIMEOUT = '22000'
     process.env.TEMPAD_MCP_GET_CODE_TIMEOUT = '45000'
+    process.env.TEMPAD_MCP_APPLY_CANVAS_TIMEOUT = '90000'
     process.env.TEMPAD_MCP_AUTO_ACTIVATE_GRACE = '3333'
     process.env.TEMPAD_MCP_MAX_ASSET_BYTES = '9999'
     process.env.TEMPAD_MCP_MAX_ASSET_STORE_BYTES = '99999'
@@ -79,6 +83,7 @@ describe('mcp-server/config getMcpServerConfig', () => {
       wsPortCandidates: [...MCP_PORT_CANDIDATES],
       toolTimeoutMs: 22000,
       getCodeTimeoutMs: 45000,
+      applyCanvasTimeoutMs: 90000,
       maxPayloadBytes: MCP_MAX_PAYLOAD_BYTES,
       autoActivateGraceMs: 3333,
       maxAssetSizeBytes: 9999,
@@ -93,6 +98,7 @@ describe('mcp-server/config getMcpServerConfig', () => {
   it('falls back for invalid env values', () => {
     process.env.TEMPAD_MCP_TOOL_TIMEOUT = '-1'
     process.env.TEMPAD_MCP_GET_CODE_TIMEOUT = '0'
+    process.env.TEMPAD_MCP_APPLY_CANVAS_TIMEOUT = 'nope'
     process.env.TEMPAD_MCP_AUTO_ACTIVATE_GRACE = 'abc'
     process.env.TEMPAD_MCP_MAX_ASSET_BYTES = '0'
     process.env.TEMPAD_MCP_MAX_ASSET_STORE_BYTES = 'nope'
@@ -104,6 +110,7 @@ describe('mcp-server/config getMcpServerConfig', () => {
       wsPortCandidates: [...MCP_PORT_CANDIDATES],
       toolTimeoutMs: MCP_TOOL_TIMEOUT_MS,
       getCodeTimeoutMs: MCP_GET_CODE_TIMEOUT_MS,
+      applyCanvasTimeoutMs: MCP_APPLY_CANVAS_TIMEOUT_MS,
       maxPayloadBytes: MCP_MAX_PAYLOAD_BYTES,
       autoActivateGraceMs: MCP_AUTO_ACTIVATE_GRACE_MS,
       maxAssetSizeBytes: MCP_MAX_ASSET_BYTES,
@@ -115,9 +122,10 @@ describe('mcp-server/config getMcpServerConfig', () => {
     })
   })
 
-  it('uses the general override as the get_code fallback', () => {
+  it('uses the general override as each specialized timeout fallback', () => {
     process.env.TEMPAD_MCP_TOOL_TIMEOUT = '22000'
 
     expect(getMcpServerConfig().getCodeTimeoutMs).toBe(22000)
+    expect(getMcpServerConfig().applyCanvasTimeoutMs).toBe(22000)
   })
 })

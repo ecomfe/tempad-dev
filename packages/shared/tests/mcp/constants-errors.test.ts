@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  MCP_APPLY_CANVAS_TIMEOUT_MS,
   MCP_ASSET_TTL_MS,
   MCP_HASH_HEX_LENGTH,
   MCP_HASH_PATTERN,
@@ -22,6 +23,7 @@ describe('mcp/constants', () => {
     expect(MCP_TOOL_INLINE_BUDGET_BYTES).toBe(64 * 1024)
     expect(MCP_TOOL_TIMEOUT_MS).toBe(15000)
     expect(MCP_GET_CODE_TIMEOUT_MS).toBe(30000)
+    expect(MCP_APPLY_CANVAS_TIMEOUT_MS).toBe(120000)
     expect(MCP_MAX_ASSET_BYTES).toBe(8 * 1024 * 1024)
     expect(MCP_MAX_ASSET_STORE_BYTES).toBe(256 * 1024 * 1024)
     expect(MCP_MAX_CONCURRENT_ASSET_UPLOADS).toBe(4)

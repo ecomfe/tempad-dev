@@ -1,9 +1,11 @@
 import type { CanvasDesignReference } from '@tempad-dev/shared'
 
 import { specError } from './errors'
+import { isInsideInstance } from './traversal'
 
 export const CANVAS_KEY_NAMESPACE = 'tempad_dev'
 export const CANVAS_NODE_KEY_NAME = 'canvas-key'
+export const CANVAS_NODE_OWNER_NAME = 'canvas-owner'
 export const CANVAS_PAGE_KEY_NAME = 'page-key'
 export const CANVAS_STYLE_KEY_NAME = 'style-key'
 export const CANVAS_VARIABLE_COLLECTION_KEY_NAME = 'variable-collection-key'
@@ -24,6 +26,43 @@ export function readAuthoringKey(
 ): string | undefined {
   const key = resource.getSharedPluginData?.(CANVAS_KEY_NAMESPACE, name)
   return key || undefined
+}
+
+export function readOwnedNodeKey(node: SceneNode): string | undefined {
+  if (isInsideInstance(node)) return undefined
+  const key = readAuthoringKey(node, CANVAS_NODE_KEY_NAME)
+  if (!key || node.type !== 'INSTANCE') return key
+
+  const owner = readAuthoringKey(node, CANVAS_NODE_OWNER_NAME)
+  if (owner) return owner === node.id ? key : undefined
+
+  try {
+    const component = node.mainComponent
+    if (!component) return undefined
+    const definitionKey = readAuthoringKey(component, CANVAS_NODE_KEY_NAME)
+    return definitionKey === key ? undefined : key
+  } catch {
+    return undefined
+  }
+}
+
+export function claimNodeKey(node: SceneNode, key: string): boolean {
+  if (isInsideInstance(node)) {
+    specError(`Node "${node.id}" is inside an instance and cannot own a canvas key.`)
+  }
+  const current = readOwnedNodeKey(node)
+  const owner = readAuthoringKey(node, CANVAS_NODE_OWNER_NAME)
+  if (current && current !== key) {
+    specError(`Node "${node.id}" is already owned by canvas key "${current}".`)
+  }
+
+  const keyChanged = current !== key
+  const ownerChanged = node.type === 'INSTANCE' && owner !== node.id
+  if (keyChanged) node.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME, key)
+  if (ownerChanged) {
+    node.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_OWNER_NAME, node.id)
+  }
+  return keyChanged || ownerChanged
 }
 
 export function claimAuthoringKey(

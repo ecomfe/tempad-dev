@@ -209,6 +209,11 @@ TemPad Dev ships an agent integration for coding agents and IDEs. The integratio
   declarative canvas results when the current Figma Design file is editable
 - two agent skills: one for implementing Figma evidence in code, and one for designing on the Figma canvas with accessible component definitions and bounded design-system resources
 
+These portable capabilities are packaged first as an
+[Agent Plugins 1.0](https://agent-plugins.org/) bundle. Its root `plugin.json`, `skills/`, and
+`mcp.json` are the canonical package; client-specific manifests are compatibility layers for
+installers and hosts that do not consume the open format directly.
+
 Figma also provides official [remote and desktop MCP servers](https://developers.figma.com/docs/figma-mcp-server/), with the remote server recommended for most users. TemPad Dev is an open, local-control complement for teams that specifically want an inspectable browser-extension pipeline, local inspection and MCP-gated declarative canvas authoring, programmable output plugins, canonical agent-facing code/token IR, and an explicit context budget. It provides design evidence and a code starting point; the coding agent remains responsible for adapting that evidence to the repository, validating behavior, and producing the final implementation.
 
 With the TemPad Dev panel open and MCP enabled, the MCP server exposes:
@@ -236,9 +241,20 @@ With the TemPad Dev panel open and MCP enabled, the MCP server exposes:
 
 1. Install Node.js 18.20.0 or later with `npx`. Keep TemPad Dev open in the Figma tab you want the agent to inspect, then enable **Preferences → Agent integration → MCP access**. When prompted, allow the loopback connection to `127.0.0.1`. Canvas authoring is available while MCP access is enabled and the current Figma Design file is editable.
 2. Select **Set up agents**, choose Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, or TRAE, and follow the displayed path. Use **Other** for another compatible client. The choice only changes the instructions shown; it does not bind or activate an agent.
-3. Prefer the direct action when offered. Every fallback command or config is shown in full for review and copying. Codex and Claude Code plugins include MCP plus the `figma-design-to-code` and `figma-canvas-authoring` skills; the other paths show MCP and standalone skills setup separately.
+3. The setup flow installs the portable Agent Plugin first for Codex, Cursor, Claude Code, and VS Code. For Gemini, OpenCode, TRAE, and other clients without compatible plugin installation, it uses the client's MCP flow plus the two standalone skills. Every command or config is shown in full for review and copying.
 
-All `npx`-based setup paths use `@tempad-dev/mcp@latest`.
+To install the portable package into all compatible agents detected on your machine:
+
+```bash
+npx plugins add ecomfe/tempad-dev
+```
+
+Pass `--target codex`, `--target cursor`, `--target claude-code`, or `--target vscode` to limit the
+installation to one of the built-in setup targets. Native Codex and Claude marketplace commands,
+plus direct MCP and skill installation, remain documented as compatibility fallbacks in the
+[Agent Plugin guide](./agent-plugins/tempad-dev/README.md).
+
+All plugin and direct `npx`-based setup paths use `@tempad-dev/mcp@latest`.
 
 Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context.
 

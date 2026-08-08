@@ -8,6 +8,13 @@ vi.mock('@/mcp/semantic-tree', () => ({
   semanticTreeToOutline: vi.fn()
 }))
 
+function mockOutline(roots: unknown[]): void {
+  vi.mocked(buildSemanticTree).mockReturnValue({ roots: [] } as unknown as ReturnType<
+    typeof buildSemanticTree
+  >)
+  vi.mocked(semanticTreeToOutline).mockReturnValue(roots as never)
+}
+
 describe('mcp/tools/structure', () => {
   it('uses undefined depth when input depth is falsy and returns outline payload', () => {
     vi.mocked(buildSemanticTree).mockReturnValue({
@@ -36,10 +43,7 @@ describe('mcp/tools/structure', () => {
   })
 
   it('passes explicit depth limit through to semantic tree builder', () => {
-    vi.mocked(buildSemanticTree).mockReturnValue({ roots: [] } as unknown as ReturnType<
-      typeof buildSemanticTree
-    >)
-    vi.mocked(semanticTreeToOutline).mockReturnValue([])
+    mockOutline([])
 
     handleGetStructure([], 3)
 
@@ -57,10 +61,7 @@ describe('mcp/tools/structure', () => {
       children: [child],
       getSharedPluginData: vi.fn(() => '')
     }
-    vi.mocked(buildSemanticTree).mockReturnValue({ roots: [] } as unknown as ReturnType<
-      typeof buildSemanticTree
-    >)
-    vi.mocked(semanticTreeToOutline).mockReturnValue([
+    mockOutline([
       {
         id: 'root-1',
         name: 'Root',
@@ -93,11 +94,57 @@ describe('mcp/tools/structure', () => {
     expect(child.getSharedPluginData).toHaveBeenCalledWith('tempad_dev', 'canvas-key')
   })
 
+  it('does not expose definition keys inherited by an instance subtree', () => {
+    const component = {
+      id: 'component-1',
+      getSharedPluginData: vi.fn(() => 'component/card')
+    }
+    const child = {
+      id: 'instance-child-1',
+      type: 'TEXT',
+      visible: true,
+      getSharedPluginData: vi.fn(() => 'component/card/label')
+    }
+    const instance = {
+      id: 'instance-1',
+      type: 'INSTANCE',
+      visible: true,
+      children: [child],
+      mainComponent: component,
+      getSharedPluginData: vi.fn(() => 'component/card')
+    }
+    mockOutline([{ id: 'instance-1', children: [{ id: 'instance-child-1' }] }])
+
+    const result = handleGetStructure([instance as unknown as SceneNode])
+
+    expect(result.roots[0]).not.toHaveProperty('authoringKey')
+    expect(result.roots[0]?.children?.[0]).not.toHaveProperty('authoringKey')
+    expect(child.getSharedPluginData).not.toHaveBeenCalled()
+  })
+
+  it('does not expose an inherited key when an instance descendant is the root', () => {
+    const instance = {
+      id: 'instance-1',
+      type: 'INSTANCE',
+      parent: null
+    }
+    const child = {
+      id: 'instance-child-1',
+      type: 'TEXT',
+      visible: true,
+      parent: instance,
+      getSharedPluginData: vi.fn(() => 'component/card/label')
+    }
+    mockOutline([{ id: 'instance-child-1' }])
+
+    const result = handleGetStructure([child as unknown as SceneNode])
+
+    expect(result.roots[0]).not.toHaveProperty('authoringKey')
+    expect(child.getSharedPluginData).not.toHaveBeenCalled()
+  })
+
   it('compacts large outlines to keep structure output small', () => {
-    vi.mocked(buildSemanticTree).mockReturnValue({ roots: [] } as unknown as ReturnType<
-      typeof buildSemanticTree
-    >)
-    vi.mocked(semanticTreeToOutline).mockReturnValue(
+    mockOutline(
       Array.from({ length: 400 }, (_, i) => ({
         id: `node-${i}`,
         name: 'Very long layer name '.repeat(20),
@@ -106,7 +153,7 @@ describe('mcp/tools/structure', () => {
         y: i + 0.5678,
         width: 100,
         height: 200
-      })) as never
+      }))
     )
 
     const result = handleGetStructure([])

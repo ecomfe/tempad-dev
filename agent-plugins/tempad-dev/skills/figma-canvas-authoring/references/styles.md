@@ -52,3 +52,8 @@ managed style only when the user explicitly requires absence and every live
 consumer is cleared or removed in the same result. Never mutate or delete a
 remote resource, invent a library key, or create a broad style library for a
 one-off screen.
+
+A style created without a same-result `styleKey` reference returns
+`unbound-created-style`. Treat it as unfinished authoring: bind the style to a
+representative consumer whose property performs its named role, or remove the
+speculative definition. A swatch or unrelated binding does not close coverage.

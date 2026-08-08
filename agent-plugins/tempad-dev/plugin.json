@@ -1,4 +1,5 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "tempad-dev",
   "version": "0.1.2",
   "description": "Use TemPad Dev to turn Figma evidence into UI code and create native Figma designs.",
@@ -17,7 +18,5 @@
     "canvas-authoring",
     "design-system",
     "frontend"
-  ],
-  "skills": "./skills/",
-  "mcpServers": "./.mcp.json"
+  ]
 }
