@@ -46,16 +46,18 @@ describe('tools response helpers', () => {
     )
   })
 
-  it('keeps design-system reads conditional and local authoring catalog-free', () => {
+  it('keeps catalog discovery optional for canvas authoring', () => {
     const designSystem = TOOL_DEFS.find((tool) => tool.name === 'get_design_system')
     const applyCanvas = TOOL_DEFS.find((tool) => tool.name === 'apply_canvas')
 
-    expect(designSystem?.description).toContain('Do not call after a user opt-out')
-    expect(designSystem?.description).toContain('merely to create new local resources')
-    expect(applyCanvas?.description).toContain('works without get_design_system or catalogId')
-    expect(applyCanvas?.description).toContain('exact live component id')
-    expect(applyCanvas?.description).toContain('only when explicitly requested')
-    expect(applyCanvas?.description).toContain('exact progressive reference')
+    expect(designSystem?.description).toContain('permitted canvas reuse')
+    expect(designSystem?.parameters.parse({})).toEqual({})
+    expect(
+      applyCanvas?.parameters.parse({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>'
+      })
+    ).not.toHaveProperty('catalogId')
   })
 
   it('declares read and write behavior for every tool', () => {

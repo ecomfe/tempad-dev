@@ -12,18 +12,12 @@ This document records the current context-control strategy for TemPad Dev MCP ou
 ## Decisions
 
 1. Always-on context contains only universal routing and safety rules.
-   - Tool descriptions explain when to call a tool and its essential contract.
-   - Explicit user requirements override workflow defaults; design-system discovery is conditional,
-     not a required authoring preflight.
-   - Design-system authoring is a separate progressive branch entered only on an explicit user
-     request; an empty file or ordinary composition never triggers it.
-   - Material visual invention must have a grounded direction. Explicit user and project evidence
-     come first, then an applicable installed skill; only an unresolved style loads the targeted
-     research reference. Familiar or authoritative sources remain unverified candidates until they
-     pass a task-, domain-, and platform-relevance gate. The agent retains a brief under ten
-     lines instead of page dumps or a mood board.
-   - Task-specific workflows, syntax, examples, and advanced native features live in skills and
-     their progressive references.
+   - Server instructions establish file-scoped evidence, declarative writes, exact identity, and
+     asset-access semantics without embedding a canvas-design workflow.
+   - Tool descriptions explain selection and the essential contract; field descriptions explain
+     only local shape, identity, omission, and removal semantics.
+   - Task-specific workflows, resource policy, design judgment, syntax, examples, and advanced
+     native features live in triggered skills and their progressive references.
    - Tool results carry factual recovery instructions only when that condition occurs.
 2. `get_code` keeps existing API but uses a shared inline budget guard.
    - Budget is computed on the final `CallToolResult` UTF-8 bytes (`64 KiB` default).

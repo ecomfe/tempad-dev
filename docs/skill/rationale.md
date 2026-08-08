@@ -186,10 +186,14 @@ agent-authored primitives or SVG from silently substituting for an image role.
 
 - Keep `SKILL.md` frontmatter limited to fields that affect discovery or a real
   compatibility requirement.
+- Keep MCP server instructions and tool schemas on universal protocol facts;
+  route task-specific workflow and design policy through the triggered skill.
 - Keep `agents/openai.yaml` synchronized with the actual skill scope.
 - Keep reference links one level from `SKILL.md` and state exactly when to read
   each file.
 - Validate complete private-protocol examples against the public schema.
+- Keep common examples mechanically minimal and avoid repeating one visual
+  language across otherwise unrelated capability references.
 - Run the skill validator, generate the development plugin, and forward-test
   consequential revisions with clean task-local context.
 

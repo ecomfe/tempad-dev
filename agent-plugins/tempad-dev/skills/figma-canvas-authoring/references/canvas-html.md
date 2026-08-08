@@ -10,19 +10,17 @@ actually layered geometry, not as a substitute for missing browser CSS.
 One `apply_canvas` markup tree may contain at most 100 elements and 12 levels.
 Split larger work only at meaningful screen or section boundaries.
 
-Prefer the supported native Tailwind utilities below; use arbitrary pixel values only when the
-result is off the default scale. Numeric spacing utilities use Tailwind v4's default `4px` unit. Theme
-extensions, variants, plugins, and utilities whose meaning depends on a browser viewport or CSS
-cascade remain unsupported.
+Prefer the supported native Tailwind utilities below; use arbitrary pixel values
+only when the result is off the default scale. Numeric spacing utilities use
+Tailwind v4's default `4px` unit. Theme extensions, variants, plugins, and
+utilities whose meaning depends on a browser viewport or CSS cascade remain
+unsupported.
 
-This complete Direct call creates one primitive result without catalog state:
+## Contents
 
-```json
-{
-  "mode": "create",
-  "markup": "<div data-key=\"notice\" class=\"flex flex-col w-[320px] h-[112px] gap-[8px] p-[16px] bg-[#FFFFFF] rounded-[12px]\"><span data-key=\"notice/title\" class=\"w-fit h-fit text-[18px] font-semibold\">Update available</span><span data-key=\"notice/body\" class=\"w-full h-fit text-[14px] leading-[20px] text-[#4B5563]\">Restart when you are ready.</span></div>"
-}
-```
+- [Elements and identity](#elements-and-identity)
+- [Layout](#layout)
+- [Appearance and text](#appearance-and-text)
 
 ## Elements and identity
 
