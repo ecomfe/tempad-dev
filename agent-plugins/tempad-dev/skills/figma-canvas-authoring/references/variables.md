@@ -7,8 +7,11 @@ a nested `{ "ref": "…" }` deliberately reuses an existing catalog resource.
 
 Copy this complete recipe and change its design facts. Collection and variable
 authoring keys persist file-wide so later calls can recover the same resources;
-they are not Figma names or IDs. Namespace them by product and role. Mode keys
-are scoped to their collection.
+they are not Figma names or IDs. Before the first write, choose one
+collision-resistant prefix for this independent system and reuse it across
+calls. A generic product prefix may already belong to another system in the
+file; when intentionally updating one, recover its exact keys instead. Mode
+keys are scoped to their collection.
 
 ```json
 {
@@ -71,11 +74,39 @@ Variable scopes use only these exact values:
   `LETTER_SPACING`, `PARAGRAPH_SPACING`, `PARAGRAPH_INDENT`.
 
 Use `STROKE_COLOR` for a stroke color; `ALL_STROKES` is not a valid scope.
+`ALL_SCOPES` cannot be combined with another scope. `ALL_FILLS` cannot be
+combined with `FRAME_FILL`, `SHAPE_FILL`, or `TEXT_FILL`; it may coexist with a
+non-fill color scope such as `STROKE_COLOR`.
 
 `native[key].variables` binds variables by their file-wide authoring key. Use the exact supported
 field name, such as `fill`, `stroke`, `gap`, `paddingTop`, `width`, `visible`,
 `fontSize`, or `characters`. Keep the matching literal class when Figma needs
 an initial paint or numeric fallback.
+
+When a design system is requested, authoring the definition is only half of the
+contract. Bind each variable to the representative component or screen fields
+that express its semantic role. Prefer `GAP` variables for recurring gaps and
+padding, `WIDTH_HEIGHT` for repeated semantic control or icon sizes, and
+`CORNER_RADIUS` for repeated radius roles. Do not turn viewport dimensions,
+one-off media crops, content-derived geometry, or isolated optical corrections
+into global tokens merely because their numbers repeat.
+
+A representative binding proves that the variable is usable, but does not
+finish an intended shared role by itself. Once the role is chosen, bind the
+concrete consumers meant to change with it; leave a peer literal only when its
+similar value is incidental or the peer intentionally owns a different role.
+
+`apply_canvas` warns when a variable created by that call has no reference in
+the same desired result. Treat `unbound-created-variable` as unfinished
+design-system work: bind the variable to a real consumer or remove it. A staged
+definition may temporarily warn, but the final delivered composition must close
+the warning and demonstrate the native binding; an equal literal is not enough.
+
+It also reports `variable-fallback-mismatch` when a literal property bound to a
+variable authored in the same call matches none of that variable's direct mode
+values, including values reached through same-call aliases. Align the literal
+fallback with a real mode or bind the variable that actually owns the value;
+otherwise the native binding silently changes the declared markup result.
 
 Omitted fields preserve managed resource state. A top-level `null` removes a
 managed variable, mode, or collection only when the user explicitly requires

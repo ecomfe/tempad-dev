@@ -75,6 +75,9 @@ are therefore required even though the listeners bind only to `127.0.0.1`.
   download-only until the asset TTL expires so upgrades do not strand cached assets.
 - Downloads use attachment disposition, `nosniff`, a restrictive CSP, no referrer, and private cache
   semantics.
+- Stdio tool results may expose an existing asset-store file as `asset.localPath`. The path creates
+  no second copy, remains under the private asset directory and its existing TTL, and is delivered
+  only to the local MCP consumer alongside the capability URL.
 - Asset responses remain ephemeral and are not exposed as MCP resources.
 
 ### Plugin Workers

@@ -36,13 +36,16 @@ import {
   resolvedSvgAsset,
   SVG_POLICY_VERSION
 } from './assets'
-import { canvasReadOnlyError, scopeError, specError } from './errors'
+import { canvasReadOnlyError, errorMessage, scopeError, specError } from './errors'
 import {
   CANVAS_KEY_NAMESPACE,
   CANVAS_NODE_KEY_NAME,
+  CANVAS_NODE_OWNER_NAME,
   CANVAS_PAGE_KEY_NAME,
   type MutationCounter,
-  designReferenceCacheKey
+  claimNodeKey,
+  designReferenceCacheKey,
+  readOwnedNodeKey
 } from './identity'
 import {
   type CanvasStyleState,
@@ -51,6 +54,12 @@ import {
   removeStyleResources,
   resolveStyle
 } from './styles'
+import {
+  isComponentPropertyOwner,
+  isInsideInstance,
+  walkAuthoringNodes,
+  walkPhysicalNodes
+} from './traversal'
 import {
   type CanvasVariableState,
   createVariableState,
@@ -121,6 +130,7 @@ type ProtectedNodeSnapshot = {
   componentPropertyNames: string[] | null
   geometry: { height: number; width: number; x: number; y: number } | null
   key: string
+  owner: string
   parentId: string | null
   type: BaseNode['type']
 }
@@ -163,24 +173,25 @@ function isSceneNode(node: BaseNode | null): node is SceneNode {
 async function lookupNodeById(id: string): Promise<BaseNode | null> {
   try {
     const node = await figma.getNodeByIdAsync(id)
-    if (node) return node
+    if (node && !node.removed) return node
   } catch {
     // The rewritten Figma runtime can expose the method before its async lookup backend is ready.
   }
-  return figma.getNodeById(id)
+  const node = figma.getNodeById(id)
+  return node && !node.removed ? node : null
 }
 
 function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
   return {
     childIds: 'children' in node ? node.children.map((child) => child.id) : null,
-    componentPropertyNames:
-      node.type === 'COMPONENT' || node.type === 'COMPONENT_SET'
-        ? Object.keys(node.componentPropertyDefinitions).sort()
-        : null,
+    componentPropertyNames: isComponentPropertyOwner(node)
+      ? Object.keys(node.componentPropertyDefinitions).sort()
+      : null,
     geometry: isSceneNode(node)
       ? { height: node.height, width: node.width, x: node.x, y: node.y }
       : null,
     key: node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME),
+    owner: node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_OWNER_NAME),
     parentId: node.parent?.id ?? null,
     type: node.type
   }
@@ -238,6 +249,12 @@ function isWithinScope(node: BaseNode, scope: BaseNode): boolean {
     current = current.parent
   }
   return false
+}
+
+function assertOutsideInstance(node: BaseNode): void {
+  if (isInsideInstance(node)) {
+    scopeError(`Node "${node.id}" is inside an instance and cannot be targeted by apply_canvas.`)
+  }
 }
 
 function containingPage(node: BaseNode): PageNode {
@@ -317,29 +334,16 @@ async function resolveResultPage(
 
 function collectKeyedNodes(scope: SupportedCanvasNode): Map<string, SupportedCanvasNode> {
   const keyed = new Map<string, SupportedCanvasNode>()
-  for (const node of walkNodes([scope])) {
-    if (isSupportedSceneNode(node)) {
-      const key = node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME)
-      if (key) {
-        if (keyed.has(key)) {
-          scopeError(`Canvas key "${key}" is duplicated inside the update scope.`)
-        }
-        keyed.set(key, node)
-      }
+  for (const node of walkAuthoringNodes([scope])) {
+    if (!isSupportedSceneNode(node)) continue
+    const key = readOwnedNodeKey(node)
+    if (!key) continue
+    if (keyed.has(key)) {
+      scopeError(`Canvas key "${key}" is duplicated inside the update scope.`)
     }
+    keyed.set(key, node)
   }
   return keyed
-}
-
-function* walkNodes(roots: Iterable<BaseNode>, descendIntoInstances = true): Generator<BaseNode> {
-  const stack = [...roots]
-  while (stack.length) {
-    const node = stack.pop()!
-    yield node
-    if ('children' in node && (descendIntoInstances || node.type !== 'INSTANCE')) {
-      stack.push(...node.children)
-    }
-  }
 }
 
 function* walkSpecs(spec: CanvasNodeSpec): Generator<CanvasNodeSpec> {
@@ -360,7 +364,9 @@ async function resolveExplicitNodes(root: CanvasNodeSpec, state: ApplyState): Pr
   const nodes = await Promise.all(orderedIds.map(lookupNodeById))
   for (const [index, id] of orderedIds.entries()) {
     const node = nodes[index] ?? null
-    state.explicitNodes.set(id, isSupportedSceneNode(node) ? node : null)
+    const supported = isSupportedSceneNode(node) ? node : null
+    if (supported) assertOutsideInstance(supported)
+    state.explicitNodes.set(id, supported)
   }
 }
 
@@ -412,14 +418,20 @@ function outermostNodes(nodes: SupportedCanvasNode[]): SupportedCanvasNode[] {
 }
 
 function validateRemovalOwnership(root: SupportedCanvasNode, state: ApplyState): void {
-  for (const node of walkNodes([root], false)) {
+  const stack: SceneNode[] = [root]
+  while (stack.length) {
+    const node = stack.pop()!
+    const svgWrapper = isOwnedSvgChild(node) && node.parent?.type === 'FRAME' ? node.parent : null
+    const wrapperKey = svgWrapper && readOwnedNodeKey(svgWrapper)
+    if (wrapperKey && state.keyedNodes.get(wrapperKey)?.id === svgWrapper.id) continue
     if (!isSupportedSceneNode(node)) {
       scopeError(`Removing "${root.id}" would also remove an unsupported canvas node.`)
     }
-    const key = node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME)
+    const key = readOwnedNodeKey(node)
     if (!key || state.keyedNodes.get(key)?.id !== node.id) {
       scopeError(`Removing "${root.id}" would also remove a node not owned by apply_canvas.`)
     }
+    if ('children' in node && node.type !== 'INSTANCE') stack.push(...node.children)
   }
 }
 
@@ -454,7 +466,7 @@ function resolveRemovalNodes(
 
 function collectRemovalComponents(roots: SupportedCanvasNode[]): ComponentNode[] {
   const components: ComponentNode[] = []
-  for (const node of walkNodes(roots, false)) {
+  for (const node of walkAuthoringNodes(roots)) {
     if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
       if (node.remote) {
         scopeError(`Remote ${node.type.toLowerCase()} "${node.id}" cannot be removed.`)
@@ -524,10 +536,7 @@ function collectSceneReferences(node: SceneNode, references: RemovalReferences):
   if (node.type === 'VECTOR') {
     collectReferences(node.vectorNetwork.regions, references)
   }
-  if (
-    node.type === 'COMPONENT_SET' ||
-    (node.type === 'COMPONENT' && node.parent?.type !== 'COMPONENT_SET')
-  ) {
+  if (isComponentPropertyOwner(node)) {
     collectComponentReferences(node.componentPropertyDefinitions, references)
   } else if (node.type === 'INSTANCE') {
     collectComponentReferences(node.componentProperties, references)
@@ -547,7 +556,7 @@ function collectRemovedIdentities(roots: SupportedCanvasNode[]): {
 } {
   const componentKeys = new Set<string>()
   const nodeIds = new Set<string>()
-  for (const node of walkNodes(roots, false)) {
+  for (const node of walkAuthoringNodes(roots)) {
     nodeIds.add(node.id)
     if ((node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') && node.key) {
       componentKeys.add(node.key)
@@ -568,10 +577,12 @@ async function validateRemovalReferences(
     shaders: []
   }
   for (const page of figma.root.children) {
-    try {
-      await page.loadAsync()
-    } catch {
-      scopeError(`Page "${page.id}" could not be inspected before node removal.`)
+    if (page.id !== figma.currentPage.id) {
+      try {
+        await page.loadAsync()
+      } catch {
+        scopeError(`Page "${page.id}" could not be inspected before node removal.`)
+      }
     }
     collectReferences(page.backgrounds, references)
     const pending = [...page.children]
@@ -611,7 +622,7 @@ async function validateRemovalReferences(
 
 function validateRemovalResult(roots: SupportedCanvasNode[], state: ApplyState): void {
   for (const root of roots) {
-    for (const node of walkNodes([root])) {
+    for (const node of walkPhysicalNodes([root])) {
       if (state.claimedNodeIds.has(node.id)) {
         specError(`Desired node "${node.id}" would remain inside a removed subtree.`)
       }
@@ -678,19 +689,9 @@ function markMutation(state: ApplyState, node: BaseNode): void {
 }
 
 function setNodeKey(state: ApplyState, node: SupportedCanvasNode, key: string): void {
-  const currentKey = node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME)
-  if (currentKey === key) {
-    state.keyedNodes.set(key, node)
-    return
-  }
-  if (currentKey) {
-    if (node.type !== 'INSTANCE' || !state.createdNodeIds.has(node.id)) {
-      specError(`Node "${node.id}" is already owned by canvas key "${currentKey}".`)
-    }
-  }
-  node.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME, key)
+  const changed = claimNodeKey(node, key)
   state.keyedNodes.set(key, node)
-  markMutation(state, node)
+  if (changed) markMutation(state, node)
 }
 
 function componentPropertyOwner(node: BaseNode): ComponentPropertyOwner | null {
@@ -799,8 +800,12 @@ function resolveExistingNode(
     scopeError(`Node "${node.id}" is outside the requested update scope.`)
   }
   if (node.type !== spec.type) {
+    const recovery =
+      node.type === 'INSTANCE'
+        ? ' Omit this keyed subtree to preserve the instance in a partial ancestor update, or include its component binding when the instance itself is part of the desired result.'
+        : ''
     specError(
-      `Canvas key "${spec.key}" expects ${spec.type}, but node "${node.id}" is ${node.type}.`
+      `Canvas key "${spec.key}" expects ${spec.type}, but node "${node.id}" is ${node.type}.${recovery}`
     )
   }
   if (state.claimedNodeIds.has(node.id)) {
@@ -2061,9 +2066,10 @@ const SIZE_BOUND_FIELDS = ['minWidth', 'maxWidth', 'minHeight', 'maxHeight'] as 
 function applySizingModes(
   node: SupportedCanvasNode,
   spec: CanvasNodeSpec,
+  parent: CanvasParentNode | undefined,
   state: ApplyState
 ): void {
-  if (isIntrinsicNode(node) || !('layoutSizingHorizontal' in node)) return
+  if (isIntrinsicNode(node) || !supportsLayoutSizing(node, parent)) return
   const size = spec.size
   setValue(
     node,
@@ -2125,14 +2131,43 @@ function applySizingModes(
 
 type CrossAxisFill = {
   axis: 'horizontal' | 'vertical'
-  size: number
+  recoverySize: number
 }
 
 function clampSize(value: number, min: number | null, max: number | null): number {
   return Math.min(max ?? Number.POSITIVE_INFINITY, Math.max(min ?? 0, value))
 }
 
-function expectedCrossAxisFill(
+function layoutStrokeWeight(
+  node: CanvasFrameContainerNode,
+  field: 'strokeBottomWeight' | 'strokeLeftWeight' | 'strokeRightWeight' | 'strokeTopWeight'
+): number {
+  const value = node[field]
+  return typeof value === 'number'
+    ? value
+    : typeof node.strokeWeight === 'number'
+      ? node.strokeWeight
+      : 0
+}
+
+function includedLayoutStroke(
+  node: CanvasFrameContainerNode,
+  axis: 'horizontal' | 'vertical'
+): number {
+  if (
+    !node.strokesIncludedInLayout ||
+    node.strokeAlign !== 'INSIDE' ||
+    !Array.isArray(node.strokes) ||
+    !node.strokes.some((stroke) => stroke.visible !== false)
+  ) {
+    return 0
+  }
+  return axis === 'horizontal'
+    ? layoutStrokeWeight(node, 'strokeLeftWeight') + layoutStrokeWeight(node, 'strokeRightWeight')
+    : layoutStrokeWeight(node, 'strokeTopWeight') + layoutStrokeWeight(node, 'strokeBottomWeight')
+}
+
+function crossAxisFill(
   node: SupportedCanvasNode,
   spec: CanvasNodeSpec,
   parent?: SupportedCanvasNode | CanvasParentNode
@@ -2151,8 +2186,14 @@ function expectedCrossAxisFill(
   if (parent.layoutMode === 'VERTICAL' && spec.size.horizontal === 'FILL') {
     return {
       axis: 'horizontal',
-      size: clampSize(
-        Math.max(0, parent.width - parent.paddingLeft - parent.paddingRight),
+      recoverySize: clampSize(
+        Math.max(
+          0,
+          parent.width -
+            parent.paddingLeft -
+            parent.paddingRight -
+            includedLayoutStroke(parent, 'horizontal')
+        ),
         node.minWidth,
         node.maxWidth
       )
@@ -2161,8 +2202,14 @@ function expectedCrossAxisFill(
   if (parent.layoutMode === 'HORIZONTAL' && spec.size.vertical === 'FILL') {
     return {
       axis: 'vertical',
-      size: clampSize(
-        Math.max(0, parent.height - parent.paddingTop - parent.paddingBottom),
+      recoverySize: clampSize(
+        Math.max(
+          0,
+          parent.height -
+            parent.paddingTop -
+            parent.paddingBottom -
+            includedLayoutStroke(parent, 'vertical')
+        ),
         node.minHeight,
         node.maxHeight
       )
@@ -2178,18 +2225,18 @@ function stabilizeCrossAxisFill(
   state: ApplyState
 ): void {
   if (!('layoutSizingHorizontal' in node)) return
-  const expected = expectedCrossAxisFill(node, spec, parent)
-  if (!expected) return
-  const current = expected.axis === 'horizontal' ? node.width : node.height
-  if (Math.abs(current - expected.size) <= GEOMETRY_TOLERANCE) return
+  const fill = crossAxisFill(node, spec, parent)
+  if (!fill) return
+  const current = fill.axis === 'horizontal' ? node.width : node.height
+  if (!state.createdNodeIds.has(node.id) && current > GEOMETRY_TOLERANCE) return
 
-  if (expected.axis === 'horizontal') {
+  if (fill.axis === 'horizontal') {
     node.layoutSizingHorizontal = 'FIXED'
-    node.resize(expected.size, node.height)
+    node.resize(fill.recoverySize, node.height)
     node.layoutSizingHorizontal = 'FILL'
   } else {
     node.layoutSizingVertical = 'FIXED'
-    node.resize(node.width, expected.size)
+    node.resize(node.width, fill.recoverySize)
     node.layoutSizingVertical = 'FILL'
   }
   markMutation(state, node)
@@ -2213,7 +2260,13 @@ function stabilizeGrowingTextWidth(
   let width = Math.max(node.minWidth ?? 0, 1)
   if (parent && isFrameContainer(parent)) {
     if (parent.layoutMode === 'VERTICAL') {
-      width = Math.max(width, parent.width - parent.paddingLeft - parent.paddingRight)
+      width = Math.max(
+        width,
+        parent.width -
+          parent.paddingLeft -
+          parent.paddingRight -
+          includedLayoutStroke(parent, 'horizontal')
+      )
     } else if (parent.layoutMode === 'HORIZONTAL') {
       const flow = parent.children.filter(
         (
@@ -2236,6 +2289,7 @@ function stabilizeGrowingTextWidth(
         parent.width -
         parent.paddingLeft -
         parent.paddingRight -
+        includedLayoutStroke(parent, 'horizontal') -
         Math.max(0, flow.length - 1) * parent.itemSpacing -
         fixedWidth
       width = Math.max(width, available / growCount)
@@ -2249,7 +2303,23 @@ function stabilizeGrowingTextWidth(
   markMutation(state, node)
 }
 
-function applySize(node: SupportedCanvasNode, spec: CanvasNodeSpec, state: ApplyState): void {
+function supportsLayoutSizing(
+  node: SupportedCanvasNode,
+  parent: SupportedCanvasNode | CanvasParentNode | undefined
+): node is SupportedCanvasNode & LayoutMixin {
+  return (
+    'layoutSizingHorizontal' in node &&
+    (('layoutMode' in node && node.layoutMode !== 'NONE') ||
+      (!!parent && 'layoutMode' in parent && parent.layoutMode !== 'NONE'))
+  )
+}
+
+function applySize(
+  node: SupportedCanvasNode,
+  spec: CanvasNodeSpec,
+  parent: CanvasParentNode | undefined,
+  state: ApplyState
+): void {
   if (isIntrinsicNode(node)) return
   const size = spec.size
   for (const field of SIZE_BOUND_FIELDS) {
@@ -2273,7 +2343,7 @@ function applySize(node: SupportedCanvasNode, spec: CanvasNodeSpec, state: Apply
     node.resize(width, height)
     markMutation(state, node)
   }
-  applySizingModes(node, spec, state)
+  applySizingModes(node, spec, parent, state)
 }
 
 function applyPosition(
@@ -2420,7 +2490,7 @@ function applyAppearance(node: SupportedCanvasNode, spec: CanvasNodeSpec, state:
     applyPaint(node, spec, 'fill', state)
     applyPaint(node, spec, 'stroke', state)
   }
-  if ('strokeWeight' in node && (!node.strokeStyleId || spec.styles?.stroke)) {
+  if ('strokeWeight' in node) {
     setValue(
       node,
       node.strokeWeight,
@@ -3295,13 +3365,6 @@ async function applyText(node: TextNode, spec: CanvasNodeSpec, state: ApplyState
     node.fontName = desiredFont
     markMutation(state, node)
   }
-  setValue(
-    node,
-    node.textAutoResize,
-    text.autoResize,
-    (value) => (node.textAutoResize = value),
-    state
-  )
   setValue(node, node.autoRename, native?.autoRename, (value) => (node.autoRename = value), state)
   setValue(
     node,
@@ -3377,6 +3440,13 @@ async function applyText(node: TextNode, spec: CanvasNodeSpec, state: ApplyState
     state
   )
   setValue(node, node.maxLines, text.maxLines, (value) => (node.maxLines = value), state)
+  setValue(
+    node,
+    node.textAutoResize,
+    text.autoResize,
+    (value) => (node.textAutoResize = value),
+    state
+  )
   setValue(
     node,
     node.paragraphIndent,
@@ -4235,7 +4305,8 @@ function applyComponentMetadata(
   spec: CanvasNodeSpec,
   state: ApplyState
 ): void {
-  const metadata = spec.figma!.component!
+  const metadata = spec.figma?.component
+  if (!metadata) return
   setValue(
     node,
     node.descriptionMarkdown,
@@ -4392,7 +4463,9 @@ async function applyNodeProperties(
   setValue(
     node,
     node.name,
-    node.type === 'TEXT' && spec.figma?.text?.autoRename ? undefined : spec.displayName,
+    node.type === 'TEXT' && spec.figma?.text?.autoRename
+      ? undefined
+      : (spec.displayName ?? (state.createdNodeIds.has(node.id) ? spec.key : undefined)),
     (value) => (node.name = value),
     state
   )
@@ -4421,7 +4494,7 @@ async function applyNodeProperties(
     )
   }
   await applyShape(node, spec, state)
-  applySize(node, spec, state)
+  applySize(node, spec, parent, state)
   await applySvg(node, spec, state)
   if (parent) applyPosition(node, spec, parent, state)
   applyRelativeTransform(node, spec, parent, state)
@@ -4440,7 +4513,7 @@ async function applyNodeProperties(
   applySharedLayerState(node, spec, state)
   applyComponentPropertyReferences(node, spec, state)
   // Text and layout setters can leave a derived sizing mode or its geometry stale.
-  if (node.type === 'TEXT') applySizingModes(node, spec, state)
+  if (node.type === 'TEXT') applySizingModes(node, spec, parent, state)
   stabilizeCrossAxisFill(node, spec, parent, state)
   stabilizeGrowingTextWidth(node, parent, state)
 }
@@ -4469,7 +4542,7 @@ async function applyCanvasKeyReferences(
   }
   if (hasCanvasKeyVectorPattern(spec)) {
     await applyShape(node, spec, state, true)
-    applySize(node, spec, state)
+    applySize(node, spec, parent, state)
     if (parent) applyPosition(node, spec, parent, state)
     applyRelativeTransform(node, spec, parent, state)
   }
@@ -4954,8 +5027,7 @@ function desiredChildIndex(
 
   const previousIndex = parent.children.indexOf(previous)
   if (currentIndex > previousIndex) return currentIndex
-  const afterPrevious = previousIndex + 1
-  return currentIndex >= 0 && currentIndex < afterPrevious ? afterPrevious - 1 : afterPrevious
+  return previousIndex + 1
 }
 
 async function reconcileNode(
@@ -5067,6 +5139,10 @@ function placeCreatedRoot(node: SupportedCanvasNode, page: PageNode, state: Appl
     }
   }
 
+  if (obstacles.some((obstacle) => placementOverlap(candidate, obstacle))) {
+    specError(`Created root "${node.id}" could not be placed without overlap.`)
+  }
+
   const deltaX = candidate.x - bounds.x
   const deltaY = candidate.y - bounds.y
   if (deltaX !== 0 || deltaY !== 0) {
@@ -5076,11 +5152,6 @@ function placeCreatedRoot(node: SupportedCanvasNode, page: PageNode, state: Appl
       [transform[1][0], transform[1][1], transform[1][2] + deltaY]
     ]
     markMutation(state, node)
-  }
-
-  const placed = placementBounds(node)
-  if (!placed || obstacles.some((obstacle) => placementOverlap(placed, obstacle))) {
-    specError(`Created root "${node.id}" could not be placed without overlap.`)
   }
 }
 
@@ -5119,13 +5190,305 @@ function createApplyState(
   return state
 }
 
-function passedVerification(nodesChecked = 0, referencesChecked = 0) {
+type VerificationWarning = ApplyCanvasResult['verification']['warnings'][number]
+
+function buildVerification(
+  nodesChecked = 0,
+  referencesChecked = 0,
+  warnings: VerificationWarning[] = []
+) {
   return {
-    status: 'passed' as const,
+    status: warnings.length ? ('warning' as const) : ('passed' as const),
     nodesChecked,
     referencesChecked,
-    warnings: []
+    warnings
   }
+}
+
+function collectKeyReferences(value: unknown, field: string, references: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectKeyReferences(item, field, references)
+    return
+  }
+  if (!isRecord(value)) return
+  if (typeof value[field] === 'string') references.add(value[field])
+  for (const nested of Object.values(value)) collectKeyReferences(nested, field, references)
+}
+
+function desiredKeyReferences(input: ParsedCanvasTreeInput, field: string): Set<string> {
+  const references = new Set<string>()
+  for (const value of [input.root, input.styles, input.variableCollections, input.page]) {
+    collectKeyReferences(value, field, references)
+  }
+  return references
+}
+
+function unboundCreatedResourceWarnings(
+  input: ParsedCanvasTreeInput,
+  state: ApplyState
+): VerificationWarning[] {
+  return [
+    {
+      code: 'unbound-created-variable' as const,
+      consumer: 'node or style',
+      keys: state.variables.createdVariableKeys,
+      referenceField: 'variableKey',
+      resource: 'variable'
+    },
+    {
+      code: 'unbound-created-style' as const,
+      consumer: 'node',
+      keys: state.styles.createdStyleKeys,
+      referenceField: 'styleKey',
+      resource: 'style'
+    }
+  ].flatMap(({ code, consumer, keys, referenceField, resource }) => {
+    if (!keys.size) return []
+    const references = desiredKeyReferences(input, referenceField)
+    return [...keys]
+      .filter((key) => !references.has(key))
+      .map((key) => ({
+        code,
+        key,
+        message: `This new ${resource} is not referenced by the desired result. Bind it to a representative ${consumer}, or remove it if it is speculative.`
+      }))
+  })
+}
+
+type VariableFallback = boolean | number | string | RGBA
+
+function parseFallbackColor(value: string): RGBA | undefined {
+  const hex = value.slice(1)
+  const expanded =
+    hex.length === 3 || hex.length === 4
+      ? [...hex].map((character) => `${character}${character}`).join('')
+      : hex
+  if (expanded.length !== 6 && expanded.length !== 8) return undefined
+  const channels = expanded.match(/.{2}/g)?.map((channel) => Number.parseInt(channel, 16))
+  if (!channels || channels.some((channel) => Number.isNaN(channel))) return undefined
+  return {
+    r: channels[0]! / 255,
+    g: channels[1]! / 255,
+    b: channels[2]! / 255,
+    a: channels[3] === undefined ? 1 : channels[3] / 255
+  }
+}
+
+function paddingFallback(
+  layout: CanvasNodeSpec['layout'],
+  side: 'bottom' | 'left' | 'right' | 'top'
+): number | undefined {
+  if (!layout || layout.mode === 'NONE' || layout.padding === undefined) return undefined
+  return typeof layout.padding === 'number' ? layout.padding : layout.padding[side]
+}
+
+function metricFallback(value: unknown): number | undefined {
+  return isRecord(value) && value.unit === 'PIXELS' && typeof value.value === 'number'
+    ? value.value
+    : undefined
+}
+
+function variableFallback(
+  spec: CanvasNodeSpec,
+  field: keyof CanvasVariableBindings
+): VariableFallback | undefined {
+  switch (field) {
+    case 'fill':
+    case 'stroke': {
+      const value = spec.appearance?.[field]
+      return typeof value === 'string' ? parseFallbackColor(value) : undefined
+    }
+    case 'characters':
+      return spec.text?.characters
+    case 'visible':
+      return spec.visible
+    case 'width':
+    case 'height':
+    case 'minWidth':
+    case 'maxWidth':
+    case 'minHeight':
+    case 'maxHeight':
+      return spec.size[field] ?? undefined
+    case 'gap':
+      return spec.layout?.mode === 'HORIZONTAL' || spec.layout?.mode === 'VERTICAL'
+        ? spec.layout.gap
+        : undefined
+    case 'counterAxisSpacing':
+      return spec.layout?.mode === 'HORIZONTAL' || spec.layout?.mode === 'VERTICAL'
+        ? spec.layout.counterGap
+        : undefined
+    case 'gridRowGap':
+      return spec.layout?.mode === 'GRID' ? spec.layout.rowGap : undefined
+    case 'gridColumnGap':
+      return spec.layout?.mode === 'GRID' ? spec.layout.columnGap : undefined
+    case 'paddingTop':
+      return paddingFallback(spec.layout, 'top')
+    case 'paddingRight':
+      return paddingFallback(spec.layout, 'right')
+    case 'paddingBottom':
+      return paddingFallback(spec.layout, 'bottom')
+    case 'paddingLeft':
+      return paddingFallback(spec.layout, 'left')
+    case 'cornerRadius':
+    case 'topLeftRadius':
+    case 'topRightRadius':
+    case 'bottomRightRadius':
+    case 'bottomLeftRadius':
+    case 'strokeWeight':
+    case 'strokeTopWeight':
+    case 'strokeRightWeight':
+    case 'strokeBottomWeight':
+    case 'strokeLeftWeight':
+    case 'opacity':
+      return spec.appearance?.[field]
+    case 'fontFamily':
+      return spec.text?.fontFamily
+    case 'fontStyle':
+      return spec.text?.fontStyle
+    case 'fontSize':
+      return spec.text?.fontSize
+    case 'lineHeight':
+      return metricFallback(spec.text?.lineHeight)
+    case 'letterSpacing':
+      return metricFallback(spec.text?.letterSpacing)
+    case 'fontWeight':
+    case 'paragraphIndent':
+    case 'paragraphSpacing':
+      return undefined
+  }
+}
+
+function colorChannels(value: unknown): RGBA | null {
+  if (
+    !isRecord(value) ||
+    typeof value.r !== 'number' ||
+    typeof value.g !== 'number' ||
+    typeof value.b !== 'number'
+  ) {
+    return null
+  }
+  return {
+    r: value.r,
+    g: value.g,
+    b: value.b,
+    a: typeof value.a === 'number' ? value.a : 1
+  }
+}
+
+function fallbackMatches(value: unknown, fallback: VariableFallback): boolean {
+  if (typeof fallback === 'number') {
+    return typeof value === 'number' && Math.abs(value - fallback) <= GEOMETRY_TOLERANCE
+  }
+  if (typeof fallback === 'string' || typeof fallback === 'boolean') return value === fallback
+  const channels = colorChannels(value)
+  if (!channels) return false
+  return (
+    Math.abs(channels.r - fallback.r) <= 1 / 255 &&
+    Math.abs(channels.g - fallback.g) <= 1 / 255 &&
+    Math.abs(channels.b - fallback.b) <= 1 / 255 &&
+    Math.abs(channels.a - fallback.a) <= 1 / 255
+  )
+}
+
+function formatFallback(value: unknown): string {
+  if (typeof value !== 'object' || value === null) return String(value)
+  const channels = colorChannels(value)
+  if (!channels) return JSON.stringify(value)
+  const bytes = [channels.r, channels.g, channels.b, channels.a].map((channel) =>
+    Math.round(channel * 255)
+      .toString(16)
+      .padStart(2, '0')
+      .toUpperCase()
+  )
+  return `#${bytes.slice(0, channels.a === 1 ? 3 : 4).join('')}`
+}
+
+function authoredVariableFallbackWarnings(input: ParsedCanvasTreeInput): VerificationWarning[] {
+  const authoredValues = new Map<string, unknown[]>()
+  for (const collection of Object.values(input.variableCollections ?? {})) {
+    if (!collection) continue
+    for (const [key, variable] of Object.entries(collection.variables ?? {})) {
+      const values = Object.values(variable?.values ?? {})
+      if (values.length) authoredValues.set(key, values)
+    }
+  }
+
+  const directValues = (key: string, seen = new Set<string>()): unknown[] => {
+    if (seen.has(key)) return []
+    seen.add(key)
+    return (authoredValues.get(key) ?? []).flatMap((value) => {
+      if (!isRecord(value) || !isRecord(value.variable)) return [value]
+      const alias = value.variable.variableKey
+      return typeof alias === 'string' ? directValues(alias, new Set(seen)) : []
+    })
+  }
+
+  const warnings: VerificationWarning[] = []
+  for (const spec of walkSpecs(input.root)) {
+    for (const [field, reference] of Object.entries(spec.variables ?? {}) as Array<
+      [keyof CanvasVariableBindings, CanvasVariableReference | null]
+    >) {
+      if (!reference || !('variableKey' in reference)) continue
+      const values = directValues(reference.variableKey)
+      const fallback = variableFallback(spec, field)
+      if (
+        !values.length ||
+        fallback === undefined ||
+        values.some((value) => fallbackMatches(value, fallback))
+      ) {
+        continue
+      }
+      const authoredValues = [...new Set(values.map(formatFallback))].join(', ')
+      warnings.push({
+        code: 'variable-fallback-mismatch',
+        key: spec.key,
+        message: `"${spec.key}" binds ${field} ${formatFallback(fallback)} to authored variable "${reference.variableKey}", whose direct mode values are ${authoredValues}. Use a matching literal fallback or bind the variable that owns this value.`
+      })
+    }
+  }
+  return warnings
+}
+
+function layoutAffectingVisibilityWarnings(
+  root: CanvasNodeSpec,
+  state: ApplyState
+): VerificationWarning[] {
+  const warnings: VerificationWarning[] = []
+  for (const spec of walkSpecs(root)) {
+    const property = spec.figma?.componentPropertyReferences?.visible
+    if (!property) continue
+    const node = state.keyedNodes.get(spec.key)
+    const parent = node?.parent
+    if (
+      !node ||
+      !parent ||
+      !isSupportedSceneNode(parent) ||
+      !isFrameContainer(parent) ||
+      parent.layoutMode === 'NONE' ||
+      ('layoutPositioning' in node && node.layoutPositioning === 'ABSOLUTE')
+    ) {
+      continue
+    }
+    const flowSibling = parent.children.some(
+      (child) =>
+        child.id !== node.id &&
+        isSceneNode(child) &&
+        (!('layoutPositioning' in child) || child.layoutPositioning !== 'ABSOLUTE')
+    )
+    if (
+      !flowSibling &&
+      parent.primaryAxisSizingMode !== 'AUTO' &&
+      parent.counterAxisSizingMode !== 'AUTO'
+    ) {
+      continue
+    }
+    warnings.push({
+      code: 'layout-affecting-visibility-property',
+      key: spec.key,
+      message: `Boolean component property "${property}" controls an Auto Layout flow child. Hiding it can resize its parent or move siblings. If geometry must stay stable, put the visible layer inside an always-present fixed slot, make it absolute, or use geometry-equivalent variants; otherwise verify both states and accept the intended reflow.`
+    })
+  }
+  return warnings
 }
 
 function removedRootResult(
@@ -5141,7 +5504,7 @@ function removedRootResult(
     updatedNodeIds: [],
     removedNodeIds,
     mutationCount: state?.mutations.count ?? 0,
-    verification: passedVerification()
+    verification: buildVerification()
   }
 }
 
@@ -5161,13 +5524,15 @@ function verifySizingGeometry(
   node: SupportedCanvasNode,
   parent?: SupportedCanvasNode
 ): void {
-  if (!isIntrinsicNode(node) && 'layoutSizingHorizontal' in node) {
+  if (!isIntrinsicNode(node) && supportsLayoutSizing(node, parent)) {
     if (
       node.layoutSizingHorizontal !== spec.size.horizontal ||
       node.layoutSizingVertical !== spec.size.vertical ||
       (spec.grow !== undefined && node.layoutGrow !== (spec.grow ? 1 : 0))
     ) {
-      specError(`Verification failed for "${spec.key}": sizing modes do not match.`)
+      specError(
+        `Verification failed for "${spec.key}": sizing modes do not match (declared horizontal=${spec.size.horizontal}, vertical=${spec.size.vertical}, grow=${spec.grow ?? false}; applied horizontal=${node.layoutSizingHorizontal}, vertical=${node.layoutSizingVertical}, grow=${node.layoutGrow === 1}).`
+      )
     }
   }
 
@@ -5192,10 +5557,10 @@ function verifySizingGeometry(
     specError(`Verification failed for "${spec.key}": fixed geometry does not match.`)
   }
 
-  const fill = expectedCrossAxisFill(node, spec, parent)
+  const fill = crossAxisFill(node, spec, parent)
   if (fill) {
     const actual = fill.axis === 'horizontal' ? node.width : node.height
-    if (Math.abs(actual - fill.size) > GEOMETRY_TOLERANCE) {
+    if (actual <= GEOMETRY_TOLERANCE) {
       specError(`Verification failed for "${spec.key}": fill geometry does not match.`)
     }
   }
@@ -5231,6 +5596,44 @@ function verifySizingGeometry(
   }
 }
 
+function componentLinkMatches(
+  spec: CanvasNodeSpec,
+  node: InstanceNode,
+  expected: ComponentNode,
+  actual: ComponentNode | null,
+  state: ApplyState
+): boolean {
+  if (actual?.id === expected.id) return true
+  const componentSet = expected.parent
+  if (
+    !actual ||
+    componentSet?.type !== 'COMPONENT_SET' ||
+    actual.parent?.type !== 'COMPONENT_SET' ||
+    actual.parent.id !== componentSet.id
+  ) {
+    return false
+  }
+
+  const variantProperties = Object.entries(spec.componentProperties ?? {}).flatMap(
+    ([key, value]) => {
+      const name = componentPropertyName(componentSet, key, state) ?? key
+      return componentSet.componentPropertyDefinitions[name]?.type === 'VARIANT'
+        ? ([[name, value]] as const)
+        : []
+    }
+  )
+  return (
+    variantProperties.length > 0 &&
+    variantProperties.every(([name, value]) => {
+      const applied = node.componentProperties[name]
+      return isComponentPropertyVariable(value)
+        ? applied?.boundVariables?.value?.id ===
+            resolvedVariable(value.variable, state.variables).id
+        : applied?.value === value && applied.boundVariables?.value === undefined
+    })
+  )
+}
+
 async function verifyAppliedNode(
   spec: CanvasNodeSpec,
   node: SupportedCanvasNode,
@@ -5243,7 +5646,7 @@ async function verifyAppliedNode(
   if (state.nodeIdsByKey[spec.key] !== node.id) {
     specError(`Verification failed for "${spec.key}": stable identity did not resolve to its node.`)
   }
-  if (node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME) !== spec.key) {
+  if (readOwnedNodeKey(node) !== spec.key) {
     specError(`Verification failed for "${spec.key}": native stable identity is missing.`)
   }
   if (parent && node.parent?.id !== parent.id) {
@@ -5266,7 +5669,7 @@ async function verifyAppliedNode(
     const expected = resolvedComponent(spec.component, state)
     const actual = node.type === 'INSTANCE' ? await node.getMainComponentAsync() : null
     references += 1
-    if (actual?.id !== expected.id) {
+    if (node.type !== 'INSTANCE' || !componentLinkMatches(spec, node, expected, actual, state)) {
       specError(`Verification failed for "${spec.key}": component link does not match.`)
     }
   }
@@ -5415,7 +5818,8 @@ async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): 
         await verifyRollbackProtectedNodes(state)
       } catch (rollbackError) {
         if (readOnly) throw readOnly
-        const detail = rollbackError instanceof Error ? ` ${rollbackError.message}.` : ''
+        const rollbackMessage = errorMessage(rollbackError)
+        const detail = rollbackMessage ? ` ${rollbackMessage}.` : ''
         throw createCodedError(
           TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
           `Canvas apply failed and automatic rollback was not available.${detail} Use Figma Undo.`
@@ -5433,15 +5837,22 @@ async function removeUpdateRoot(targetNodeId: string): Promise<ApplyCanvasResult
   if (!isSupportedSceneNode(candidate)) {
     scopeError('The requested removal target is not a supported scene node.')
   }
+  assertOutsideInstance(candidate)
 
   const state = createApplyState(candidate, new Set())
   validateRemovalAncestors(candidate)
   validateRemovalOwnership(candidate, state)
   state.removalNodeIds.add(candidate.id)
+  const parent = candidate.parent
 
   return withUndoBoundary(async () => {
     const removedNodeIds = await applyRemovals([candidate], state)
-    if (await lookupNodeById(candidate.id)) {
+    if (
+      !candidate.removed &&
+      (!parent ||
+        !('children' in parent) ||
+        parent.children.some((child) => child.id === candidate.id))
+    ) {
       specError(`Verification failed: root "${candidate.id}" is still present.`)
     }
     return removedRootResult(candidate.id, removedNodeIds, state)
@@ -5458,7 +5869,15 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
     if (!isSupportedSceneNode(candidate)) {
       scopeError('The requested update target does not exist or is not a supported scene node.')
     }
+    assertOutsideInstance(candidate)
     target = candidate
+  }
+  if (
+    target &&
+    rootSpec.type === 'FRAME' &&
+    (target.type === 'COMPONENT' || target.type === 'COMPONENT_SET')
+  ) {
+    rootSpec.type = target.type
   }
   if (target && target.type !== rootSpec.type) {
     specError(
@@ -5503,6 +5922,11 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
     await removeStyleResources(state.styles, state.mutations)
     await removeVariableResources(state.variables, state.mutations)
     const verified = await verifyAppliedNode(rootSpec, root, state)
+    const warnings = [
+      ...unboundCreatedResourceWarnings(input, state),
+      ...authoredVariableFallbackWarnings(input),
+      ...layoutAffectingVisibilityWarnings(rootSpec, state)
+    ]
     return {
       rootNodeId: root.id,
       nodeIdsByKey: state.nodeIdsByKey,
@@ -5510,7 +5934,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
       updatedNodeIds: [...state.updatedNodeIds],
       removedNodeIds,
       mutationCount: state.mutations.count,
-      verification: passedVerification(verified.nodes, verified.references)
+      verification: buildVerification(verified.nodes, verified.references, warnings)
     }
   }, state)
 }

@@ -41,7 +41,7 @@ becomes `720 × 320`.
 | `measure`         | Inner frame selected, Measure active, outer frame under the pointer, orange target outline and four `20` distance labels.         |
 | `scroll`          | Frame selected in the native code view, arrow pointer hovering Scroll Into View with its tooltip visible.                         |
 | `plugins`         | Real Kong Button instance selected with Figma's purple instance highlight and Kong UI-specific output; pointer hidden.            |
-| `mcp-config`      | Agent integration with MCP enabled, Codex selected, and its plugin prompt/CLI paths visible.                                      |
+| `mcp-config`      | Agent integration with MCP enabled, Codex selected, and its portable Agent Plugin setup visible.                                  |
 | `mcp-unavailable` | Preferences visible with the gray-dot, dashed MCP badge.                                                                          |
 | `mcp-inactive`    | Preferences visible with the green-dot, dashed MCP badge.                                                                         |
 | `mcp-active`      | Preferences visible with the green-dot, solid-green MCP badge.                                                                    |

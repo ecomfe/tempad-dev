@@ -1,4 +1,5 @@
 import {
+  MCP_APPLY_CANVAS_TIMEOUT_MS,
   MCP_AUTO_ACTIVATE_GRACE_MS,
   MCP_ASSET_TTL_MS,
   MCP_MAX_ASSET_BYTES,
@@ -21,13 +22,9 @@ function parseNonNegativeInt(envValue: string | undefined, fallback: number): nu
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
 }
 
-function resolveToolTimeoutMs(): number {
-  return parsePositiveInt(process.env.TEMPAD_MCP_TOOL_TIMEOUT, MCP_TOOL_TIMEOUT_MS)
-}
-
-function resolveGetCodeTimeoutMs(): number {
-  const fallback = parsePositiveInt(process.env.TEMPAD_MCP_TOOL_TIMEOUT, MCP_GET_CODE_TIMEOUT_MS)
-  return parsePositiveInt(process.env.TEMPAD_MCP_GET_CODE_TIMEOUT, fallback)
+function resolveToolTimeoutMs(specializedValue?: string, fallback = MCP_TOOL_TIMEOUT_MS): number {
+  const general = parsePositiveInt(process.env.TEMPAD_MCP_TOOL_TIMEOUT, fallback)
+  return parsePositiveInt(specializedValue, general)
 }
 
 function resolveAutoActivateGraceMs(): number {
@@ -64,7 +61,14 @@ export function getMcpServerConfig() {
   return {
     wsPortCandidates: [...MCP_PORT_CANDIDATES],
     toolTimeoutMs: resolveToolTimeoutMs(),
-    getCodeTimeoutMs: resolveGetCodeTimeoutMs(),
+    getCodeTimeoutMs: resolveToolTimeoutMs(
+      process.env.TEMPAD_MCP_GET_CODE_TIMEOUT,
+      MCP_GET_CODE_TIMEOUT_MS
+    ),
+    applyCanvasTimeoutMs: resolveToolTimeoutMs(
+      process.env.TEMPAD_MCP_APPLY_CANVAS_TIMEOUT,
+      MCP_APPLY_CANVAS_TIMEOUT_MS
+    ),
     maxPayloadBytes: MCP_MAX_PAYLOAD_BYTES,
     autoActivateGraceMs: resolveAutoActivateGraceMs(),
     maxAssetSizeBytes: resolveMaxAssetSizeBytes(),

@@ -9,7 +9,7 @@ extension:
 
 ```txt
 task intent
-  -> ground material visual invention in user / project / skill / research evidence
+  -> ground unresolved material design decisions in user / project / skill / research evidence
   -> optionally delegate isolated evidence, asset, inventory, or QA work
   -> choose reuse or direct resources from the user's constraints
   -> explicit design-system authoring branch only when requested
@@ -72,64 +72,45 @@ shape and routing descriptions, while a matching skill reference supplies a comp
 example only when the result needs that capability. The extension remains the strict validator and
 executor.
 
-## Style grounding and open-world source choice
+## Evidence boundary for design decisions
 
-Canvas correctness does not supply design judgment. The objective is a result that fits the user's
-task, audience, platform, constraints, and intended expression. Design systems, reference products,
-icon libraries, and typefaces are evidence or materials toward that result, not defaults justified
-by familiarity, popularity, or authority.
+Canvas correctness does not supply design judgment, but the Canvas skill must not become a product,
+platform, accessibility, content, or visual-style handbook. Its responsibility is orthogonal: make
+the agent identify material uncertainty, obtain appropriate evidence, translate the resulting
+decision into native Figma state, and verify the delivered artifact.
 
-The progressive skill uses a relevance-first, bounded divergence–convergence process:
+The progressive skill therefore uses a decision-scoped evidence process:
 
-1. **Frame the focal problem before sources.** Record domain, audience, task, platform, intended
-   character, hard constraints, and the material decisions still open. Candidate names do not
-   appear at this stage.
-2. **Apply an evidence ladder.** Explicit user direction comes first, then permitted project and
-   Figma evidence, then an installed skill only when it contains applicable visual conventions,
-   then targeted current research. A procedural skill is not automatically style evidence.
-3. **Cover behavior and expression.** Net-new visual invention uses one deployed same/adjacent-domain
-   product to ground hierarchy, density, interaction, and trust, plus one meaningfully distinct
-   product, editorial, or expert reference to ground visual expression. Concrete project evidence
-   may fill either role; broad adjectives fill neither.
-4. **Gate every external source for relevance.** A source must share material context with the
-   target or be authoritative for the exact decision at hand. Platform guidance has authority only
-   within its platform; an adjacent visual reference must name the principle that transfers.
-5. **Create meaningful contrast when fixation risk matters.** If a material direction remains open
-   and the first candidate is merely familiar, salient, or weakly matched, inspect an alternative
-   that differs on the decision dimension. Skip extra comparison when strong local evidence already
-   determines the choice or its consequence is minor.
-6. **Commit coherently.** Select by contextual fit, coverage, constraints, and tradeoffs. Do not
-   average incompatible references or reward novelty for its own sake.
-7. **Verify the artifact rather than the story.** Every briefed commitment must be visible in the
-   final screenshot. If it is absent, the agent corrects the canvas or removes the claim.
+1. inventory explicit user requirements and permitted project and Figma evidence;
+2. isolate only unresolved decisions that could materially change the result;
+3. inspect the nearest credible source whose authority covers each decision;
+4. retain the exact source, applicable finding, authority boundary, and resulting decision;
+5. stop when the uncertainty is resolved and verify the rendered result against that trace.
 
-Reference roles remain separate: similar deployed products inform behavior and hierarchy;
-platform, accessibility, and regulatory guidance supplies scoped constraints; expressive references
-inform visual language only when the transferable principle is explicit. Asset selection follows
-the same rule: derive an icon or type profile from the composition's needs, inspect the required
-assets, compare alternatives only when the decision is consequential, then use one coherent source.
-A named typeface is a verifiable canvas commitment: bind it through an actual Text style, variable,
-or exact native font. A generic `font-sans` class does not establish that family.
+The process prescribes no universal UX checklist, source count, platform value, visual vocabulary,
+or preferred design answer. Source types are selected by the open decision, and an applicable
+installed domain skill may itself be evidence; a procedural Figma skill, remembered convention,
+payload example, or available tool is not. Search snippets are discovery leads rather than inspected
+evidence. Exact reproduction, mechanical edits, and decisions already established by sufficient
+evidence do not trigger ceremonial research. Evidence must also match the decision's medium:
+textual product guidance, including generic guidance from another skill, can establish behavior,
+but direction-defining visual choices require an inspected visual artifact or exact visual
+specification.
 
-Imagery has no fixed generated-versus-stock priority after relevant project, user, and current-file
-assets. The agent first fixes the image's semantic role, literal-content requirements, crop,
-expression, rights, and importable delivery form. Licensed real-world imagery is preferred for
-factual authenticity and replaceable editorial atmosphere; generation is preferred for materially
-specific, fictional, conceptual, or signature art direction. Purpose-built geometry is valid only
-when geometry is itself the direction. Tool availability never decides the route, and an
-unimportable custom result cannot silently become a primitive collage or generic stock substitute.
+Asset delivery follows the same boundary. The task evidence determines whether an asset is needed,
+what it depicts, how it should look, and whether an existing, licensed, generated, or vector source
+fits. The authoring workflow requires only source integrity, applicable rights, fidelity, sufficient
+quality, and an importable Canvas form. It does not rank those media routes globally or permit a
+different subject, style, or medium merely because one tool is more convenient. Creative latitude,
+native editability, and delivery speed do not establish a geometric image medium; the brief or
+applicable visual evidence must do so. The import route is resolved before invoking asset production;
+otherwise a local-only result creates avoidable work and pressure to substitute a different source
+after the design decision has already been made.
 
-The resulting brief is a compact decision trace, not a mood board. Research stops when each material
-open decision has sufficient evidence. Exact reproduction, mechanical edits, explicit user choices,
-and established project sources do not trigger ceremonial exploration.
-
-This remains a progressive skill concern rather than a new MCP tool or `style` field because source
-selection is contextual and open-world. Encoding it as protocol state would add a brittle taxonomy
-to every request. Research on example presentation supports framing before named candidates to
-reduce fixation ([Formulating or Fixating](https://doi.org/10.1145/3613904.3642653)), while UI
-evaluation supports checking the rendered artifact instead of trusting its rationale
-([Design Theater](https://arxiv.org/abs/2607.22928)). The MCP protocol therefore continues to carry
-only the desired native result.
+This remains a progressive skill concern rather than a new MCP tool or `style` field because design
+requirements and source authority are contextual and open-world. Encoding them as protocol state
+would prematurely embed domain conclusions in the authoring contract. The MCP protocol therefore
+continues to carry only the desired native result.
 
 ## Delegation and tacit integration
 
@@ -258,6 +239,36 @@ The agent follows this order:
 5. stop only when the user requires a named design system and no evidence for it exists.
 
 TemPad Dev does not generate a token library or component system merely to make a single screen.
+When the user does request a design system, definitions are not sufficient: authored variables and
+styles must be bound to representative final consumers, while component definitions must appear as
+native instances. Repeated semantic spacing, sizing, radius, color, and typography roles are valid
+token candidates; one-off geometry is not. A binding is representative only when the consumer
+performs the resource's named semantic role. Equal raw literals, semantically mismatched bindings,
+and definition specimens remain non-evidence. One representative binding proves connectivity but
+does not close an intended shared role while concrete consumers meant to evolve with it remain
+literal. The skill therefore works from concrete usage toward
+reuse when the scope spans several usages: it may use a private working map when the scope warrants
+one, validates a representative composition, completes the concrete usages, and then revisits the
+resource plan before final QA. Responsibilities merit components when expected reuse, coordinated change, state
+consistency, or variation makes a shared definition valuable after weighing divergence, contract
+clarity, and abstraction cost. Repetition and structural similarity are evidence, never a threshold
+or classification obligation; the first convenient component does not establish coverage. An
+expressible state difference strengthens a shared contract when stable anatomy should evolve
+together; it is not by itself a reason to preserve local copies. A decision to remain local must
+instead rest on divergence or contract cost that outweighs coordinated change for the strongest
+candidate actually reviewed, not a different group that is easier to keep local. Components already
+authored are reconciled with the concrete usages that justified them before new candidates are
+reviewed; replacing a representative instance with a same-responsibility local copy reopens that
+contract decision. Authored semantic resources are likewise reconciled with their intended
+consumers, and typography, layout, and appearance roles are compared independently when materially
+part of the requested system; representative coverage in one role does not close another.
+These are outcome constraints, not a fixed resource count, inventory, or required tool sequence;
+the agent uses the cheapest sufficient evidence and leaves one-off or independently owned values
+literal.
+Selected component contracts must express real usage differences and appear as native instances.
+A request to create a design system does not by itself require a canvas specimen. MCP
+verifies objective identities and bindings; it does not infer semantic responsibility from equal
+geometry or numeric values.
 
 ## Public `apply_canvas` contract
 
@@ -308,9 +319,14 @@ description and the Canvas HTML reference so an agent can split a large composit
 the tool; the parser still rejects an oversized tree before any mutation.
 
 Local collection, variable, and style authoring keys persist as file-wide identities. They must be
-namespaced by product and role rather than reused as collection-local shorthand. Variable mode keys
-remain scoped to their collection. Same-result bindings use these identities immediately, while
-later results use them to recover and update the same managed resources.
+rooted in one collision-resistant prefix for the independent system rather than a generic product
+name or collection-local shorthand. An intentional update recovers the existing keys instead.
+Variable mode keys remain scoped to their collection. Same-result bindings use these identities
+immediately, while later results use them to recover and update the same managed resources.
+
+Resolved variable input rejects Figma-invalid scope combinations before mutation: `ALL_SCOPES` is
+exclusive, and `ALL_FILLS` cannot be combined with `FRAME_FILL`, `SHAPE_FILL`, or `TEXT_FILL`.
+`ALL_FILLS` may coexist with non-fill color scopes such as `STROKE_COLOR`.
 
 An exact live component ID returned by prior `apply_canvas` work can be bound directly without
 creating or refreshing a catalog. This keeps component authoring order flexible: the agent may
@@ -318,6 +334,11 @@ author definitions before composing, or compose first and later replace managed 
 with instances. For TemPad-authored definitions, direct `componentProperties` may use the stable
 property keys recorded during authoring. Catalog tags remain the normalized path for discovered
 components and library reuse.
+
+Authored-component publishable metadata is part of the component definition:
+`descriptionMarkdown` and `documentationLink` live inside `figma.component`, beside `type` and
+`properties`, rather than beside `figma.component`. The progressive component reference shows the
+complete nesting so the compact public `figma` record does not invite shape inference.
 
 The model can use exact `{ ref: "…" }` objects inside advanced state. The resolver expands them to
 the correct component, variable, collection, mode, style, or shader identity and rejects:
@@ -367,11 +388,31 @@ Primitive tags are case-insensitive. Catalog tags preserve case, are childless, 
 returned `data-ref`, accept only returned props, and default to the component's native width and
 height when sizing classes are omitted.
 
+The markup root in create and update mode must resolve to fixed width and height. Fill, hug, and
+grow sizing depend on a parent layout context and are therefore invalid at that declarative root,
+even when an update target has a sized live parent.
+
 The parser fails closed on unknown elements, attributes, classes, or contradictory state. Native
 Tailwind v4 utilities are accepted when their default value has a deterministic Figma equivalent;
 arbitrary pixel/color values remain available off scale. It is not a browser and does not execute
 CSS, JavaScript, project theme extensions, Tailwind variants/plugins, or remote page content. The
-exact supported subset is documented in the canvas-authoring skill.
+exact supported subset is documented in the canvas-authoring skill. A plain ampersand remains text
+when it does not begin a semicolon-terminated entity; supported named and numeric entities decode.
+
+Create-mode uses Figma's CSS-aligned Auto Layout model. Inside strokes participate by default;
+`box-content` explicitly excludes them, while center and outside strokes never affect layout. Each
+frame owns its stroke setting. Fixed create geometry is rejected when it cannot contain its literal
+padding and explicitly included inside stroke. Native Auto gap owns its zero minimum and
+single-child start alignment, and Figma owns border-box distribution among `FILL` children. On
+update, omission preserves the live stroke-layout setting; the Plugin API exposes no layout-version
+setter.
+
+Figma also treats a hidden in-flow child as absent from Auto Layout. A BOOLEAN component-property
+reference on such a child is therefore a layout decision, not merely a paint change: it may remove
+gap, move siblings, or resize a hugging ancestor. TemPad Dev returns
+`layout-affecting-visibility-property` when the referenced child has another in-flow sibling or a
+hugging Auto Layout parent. Fixed single-child slots and absolute children preserve geometry;
+intentional optional-content reflow remains valid after both states are verified.
 
 ## Native extension
 
@@ -405,7 +446,9 @@ Create describes one complete new root. The extension starts near the current vi
 checks the new root's rendered bounds against top-level bounds on the destination page, and when
 occupied moves the whole result to the first available position to the right. A root
 `relativeTransform` may supply rotation or skew axes, but its translation never controls create
-placement. The model does not inspect the canvas for free space or maintain a coordinate ledger.
+placement. Placement verification uses the translated rendered bounds computed for that move rather
+than immediately rereading Figma's eventually refreshed render bounds. The model does not inspect
+the canvas for free space or maintain a coordinate ledger.
 
 Update is an incremental declarative patch scoped by `targetNodeId`:
 
@@ -414,10 +457,20 @@ Update is an incremental declarative patch scoped by `targetNodeId`:
 - `removeKeys` explicitly asserts that owned descendants must be absent;
 - `markup: null` is the isolated assertion that the managed update root itself must be absent.
 
+This applies within a stroke as well: update may supply paint or weight alone
+while the omitted counterpart preserves its live literal, style, or variable
+state. Create still requires a complete visible-stroke contract.
+
+An update targeted at an existing authored component or component set preserves that root's native
+type when the root binding omits a redundant `figma.component` declaration. Supplying component
+metadata still updates the authored contract explicitly.
+
 Omission never means deletion. Stable identity comes from `data-key`, not layer names. Repeating an
 identical desired result is a no-op. `get_structure` returns that key as `authoringKey` on
 TemPad-managed nodes, so a later session can recover identity from the live canvas instead of
-guessing or recreating it.
+guessing or recreating it. A node first introduced by either create or update starts with its key as
+the layer name unless the desired result provides another name; omitting the name on an existing
+node preserves its live name.
 
 The extension reads the latest canvas immediately before reconciliation, so the diff is between the
 new desired result and current live state—not between two model messages. It minimizes mutations
@@ -430,12 +483,19 @@ subject to stronger constraints:
 5. no-op convergence;
 6. only then, fewer Plugin API calls.
 
+Supplied child order is reconciled without replacing stable identities. Same-parent moves interpret
+the insertion index against Figma's pre-move sibling list, including when an earlier child crosses
+a later one; omitted siblings remain present and only move when the declared relative order
+requires it.
+
 Exact update targets, adopted `data-node-id` descendants, and direct component IDs are resolved
-through Figma's asynchronous lookup API before synchronous preflight and reconciliation. This keeps
-exact-ID authoring compatible with dynamic-page document access; the reconciler then carries the
-resolved live nodes in request state instead of depending on later synchronous lookups. The
-rewritten runtime has a current-page synchronous fallback for the brief state where it exposes the
-async method before its lookup backend is ready.
+through Figma's asynchronous lookup API before reconciliation. Instance sublayers are not exact
+authoring targets; they remain definition-derived. Resolved nodes stay in request state instead of
+depending on later synchronous lookups. The rewritten runtime keeps a current-page synchronous
+fallback for the brief state where the async lookup backend is not ready. Removed nodes are treated
+as absent even if that backend briefly returns a stale object after deletion. Root-removal
+verification therefore uses the mutated node's removal state and its live parent's child list
+instead of re-querying that eventually consistent lookup path.
 
 ## Reconciliation
 
@@ -454,15 +514,36 @@ The local deterministic pipeline is:
 11. verify the live result;
 12. commit one Undo boundary, or undo the whole attempt on failure.
 
-A newly created instance may expose its main component's shared plugin data. Reconciliation treats
-that inherited data as definition state, not ownership of the new usage, and writes the instance's
-own requested canvas key based on explicit reconcile state rather than incidental bookkeeping.
+Figma may expose a component definition's shared plugin data on its instance and descendants, so a
+key value alone is not ownership proof. An instance root therefore records usage ownership
+separately; an unmarked key is accepted only when distinct from its definition and is then claimed.
+Ambiguous keys and all definition-derived descendants stay outside authoring identity, exact
+adoption, and removal. Physical traversal still includes descendants for safety checks.
+
 Existing nodes still reject ownership reassignment. Newly created Frames and Components normalize
 an omitted fill to transparent even during update; explicit paint, style, or variable state then
 overrides that baseline. Main-axis `grow` is validated by its effective `FILL` sizing mode, so a
 primitive track may use `grow w-fit` inside a row without being misclassified as a freeform
 hug-sized Frame. Growing Text that transiently collapses to zero width is reflowed through a bounded
-fixed-to-fill transition before verification.
+fixed-to-fill transition before verification. Figma owns nonzero cross-axis `FILL` geometry. The
+reconciler estimates available space only to seed newly created or collapsed fills, subtracting
+literal padding and only visible, included inside strokes. Verification checks that the declared
+mode resolves to nonzero geometry instead of reimplementing Figma's final border-box distribution.
+Figma sizing-mode setters run only for Auto Layout containers and Auto Layout children. Fixed
+geometry in a freeform subtree is applied with `resize` without touching unavailable Auto Layout
+fields; intrinsic Text sizing there is expressed through text auto-resize instead.
+
+Component-property definitions are read only from component sets and non-variant components. The
+same capability predicate governs rollback snapshots, reference checks, and document-wide variable
+removal scans. Variant definitions resolve through their parent set, including while protecting
+exact component references for rollback. This keeps both exact variant IDs and component-set IDs safe to
+instantiate. A component-set reference creates its default variant; applying a VARIANT property may
+then select another component in that set. Verification accepts that selected sibling only when it
+belongs to the same set and the requested variant property values or bindings remain applied.
+
+Figma may normalize Text auto-resize while truncation and maximum-line state changes. Reconciliation
+therefore applies truncation state before the declared auto-resize mode, so fixed text boxes remain
+fixed while still supporting native ending truncation.
 
 After a failed mutation, reconciliation commits the partial attempt as the newest history entry
 before triggering Undo. This keeps rollback scoped to that attempt in a long-lived plugin session
@@ -486,9 +567,9 @@ Structural verification is mandatory. It checks:
 - identity map;
 - parent and child order;
 - finite geometry;
-- declared sizing modes, fixed dimensions, and deterministic cross-axis fill geometry;
+- declared sizing modes, fixed dimensions, and resolved nonzero cross-axis fill geometry;
 - Text auto-resize mode, non-empty intrinsic geometry, and non-collapsed growing text;
-- direct component identity;
+- direct component identity, including a requested variant selected within the referenced set;
 - direct variable, style, and mode links;
 - mask state.
 
@@ -507,16 +588,38 @@ type Verification = {
 }
 ```
 
+A variable or style newly created by the call but not referenced by the same desired result produces
+an `unbound-created-variable` or `unbound-created-style` warning. This is intentionally non-fatal
+because a multi-call design-system workflow may stage definitions, but the authoring skill requires
+the final composition to bind or remove every warned resource. A same-result reference proves
+connectivity only; it does not prove that a specimen or semantically unrelated property is a
+representative consumer.
+
+A same-call authored variable binding whose literal fallback matches none of the variable's direct
+mode values produces `variable-fallback-mismatch`. Local aliases are followed until a direct value
+is reached; unresolved external aliases are skipped. This warning catches contradictory desired
+state without rejecting legitimate multi-mode fallbacks, because matching any authored mode is
+sufficient.
+
+A visible component-property reference that can alter Auto Layout flow produces
+`layout-affecting-visibility-property`. It is also non-fatal because optional content may be
+designed to reflow. The authoring workflow must either preserve geometry with a fixed slot,
+absolute child, or geometry-equivalent variants, or explicitly accept the verified state change.
+
 Its structured result also returns `rootNodeId` and the bounded `nodeIdsByKey` identity map so a
 later Author call can consume an exact component created by the preceding result.
 
 `get_screenshot` is a separate read-only validation tool. It returns one bounded PNG as a linked MCP
 resource backed by the existing capability URL; structured content contains metadata, not binary
-bytes. The client must open that resource before claiming pixel-level verification. For new visual
-invention, the representative screen is checked before its language propagates, then the final board
-and materially distinct screens are checked for defects that a board overview may hide. Routine
-text, token, prop, and hierarchy-only edits do not need screenshots; corrections recheck only the
-affected composition.
+bytes. The client must download and display the actual PNG before claiming pixel-level verification;
+receiving or copying the link is not inspection. When it is the representative-screen gate, that
+inspection precedes any dependent canvas write. For material
+design changes, a representative composition is checked before its decisions propagate, then the
+final board and materially distinct screens are checked for defects that a board overview may hide.
+Routine text, token, prop, and hierarchy-only edits do not need screenshots; corrections recheck
+only the affected composition. When page-level placement matters, a root was resized after placement, or the
+final report claims that multiple roots do not overlap, spatial QA compares their page-space bounds
+with `get_structure` because isolated screenshots cannot establish that relationship.
 
 ## Safety boundaries
 

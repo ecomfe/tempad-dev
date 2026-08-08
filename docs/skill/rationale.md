@@ -127,12 +127,60 @@ requested. Declarative desired state and stable identity remain hard
 boundaries. Native schema, design-system, and visual-asset particulars remain
 progressive references.
 
-Unspecified visual direction uses evidence as subsidiary support. It frames
-the product problem before searching, researches only unresolved material
-decisions, creates contrast only when fixation risk matters, and validates the
-visible canvas against one compact hypothesis. This avoids both common model
-defaults and the opposite failure of performing a research ritual instead of
-designing.
+The skill is deliberately orthogonal to product-domain, platform,
+accessibility, content, and visual-style requirements. When a material design
+decision remains unresolved, it requires a compact evidence trace and validates
+the visible canvas against the resulting task-specific brief. It prescribes no
+universal UX checklist, source count, or design answer; those belong to the user,
+project evidence, an applicable domain skill, or targeted research.
+For net-new work without a concrete reference or representative established
+screen or system, it treats the direction-defining visual language as material
+instead of silently demoting it to a low-consequence assumption. It likewise
+routes pictographic and image roles through asset-source reasoning before the
+agent chooses a medium, without prescribing that medium.
+
+For explicitly requested design-system work, the skill codifies the cue and
+feedback loop rather than a component inventory. After concrete usages exist, a
+single whole-composition checkpoint compares the still-local responsibility
+with the greatest coordination cost against resources already authored, then
+does the same for the strongest literal typography or layout role. This keeps
+attention on coherent future change instead of the last screen or most obvious
+repeated list without turning the workflow into a candidate census. Drift
+remains evidence. The agent either models the selected role or retains it for a
+concrete reason, reported briefly when it remains local.
+Selected component contracts must express their real differences through native
+instances. A working map remains optional support for complex scopes, not a
+mandatory candidate-classification pass. Repetition and structural similarity
+are evidence rather than a threshold or default; the skill never prescribes
+component counts or product-specific component types. When several candidates
+exist, the comparison is by coordination value rather than implementation ease;
+a convenient leaf resource cannot silently substitute for the boundary that
+best controls shared state, evolution, or drift. Literal content differences are
+treated as component inputs rather than structural divergence. The consumer's
+ownership of a current state value likewise does not make shared anatomy local;
+the contract may expose that value. A Local decision must instead be grounded
+in responsibility, behavior, structure, ownership, expected evolution, or
+abstraction cost.
+
+Component contracts preserve the same semantic boundary. Mutually exclusive
+categorical state is one variant axis; independent Booleans remain for genuinely
+independent optional content or behavior, so the API does not admit states the
+real usages cannot produce.
+
+Visual correction is also evidence-preserving work. Removing a visible defect
+does not pass verification when the repair shortens established content,
+removes state, substitutes an asset, or otherwise weakens an unaffected
+relationship. The final comparison treats that kind of concealment as a new
+defect rather than a successful fix.
+
+The same boundary governs visible evidence and assets. Textual product guidance
+cannot by itself establish visual language, and creative latitude or native
+editability cannot establish a geometric image medium. The agent must inspect
+evidence in the medium relevant to the decision, preserve content distinctions,
+and trace each material asset back to the evidence or brief decision that
+establishes its subject and medium before choosing an import route. This imposes
+no universal preference among valid image sources, but it does prevent
+agent-authored primitives or SVG from silently substituting for an image role.
 
 ## Packaging and validation
 

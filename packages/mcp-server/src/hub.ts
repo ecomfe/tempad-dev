@@ -63,6 +63,7 @@ const {
   wsPortCandidates,
   toolTimeoutMs,
   getCodeTimeoutMs,
+  applyCanvasTimeoutMs,
   maxPayloadBytes,
   maxExtensionConnections,
   autoActivateGraceMs,
@@ -307,6 +308,7 @@ function buildAssetDescriptor(record: AssetRecord): AssetDescriptor {
   return {
     hash: record.hash,
     url: `${assetHttpServer.getBaseUrl()}/assets/${filename}`,
+    localPath: record.filePath,
     mimeType: record.mimeType,
     size: record.size,
     width: record.metadata?.width,
@@ -363,7 +365,12 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
         )
       }
 
-      const timeoutMs = tool.name === 'get_code' ? getCodeTimeoutMs : toolTimeoutMs
+      const timeoutMs =
+        tool.name === 'get_code'
+          ? getCodeTimeoutMs
+          : tool.name === 'apply_canvas'
+            ? applyCanvasTimeoutMs
+            : toolTimeoutMs
       const registration = register<Result>(activeExt.id, timeoutMs)
       requestId = registration.requestId
 
@@ -446,19 +453,33 @@ function createToolResponse<Name extends ToolName>(
   toolName: Name,
   payload: ToolResultMap[Name]
 ): ToolResponse {
+  const enrichedPayload = (() => {
+    if (toolName === 'get_screenshot') {
+      const screenshot = payload as ToolResultMap['get_screenshot']
+      return { ...screenshot, asset: addLocalAssetPath(screenshot.asset) }
+    }
+    if (toolName === 'get_code') {
+      const code = payload as ToolResultMap['get_code']
+      return code.assets
+        ? { ...code, assets: code.assets.map((asset) => addLocalAssetPath(asset)) }
+        : code
+    }
+    return payload
+  })() as ToolResultMap[Name]
+
   const rawResult = (() => {
     const definition = getToolDefinition(toolName)
     if (definition && hasFormatter(definition)) {
       try {
         const formatter = definition.format as (input: ToolResultMap[Name]) => ToolResponse
-        return formatter(payload)
+        return formatter(enrichedPayload)
       } catch (error) {
         log.warn({ tool: toolName, error }, 'Failed to format tool result; returning raw payload.')
-        return coercePayloadToToolResponse(payload)
+        return coercePayloadToToolResponse(enrichedPayload)
       }
     }
 
-    return coercePayloadToToolResponse(payload)
+    return coercePayloadToToolResponse(enrichedPayload)
   })()
 
   const resultBytes = measureCallToolResultBytes(rawResult)
@@ -471,6 +492,11 @@ function createToolResponse<Name extends ToolName>(
   }
 
   return rawResult
+}
+
+function addLocalAssetPath(asset: AssetDescriptor): AssetDescriptor {
+  const record = assetStore.get(asset.hash)
+  return record && existsSync(record.filePath) ? { ...asset, localPath: record.filePath } : asset
 }
 
 async function handleGetAssets({ hashes }: GetAssetsParametersInput): Promise<ToolResponse> {

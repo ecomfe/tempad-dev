@@ -10,6 +10,8 @@
   convergence, one Undo boundary, and post-write structural verification.
 - Added stable managed-identity recovery through `get_structure` and bounded visual validation
   through the read-only `get_screenshot` tool.
+- Added local asset paths to read-tool responses so sandboxed desktop agents can open Hub-owned
+  screenshots and assets without a loopback HTTP download.
 - Updated agent setup for the stable `@tempad-dev/mcp@latest` release and paired the new
   `figma-canvas-authoring` skill with the existing `figma-design-to-code` skill.
 

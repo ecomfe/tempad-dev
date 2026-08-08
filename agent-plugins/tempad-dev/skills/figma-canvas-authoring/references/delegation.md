@@ -30,8 +30,8 @@ convenience, or another unsupported aesthetic opinion.
 Give each subagent:
 
 - one objective and why it matters to the composition;
-- only the frozen product, audience, platform, visual, and resource constraints
-  needed for that objective;
+- only the established task, evidence, and resource constraints needed for that
+  objective;
 - permitted tools, sources, and artifacts;
 - explicit exclusions and the no-Canvas-write boundary;
 - an exact output contract and stop condition.
@@ -49,20 +49,20 @@ Delegate a bounded evidence question after the main agent frames the design
 problem. Return only:
 
 ```txt
-source; evidence role; transferable principle; relevance; authority/copying boundary
+open decision; exact source; applicable finding; relevance; authority boundary
 ```
 
-The scout does not choose the direction. One may cover behavioral and
-expressive roles when both questions are explicit; use two only for independent
-search spaces.
+The scout does not choose the direction. One may cover several explicit
+questions when their search space is shared; use multiple scouts only for
+independent search spaces.
 
 ### Asset scout
 
-Delegate generation or source exploration only after fixing the asset's role,
-subject, aspect ratio, palette/style, empty space, and exclusions. Return one
-importable `imageUrl` or `assetHash` per role, with MIME type, dimensions, and a
-factual description. Return no bytes, discarded candidates, or transcript. The
-main agent owns crop, placement, and judgment.
+Delegate generation or source exploration only after establishing the asset's
+task-specific requirements and import contract. Return one importable `imageUrl`
+or `assetHash` per requested asset, with MIME type, dimensions, provenance, and
+a factual description. Return no bytes, discarded candidates, or transcript.
+The main agent owns integration and judgment.
 
 ### Independent QA scout
 

@@ -2,8 +2,7 @@ const SERVER_NAME = 'tempad-dev'
 const SERVER_COMMAND = 'npx'
 const SERVER_ARGS = ['-y', '@tempad-dev/mcp@latest'] as const
 const REPOSITORY = 'ecomfe/tempad-dev'
-const MARKETPLACE_NAME = 'tempad-dev'
-const PLUGIN_NAME = 'tempad-dev'
+const PLUGIN_INSTALL_COMMAND = `npx plugins add ${REPOSITORY}`
 
 const SKILLS_SOURCE_URL =
   'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev/skills'
@@ -12,7 +11,8 @@ const CANVAS_AUTHORING_SKILL_NAME = 'figma-canvas-authoring'
 const SKILL_NAMES = [DESIGN_TO_CODE_SKILL_NAME, CANVAS_AUTHORING_SKILL_NAME] as const
 const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill ${SKILL_NAMES.join(' ')}`
 
-type SkillAgentId = 'cursor' | 'github-copilot' | 'opencode' | 'trae'
+type SkillAgentId = 'opencode' | 'trae'
+type PluginAgentId = 'claude-code' | 'codex' | 'cursor' | 'vscode'
 
 type BaseCommandConfig = {
   command: string
@@ -189,23 +189,13 @@ function buildCliCommand(prefix: 'claude' | 'codex' | 'gemini' | 'vscode'): stri
   return `codex mcp add "${SERVER_NAME}" -- ${args}`
 }
 
-function buildPluginSetupCommand(prefix: 'claude' | 'codex'): string {
-  if (prefix === 'claude') {
-    return [
-      `claude plugin marketplace add ${REPOSITORY}`,
-      `claude plugin install ${PLUGIN_NAME}@${MARKETPLACE_NAME}`
-    ].join(' && ')
-  }
-
-  return [
-    `codex plugin marketplace add ${REPOSITORY} --ref main`,
-    `codex plugin add ${PLUGIN_NAME}@${MARKETPLACE_NAME}`
-  ].join(' && ')
+function buildPluginSetupCommand(agent: PluginAgentId): string {
+  return `${PLUGIN_INSTALL_COMMAND} --target ${agent}`
 }
 
 function buildPluginSetupDeepLink(prefix: 'claude' | 'codex'): string {
-  const command = buildPluginSetupCommand(prefix)
-  const prompt = `Install the TemPad Dev agent plugin by running this command, then confirm that its MCP server plus figma-design-to-code and figma-canvas-authoring skills are available:\n\n${command}`
+  const command = buildPluginSetupCommand(prefix === 'claude' ? 'claude-code' : 'codex')
+  const prompt = `Install the portable TemPad Dev Agent Plugin by running this command, then confirm that its MCP server plus figma-design-to-code and figma-canvas-authoring skills are available:\n\n${command}`
   const target = prefix === 'claude' ? 'claude-cli://open?q=' : 'codex://new?prompt='
   return `${target}${encodeURIComponent(prompt)}`
 }
@@ -268,6 +258,7 @@ export const MCP_DEFAULT_CONFIG_SNIPPET = JSON.stringify(
 export const MCP_SERVERS_CONFIG_SNIPPET = buildMcpConfigSnippet()
 
 export const AGENT_SKILLS_INSTALL_COMMAND = SKILLS_INSTALL_COMMAND
+export const AGENT_PLUGIN_INSTALL_COMMAND = PLUGIN_INSTALL_COMMAND
 
 export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
   vscode: {
@@ -364,22 +355,10 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
     name: 'Cursor',
     actions: [
       {
-        id: 'mcp-deep-link',
-        label: 'MCP install',
-        kind: 'deep-link',
-        value: MCP_CLIENTS_BY_ID.cursor.deepLink ?? ''
-      },
-      {
-        id: 'mcp-config',
-        label: 'MCP config',
-        kind: 'config',
-        value: buildMcpConfigSnippet()
-      },
-      {
-        id: 'skill-cli',
-        label: 'Agent skills',
+        id: 'plugin-cli',
+        label: 'Plugin CLI',
         kind: 'command',
-        value: buildSkillsInstallCommand('cursor')
+        value: buildPluginSetupCommand('cursor')
       }
     ]
   },
@@ -397,7 +376,7 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
         id: 'plugin-cli',
         label: 'Plugin CLI',
         kind: 'command',
-        value: buildPluginSetupCommand('claude')
+        value: buildPluginSetupCommand('claude-code')
       }
     ]
   },
@@ -430,22 +409,10 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
     name: 'VS Code',
     actions: [
       {
-        id: 'mcp-deep-link',
-        label: 'MCP install',
-        kind: 'deep-link',
-        value: MCP_CLIENTS_BY_ID.vscode.deepLink ?? ''
-      },
-      {
-        id: 'mcp-cli',
-        label: 'MCP CLI',
+        id: 'plugin-cli',
+        label: 'Plugin CLI',
         kind: 'command',
-        value: buildCliCommand('vscode')
-      },
-      {
-        id: 'skill-cli',
-        label: 'Agent skills',
-        kind: 'command',
-        value: buildSkillsInstallCommand('github-copilot')
+        value: buildPluginSetupCommand('vscode')
       }
     ]
   },

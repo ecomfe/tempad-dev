@@ -19,6 +19,7 @@ import {
   parseVariableModeKeys,
   readAuthoringKey
 } from './identity'
+import { isComponentPropertyOwner } from './traversal'
 
 type CollectionSpec = Exclude<CanvasVariableCollections[string], null>
 type ModeSpec = Exclude<NonNullable<CollectionSpec['modes']>[string], null>
@@ -34,6 +35,7 @@ export type CanvasVariableState = {
   collectionCache: Map<string, VariableCollection>
   collectionsByKey: Map<string, VariableCollection>
   collectionRemovals: VariableCollection[]
+  createdVariableKeys: Set<string>
   localIndex?: Promise<void>
   modeIdsByCollection: Map<string, Map<string, string>>
   modeRemovals: ModeRemoval[]
@@ -67,6 +69,7 @@ export function createVariableState(): CanvasVariableState {
     collectionCache: new Map(),
     collectionsByKey: new Map(),
     collectionRemovals: [],
+    createdVariableKeys: new Set(),
     modeIdsByCollection: new Map(),
     modeRemovals: [],
     variableCache: new Map(),
@@ -145,7 +148,13 @@ export async function resolveVariable(
         ? await figma.variables.getVariableByIdAsync(reference.id)
         : await figma.variables.importVariableByKeyAsync(reference.key)
   }
-  if (!variable) specError('The requested variable could not be resolved.')
+  if (!variable) {
+    let identity: string
+    if ('variableKey' in reference) identity = `authoring key "${reference.variableKey}"`
+    else if (reference.id !== undefined) identity = `id "${reference.id}"`
+    else identity = `library key "${reference.key}"`
+    specError(`Variable ${identity} could not be resolved.`)
+  }
   state.variableCache.set(cacheKey, variable)
   state.variableCache.set(`id:${variable.id}`, variable)
   return variable
@@ -486,6 +495,7 @@ async function selectVariable(
     specError(`Variable key "${key}" does not identify "${explicit.id}".`)
   }
   let variable = explicit ?? keyed
+  const isNew = !variable
   const values = await resolveValues(collection, spec.values, state, 'Variable value')
   if (!variable) {
     if (!spec.name || !spec.type) {
@@ -518,6 +528,7 @@ async function selectVariable(
   indexResource(state.variablesByKey, key, variable, 'Variable')
   state.variableCache.set(`id:${variable.id}`, variable)
   state.variableCache.set(`variable-key:${key}`, variable)
+  if (isNew) state.createdVariableKeys.add(key)
   return { collection, spec, values, variable }
 }
 
@@ -885,7 +896,7 @@ function inspectNodeVariables(node: SceneNode, removedVariableIds: Set<string>):
       `vector regions on node "${node.id}"`
     )
   }
-  if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
+  if (isComponentPropertyOwner(node)) {
     assertNoRemovedVariable(
       node.componentPropertyDefinitions,
       removedVariableIds,

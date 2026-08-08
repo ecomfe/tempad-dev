@@ -207,6 +207,25 @@ describe('tools response helpers', () => {
     expect(textContent(applyResult.content[0])).toContain('Applied 1 canvas mutation')
     expect(textContent(applyResult.content[0])).toContain('structuredContent.nodeIdsByKey')
 
+    const warningResult = createApplyCanvasToolResponse({
+      ...applyPayload,
+      verification: {
+        status: 'warning',
+        nodesChecked: 1,
+        referencesChecked: 1,
+        warnings: [
+          {
+            code: 'layout-affecting-visibility-property',
+            key: 'nav/indicator',
+            message: 'Hiding it can move siblings.'
+          }
+        ]
+      }
+    })
+    expect(textContent(warningResult.content[0])).toContain(
+      'layout-affecting-visibility-property (nav/indicator): Hiding it can move siblings.'
+    )
+
     const removalResult = createApplyCanvasToolResponse({
       rootNodeId: '2:1',
       rootRemoved: true,
@@ -236,6 +255,7 @@ describe('tools response helpers', () => {
       asset: {
         hash: SCREENSHOT_HASH,
         url: 'https://assets.example.com/d4c3b2a1.png',
+        localPath: '/tmp/tempad-dev/assets/d4c3b2a1.png',
         mimeType: 'image/png',
         size: 2 * 1024 * 1024
       }
@@ -244,7 +264,7 @@ describe('tools response helpers', () => {
     const result = createScreenshotToolResponse(payload)
     expect(result.structuredContent).toEqual(payload)
     expect(textContent(result.content[0])).toBe(
-      'Screenshot 100x80 @2x (2.0 MB). Inspect the linked PNG for visual verification.'
+      'Screenshot 100x80 @2x (2.0 MB). Open the local PNG directly with an image viewer: /tmp/tempad-dev/assets/d4c3b2a1.png. Receiving the asset reference alone is not visual verification. If this is a representative-screen check, inspect it before applying dependent screens.'
     )
     expect(result.content[1]).toEqual({
       type: 'resource_link',

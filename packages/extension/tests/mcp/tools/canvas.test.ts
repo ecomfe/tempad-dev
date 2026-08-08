@@ -298,6 +298,7 @@ function createFixture(): FigmaFixture {
   PAGE.backgrounds = defaultPageBackground()
   PAGE.explicitVariableModes = {}
   PAGE.setSharedPluginData('tempad_dev', 'page-key', '')
+  PAGE.loadAsync.mockReset().mockResolvedValue(undefined)
 
   function styleConsumers(styleId: string): StyleConsumers[] {
     const fields = [
@@ -699,15 +700,20 @@ function createFixture(): FigmaFixture {
       type === 'BOOLEAN_OPERATION' ||
       isMockFrameType(type) ||
       type === 'GROUP' ||
+      type === 'INSTANCE' ||
       type === 'SECTION'
     ) {
       Object.assign(node, {
         children: [] as SceneNode[],
         insertChild(index: number, child: MutableNode) {
           const oldParent = child.parent as (BaseNode & { children?: SceneNode[] }) | null
+          let targetIndex = index
           if (oldParent?.children) {
             const oldIndex = oldParent.children.indexOf(child)
-            if (oldIndex >= 0) oldParent.children.splice(oldIndex, 1)
+            if (oldIndex >= 0) {
+              oldParent.children.splice(oldIndex, 1)
+              if (oldParent === node && oldIndex < targetIndex) targetIndex -= 1
+            }
           }
           child.parent = node as unknown as
             | BooleanOperationNode
@@ -715,9 +721,10 @@ function createFixture(): FigmaFixture {
             | ComponentSetNode
             | FrameNode
             | GroupNode
+            | InstanceNode
             | SectionNode
             | SlotNode
-          node.children.splice(index, 0, child)
+          node.children.splice(targetIndex, 0, child)
         },
         appendChild(child: MutableNode) {
           node.insertChild(node.children.length, child)
@@ -971,6 +978,8 @@ function createFixture(): FigmaFixture {
       let characters = ''
       let autoRename = true
       let textAutoResize: TextNode['textAutoResize'] = 'NONE'
+      let textTruncation: TextNode['textTruncation'] = 'DISABLED'
+      let maxLines: TextNode['maxLines'] = null
       let layoutSizingHorizontal = text.layoutSizingHorizontal
       const rangeValues = new Map<string, unknown>()
       const rangeKey = (start: number, end: number, field: string) => `${start}:${end}:${field}`
@@ -1000,8 +1009,6 @@ function createFixture(): FigmaFixture {
         textDecorationThickness: null,
         textDecorationColor: null,
         textDecorationSkipInk: null,
-        textTruncation: 'DISABLED',
-        maxLines: null,
         paragraphIndent: 0,
         paragraphSpacing: 0,
         listSpacing: 0,
@@ -1169,6 +1176,7 @@ function createFixture(): FigmaFixture {
           }
         },
         layoutSizingHorizontal: {
+          configurable: true,
           get: () => layoutSizingHorizontal,
           set: (value: TextNode['layoutSizingHorizontal']) => {
             layoutSizingHorizontal = value
@@ -1190,6 +1198,19 @@ function createFixture(): FigmaFixture {
             if (value === 'HEIGHT' && layoutSizingHorizontal === 'FILL') {
               ;(text as unknown as { width: number }).width = 0
             }
+          }
+        },
+        textTruncation: {
+          get: () => textTruncation,
+          set: (value: TextNode['textTruncation']) => {
+            textTruncation = value
+          }
+        },
+        maxLines: {
+          get: () => maxLines,
+          set: (value: TextNode['maxLines']) => {
+            maxLines = value
+            if (value !== null && textTruncation === 'ENDING') textAutoResize = 'HEIGHT'
           }
         }
       })
@@ -1277,6 +1298,24 @@ function createFixture(): FigmaFixture {
                 }
               : { type: current?.type ?? 'TEXT', value }
         }
+        const componentSet = mainComponent.parent
+        if (componentSet?.type !== 'COMPONENT_SET' || !('children' in componentSet)) return
+        const variantProperties = Object.fromEntries(
+          Object.entries(instance.componentProperties)
+            .filter(([, property]) => property.type === 'VARIANT')
+            .map(([name, property]) => [name.split('#')[0], property.value])
+        )
+        const variant = componentSet.children.find((child): child is ComponentNode => {
+          if (child.type !== 'COMPONENT') return false
+          const values = Object.fromEntries(
+            child.name.split(',').map((part) => {
+              const [name, ...value] = part.split('=')
+              return [name?.trim(), value.join('=').trim()]
+            })
+          )
+          return Object.entries(variantProperties).every(([name, value]) => values[name] === value)
+        })
+        if (variant) mainComponent = variant
       })
     })
     return instance as unknown as InstanceNode
@@ -2062,7 +2101,7 @@ describe('mcp/tools/canvas', () => {
       INITIAL_OPTIONS: { editor_type: 'design' }
     } as unknown as Window)
     vi.mocked(figma.createFrame).mockImplementationOnce(() => {
-      throw new Error('Cannot write to internal and read-only nodes')
+      throw Object.setPrototypeOf(new Error('Cannot write to internal and read-only nodes'), null)
     })
     await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.CANVAS_READ_ONLY,
@@ -2070,6 +2109,17 @@ describe('mcp/tools/canvas', () => {
     })
     expect(fixture.commitUndo).toHaveBeenCalledOnce()
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
+
+    vi.mocked(figma.createFrame).mockImplementationOnce(() => {
+      throw Object.setPrototypeOf(
+        new Error('in set_layoutSizingHorizontal: unsupported node'),
+        null
+      )
+    })
+    await expect(applyCanvasFromTool(input)).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      message: expect.stringContaining('set_layoutSizingHorizontal')
+    })
 
     await expect(applyCanvasFromTool()).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
@@ -2104,6 +2154,7 @@ describe('mcp/tools/canvas', () => {
     expect(root.x).toBe(340)
     expect(root.y).toBe(300)
     expect(root.layoutMode).toBe('HORIZONTAL')
+    expect(root.strokesIncludedInLayout).toBe(true)
     expect(root.paddingTop).toBe(16)
     expect(root.paddingRight).toBe(11)
     expect(root.paddingBottom).toBe(0)
@@ -2132,6 +2183,48 @@ describe('mcp/tools/canvas', () => {
     ) as unknown as InstanceNode
     expect(action.componentProperties.Label?.value).toBe('Save')
     expect(action.componentProperties.Disabled?.value).toBe(true)
+  })
+
+  it('does not apply Auto Layout sizing fields to freeform children', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>'
+    })
+    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const child = fixture.createNode('FRAME') as unknown as FrameNode
+    root.appendChild(child)
+    const copy = fixture.createNode('TEXT') as unknown as TextNode
+    root.appendChild(copy)
+    for (const node of [child, copy]) {
+      Object.defineProperties(node, {
+        layoutSizingHorizontal: {
+          configurable: true,
+          get: () => 'FIXED',
+          set: () => {
+            throw new Error('layoutSizingHorizontal is unavailable outside Auto Layout')
+          }
+        },
+        layoutSizingVertical: {
+          configurable: true,
+          get: () => 'FIXED',
+          set: () => {
+            throw new Error('layoutSizingVertical is unavailable outside Auto Layout')
+          }
+        }
+      })
+    }
+
+    const updated = await applyCanvas({
+      mode: 'update',
+      targetNodeId: created.rootNodeId,
+      markup: `<div data-key="root" class="w-[320px] h-[200px]"><div data-key="art" data-node-id="${child.id}" class="absolute left-[24px] top-[20px] w-[150px] h-[150px]"></div><span data-key="copy" data-node-id="${copy.id}" class="absolute left-[24px] top-[178px] w-[150px] h-fit">Caption</span></div>`
+    })
+
+    expect(updated.nodeIdsByKey.art).toBe(child.id)
+    expect(child).toMatchObject({ x: 24, y: 20, width: 150, height: 150 })
+    expect(updated.nodeIdsByKey.copy).toBe(copy.id)
+    expect(copy).toMatchObject({ x: 24, y: 178, width: 150, characters: 'Caption' })
   })
 
   it('auto-places every create root and preserves only explicit transform axes', async () => {
@@ -2171,6 +2264,28 @@ describe('mcp/tools/canvas', () => {
       [1, 0.25, 990],
       [0, 1, 350]
     ])
+  })
+
+  it('does not reject placement when Figma render bounds lag behind a root move', async () => {
+    const fixture = createFixture()
+    figma.viewport.center = { x: 50, y: 50 }
+    const first = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="first" class="w-[100px] h-[100px]"></div>'
+    })
+    const stale = fixture.createNode('FRAME')
+    Object.defineProperty(stale, 'absoluteRenderBounds', {
+      get: () => ({ x: 0, y: 0, width: stale.width, height: stale.height })
+    })
+    vi.mocked(figma.createFrame).mockImplementationOnce(() => stale as unknown as FrameNode)
+
+    const second = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="second" class="w-[100px] h-[100px]"></div>'
+    })
+
+    expect(fixture.getNode(first.rootNodeId)).toMatchObject({ x: 0, y: 0 })
+    expect(fixture.getNode(second.rootNodeId)).toMatchObject({ x: 180, y: 0 })
   })
 
   it('stabilizes nested fill geometry after height-auto-resizing text reflows', async () => {
@@ -2233,6 +2348,54 @@ describe('mcp/tools/canvas', () => {
     expect(updated.updatedNodeIds).toContain(child.id)
   })
 
+  it.each([
+    ['INSIDE', 126],
+    ['CENTER', 128],
+    ['OUTSIDE', 128]
+  ] as const)(
+    'seeds fill geometry using only included inside strokes: %s',
+    async (align, height) => {
+      const fixture = createFixture()
+      const created = await applyCanvas({
+        mode: 'create',
+        markup: `
+        <div data-key="root" class="flex flex-row w-[320px] h-[128px] border border-[#DAD5C9]">
+          <div data-key="child" class="w-[128px] h-full"></div>
+        </div>
+      `,
+        bindings: { root: { figma: { stroke: { align } } } }
+      })
+
+      expect(fixture.getNode(created.nodeIdsByKey.child!).height).toBe(height)
+    }
+  )
+
+  it('accepts nonzero Figma-derived fill geometry in a stroked Auto Layout', async () => {
+    const fixture = createFixture()
+    const input: CanvasResolvedApplyParameters = {
+      mode: 'create',
+      markup: `
+        <div data-key="root" class="flex flex-row w-[320px] h-[128px] border border-[#DAD5C9]">
+          <div data-key="child" class="w-[128px] h-full"></div>
+        </div>
+      `,
+      bindings: { root: { figma: { stroke: { align: 'INSIDE' } } } }
+    }
+    const created = await applyCanvas(input)
+    const child = fixture.getNode(created.nodeIdsByKey.child!) as unknown as FrameNode
+    expect(child.height).toBe(126)
+    child.resize(child.width, 125)
+
+    const updated = await applyCanvas({
+      ...input,
+      mode: 'update',
+      targetNodeId: created.rootNodeId
+    })
+
+    expect(child.height).toBe(125)
+    expect(updated.mutationCount).toBe(0)
+  })
+
   it('rejects the patch when Figma cannot resolve declared fill geometry', async () => {
     const fixture = createFixture()
     const input: CanvasResolvedApplyParameters = {
@@ -2246,7 +2409,7 @@ describe('mcp/tools/canvas', () => {
     const created = await applyCanvas(input)
     const child = fixture.getNode(created.nodeIdsByKey.child!) as unknown as FrameNode
     child.resize(0, child.height)
-    ;(child as unknown as { resize: (width: number, height: number) => void }).resize = vi.fn()
+    vi.spyOn(child, 'resize').mockImplementation(() => undefined)
 
     await expect(
       applyCanvas({
@@ -2257,6 +2420,41 @@ describe('mcp/tools/canvas', () => {
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: expect.stringContaining('fill geometry does not match')
+    })
+    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+  })
+
+  it('reports declared and applied sizing modes when Figma rejects a sizing change', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: `
+        <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
+          <div data-key="child" class="w-[100px] h-[80px]"></div>
+        </div>
+      `
+    })
+    const child = fixture.getNode(created.nodeIdsByKey.child!) as unknown as FrameNode
+    Object.defineProperty(child, 'layoutSizingHorizontal', {
+      get: () => 'FIXED',
+      set: () => undefined
+    })
+
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: created.rootNodeId,
+        markup: `
+          <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
+            <div data-key="child" class="w-full h-[80px]"></div>
+          </div>
+        `
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining(
+        'declared horizontal=FILL, vertical=FIXED, grow=false; applied horizontal=FIXED'
+      )
     })
     expect(fixture.triggerUndo).toHaveBeenCalledOnce()
   })
@@ -2713,6 +2911,39 @@ describe('mcp/tools/canvas', () => {
       targetNodeId: created.rootNodeId
     }
     await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: defaultVariant.id,
+        markup: `
+          <div data-key="default" class="flex flex-row items-center justify-center w-[200px] h-[48px]">
+            <span data-key="default-label" class="w-fit h-fit">Proceed</span>
+          </div>
+        `
+      })
+    ).resolves.toMatchObject({ mutationCount: 1 })
+    expect(fixture.getNode(created.nodeIdsByKey['default-label']!)).toMatchObject({
+      characters: 'Proceed'
+    })
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: defaultVariant.id,
+        markup: `
+          <div data-key="default" class="flex flex-row items-center justify-center w-[200px] h-[48px]">
+            <span data-key="default-label" class="w-fit h-fit">Continue</span>
+          </div>
+        `
+      })
+    ).resolves.toMatchObject({ mutationCount: 1 })
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: variants.id,
+        markup:
+          '<div data-key="button-set" class="flex flex-row gap-[24px] p-[24px] w-[480px] h-[160px]"></div>'
+      })
+    ).resolves.toMatchObject({ mutationCount: 0 })
     const buttonSetBinding = input.bindings?.['button-set']
     if (!buttonSetBinding) throw new Error('Expected button-set binding')
     await expect(
@@ -3049,6 +3280,76 @@ describe('mcp/tools/canvas', () => {
     await expect(applyCanvas(deleted)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
+  it.each([
+    {
+      name: 'a direct flow child with a sibling',
+      markup:
+        '<div data-key="nav" class="flex flex-col items-center justify-center w-[108px] h-[56px] gap-[6px]"><span data-key="nav/label" class="w-fit h-fit">Home</span><div data-key="nav/indicator" class="size-[4px]"></div></div>',
+      warning: true
+    },
+    {
+      name: 'the only child of a fixed slot',
+      markup:
+        '<div data-key="nav" class="flex flex-col items-center justify-center w-[108px] h-[56px] gap-[6px]"><span data-key="nav/label" class="w-fit h-fit">Home</span><div data-key="nav/slot" class="flex flex-row items-center justify-center size-[4px]"><div data-key="nav/indicator" class="size-[4px]"></div></div></div>',
+      warning: false
+    },
+    {
+      name: 'an absolute child',
+      markup:
+        '<div data-key="nav" class="flex flex-row items-center justify-center w-[108px] h-[56px]"><span data-key="nav/label" class="w-fit h-fit">Home</span><div data-key="nav/indicator" class="absolute left-[52px] top-[40px] size-[4px]"></div></div>',
+      warning: false
+    },
+    {
+      name: 'the only child of a hugging parent',
+      markup:
+        '<div data-key="nav" class="flex flex-col w-[108px] h-[56px]"><div data-key="nav/hug" class="flex flex-col w-fit h-fit"><div data-key="nav/indicator" class="size-[4px]"></div></div></div>',
+      warning: true
+    }
+  ])('reports whether visibility affects Auto Layout for $name', async (testCase) => {
+    createFixture()
+    const indicatorKey = 'nav/indicator'
+    const result = await applyCanvasFromTool({
+      mode: 'create',
+      markup: testCase.markup,
+      native: {
+        nav: {
+          figma: {
+            component: {
+              type: 'COMPONENT',
+              properties: {
+                active: {
+                  type: 'BOOLEAN',
+                  name: 'Active',
+                  defaultValue: true
+                }
+              }
+            }
+          }
+        },
+        [indicatorKey]: {
+          figma: {
+            componentPropertyReferences: { visible: 'active' }
+          }
+        }
+      }
+    })
+
+    expect(result.verification).toMatchObject(
+      testCase.warning
+        ? {
+            status: 'warning',
+            warnings: [
+              {
+                code: 'layout-affecting-visibility-property',
+                key: indicatorKey,
+                message: expect.stringContaining('move siblings')
+              }
+            ]
+          }
+        : { status: 'passed', warnings: [] }
+    )
+  })
+
   it('replaces a primitive draft with an instance of a freshly authored component', async () => {
     const fixture = createFixture()
     const draft = await applyCanvasFromTool({
@@ -3139,6 +3440,119 @@ describe('mcp/tools/canvas', () => {
     expect(second.type).toBe('INSTANCE')
     expect(first.getSharedPluginData('tempad_dev', 'canvas-key')).toBe('screen/track-1')
     expect(second.getSharedPluginData('tempad_dev', 'canvas-key')).toBe('screen/track-2')
+  })
+
+  it('explains how a partial ancestor update preserves an existing instance', async () => {
+    const fixture = createFixture()
+    const authored = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="track" class="w-[280px] h-[56px]"></div>',
+      native: {
+        track: { figma: { component: { type: 'COMPONENT' } } }
+      }
+    })
+    const screen = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/track" class="w-[280px] h-[56px]"></div></div>',
+      native: {
+        'screen/track': { component: { id: authored.rootNodeId } }
+      }
+    })
+
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: screen.rootNodeId,
+        markup:
+          '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/track" class="w-[280px] h-[56px]"></div></div>'
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining(
+        'Omit this keyed subtree to preserve the instance in a partial ancestor update'
+      )
+    })
+    expect(fixture.getNode(screen.nodeIdsByKey['screen/track']!).type).toBe('INSTANCE')
+  })
+
+  it('creates and selects variants from exact variant and component-set ids', async () => {
+    const fixture = createFixture()
+    const authored = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="set" class="flex flex-row w-[280px] h-[80px]"><div data-key="default" class="w-[120px] h-[40px]"></div><div data-key="active" class="w-[120px] h-[40px]"></div></div>',
+      native: {
+        set: { figma: { component: { type: 'COMPONENT_SET' } } },
+        default: {
+          figma: { name: 'State=Default', component: { type: 'COMPONENT' } }
+        },
+        active: {
+          figma: { name: 'State=Active', component: { type: 'COMPONENT' } }
+        }
+      }
+    })
+    const variant = fixture.getNode(authored.nodeIdsByKey.default!) as ComponentNode
+    const active = fixture.getNode(authored.nodeIdsByKey.active!) as ComponentNode
+    const componentSet = fixture.getNode(authored.rootNodeId) as unknown as ComponentSetNode
+    Object.assign(componentSet.componentPropertyDefinitions, {
+      State: {
+        type: 'VARIANT',
+        defaultValue: 'Default',
+        variantOptions: ['Default', 'Active']
+      }
+    })
+    Object.defineProperty(variant, 'componentPropertyDefinitions', {
+      configurable: true,
+      get: () => {
+        throw new Error('Variant definitions belong to the component set')
+      }
+    })
+
+    const screen = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/direct" class="w-[120px] h-[40px]"></div><div data-key="screen/default" class="w-[120px] h-[40px]"></div><div data-key="screen/active" class="w-[120px] h-[40px]"></div></div>',
+      native: {
+        'screen/direct': { component: { id: variant.id } },
+        'screen/default': { component: { id: authored.rootNodeId } },
+        'screen/active': {
+          component: { id: authored.rootNodeId },
+          componentProperties: { State: 'Active' }
+        }
+      }
+    })
+
+    const direct = fixture.getNode(screen.nodeIdsByKey['screen/direct']!) as InstanceNode
+    const fromSet = fixture.getNode(screen.nodeIdsByKey['screen/default']!) as InstanceNode
+    const selected = fixture.getNode(screen.nodeIdsByKey['screen/active']!) as InstanceNode
+    expect((await direct.getMainComponentAsync())?.id).toBe(variant.id)
+    expect((await fromSet.getMainComponentAsync())?.id).toBe(variant.id)
+    expect((await selected.getMainComponentAsync())?.id).toBe(active.id)
+  })
+
+  it('claims instance ownership when its key matches the inherited definition key', async () => {
+    const fixture = createFixture()
+    const authored = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="track" class="w-[280px] h-[56px]"></div>',
+      native: {
+        track: { figma: { component: { type: 'COMPONENT' } } }
+      }
+    })
+
+    const screen = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="track" class="w-[280px] h-[56px]"></div></div>',
+      native: {
+        track: { component: { id: authored.rootNodeId } }
+      }
+    })
+
+    const instance = fixture.getNode(screen.nodeIdsByKey.track!) as InstanceNode
+    expect(instance.getSharedPluginData('tempad_dev', 'canvas-key')).toBe('track')
+    expect(instance.getSharedPluginData('tempad_dev', 'canvas-owner')).toBe(instance.id)
   })
 
   it('resolves an exact component id through the async dynamic-page lookup', async () => {
@@ -4172,6 +4586,19 @@ describe('mcp/tools/canvas', () => {
     expect(title.strokeStyleId).toBe('style:stroke')
     expect(title.textStyleId).toBe('style:text')
 
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: created.rootNodeId,
+        markup: '<div data-key="root" class="flex flex-col w-[320px] h-[200px] border-[3px]"></div>'
+      })
+    ).resolves.toMatchObject({
+      mutationCount: 1,
+      updatedNodeIds: [created.rootNodeId]
+    })
+    expect(root.strokeWeight).toBe(3)
+    expect(root.strokeStyleId).toBe('style:stroke')
+
     const detached: CanvasResolvedApplyParameters = {
       mode: 'update',
       targetNodeId: created.rootNodeId,
@@ -4778,6 +5205,39 @@ describe('mcp/tools/canvas', () => {
     expect(wrapper.children).toHaveLength(1)
     expect(wrapper.children[0]?.id).not.toBe(previous.id)
     expect(fixture.createNodeFromSvg).toHaveBeenCalledTimes(2)
+  })
+
+  it('removes managed SVG wrappers with their opaque imported subtree', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-row w-[320px] h-[200px]"><div data-key="icon" class="size-[24px]"></div></div>',
+      assets: {
+        icon: { type: 'SVG', svg: '<svg viewBox="0 0 24 24"><path d="M0 0h2"/></svg>' }
+      },
+      bindings: {
+        icon: { figma: { svg: { assetKey: 'icon' } } }
+      }
+    })
+    const wrapper = fixture.getNode(created.nodeIdsByKey.icon!)
+    const imported = wrapper.children[0] as MutableNode
+    const vector = fixture.createNode('VECTOR')
+    imported.appendChild(vector)
+
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: created.rootNodeId,
+        markup: '<div data-key="root" class="flex flex-row w-[320px] h-[200px]"></div>',
+        removeKeys: ['icon']
+      })
+    ).resolves.toMatchObject({
+      removedNodeIds: [wrapper.id]
+    })
+    expect(wrapper.removed).toBe(true)
+    expect(imported.removed).toBe(true)
+    expect(vector.removed).toBe(true)
   })
 
   it('imports Hub image assets without putting bytes in the canvas payload', async () => {
@@ -5589,6 +6049,7 @@ describe('mcp/tools/canvas', () => {
     const copy = fixture.getNode(created.nodeIdsByKey.copy ?? '') as unknown as TextNode
 
     expect(copy).toMatchObject({
+      textAutoResize: 'NONE',
       fontName: { family: 'IBM Plex Sans', style: 'Medium' },
       lineHeight: { unit: 'PERCENT', value: 150 },
       letterSpacing: { unit: 'PERCENT', value: 2 },
@@ -6615,6 +7076,51 @@ describe('mcp/tools/canvas', () => {
     ).toBe('Updated')
   })
 
+  it('reorders existing children without replacing their stable identities', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-row w-[120px] h-[40px]"><div data-key="a" class="w-[40px] h-[40px]"></div><div data-key="b" class="w-[40px] h-[40px]"></div></div>'
+    })
+    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const a = fixture.getNode(created.nodeIdsByKey.a!)
+    const b = fixture.getNode(created.nodeIdsByKey.b!)
+
+    const updated = await applyCanvas({
+      mode: 'update',
+      targetNodeId: root.id,
+      markup:
+        '<div data-key="root" class="flex flex-row w-[120px] h-[40px]"><div data-key="b" class="w-[40px] h-[40px]"></div><div data-key="a" class="w-[40px] h-[40px]"></div></div>'
+    })
+
+    expect(root.children).toEqual([b, a])
+    expect(updated.createdNodeIds).toEqual([])
+    expect(updated.removedNodeIds).toEqual([])
+  })
+
+  it('names nodes first introduced by an update without renaming existing nodes', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"></div>'
+    })
+    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    root.name = 'Manual root name'
+
+    const updated = await applyCanvas({
+      mode: 'update',
+      targetNodeId: created.rootNodeId,
+      markup:
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><div data-key="root/new-child" class="w-full h-[40px]"></div></div>'
+    })
+
+    expect(root.name).toBe('Manual root name')
+    expect(fixture.getNode(updated.nodeIdsByKey['root/new-child']!)).toMatchObject({
+      name: 'root/new-child'
+    })
+  })
+
   it('preserves live fields omitted from incremental updates', async () => {
     const fixture = createFixture()
     const created = await applyCanvas({
@@ -6796,6 +7302,59 @@ describe('mcp/tools/canvas', () => {
       rootRemoved: true,
       removedNodeIds: [],
       mutationCount: 0
+    })
+  })
+
+  it('does not reload the already accessible current page before removal', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>'
+    })
+    PAGE.loadAsync.mockRejectedValue(new Error('current page is already loaded'))
+
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: created.rootNodeId,
+        markup: null
+      })
+    ).resolves.toMatchObject({
+      rootRemoved: true,
+      removedNodeIds: [created.rootNodeId]
+    })
+    expect(PAGE.loadAsync).not.toHaveBeenCalled()
+    expect(fixture.nodes.has(created.rootNodeId)).toBe(false)
+  })
+
+  it('removes a component set when async lookup returns a stale attached snapshot', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="set" class="flex flex-row w-[280px] h-[80px]"><div data-key="variant" class="w-[120px] h-[40px]"></div></div>',
+      native: {
+        set: { figma: { component: { type: 'COMPONENT_SET' } } },
+        variant: {
+          figma: { name: 'State=Default', component: { type: 'COMPONENT' } }
+        }
+      }
+    })
+    const root = fixture.getNode(created.rootNodeId)
+    const stale = { ...root, removed: false } as unknown as BaseNode
+    vi.mocked(figma.getNodeByIdAsync).mockImplementation(async (id: string) =>
+      id === root.id ? (root.removed ? stale : root) : (fixture.nodes.get(id) ?? null)
+    )
+
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: root.id,
+        markup: null
+      })
+    ).resolves.toMatchObject({
+      rootRemoved: true,
+      removedNodeIds: [root.id]
     })
   })
 
@@ -7573,6 +8132,7 @@ describe('mcp/tools/canvas', () => {
     expect(PAGE.explicitVariableModes).toEqual({
       [collection.id]: darkMode.modeId
     })
+    expect(created.verification.status).toBe('passed')
 
     await expect(
       applyCanvas({
@@ -7615,6 +8175,216 @@ describe('mcp/tools/canvas', () => {
     expect(PAGE.explicitVariableModes).toEqual({
       [collection.id]: contrastMode.modeId
     })
+  })
+
+  it('identifies an unresolved variable authoring key', async () => {
+    createFixture()
+
+    await expect(
+      applyCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[100px] h-[100px] bg-[#FFFFFF]"></div>',
+        bindings: {
+          root: {
+            variables: {
+              fill: { variableKey: 'product/color/surafce' }
+            }
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: 'Variable authoring key "product/color/surafce" could not be resolved.'
+    })
+    expect(figma.createFrame).not.toHaveBeenCalled()
+  })
+
+  it('warns when a newly authored variable has no representative binding', async () => {
+    createFixture()
+    const input: CanvasResolvedApplyParameters = {
+      mode: 'create',
+      markup: '<div data-key="root" class="flex flex-row w-[320px] h-[200px] gap-[16px]"></div>',
+      variableCollections: {
+        tokens: {
+          name: 'Tokens',
+          modes: { default: { name: 'Default' } },
+          variables: {
+            'space/md': {
+              name: 'Spacing/Medium',
+              type: 'FLOAT',
+              scopes: ['GAP'],
+              values: { default: 16 }
+            }
+          }
+        }
+      }
+    }
+
+    const created = await applyCanvas(input)
+    expect(created.verification).toMatchObject({
+      status: 'warning',
+      warnings: [
+        {
+          code: 'unbound-created-variable',
+          key: 'space/md',
+          message: expect.stringContaining('representative node or style')
+        }
+      ]
+    })
+
+    await expect(
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+    ).resolves.toMatchObject({
+      verification: { status: 'passed', warnings: [] }
+    })
+  })
+
+  it('warns when an authored variable overrides a mismatched literal fallback', async () => {
+    createFixture()
+
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="flex flex-row w-[320px] h-[200px] gap-[14px]"></div>',
+      variableCollections: {
+        tokens: {
+          name: 'Tokens',
+          modes: { default: { name: 'Default' } },
+          variables: {
+            'space/md': {
+              name: 'Spacing/Medium',
+              type: 'FLOAT',
+              scopes: ['GAP'],
+              values: { default: 16 }
+            }
+          }
+        }
+      },
+      bindings: {
+        root: {
+          variables: { gap: { variableKey: 'space/md' } }
+        }
+      }
+    })
+
+    expect(created.verification).toMatchObject({
+      status: 'warning',
+      warnings: [
+        {
+          code: 'variable-fallback-mismatch',
+          key: 'root',
+          message: expect.stringContaining('gap 14')
+        }
+      ]
+    })
+  })
+
+  it('accepts a literal fallback matching any authored variable mode', async () => {
+    createFixture()
+
+    await expect(
+      applyCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="flex flex-row w-[320px] h-[200px] gap-[14px]"></div>',
+        variableCollections: {
+          tokens: {
+            name: 'Tokens',
+            modes: { compact: { name: 'Compact' }, roomy: { name: 'Roomy' } },
+            variables: {
+              'space/md': {
+                name: 'Spacing/Medium',
+                type: 'FLOAT',
+                scopes: ['GAP'],
+                values: { compact: 14, roomy: 16 }
+              }
+            }
+          }
+        },
+        bindings: {
+          root: {
+            variables: { gap: { variableKey: 'space/md' } }
+          }
+        }
+      })
+    ).resolves.toMatchObject({
+      verification: { status: 'passed', warnings: [] }
+    })
+  })
+
+  it('checks literal fallbacks through same-call variable aliases', async () => {
+    createFixture()
+
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="flex flex-row w-[320px] h-[200px] gap-[14px]"></div>',
+      variableCollections: {
+        tokens: {
+          name: 'Tokens',
+          modes: { default: { name: 'Default' } },
+          variables: {
+            'space/primitive': {
+              name: 'Spacing/Primitive',
+              type: 'FLOAT',
+              values: { default: 16 }
+            },
+            'space/semantic': {
+              name: 'Spacing/Semantic',
+              type: 'FLOAT',
+              scopes: ['GAP'],
+              values: { default: { variable: { variableKey: 'space/primitive' } } }
+            }
+          }
+        }
+      },
+      bindings: {
+        root: {
+          variables: { gap: { variableKey: 'space/semantic' } }
+        }
+      }
+    })
+
+    expect(created.verification.warnings).toEqual([
+      expect.objectContaining({
+        code: 'variable-fallback-mismatch',
+        key: 'root',
+        message: expect.stringContaining('space/semantic')
+      })
+    ])
+  })
+
+  it('compares authored color variables with literal paint fallbacks', async () => {
+    createFixture()
+
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px] bg-[#FFFFFF]"></div>',
+      variableCollections: {
+        tokens: {
+          name: 'Tokens',
+          modes: { default: { name: 'Default' } },
+          variables: {
+            'color/surface': {
+              name: 'Color/Surface',
+              type: 'COLOR',
+              scopes: ['ALL_FILLS'],
+              values: { default: { r: 0, g: 0, b: 0 } }
+            }
+          }
+        }
+      },
+      bindings: {
+        root: {
+          variables: { fill: { variableKey: 'color/surface' } }
+        }
+      }
+    })
+
+    expect(created.verification.warnings).toEqual([
+      expect.objectContaining({
+        code: 'variable-fallback-mismatch',
+        key: 'root',
+        message: expect.stringContaining('fill #FFFFFF')
+      })
+    ])
   })
 
   it('explains that variable authoring keys are file-wide across collections', async () => {
@@ -7778,6 +8548,53 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
       message: expect.stringContaining('must retain at least one mode')
     })
+  })
+
+  it('inspects variable removal without reading property definitions from variants', async () => {
+    const fixture = createFixture()
+    const componentSet = fixture.createNode('COMPONENT_SET')
+    const variant = fixture.createNode('COMPONENT')
+    componentSet.appendChild(variant)
+    Object.defineProperty(variant, 'componentPropertyDefinitions', {
+      configurable: true,
+      get: () => {
+        throw new Error('Property definitions are unavailable on a variant component.')
+      }
+    })
+    PAGE.appendChild(componentSet)
+
+    const markup =
+      '<div data-key="root" class="flex flex-row w-[100px] h-[100px] gap-[16px]"></div>'
+    const created = await applyCanvas({
+      mode: 'create',
+      markup,
+      variableCollections: {
+        tokens: {
+          name: 'Tokens',
+          modes: { default: { name: 'Default' } },
+          variables: {
+            spacing: {
+              name: 'Spacing/Base',
+              type: 'FLOAT',
+              values: { default: 16 }
+            }
+          }
+        }
+      },
+      bindings: {
+        root: { variables: { gap: { variableKey: 'spacing' } } }
+      }
+    })
+
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: created.rootNodeId,
+        markup,
+        variableCollections: { tokens: null },
+        bindings: { root: { variables: { gap: null } } }
+      })
+    ).resolves.toMatchObject({ verification: { status: 'passed' } })
   })
 
   it('rejects variable deletion through aliases until the same result replaces them', async () => {
@@ -8325,6 +9142,7 @@ describe('mcp/tools/canvas', () => {
     })
     expect(title.textStyleId).toBe(body.id)
     expect(title.getRangeFillStyleId(0, 5)).toBe(surface.id)
+    expect(created.verification.status).toBe('passed')
 
     await expect(
       applyCanvas({
@@ -8360,6 +9178,40 @@ describe('mcp/tools/canvas', () => {
     })
     expect(surface.paints).toEqual([])
     expect(surface.documentationLinks).toEqual([])
+  })
+
+  it('warns when a newly authored style has no representative binding', async () => {
+    createFixture()
+    const input: CanvasResolvedApplyParameters = {
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+      styles: {
+        body: {
+          type: 'TEXT',
+          name: 'Typography/Body',
+          fontName: { family: 'Inter', style: 'Regular' },
+          fontSize: 16
+        }
+      }
+    }
+
+    const created = await applyCanvas(input)
+    expect(created.verification).toMatchObject({
+      status: 'warning',
+      warnings: [
+        {
+          code: 'unbound-created-style',
+          key: 'body',
+          message: expect.stringContaining('representative node')
+        }
+      ]
+    })
+
+    await expect(
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+    ).resolves.toMatchObject({
+      verification: { status: 'passed', warnings: [] }
+    })
   })
 
   it('adopts local styles and rejects unsafe or incompatible style resources', async () => {
@@ -8914,6 +9766,100 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
     })
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
+  })
+
+  it('ignores definition keys inherited by instance roots and descendants', async () => {
+    const fixture = createFixture()
+    const root = fixture.createNode('FRAME')
+    const component = fixture.createNode('COMPONENT') as unknown as ComponentNode
+    const definition = fixture.createNode('FRAME')
+    const inherited = fixture.createNode('FRAME')
+    root.setSharedPluginData('tempad_dev', 'canvas-key', 'root')
+    component.setSharedPluginData('tempad_dev', 'canvas-key', 'component/icon')
+    definition.setSharedPluginData('tempad_dev', 'canvas-key', 'component/icon/content')
+    inherited.setSharedPluginData('tempad_dev', 'canvas-key', 'component/icon/content')
+    component.appendChild(definition)
+    const instance = component.createInstance()
+    instance.appendChild(inherited)
+    root.appendChild(component)
+    root.appendChild(instance)
+
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: root.id,
+        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>'
+      })
+    ).resolves.toMatchObject({ mutationCount: 0 })
+    expect(instance.children).toEqual([inherited])
+  })
+
+  it('rejects an instance descendant as the update root', async () => {
+    const fixture = createFixture()
+    const instance = fixture.createNode('INSTANCE')
+    const child = fixture.createNode('FRAME')
+    child.setSharedPluginData('tempad_dev', 'canvas-key', 'component/card/content')
+    instance.appendChild(child)
+
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: child.id,
+        markup: '<div data-key="component/card/content" class="w-[100px] h-[100px]"></div>'
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      message: expect.stringContaining('inside an instance')
+    })
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+  })
+
+  it('rejects adopting an instance descendant by exact node id', async () => {
+    const fixture = createFixture()
+    const root = fixture.createNode('FRAME')
+    const instance = fixture.createNode('INSTANCE')
+    const child = fixture.createNode('FRAME')
+    root.setSharedPluginData('tempad_dev', 'canvas-key', 'root')
+    instance.appendChild(child)
+    root.appendChild(instance)
+
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: root.id,
+        markup: `<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><div data-key="root/content" data-node-id="${child.id}" class="w-[80px] h-[80px]"></div></div>`
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      message: expect.stringContaining('inside an instance')
+    })
+    expect(child.parent).toBe(instance)
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+  })
+
+  it('claims an unmarked instance usage key', async () => {
+    const fixture = createFixture()
+    const root = fixture.createNode('FRAME')
+    const component = fixture.createNode('COMPONENT') as unknown as ComponentNode
+    const instance = component.createInstance()
+    root.setSharedPluginData('tempad_dev', 'canvas-key', 'root')
+    component.setSharedPluginData('tempad_dev', 'canvas-key', 'component/icon')
+    instance.setSharedPluginData('tempad_dev', 'canvas-key', 'root/icon')
+    root.appendChild(component)
+    root.appendChild(instance)
+
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: root.id,
+        markup:
+          '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><div data-key="root/icon" class="w-[24px] h-[24px]"></div></div>',
+        native: {
+          'root/icon': { component: { id: component.id } }
+        }
+      })
+    ).resolves.toBeDefined()
+    expect(instance.getSharedPluginData('tempad_dev', 'canvas-owner')).toBe(instance.id)
   })
 
   it('reuses keyed descendants nested below omitted containers', async () => {

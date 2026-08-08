@@ -74,7 +74,8 @@ describe('canvas markup', () => {
         gap: 12,
         padding: { top: 16, right: 16, bottom: 16, left: 16 },
         primaryAlign: 'SPACE_BETWEEN',
-        counterAlign: 'CENTER'
+        counterAlign: 'CENTER',
+        strokesIncluded: true
       },
       appearance: {
         fill: '#FFFFFF',
@@ -222,6 +223,14 @@ describe('canvas markup', () => {
         '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><span data-key="copy" class="w-fit h-fit">&__proto__;</span></div>'
       )
     ).toThrow('Unsupported HTML entity "&__proto__;".')
+  })
+
+  it('preserves ampersands that do not start an entity', () => {
+    const result = parse(
+      '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><span data-key="copy" class="w-fit h-fit">Artists & labels · R&B</span></div>'
+    )
+
+    expect(result.root.children?.[0]?.text?.characters).toBe('Artists & labels · R&B')
   })
 
   it('keeps Figma component, variable, and style identities outside markup syntax', () => {
@@ -1027,7 +1036,7 @@ describe('canvas markup', () => {
       columnGap: 24,
       padding: { top: 20, right: 20, bottom: 20, left: 20 },
       itemsPositioning: 'MANUAL',
-      strokesIncluded: false
+      strokesIncluded: true
     })
     expect(result.root.children?.map((child) => child.gridChild)).toEqual([
       {
@@ -1271,6 +1280,89 @@ describe('canvas markup', () => {
 
     expect(result.root.figma?.effects).toEqual(effects)
   })
+
+  it('compiles exact box and inset shadow utilities to native effects', () => {
+    const result = parse(
+      '<div data-key="root" class="w-[320px] h-[200px] shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_2px_4px_-2px_rgba(0,0,0,0.1)] inset-shadow-[0_1px_1px_rgba(0,0,0,0.05)]"></div>'
+    )
+
+    expect(result.root.figma?.effects).toEqual([
+      {
+        type: 'DROP_SHADOW',
+        color: { r: 0, g: 0, b: 0, a: 0.1 },
+        offset: { x: 0, y: 4 },
+        radius: 6,
+        spread: -1
+      },
+      {
+        type: 'DROP_SHADOW',
+        color: { r: 0, g: 0, b: 0, a: 0.1 },
+        offset: { x: 0, y: 2 },
+        radius: 4,
+        spread: -2
+      },
+      {
+        type: 'INNER_SHADOW',
+        color: { r: 0, g: 0, b: 0, a: 0.05 },
+        offset: { x: 0, y: 1 },
+        radius: 1
+      }
+    ])
+  })
+
+  it('compiles arbitrary text shadows and clears them with text-shadow-none', () => {
+    const result = parse(
+      '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit text-shadow-[0_2px_4px_rgba(17,34,51,0.25)]">Copy</span></div>'
+    )
+
+    expect(result.root.children?.[0]?.figma?.effects).toEqual([
+      {
+        type: 'DROP_SHADOW',
+        color: { r: 17 / 255, g: 34 / 255, b: 51 / 255, a: 0.25 },
+        offset: { x: 0, y: 2 },
+        radius: 4
+      }
+    ])
+
+    const cleared = parse(
+      '<span data-key="copy" class="w-[120px] h-[24px] text-shadow-none">Copy</span>',
+      { mode: 'update', targetNodeId: '1:2' }
+    )
+    expect(cleared.root.figma?.effects).toEqual([])
+  })
+
+  it('rejects shadow classes on the wrong node kind or alongside another effect source', () => {
+    expect(() =>
+      parse(
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit shadow-[0_1px_2px_#000000]">Copy</span></div>'
+      )
+    ).toThrow(/Box shadow classes are not supported on TEXT/)
+    expect(() =>
+      parse(
+        '<div data-key="root" class="w-[320px] h-[200px] text-shadow-[0_1px_2px_#000000]"></div>'
+      )
+    ).toThrow(/Text shadow classes are not supported on FRAME/)
+    expect(() =>
+      parse('<div data-key="root" class="w-[320px] h-[200px] shadow-[0_1px_2px_#000000]"></div>', {
+        bindings: { root: { styles: { effect: { id: 'style:effect' } } } }
+      })
+    ).toThrow(/Shadow classes and an effect style cannot be combined/)
+    expect(() =>
+      parse('<div data-key="root" class="w-[320px] h-[200px] shadow-[0_2px_-4px_#000000]"></div>')
+    ).toThrow(/requires a color and two to four px lengths/)
+    expect(() =>
+      parse('<div data-key="root" class="w-[320px] h-[200px] shadow-[,]"></div>')
+    ).toThrow(/Invalid shadow class/)
+  })
+
+  it.each(['shadow-md', 'inset-shadow-sm', 'text-shadow-lg'])(
+    'rejects unresolved theme shadow class %s',
+    (className) => {
+      expect(() =>
+        parse(`<div data-key="root" class="w-[320px] h-[200px] ${className}"></div>`)
+      ).toThrow(/needs an exact bracketed value or "none"/)
+    }
+  )
 
   it('preserves direct paint stacks without compiling fallback paints', () => {
     const fills: NonNullable<CanvasFigmaProperties['fills']> = [
@@ -1814,6 +1906,20 @@ describe('canvas markup', () => {
     expect(result.root.children?.[0]?.figma?.text?.ranges).toEqual(ranges)
   })
 
+  it.each(['<br>', '<br/>', '<BR >'])('normalizes %s inside span text', (lineBreak) => {
+    const result = parse(
+      `<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit"> Line 1 ${lineBreak} Line 2 </span></div>`
+    )
+
+    expect(result.root.children?.[0]?.text?.characters).toBe('Line 1\nLine 2')
+  })
+
+  it('rejects a line break outside span text', () => {
+    expect(() =>
+      parse('<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><br></div>')
+    ).toThrow('Canvas HTML supports <br> only inside span text.')
+  })
+
   it('preserves decoded non-breaking spaces under normal HTML whitespace', () => {
     const result = parse(
       '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">A&nbsp;&nbsp;B</span></div>'
@@ -1893,7 +1999,7 @@ describe('canvas markup', () => {
   it.each([
     ['unknown element', '<section data-key="root" class="w-[1px] h-[1px]"></section>'],
     ['unknown attribute', '<div data-key="root" style="color:red" class="w-[1px] h-[1px]"></div>'],
-    ['unknown class', '<div data-key="root" class="shadow-md w-[1px] h-[1px]"></div>'],
+    ['unknown class', '<div data-key="root" class="filter w-[1px] h-[1px]"></div>'],
     ['conflicting classes', '<div data-key="root" class="w-[1px] w-[2px] h-[1px]"></div>'],
     ['multiple roots', '<div data-key="a" class="w-[1px] h-[1px]"></div><div></div>'],
     ['direct div text', '<div data-key="root" class="w-[1px] h-[1px]">not allowed</div>'],
@@ -1927,6 +2033,16 @@ describe('canvas markup', () => {
       'unpositioned freeform child',
       '<div data-key="root" class="w-[320px] h-[200px]"><span data-key="copy" class="w-fit h-fit">Copy</span></div>',
       /freeform container requires/
+    ],
+    [
+      'full-width freeform child',
+      '<div data-key="root" class="w-[320px] h-[200px]"><div data-key="fill" class="w-full h-[2px]"></div></div>',
+      /w-full.*freeform parent.*add flex-col or grid/
+    ],
+    [
+      'full-height freeform child',
+      '<div data-key="root" class="w-[320px] h-[200px]"><div data-key="fill" class="w-[2px] h-full"></div></div>',
+      /h-full.*freeform parent.*add flex-row or grid/
     ],
     [
       'flex without direction',
@@ -1982,6 +2098,11 @@ describe('canvas markup', () => {
       'inverted size bounds',
       '<div data-key="root" class="flex flex-row w-[320px] h-[200px] min-w-[400px] max-w-[300px]"></div>',
       /cannot exceed/
+    ],
+    [
+      'new Auto Layout narrower than its padding',
+      '<div data-key="root" class="flex flex-row w-[50px] h-[40px] px-[30px]"></div>',
+      /must be at least 60px/
     ],
     [
       'grid without columns',
@@ -2040,6 +2161,40 @@ describe('canvas markup', () => {
     ]
   ])('rejects %s', (_, markup, message) => {
     expect(() => parse(markup)).toThrow(message)
+  })
+
+  it('includes explicit inside strokes in the new Auto Layout minimum', () => {
+    const markup =
+      '<div data-key="root" class="flex flex-row w-[60px] h-[40px] px-[30px] border-[2px] border-[#000000]"></div>'
+    const bindings = {
+      root: { figma: { stroke: { align: 'INSIDE' as const } } }
+    }
+
+    expect(() => parse(markup, { bindings })).toThrow(/must be at least 64px/)
+    expect(() =>
+      parse(markup.replace('border-[#000000]', 'border-[#000000] box-content'), { bindings })
+    ).not.toThrow()
+  })
+
+  it('preserves an omitted stroke-layout setting during update', () => {
+    const result = parse('<div data-key="root" class="flex flex-row w-[320px] h-[200px]"></div>', {
+      mode: 'update',
+      targetNodeId: '1:2'
+    })
+
+    expect(result.root.layout).not.toHaveProperty('strokesIncluded')
+  })
+
+  it('allows one side of an existing border to change during update', () => {
+    const markup = '<div data-key="root" class="w-[320px] h-[200px] border-[3px]"></div>'
+
+    expect(() => parse(markup)).toThrow(/requires both stroke weight and paint sources/)
+    expect(() =>
+      parse(markup, {
+        mode: 'update',
+        targetNodeId: '1:2'
+      })
+    ).not.toThrow()
   })
 
   it('allows flexible aspect-ratio locking except on auto-resizing text', () => {
@@ -2343,7 +2498,13 @@ describe('canvas markup', () => {
       parse(
         `<div data-key="root" class="flex flex-col w-[320px] h-[200px]">${children}<span data-key="overflow" class="w-full h-fit">overflow</span></div>`
       )
-    ).toThrow(/at most 100/)
+    ).toThrow(/more than 100.*Keep one root.*omitted siblings are preserved/)
+
+    expect(() =>
+      parse(
+        '<div data-key="one" class="w-[10px] h-[10px]"></div><div data-key="two" class="w-[10px] h-[10px]"></div>'
+      )
+    ).toThrow(/exactly one root.*partial update.*omitted siblings are preserved/)
 
     let nested = '<span data-key="depth-12" class="w-full h-fit">End</span>'
     for (let depth = 11; depth >= 2; depth -= 1) {

@@ -207,7 +207,7 @@ describe('mcp/responses helpers', () => {
     expect(result.content).toEqual([
       {
         type: 'text',
-        text: 'Screenshot 320x200 @1x (1.0 KB). Inspect the linked PNG for visual verification.'
+        text: 'Screenshot 320x200 @1x (1.0 KB). Download and open the linked PNG with an image viewer. Receiving the asset reference alone is not visual verification. If this is a representative-screen check, inspect it before applying dependent screens.'
       },
       {
         type: 'resource_link',

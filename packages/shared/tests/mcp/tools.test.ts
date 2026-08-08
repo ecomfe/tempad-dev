@@ -28,6 +28,7 @@ describe('mcp/tools AssetDescriptorSchema', () => {
     const parsed = AssetDescriptorSchema.safeParse({
       hash: ASSET_HASH,
       url: 'https://example.com/a.png',
+      localPath: '/tmp/tempad-dev/assets/a.png',
       mimeType: 'image/png',
       size: 1024,
       width: 300,
@@ -475,6 +476,19 @@ describe('mcp/tools canvas authoring schemas', () => {
                 type: 'COMPONENT',
                 documentationLink: 'not a URL'
               }
+            }
+          }
+        }
+      })
+    ).toBe(false)
+    expect(
+      acceptsCanvas({
+        ...input,
+        bindings: {
+          button: {
+            figma: {
+              component: { type: 'COMPONENT' },
+              descriptionMarkdown: '**Misnested** metadata'
             }
           }
         }
@@ -995,6 +1009,55 @@ describe('mcp/tools canvas authoring schemas', () => {
           tokens: {
             modes: { contrast: null },
             variables: { legacy: null }
+          }
+        }
+      })
+    ).toBe(true)
+  })
+
+  it.each([
+    ['all scopes plus a specific scope', ['ALL_SCOPES', 'GAP']],
+    ['all fills plus a specific fill scope', ['ALL_FILLS', 'TEXT_FILL']]
+  ])('rejects invalid variable scope combinations: %s', (_name, scopes) => {
+    expect(
+      acceptsCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
+        variableCollections: {
+          tokens: {
+            name: 'Tokens',
+            modes: { light: { name: 'Light' } },
+            variables: {
+              color: {
+                name: 'Color',
+                type: 'COLOR',
+                scopes,
+                values: { light: { r: 1, g: 1, b: 1 } }
+              }
+            }
+          }
+        }
+      })
+    ).toBe(false)
+  })
+
+  it('allows ALL_FILLS with non-fill color scopes', () => {
+    expect(
+      acceptsCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
+        variableCollections: {
+          tokens: {
+            name: 'Tokens',
+            modes: { light: { name: 'Light' } },
+            variables: {
+              color: {
+                name: 'Color',
+                type: 'COLOR',
+                scopes: ['ALL_FILLS', 'STROKE_COLOR'],
+                values: { light: { r: 1, g: 1, b: 1 } }
+              }
+            }
           }
         }
       })

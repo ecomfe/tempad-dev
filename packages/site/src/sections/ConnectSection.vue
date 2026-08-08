@@ -57,9 +57,9 @@ const selectedAgentId = ref<AgentIntegrationId>('codex')
 const terminalCardRef = ref<HTMLElement | null>(null)
 const terminalViewportRef = ref<HTMLElement | null>(null)
 function getAgentDescription(agent: AgentIntegrationConfig): string {
-  return agent.actions.some(({ id }) => id === 'plugin-prompt')
-    ? 'The plugin adds MCP access and both agent skills.'
-    : 'Add MCP access and both agent skills.'
+  return agent.actions.some(({ id }) => id.startsWith('plugin-'))
+    ? 'Install one portable plugin with MCP access and both agent skills.'
+    : 'Use client-specific MCP and skill setup when plugins are not supported.'
 }
 
 const terminalEntries: readonly TerminalEntry[] = [
@@ -542,7 +542,7 @@ onBeforeUnmount(() => {
     id="connect"
     eyebrow="Connect"
     title="Connect design and code"
-    copy="TemPad Dev pairs MCP access with two agent skills so agents can implement Figma designs in code and create or edit native Figma designs."
+    copy="TemPad Dev packages MCP access and two design workflows as one portable Agent Plugin, with client-specific setup only where plugins are not supported."
   >
     <div class="site-connect-layout">
       <div class="site-connect-setup">
@@ -582,7 +582,8 @@ onBeforeUnmount(() => {
             <p class="site-connect-row-step">Step 2</p>
             <p class="site-connect-row-label">Set up your agent</p>
             <p class="site-connect-row-copy">
-              Choose a supported agent to use its shortest available setup path.
+              Choose an agent. The setup uses the open plugin format first and falls back to its
+              native MCP and skill flow only when needed.
             </p>
           </div>
           <div class="site-client-quicklist" role="tablist" aria-label="Agent">

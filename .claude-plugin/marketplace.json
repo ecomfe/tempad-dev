@@ -8,7 +8,7 @@
     {
       "name": "tempad-dev",
       "source": "./agent-plugins/tempad-dev",
-      "description": "Turn Figma evidence into project-consistent UI code and create native Figma designs.",
+      "description": "Use TemPad Dev to turn Figma evidence into UI code and create native Figma designs.",
       "category": "Design"
     }
   ]

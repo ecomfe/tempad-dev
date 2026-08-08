@@ -33,7 +33,9 @@
 - 工具响应共用 `64 KiB` 的 inline budget，按 `CallToolResult` 整体响应体积计算。若选区过大而超出 `get_code` 的预算，TemPad Dev 可能返回 shell response 而不是直接失败。shell 会保留当前节点的包裹结构，并在内联代码注释中列出被省略的直接子节点 id，方便 agent 逐个继续拉取；配套 warning 只保留最小化的提示信息，用来指向这条注释。
 - 启用 MCP access 且当前 Figma Design 文件可编辑时，`apply_canvas` 即可使用；Dev Mode 和
   只读文件仍不可写。
-- 资源是临时且与工具调用关联的；图片/SVG 请直接使用工具结果中带 capability 的 HTTP `asset.url` 下载。完整 URL 应视作临时密钥，不要持久化到日志中。
+- 资源是临时且与工具调用关联的。本地 stdio client 在 Hub 持有字节时会收到
+  `asset.localPath`，可直接打开而不必经过 loopback 下载；其他 client 使用带 capability 的
+  HTTP `asset.url`。完整 URL 应视作临时密钥，不要持久化到日志中。
 - 画布创作可通过完整 SHA-256 摘要引用本地资源仓库中已有的内容；字节只经过扩展内部桥接，
   不会进入工具参数。
 - MCP 不再暴露 `resources/list` / `resources/read` 用于 asset 内容读取。
@@ -45,6 +47,7 @@
 
 - `TEMPAD_MCP_TOOL_TIMEOUT`：常规工具调用超时时间（毫秒，默认 `15000`）。
 - `TEMPAD_MCP_GET_CODE_TIMEOUT`：`get_code` 超时时间（毫秒，默认 `30000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。
+- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`：`apply_canvas` 超时时间（毫秒，默认 `120000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。
 - `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`：仅一个扩展连接时自动激活前的延迟（默认 `1500`）。
 - `TEMPAD_MCP_MAX_ASSET_BYTES`：截图/资源捕获的最大上传体积（字节，默认 `8388608`）。
 - `TEMPAD_MCP_MAX_ASSET_STORE_BYTES`：本地资源存储总量上限（字节，默认 `268435456`）。

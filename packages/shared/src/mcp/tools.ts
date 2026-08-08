@@ -7,6 +7,7 @@ import { MCP_HASH_PATTERN } from './constants'
 export const AssetDescriptorSchema = z.object({
   hash: z.string().regex(MCP_HASH_PATTERN),
   url: z.string().url(),
+  localPath: z.string().min(1).optional(),
   mimeType: z.string().min(1),
   size: z.number().int().nonnegative(),
   width: z.number().int().positive().optional(),
@@ -945,6 +946,8 @@ const CanvasVariableScopeSchema = z.enum(CANVAS_VARIABLE_SCOPES, {
   error: `Invalid variable scope. Use one of: ${CANVAS_VARIABLE_SCOPES.join(', ')}.`
 })
 
+const CANVAS_VARIABLE_FILL_SCOPES = ['FRAME_FILL', 'SHAPE_FILL', 'TEXT_FILL'] as const
+
 const CanvasVariableValueSchema = z.union([
   z.boolean(),
   z.string(),
@@ -982,6 +985,23 @@ const CanvasVariableResourceSchema = z
       .array(CanvasVariableScopeSchema)
       .refine((scopes) => new Set(scopes).size === scopes.length, {
         message: 'Variable scopes cannot contain duplicates.'
+      })
+      .superRefine((scopes, context) => {
+        if (scopes.includes('ALL_SCOPES') && scopes.length > 1) {
+          context.addIssue({
+            code: 'custom',
+            message: 'ALL_SCOPES cannot be combined with another variable scope.'
+          })
+        }
+        if (
+          scopes.includes('ALL_FILLS') &&
+          CANVAS_VARIABLE_FILL_SCOPES.some((scope) => scopes.includes(scope))
+        ) {
+          context.addIssue({
+            code: 'custom',
+            message: 'ALL_FILLS cannot be combined with FRAME_FILL, SHAPE_FILL, or TEXT_FILL.'
+          })
+        }
       })
       .optional(),
     codeSyntax: CanvasVariableCodeSyntaxSchema.optional(),
@@ -1800,7 +1820,7 @@ export const CanvasFigmaPropertiesSchema = z
       'Native non-destructive boolean operation fitted to its shape or text children.'
     ).optional(),
     component: CanvasFigmaAuthoredComponentSchema.describe(
-      'Native authored component or component set, including optional publishable metadata and component-property definition patches.'
+      'Native authored component or component set. Keep descriptionMarkdown and documentationLink inside this component object, beside type and properties.'
     ).optional(),
     slot: CanvasFigmaSlotSchema.describe(
       'Native slot frame. An empty object preserves an existing slot; new slots require property metadata.'
@@ -1809,7 +1829,7 @@ export const CanvasFigmaPropertiesSchema = z
       'Figma-native import of a declared SVG asset into a childless managed frame.'
     ).optional(),
     componentPropertyReferences: CanvasFigmaComponentPropertyReferencesSchema.describe(
-      'Links a component sublayer field to a stable or exact component-property definition name. Null clears one link.'
+      'Links a component sublayer field to a stable or exact component-property definition name. Null clears one link. A visible reference controls layer visibility; an Auto Layout flow child may trigger a layout-affecting warning.'
     ).optional(),
     text: CanvasFigmaTextPropertiesSchema.optional(),
     shape: CanvasFigmaShapeSchema.describe(
@@ -2112,19 +2132,19 @@ export const ApplyCanvasParametersSchema = z
     variableCollections: z
       .record(CanvasStableKeySchema, z.unknown())
       .describe(
-        'Optional local variable collections, modes, and variables keyed by file-wide authoring identities. This does not require catalogId; load the skill variables reference for the exact scopes and complete example.'
+        'Optional local variable collections, modes, and variables keyed by file-wide authoring identities. Choose one collision-resistant system prefix before the first write and reuse it across calls. This does not require catalogId; load the skill variables reference for exact scopes, binding closure, and the complete example.'
       )
       .optional(),
     styles: z
       .record(CanvasStableKeySchema, z.unknown())
       .describe(
-        'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide authoring identities. This does not require catalogId; load the skill styles reference and follow its complete example.'
+        'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide authoring identities. This does not require catalogId; load the skill styles reference for binding closure and its complete example.'
       )
       .optional(),
     assets: z
       .record(CanvasStableKeySchema, z.unknown())
       .describe(
-        'Optional call-scoped SVG or content-addressed media assets. Load the skill visual-assets reference before using it.'
+        'Optional call-scoped SVG or content-addressed media assets. Declare an asset only after its source and medium are established. A content-image role cannot be replaced by agent-authored primitives or newly invented SVG unless the user or applicable visual evidence explicitly establishes vector illustration. Load the skill visual-assets reference before using it.'
       )
       .optional(),
     removeKeys: CanvasRemoveKeysSchema.optional(),
@@ -2164,13 +2184,13 @@ export const CanvasResolvedApplyParametersSchema = z
       'Optional Figma component, variable, style, and typed native data keyed by markup data-key.'
     ).optional(),
     variableCollections: CanvasVariableCollectionsSchema.describe(
-      'Optional local base or extended variable collections, modes, variables, and inherited-value overrides keyed by file-wide stable authoring identities. Omission preserves resources; null explicitly removes an unconsumed managed resource.'
+      'Optional local base or extended variable collections, modes, variables, and inherited-value overrides keyed by file-wide stable authoring identities. Omission preserves resources; null explicitly removes an unconsumed managed resource. Verification warns when a new variable is unreferenced or a same-call binding silently overrides a literal fallback that matches none of its direct mode values.'
     ).optional(),
     styles: CanvasStylesSchema.describe(
-      'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide stable authoring identities. Omission preserves resources; null explicitly removes an unconsumed managed style.'
+      'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide stable authoring identities. Omission preserves resources; null explicitly removes an unconsumed managed style. A newly created style without a reference in the same desired result produces a verification warning.'
     ).optional(),
     assets: CanvasAssetsSchema.describe(
-      'Call-scoped inline SVG or content-addressed SVG/image assets referenced by native desired state.'
+      'Call-scoped inline SVG or content-addressed SVG/image assets referenced by native desired state. Asset availability and import format do not establish the intended visual medium; agent-authored SVG is not a fallback for a content-image role.'
     ).optional(),
     removeKeys: CanvasRemoveKeysSchema.describe(
       'Optional stable keys that must be absent after a scoped update. Omitted live nodes remain untouched.'
