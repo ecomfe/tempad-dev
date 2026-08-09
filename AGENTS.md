@@ -39,6 +39,9 @@ Provide a single entry point for coding agents. This file links to package-level
 
 ## Agent plugin workflow
 
+- Before running or reviewing an end-to-end Figma authoring agent test, read
+  `docs/testing/agent-authoring-evaluation.md` and follow its runtime identity,
+  clean-task, evidence-review, and fix-placement rules.
 - `agent-plugins/tempad-dev/` is the tracked release source shared by Codex and Claude. The agent
   plugin is distributed through the Git marketplace, not npm.
 - `.dev/plugins/tempad-dev-dev/` is the ignored local build. Generate it with
@@ -47,8 +50,9 @@ Provide a single entry point for coding agents. This file links to package-level
   contents, including the shared skill, agent-plugin manifests, icons, or marketplace metadata.
   Ordinary `pnpm build` must not modify agent-plugin artifacts.
 - Before asking the user to test a changed development plugin, reinstall the generated cachebuster
-  with `codex plugin add tempad-dev-dev@tempad-dev-dev` and use a new task. Generation alone does
-  not update Codex's installed skill cache.
+  in the active host and use a new task. `codex plugin add tempad-dev-dev@tempad-dev-dev` updates
+  the installation on disk, but an external CLI call alone does not prove that a running Desktop
+  host refreshed its plugin cache.
 - `pnpm dev` watches the extension, shared package, and MCP server. The generated development
   plugin points directly at the current checkout's MCP build, so MCP-only changes require a new
   agent task or plugin reload, not an agent-plugin rebuild or reinstall.
@@ -65,6 +69,7 @@ Provide a single entry point for coding agents. This file links to package-level
 
 - `TESTING.md`
 - `docs/testing/architecture.md`
+- `docs/testing/agent-authoring-evaluation.md`
 - `docs/extension/mcp-get-code-requirements.md`
 - `docs/extension/mcp-get-code-design.md`
 - `docs/extension/mcp-canvas-authoring-design.md`
