@@ -17,6 +17,7 @@
     "check:rewrite": "tsx ./scripts/check-rewrite.ts",
     "check:plugin-sandbox": "wxt build && tsx ./scripts/check-plugin-sandbox.ts",
     "check:worker-sandbox": "tsx ./scripts/check-worker-sandbox.ts",
+    "codex-plugin:reinstall": "tsx ./scripts/reinstall-codex-dev-plugin.ts",
     "screenshots": "tsx ./scripts/screenshots.ts",
     "test": "vitest --config vitest.config.ts",
     "test:run": "vitest run --config vitest.config.ts && pnpm run check:worker-sandbox && pnpm run check:plugin-sandbox",
