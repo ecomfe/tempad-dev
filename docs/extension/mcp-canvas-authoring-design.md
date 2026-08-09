@@ -205,21 +205,21 @@ The extension discovers:
 - shaders returned by Figma's shader API.
 
 Figma does not expose a direct local-component listing API or a loaded-page predicate. TemPad Dev
-therefore attempts the native type-indexed query without calling `PageNode.loadAsync()` and skips
-pages Figma refuses to expose. It never walks every node in JavaScript and never resolves canvas
-instances merely to infer definitions. Figma's public Plugin API also does not enumerate unused
-subscribed-library components or styles; the variables team-library API is not a general component
-catalog.
+therefore attempts the native type-indexed query without proactively loading pages and skips pages
+Figma refuses to expose. It never walks every node in JavaScript and never resolves canvas instances
+merely to infer definitions. Figma's public Plugin API also does not enumerate unused subscribed-
+library components or styles; the variables team-library API is not a general component catalog.
 
 The Figma UI has its own lazy, server-backed Assets index, but its React state and internal stores
 are private, mount-dependent, and unstable. They are not a correctness dependency. In particular,
 TemPad Dev never calls the UI store's synchronous `getState()` path and never treats names from that
 index as sufficient design-system evidence.
 
-`get_design_system` never calls `loadAllPagesAsync()` or `PageNode.loadAsync()`. Page loading remains
-a write-only concern when `apply_canvas` explicitly targets a different page or must prove that an
-explicit node/variable deletion has no surviving cross-page consumer; ordinary current-page create
-and update paths do neither.
+`get_design_system` never calls `loadAllPagesAsync()` or proactively loads a page for discovery.
+When the rewritten runtime reports its exact transient Figma-connection timeout, local resource and
+font reads load only `currentPage` and retry the same idempotent operation once. Other page loading
+remains a write concern when `apply_canvas` explicitly targets a different page or must prove that
+an explicit node/variable deletion has no surviving cross-page consumer.
 
 This boundary is intentional. Component names are explicit knowledge, but their practical design
 meaning is carried by valid variants, exposed properties, layout, nested instances, slots, and
