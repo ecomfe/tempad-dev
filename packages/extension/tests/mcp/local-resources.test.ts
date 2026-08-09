@@ -101,4 +101,17 @@ describe('local Figma resource reads', () => {
     expect(getNodeByIdAsync).toHaveBeenCalledTimes(2)
     expect(getNodeByIdSync).toHaveBeenCalledOnce()
   })
+
+  it('preserves the asynchronous read error when the sync fallback also fails', async () => {
+    const asyncError = new Error('asynchronous read failed')
+    const syncError = new Error('synchronous fallback failed')
+    vi.stubGlobal('figma', {
+      getNodeById: vi.fn(() => {
+        throw syncError
+      }),
+      getNodeByIdAsync: vi.fn().mockRejectedValue(asyncError)
+    } as unknown as PluginAPI)
+
+    await expect(getNodeById('1:1')).rejects.toBe(asyncError)
+  })
 })
