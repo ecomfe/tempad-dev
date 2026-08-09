@@ -41,6 +41,37 @@ region-specific fills/styles. Do not supply paths and a network together. New
 vectors need geometry; omission preserves it on update and an empty
 path/network clears it.
 
+Each `paths` item is an object, not a raw path string. `windingRule` is
+`"NONE"`, `"NONZERO"`, or `"EVENODD"`; use `"NONE"` for an open stroked path.
+Path data uses whitespace-separated uppercase commands and numbers. This
+complete Direct recipe creates one native editable branch curve:
+
+```json
+{
+  "mode": "create",
+  "markup": "<div data-key=\"branch-frame\" class=\"w-[120px] h-[320px]\"><div data-key=\"branch\" class=\"absolute left-[0px] top-[0px] w-[120px] h-[320px]\"></div></div>",
+  "native": {
+    "branch": {
+      "figma": {
+        "name": "Branch",
+        "shape": {
+          "type": "VECTOR",
+          "paths": [
+            {
+              "windingRule": "NONE",
+              "data": "M 14 300 C 30 252 52 188 104 20"
+            }
+          ]
+        },
+        "fills": [],
+        "strokes": [{ "type": "SOLID", "color": { "r": 0.447, "g": 0.314, "b": 0.231 } }],
+        "stroke": { "weight": 2, "cap": "ROUND", "join": "ROUND" }
+      }
+    }
+  }
+}
+```
+
 ## Transform, masks, and native state
 
 - `figma.name` sets the display-layer name; `data-key` remains identity.
@@ -57,6 +88,12 @@ Put a mask before the siblings it masks, keep the mask group in one dedicated
 frame, and describe every direct sibling during an update. A non-null mask
 must have at least one following sibling. Omission preserves mask state; null
 disables it.
+
+After a mask, layout grid, or frame-guide change, use `get_structure` with
+`options.native: true` on the smallest relevant root. Confirm the mask's
+`native.mask` value and following-sibling order, or the root's returned
+`native.layoutGrids` and `native.guides`; do not infer those states from the
+desired binding alone.
 
 Use `{ "ref": "…" }` for catalog resources nested in advanced native state.
 Use `sourceCanvasKey` or `{ "canvasKey": "…" }` for same-result forward node

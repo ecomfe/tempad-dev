@@ -61,6 +61,9 @@ Every primitive needs one width and one height. Supported fixed forms are:
   width bounds also accept the default container names; use `min-w-none`, `max-w-none`,
   `min-h-none`, or `max-h-none` to clear a bound in an update
 
+When text uses `w-fit`, it must also use `h-fit`; prefer `size-fit`. A fixed-width
+`h-fit` text node remains valid when its lines should wrap within that width.
+
 Create and update markup roots require fixed width and height; fill, hug, and
 grow are invalid even when the live target has a sized parent.
 

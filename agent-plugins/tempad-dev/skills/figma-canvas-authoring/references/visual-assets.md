@@ -1,19 +1,38 @@
 # Deliver visual assets in Figma
 
-Use this reference when the result needs icons, a typeface decision, images, or
-illustrations. It governs asset role, source integrity, and an importable form;
-it does not define the product need or the final visual choice. After choosing
-the asset, use the routed native reference for exact font, paint, media, or SVG
-application mechanics.
+Use this reference when the result needs icons, an exact typeface decision,
+images, illustrations, diagrams, or vector artwork. It governs asset role,
+source integrity, native editability, and an importable form; it does not define
+the product need or the final visual choice. After choosing the asset, use the
+routed native reference for exact font, paint, media, or SVG application
+mechanics.
 
-Classify the role before choosing a medium. When the role is an image—media
-whose job is to depict content—fulfill it with a sourced, generated, supplied,
-or current-file asset. Do not assemble it from Figma primitives or newly
+Start with the composition, not an assumed asset slot or a comparison of
+available tools. Typography, layout, color, negative space, or existing media
+may already fulfill the brief. Add a distinct visual only when it performs a
+job established by the brief or applicable evidence, such as depicting
+content, signaling an action, explaining a relationship, establishing identity,
+or contributing an intentional visual language. These are recognition cues,
+not a taxonomy to complete. If no distinct job exists, do not add an asset to
+make the result feel more designed.
+
+Depiction is a visual job, not a medium. Choose photographic or raster imagery,
+sourced vector artwork, an authored vector illustration or diagram, or another
+medium only after the brief, applicable visual evidence, or an identified
+low-consequence assumption supports it. When the established medium is
+photographic or raster imagery, fulfill it with a sourced, generated, supplied,
+or current-file asset; do not assemble it from Figma primitives or newly
 invented SVG. Use agent-authored vector work only when the user or applicable
-visual evidence independently establishes the role as vector illustration,
-diagram, pattern, or decorative geometry. Never reclassify an image as one of
-those roles because drawing it is easier. Creative latitude, native editability,
-delivery speed, and tool availability do not establish the intended medium.
+visual evidence independently establishes vector illustration, diagram,
+pattern, or decorative geometry as the medium. Never reclassify imagery as one
+of those media because drawing it is easier. Implementation convenience does
+not establish the intended medium.
+
+Preserve the semantics that earn native editability. Build an authored diagram
+whose labels, shapes, or relationships are expected to change as native Figma
+structure. Import one opaque SVG only when exact vector artwork is itself the
+asset; an SVG wrapper with Vector descendants does not preserve an editable
+diagram model.
 
 For material assets, preserve enough evidence for the intended use:
 
@@ -22,10 +41,9 @@ For material assets, preserve enough evidence for the intended use:
 - sufficient source quality;
 - a delivery form accepted by Canvas.
 
-Catalog entries and available tools are candidates, not design evidence. Do not
-silently change an asset's subject, style, or medium because another route is
-easier to import. If a required source cannot be delivered faithfully, report
-the limitation instead of disguising a substitute as intent.
+Do not silently change an asset's subject, style, or medium because another
+route is easier to import. If a required source cannot be delivered faithfully,
+report the limitation instead of disguising a substitute as intent.
 
 A crop, mask, overlay, or retouch may support the composition only while it
 preserves what the asset depicts. Do not conceal distinctive branding or
@@ -93,26 +111,27 @@ native font, or leave the brief at the level the evidence supports.
 
 ## Images and illustrations
 
-Choose among an existing asset, a licensed remote source, generation, or
-purpose-built vector work from the established design decision. The skill does
-not assign a global priority to those routes. Before layout depends on the
-asset, confirm that the chosen result satisfies its required content, fidelity,
-rights, and import path.
+Treat an existing asset, licensed remote source, generation, or purpose-built
+vector work as acquisition routes after the visual role, subject, and medium
+are established. Search and image-generation tools are not competing defaults,
+and the skill assigns no global priority to them. Use situated judgment to take
+the nearest route that satisfies the relevant content, fidelity, rights,
+quality, and import requirements; do not perform an option-ranking ceremony
+when the evidence already makes one route suitable. Before layout depends on
+the asset, confirm that the chosen result is deliverable through Canvas.
 
-Treat the medium as part of the material decision. A content-image role does not
-fall back to agent-authored primitives or SVG when its intended asset is missing;
-source or generate the image, use an explicit neutral placeholder when that does
-not change the outcome, or disclose the gap. Exact supplied or sourced vector
-art remains valid when vector is the asset's actual medium. When several assets
-represent distinct content, verify that the selected route preserves the
-distinctions the composition depends on.
+Treat the medium as part of the material decision. An established photographic
+or raster medium does not fall back to agent-authored primitives or SVG when its
+intended asset is missing; source or generate the image, use an explicit neutral
+placeholder when that does not change the outcome, or disclose the gap. Exact
+supplied or sourced vector art remains valid when vector is the asset's actual
+medium. When several assets represent distinct content, verify that the
+selected route preserves the distinctions the composition depends on.
 
-Keep a compact working trace at the granularity needed to recover each material
-asset decision:
-
-```txt
-role -> governing evidence or brief decision -> subject and medium -> source/rights -> import/crop
-```
+Keep only enough working evidence to recover a material choice or verify a
+distinction the composition depends on. A short rationale may combine the
+visual job, governing evidence, medium, source, and import treatment; this is
+not a mandatory field sequence or a per-asset reporting ceremony.
 
 Require an exact asset page, creator record, license record, or attribution only
 when the source terms, user or project policy, or requested handoff makes that
@@ -120,9 +139,10 @@ detail material. Do not turn ordinary draft imagery into a per-asset citation
 exercise. Assets that share one recoverable route and the same applicable terms
 may share a trace when individual identity is not material.
 
-If no cited evidence or explicit brief decision establishes a material medium,
-that decision remains open; do not make the asset first and call its medium
-intentional afterward.
+If no evidence or explicit brief decision establishes a medium, judge whether
+the choice would materially change the result. Resolve a material choice from
+the nearest relevant visual evidence or ask the user; make a low-consequence
+choice as an identified assumption.
 
 When generation is the established route, resolve how its output will reach a
 Canvas-accepted form before invoking the image-generation skill or tool. A local
@@ -138,6 +158,12 @@ Apply a public image as an IMAGE paint using `imageUrl`; an existing current-fil
 alias as the paint's `assetKey`. Inline bytes and local-only paths are not
 supported. Remote URLs must resolve directly to an accessible image rather than
 to a webpage or thumbnail.
+
+When the delivered medium must remain a real image, verify the live image node
+with `get_structure` and `options.native: true`. Its `native.imageFills` must
+contain the expected non-null Figma image hash; the supplied `imageUrl`, a
+successful apply summary, or a screenshot that merely resembles the source is
+not native-state read-back.
 
 The main agent owns placement and crop and verifies the delivered asset in the
 final composition. Keep identity and crop stable across repeated usages unless
