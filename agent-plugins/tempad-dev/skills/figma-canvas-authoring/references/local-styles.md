@@ -7,7 +7,10 @@ a nested `{ "ref": "…" }` deliberately reuses an existing catalog resource.
 
 Copy this complete recipe and change its design facts. Style authoring keys
 persist file-wide so later calls can recover the same resources; they are not
-Figma names or IDs. Namespace them by product and role.
+Figma names or IDs. Namespace them by product and role. In a shared draft,
+also prefix human-visible style names when a generic name such as
+`Typography/Body` would collide with independent work; keep established
+project naming when it already provides a clear namespace.
 
 ```json
 {
@@ -16,12 +19,12 @@ Figma names or IDs. Namespace them by product and role.
   "styles": {
     "product/style/surface": {
       "type": "PAINT",
-      "name": "Color/Surface",
+      "name": "Product/Color/Surface",
       "paints": [{ "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 } }]
     },
     "product/style/heading": {
       "type": "TEXT",
-      "name": "Typography/Heading",
+      "name": "Product/Typography/Heading",
       "fontName": { "family": "Inter", "style": "Semi Bold" },
       "fontSize": 20,
       "lineHeight": { "unit": "PIXELS", "value": 28 }

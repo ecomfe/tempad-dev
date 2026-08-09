@@ -34,6 +34,11 @@ requests that resource or explicitly asks to create or extend a design system. D
 guidance and executable resource shapes remain in progressive references rather than the core
 skill or server instructions.
 
+A current-page-only evidence constraint also keeps the agent from inspecting other pages or using
+pre-existing file resources. It does not redefine Figma's file-wide variable, style, or authoring
+identity scopes, and it does not prevent the extension from performing the file-wide identity
+checks required for safe reconciliation.
+
 The model-visible surface remains five tools:
 
 - `get_code` reads visible design as implementation evidence;
@@ -531,8 +536,10 @@ Ambiguous keys and all definition-derived descendants stay outside authoring ide
 adoption, and removal. Physical traversal still includes descendants for safety checks.
 
 Existing nodes still reject ownership reassignment. Newly created Frames and Components normalize
-an omitted fill to transparent even during update; explicit paint, style, or variable state then
-overrides that baseline. Main-axis `grow` is validated by its effective `FILL` sizing mode, so a
+an omitted fill to transparent and omitted overflow to Canvas HTML's visible default even during
+update; explicit paint, style, variable, or `overflow-hidden` state then overrides that baseline.
+This keeps Figma's creation defaults from changing the meaning of markup first introduced by an
+incremental update. Main-axis `grow` is validated by its effective `FILL` sizing mode, so a
 primitive track may use `grow w-fit` inside a row without being misclassified as a freeform
 hug-sized Frame. Growing Text that transiently collapses to zero width is reflowed through a bounded
 fixed-to-fill transition before verification. Figma owns nonzero cross-axis `FILL` geometry. The
@@ -618,6 +625,11 @@ A visible component-property reference that can alter Auto Layout flow produces
 `layout-affecting-visibility-property`. It is also non-fatal because optional content may be
 designed to reflow. The authoring workflow must either preserve geometry with a fixed slot,
 absolute child, or geometry-equivalent variants, or explicitly accept the verified state change.
+
+A managed Text or component instance that extends outside its direct Frame or Component parent
+produces `managed-content-overflow`, including the affected edges and whether native clipping is
+enabled. It remains non-fatal because deliberate overflow and crop are valid composition tools; the
+warning makes accidental content cropping or overlap inspectable without prohibiting either.
 
 Its structured result also returns `rootNodeId` and the bounded `nodeIdsByKey` identity map so a
 later Author call can consume an exact component created by the preceding result.
