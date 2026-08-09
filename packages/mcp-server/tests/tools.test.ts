@@ -52,7 +52,10 @@ describe('tools response helpers', () => {
 
     expect(designSystem?.description).toContain('reuse is permitted and relevant')
     expect(applyCanvas?.description).toContain('declarative desired Figma result')
-    expect(applyCanvas?.description).toContain('Serialize its managed layer tree with Canvas HTML')
+    expect(applyCanvas?.description).toContain('Markup serializes ordinary layers as Canvas HTML')
+    expect(applyCanvas?.description).toContain('typed fields express selected Figma capabilities')
+    expect(applyCanvas?.description).toContain('Create auto-places the new root')
+    expect(applyCanvas?.description).toContain('preserves omitted live state')
     expect(designSystem?.parameters.parse({})).toEqual({})
     expect(
       applyCanvas?.parameters.parse({

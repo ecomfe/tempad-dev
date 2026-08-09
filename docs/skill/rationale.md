@@ -50,12 +50,13 @@ design-system, or organizational knowledge into a universal skill.
 
 ### Organize cues in the order the model should reason
 
-An LLM does not expose one inspectable, deterministic "parameter chain" for a
-task. Prompt tokens and document structure instead bias attention and the
-latent patterns most available to the next inference. Reference organization is
-therefore part of behavior: the first framing should cue the problem being
-solved, while exact syntax should arrive only after the model has chosen a
-representation.
+Inference does not update model weights or expose a controllable, deterministic
+"parameter chain." Prompt tokens instead shape transient activations, attention,
+and which learned patterns are useful for predicting the next token. We can
+therefore design a cue topology, not select a known circuit: put the focal
+problem and target artifact ontology first, keep competing implementation
+vocabularies out of the decision context, and disclose exact syntax only after
+the relevant branch is chosen.
 
 For canvas authoring, use this sequence:
 
@@ -67,10 +68,12 @@ For canvas authoring, use this sequence:
 
 Organize optional native references by Figma semantics—components, variables,
 styles, geometry, paints/effects/media, and rich text—because those concepts
-match the artifact and the typed contract. Keep Canvas HTML/CSS in one separate
-serialization reference. A CSS-first hierarchy would cue browser behavior and
-make available utilities look like design options; one undifferentiated Figma
-manual would load unrelated schema and weaken branch selection.
+match both the target artifact and the typed contract, and align the prompt with
+the model's learned Figma vocabulary. Keep Canvas HTML/CSS in one separate
+serialization reference. A CSS-first hierarchy would make browser concepts and
+available utilities salient while representation is still undecided; one
+undifferentiated Figma manual would load unrelated schemas and weaken branch
+selection.
 
 Keep MCP server instructions and tool descriptions at the mechanical layer:
 session scope, evidence boundaries, tool affordances, identity, omission,
@@ -152,14 +155,14 @@ The skill preserves these invariants:
 
 ### `figma-canvas-authoring`
 
-The main file routes by user intent and consequence: reuse an accessible design
+The main file keeps the intended result and evidence focal, forms the artifact
+model in Figma terms, then routes by consequence: reuse an accessible design
 system, compose directly, or author reusable resources only when explicitly
 requested. Declarative desired state and stable identity remain hard
-boundaries. Native schema, design-system, and visual-asset particulars remain
-progressive references. Decision and evidence references establish what must be
-represented; Figma-semantic references define the native concept; the Canvas
-HTML reference serializes only the already selected structure and common
-appearance.
+boundaries. Decision and evidence references establish what must be
+represented; Figma-semantic references define only the selected native
+concepts; the Canvas HTML reference serializes the already selected ordinary
+layer structure and appearance.
 
 The skill is deliberately orthogonal to product-domain, platform,
 accessibility, content, and visual-style requirements. When a material design

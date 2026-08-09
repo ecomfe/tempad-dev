@@ -48,8 +48,8 @@ requires establishing and verifying them, not prescribing their answers.
 ## Workflow
 
 1. **Fix the scope and evidence.** Determine the requested outcome, smallest
-   complete scope, create or update target, relevant evidence, unresolved
-   material decisions, resource path, and required native capabilities. Use
+   complete scope, create or update target, relevant evidence, content and
+   state distinctions that must survive, and unresolved material decisions. Use
    `get_code` only when existing visual composition matters. Use
    `get_structure` only for hierarchy, ordering, spatial relationships, or
    managed identity uncertainty. Create on the active page by default. Omit
@@ -66,10 +66,14 @@ requires establishing and verifying them, not prescribing their answers.
    representation, and read [visual-assets.md](references/visual-assets.md).
    Retain the compact decision trace and inspect one representative composition
    before propagating its language.
-3. **Choose one resource path.** Preserve established resource usage on updates.
-   For new work, choose Reuse only when permitted evidence establishes a
-   relevant existing system; otherwise choose Direct. Ask only when a material
-   boundary cannot be inferred.
+3. **Form the Figma model.** Before reading payload syntax, map the decided
+   content, states, and relationships to the composition, layer hierarchy,
+   layout behavior, media, and native semantics that express them. Name
+   provisional resources and their real consumers; do not let available
+   classes or schema fields choose the medium or structure. Preserve established
+   resource usage on updates. For new work, choose Reuse only when permitted
+   evidence establishes a relevant existing system; otherwise choose Direct.
+   Ask only when a material boundary cannot be inferred.
    - **Reuse:** read
      [design-system-reuse.md](references/design-system-reuse.md), then use only
      returned resources relevant to the result.
@@ -80,14 +84,12 @@ requires establishing and verifying them, not prescribing their answers.
      [design-system-authoring.md](references/design-system-authoring.md) and
      select resources from concrete consumers, meaningful differences, expected
      shared evolution, and abstraction cost. Repetition alone is not a trigger.
-4. **Form the Figma model, then serialize it.** Name the layers, provisional
-   resources, bindings, and native behavior that express the chosen result
-   before reading payload syntax; do not let available classes or schema fields
-   choose the medium or structure. Load only the selected Figma-capability
-   references below, then use Canvas HTML to serialize the layer tree. Skip
-   Canvas HTML for `markup: null`. For a create or an update that changes
-   element structure, read [canvas-html.md](references/canvas-html.md) in full.
-   For an update with trustworthy markup and unchanged structure, always read
+4. **Load mechanics, then serialize.** Read only the references for the Figma
+   concepts selected in step 3. Then use Canvas HTML to serialize the ordinary
+   layer tree and typed fields for the selected native capabilities. Skip Canvas
+   HTML for `markup: null`. For a create or an update that changes element
+   structure, read [canvas-html.md](references/canvas-html.md) in full. For an
+   update with trustworthy markup and unchanged structure, always read
    [Elements and identity](references/canvas-html.md#elements-and-identity), then
    read only the changed Layout or Appearance and text section. Preserve every
    unaffected element, attribute, and class; leave markup unchanged for a
@@ -136,7 +138,7 @@ requires establishing and verifying them, not prescribing their answers.
 
 Do not turn this workflow into repeated API-like mutations.
 
-## Representation routing
+## Load references by decision
 
 Route an established design decision to its Figma concept, then to Canvas
 serialization. These references supply mechanics; do not browse them as a menu
