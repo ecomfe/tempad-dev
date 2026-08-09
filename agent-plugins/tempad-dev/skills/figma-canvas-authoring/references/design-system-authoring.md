@@ -116,7 +116,7 @@ contract cannot express a real difference, revise the structure or keep that
 responsibility local; do not create a component that silently freezes varying
 content or state.
 
-Read [variables.md](variables.md), [styles.md](styles.md), or
+Read [variables.md](variables.md), [local-styles.md](local-styles.md), or
 [component-authoring.md](component-authoring.md) only for resource types the
 requested scope requires.
 

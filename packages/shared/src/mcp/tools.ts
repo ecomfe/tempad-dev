@@ -2119,7 +2119,7 @@ export const ApplyCanvasParametersSchema = z
       .max(MAX_CANVAS_MARKUP_LENGTH)
       .nullable()
       .describe(
-        `Desired div/span tree with at most ${MAX_CANVAS_NODES} elements and ${MAX_CANVAS_DEPTH} levels. Use catalog component tags directly; bind catalog variables and styles with data-var-<field>="vN" and data-style-<field>="sN". Use "none" to unlink.`
+        `Desired div/span tree with at most ${MAX_CANVAS_NODES} elements and ${MAX_CANVAS_DEPTH} levels. When catalogId is supplied, use its component tags and bind its variable or style refs with data-var-<field>="vN" or data-style-<field>="sN"; use "none" to unlink.`
       ),
     native: z
       .record(CanvasStableKeySchema, CanvasNativeBindingSchema)
@@ -2134,7 +2134,7 @@ export const ApplyCanvasParametersSchema = z
     styles: z
       .record(CanvasStableKeySchema, z.unknown())
       .describe(
-        'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide authoring identities. This does not require catalogId; use the canvas-authoring styles reference for the exact shape.'
+        'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide authoring identities. This does not require catalogId; use the canvas-authoring local-styles reference for the exact shape.'
       )
       .optional(),
     assets: z

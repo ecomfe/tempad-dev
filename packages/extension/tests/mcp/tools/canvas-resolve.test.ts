@@ -121,7 +121,7 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
         'component-authoring.md#2',
         'component-authoring.md#3',
         'design-system-reuse.md#1',
-        'styles.md#1',
+        'local-styles.md#1',
         'variables.md#1',
         'visual-assets.md#1'
       ])
