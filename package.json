@@ -20,6 +20,7 @@
     "lint:root": "eslint . --ignore-pattern \"packages/**\"",
     "lint:root:fix": "eslint . --fix --ignore-pattern \"packages/**\"",
     "agent-plugin:dev": "node scripts/build-dev-agent-plugin.mjs",
+    "agent-plugin:reinstall": "pnpm --filter @tempad-dev/extension codex-plugin:reinstall",
     "format": "pnpm format:root && pnpm -r --if-present format",
     "format:check": "pnpm format:root:check && pnpm -r --if-present format:check",
     "format:root": "oxfmt --ignore-path ./.gitignore --ignore-path ./.oxfmtignore",
