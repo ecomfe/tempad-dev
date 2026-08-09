@@ -1,13 +1,11 @@
 ---
 name: figma-canvas-authoring
 description: >-
-  Create or update native Figma designs with TemPad Dev MCP, following the
-  user's explicit resource constraints. Reuse accessible components, variables,
-  and styles only when allowed; create or extend a local design system only
-  when the user explicitly requests it. Use for screens, drafts, and reusable
-  components on the Figma canvas, including an empty document. Do not use for
-  Figma-to-code, critique without edits, raw Plugin API automation, or
-  unapproved design-system invention.
+  Create or update native, editable Figma designs with TemPad Dev MCP. Use for
+  authoring screens, flows, drafts, reusable components, and explicitly
+  requested local design-system resources on a Figma canvas, including an
+  empty document. Do not use for Figma-to-code, critique without edits, or raw
+  Plugin API automation.
 ---
 
 # Design on the Figma canvas
@@ -18,10 +16,9 @@ serialization, then rendered verification. Keep the result focal; classes,
 schema fields, catalog entries, examples, and tool calls are subsidiary means,
 not design evidence or a checklist to maximize.
 
-Use this skill for Figma authoring and delivery. Derive product-domain,
-platform, accessibility, content, and visual-design requirements from the user,
-permitted evidence, an applicable skill, or targeted research. Examples explain
-mechanics only.
+Derive product-domain, platform, accessibility, content, and visual-design
+requirements from the user, permitted evidence, an applicable skill, or
+targeted research. Examples explain mechanics only.
 
 Require the intended Figma tab's MCP badge to be active and the current Figma
 Design file to be editable. Never bypass that boundary or emit raw Plugin API
@@ -158,8 +155,8 @@ Figma-native representation and authoring:
   [component-authoring.md](references/component-authoring.md)
 - local variables, collections, modes, or bindings:
   [variables.md](references/variables.md)
-- local Paint, Text, Effect, or Grid styles and bindings:
-  [styles.md](references/styles.md)
+- authored Paint, Text, Effect, or Grid styles and bindings:
+  [local-styles.md](references/local-styles.md)
 
 Canvas serialization after representation is chosen:
 
