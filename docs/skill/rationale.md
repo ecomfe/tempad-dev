@@ -159,10 +159,12 @@ The main file keeps the intended result and evidence focal, forms the artifact
 model in Figma terms, then routes by consequence: reuse an accessible design
 system, compose directly, or author reusable resources only when explicitly
 requested. Declarative desired state and stable identity remain hard
-boundaries. Decision and evidence references establish what must be
-represented; Figma-semantic references define only the selected native
-concepts; the Canvas HTML reference serializes the already selected ordinary
-layer structure and appearance.
+boundaries. Host-supplied MCP tools are also an integrity boundary: the skill
+stops when they are absent instead of rebuilding the transport through a shell.
+Decision and evidence references establish what must be represented;
+Figma-semantic references define only the selected native concepts; the Canvas
+HTML reference serializes the already selected ordinary layer structure and
+appearance.
 
 The skill is deliberately orthogonal to product-domain, platform,
 accessibility, content, and visual-style requirements. When a material design
@@ -170,6 +172,13 @@ decision remains unresolved, it requires a compact evidence trace and validates
 the visible canvas against the resulting task-specific brief. It prescribes no
 universal UX checklist, source count, or design answer; those belong to the user,
 project evidence, an applicable domain skill, or targeted research.
+For consequential expert workflows, generic visual direction is not evidence
+for domain conventions that shape safety, prioritization, terminology, or
+decision order; those remain material until grounded by a professional skill or
+targeted research.
+That evidence must survive translation into the artifact: an established order
+or prerequisite is part of the Figma model, so its visible hierarchy and shown
+states cannot contradict it while citations remain superficially correct.
 For net-new work without a concrete reference or representative established
 screen or system, it treats the direction-defining visual language as material
 instead of silently demoting it to a low-consequence assumption. It likewise
@@ -213,11 +222,17 @@ defect rather than a successful fix.
 The same boundary governs visible evidence and assets. Textual product guidance
 cannot by itself establish visual language, and creative latitude or native
 editability cannot establish a geometric image medium. The agent must inspect
-evidence in the medium relevant to the decision, preserve content distinctions,
-and trace each material asset back to the evidence or brief decision that
-establishes its subject and medium before choosing an import route. This imposes
-no universal preference among valid image sources, but it does prevent
-agent-authored primitives or SVG from silently substituting for an image role.
+evidence in the medium relevant to the decision and preserve content
+distinctions. The skill does not assume an image slot, require a visual asset,
+or prescribe a source-selection tree. It encodes only the ordering invariant:
+establish a distinct visual job from the brief or evidence, choose its medium,
+then choose a source and import route. Depiction is a job rather than a synonym
+for raster imagery, so the applicable evidence still governs whether its medium
+is photographic, vector, diagrammatic, or something else. Search and generation
+remain late acquisition mechanisms with no universal priority. This preserves
+situated judgment while preventing tool availability from inventing imagery,
+primitive geometry from silently substituting for an image medium, or opaque
+SVG import from weakening an authored diagram's editable semantics.
 
 ## Packaging and validation
 

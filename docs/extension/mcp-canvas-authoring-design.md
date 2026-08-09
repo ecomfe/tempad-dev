@@ -37,8 +37,9 @@ skill or server instructions.
 The model-visible surface remains five tools:
 
 - `get_code` reads visible design as implementation evidence;
-- `get_structure` reads hierarchy and geometry when composition is ambiguous and exposes stable
-  authoring keys for managed nodes when an update resumes without prior call context;
+- `get_structure` reads hierarchy and geometry when composition is ambiguous, exposes stable
+  authoring keys for managed nodes when an update resumes without prior call context, and can
+  optionally return compact live mask, IMAGE paint, layout-grid, and frame-guide state;
 - `get_design_system` conditionally reads deterministic pages of discoverable design-system facts;
 - `apply_canvas` is the only mutating tool;
 - `get_screenshot` returns bounded visual evidence only when pixels affect the next decision.
@@ -464,7 +465,13 @@ state. Create still requires a complete visible-stroke contract.
 
 An update targeted at an existing authored component or component set preserves that root's native
 type when the root binding omits a redundant `figma.component` declaration. Supplying component
-metadata still updates the authored contract explicitly.
+metadata still updates the authored contract explicitly. Existing keyed component and component-set
+descendants likewise preserve their native types during a markup-only layout repair; newly introduced
+component nodes continue to require an explicit declaration.
+
+An update to an existing keyed native shape likewise preserves its node type when the binding omits
+the redundant `figma.shape` declaration. Supplied geometry and shape fields still validate against
+that live type. Creating a native shape continues to require an explicit shape declaration.
 
 Omission never means deletion. Stable identity comes from `data-key`, not layer names. Repeating an
 identical desired result is a no-op. `get_structure` returns that key as `authoringKey` on
@@ -574,7 +581,9 @@ Structural verification is mandatory. It checks:
 - Text auto-resize mode, non-empty intrinsic geometry, and non-collapsed growing text;
 - direct component identity, including a requested variant selected within the referenced set;
 - direct variable, style, and mode links;
-- mask state.
+- direct fill, stroke, and effect stacks, including resolved IMAGE hashes and paint fields;
+- direct layout grids and frame guides;
+- mask and managed SVG state.
 
 `apply_canvas` returns counts and factual warnings:
 
@@ -583,6 +592,7 @@ type Verification = {
   status: 'passed' | 'warning'
   nodesChecked: number
   referencesChecked: number
+  nativeFieldsChecked?: number
   warnings: Array<{
     code: string
     message: string
@@ -622,7 +632,11 @@ final board and materially distinct screens are checked for defects that a board
 Routine text, token, prop, and hierarchy-only edits do not need screenshots; corrections recheck
 only the affected composition. When page-level placement matters, a root was resized after placement, or the
 final report claims that multiple roots do not overlap, spatial QA compares their page-space bounds
-with `get_structure` because isolated screenshots cannot establish that relationship.
+with `get_structure` because isolated screenshots cannot establish that relationship. Native-state
+QA sets `options.native: true`; the returned per-node `native` block contains mask type, IMAGE fill
+hashes and scale modes, ordered layout grids, and ordered frame guides when present. This makes
+mask order plus state, real image delivery, and grid/guide authoring independently readable instead
+of treating the apply request as proof that Figma retained the desired native properties.
 
 ## Safety boundaries
 

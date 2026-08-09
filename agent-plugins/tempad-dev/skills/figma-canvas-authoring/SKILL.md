@@ -11,10 +11,14 @@ description: >-
 # Design on the Figma canvas
 
 Turn product intent into one native, editable Figma result. Reason in this
-order: intended experience and evidence, Figma-native representation, Canvas
-serialization, then rendered verification. Keep the result focal; classes,
-schema fields, catalog entries, examples, and tool calls are subsidiary means,
-not design evidence or a checklist to maximize.
+order: intended experience and evidence, an HTML/Tailwind-shaped desired
+result, the minimum Figma-only translation semantics it needs, then rendered
+verification. Use markup and classes as the primary design language for
+hierarchy, layout, spacing, typography, color, and ordinary appearance. Use
+native fields to translate or preserve capabilities that HTML cannot represent
+honestly, not as the creative grammar that determines the composition. Keep the
+result focal; schema fields, catalog entries, examples, and tool calls are
+subsidiary means, not design evidence or a checklist to maximize.
 
 Derive product-domain, platform, accessibility, content, and visual-design
 requirements from the user, permitted evidence, an applicable skill, or
@@ -23,6 +27,11 @@ targeted research. Examples explain mechanics only.
 Require the intended Figma tab's MCP badge to be active and the current Figma
 Design file to be editable. Never bypass that boundary or emit raw Plugin API
 operations.
+
+Use only the TemPad MCP tools supplied by the host. If those tools are absent
+from the task's tool namespace, report the integration problem and stop before
+authoring; do not launch the MCP CLI, recreate its stdio or JSON-RPC transport,
+or use shell commands as a substitute.
 
 ## Authority and quality
 
@@ -51,27 +60,42 @@ requires establishing and verifying them, not prescribing their answers.
    complete scope, create or update target, relevant evidence, content and
    state distinctions that must survive, and unresolved material decisions. Use
    `get_code` only when existing visual composition matters. Use
-   `get_structure` only for hierarchy, ordering, spatial relationships, or
-   managed identity uncertainty. Create on the active page by default. Omit
-   top-level `page` unless the user or established task evidence requires a
-   specific page operation; never ask for or invent a page merely to place new
-   work.
+   `get_structure` only for hierarchy, ordering, spatial relationships,
+   managed identity uncertainty, or targeted native-state read-back. Set
+   `options.native: true` only when masks, IMAGE paint hashes, layout grids, or
+   frame guides must be confirmed from the live result. Create on the active
+   page by default. Omit top-level `page` unless the user or established task
+   evidence requires a specific page operation; never ask for or invent a page
+   merely to place new work.
 2. **Resolve material design decisions.** Follow the user, permitted file and
-   project evidence, and applicable installed skills. For net-new or materially
-   redesigned work, read
+   project evidence, and applicable installed skills. For expert workflows,
+   treat missing domain conventions that affect
+   safety, prioritization, terminology, or decision order as unresolved; use an
+   applicable professional skill or targeted research instead of generic UI
+   priors. For net-new or materially redesigned work, read
    [style-grounding.md](references/style-grounding.md) only when a material
    decision remains unresolved; broad adjectives and creative latitude do not
-   settle a direction-defining visual language. Treat a pictographic control or
-   content-bearing or salient image as an asset decision before choosing its
-   representation, and read [visual-assets.md](references/visual-assets.md).
-   Retain the compact decision trace and inspect one representative composition
-   before propagating its language.
-3. **Form the Figma model.** Before reading payload syntax, map the decided
-   content, states, and relationships to the composition, layer hierarchy,
-   layout behavior, media, and native semantics that express them. Name
-   provisional resources and their real consumers; do not let available
-   classes or schema fields choose the medium or structure. Preserve established
-   resource usage on updates. For new work, choose Reuse only when permitted
+   settle a direction-defining visual language. Do not assume the composition
+   needs a separate visual asset. Decide first what, if anything, must be
+   depicted, signaled, identified, or merely accented. Read
+   [visual-assets.md](references/visual-assets.md) only when the result needs an
+   icon, image, illustration, diagram, vector artwork, or exact typeface
+   decision; skip it when the typography and layout are already established and
+   no asset choice remains. Available search, catalog, and generation routes are
+   downstream acquisition options, not evidence that imagery belongs in the
+   result. Retain only the evidence needed to recover a material choice; do not
+   create an explanation ceremony for settled or low-consequence decisions.
+3. **Form the desired result and translation plan.** Compose the decided
+   content, states, and relationships as an HTML/Tailwind-shaped result: visible
+   hierarchy, grouping, layout behavior, spacing, typography, color, ordinary
+   appearance, and media placement. Then identify only the semantics that must
+   be translated through native fields, such as exact Figma resources,
+   components, variables, masks, media paints, guides, or node types. Name
+   provisional resources and their real consumers; do not let the currently
+   available classes or native schema choose the medium, structure, or design
+   direction. Preserve established resource usage on updates. When evidence
+   establishes an order or prerequisite, keep the visible hierarchy and shown
+   states consistent with it. For new work, choose Reuse only when permitted
    evidence establishes a relevant existing system; otherwise choose Direct.
    Ask only when a material boundary cannot be inferred.
    - **Reuse:** read
@@ -94,18 +118,23 @@ requires establishing and verifying them, not prescribing their answers.
    read only the changed Layout or Appearance and text section. Preserve every
    unaffected element, attribute, and class; leave markup unchanged for a
    native-only update. Copy complete private-native examples instead of guessing
-   shapes from Plugin API knowledge or validation failures.
+   shapes from Plugin API knowledge or validation failures. Treat the supported
+   HTML/Tailwind subset as a transport boundary, not a reason to weaken the
+   design or rebuild ordinary web composition in native DSL. Use a supported
+   equivalent only when it preserves the intended result; otherwise report the
+   missing capability rather than silently redefining the design.
 5. **Prove one representative composition.** Apply and open the smallest
    composition that can establish the chosen visual language, content density,
    layout behavior, and native representation before propagating dependent
-   screens. On the Author path, use its concrete consumers to close the resource
-   model now: compare the strongest shared responsibilities and semantic
-   decisions, select only definitions whose coordinated change earns their
-   cost, and verify their real instances or bindings. Do not let the easiest
-   resource type stand in for this comparison. Any resource type may remain
-   absent when its demonstrated candidates stay local for concrete
-   responsibility, state, ownership, evolution, or cost reasons—not because
-   the payload is already large. Follow
+   screens. A complete one-root result may itself satisfy this gate; do not
+   create a separate proof artifact or reapply an unchanged root. On the Author
+   path, use its concrete consumers to close the resource model now: compare the
+   strongest shared responsibilities and semantic decisions, select only
+   definitions whose coordinated change earns their cost, and verify their real
+   instances or bindings. Do not let the easiest resource type stand in for this
+   comparison. Any resource type may remain absent when its demonstrated
+   candidates stay local for concrete responsibility, state, ownership,
+   evolution, or cost reasons—not because the payload is already large. Follow
    [design-system-authoring.md](references/design-system-authoring.md), resolve
    authoring warnings, and remove speculative resources rather than creating
    specimens to justify them.
@@ -120,21 +149,34 @@ requires establishing and verifying them, not prescribing their answers.
    Author path, propagate selected definitions through native instances and
    bindings; literal lookalikes do not count as resource coverage.
 7. **Verify the delivered result.** Read structural verification. For a new
-   composition or material visual change, open the representative screenshot
-   before propagation, then inspect the final board and materially distinct
-   screens. Open `asset.localPath` directly when present; otherwise download and
-   open the returned resource. If the PNG cannot be opened, do not claim visual
+   composition or material visual change, the representative gate in step 5
+   must already have occurred before propagation. After the complete apply,
+   inspect the final board and materially distinct screens. Open
+   `asset.localPath` directly when present; otherwise download and open the
+   returned resource. If the PNG cannot be opened, do not claim visual
    verification. Use `get_structure` to compare page-space bounds when relative
    placement matters, a root was resized after placement, or the handoff claims
-   that multiple roots do not overlap. Compare rendered evidence with the brief;
-   check unintended overlap, clipping including glyph ink, collapsed or obscured
-   content, inconsistent states, asset substitutions, and incorrect native
-   bindings. Preserve unaffected content, state, assets, and relationships while
-   repairing; concealing one defect by weakening them creates another. Correct
-   and recheck only affected compositions. Do not claim verification until every
-   observed defect is corrected, accepted with reason, or disclosed. Skip
-   screenshots for mechanical text, token, prop, or hierarchy-only edits, and
-   never turn this defect inventory into task-specific design requirements.
+   that multiple roots do not overlap, or a promised outcome depends on exact
+   native layer semantics such as an editable diagram rather than one imported
+   asset. Compare rendered evidence with the brief; check unintended overlap,
+   clipping including glyph ink, unintended crowding or breaks in the
+   composition's established spacing rhythm, collapsed or obscured content,
+   inconsistent states, asset substitutions, and incorrect native bindings.
+   `verification.nativeFieldsChecked` counts the declared paint, effect, grid,
+   guide, mask, and managed-SVG assertions that TemPad compared with retained
+   Figma state. It is translation evidence only: it does not prove pixels,
+   semantics outside those assertions, or native state omitted from the desired
+   result.
+   When the handoff depends on a mask, real IMAGE paint, layout grid, or frame
+   guides, call `get_structure` with `options.native: true` after the write and
+   verify the returned `native` fields; the apply input and mutation success do
+   not establish live state.
+   Preserve unaffected content, state, assets, and relationships while repairing;
+   concealing one defect by weakening them creates another. Correct and recheck
+   only affected compositions. Do not claim verification until every observed
+   defect is corrected, accepted with reason, or disclosed. Skip screenshots
+   for mechanical text, token, prop, or hierarchy-only edits, and never turn
+   this defect inventory into task-specific design requirements.
 
 Do not turn this workflow into repeated API-like mutations.
 
