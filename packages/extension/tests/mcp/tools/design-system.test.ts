@@ -1,3 +1,4 @@
+import { buildGetDesignSystemToolResult, measureCallToolResultBytes } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { handleGetDesignSystem } from '@/mcp/tools/design-system'
@@ -729,6 +730,42 @@ describe('mcp/tools/design-system', () => {
     expect(JSON.stringify(detail).length).toBeLessThan(64 * 1024)
     expect((detail.details?.definition as { description: string }).description).toHaveLength(2000)
     expect((detail.details?.definition as { description: string }).description).toMatch(/…$/)
+  })
+
+  it('byte-compacts large component-set usage details instead of making the ref unreachable', async () => {
+    const set = {
+      id: 'set:large',
+      key: 'set:large-key',
+      type: 'COMPONENT_SET',
+      name: 'Large component family',
+      description: '',
+      descriptionMarkdown: '',
+      documentationLinks: [],
+      componentPropertyDefinitions: {}
+    } as unknown as ComponentSetNode
+    const variants = Array.from({ length: 128 }, (_, index) =>
+      component(`component:large:${index}`, `Variant ${index} ${'n'.repeat(500)}`, {
+        parent: set,
+        variantProperties: { State: `State ${index} ${'v'.repeat(500)}` }
+      })
+    )
+    Object.assign(set, { defaultVariant: variants[0], children: variants })
+    stubFigma({ components: variants })
+
+    const catalog = await handleGetDesignSystem({})
+    const detail = await handleGetDesignSystem({ catalogId: catalog.catalogId, ref: 'c1' })
+    const definition = detail.details?.definition as {
+      detailTruncated?: true
+      omittedVariants?: number
+      variants: unknown[]
+    }
+
+    expect(measureCallToolResultBytes(buildGetDesignSystemToolResult(detail))).toBeLessThanOrEqual(
+      64 * 1024
+    )
+    expect(definition.detailTruncated).toBe(true)
+    expect(definition.omittedVariants).toBeGreaterThan(0)
+    expect(definition.variants.length).toBeLessThan(128)
   })
 
   it('evicts inactive catalogs by least-recently-used order', () => {

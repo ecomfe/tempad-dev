@@ -997,13 +997,28 @@ async function describeComponentDetail(entry: CatalogComponent) {
   }
 }
 
-async function exactCatalogResult(catalogId: string, ref: string): Promise<GetDesignSystemResult> {
-  const catalog = requireDesignSystemCatalog(catalogId, figma.fileKey)
-  const entry = catalog.entries.get(ref)
-  if (!entry) throw new Error(`Unknown design-system ref ${ref} in catalog ${catalogId}`)
-  const definition =
-    entry.kind === 'component' ? await describeComponentDetail(entry) : entry.definition
-  const result: GetDesignSystemResult = {
+type ComponentDetail = Awaited<ReturnType<typeof describeComponentDetail>>
+type ComponentDetailProperty = NonNullable<ComponentDetail['properties']>[string]
+type MutableComponentDetailProperty = Omit<
+  ComponentDetailProperty,
+  'description' | 'omittedOptions' | 'options' | 'preferredValues'
+> & {
+  description?: string
+  omittedOptions?: number
+  options?: string[]
+  preferredValues?: Array<NonNullable<ComponentDetailProperty['preferredValues']>[number]>
+}
+type CompactComponentDetail = ComponentDetail & {
+  detailTruncated?: true
+  omittedProperties?: number
+}
+
+function exactCatalogPayload(
+  catalogId: string,
+  entry: CatalogEntry,
+  definition: unknown
+): GetDesignSystemResult {
+  return {
     catalogId,
     components: [],
     variables: [],
@@ -1015,11 +1030,152 @@ async function exactCatalogResult(catalogId: string, ref: string): Promise<GetDe
       definition
     }
   }
-  const bytes = measureCallToolResultBytes(buildGetDesignSystemToolResult(result))
-  if (bytes > MCP_TOOL_INLINE_BUDGET_BYTES) {
-    throw new Error(`Design-system definition "${ref}" exceeds the 64 KiB inline result budget.`)
+}
+
+function exactResultFits(result: GetDesignSystemResult): boolean {
+  return (
+    measureCallToolResultBytes(buildGetDesignSystemToolResult(result)) <=
+    MCP_TOOL_INLINE_BUDGET_BYTES
+  )
+}
+
+function compactComponentDetailResult(
+  catalogId: string,
+  entry: CatalogComponent,
+  source: ComponentDetail
+): GetDesignSystemResult {
+  const mutableProperties = source.properties
+    ? (Object.fromEntries(
+        Object.entries(source.properties).map(([name, property]) => [
+          name,
+          {
+            ...property,
+            ...(property.options ? { options: [...property.options] } : {}),
+            ...(property.preferredValues ? { preferredValues: [...property.preferredValues] } : {})
+          }
+        ])
+      ) as Record<string, MutableComponentDetailProperty>)
+    : undefined
+  const detail: CompactComponentDetail = {
+    ...source,
+    ...(mutableProperties ? { properties: mutableProperties } : {}),
+    variants: source.variants.map((variant) => ({
+      ...variant,
+      ...(variant.properties ? { properties: { ...variant.properties } } : {})
+    })),
+    anatomy: { ...source.anatomy, nodes: [...source.anatomy.nodes] }
   }
-  return result
+  const originalAnatomyCount = source.anatomy.nodes.length + (source.anatomy.omitted ?? 0)
+  const result = () => exactCatalogPayload(catalogId, entry, detail)
+  const fits = () => exactResultFits(result())
+  const markTruncated = (): void => {
+    detail.detailTruncated = true
+  }
+
+  while (!fits() && detail.anatomy.nodes.length) {
+    const removeCount = Math.max(1, Math.ceil(detail.anatomy.nodes.length / 2))
+    detail.anatomy.nodes.splice(-removeCount, removeCount)
+    detail.anatomy.omitted = originalAnatomyCount - detail.anatomy.nodes.length
+    detail.anatomy.truncated = true
+    markTruncated()
+  }
+  while (!fits() && detail.variants.length) {
+    const removeCount = Math.max(1, Math.ceil(detail.variants.length / 2))
+    detail.variants.splice(-removeCount, removeCount)
+    detail.omittedVariants = detail.variantCount - detail.variants.length
+    markTruncated()
+  }
+
+  const removeVerboseField = (remove: () => void): void => {
+    if (fits()) return
+    remove()
+    markTruncated()
+  }
+  removeVerboseField(() => delete detail.descriptionMarkdown)
+  removeVerboseField(() => delete detail.componentSetDescriptionMarkdown)
+  removeVerboseField(() => delete detail.documentationLinks)
+  removeVerboseField(() => delete detail.componentSetDocumentationLinks)
+  removeVerboseField(() => delete detail.description)
+  removeVerboseField(() => delete detail.componentSetDescription)
+
+  if (!fits()) {
+    for (const property of Object.values(mutableProperties ?? {})) {
+      delete property.description
+      delete property.preferredValues
+    }
+    markTruncated()
+  }
+  while (!fits()) {
+    let removed = 0
+    for (const property of Object.values(mutableProperties ?? {})) {
+      if (!property.options?.length) continue
+      const removeCount = Math.max(1, Math.ceil(property.options.length / 2))
+      property.options.splice(-removeCount, removeCount)
+      property.omittedOptions = (property.omittedOptions ?? 0) + removeCount
+      removed += removeCount
+    }
+    if (!removed) break
+    markTruncated()
+  }
+  const propertyNames = Object.keys(mutableProperties ?? {})
+  while (!fits() && propertyNames.length) {
+    const removeCount = Math.max(1, Math.ceil(propertyNames.length / 2))
+    for (const name of propertyNames.splice(-removeCount, removeCount)) {
+      delete mutableProperties?.[name]
+    }
+    detail.omittedProperties = (detail.omittedProperties ?? 0) + removeCount
+    markTruncated()
+  }
+  if (fits()) return result()
+
+  const minimalDefinition = {
+    id: source.id,
+    key: source.key,
+    name: boundedText(source.name, MAX_SUMMARY_LENGTH) ?? source.name,
+    pageId: source.pageId,
+    pageName: boundedText(source.pageName, MAX_SUMMARY_LENGTH) ?? source.pageName,
+    width: source.width,
+    height: source.height,
+    remote: source.remote,
+    ...('componentSetId' in source
+      ? {
+          componentSetId: source.componentSetId,
+          componentSetKey: source.componentSetKey,
+          componentSetName:
+            boundedText(source.componentSetName, MAX_SUMMARY_LENGTH) ?? source.componentSetName
+        }
+      : {}),
+    variantCount: source.variantCount,
+    variants: [],
+    ...(source.variantCount ? { omittedVariants: source.variantCount } : {}),
+    anatomy: {
+      nodes: [],
+      ...(originalAnatomyCount ? { omitted: originalAnatomyCount } : {}),
+      truncated: true as const
+    },
+    previewNodeId: source.previewNodeId,
+    detailTruncated: true as const,
+    ...(source.properties ? { omittedProperties: Object.keys(source.properties).length } : {})
+  }
+  const minimalResult = exactCatalogPayload(catalogId, entry, minimalDefinition)
+  if (!exactResultFits(minimalResult)) {
+    throw new Error(`Design-system component identity "${entry.ref}" exceeds the inline budget.`)
+  }
+  return minimalResult
+}
+
+async function exactCatalogResult(catalogId: string, ref: string): Promise<GetDesignSystemResult> {
+  const catalog = requireDesignSystemCatalog(catalogId, figma.fileKey)
+  const entry = catalog.entries.get(ref)
+  if (!entry) throw new Error(`Unknown design-system ref ${ref} in catalog ${catalogId}`)
+  const definition =
+    entry.kind === 'component' ? await describeComponentDetail(entry) : entry.definition
+  const result = exactCatalogPayload(catalogId, entry, definition)
+  if (exactResultFits(result)) return result
+  if (entry.kind === 'component') {
+    return compactComponentDetailResult(catalogId, entry, definition as ComponentDetail)
+  }
+  throw new Error(`Design-system definition "${ref}" exceeds the 64 KiB inline result budget.`)
 }
 
 type CatalogDisplayKind = Exclude<CatalogEntry['kind'], 'mode'>
