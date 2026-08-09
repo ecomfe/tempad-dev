@@ -152,6 +152,32 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
     expect(message).toContain('1 more validation issue omitted.')
   })
 
+  it('names unrecognized fields when the runtime supplies a generic issue message', () => {
+    const error = new z.ZodError([
+      {
+        code: 'unrecognized_keys',
+        keys: ['opacity'],
+        path: ['bindings', 'card', 'figma'],
+        message: 'Invalid input'
+      }
+    ])
+
+    expect(formatSchemaError(error)).toBe('bindings.card.figma: Unrecognized key: "opacity"')
+  })
+
+  it('names the expected type when the runtime supplies a generic issue message', () => {
+    const error = new z.ZodError([
+      {
+        code: 'invalid_type',
+        expected: 'object',
+        path: ['bindings', 'branch', 'figma', 'shape', 'paths', 0],
+        message: 'Invalid input'
+      }
+    ])
+
+    expect(formatSchemaError(error)).toBe('bindings.branch.figma.shape.paths[0]: Expected object.')
+  })
+
   it('lists every legal variable scope for an invalid scope', () => {
     const input = ApplyCanvasParametersSchema.parse({
       mode: 'create',

@@ -88,7 +88,14 @@ export function buildApplyCanvasToolResult(payload: ApplyCanvasResult): ToolResp
     removed: payload.removedNodeIds.length
   }
   const summary = `Applied ${formatCount(payload.mutationCount, 'canvas mutation')}: ${formatCount(nodeChanges.created, 'node')} created, ${formatCount(nodeChanges.updated, 'node')} updated, and ${formatCount(nodeChanges.removed, 'node')} removed.`
-  const verification = `Structural verification ${payload.verification.status}: ${formatCount(payload.verification.nodesChecked, 'node')} and ${formatCount(payload.verification.referencesChecked, 'native reference')} checked.`
+  const verifiedCounts = [
+    formatCount(payload.verification.nodesChecked, 'node'),
+    formatCount(payload.verification.referencesChecked, 'native reference'),
+    ...(payload.verification.nativeFieldsChecked === undefined
+      ? []
+      : [formatCount(payload.verification.nativeFieldsChecked, 'native state assertion')])
+  ]
+  const verification = `Structural verification ${payload.verification.status}: ${verifiedCounts.length === 2 ? `${verifiedCounts[0]} and ${verifiedCounts[1]}` : `${verifiedCounts.slice(0, -1).join(', ')}, and ${verifiedCounts.at(-1)}`} checked.`
   const warnings = payload.verification.warnings.length
     ? `\n${payload.verification.warnings.map(({ code, key, message }) => `${code}${key ? ` (${key})` : ''}: ${message}`).join('\n')}`
     : ''

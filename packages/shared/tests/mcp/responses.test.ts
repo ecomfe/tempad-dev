@@ -114,6 +114,7 @@ describe('mcp/responses helpers', () => {
         status: 'warning',
         nodesChecked: 1,
         referencesChecked: 0,
+        nativeFieldsChecked: 2,
         warnings: [
           {
             code: 'optional-property',
@@ -128,6 +129,7 @@ describe('mcp/responses helpers', () => {
       '1 node created, 0 nodes updated, and 1 node removed'
     )
     expect(applied.content?.[0]?.text).toContain('One optional property was skipped.')
+    expect(applied.content?.[0]?.text).toContain('2 native state assertions')
     expect(applied.content?.[0]?.text).toContain('Root node: 2:1')
     expect(applied.content?.[0]?.text).toContain('structuredContent.nodeIdsByKey')
     expect(applied.structuredContent).toEqual({
@@ -139,6 +141,7 @@ describe('mcp/responses helpers', () => {
         status: 'warning',
         nodesChecked: 1,
         referencesChecked: 0,
+        nativeFieldsChecked: 2,
         warnings: [
           {
             code: 'optional-property',

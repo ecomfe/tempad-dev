@@ -22,7 +22,9 @@ import {
 import type {
   CanvasGridLayout,
   CanvasGridTrack,
+  CanvasNodeTypeHints,
   CanvasNodeSpec,
+  CanvasPreservedNodeType,
   ParsedCanvasInput,
   ParsedCanvasTreeInput
 } from './model'
@@ -105,7 +107,16 @@ const SUPPORTED_NODE_TYPES = new Set<CanvasNodeSpec['type']>([
   'STAR',
   'VECTOR'
 ])
-
+const PRESERVED_NODE_TYPES = new Set<CanvasPreservedNodeType>([
+  'COMPONENT',
+  'COMPONENT_SET',
+  'RECTANGLE',
+  'LINE',
+  'ELLIPSE',
+  'POLYGON',
+  'STAR',
+  'VECTOR'
+])
 type SupportedCanvasNode = Extract<SceneNode, { type: CanvasNodeSpec['type'] }>
 type CanvasFrameContainerNode = ComponentNode | ComponentSetNode | FrameNode | SlotNode
 type CanvasParentNode =
@@ -175,6 +186,28 @@ function isSceneNode(node: BaseNode | null): node is SceneNode {
 async function lookupNodeById(id: string): Promise<BaseNode | null> {
   const node = await getNodeById(id)
   return node && !node.removed ? node : null
+}
+
+export async function collectUpdateNodeTypeHints(
+  targetNodeId: string
+): Promise<CanvasNodeTypeHints | undefined> {
+  const target = await lookupNodeById(targetNodeId)
+  if (!isSupportedSceneNode(target)) return undefined
+
+  const byKey = new Map<string, CanvasPreservedNodeType>()
+  const byNodeId = new Map<string, CanvasPreservedNodeType>()
+  for (const node of walkAuthoringNodes([target])) {
+    if (!PRESERVED_NODE_TYPES.has(node.type as CanvasPreservedNodeType)) continue
+    const type = node.type as CanvasPreservedNodeType
+    byNodeId.set(node.id, type)
+    const key = readOwnedNodeKey(node)
+    if (key && !byKey.has(key)) byKey.set(key, type)
+  }
+
+  const root = PRESERVED_NODE_TYPES.has(target.type as CanvasPreservedNodeType)
+    ? (target.type as CanvasPreservedNodeType)
+    : undefined
+  return { byKey, byNodeId, ...(root ? { root } : {}) }
 }
 
 function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
@@ -1662,6 +1695,20 @@ async function preflightResources(
   if (spec.component) {
     const instanceComponent = await resolveComponent(spec.component, state)
     await preflightComponentProperties(spec, instanceComponent, state)
+  } else if (spec.componentProperties || spec.figma?.instance) {
+    const instance = existing ?? findExistingNode(spec, state)
+    if (instance?.type !== 'INSTANCE') {
+      specError(
+        `Instance state on "${spec.key}" requires an existing instance or a component reference.`
+      )
+    }
+    if (spec.componentProperties) {
+      const instanceComponent = await instance.getMainComponentAsync()
+      if (!instanceComponent) {
+        specError(`Existing instance "${spec.key}" has no main component.`)
+      }
+      await preflightComponentProperties(spec, instanceComponent, state)
+    }
   }
   if (spec.figma?.instance?.exposed !== undefined) {
     const instance = existing ?? findExistingNode(spec, state)
@@ -3814,8 +3861,13 @@ async function applyComponent(
   state: ApplyState
 ): Promise<void> {
   const instance = spec.figma?.instance
-  const component = resolvedComponent(spec.component!, state)
-  if (!preservesComponentPropertyReference(node, spec, 'mainComponent')) {
+  const component = spec.component
+    ? resolvedComponent(spec.component, state)
+    : await node.getMainComponentAsync()
+  if (!component) {
+    specError(`Existing instance "${spec.key}" has no main component.`)
+  }
+  if (spec.component && !preservesComponentPropertyReference(node, spec, 'mainComponent')) {
     const currentComponent = await node.getMainComponentAsync()
     if (currentComponent?.id !== component.id) {
       if (instance?.preserveOverrides === false) node.mainComponent = component
@@ -5192,12 +5244,14 @@ type VerificationWarning = ApplyCanvasResult['verification']['warnings'][number]
 function buildVerification(
   nodesChecked = 0,
   referencesChecked = 0,
+  nativeFieldsChecked = 0,
   warnings: VerificationWarning[] = []
 ) {
   return {
     status: warnings.length ? ('warning' as const) : ('passed' as const),
     nodesChecked,
     referencesChecked,
+    nativeFieldsChecked,
     warnings
   }
 }
@@ -5631,12 +5685,112 @@ function componentLinkMatches(
   )
 }
 
+async function verifyInstanceState(
+  spec: CanvasNodeSpec,
+  node: SupportedCanvasNode,
+  state: ApplyState
+): Promise<void> {
+  if (!spec.componentProperties && !spec.figma?.instance) return
+  if (node.type !== 'INSTANCE') {
+    specError(`Verification failed for "${spec.key}": expected an instance.`)
+  }
+  const instance = spec.figma?.instance
+  if (
+    instance?.scaleFactor !== undefined &&
+    Math.abs(node.scaleFactor - instance.scaleFactor) > GEOMETRY_TOLERANCE
+  ) {
+    specError(`Verification failed for "${spec.key}": instance scale does not match.`)
+  }
+  if (instance?.exposed !== undefined && node.isExposedInstance !== instance.exposed) {
+    specError(`Verification failed for "${spec.key}": instance exposure does not match.`)
+  }
+  if (!spec.componentProperties) return
+  const component = await node.getMainComponentAsync()
+  if (!component) {
+    specError(`Verification failed for "${spec.key}": instance has no main component.`)
+  }
+  const owner = componentDefinitionOwner(component)
+  for (const [key, value] of Object.entries(spec.componentProperties)) {
+    const name = componentPropertyName(owner, key, state) ?? key
+    const applied = node.componentProperties[name]
+    const matches = isComponentPropertyVariable(value)
+      ? applied?.boundVariables?.value?.id === resolvedVariable(value.variable, state.variables).id
+      : applied?.value === value && applied.boundVariables?.value === undefined
+    if (!matches) {
+      specError(
+        `Verification failed for "${spec.key}": component property "${name}" does not match.`
+      )
+    }
+  }
+}
+
+function verifyNativeNodeState(
+  spec: CanvasNodeSpec,
+  node: SupportedCanvasNode,
+  state: ApplyState
+): number {
+  let fields = 0
+  for (const [property, styleProperty] of [
+    ['fills', 'fillStyleId'],
+    ['strokes', 'strokeStyleId']
+  ] as const) {
+    const paints = spec.figma?.[property]
+    if (paints === undefined) continue
+    fields += 1
+    if (!('fills' in node)) {
+      specError(`Verification failed for "${spec.key}": direct ${property} are unsupported.`)
+    }
+    const desired = paints.map((paint) => nativePaint(paint, state))
+    const current = node[property]
+    if (current === figma.mixed || !!node[styleProperty] || !paintStacksEqual(current, desired)) {
+      specError(`Verification failed for "${spec.key}": direct ${property} do not match.`)
+    }
+  }
+
+  const effects = spec.figma?.effects
+  if (effects !== undefined) {
+    fields += 1
+    if (!('effects' in node)) {
+      specError(`Verification failed for "${spec.key}": direct effects are unsupported.`)
+    }
+    const desired = effects.map((effect) => nativeEffect(effect, state))
+    if (!!node.effectStyleId || !effectsEqual(node.effects, desired)) {
+      specError(`Verification failed for "${spec.key}": direct effects do not match.`)
+    }
+  }
+
+  const layoutGrids = spec.figma?.layoutGrids
+  if (layoutGrids !== undefined) {
+    fields += 1
+    if ((!isFrameContainer(node) && node.type !== 'INSTANCE') || !('layoutGrids' in node)) {
+      specError(`Verification failed for "${spec.key}": layout grids are unsupported.`)
+    }
+    const desired = layoutGrids.map((grid) => nativeLayoutGrid(grid, state))
+    if (!!node.gridStyleId || !layoutGridsEqual(node.layoutGrids, desired)) {
+      specError(`Verification failed for "${spec.key}": layout grids do not match.`)
+    }
+  }
+
+  const guides = spec.figma?.guides
+  if (guides !== undefined) {
+    fields += 1
+    if ((!isFrameContainer(node) && node.type !== 'INSTANCE') || !('guides' in node)) {
+      specError(`Verification failed for "${spec.key}": guides are unsupported.`)
+    }
+    if (!nativeValueEqual(node.guides, guides)) {
+      specError(`Verification failed for "${spec.key}": guides do not match.`)
+    }
+  }
+
+  return fields
+}
+
 async function verifyAppliedNode(
   spec: CanvasNodeSpec,
   node: SupportedCanvasNode,
   state: ApplyState,
   parent?: SupportedCanvasNode
-): Promise<{ nodes: number; references: number }> {
+): Promise<{ nodes: number; references: number; nativeFields: number }> {
   if (node.type !== spec.type) {
     specError(`Verification failed for "${spec.key}": expected ${spec.type}, found ${node.type}.`)
   }
@@ -5662,6 +5816,7 @@ async function verifyAppliedNode(
   verifySizingGeometry(spec, node, parent)
 
   let references = 0
+  let nativeFields = verifyNativeNodeState(spec, node, state)
   if (spec.component) {
     const expected = resolvedComponent(spec.component, state)
     const actual = node.type === 'INSTANCE' ? await node.getMainComponentAsync() : null
@@ -5670,6 +5825,7 @@ async function verifyAppliedNode(
       specError(`Verification failed for "${spec.key}": component link does not match.`)
     }
   }
+  await verifyInstanceState(spec, node, state)
   for (const [field, reference] of Object.entries(spec.variables ?? {}) as Array<
     [keyof CanvasVariableBindings, CanvasVariableBindings[keyof CanvasVariableBindings]]
   >) {
@@ -5700,6 +5856,7 @@ async function verifyAppliedNode(
     }
   }
   if (spec.figma?.mask !== undefined) {
+    nativeFields += 1
     const mask = spec.figma.mask
     if (
       !('isMask' in node) ||
@@ -5710,6 +5867,7 @@ async function verifyAppliedNode(
     }
   }
   if (spec.figma?.svg) {
+    nativeFields += 1
     if (node.type !== 'FRAME') {
       specError(`Verification failed for "${spec.key}": SVG wrapper is not a frame.`)
     }
@@ -5766,8 +5924,9 @@ async function verifyAppliedNode(
     const verified = await verifyAppliedNode(childSpec, childNodes[index]!, state, node)
     nodes += verified.nodes
     references += verified.references
+    nativeFields += verified.nativeFields
   }
-  return { nodes, references }
+  return { nodes, references, nativeFields }
 }
 
 async function verifyRollbackProtectedNodes(state: ApplyState): Promise<void> {
@@ -5931,7 +6090,12 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
       updatedNodeIds: [...state.updatedNodeIds],
       removedNodeIds,
       mutationCount: state.mutations.count,
-      verification: buildVerification(verified.nodes, verified.references, warnings)
+      verification: buildVerification(
+        verified.nodes,
+        verified.references,
+        verified.nativeFields,
+        warnings
+      )
     }
   }, state)
 }

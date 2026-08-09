@@ -14,7 +14,9 @@ import { CanvasStableKeySchema, MAX_CANVAS_DEPTH, MAX_CANVAS_NODES } from '@temp
 import type { CatalogComponent, DesignSystemCatalog } from '../design-system-catalog'
 import type { CanvasMarkupElement } from './html'
 import type {
+  CanvasNodeTypeHints,
   CanvasNodeSpec,
+  CanvasPreservedNodeType,
   CanvasShapeNodeType,
   CanvasSizingMode,
   ParsedCanvasInput
@@ -356,16 +358,19 @@ function hasFields(value: object): boolean {
 
 function nodeType(
   element: CanvasMarkupElement,
-  binding: CanvasBinding | undefined
+  binding: CanvasBinding | undefined,
+  existingNodeType?: CanvasPreservedNodeType
 ): CanvasNodeSpec['type'] {
   if (element.tag === 'span') return 'TEXT'
-  if (binding?.component) return 'INSTANCE'
+  if (binding?.component || binding?.componentProperties || binding?.figma?.instance) {
+    return 'INSTANCE'
+  }
   if (binding?.figma?.component) return binding.figma.component.type
   if (binding?.figma?.slot) return 'SLOT'
   if (binding?.figma?.section) return 'SECTION'
   if (binding?.figma?.group) return 'GROUP'
   if (binding?.figma?.booleanOperation) return 'BOOLEAN_OPERATION'
-  return binding?.figma?.shape?.type ?? 'FRAME'
+  return binding?.figma?.shape?.type ?? existingNodeType ?? 'FRAME'
 }
 
 function hasVariable(
@@ -649,6 +654,7 @@ type CompileState = {
   bindings: Record<string, CanvasBinding>
   catalog?: DesignSystemCatalog
   count: number
+  existingNodeTypes?: CanvasNodeTypeHints
   keys: Set<string>
   mode: CanvasResolvedApplyParameters['mode']
   nodeIds: Set<string>
@@ -966,7 +972,14 @@ function compileElement(
   }
 
   const declaredBinding = state.bindings[key]
-  const type = nodeType(element, declaredBinding)
+  const existingNodeType =
+    state.mode === 'update'
+      ? depth === 1
+        ? state.existingNodeTypes?.root
+        : ((nodeId === undefined ? undefined : state.existingNodeTypes?.byNodeId.get(nodeId)) ??
+          state.existingNodeTypes?.byKey.get(key))
+      : undefined
+  const type = nodeType(element, declaredBinding, existingNodeType)
   const binding = applyClassEffects(key, type, declaredBinding, classes)
   const shapeType = binding?.figma?.shape?.type
   const nativeStroke = binding?.figma?.stroke
@@ -1664,7 +1677,8 @@ function compileElement(
 
 export function parseCanvasMarkup(
   input: CanvasResolvedApplyParameters,
-  catalog?: DesignSystemCatalog
+  catalog?: DesignSystemCatalog,
+  existingNodeTypes?: CanvasNodeTypeHints
 ): ParsedCanvasInput {
   if (input.markup === null) {
     return {
@@ -1677,6 +1691,7 @@ export function parseCanvasMarkup(
     bindings: Object.assign(Object.create(null) as Record<string, CanvasBinding>, input.bindings),
     ...(catalog ? { catalog } : {}),
     count: 0,
+    ...(existingNodeTypes ? { existingNodeTypes } : {}),
     keys: new Set(),
     mode: input.mode,
     nodeIds: new Set()

@@ -13,7 +13,7 @@ import type {
 } from '@tempad-dev/shared'
 
 export type CanvasShapeNodeType = CanvasFigmaShape['type']
-type CanvasNodeType =
+export type CanvasNodeType =
   | 'BOOLEAN_OPERATION'
   | 'COMPONENT'
   | 'COMPONENT_SET'
@@ -24,6 +24,12 @@ type CanvasNodeType =
   | 'SLOT'
   | 'TEXT'
   | CanvasShapeNodeType
+export type CanvasPreservedNodeType = CanvasShapeNodeType | 'COMPONENT' | 'COMPONENT_SET'
+export type CanvasNodeTypeHints = {
+  byKey: ReadonlyMap<string, CanvasPreservedNodeType>
+  byNodeId: ReadonlyMap<string, CanvasPreservedNodeType>
+  root?: CanvasPreservedNodeType
+}
 export type CanvasSizingMode = 'FILL' | 'FIXED' | 'HUG'
 export type CanvasGridTrack = { type: 'FIXED' | 'FLEX'; value: number } | { type: 'HUG' }
 

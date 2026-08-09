@@ -30,7 +30,7 @@ Supported tools/resources:
   verifies the result.
 - `get_screenshot`: A bounded rendered PNG for selective visual validation.
 - `get_structure`: Hierarchy/geometry outline for the selection, including stable authoring keys on
-  TemPad-managed nodes.
+  TemPad-managed nodes and optional native mask, IMAGE paint, layout-grid, and frame-guide read-back.
 
 Notes:
 

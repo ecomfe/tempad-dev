@@ -101,7 +101,7 @@ async function handleGetStructure(args?: GetStructureParametersInput): Promise<G
   const { nodeId, options } = args ?? {}
   const root = resolveSingleNode(nodeId)
   const depth = options?.depth
-  return runGetStructure([root], depth)
+  return runGetStructure([root], depth, options?.native)
 }
 
 export const MCP_TOOL_HANDLERS = {

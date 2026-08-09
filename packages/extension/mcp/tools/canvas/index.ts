@@ -11,7 +11,7 @@ import type { DesignSystemCatalog } from '../design-system-catalog'
 import { createCodedError } from '../../errors'
 import { errorMessage, formatSchemaError, specError } from './errors'
 import { parseCanvasMarkup } from './markup'
-import { reconcileCanvas } from './reconcile'
+import { collectUpdateNodeTypeHints, reconcileCanvas } from './reconcile'
 import { resolveCanvasInput } from './resolve'
 
 let applyInProgress = false
@@ -43,13 +43,16 @@ export async function applyResolvedCanvas(
   input: CanvasResolvedApplyParameters,
   catalog?: DesignSystemCatalog
 ): Promise<ApplyCanvasResult> {
-  const parsedInput = parseSpec(
-    () => parseCanvasMarkup(input, catalog),
-    'Canvas markup is invalid.'
-  )
-
   applyInProgress = true
   try {
+    const existingNodeTypes =
+      input.mode === 'update' && input.markup !== null
+        ? await collectUpdateNodeTypeHints(input.targetNodeId!)
+        : undefined
+    const parsedInput = parseSpec(
+      () => parseCanvasMarkup(input, catalog, existingNodeTypes),
+      'Canvas markup is invalid.'
+    )
     return await reconcileCanvas(parsedInput)
   } catch (error) {
     if (error instanceof Error && 'code' in error) throw error

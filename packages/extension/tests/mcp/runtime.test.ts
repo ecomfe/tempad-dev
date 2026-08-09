@@ -266,10 +266,13 @@ describe('mcp/runtime', () => {
     await runtime.MCP_TOOL_HANDLERS.get_screenshot({ nodeId: 'node-2' })
     expect(mocks.runGetScreenshot).toHaveBeenCalledWith(node)
 
-    await runtime.MCP_TOOL_HANDLERS.get_structure({ nodeId: 'node-2', options: { depth: 3 } })
-    expect(mocks.runGetStructure).toHaveBeenCalledWith([node], 3)
+    await runtime.MCP_TOOL_HANDLERS.get_structure({
+      nodeId: 'node-2',
+      options: { depth: 3, native: true }
+    })
+    expect(mocks.runGetStructure).toHaveBeenCalledWith([node], 3, true)
 
     await runtime.MCP_TOOL_HANDLERS.get_structure()
-    expect(mocks.runGetStructure).toHaveBeenLastCalledWith([node], undefined)
+    expect(mocks.runGetStructure).toHaveBeenLastCalledWith([node], undefined, undefined)
   })
 })
