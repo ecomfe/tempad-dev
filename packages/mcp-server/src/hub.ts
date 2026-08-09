@@ -371,7 +371,9 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
           : tool.name === 'apply_canvas'
             ? applyCanvasTimeoutMs
             : toolTimeoutMs
-      const registration = register<Result>(activeExt.id, timeoutMs)
+      const registration = register<Result>(activeExt.id, timeoutMs, {
+        waitForDefinitiveResult: tool.name === 'apply_canvas'
+      })
       requestId = registration.requestId
 
       const message: ToolCallMessage = {

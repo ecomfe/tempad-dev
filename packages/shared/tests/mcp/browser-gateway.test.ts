@@ -83,6 +83,27 @@ describe('mcp/browser-gateway', () => {
 
     expect(
       parseBridgeToPageMessage({
+        payload: {
+          activeSessionId: null,
+          errorMessage: 'Grant host permission to connect.',
+          sessionCount: 0,
+          sessionId: 'session-1',
+          status: 'error'
+        },
+        source: TEMPAD_MCP_BROWSER_SOURCE,
+        type: 'mcp.state',
+        version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+      })
+    ).toMatchObject({
+      payload: {
+        errorMessage: 'Grant host permission to connect.',
+        sessionId: 'session-1'
+      },
+      type: 'mcp.state'
+    })
+
+    expect(
+      parseBridgeToPageMessage({
         callId: 'call-1',
         payload: { args: { nodeId: '1:2' }, name: 'get_code' },
         source: TEMPAD_MCP_BROWSER_SOURCE,

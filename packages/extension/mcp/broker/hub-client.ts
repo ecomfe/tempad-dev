@@ -138,6 +138,7 @@ export class McpHubClient {
         this.attachSocket(connection.ws)
         this.handleHubMessage(connection.registered)
         this.handleHubMessage(connection.state)
+        if (!this.isCurrentConnection(epoch) || this.ws !== connection.ws) return
         this.lastSuccessfulPort = candidatePort
         this.startKeepalive()
         return

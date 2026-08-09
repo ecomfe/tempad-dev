@@ -112,7 +112,7 @@ const McpBrowserStateStatusSchema = z.enum(['disabled', 'connecting', 'connected
 export const McpBrowserStatePayloadSchema = z
   .object({
     activeSessionId: z.string().nullable(),
-    assetServerUrl: z.string().nullable(),
+    assetServerUrl: z.string().nullable().optional(),
     errorMessage: z.string().nullable(),
     sessionCount: z.number().nonnegative(),
     sessionId: z.string(),
