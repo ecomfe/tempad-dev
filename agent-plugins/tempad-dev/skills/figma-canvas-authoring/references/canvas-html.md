@@ -78,9 +78,11 @@ use `h-[0px]`.
 
 ## Layout
 
-Use Auto Layout for ordinary product UI:
+Use Auto Layout for ordinary product UI. `flex` follows CSS's horizontal default;
+use `flex-row` when that direction should be explicit and `flex-col` for a
+vertical stack:
 
-- `flex flex-row` or `flex flex-col`
+- `flex`, `flex flex-row`, or `flex flex-col`
 - `items-start|center|end|baseline`
 - `justify-start|center|end|between`
 - `flex-wrap`, `flex-nowrap`, `content-between`, `content-normal`
