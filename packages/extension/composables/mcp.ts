@@ -116,7 +116,7 @@ export const useMcp = createSharedComposable(() => {
       count.value = state.sessionCount
       errorMessage.value = state.errorMessage
       status.value = state.status
-      setAssetServerUrl(state.assetServerUrl)
+      setAssetServerUrl(state.assetServerUrl ?? null)
       if (state.status !== 'connected') {
         resetAssetCache()
       }

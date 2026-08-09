@@ -155,6 +155,26 @@ describe('mcp/broker/hub-client', () => {
     expect(sockets[0]?.sent).toContain(JSON.stringify({ type: 'ping' }))
   })
 
+  it('does not install keepalive after a reentrant stop during handshake completion', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const client = createClient(sockets, {
+      onSnapshot: (snapshot) => {
+        if (snapshot.status === 'connected') client.stop()
+      }
+    })
+
+    client.start()
+    await flushMicrotasks()
+    completeHandshake(sockets[0]!)
+    await flushMicrotasks()
+
+    expect(client.getSnapshot().status).toBe('idle')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('ignores stale socket probes after a stop/start cycle', async () => {
     vi.stubGlobal('WebSocket', { OPEN: 1 })
     installHubProbe()

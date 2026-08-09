@@ -112,6 +112,8 @@ const CONNECTIVITY_TROUBLESHOOTING_LINES = [
 ]
 
 const SELECTION_TROUBLESHOOTING_LINE = 'Tip: Select exactly one visible node, or pass nodeId.'
+const VERIFICATION_TROUBLESHOOTING_LINE =
+  'Tip: TemPad rolls verification failures back. Correct the reported desired-state mismatch and retry the affected root while preserving unrelated design intent.'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -142,7 +144,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_design_system',
     description:
-      'Discover a bounded deterministic catalog of accessible components, variables, styles, and shaders when existing-resource reuse is permitted and relevant. Start without arguments; continue the same catalog by cursor or inspect one returned ref.',
+      'Discover a bounded deterministic catalog of accessible components, variables, styles, and shaders when existing-resource reuse is permitted and relevant. Do not call it when the user limits design evidence to the current page or requests an independent system without pre-existing resource reuse. Start without arguments; continue the same catalog by cursor or inspect one returned ref.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetDesignSystemParametersSchema,
     target: 'extension',
@@ -246,6 +248,10 @@ function buildTroubleshootingText(code: TempadMcpErrorCode | undefined, message:
     help.push(SELECTION_TROUBLESHOOTING_LINE)
   }
 
+  if (code === TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC && /verification failed/i.test(message)) {
+    help.push(VERIFICATION_TROUBLESHOOTING_LINE)
+  }
+
   return help.length ? `\n\n${help.join('\n')}` : ''
 }
 
@@ -254,7 +260,7 @@ function isConnectivityToolError(code: TempadMcpErrorCode | undefined, message: 
     (code ? CONNECTIVITY_ERROR_CODES.has(code) : false) ||
     /no active tempad dev extension/i.test(message) ||
     /asset server url is not configured/i.test(message) ||
-    /websocket/i.test(message)
+    /\bwebsocket (?:connection )?(?:closed|disconnected|failed|unavailable|error)\b/i.test(message)
   )
 }
 
