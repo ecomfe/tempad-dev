@@ -24,7 +24,11 @@ export type CanvasNodeType =
   | 'SLOT'
   | 'TEXT'
   | CanvasShapeNodeType
-export type CanvasPreservedNodeType = CanvasShapeNodeType | 'COMPONENT' | 'COMPONENT_SET'
+export type CanvasPreservedNodeType =
+  | CanvasShapeNodeType
+  | 'COMPONENT'
+  | 'COMPONENT_SET'
+  | 'INSTANCE'
 export type CanvasNodeTypeHints = {
   byKey: ReadonlyMap<string, CanvasPreservedNodeType>
   byNodeId: ReadonlyMap<string, CanvasPreservedNodeType>
