@@ -121,12 +121,12 @@ export function buildGetStructureToolResult(payload: GetStructureResult): ToolRe
   const summary =
     roots === 0
       ? 'No structure nodes were returned.'
-      : `Returned structure outline with ${formatCount(roots, 'root')} and ${formatCount(nodeCount, 'node')}.`
+      : `Returned ${payload.truncated ? 'a truncated structure outline' : 'structure outline'} with ${formatCount(roots, 'root')} and ${formatCount(nodeCount, 'node')}.`
+  const guidance = payload.truncated
+    ? 'The outline is partial because the response safety cap was reached; narrow the selection or depth before treating it as complete.'
+    : 'Read structuredContent for the full outline payload.'
 
-  return buildTextToolResult(
-    `${summary}\nRead structuredContent for the full outline payload.`,
-    payload
-  )
+  return buildTextToolResult(`${summary}\n${guidance}`, payload)
 }
 
 export function buildGetTokenDefsToolResult(payload: GetTokenDefsResult): ToolResponseLike {

@@ -67,6 +67,14 @@ describe('mcp/responses helpers', () => {
     })
     expect(structure.content?.[0]?.text).toContain('Returned structure outline')
 
+    const truncated = buildGetStructureToolResult({
+      roots: [{ id: '1', name: 'Root', type: 'FRAME', x: 0, y: 0, width: 10, height: 10 }],
+      truncated: true
+    })
+    expect(truncated.content?.[0]?.text).toContain('truncated structure outline')
+    expect(truncated.content?.[0]?.text).toContain('partial')
+    expect(truncated.content?.[0]?.text).not.toContain('full outline')
+
     const tokens = buildGetTokenDefsToolResult({
       '--color-primary': {
         kind: 'color',

@@ -13,7 +13,7 @@ import {
 import { buildSemanticTree, semanticTreeToOutline } from '@/mcp/semantic-tree'
 
 import { readOwnedNodeKey } from './canvas/identity'
-import { walkAuthoringNodes, walkPhysicalNodes } from './canvas/traversal'
+import { walkPhysicalNodes } from './canvas/traversal'
 
 const STRUCTURE_NODE_LIMIT_STEPS = [240, 180, 140, 100, 70, 50] as const
 const STRUCTURE_MAX_NAME_CHARS = 48
@@ -32,22 +32,28 @@ export function handleGetStructure(
   const nativeById = includeNative
     ? collectNativeProperties(roots, outline, STRUCTURE_NODE_LIMIT_STEPS[0])
     : new Map<string, OutlineNativeProperties>()
-  const compactRoots = compactStructure(outline, authoringKeys, nativeById)
-  if (!compactRoots.length && outline.length) {
+  const compact = compactStructure(outline, authoringKeys, nativeById)
+  if (!compact.roots.length && outline.length) {
     throw new Error(
       'Structure tool result exceeded the 64 KiB inline budget. Reduce selection or depth and retry.'
     )
   }
 
-  return { roots: compactRoots }
+  return compact
 }
 
 function compactStructure(
   roots: StructureNode[],
   authoringKeys: ReadonlyMap<string, string>,
   nativeById: ReadonlyMap<string, OutlineNativeProperties>
-): StructureNode[] {
-  if (!roots.length) return roots
+): GetStructureResult {
+  if (!roots.length) return { roots }
+
+  const totalNodes = countStructureNodes(roots)
+  const result = (compactRoots: StructureNode[]): GetStructureResult => ({
+    roots: compactRoots,
+    ...(countStructureNodes(compactRoots) < totalNodes ? { truncated: true as const } : {})
+  })
 
   const initial = compactByNodeLimit(
     roots,
@@ -55,18 +61,29 @@ function compactStructure(
     authoringKeys,
     nativeById
   )
-  if (estimateToolResultBytes(initial) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
-    return initial
+  if (estimateToolResultBytes(result(initial)) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
+    return result(initial)
   }
 
   for (const nodeLimit of STRUCTURE_NODE_LIMIT_STEPS.slice(1)) {
     const candidate = compactByNodeLimit(roots, nodeLimit, authoringKeys, nativeById)
-    if (estimateToolResultBytes(candidate) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
-      return candidate
+    if (estimateToolResultBytes(result(candidate)) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
+      return result(candidate)
     }
   }
 
-  return []
+  return { roots: [], truncated: true }
+}
+
+function countStructureNodes(roots: StructureNode[]): number {
+  let count = 0
+  const pending = [...roots]
+  while (pending.length) {
+    const node = pending.pop()!
+    count += 1
+    if (node.children) pending.push(...node.children)
+  }
+  return count
 }
 
 function compactByNodeLimit(
@@ -207,7 +224,7 @@ function collectAuthoringKeys(
   const remaining = collectOutlineIds(outline, nodeLimit)
   if (!remaining.size) return keys
 
-  for (const node of walkAuthoringNodes(roots)) {
+  for (const node of walkPhysicalNodes(roots)) {
     if (!remaining.delete(node.id)) continue
     const key = readOwnedNodeKey(node)
     if (key) keys.set(node.id, key)
@@ -241,6 +258,6 @@ function sanitizeNumber(value: unknown): number {
   return Math.round(value * STRUCTURE_COORD_PRECISION) / STRUCTURE_COORD_PRECISION
 }
 
-function estimateToolResultBytes(roots: StructureNode[]): number {
-  return measureCallToolResultBytes(buildGetStructureToolResult({ roots }))
+function estimateToolResultBytes(result: GetStructureResult): number {
+  return measureCallToolResultBytes(buildGetStructureToolResult(result))
 }

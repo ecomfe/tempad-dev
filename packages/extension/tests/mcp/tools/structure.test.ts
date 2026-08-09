@@ -99,27 +99,42 @@ describe('mcp/tools/structure', () => {
       id: 'component-1',
       getSharedPluginData: vi.fn(() => 'component/card')
     }
-    const child = {
-      id: 'instance-child-1',
-      type: 'TEXT',
-      visible: true,
-      getSharedPluginData: vi.fn(() => 'component/card/label')
-    }
     const instance = {
       id: 'instance-1',
       type: 'INSTANCE',
       visible: true,
-      children: [child],
+      children: [] as SceneNode[],
       mainComponent: component,
       getSharedPluginData: vi.fn(() => 'component/card')
     }
+    const child = {
+      id: 'instance-child-1',
+      type: 'TEXT',
+      visible: true,
+      parent: instance,
+      getSharedPluginData: vi.fn(() => 'component/card/label')
+    }
+    instance.children = [child as unknown as SceneNode]
+    const trailingIdRead = vi.fn(() => 'trailing-1')
+    const trailing = {
+      get id() {
+        return trailingIdRead()
+      },
+      type: 'RECTANGLE',
+      visible: true,
+      getSharedPluginData: vi.fn(() => '')
+    }
     mockOutline([{ id: 'instance-1', children: [{ id: 'instance-child-1' }] }])
 
-    const result = handleGetStructure([instance as unknown as SceneNode])
+    const result = handleGetStructure([
+      trailing as unknown as SceneNode,
+      instance as unknown as SceneNode
+    ])
 
     expect(result.roots[0]).not.toHaveProperty('authoringKey')
     expect(result.roots[0]?.children?.[0]).not.toHaveProperty('authoringKey')
     expect(child.getSharedPluginData).not.toHaveBeenCalled()
+    expect(trailingIdRead).not.toHaveBeenCalled()
   })
 
   it('does not expose an inherited key when an instance descendant is the root', () => {
@@ -276,6 +291,7 @@ describe('mcp/tools/structure', () => {
 
     const result = handleGetStructure([])
     expect(countNodes(result.roots)).toBeLessThanOrEqual(240)
+    expect(result.truncated).toBe(true)
     expect(result.roots[0]?.name.length).toBeLessThanOrEqual(48)
     expect(result.roots[0]?.x).toBe(0.1)
   })

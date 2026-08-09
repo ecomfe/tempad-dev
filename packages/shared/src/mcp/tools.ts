@@ -162,6 +162,7 @@ export type OutlineNode = {
 }
 export type GetStructureResult = {
   roots: OutlineNode[]
+  truncated?: true
 }
 
 // get_design_system
@@ -2094,10 +2095,10 @@ function validateCanvasApplyScope<Value extends CanvasApplyScope>(
   if (value.mode === 'update' && value.targetNodeId === undefined) {
     issue('Update mode requires targetNodeId.', 'targetNodeId')
   }
-  if (value.mode === 'create') {
-    for (const field of ['bindings', 'native'] as const) {
-      const bindings = value[field]
-      if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)) continue
+  if (value.mode === 'create' && value.bindings !== undefined) {
+    const field = 'bindings' as const
+    const bindings = value[field]
+    if (bindings && typeof bindings === 'object' && !Array.isArray(bindings)) {
       for (const [key, candidate] of Object.entries(bindings)) {
         if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
         const binding = candidate as Record<string, unknown>
