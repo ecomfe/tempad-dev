@@ -339,12 +339,14 @@ function splitShadowValue(value: string, separator: ',' | ' '): string[] {
 }
 
 function cssChannel(raw: string): number | null {
+  if (!raw) return null
   const percentage = /^(\d+(?:\.\d+)?|\.\d+)%$/.exec(raw)
   const value = percentage ? Number(percentage[1]) / 100 : Number(raw) / 255
   return Number.isFinite(value) && value >= 0 && value <= 1 ? value : null
 }
 
 function cssAlpha(raw: string): number | null {
+  if (!raw) return null
   const percentage = /^(\d+(?:\.\d+)?|\.\d+)%$/.exec(raw)
   const value = percentage ? Number(percentage[1]) / 100 : Number(raw)
   return Number.isFinite(value) && value >= 0 && value <= 1 ? value : null

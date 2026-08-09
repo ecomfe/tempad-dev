@@ -744,7 +744,7 @@ function includedStrokeSize(
 ): number {
   if (
     classes.strokesIncluded === false ||
-    binding?.figma?.stroke?.align !== 'INSIDE' ||
+    (binding?.figma?.stroke?.align !== undefined && binding.figma.stroke.align !== 'INSIDE') ||
     !hasStrokePaint(binding, classes)
   ) {
     return 0

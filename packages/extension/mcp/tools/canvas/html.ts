@@ -27,23 +27,29 @@ function normalizeTag(tag: string): string {
 }
 
 function decodeEntities(value: string): string {
-  let result = ''
-  let index = 0
-  while (index < value.length) {
-    if (value[index] !== '&') {
-      result += value[index]
-      index += 1
+  const chunks: string[] = []
+  let copyStart = 0
+  let entityStart = -1
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!
+    if (entityStart < 0) {
+      if (character === '&') {
+        chunks.push(value.slice(copyStart, index))
+        entityStart = index
+      }
       continue
     }
-    const end = value.indexOf(';', index + 1)
-    if (end < 0 || /\s/.test(value.slice(index + 1, end))) {
-      result += '&'
-      index += 1
+    if (/\s/.test(character)) {
+      chunks.push(value.slice(entityStart, index))
+      copyStart = index
+      entityStart = -1
       continue
     }
-    const entity = value.slice(index + 1, end)
+    if (character !== ';') continue
+
+    const entity = value.slice(entityStart + 1, index)
     if (Object.hasOwn(HTML_ENTITIES, entity)) {
-      result += HTML_ENTITIES[entity]
+      chunks.push(HTML_ENTITIES[entity]!)
     } else {
       const hex = entity.startsWith('#x') || entity.startsWith('#X')
       const digits = hex ? entity.slice(2) : entity.startsWith('#') ? entity.slice(1) : ''
@@ -58,11 +64,14 @@ function decodeEntities(value: string): string {
       ) {
         htmlError(`Invalid HTML character reference "&${entity};".`)
       }
-      result += String.fromCodePoint(codePoint)
+      chunks.push(String.fromCodePoint(codePoint))
     }
-    index = end + 1
+    copyStart = index + 1
+    entityStart = -1
   }
-  return result
+  if (entityStart >= 0) chunks.push(value.slice(entityStart))
+  else chunks.push(value.slice(copyStart))
+  return chunks.join('')
 }
 
 class CanvasHtmlParser {

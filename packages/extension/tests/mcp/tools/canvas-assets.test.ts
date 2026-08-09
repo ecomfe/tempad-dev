@@ -29,6 +29,41 @@ describe('mcp/tools/canvas SVG assets', () => {
     expect(resolved?.digest).toMatch(/^[a-f0-9]{64}$/)
   })
 
+  it('leaves currentColor substrings in identifiers and references unchanged', async () => {
+    const assets = await resolveCanvasAssets(
+      svgAssets(
+        '<svg viewBox="0 0 24 24"><defs><linearGradient id="currentColor-gradient"><stop stop-color="#112233"/></linearGradient></defs><path id="currentColor-path" aria-label="currentColor icon" fill="url(#currentColor-gradient)" d="M0 0h24v24z"/></svg>'
+      ),
+      colors()
+    )
+    const resolved = resolvedSvgAsset(assets, 'icon', undefined)
+
+    expect(resolved?.svg).toContain('id="currentColor-gradient"')
+    expect(resolved?.svg).toContain('id="currentColor-path"')
+    expect(resolved?.svg).toContain('aria-label="currentColor icon"')
+    expect(resolved?.svg).toContain('fill="url(#currentColor-gradient)"')
+  })
+
+  it('validates every prefix bound to the XLink namespace', async () => {
+    await expect(
+      resolveCanvasAssets(
+        svgAssets(
+          '<svg xmlns:link="http://www.w3.org/1999/xlink" viewBox="0 0 1 1"><use link:href="https://example.com/icon.svg#shape"/></svg>'
+        ),
+        colors()
+      )
+    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.SVG_EXTERNAL_REFERENCE })
+
+    await expect(
+      resolveCanvasAssets(
+        svgAssets(
+          '<svg xmlns:link="http://www.w3.org/1999/xlink" viewBox="0 0 1 1"><defs><path id="shape" d="M0 0z"/></defs><use link:href="#shape"/></svg>'
+        ),
+        colors()
+      )
+    ).resolves.toBeInstanceOf(Map)
+  })
+
   it.each([
     ['<svg viewBox="0 0 1 1"><script>alert(1)</script></svg>', TEMPAD_MCP_ERROR_CODES.SVG_INVALID],
     [

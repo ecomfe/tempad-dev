@@ -13,7 +13,8 @@ const INLINE_SVG_BYTES = 32 * 1024
 const HUB_SVG_BYTES = 1024 * 1024
 const MAX_SVG_ELEMENTS = 500
 const MAX_SVG_DEPTH = 32
-export const SVG_POLICY_VERSION = '1'
+export const SVG_POLICY_VERSION = '2'
+const XLINK_NAMESPACE = 'http://www.w3.org/1999/xlink'
 
 const BANNED_ELEMENTS = new Set([
   'audio',
@@ -23,6 +24,16 @@ const BANNED_ELEMENTS = new Set([
   'script',
   'style',
   'video'
+])
+const COLOR_ATTRIBUTES = new Set([
+  'color',
+  'fill',
+  'flood-color',
+  'lighting-color',
+  'solid-color',
+  'stop-color',
+  'stroke',
+  'text-decoration-color'
 ])
 
 type ResolvedSvgAsset = {
@@ -149,7 +160,7 @@ async function sanitizeSvg(
 
   let elements = 0
   const normalizedColor = color?.toUpperCase()
-  const visit = (node: INode, depth: number): void => {
+  const visit = (node: INode, depth: number, inheritedNamespaces: Map<string, string>): void => {
     if (node.type !== 'element') return
     elements += 1
     if (elements > MAX_SVG_ELEMENTS || depth > MAX_SVG_DEPTH) {
@@ -163,6 +174,13 @@ async function sanitizeSvg(
     if (BANNED_ELEMENTS.has(name)) {
       assetError(TEMPAD_MCP_ERROR_CODES.SVG_INVALID, key, `SVG element <${name}> is not supported.`)
     }
+    const namespaces = new Map(inheritedNamespaces)
+    for (const [attribute, rawValue] of Object.entries(node.attributes)) {
+      const separator = attribute.indexOf(':')
+      if (separator > 0 && attribute.slice(0, separator).toLowerCase() === 'xmlns') {
+        namespaces.set(attribute.slice(separator + 1), rawValue.trim())
+      }
+    }
     for (const [attribute, rawValue] of Object.entries(node.attributes)) {
       const name = attribute.toLowerCase()
       if (name === 'style' || name.startsWith('on') || name === 'src') {
@@ -173,7 +191,16 @@ async function sanitizeSvg(
         )
       }
       const value = rawValue.trim()
-      if (name === 'href' || name === 'xlink:href') {
+      const separator = attribute.indexOf(':')
+      const namespacePrefix = separator > 0 ? attribute.slice(0, separator) : undefined
+      const localName = separator > 0 ? attribute.slice(separator + 1).toLowerCase() : name
+      const isLink =
+        name === 'href' ||
+        name === 'xlink:href' ||
+        (localName === 'href' &&
+          namespacePrefix !== undefined &&
+          namespaces.get(namespacePrefix) === XLINK_NAMESPACE)
+      if (isLink) {
         if (!/^#[A-Za-z_][\w:.-]*$/.test(value)) {
           assetError(
             TEMPAD_MCP_ERROR_CODES.SVG_EXTERNAL_REFERENCE,
@@ -189,7 +216,7 @@ async function sanitizeSvg(
           'SVG cannot load external content.'
         )
       }
-      if (/currentcolor/i.test(value)) {
+      if (COLOR_ATTRIBUTES.has(name) && /^currentcolor$/i.test(value)) {
         if (!normalizedColor) {
           assetError(
             TEMPAD_MCP_ERROR_CODES.SVG_INVALID,
@@ -197,15 +224,15 @@ async function sanitizeSvg(
             'SVG uses currentColor but its placement has no color.'
           )
         }
-        node.attributes[attribute] = rawValue.replace(/currentcolor/gi, normalizedColor)
+        node.attributes[attribute] = normalizedColor
       }
     }
     node.attributes = Object.fromEntries(
       Object.entries(node.attributes).sort(([left], [right]) => left.localeCompare(right))
     )
-    for (const child of node.children) visit(child, depth + 1)
+    for (const child of node.children) visit(child, depth + 1, namespaces)
   }
-  visit(root, 1)
+  visit(root, 1, new Map())
 
   let viewport: { width: number; height: number }
   try {

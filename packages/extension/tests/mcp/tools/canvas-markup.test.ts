@@ -1361,6 +1361,14 @@ describe('canvas markup', () => {
     expect(() =>
       parse('<div data-key="root" class="w-[320px] h-[200px] shadow-[,]"></div>')
     ).toThrow(/Invalid shadow class/)
+    expect(() =>
+      parse('<div data-key="root" class="w-[320px] h-[200px] shadow-[0_1px_2px_rgb(,0,0)]"></div>')
+    ).toThrow(/Invalid shadow value/)
+    expect(() =>
+      parse(
+        '<div data-key="root" class="w-[320px] h-[200px] shadow-[0_1px_2px_rgba(0,0,0,)]"></div>'
+      )
+    ).toThrow(/Invalid shadow value/)
   })
 
   it.each(['shadow-md', 'inset-shadow-sm', 'text-shadow-lg'])(
@@ -2177,13 +2185,14 @@ describe('canvas markup', () => {
     expect(result.root.layout).toMatchObject({ mode: 'HORIZONTAL' })
   })
 
-  it('includes explicit inside strokes in the new Auto Layout minimum', () => {
+  it('includes default and explicit inside strokes in the new Auto Layout minimum', () => {
     const markup =
       '<div data-key="root" class="flex flex-row w-[60px] h-[40px] px-[30px] border-[2px] border-[#000000]"></div>'
     const bindings = {
       root: { figma: { stroke: { align: 'INSIDE' as const } } }
     }
 
+    expect(() => parse(markup)).toThrow(/must be at least 64px/)
     expect(() => parse(markup, { bindings })).toThrow(/must be at least 64px/)
     expect(() =>
       parse(markup.replace('border-[#000000]', 'border-[#000000] box-content'), { bindings })
