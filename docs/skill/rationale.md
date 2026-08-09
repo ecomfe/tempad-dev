@@ -48,6 +48,37 @@ tradition. The skills read that local practice before applying general model
 memory. This is more reliable than attempting to copy all possible framework,
 design-system, or organizational knowledge into a universal skill.
 
+### Organize cues in the order the model should reason
+
+An LLM does not expose one inspectable, deterministic "parameter chain" for a
+task. Prompt tokens and document structure instead bias attention and the
+latent patterns most available to the next inference. Reference organization is
+therefore part of behavior: the first framing should cue the problem being
+solved, while exact syntax should arrive only after the model has chosen a
+representation.
+
+For canvas authoring, use this sequence:
+
+1. frame the intended experience, authority, and unresolved evidence;
+2. choose the Figma-native concept that represents the decision;
+3. load the reference for that Figma concept;
+4. serialize the chosen structure through Canvas HTML and its Tailwind subset;
+5. inspect the native and rendered result.
+
+Organize optional native references by Figma semantics—components, variables,
+styles, geometry, paints/effects/media, and rich text—because those concepts
+match the artifact and the typed contract. Keep Canvas HTML/CSS in one separate
+serialization reference. A CSS-first hierarchy would cue browser behavior and
+make available utilities look like design options; one undifferentiated Figma
+manual would load unrelated schema and weaken branch selection.
+
+Keep MCP server instructions and tool descriptions at the mechanical layer:
+session scope, evidence boundaries, tool affordances, identity, omission,
+removal, and transport. The triggered skill owns task policy, representation
+choice, design-system judgment, and verification. This separation prevents an
+always-on tool description from competing with the task-specific reasoning
+path while still making each call usable in isolation.
+
 ## Related research translated into design rules
 
 - **Cognitive apprenticeship:** model fragile actions with complete examples;
@@ -125,7 +156,10 @@ The main file routes by user intent and consequence: reuse an accessible design
 system, compose directly, or author reusable resources only when explicitly
 requested. Declarative desired state and stable identity remain hard
 boundaries. Native schema, design-system, and visual-asset particulars remain
-progressive references.
+progressive references. Decision and evidence references establish what must be
+represented; Figma-semantic references define the native concept; the Canvas
+HTML reference serializes only the already selected structure and common
+appearance.
 
 The skill is deliberately orthogonal to product-domain, platform,
 accessibility, content, and visual-style requirements. When a material design

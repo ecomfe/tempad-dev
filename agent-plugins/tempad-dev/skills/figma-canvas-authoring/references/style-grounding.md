@@ -29,7 +29,8 @@ plausible, the decision is still unresolved.
 For a net-new result without a concrete reference or representative established
 screen or system, the direction-defining visual language is material. Giving the
 agent creative latitude assigns that decision to the agent; it does not make the
-decision low-consequence.
+decision low-consequence. This calls for the smallest evidence that resolves the
+choice, not a survey of the category.
 
 ## Obtain sufficient evidence
 
@@ -39,8 +40,11 @@ closest product context; external primary guidance may establish scoped
 requirements; inspected products or visual artifacts may establish applicable
 precedent. These are possible evidence roles, not a mandatory source list.
 
-Open the source needed to support the claim. Search snippets and remembered
-summaries are discovery leads, not inspected evidence. Record:
+Start with the closest candidate and inspect one representative source or
+artifact. Seek another only when the first leaves a material conflict or gap;
+the objective is to settle the decision, not accumulate inspiration. Search
+snippets and remembered summaries are discovery leads, not inspected evidence.
+Record:
 
 - the exact source or artifact identity;
 - the requirement or principle it supports;

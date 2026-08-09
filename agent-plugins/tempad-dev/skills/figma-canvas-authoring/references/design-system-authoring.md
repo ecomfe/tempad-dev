@@ -136,24 +136,19 @@ binding; equivalent raw literals do not demonstrate system usage.
 
 Close the authored system only after concrete consumers exist:
 
-- Close the resource plan as a whole around decisions that should evolve
-  together. One useful component does not settle an unrelated shared
-  typography or layout decision, just as a color variable does not settle
-  reusable behavior; each may still remain local when its coordination value
-  does not justify a native resource.
-- Reconcile each authored component with the usages that justified it. Revise
-  its contract and replace same-responsibility local copies with instances, or
-  remove a definition that concrete use no longer justifies.
-- Compare the strongest remaining shared boundary by reuse, coordinated change,
-  state or variation, divergence, and abstraction cost. Different content or an
-  expressible state value is a contract input, not by itself a Local rationale.
-- Reconcile authored variables and styles with the semantic consumers their
-  names claim. Compare material typography, layout, and appearance roles
-  independently, while keeping one-off or independently owned values literal.
-  A representative binding proves connectivity; an equal literal on an intended
-  peer is not native system usage.
-- Resolve authoring warnings by binding a real consumer or removing speculative
-  resources, and inspect every materially distinct component state.
+- Reconcile every authored resource with the consumers that justified it.
+  Revise a component contract and replace same-responsibility copies with native
+  instances; bind variables and styles to the semantic fields their names
+  claim. Remove a definition that concrete use no longer justifies.
+- Revisit the strongest remaining shared decision across behavior, typography,
+  layout, and appearance. Choose from reuse, coordinated change, state or
+  variation, divergence, ownership, and abstraction cost—not literal equality
+  or content differences. Author the resource when shared evolution earns its
+  cost; otherwise keep the decision local for a concrete reason.
+- Resolve authoring warnings through real consumers or removal, and inspect
+  every materially distinct component state. A representative binding proves
+  connectivity, but an equal literal on an intended peer is not native system
+  usage.
 
 Use the cheapest sufficient evidence for these outcomes. This is not a required
 inventory, resource count, or tool sequence, and repetition remains evidence

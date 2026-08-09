@@ -1,7 +1,10 @@
 # Rich text and hyperlinks
 
-Use a `span` for editable text. Whole-node typography normally belongs in
-classes, a catalog Text style, or semantic variable bindings.
+Use this reference to encode an already chosen typeface or Figma-only text
+behavior. Resolve a material typeface choice through
+[visual-assets.md](visual-assets.md) first. Use a `span` for editable text;
+whole-node typography normally belongs in classes, a catalog Text style, or
+semantic variable bindings.
 
 `native[key].figma.text` carries Figma-only state:
 

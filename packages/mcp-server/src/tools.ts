@@ -133,7 +133,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_code',
     description:
-      'Read high-fidelity Figma-to-code evidence for nodeId or the current single selection as JSX/Vue markup, classes, tokens, assets, codegen facts, and bounded warnings.',
+      'Read implementation evidence for an existing Figma node or the current single selection as JSX/Vue markup, classes, tokens, assets, codegen facts, and bounded warnings.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetCodeParametersSchema,
     target: 'extension',
@@ -142,7 +142,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_design_system',
     description:
-      'Read a bounded deterministic catalog of accessible components, variables, styles, and shaders for permitted canvas reuse. Start without arguments; continue with catalogId plus cursor, or inspect one returned ref with catalogId plus ref.',
+      'Discover a bounded deterministic catalog of accessible components, variables, styles, and shaders when existing-resource reuse is permitted and relevant. Start without arguments; continue the same catalog by cursor or inspect one returned ref.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetDesignSystemParametersSchema,
     target: 'extension',
@@ -151,7 +151,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'apply_canvas',
     description:
-      'Create or update one native Figma root from declarative Canvas HTML plus optional catalog and native state. Create auto-positions a new root; update reconciles stable data-key identities, preserves omissions, and removes only explicit removeKeys. TemPad Dev validates, applies one undoable patch, and verifies it. Follow the canvas-authoring skill for workflow and opaque native shapes.',
+      'Create or reconcile one managed Figma root from Canvas HTML plus optional typed native resources and bindings. Create auto-places the new root; update targets an exact node, matches stable data-key identities, preserves omitted live state, and removes explicit removeKeys. TemPad Dev validates, applies one undoable patch, and verifies the result.',
     annotations: CANVAS_WRITE_ANNOTATIONS,
     parameters: ApplyCanvasParametersSchema,
     target: 'extension',
@@ -170,7 +170,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_screenshot',
     description:
-      'Capture one bounded rendered PNG for nodeId or the current single selection for visual inspection.',
+      'Capture one bounded rendered PNG asset for an exact node or the current single selection.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetScreenshotParametersSchema,
     target: 'extension',
@@ -179,7 +179,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_structure',
     description:
-      'Get a compact structural + geometry outline for nodeId/current single selection, including stable authoring keys on TemPad-managed nodes.',
+      'Read a compact hierarchy and page-space geometry outline for an exact node or the current single selection, including stable keys on TemPad-managed nodes; it does not provide rendered pixels or appearance.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetStructureParametersSchema,
     target: 'extension',
