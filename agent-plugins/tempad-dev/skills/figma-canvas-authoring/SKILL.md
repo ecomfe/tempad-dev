@@ -80,37 +80,43 @@ requires establishing and verifying them, not prescribing their answers.
      [design-system-authoring.md](references/design-system-authoring.md) and
      select resources from concrete consumers, meaningful differences, expected
      shared evolution, and abstraction cost. Repetition alone is not a trigger.
-4. **Form the Figma model, then serialize it.** Name the layers, resources,
-   bindings, and native behavior that express the chosen result before reading
-   payload syntax; do not let available classes or schema fields choose the
-   medium or structure. Load only the selected Figma-capability references
-   below, then use Canvas HTML to serialize the layer tree. Skip Canvas HTML
-   for `markup: null`. For a create or an update that changes element
-   structure, read [canvas-html.md](references/canvas-html.md) in full. For an
-   update with trustworthy markup and unchanged structure, always read
+4. **Form the Figma model, then serialize it.** Name the layers, provisional
+   resources, bindings, and native behavior that express the chosen result
+   before reading payload syntax; do not let available classes or schema fields
+   choose the medium or structure. Load only the selected Figma-capability
+   references below, then use Canvas HTML to serialize the layer tree. Skip
+   Canvas HTML for `markup: null`. For a create or an update that changes
+   element structure, read [canvas-html.md](references/canvas-html.md) in full.
+   For an update with trustworthy markup and unchanged structure, always read
    [Elements and identity](references/canvas-html.md#elements-and-identity), then
    read only the changed Layout or Appearance and text section. Preserve every
    unaffected element, attribute, and class; leave markup unchanged for a
    native-only update. Copy complete private-native examples instead of guessing
    shapes from Plugin API knowledge or validation failures.
-5. **Apply one desired result.** Call `apply_canvas` once per coherent root. If a
-   large result must be split, use meaningful screen or section boundaries. To
-   keep several calls in one movable board, create one fixed Auto Layout parent
-   and append bounded sections to that same stable root; omit existing children
-   so updates preserve them. Use independent roots when their relative
-   organization is not part of the deliverable. Never scan for free space,
-   maintain a coordinate ledger, or translate a create root for placement;
-   TemPad Dev positions new roots from their rendered bounds.
-6. **Close authored-system scope.** On the Author path, do not finish on an
-   early seed resource. After concrete consumers exist, revisit the strongest
-   remaining system decision across behavior, typography, layout, and
-   appearance. Close it through native resources and real consumers when reuse,
-   state consistency, or shared evolution earns its cost; otherwise keep it
-   local for a concrete reason and state that reason briefly in the handoff.
-   Repetition and resource counts never decide. Follow the detailed closure in
+5. **Prove one representative composition.** Apply and open the smallest
+   composition that can establish the chosen visual language, content density,
+   layout behavior, and native representation before propagating dependent
+   screens. On the Author path, use its concrete consumers to close the resource
+   model now: compare the strongest shared responsibilities and semantic
+   decisions, select only definitions whose coordinated change earns their
+   cost, and verify their real instances or bindings. Do not let the easiest
+   resource type stand in for this comparison. Any resource type may remain
+   absent when its demonstrated candidates stay local for concrete
+   responsibility, state, ownership, evolution, or cost reasons—not because
+   the payload is already large. Follow
    [design-system-authoring.md](references/design-system-authoring.md), resolve
-   authoring warnings, inspect materially distinct states, and remove
-   speculative resources rather than manufacturing specimens to justify them.
+   authoring warnings, and remove speculative resources rather than creating
+   specimens to justify them.
+6. **Apply the complete desired result.** Call `apply_canvas` once per coherent
+   root. If a large result must be split, use meaningful screen or section
+   boundaries. To keep several calls in one movable board, create one fixed Auto
+   Layout parent and append bounded sections to that same stable root; omit
+   existing children so updates preserve them. Use independent roots when their
+   relative organization is not part of the deliverable. Never scan for free
+   space, maintain a coordinate ledger, or translate a create root for
+   placement; TemPad Dev positions new roots from their rendered bounds. On the
+   Author path, propagate selected definitions through native instances and
+   bindings; literal lookalikes do not count as resource coverage.
 7. **Verify the delivered result.** Read structural verification. For a new
    composition or material visual change, open the representative screenshot
    before propagation, then inspect the final board and materially distinct

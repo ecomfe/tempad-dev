@@ -25,13 +25,20 @@ Before writing, identify:
 - real content, state, and substitution differences;
 - anything the user explicitly excludes.
 
+An authored system is closed only through demonstrated use: each selected
+resource has real consumers, every intended consumer uses the native definition
+or binding, and the strongest remaining shared decision is either modeled or
+kept local for a concrete reason. Creating the easiest resource type does not
+substitute for comparing components, variables, and styles. This is a semantic
+coverage invariant, not a required resource mix or count.
+
 When the scope is complex enough to benefit, keep a private working map of
 concrete usages, real consumers or states, and the value of shared evolution.
-Revisit the decisions after the compositions exist, because early selection
-cannot reveal every useful abstraction. The map is an attention aid, not a
-mandatory classification pass, canvas documentation, an inventory-completion
-target, or a rule that repetition creates a resource. Do not design a complete
-hypothetical system around one example.
+Treat early choices as provisional: one representative composition reveals
+which abstractions are useful before they spread across dependent work. The map
+is an attention aid, not a mandatory classification pass, canvas documentation,
+an inventory-completion target, or a rule that repetition creates a resource.
+Do not design a complete hypothetical system around one example.
 
 "Create your own design system" means create and use the necessary native
 resources. It does not by itself require a swatch, specimen, or documentation
@@ -50,9 +57,9 @@ For a system spanning several usages, prefer a concrete-to-reusable loop:
 4. Decide which demonstrated responsibility merits a component from expected
    reuse, shared change, state consistency, variation, and abstraction cost;
    define its contract from the real usage differences.
-5. Revisit the resource plan against the delivered usages. Replace provisional
-   choices when the concrete reuse, shared change, states, or divergence show a
-   more valuable system boundary.
+5. Reconcile the resource plan before propagation. Replace provisional choices
+   when concrete reuse, shared change, states, or divergence reveal a more
+   valuable boundary, and apply selected definitions to every intended consumer.
 
 When several candidates exist, compare their coordination value before
 committing the boundary. Prefer the shared definition that best prevents
@@ -134,7 +141,7 @@ component contract. In the workflow's final visual check, inspect only visually
 consequential properties. For variables and styles, inspect every representative
 binding; equivalent raw literals do not demonstrate system usage.
 
-Close the authored system only after concrete consumers exist:
+Reconcile the authored system after concrete consumers exist:
 
 - Reconcile every authored resource with the consumers that justified it.
   Revise a component contract and replace same-responsibility copies with native
