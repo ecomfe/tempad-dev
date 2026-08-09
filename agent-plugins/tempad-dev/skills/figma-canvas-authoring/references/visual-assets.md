@@ -1,9 +1,10 @@
 # Deliver visual assets in Figma
 
-Use this reference when the result needs icons, exact fonts, images, or
-illustrations. It governs source integrity and Canvas delivery, not whether the
-product needs an asset or what that asset should look like. Derive those design
-decisions from the user, applicable evidence, or targeted research.
+Use this reference when the result needs icons, a typeface decision, images, or
+illustrations. It governs asset role, source integrity, and an importable form;
+it does not define the product need or the final visual choice. After choosing
+the asset, use the routed native reference for exact font, paint, media, or SVG
+application mechanics.
 
 Classify the role before choosing a medium. When the role is an image—media
 whose job is to depict content—fulfill it with a sourced, generated, supplied,

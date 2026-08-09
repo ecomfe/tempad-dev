@@ -1,7 +1,10 @@
 # Paints, effects, grids, guides, and media
 
-Prefer a matching catalog style. Use direct native arrays only when no style
-expresses the required state.
+Use this reference to encode a chosen Figma appearance or layout aid. When an
+image or illustration's role, subject, medium, or source is unresolved, decide
+that first through [visual-assets.md](visual-assets.md). Prefer a matching
+catalog style; use direct native arrays only when no style expresses the
+required state.
 
 ## Catalog links
 

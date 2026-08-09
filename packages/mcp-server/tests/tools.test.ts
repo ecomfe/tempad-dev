@@ -50,7 +50,7 @@ describe('tools response helpers', () => {
     const designSystem = TOOL_DEFS.find((tool) => tool.name === 'get_design_system')
     const applyCanvas = TOOL_DEFS.find((tool) => tool.name === 'apply_canvas')
 
-    expect(designSystem?.description).toContain('permitted canvas reuse')
+    expect(designSystem?.description).toContain('reuse is permitted and relevant')
     expect(designSystem?.parameters.parse({})).toEqual({})
     expect(
       applyCanvas?.parameters.parse({

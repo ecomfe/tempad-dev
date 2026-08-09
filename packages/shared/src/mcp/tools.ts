@@ -22,9 +22,7 @@ export const AssetDescriptorSchema = z.object({
 export const GetCodeParametersSchema = z.object({
   nodeId: z
     .string()
-    .describe(
-      'Optional target node id; omit to use the current single selection when pulling the baseline snapshot.'
-    )
+    .describe('Optional exact target node id; omit to use the current single selection.')
     .optional(),
   preferredLang: z
     .enum(['jsx', 'vue'])
@@ -97,9 +95,7 @@ export type GetTokenDefsResult = {
 export const GetScreenshotParametersSchema = z.object({
   nodeId: z
     .string()
-    .describe(
-      'Optional exact node id to render; defaults to the current single selection. Use only when pixels affect the next decision.'
-    )
+    .describe('Optional exact node id to render; omit to use the current single selection.')
     .optional()
 })
 
@@ -2054,7 +2050,7 @@ const CanvasNativeBindingSchema = z
     figma: z
       .record(z.string(), z.unknown())
       .describe(
-        'Strict Figma-only desired state. Before using it, load the matching progressive capability reference from the canvas-authoring skill and follow a complete example.'
+        'Strict Figma-only desired state. Use the matching capability reference from the canvas-authoring skill for its exact shape.'
       )
       .optional()
   })
@@ -2127,7 +2123,7 @@ export const ApplyCanvasParametersSchema = z
       ),
     native: z
       .record(CanvasStableKeySchema, CanvasNativeBindingSchema)
-      .describe('Only Figma state without an honest markup expression, keyed by markup data-key.')
+      .describe('Figma-only desired state and bindings, keyed by markup data-key.')
       .optional(),
     variableCollections: z
       .record(CanvasStableKeySchema, z.unknown())
@@ -2144,7 +2140,7 @@ export const ApplyCanvasParametersSchema = z
     assets: z
       .record(CanvasStableKeySchema, z.unknown())
       .describe(
-        'Optional call-scoped SVG or content-addressed image assets. Use the canvas-authoring visual-assets reference for accepted delivery forms.'
+        'Optional call-scoped inline SVG or content-addressed Hub assets referenced by native desired state.'
       )
       .optional(),
     removeKeys: CanvasRemoveKeysSchema.optional(),
@@ -2190,7 +2186,7 @@ export const CanvasResolvedApplyParametersSchema = z
       'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide stable authoring identities. Omission preserves resources; null explicitly removes an unconsumed managed style. A newly created style without a reference in the same desired result produces a verification warning.'
     ).optional(),
     assets: CanvasAssetsSchema.describe(
-      'Call-scoped inline SVG or content-addressed SVG/image assets referenced by native desired state. Asset availability and import format do not establish the intended visual medium; agent-authored SVG is not a fallback for a content-image role.'
+      'Call-scoped inline SVG or content-addressed SVG/image assets referenced by native desired state.'
     ).optional(),
     removeKeys: CanvasRemoveKeysSchema.describe(
       'Optional stable keys that must be absent after a scoped update. Omitted live nodes remain untouched.'
