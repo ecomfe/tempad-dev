@@ -7,10 +7,12 @@ host skill owns task workflow, representation choice, and design judgment.
 
 - For Figma-to-code, use `get_code` as visible implementation evidence. Use `get_structure` only for
   hierarchy, geometry, or managed authoring-key uncertainty.
-- For canvas authoring, use `apply_canvas` to describe one declarative desired result. Never emit raw
-  Plugin API operations or arbitrary JavaScript. `get_design_system` is optional discovery for
-  relevant, permitted reuse; new local resources do not require it. Use the canvas-authoring skill's
-  progressive references for exact Canvas shapes only after choosing the native representation.
+- For canvas authoring, choose the Figma representation through the applicable skill, then use
+  `apply_canvas` to describe one declarative desired result. Canvas HTML serializes ordinary layers;
+  typed fields carry selected native state, resources, and bindings. Never emit raw Plugin API
+  operations or arbitrary JavaScript. `get_design_system` is optional discovery for relevant,
+  permitted reuse; new local resources do not require it. Load the skill's progressive references
+  for exact shapes only after choosing the native concept.
 
 Create operations add and automatically place one new root. Updates are scoped by exact node
 identity: omission preserves live state, while explicit removal removes managed content. Read
