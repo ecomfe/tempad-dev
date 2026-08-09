@@ -179,7 +179,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_structure',
     description:
-      'Read a compact hierarchy and page-space geometry outline for an exact node or the current single selection, including stable keys on TemPad-managed nodes; it does not provide rendered pixels or appearance.',
+      'Read a compact hierarchy and page-space geometry outline for an exact node or the current single selection, including stable keys on TemPad-managed nodes. Set options.native for read-back of masks, IMAGE paint hashes, layout grids, and frame guides; it does not provide rendered pixels or general appearance.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetStructureParametersSchema,
     target: 'extension',

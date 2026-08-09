@@ -26,7 +26,8 @@
   目录组件标签、设计系统短引用、类型化的 Figma 专有状态、经过净化的 SVG 和内容寻址图片。
   扩展会在本地解析、验证、计算与实时画布的差异、应用修改并校验结构。
 - `get_screenshot`：返回一张有大小限制的渲染 PNG，用于按需视觉验证。
-- `get_structure`：当前选中节点的层级/几何结构信息，并返回 TemPad 已管理节点的稳定 authoring key。
+- `get_structure`：当前选中节点的层级/几何结构信息，并返回 TemPad 已管理节点的稳定 authoring key；
+  还可按需读回原生遮罩、IMAGE paint、布局网格与画框参考线。
 
 说明：
 

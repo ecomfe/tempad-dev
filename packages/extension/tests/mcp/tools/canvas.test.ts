@@ -608,6 +608,7 @@ function createFixture(): FigmaFixture {
         get: () => targetAspectRatio
       },
       fills: {
+        configurable: true,
         get: () => fills,
         set: (value: readonly Paint[]) => {
           fills = normalizePaints(value, 'fills')
@@ -615,6 +616,7 @@ function createFixture(): FigmaFixture {
         }
       },
       strokes: {
+        configurable: true,
         get: () => strokes,
         set: (value: readonly Paint[]) => {
           strokes = normalizePaints(value, 'strokes')
@@ -622,6 +624,7 @@ function createFixture(): FigmaFixture {
         }
       },
       effects: {
+        configurable: true,
         get: () => effects,
         set: (value: readonly Effect[]) => {
           effects = value
@@ -652,6 +655,7 @@ function createFixture(): FigmaFixture {
       })
       Object.defineProperties(node, {
         layoutGrids: {
+          configurable: true,
           get: () => layoutGrids,
           set: (value: readonly LayoutGrid[]) => {
             layoutGrids = value
@@ -659,6 +663,7 @@ function createFixture(): FigmaFixture {
           }
         },
         guides: {
+          configurable: true,
           get: () => guides,
           set: (value: readonly Guide[]) => {
             guides = value
@@ -2074,6 +2079,7 @@ describe('mcp/tools/canvas', () => {
       status: 'passed',
       nodesChecked: 2,
       referencesChecked: 0,
+      nativeFieldsChecked: 0,
       warnings: []
     })
   })
@@ -3859,6 +3865,45 @@ describe('mcp/tools/canvas', () => {
     expect((await applyCanvas(direct)).mutationCount).toBe(0)
   })
 
+  it('updates existing instance state without repeating its component reference', async () => {
+    const fixture = createFixture()
+    const actionMarkup = '<div data-key="screen/action" class="w-[120px] h-[40px]"></div>'
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup: `<div data-key="screen" class="flex flex-col w-[240px] h-[120px]">${actionMarkup}</div>`,
+      native: {
+        'screen/action': {
+          component: { id: 'component:1' },
+          componentProperties: { Label: 'Default' }
+        }
+      }
+    })
+    const action = fixture.getNode(
+      created.nodeIdsByKey['screen/action']!
+    ) as unknown as InstanceNode
+    const originalComponent = await action.getMainComponentAsync()
+    const update = {
+      mode: 'update' as const,
+      targetNodeId: action.id,
+      markup: actionMarkup,
+      native: {
+        'screen/action': {
+          componentProperties: { Label: 'Save' },
+          figma: { instance: { scaleFactor: 1.25 } }
+        }
+      }
+    }
+
+    const updated = await applyCanvasFromTool(update)
+
+    expect(updated.createdNodeIds).toEqual([])
+    expect(updated.removedNodeIds).toEqual([])
+    expect(action.componentProperties.Label?.value).toBe('Save')
+    expect(action.scaleFactor).toBe(1.25)
+    expect((await action.getMainComponentAsync())?.id).toBe(originalComponent?.id)
+    expect((await applyCanvasFromTool(update)).mutationCount).toBe(0)
+  })
+
   it('chooses whether a component replacement preserves existing overrides', async () => {
     const fixture = createFixture()
     const original = fixture.nodes.get('component:1') as ComponentNode
@@ -4785,6 +4830,7 @@ describe('mcp/tools/canvas', () => {
     expect(root.layoutGrids[1]).toMatchObject({ pattern: 'ROWS', count: Infinity })
     expect(component.layoutGrids).toEqual([{ pattern: 'GRID', sectionSize: 4 }])
     expect(component.guides).toEqual([{ axis: 'Y', offset: 12 }])
+    expect(created.verification.nativeFieldsChecked).toBe(4)
 
     await expect(
       applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
@@ -5123,11 +5169,43 @@ describe('mcp/tools/canvas', () => {
     ])
     expect(fills[0]).not.toHaveProperty('imageUrl')
     expect(root.strokes[0]).not.toHaveProperty('imageUrl')
+    expect(created.verification.nativeFieldsChecked).toBe(2)
 
     await expect(
       applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
     ).resolves.toMatchObject({ mutationCount: 0 })
     expect(fixture.createImageAsync).toHaveBeenCalledTimes(2)
+  })
+
+  it('rolls back when Figma does not retain a declared native paint stack', async () => {
+    const fixture = createFixture()
+    vi.mocked(figma.createFrame).mockImplementationOnce(() => {
+      const node = fixture.createNode('FRAME')
+      Object.defineProperty(node, 'fills', {
+        configurable: true,
+        get: () => [solidPaint()],
+        set: vi.fn()
+      })
+      return node as unknown as FrameNode
+    })
+
+    await expect(
+      applyCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
+        bindings: {
+          root: {
+            figma: {
+              fills: [{ type: 'IMAGE', imageHash: 'image:existing', scaleMode: 'FILL' }]
+            }
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: 'Verification failed for "root": direct fills do not match.'
+    })
+    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
   })
 
   it('imports SVG assets into a stable managed wrapper and preserves no-op retries', async () => {
@@ -7076,6 +7154,77 @@ describe('mcp/tools/canvas', () => {
     ).toBe('Updated')
   })
 
+  it('preserves an existing keyed shape type when an update omits its native declaration', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><div data-key="route" class="w-[100px] h-[0px] border-[2px] border-[#334455]"></div></div>',
+      bindings: {
+        route: { figma: { shape: { type: 'LINE' } } }
+      }
+    })
+    const route = fixture.getNode(created.nodeIdsByKey.route!)
+
+    const updated = await applyCanvas({
+      mode: 'update',
+      targetNodeId: created.rootNodeId,
+      markup:
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><div data-key="route" class="w-[140px] h-[0px]"></div></div>'
+    })
+
+    expect(updated.createdNodeIds).toEqual([])
+    expect(updated.nodeIdsByKey.route).toBe(route.id)
+    expect(route).toMatchObject({ type: 'LINE', width: 140, height: 0, strokeWeight: 2 })
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: created.rootNodeId,
+        markup:
+          '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><div data-key="route" class="w-[140px] h-[0px]"></div></div>'
+      })
+    ).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('preserves existing keyed component types when a layout update omits native declarations', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup:
+        '<div data-key="set" class="flex flex-col w-[280px] h-[128px] p-[16px] gap-[8px]"><div data-key="set/completed" class="w-[248px] h-[44px]"></div><div data-key="set/pending" class="w-[248px] h-[44px]"></div></div>',
+      bindings: {
+        set: { figma: { component: { type: 'COMPONENT_SET' } } },
+        'set/completed': {
+          figma: { name: 'State=Completed', component: { type: 'COMPONENT' } }
+        },
+        'set/pending': {
+          figma: { name: 'State=Pending', component: { type: 'COMPONENT' } }
+        }
+      }
+    })
+    const set = fixture.getNode(created.rootNodeId)
+    const completed = fixture.getNode(created.nodeIdsByKey['set/completed']!)
+    const pending = fixture.getNode(created.nodeIdsByKey['set/pending']!)
+
+    const updated = await applyCanvas({
+      mode: 'update',
+      targetNodeId: created.rootNodeId,
+      markup:
+        '<div data-key="set" class="flex flex-col w-[300px] h-[128px] p-[16px] gap-[8px]"><div data-key="set/completed" class="w-[268px] h-[44px]"></div><div data-key="set/pending" class="w-[268px] h-[44px]"></div></div>'
+    })
+
+    expect(updated.createdNodeIds).toEqual([])
+    expect(updated.removedNodeIds).toEqual([])
+    expect(updated.nodeIdsByKey).toMatchObject({
+      set: set.id,
+      'set/completed': completed.id,
+      'set/pending': pending.id
+    })
+    expect(set).toMatchObject({ type: 'COMPONENT_SET', width: 300 })
+    expect(completed).toMatchObject({ type: 'COMPONENT', width: 268 })
+    expect(pending).toMatchObject({ type: 'COMPONENT', width: 268 })
+  })
+
   it('reorders existing children without replacing their stable identities', async () => {
     const fixture = createFixture()
     const created = await applyCanvas({
@@ -7292,6 +7441,7 @@ describe('mcp/tools/canvas', () => {
         status: 'passed',
         nodesChecked: 0,
         referencesChecked: 0,
+        nativeFieldsChecked: 0,
         warnings: []
       }
     })

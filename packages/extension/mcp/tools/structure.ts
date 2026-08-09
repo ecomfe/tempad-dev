@@ -1,4 +1,8 @@
-import type { GetStructureResult } from '@tempad-dev/shared'
+import type {
+  CanvasFigmaLayoutGrid,
+  GetStructureResult,
+  OutlineNativeProperties
+} from '@tempad-dev/shared'
 
 import {
   MCP_TOOL_INLINE_BUDGET_BYTES,
@@ -9,7 +13,7 @@ import {
 import { buildSemanticTree, semanticTreeToOutline } from '@/mcp/semantic-tree'
 
 import { readOwnedNodeKey } from './canvas/identity'
-import { walkAuthoringNodes } from './canvas/traversal'
+import { walkAuthoringNodes, walkPhysicalNodes } from './canvas/traversal'
 
 const STRUCTURE_NODE_LIMIT_STEPS = [240, 180, 140, 100, 70, 50] as const
 const STRUCTURE_MAX_NAME_CHARS = 48
@@ -17,11 +21,18 @@ const STRUCTURE_COORD_PRECISION = 10
 
 type StructureNode = GetStructureResult['roots'][number]
 
-export function handleGetStructure(roots: SceneNode[], depthLimit?: number): GetStructureResult {
+export function handleGetStructure(
+  roots: SceneNode[],
+  depthLimit?: number,
+  includeNative = false
+): GetStructureResult {
   const tree = buildSemanticTree(roots, { depthLimit: depthLimit || undefined })
   const outline = semanticTreeToOutline(tree.roots)
   const authoringKeys = collectAuthoringKeys(roots, outline, STRUCTURE_NODE_LIMIT_STEPS[0])
-  const compactRoots = compactStructure(outline, authoringKeys)
+  const nativeById = includeNative
+    ? collectNativeProperties(roots, outline, STRUCTURE_NODE_LIMIT_STEPS[0])
+    : new Map<string, OutlineNativeProperties>()
+  const compactRoots = compactStructure(outline, authoringKeys, nativeById)
   if (!compactRoots.length && outline.length) {
     throw new Error(
       'Structure tool result exceeded the 64 KiB inline budget. Reduce selection or depth and retry.'
@@ -33,17 +44,23 @@ export function handleGetStructure(roots: SceneNode[], depthLimit?: number): Get
 
 function compactStructure(
   roots: StructureNode[],
-  authoringKeys: ReadonlyMap<string, string>
+  authoringKeys: ReadonlyMap<string, string>,
+  nativeById: ReadonlyMap<string, OutlineNativeProperties>
 ): StructureNode[] {
   if (!roots.length) return roots
 
-  const initial = compactByNodeLimit(roots, STRUCTURE_NODE_LIMIT_STEPS[0], authoringKeys)
+  const initial = compactByNodeLimit(
+    roots,
+    STRUCTURE_NODE_LIMIT_STEPS[0],
+    authoringKeys,
+    nativeById
+  )
   if (estimateToolResultBytes(initial) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
     return initial
   }
 
   for (const nodeLimit of STRUCTURE_NODE_LIMIT_STEPS.slice(1)) {
-    const candidate = compactByNodeLimit(roots, nodeLimit, authoringKeys)
+    const candidate = compactByNodeLimit(roots, nodeLimit, authoringKeys, nativeById)
     if (estimateToolResultBytes(candidate) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
       return candidate
     }
@@ -55,7 +72,8 @@ function compactStructure(
 function compactByNodeLimit(
   roots: StructureNode[],
   nodeLimit: number,
-  authoringKeys: ReadonlyMap<string, string>
+  authoringKeys: ReadonlyMap<string, string>,
+  nativeById: ReadonlyMap<string, OutlineNativeProperties>
 ): StructureNode[] {
   let seen = 0
 
@@ -63,6 +81,7 @@ function compactByNodeLimit(
     if (seen >= nodeLimit) return undefined
     seen += 1
     const authoringKey = authoringKeys.get(node.id)
+    const native = nativeById.get(node.id)
 
     const compact: StructureNode = {
       id: sanitizeId(node.id, `node-${seen}`),
@@ -72,7 +91,8 @@ function compactByNodeLimit(
       y: sanitizeNumber(node.y),
       width: sanitizeNumber(node.width),
       height: sanitizeNumber(node.height),
-      ...(authoringKey ? { authoringKey } : {})
+      ...(authoringKey ? { authoringKey } : {}),
+      ...(native ? { native } : {})
     }
 
     if (Array.isArray(node.children) && node.children.length && seen < nodeLimit) {
@@ -97,22 +117,94 @@ function compactByNodeLimit(
   return compactRoots
 }
 
+function collectNativeProperties(
+  roots: SceneNode[],
+  outline: StructureNode[],
+  nodeLimit: number
+): Map<string, OutlineNativeProperties> {
+  const properties = new Map<string, OutlineNativeProperties>()
+  const remaining = collectOutlineIds(outline, nodeLimit)
+
+  for (const node of walkPhysicalNodes(roots)) {
+    if (!remaining.delete(node.id)) continue
+    const native = describeNativeProperties(node)
+    if (native) properties.set(node.id, native)
+    if (!remaining.size) break
+  }
+
+  return properties
+}
+
+function describeNativeProperties(node: SceneNode): OutlineNativeProperties | undefined {
+  const native: OutlineNativeProperties = {}
+
+  if ('isMask' in node && node.isMask && 'maskType' in node) {
+    native.mask = node.maskType
+  }
+
+  if ('fills' in node && Array.isArray(node.fills)) {
+    const imageFills = node.fills
+      .filter((fill): fill is ImagePaint => fill.type === 'IMAGE')
+      .map((fill) => ({
+        imageHash: fill.imageHash,
+        scaleMode: fill.scaleMode,
+        visible: fill.visible ?? true,
+        opacity: fill.opacity ?? 1
+      }))
+    if (imageFills.length) native.imageFills = imageFills
+  }
+
+  if ('layoutGrids' in node && Array.isArray(node.layoutGrids) && node.layoutGrids.length) {
+    native.layoutGrids = node.layoutGrids.map(describeLayoutGrid)
+  }
+
+  if ('guides' in node && Array.isArray(node.guides) && node.guides.length) {
+    native.guides = node.guides.map(({ axis, offset }) => ({ axis, offset }))
+  }
+
+  return Object.keys(native).length ? native : undefined
+}
+
+function describeLayoutGrid(grid: LayoutGrid): CanvasFigmaLayoutGrid {
+  const { boundVariables, ...fields } = grid
+  const variableEntries = Object.entries(boundVariables ?? {}).flatMap(([field, variable]) =>
+    variable ? [[field, { id: variable.id }] as const] : []
+  )
+  const variables = variableEntries.length ? Object.fromEntries(variableEntries) : undefined
+
+  return {
+    ...fields,
+    ...(grid.pattern === 'GRID'
+      ? {}
+      : {
+          count: grid.count === Infinity ? ('AUTO' as const) : grid.count
+        }),
+    ...(variables ? { variables } : {})
+  } as CanvasFigmaLayoutGrid
+}
+
+function collectOutlineIds(outline: StructureNode[], nodeLimit: number): Set<string> {
+  const ids = new Set<string>()
+
+  const addIds = (nodes: StructureNode[]): boolean => {
+    for (const node of nodes) {
+      ids.add(node.id)
+      if (ids.size >= nodeLimit || (node.children && addIds(node.children))) return true
+    }
+    return false
+  }
+
+  addIds(outline)
+  return ids
+}
+
 function collectAuthoringKeys(
   roots: SceneNode[],
   outline: StructureNode[],
   nodeLimit: number
 ): Map<string, string> {
   const keys = new Map<string, string>()
-  const remaining = new Set<string>()
-
-  const addIds = (nodes: StructureNode[]): boolean => {
-    for (const node of nodes) {
-      remaining.add(node.id)
-      if (remaining.size >= nodeLimit || (node.children && addIds(node.children))) return true
-    }
-    return false
-  }
-  addIds(outline)
+  const remaining = collectOutlineIds(outline, nodeLimit)
   if (!remaining.size) return keys
 
   for (const node of walkAuthoringNodes(roots)) {

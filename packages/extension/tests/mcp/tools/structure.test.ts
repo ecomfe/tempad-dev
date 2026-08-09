@@ -143,6 +143,124 @@ describe('mcp/tools/structure', () => {
     expect(child.getSharedPluginData).not.toHaveBeenCalled()
   })
 
+  it('optionally returns compact native mask, image, grid, and guide read-back', () => {
+    const mask = {
+      id: 'mask-1',
+      name: 'Mask',
+      type: 'RECTANGLE',
+      visible: true,
+      fills: [],
+      isMask: true,
+      maskType: 'ALPHA',
+      getSharedPluginData: vi.fn(() => '')
+    }
+    const image = {
+      id: 'image-1',
+      name: 'Image',
+      type: 'RECTANGLE',
+      visible: true,
+      fills: [
+        {
+          type: 'IMAGE',
+          imageHash: 'figma-image-hash',
+          scaleMode: 'FILL',
+          visible: false,
+          opacity: 0.75
+        }
+      ],
+      getSharedPluginData: vi.fn(() => '')
+    }
+    const root = {
+      id: 'root-1',
+      name: 'Poster',
+      type: 'FRAME',
+      visible: true,
+      children: [mask, image],
+      layoutGrids: [
+        {
+          pattern: 'COLUMNS',
+          alignment: 'STRETCH',
+          gutterSize: 14,
+          count: 6,
+          offset: 44,
+          visible: true,
+          color: { r: 1, g: 0, b: 0, a: 0.1 }
+        }
+      ],
+      guides: [
+        { axis: 'X', offset: 44 },
+        { axis: 'Y', offset: 244 }
+      ],
+      getSharedPluginData: vi.fn(() => '')
+    }
+    mockOutline([
+      {
+        id: 'root-1',
+        name: 'Poster',
+        type: 'FRAME',
+        x: 0,
+        y: 0,
+        width: 700,
+        height: 1000,
+        children: [
+          {
+            id: 'mask-1',
+            name: 'Mask',
+            type: 'RECTANGLE',
+            x: 44,
+            y: 244,
+            width: 612,
+            height: 458
+          },
+          {
+            id: 'image-1',
+            name: 'Image',
+            type: 'RECTANGLE',
+            x: -30,
+            y: 201,
+            width: 760,
+            height: 544
+          }
+        ]
+      }
+    ])
+
+    const result = handleGetStructure([root as unknown as SceneNode], undefined, true)
+
+    expect(result.roots[0]?.native).toEqual({
+      layoutGrids: [
+        {
+          pattern: 'COLUMNS',
+          alignment: 'STRETCH',
+          gutterSize: 14,
+          count: 6,
+          offset: 44,
+          visible: true,
+          color: { r: 1, g: 0, b: 0, a: 0.1 }
+        }
+      ],
+      guides: [
+        { axis: 'X', offset: 44 },
+        { axis: 'Y', offset: 244 }
+      ]
+    })
+    expect(result.roots[0]?.children?.[0]?.native).toEqual({ mask: 'ALPHA' })
+    expect(result.roots[0]?.children?.[1]?.native).toEqual({
+      imageFills: [
+        {
+          imageHash: 'figma-image-hash',
+          scaleMode: 'FILL',
+          visible: false,
+          opacity: 0.75
+        }
+      ]
+    })
+
+    const compactResult = handleGetStructure([root as unknown as SceneNode])
+    expect(compactResult.roots[0]).not.toHaveProperty('native')
+    expect(compactResult.roots[0]?.children?.[0]).not.toHaveProperty('native')
+  })
+
   it('compacts large outlines to keep structure output small', () => {
     mockOutline(
       Array.from({ length: 400 }, (_, i) => ({

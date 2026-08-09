@@ -2162,6 +2162,38 @@ describe('mcp/tools canvas authoring schemas', () => {
       })
     ).toBe(false)
   })
+
+  it('allows partial instance-state updates without repeating the component reference', () => {
+    const publicUpdate = {
+      mode: 'update' as const,
+      targetNodeId: '1:2',
+      markup: '<div data-key="action" class="w-[120px] h-[40px]"></div>',
+      native: {
+        action: {
+          componentProperties: { Label: 'Save' },
+          figma: { instance: { scaleFactor: 1.25 } }
+        }
+      }
+    }
+    const resolvedUpdate = {
+      mode: 'update' as const,
+      targetNodeId: '1:2',
+      markup: '<div data-key="action" class="w-[120px] h-[40px]"></div>',
+      bindings: {
+        action: {
+          componentProperties: { Label: 'Save' },
+          figma: { instance: { scaleFactor: 1.25 } }
+        }
+      }
+    }
+
+    expect(ApplyCanvasPublicParametersSchema.safeParse(publicUpdate).success).toBe(true)
+    expect(acceptsCanvas(resolvedUpdate)).toBe(true)
+    expect(
+      ApplyCanvasPublicParametersSchema.safeParse({ ...publicUpdate, mode: 'create' }).success
+    ).toBe(false)
+    expect(acceptsCanvas({ ...resolvedUpdate, mode: 'create' })).toBe(false)
+  })
 })
 
 describe('mcp/tools canvas authoring result schemas', () => {
@@ -2218,6 +2250,7 @@ describe('mcp/tools canvas authoring result schemas', () => {
         status: 'passed',
         nodesChecked: 1,
         referencesChecked: 0,
+        nativeFieldsChecked: 2,
         warnings: []
       }
     }
@@ -2232,6 +2265,12 @@ describe('mcp/tools canvas authoring result schemas', () => {
       ApplyCanvasResultSchema.safeParse({
         ...result,
         verification: { ...result.verification, warnings: [{}] }
+      }).success
+    ).toBe(false)
+    expect(
+      ApplyCanvasResultSchema.safeParse({
+        ...result,
+        verification: { ...result.verification, nativeFieldsChecked: -1 }
       }).success
     ).toBe(false)
   })
@@ -2289,7 +2328,7 @@ describe('mcp/tools parameter schemas', () => {
     expect(
       GetStructureParametersSchema.safeParse({
         nodeId: '1:2',
-        options: { depth: 2 }
+        options: { depth: 2, native: true }
       }).success
     ).toBe(true)
 

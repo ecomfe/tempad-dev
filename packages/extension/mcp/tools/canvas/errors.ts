@@ -19,10 +19,18 @@ export function errorMessage(error: unknown, fallback = ''): string {
 
 export function formatSchemaError(error: ZodError): string {
   const issues = error.issues.slice(0, MAX_SCHEMA_ISSUES).map((issue) => {
+    const source =
+      issue.code === 'unrecognized_keys'
+        ? `Unrecognized key${issue.keys.length === 1 ? '' : 's'}: ${issue.keys
+            .map((key) => JSON.stringify(key))
+            .join(', ')}`
+        : issue.code === 'invalid_type' && issue.message === 'Invalid input'
+          ? `Expected ${issue.expected}.`
+          : issue.message
     const message =
-      issue.message.length <= MAX_SCHEMA_MESSAGE_CHARS
-        ? issue.message
-        : `${issue.message.slice(0, MAX_SCHEMA_MESSAGE_CHARS - 3)}...`
+      source.length <= MAX_SCHEMA_MESSAGE_CHARS
+        ? source
+        : `${source.slice(0, MAX_SCHEMA_MESSAGE_CHARS - 3)}...`
     return `${formatPath(issue.path)}: ${message}`
   })
   const omitted = error.issues.length - issues.length

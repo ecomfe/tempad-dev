@@ -124,12 +124,30 @@ export const GetStructureParametersSchema = z.object({
         .int()
         .positive()
         .describe('Limit traversal depth; defaults to full tree (subject to safety caps).')
+        .optional(),
+      native: z
+        .boolean()
+        .describe(
+          'Include compact native read-back for masks, IMAGE paint hashes, layout grids, and frame guides.'
+        )
         .optional()
     })
     .optional()
 })
 
 export type GetStructureParametersInput = z.input<typeof GetStructureParametersSchema>
+export type OutlineNativeImageFill = {
+  imageHash: string | null
+  scaleMode: 'FILL' | 'FIT' | 'CROP' | 'TILE'
+  visible: boolean
+  opacity: number
+}
+export type OutlineNativeProperties = {
+  mask?: 'ALPHA' | 'VECTOR' | 'LUMINANCE'
+  imageFills?: OutlineNativeImageFill[]
+  layoutGrids?: CanvasFigmaLayoutGrid[]
+  guides?: CanvasFigmaGuide[]
+}
 export type OutlineNode = {
   id: string
   name: string
@@ -139,6 +157,7 @@ export type OutlineNode = {
   width: number
   height: number
   authoringKey?: string
+  native?: OutlineNativeProperties
   children?: OutlineNode[]
 }
 export type GetStructureResult = {
@@ -1918,6 +1937,7 @@ export const CanvasBindingSchema = z
   .superRefine((binding, context) => {
     if (
       !binding.component &&
+      !binding.componentProperties &&
       !binding.variables &&
       !binding.variableModes &&
       !binding.styles &&
@@ -1927,13 +1947,6 @@ export const CanvasBindingSchema = z
         code: 'custom',
         message:
           'A canvas binding requires a component, variables, variable modes, styles, or Figma properties.'
-      })
-    }
-    if (binding.componentProperties && !binding.component) {
-      context.addIssue({
-        code: 'custom',
-        message: 'componentProperties require a component reference.',
-        path: ['componentProperties']
       })
     }
     if (
@@ -1951,13 +1964,6 @@ export const CanvasBindingSchema = z
         message:
           'A component binding cannot also create a native shape, section, group, boolean operation, authored component, slot, or SVG.',
         path: ['figma']
-      })
-    }
-    if (binding.figma?.instance && !binding.component) {
-      context.addIssue({
-        code: 'custom',
-        message: 'Figma instance properties require a component reference.',
-        path: ['figma', 'instance']
       })
     }
   })
@@ -2055,10 +2061,6 @@ const CanvasNativeBindingSchema = z
       .optional()
   })
   .strict()
-  .refine((binding) => !binding.componentProperties || binding.component, {
-    message: 'componentProperties require a component reference.',
-    path: ['componentProperties']
-  })
 
 type CanvasApplyScope = {
   mode: 'create' | 'update'
@@ -2091,6 +2093,39 @@ function validateCanvasApplyScope<Value extends CanvasApplyScope>(
   }
   if (value.mode === 'update' && value.targetNodeId === undefined) {
     issue('Update mode requires targetNodeId.', 'targetNodeId')
+  }
+  if (value.mode === 'create') {
+    for (const field of ['bindings', 'native'] as const) {
+      const bindings = value[field]
+      if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)) continue
+      for (const [key, candidate] of Object.entries(bindings)) {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
+        const binding = candidate as Record<string, unknown>
+        if (binding.component !== undefined) continue
+        if (binding.componentProperties !== undefined) {
+          context.addIssue({
+            code: 'custom',
+            message:
+              'Creating an instance with componentProperties requires a component reference.',
+            path: [field, key, 'componentProperties']
+          })
+        }
+        const figma = binding.figma
+        if (
+          figma &&
+          typeof figma === 'object' &&
+          !Array.isArray(figma) &&
+          (figma as Record<string, unknown>).instance !== undefined
+        ) {
+          context.addIssue({
+            code: 'custom',
+            message:
+              'Creating an instance with Figma instance properties requires a component reference.',
+            path: [field, key, 'figma', 'instance']
+          })
+        }
+      }
+    }
   }
   if (value.markup !== null) return
   for (const field of [
@@ -2216,6 +2251,7 @@ export const ApplyCanvasResultSchema = z
         status: z.enum(['passed', 'warning']),
         nodesChecked: z.number().int().nonnegative(),
         referencesChecked: z.number().int().nonnegative(),
+        nativeFieldsChecked: z.number().int().nonnegative().optional(),
         warnings: z.array(
           z
             .object({

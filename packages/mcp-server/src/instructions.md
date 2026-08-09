@@ -6,7 +6,8 @@ origins, or design-system intent. Tool descriptions define mechanical affordance
 host skill owns task workflow, representation choice, and design judgment.
 
 - For Figma-to-code, use `get_code` as visible implementation evidence. Use `get_structure` only for
-  hierarchy, geometry, or managed authoring-key uncertainty.
+  hierarchy, geometry, managed authoring-key uncertainty, or targeted mask, IMAGE paint,
+  layout-grid, and frame-guide read-back through `options.native`.
 - For canvas authoring, choose the Figma representation through the applicable skill, then use
   `apply_canvas` to describe one declarative desired result. Canvas HTML serializes ordinary layers;
   typed fields carry selected native state, resources, and bindings. Never emit raw Plugin API
