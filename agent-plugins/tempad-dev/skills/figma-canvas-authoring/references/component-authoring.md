@@ -42,12 +42,11 @@ its page coordinates. Re-read the definition and intended usage, then stop and
 report it. With a fixed MCP session, remove and recreate it only when unused;
 never remove or substitute a definition with instances.
 
-When an update targets an existing component or component set, the root `div`
-preserves that native type. Existing keyed component children preserve their
-native type too, so a markup-only layout repair does not need to restate every
-variant declaration. Omit redundant `figma.component` declarations unless the
-call changes component metadata or properties; new component nodes still need
-an explicit declaration.
+Markup-only updates preserve existing keyed components, component sets,
+instances, and shape nodes, so an ancestor layout repair does not need to
+restate their native declarations or instance component references. Include a
+binding only when the call changes native state; new native nodes still need an
+explicit declaration or component reference.
 
 Copy a complete recipe and change its design facts. Do not infer TemPad's
 component shape from raw Plugin API calls.
