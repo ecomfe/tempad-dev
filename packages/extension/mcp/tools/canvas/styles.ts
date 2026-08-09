@@ -1,6 +1,6 @@
 import type { CanvasStyleReference, CanvasStyleResource, CanvasStyles } from '@tempad-dev/shared'
 
-import { getLocalStyles } from '../../local-styles'
+import { getLocalStyles, getStyleById } from '../../local-resources'
 import { scopeError, specError } from './errors'
 import {
   CANVAS_STYLE_KEY_NAME,
@@ -65,7 +65,7 @@ async function selectStyle(
   mutations: MutationCounter
 ): Promise<BaseStyle> {
   const keyed = state.byKey.get(key)
-  const explicit = spec.id ? await figma.getStyleByIdAsync(spec.id) : null
+  const explicit = spec.id ? await getStyleById(spec.id) : null
   if (spec.id && !explicit) specError(`Style "${spec.id}" does not exist.`)
   if (keyed && explicit && keyed.id !== explicit.id) {
     specError(`Style key "${key}" does not identify "${explicit.id}".`)
@@ -154,7 +154,7 @@ export async function resolveStyle(
   if (cached) return cached
   const style =
     reference.id !== undefined
-      ? await figma.getStyleByIdAsync(reference.id)
+      ? await getStyleById(reference.id)
       : await figma.importStyleByKeyAsync(reference.key)
   if (!style) specError('The requested style could not be resolved.')
   state.cache.set(cacheKey, style)

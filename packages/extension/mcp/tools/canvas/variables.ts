@@ -5,7 +5,13 @@ import type {
   CanvasVariableValue
 } from '@tempad-dev/shared'
 
-import { getLocalStyles } from '../../local-styles'
+import {
+  getLocalStyles,
+  getLocalVariableCollections,
+  getLocalVariables,
+  getVariableById,
+  getVariableCollectionById
+} from '../../local-resources'
 import { collectVariableAliasIds } from '../../variable-references'
 import { scopeError, specError } from './errors'
 import {
@@ -112,8 +118,8 @@ function indexResource<T extends Variable | VariableCollection>(
 async function ensureLocalIndex(state: CanvasVariableState): Promise<void> {
   state.localIndex ??= (async () => {
     const [collections, variables] = await Promise.all([
-      figma.variables.getLocalVariableCollectionsAsync(),
-      figma.variables.getLocalVariablesAsync()
+      getLocalVariableCollections(),
+      getLocalVariables()
     ])
     for (const collection of collections) {
       state.collectionCache.set(`id:${collection.id}`, collection)
@@ -145,7 +151,7 @@ export async function resolveVariable(
   } else {
     variable =
       reference.id !== undefined
-        ? await figma.variables.getVariableByIdAsync(reference.id)
+        ? await getVariableById(reference.id)
         : await figma.variables.importVariableByKeyAsync(reference.key)
   }
   if (!variable) {
@@ -176,7 +182,7 @@ export async function resolveCollection(
   const cached = state.collectionCache.get(`id:${reference}`)
   if (cached) return cached
 
-  const byId = await figma.variables.getVariableCollectionByIdAsync(reference)
+  const byId = await getVariableCollectionById(reference)
   if (byId) {
     state.collectionCache.set(`id:${reference}`, byId)
     return byId
@@ -280,9 +286,7 @@ async function validateExtendedParent(
   state: CanvasVariableState
 ): Promise<void> {
   const extended = extendedCollection(collection)
-  const parent = await figma.variables.getVariableCollectionByIdAsync(
-    extended.parentVariableCollectionId
-  )
+  const parent = await getVariableCollectionById(extended.parentVariableCollectionId)
   if (!parent) {
     specError(`Parent of extended collection "${collection.id}" does not exist.`)
   }
@@ -305,9 +309,7 @@ async function selectCollection(
   mutations: MutationCounter
 ): Promise<{ collection: VariableCollection; isNew: boolean }> {
   const keyed = state.collectionsByKey.get(key)
-  const explicit = spec.id
-    ? await figma.variables.getVariableCollectionByIdAsync(spec.id)
-    : undefined
+  const explicit = spec.id ? await getVariableCollectionById(spec.id) : undefined
   if (spec.id && !explicit) specError(`Variable collection "${spec.id}" does not exist.`)
   if (keyed && explicit && keyed.id !== explicit.id) {
     specError(`Variable collection key "${key}" does not identify "${explicit.id}".`)
@@ -489,7 +491,7 @@ async function selectVariable(
   mutations: MutationCounter
 ): Promise<VariableWork> {
   const keyed = state.variablesByKey.get(key)
-  const explicit = spec.id ? await figma.variables.getVariableByIdAsync(spec.id) : undefined
+  const explicit = spec.id ? await getVariableById(spec.id) : undefined
   if (spec.id && !explicit) specError(`Variable "${spec.id}" does not exist.`)
   if (keyed && explicit && keyed.id !== explicit.id) {
     specError(`Variable key "${key}" does not identify "${explicit.id}".`)
@@ -1006,8 +1008,8 @@ export async function removeVariableResources(
   }
 
   const [collections, variables, styles, shaders, document] = await Promise.all([
-    figma.variables.getLocalVariableCollectionsAsync(),
-    figma.variables.getLocalVariablesAsync(),
+    getLocalVariableCollections(),
+    getLocalVariables(),
     getLocalStyles(),
     collectShadersForRemoval(),
     collectDocumentConsumers()

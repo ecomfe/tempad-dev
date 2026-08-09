@@ -29,6 +29,7 @@ import type {
 
 import { readBoundedResponseBytes } from '../../bounded-response'
 import { createCodedError } from '../../errors'
+import { getLocalEffectStyles, getLocalPaintStyles, getNodeById } from '../../local-resources'
 import {
   type ResolvedCanvasAssets,
   resolveCanvasAssets,
@@ -171,13 +172,7 @@ function isSceneNode(node: BaseNode | null): node is SceneNode {
 }
 
 async function lookupNodeById(id: string): Promise<BaseNode | null> {
-  try {
-    const node = await figma.getNodeByIdAsync(id)
-    if (node && !node.removed) return node
-  } catch {
-    // The rewritten Figma runtime can expose the method before its async lookup backend is ready.
-  }
-  const node = figma.getNodeById(id)
+  const node = await getNodeById(id)
   return node && !node.removed ? node : null
 }
 
@@ -595,8 +590,8 @@ async function validateRemovalReferences(
   }
   const removedStyleIds = new Set(state.styles.removals.map(({ style }) => style.id))
   const [paintStyles, effectStyles] = await Promise.all([
-    figma.getLocalPaintStylesAsync(),
-    figma.getLocalEffectStylesAsync()
+    getLocalPaintStyles(),
+    getLocalEffectStyles()
   ])
   for (const style of [...paintStyles, ...effectStyles]) {
     if (removedStyleIds.has(style.id)) continue
