@@ -27,6 +27,11 @@ silently change an asset's subject, style, or medium because another route is
 easier to import. If a required source cannot be delivered faithfully, report
 the limitation instead of disguising a substitute as intent.
 
+A crop, mask, overlay, or retouch may support the composition only while it
+preserves what the asset depicts. Do not conceal distinctive branding or
+features to make one subject represent another; choose a neutral, matching, or
+generated source instead.
+
 ## Contents
 
 - [Icons](#icons)

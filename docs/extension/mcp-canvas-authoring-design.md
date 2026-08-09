@@ -105,7 +105,8 @@ different subject, style, or medium merely because one tool is more convenient. 
 native editability, and delivery speed do not establish a geometric image medium; the brief or
 applicable visual evidence must do so. The import route is resolved before invoking asset production;
 otherwise a local-only result creates avoidable work and pressure to substitute a different source
-after the design decision has already been made.
+after the design decision has already been made. Crops, masks, overlays, and retouching may serve the
+composition but do not make one branded or distinctive subject faithfully represent another.
 
 This remains a progressive skill concern rather than a new MCP tool or `style` field because design
 requirements and source authority are contextual and open-world. Encoding them as protocol state
@@ -492,8 +493,10 @@ Exact update targets, adopted `data-node-id` descendants, and direct component I
 through Figma's asynchronous lookup API before reconciliation. Instance sublayers are not exact
 authoring targets; they remain definition-derived. Resolved nodes stay in request state instead of
 depending on later synchronous lookups. The rewritten runtime keeps a current-page synchronous
-fallback for the brief state where the async lookup backend is not ready. Removed nodes are treated
-as absent even if that backend briefly returns a stale object after deletion. Root-removal
+fallback for the brief state where the async lookup backend is not ready. The same async-first,
+current-context fallback covers local variable, style, and collection reads, so native-resource
+authoring does not fail merely because that backend is still connecting. Removed nodes are treated
+as absent even if the async backend briefly returns a stale object after deletion. Root-removal
 verification therefore uses the mutated node's removal state and its live parent's child list
 instead of re-querying that eventually consistent lookup path.
 

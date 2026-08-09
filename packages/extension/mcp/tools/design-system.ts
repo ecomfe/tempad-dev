@@ -20,7 +20,14 @@ import {
   utf8Bytes
 } from '@tempad-dev/shared'
 
-import { getLocalStyles } from '../local-styles'
+import {
+  getLocalStyles,
+  getLocalVariableCollections,
+  getLocalVariables,
+  getNodeById,
+  getVariableById,
+  getVariableCollectionById
+} from '../local-resources'
 import { collectVariableAliasIds } from '../variable-references'
 import {
   CANVAS_KEY_NAMESPACE,
@@ -215,8 +222,8 @@ function collectComponents(warnings: string[]) {
 async function collectVariables(referencedDefinitionIds: Set<string>, warnings: string[]) {
   try {
     const [localVariables, localCollections] = await Promise.all([
-      figma.variables.getLocalVariablesAsync(),
-      figma.variables.getLocalVariableCollectionsAsync()
+      getLocalVariables(),
+      getLocalVariableCollections()
     ])
     const variablesById = new Map(localVariables.map((variable) => [variable.id, variable]))
     const referencedVariableIds = new Set([
@@ -243,7 +250,7 @@ async function collectVariables(referencedDefinitionIds: Set<string>, warnings: 
     while (pendingVariableIds.length) {
       pendingVariableIds.forEach((id) => attemptedVariableIds.add(id))
       const remoteVariables = await Promise.all(
-        pendingVariableIds.map((id) => readOrNull(() => figma.variables.getVariableByIdAsync(id)))
+        pendingVariableIds.map((id) => readOrNull(() => getVariableById(id)))
       )
       const aliasIds = new Set<string>()
       for (const variable of remoteVariables) {
@@ -272,9 +279,7 @@ async function collectVariables(referencedDefinitionIds: Set<string>, warnings: 
       )
     ]
     const remoteCollections = await Promise.all(
-      remoteCollectionIds.map((id) =>
-        readOrNull(() => figma.variables.getVariableCollectionByIdAsync(id))
-      )
+      remoteCollectionIds.map((id) => readOrNull(() => getVariableCollectionById(id)))
     )
     for (const collection of remoteCollections) {
       if (collection) collectionsById.set(collection.id, collection)
@@ -853,9 +858,7 @@ function containingPage(node: BaseNode): PageNode | null {
 }
 
 async function resolveCatalogComponent(entry: CatalogComponent): Promise<ComponentNode> {
-  const node = entry.reference.id
-    ? await readOrNull(() => figma.getNodeByIdAsync(entry.reference.id!))
-    : null
+  const node = entry.reference.id ? await readOrNull(() => getNodeById(entry.reference.id!)) : null
   if (node?.type === 'COMPONENT') return node
   if (node?.type === 'COMPONENT_SET') return node.defaultVariant
   throw new Error(`Component definition "${entry.ref}" is no longer available.`)
