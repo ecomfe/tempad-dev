@@ -996,6 +996,7 @@ export function parseCanvasClasses(value: string): CanvasClasses {
 
     classError(`Unsupported class "${token}".`)
   }
+  if (classes.flex && classes.direction === undefined) classes.direction = 'HORIZONTAL'
   classes.lineHeight ??= defaultLineHeight
   return classes
 }

@@ -2053,9 +2053,9 @@ describe('canvas markup', () => {
       /h-full.*freeform parent.*add flex-row or grid/
     ],
     [
-      'flex without direction',
-      '<div data-key="root" class="flex w-[320px] h-[200px]"></div>',
-      /one flex direction/
+      'direction without flex',
+      '<div data-key="root" class="flex-row w-[320px] h-[200px]"></div>',
+      /requires flex/
     ],
     [
       'main-axis full size',
@@ -2169,6 +2169,12 @@ describe('canvas markup', () => {
     ]
   ])('rejects %s', (_, markup, message) => {
     expect(() => parse(markup)).toThrow(message)
+  })
+
+  it('uses the CSS horizontal default for flex without an explicit direction', () => {
+    const result = parse('<div data-key="root" class="flex w-[320px] h-[200px]"></div>')
+
+    expect(result.root.layout).toMatchObject({ mode: 'HORIZONTAL' })
   })
 
   it('includes explicit inside strokes in the new Auto Layout minimum', () => {

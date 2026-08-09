@@ -1232,8 +1232,8 @@ function compileElement(
     if (classes.flex && classes.grid) {
       markupError(`Container "${key}" cannot combine flex and grid layout.`)
     }
-    if (classes.flex !== (classes.direction !== undefined)) {
-      markupError(`Flex container "${key}" must declare exactly one flex direction.`)
+    if (!classes.flex && classes.direction !== undefined) {
+      markupError(`Flex direction on "${key}" requires flex.`)
     }
     if (!classes.flex && !classes.grid && classes.layoutClass) {
       markupError(`Layout class "${classes.layoutClass}" requires flex or grid on "${key}".`)
