@@ -2050,7 +2050,7 @@ const CanvasNativeBindingSchema = z
     figma: z
       .record(z.string(), z.unknown())
       .describe(
-        'Strict Figma-only desired state. Use the matching capability reference from the canvas-authoring skill for its exact shape.'
+        'Strict desired state for the selected Figma-native capability. Use the matching progressive reference from the canvas-authoring skill for its exact shape.'
       )
       .optional()
   })
@@ -2119,11 +2119,13 @@ export const ApplyCanvasParametersSchema = z
       .max(MAX_CANVAS_MARKUP_LENGTH)
       .nullable()
       .describe(
-        `Desired div/span tree with at most ${MAX_CANVAS_NODES} elements and ${MAX_CANVAS_DEPTH} levels. When catalogId is supplied, use its component tags and bind its variable or style refs with data-var-<field>="vN" or data-style-<field>="sN"; use "none" to unlink.`
+        `Canvas HTML serialization of the desired managed Figma layer tree, with at most ${MAX_CANVAS_NODES} elements and ${MAX_CANVAS_DEPTH} levels. When catalogId is supplied, use its component tags and bind its variable or style refs with data-var-<field>="vN" or data-style-<field>="sN"; use "none" to unlink.`
       ),
     native: z
       .record(CanvasStableKeySchema, CanvasNativeBindingSchema)
-      .describe('Figma-only desired state and bindings, keyed by markup data-key.')
+      .describe(
+        'Desired native Figma state and bindings for selected capabilities, keyed by markup data-key.'
+      )
       .optional(),
     variableCollections: z
       .record(CanvasStableKeySchema, z.unknown())
