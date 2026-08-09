@@ -10005,6 +10005,19 @@ describe('mcp/tools/canvas', () => {
     })
   })
 
+  it('loads the current page and retries a transient font connection timeout once', async () => {
+    const fixture = createFixture()
+    fixture.loadFontAsync.mockImplementationOnce(() => {
+      throw new Error('Unable to establish connection to Figma after 10 seconds')
+    })
+
+    await expect(applyCanvas(createSpec())).resolves.toMatchObject({
+      rootNodeId: expect.any(String)
+    })
+    expect(PAGE.loadAsync).toHaveBeenCalledOnce()
+    expect(fixture.loadFontAsync).toHaveBeenCalledTimes(2)
+  })
+
   it('rejects concurrent apply requests within one Figma session', async () => {
     const fixture = createFixture()
     let finishFontLoad: (() => void) | undefined
