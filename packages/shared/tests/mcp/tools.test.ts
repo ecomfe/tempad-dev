@@ -2163,7 +2163,7 @@ describe('mcp/tools canvas authoring schemas', () => {
     ).toBe(false)
   })
 
-  it('allows partial instance-state updates without repeating the component reference', () => {
+  it('defers public component-tag validation until catalog resolution', () => {
     const publicUpdate = {
       mode: 'update' as const,
       targetNodeId: '1:2',
@@ -2189,10 +2189,16 @@ describe('mcp/tools canvas authoring schemas', () => {
 
     expect(ApplyCanvasPublicParametersSchema.safeParse(publicUpdate).success).toBe(true)
     expect(acceptsCanvas(resolvedUpdate)).toBe(true)
+    const { targetNodeId: _resolvedTarget, ...resolvedCreate } = resolvedUpdate
     expect(
-      ApplyCanvasPublicParametersSchema.safeParse({ ...publicUpdate, mode: 'create' }).success
-    ).toBe(false)
-    expect(acceptsCanvas({ ...resolvedUpdate, mode: 'create' })).toBe(false)
+      ApplyCanvasPublicParametersSchema.safeParse({
+        mode: 'create',
+        catalogId: 'ds_1',
+        markup: '<ActionButton data-key="action" class="w-[120px] h-[40px]"></ActionButton>',
+        native: publicUpdate.native
+      }).success
+    ).toBe(true)
+    expect(acceptsCanvas({ ...resolvedCreate, mode: 'create' })).toBe(false)
   })
 })
 
