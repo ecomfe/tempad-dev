@@ -8,7 +8,7 @@ async function readWithSyncFallback<T>(readAsync: () => Promise<T>, readSync: ()
     try {
       return readSync()
     } catch (syncError) {
-      return retryAfterFigmaConnectionTimeout(readAsync, syncError, asyncError)
+      return retryAfterFigmaConnectionTimeout(readAsync, asyncError, syncError)
     }
   }
 }

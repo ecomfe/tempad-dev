@@ -64,8 +64,8 @@ export function canvasReadOnlyError(error: unknown): Error | null {
   // The Plugin API exposes no file-permission flag, so normalize its native mutation error.
   if (
     !error ||
-    typeof error !== 'object' ||
-    'code' in error ||
+    (typeof error !== 'string' && typeof error !== 'object') ||
+    (typeof error === 'object' && 'code' in error) ||
     !READ_ONLY_ERROR_PATTERN.test(errorMessage(error))
   ) {
     return null

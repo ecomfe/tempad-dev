@@ -16,6 +16,9 @@ import {
   type CanvasStyleResource,
   type CanvasVariableBindings,
   type CanvasVariableReference,
+  MCP_TOOL_INLINE_BUDGET_BYTES,
+  buildApplyCanvasToolResult,
+  measureCallToolResultBytes,
   TEMPAD_MCP_ERROR_CODES
 } from '@tempad-dev/shared'
 
@@ -88,6 +91,7 @@ const CANVAS_SVG_POLICY_NAME = 'svg-policy'
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024
 const ROOT_PLACEMENT_GAP = 80
 const GEOMETRY_TOLERANCE = 0.01
+const CONTENT_OVERFLOW_TOLERANCE = 0.5
 const MAX_IMPORTED_IMAGE_HASHES = 256
 const importedImageHashes = new Map<string, string>()
 const SUPPORTED_NODE_TYPES = new Set<CanvasNodeSpec['type']>([
@@ -169,6 +173,7 @@ type ApplyState = {
   referencedNodeIds: Set<string>
   scope: SupportedCanvasNode | null
   shaderCache: Map<string, Shader>
+  stabilizedCrossAxisFillNodeIds: Set<string>
   styles: CanvasStyleState
   updatedNodeIds: Set<string>
   variables: CanvasVariableState
@@ -343,18 +348,18 @@ async function resolveResultPage(
   if (index !== undefined && index > maxIndex) {
     specError(`Page index ${index} exceeds the maximum index ${maxIndex}.`)
   }
-  if (!createsPage && !state.scope) protectUnrelatedPageRoots(state, page ?? containing)
   if (createsPage) {
     page = figma.createPage()
     state.mutations.count += 1
   }
   page ??= containing
+  if (page.id !== figma.currentPage.id) await page.loadAsync()
+  if (!createsPage && !state.scope) protectUnrelatedPageRoots(state, page)
 
   const currentKey = key ? page.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_PAGE_KEY_NAME) : ''
   if (key && currentKey && currentKey !== key) {
     specError(`Page "${page.id}" is already owned by authoring key "${currentKey}".`)
   }
-  if (page.id !== figma.currentPage.id) await page.loadAsync()
   if (key && !currentKey) {
     page.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_PAGE_KEY_NAME, key)
     markMutation(state, page)
@@ -862,7 +867,11 @@ async function resolveComponent(reference: CanvasDesignReference, state: ApplySt
       protectNode(state, component)
     }
   } else {
-    component = await figma.importComponentByKeyAsync(reference.key)
+    try {
+      component = await figma.importComponentByKeyAsync(reference.key)
+    } catch {
+      specError(`Component key "${reference.key}" could not be imported.`)
+    }
   }
 
   if (!component) {
@@ -1107,6 +1116,7 @@ function hasDeferredTextRanges(spec: CanvasNodeSpec): boolean {
   return (
     ranges !== undefined &&
     (hasCanvasKeyPaints(spec) ||
+      isCanvasKeyHyperlink(spec.figma?.text?.hyperlink) ||
       ranges.some(
         (range) => hasCanvasKeyPattern(range.fills) || isCanvasKeyHyperlink(range.hyperlink)
       ))
@@ -1551,7 +1561,18 @@ async function preflightComponentProperties(
       specError(`Slot property "${name}" on "${spec.key}" cannot be set with componentProperties.`)
     }
     if (isComponentPropertyVariable(value)) {
-      await resolveVariable(value.variable, state.variables)
+      if (definition.type === 'VARIANT' || definition.type === 'INSTANCE_SWAP') {
+        specError(
+          `Component property "${name}" on "${spec.key}" cannot bind a variable because it is ${definition.type}.`
+        )
+      }
+      const variable = await resolveVariable(value.variable, state.variables)
+      const expected = expectedComponentPropertyVariableType(definition.type)
+      if (variable.resolvedType !== expected) {
+        specError(
+          `Variable "${variable.id}" for component property "${name}" on "${spec.key}" is ${variable.resolvedType}, expected ${expected}.`
+        )
+      }
       continue
     }
     const expected = definition.type === 'BOOLEAN' ? 'boolean' : 'string'
@@ -1617,14 +1638,15 @@ function preflightMasks(
   existing: SupportedCanvasNode | null = null,
   isRoot = true
 ): void {
-  if (isRoot && spec.figma?.mask != null) {
+  const isDesiredMask = desiredMaskState(spec, existing)
+  if (isRoot && isDesiredMask) {
     specError('The canvas root cannot be a mask because its scope would escape the desired tree.')
   }
 
   const children = spec.children ?? []
-  const hasMask = children.some((child) => child.figma?.mask != null)
+  const hasMask = children.some((child) => desiredMaskState(child, findExistingNode(child, state)))
   const lastChild = children.at(-1)
-  if (lastChild?.figma?.mask != null) {
+  if (lastChild && desiredMaskState(lastChild, findExistingNode(lastChild, state))) {
     specError(`Mask "${lastChild.key}" must precede at least one sibling to mask.`)
   }
 
@@ -1640,6 +1662,12 @@ function preflightMasks(
   for (const child of children) {
     preflightMasks(child, state, findExistingNode(child, state), false)
   }
+}
+
+function desiredMaskState(spec: CanvasNodeSpec, existing: SupportedCanvasNode | null): boolean {
+  const desired = spec.figma?.mask
+  if (desired !== undefined) return desired !== null
+  return !!existing && 'isMask' in existing && existing.isMask
 }
 
 function preflightContainers(
@@ -1910,6 +1938,14 @@ async function createNode(spec: CanvasNodeSpec, state: ApplyState): Promise<Supp
   recordCreatedNode(node, state)
   if (
     (node.type === 'FRAME' || node.type === 'COMPONENT') &&
+    spec.appearance?.clipsContent === undefined &&
+    node.clipsContent
+  ) {
+    node.clipsContent = false
+    markMutation(state, node)
+  }
+  if (
+    (node.type === 'FRAME' || node.type === 'COMPONENT') &&
     spec.appearance?.fill === undefined &&
     node.fills !== figma.mixed &&
     node.fills.length > 0
@@ -1926,8 +1962,16 @@ function moveIntoParent(
   index: number,
   state: ApplyState
 ): void {
-  if (node.parent?.id === parent.id && parent.children.indexOf(node) === index) return
+  const sameParent = node.parent?.id === parent.id
+  if (sameParent && parent.children.indexOf(node) === index) return
   parent.insertChild(index, node)
+  if (sameParent && parent.children.indexOf(node) !== index) {
+    const currentIndex = parent.children.indexOf(node)
+    parent.insertChild(currentIndex < index ? index + 1 : index, node)
+  }
+  if (parent.children.indexOf(node) !== index) {
+    specError(`Node "${node.id}" could not be placed at child index ${index}.`)
+  }
   markMutation(state, node)
 }
 
@@ -2231,32 +2275,38 @@ function crossAxisFill(
   if (parent.layoutMode === 'VERTICAL' && spec.size.horizontal === 'FILL') {
     return {
       axis: 'horizontal',
-      recoverySize: clampSize(
-        Math.max(
-          0,
-          parent.width -
-            parent.paddingLeft -
-            parent.paddingRight -
-            includedLayoutStroke(parent, 'horizontal')
-        ),
-        node.minWidth,
-        node.maxWidth
+      recoverySize: Math.max(
+        GEOMETRY_TOLERANCE,
+        clampSize(
+          Math.max(
+            GEOMETRY_TOLERANCE,
+            parent.width -
+              parent.paddingLeft -
+              parent.paddingRight -
+              includedLayoutStroke(parent, 'horizontal')
+          ),
+          node.minWidth,
+          node.maxWidth
+        )
       )
     }
   }
   if (parent.layoutMode === 'HORIZONTAL' && spec.size.vertical === 'FILL') {
     return {
       axis: 'vertical',
-      recoverySize: clampSize(
-        Math.max(
-          0,
-          parent.height -
-            parent.paddingTop -
-            parent.paddingBottom -
-            includedLayoutStroke(parent, 'vertical')
-        ),
-        node.minHeight,
-        node.maxHeight
+      recoverySize: Math.max(
+        GEOMETRY_TOLERANCE,
+        clampSize(
+          Math.max(
+            GEOMETRY_TOLERANCE,
+            parent.height -
+              parent.paddingTop -
+              parent.paddingBottom -
+              includedLayoutStroke(parent, 'vertical')
+          ),
+          node.minHeight,
+          node.maxHeight
+        )
       )
     }
   }
@@ -2273,7 +2323,12 @@ function stabilizeCrossAxisFill(
   const fill = crossAxisFill(node, spec, parent)
   if (!fill) return
   const current = fill.axis === 'horizontal' ? node.width : node.height
-  if (!state.createdNodeIds.has(node.id) && current > GEOMETRY_TOLERANCE) return
+  if (
+    current >= GEOMETRY_TOLERANCE &&
+    (!state.createdNodeIds.has(node.id) || state.stabilizedCrossAxisFillNodeIds.has(node.id))
+  ) {
+    return
+  }
 
   if (fill.axis === 'horizontal') {
     node.layoutSizingHorizontal = 'FIXED'
@@ -2284,6 +2339,7 @@ function stabilizeCrossAxisFill(
     node.resize(node.width, fill.recoverySize)
     node.layoutSizingVertical = 'FILL'
   }
+  state.stabilizedCrossAxisFillNodeIds.add(node.id)
   markMutation(state, node)
 }
 
@@ -3073,9 +3129,13 @@ function comparableShadow(effect: DropShadowEffect | InnerShadowEffect): Effect 
     ...effect,
     spread: effect.spread ?? 0,
     ...(effect.type === 'DROP_SHADOW'
-      ? { showShadowBehindNode: effect.showShadowBehindNode ?? false }
+      ? { showShadowBehindNode: effect.showShadowBehindNode ?? true }
       : {})
   }
+}
+
+function comparableEffect(effect: Effect, expected: Effect): unknown {
+  return isShadowEffect(effect) && isShadowEffect(expected) ? comparableShadow(effect) : effect
 }
 
 function effectsEqual(current: readonly Effect[], desired: readonly Effect[]): boolean {
@@ -3083,11 +3143,39 @@ function effectsEqual(current: readonly Effect[], desired: readonly Effect[]): b
   return current.every((effect, index) => {
     const expected = desired[index]!
     if (effect.type !== expected.type) return false
-    if (isShadowEffect(effect) && isShadowEffect(expected)) {
-      return nativeValueEqual(comparableShadow(effect), comparableShadow(expected))
-    }
-    return nativeValueEqual(effect, expected)
+    return nativeValueEqual(
+      comparableEffect(effect, expected),
+      comparableEffect(expected, expected),
+      FIGMA_NATIVE_TOLERANCE
+    )
   })
+}
+
+function summarizeNativeValue(value: unknown): string {
+  const serialized = JSON.stringify(value)
+  if (serialized === undefined) return String(value)
+  return serialized.length <= 400 ? serialized : `${serialized.slice(0, 397)}...`
+}
+
+function describeEffectMismatch(current: readonly Effect[], desired: readonly Effect[]): string {
+  if (current.length !== desired.length) {
+    return `expected ${desired.length} effect${desired.length === 1 ? '' : 's'}, found ${current.length}.`
+  }
+  const index = current.findIndex((effect, effectIndex) => {
+    const expected = desired[effectIndex]!
+    return (
+      effect.type !== expected.type ||
+      !nativeValueEqual(
+        comparableEffect(effect, expected),
+        comparableEffect(expected, expected),
+        FIGMA_NATIVE_TOLERANCE
+      )
+    )
+  })
+  if (index < 0) return 'effect stack changed before verification completed.'
+  const expected = desired[index]!
+  const found = current[index]!
+  return `effect ${index} does not match; expected ${summarizeNativeValue(comparableEffect(expected, expected))}, found ${summarizeNativeValue(comparableEffect(found, expected))}.`
 }
 
 function setStyleValue<T>(
@@ -3227,12 +3315,16 @@ function validateShadowSpread(node: SupportedCanvasNode, spec: CanvasNodeSpec): 
       (effect.spread !== undefined || effect.variables?.spread !== undefined)
   )
   if (!hasSpread || node.type === 'RECTANGLE' || node.type === 'ELLIPSE') return
-  if (
-    (isFrameContainer(node) || node.type === 'INSTANCE') &&
-    node.clipsContent &&
+  const authoredFills = spec.figma?.fills
+  const hasLiveVisibleFill =
+    'fills' in node &&
     node.fills !== figma.mixed &&
     node.fills.some((paint) => paint.visible ?? true)
-  ) {
+  const hasVisibleFill =
+    authoredFills === undefined
+      ? hasLiveVisibleFill
+      : authoredFills.some((paint) => paint.visible ?? true)
+  if ((isFrameContainer(node) || node.type === 'INSTANCE') && node.clipsContent && hasVisibleFill) {
     return
   }
   specError(
@@ -4549,7 +4641,7 @@ async function applySvg(
   }
   imported.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_SVG_CHILD_NAME, 'true')
   node.appendChild(imported)
-  state.mutations.count += 1
+  markMutation(state, node)
   placeSvgChild(imported, node, state)
   for (const child of owned) {
     child.remove()
@@ -5135,7 +5227,7 @@ function desiredChildIndex(
 
   const previousIndex = parent.children.indexOf(previous)
   if (currentIndex > previousIndex) return currentIndex
-  return previousIndex + 1
+  return currentIndex >= 0 && currentIndex < previousIndex ? previousIndex : previousIndex + 1
 }
 
 async function reconcileNode(
@@ -5288,6 +5380,7 @@ function createApplyState(
     referencedNodeIds: new Set(),
     scope: target,
     shaderCache: new Map(),
+    stabilizedCrossAxisFillNodeIds: new Set(),
     styles: createStyleState(),
     updatedNodeIds: new Set(),
     variables: createVariableState(),
@@ -5601,6 +5694,114 @@ function layoutAffectingVisibilityWarnings(
   return warnings
 }
 
+type ContentOverflow = {
+  bottom: number
+  left: number
+  right: number
+  top: number
+}
+
+function finiteRect(value: Rect | null | undefined): Rect | null {
+  return value &&
+    [value.x, value.y, value.width, value.height].every(Number.isFinite) &&
+    value.width >= 0 &&
+    value.height >= 0
+    ? value
+    : null
+}
+
+function overflowFromRects(child: Rect, parent: Rect): ContentOverflow | null {
+  const overflow = {
+    bottom: Math.max(0, child.y + child.height - (parent.y + parent.height)),
+    left: Math.max(0, parent.x - child.x),
+    right: Math.max(0, child.x + child.width - (parent.x + parent.width)),
+    top: Math.max(0, parent.y - child.y)
+  }
+  return Math.max(overflow.top, overflow.right, overflow.bottom, overflow.left) >
+    CONTENT_OVERFLOW_TOLERANCE
+    ? overflow
+    : null
+}
+
+function localNodeBounds(node: SupportedCanvasNode): Rect | null {
+  if (![node.width, node.height].every(Number.isFinite) || node.width < 0 || node.height < 0) {
+    return null
+  }
+  const transform = node.relativeTransform
+  const corners = [
+    { x: 0, y: 0 },
+    { x: node.width, y: 0 },
+    { x: 0, y: node.height },
+    { x: node.width, y: node.height }
+  ].map(({ x, y }) => ({
+    x: transform[0][0] * x + transform[0][1] * y + transform[0][2],
+    y: transform[1][0] * x + transform[1][1] * y + transform[1][2]
+  }))
+  const x = Math.min(...corners.map((corner) => corner.x))
+  const y = Math.min(...corners.map((corner) => corner.y))
+  const right = Math.max(...corners.map((corner) => corner.x))
+  const bottom = Math.max(...corners.map((corner) => corner.y))
+  return finiteRect({ x, y, width: right - x, height: bottom - y })
+}
+
+function contentOverflow(
+  node: SupportedCanvasNode,
+  parent: CanvasFrameContainerNode
+): ContentOverflow | null {
+  const parentBounds = finiteRect(
+    'absoluteBoundingBox' in parent ? parent.absoluteBoundingBox : null
+  )
+  const childBounds = finiteRect(
+    node.type === 'TEXT' && 'absoluteRenderBounds' in node
+      ? node.absoluteRenderBounds
+      : 'absoluteBoundingBox' in node
+        ? node.absoluteBoundingBox
+        : null
+  )
+  if (parentBounds && childBounds) return overflowFromRects(childBounds, parentBounds)
+  if (parent.layoutMode !== 'NONE') return null
+  const local = localNodeBounds(node)
+  return local
+    ? overflowFromRects(local, { x: 0, y: 0, width: parent.width, height: parent.height })
+    : null
+}
+
+function formatOverflow(overflow: ContentOverflow): string {
+  const edges: Array<[string, number]> = [
+    ['top', overflow.top],
+    ['right', overflow.right],
+    ['bottom', overflow.bottom],
+    ['left', overflow.left]
+  ]
+  return edges
+    .filter(([, value]) => value > CONTENT_OVERFLOW_TOLERANCE)
+    .map(([edge, value]) => `${edge} ${Math.round(value * 10) / 10}px`)
+    .join(', ')
+}
+
+function managedContentOverflowWarnings(
+  root: CanvasNodeSpec,
+  state: ApplyState
+): VerificationWarning[] {
+  const warnings: VerificationWarning[] = []
+  for (const spec of walkSpecs(root)) {
+    const node = state.keyedNodes.get(spec.key)
+    if (!node || (node.type !== 'TEXT' && node.type !== 'INSTANCE')) continue
+    const parent = node.parent
+    if (!parent || !isSupportedSceneNode(parent) || !isFrameContainer(parent)) continue
+    const parentKey = readOwnedNodeKey(parent)
+    if (!parentKey) continue
+    const overflow = contentOverflow(node, parent)
+    if (!overflow) continue
+    warnings.push({
+      code: 'managed-content-overflow',
+      key: spec.key,
+      message: `"${spec.key}" extends beyond parent "${parentKey}" by ${formatOverflow(overflow)}. Parent clipping is ${parent.clipsContent ? 'enabled, so the content will be clipped' : 'disabled, so the content may overlap adjacent content'}. Resize or realign the content when unintended; otherwise verify and retain the intentional overflow.`
+    })
+  }
+  return warnings
+}
+
 function removedRootResult(
   rootNodeId: string,
   removedNodeIds: string[] = [],
@@ -5616,6 +5817,16 @@ function removedRootResult(
     mutationCount: state?.mutations.count ?? 0,
     verification: buildVerification()
   }
+}
+
+function boundedApplyResult(result: ApplyCanvasResult): ApplyCanvasResult {
+  const bytes = measureCallToolResultBytes(buildApplyCanvasToolResult(result))
+  if (bytes > MCP_TOOL_INLINE_BUDGET_BYTES) {
+    specError(
+      'apply_canvas result exceeds the 64 KiB inline budget. Reduce the desired subtree or split the operation.'
+    )
+  }
+  return result
 }
 
 function appliedVariableId(
@@ -5670,7 +5881,7 @@ function verifySizingGeometry(
   const fill = crossAxisFill(node, spec, parent)
   if (fill) {
     const actual = fill.axis === 'horizontal' ? node.width : node.height
-    if (actual <= GEOMETRY_TOLERANCE) {
+    if (actual < GEOMETRY_TOLERANCE) {
       specError(`Verification failed for "${spec.key}": fill geometry does not match.`)
     }
   }
@@ -5813,8 +6024,15 @@ function verifyNativeNodeState(
       specError(`Verification failed for "${spec.key}": direct effects are unsupported.`)
     }
     const desired = effects.map((effect) => nativeEffect(effect, state))
-    if (!!node.effectStyleId || !effectsEqual(node.effects, desired)) {
-      specError(`Verification failed for "${spec.key}": direct effects do not match.`)
+    if (node.effectStyleId) {
+      specError(
+        `Verification failed for "${spec.key}": expected direct effects, but effect style "${node.effectStyleId}" remains applied.`
+      )
+    }
+    if (!effectsEqual(node.effects, desired)) {
+      specError(
+        `Verification failed for "${spec.key}": direct ${describeEffectMismatch(node.effects, desired)}`
+      )
     }
   }
 
@@ -6070,7 +6288,7 @@ async function removeUpdateRoot(targetNodeId: string): Promise<ApplyCanvasResult
     ) {
       specError(`Verification failed: root "${candidate.id}" is still present.`)
     }
-    return removedRootResult(candidate.id, removedNodeIds, state)
+    return boundedApplyResult(removedRootResult(candidate.id, removedNodeIds, state))
   }, state)
 }
 
@@ -6140,9 +6358,10 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
     const warnings = [
       ...unboundCreatedResourceWarnings(input, state),
       ...authoredVariableFallbackWarnings(input),
-      ...layoutAffectingVisibilityWarnings(rootSpec, state)
+      ...layoutAffectingVisibilityWarnings(rootSpec, state),
+      ...managedContentOverflowWarnings(rootSpec, state)
     ]
-    return {
+    return boundedApplyResult({
       rootNodeId: root.id,
       nodeIdsByKey: state.nodeIdsByKey,
       createdNodeIds: [...state.createdNodeIds],
@@ -6155,6 +6374,6 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
         verified.nativeFields,
         warnings
       )
-    }
+    })
   }, state)
 }

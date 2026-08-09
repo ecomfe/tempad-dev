@@ -503,7 +503,14 @@ async function selectVariable(
     if (!spec.name || !spec.type) {
       specError(`New variable "${key}" requires a name and type.`)
     }
-    const missingMode = collection.modes.find((mode) => !values.has(mode.modeId))
+    const removedModeIds = new Set(
+      state.modeRemovals
+        .filter((removal) => removal.collection.id === collection.id)
+        .map((removal) => removal.modeId)
+    )
+    const missingMode = collection.modes.find(
+      (mode) => !removedModeIds.has(mode.modeId) && !values.has(mode.modeId)
+    )
     if (missingMode) {
       specError(`New variable "${key}" requires a value for mode "${missingMode.name}".`)
     }
