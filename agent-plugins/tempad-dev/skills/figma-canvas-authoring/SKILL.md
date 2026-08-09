@@ -80,13 +80,14 @@ requires establishing and verifying them, not prescribing their answers.
      [design-system-authoring.md](references/design-system-authoring.md) and
      select resources from concrete consumers, meaningful differences, expected
      shared evolution, and abstraction cost. Repetition alone is not a trigger.
-4. **Select native representation, then load syntax.** Decide which Figma
-   capabilities express the result before reading their payload syntax; do not
-   let available classes or schema fields choose the medium or structure. Load
-   only the selected capability references below. Skip Canvas HTML for
-   `markup: null`. For a create or an update that changes element structure,
-   read [canvas-html.md](references/canvas-html.md) in full. For an update with
-   trustworthy markup and unchanged structure, always read
+4. **Form the Figma model, then serialize it.** Name the layers, resources,
+   bindings, and native behavior that express the chosen result before reading
+   payload syntax; do not let available classes or schema fields choose the
+   medium or structure. Load only the selected Figma-capability references
+   below, then use Canvas HTML to serialize the layer tree. Skip Canvas HTML
+   for `markup: null`. For a create or an update that changes element
+   structure, read [canvas-html.md](references/canvas-html.md) in full. For an
+   update with trustworthy markup and unchanged structure, always read
    [Elements and identity](references/canvas-html.md#elements-and-identity), then
    read only the changed Layout or Appearance and text section. Preserve every
    unaffected element, attribute, and class; leave markup unchanged for a
@@ -129,9 +130,11 @@ requires establishing and verifying them, not prescribing their answers.
 
 Do not turn this workflow into repeated API-like mutations.
 
-## Reference routing
+## Representation routing
 
-Load each reference only after its branch or capability is selected.
+Route an established design decision to its Figma concept, then to Canvas
+serialization. These references supply mechanics; do not browse them as a menu
+of design ideas. Load each only after its branch or capability is selected.
 Resolve every relative link from the directory containing this `SKILL.md`.
 
 Design decisions and evidence:

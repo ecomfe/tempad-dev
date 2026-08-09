@@ -46,11 +46,13 @@ describe('tools response helpers', () => {
     )
   })
 
-  it('keeps catalog discovery optional for canvas authoring', () => {
+  it('keeps canvas authoring outcome-focused and catalog-optional', () => {
     const designSystem = TOOL_DEFS.find((tool) => tool.name === 'get_design_system')
     const applyCanvas = TOOL_DEFS.find((tool) => tool.name === 'apply_canvas')
 
     expect(designSystem?.description).toContain('reuse is permitted and relevant')
+    expect(applyCanvas?.description).toContain('declarative desired Figma result')
+    expect(applyCanvas?.description).toContain('Serialize its managed layer tree with Canvas HTML')
     expect(designSystem?.parameters.parse({})).toEqual({})
     expect(
       applyCanvas?.parameters.parse({
