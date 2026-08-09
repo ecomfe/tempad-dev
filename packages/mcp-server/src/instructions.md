@@ -15,6 +15,11 @@ host skill owns task workflow, representation choice, and design judgment.
   permitted reuse; new local resources do not require it. Load the skill's progressive references
   for exact shapes only after choosing the native concept.
 
+When the user limits design evidence to the current page or requests an independent system without
+pre-existing resource reuse, stay on the Direct path: do not call `get_design_system`, inspect other
+pages, or use catalog refs. Local variables and styles remain file-wide Figma resources, and the
+extension may still perform file-wide identity checks internally for safe reconciliation.
+
 Create operations add and automatically place one new root. Updates are scoped by exact node
 identity: omission preserves live state, while explicit removal removes managed content. Read
 structural verification and resolve warnings before claiming native authoring is complete.

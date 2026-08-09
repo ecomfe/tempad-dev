@@ -103,6 +103,12 @@ requires establishing and verifying them, not prescribing their answers.
      returned resources relevant to the result.
    - **Direct:** use primitives, literal values, and allowed external assets.
      Do not call `get_design_system`, send `catalogId`, or use catalog refs.
+     Treat a request to limit design evidence to the current page, avoid
+     pre-existing file resources, or create an independent system as Direct: do not
+     inspect other pages or pre-existing file resources. Local variables and
+     styles are still file-wide Figma resources, and internal identity checks
+     may remain file-wide; use one collision-resistant authoring-key prefix for
+     resources created by this task.
    - **Author:** enter only when the user explicitly requests a reusable local
      resource or design-system extension. Read
      [design-system-authoring.md](references/design-system-authoring.md) and
@@ -177,6 +183,10 @@ requires establishing and verifying them, not prescribing their answers.
    defect is corrected, accepted with reason, or disclosed. Skip screenshots
    for mechanical text, token, prop, or hierarchy-only edits, and never turn
    this defect inventory into task-specific design requirements.
+   Treat a post-write verification mismatch as implementation evidence, not as
+   permission to delete the affected design intent. Correct the reported state
+   when an equivalent supported expression exists; otherwise preserve the
+   intended result and disclose the platform limitation.
 
 Do not turn this workflow into repeated API-like mutations.
 
