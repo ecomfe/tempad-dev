@@ -3448,7 +3448,7 @@ describe('mcp/tools/canvas', () => {
     expect(second.getSharedPluginData('tempad_dev', 'canvas-key')).toBe('screen/track-2')
   })
 
-  it('explains how a partial ancestor update preserves an existing instance', async () => {
+  it('preserves an existing instance in a partial ancestor update', async () => {
     const fixture = createFixture()
     const authored = await applyCanvasFromTool({
       mode: 'create',
@@ -3466,20 +3466,23 @@ describe('mcp/tools/canvas', () => {
       }
     })
 
-    await expect(
-      applyCanvasFromTool({
-        mode: 'update',
-        targetNodeId: screen.rootNodeId,
-        markup:
-          '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/track" class="w-[280px] h-[56px]"></div></div>'
-      })
-    ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
-      message: expect.stringContaining(
-        'Omit this keyed subtree to preserve the instance in a partial ancestor update'
-      )
+    const update = {
+      mode: 'update' as const,
+      targetNodeId: screen.rootNodeId,
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[340px] h-[200px]"><div data-key="screen/track" class="w-[300px] h-[56px]"></div></div>'
+    }
+    const updated = await applyCanvasFromTool(update)
+    expect(updated).toMatchObject({
+      createdNodeIds: [],
+      removedNodeIds: [],
+      nodeIdsByKey: { 'screen/track': screen.nodeIdsByKey['screen/track'] }
     })
-    expect(fixture.getNode(screen.nodeIdsByKey['screen/track']!).type).toBe('INSTANCE')
+    expect(fixture.getNode(screen.nodeIdsByKey['screen/track']!)).toMatchObject({
+      type: 'INSTANCE',
+      width: 300
+    })
+    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
   it('creates and selects variants from exact variant and component-set ids', async () => {
@@ -4856,6 +4859,59 @@ describe('mcp/tools/canvas', () => {
     await expect(applyCanvas(cleared)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
+  it('accepts Figma defaults and color normalization in direct layout grids', async () => {
+    const fixture = createFixture()
+    vi.mocked(figma.createFrame).mockImplementationOnce(() => {
+      const node = fixture.createNode('FRAME') as unknown as FrameNode
+      let layoutGrids: readonly LayoutGrid[] = []
+      Object.defineProperty(node, 'layoutGrids', {
+        configurable: true,
+        get: () => layoutGrids,
+        set: (value: readonly LayoutGrid[]) => {
+          layoutGrids = value.map((grid) => ({
+            ...grid,
+            visible: grid.visible ?? true,
+            color: grid.color
+              ? {
+                  r: Math.round(grid.color.r * 255) / 255,
+                  g: Math.round(grid.color.g * 255) / 255,
+                  b: Math.round(grid.color.b * 255) / 255,
+                  a: Math.round(grid.color.a * 255) / 255
+                }
+              : { r: 1, g: 0, b: 0, a: 0.25 }
+          }))
+        }
+      })
+      return node
+    })
+    const input: CanvasResolvedApplyParameters = {
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
+      bindings: {
+        root: {
+          figma: {
+            layoutGrids: [
+              { pattern: 'GRID', sectionSize: 8 },
+              {
+                pattern: 'COLUMNS',
+                alignment: 'STRETCH',
+                count: 12,
+                gutterSize: 16,
+                color: { r: 0.043, g: 0.361, b: 0.557, a: 0.09 }
+              }
+            ]
+          }
+        }
+      }
+    }
+
+    const created = await applyCanvas(input)
+
+    await expect(
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+    ).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
   it('replaces a grid style with direct layout grids and preflights grid variables', async () => {
     const fixture = createFixture()
     const styled: CanvasResolvedApplyParameters = {
@@ -5175,6 +5231,91 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
     ).resolves.toMatchObject({ mutationCount: 0 })
     expect(fixture.createImageAsync).toHaveBeenCalledTimes(2)
+  })
+
+  it('accepts Figma defaults but rejects loss of explicit direct image fields', async () => {
+    const fixture = createFixture()
+    let preserveRotation = true
+    vi.mocked(figma.createFrame).mockImplementationOnce(() => {
+      const node = fixture.createNode('FRAME')
+      let fills: readonly Paint[] = []
+      Object.defineProperty(node, 'fills', {
+        configurable: true,
+        get: () => fills,
+        set: (value: readonly Paint[]) => {
+          const filterFields = [
+            'exposure',
+            'contrast',
+            'saturation',
+            'temperature',
+            'tint',
+            'highlights',
+            'shadows'
+          ] as const
+          fills = value.map((paint) => {
+            if (paint.type !== 'IMAGE') return paint
+            const normalized = {
+              ...paint,
+              rotation:
+                paint.scaleMode === 'CROP'
+                  ? undefined
+                  : preserveRotation
+                    ? (paint.rotation ?? 0)
+                    : 0,
+              filters: Object.fromEntries(
+                filterFields.map((field) => [field, paint.filters?.[field] ?? 0])
+              )
+            }
+            if (paint.scaleMode === 'CROP') {
+              return {
+                ...normalized,
+                imageTransform: paint.imageTransform ?? [
+                  [1, 0, 0],
+                  [0, 1, 0]
+                ]
+              } as ImagePaint
+            }
+            if (paint.scaleMode === 'TILE') {
+              return { ...normalized, scalingFactor: paint.scalingFactor ?? 1 } as ImagePaint
+            }
+            return normalized as ImagePaint
+          })
+        }
+      })
+      return node as unknown as FrameNode
+    })
+    const input: CanvasResolvedApplyParameters = {
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
+      bindings: {
+        root: {
+          figma: {
+            fills: [
+              { type: 'IMAGE', imageHash: 'image:existing', scaleMode: 'FILL' },
+              { type: 'IMAGE', imageHash: 'image:existing', scaleMode: 'CROP' },
+              { type: 'IMAGE', imageHash: 'image:existing', scaleMode: 'TILE' },
+              { type: 'IMAGE', imageHash: 'image:existing', scaleMode: 'FIT', rotation: 90 }
+            ]
+          }
+        }
+      }
+    }
+
+    const created = await applyCanvas(input)
+    const root = fixture.getNode(created.rootNodeId)
+
+    await expect(
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+    ).resolves.toMatchObject({ mutationCount: 0 })
+
+    preserveRotation = false
+    root.fills = root.fills as readonly Paint[]
+    await expect(
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: 'Verification failed for "root": direct fills do not match.'
+    })
   })
 
   it('rolls back when Figma does not retain a declared native paint stack', async () => {

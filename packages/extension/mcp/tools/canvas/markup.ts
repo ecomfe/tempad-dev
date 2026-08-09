@@ -1529,7 +1529,7 @@ function compileElement(
           ? { opacity: classes.opacity ?? 1 }
           : {})
       },
-      component: binding!.component,
+      ...(binding?.component ? { component: binding.component } : {}),
       ...(binding?.componentProperties ? { componentProperties: binding.componentProperties } : {})
     }
   } else if (type === 'GROUP') {

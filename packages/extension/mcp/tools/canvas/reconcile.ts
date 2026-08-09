@@ -110,6 +110,7 @@ const SUPPORTED_NODE_TYPES = new Set<CanvasNodeSpec['type']>([
 const PRESERVED_NODE_TYPES = new Set<CanvasPreservedNodeType>([
   'COMPONENT',
   'COMPONENT_SET',
+  'INSTANCE',
   'RECTANGLE',
   'LINE',
   'ELLIPSE',
@@ -2921,14 +2922,17 @@ function comparableEntries(value: Record<string, unknown>): Array<[string, unkno
   )
 }
 
-function nativeValueEqual(current: unknown, desired: unknown): boolean {
+function nativeValueEqual(current: unknown, desired: unknown, numberTolerance = 0): boolean {
   if (Object.is(current, desired)) return true
+  if (typeof current === 'number' && typeof desired === 'number') {
+    return Math.abs(current - desired) <= numberTolerance
+  }
   if (Array.isArray(current) || Array.isArray(desired)) {
     return (
       Array.isArray(current) &&
       Array.isArray(desired) &&
       current.length === desired.length &&
-      current.every((value, index) => nativeValueEqual(value, desired[index]))
+      current.every((value, index) => nativeValueEqual(value, desired[index], numberTolerance))
     )
   }
   if (!isRecord(current) || !isRecord(desired)) return false
@@ -2936,9 +2940,11 @@ function nativeValueEqual(current: unknown, desired: unknown): boolean {
   const desiredEntries = comparableEntries(desired)
   return (
     currentEntries.length === desiredEntries.length &&
-    currentEntries.every(([key, value]) => nativeValueEqual(value, desired[key]))
+    currentEntries.every(([key, value]) => nativeValueEqual(value, desired[key], numberTolerance))
   )
 }
+
+const FIGMA_NATIVE_TOLERANCE = 1 / 255 + Number.EPSILON
 
 function nativeLayoutGrid(grid: CanvasFigmaLayoutGrid, state: ApplyState): LayoutGrid {
   const { variables, ...fields } = grid
@@ -2961,10 +2967,17 @@ function nativeLayoutGrid(grid: CanvasFigmaLayoutGrid, state: ApplyState): Layou
   return native
 }
 
-function comparableLayoutGrid(grid: LayoutGrid): LayoutGrid {
+function comparableLayoutGrid(grid: LayoutGrid, expected: LayoutGrid): Record<string, unknown> {
+  const comparable = Object.fromEntries(
+    Object.keys(expected)
+      .filter((field) => !['boundVariables', 'color', 'visible'].includes(field))
+      .map((field) => [field, grid[field as keyof LayoutGrid]])
+  )
   return {
-    ...grid,
-    visible: grid.visible ?? true
+    ...comparable,
+    visible: grid.visible ?? true,
+    ...(expected.color === undefined ? {} : { color: grid.color }),
+    boundVariables: grid.boundVariables ?? {}
   }
 }
 
@@ -2972,7 +2985,11 @@ function layoutGridsEqual(current: readonly LayoutGrid[], desired: readonly Layo
   return (
     current.length === desired.length &&
     current.every((grid, index) =>
-      nativeValueEqual(comparableLayoutGrid(grid), comparableLayoutGrid(desired[index]!))
+      nativeValueEqual(
+        comparableLayoutGrid(grid, desired[index]!),
+        comparableLayoutGrid(desired[index]!, desired[index]!),
+        FIGMA_NATIVE_TOLERANCE
+      )
     )
   )
 }
@@ -2987,14 +3004,41 @@ const IMAGE_FILTER_FIELDS = [
   'shadows'
 ] as const satisfies ReadonlyArray<keyof ImageFilters>
 
-function comparablePaint(paint: Paint): Paint {
-  if (paint.type === 'IMAGE' || paint.type === 'VIDEO') {
+function comparablePaint(paint: Paint, expected: Paint): unknown {
+  if (paint.type === 'IMAGE' && expected.type === 'IMAGE') {
     return {
-      ...paint,
+      type: paint.type,
+      imageHash: paint.imageHash,
+      scaleMode: paint.scaleMode,
       ...paintDefaults(paint),
       filters: Object.fromEntries(
         IMAGE_FILTER_FIELDS.map((field) => [field, paint.filters?.[field] ?? 0])
-      )
+      ),
+      ...(paint.scaleMode === 'CROP' && expected.imageTransform !== undefined
+        ? { imageTransform: paint.imageTransform }
+        : {}),
+      ...(paint.scaleMode === 'TILE' && expected.scalingFactor !== undefined
+        ? { scalingFactor: paint.scalingFactor }
+        : {}),
+      ...(paint.scaleMode === 'CROP' ? {} : { rotation: paint.rotation ?? 0 })
+    }
+  }
+  if (paint.type === 'VIDEO' && expected.type === 'VIDEO') {
+    return {
+      type: paint.type,
+      videoHash: paint.videoHash,
+      scaleMode: paint.scaleMode,
+      ...paintDefaults(paint),
+      filters: Object.fromEntries(
+        IMAGE_FILTER_FIELDS.map((field) => [field, paint.filters?.[field] ?? 0])
+      ),
+      ...(paint.scaleMode === 'CROP' && expected.videoTransform !== undefined
+        ? { videoTransform: paint.videoTransform }
+        : {}),
+      ...(paint.scaleMode === 'TILE' && expected.scalingFactor !== undefined
+        ? { scalingFactor: paint.scalingFactor }
+        : {}),
+      ...(paint.scaleMode === 'CROP' ? {} : { rotation: paint.rotation ?? 0 })
     }
   }
   return {
@@ -3010,7 +3054,11 @@ function paintStacksEqual(current: readonly Paint[], desired: readonly Paint[]):
       const expected = desired[index]!
       return (
         paint.type === expected.type &&
-        nativeValueEqual(comparablePaint(paint), comparablePaint(expected))
+        nativeValueEqual(
+          comparablePaint(paint, expected),
+          comparablePaint(expected, expected),
+          FIGMA_NATIVE_TOLERANCE
+        )
       )
     })
   )
@@ -3247,7 +3295,7 @@ async function nativeVectorNetwork(
   }
 }
 
-function comparableVectorNetwork(network: VectorNetwork): unknown {
+function comparableVectorNetwork(network: VectorNetwork, expected: VectorNetwork): unknown {
   return {
     vertices: network.vertices,
     segments: network.segments.map((segment) => ({
@@ -3255,19 +3303,30 @@ function comparableVectorNetwork(network: VectorNetwork): unknown {
       tangentStart: segment.tangentStart ?? { x: 0, y: 0 },
       tangentEnd: segment.tangentEnd ?? { x: 0, y: 0 }
     })),
-    regions: (network.regions ?? []).map(({ fills, fillStyleId, ...region }) => ({
-      ...region,
-      ...(fillStyleId
-        ? { fillStyleId }
-        : fills === undefined
-          ? {}
-          : { fills: fills.map(comparablePaint) })
-    }))
+    regions: (network.regions ?? []).map(({ fills, fillStyleId, ...region }, regionIndex) => {
+      const expectedFills = expected.regions?.[regionIndex]?.fills
+      return {
+        ...region,
+        ...(fillStyleId
+          ? { fillStyleId }
+          : fills === undefined
+            ? {}
+            : {
+                fills: fills.map((paint, paintIndex) =>
+                  comparablePaint(paint, expectedFills?.[paintIndex] ?? paint)
+                )
+              })
+      }
+    })
   }
 }
 
 function vectorNetworksEqual(current: VectorNetwork, desired: VectorNetwork): boolean {
-  return nativeValueEqual(comparableVectorNetwork(current), comparableVectorNetwork(desired))
+  return nativeValueEqual(
+    comparableVectorNetwork(current, desired),
+    comparableVectorNetwork(desired, desired),
+    FIGMA_NATIVE_TOLERANCE
+  )
 }
 
 async function applyShape(
