@@ -29,6 +29,7 @@ import type {
 
 import { readBoundedResponseBytes } from '../../bounded-response'
 import { createCodedError } from '../../errors'
+import { retryAfterFigmaConnectionTimeout } from '../../figma-readiness'
 import { getLocalEffectStyles, getLocalPaintStyles, getNodeById } from '../../local-resources'
 import {
   type ResolvedCanvasAssets,
@@ -871,8 +872,9 @@ function loadFont(font: FontName, state: ApplyState): Promise<void> {
   const key = `${font.family}\0${font.style}`
   const pending = state.fontLoads.get(key)
   if (pending) return pending
-  const load = figma
-    .loadFontAsync(font)
+  const load = Promise.resolve()
+    .then(() => figma.loadFontAsync(font))
+    .catch((error) => retryAfterFigmaConnectionTimeout(() => figma.loadFontAsync(font), error))
     .catch(() =>
       specError(`Font "${font.family} ${font.style}" is unavailable in the current Figma context.`)
     )

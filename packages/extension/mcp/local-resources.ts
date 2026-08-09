@@ -1,9 +1,15 @@
+import { retryAfterFigmaConnectionTimeout } from './figma-readiness'
+
 async function readWithSyncFallback<T>(readAsync: () => Promise<T>, readSync: () => T): Promise<T> {
   try {
     return await readAsync()
-  } catch {
+  } catch (asyncError) {
     // The rewritten editor runtime can expose the Plugin API before its async backend is ready.
-    return readSync()
+    try {
+      return readSync()
+    } catch (syncError) {
+      return retryAfterFigmaConnectionTimeout(readAsync, syncError, asyncError)
+    }
   }
 }
 

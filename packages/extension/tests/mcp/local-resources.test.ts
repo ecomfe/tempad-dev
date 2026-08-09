@@ -81,4 +81,24 @@ describe('local Figma resource reads', () => {
       [style, textStyle, effectStyle, gridStyle]
     ])
   })
+
+  it('loads the current page and retries a transient connection timeout once', async () => {
+    const node = { id: '1:1' } as BaseNode
+    const timeout = new Error('Unable to establish connection to Figma after 10 seconds')
+    const getNodeByIdAsync = vi.fn().mockRejectedValueOnce(timeout).mockResolvedValue(node)
+    const getNodeByIdSync = vi.fn(() => {
+      throw timeout
+    })
+    const loadAsync = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('figma', {
+      currentPage: { loadAsync },
+      getNodeById: getNodeByIdSync,
+      getNodeByIdAsync
+    } as unknown as PluginAPI)
+
+    await expect(getNodeById(node.id)).resolves.toBe(node)
+    expect(loadAsync).toHaveBeenCalledOnce()
+    expect(getNodeByIdAsync).toHaveBeenCalledTimes(2)
+    expect(getNodeByIdSync).toHaveBeenCalledOnce()
+  })
 })
