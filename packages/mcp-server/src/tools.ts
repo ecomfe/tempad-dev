@@ -151,7 +151,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'apply_canvas',
     description:
-      'Create or reconcile one managed Figma root from Canvas HTML plus optional typed native resources and bindings. Create auto-places the new root; update targets an exact node, matches stable data-key identities, preserves omitted live state, and removes explicit removeKeys. TemPad Dev validates, applies one undoable patch, and verifies the result.',
+      'Apply one declarative desired Figma result. Serialize its managed layer tree with Canvas HTML and add typed native state, resources, and bindings for selected Figma capabilities. Create auto-places the new root; update targets an exact node, matches stable data-key identities, preserves omitted live state, and removes explicit removeKeys. TemPad Dev validates, applies one undoable patch, and verifies the result.',
     annotations: CANVAS_WRITE_ANNOTATIONS,
     parameters: ApplyCanvasParametersSchema,
     target: 'extension',
