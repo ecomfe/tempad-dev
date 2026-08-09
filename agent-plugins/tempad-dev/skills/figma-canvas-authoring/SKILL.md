@@ -100,11 +100,15 @@ requires establishing and verifying them, not prescribing their answers.
    organization is not part of the deliverable. Never scan for free space,
    maintain a coordinate ledger, or translate a create root for placement;
    TemPad Dev positions new roots from their rendered bounds.
-6. **Close authored-system scope.** On the Author path, follow the closure in
-   [design-system-authoring.md](references/design-system-authoring.md) after
-   concrete consumers exist. Use authored components through native instances,
-   bind variables and styles to consumers performing their semantic role,
-   resolve authoring warnings, and inspect materially distinct states. Remove
+6. **Close authored-system scope.** On the Author path, do not finish on an
+   early seed resource. After concrete consumers exist, revisit the strongest
+   remaining system decision across behavior, typography, layout, and
+   appearance. Close it through native resources and real consumers when reuse,
+   state consistency, or shared evolution earns its cost; otherwise keep it
+   local for a concrete reason and state that reason briefly in the handoff.
+   Repetition and resource counts never decide. Follow the detailed closure in
+   [design-system-authoring.md](references/design-system-authoring.md), resolve
+   authoring warnings, inspect materially distinct states, and remove
    speculative resources rather than manufacturing specimens to justify them.
 7. **Verify the delivered result.** Read structural verification. For a new
    composition or material visual change, open the representative screenshot
