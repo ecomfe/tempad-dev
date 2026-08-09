@@ -1,5 +1,6 @@
 import type { CodegenConfig } from '@/utils/codegen'
 
+import { getLocalVariables } from '@/mcp/local-resources'
 import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
 import { workerUnitOptions } from '@/utils/codegen'
 import { canonicalizeVarName as canonicalizeCssVarName, normalizeFigmaVarName } from '@/utils/css'
@@ -111,7 +112,7 @@ export async function getTokenIndex(
   }
 
   const promise = (async (): Promise<TokenIndex> => {
-    const variables = await figma.variables.getLocalVariablesAsync()
+    const variables = await getLocalVariables()
 
     const byCanonicalName = new Map<string, string[]>()
     const canonicalNameById = new Map<string, string>()
