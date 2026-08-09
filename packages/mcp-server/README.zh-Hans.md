@@ -48,7 +48,7 @@
 
 - `TEMPAD_MCP_TOOL_TIMEOUT`：常规工具调用超时时间（毫秒，默认 `15000`）。
 - `TEMPAD_MCP_GET_CODE_TIMEOUT`：`get_code` 超时时间（毫秒，默认 `30000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。
-- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`：`apply_canvas` 超时时间（毫秒，默认 `120000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。
+- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`：`apply_canvas` 慢调用告警阈值（毫秒，默认 `120000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。超过阈值后，Hub 会继续等待明确结果或扩展断开，避免把已经完成的画布变更误报为超时。
 - `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`：仅一个扩展连接时自动激活前的延迟（默认 `1500`）。
 - `TEMPAD_MCP_MAX_ASSET_BYTES`：截图/资源捕获的最大上传体积（字节，默认 `8388608`）。
 - `TEMPAD_MCP_MAX_ASSET_STORE_BYTES`：本地资源存储总量上限（字节，默认 `268435456`）。

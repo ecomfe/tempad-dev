@@ -51,6 +51,7 @@ describe('tools response helpers', () => {
     const applyCanvas = TOOL_DEFS.find((tool) => tool.name === 'apply_canvas')
 
     expect(designSystem?.description).toContain('reuse is permitted and relevant')
+    expect(designSystem?.description).toContain('limits design evidence to the current page')
     expect(applyCanvas?.description).toContain('declarative desired Figma result')
     expect(applyCanvas?.description).toContain('Markup serializes ordinary layers as Canvas HTML')
     expect(applyCanvas?.description).toContain('typed fields express selected Figma capabilities')
@@ -356,6 +357,17 @@ describe('tools response helpers', () => {
     expect(textContent(selectionError.content[0])).toContain('[INVALID_SELECTION]')
     expect(textContent(selectionError.content[0])).toContain('Tip: Select exactly one visible node')
 
+    const verificationError = createToolErrorResponse('apply_canvas', {
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: 'Verification failed for "root": direct effect 0 does not match.'
+    })
+    expect(textContent(verificationError.content[0])).toContain(
+      'TemPad rolls verification failures back'
+    )
+    expect(textContent(verificationError.content[0])).toContain(
+      'preserving unrelated design intent'
+    )
+
     const unknownError = createToolErrorResponse('get_assets', 42)
     expect(unknownError.isError).toBe(true)
     expect(textContent(unknownError.content[0])).toBe(
@@ -379,6 +391,13 @@ describe('tools response helpers', () => {
     })
     expect(textContent(nonObjectCause.content[0])).toContain('websocket connection failed')
     expect(textContent(nonObjectCause.content[0])).toContain('Troubleshooting:')
+
+    const stableKeyError = createToolErrorResponse('apply_canvas', {
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: 'Canvas key "websocket" is duplicated inside the update scope.'
+    })
+    expect(textContent(stableKeyError.content[0])).toContain('Canvas key "websocket"')
+    expect(textContent(stableKeyError.content[0])).not.toContain('Troubleshooting:')
 
     const emptyErrorMessage = createToolErrorResponse('get_assets', new Error(''))
     expect(textContent(emptyErrorMessage.content[0])).toBe(

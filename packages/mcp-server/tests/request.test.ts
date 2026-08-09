@@ -57,6 +57,30 @@ describe('mcp-server/request', () => {
     await rejection
   })
 
+  it('keeps mutating calls pending after their slow-call warning threshold', async () => {
+    vi.useFakeTimers()
+    vi.mocked(nanoid).mockReturnValue('req-slow-apply')
+
+    const call = register<{ ok: boolean }>('ext-1', 1500, {
+      waitForDefinitiveResult: true
+    })
+    let settled = false
+    void call.promise.then(
+      () => (settled = true),
+      () => (settled = true)
+    )
+
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(settled).toBe(false)
+    expect(log.warn).toHaveBeenCalledWith(
+      { reqId: 'req-slow-apply', extId: 'ext-1', timeout: 1500 },
+      'Extension call exceeded its warning threshold; waiting for a definitive result.'
+    )
+
+    resolve(call.requestId, 'ext-1', { ok: true })
+    await expect(call.promise).resolves.toEqual({ ok: true })
+  })
+
   it('warns when resolving or rejecting unknown calls', () => {
     const warnSpy = vi.mocked(log.warn)
 
