@@ -12,9 +12,11 @@ description: >-
 
 # Design on the Figma canvas
 
-Turn product intent into one native, editable Figma result. Keep that result
-focal; treat evidence, references, catalog entries, syntax, and tool calls as
-subsidiary support rather than design direction or a checklist to maximize.
+Turn product intent into one native, editable Figma result. Reason in this
+order: intended experience and evidence, Figma-native representation, Canvas
+serialization, then rendered verification. Keep the result focal; classes,
+schema fields, catalog entries, examples, and tool calls are subsidiary means,
+not design evidence or a checklist to maximize.
 
 Use this skill for Figma authoring and delivery. Derive product-domain,
 platform, accessibility, content, and visual-design requirements from the user,
@@ -82,11 +84,12 @@ requires establishing and verifying them, not prescribing their answers.
      select resources from concrete consumers, meaningful differences, expected
      shared evolution, and abstraction cost. Repetition alone is not a trigger.
 4. **Select native representation, then load syntax.** Decide which Figma
-   capabilities express the result before reading their payload syntax. Load
-   only the selected capability references in the routing section below. Skip
-   Canvas HTML for `markup: null`. For a create or an update that changes element
-   structure, read [canvas-html.md](references/canvas-html.md) in full. For an
-   update with trustworthy markup and unchanged structure, always read
+   capabilities express the result before reading their payload syntax; do not
+   let available classes or schema fields choose the medium or structure. Load
+   only the selected capability references below. Skip Canvas HTML for
+   `markup: null`. For a create or an update that changes element structure,
+   read [canvas-html.md](references/canvas-html.md) in full. For an update with
+   trustworthy markup and unchanged structure, always read
    [Elements and identity](references/canvas-html.md#elements-and-identity), then
    read only the changed Layout or Appearance and text section. Preserve every
    unaffected element, attribute, and class; leave markup unchanged for a
@@ -130,11 +133,11 @@ Do not turn this workflow into repeated API-like mutations.
 Load each reference only after its branch or capability is selected.
 Resolve every relative link from the directory containing this `SKILL.md`.
 
-Decision and evidence:
+Design decisions and evidence:
 
 - unresolved material design decisions:
   [style-grounding.md](references/style-grounding.md)
-- icons, exact fonts, images, or illustrations:
+- asset role, subject, medium, source, or typeface choice:
   [visual-assets.md](references/visual-assets.md)
 - existing-system reuse:
   [design-system-reuse.md](references/design-system-reuse.md)
@@ -143,13 +146,13 @@ Decision and evidence:
 - bounded research, asset, inventory, or visual-QA delegation:
   [delegation.md](references/delegation.md)
 
-Native representation:
+Figma-native representation and authoring:
 
 - pages, sections, groups, Booleans, masks, transforms, shapes, or vectors:
   [document-geometry.md](references/document-geometry.md)
-- paints, media, effects, shaders, grids, or guides:
+- applying paints, media, effects, shaders, grids, or guides:
   [paints-effects.md](references/paints-effects.md)
-- exact fonts, rich text, range styles, lists, or hyperlinks:
+- applying an exact font, rich text, range styles, lists, or hyperlinks:
   [rich-text.md](references/rich-text.md)
 - authored components, variant sets, properties, or Slots:
   [component-authoring.md](references/component-authoring.md)
@@ -158,7 +161,7 @@ Native representation:
 - local Paint, Text, Effect, or Grid styles and bindings:
   [styles.md](references/styles.md)
 
-Serialization:
+Canvas serialization after representation is chosen:
 
 - Canvas elements, identity, layout, appearance, and text syntax:
   [canvas-html.md](references/canvas-html.md)

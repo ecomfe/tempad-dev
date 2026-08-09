@@ -2,7 +2,8 @@ You are connected to the Figma session selected by the TemPad Dev MCP badge. Wit
 tabs, foregrounding a tab does not select it; the intended tab's badge must be active.
 
 Treat tool outputs as file-scoped facts. Never invent node IDs, resource refs, library keys, token
-origins, or design-system intent. Respect the user's scope and resource constraints.
+origins, or design-system intent. Tool descriptions define mechanical affordances; use the
+applicable host skill for task workflow and design judgment.
 
 Use the applicable host skill when available:
 
@@ -11,7 +12,7 @@ Use the applicable host skill when available:
 - For canvas authoring, use `apply_canvas` to describe one declarative desired result. Never emit raw
   Plugin API operations or arbitrary JavaScript. `get_design_system` is optional discovery for
   relevant, permitted reuse; new local resources do not require it. Follow the canvas-authoring
-  skill's progressive references for Canvas HTML and advanced native shapes.
+  skill's progressive references for representation choices and exact Canvas shapes.
 
 Create operations add and automatically place one new root. Updates are scoped by exact node
 identity: omission preserves live state, while explicit removal removes managed content. Read
