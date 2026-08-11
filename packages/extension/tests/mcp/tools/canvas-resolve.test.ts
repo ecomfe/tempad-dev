@@ -264,6 +264,37 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
     })
   })
 
+  it('grounds create-only instance state through a catalog component tag', () => {
+    const designSystem = catalog()
+    const input = ApplyCanvasParametersSchema.parse({
+      mode: 'create',
+      catalogId: designSystem.id,
+      markup:
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><Button data-key="save" data-ref="c1" /></div>',
+      native: {
+        save: {
+          componentProperties: { 'Label#1:2': 'Save' },
+          figma: { instance: { scaleFactor: 1.25 } }
+        }
+      }
+    })
+
+    const resolved = resolveCanvasInput(input)
+    expect(resolved.input.bindings?.save).toEqual({
+      componentProperties: { 'Label#1:2': 'Save' },
+      figma: { instance: { scaleFactor: 1.25 } }
+    })
+
+    const parsed = parseCanvasMarkup(resolved.input, resolved.catalog)
+    expect(parsed.root?.children?.[0]).toMatchObject({
+      key: 'save',
+      type: 'INSTANCE',
+      component: { id: 'component:button', key: 'component-key' },
+      componentProperties: { 'Label#1:2': 'Save' },
+      figma: { instance: { scaleFactor: 1.25 } }
+    })
+  })
+
   it('accepts advertised native instance-swap ids and keys', () => {
     const designSystem = registerDesignSystemCatalog([
       {
