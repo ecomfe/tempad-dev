@@ -251,6 +251,8 @@ export async function handleGetCode(
     trace: traceInfo
   }
   const allAssets = Array.from(assetRegistry.values())
+  const videoPreviewAssetHashes = collected.videoPreviewAssetHashes ?? new Set<string>()
+  const rootVideoPreviewAssetHashes = collected.rootVideoPreviewAssetHashes ?? new Set<string>()
 
   if (earlyShell) {
     const shellMode = createShellMode(rootId, tree, ctx)
@@ -268,7 +270,7 @@ export async function handleGetCode(
       cappedNodeIds: tree.stats.cappedNodeIds,
       shell: true
     })
-    const assets = filterAssetsReferencedInCode(allAssets, shell.code)
+    const assets = selectAssetsForCode(allAssets, shell.code, videoPreviewAssetHashes)
     const result = buildCodeResult(shell, codegen, assets, warnings)
     assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
     logTrace(
@@ -286,7 +288,7 @@ export async function handleGetCode(
     const warnings = buildGetCodeWarnings(output.code, {
       cappedNodeIds: tree.stats.cappedNodeIds
     })
-    const assets = filterAssetsReferencedInCode(allAssets, output.code)
+    const assets = selectAssetsForCode(allAssets, output.code, videoPreviewAssetHashes)
     const result = buildCodeResult(output, codegen, assets, warnings)
     assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
 
@@ -318,7 +320,7 @@ export async function handleGetCode(
       cappedNodeIds: tree.stats.cappedNodeIds,
       shell: true
     })
-    const assets = filterAssetsReferencedInCode(allAssets, shell.code)
+    const assets = selectAssetsForCode(allAssets, shell.code, rootVideoPreviewAssetHashes)
     const result = buildCodeResult(shell, codegen, assets, warnings)
 
     try {
@@ -736,8 +738,17 @@ function stampRenderPhase(
   trace.stamp(label, start)
 }
 
-function filterAssetsReferencedInCode(assets: AssetDescriptor[], code: string): AssetDescriptor[] {
-  return assets.filter((asset) => code.includes(asset.url) || code.includes(asset.hash))
+function selectAssetsForCode(
+  assets: AssetDescriptor[],
+  code: string,
+  supplementalAssetHashes?: ReadonlySet<string>
+): AssetDescriptor[] {
+  return assets.filter(
+    (asset) =>
+      code.includes(asset.url) ||
+      code.includes(asset.hash) ||
+      supplementalAssetHashes?.has(asset.hash)
+  )
 }
 
 function buildCodeResult(

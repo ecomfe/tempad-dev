@@ -25,10 +25,11 @@ export async function replaceMediaUrlsWithAssets(
   style: Record<string, string>,
   node: SceneNode,
   config: CodegenConfig,
-  assetRegistry: Map<string, AssetDescriptor>
+  assetRegistry: Map<string, AssetDescriptor>,
+  videoPreviewAssetHashes?: Set<string>
 ): Promise<Record<string, string>> {
   if (!style['background-color'] && !style['background-image'] && !style.background) return style
-  const fills = await collectMediaFillAssets(node, assetRegistry)
+  const fills = await collectMediaFillAssets(node, assetRegistry, videoPreviewAssetHashes)
   if (!fills.length) return replaceMediaUrlsWithPlaceholder(style, node, config)
 
   const result = { ...style }
@@ -80,7 +81,8 @@ function replaceMediaUrlsWithPlaceholder(
 
 async function collectMediaFillAssets(
   node: SceneNode,
-  assetRegistry: Map<string, AssetDescriptor>
+  assetRegistry: Map<string, AssetDescriptor>,
+  videoPreviewAssetHashes?: Set<string>
 ): Promise<AssetDescriptor[]> {
   if (!('fills' in node)) return []
   const fills = Array.isArray(node.fills) ? (node.fills as Paint[]) : null
@@ -113,6 +115,7 @@ async function collectMediaFillAssets(
           figmaVideoHashes: videoHashes
         }
         registerAsset(assetRegistry, asset)
+        videoPreviewAssetHashes?.add(asset.hash)
         if (!hasVisibleImage) assets.push(asset)
       } catch (error) {
         logger.warn('Failed to export video fill preview:', error)

@@ -12,6 +12,57 @@ const scriptPath = fileURLToPath(import.meta.url)
 const pluginDisplayName = 'TemPad Dev (Dev)'
 const pluginName = 'tempad-dev-dev'
 const pollIntervalMs = 500
+const pageFunctionDeclaration = `function (request) {
+  const isVisible = (element) =>
+    Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length)
+  const findElement = (query) => {
+    const match = [...document.querySelectorAll(query.selector)].find(
+      (element) =>
+        (query.visible === false || isVisible(element)) &&
+        (query.leafOnly !== true || element.children.length === 0) &&
+        (query.text === undefined || element.textContent.trim() === query.text) &&
+        (query.ariaLabel === undefined ||
+          element.getAttribute('aria-label') === query.ariaLabel)
+    )
+    return match && query.closest ? match.closest(query.closest) : match || null
+  }
+  const pluginState = () => {
+    if (findElement({ selector: 'button', ariaLabel: 'More actions' })) return 'installed'
+    if (findElement({ selector: 'button', text: 'Install plugin' })) return 'uninstalled'
+    return null
+  }
+
+  if (request.action === 'body-includes') {
+    return Boolean(document.body && document.body.innerText.includes(request.text))
+  }
+  if (request.action === 'element-exists') {
+    return Boolean(findElement(request.query))
+  }
+  if (request.action === 'element-center') {
+    const element = findElement(request.query)
+    if (!element) return null
+    const rect = element.getBoundingClientRect()
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+  }
+  if (request.action === 'click-element') {
+    const element = findElement(request.query)
+    if (!element || typeof element.click !== 'function') return false
+    element.click()
+    return true
+  }
+  if (request.action === 'plugin-state') return pluginState()
+  if (request.action === 'plugin-state-is') return pluginState() === request.state
+  if (request.action === 'set-input-value') {
+    const input = document.querySelector(request.selector)
+    if (!(input instanceof HTMLInputElement)) return false
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    if (!setter) return false
+    setter.call(input, request.value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  }
+  throw new Error('Unknown Codex page action.')
+}`
 
 type Arguments = {
   cdpUrl: string
@@ -40,6 +91,25 @@ type RuntimePaths = {
 
 type PluginState = 'installed' | 'uninstalled'
 
+type PageElementQuery = {
+  ariaLabel?: string
+  closest?: string
+  leafOnly?: boolean
+  selector: string
+  text?: string
+  visible?: boolean
+}
+
+type PageRequest =
+  | { action: 'body-includes'; text: string }
+  | {
+      action: 'click-element' | 'element-center' | 'element-exists'
+      query: PageElementQuery
+    }
+  | { action: 'plugin-state' }
+  | { action: 'plugin-state-is'; state: PluginState }
+  | { action: 'set-input-value'; selector: string; value: string }
+
 type CdpTarget = {
   title: string
   type: string
@@ -55,6 +125,7 @@ type PendingCdpRequest = {
 
 class CdpClient {
   private nextId = 0
+  private pageObjectId: string | undefined
   private readonly pending = new Map<number, PendingCdpRequest>()
 
   private constructor(
@@ -100,20 +171,23 @@ class CdpClient {
     })
   }
 
-  async evaluate<T>(expression: string): Promise<T> {
+  async runPageRequest<T>(request: PageRequest): Promise<T> {
+    const pageObjectId = await this.getPageObjectId()
     const response = objectValue(
-      await this.call('Runtime.evaluate', {
+      await this.call('Runtime.callFunctionOn', {
+        arguments: [{ value: request }],
         awaitPromise: true,
-        expression,
+        functionDeclaration: pageFunctionDeclaration,
+        objectId: pageObjectId,
         returnByValue: true,
         userGesture: true
       }),
-      'Runtime.evaluate response'
+      'Runtime.callFunctionOn response'
     )
     if (response.exceptionDetails) {
-      fail(`Codex page evaluation failed: ${JSON.stringify(response.exceptionDetails)}`)
+      fail(`Codex page function failed: ${JSON.stringify(response.exceptionDetails)}`)
     }
-    const result = objectValue(response.result, 'Runtime.evaluate result')
+    const result = objectValue(response.result, 'Runtime.callFunctionOn result')
     return result.value as T
   }
 
@@ -134,6 +208,23 @@ class CdpClient {
     } else {
       pending.resolve(message.result)
     }
+  }
+
+  private async getPageObjectId(): Promise<string> {
+    if (this.pageObjectId) return this.pageObjectId
+    const response = objectValue(
+      await this.call('Runtime.evaluate', {
+        expression: 'globalThis'
+      }),
+      'Runtime.evaluate response'
+    )
+    if (response.exceptionDetails) {
+      fail(`Could not access the Codex page: ${JSON.stringify(response.exceptionDetails)}`)
+    }
+    const result = objectValue(response.result, 'Runtime.evaluate result')
+    if (typeof result.objectId !== 'string') fail('Codex page global object is unavailable.')
+    this.pageObjectId = result.objectId
+    return this.pageObjectId
   }
 
   private rejectPending(message: string): void {
@@ -506,28 +597,23 @@ async function connectToCodex(args: Arguments): Promise<CdpClient | null> {
 
 async function waitForPageCondition(
   client: CdpClient,
-  expression: string,
+  request: PageRequest,
   description: string,
   timeoutMs: number
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() <= deadline) {
-    if (await client.evaluate<boolean>(expression)) return
+    if (await client.runPageRequest<unknown>(request)) return
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
   }
   fail(`Timed out waiting for ${description}.`)
 }
 
-function elementExpression(selector: string, text?: string, ariaLabel?: string): string {
-  return `(()=>{const visible=e=>!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length);return [...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>visible(e)&&${
-    text === undefined ? 'true' : `e.textContent.trim()===${JSON.stringify(text)}`
-  }&&${ariaLabel === undefined ? 'true' : `e.getAttribute('aria-label')===${JSON.stringify(ariaLabel)}`})||null})()`
-}
-
-async function clickExpression(client: CdpClient, expression: string): Promise<boolean> {
-  const point = await client.evaluate<{ x: number; y: number } | null>(
-    `(()=>{const e=${expression};if(!e)return null;const r=e.getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()`
-  )
+async function clickElementPhysical(client: CdpClient, query: PageElementQuery): Promise<boolean> {
+  const point = await client.runPageRequest<{ x: number; y: number } | null>({
+    action: 'element-center',
+    query
+  })
   if (!point) return false
   await client.call('Input.dispatchMouseEvent', {
     type: 'mouseMoved',
@@ -560,20 +646,16 @@ async function clickPageElement(
   ariaLabel?: string,
   physical = false
 ): Promise<void> {
-  const find = elementExpression(selector, text, ariaLabel)
-  await waitForPageCondition(client, `Boolean(${find})`, description, timeoutMs)
+  const query: PageElementQuery = {
+    selector,
+    ...(text === undefined ? {} : { text }),
+    ...(ariaLabel === undefined ? {} : { ariaLabel })
+  }
+  await waitForPageCondition(client, { action: 'element-exists', query }, description, timeoutMs)
   const clicked = physical
-    ? await clickExpression(client, find)
-    : await client.evaluate<boolean>(
-        `(()=>{const e=${find};if(!e)return false;e.click();return true})()`
-      )
+    ? await clickElementPhysical(client, query)
+    : await client.runPageRequest<boolean>({ action: 'click-element', query })
   if (!clicked) fail(`Could not click ${description}.`)
-}
-
-function pluginStateExpression(): string {
-  const installed = elementExpression('button', undefined, 'More actions')
-  const uninstalled = elementExpression('button', 'Install plugin')
-  return `(()=>${installed}?'installed':${uninstalled}?'uninstalled':null)()`
 }
 
 async function waitForPluginState(
@@ -583,7 +665,7 @@ async function waitForPluginState(
 ): Promise<void> {
   await waitForPageCondition(
     client,
-    `${pluginStateExpression()}===${JSON.stringify(expected)}`,
+    { action: 'plugin-state-is', state: expected },
     `the plugin to be ${expected}`,
     timeoutMs
   )
@@ -593,30 +675,47 @@ async function openPluginDetail(client: CdpClient, timeoutMs: number): Promise<P
   await clickPageElement(client, 'button', 'the Plugins navigation button', timeoutMs, 'Plugins')
   await waitForPageCondition(
     client,
-    `Boolean(document.querySelector('input[placeholder="Search plugins"]'))`,
+    {
+      action: 'element-exists',
+      query: { selector: 'input[placeholder="Search plugins"]', visible: false }
+    },
     'the plugin directory search input',
     timeoutMs
   )
 
-  const filled = await client.evaluate<boolean>(
-    `(()=>{const input=document.querySelector('input[placeholder="Search plugins"]');if(!input)return false;const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(input,${JSON.stringify(pluginDisplayName)});input.dispatchEvent(new Event('input',{bubbles:true}));return true})()`
-  )
+  const filled = await client.runPageRequest<boolean>({
+    action: 'set-input-value',
+    selector: 'input[placeholder="Search plugins"]',
+    value: pluginDisplayName
+  })
   if (!filled) fail('Could not search for TemPad Dev (Dev).')
 
-  const cardExpression = `(()=>{const visible=e=>!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length);const title=[...document.querySelectorAll('*')].find(e=>e.children.length===0&&visible(e)&&e.textContent.trim()===${JSON.stringify(pluginDisplayName)}&&e.closest('[role="button"]'));return title?.closest('[role="button"]')||null})()`
-  await waitForPageCondition(client, `Boolean(${cardExpression})`, 'the plugin card', timeoutMs)
-  const opened = await client.evaluate<boolean>(
-    `(()=>{const card=${cardExpression};if(!card)return false;card.click();return true})()`
+  const cardQuery: PageElementQuery = {
+    closest: '[role="button"]',
+    leafOnly: true,
+    selector: '*',
+    text: pluginDisplayName
+  }
+  await waitForPageCondition(
+    client,
+    { action: 'element-exists', query: cardQuery },
+    'the plugin card',
+    timeoutMs
   )
+  const opened = await client.runPageRequest<boolean>({
+    action: 'click-element',
+    query: cardQuery
+  })
   if (!opened) fail('Could not open the TemPad Dev (Dev) plugin card.')
 
   await waitForPageCondition(
     client,
-    `Boolean(${pluginStateExpression()})`,
+    { action: 'plugin-state' },
     'the plugin detail page',
     timeoutMs
   )
-  return await client.evaluate<PluginState>(pluginStateExpression())
+  const state = await client.runPageRequest<PluginState | null>({ action: 'plugin-state' })
+  return state ?? fail('The plugin detail page has no install state.')
 }
 
 async function assertVisibleVersion(
@@ -626,7 +725,7 @@ async function assertVisibleVersion(
 ): Promise<void> {
   await waitForPageCondition(
     client,
-    `document.body.innerText.includes(${JSON.stringify(version)})`,
+    { action: 'body-includes', text: version },
     `plugin version ${version}`,
     timeoutMs
   )
@@ -653,9 +752,12 @@ async function uninstallPlugin(client: CdpClient, timeoutMs: number): Promise<vo
   )
 
   await new Promise((resolve) => setTimeout(resolve, 300))
-  const confirm = `(()=>{const dialog=document.querySelector('[role="dialog"]');return dialog?[...dialog.querySelectorAll('button')].find(e=>e.textContent.trim()==='Uninstall')||null:null})()`
-  if (await client.evaluate<boolean>(`Boolean(${confirm})`)) {
-    await clickExpression(client, confirm)
+  const confirmQuery: PageElementQuery = {
+    selector: '[role="dialog"] button',
+    text: 'Uninstall'
+  }
+  if (await client.runPageRequest<boolean>({ action: 'element-exists', query: confirmQuery })) {
+    await clickElementPhysical(client, confirmQuery)
   }
 
   await waitForPluginState(client, 'uninstalled', timeoutMs)
