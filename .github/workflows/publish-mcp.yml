@@ -46,3 +46,7 @@ jobs:
       - name: Publish
         working-directory: packages/mcp-server
         run: npm publish --access public --tag "${{ inputs.tag }}"
+
+      - name: Verify published version
+        working-directory: packages/mcp-server
+        run: npm view "@tempad-dev/mcp@$(node -p "require('./package.json').version")" version
