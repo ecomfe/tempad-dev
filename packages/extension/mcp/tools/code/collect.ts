@@ -26,6 +26,9 @@ export async function collectNodeData(
 ): Promise<CollectedData> {
   const styles = new Map<string, Record<string, string>>()
   const textSegments = new Map<string, StyledTextSegment[] | null>()
+  const videoPreviewAssetHashes = new Set<string>()
+  const rootVideoPreviewAssetHashes = new Set<string>()
+  const rootIds = new Set(tree.rootIds)
 
   for (const id of tree.order) {
     if (skipIds?.has(id)) continue
@@ -55,7 +58,18 @@ export async function collectNodeData(
       }
 
       if (hasMediaFills(node, cache)) {
-        processed = await replaceMediaUrlsWithAssets(processed, node, config, assetRegistry)
+        const nodeVideoPreviewAssetHashes = new Set<string>()
+        processed = await replaceMediaUrlsWithAssets(
+          processed,
+          node,
+          config,
+          assetRegistry,
+          nodeVideoPreviewAssetHashes
+        )
+        for (const hash of nodeVideoPreviewAssetHashes) {
+          videoPreviewAssetHashes.add(hash)
+          if (rootIds.has(id)) rootVideoPreviewAssetHashes.add(hash)
+        }
       }
 
       stripInertShadows(processed, node, cache)
@@ -65,7 +79,13 @@ export async function collectNodeData(
     }
   }
 
-  return { nodes: tree.nodes, styles, textSegments }
+  return {
+    nodes: tree.nodes,
+    rootVideoPreviewAssetHashes,
+    styles,
+    textSegments,
+    videoPreviewAssetHashes
+  }
 }
 
 function preprocessRawStyle(style: Record<string, string>): Record<string, string> {

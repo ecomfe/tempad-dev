@@ -10404,6 +10404,23 @@ describe('mcp/tools/canvas', () => {
     expect(fixture.pages).toEqual([checkout, PAGE])
     expect(figma.currentPage).toBe(PAGE)
 
+    const insertChild = vi.fn((index: number, page: ReturnType<typeof createMockPage>) => {
+      const current = fixture.pages.indexOf(page)
+      let target = index
+      if (current >= 0) {
+        fixture.pages.splice(current, 1)
+        if (current < target) target -= 1
+      }
+      if (target > fixture.pages.length) throw new RangeError('page index is out of range')
+      fixture.pages.splice(target, 0, page)
+      page.parent = figma.root
+    })
+    ;(
+      figma.root as unknown as {
+        insertChild: typeof insertChild
+      }
+    ).insertChild = insertChild
+
     const moved = {
       mode: 'update' as const,
       targetNodeId: created.rootNodeId,
@@ -10415,6 +10432,7 @@ describe('mcp/tools/canvas', () => {
       mutationCount: 1
     })
     expect(fixture.pages).toEqual([PAGE, checkout])
+    expect(insertChild.mock.calls.map(([index]) => index)).toEqual([1, 2])
     await expect(applyCanvas(moved)).resolves.toMatchObject({
       updatedNodeIds: [],
       mutationCount: 0

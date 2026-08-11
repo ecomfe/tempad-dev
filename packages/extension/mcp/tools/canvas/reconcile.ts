@@ -1956,9 +1956,12 @@ async function createNode(spec: CanvasNodeSpec, state: ApplyState): Promise<Supp
   return node
 }
 
-function moveIntoParent(
-  node: SupportedCanvasNode,
-  parent: CanvasParentNode,
+function moveIntoParent<Child extends BaseNode>(
+  node: Child,
+  parent: BaseNode & {
+    readonly children: readonly Child[]
+    insertChild(index: number, child: Child): void
+  },
   index: number,
   state: ApplyState
 ): void {
@@ -4310,11 +4313,7 @@ function applyVariableModes(
 
 function applyPage(page: PageNode, properties: CanvasPageProperties, state: ApplyState): void {
   if (properties.index !== undefined) {
-    const current = figma.root.children.indexOf(page)
-    if (current !== properties.index) {
-      figma.root.insertChild(properties.index, page)
-      markMutation(state, page)
-    }
+    moveIntoParent(page, figma.root, properties.index, state)
   }
   setValue(page, page.name, properties.name, (value) => (page.name = value), state)
   if (properties.background) {

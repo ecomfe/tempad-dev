@@ -1,3 +1,5 @@
+import type { AssetDescriptor } from '@tempad-dev/shared'
+
 import { raw } from '@tempad-dev/plugins'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -71,11 +73,104 @@ vi.mock('@/mcp/tools/code/tree', () => ({
   buildVisibleTree: mocks.buildVisibleTree
 }))
 
+function asset(
+  hash: string,
+  name: string,
+  metadata: Partial<AssetDescriptor> = {}
+): AssetDescriptor {
+  return {
+    hash: hash.repeat(64),
+    url: `https://assets.local/${name}`,
+    mimeType: 'image/png',
+    size: 1,
+    ...metadata
+  }
+}
+
+function mockAssetCollection(
+  tree: ReturnType<typeof createTree>,
+  assets: AssetDescriptor[],
+  videoPreviewAssetHashes: Set<string>,
+  rootVideoPreviewAssetHashes = videoPreviewAssetHashes
+): void {
+  mocks.buildVisibleTree.mockReturnValue(tree)
+  mocks.collectNodeData.mockImplementation(async (_tree, _config, registry) => {
+    for (const descriptor of assets) registry.set(descriptor.hash, descriptor)
+    return {
+      nodes: tree.nodes,
+      rootVideoPreviewAssetHashes,
+      styles: new Map(),
+      textSegments: new Map(),
+      videoPreviewAssetHashes
+    }
+  })
+  mocks.prepareStyles.mockReturnValue({
+    styles: new Map(),
+    layout: new Map(),
+    usedCandidateIds: new Set<string>()
+  })
+  mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
+    code,
+    tokensByCanonical: {},
+    sourceIndex: new Map()
+  }))
+  vi.stubGlobal('__DEV__', false)
+}
+
 describe('mcp/code handleGetCode', () => {
   afterEach(() => {
     vi.clearAllMocks()
     mocks.activePlugin.value = undefined
     vi.unstubAllGlobals()
+  })
+
+  it('preserves a mixed-fill video preview that supplements a rendered image asset', async () => {
+    const root = createSnapshot({ id: 'root' })
+    const tree = createTree([root])
+    const image = asset('a', 'image', {
+      figmaImageHash: 'image-hash'
+    })
+    const video = asset('b', 'video-preview', {
+      figmaVideoHashes: ['video-hash']
+    })
+
+    mockAssetCollection(tree, [image, video], new Set([video.hash]))
+    mocks.renderTree.mockResolvedValue(raw(`<img src="${image.url}" />`))
+
+    const { handleGetCode } = await import('@/mcp/tools/code')
+    const result = await handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
+
+    expect(result.code).toContain(image.url)
+    expect(result.code).not.toContain(video.url)
+    expect(result.assets).toEqual([image, video])
+  })
+
+  it('omits supplemental video previews for children excluded from a shell response', async () => {
+    const root = createSnapshot({ id: 'root', children: ['child'] })
+    const child = createSnapshot({ id: 'child', parentId: 'root' })
+    const tree = createTree([root, child])
+    const image = asset('a', 'image')
+    const rootVideo = asset('b', 'root-video-preview', {
+      figmaVideoHashes: ['root-video-hash']
+    })
+    const childVideo = asset('c', 'child-video-preview', {
+      figmaVideoHashes: ['child-video-hash']
+    })
+
+    mockAssetCollection(
+      tree,
+      [image, rootVideo, childVideo],
+      new Set([rootVideo.hash, childVideo.hash]),
+      new Set([rootVideo.hash])
+    )
+    mocks.renderTree.mockResolvedValue(raw('X'.repeat(90000)))
+    mocks.getOrderedChildIds.mockReturnValue(['child'])
+    mocks.renderShellTree.mockResolvedValue(raw(`<img src="${image.url}" />`))
+
+    const { handleGetCode } = await import('@/mcp/tools/code')
+    const result = await handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
+
+    expect(result.assets).toEqual([image, rootVideo])
   })
 
   it('returns a shell response with inline omitted ids when full output exceeds budget', async () => {
