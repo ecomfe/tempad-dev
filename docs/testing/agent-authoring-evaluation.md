@@ -1,271 +1,202 @@
 # Agent authoring evaluation loop
 
 Use this runbook to forward-test or review changes to TemPad's Figma authoring
-MCP, agent plugin, or authoring skill. It complements automated tests: the test
-subject is a fresh agent completing a realistic task through the installed
-runtime, not an agent reviewing an implementation diff.
+MCP, agent plugin, or authoring skill. Complement automated tests with a fresh
+agent completing a realistic task through the installed runtime; do not treat
+review of an implementation diff as an evaluation.
 
-## Scope and freedom
+## Define a valid evaluation
 
-A valid evaluation must:
+Require every run to:
 
-- prove that the task used the intended skill, MCP, and extension builds;
-- preserve the exact prompt, complete thread, tool evidence, and final artifact;
+- use the intended skill, MCP, and extension builds;
+- preserve the exact prompt, complete task, tool evidence, and final artifact;
 - inspect representative screenshot pixels and relevant native Figma structure.
 
-Evaluate these outcomes in context:
+Apply these authoring boundaries:
 
-- Canvas HTML and Tailwind carry the agent's primary design intent and create
-  or update the intended native structure predictably through reconciliation.
-- Failures are bounded, diagnosable, and recoverable without corrupting prior
-  state.
-- Content, states, assets, and unaffected relationships survive creation,
-  updates, and repairs without unintended overlap, clipping, or text/glyph
-  cropping.
-- The reconciled result uses required Figma-native semantics rather than only
-  resembling the intended pixels, without making Figma-native DSL the agent's
-  primary creative language.
-- When demonstrated usages contain decisions that should evolve together,
-  components, variables, and styles coordinate them at a useful semantic
-  boundary. Judge value and coverage, not resource counts.
+- Express ordinary information architecture, hierarchy, layout, spacing,
+  typography, color, and appearance through Canvas HTML, Tailwind, and
+  CSS-shaped composition. Keep the core design legible in markup and classes.
+- Use typed native fields, resources, bindings, components, variables, masks,
+  grids, media, and other Figma-only state only where the requested result or
+  faithful reconciliation requires them. Do not make native DSL the primary
+  creative language or reward a run merely for emitting more native state.
+- Treat the supported Canvas subset as an implementation boundary, not a design
+  boundary. When it blocks a well-grounded design, record the smallest missing
+  web capability and prefer a bounded implementation extension with regression
+  coverage over guidance that teaches agents to avoid the design. Seek the
+  broadest dependable authoring surface, not full browser compatibility.
+- Judge agent design quality separately from translation quality. Require
+  TemPad to preserve design intent in editable native structure and require any
+  Figma-native feature promised by the brief.
+- Require failures to remain bounded, diagnosable, and recoverable. Preserve
+  content, states, assets, and unaffected relationships through creation,
+  updates, and repairs without overlap, clipping, or text and glyph cropping.
+- Use components, variables, and styles when demonstrated usages contain
+  decisions that should evolve together. Judge semantic boundary, coverage,
+  responsibility, states, ownership, and coordination cost rather than counts
+  or visual similarity alone.
 
-Do not use this loop to standardize a visual style, product-domain UX rule,
-platform convention, component count, asset source, or design process. Those
-decisions come from the user, project evidence, an applicable domain skill, or
-targeted research. Repetition and similarity are component evidence, not a
-threshold; responsibility, states, ownership, expected evolution, and
-coordination cost also matter.
-
-## Authoring model under evaluation
-
-Treat HTML, Tailwind, and CSS-shaped composition as the agent's primary design
-language. General-purpose models have substantially stronger pretrained priors
-for those representations than for a bespoke Figma DSL, so the agent should
-express information architecture, grouping, hierarchy, layout, spacing,
-typography, color, and ordinary appearance through Canvas markup and classes.
-This is the reason TemPad takes the indirect HTML/Tailwind-to-Figma path: the
-extension reconciles a representation in which the model can design well into
-editable Figma structure.
-
-Figma-native capabilities remain required as a translation and fidelity layer.
-Use typed native fields, resources, bindings, components, variables, masks,
-grids, media, and other Figma-only state when the requested result or faithful
-reconciliation needs them. Do not use the availability, quantity, or novelty of
-native fields as the creative grammar that determines the composition. The
-extension should absorb Figma-specific reconciliation complexity rather than
-forcing the agent to design by enumerating native node or Plugin API semantics.
-
-Treat the currently supported Canvas HTML/Tailwind subset as an implementation
-boundary, not a design boundary. When a well-grounded design must be simplified,
-recomposed, or abandoned because the safe subset or reconciler cannot express
-it faithfully, record the missing web capability and evaluate whether TemPad can
-support it safely and predictably. Prefer extending the subset, parser, layout,
-paint, typography, or reconciliation behavior with bounded semantics and
-regression coverage over teaching the agent to avoid the design possibility or
-recreate ordinary web composition through native DSL. The objective is not full
-browser compatibility; it is the broadest dependable authoring surface that can
-reproduce high-quality HTML/Tailwind design in editable Figma structure.
-
-In evaluation, distinguish these two responsibilities:
-
-- **Agent design quality:** judge the HTML/Tailwind desired result and the
-  design decisions it expresses.
-- **Translation quality:** judge whether TemPad reconciles that result, plus
-  narrowly declared Figma-only requirements, into correct editable native
-  structure without losing intent.
-
-Do not reward a run merely for emitting more native DSL, resources, or bindings.
-Do not penalize a strong markup-led design because its ordinary layout and
-appearance were not conceived in Figma-native terms. Conversely, when the brief
-requires a native feature, its correct delivered state remains mandatory; that
-is evidence of translation fidelity, not evidence that native DSL should have
-driven the design.
+Keep contextual design decisions at high freedom. Do not turn this loop into a
+fixed visual style, product-domain rule, platform convention, component quota,
+asset policy, or design process. Ground those decisions in the user request,
+project evidence, targeted research, or an applicable professional skill.
 
 ## Establish a valid runtime
 
-Follow the agent-plugin workflow in `AGENTS.md` for build, generation,
-installation, and Figma refresh commands. Record the source revision or
-working-tree state and which runtime layers changed.
+Follow the agent-plugin workflow in `AGENTS.md`. Record the source revision or
+working-tree state and the runtime layers changed.
 
-Use this Codex Desktop development-plugin and Figma setup sequence after an
-affected change:
+Use this sequence after an affected change:
 
-1. Uninstall the active `tempad-dev-dev` plugin through the running host's
-   plugin-management surface. Wait until the checkout's MCP CLI and Hub have
-   exited and their known listeners are closed. Resolve ambiguous or unrelated
-   processes by full command line; do not kill by a broad name match.
-2. Build each affected runtime layer. Run `pnpm agent-plugin:dev` to generate a
-   new cachebuster, then inspect the generated manifest, skill, and MCP command
-   before installation.
-3. Reinstall `tempad-dev-dev@tempad-dev-dev` with the Codex CLI bundled with
-   the running Desktop app. Confirm that the installed root has the generated
-   cachebuster.
-4. In the coordinating task, use Browser control with the existing signed-in
-   Figma test-file tab; do not use Computer Use for this setup. Reload the tab
-   so the page context uses the rebuilt extension. Reacquire the tab after a
-   reload if needed, then confirm the TemPad panel has reconnected to MCP.
-5. Still through Browser control, use Figma's **Add new page** control to create
-   a page with a unique task-specific name, then explicitly switch to that new
-   page. Confirm that it is the current page and is empty. Do not leave a prior
-   artifact where the test agent can discover or copy it.
-6. Release or hand off the claimed Figma tab without closing it. Only then
-   create a normal fresh projectless UI task whose prompt tells the agent to
-   work on the current page. Do not continue the evaluation in the task that
-   performed the runtime and page setup.
-7. Confirm that the fresh task's recorded skill path contains the generated
-   cachebuster and that its MCP CLI and Hub come from the intended checkout
-   before accepting any result from it.
+1. Build each affected runtime layer. Run `pnpm agent-plugin:dev`, inspect the
+   generated manifest, skill, and MCP command, then read the exact cachebuster:
 
-Do not create a separate probe task after each reinstall. The clean evaluation
-task in step 6 is itself the new-task pickup boundary and must supply the
-runtime evidence in step 7. A dedicated probe may establish this lifecycle
-once while diagnosing the harness, but repeating it in later rounds adds no
-evaluation evidence.
+   ```sh
+   TEMPAD_DEV_VERSION=$(node -p "require('./.dev/plugins/tempad-dev-dev/.codex-plugin/plugin.json').version")
+   ```
 
-This uninstall, reinstall, page-setup, and new-task sequence refreshes the
-development plugin without restarting Codex Desktop and gives the test agent a
-known clean Figma target. `codex plugin list` and the cache directory are useful
-installation evidence, but the fresh task's recorded skill path and live MCP
-processes are the runtime proof.
+2. Replace the active plugin through Codex Desktop's native plugin UI:
 
-Run the evaluation in a normal fresh UI task and establish that:
+   ```sh
+   pnpm agent-plugin:reinstall "$TEMPAD_DEV_VERSION" --restart-codex
+   ```
 
-- the installed development plugin contains the intended cachebuster and skill;
-- after reinstall, the fresh task's recorded skill source resolves to that
-  cachebuster; a current cache directory or CLI install listing alone does not
-  prove that the new task received the updated plugin;
-- the task is served by the intended MCP runtime, not a stale CLI, detached Hub,
-  or socket;
-- TemPad tools are directly callable;
-- the target Figma tab runs the refreshed extension and has reconnected to MCP.
+   Keep `--restart-codex` so the helper can restart Codex only when CDP is
+   unavailable. Use the script's `--help` for non-default CDP or page selection.
 
-A task that starts successfully but cannot prove these conditions is not a
-valid evaluation. Discard a stale-plugin run, reinstall the intended
-cachebuster, prepare another empty Figma page, and dispatch another fresh task.
-Do not treat the stale task's artifact as a forward test.
-Shell-launching the MCP CLI or manually recreating its stdio or JSON-RPC
-transport does not repair missing direct tool exposure and cannot make that run
-valid.
+3. Accept the replacement only when the helper confirms this complete
+   transition for the checkout's exact MCP command paths:
+
+   - CLI and Hub are running before uninstall;
+   - Codex reports the plugin uninstalled, then both process sets stop and any
+     known listeners close;
+   - Codex installs the exact generated version, then both process sets run.
+
+   Stop and diagnose any timeout or stale host state. Never substitute a broad
+   process-name kill.
+
+4. Confirm with `codex plugin list` that `tempad-dev-dev@tempad-dev-dev` is
+   installed and enabled at the generated version. Treat the listing and cache
+   directory as installation evidence, not proof of the fresh task's runtime.
+5. In the coordinating task, use Browser control with the existing signed-in
+   Figma test-file tab; do not use Computer Use for this setup. Reload the tab,
+   reacquire it if needed, and confirm that the TemPad panel reconnects to MCP.
+6. Through Browser control, create and select a uniquely named, empty Figma
+   page. Do not leave an artifact that the evaluation agent can discover or
+   copy.
+7. Release or hand off the claimed Figma tab without closing it. Create a fresh
+   projectless Codex UI task that instructs the agent to work on the current
+   page. Do not run the evaluation in the coordinating task.
+8. Before accepting the result, confirm that the fresh task records the
+   generated cachebuster in its skill path, uses the checkout's MCP CLI and Hub
+   rather than a detached Hub or stale socket, can call TemPad tools directly,
+   and reaches the refreshed extension.
+
+Do not add a probe task after every reinstall. The clean evaluation task is the
+new-task pickup boundary and must provide the runtime evidence. Use a dedicated
+probe only once when diagnosing the lifecycle.
+
+Reject any run that cannot prove runtime identity. Reinstall the intended
+cachebuster, prepare another empty page, and dispatch another fresh task. Do not
+reuse its artifact. Starting the MCP CLI manually or recreating stdio or
+JSON-RPC transport does not restore missing direct tool exposure.
 
 ## Choose a representative task
 
-Choose a realistic, coherent task with enough user goals, content, and
-constraints for the agent to establish design evidence rather than guess from
-a familiar template. Keep recent tests varied in context, complexity,
-information volume, visual language, market context, and delivery scope. Use
-later tasks to correct recurring sample bias without creating fixed categories,
-quotas, or style mappings.
+Choose a realistic, coherent task with enough goals, content, and constraints
+to require design evidence rather than recall of a familiar template. Vary
+recent runs in context, complexity, information volume, visual language,
+market context, and delivery scope without creating fixed categories or style
+mappings.
 
-When a run is meant to evaluate professional design quality rather than Figma
-execution alone, give the agent credible design evidence or pair TemPad with an
-appropriate professional skill. Without either, the run may still evaluate
-authoring mechanics, but it is weak evidence about design judgment.
+When evaluating professional design quality, supply credible design evidence
+or an appropriate professional skill. Otherwise treat the run as evidence of
+authoring mechanics only. Keep domain skills independent from TemPad; for any
+external or community skill, verify and record its provenance, scope, and fit.
+Do not copy its domain rules into TemPad.
 
-TemPad remains orthogonal to product domains and regional design conventions.
-When a task benefits from specialized design judgment, combine the authoring
-skill with an appropriate professional skill. If none is installed, a test may
-use a well-regarded community skill after checking its provenance, scope, and
-fit. Keep that skill independent; do not copy its domain rules into TemPad.
-Ground regional variation in task evidence, local references, or professional
-guidance rather than stereotypes.
+Ground product, platform, regional, accessibility, content, and visual choices
+in task evidence or professional guidance rather than stereotypes.
 
 ## Run a clean task
 
-Give the test agent a realistic user request with only task-local context. Do
+Give the evaluation agent only a realistic request and task-local context. Do
 not reveal the suspected defect, intended fix, expected tool sequence, or
-desired answer. Otherwise the run tests reconstruction of the maintainer's
-reasoning rather than generalization.
+desired answer.
 
-Preserve the raw evidence:
+Preserve:
 
-- the exact user prompt and supplied references;
-- the full conversation, tool inputs and outputs, errors, retries, and recovery
-  path;
+- the exact prompt and supplied references;
+- the complete task, tool inputs and outputs, errors, retries, and recovery;
 - the final Figma structure and relevant native resources;
-- representative screenshots whose pixels were actually opened and inspected.
+- representative screenshots whose pixels were opened and inspected.
 
-Use a fresh task for each independent run. When retesting a fix, vary the
-surface details while preserving the capability under test. Do not leave prior
-artifacts where a later agent can discover and copy them.
+Use a fresh task for each independent run. When retesting a capability, vary
+surface details while preserving that capability. Remove prior artifacts that
+a later agent could discover or copy.
 
-After dispatching the evaluation task, the coordinating task must remain idle
-until it completes. Do not inspect or steer intermediate work, modify the
-repository, plugin, runtime, or Figma state, or begin fixes in parallel. Start
-the review only after the complete task result is available.
+After dispatch, keep the coordinating task idle until completion. Do not
+inspect or steer intermediate work, modify the repository, plugin, runtime, or
+Figma state, or begin fixes in parallel.
 
 ## Review the complete run
 
-Read the thread from the initial prompt through the final answer. Treat the
-agent's retrospective as a lead, not as proof. Reconstruct consequential
-decisions and failures from tool evidence, then inspect the delivered Figma
-artifact directly.
+Read the task from its initial prompt through its final answer. Treat the
+agent's retrospective as a lead, not proof. Reconstruct consequential decisions
+and failures from tool evidence, then inspect the delivered artifact directly.
 
-Review the run along these transferable axes:
+Review these axes:
 
-1. **Outcome and preservation:** Did the result satisfy the task and preserve
-   supplied content, states, assets, and unaffected relationships?
-2. **Authoring-language quality:** Did the markup and Tailwind/CSS-shaped
-   desired result carry the composition, hierarchy, layout, spacing,
-   typography, color, and ordinary appearance? Were native declarations kept
-   to Figma-only translation, fidelity, or explicitly requested capabilities,
-   rather than used as the primary creative grammar?
-3. **Reconciliation and native fidelity:** Did TemPad translate the desired
-   result into the intended editable layout, text, paint, media, resource,
-   binding, component, and instance semantics rather than merely approximate
-   its pixels? Did native translation preserve the design instead of reshaping
-   it around what was easiest to express in Figma DSL?
-4. **Design quality:** Are the information architecture, hierarchy,
-   typography, spacing, density, alignment, visual language, and asset medium
-   deliberate, coherent, and grounded in task evidence or professional
-   guidance? Is the work resolved to the fidelity the task requires?
-5. **Rendered integrity:** Did visual inspection cover the representative
-   composition and relevant states, including overlap, clipping, text/glyph
-   bounds, and changes caused by recovery?
-6. **System coherence:** Where task evidence established coordination value,
-   did components and tokens model it with appropriate boundaries, contracts,
-   instances, bindings, and usage coverage?
-7. **Execution and verification:** Were calls scoped, identities stable,
-   failures non-destructive, retries evidence-driven, and conclusions based on
-   actual pixels and native structure rather than mutation counts or intent?
+1. **Outcome and preservation:** Satisfy the request and preserve supplied
+   content, states, assets, and unaffected relationships.
+2. **Authoring-language quality:** Carry ordinary composition and appearance in
+   markup and classes; reserve native declarations for translation fidelity or
+   explicitly required Figma capabilities.
+3. **Reconciliation and native fidelity:** Preserve the desired editable
+   layout, text, paint, media, resources, bindings, components, and instances
+   rather than only approximating pixels or reshaping the design around native
+   DSL convenience.
+4. **Design quality:** Assess information architecture, hierarchy, typography,
+   spacing, density, alignment, visual language, asset medium, evidence, and
+   required fidelity.
+5. **Rendered integrity:** Inspect representative compositions and states for
+   overlap, clipping, text or glyph bounds, and recovery side effects.
+6. **System coherence:** Where evidence establishes coordination value, assess
+   component and token boundaries, contracts, instances, bindings, and usage.
+7. **Execution and verification:** Require scoped calls, stable identities,
+   non-destructive failures, evidence-driven retries, and conclusions based on
+   pixels and native structure rather than intent or mutation counts.
 
-During audit, inspect the actual `apply_canvas` payload as well as the final
-artifact. A strong payload should leave the core design legible in its markup
-tree and class vocabulary. Treat a payload dominated by native declarations as
-a warning when ordinary composition could have remained in HTML/Tailwind; then
-determine whether the cause is skill guidance, schema discoverability, an
-extension translation gap, or a genuinely Figma-only requirement.
+Apply these evidence rules:
 
-Also compare the intended HTML/Tailwind design with both the submitted payload
-and the reconciled artifact. If the agent reduced fidelity because a class,
-layout mode, paint, effect, typographic feature, responsive relationship, or
-other web-native expression was unsupported, do not score the workaround as an
-intrinsic design limitation. Capture the smallest missing capability, its safe
-semantics, fallback and failure behavior, and the Figma representation needed to
-preserve it. Use later rounds to test whether extending that boundary unlocks
-the design without weakening determinism, editability, or transaction safety.
-
-When a claim depends on a mask, real IMAGE paint, layout grid, or frame guides,
-require live `get_structure` read-back with `options.native: true`. The apply
-input and a successful mutation summary are desired-state evidence, not proof
-of the retained Figma state.
-
-Do not equate quality with decoration, photographic imagery, shadows,
-gradients, visual depth, or any named style. Flat color, geometric illustration,
-and poster-like composition can all be valid when the task evidence supports
-them. If a role is established as photography, a content image, or another
-specific asset medium, however, do not accept an unrelated primitive
-approximation merely because it is easy to author.
-
-Separate observed facts from hypotheses. Record the earliest state that
-violated an invariant, not only the final symptom. Different triggers may
-expose the same identity, ownership, transaction, or serialization defect.
-
-Compare each completed artifact with recent independent runs. Repeated,
-unexplained convergence in composition, color treatment, typography, asset
-medium, or reliance on simple primitives is a portfolio-level signal even when
-each style is individually permissible. Investigate task distribution, missing
-professional guidance, example fixation, tool affordances, and capability gaps
-before turning that pattern into a skill rule.
+- Inspect the actual `apply_canvas` payload and the reconciled artifact. Treat
+  payloads dominated by native declarations as a warning when ordinary
+  composition could remain in HTML or Tailwind; identify whether the cause is
+  skill guidance, schema discoverability, a translation gap, or a genuinely
+  Figma-only requirement.
+- Compare the intended HTML or Tailwind design with the payload and artifact.
+  When unsupported web expression reduces fidelity, record the smallest missing
+  capability, safe semantics, fallback and failure behavior, and required Figma
+  representation. Do not score the workaround as an intrinsic design failure.
+  In later rounds, verify that an extension restores fidelity without weakening
+  determinism, editability, or transaction safety.
+- Verify retained native-state claims, including masks, IMAGE paints, layout
+  grids, and frame guides, through live `get_structure` read-back with
+  `options.native: true`. Apply input and mutation summaries prove desired
+  state, not retained state.
+- Do not equate quality with decoration, imagery, shadows, gradients, depth, or
+  a named style. When evidence establishes a specific asset role or medium,
+  reject an unrelated primitive substitute.
+- Separate facts from hypotheses and record the earliest state that violated an
+  invariant, not only the final symptom. Check whether different triggers share
+  an identity, ownership, transaction, or serialization defect.
+- Compare completed artifacts across independent runs. Treat unexplained
+  convergence in composition, color, typography, asset medium, or primitive use
+  as a portfolio signal. Investigate task distribution, professional guidance,
+  example fixation, tool affordances, and capability gaps before creating a
+  skill rule.
 
 ## Place the fix at the owning layer
 
@@ -281,33 +212,33 @@ Classify each confirmed finding before changing anything:
 | Product, platform, accessibility, content, or visual-design judgment         | Leave it to task evidence, research, or a relevant skill unless TemPad prevents the chosen result.                                                                     |
 | A one-off taste difference violates no evidence or contract                  | Record it without making it a platform requirement.                                                                                                                    |
 
-Use low freedom only for fragile protocol, safety, and integrity invariants.
-Use concise heuristics when several workflows are valid, and preserve high
-freedom for contextual design judgment.
+Use low freedom for fragile protocol, safety, and integrity invariants; use
+concise heuristics when several workflows are valid; preserve high freedom for
+contextual design judgment.
 
-Promote a finding into a long-lived guardrail only when it expresses a stable
-invariant, recurs across tasks, prevents a hard-to-detect or hard-to-recover
-failure, or can be stated as a concise transferable cue. Otherwise prefer an
-implementation fix, regression test, or evaluation record. When the owning
-layer is a skill, apply the quality tests in `docs/skill/rationale.md`.
+Promote a finding into a guardrail only when it is a stable invariant, recurs
+across tasks, prevents a hard-to-detect or hard-to-recover failure, or can be
+stated as a concise transferable cue. Otherwise prefer an implementation fix,
+regression test, or evaluation record. When the owning layer is a skill, apply
+the quality tests in `docs/skill/rationale.md`.
 
 ## Close the loop
 
 For a confirmed issue:
 
-1. Add or strengthen an automated regression test when the behavior is
+1. Add or strengthen an automated regression test when behavior is
    deterministic.
-2. Make the smallest change at the owning layer and update current-state
-   documentation instead of appending an incident history.
+2. Make the smallest change at the owning layer. Update current-state
+   documentation instead of appending incident history.
 3. Run the checks required by `TESTING.md` and the relevant package guide.
-4. Rebuild, regenerate, reinstall, or refresh only the affected runtime layers.
-5. Repeat the clean task in a fresh thread and verify the live artifact again.
+4. Rebuild, regenerate, reinstall, or refresh only affected runtime layers.
+5. Repeat the clean run in a fresh task and verify the live artifact.
 
-For a cross-run convergence finding, retest with materially different design
-evidence. Success means the authoring path can carry distinct, well-grounded
-directions—not that every result avoids the previously observed style.
+For cross-run convergence, retest with materially different design evidence.
+Require the authoring path to carry distinct, well-grounded directions; do not
+require every result merely to avoid a prior style.
 
 Conclude with a short record of the tested revision and runtime, prompt,
 observed evidence, root cause and owning layer, change, automated checks,
 forward-test result, and remaining uncertainty. Do not call a round successful
-when runtime identity or screenshot pixels were not verified.
+without verified runtime identity and screenshot pixels.
