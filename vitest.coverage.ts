@@ -14,6 +14,7 @@ export const EXTENSION_COVERAGE_FILES = [
   'utils/module.ts',
   'utils/log.ts',
   'utils/figma.ts',
+  'utils/figma-paint.ts',
   'utils/figma-style/gradient.ts',
   'utils/figma-style/style-resolver.ts',
   'utils/css.ts',
