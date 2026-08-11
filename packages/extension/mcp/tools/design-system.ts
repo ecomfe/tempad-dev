@@ -1039,6 +1039,10 @@ function exactResultFits(result: GetDesignSystemResult): boolean {
   )
 }
 
+function removeTailHalf<T>(items: T[]): T[] {
+  return items.splice(Math.floor(items.length / 2))
+}
+
 function compactComponentDetailResult(
   catalogId: string,
   entry: CatalogComponent,
@@ -1068,63 +1072,59 @@ function compactComponentDetailResult(
   const originalAnatomyCount = source.anatomy.nodes.length + (source.anatomy.omitted ?? 0)
   const result = () => exactCatalogPayload(catalogId, entry, detail)
   const fits = () => exactResultFits(result())
-  const markTruncated = (): void => {
+
+  while (!fits() && detail.anatomy.nodes.length) {
+    removeTailHalf(detail.anatomy.nodes)
+    detail.anatomy.omitted = originalAnatomyCount - detail.anatomy.nodes.length
+    detail.anatomy.truncated = true
+    detail.detailTruncated = true
+  }
+  while (!fits() && detail.variants.length) {
+    removeTailHalf(detail.variants)
+    detail.omittedVariants = detail.variantCount - detail.variants.length
     detail.detailTruncated = true
   }
 
-  while (!fits() && detail.anatomy.nodes.length) {
-    const removeCount = Math.max(1, Math.ceil(detail.anatomy.nodes.length / 2))
-    detail.anatomy.nodes.splice(-removeCount, removeCount)
-    detail.anatomy.omitted = originalAnatomyCount - detail.anatomy.nodes.length
-    detail.anatomy.truncated = true
-    markTruncated()
+  const verboseFields = [
+    'descriptionMarkdown',
+    'componentSetDescriptionMarkdown',
+    'documentationLinks',
+    'componentSetDocumentationLinks',
+    'description',
+    'componentSetDescription'
+  ] as const
+  for (const field of verboseFields) {
+    if (fits()) break
+    delete detail[field]
+    detail.detailTruncated = true
   }
-  while (!fits() && detail.variants.length) {
-    const removeCount = Math.max(1, Math.ceil(detail.variants.length / 2))
-    detail.variants.splice(-removeCount, removeCount)
-    detail.omittedVariants = detail.variantCount - detail.variants.length
-    markTruncated()
-  }
-
-  const removeVerboseField = (remove: () => void): void => {
-    if (fits()) return
-    remove()
-    markTruncated()
-  }
-  removeVerboseField(() => delete detail.descriptionMarkdown)
-  removeVerboseField(() => delete detail.componentSetDescriptionMarkdown)
-  removeVerboseField(() => delete detail.documentationLinks)
-  removeVerboseField(() => delete detail.componentSetDocumentationLinks)
-  removeVerboseField(() => delete detail.description)
-  removeVerboseField(() => delete detail.componentSetDescription)
 
   if (!fits()) {
     for (const property of Object.values(mutableProperties ?? {})) {
       delete property.description
       delete property.preferredValues
     }
-    markTruncated()
+    detail.detailTruncated = true
   }
   while (!fits()) {
     let removed = 0
     for (const property of Object.values(mutableProperties ?? {})) {
       if (!property.options?.length) continue
-      const removeCount = Math.max(1, Math.ceil(property.options.length / 2))
-      property.options.splice(-removeCount, removeCount)
+      const removeCount = removeTailHalf(property.options).length
       property.omittedOptions = (property.omittedOptions ?? 0) + removeCount
       removed += removeCount
     }
     if (!removed) break
-    markTruncated()
+    detail.detailTruncated = true
   }
   const propertyNames = Object.keys(mutableProperties ?? {})
   while (!fits() && propertyNames.length) {
-    const removeCount = Math.max(1, Math.ceil(propertyNames.length / 2))
-    for (const name of propertyNames.splice(-removeCount, removeCount)) {
+    const removedNames = removeTailHalf(propertyNames)
+    for (const name of removedNames) {
       delete mutableProperties?.[name]
     }
-    detail.omittedProperties = (detail.omittedProperties ?? 0) + removeCount
-    markTruncated()
+    detail.omittedProperties = (detail.omittedProperties ?? 0) + removedNames.length
+    detail.detailTruncated = true
   }
   if (fits()) return result()
 

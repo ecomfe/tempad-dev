@@ -28,10 +28,12 @@ export function handleGetStructure(
 ): GetStructureResult {
   const tree = buildSemanticTree(roots, { depthLimit: depthLimit || undefined })
   const outline = semanticTreeToOutline(tree.roots)
-  const authoringKeys = collectAuthoringKeys(roots, outline, STRUCTURE_NODE_LIMIT_STEPS[0])
-  const nativeById = includeNative
-    ? collectNativeProperties(roots, outline, STRUCTURE_NODE_LIMIT_STEPS[0])
-    : new Map<string, OutlineNativeProperties>()
+  const { authoringKeys, nativeById } = collectStructureMetadata(
+    roots,
+    outline,
+    STRUCTURE_NODE_LIMIT_STEPS[0],
+    includeNative
+  )
   const compact = compactStructure(outline, authoringKeys, nativeById)
   if (!compact.roots.length && outline.length) {
     throw new Error(
@@ -134,22 +136,34 @@ function compactByNodeLimit(
   return compactRoots
 }
 
-function collectNativeProperties(
+function collectStructureMetadata(
   roots: SceneNode[],
   outline: StructureNode[],
-  nodeLimit: number
-): Map<string, OutlineNativeProperties> {
-  const properties = new Map<string, OutlineNativeProperties>()
+  nodeLimit: number,
+  includeNative: boolean
+): {
+  authoringKeys: Map<string, string>
+  nativeById: Map<string, OutlineNativeProperties>
+} {
+  const authoringKeys = new Map<string, string>()
+  const nativeById = new Map<string, OutlineNativeProperties>()
   const remaining = collectOutlineIds(outline, nodeLimit)
+  if (!remaining.size) return { authoringKeys, nativeById }
 
   for (const node of walkPhysicalNodes(roots)) {
     if (!remaining.delete(node.id)) continue
-    const native = describeNativeProperties(node)
-    if (native) properties.set(node.id, native)
+
+    const key = readOwnedNodeKey(node)
+    if (key) authoringKeys.set(node.id, key)
+
+    if (includeNative) {
+      const native = describeNativeProperties(node)
+      if (native) nativeById.set(node.id, native)
+    }
     if (!remaining.size) break
   }
 
-  return properties
+  return { authoringKeys, nativeById }
 }
 
 function describeNativeProperties(node: SceneNode): OutlineNativeProperties | undefined {
@@ -213,24 +227,6 @@ function collectOutlineIds(outline: StructureNode[], nodeLimit: number): Set<str
 
   addIds(outline)
   return ids
-}
-
-function collectAuthoringKeys(
-  roots: SceneNode[],
-  outline: StructureNode[],
-  nodeLimit: number
-): Map<string, string> {
-  const keys = new Map<string, string>()
-  const remaining = collectOutlineIds(outline, nodeLimit)
-  if (!remaining.size) return keys
-
-  for (const node of walkPhysicalNodes(roots)) {
-    if (!remaining.delete(node.id)) continue
-    const key = readOwnedNodeKey(node)
-    if (key) keys.set(node.id, key)
-    if (!remaining.size) break
-  }
-  return keys
 }
 
 function sanitizeName(value: unknown): string {

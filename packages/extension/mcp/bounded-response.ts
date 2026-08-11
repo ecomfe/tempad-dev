@@ -15,15 +15,19 @@ export async function readBoundedResponseBytes(
   const chunks: Uint8Array[] = []
   const reader = response.body.getReader()
   let size = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    size += value.byteLength
-    if (size > maxBytes) {
-      await reader.cancel().catch(() => undefined)
-      throw tooLarge()
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > maxBytes) {
+        await reader.cancel().catch(() => undefined)
+        throw tooLarge()
+      }
+      chunks.push(value)
     }
-    chunks.push(value)
+  } finally {
+    reader.releaseLock()
   }
 
   const bytes = new Uint8Array(size)
