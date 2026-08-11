@@ -263,7 +263,7 @@ export function parseBackgroundShorthand(value: string) {
   return result
 }
 
-function parseBoxValues(value: string): [string, string, string, string] {
+export function parseBoxValues(value: string): [string, string, string, string] {
   const parts = value.trim().split(WHITESPACE_RE)
   const [t = '', r = t, b = t, l = r] = parts
   return [t, r, b, l]
@@ -393,7 +393,7 @@ function parseHexColor(input: string): { r: number; g: number; b: number; a: num
   return { r, g, b, a }
 }
 
-function parseBorderShorthand(normalized: string): {
+export function parseBorderShorthand(normalized: string): {
   width?: string
   style?: string
   color?: string
@@ -414,7 +414,7 @@ function parseBorderShorthand(normalized: string): {
   }
 }
 
-function extractLeadingGradient(value: string): string | null {
+export function extractLeadingGradient(value: string): string | null {
   const input = value.trim()
   if (!input) return null
 
@@ -490,11 +490,11 @@ function getBorderWidth(style: Record<string, string>): string | null {
   return null
 }
 
-function isZeroBorderWidth(value: string): boolean {
+export function isZeroBorderWidth(value: string): boolean {
   return ZERO_BORDER_WIDTH_RE.test(normalizeStyleValue(value).toLowerCase())
 }
 
-function negateLengthLiteral(value: string): string | null {
+export function negateLengthLiteral(value: string): string | null {
   const normalized = normalizeStyleValue(value)
   const matched = normalized.match(LENGTH_LITERAL_RE)
   if (!matched) {
@@ -510,7 +510,7 @@ function negateLengthLiteral(value: string): string | null {
   return `-${amount}${unit}`
 }
 
-function hasOverflowClipping(style: Record<string, string>): boolean {
+export function hasOverflowClipping(style: Record<string, string>): boolean {
   const overflowValues = [style.overflow, style['overflow-x'], style['overflow-y']]
 
   return overflowValues.some((value) => {

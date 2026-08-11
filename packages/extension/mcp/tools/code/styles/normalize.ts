@@ -1,7 +1,18 @@
 import type { CodegenConfig } from '@/utils/codegen'
 import type { NestedStyleMap } from '@/utils/tailwind'
 
-import { expandShorthands, normalizeStyleValue, normalizeStyleValues } from '@/utils/css'
+import {
+  expandShorthands,
+  extractLeadingGradient,
+  hasOverflowClipping,
+  isZeroBorderWidth,
+  negateLengthLiteral,
+  normalizeStyleValue,
+  normalizeStyleValues,
+  parseBorderShorthand,
+  parseBoxValues
+} from '@/utils/css'
+import { isRenderablePaint } from '@/utils/figma-paint'
 import { cssToClassNames, nestedCssToClassNames } from '@/utils/tailwind'
 
 import type { GetCodeCacheContext } from '../cache'
@@ -13,16 +24,6 @@ import { inferResizingStyles, mergeInferredAutoLayout } from './layout'
 import { applyOverflowStyles } from './overflow'
 
 const BORDER_SIDES = ['top', 'right', 'bottom', 'left'] as const
-const OVERFLOW_CLIPPING_VALUES = new Set(['hidden', 'clip'])
-const GRADIENT_FUNCTION_PREFIXES = [
-  'linear-gradient(',
-  'radial-gradient(',
-  'conic-gradient(',
-  'repeating-linear-gradient(',
-  'repeating-radial-gradient(',
-  'repeating-conic-gradient('
-]
-const LENGTH_LITERAL_RE = /^(-?(?:\d+\.?\d*|\.\d+))([a-z%]+)$/i
 const RING_MASK_IMAGE = 'linear-gradient(#000 0 0), linear-gradient(#000 0 0)'
 const RING_MASK_BOX = 'content-box, border-box'
 
@@ -68,20 +69,7 @@ function hasRenderableFill(node: SceneNode, ctx?: GetCodeCacheContext): boolean 
       ? node.fills
       : null
   if (!fills) return false
-  return fills.some(isFillRenderable)
-}
-
-function isFillRenderable(fill: Paint | undefined): boolean {
-  if (!fill || fill.visible === false) {
-    return false
-  }
-  if (typeof fill.opacity === 'number' && fill.opacity <= 0) {
-    return false
-  }
-  if ('gradientStops' in fill && Array.isArray(fill.gradientStops)) {
-    return fill.gradientStops.some((stop) => (stop.color?.a ?? 1) > 0)
-  }
-  return true
+  return fills.some(isRenderablePaint)
 }
 
 const LAYOUT_KEYS = new Set([
@@ -171,7 +159,7 @@ function resolveGradientBorderClasses(style: StyleMap): GradientBorderClassResul
   if (!gradient) return null
 
   const borderWidth = getBorderWidth(style)
-  if (!borderWidth || isZeroValue(borderWidth)) return null
+  if (!borderWidth || isZeroBorderWidth(borderWidth)) return null
 
   const preserveBorder = !hasOverflowClipping(style)
   const inset = preserveBorder
@@ -221,67 +209,6 @@ function resolveGradientBorderClasses(style: StyleMap): GradientBorderClassResul
   }
 }
 
-function extractLeadingGradient(value: string): string | null {
-  const input = value.trim()
-  if (!input) return null
-
-  const lower = input.toLowerCase()
-  if (!GRADIENT_FUNCTION_PREFIXES.some((prefix) => lower.startsWith(prefix))) {
-    return null
-  }
-
-  let depth = 0
-  let quote: '"' | "'" | null = null
-
-  for (let i = 0; i < input.length; i++) {
-    const ch = input[i]
-    if (quote) {
-      if (ch === '\\') {
-        i++
-        continue
-      }
-      if (ch === quote) quote = null
-      continue
-    }
-
-    if (ch === '"' || ch === "'") {
-      quote = ch
-      continue
-    }
-
-    if (ch === '(') {
-      depth++
-      continue
-    }
-
-    if (ch === ')') {
-      depth = Math.max(0, depth - 1)
-      if (depth === 0) {
-        return input.slice(0, i + 1).trim()
-      }
-    }
-  }
-
-  return null
-}
-
-function parseBorderShorthand(normalized: string): { width?: string } {
-  const matched = normalized.match(/^\s*(\S+)\s+(\S+)\s+(.+)\s*$/)
-  if (matched) {
-    const [, width] = matched
-    if (width) return { width: width.trim() }
-  }
-
-  const parts = normalized.split(/\s+/).filter(Boolean)
-  return { width: parts[0] }
-}
-
-function parseBoxValues(value: string): [string, string, string, string] {
-  const parts = value.trim().split(/\s+/)
-  const [t = '', r = t, b = t, l = r] = parts
-  return [t, r, b, l]
-}
-
 function getBorderWidth(style: StyleMap): string | null {
   const sideWidths = BORDER_SIDES.map((side) => {
     const width = style[`border-${side}-width`]
@@ -311,35 +238,8 @@ function getBorderWidth(style: StyleMap): string | null {
   return null
 }
 
-function hasOverflowClipping(style: StyleMap): boolean {
-  const overflowValues = [style.overflow, style['overflow-x'], style['overflow-y']]
-  return overflowValues.some((value) => {
-    if (!value) return false
-    const parts = normalizeStyleValue(value).toLowerCase().split(/\s+/).filter(Boolean)
-    return parts.some((part) => OVERFLOW_CLIPPING_VALUES.has(part))
-  })
-}
-
 function isNonRadiusBorderProperty(name: string): boolean {
   return /^border(?:$|-)/.test(name) && !name.includes('radius')
-}
-
-function isZeroValue(value: string): boolean {
-  return /^0(?:\.0+)?(?:[a-z%]+)?$/i.test(normalizeStyleValue(value))
-}
-
-function negateLengthLiteral(value: string): string | null {
-  const normalized = normalizeStyleValue(value)
-  const matched = normalized.match(LENGTH_LITERAL_RE)
-  if (!matched) return null
-
-  const [, amount, unit] = matched
-  if (!amount || !unit) return null
-  if (amount.startsWith('-')) {
-    return `${amount.slice(1)}${unit}`
-  }
-
-  return `-${amount}${unit}`
 }
 
 function stripSvgLayout(style: StyleMap): StyleMap {

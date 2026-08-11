@@ -1,3 +1,5 @@
+import { isRenderablePaint } from '@/utils/figma-paint'
+
 import type { CacheMetrics, GetCodeCacheContext, PaintStyleSummary } from './types'
 
 function createDefaultMetrics(): CacheMetrics {
@@ -85,7 +87,7 @@ export function getPaintStyleCached(
     return null
   }
 
-  const visiblePaints = style.paints.filter(isVisiblePaint)
+  const visiblePaints = style.paints.filter(isRenderablePaint)
   const singleVisiblePaint = visiblePaints.length === 1 ? (visiblePaints[0] ?? null) : null
   const singleVisibleSolidPaint =
     singleVisiblePaint?.type === 'SOLID' && singleVisiblePaint.color ? singleVisiblePaint : null
@@ -108,13 +110,4 @@ function incrementMetric(metrics: CacheMetrics | undefined, key: keyof CacheMetr
   }
 
   metrics[key] += 1
-}
-
-function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {
-  if (!paint || paint.visible === false) return false
-  if (typeof paint.opacity === 'number' && paint.opacity <= 0) return false
-  if ('gradientStops' in paint && Array.isArray(paint.gradientStops)) {
-    return paint.gradientStops.some((stop) => (stop.color?.a ?? 1) > 0)
-  }
-  return true
 }
