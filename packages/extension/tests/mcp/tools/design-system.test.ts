@@ -768,6 +768,41 @@ describe('mcp/tools/design-system', () => {
     expect(definition.variants.length).toBeLessThan(128)
   })
 
+  it('byte-compacts large component property options instead of dropping the detail', async () => {
+    const preferredValues = Array.from({ length: 128 }, (_, index) => ({
+      type: 'COMPONENT' as const,
+      key: `${index}-${'x'.repeat(1_000)}`
+    }))
+    stubFigma({
+      components: [
+        component('component:large-options', 'Large options', {
+          componentPropertyDefinitions: {
+            Swap: { type: 'INSTANCE_SWAP', defaultValue: '', preferredValues }
+          }
+        })
+      ]
+    })
+
+    const catalog = await handleGetDesignSystem({})
+    const detail = await handleGetDesignSystem({ catalogId: catalog.catalogId, ref: 'c1' })
+    const definition = detail.details?.definition as {
+      detailTruncated?: true
+      properties?: Record<
+        string,
+        { omittedOptions?: number; options?: string[]; preferredValues?: unknown[] }
+      >
+    }
+    const property = definition.properties?.Swap
+
+    expect(measureCallToolResultBytes(buildGetDesignSystemToolResult(detail))).toBeLessThanOrEqual(
+      64 * 1024
+    )
+    expect(definition.detailTruncated).toBe(true)
+    expect(property?.preferredValues).toBeUndefined()
+    expect(property?.omittedOptions).toBeGreaterThan(0)
+    expect(property?.options?.length).toBeLessThan(128)
+  })
+
   it('evicts inactive catalogs by least-recently-used order', () => {
     const catalogs = Array.from({ length: 8 }, () => registerDesignSystemCatalog([]))
     requireDesignSystemCatalog(catalogs[0]!.id)
