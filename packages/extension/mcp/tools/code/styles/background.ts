@@ -1,4 +1,4 @@
-import type { FigmaLookupReaders } from '@/utils/figma-style/types'
+import type { FigmaLookupReaders, PaintResolutionSize } from '@/utils/figma-style/types'
 
 import {
   canonicalizeColor,
@@ -9,6 +9,7 @@ import {
   splitByTopLevelComma,
   stripFallback
 } from '@/utils/css'
+import { getPaintResolutionSize, isVisiblePaint } from '@/utils/figma-paint'
 import {
   resolveBackgroundFillFromPaints,
   resolveGradientPaintCss
@@ -24,7 +25,6 @@ const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
 const GRADIENT_FN_RE = /(linear-gradient|radial-gradient|conic-gradient)\s*\(/i
 
 type PaintList = Paint[] | ReadonlyArray<Paint> | null | undefined
-type GradientSize = { width: number; height: number }
 
 const DEFAULT_READERS: FigmaLookupReaders = {
   getStyleById: (id: string) => figma.getStyleById(id),
@@ -42,7 +42,7 @@ export function cleanFigmaSpecificStyles(
   const fills = getNodeFills(node, ctx)
   const styleFillPaints = getFillStylePaints(node, ctx)
   const activeFillPaints = styleFillPaints ?? fills
-  const gradientSize = getGradientSizeFromNode(node)
+  const gradientSize = getPaintResolutionSize(node)
   const readers = ctx?.readers ?? DEFAULT_READERS
   const backgroundFill = resolveBackgroundFillFromPaints(activeFillPaints, gradientSize, readers, {
     resolveGradientPaint: resolveGradientPaintValue,
@@ -128,24 +128,8 @@ function getNodeFills(node: SceneNode, ctx?: GetCodeCacheContext): ReadonlyArray
   return null
 }
 
-function getGradientSizeFromNode(node: SceneNode): GradientSize | undefined {
-  if (!('width' in node) || !('height' in node)) return undefined
-
-  const width = node.width
-  const height = node.height
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return undefined
-  }
-
-  return { width, height }
-}
-
 function isPaintStyle(style: BaseStyle | null): style is PaintStyle {
   return !!style && 'paints' in style && Array.isArray(style.paints)
-}
-
-function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {
-  return !!paint && paint.visible !== false
 }
 
 function isSolidPaint(paint: Paint): paint is SolidPaint {
@@ -218,7 +202,7 @@ function resolveVisibleSolidPaintColor(
 
 function resolveGradientPaintValue(
   gradientPaint: GradientPaint,
-  size?: GradientSize,
+  size?: PaintResolutionSize,
   readers: FigmaLookupReaders = DEFAULT_READERS
 ): string | null {
   return resolveGradientPaintCss(gradientPaint, size, readers, formatGradientStopColor)

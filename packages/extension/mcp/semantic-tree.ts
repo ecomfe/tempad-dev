@@ -186,15 +186,8 @@ function composeDataHint(node: SceneNode): DataHint | undefined {
   const hints: DataHint = {}
 
   if (node.type === 'INSTANCE') {
-    const { mainComponent } = node as InstanceNode
-    const name =
-      mainComponent?.parent?.type === 'COMPONENT_SET'
-        ? mainComponent.parent.name
-        : (mainComponent?.name ?? node.name)
-    const props = summarizeComponentProperties(node) ?? ''
-    if (name) {
-      hints['data-hint-design-component'] = `${toPascalCase(name)}${props}`
-    }
+    const componentHint = summarizeComponentHint(node)
+    if (componentHint) hints['data-hint-design-component'] = componentHint
   }
 
   const layoutHint = summarizeLayoutHint(node)
@@ -263,6 +256,15 @@ function summarizeComponentProperties(node: InstanceNode): string | undefined {
 
   const entries = [...variants, ...others]
   return entries.length ? entries.map((e) => `[${e}]`).join('') : undefined
+}
+
+export function summarizeComponentHint(node: InstanceNode): string | undefined {
+  const { mainComponent } = node
+  const name =
+    mainComponent?.parent?.type === 'COMPONENT_SET'
+      ? mainComponent.parent.name
+      : (mainComponent?.name ?? node.name)
+  return name ? `${toPascalCase(name)}${summarizeComponentProperties(node) ?? ''}` : undefined
 }
 
 function summarizeLayoutHint(node: SceneNode): string | undefined {

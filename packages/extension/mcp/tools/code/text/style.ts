@@ -1,4 +1,5 @@
 import { canonicalizeValue, formatHexAlpha, toFigmaVarExpr } from '@/utils/css'
+import { isRenderablePaint } from '@/utils/figma-paint'
 import { resolveTextSegmentVariable, resolveVariableAlias } from '@/utils/figma-variables'
 import { toDecimalPlace } from '@/utils/number'
 
@@ -20,7 +21,7 @@ export function resolveRunAttrs(
   let visibleSolid: Extract<ResolvedFill, { type: 'SOLID' }> | undefined
   let hasVisiblePaint = false
   for (const fill of fills) {
-    if (!isVisiblePaint(fill.raw)) continue
+    if (!isRenderablePaint(fill.raw)) continue
     hasVisiblePaint = true
     if (fill.type === 'SOLID') {
       visibleSolid = fill
@@ -96,15 +97,6 @@ export function resolveTokens(textNode: TextNode, seg: StyledTextSegmentSubset) 
   })
 
   return { typography, fills }
-}
-
-function isVisiblePaint(paint?: Paint): boolean {
-  if (!paint || paint.visible === false) return false
-  if (typeof paint.opacity === 'number' && paint.opacity <= 0) return false
-  if ('gradientStops' in paint && Array.isArray(paint.gradientStops)) {
-    return paint.gradientStops.some((stop) => (stop.color?.a ?? 1) > 0)
-  }
-  return true
 }
 
 export function computeDominantStyle(runStyles: RunStyleEntry[]): Record<string, string> {

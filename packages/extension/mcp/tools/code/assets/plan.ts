@@ -1,8 +1,10 @@
+import { isRenderablePaint } from '@/utils/figma-paint'
+
 import type { GetCodeCacheContext } from '../cache'
 import type { NodeSnapshot, VisibleTree } from '../model'
 
-import { getNodeSemanticsCached } from '../cache'
-import { hasVisibleEffects, isVisiblePaint } from './paint'
+import { getNodeSemanticsCached, hasVisibleEffects } from '../cache'
+import { addSubtreeIds } from '../tree'
 
 export type AssetPlan = {
   vectorRoots: Set<string>
@@ -56,7 +58,7 @@ export function planAssets(
 
     if (isVectorGroup) {
       vectorRoots.add(id)
-      children.forEach((child) => skipDescendants(child.id, tree, skipped))
+      children.forEach((child) => addSubtreeIds(child.id, tree, skipped))
       continue
     }
 
@@ -169,17 +171,9 @@ function hasVisiblePaints(node: SceneNode, kind: 'fills' | 'strokes'): boolean {
   if (!(kind in node)) return false
   const paints = (node as { fills?: unknown; strokes?: unknown })[kind]
   if (!Array.isArray(paints)) return false
-  return paints.some((paint) => isVisiblePaint(paint))
+  return paints.some((paint) => isRenderablePaint(paint))
 }
 
 function hasClipping(node: SceneNode): boolean {
   return 'clipsContent' in node && node.clipsContent === true
-}
-
-function skipDescendants(id: string, tree: VisibleTree, skipped: Set<string>): void {
-  const node = tree.nodes.get(id)
-  if (!node) return
-  if (skipped.has(id)) return
-  skipped.add(id)
-  node.children.forEach((childId) => skipDescendants(childId, tree, skipped))
 }

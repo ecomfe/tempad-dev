@@ -1,3 +1,5 @@
+import { isRenderablePaint } from '@/utils/figma-paint'
+
 type ImageMimeType = 'image/gif' | 'image/jpeg' | 'image/png' | 'image/webp'
 
 function hasSignature(bytes: Uint8Array, signature: readonly number[], offset = 0): boolean {
@@ -32,10 +34,5 @@ export function detectImageMime(bytes: Uint8Array): ImageMimeType | null {
 export function isVisibleMediaPaint(
   paint: Paint | null | undefined
 ): paint is ImagePaint | VideoPaint {
-  return (
-    !!paint &&
-    (paint.type === 'IMAGE' || paint.type === 'VIDEO') &&
-    paint.visible !== false &&
-    (paint.opacity ?? 1) > 0
-  )
+  return !!paint && (paint.type === 'IMAGE' || paint.type === 'VIDEO') && isRenderablePaint(paint)
 }

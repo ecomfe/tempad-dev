@@ -12,6 +12,7 @@ import type {
 } from './types'
 
 import { formatHexAlpha, normalizeFigmaVarName, replaceVarFunctions } from '../css'
+import { getPaintResolutionSize } from '../figma-paint'
 import { getVariableCssName, resolveVariableAlias } from '../figma-variables'
 import {
   resolveBackgroundFillFromPaints,
@@ -180,18 +181,6 @@ function getEffectivePaintSource(
   return getPaintStyleSource(styleId, kind, readers) ?? { paints, bindings }
 }
 
-function getNodeDimensions(node: SceneNode): PaintResolutionSize | undefined {
-  if (!('width' in node) || !('height' in node)) return undefined
-
-  const width = node.width
-  const height = node.height
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return undefined
-  }
-
-  return { width, height }
-}
-
 function createNodePaintStyleInput(node: SceneNode): NodePaintStyleInput {
   const boundVariables = (node as { boundVariables?: Record<string, unknown> }).boundVariables
 
@@ -202,7 +191,7 @@ function createNodePaintStyleInput(node: SceneNode): NodePaintStyleInput {
     strokes: 'strokes' in node && Array.isArray(node.strokes) ? node.strokes : null,
     fillVariableBindings: boundVariables?.fills as PaintVariableBindings | undefined,
     strokeVariableBindings: boundVariables?.strokes as PaintVariableBindings | undefined,
-    dimensions: getNodeDimensions(node)
+    dimensions: getPaintResolutionSize(node)
   }
 }
 

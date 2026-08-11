@@ -1,15 +1,15 @@
+import { isRenderablePaint } from '@/utils/figma-paint'
+
 import type { GetCodeCacheContext } from '../cache'
 import type { NodeSnapshot, VisibleTree } from '../model'
 
-import { getNodeSemanticsCached, getPaintsFromState } from '../cache'
 import {
-  type PaintChannel,
+  getNodeSemanticsCached,
+  getPaintsFromState,
   hasRenderableStrokes,
-  hasVisibleEffects,
-  isVisiblePaint,
-  resolveSolidPaintChannel,
-  resolveStylePaintChannel
-} from './paint'
+  hasVisibleEffects
+} from '../cache'
+import { type PaintChannel, resolveSolidPaintChannel, resolveStylePaintChannel } from './paint'
 
 const PAINT_KINDS = ['fills', 'strokes'] as const
 
@@ -75,7 +75,7 @@ function breaksThemeable(snapshot: NodeSnapshot, ctx?: GetCodeCacheContext): boo
     snapshot.assetKind === 'image' ||
     semantics?.layout.isMask === true ||
     (!semantics && isMaskNode(snapshot.node)) ||
-    hasVisibleEffects(snapshot.node, ctx)
+    (semantics?.paint.hasVisibleEffect ?? hasVisibleEffects(snapshot.node))
   )
 }
 
@@ -99,7 +99,7 @@ function collectPaintChannels(
     return []
   }
 
-  const visiblePaints = paints.filter(isVisiblePaint)
+  const visiblePaints = paints.filter(isRenderablePaint)
   const styleChannel = visiblePaints.length === 1 ? resolveStylePaintChannel(node, kind, ctx) : null
   const channels: PaintChannel[] = []
   for (const paint of visiblePaints) {

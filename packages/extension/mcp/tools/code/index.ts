@@ -38,7 +38,7 @@ import { getOrderedChildIds, renderShellTree, renderTree } from './render'
 import { resolvePluginComponents } from './render/plugin'
 import { buildLayoutStyles, prepareStyles } from './styles'
 import { createStyleVarResolver, processTokens, resolveStyleMap } from './tokens'
-import { buildVisibleTree } from './tree'
+import { addSubtreeIds, buildVisibleTree } from './tree'
 
 // Tags that should render children without extra whitespace/newlines.
 const COMPACT_TAGS = new Set([
@@ -590,19 +590,11 @@ async function collectPluginOutput(
       if (!component) continue
       const snapshot = tree.nodes.get(id)
       if (!snapshot) continue
-      snapshot.children.forEach((childId) => skipDescendants(childId, tree, pluginSkipped))
+      snapshot.children.forEach((childId) => addSubtreeIds(childId, tree, pluginSkipped))
     }
   }
 
   return { pluginComponents, pluginSkipped }
-}
-
-function skipDescendants(id: string, tree: VisibleTree, skipped: Set<string>): void {
-  const node = tree.nodes.get(id)
-  if (!node) return
-  if (skipped.has(id)) return
-  skipped.add(id)
-  node.children.forEach((childId) => skipDescendants(childId, tree, skipped))
 }
 
 function buildSkipIds(base: Set<string>, extra: Set<string>): Set<string> {
