@@ -35,6 +35,8 @@ export type VisibleTree = {
 
 export type CollectedData = {
   nodes: Map<string, NodeSnapshot>
+  rootVideoPreviewAssetHashes: Set<string>
   styles: Map<string, Record<string, string>>
   textSegments: Map<string, StyledTextSegment[] | null>
+  videoPreviewAssetHashes: Set<string>
 }

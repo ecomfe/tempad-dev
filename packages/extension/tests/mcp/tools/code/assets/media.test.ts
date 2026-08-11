@@ -322,6 +322,7 @@ describe('assets/media', () => {
       size: bytes.byteLength
     }))
     const registry = new Map()
+    const videoPreviewAssetHashes = new Set<string>()
 
     const result = await replaceMediaUrlsWithAssets(
       { background: "url('figma-image')" },
@@ -330,7 +331,8 @@ describe('assets/media', () => {
         exportAsync: vi.fn(async () => png)
       } as unknown as SceneNode,
       config,
-      registry
+      registry,
+      videoPreviewAssetHashes
     )
 
     expect(result.background).toBe("url('https://assets.local/image')")
@@ -340,6 +342,7 @@ describe('assets/media', () => {
         expect.objectContaining({ figmaImageHash: 'hash-image' })
       ])
     )
+    expect(videoPreviewAssetHashes).toEqual(new Set(['asset-video-preview']))
   })
 
   it('retains all native media hashes on a shared rendered fallback', async () => {

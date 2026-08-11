@@ -86,13 +86,26 @@ Use this sequence after an affected change:
 6. Through Browser control, create and select a uniquely named, empty Figma
    page. Do not leave an artifact that the evaluation agent can discover or
    copy.
-7. Release or hand off the claimed Figma tab without closing it. Create a fresh
-   projectless Codex UI task that instructs the agent to work on the current
-   page. Do not run the evaluation in the coordinating task.
+7. Release or hand off the claimed Figma tab without closing it. In Codex App,
+   use the native new-task flow to create a fresh task outside every project and
+   instruct its agent to work on the current page. Before dispatch, select Full
+   access in that task. Confirm that the task appears in the App's task list and
+   can be opened independently, then record its task or thread ID. Do not use a
+   CLI, SDK, `codex app-server`, App Server thread API, shell wrapper, subagent,
+   side conversation, hidden fork, or background process as a substitute for
+   the visible App task. A persisted rollout or JSONL file alone is not evidence
+   that the App task was created.
+
+   The fresh task must not require per-call approval for authorized TemPad MCP
+   writes. Full access in the coordinating task is not evidence for the fresh
+   task: select it in the fresh task before sending the prompt. Do not run the
+   evaluation in the coordinating task.
+
 8. Before accepting the result, confirm that the fresh task records the
    generated cachebuster in its skill path, uses the checkout's MCP CLI and Hub
    rather than a detached Hub or stale socket, can call TemPad tools directly,
-   and reaches the refreshed extension.
+   reaches the refreshed extension, and performs authorized TemPad writes
+   without pausing for approval.
 
 Do not add a probe task after every reinstall. The clean evaluation task is the
 new-task pickup boundary and must provide the runtime evidence. Use a dedicated
@@ -101,7 +114,10 @@ probe only once when diagnosing the lifecycle.
 Reject any run that cannot prove runtime identity. Reinstall the intended
 cachebuster, prepare another empty page, and dispatch another fresh task. Do not
 reuse its artifact. Starting the MCP CLI manually or recreating stdio or
-JSON-RPC transport does not restore missing direct tool exposure.
+JSON-RPC transport does not restore missing direct tool exposure. Also reject a
+run when a TemPad write pauses for approval: treat it as a task-lifecycle
+failure, do not approve it mid-run, fix the permission propagation or explicit
+setup, and repeat with another empty page and fresh task.
 
 ## Choose a representative task
 
@@ -139,13 +155,16 @@ a later agent could discover or copy.
 
 After dispatch, keep the coordinating task idle until completion. Do not
 inspect or steer intermediate work, modify the repository, plugin, runtime, or
-Figma state, or begin fixes in parallel.
+Figma state, or begin fixes in parallel. Observe completion on the independently
+openable App task; polling a headless process or shell session is not a valid
+replacement.
 
 ## Review the complete run
 
-Read the task from its initial prompt through its final answer. Treat the
-agent's retrospective as a lead, not proof. Reconstruct consequential decisions
-and failures from tool evidence, then inspect the delivered artifact directly.
+Reopen the task from the Codex App task list and read it from its initial prompt
+through its final answer. Treat the agent's retrospective as a lead, not proof.
+Reconstruct consequential decisions and failures from tool evidence, then
+inspect the delivered artifact directly.
 
 Review these axes:
 

@@ -11,14 +11,14 @@ description: >-
 # Design on the Figma canvas
 
 Turn product intent into one native, editable Figma result. Reason in this
-order: intended experience and evidence, an HTML/Tailwind-shaped desired
-result, the minimum Figma-only translation semantics it needs, then rendered
-verification. Use markup and classes as the primary design language for
-hierarchy, layout, spacing, typography, color, and ordinary appearance. Use
-native fields to translate or preserve capabilities that HTML cannot represent
-honestly, not as the creative grammar that determines the composition. Keep the
-result focal; schema fields, catalog entries, examples, and tool calls are
-subsidiary means, not design evidence or a checklist to maximize.
+order: intended experience and evidence, the Figma-native artifact model,
+representation-specific mechanics, serialization, then rendered verification.
+Treat markup and classes as a transport for ordinary layer hierarchy, layout,
+spacing, typography, color, and appearance after the Figma result is decided;
+they are not the design medium or proof of native editability. Use native fields
+for capabilities whose meaning depends on Figma node types, resources, or
+state. Keep the result focal; schema fields, catalog entries, examples, and tool
+calls are subsidiary means, not design evidence or a checklist to maximize.
 
 Derive product-domain, platform, accessibility, content, and visual-design
 requirements from the user, permitted evidence, an applicable skill, or
@@ -85,11 +85,12 @@ requires establishing and verifying them, not prescribing their answers.
    downstream acquisition options, not evidence that imagery belongs in the
    result. Retain only the evidence needed to recover a material choice; do not
    create an explanation ceremony for settled or low-consequence decisions.
-3. **Form the desired result and translation plan.** Compose the decided
-   content, states, and relationships as an HTML/Tailwind-shaped result: visible
-   hierarchy, grouping, layout behavior, spacing, typography, color, ordinary
-   appearance, and media placement. Then identify only the semantics that must
-   be translated through native fields, such as exact Figma resources,
+3. **Form the desired result and translation plan.** Model the decided content,
+   states, and relationships in Figma terms before writing markup: visible node
+   roles, grouping, layout behavior, spacing, typography, color, ordinary
+   appearance, media placement, and every relationship whose editability
+   matters. Then separate the ordinary layer details Canvas HTML can serialize
+   from semantics that must use native fields, such as exact Figma resources,
    components, variables, masks, media paints, guides, or node types. Name
    provisional resources and their real consumers; do not let the currently
    available classes or native schema choose the medium, structure, or design
@@ -97,6 +98,12 @@ requires establishing and verifying them, not prescribing their answers.
    establishes an order or prerequisite, keep the visible hierarchy and shown
    states consistent with it. For new work, choose Reuse only when permitted
    evidence establishes a relevant existing system; otherwise choose Direct.
+   Treat an explicitly editable diagram as native semantics: decide its
+   independently editable connectors, nodes, and authored geometry before
+   serialization, then declare them as the matching LINE, ELLIPSE, RECTANGLE,
+   or VECTOR shapes. Use Canvas HTML only to serialize their hierarchy,
+   placement placeholders, surrounding composition, and labels. Styled FRAME
+   rectangles and circles do not prove an editable diagram model.
    Ask only when a material boundary cannot be inferred.
    - **Reuse:** read
      [design-system-reuse.md](references/design-system-reuse.md), then use only
