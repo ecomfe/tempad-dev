@@ -2095,39 +2095,6 @@ function validateCanvasApplyScope<Value extends CanvasApplyScope>(
   if (value.mode === 'update' && value.targetNodeId === undefined) {
     issue('Update mode requires targetNodeId.', 'targetNodeId')
   }
-  if (value.mode === 'create' && value.bindings !== undefined) {
-    const field = 'bindings' as const
-    const bindings = value[field]
-    if (bindings && typeof bindings === 'object' && !Array.isArray(bindings)) {
-      for (const [key, candidate] of Object.entries(bindings)) {
-        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
-        const binding = candidate as Record<string, unknown>
-        if (binding.component !== undefined) continue
-        if (binding.componentProperties !== undefined) {
-          context.addIssue({
-            code: 'custom',
-            message:
-              'Creating an instance with componentProperties requires a component reference.',
-            path: [field, key, 'componentProperties']
-          })
-        }
-        const figma = binding.figma
-        if (
-          figma &&
-          typeof figma === 'object' &&
-          !Array.isArray(figma) &&
-          (figma as Record<string, unknown>).instance !== undefined
-        ) {
-          context.addIssue({
-            code: 'custom',
-            message:
-              'Creating an instance with Figma instance properties requires a component reference.',
-            path: [field, key, 'figma', 'instance']
-          })
-        }
-      }
-    }
-  }
   if (value.markup !== null) return
   for (const field of [
     'bindings',

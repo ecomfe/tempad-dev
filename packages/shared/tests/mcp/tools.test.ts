@@ -653,17 +653,6 @@ describe('mcp/tools canvas authoring schemas', () => {
         markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
         bindings: {
           root: {
-            figma: { instance: { scaleFactor: 1 } }
-          }
-        }
-      })
-    ).toBe(false)
-    expect(
-      acceptsCanvas({
-        mode: 'create',
-        markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
-        bindings: {
-          root: {
             component: { id: 'ComponentID:1' },
             figma: { instance: { scaleFactor: 0 } }
           }
@@ -2078,7 +2067,7 @@ describe('mcp/tools canvas authoring schemas', () => {
     }
   })
 
-  it('rejects empty, malformed, and ungrounded bindings', () => {
+  it('rejects empty and malformed bindings', () => {
     expect(
       acceptsCanvas({
         mode: 'create',
@@ -2092,17 +2081,6 @@ describe('mcp/tools canvas authoring schemas', () => {
         markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
         bindings: {
           root: {}
-        }
-      })
-    ).toBe(false)
-    expect(
-      acceptsCanvas({
-        mode: 'create',
-        markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
-        bindings: {
-          root: {
-            componentProperties: { Label: 'Save' }
-          }
         }
       })
     ).toBe(false)
@@ -2163,7 +2141,7 @@ describe('mcp/tools canvas authoring schemas', () => {
     ).toBe(false)
   })
 
-  it('defers public component-tag validation until catalog resolution', () => {
+  it('defers component-create validation until markup and catalog resolution', () => {
     const publicUpdate = {
       mode: 'update' as const,
       targetNodeId: '1:2',
@@ -2198,7 +2176,7 @@ describe('mcp/tools canvas authoring schemas', () => {
         native: publicUpdate.native
       }).success
     ).toBe(true)
-    expect(acceptsCanvas({ ...resolvedCreate, mode: 'create' })).toBe(false)
+    expect(acceptsCanvas({ ...resolvedCreate, mode: 'create' })).toBe(true)
   })
 })
 
