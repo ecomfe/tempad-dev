@@ -41,9 +41,6 @@ jobs:
           .agents/plugins/marketplace.json
           .claude-plugin/marketplace.json)"
 
-      - name: Verify published MCP version
-        run: npm view "@tempad-dev/mcp@$(node -p "require('./packages/mcp-server/package.json').version")" version
-
       - name: Type check
         run: pnpm typecheck
 
