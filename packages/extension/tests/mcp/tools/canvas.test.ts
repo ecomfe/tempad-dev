@@ -2420,6 +2420,7 @@ describe('mcp/tools/canvas', () => {
     root.strokeRightWeight = 2
     const child = fixture.getNode(created.nodeIdsByKey.child!) as unknown as FrameNode
     child.resize(0, child.height)
+    child.maxWidth = 0
     const nativeResize = child.resize.bind(child)
     vi.spyOn(child, 'resize').mockImplementation((width, height) => {
       if (width < 0.01) throw new Error('Figma requires width >= 0.01')
@@ -4016,6 +4017,28 @@ describe('mcp/tools/canvas', () => {
     expect(action.scaleFactor).toBe(1.25)
     expect((await action.getMainComponentAsync())?.id).toBe(originalComponent?.id)
     expect((await applyCanvasFromTool(update)).mutationCount).toBe(0)
+  })
+
+  it('rejects ungrounded instance state after markup and catalog resolution', async () => {
+    createFixture()
+
+    await expect(
+      applyCanvas({
+        mode: 'create',
+        markup:
+          '<div data-key="root" class="flex flex-row w-[240px] h-[120px]"><div data-key="action" class="w-[80px] h-[40px]"></div></div>',
+        bindings: {
+          action: {
+            componentProperties: { Label: 'Save' },
+            figma: { instance: { scaleFactor: 1.25 } }
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining('requires an existing instance or a component reference')
+    })
+    expect(figma.createFrame).not.toHaveBeenCalled()
   })
 
   it('chooses whether a component replacement preserves existing overrides', async () => {
@@ -6240,7 +6263,7 @@ describe('mcp/tools/canvas', () => {
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
 
-  it('accepts Figma float normalization in shadow effects', async () => {
+  it('accepts Figma float and explicit shadow-default normalization', async () => {
     const fixture = createFixture()
     transformNextFrameEffects(fixture, (effects) =>
       effects.map((effect) =>
@@ -6253,7 +6276,7 @@ describe('mcp/tools/canvas', () => {
                 b: Math.fround(effect.color.b),
                 a: Math.fround(effect.color.a)
               },
-              ...(effect.type === 'DROP_SHADOW' ? { showShadowBehindNode: true } : {})
+              ...(effect.type === 'DROP_SHADOW' ? { showShadowBehindNode: false } : {})
             }
           : effect
       )
@@ -6275,7 +6298,7 @@ describe('mcp/tools/canvas', () => {
           b: Math.fround(24 / 255),
           a: Math.fround(0.22)
         },
-        showShadowBehindNode: true
+        showShadowBehindNode: false
       }
     ])
   })

@@ -2278,13 +2278,10 @@ function crossAxisFill(
       recoverySize: Math.max(
         GEOMETRY_TOLERANCE,
         clampSize(
-          Math.max(
-            GEOMETRY_TOLERANCE,
-            parent.width -
-              parent.paddingLeft -
-              parent.paddingRight -
-              includedLayoutStroke(parent, 'horizontal')
-          ),
+          parent.width -
+            parent.paddingLeft -
+            parent.paddingRight -
+            includedLayoutStroke(parent, 'horizontal'),
           node.minWidth,
           node.maxWidth
         )
@@ -2297,13 +2294,10 @@ function crossAxisFill(
       recoverySize: Math.max(
         GEOMETRY_TOLERANCE,
         clampSize(
-          Math.max(
-            GEOMETRY_TOLERANCE,
-            parent.height -
-              parent.paddingTop -
-              parent.paddingBottom -
-              includedLayoutStroke(parent, 'vertical')
-          ),
+          parent.height -
+            parent.paddingTop -
+            parent.paddingBottom -
+            includedLayoutStroke(parent, 'vertical'),
           node.minHeight,
           node.maxHeight
         )
@@ -3129,7 +3123,7 @@ function comparableShadow(effect: DropShadowEffect | InnerShadowEffect): Effect 
     ...effect,
     spread: effect.spread ?? 0,
     ...(effect.type === 'DROP_SHADOW'
-      ? { showShadowBehindNode: effect.showShadowBehindNode ?? true }
+      ? { showShadowBehindNode: effect.showShadowBehindNode ?? false }
       : {})
   }
 }
