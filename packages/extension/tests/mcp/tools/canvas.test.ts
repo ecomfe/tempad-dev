@@ -2433,6 +2433,31 @@ describe('mcp/tools/canvas', () => {
     expect(child.width).toBe(0.01)
   })
 
+  it('floors growing text width before Figma resize with a zero max-width constraint', async () => {
+    const fixture = createFixture()
+    let textResize: ReturnType<typeof vi.spyOn> | undefined
+    vi.mocked(figma.createText).mockImplementationOnce(() => {
+      const node = fixture.createNode('TEXT')
+      const nativeResize = node.resize.bind(node)
+      textResize = vi.spyOn(node, 'resize').mockImplementation((width, height) => {
+        if (width < 0.01) throw new Error('Figma requires width >= 0.01')
+        nativeResize(width, height)
+      })
+      return node as unknown as TextNode
+    })
+    const input: CanvasResolvedApplyParameters = {
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-row w-[320px] h-[40px]"><span data-key="label" class="grow w-fit h-fit max-w-[0px]">Label</span></div>'
+    }
+
+    await expect(applyCanvas(input)).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining('growing text collapsed to zero width')
+    })
+    expect(textResize).toHaveBeenCalledWith(0.01, expect.any(Number))
+  })
+
   it.each([
     ['INSIDE', 126],
     ['CENTER', 128],

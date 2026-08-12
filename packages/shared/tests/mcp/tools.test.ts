@@ -2321,6 +2321,19 @@ describe('mcp/tools parameter schemas', () => {
         options: { depth: 0 }
       }).success
     ).toBe(false)
+
+    expect(z.toJSONSchema(GetStructureParametersSchema)).toMatchObject({
+      properties: {
+        options: {
+          properties: {
+            depth: {
+              description:
+                'Positive integer; 1 is the shallowest traversal (root plus direct children). Omit for the full tree, subject to safety caps.'
+            }
+          }
+        }
+      }
+    })
   })
 
   it('validates get_assets hash inputs and get_assets result shape', () => {

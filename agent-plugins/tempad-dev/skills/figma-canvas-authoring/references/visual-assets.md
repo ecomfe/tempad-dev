@@ -61,7 +61,11 @@ generated source instead.
 Use an applicable current-file, catalog, project, or user-supplied source when
 permitted. Otherwise select a trustworthy source that satisfies the established
 brief and record any license constraint. Import its exact SVG geometry; do not
-redraw a known icon from memory or replace it with a text character.
+redraw a known icon from memory or replace an established icon-asset role with a
+text character, including a Unicode symbol or emoji.
+Treat a character-shaped control as an icon role when its shape communicates an
+affordance rather than linguistic content; its Figma node must use the selected
+icon asset or component, not TEXT.
 Before declaring a fetched SVG, verify that the response is SVG content rather
 than a redirect, error document, or missing-asset message; a plausible URL or
 filename does not establish a valid asset.

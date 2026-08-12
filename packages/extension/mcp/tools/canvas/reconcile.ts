@@ -2393,7 +2393,7 @@ function stabilizeGrowingTextWidth(
       width = Math.max(width, available / growCount)
     }
   }
-  width = clampSize(Math.max(1, width), node.minWidth, node.maxWidth)
+  width = Math.max(GEOMETRY_TOLERANCE, clampSize(width, node.minWidth, node.maxWidth))
 
   node.layoutSizingHorizontal = 'FIXED'
   node.resize(width, node.height)

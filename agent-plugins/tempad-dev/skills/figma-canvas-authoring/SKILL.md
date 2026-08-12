@@ -24,6 +24,16 @@ Derive product-domain, platform, accessibility, content, and visual-design
 requirements from the user, permitted evidence, an applicable skill, or
 targeted research. Examples explain mechanics only.
 
+This skill is called by a general-purpose agent to deliver a Figma artifact. It
+owns the reliable design-in-Figma workflow: artifact modeling, representation,
+scoped authoring, reconciliation, and verification. Product-design method,
+visual direction, and component strategy come from the user, applicable
+evidence, research, or professional design expertise. The host always needs the
+current Figma context and TemPad tools; other evidence, skills, discovery, and
+acquisition capabilities may vary. Decide the expertise needed before looking
+at what is available, and do not copy another skill's contextual design rules
+into this one.
+
 Require the intended Figma tab's MCP badge to be active and the current Figma
 Design file to be editable. Never bypass that boundary or emit raw Plugin API
 operations.
@@ -67,24 +77,23 @@ requires establishing and verifying them, not prescribing their answers.
    page by default. Omit top-level `page` unless the user or established task
    evidence requires a specific page operation; never ask for or invent a page
    merely to place new work.
-2. **Resolve material design decisions.** Follow the user, permitted file and
-   project evidence, and applicable installed skills. For expert workflows,
-   treat missing domain conventions that affect
-   safety, prioritization, terminology, or decision order as unresolved; use an
-   applicable professional skill or targeted research instead of generic UI
-   priors. For net-new or materially redesigned work, read
-   [style-grounding.md](references/style-grounding.md) only when a material
-   decision remains unresolved; broad adjectives and creative latitude do not
-   settle a direction-defining visual language. Do not assume the composition
-   needs a separate visual asset. Decide first what, if anything, must be
-   depicted, signaled, identified, or merely accented. Read
+2. **Resolve material design decisions.** Follow the user and permitted file or
+   project evidence. When a material decision remains unresolved, name the
+   professional capability needed before choosing from the host's available
+   skills or tools; availability is not design evidence. Read
+   [style-grounding.md](references/style-grounding.md) when a material decision
+   remains unresolved; it routes applicable professional expertise, targeted
+   research, and clarification without turning those methods into TemPad rules.
+   Do not assume the composition needs a separate visual asset. Decide first
+   what, if anything, must be depicted, signaled, identified, or merely
+   accented. Read
    [visual-assets.md](references/visual-assets.md) only when the result needs an
    icon, image, illustration, diagram, vector artwork, or exact typeface
-   decision; skip it when the typography and layout are already established and
-   no asset choice remains. Available search, catalog, and generation routes are
-   downstream acquisition options, not evidence that imagery belongs in the
-   result. Retain only the evidence needed to recover a material choice; do not
-   create an explanation ceremony for settled or low-consequence decisions.
+   decision; skip it when no asset choice remains. Available search,
+   catalog, and generation routes are downstream acquisition options, not
+   evidence that imagery belongs in the result. Retain only the evidence needed
+   to recover a material choice; do not create an explanation ceremony for
+   settled or low-consequence decisions.
 3. **Form the desired result and translation plan.** Model the decided content,
    states, and relationships in Figma terms before writing markup: visible node
    roles, grouping, layout behavior, spacing, typography, color, ordinary
@@ -116,11 +125,13 @@ requires establishing and verifying them, not prescribing their answers.
      styles are still file-wide Figma resources, and internal identity checks
      may remain file-wide; use one collision-resistant authoring-key prefix for
      resources created by this task.
-   - **Author:** enter only when the user explicitly requests a reusable local
-     resource or design-system extension. Read
+   - **Author:** enter when the user or the resolved, evidence-backed design
+     plan requires a reusable local resource or design-system extension. Read
      [design-system-authoring.md](references/design-system-authoring.md) and
-     select resources from concrete consumers, meaningful differences, expected
-     shared evolution, and abstraction cost. Repetition alone is not a trigger.
+     translate the selected resource plan into native definitions, contracts,
+     bindings, and consumers. Repetition, screen count, examples, and tool
+     affordances do not independently establish a resource boundary. Track the
+     selected definitions and their intended consumers for reconciliation.
 4. **Load mechanics, then serialize.** Read only the references for the Figma
    concepts selected in step 3. Then use Canvas HTML to serialize the ordinary
    layer tree and typed fields for the selected native capabilities. Skip Canvas
@@ -141,16 +152,11 @@ requires establishing and verifying them, not prescribing their answers.
    layout behavior, and native representation before propagating dependent
    screens. A complete one-root result may itself satisfy this gate; do not
    create a separate proof artifact or reapply an unchanged root. On the Author
-   path, use its concrete consumers to close the resource model now: compare the
-   strongest shared responsibilities and semantic decisions, select only
-   definitions whose coordinated change earns their cost, and verify their real
-   instances or bindings. Do not let the easiest resource type stand in for this
-   comparison. Any resource type may remain absent when its demonstrated
-   candidates stay local for concrete responsibility, state, ownership,
-   evolution, or cost reasons—not because the payload is already large. Follow
-   [design-system-authoring.md](references/design-system-authoring.md), resolve
-   authoring warnings, and remove speculative resources rather than creating
-   specimens to justify them.
+   path, prove the selected resource plan against concrete consumers now:
+   verify each planned definition, contract, instance, and binding, resolve
+   authoring warnings, and remove resources no longer present in the resolved
+   plan rather than creating specimens to justify them. Follow
+   [design-system-authoring.md](references/design-system-authoring.md).
 6. **Apply the complete desired result.** Call `apply_canvas` once per coherent
    root. If a large result must be split, use meaningful screen or section
    boundaries. To keep several calls in one movable board, create one fixed Auto
@@ -160,21 +166,34 @@ requires establishing and verifying them, not prescribing their answers.
    space, maintain a coordinate ledger, or translate a create root for
    placement; TemPad Dev positions new roots from their rendered bounds. On the
    Author path, propagate selected definitions through native instances and
-   bindings; literal lookalikes do not count as resource coverage.
+   bindings; literal lookalikes do not count as resource coverage. Keep authored
+   main definitions visible and discoverable as described in
+   [component-authoring.md](references/component-authoring.md).
 7. **Verify the delivered result.** Read structural verification. For a new
    composition or material visual change, the representative gate in step 5
    must already have occurred before propagation. After the complete apply,
    inspect the final board and materially distinct screens. Open
    `asset.localPath` directly when present; otherwise download and open the
    returned resource. If the PNG cannot be opened, do not claim visual
-   verification. Use `get_structure` to compare page-space bounds when relative
+   verification. Use `get_structure` to compare page-child root bounds when
    placement matters, a root was resized after placement, or the handoff claims
-   that multiple roots do not overlap, or a promised outcome depends on exact
+   that multiple roots do not overlap. Every `x` and `y` is relative to the
+   node's actual Figma parent, including an outlined root; only page children
+   are page-relative. Also use it when a promised outcome depends on exact
    native layer semantics such as an editable diagram rather than one imported
    asset. Compare rendered evidence with the brief; check unintended overlap,
    clipping including glyph ink, unintended crowding or breaks in the
-   composition's established spacing rhythm, collapsed or obscured content,
-   inconsistent states, asset substitutions, and incorrect native bindings.
+   composition's established hierarchy and spacing, collapsed or obscured
+   content, mismatches with the resolved visual direction, substitutions for an
+   established asset role or medium, inconsistent states, and incorrect native
+   bindings. The resolved design determines the intended role and medium; this
+   skill verifies that the Figma result preserves them.
+   On the Author path, use `get_structure` to confirm that every selected main
+   component or component set is visible in the named source area, readable at
+   its natural bounds, and consumed by native INSTANCE nodes at every usage
+   recorded for reconciliation. A hidden definition, an uninspectable
+   storage node, a primitive lookalike, or an instance of a different nested
+   resource does not close that selected usage.
    `verification.nativeFieldsChecked` counts the declared paint, effect, grid,
    guide, mask, and managed-SVG assertions that TemPad compared with retained
    Figma state. It is translation evidence only: it does not prove pixels,
@@ -212,7 +231,7 @@ Design decisions and evidence:
   [visual-assets.md](references/visual-assets.md)
 - existing-system reuse:
   [design-system-reuse.md](references/design-system-reuse.md)
-- explicitly requested local system authoring:
+- selected local-system authoring from the user or resolved design plan:
   [design-system-authoring.md](references/design-system-authoring.md)
 - bounded research, asset, inventory, or visual-QA delegation:
   [delegation.md](references/delegation.md)

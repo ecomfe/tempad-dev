@@ -49,6 +49,7 @@ describe('tools response helpers', () => {
   it('keeps canvas authoring outcome-focused and catalog-optional', () => {
     const designSystem = TOOL_DEFS.find((tool) => tool.name === 'get_design_system')
     const applyCanvas = TOOL_DEFS.find((tool) => tool.name === 'apply_canvas')
+    const getStructure = TOOL_DEFS.find((tool) => tool.name === 'get_structure')
 
     expect(designSystem?.description).toContain('reuse is permitted and relevant')
     expect(designSystem?.description).toContain('limits design evidence to the current page')
@@ -57,6 +58,8 @@ describe('tools response helpers', () => {
     expect(applyCanvas?.description).toContain('typed fields express selected Figma capabilities')
     expect(applyCanvas?.description).toContain('Create auto-places the new root')
     expect(applyCanvas?.description).toContain('preserves omitted live state')
+    expect(getStructure?.description).toContain("relative to the node's actual Figma parent")
+    expect(getStructure?.description).toContain('only page children are page-relative')
     expect(designSystem?.parameters.parse({})).toEqual({})
     expect(
       applyCanvas?.parameters.parse({

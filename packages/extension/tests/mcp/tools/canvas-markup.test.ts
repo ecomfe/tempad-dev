@@ -1328,7 +1328,8 @@ describe('canvas markup', () => {
         type: 'DROP_SHADOW',
         color: { r: 17 / 255, g: 34 / 255, b: 51 / 255, a: 0.25 },
         offset: { x: 0, y: 2 },
-        radius: 4
+        radius: 4,
+        showShadowBehindNode: true
       }
     ])
 

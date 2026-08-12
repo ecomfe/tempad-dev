@@ -23,6 +23,13 @@ needs one child and a new Boolean operation needs two. When supplying children
 of an existing intrinsic container, describe every live direct child because
 order is semantic.
 
+Sections do not expose frame clipping, so omit `overflow-hidden` and
+`overflow-visible` from a section root.
+
+When `targetNodeId` is an existing section, keep `figma.section` on the update
+root even when its native section fields are unchanged. Without that desired
+root-type declaration, the markup root is a frame and the update is rejected.
+
 ## Shapes and vectors
 
 Use a childless `div` with `figma.shape`:
@@ -43,13 +50,22 @@ path/network clears it.
 
 Each `paths` item is an object, not a raw path string. `windingRule` is
 `"NONE"`, `"NONZERO"`, or `"EVENODD"`; use `"NONE"` for an open stroked path.
-Path data uses whitespace-separated uppercase commands and numbers. This
-complete Direct recipe creates one native editable branch curve:
+Path data uses whitespace-separated uppercase commands and numbers.
+
+Figma normalizes path geometry to the vector node's tight bounds before the
+markup dimensions are applied. Treat the childless `div`'s position and size as
+the vector's final bounding box, not as a preserved coordinate viewport. When
+the path must align with surrounding content, offset the `div` by the path's
+minimum x/y and size it to the path's x/y spans; otherwise a partial-range path
+is stretched to fill the declared box. Verify the rendered anchors after
+authoring because `get_structure` reports node bounds, not path coordinates.
+
+This complete Direct recipe creates one native editable branch curve:
 
 ```json
 {
   "mode": "create",
-  "markup": "<div data-key=\"branch-frame\" class=\"w-[120px] h-[320px]\"><div data-key=\"branch\" class=\"absolute left-[0px] top-[0px] w-[120px] h-[320px]\"></div></div>",
+  "markup": "<div data-key=\"branch-frame\" class=\"w-[120px] h-[320px]\"><div data-key=\"branch\" class=\"absolute left-[14px] top-[20px] w-[90px] h-[280px]\"></div></div>",
   "native": {
     "branch": {
       "figma": {

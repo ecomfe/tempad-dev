@@ -1,9 +1,9 @@
 # Ground unresolved design decisions
 
 Use this reference only when a material design decision is not established by
-the user, permitted project or Figma evidence, or a clearly applicable installed
-skill. Skip exact reproduction, mechanical edits, and decisions already settled
-by sufficient evidence.
+the user, permitted project or Figma evidence, or suitable professional
+expertise. Skip exact reproduction, mechanical edits, and decisions already
+settled by sufficient evidence.
 
 This reference defines an evidence process, not a UX checklist or style guide.
 It does not prescribe which product concerns must matter, how many sources to
@@ -31,6 +31,27 @@ screen or system, the direction-defining visual language is material. Giving the
 agent creative latitude assigns that decision to the agent; it does not make the
 decision low-consequence. This calls for the smallest evidence that resolves the
 choice, not a survey of the category.
+
+## Select expertise before availability
+
+Name the professional capability that owns the unresolved decision before
+examining installed skills or tools. Then, when the host permits it, discover or
+acquire a candidate and inspect its provenance, instructions, stated scope, and
+fit for the task's platform, medium, domain, and deliverable. Installed status
+or a broad label such as “frontend” does not establish suitability, and no one
+design skill is a universal default. Use complementary expertise only where the
+task needs it; TemPad remains responsible for Figma execution.
+
+When the selected candidate is a remote skill, retrieve its complete current
+instructions through a path that reaches the end of the source. A truncated
+response, excerpt, or search result is not the skill; retry through another
+supported path or report that the candidate could not be inspected.
+
+If the host cannot supply suitable expertise, use targeted primary guidance or
+inspected visual evidence. Ask the user when the remaining choice would
+materially change the result. Never copy one candidate's contextual rules into
+this reference or silently turn missing environment capability into generic
+design defaults.
 
 ## Obtain sufficient evidence
 

@@ -1,11 +1,10 @@
 # Author reusable components
 
-Use this reference only when the user explicitly requests a reusable local
-component or an explicitly requested design-system task requires one. This
-reference explains representation; it is not a reason to componentize an
-ordinary screen or create a component library. New local components do not
-require `get_design_system`. Use a catalog when discovery or normalized library
-props are useful; use an exact returned live ID for a component the agent just
+Use this reference when the user or resolved design plan selects a reusable
+local component. This reference explains representation; it does not select a
+component boundary or justify a component library. New local components do not require
+`get_design_system`. Use a catalog when discovery or normalized library props
+are useful; use an exact returned live ID for a component the agent just
 authored.
 
 When a composition uses a new component, its final usage nodes must be native
@@ -54,6 +53,7 @@ component shape from raw Plugin API calls.
 ## Contents
 
 - [Define the contract from real usages](#define-the-contract-from-real-usages)
+- [Keep source definitions discoverable](#keep-source-definitions-discoverable)
 - [Component and properties](#component-and-properties)
 - [Consume an authored component directly](#consume-an-authored-component-directly)
 - [Variant set](#variant-set)
@@ -81,6 +81,27 @@ Model one mutually exclusive categorical concern as one variant axis. Do not
 replace it with independent Boolean properties whose combinations permit no
 active value or several active values when those states are not real usages.
 Use Boolean properties for independently optional content or behavior.
+
+Do not expose one semantic choice through both a variant axis and an independent
+property unless real usages can vary them separately. When a visible value is
+determined by a variant state, keep each main variant truthful; do not give all
+source variants one accidental default and repair only their instances with
+overrides.
+
+## Keep source definitions discoverable
+
+Keep main components and component sets visible at natural bounds in a clearly
+named source area separate from consumer screens. Never hide, clip, make
+transparent, or invisibly nest a main definition. For several component
+families, use a top-level native SECTION with `contentsHidden: false`; keep the
+definitions as discoverable children and size the section to their content.
+
+The source area contains the real definitions once, not redundant specimens.
+Before handoff, use `get_structure` to confirm every selected definition is
+visible and each intended consumer is an INSTANCE. Inspect materially distinct
+source variants at a readable scale and confirm their names, visible content,
+and styling encode the same state; instance overrides do not repair an
+incorrect source contract.
 
 ## Component and properties
 
@@ -250,9 +271,12 @@ API. A new slot must be inside a local authored component and must include
 Optional settings cover stretching, empty display, child limits, and preferred
 values.
 
-An `INSTANCE_SWAP` default or preferred value must resolve to a real component
-or set by exact local ID, library key, or catalog `{ "ref": "cN" }`. Never
-invent any of those identities. Advanced instance state belongs under
+An `INSTANCE_SWAP` default uses a design reference with an exact live component
+or set ID (`{ "id": "..." }`) or an importable library key (`{ "key": "..." }`).
+Each preferred value instead requires the strict shape
+`{ "type": "COMPONENT" | "COMPONENT_SET", "key": "..." }`; it does not accept
+a live ID or catalog ref. Resolve catalog entries to the supported identity
+before authoring and never invent one. Advanced instance state belongs under
 `figma.instance`; omission preserves normal Figma override behavior.
 
 Never edit a remote component, nest a main component inside another main
