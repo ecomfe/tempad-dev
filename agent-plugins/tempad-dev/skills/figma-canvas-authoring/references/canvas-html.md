@@ -105,6 +105,12 @@ box, not from the parent's nominal size; when it should track the inner box,
 prefer valid cross-axis fill. Let it exceed the inner box only as an intentional
 bleed or overlap.
 
+Treat `managed-content-overflow` as a structural-verification warning: a
+managed Text or INSTANCE extends beyond its direct managed Frame or Component
+parent. Inspect the reported edges, clipping state, and rendered result. Resize
+or realign accidental overflow; retain it only after confirming the bleed,
+crop, or overlap is intentional.
+
 `justify-between` uses native Auto gap: its effective gap never becomes negative
 and a single child stays at the start. Use an explicit negative native
 `figma.autoLayout.itemSpacing` only when overlap is intentional. On update,

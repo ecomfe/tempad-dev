@@ -123,7 +123,9 @@ export const GetStructureParametersSchema = z.object({
         .number()
         .int()
         .positive()
-        .describe('Limit traversal depth; defaults to full tree (subject to safety caps).')
+        .describe(
+          'Positive integer; 1 is the shallowest traversal (root plus direct children). Omit for the full tree, subject to safety caps.'
+        )
         .optional(),
       native: z
         .boolean()

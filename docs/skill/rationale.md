@@ -158,7 +158,8 @@ The skill preserves these invariants:
 The main file keeps the intended result and evidence focal, forms the artifact
 model in Figma terms, then routes by consequence: reuse an accessible design
 system, compose directly, or author reusable resources only when explicitly
-requested. Declarative desired state and stable identity remain hard
+requested or established by the resolved, evidence-backed design plan.
+Declarative desired state and stable identity remain hard
 boundaries. Host-supplied MCP tools are also an integrity boundary: the skill
 stops when they are absent instead of rebuilding the transport through a shell.
 Decision and evidence references establish what must be represented;

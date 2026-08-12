@@ -375,7 +375,8 @@ function processSummary(processes: RuntimeProcesses): string {
 async function waitForRuntimeState(
   paths: RuntimePaths,
   expectedState: PluginState,
-  timeoutMs: number
+  timeoutMs: number,
+  baseline?: RuntimeProcesses
 ): Promise<RuntimeProcesses> {
   const deadline = Date.now() + timeoutMs
   const requiredStableSamples = expectedState === 'installed' ? 2 : 3
@@ -387,8 +388,12 @@ async function waitForRuntimeState(
     latest = await listRuntimeProcesses(paths)
     const matches =
       expectedState === 'installed'
-        ? latest.cli.length > 0 && latest.hub.length > 0
-        : latest.cli.length === 0 && latest.hub.length === 0
+        ? latest.hub.length > 0 &&
+          (baseline
+            ? latest.cli.some(({ pid }) => !baseline.cli.some((process) => process.pid === pid))
+            : latest.cli.length > 0)
+        : latest.cli.length <= Math.max(0, (baseline?.cli.length ?? 1) - 1) &&
+          (latest.cli.length > 0 ? latest.hub.length > 0 : latest.hub.length === 0)
     stableSamples = matches ? stableSamples + 1 : 0
 
     const summary = processSummary(latest)
@@ -400,9 +405,15 @@ async function waitForRuntimeState(
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
   }
 
+  const expected =
+    expectedState === 'installed'
+      ? baseline
+        ? 'a new TemPad Dev CLI and an available Hub'
+        : 'the TemPad Dev CLI and Hub to be running'
+      : 'the uninstalled Codex CLI to stop and the shared Hub to match the remaining clients'
   fail(
-    `Timed out waiting for TemPad Dev CLI and Hub to be ${expectedState === 'installed' ? 'running' : 'stopped'}. ` +
-      `Last observed state: ${processSummary(latest)}`
+    `Timed out waiting for ${expected}. Last observed state: ${processSummary(latest)}` +
+      (baseline ? `; baseline: ${processSummary(baseline)}` : '')
   )
 }
 
@@ -584,13 +595,13 @@ async function connectToCodex(args: Arguments): Promise<CdpClient | null> {
     console.log(`Codex page: ${target.title || '(untitled)'} (${target.url})`)
     return await CdpClient.connect(target.webSocketDebuggerUrl, args.timeoutMs)
   } catch (error) {
-    if (args.restartCodex && !args.resumeAfterRestart) {
-      await startDetachedRestart(args, error)
-      return null
-    }
+    const recovery =
+      args.restartCodex || args.resumeAfterRestart
+        ? 'The CDP endpoint is reachable; fix the exposed target or --page-url selection without restarting Codex.'
+        : 'Start Codex with remote debugging, or pass --restart-codex when the CDP endpoint is unavailable.'
     fail(
       `Could not connect to Codex CDP at ${args.cdpUrl}: ${errorMessage(error).split('\n', 1)[0]}. ` +
-        'Start Codex with remote debugging, or pass --restart-codex.'
+        recovery
     )
   }
 }
@@ -693,7 +704,7 @@ async function openPluginDetail(client: CdpClient, timeoutMs: number): Promise<P
   const cardQuery: PageElementQuery = {
     closest: '[role="button"]',
     leafOnly: true,
-    selector: '*',
+    selector: 'div',
     text: pluginDisplayName
   }
   await waitForPageCondition(
@@ -772,12 +783,22 @@ async function installPlugin(client: CdpClient, version: string, timeoutMs: numb
   console.log(`Codex reports TemPad Dev (Dev) ${version} as installed.`)
 }
 
-async function restorePreviousCodexView(client: CdpClient, steps: number): Promise<void> {
-  for (let index = 0; index < steps; index += 1) {
-    await clickPageElement(client, 'button', 'the Codex Back button', 5_000, undefined, 'Back')
-    await new Promise((resolve) => setTimeout(resolve, 250))
+async function tryRestorePreviousCodexView(client: CdpClient, steps: number): Promise<void> {
+  try {
+    const query: PageElementQuery = { selector: 'button', ariaLabel: 'Back' }
+    let restoredSteps = 0
+    for (let index = 0; index < steps; index += 1) {
+      const exists = await client.runPageRequest<boolean>({ action: 'element-exists', query })
+      if (!exists) break
+      const clicked = await client.runPageRequest<boolean>({ action: 'click-element', query })
+      if (!clicked) break
+      restoredSteps += 1
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    console.log(`Restored ${String(restoredSteps)} previous Codex view step(s).`)
+  } catch (error) {
+    console.warn(`Could not restore the previous Codex view: ${errorMessage(error)}`)
   }
-  console.log('Restored the previous Codex view.')
 }
 
 async function main(): Promise<void> {
@@ -801,13 +822,31 @@ async function main(): Promise<void> {
 
     const initialState = await openPluginDetail(client, args.timeoutMs)
     if (initialState !== 'installed') fail(`${pluginDisplayName} is not currently installed.`)
-    await waitForRuntimeState(runtimePaths, 'installed', args.timeoutMs)
-    console.log('Confirmed that the currently installed TemPad Dev CLI and Hub are running.')
+    let initialRuntime = await listRuntimeProcesses(runtimePaths)
+    if (initialRuntime.cli.length > 0 && initialRuntime.hub.length > 0) {
+      initialRuntime = await waitForRuntimeState(runtimePaths, 'installed', args.timeoutMs)
+      console.log('Confirmed that the currently installed TemPad Dev CLI and Hub are running.')
+    } else if (initialRuntime.cli.length === 0 && initialRuntime.hub.length === 0) {
+      console.log(
+        'The plugin is installed but its runtime is absent; continuing with repair reinstall.'
+      )
+    } else {
+      fail(`The installed plugin has a partial runtime: ${processSummary(initialRuntime)}`)
+    }
 
     console.log('Uninstalling TemPad Dev (Dev) through Codex...')
     await uninstallPlugin(client, args.timeoutMs)
-    await waitForRuntimeState(runtimePaths, 'uninstalled', args.timeoutMs)
-    console.log('Confirmed that the TemPad Dev CLI and Hub have stopped.')
+    const runtimeAfterUninstall = await waitForRuntimeState(
+      runtimePaths,
+      'uninstalled',
+      args.timeoutMs,
+      initialRuntime
+    )
+    console.log(
+      runtimeAfterUninstall.cli.length
+        ? 'Confirmed that the uninstalled Codex CLI stopped; the shared Hub remains for other clients.'
+        : 'Confirmed that the TemPad Dev CLI and Hub have stopped.'
+    )
 
     const stateAfterUninstall = await openPluginDetail(client, args.timeoutMs)
     if (stateAfterUninstall !== 'uninstalled') {
@@ -816,9 +855,9 @@ async function main(): Promise<void> {
 
     console.log(`Installing TemPad Dev (Dev) ${args.version} through Codex...`)
     await installPlugin(client, args.version, args.timeoutMs)
-    await restorePreviousCodexView(client, 4)
-    await waitForRuntimeState(runtimePaths, 'installed', args.timeoutMs)
-    console.log('Confirmed that the TemPad Dev CLI and Hub are running.')
+    await waitForRuntimeState(runtimePaths, 'installed', args.timeoutMs, runtimeAfterUninstall)
+    console.log('Confirmed that a new TemPad Dev CLI and an available Hub are running.')
+    await tryRestorePreviousCodexView(client, 4)
   } finally {
     client?.close()
   }
