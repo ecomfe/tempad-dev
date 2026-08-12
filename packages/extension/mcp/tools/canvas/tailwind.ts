@@ -436,12 +436,14 @@ function parseShadowEffects(
         `Shadow class "${token}" requires a color and ${options.text ? 'two or three' : 'two to four'} px lengths per layer.`
       )
     }
+    const type = options.type ?? (inset ? 'INNER_SHADOW' : 'DROP_SHADOW')
     return {
-      type: options.type ?? (inset ? 'INNER_SHADOW' : 'DROP_SHADOW'),
+      type,
       color,
       offset: { x: values[0]!, y: values[1]! },
       radius: values[2] ?? 0,
-      ...(values[3] === undefined ? {} : { spread: values[3] })
+      ...(values[3] === undefined ? {} : { spread: values[3] }),
+      ...(options.text ? { showShadowBehindNode: true } : {})
     } as CanvasShadowEffect
   })
 }

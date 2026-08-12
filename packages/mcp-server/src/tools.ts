@@ -181,7 +181,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_structure',
     description:
-      'Read a compact hierarchy and page-space geometry outline for an exact node or the current single selection, including stable keys on TemPad-managed nodes. Set options.native for read-back of masks, IMAGE paint hashes, layout grids, and frame guides; it does not provide rendered pixels or general appearance.',
+      "Read a compact hierarchy and geometry outline for an exact node or the current single selection. Every x/y is relative to the node's actual Figma parent, including an outlined root; only page children are page-relative. The outline includes stable keys on TemPad-managed nodes. Set options.native for read-back of masks, IMAGE paint hashes, layout grids, and frame guides; it does not provide rendered pixels or general appearance.",
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetStructureParametersSchema,
     target: 'extension',

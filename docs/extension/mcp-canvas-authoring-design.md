@@ -643,9 +643,11 @@ design changes, a representative composition is checked before its decisions pro
 final board and materially distinct screens are checked for defects that a board overview may hide.
 Routine text, token, prop, and hierarchy-only edits do not need screenshots; corrections recheck
 only the affected composition. When page-level placement matters, a root was resized after placement, or the
-final report claims that multiple roots do not overlap, spatial QA compares their page-space bounds
-with `get_structure` because isolated screenshots cannot establish that relationship. Native-state
-QA sets `options.native: true`; the returned per-node `native` block contains mask type, IMAGE fill
+final report claims that multiple roots do not overlap, spatial QA compares page-child root bounds
+with `get_structure` because isolated screenshots cannot establish that relationship. Every
+`x`/`y` is relative to the node's actual Figma parent, including an outlined root; only page
+children are page-relative. Native-state QA sets `options.native: true`; the returned per-node
+`native` block contains mask type, IMAGE fill
 hashes and scale modes, ordered layout grids, and ordered frame guides when present. This makes
 mask order plus state, real image delivery, and grid/guide authoring independently readable instead
 of treating the apply request as proof that Figma retained the desired native properties.
