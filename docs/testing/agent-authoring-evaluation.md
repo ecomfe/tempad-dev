@@ -15,6 +15,11 @@ Require every run to:
 
 Apply these authoring boundaries:
 
+- Treat one evaluation round as one fresh, uniquely named page in the already
+  open signed-in Figma test-file tab. Keep that round's task, artifact, repairs,
+  and evidence on that page. Do not create auxiliary, probe, retry, baseline,
+  or forward-test pages inside the same round; any independent rerun starts the
+  next round on its own single new page.
 - Express ordinary information architecture, hierarchy, layout, spacing,
   typography, color, and appearance through Canvas HTML, Tailwind, and
   CSS-shaped composition. Keep the core design legible in markup and classes.
@@ -108,12 +113,15 @@ agent plugin changed:
    `tempad-dev-dev@tempad-dev-dev` is installed and enabled at the generated
    version. Treat the listing and cache directory as installation evidence, not
    proof of the fresh task's runtime.
-5. In the coordinating task, use Browser control with the existing signed-in
-   Figma test-file tab; do not use Computer Use for this setup. Reload the tab,
-   reacquire it if needed, and confirm that the TemPad panel reconnects to MCP.
-6. Through Browser control, create and select a uniquely named, empty Figma
-   page. Do not leave an artifact that the evaluation agent can discover or
-   copy.
+5. In the coordinating task, use Browser control with the already open,
+   signed-in Figma test-file tab; do not open another Figma tab or use Computer
+   Use for this setup. Reload the existing tab, reacquire it if needed, and
+   confirm that the TemPad panel reconnects to MCP.
+6. Through Browser control, create and select exactly one uniquely named, empty
+   Figma page for the round, and record its page identity. Do not create a
+   staging, probe, comparison, retry, or forward-test page in the same round,
+   and do not leave an artifact on the new page that the evaluation agent can
+   discover or copy.
 7. Release or hand off the claimed Figma tab without closing it. From a Full
    access coordinating task, call Codex App's native task-creation tool directly
    and create a fresh, projectless task. Dispatch the evaluation prompt in that
@@ -145,13 +153,14 @@ Do not add a probe task after every reinstall. The clean evaluation task is the
 new-task pickup boundary and must provide the runtime evidence. Use a dedicated
 probe only once when diagnosing the lifecycle.
 
-Reject any run that cannot prove runtime identity. Reinstall the intended
-cachebuster, prepare another empty page, and dispatch another fresh task. Do not
-reuse its artifact. Starting the MCP CLI manually or recreating stdio or
+Reject any run that cannot prove runtime identity. End that round, repair the
+runtime, and start the replacement as the next round with exactly one new empty
+page and fresh task. Do not reuse the rejected artifact. Starting the MCP CLI
+manually or recreating stdio or
 JSON-RPC transport does not restore missing direct tool exposure. Also reject a
 run when a TemPad write pauses for approval: treat it as a task-lifecycle
-failure, do not approve it mid-run, fix the permission propagation or explicit
-setup, and repeat with another empty page and fresh task.
+failure, do not approve it mid-run, and fix the permission propagation or
+explicit setup before the next single-page round.
 
 ## Choose a representative task
 
@@ -229,9 +238,10 @@ Preserve:
 - the final Figma structure and relevant native resources;
 - representative screenshots whose pixels were opened and inspected.
 
-Use a fresh task for each independent run. When retesting a capability, vary
-surface details while preserving that capability. Remove prior artifacts that
-a later agent could discover or copy.
+Use one fresh task and the round's one prepared page for each independent run.
+When retesting a capability, make it the next round and vary surface details
+while preserving that capability. Do not create a second page in the current
+round or expose prior artifacts that a later agent could discover or copy.
 
 When investigating cross-run visual convergence, change only the product brief
 or coarse direction between clean runs. Do not counter-prompt with a growing
@@ -360,13 +370,16 @@ For a confirmed issue:
    documentation instead of appending incident history.
 3. Run the checks required by `TESTING.md` and the relevant package guide.
 4. Rebuild, regenerate, reinstall, or refresh only affected runtime layers.
-5. Repeat the clean run in a fresh task and verify the live artifact.
+5. Record the fix as the input revision for the next round's fresh task and
+   single new page.
 
-A complete optimization round contains both the original clean evaluation and
-a fresh forward test after the fix. The forward-test prompt should use another
+A complete evaluation-optimization round contains one clean evaluation on one
+new page, evidence review, root-cause placement, and any justified owning-layer
+change. A fresh post-fix forward test is the next independent round, not a
+second page or task appended to the current round. Its prompt should use another
 ordinary web or mobile scenario that exercises the same capability naturally;
 change its product surface and content so success cannot come from copying the
-baseline artifact. Do not reuse the original task, page, or context.
+prior artifact. Do not reuse the prior task, page, or context.
 
 For cross-run convergence, retest with materially different design evidence.
 Require the authoring path to carry distinct, well-grounded directions; do not
@@ -374,5 +387,6 @@ require every result merely to avoid a prior style.
 
 Conclude with a short record of the tested revision and runtime, prompt,
 observed evidence, root cause and owning layer, change, automated checks,
-forward-test result, and remaining uncertainty. Do not call a round successful
-without verified runtime identity and screenshot pixels.
+relationship to the prior round, next-round forward-test target, and remaining
+uncertainty. Do not call a round successful without verified runtime identity
+and screenshot pixels.

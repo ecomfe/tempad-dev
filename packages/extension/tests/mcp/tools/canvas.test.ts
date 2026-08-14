@@ -2615,6 +2615,27 @@ describe('mcp/tools/canvas', () => {
     await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
+  it('applies right and bottom absolute offsets as resolved native positions', async () => {
+    const fixture = createFixture()
+    const input: CanvasResolvedApplyParameters = {
+      mode: 'create',
+      markup: `
+        <div data-key="root" class="flex flex-row w-[400px] h-[240px]">
+          <div data-key="badge" class="absolute right-[14px] bottom-[18px] w-[64px] h-[30px]"></div>
+        </div>
+      `
+    }
+
+    const created = await applyCanvas(input)
+    const badge = fixture.getNode(created.nodeIdsByKey.badge!)
+
+    expect(created.verification.status).toBe('passed')
+    expect(badge).toMatchObject({ layoutPositioning: 'ABSOLUTE', x: 322, y: 192 })
+    await expect(
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+    ).resolves.toMatchObject({ mutationCount: 0, verification: { status: 'passed' } })
+  })
+
   it('reconciles Auto Layout transform axes without owning derived translation', async () => {
     const fixture = createFixture()
     const initialTransform: Transform = [
@@ -6288,6 +6309,37 @@ describe('mcp/tools/canvas', () => {
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
 
+  it('applies linear gradient classes as verified native fill paints', async () => {
+    const fixture = createFixture()
+    const input: CanvasResolvedApplyParameters = {
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="w-[320px] h-[200px] bg-linear-to-b from-[#F8FCFFFF] via-[#7AB8E0CC] to-[#1A5C9AFF]"></div>'
+    }
+
+    const created = await applyCanvas(input)
+    const root = fixture.getNode(created.rootNodeId)
+
+    expect(created.verification.status).toBe('passed')
+    expect(root.fills).toMatchObject([
+      {
+        type: 'GRADIENT_LINEAR',
+        gradientTransform: [
+          [0, 1, 0],
+          [-1, 0, 1]
+        ],
+        gradientStops: [
+          { position: 0, color: { r: 248 / 255, g: 252 / 255, b: 1, a: 1 } },
+          { position: 0.5, color: { r: 122 / 255, g: 184 / 255, b: 224 / 255, a: 0.8 } },
+          { position: 1, color: { r: 26 / 255, g: 92 / 255, b: 154 / 255, a: 1 } }
+        ]
+      }
+    ])
+    await expect(
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+    ).resolves.toMatchObject({ mutationCount: 0, verification: { status: 'passed' } })
+  })
+
   it('accepts Figma float and explicit shadow-default normalization', async () => {
     const fixture = createFixture()
     transformNextFrameEffects(fixture, (effects) =>
@@ -6324,6 +6376,29 @@ describe('mcp/tools/canvas', () => {
           a: Math.fround(0.22)
         },
         showShadowBehindNode: false
+      }
+    ])
+  })
+
+  it('accepts Figma behind-node normalization when the desired shadow leaves it unspecified', async () => {
+    const fixture = createFixture()
+    transformNextFrameEffects(fixture, (effects) =>
+      effects.map((effect) =>
+        effect.type === 'DROP_SHADOW' ? { ...effect, showShadowBehindNode: true } : effect
+      )
+    )
+
+    const created = await applyCanvas({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="w-[320px] h-[200px] shadow-[0_24px_60px_rgba(17,13,24,0.22)]"></div>'
+    })
+
+    expect(created.verification.status).toBe('passed')
+    expect(fixture.getNode(created.rootNodeId).effects).toMatchObject([
+      {
+        type: 'DROP_SHADOW',
+        showShadowBehindNode: true
       }
     ])
   })

@@ -430,6 +430,31 @@ describe('canvas markup', () => {
     expect(result.root.children?.[1]?.figma?.relativeTransform).toEqual(relativeTransform)
   })
 
+  it('resolves right and bottom absolute offsets against fixed parent and child bounds', () => {
+    const result = parse(`
+      <div data-key="root" class="flex flex-row w-[400px] h-[240px]">
+        <div data-key="badge" class="absolute right-[14px] bottom-[18px] w-[64px] h-[30px]"></div>
+        <div data-key="edge" class="absolute -right-2 -bottom-1 w-[20px] h-[20px]"></div>
+      </div>
+    `)
+
+    expect(result.root.children?.[0]?.position).toEqual({ x: 322, y: 192 })
+    expect(result.root.children?.[1]?.position).toEqual({ x: 388, y: 224 })
+  })
+
+  it('rejects ambiguous or unresolved absolute edge offsets', () => {
+    expect(() =>
+      parse(
+        '<div data-key="root" class="flex flex-row w-[400px] h-[240px]"><div data-key="child" class="absolute left-[8px] right-[8px] top-[8px] w-[20px] h-[20px]"></div></div>'
+      )
+    ).toThrow(/exactly one of left-\* or right-\*/)
+    expect(() =>
+      parse(
+        '<div data-key="root" class="flex flex-row w-[400px] h-[240px]"><span data-key="child" class="absolute right-[8px] top-[8px] w-fit h-fit">Copy</span></div>'
+      )
+    ).toThrow(/require fixed parent and child bounds/)
+  })
+
   it('normalizes native sections and nested freeform content', () => {
     const result = parse(
       `
@@ -1289,6 +1314,154 @@ describe('canvas markup', () => {
     ).toThrow(/parent div and a child span/)
   })
 
+  it('identifies conflicting stroke colors and explains how to represent distinct edges', () => {
+    expect(() =>
+      parse(
+        '<div data-key="root" class="w-[320px] h-[200px] border-t border-[#4DA3FF] border-r border-[#2B2F36]"></div>'
+      )
+    ).toThrow(
+      'Class "border-[#2B2F36]" conflicts with "border-[#4DA3FF]" for stroke. Figma supports one stroke paint per node across its enabled sides; use one border color or separate edge layers for different side colors.'
+    )
+  })
+
+  it('compiles bounded linear gradient utilities to native fill paints', () => {
+    const result = parse(
+      '<div data-key="root" class="w-[320px] h-[200px] bg-linear-to-br from-[#F8FCFFFF] via-[#7AB8E0CC] to-[#1A5C9AFF]"></div>'
+    )
+
+    expect(result.root.figma?.fills).toEqual([
+      {
+        type: 'GRADIENT_LINEAR',
+        gradientTransform: [
+          [0.5, 0.5, 0],
+          [-0.5, 0.5, 0.5]
+        ],
+        gradientStops: [
+          { position: 0, color: { r: 248 / 255, g: 252 / 255, b: 1, a: 1 } },
+          { position: 0.5, color: { r: 122 / 255, g: 184 / 255, b: 224 / 255, a: 0.8 } },
+          { position: 1, color: { r: 26 / 255, g: 92 / 255, b: 154 / 255, a: 1 } }
+        ]
+      }
+    ])
+    expect(result.root.appearance).not.toHaveProperty('fill')
+
+    const alias = parse(
+      '<div data-key="root" class="w-[320px] h-[200px] bg-gradient-to-l from-white to-black"></div>'
+    )
+    expect(alias.root.figma?.fills?.[0]).toMatchObject({
+      type: 'GRADIENT_LINEAR',
+      gradientTransform: [
+        [-1, 0, 1],
+        [0, -1, 1]
+      ]
+    })
+  })
+
+  it.each([
+    [
+      't',
+      [
+        [0, -1, 1],
+        [1, 0, 0]
+      ]
+    ],
+    [
+      'tr',
+      [
+        [0.5, -0.5, 0.5],
+        [0.5, 0.5, 0]
+      ]
+    ],
+    [
+      'r',
+      [
+        [1, 0, 0],
+        [0, 1, 0]
+      ]
+    ],
+    [
+      'br',
+      [
+        [0.5, 0.5, 0],
+        [-0.5, 0.5, 0.5]
+      ]
+    ],
+    [
+      'b',
+      [
+        [0, 1, 0],
+        [-1, 0, 1]
+      ]
+    ],
+    [
+      'bl',
+      [
+        [-0.5, 0.5, 0.5],
+        [-0.5, -0.5, 1]
+      ]
+    ],
+    [
+      'l',
+      [
+        [-1, 0, 1],
+        [0, -1, 1]
+      ]
+    ],
+    [
+      'tl',
+      [
+        [-0.5, -0.5, 1],
+        [0.5, -0.5, 0.5]
+      ]
+    ]
+  ] as const)(
+    'maps bg-linear-to-%s to its normalized Figma gradient handles',
+    (direction, transform) => {
+      const result = parse(
+        `<div data-key="root" class="w-[320px] h-[200px] bg-linear-to-${direction} from-white to-black"></div>`
+      )
+
+      expect(result.root.figma?.fills?.[0]).toMatchObject({
+        type: 'GRADIENT_LINEAR',
+        gradientTransform: transform
+      })
+    }
+  )
+
+  it('rejects incomplete or conflicting linear gradient utilities', () => {
+    const markup =
+      '<div data-key="root" class="w-[320px] h-[200px] bg-linear-to-b from-white to-black"></div>'
+
+    expect(() =>
+      parse('<div data-key="root" class="w-[320px] h-[200px] bg-linear-to-b from-white"></div>')
+    ).toThrow(/requires one bg-linear-to-\* direction plus exact from-\* and to-\* colors/)
+    expect(() =>
+      parse(
+        '<div data-key="root" class="w-[320px] h-[200px] bg-linear-to-b from-white from-black to-black"></div>'
+      )
+    ).toThrow(/conflicts with gradient stop class/)
+    expect(() =>
+      parse(
+        '<div data-key="root" class="w-[320px] h-[200px] bg-linear-to-b from-white to-black bg-[#FFFFFF]"></div>'
+      )
+    ).toThrow(/cannot be combined with a solid background/)
+    expect(() =>
+      parse(markup, {
+        bindings: { root: { figma: { fills: [] } } }
+      })
+    ).toThrow(/Gradient classes and direct fill paints/)
+    expect(() =>
+      parse(markup, {
+        bindings: { root: { styles: { fill: { id: 'style:fill' } } } }
+      })
+    ).toThrow(/Gradient classes and a fill style/)
+    expect(() =>
+      parse(markup, {
+        bindings: { root: { variables: { fill: { id: 'variable:fill' } } } }
+      })
+    ).toThrow(/Gradient classes and a fill variable/)
+  })
+
   it('compiles exact box and inset shadow utilities to native effects', () => {
     const result = parse(
       '<div data-key="root" class="w-[320px] h-[200px] shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_2px_4px_-2px_rgba(0,0,0,0.1)] inset-shadow-[0_1px_1px_rgba(0,0,0,0.05)]"></div>'
@@ -2099,7 +2272,7 @@ describe('canvas markup', () => {
     [
       'absolute child without both offsets',
       '<div data-key="root" class="flex flex-row w-[320px] h-[200px]"><div data-key="child" class="absolute left-[8px] w-[20px] h-[20px]"></div></div>',
-      /requires left.*top/
+      /requires exactly one of top-\* or bottom-\*/
     ],
     [
       'offset without absolute positioning',

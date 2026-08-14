@@ -37,7 +37,10 @@ unsupported.
   `whitespace-pre-wrap` when repeated spaces or literal source newlines are
   intentional. A plain `&` is literal when it does not form
   a semicolon-terminated entity; supported named and numeric entities still
-  decode normally.
+  decode normally. Do not put layout or frame-appearance utilities such as
+  flex, grid, gap, padding, borders, corners, or box shadows on a `span`; put
+  those on a parent `div` and keep dimensions, shared appearance, and text
+  utilities on the text node.
 - A component tag is childless, includes its returned `data-ref`, and accepts
   returned props plus the shared class, identity, variable, and style
   attributes.
@@ -136,6 +139,8 @@ For grid use:
 
 Give a manual grid child both row and column starts or neither. Auto-flow
 children use source order and cannot set explicit starts.
+A grid that hugs its height cannot use flexible or automatic row tracks. Give
+the grid a fixed height or use fixed row tracks.
 
 For a coherent board larger than one call, first create one fixed parent:
 
@@ -159,10 +164,11 @@ place:
 ```
 
 For deliberate freeform composition, omit layout classes and give every described child
-`absolute left-N top-N`, the negative forms `-left-N -top-N`, exact `[Npx]` values, or a native
-relative transform. A plain `div` without `flex` or `grid` is freeform even when it has only one
-child; opt into `flex-row`, `flex-col`, or grid for any in-flow child, including a partial-width
-fill inside a track.
+`absolute` with exactly one horizontal edge (`left-*` or `right-*`) and one vertical edge
+(`top-*` or `bottom-*`), including negative forms and exact `[Npx]` values, or use a native
+relative transform. Edge-relative placement requires fixed parent and child bounds. A plain `div`
+without `flex` or `grid` is freeform even when it has only one child; opt into `flex-row`,
+`flex-col`, or grid for any in-flow child, including a partial-width fill inside a track.
 An absolute child cannot grow or fill an axis. Use `static` to return an existing absolute child to
 Auto Layout during an update.
 
@@ -171,6 +177,11 @@ Auto Layout during an update.
 Frame appearance:
 
 - `bg-transparent|white|black`, or an exact CSS hex value
+- Linear backgrounds use `bg-linear-to-t|tr|r|br|b|bl|l|tl` with exact
+  `from-white|black|[#hex]`, optional `via-white|black|[#hex]`, and required
+  `to-white|black|[#hex]` stops. Stops are fixed at 0, optional 0.5, and 1;
+  `bg-gradient-to-*` is accepted as a legacy alias. Do not combine a gradient
+  with a solid background, direct fill paints, or a fill style/variable.
 - `border`, `border-N`, `border-[Npx]`; use `border-x|y|t|r|b|l` with the same widths
 - `border-white|black`, or an exact CSS hex value
 - `rounded`, `rounded-none|xs|sm|md|lg|xl|2xl|3xl|4xl|full`, or `rounded-[Npx]`;
