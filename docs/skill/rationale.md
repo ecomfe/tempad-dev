@@ -186,15 +186,19 @@ instead of silently demoting it to a low-consequence assumption. It likewise
 routes pictographic and image roles through asset-source reasoning before the
 agent chooses a medium, without prescribing that medium.
 
-For explicitly requested design-system work, the skill codifies the cue and
-feedback loop rather than a component inventory. After concrete usages exist, a
-single whole-composition checkpoint compares the still-local responsibility
-with the greatest coordination cost against resources already authored, then
-does the same for the strongest literal typography or layout role. This keeps
-attention on coherent future change instead of the last screen or most obvious
-repeated list without turning the workflow into a candidate census. Drift
-remains evidence. The agent either models the selected role or retains it for a
-concrete reason, reported briefly when it remains local.
+For new work without a proven existing system or an already-established local
+resource boundary, the skill keeps Direct versus Author provisional only until
+real consumers are concrete. A desired-result plan may establish them before
+the first write; otherwise one representative composition does. Dependent
+consumers cannot be serialized while the path is still provisional, so a
+complete one-root apply cannot silently bypass the decision. Explicit resource
+requirements still select Author earlier. At the single whole-composition
+checkpoint, the agent compares the still-local responsibility with the greatest
+coordination cost against resources already authored. This keeps attention on
+coherent future change instead of the last screen or most obvious repeated list
+without turning the workflow into a candidate census. Drift remains evidence.
+The agent either models the selected role or retains it for a concrete reason,
+reported briefly when it remains local.
 Selected component contracts must express their real differences through native
 instances. A working map remains optional support for complex scopes, not a
 mandatory candidate-classification pass. Repetition and structural similarity

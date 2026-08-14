@@ -84,6 +84,9 @@ requires establishing and verifying them, not prescribing their answers.
    [style-grounding.md](references/style-grounding.md) when a material decision
    remains unresolved; it routes applicable professional expertise, targeted
    research, and clarification without turning those methods into TemPad rules.
+   For net-new work without a concrete visual reference or a representative
+   established screen or system, treat the direction-defining visual language
+   as unresolved even when the brief supplies only broad qualitative words.
    Do not assume the composition needs a separate visual asset. Decide first
    what, if anything, must be depicted, signaled, identified, or merely
    accented. Read
@@ -94,6 +97,9 @@ requires establishing and verifying them, not prescribing their answers.
    evidence that imagery belongs in the result. Retain only the evidence needed
    to recover a material choice; do not create an explanation ceremony for
    settled or low-consequence decisions.
+   A character or primitive mark that communicates an interface affordance,
+   object, or semantic category is an icon role, not ordinary text or geometry;
+   route that decision through the visual-assets reference.
 3. **Form the desired result and translation plan.** Model the decided content,
    states, and relationships in Figma terms before writing markup: visible node
    roles, grouping, layout behavior, spacing, typography, color, ordinary
@@ -105,8 +111,16 @@ requires establishing and verifying them, not prescribing their answers.
    available classes or native schema choose the medium, structure, or design
    direction. Preserve established resource usage on updates. When evidence
    establishes an order or prerequisite, keep the visible hierarchy and shown
-   states consistent with it. For new work, choose Reuse only when permitted
-   evidence establishes a relevant existing system; otherwise choose Direct.
+   states consistent with it. Before the first write for new work, select Reuse
+   when permitted evidence establishes a relevant existing system, or Author
+   when the user or evidence already establishes a reusable local resource.
+   Otherwise keep Direct and Author provisional only while their planned
+   consumers are not concrete enough to judge. Resolve them at the earliest
+   evidence point: before serialization when the desired-result plan already
+   identifies actual consumers, or at the representative gate in step 5. Do not
+   serialize a dependent consumer while the path remains provisional. Identify
+   provisional shared responsibilities and their planned consumers, but do not
+   let the easiest resource to define fix the boundary.
    Treat an explicitly editable diagram as native semantics: decide its
    independently editable connectors, nodes, and authored geometry before
    serialization, then declare them as the matching LINE, ELLIPSE, RECTANGLE,
@@ -117,14 +131,17 @@ requires establishing and verifying them, not prescribing their answers.
    - **Reuse:** read
      [design-system-reuse.md](references/design-system-reuse.md), then use only
      returned resources relevant to the result.
-   - **Direct:** use primitives, literal values, and allowed external assets.
+   - **Direct:** use primitives, literal values, and allowed external assets
+     when the resolved plan has no responsibility that should remain shared
+     across consumers.
      Do not call `get_design_system`, send `catalogId`, or use catalog refs.
-     Treat a request to limit design evidence to the current page, avoid
-     pre-existing file resources, or create an independent system as Direct: do not
-     inspect other pages or pre-existing file resources. Local variables and
-     styles are still file-wide Figma resources, and internal identity checks
-     may remain file-wide; use one collision-resistant authoring-key prefix for
-     resources created by this task.
+     A request to limit design evidence to the current page or avoid
+     pre-existing file resources disables Reuse, not Author; create an
+     explicitly requested independent system without inspecting other pages or
+     pre-existing resources. Local variables and styles are still file-wide
+     Figma resources, and internal identity checks may remain file-wide; use one
+     collision-resistant authoring-key prefix for resources created by this
+     task.
    - **Author:** enter when the user or the resolved, evidence-backed design
      plan requires a reusable local resource or design-system extension. Read
      [design-system-authoring.md](references/design-system-authoring.md) and
@@ -150,12 +167,28 @@ requires establishing and verifying them, not prescribing their answers.
 5. **Prove one representative composition.** Apply and open the smallest
    composition that can establish the chosen visual language, content density,
    layout behavior, and native representation before propagating dependent
-   screens. A complete one-root result may itself satisfy this gate; do not
-   create a separate proof artifact or reapply an unchanged root. On the Author
-   path, prove the selected resource plan against concrete consumers now:
-   verify each planned definition, contract, instance, and binding, resolve
-   authoring warnings, and remove resources no longer present in the resolved
-   plan rather than creating specimens to justify them. Follow
+   screens. A complete one-root result may itself satisfy this gate only when
+   its Direct or Author path was resolved from concrete planned consumers before
+   serialization; otherwise apply only the representative composition first.
+   Do not create a separate proof artifact or reapply an unchanged root. On the
+   Author path, stabilize the representative composition with ordinary local
+   structure by default; author a resource earlier only when it is required to
+   construct that composition. If Direct and Author remain provisional, compare
+   the representative composition with its planned consumers now. Select Author
+   when a responsibility should remain shared and evolve across consumers, even
+   when their literal content or state differs; select Direct when a material
+   difference in structure, behavior, ownership, expected evolution, or
+   abstraction cost keeps it local. Counts, visual similarity, duplication
+   convenience, and an empty page do not decide the path. On Author, rank
+   qualifying still-local responsibilities by stable anatomy breadth, consumer
+   spread, and supported content or state variation. Establish the
+   highest-coordination relationship, replace its representative local usage
+   with native instances or bindings, and verify its definition, contract,
+   consumers, and warnings before propagation; an easier definition does not
+   close this gate. If a real usage disproves the selected contract, revise its
+   boundary or return that responsibility to Direct. Remove resources no longer
+   present in the resolved plan rather than creating specimens to justify them.
+   Follow
    [design-system-authoring.md](references/design-system-authoring.md).
 6. **Apply the complete desired result.** Call `apply_canvas` once per coherent
    root. If a large result must be split, use meaningful screen or section
@@ -194,6 +227,11 @@ requires establishing and verifying them, not prescribing their answers.
    recorded for reconciliation. A hidden definition, an uninspectable
    storage node, a primitive lookalike, or an instance of a different nested
    resource does not close that selected usage.
+   Before closing new work, repeat the path choice once against the actual final
+   consumers, starting with the still-local responsibility with the greatest
+   coordination cost. If it now qualifies under step 5 and no authored resource
+   covers it, the path is incomplete unless a concrete contract limitation keeps
+   it Direct.
    `verification.nativeFieldsChecked` counts the declared paint, effect, grid,
    guide, mask, and managed-SVG assertions that TemPad compared with retained
    Figma state. It is translation evidence only: it does not prove pixels,

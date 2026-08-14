@@ -253,7 +253,7 @@ function usage(): string {
     '',
     'Options:',
     '  --cdp-url <url>        Codex CDP endpoint (default: CODEX_CDP_URL or http://127.0.0.1:9222)',
-    '  --page-url <substring> Select a Codex page when more than one page is exposed',
+    '  --page-url <url|substring> Select a Codex page; an exact URL wins over substring matching',
     '  --restart-codex        Restart Codex with CDP in a detached helper when CDP is unavailable',
     '  --timeout-ms <number>  Timeout for each UI/runtime transition (default: 60000)',
     '  --help                 Show this help',
@@ -555,17 +555,21 @@ async function selectCodexTarget(
   let targets: CdpTarget[] = []
   while (Date.now() <= deadline) {
     targets = await listCdpTargets(cdpUrl).catch(() => [])
-    const candidates = targets.filter((target) => {
+    const codexPages = targets.filter((target) => {
       if (target.type !== 'page' || target.url.includes('initialRoute=%2Favatar-overlay')) {
         return false
       }
-      if (pageUrl && !target.url.includes(pageUrl)) return false
       try {
         return new URL(target.url).protocol === 'app:'
       } catch {
         return false
       }
     })
+    const exactCandidates = pageUrl ? codexPages.filter((target) => target.url === pageUrl) : []
+    if (exactCandidates.length === 1 && exactCandidates[0]) return exactCandidates[0]
+    const candidates = pageUrl
+      ? codexPages.filter((target) => target.url.includes(pageUrl))
+      : codexPages
     const candidate = candidates[0]
     if (candidates.length === 1 && candidate) return candidate
     if (candidates.length > 1) {

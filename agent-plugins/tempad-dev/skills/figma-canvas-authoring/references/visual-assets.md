@@ -34,6 +34,10 @@ structure. Import one opaque SVG only when exact vector artwork is itself the
 asset; an SVG wrapper with Vector descendants does not preserve an editable
 diagram model.
 
+When a visual's function depends on exact encoded geometry, preserve real
+decodable content in a Canvas-accepted asset form; never imitate it with
+decorative primitives or invented vectors.
+
 For material assets, preserve enough evidence for the intended use:
 
 - identity and content fidelity;
@@ -63,9 +67,12 @@ permitted. Otherwise select a trustworthy source that satisfies the established
 brief and record any license constraint. Import its exact SVG geometry; do not
 redraw a known icon from memory or replace an established icon-asset role with a
 text character, including a Unicode symbol or emoji.
-Treat a character-shaped control as an icon role when its shape communicates an
-affordance rather than linguistic content; its Figma node must use the selected
-icon asset or component, not TEXT.
+Treat a text character or primitive shape or cluster as an icon role when its
+form communicates an affordance, object, or semantic category; use the selected
+icon asset or component rather than TEXT or newly assembled primitives. Simple
+geometry remains valid when the mark itself is intended, such as a status or
+data mark, divider, or decorative or brand shape, not when it substitutes for
+an icon.
 Before declaring a fetched SVG, verify that the response is SVG content rather
 than a redirect, error document, or missing-asset message; a plausible URL or
 filename does not establish a valid asset.

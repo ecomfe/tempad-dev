@@ -550,6 +550,28 @@ function applyClassEffects(
   return { ...binding, figma: { ...binding?.figma, effects } }
 }
 
+function applyClassPaints(
+  key: string,
+  type: CanvasNodeSpec['type'],
+  binding: CanvasBinding | undefined,
+  classes: CanvasClasses
+): CanvasBinding | undefined {
+  if (classes.fillPaints === undefined) return binding
+  if (type === 'GROUP') {
+    markupError(`Gradient classes are not supported on GROUP node "${key}".`)
+  }
+  if (binding?.figma?.fills !== undefined) {
+    markupError(`Gradient classes and direct fill paints cannot be combined on "${key}".`)
+  }
+  if (binding?.styles?.fill) {
+    markupError(`Gradient classes and a fill style cannot be combined on "${key}".`)
+  }
+  if (binding?.variables?.fill !== undefined) {
+    markupError(`Gradient classes and a fill variable cannot be combined on "${key}".`)
+  }
+  return { ...binding, figma: { ...binding?.figma, fills: classes.fillPaints } }
+}
+
 function validatePaints(
   key: string,
   type: CanvasNodeSpec['type'],
@@ -980,7 +1002,12 @@ function compileElement(
           state.existingNodeTypes?.byKey.get(key))
       : undefined
   const type = nodeType(element, declaredBinding, existingNodeType)
-  const binding = applyClassEffects(key, type, declaredBinding, classes)
+  const binding = applyClassEffects(
+    key,
+    type,
+    applyClassPaints(key, type, declaredBinding, classes),
+    classes
+  )
   const shapeType = binding?.figma?.shape?.type
   const nativeStroke = binding?.figma?.stroke
   const nativeCorners = binding?.figma?.corners
@@ -1364,7 +1391,11 @@ function compileElement(
   if (
     relativeTransform &&
     parentMode === 'NONE' &&
-    (classes.absolute || classes.left !== undefined || classes.top !== undefined)
+    (classes.absolute ||
+      classes.left !== undefined ||
+      classes.right !== undefined ||
+      classes.top !== undefined ||
+      classes.bottom !== undefined)
   ) {
     markupError(`Relative transform on "${key}" cannot be combined with position classes.`)
   }
@@ -1384,15 +1415,40 @@ function compileElement(
     )
   }
   if (classes.absolute) {
-    if (classes.left === undefined || classes.top === undefined) {
-      markupError(`Absolute node "${key}" requires left-* and top-* supported classes.`)
+    if ((classes.left === undefined) === (classes.right === undefined)) {
+      markupError(`Absolute node "${key}" requires exactly one of left-* or right-*.`)
+    }
+    if ((classes.top === undefined) === (classes.bottom === undefined)) {
+      markupError(`Absolute node "${key}" requires exactly one of top-* or bottom-*.`)
+    }
+    if (
+      (classes.right !== undefined &&
+        (parent?.size.width === undefined || classes.width.value === undefined)) ||
+      (classes.bottom !== undefined &&
+        (parent?.size.height === undefined || classes.height.value === undefined))
+    ) {
+      markupError(
+        `Right-* and bottom-* on absolute node "${key}" require fixed parent and child bounds on their axes.`
+      )
     }
     if (classes.grow || classes.width.mode === 'FILL' || classes.height.mode === 'FILL') {
       markupError(`Absolute node "${key}" cannot use grow, w-full, or h-full.`)
     }
-  } else if (classes.left !== undefined || classes.top !== undefined) {
+  } else if (
+    classes.left !== undefined ||
+    classes.right !== undefined ||
+    classes.top !== undefined ||
+    classes.bottom !== undefined
+  ) {
     markupError(`Position classes on "${key}" require absolute.`)
   }
+
+  const absolutePosition = classes.absolute
+    ? {
+        x: classes.left ?? parent!.size.width! - classes.right! - classes.width.value!,
+        y: classes.top ?? parent!.size.height! - classes.bottom! - classes.height.value!
+      }
+    : undefined
 
   const hasBounds = SIZE_BOUND_FIELDS.some(
     (field) => classes[field] !== undefined || binding?.variables?.[field] != null
@@ -1463,7 +1519,7 @@ function compileElement(
     ...(parent && (classes.absolute !== undefined || includeDefaults)
       ? { positioning: classes.absolute ? ('ABSOLUTE' as const) : ('AUTO' as const) }
       : {}),
-    ...(classes.absolute ? { position: { x: classes.left!, y: classes.top! } } : {}),
+    ...(absolutePosition ? { position: absolutePosition } : {}),
     ...(binding?.variables ? { variables: binding.variables } : {}),
     ...(binding?.variableModes ? { variableModes: binding.variableModes } : {}),
     ...(binding?.styles ? { styles: binding.styles } : {}),

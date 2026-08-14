@@ -3121,18 +3121,28 @@ function isShadowEffect(effect: Effect): effect is DropShadowEffect | InnerShado
   return effect.type === 'DROP_SHADOW' || effect.type === 'INNER_SHADOW'
 }
 
-function comparableShadow(effect: DropShadowEffect | InnerShadowEffect): Effect {
-  return {
-    ...effect,
-    spread: effect.spread ?? 0,
-    ...(effect.type === 'DROP_SHADOW'
-      ? { showShadowBehindNode: effect.showShadowBehindNode ?? false }
-      : {})
+function comparableShadow(
+  effect: DropShadowEffect | InnerShadowEffect,
+  expected: DropShadowEffect | InnerShadowEffect
+): Effect {
+  if (effect.type !== 'DROP_SHADOW' || expected.type !== 'DROP_SHADOW') {
+    return { ...effect, spread: effect.spread ?? 0 }
   }
+  if (expected.showShadowBehindNode !== undefined) {
+    return {
+      ...effect,
+      spread: effect.spread ?? 0,
+      showShadowBehindNode: effect.showShadowBehindNode ?? false
+    }
+  }
+  const { showShadowBehindNode: _showShadowBehindNode, ...withoutBehindNode } = effect
+  return { ...withoutBehindNode, spread: effect.spread ?? 0 }
 }
 
 function comparableEffect(effect: Effect, expected: Effect): unknown {
-  return isShadowEffect(effect) && isShadowEffect(expected) ? comparableShadow(effect) : effect
+  return isShadowEffect(effect) && isShadowEffect(expected)
+    ? comparableShadow(effect, expected)
+    : effect
 }
 
 function effectsEqual(current: readonly Effect[], desired: readonly Effect[]): boolean {

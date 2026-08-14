@@ -1,4 +1,4 @@
-import type { CanvasFigmaEffect } from '@tempad-dev/shared'
+import type { CanvasFigmaEffect, CanvasFigmaPaint } from '@tempad-dev/shared'
 
 import {
   TAILWIND_ALIGN_ITEMS,
@@ -169,6 +169,40 @@ const TEXT_DECORATIONS = {
   underline: 'UNDERLINE',
   'line-through': 'STRIKETHROUGH'
 } as const
+const LINEAR_GRADIENT_TRANSFORMS = {
+  t: [
+    [0, -1, 1],
+    [1, 0, 0]
+  ],
+  tr: [
+    [0.5, -0.5, 0.5],
+    [0.5, 0.5, 0]
+  ],
+  r: [
+    [1, 0, 0],
+    [0, 1, 0]
+  ],
+  br: [
+    [0.5, 0.5, 0],
+    [-0.5, 0.5, 0.5]
+  ],
+  b: [
+    [0, 1, 0],
+    [-1, 0, 1]
+  ],
+  bl: [
+    [-0.5, 0.5, 0.5],
+    [-0.5, -0.5, 1]
+  ],
+  l: [
+    [-1, 0, 1],
+    [0, -1, 1]
+  ],
+  tl: [
+    [-0.5, -0.5, 1],
+    [0.5, -0.5, 0.5]
+  ]
+} as const satisfies Record<string, Transform>
 type CanvasShadowEffect = Extract<CanvasFigmaEffect, { type: 'DROP_SHADOW' | 'INNER_SHADOW' }>
 
 const SHADOW_FAMILIES = {
@@ -232,8 +266,11 @@ export type CanvasClasses = {
   strokesIncluded?: boolean
   absolute?: boolean
   left?: number
+  right?: number
   top?: number
+  bottom?: number
   fill?: `#${string}` | null
+  fillPaints?: CanvasFigmaPaint[]
   stroke?: `#${string}`
   strokeWeight?: number
   strokeWeights: Partial<Record<'bottom' | 'left' | 'right' | 'top', number>>
@@ -263,6 +300,7 @@ export type CanvasClasses = {
   layoutClass?: string
   textClass?: string
   assigned: Set<string>
+  assignedTokens: Map<string, string>
 }
 
 function classError(message: string): never {
@@ -489,11 +527,16 @@ function assignIndividuals<Key extends string>(
   for (const field of fields) {
     const assignment = `${group}-${field}`
     if (classes.assigned.has(assignment)) {
-      classError(`Class "${token}" conflicts with another ${assignment} class.`)
+      const previous = classes.assignedTokens.get(assignment)
+      classError(
+        `Class "${token}" conflicts${previous ? ` with "${previous}"` : ''} for ${assignment}.`
+      )
     }
   }
   for (const field of fields) {
-    classes.assigned.add(`${group}-${field}`)
+    const assignment = `${group}-${field}`
+    classes.assigned.add(assignment)
+    classes.assignedTokens.set(assignment, token)
     values[field] = value
   }
 }
@@ -505,13 +548,19 @@ function assign<T extends keyof CanvasClasses>(
   token: string
 ): void {
   if (classes.assigned.has(field)) {
+    const previous = classes.assignedTokens.get(field)
     const hint =
       field === 'fill'
         ? ' Use one fill class per node; a label with a background needs a parent div and a child span for its text color.'
-        : ''
-    classError(`Class "${token}" conflicts with another ${field} class.${hint}`)
+        : field === 'stroke'
+          ? ' Figma supports one stroke paint per node across its enabled sides; use one border color or separate edge layers for different side colors.'
+          : ''
+    classError(
+      `Class "${token}" conflicts${previous ? ` with "${previous}"` : ''} for ${field}.${hint}`
+    )
   }
   classes.assigned.add(field)
+  classes.assignedTokens.set(field, token)
   classes[field] = value
 }
 
@@ -524,11 +573,14 @@ function assignPadding(
   for (const side of sides) {
     const field = `padding-${side}`
     if (classes.assigned.has(field)) {
-      classError(`Class "${token}" conflicts with another ${field} class.`)
+      const previous = classes.assignedTokens.get(field)
+      classError(`Class "${token}" conflicts${previous ? ` with "${previous}"` : ''} for ${field}.`)
     }
   }
   for (const side of sides) {
-    classes.assigned.add(`padding-${side}`)
+    const field = `padding-${side}`
+    classes.assigned.add(field)
+    classes.assignedTokens.set(field, token)
     classes.padding[side] = value
   }
   classes.layoutClass ??= token
@@ -557,9 +609,18 @@ export function parseCanvasClasses(value: string): CanvasClasses {
     cornerRadii: {},
     padding: {},
     strokeWeights: {},
-    assigned: new Set()
+    assigned: new Set(),
+    assignedTokens: new Map()
   }
   let defaultLineHeight: LineHeight | undefined
+  let gradientDirection: keyof typeof LINEAR_GRADIENT_TRANSFORMS | undefined
+  let gradientDirectionToken: string | undefined
+  let gradientFrom: RGBA | undefined
+  let gradientFromToken: string | undefined
+  let gradientVia: RGBA | undefined
+  let gradientViaToken: string | undefined
+  let gradientTo: RGBA | undefined
+  let gradientToToken: string | undefined
   const tokens = value.trim() ? value.trim().split(/\s+/) : []
   for (const token of tokens) {
     if (token === 'flex') {
@@ -669,11 +730,16 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       assign(classes, 'absolute', token === 'absolute', token)
       continue
     }
-    const inset = /^(-)?(left|top)-(.+)$/.exec(token)
+    const inset = /^(-)?(left|right|top|bottom)-(.+)$/.exec(token)
     if (inset) {
       const value = pixels(inset[3]!, token, { allowNegative: !inset[1], numericScale: 4 })
       if (value === null) classError(`Unsupported class "${token}".`)
-      assign(classes, inset[2] as 'left' | 'top', inset[1] ? -value : value, token)
+      assign(
+        classes,
+        inset[2] as 'bottom' | 'left' | 'right' | 'top',
+        inset[1] ? -value : value,
+        token
+      )
       continue
     }
 
@@ -774,6 +840,46 @@ export function parseCanvasClasses(value: string): CanvasClasses {
 
     if (token === 'bg-transparent') {
       assign(classes, 'fill', null, token)
+      classes.frameClass ??= token
+      continue
+    }
+    const gradient = /^bg-(?:linear|gradient)-to-(t|tr|r|br|b|bl|l|tl)$/.exec(token)
+    if (gradient) {
+      if (gradientDirectionToken) {
+        classError(
+          `Class "${token}" conflicts with gradient direction class "${gradientDirectionToken}".`
+        )
+      }
+      gradientDirection = gradient[1] as keyof typeof LINEAR_GRADIENT_TRANSFORMS
+      gradientDirectionToken = token
+      classes.frameClass ??= token
+      continue
+    }
+    const gradientStop = /^(from|via|to)-(.+)$/.exec(token)
+    if (gradientStop) {
+      const value = color(gradientStop[2]!)
+      const parsed = value ? cssColor(value) : null
+      if (!parsed) classError(`Unsupported gradient stop class "${token}".`)
+      const kind = gradientStop[1]!
+      if (kind === 'from') {
+        if (gradientFromToken) {
+          classError(`Class "${token}" conflicts with gradient stop class "${gradientFromToken}".`)
+        }
+        gradientFrom = parsed
+        gradientFromToken = token
+      } else if (kind === 'via') {
+        if (gradientViaToken) {
+          classError(`Class "${token}" conflicts with gradient stop class "${gradientViaToken}".`)
+        }
+        gradientVia = parsed
+        gradientViaToken = token
+      } else {
+        if (gradientToToken) {
+          classError(`Class "${token}" conflicts with gradient stop class "${gradientToToken}".`)
+        }
+        gradientTo = parsed
+        gradientToToken = token
+      }
       classes.frameClass ??= token
       continue
     }
@@ -999,6 +1105,32 @@ export function parseCanvasClasses(value: string): CanvasClasses {
     }
 
     classError(`Unsupported class "${token}".`)
+  }
+  if (gradientDirectionToken || gradientFromToken || gradientViaToken || gradientToToken) {
+    if (!gradientDirection || !gradientFrom || !gradientTo) {
+      classError(
+        'A linear gradient requires one bg-linear-to-* direction plus exact from-* and to-* colors; via-* is optional.'
+      )
+    }
+    if (classes.fill !== undefined) {
+      classError('Linear gradient classes cannot be combined with a solid background class.')
+    }
+    classes.fillPaints = [
+      {
+        type: 'GRADIENT_LINEAR',
+        gradientTransform: LINEAR_GRADIENT_TRANSFORMS[gradientDirection],
+        gradientStops: gradientVia
+          ? [
+              { position: 0, color: gradientFrom },
+              { position: 0.5, color: gradientVia },
+              { position: 1, color: gradientTo }
+            ]
+          : [
+              { position: 0, color: gradientFrom },
+              { position: 1, color: gradientTo }
+            ]
+      }
+    ]
   }
   if (classes.flex && classes.direction === undefined) classes.direction = 'HORIZONTAL'
   classes.lineHeight ??= defaultLineHeight
