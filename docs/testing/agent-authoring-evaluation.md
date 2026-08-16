@@ -129,6 +129,11 @@ agent plugin changed:
    targets another model, and record the returned task or thread ID. The result
    must appear in the App's task list and open independently.
 
+   Confirm that this dispatch produced exactly that one fresh task. If another
+   task with the same source prompt appears, stop both before either writes,
+   reject the round, and diagnose task creation; never choose one to continue or
+   let multiple tasks share the page.
+
    Do not navigate Codex UI with CDP or Browser control to set permissions or
    dispatch the task. Do not substitute a CLI, SDK, `codex app-server`, App
    Server thread API, custom dispatch script, shell wrapper, subagent, side

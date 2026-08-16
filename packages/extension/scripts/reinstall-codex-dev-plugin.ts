@@ -65,6 +65,7 @@ const pageFunctionDeclaration = `function (request) {
 }`
 
 type Arguments = {
+  appPath: string
   cdpUrl: string
   pageUrl?: string
   restartCodex: boolean
@@ -246,12 +247,14 @@ function usage(): string {
     '',
     '  pnpm agent-plugin:reinstall <version>',
     '  pnpm agent-plugin:reinstall <version> --restart-codex',
+    '  pnpm agent-plugin:reinstall <version> --restart-codex --app-path "/path/to/ChatGPT.app"',
     '  pnpm agent-plugin:reinstall <version> --cdp-url http://127.0.0.1:9222',
     '',
     'Arguments:',
     '  <version>              Exact generated plugin version to install',
     '',
     'Options:',
+    '  --app-path <path>     Codex app to launch (default: CODEX_APP_PATH or /Applications/ChatGPT.app)',
     '  --cdp-url <url>        Codex CDP endpoint (default: CODEX_CDP_URL or http://127.0.0.1:9222)',
     '  --page-url <url|substring> Select a Codex page; an exact URL wins over substring matching',
     '  --restart-codex        Restart Codex with CDP in a detached helper when CDP is unavailable',
@@ -266,6 +269,7 @@ function usage(): string {
 function parseArguments(argv: string[]): Arguments | null {
   if (argv.includes('--help')) return null
 
+  let appPath = process.env.CODEX_APP_PATH ?? '/Applications/ChatGPT.app'
   let cdpUrl = process.env.CODEX_CDP_URL ?? 'http://127.0.0.1:9222'
   let pageUrl: string | undefined
   let restartCodex = false
@@ -284,10 +288,16 @@ function parseArguments(argv: string[]): Arguments | null {
       resumeAfterRestart = true
       continue
     }
-    if (argument === '--cdp-url' || argument === '--page-url' || argument === '--timeout-ms') {
+    if (
+      argument === '--app-path' ||
+      argument === '--cdp-url' ||
+      argument === '--page-url' ||
+      argument === '--timeout-ms'
+    ) {
       const value = argv[index + 1]
       if (!value || value.startsWith('--')) fail(`Missing value for ${argument}.`)
       index += 1
+      if (argument === '--app-path') appPath = value
       if (argument === '--cdp-url') cdpUrl = value
       if (argument === '--page-url') pageUrl = value
       if (argument === '--timeout-ms') {
@@ -304,7 +314,7 @@ function parseArguments(argv: string[]): Arguments | null {
   }
 
   if (!version) fail(`Missing plugin version.\n\n${usage()}`)
-  return { cdpUrl, pageUrl, restartCodex, resumeAfterRestart, timeoutMs, version }
+  return { appPath, cdpUrl, pageUrl, restartCodex, resumeAfterRestart, timeoutMs, version }
 }
 
 async function readJson(path: string): Promise<unknown> {
@@ -344,12 +354,12 @@ async function resolveRuntimePaths(expectedVersion: string): Promise<RuntimePath
   return { cli, hub }
 }
 
-async function listRuntimeProcesses(paths: RuntimePaths): Promise<RuntimeProcesses> {
+async function listProcesses(): Promise<ProcessInfo[]> {
   const { stdout } = await execFileAsync('ps', ['-axo', 'pid=,ppid=,command='], {
     encoding: 'utf8',
     maxBuffer: 4 * 1024 * 1024
   })
-  const processes = stdout
+  return stdout
     .split('\n')
     .map((line): ProcessInfo | null => {
       const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/)
@@ -359,6 +369,10 @@ async function listRuntimeProcesses(paths: RuntimePaths): Promise<RuntimeProcess
       return { command, pid: Number(pid), ppid: Number(ppid) }
     })
     .filter((process): process is ProcessInfo => process !== null)
+}
+
+async function listRuntimeProcesses(paths: RuntimePaths): Promise<RuntimeProcesses> {
+  const processes = await listProcesses()
 
   return {
     cli: processes.filter((process) => process.command.includes(paths.cli)),
@@ -421,12 +435,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-async function isCodexRunning(): Promise<boolean> {
-  const { stdout } = await execFileAsync('osascript', [
-    '-e',
-    'application id "com.openai.codex" is running'
-  ])
-  return stdout.trim() === 'true'
+async function listCodexMainProcesses(): Promise<ProcessInfo[]> {
+  return (await listProcesses()).filter(
+    ({ command, ppid }) => ppid === 1 && command.includes('.app/Contents/MacOS/ChatGPT')
+  )
 }
 
 async function waitUntil(
@@ -464,22 +476,51 @@ function cdpPort(cdpUrl: string): number {
   return port
 }
 
-async function restartCodexForCdp(cdpUrl: string, timeoutMs: number): Promise<void> {
+async function waitForCodexExit(timeoutMs: number): Promise<void> {
+  await waitUntil(
+    async () => (await listCodexMainProcesses()).length === 0,
+    'Codex Desktop to exit',
+    timeoutMs
+  )
+}
+
+async function terminateSingleCodexMainProcess(): Promise<void> {
+  const processes = await listCodexMainProcesses()
+  if (processes.length === 0) return
+  if (processes.length !== 1 || !processes[0]) {
+    fail(
+      `Refusing to terminate Codex because ${String(processes.length)} main processes were found:\n${processes
+        .map(({ command, pid }) => `- ${String(pid)}: ${command}`)
+        .join('\n')}`
+    )
+  }
+  const [{ pid }] = processes
+  console.log(`Terminating the verified Codex main process ${String(pid)}...`)
+  process.kill(pid, 'SIGTERM')
+}
+
+async function restartCodexForCdp(
+  appPath: string,
+  cdpUrl: string,
+  timeoutMs: number
+): Promise<void> {
   if (process.platform !== 'darwin') fail('--restart-codex is currently supported only on macOS.')
   const port = cdpPort(cdpUrl)
+  await access(appPath)
 
   await new Promise((resolve) => setTimeout(resolve, 1_000))
   console.log('Requesting Codex Desktop to quit...')
-  await execFileAsync('osascript', ['-e', 'tell application id "com.openai.codex" to quit'])
-  await waitUntil(async () => !(await isCodexRunning()), 'Codex Desktop to exit', timeoutMs)
+  try {
+    await execFileAsync('osascript', ['-e', 'tell application id "com.openai.codex" to quit'])
+    await waitForCodexExit(timeoutMs)
+  } catch (error) {
+    console.warn(`Normal Codex quit did not complete: ${errorMessage(error)}`)
+    await terminateSingleCodexMainProcess()
+    await waitForCodexExit(timeoutMs)
+  }
 
-  console.log(`Starting Codex Desktop with --remote-debugging-port=${port}...`)
-  await execFileAsync('open', [
-    '-a',
-    'ChatGPT',
-    '--args',
-    `--remote-debugging-port=${String(port)}`
-  ])
+  console.log(`Starting ${appPath} with --remote-debugging-port=${port}...`)
+  await execFileAsync('open', ['-n', appPath, '--args', `--remote-debugging-port=${String(port)}`])
   await waitUntil(() => isCdpReady(cdpUrl), `Codex CDP endpoint ${cdpUrl}`, timeoutMs)
   console.log(`Codex CDP endpoint is ready at ${cdpUrl}.`)
 }
@@ -495,6 +536,8 @@ async function startDetachedRestart(args: Arguments, connectionError: unknown): 
     args.version,
     '--cdp-url',
     args.cdpUrl,
+    '--app-path',
+    args.appPath,
     '--timeout-ms',
     String(args.timeoutMs),
     '--resume-after-restart',
@@ -589,7 +632,9 @@ async function selectCodexTarget(
 }
 
 async function connectToCodex(args: Arguments): Promise<CdpClient | null> {
-  if (args.resumeAfterRestart) await restartCodexForCdp(args.cdpUrl, args.timeoutMs)
+  if (args.resumeAfterRestart) {
+    await restartCodexForCdp(args.appPath, args.cdpUrl, args.timeoutMs)
+  }
   if (args.restartCodex && !args.resumeAfterRestart && !(await isCdpReady(args.cdpUrl))) {
     await startDetachedRestart(args, new Error('the CDP endpoint is not listening'))
     return null
