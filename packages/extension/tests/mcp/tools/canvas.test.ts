@@ -65,6 +65,16 @@ function createMockPage(id: string, name: string) {
     explicitVariableModes: {} as Record<string, string>,
     isPageDivider: false,
     loadAsync: vi.fn().mockResolvedValue(undefined),
+    findAll: vi.fn((callback?: (node: SceneNode) => boolean) => {
+      const found: SceneNode[] = []
+      const pending = [...page.children]
+      while (pending.length) {
+        const node = pending.pop()!
+        if (!callback || callback(node)) found.push(node)
+        if ('children' in node) pending.push(...node.children)
+      }
+      return found
+    }),
     clearExplicitVariableModeForCollection(collection: VariableCollection) {
       delete page.explicitVariableModes[collection.id]
     },
@@ -323,6 +333,10 @@ function createFixture(): FigmaFixture {
   PAGE.explicitVariableModes = {}
   PAGE.setSharedPluginData('tempad_dev', 'page-key', '')
   PAGE.loadAsync.mockReset().mockResolvedValue(undefined)
+  PAGE.findAll.mockClear()
+  const loadAllPagesAsync = vi.fn(async () => {
+    await Promise.all(pages.filter((page) => page.id !== PAGE.id).map((page) => page.loadAsync()))
+  })
 
   function styleConsumers(styleId: string): StyleConsumers[] {
     const fields = [
@@ -1814,6 +1828,7 @@ function createFixture(): FigmaFixture {
     mixed: MIXED,
     root,
     currentPage: PAGE,
+    loadAllPagesAsync,
     viewport: { center: { x: 500, y: 400 } },
     commitUndo,
     triggerUndo,
@@ -3747,6 +3762,30 @@ describe('mcp/tools/canvas', () => {
     expect(fixture.getNode(screen.nodeIdsByKey['screen/action']!).type).toBe('INSTANCE')
   })
 
+  it('resolves a loaded component id without waiting for the async dynamic-page lookup', async () => {
+    const fixture = createFixture()
+    const authored = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="button" class="w-[160px] h-[48px]"></div>',
+      native: {
+        button: { figma: { component: { type: 'COMPONENT' } } }
+      }
+    })
+    vi.mocked(figma.getNodeByIdAsync).mockClear()
+
+    const screen = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/action" class="w-[160px] h-[48px]"></div></div>',
+      native: {
+        'screen/action': { component: { id: authored.rootNodeId } }
+      }
+    })
+
+    expect(fixture.getNode(screen.nodeIdsByKey['screen/action']!).type).toBe('INSTANCE')
+    expect(figma.getNodeByIdAsync).not.toHaveBeenCalled()
+  })
+
   it('resolves update targets and adopted descendants through async dynamic-page lookups', async () => {
     const fixture = createFixture()
     const created = await applyCanvasFromTool({
@@ -3769,15 +3808,13 @@ describe('mcp/tools/canvas', () => {
     expect(updated.nodeIdsByKey['screen/adopted']).toBe(adopted.id)
   })
 
-  it('falls back to the synchronous current-page lookup when the async backend is unavailable', async () => {
+  it('resolves a loaded update target without waiting for the async backend', async () => {
     const fixture = createFixture()
     const created = await applyCanvasFromTool({
       mode: 'create',
       markup: '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"></div>'
     })
-    vi.mocked(figma.getNodeByIdAsync).mockRejectedValue(
-      new TypeError("Cannot read properties of undefined (reading 'getNodeByIdAsync')")
-    )
+    vi.mocked(figma.getNodeByIdAsync).mockClear()
 
     const updated = await applyCanvasFromTool({
       mode: 'update',
@@ -3787,6 +3824,7 @@ describe('mcp/tools/canvas', () => {
     })
 
     expect(fixture.getNode(updated.nodeIdsByKey['screen/child']!).type).toBe('FRAME')
+    expect(figma.getNodeByIdAsync).not.toHaveBeenCalled()
   })
 
   it('makes newly added frames transparent when update markup omits a background', async () => {
@@ -8165,7 +8203,48 @@ describe('mcp/tools/canvas', () => {
       removedNodeIds: [created.rootNodeId]
     })
     expect(PAGE.loadAsync).not.toHaveBeenCalled()
+    expect(figma.loadAllPagesAsync).not.toHaveBeenCalled()
+    expect(PAGE.findAll).toHaveBeenCalledOnce()
     expect(fixture.nodes.has(created.rootNodeId)).toBe(false)
+  })
+
+  it('loads non-current pages through the batch API before removal validation', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>'
+    })
+    const otherPage = figma.createPage()
+
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: created.rootNodeId,
+        markup: null
+      })
+    ).resolves.toMatchObject({
+      rootRemoved: true,
+      removedNodeIds: [created.rootNodeId]
+    })
+    expect(figma.loadAllPagesAsync).toHaveBeenCalledOnce()
+    expect(PAGE.loadAsync).not.toHaveBeenCalled()
+    expect(otherPage.loadAsync).toHaveBeenCalledOnce()
+    expect(PAGE.findAll).toHaveBeenCalledOnce()
+    expect(otherPage.findAll).toHaveBeenCalledOnce()
+    expect(fixture.nodes.has(created.rootNodeId)).toBe(false)
+
+    const second = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="second" class="w-[320px] h-[200px]"></div>'
+    })
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: second.rootNodeId,
+        markup: null
+      })
+    ).resolves.toMatchObject({ rootRemoved: true })
+    expect(figma.loadAllPagesAsync).toHaveBeenCalledOnce()
   })
 
   it('removes a component set when async lookup returns a stale attached snapshot', async () => {

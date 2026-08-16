@@ -20,6 +20,25 @@ export function getNodeById(id: string): Promise<BaseNode | null> {
   )
 }
 
+export function getCurrentContextNodeById(id: string): BaseNode | null {
+  try {
+    const node = figma.getNodeById(id)
+    return node && !node.removed ? node : null
+  } catch {
+    return null
+  }
+}
+
+export async function getMainComponent(instance: InstanceNode): Promise<ComponentNode | null> {
+  try {
+    const component = instance.mainComponent
+    if (component && !component.removed) return component
+  } catch {
+    // Dynamic-page access can make the synchronous relationship unavailable.
+  }
+  return instance.getMainComponentAsync()
+}
+
 export function getStyleById(id: string): Promise<BaseStyle | null> {
   return readWithSyncFallback(
     () => figma.getStyleByIdAsync(id),

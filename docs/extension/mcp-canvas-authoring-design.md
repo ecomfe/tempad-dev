@@ -501,16 +501,16 @@ the insertion index against Figma's pre-move sibling list, including when an ear
 a later one; omitted siblings remain present and only move when the declared relative order
 requires it.
 
-Exact update targets, adopted `data-node-id` descendants, and direct component IDs are resolved
-through Figma's asynchronous lookup API before reconciliation. Instance sublayers are not exact
+Exact update targets, adopted `data-node-id` descendants, and direct component IDs use the
+synchronous lookup when the node is already available in the current context, then fall back to
+Figma's asynchronous lookup for unloaded dynamic-page nodes. Instance sublayers are not exact
 authoring targets; they remain definition-derived. Resolved nodes stay in request state instead of
-depending on later synchronous lookups. The rewritten runtime keeps a current-page synchronous
-fallback for the brief state where the async lookup backend is not ready. The same async-first,
-current-context fallback covers local variable, style, and collection reads, so native-resource
-authoring does not fail merely because that backend is still connecting. Removed nodes are treated
-as absent even if the async backend briefly returns a stale object after deletion. Root-removal
-verification therefore uses the mutated node's removal state and its live parent's child list
-instead of re-querying that eventually consistent lookup path.
+depending on later lookups. The same async-first, current-context fallback covers local variable,
+style, and collection reads, so native-resource authoring does not fail merely because that backend
+is still connecting. Removed nodes are treated as absent even if the async backend briefly returns a
+stale object after deletion. Root-removal verification therefore uses the mutated node's removal
+state and its live parent's child list instead of re-querying that eventually consistent lookup
+path.
 
 ## Reconciliation
 

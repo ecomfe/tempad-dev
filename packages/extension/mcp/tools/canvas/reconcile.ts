@@ -35,7 +35,13 @@ import type {
 import { readBoundedResponseBytes } from '../../bounded-response'
 import { createCodedError } from '../../errors'
 import { retryAfterFigmaConnectionTimeout } from '../../figma-readiness'
-import { getLocalEffectStyles, getLocalPaintStyles, getNodeById } from '../../local-resources'
+import {
+  getCurrentContextNodeById,
+  getLocalEffectStyles,
+  getLocalPaintStyles,
+  getMainComponent,
+  getNodeById
+} from '../../local-resources'
 import {
   type ResolvedCanvasAssets,
   resolveCanvasAssets,
@@ -190,7 +196,7 @@ function isSceneNode(node: BaseNode | null): node is SceneNode {
 }
 
 async function lookupNodeById(id: string): Promise<BaseNode | null> {
-  const node = await getNodeById(id)
+  const node = getCurrentContextNodeById(id) ?? (await getNodeById(id))
   return node && !node.removed ? node : null
 }
 
@@ -600,6 +606,8 @@ function collectRemovedIdentities(roots: SupportedCanvasNode[]): {
   return { componentKeys, nodeIds }
 }
 
+const fullyLoadedRemovalDocuments = new WeakSet<DocumentNode>()
+
 async function validateRemovalReferences(
   roots: SupportedCanvasNode[],
   state: ApplyState
@@ -611,21 +619,25 @@ async function validateRemovalReferences(
     nodeIds: new Set(),
     shaders: []
   }
-  for (const page of figma.root.children) {
-    if (page.id !== figma.currentPage.id) {
-      try {
-        await page.loadAsync()
-      } catch {
-        scopeError(`Page "${page.id}" could not be inspected before node removal.`)
-      }
+  const removedPhysicalNodeIds = new Set(
+    roots.flatMap((root) => [...walkPhysicalNodes([root])].map((node) => node.id))
+  )
+  if (
+    !fullyLoadedRemovalDocuments.has(figma.root) &&
+    figma.root.children.some((page) => page.id !== figma.currentPage.id)
+  ) {
+    try {
+      await figma.loadAllPagesAsync()
+      fullyLoadedRemovalDocuments.add(figma.root)
+    } catch {
+      scopeError('Document pages could not be inspected before node removal.')
     }
+  }
+  for (const page of figma.root.children) {
     collectReferences(page.backgrounds, references)
-    const pending = [...page.children]
-    while (pending.length) {
-      const node = pending.pop()!
-      if (removed.nodeIds.has(node.id)) continue
+    for (const node of page.findAll()) {
+      if (removedPhysicalNodeIds.has(node.id)) continue
       collectSceneReferences(node, references)
-      if ('children' in node) pending.push(...node.children)
     }
   }
   const removedStyleIds = new Set(state.styles.removals.map(({ style }) => style.id))
@@ -1732,7 +1744,7 @@ async function preflightResources(
       )
     }
     if (spec.componentProperties) {
-      const instanceComponent = await instance.getMainComponentAsync()
+      const instanceComponent = await getMainComponent(instance)
       if (!instanceComponent) {
         specError(`Existing instance "${spec.key}" has no main component.`)
       }
@@ -4021,12 +4033,12 @@ async function applyComponent(
   const instance = spec.figma?.instance
   const component = spec.component
     ? resolvedComponent(spec.component, state)
-    : await node.getMainComponentAsync()
+    : await getMainComponent(node)
   if (!component) {
     specError(`Existing instance "${spec.key}" has no main component.`)
   }
   if (spec.component && !preservesComponentPropertyReference(node, spec, 'mainComponent')) {
-    const currentComponent = await node.getMainComponentAsync()
+    const currentComponent = await getMainComponent(node)
     if (currentComponent?.id !== component.id) {
       if (instance?.preserveOverrides === false) node.mainComponent = component
       else node.swapComponent(component)
@@ -5978,7 +5990,7 @@ async function verifyInstanceState(
     specError(`Verification failed for "${spec.key}": instance exposure does not match.`)
   }
   if (!spec.componentProperties) return
-  const component = await node.getMainComponentAsync()
+  const component = await getMainComponent(node)
   if (!component) {
     specError(`Verification failed for "${spec.key}": instance has no main component.`)
   }
@@ -6099,7 +6111,7 @@ async function verifyAppliedNode(
   let nativeFields = verifyNativeNodeState(spec, node, state)
   if (spec.component) {
     const expected = resolvedComponent(spec.component, state)
-    const actual = node.type === 'INSTANCE' ? await node.getMainComponentAsync() : null
+    const actual = node.type === 'INSTANCE' ? await getMainComponent(node) : null
     references += 1
     if (node.type !== 'INSTANCE' || !componentLinkMatches(spec, node, expected, actual, state)) {
       specError(`Verification failed for "${spec.key}": component link does not match.`)
