@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  getCurrentContextNodeById,
   getLocalStyles,
   getLocalVariableCollections,
   getLocalVariables,
+  getMainComponent,
   getNodeById,
   getStyleById,
   getVariableById,
@@ -13,6 +15,48 @@ import {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('local Figma resource reads', () => {
+  it('reads an attached node from the current context without using the async backend', () => {
+    const node = { id: '1:1', removed: false } as BaseNode
+    const getNodeByIdAsync = vi.fn()
+    vi.stubGlobal('figma', {
+      getNodeById: vi.fn(() => node),
+      getNodeByIdAsync
+    } as unknown as PluginAPI)
+
+    expect(getCurrentContextNodeById(node.id)).toBe(node)
+    expect(getNodeByIdAsync).not.toHaveBeenCalled()
+  })
+
+  it('returns no current-context node when the synchronous API is unavailable', () => {
+    vi.stubGlobal('figma', {
+      getNodeById: vi.fn(() => {
+        throw new Error('current context unavailable')
+      })
+    } as unknown as PluginAPI)
+
+    expect(getCurrentContextNodeById('1:1')).toBeNull()
+  })
+
+  it('uses an attached instance relationship without waiting for the async backend', async () => {
+    const component = { id: '1:1', removed: false } as ComponentNode
+    const getMainComponentAsync = vi.fn<InstanceNode['getMainComponentAsync']>()
+    const instance = { componentProperties: {}, getMainComponentAsync, mainComponent: component }
+
+    await expect(getMainComponent(instance as unknown as InstanceNode)).resolves.toBe(component)
+    expect(getMainComponentAsync).not.toHaveBeenCalled()
+  })
+
+  it('uses the asynchronous instance relationship when the current context cannot read it', async () => {
+    const component = { id: '1:1', removed: false } as ComponentNode
+    const getMainComponentAsync = vi
+      .fn<InstanceNode['getMainComponentAsync']>()
+      .mockResolvedValue(component)
+    const instance = { componentProperties: {}, getMainComponentAsync, mainComponent: null }
+
+    await expect(getMainComponent(instance as unknown as InstanceNode)).resolves.toBe(component)
+    expect(getMainComponentAsync).toHaveBeenCalledOnce()
+  })
+
   it('prefers the asynchronous Plugin API', async () => {
     const node = { id: '1:1' } as BaseNode
     const getNodeByIdAsync = vi.fn().mockResolvedValue(node)

@@ -25,13 +25,23 @@ function createNode(
   } as unknown as SceneNode & { exportAsync: ReturnType<typeof vi.fn> }
 }
 
+function createPngBytes(width: number, height: number, byteLength: number): Uint8Array {
+  const bytes = new Uint8Array(byteLength)
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12)
+  const view = new DataView(bytes.buffer)
+  view.setUint32(16, width)
+  view.setUint32(20, height)
+  return bytes
+}
+
 describe('mcp/tools/screenshot', () => {
   afterEach(() => {
     vi.clearAllMocks()
   })
 
   it('returns screenshot metadata when full scale fits size limit', async () => {
-    const bytes = new Uint8Array(1024)
+    const bytes = createPngBytes(216, 128, 1024)
     const node = createNode(new Map([[1, bytes]]))
     vi.mocked(ensureAssetUploaded).mockResolvedValue({
       hash: SCREENSHOT_HASH,
@@ -48,13 +58,13 @@ describe('mcp/tools/screenshot', () => {
       constraint: { type: 'SCALE', value: 1 }
     })
     expect(ensureAssetUploaded).toHaveBeenCalledWith(bytes, 'image/png', {
-      width: 200,
-      height: 100
+      width: 216,
+      height: 128
     })
     expect(result).toEqual({
       format: 'png',
-      width: 200,
-      height: 100,
+      width: 216,
+      height: 128,
       scale: 1,
       bytes: 1024,
       asset: {
@@ -68,7 +78,7 @@ describe('mcp/tools/screenshot', () => {
 
   it('falls back to lower scales until payload fits', async () => {
     const oversized = new Uint8Array(MCP_MAX_ASSET_BYTES + 1)
-    const fitting = new Uint8Array(2048)
+    const fitting = createPngBytes(162, 96, 2048)
     const node = createNode(
       new Map([
         [1, oversized],
@@ -93,13 +103,22 @@ describe('mcp/tools/screenshot', () => {
       constraint: { type: 'SCALE', value: 0.75 }
     })
     expect(ensureAssetUploaded).toHaveBeenCalledWith(fitting, 'image/png', {
-      width: 150,
-      height: 75
+      width: 162,
+      height: 96
     })
     expect(result.scale).toBe(0.75)
-    expect(result.width).toBe(150)
-    expect(result.height).toBe(75)
+    expect(result.width).toBe(162)
+    expect(result.height).toBe(96)
     expect(result.bytes).toBe(2048)
+  })
+
+  it('rejects invalid PNG bytes instead of reporting node bounds as image dimensions', async () => {
+    const node = createNode(new Map([[1, new Uint8Array(1024)]]))
+
+    await expect(handleGetScreenshot(node)).rejects.toThrow(
+      'Figma returned an invalid PNG screenshot.'
+    )
+    expect(ensureAssetUploaded).not.toHaveBeenCalled()
   })
 
   it('throws when all scale attempts exceed the asset upload limit', async () => {
