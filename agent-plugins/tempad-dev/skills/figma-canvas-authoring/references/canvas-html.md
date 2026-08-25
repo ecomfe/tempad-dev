@@ -203,8 +203,8 @@ Shared appearance:
 
 Text:
 
-- `font-sans|serif|mono` map to Figma-available Inter, Noto Serif, and Noto Sans
-  Mono
+- `font-sans|serif|mono` resolve to an editor-available family in that category,
+  preferring Inter, Noto Serif, and Noto Sans Mono
 - `font-thin|extralight|light|normal|medium|semibold|bold|extrabold|black`
 - `text-xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl` with their default line
   heights, `text-SIZE/N`, or `text-[Npx]`

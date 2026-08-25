@@ -183,6 +183,7 @@ type FigmaFixture = {
   importComponentByKeyAsync: ReturnType<typeof vi.fn>
   importShaderById: ReturnType<typeof vi.fn>
   importStyleByKeyAsync: ReturnType<typeof vi.fn>
+  listAvailableFontsAsync: ReturnType<typeof vi.fn>
   loadFontAsync: ReturnType<typeof vi.fn>
   nodes: Map<string, BaseNode>
   pages: Array<ReturnType<typeof createMockPage>>
@@ -1656,6 +1657,20 @@ function createFixture(): FigmaFixture {
   const createVideoAsync = vi.fn(async (bytes: Uint8Array) => ({
     hash: `video:${Array.from(bytes).join(',')}`
   }))
+  const listAvailableFontsAsync = vi
+    .fn()
+    .mockResolvedValue([
+      { fontName: { family: 'Inter', style: 'Regular' } },
+      { fontName: { family: 'Inter', style: 'Semi Bold' } },
+      { fontName: { family: 'Inter', style: 'Extra Bold' } },
+      { fontName: { family: 'Inter', style: 'Extra Light' } },
+      { fontName: { family: 'Noto Serif', style: 'Regular' } },
+      { fontName: { family: 'Noto Serif', style: 'SemiBold' } },
+      { fontName: { family: 'Noto Serif', style: 'ExtraBold' } },
+      { fontName: { family: 'Noto Sans Mono', style: 'Regular' } },
+      { fontName: { family: 'Noto Sans Mono', style: 'Medium' } },
+      { fontName: { family: 'Noto Sans Mono', style: 'ExtraLight' } }
+    ] satisfies Font[])
   const loadFontAsync = vi.fn().mockResolvedValue(undefined)
   const importComponentByKeyAsync = vi.fn().mockResolvedValue(component)
   const shaders = new Map<string, Shader>([
@@ -1917,6 +1932,7 @@ function createFixture(): FigmaFixture {
     importComponentByKeyAsync,
     importShaderById,
     importStyleByKeyAsync,
+    listAvailableFontsAsync,
     listAvailableShaders: vi.fn(() => Promise.resolve([...shaders.values()])),
     loadFontAsync,
     util: {
@@ -2037,6 +2053,7 @@ function createFixture(): FigmaFixture {
     importComponentByKeyAsync,
     importShaderById,
     importStyleByKeyAsync,
+    listAvailableFontsAsync,
     loadFontAsync,
     nodes,
     pages,
@@ -2282,6 +2299,28 @@ describe('mcp/tools/canvas', () => {
       markup: markup('font-mono')
     })
     expect(title.fontName).toEqual({ family: 'Noto Sans Mono', style: 'ExtraLight' })
+  })
+
+  it('resolves a portable family and closest weight from fonts available to the editor', async () => {
+    const fixture = createFixture()
+    fixture.listAvailableFontsAsync.mockResolvedValue([
+      { fontName: { family: 'Inter', style: 'Regular' } },
+      { fontName: { family: 'Roboto Mono', style: 'Regular' } },
+      { fontName: { family: 'Roboto Mono', style: 'Medium' } }
+    ] satisfies Font[])
+
+    const result = await applyCanvas({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="title" class="size-fit font-mono font-semibold">01:24:08</span></div>'
+    })
+    const title = fixture.getNode(result.nodeIdsByKey.title ?? '') as unknown as TextNode
+
+    expect(title.fontName).toEqual({ family: 'Roboto Mono', style: 'Medium' })
+    expect(fixture.loadFontAsync).toHaveBeenCalledWith({
+      family: 'Roboto Mono',
+      style: 'Medium'
+    })
   })
 
   it('does not apply Auto Layout sizing fields to freeform children', async () => {
@@ -11203,18 +11242,22 @@ describe('mcp/tools/canvas', () => {
   it('wraps Figma failures and reports when automatic rollback is unavailable', async () => {
     const fixture = createFixture()
     fixture.loadFontAsync.mockRejectedValueOnce(new Error('font unavailable'))
+    const nodeIdsBefore = new Set(fixture.nodes.keys())
 
     await expect(applyCanvas(createSpec())).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: expect.stringContaining('is unavailable in the current Figma context')
     })
-    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    expect(new Set(fixture.nodes.keys())).toEqual(nodeIdsBefore)
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
 
     vi.mocked(figma.util.solidPaint).mockImplementationOnce(() => {
       throw new Error('paint unavailable')
     })
+    const nodeIdsBeforePaintFailure = new Set(fixture.nodes.keys())
     await expect(applyCanvas(createSpec())).rejects.toThrow('paint unavailable')
-    expect(fixture.triggerUndo).toHaveBeenCalledTimes(2)
+    expect(new Set(fixture.nodes.keys())).toEqual(nodeIdsBeforePaintFailure)
+    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
 
     vi.mocked(figma.util.solidPaint).mockImplementationOnce(() => {
       throw new Error('paint unavailable')
