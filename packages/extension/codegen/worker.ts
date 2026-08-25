@@ -130,7 +130,7 @@ function generateCodegenPayload(
     ...Object.keys(rest)
       .map((name) => {
         const extraOptions = rest[name]
-        if (extraOptions === false) {
+        if (!extraOptions) {
           return null
         }
 

@@ -29,6 +29,13 @@ const tokens = {
   '--text-mono-medium-line-height': '16px'
 } as const
 
+const SKILLS_SOURCE_URL =
+  'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev/skills'
+const DESIGN_TO_CODE_SKILL_URL = `${SKILLS_SOURCE_URL}/figma-design-to-code`
+const CANVAS_AUTHORING_SKILL_URL = `${SKILLS_SOURCE_URL}/figma-canvas-authoring`
+const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill figma-design-to-code figma-canvas-authoring`
+const PLUGIN_INSTALL_COMMAND = 'npx plugins add ecomfe/tempad-dev'
+
 function mountDialog(): HTMLElement {
   return mount(
     defineComponent(
@@ -55,16 +62,20 @@ describe('AgentSetupDialog', () => {
 
     expect(host.querySelector('[role="dialog"]')).not.toBeNull()
     expect(host.querySelector('[role="tablist"] svg')).toBeNull()
+    expect(host.querySelector('.tp-agent-dialog-nav')?.hasAttribute('data-overlayscrollbars')).toBe(
+      true
+    )
+    expect(
+      host.querySelector('.tp-agent-dialog-content')?.hasAttribute('data-overlayscrollbars')
+    ).toBe(true)
     expect(host.querySelector('.tp-agent-dialog-brand svg title')?.textContent).toBe('Codex')
     expect(host.querySelector('.tp-agent-dialog-brand')?.getBoundingClientRect()).toMatchObject({
       width: 32,
       height: 32
     })
-    expect(host.textContent).toContain('TemPad Dev plugin')
+    expect(host.textContent).toContain('Portable Agent Plugin')
     expect(host.textContent).toContain('Continue in Codex')
-    expect(getCode(host)).toContain(
-      'codex plugin marketplace add ecomfe/tempad-dev --ref main && codex plugin add tempad-dev@tempad-dev'
-    )
+    expect(getCode(host)).toContain(`${PLUGIN_INSTALL_COMMAND} --target codex`)
     expect(host.querySelector('[aria-label="Copy command"]')).not.toBeNull()
 
     const codeWell = host.querySelector<HTMLElement>('.tp-agent-dialog-code-well')
@@ -105,19 +116,25 @@ describe('AgentSetupDialog', () => {
     expect(getComputedStyle(manualNote!).paddingTop).toBe('16px')
   })
 
-  it('shows Cursor one-click setup with explicit manual fallbacks', async () => {
+  it('uses the portable plugin for Cursor', async () => {
     const host = mountDialog()
 
     await page.getByRole('tab', { name: 'Cursor' }).click()
 
     expect(host.querySelector('.tp-agent-dialog-brand svg title')?.textContent).toBe('Cursor')
-    expect(host.textContent).toContain('Install in Cursor')
-    expect(getCode(host)).toEqual([
-      expect.stringContaining('"mcpServers"'),
-      'npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill --global --agent cursor'
-    ])
-    expect(host.querySelectorAll('[aria-label="Copy configuration"]')).toHaveLength(1)
+    expect(host.textContent).toContain('Run in your terminal:')
+    expect(host.textContent).toContain('one Agent Plugins package')
+    expect(getCode(host)).toEqual([`${PLUGIN_INSTALL_COMMAND} --target cursor`])
+    expect(host.querySelectorAll('[aria-label="Copy configuration"]')).toHaveLength(0)
     expect(host.querySelectorAll('[aria-label="Copy command"]')).toHaveLength(1)
+  })
+
+  it('uses the portable plugin for VS Code', async () => {
+    const host = mountDialog()
+
+    await page.getByRole('tab', { name: 'VS Code' }).click()
+
+    expect(getCode(host)).toEqual([`${PLUGIN_INSTALL_COMMAND} --target vscode`])
   })
 
   it('uses Gemini native commands for both setup steps', async () => {
@@ -127,8 +144,10 @@ describe('AgentSetupDialog', () => {
 
     expect(getCode(host)).toEqual([
       'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest',
-      'gemini skills install https://github.com/ecomfe/tempad-dev/tree/main/skill'
+      `gemini skills install ${DESIGN_TO_CODE_SKILL_URL}`,
+      `gemini skills install ${CANVAS_AUTHORING_SKILL_URL}`
     ])
+    expect(host.textContent).toContain('Then run in your terminal:')
   })
 
   it('uses OpenCode-specific MCP config and skill install targets', async () => {
@@ -145,9 +164,7 @@ describe('AgentSetupDialog', () => {
         }
       }
     })
-    expect(getCode(host)[1]).toBe(
-      'npx skills add https://github.com/ecomfe/tempad-dev/tree/main/skill --global --agent opencode'
-    )
+    expect(getCode(host)[1]).toBe(`${SKILLS_INSTALL_COMMAND} --global --agent opencode`)
   })
 
   it('presents manual setup as the fallback for other agents', async () => {
@@ -157,5 +174,6 @@ describe('AgentSetupDialog', () => {
 
     await expect.element(page.getByRole('heading', { name: 'Manual setup' })).toBeVisible()
     expect(host.querySelector('.tp-agent-dialog-brand')).toBeNull()
+    expect(getCode(host)[1]).toBe(SKILLS_INSTALL_COMMAND)
   })
 })

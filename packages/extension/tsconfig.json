@@ -1,6 +1,7 @@
 {
   "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
     "typeRoots": ["./node_modules/@types", "./node_modules/@figma"]
   }
 }

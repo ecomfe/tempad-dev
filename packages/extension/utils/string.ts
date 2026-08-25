@@ -28,7 +28,7 @@ const ESCAPE_MAP: Record<string, string> = {
 const ESCAPE_RE = /[&<>"]/g
 
 export function escapeHTML(str: string) {
-  return str.replace(ESCAPE_RE, (match) => ESCAPE_MAP[match])
+  return str.replace(ESCAPE_RE, (match) => ESCAPE_MAP[match] ?? match)
 }
 
 export function looseEscapeHTML(str: string) {

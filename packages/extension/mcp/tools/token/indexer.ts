@@ -1,5 +1,6 @@
 import type { CodegenConfig } from '@/utils/codegen'
 
+import { getLocalVariables } from '@/mcp/local-resources'
 import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
 import { workerUnitOptions } from '@/utils/codegen'
 import { canonicalizeVarName as canonicalizeCssVarName, normalizeFigmaVarName } from '@/utils/css'
@@ -87,9 +88,8 @@ export async function canonicalizeNames(
     results.push(...transformed)
   }
 
-  return results.map((expr, idx) => {
-    const fallback = refs[idx]
-    return parseCanonicalFromExpr(expr ?? fallback.code, fallback.name)
+  return refs.map((fallback, idx) => {
+    return parseCanonicalFromExpr(results[idx] ?? fallback.code, fallback.name)
   })
 }
 
@@ -112,7 +112,7 @@ export async function getTokenIndex(
   }
 
   const promise = (async (): Promise<TokenIndex> => {
-    const variables = await figma.variables.getLocalVariablesAsync()
+    const variables = await getLocalVariables()
 
     const byCanonicalName = new Map<string, string[]>()
     const canonicalNameById = new Map<string, string>()
@@ -123,8 +123,7 @@ export async function getTokenIndex(
       pluginCode
     )
 
-    for (let i = 0; i < variables.length; i++) {
-      const variable = variables[i]
+    for (const [i, variable] of variables.entries()) {
       const fallbackRaw = getVariableRawName(variable)
       const canonical = canonicals[i] ?? normalizeFigmaVarName(fallbackRaw)
 

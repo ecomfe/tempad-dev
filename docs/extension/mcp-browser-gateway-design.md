@@ -21,17 +21,24 @@ use a separate narrow runtime message validated by the background worker.
 2. The content bridge opens a named runtime port and registers the page session with the broker.
 3. The broker starts one WebSocket client for all Figma tabs in the extension context.
 4. The client probes the known ports, then accepts a candidate only after receiving both
-   `registered` and `state` messages from the hub. The advertised asset URL must use an explicit
-   loopback IPv4 port and cannot contain credentials, a query, or a fragment.
+   `registered` and `state` messages from the hub. Registration carries an exact `protocolVersion`;
+   a mismatched server is rejected with an upgrade-together error. The advertised asset URL must use
+   an explicit loopback IPv4 port and cannot contain credentials, a query, or a fragment.
 5. Every later `state` message is validated by the same rule and must keep the handshake's exact
    asset endpoint. Malformed traffic, a second registration, or an endpoint change closes that
    socket and resumes the existing reconnect loop.
 6. A 20-second ping keeps the Manifest V3 service worker alive. A disconnected content port or
    WebSocket reconnects while its session remains enabled.
 
+The bridge protocol version covers the shared tool contract as well as transport messages. Bump it
+whenever a Hub and extension built from different revisions must not exchange tool calls.
+
 The hub chooses the active browser connection. Inside that connection, the broker chooses the
-active Figma session. A sole session is selected automatically; switching sessions is explicit.
-Broker activation is sent to the hub only from that explicit user action. Pending tool results are
+active Figma session. A sole session is selected automatically. More than one session requires an
+explicit choice: registering another Figma tab clears the previous choice, and a newly connected
+Hub clears an ambiguous choice inherited from its predecessor. Foregrounding a tab does not route
+MCP calls; clicking its badge does. Broker activation is sent to the hub only from that explicit
+user action. Pending tool results are
 bound to the extension connection that received the request, so a second connection cannot satisfy
 or reject another connection's request by guessing its id. While an extension connection is active,
 the hub accepts replacement activation only from the same extension Origin. Normal reconnects and
@@ -40,11 +47,13 @@ a differently identified extension cannot take over the established route.
 
 ## Assets
 
-The page computes asset hashes and descriptors, then sends at most `MCP_MAX_ASSET_BYTES` through the
-bridge. The service worker decodes the payload and uploads it to the hub's loopback asset server.
-The page never fetches the loopback server directly. The asset URL contains a random capability
-path generated for the hub process; the server also enforces per-asset, aggregate-store, concurrent
-upload, header, and request-time limits. It does not emit wildcard CORS.
+For outbound assets, the page computes hashes and descriptors and sends at most
+`MCP_MAX_ASSET_BYTES` through the bridge; the service worker decodes and uploads the bytes to the
+hub. For inbound canvas assets, the page sends only the hash; the service worker downloads a bounded
+body, verifies its digest, and returns the bytes through the same validated bridge. The page never
+fetches the loopback server directly. The asset URL contains a random capability path generated for
+the hub process; the server also enforces per-asset, aggregate-store, concurrent upload, header, and
+request-time limits. It does not emit wildcard CORS.
 
 ## Trust boundary
 

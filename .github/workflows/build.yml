@@ -33,6 +33,14 @@ jobs:
       - name: Install browser runtime
         run: pnpm --filter @tempad-dev/extension test:setup
 
+      - name: Check agent plugin
+        run: >-
+          pnpm agent-plugin:dev &&
+          test -z "$(git status --porcelain --untracked-files=all --
+          agent-plugins/tempad-dev
+          .agents/plugins/marketplace.json
+          .claude-plugin/marketplace.json)"
+
       - name: Type check
         run: pnpm typecheck
 

@@ -32,16 +32,51 @@ Provide a single entry point for coding agents. This file links to package-level
 - Test (watch): `pnpm test`
 - Test (run): `pnpm test:run`
 - Test (coverage): `pnpm test:coverage`
+- Generate the local agent plugin: `pnpm agent-plugin:dev`
 - Extension node tests: `pnpm --filter @tempad-dev/extension test:node`
 - Extension browser tests: `pnpm --filter @tempad-dev/extension test:browser`
 - Extension browser setup: `pnpm --filter @tempad-dev/extension test:setup`
+
+## Agent plugin workflow
+
+- Before running or reviewing an end-to-end Figma authoring agent test, read
+  `docs/testing/agent-authoring-evaluation.md` and follow its runtime identity,
+  clean-task, evidence-review, and fix-placement rules.
+- `agent-plugins/tempad-dev/` is the tracked release source shared by Codex and Claude. The agent
+  plugin is distributed through the Git marketplace, not npm.
+- `.dev/plugins/tempad-dev-dev/` is the ignored local build. Generate it with
+  `pnpm agent-plugin:dev`; do not edit generated files under `.dev/`.
+- Run `pnpm agent-plugin:dev` after every change that affects the generated `tempad-dev-dev`
+  contents, including the shared skill, agent-plugin manifests, icons, or marketplace metadata.
+  Ordinary `pnpm build` must not modify agent-plugin artifacts.
+- Before asking the user to test a changed development plugin, reinstall the generated cachebuster
+  through the active Desktop host and use a new task. Use the no-restart reinstall path when the
+  host CDP endpoint and plugin runtime are healthy; a skill, manifest, icon, or marketplace change
+  does not itself require restarting Codex. Reserve `--restart-codex` for unavailable CDP, stale or
+  partial host/runtime state, or recovery after the ordinary replacement cannot complete. An
+  external `codex plugin add` call updates the installation on disk, but alone does not prove that
+  a running Desktop host refreshed its plugin cache.
+- `pnpm dev` watches the extension, shared package, and MCP server. The generated development
+  plugin points directly at the current checkout's MCP build, so MCP-only changes require a new
+  agent task or plugin reload, not an agent-plugin rebuild or reinstall.
+- After an extension-side rebuild, refresh the target Figma tab before testing. An open tab can keep
+  its previous page-context runtime even when WXT has emitted the new bundle; reinstalling the Codex
+  agent plugin does not reload that browser runtime. Verify that MCP reconnects before the test.
+- Keep Codex and Claude support equivalent. Both development manifests must launch the same
+  working-tree MCP runtime.
+- Release MCP configuration must use `@tempad-dev/mcp@latest`, never an alpha tag, fixed version,
+  or local path.
+- See `agent-plugins/tempad-dev/README.md` for the Codex and Claude installation commands.
 
 ## Doc index
 
 - `TESTING.md`
 - `docs/testing/architecture.md`
+- `docs/testing/agent-authoring-evaluation.md`
 - `docs/extension/mcp-get-code-requirements.md`
 - `docs/extension/mcp-get-code-design.md`
+- `docs/extension/mcp-canvas-authoring-design.md`
+- `docs/extension/mcp-canvas-assets-design.md`
 - `docs/extension/mcp-browser-gateway-design.md`
 - `docs/marketing-screenshots.md`
 
@@ -115,7 +150,8 @@ Pick the checks that match your change.
 
 - Testing runbook and required checks: `TESTING.md`.
 - Testing architecture and coverage model: `docs/testing/architecture.md`.
-- Root coverage scope is configured in `vitest.config.ts` as the single source of truth.
+- Root coverage composition is configured in `vitest.config.ts`; shared thresholds and the extension
+  node source list live in `vitest.coverage.ts`.
 - Root coverage excludes build artifacts (`**/dist/**`, `**/.output/**`) to avoid polluted reports.
 - Root coverage provider is `istanbul` to avoid V8 remap parse failures under Vite 8 dependency trees.
 - Extension browser tests run in Playwright via `packages/extension/vitest.browser.config.ts`.

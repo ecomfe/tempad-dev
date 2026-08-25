@@ -5,7 +5,9 @@ const mocks = vi.hoisted(() => ({
   selection: {
     value: [] as Array<{ visible: boolean }>
   },
+  runApplyCanvas: vi.fn(),
   runGetCode: vi.fn(),
+  runGetDesignSystem: vi.fn(),
   runGetScreenshot: vi.fn(),
   runGetStructure: vi.fn(),
   runGetTokenDefs: vi.fn()
@@ -17,6 +19,14 @@ vi.mock('@/ui/state', () => ({
 
 vi.mock('@/mcp/tools/code', () => ({
   handleGetCode: mocks.runGetCode
+}))
+
+vi.mock('@/mcp/tools/canvas', () => ({
+  handleApplyCanvas: mocks.runApplyCanvas
+}))
+
+vi.mock('@/mcp/tools/design-system', () => ({
+  handleGetDesignSystem: mocks.runGetDesignSystem
 }))
 
 vi.mock('@/mcp/tools/screenshot', () => ({
@@ -62,12 +72,16 @@ describe('mcp/runtime', () => {
     setFigmaGetNodeById(null)
     const runtime = await importRuntime()
 
-    expect(Object.keys(runtime.MCP_TOOL_HANDLERS)).toEqual([
-      'get_code',
-      'get_token_defs',
-      'get_screenshot',
-      'get_structure'
-    ])
+    expect(new Set(Object.keys(runtime.MCP_TOOL_HANDLERS))).toEqual(
+      new Set([
+        'apply_canvas',
+        'get_code',
+        'get_design_system',
+        'get_token_defs',
+        'get_screenshot',
+        'get_structure'
+      ])
+    )
     expect(typeof (globalThis as { window?: unknown }).window).toBe('undefined')
   }, 15000)
 
@@ -79,11 +93,7 @@ describe('mcp/runtime', () => {
     const runtime = await importRuntime()
     const tools = (window as Window & { tempadTools: Record<string, unknown> }).tempadTools
 
-    expect(tools.existing).toBe(existing)
-    expect(tools.get_code).toBe(runtime.WINDOW_TEMPAD_TOOL_HANDLERS.get_code)
-    expect(tools.get_token_defs).toBe(runtime.MCP_TOOL_HANDLERS.get_token_defs)
-    expect(tools.get_screenshot).toBe(runtime.MCP_TOOL_HANDLERS.get_screenshot)
-    expect(tools.get_structure).toBe(runtime.MCP_TOOL_HANDLERS.get_structure)
+    expect(tools).toEqual({ existing, ...runtime.WINDOW_TEMPAD_TOOL_HANDLERS })
   }, 15000)
 
   it('initializes window.tempadTools when window exists without existing tools', async () => {
@@ -93,10 +103,7 @@ describe('mcp/runtime', () => {
     const runtime = await importRuntime()
     const tools = (window as Window & { tempadTools: Record<string, unknown> }).tempadTools
 
-    expect(tools.get_code).toBe(runtime.WINDOW_TEMPAD_TOOL_HANDLERS.get_code)
-    expect(tools.get_token_defs).toBe(runtime.MCP_TOOL_HANDLERS.get_token_defs)
-    expect(tools.get_screenshot).toBe(runtime.MCP_TOOL_HANDLERS.get_screenshot)
-    expect(tools.get_structure).toBe(runtime.MCP_TOOL_HANDLERS.get_structure)
+    expect(tools).toEqual(runtime.WINDOW_TEMPAD_TOOL_HANDLERS)
   })
 
   it('routes get_code to tool implementation with resolved node and options', async () => {
@@ -131,14 +138,17 @@ describe('mcp/runtime', () => {
     expect(result).toEqual({ blocks: [] })
   })
 
-  it('rejects unknown bridge tool names at the runtime boundary', async () => {
-    setFigmaGetNodeById(null)
-    const runtime = await importRuntime()
+  it.each(['missing', 'toString'])(
+    'rejects unknown bridge tool name "%s" at the runtime boundary',
+    async (name) => {
+      setFigmaGetNodeById(null)
+      const runtime = await importRuntime()
 
-    await expect(runtime.runMcpTool('missing', {})).rejects.toThrow(
-      'No handler registered for tool "missing".'
-    )
-  })
+      await expect(runtime.runMcpTool(name, {})).rejects.toThrow(
+        `No handler registered for tool "${name}".`
+      )
+    }
+  )
 
   it('routes window get_code debug overrides only through tempadTools exposure', async () => {
     const node = createSceneNode('node-1')
@@ -165,12 +175,25 @@ describe('mcp/runtime', () => {
     })
   })
 
-  it('throws coded error when provided nodeId does not resolve to a visible scene node', async () => {
+  it('distinguishes missing, unsupported, and hidden node ids', async () => {
     setFigmaGetNodeById(null)
     const runtime = await importRuntime()
 
     await expect(runtime.MCP_TOOL_HANDLERS.get_code({ nodeId: 'missing' })).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE
+      code: TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+      message: expect.stringContaining('does not exist')
+    })
+
+    setFigmaGetNodeById({ id: 'document', type: 'DOCUMENT' } as unknown as BaseNode)
+    await expect(runtime.MCP_TOOL_HANDLERS.get_code({ nodeId: 'document' })).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+      message: expect.stringContaining('not a supported scene node')
+    })
+
+    setFigmaGetNodeById(createSceneNode('hidden', false))
+    await expect(runtime.MCP_TOOL_HANDLERS.get_code({ nodeId: 'hidden' })).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+      message: expect.stringContaining('is hidden')
     })
   })
 
@@ -243,10 +266,13 @@ describe('mcp/runtime', () => {
     await runtime.MCP_TOOL_HANDLERS.get_screenshot({ nodeId: 'node-2' })
     expect(mocks.runGetScreenshot).toHaveBeenCalledWith(node)
 
-    await runtime.MCP_TOOL_HANDLERS.get_structure({ nodeId: 'node-2', options: { depth: 3 } })
-    expect(mocks.runGetStructure).toHaveBeenCalledWith([node], 3)
+    await runtime.MCP_TOOL_HANDLERS.get_structure({
+      nodeId: 'node-2',
+      options: { depth: 3, native: true }
+    })
+    expect(mocks.runGetStructure).toHaveBeenCalledWith([node], 3, true)
 
     await runtime.MCP_TOOL_HANDLERS.get_structure()
-    expect(mocks.runGetStructure).toHaveBeenLastCalledWith([node], undefined)
+    expect(mocks.runGetStructure).toHaveBeenLastCalledWith([node], undefined, undefined)
   })
 })

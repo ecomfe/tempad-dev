@@ -2,15 +2,12 @@
  * Gradient and color utilities for Figma styles
  */
 
+import { isRenderablePaint, isVisiblePaint } from '@/utils/figma-paint'
 import { getVariableCssName } from '@/utils/figma-variables'
 
 import type { FigmaLookupReaders, PaintList, PaintResolutionSize } from './types'
 
 import { formatHexAlpha } from '../css'
-
-function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {
-  return !!paint && paint.visible !== false
-}
 
 type ResolvedBackgroundFill = { kind: 'color'; value: string } | { kind: 'layers'; value: string[] }
 
@@ -54,16 +51,6 @@ type GradientStopColorFormatter = (
 
 function hasGradientHandlePositions(paint: GradientPaint): paint is GradientPaintWithHandles {
   return 'gradientHandlePositions' in paint && Array.isArray(paint.gradientHandlePositions)
-}
-
-function isRenderableBackgroundPaint(paint: Paint | null | undefined): paint is Paint {
-  if (!paint || paint.visible === false) return false
-  if (typeof paint.opacity === 'number' && paint.opacity <= 0) return false
-  if (isGradientPaint(paint)) {
-    const fillOpacity = typeof paint.opacity === 'number' ? paint.opacity : 1
-    return paint.gradientStops.some((stop) => (stop.color?.a ?? 1) * fillOpacity > 0)
-  }
-  return true
 }
 
 /**
@@ -168,7 +155,7 @@ export function resolveBackgroundFillFromPaints(
 
   const visible = paints
     .map((paint, index) => ({ paint, index }))
-    .filter(({ paint }) => isRenderableBackgroundPaint(paint))
+    .filter(({ paint }) => isRenderablePaint(paint))
   if (!visible.length) return null
   if (visible.some(({ paint }) => !isSolidPaint(paint) && !isGradientPaint(paint))) {
     return null
@@ -178,7 +165,9 @@ export function resolveBackgroundFillFromPaints(
   const resolveSolid = options.resolveSolidPaint ?? resolveSolidPaint
 
   if (visible.length === 1) {
-    const { paint: single, index } = visible[0]
+    const [entry] = visible
+    if (!entry) return null
+    const { paint: single, index } = entry
     if (isSolidPaint(single)) {
       const color = resolveSolid(single, readers, index)
       return color ? { kind: 'color', value: color } : null

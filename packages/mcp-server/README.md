@@ -20,12 +20,31 @@ For agent-specific setup, open TemPad Dev's **Preferences → Agent integration 
 Supported tools/resources:
 
 - `get_code`: Tailwind-first JSX/Vue markup plus assets and token references.
-- `get_structure`: Hierarchy/geometry outline for the selection.
+- `get_design_system`: An immutable, deterministic catalog. It returns compact pages of component
+  definitions on accessible pages plus local or directly referenced variable, collection/mode,
+  style, and shader definitions without inspecting canvas usage. Cursor continuation exposes
+  omitted definitions; exact-ref lookup returns one bounded definition.
+- `apply_canvas`: One restricted HTML + deterministic Tailwind utility desired result using primitives, catalog
+  component tags, short design-system refs, typed Figma-only state, sanitized SVG, and
+  content-addressed images. The extension resolves, validates, diffs, applies, and structurally
+  verifies the result.
+- `upload_asset`: A bounded Hub-only bridge from a programmatically composed generated PNG/JPEG/GIF
+  data URL to a content-addressed `assetHash` for `apply_canvas`; encoded bytes are never returned.
+- `get_screenshot`: A bounded rendered PNG for selective visual validation.
+- `get_structure`: Hierarchy/geometry outline for the selection, including stable authoring keys on
+  TemPad-managed nodes and optional native mask, IMAGE paint, layout-grid, and frame-guide read-back.
 
 Notes:
 
 - Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
-- Assets are ephemeral and tool-linked; image/SVG bytes are downloaded via the capability-bearing HTTP `asset.url` from tool results. Treat the full URL as a temporary secret and do not persist it in logs.
+- `apply_canvas` is available whenever MCP access is enabled and the current Figma Design file is
+  editable. Dev Mode and view-only files remain read-only.
+- Assets are ephemeral and tool-linked. Local stdio clients receive `asset.localPath` when the Hub
+  has the bytes and can open it without a loopback download; other clients use the
+  capability-bearing HTTP `asset.url`. Treat the full URL as a temporary secret and do not persist
+  it in logs.
+- Canvas authoring may refer to content already in the local asset store by its full SHA-256 digest;
+  bytes stay inside the extension bridge and never enter the tool payload.
 - Asset resources are not exposed via MCP `resources/list`/`resources/read`.
 - The HTTP fallback URL uses `/{capability}/assets/{hash}` and may include an image extension (for example `/{capability}/assets/{hash}.png`). Both filename forms are accepted.
 
@@ -33,7 +52,9 @@ Notes:
 
 Optional environment variables:
 
-- `TEMPAD_MCP_TOOL_TIMEOUT`: Tool call timeout in milliseconds (default `15000`).
+- `TEMPAD_MCP_TOOL_TIMEOUT`: General tool call timeout in milliseconds (default `15000`).
+- `TEMPAD_MCP_GET_CODE_TIMEOUT`: `get_code` timeout in milliseconds (default `30000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set).
+- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`: `apply_canvas` slow-call warning threshold in milliseconds (default `120000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set). After the threshold, the Hub keeps waiting for a definitive result or extension disconnect so a completed mutation is never reported as a timeout.
 - `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`: Delay before auto-activating the sole connected extension (default `1500`).
 - `TEMPAD_MCP_MAX_ASSET_BYTES`: Maximum upload size for captured assets/screenshots in bytes (default `8388608`).
 - `TEMPAD_MCP_MAX_ASSET_STORE_BYTES`: Maximum aggregate size of the local asset store in bytes (default `268435456`).

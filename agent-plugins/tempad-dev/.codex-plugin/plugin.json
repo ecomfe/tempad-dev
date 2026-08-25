@@ -1,29 +1,47 @@
 {
   "name": "tempad-dev",
-  "version": "0.1.1",
-  "description": "Use the TemPad Dev agent integration to turn selected Figma nodes into repo-ready UI code.",
+  "version": "0.1.2",
+  "description": "Use TemPad Dev to turn Figma evidence into UI code and create native Figma designs.",
   "author": {
     "name": "TemPad Dev"
   },
   "homepage": "https://github.com/ecomfe/tempad-dev#agent-integration",
   "repository": "https://github.com/ecomfe/tempad-dev",
   "license": "MIT",
-  "keywords": ["figma", "mcp", "skill", "agent-integration", "design-to-code", "frontend"],
+  "keywords": [
+    "figma",
+    "mcp",
+    "skill",
+    "agent-integration",
+    "design-to-code",
+    "canvas-authoring",
+    "design-system",
+    "frontend"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "TemPad Dev",
-    "shortDescription": "Use Figma selections as agent-ready design evidence.",
-    "longDescription": "TemPad Dev packages the figma-design-to-code agent skill with MCP server configuration so coding agents can inspect selected Figma nodes and implement project-consistent UI code.",
+    "shortDescription": "Read Figma evidence and author native canvas content.",
+    "longDescription": "TemPad Dev packages skills for implementing Figma designs in code and authoring native Figma content with optional accessible design-system resources, together with its MCP server configuration.",
     "developerName": "TemPad Dev",
     "category": "Design",
-    "capabilities": ["Agent integration", "MCP", "Design-to-code", "Frontend"],
+    "capabilities": [
+      "Agent integration",
+      "MCP",
+      "Design-to-code",
+      "Canvas authoring",
+      "Design systems",
+      "Frontend"
+    ],
     "websiteURL": "https://github.com/ecomfe/tempad-dev",
     "defaultPrompt": [
       "Use TemPad Dev to implement the selected Figma node.",
-      "Convert this Figma selection into repo-ready UI code.",
-      "Inspect the selected Figma node with TemPad Dev."
+      "Inspect the selected Figma node with TemPad Dev.",
+      "Create a native Figma design while following my resource constraints."
     ],
-    "brandColor": "#0098FF"
+    "brandColor": "#0098FF",
+    "composerIcon": "./assets/icon-padded.svg",
+    "logo": "./assets/icon-padded.svg"
   },
   "mcpServers": "./.mcp.json"
 }

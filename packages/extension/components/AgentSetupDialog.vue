@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, useTemplateRef } from 'vue'
 
 import type {
   AgentIntegrationAction,
@@ -13,11 +13,11 @@ import IconButton from '@/components/IconButton.vue'
 import BrandIcon from '@/components/icons/brands/BrandIcon.vue'
 import Copy from '@/components/icons/Copy.vue'
 import ExternalLink from '@/components/icons/ExternalLink.vue'
-import { useCopy, useDeepLinkGuard } from '@/composables'
+import { useCopy, useDeepLinkGuard, useScrollbar } from '@/composables'
 import {
   AGENT_INTEGRATIONS,
   AGENT_INTEGRATIONS_BY_ID,
-  AGENT_SKILL_INSTALL_COMMAND,
+  AGENT_SKILLS_INSTALL_COMMAND,
   MCP_SERVERS_CONFIG_SNIPPET
 } from '@/mcp/config'
 
@@ -33,6 +33,22 @@ type SetupStep = {
 }
 
 const open = defineModel<boolean>({ default: false })
+const nav = useTemplateRef('nav')
+const content = useTemplateRef('content')
+
+const scrollbarOptions = {
+  overflow: {
+    x: 'hidden' as const
+  },
+  scrollbars: {
+    autoHide: 'leave' as const,
+    autoHideDelay: 0,
+    clickScroll: true
+  }
+}
+
+useScrollbar(nav, scrollbarOptions)
+useScrollbar(content, scrollbarOptions)
 
 const actionGroups: Record<AgentIntegrationAction['id'], ActionGroupId> = {
   'plugin-prompt': 'plugin',
@@ -40,13 +56,15 @@ const actionGroups: Record<AgentIntegrationAction['id'], ActionGroupId> = {
   'mcp-deep-link': 'mcp',
   'mcp-cli': 'mcp',
   'mcp-config': 'mcp',
-  'skill-cli': 'skill'
+  'skill-cli': 'skill',
+  'skill-design-to-code-cli': 'skill',
+  'skill-canvas-authoring-cli': 'skill'
 }
 
 const groupLabels: Record<ActionGroupId, string> = {
-  plugin: 'TemPad Dev plugin',
+  plugin: 'Portable Agent Plugin',
   mcp: 'MCP server',
-  skill: 'Design skill'
+  skill: 'Agent skills'
 }
 
 const otherSetup = {
@@ -61,9 +79,9 @@ const otherSetup = {
     },
     {
       id: 'skill-cli',
-      label: 'Agent skill',
+      label: 'Agent skills',
       kind: 'command',
-      value: AGENT_SKILL_INSTALL_COMMAND
+      value: AGENT_SKILLS_INSTALL_COMMAND
     }
   ]
 } satisfies SetupTarget
@@ -105,10 +123,12 @@ function selectManualSetup(): void {
 }
 
 function getStepDescription(id: ActionGroupId): string {
-  if (id === 'plugin') return 'Adds the MCP server and design skill together.'
-  if (id === 'skill') return 'Adds the repo-aware workflow for implementing selected designs.'
-  if (selectedSetup.value.id === 'other') return 'Adds the local TemPad Dev server.'
-  return `Lets ${selectedSetup.value.name} access the Figma file open in this browser.`
+  if (id === 'plugin')
+    return 'Installs one Agent Plugins package with MCP access and both design workflows.'
+  if (id === 'skill')
+    return 'Adds workflows for implementing designs in code and authoring native Figma designs.'
+  const agent = selectedSetup.value.id === 'other' ? 'your agent' : selectedSetup.value.name
+  return `Lets ${agent} inspect the open Figma file and author native designs when it is editable.`
 }
 
 function selectAdjacentTarget(direction: -1 | 1): void {
@@ -141,6 +161,7 @@ function getActionLabel(action: AgentIntegrationAction): string {
 
 function getCopyHint(action: AgentIntegrationAction, index: number): string {
   if (index > 0) {
+    if (action.id === 'skill-canvas-authoring-cli') return 'Then run in your terminal:'
     return action.kind === 'config' ? 'Or configure manually:' : 'Or run in your terminal:'
   }
 
@@ -156,6 +177,7 @@ function getCopyTitle(action: AgentIntegrationAction): string {
   <Dialog v-model="open" title="Set up agents">
     <div class="tp-agent-dialog-layout">
       <nav
+        ref="nav"
         class="tp-agent-dialog-nav"
         role="tablist"
         aria-label="Setup target"
@@ -186,6 +208,7 @@ function getCopyTitle(action: AgentIntegrationAction): string {
 
       <div
         id="tp-agent-setup-panel"
+        ref="content"
         class="tp-agent-dialog-content"
         role="tabpanel"
         :aria-labelledby="`tp-agent-tab-${selectedSetup.id}`"
@@ -197,11 +220,13 @@ function getCopyTitle(action: AgentIntegrationAction): string {
             </span>
             <h2>{{ selectedSetup.name }}</h2>
           </div>
-          <p v-if="pluginStep">Install the plugin to add both MCP access and the design skill.</p>
-          <p v-else-if="selectedSetup.id === 'other'">
-            Use the same two parts with any compatible agent.
+          <p v-if="pluginStep">
+            Install the open-standard plugin to add MCP access and both agent skills.
           </p>
-          <p v-else>Connect the MCP server, then add the design skill.</p>
+          <p v-else-if="selectedSetup.id === 'other'">
+            Set up MCP access and both agent skills with any compatible agent.
+          </p>
+          <p v-else>Connect the MCP server, then add both agent skills.</p>
         </div>
 
         <section class="tp-agent-dialog-plan">
@@ -254,7 +279,7 @@ function getCopyTitle(action: AgentIntegrationAction): string {
           </ol>
 
           <p v-if="pluginStep" class="tp-agent-dialog-manual-note">
-            Prefer a direct MCP setup? Use
+            Setting up an agent without plugin support? Use
             <button type="button" @click="selectManualSetup">Manual setup</button>.
           </p>
         </section>
@@ -275,6 +300,7 @@ function getCopyTitle(action: AgentIntegrationAction): string {
 }
 
 .tp-agent-dialog-nav {
+  min-height: 0;
   padding: var(--spacer-1) 0;
   border-right: 1px solid var(--color-border);
   overflow-y: auto;
@@ -306,6 +332,7 @@ function getCopyTitle(action: AgentIntegrationAction): string {
 
 .tp-agent-dialog-content {
   min-width: 0;
+  min-height: 0;
   padding: var(--spacer-3);
   overflow-y: auto;
 }

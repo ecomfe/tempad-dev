@@ -1,6 +1,7 @@
 import type { ToolCallMessage } from '@tempad-dev/shared'
 
 import {
+  MCP_MAX_ASSET_BYTES,
   TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
   TEMPAD_MCP_BROWSER_SOURCE,
   TEMPAD_MCP_ERROR_CODES,
@@ -18,8 +19,11 @@ import {
   MCP_LOCAL_HOST_ORIGIN
 } from '@/mcp/permissions'
 
+const ASSET_HASH = '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81'
+
 type Listener<T> = (payload: T) => void
 type BrokerInternals = {
+  handleHubSnapshot: (snapshot: ReturnType<McpBrokerHubClient['getSnapshot']>) => void
   handlePermissionMessage: (type: McpPermissionMessageType) => Promise<{ granted: boolean }>
   routeToolCall: (message: ToolCallMessage) => void
 }
@@ -93,7 +97,7 @@ function assetUpload(sessionId = 'session-1') {
   return {
     payload: {
       base64: 'AQID',
-      hash: 'abcdef12',
+      hash: ASSET_HASH,
       metadata: { height: 20, themeable: true, width: 10 },
       mimeType: 'image/png'
     },
@@ -101,6 +105,17 @@ function assetUpload(sessionId = 'session-1') {
     sessionId,
     source: TEMPAD_MCP_BROWSER_SOURCE,
     type: 'mcp.uploadAsset',
+    version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+  }
+}
+
+function assetDownload(sessionId = 'session-1') {
+  return {
+    payload: { hash: ASSET_HASH },
+    requestId: 'download-1',
+    sessionId,
+    source: TEMPAD_MCP_BROWSER_SOURCE,
+    type: 'mcp.downloadAsset',
     version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
   }
 }
@@ -269,6 +284,43 @@ describe('mcp/broker/service-worker', () => {
     expect(hubClient.sendActivate).toHaveBeenCalledTimes(1)
   })
 
+  it('requires a new explicit tab choice when a hub reconnects with multiple sessions', () => {
+    const snapshot: Partial<ReturnType<McpBrokerHubClient['getSnapshot']>> = {
+      activeId: 'gateway-1',
+      registeredId: 'gateway-1',
+      status: 'connected'
+    }
+    const hubClient = createHubClient(snapshot)
+    const broker = new McpServiceWorkerBroker(hubClient)
+    const internals = broker as unknown as BrokerInternals
+    const first = createPort('https://www.figma.com/design/abc/File')
+    const second = createPort('https://www.figma.com/design/def/File')
+
+    broker.handlePort(first.port)
+    first.message(pageMessage('mcp.enable', 'session-a'))
+    broker.handlePort(second.port)
+    second.message(pageMessage('mcp.enable', 'session-b'))
+    second.message(pageMessage('mcp.activateSession', 'session-b'))
+
+    snapshot.activeId = 'gateway-2'
+    snapshot.registeredId = 'gateway-2'
+    internals.handleHubSnapshot(hubClient.getSnapshot())
+    internals.routeToolCall({
+      id: 'call-after-reconnect',
+      payload: { args: undefined, name: 'get_code' },
+      type: 'toolCall'
+    })
+
+    expect(hubClient.sendToolResult).toHaveBeenLastCalledWith({
+      error: {
+        code: TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION,
+        message: 'No active TemPad Dev Figma session available.'
+      },
+      id: 'call-after-reconnect',
+      type: 'toolResult'
+    })
+  })
+
   it('ignores session control messages from ports that do not own the session', () => {
     const hubClient = createHubClient()
     const broker = new McpServiceWorkerBroker(hubClient)
@@ -389,7 +441,7 @@ describe('mcp/broker/service-worker', () => {
     session.message(assetUpload())
     await flushMicrotasks()
 
-    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:9000/assets/abcdef12', {
+    expect(fetchMock).toHaveBeenCalledWith(`http://127.0.0.1:9000/assets/${ASSET_HASH}`, {
       body: expect.any(Blob),
       headers: {
         'Content-Type': 'image/png',
@@ -410,6 +462,114 @@ describe('mcp/broker/service-worker', () => {
       type: 'mcp.assetUploadResult',
       version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
     })
+  })
+
+  it('downloads and verifies hash-addressed assets for the owning session', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3]), {
+        headers: { 'Content-Type': 'image/png' },
+        status: 200
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch)
+    const broker = new McpServiceWorkerBroker(
+      createHubClient({ assetServerUrl: 'http://127.0.0.1:9000' })
+    )
+    const session = createPort('https://www.figma.com/design/abc/File')
+
+    broker.handlePort(session.port)
+    session.message(pageMessage('mcp.enable'))
+    session.postMessage.mockClear()
+    session.message(assetDownload())
+    await flushMicrotasks()
+    await flushMicrotasks()
+    await vi.waitFor(() => expect(session.postMessage).toHaveBeenCalled())
+
+    expect(fetchMock).toHaveBeenCalledWith(`http://127.0.0.1:9000/assets/${ASSET_HASH}`, {
+      method: 'GET'
+    })
+    expect(session.postMessage).toHaveBeenLastCalledWith({
+      payload: {
+        base64: 'AQID',
+        mimeType: 'image/png',
+        size: 3
+      },
+      requestId: 'download-1',
+      sessionId: 'session-1',
+      source: TEMPAD_MCP_BROWSER_SOURCE,
+      type: 'mcp.assetDownloadResult',
+      version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+    })
+  })
+
+  it('returns a coded error when a downloaded asset is missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(null, { status: 404 })) as unknown as typeof fetch
+    )
+    const broker = new McpServiceWorkerBroker(
+      createHubClient({ assetServerUrl: 'http://127.0.0.1:9000' })
+    )
+    const session = createPort('https://www.figma.com/design/abc/File')
+
+    broker.handlePort(session.port)
+    session.message(pageMessage('mcp.enable'))
+    session.postMessage.mockClear()
+    session.message(assetDownload())
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(session.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        error: {
+          code: TEMPAD_MCP_ERROR_CODES.ASSET_NOT_FOUND,
+          message: expect.stringContaining('was not found')
+        },
+        requestId: 'download-1',
+        type: 'mcp.assetDownloadResult'
+      })
+    )
+  })
+
+  it('stops streaming assets once the bridge byte limit is exceeded', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(MCP_MAX_ASSET_BYTES))
+        controller.enqueue(new Uint8Array([1]))
+        controller.close()
+      }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(stream, {
+          headers: { 'Content-Type': 'image/png' },
+          status: 200
+        })
+      ) as unknown as typeof fetch
+    )
+    const broker = new McpServiceWorkerBroker(
+      createHubClient({ assetServerUrl: 'http://127.0.0.1:9000' })
+    )
+    const session = createPort('https://www.figma.com/design/abc/File')
+
+    broker.handlePort(session.port)
+    session.message(pageMessage('mcp.enable'))
+    session.postMessage.mockClear()
+    session.message(assetDownload())
+
+    await vi.waitFor(() =>
+      expect(session.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          error: {
+            code: TEMPAD_MCP_ERROR_CODES.ASSET_TOO_LARGE,
+            message: expect.stringContaining('bridge limit')
+          },
+          requestId: 'download-1',
+          type: 'mcp.assetDownloadResult'
+        })
+      )
+    )
   })
 
   it('returns an asset upload error when the hub has no asset server URL', async () => {

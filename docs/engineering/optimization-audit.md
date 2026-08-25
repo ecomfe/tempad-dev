@@ -78,9 +78,10 @@ satisfy, so those package commands failed despite high aggregate coverage.
   active route exists. Mandatory pairing would add setup and recovery burden to every MCP client, so
   it is not part of the current hardening path. If a higher-threat deployment appears later, pairing
   must be opt-in and version-negotiated rather than changing the default flow.
-- **Pending compatible migration: asset hash length.** The current 8-hex content identifier is useful
-  for lookup, not authorization. Negotiate longer new-write ids, dual-read during TTL cleanup, then
-  remove short writes.
+- **Completed: full asset content identity.** Extension, Hub, store paths, browser bridge, and shared
+  contracts use one complete lowercase SHA-256 digest and verify it after upload and download.
+  Internal callers migrated together; no short-ID compatibility path remains. The random capability
+  URL—not the digest—continues to authorize loopback access.
 - **Completed: Hub admission and activation extraction.** Port selection and handshake admission now
   live in a testable WebSocket server module with real loopback integration tests for accepted and
   rejected Origins/paths, connection limits, occupied-port fallback, and exhaustion. Registration,

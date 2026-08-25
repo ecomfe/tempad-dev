@@ -38,7 +38,7 @@ import { getOrderedChildIds, renderShellTree, renderTree } from './render'
 import { resolvePluginComponents } from './render/plugin'
 import { buildLayoutStyles, prepareStyles } from './styles'
 import { createStyleVarResolver, processTokens, resolveStyleMap } from './tokens'
-import { buildVisibleTree } from './tree'
+import { addSubtreeIds, buildVisibleTree } from './tree'
 
 // Tags that should render children without extra whitespace/newlines.
 const COMPACT_TAGS = new Set([
@@ -137,11 +137,11 @@ export async function handleGetCode(
   const { now, stamp } = trace
   const traceInfo: TraceInfo = { now, stamp }
 
-  if (nodes.length !== 1) {
+  const [node] = nodes
+  if (nodes.length !== 1 || !node) {
     throw new Error('Select exactly one node or provide a single root node id.')
   }
 
-  const node = nodes[0]
   if (!node.visible) {
     throw new Error('The selected node is not visible.')
   }
@@ -251,6 +251,8 @@ export async function handleGetCode(
     trace: traceInfo
   }
   const allAssets = Array.from(assetRegistry.values())
+  const videoPreviewAssetHashes = collected.videoPreviewAssetHashes ?? new Set<string>()
+  const rootVideoPreviewAssetHashes = collected.rootVideoPreviewAssetHashes ?? new Set<string>()
 
   if (earlyShell) {
     const shellMode = createShellMode(rootId, tree, ctx)
@@ -268,7 +270,7 @@ export async function handleGetCode(
       cappedNodeIds: tree.stats.cappedNodeIds,
       shell: true
     })
-    const assets = filterAssetsReferencedInCode(allAssets, shell.code)
+    const assets = selectAssetsForCode(allAssets, shell.code, videoPreviewAssetHashes)
     const result = buildCodeResult(shell, codegen, assets, warnings)
     assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
     logTrace(
@@ -286,12 +288,13 @@ export async function handleGetCode(
     const warnings = buildGetCodeWarnings(output.code, {
       cappedNodeIds: tree.stats.cappedNodeIds
     })
-    const result = buildCodeResult(output, codegen, allAssets, warnings)
+    const assets = selectAssetsForCode(allAssets, output.code, videoPreviewAssetHashes)
+    const result = buildCodeResult(output, codegen, assets, warnings)
     assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
 
     logTrace(
       trace,
-      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${allAssets.length}${runtimeOptions.unbounded ? ' budget=unbounded' : ''}${formatCacheMetrics(cache)}`
+      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assets.length}${runtimeOptions.unbounded ? ' budget=unbounded' : ''}${formatCacheMetrics(cache)}`
     )
 
     return result
@@ -317,7 +320,7 @@ export async function handleGetCode(
       cappedNodeIds: tree.stats.cappedNodeIds,
       shell: true
     })
-    const assets = filterAssetsReferencedInCode(allAssets, shell.code)
+    const assets = selectAssetsForCode(allAssets, shell.code, rootVideoPreviewAssetHashes)
     const result = buildCodeResult(shell, codegen, assets, warnings)
 
     try {
@@ -589,19 +592,11 @@ async function collectPluginOutput(
       if (!component) continue
       const snapshot = tree.nodes.get(id)
       if (!snapshot) continue
-      snapshot.children.forEach((childId) => skipDescendants(childId, tree, pluginSkipped))
+      snapshot.children.forEach((childId) => addSubtreeIds(childId, tree, pluginSkipped))
     }
   }
 
   return { pluginComponents, pluginSkipped }
-}
-
-function skipDescendants(id: string, tree: VisibleTree, skipped: Set<string>): void {
-  const node = tree.nodes.get(id)
-  if (!node) return
-  if (skipped.has(id)) return
-  skipped.add(id)
-  node.children.forEach((childId) => skipDescendants(childId, tree, skipped))
 }
 
 function buildSkipIds(base: Set<string>, extra: Set<string>): Set<string> {
@@ -743,8 +738,17 @@ function stampRenderPhase(
   trace.stamp(label, start)
 }
 
-function filterAssetsReferencedInCode(assets: AssetDescriptor[], code: string): AssetDescriptor[] {
-  return assets.filter((asset) => code.includes(asset.url) || code.includes(asset.hash))
+function selectAssetsForCode(
+  assets: AssetDescriptor[],
+  code: string,
+  supplementalAssetHashes?: ReadonlySet<string>
+): AssetDescriptor[] {
+  return assets.filter(
+    (asset) =>
+      code.includes(asset.url) ||
+      code.includes(asset.hash) ||
+      supplementalAssetHashes?.has(asset.hash)
+  )
 }
 
 function buildCodeResult(

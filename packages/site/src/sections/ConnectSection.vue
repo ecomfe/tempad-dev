@@ -57,9 +57,9 @@ const selectedAgentId = ref<AgentIntegrationId>('codex')
 const terminalCardRef = ref<HTMLElement | null>(null)
 const terminalViewportRef = ref<HTMLElement | null>(null)
 function getAgentDescription(agent: AgentIntegrationConfig): string {
-  return agent.actions.some(({ id }) => id === 'plugin-prompt')
-    ? 'The plugin adds MCP access and the design skill.'
-    : 'Add MCP access and the design skill.'
+  return agent.actions.some(({ id }) => id.startsWith('plugin-'))
+    ? 'Install one portable plugin with MCP access and both agent skills.'
+    : 'Use client-specific MCP and skill setup when plugins are not supported.'
 }
 
 const terminalEntries: readonly TerminalEntry[] = [
@@ -360,7 +360,11 @@ function getActionLabel(action: AgentIntegrationAction, agent: AgentIntegrationC
     case 'mcp-config':
       return 'MCP config'
     case 'skill-cli':
-      return 'Skill command'
+      return 'Skills command'
+    case 'skill-design-to-code-cli':
+      return 'Code skill command'
+    case 'skill-canvas-authoring-cli':
+      return 'Canvas skill command'
   }
 }
 
@@ -537,8 +541,8 @@ onBeforeUnmount(() => {
   <SectionShell
     id="connect"
     eyebrow="Connect"
-    title="Stream it to code"
-    copy="TemPad Dev pairs an agent skill with the MCP server so agents can keep the selected Figma node in view while they edit code."
+    title="Connect design and code"
+    copy="TemPad Dev packages MCP access and two design workflows as one portable Agent Plugin, with client-specific setup only where plugins are not supported."
   >
     <div class="site-connect-layout">
       <div class="site-connect-setup">
@@ -548,7 +552,7 @@ onBeforeUnmount(() => {
             <p class="site-connect-row-label">Open TemPad Dev in Figma</p>
             <p class="site-connect-row-copy">
               Enable MCP access under Preferences → Agent integration, then keep the panel open in
-              the file you want the agent to inspect.
+              the file you want the agent to inspect or, when editable, update.
             </p>
           </div>
           <div class="site-connect-actions">
@@ -578,7 +582,8 @@ onBeforeUnmount(() => {
             <p class="site-connect-row-step">Step 2</p>
             <p class="site-connect-row-label">Set up your agent</p>
             <p class="site-connect-row-copy">
-              Choose a supported agent to use its shortest available setup path.
+              Choose an agent. The setup uses the open plugin format first and falls back to its
+              native MCP and skill flow only when needed.
             </p>
           </div>
           <div class="site-client-quicklist" role="tablist" aria-label="Agent">

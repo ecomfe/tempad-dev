@@ -1,9 +1,12 @@
 import type {
+  ApplyCanvasResult,
   GetAssetsResult,
   GetCodeResult,
+  GetDesignSystemResult,
   GetScreenshotResult,
   GetStructureResult,
-  GetTokenDefsResult
+  GetTokenDefsResult,
+  UploadAssetResult
 } from './tools'
 
 const ENCODER = new TextEncoder()
@@ -11,6 +14,11 @@ const ENCODER = new TextEncoder()
 export type ToolResponseContentBlock = {
   type: string
   text?: string
+  uri?: string
+  name?: string
+  description?: string
+  mimeType?: string
+  size?: number
 }
 
 export type ToolResponseLike = {
@@ -21,7 +29,9 @@ export type ToolResponseLike = {
 }
 
 export function utf8Bytes(value: unknown): number {
-  return ENCODER.encode(serializeUtf8Value(value)).length
+  const serialized =
+    typeof value === 'string' ? value : (JSON.stringify(value, null, 0) ?? 'undefined')
+  return ENCODER.encode(serialized).length
 }
 
 export function measureCallToolResultBytes(result: ToolResponseLike): number {
@@ -39,7 +49,7 @@ export function buildGetCodeToolResult(payload: GetCodeResult): ToolResponseLike
 
   summary.push(
     payload.assets?.length
-      ? `Assets attached: ${payload.assets.length}. Download bytes from each asset.url.`
+      ? `Assets attached: ${payload.assets.length}. Use asset.localPath directly when present; otherwise download asset.url.`
       : 'No binary assets were attached to this response.'
   )
 
@@ -53,18 +63,71 @@ export function buildGetCodeToolResult(payload: GetCodeResult): ToolResponseLike
   return buildTextToolResult(summary.join('\n'), payload)
 }
 
+export function buildGetDesignSystemToolResult(payload: GetDesignSystemResult): ToolResponseLike {
+  if (payload.details) {
+    return buildTextToolResult(
+      `Returned bounded ${payload.details.kind} definition ${payload.details.ref} from catalog ${payload.catalogId}.`,
+      payload
+    )
+  }
+  const summary = `Returned ${formatCount(payload.components.length, 'component')}, ${formatCount(payload.variables.length, 'variable')}, ${formatCount(payload.styles.length, 'style')}, ${formatCount(payload.collections.length, 'collection')}, and ${formatCount(payload.shaders?.length ?? 0, 'shader')} from catalog ${payload.catalogId}.`
+  const warnings = payload.warnings?.length ? `\n${payload.warnings.join('\n')}` : ''
+  const continuation =
+    payload.nextCursor === undefined
+      ? ''
+      : ` Continue this catalog with cursor ${payload.nextCursor} to inspect omitted resources.`
+  return buildTextToolResult(
+    `${summary}${warnings}\nRead structuredContent for deterministic short refs and component tags.${continuation} Read one bounded definition with this catalogId and a returned ref.`,
+    payload
+  )
+}
+
+export function buildApplyCanvasToolResult(payload: ApplyCanvasResult): ToolResponseLike {
+  const nodeChanges = {
+    created: payload.createdNodeIds.length,
+    updated: payload.updatedNodeIds.length,
+    removed: payload.removedNodeIds.length
+  }
+  const summary = `Applied ${formatCount(payload.mutationCount, 'canvas mutation')}: ${formatCount(nodeChanges.created, 'node')} created, ${formatCount(nodeChanges.updated, 'node')} updated, and ${formatCount(nodeChanges.removed, 'node')} removed.`
+  const verifiedCounts = [
+    formatCount(payload.verification.nodesChecked, 'node'),
+    formatCount(payload.verification.referencesChecked, 'native reference'),
+    ...(payload.verification.nativeFieldsChecked === undefined
+      ? []
+      : [formatCount(payload.verification.nativeFieldsChecked, 'native state assertion')])
+  ]
+  const verification = `Structural verification ${payload.verification.status}: ${verifiedCounts.length === 2 ? `${verifiedCounts[0]} and ${verifiedCounts[1]}` : `${verifiedCounts.slice(0, -1).join(', ')}, and ${verifiedCounts.at(-1)}`} checked.`
+  const warnings = payload.verification.warnings.length
+    ? `\n${payload.verification.warnings.map(({ code, key, message }) => `${code}${key ? ` (${key})` : ''}: ${message}`).join('\n')}`
+    : ''
+  const root = payload.rootRemoved
+    ? `Root node is absent: ${payload.rootNodeId}. Repeating the same assertion is safe.`
+    : `Root node: ${payload.rootNodeId}.`
+  const identities = payload.rootRemoved
+    ? ''
+    : '\nRead structuredContent.nodeIdsByKey before a follow-up update or component instance call.'
+  return buildTextToolResult(`${summary}\n${verification}${warnings}\n${root}${identities}`, {
+    rootNodeId: payload.rootNodeId,
+    ...(payload.rootRemoved ? { rootRemoved: true } : {}),
+    nodeIdsByKey: payload.nodeIdsByKey,
+    mutationCount: payload.mutationCount,
+    nodeChanges,
+    verification: payload.verification
+  })
+}
+
 export function buildGetStructureToolResult(payload: GetStructureResult): ToolResponseLike {
   const roots = payload.roots.length
   const nodeCount = countOutlineNodes(payload.roots)
   const summary =
     roots === 0
       ? 'No structure nodes were returned.'
-      : `Returned structure outline with ${formatCount(roots, 'root')} and ${formatCount(nodeCount, 'node')}.`
+      : `Returned ${payload.truncated ? 'a truncated structure outline' : 'structure outline'} with ${formatCount(roots, 'root')} and ${formatCount(nodeCount, 'node')}.`
+  const guidance = payload.truncated
+    ? 'The outline is partial because the response safety cap was reached; narrow the selection or depth before treating it as complete.'
+    : 'Read structuredContent for the full outline payload.'
 
-  return buildTextToolResult(
-    `${summary}\nRead structuredContent for the full outline payload.`,
-    payload
-  )
+  return buildTextToolResult(`${summary}\n${guidance}`, payload)
 }
 
 export function buildGetTokenDefsToolResult(payload: GetTokenDefsResult): ToolResponseLike {
@@ -81,10 +144,26 @@ export function buildGetTokenDefsToolResult(payload: GetTokenDefsResult): ToolRe
 }
 
 export function buildGetScreenshotToolResult(payload: GetScreenshotResult): ToolResponseLike {
-  return buildTextToolResult(
-    `${describeScreenshot(payload)} - Download: ${payload.asset.url}`,
-    payload
-  )
+  const access = payload.asset.localPath
+    ? `Open the local PNG directly with an image viewer: ${payload.asset.localPath}.`
+    : 'Download and open the linked PNG with an image viewer.'
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `${describeScreenshot(payload)}. ${access} Receiving the asset reference alone is not visual verification. If this is a representative-screen check, inspect it before applying dependent screens.`
+      },
+      {
+        type: 'resource_link',
+        uri: payload.asset.url,
+        name: `Figma screenshot ${payload.asset.hash}.png`,
+        description: `${payload.width}x${payload.height} rendered Figma node`,
+        mimeType: payload.asset.mimeType,
+        size: payload.asset.size
+      }
+    ],
+    structuredContent: payload
+  }
 }
 
 export function buildGetAssetsToolResult(payload: GetAssetsResult): ToolResponseLike {
@@ -97,9 +176,16 @@ export function buildGetAssetsToolResult(payload: GetAssetsResult): ToolResponse
   if (payload.missing.length) {
     summary.push(`Missing: ${payload.missing.join(', ')}`)
   }
-  summary.push('Download bytes from each asset.url.')
+  summary.push('Use asset.localPath directly when present; otherwise download asset.url.')
 
   return buildTextToolResult(summary.join('\n'), payload)
+}
+
+export function buildUploadAssetToolResult(payload: UploadAssetResult): ToolResponseLike {
+  return buildTextToolResult(
+    `Stored generated image asset ${payload.assetHash} (${formatBytes(payload.size)}, ${payload.mimeType}). Use structuredContent.assetHash in an apply_canvas IMAGE asset declaration.`,
+    payload
+  )
 }
 
 function buildTextToolResult(text: string, structuredContent: unknown): ToolResponseLike {
@@ -112,14 +198,6 @@ function buildTextToolResult(text: string, structuredContent: unknown): ToolResp
     ],
     structuredContent
   }
-}
-
-function serializeUtf8Value(value: unknown): string {
-  if (typeof value === 'string') {
-    return value
-  }
-
-  return JSON.stringify(value, null, 0) ?? 'undefined'
 }
 
 function countOutlineNodes(nodes: GetStructureResult['roots']): number {

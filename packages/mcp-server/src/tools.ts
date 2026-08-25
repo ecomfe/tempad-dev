@@ -1,39 +1,53 @@
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import type {
   GetAssetsResult,
-  GetScreenshotResult,
   TempadMcpErrorCode,
   ToolName,
   ToolResponseLike,
   ToolResultMap,
-  ToolSchema
+  ToolSchema,
+  UploadAssetResult
 } from '@tempad-dev/shared'
 import type { ZodType } from 'zod'
 
 import {
+  ApplyCanvasParametersSchema,
+  ApplyCanvasResultSchema,
   MCP_TOOL_INLINE_BUDGET_BYTES,
+  buildApplyCanvasToolResult,
   buildGetAssetsToolResult,
   buildGetCodeToolResult,
+  buildGetDesignSystemToolResult,
   buildGetScreenshotToolResult,
   buildGetStructureToolResult,
   buildGetTokenDefsToolResult,
+  buildUploadAssetToolResult,
   GetAssetsParametersSchema,
   GetAssetsResultSchema,
   GetCodeParametersSchema,
+  GetDesignSystemParametersSchema,
+  GetDesignSystemResultSchema,
   GetScreenshotParametersSchema,
   GetStructureParametersSchema,
   GetTokenDefsParametersSchema,
   TEMPAD_MCP_ERROR_CODES,
-  measureCallToolResultBytes,
-  type TempadMcpErrorPayload
+  UploadAssetParametersSchema,
+  UploadAssetResultSchema,
+  measureCallToolResultBytes
 } from '@tempad-dev/shared'
 
+import { getRecordProperty } from './shared'
+
 export type {
+  ApplyCanvasParametersInput,
+  ApplyCanvasResult,
   AssetDescriptor,
   GetAssetsParametersInput,
   GetAssetsResult,
   GetCodeParametersInput,
   GetCodeResult,
+  GetDesignSystemParametersInput,
+  GetDesignSystemResult,
   GetScreenshotParametersInput,
   GetScreenshotResult,
   GetStructureParametersInput,
@@ -43,10 +57,13 @@ export type {
   TokenEntry,
   ToolName,
   ToolResultMap,
-  ToolSchema
+  ToolSchema,
+  UploadAssetParametersInput,
+  UploadAssetResult
 } from '@tempad-dev/shared'
 
 type BaseToolMetadata<Name extends ToolName, Schema extends ZodType> = ToolSchema<Name> & {
+  annotations: ToolAnnotations
   parameters: Schema
   format?: (payload: ToolResultMap[Name]) => CallToolResult
 }
@@ -66,6 +83,27 @@ type HubToolMetadata<Name extends ToolName, Schema extends ZodType> = BaseToolMe
   outputSchema?: ZodType
 }
 
+const READ_ONLY_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false
+} satisfies ToolAnnotations
+
+const CANVAS_WRITE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: true
+} satisfies ToolAnnotations
+
+const ASSET_WRITE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false
+} satisfies ToolAnnotations
+
 const CONNECTIVITY_ERROR_CODES = new Set<TempadMcpErrorCode>([
   TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION,
   TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT,
@@ -83,17 +121,15 @@ const KNOWN_ERROR_CODES = new Set<string>(Object.values(TEMPAD_MCP_ERROR_CODES))
 const CONNECTIVITY_TROUBLESHOOTING_LINES = [
   'Troubleshooting:',
   '- In Figma, open TemPad Dev panel and enable the MCP server in Preferences → Agent integration.',
-  '- If multiple Figma tabs are open, click the MCP badge to activate this tab.',
-  '- Keep the Figma tab active/foreground while using the MCP server.'
+  "- If multiple Figma tabs are open, click the intended tab's MCP badge; foregrounding it alone does not activate it."
 ]
 
 const SELECTION_TROUBLESHOOTING_LINE = 'Tip: Select exactly one visible node, or pass nodeId.'
+const VERIFICATION_TROUBLESHOOTING_LINE =
+  'Tip: TemPad rolls verification failures back. Correct the reported desired-state mismatch and retry the affected root while preserving unrelated design intent.'
 
-function getRecordProperty(record: unknown, key: string): unknown {
-  if (!record || typeof record !== 'object') {
-    return undefined
-  }
-  return Reflect.get(record, key)
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
 function extTool<Name extends ToolName, Schema extends ZodType>(
@@ -112,15 +148,35 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_code',
     description:
-      'High-fidelity code snapshot for nodeId/current single selection (omit nodeId to use selection): JSX/Vue markup + Tailwind-like classes, plus assets/tokens metadata and codegen config. `vectorMode=smart` (default) emits `<svg data-src="...">` placeholders in code and preserves themeable instance color on the emitted SVG root markup for downstream adaptation; if asset upload fails after export, the tool may inline the SVG as a fallback to preserve source of truth. `vectorMode=snapshot` preserves vector assets for fidelity. Host apps should still refactor vector delivery to repo policy where needed (existing icon/component primitives, import-time SVG transforms, inline SVG, or asset-backed SVG usage). SVG asset metadata may include `themeable=true`, meaning the exported asset can safely adopt one contextual color channel. Start here, then refactor into repo conventions while preserving values/intent; strip any data-hint-* attributes (hints only). If warnings include depth-cap, use returned data-hint-id values to continue with narrower get_code calls. If warnings include shell, read the inline comment for omitted direct child ids and fetch them in order. If warnings include auto-layout (inferred), use get_structure to confirm hierarchy/overlap (do not derive numeric values from pixels). Tokens are keyed by canonical names like `--color-primary` (multi-mode keys use `${collection}:${mode}`; node overrides may appear as data-hint-variable-mode).',
+      'Read implementation evidence for an existing Figma node or the current single selection as JSX/Vue markup, classes, tokens, assets, codegen facts, and bounded warnings.',
+    annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetCodeParametersSchema,
     target: 'extension',
     format: createCodeToolResponse
   }),
   extTool({
+    name: 'get_design_system',
+    description:
+      'Discover a bounded deterministic catalog of accessible components, variables, styles, and shaders when existing-resource reuse is permitted and relevant. Do not call it when the user limits design evidence to the current page or requests an independent system without pre-existing resource reuse. Start without arguments; continue the same catalog by cursor or inspect one returned ref.',
+    annotations: READ_ONLY_ANNOTATIONS,
+    parameters: GetDesignSystemParametersSchema,
+    target: 'extension',
+    format: createDesignSystemToolResponse
+  }),
+  extTool({
+    name: 'apply_canvas',
+    description:
+      'Apply one declarative desired Figma result as a managed layer tree with selected native state, resources, and bindings. Markup serializes ordinary layers as Canvas HTML; typed fields express selected Figma capabilities. Create auto-places the new root; update targets an exact node, matches stable data-key identities, preserves omitted live state, and removes explicit removeKeys. TemPad Dev validates, applies one undoable patch, and verifies the result.',
+    annotations: CANVAS_WRITE_ANNOTATIONS,
+    parameters: ApplyCanvasParametersSchema,
+    target: 'extension',
+    format: createApplyCanvasToolResponse
+  }),
+  extTool({
     name: 'get_token_defs',
     description:
       'Resolve canonical token names to literal values (optionally including all modes) for tokens referenced by get_code.',
+    annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetTokenDefsParametersSchema,
     target: 'extension',
     format: createTokenDefsToolResponse,
@@ -129,24 +185,36 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_screenshot',
     description:
-      'Capture a rendered PNG screenshot for nodeId/current single selection for visual verification (layering/overlap/masks/effects).',
+      'Capture one bounded rendered PNG asset for an exact node or the current single selection.',
+    annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetScreenshotParametersSchema,
     target: 'extension',
-    format: createScreenshotToolResponse,
-    exposed: false
+    format: createScreenshotToolResponse
   }),
   extTool({
     name: 'get_structure',
     description:
-      'Get a compact structural + geometry outline for nodeId/current single selection to understand hierarchy and layout intent.',
+      "Read a compact hierarchy and geometry outline for an exact node or the current single selection. Every x/y is relative to the node's actual Figma parent, including an outlined root; only page children are page-relative. The outline includes stable keys on TemPad-managed nodes. Set options.native for read-back of masks, IMAGE paint hashes, layout grids, and frame guides; it does not provide rendered pixels or general appearance.",
+    annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetStructureParametersSchema,
     target: 'extension',
     format: createStructureToolResponse
   }),
   hubTool({
+    name: 'upload_asset',
+    description:
+      'Store a generated PNG, JPEG, or GIF data URL in the local Hub and return its content-addressed assetHash for apply_canvas. Compose this call directly with the image-generation result; never print or copy encoded bytes into prose.',
+    annotations: ASSET_WRITE_ANNOTATIONS,
+    parameters: UploadAssetParametersSchema,
+    target: 'hub',
+    outputSchema: UploadAssetResultSchema,
+    format: createUploadAssetToolResponse
+  }),
+  hubTool({
     name: 'get_assets',
     description:
       'Resolve asset hashes to downloadable URLs and metadata for assets referenced by tool responses. SVG asset metadata may include `themeable=true` when the underlying vector can safely adopt one contextual color channel.',
+    annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetAssetsParametersSchema,
     target: 'hub',
     outputSchema: GetAssetsResultSchema,
@@ -170,10 +238,8 @@ function isTempadMcpErrorCode(value: unknown): value is TempadMcpErrorCode {
 function extractToolErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message || 'Unknown error occurred.'
   if (typeof error === 'string') return error
-  if (error && typeof error === 'object') {
-    const candidate = error as Partial<TempadMcpErrorPayload & Record<string, unknown>>
-    if (typeof candidate.message === 'string' && candidate.message.trim()) return candidate.message
-  }
+  const message = getRecordProperty(error, 'message')
+  if (typeof message === 'string' && message.trim()) return message
   return 'Unknown error occurred.'
 }
 
@@ -205,6 +271,10 @@ function buildTroubleshootingText(code: TempadMcpErrorCode | undefined, message:
     help.push(SELECTION_TROUBLESHOOTING_LINE)
   }
 
+  if (code === TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC && /verification failed/i.test(message)) {
+    help.push(VERIFICATION_TROUBLESHOOTING_LINE)
+  }
+
   return help.length ? `\n\n${help.join('\n')}` : ''
 }
 
@@ -213,7 +283,7 @@ function isConnectivityToolError(code: TempadMcpErrorCode | undefined, message: 
     (code ? CONNECTIVITY_ERROR_CODES.has(code) : false) ||
     /no active tempad dev extension/i.test(message) ||
     /asset server url is not configured/i.test(message) ||
-    /websocket/i.test(message)
+    /\bwebsocket (?:connection )?(?:closed|disconnected|failed|unavailable|error)\b/i.test(message)
   )
 }
 
@@ -226,90 +296,103 @@ function isSelectionToolError(code: TempadMcpErrorCode | undefined, message: str
 }
 
 export function createCodeToolResponse(payload: ToolResultMap['get_code']): CallToolResult {
-  if (!isCodeResult(payload)) {
-    throw new Error('Invalid get_code payload received from extension.')
-  }
+  return formatToolResult('get_code', payload, isCodeResult, buildGetCodeToolResult)
+}
 
-  return toCallToolResult(buildGetCodeToolResult(payload))
+export function createDesignSystemToolResponse(
+  payload: ToolResultMap['get_design_system']
+): CallToolResult {
+  return formatToolResult(
+    'get_design_system',
+    payload,
+    isDesignSystemResult,
+    buildGetDesignSystemToolResult
+  )
+}
+
+export function createApplyCanvasToolResponse(
+  payload: ToolResultMap['apply_canvas']
+): CallToolResult {
+  return formatToolResult('apply_canvas', payload, isApplyCanvasResult, buildApplyCanvasToolResult)
 }
 
 export function createStructureToolResponse(
   payload: ToolResultMap['get_structure']
 ): CallToolResult {
-  if (!isStructureResult(payload)) {
-    throw new Error('Invalid get_structure payload received from extension.')
-  }
-
-  return toCallToolResult(buildGetStructureToolResult(payload))
+  return formatToolResult('get_structure', payload, isStructureResult, buildGetStructureToolResult)
 }
 
 export function createTokenDefsToolResponse(
   payload: ToolResultMap['get_token_defs']
 ): CallToolResult {
-  if (!isTokenDefsResult(payload)) {
-    throw new Error('Invalid get_token_defs payload received from extension.')
-  }
-
-  return toCallToolResult(buildGetTokenDefsToolResult(payload))
+  return formatToolResult('get_token_defs', payload, isTokenDefsResult, buildGetTokenDefsToolResult)
 }
 
 export function createScreenshotToolResponse(
   payload: ToolResultMap['get_screenshot']
 ): CallToolResult {
-  if (!isScreenshotResult(payload)) {
-    throw new Error('Invalid get_screenshot payload received from extension.')
-  }
-
-  return toCallToolResult(buildGetScreenshotToolResult(payload))
-}
-
-function isScreenshotResult(payload: unknown): payload is GetScreenshotResult {
-  if (typeof payload !== 'object' || !payload) return false
-  const candidate = payload as Partial<GetScreenshotResult & Record<string, unknown>>
-  return (
-    typeof candidate.asset === 'object' &&
-    candidate.asset !== null &&
-    typeof candidate.width === 'number' &&
-    typeof candidate.height === 'number' &&
-    typeof candidate.scale === 'number' &&
-    typeof candidate.bytes === 'number' &&
-    typeof candidate.format === 'string'
+  return formatToolResult(
+    'get_screenshot',
+    payload,
+    isScreenshotResult,
+    buildGetScreenshotToolResult
   )
 }
 
-function isCodeResult(payload: unknown): payload is ToolResultMap['get_code'] {
-  if (typeof payload !== 'object' || !payload) return false
-  const candidate = payload as Partial<ToolResultMap['get_code'] & Record<string, unknown>>
+function formatToolResult<Result>(
+  toolName: ToolName,
+  payload: Result,
+  isValid: (payload: unknown) => payload is Result,
+  build: (payload: Result) => ToolResponseLike
+): CallToolResult {
+  if (!isValid(payload)) throw new Error(`Invalid ${toolName} payload received from extension.`)
+  return toCallToolResult(build(payload))
+}
+
+function isScreenshotResult(payload: unknown): payload is ToolResultMap['get_screenshot'] {
   return (
-    typeof candidate.code === 'string' &&
-    typeof candidate.lang === 'string' &&
-    (candidate.assets === undefined || Array.isArray(candidate.assets))
+    isRecord(payload) &&
+    isRecord(payload.asset) &&
+    typeof payload.width === 'number' &&
+    typeof payload.height === 'number' &&
+    typeof payload.scale === 'number' &&
+    typeof payload.bytes === 'number' &&
+    typeof payload.format === 'string'
+  )
+}
+
+function isDesignSystemResult(payload: unknown): payload is ToolResultMap['get_design_system'] {
+  return GetDesignSystemResultSchema.safeParse(payload).success
+}
+
+function isApplyCanvasResult(payload: unknown): payload is ToolResultMap['apply_canvas'] {
+  return ApplyCanvasResultSchema.safeParse(payload).success
+}
+
+function isCodeResult(payload: unknown): payload is ToolResultMap['get_code'] {
+  return (
+    isRecord(payload) &&
+    typeof payload.code === 'string' &&
+    typeof payload.lang === 'string' &&
+    (payload.assets === undefined || Array.isArray(payload.assets))
   )
 }
 
 function isStructureResult(payload: unknown): payload is ToolResultMap['get_structure'] {
-  if (typeof payload !== 'object' || !payload) return false
-  const candidate = payload as Partial<ToolResultMap['get_structure'] & Record<string, unknown>>
-  return Array.isArray(candidate.roots)
+  return isRecord(payload) && Array.isArray(payload.roots)
 }
 
 function isTokenDefsResult(payload: unknown): payload is ToolResultMap['get_token_defs'] {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
-  for (const value of Object.values(payload as Record<string, unknown>)) {
-    if (!value || typeof value !== 'object') return false
-    const token = value as Partial<Record<'kind' | 'value', unknown>>
-    if (typeof token.kind !== 'string') return false
-    if (token.value === undefined) return false
+  if (!isRecord(payload)) return false
+  for (const token of Object.values(payload)) {
+    if (!isRecord(token) || typeof token.kind !== 'string' || token.value === undefined)
+      return false
   }
   return true
 }
 
 export function coercePayloadToToolResponse(payload: unknown): CallToolResult {
-  if (
-    payload &&
-    typeof payload === 'object' &&
-    Array.isArray((payload as CallToolResult).content)
-  ) {
+  if (isRecord(payload) && Array.isArray(payload.content)) {
     return payload as CallToolResult
   }
 
@@ -325,6 +408,10 @@ export function coercePayloadToToolResponse(payload: unknown): CallToolResult {
 
 export function createAssetsToolResponse(payload: GetAssetsResult): CallToolResult {
   return toCallToolResult(buildGetAssetsToolResult(payload))
+}
+
+export function createUploadAssetToolResponse(payload: UploadAssetResult): CallToolResult {
+  return toCallToolResult(buildUploadAssetToolResult(payload))
 }
 
 export function createInlineBudgetExceededToolResponse(
@@ -353,18 +440,22 @@ function toCallToolResult(result: ToolResponseLike): CallToolResult {
 
 function getBudgetRetryGuidance(toolName: ToolName): string {
   switch (toolName) {
+    case 'apply_canvas':
+      return 'Submit a smaller desired subtree and retry.'
     case 'get_code':
       return 'Reduce selection size or request a smaller nodeId subtree and retry.'
+    case 'get_design_system':
+      return 'Continue from another catalog cursor or avoid the oversized exact definition.'
     case 'get_structure':
       return 'Reduce selection size or pass a smaller depth and retry.'
     case 'get_token_defs':
       return 'Reduce requested names or split them into smaller batches and retry.'
     case 'get_screenshot':
-      return 'Reduce selection size or scale and retry.'
+      return 'Pass a smaller nodeId and retry.'
     case 'get_assets':
       return 'Request fewer hashes in a single call and retry.'
-    default:
-      return 'Retry with a narrower request.'
+    case 'upload_asset':
+      return 'Generate a smaller PNG, JPEG, or GIF and retry without printing its data URL.'
   }
 }
 

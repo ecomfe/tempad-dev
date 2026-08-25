@@ -1,14 +1,23 @@
 {
   "name": "tempad-dev",
-  "version": "0.1.0",
-  "description": "Use selected Figma nodes as agent-ready evidence for project-consistent UI implementation.",
+  "version": "0.1.2",
+  "description": "Use TemPad Dev to turn Figma evidence into UI code and create native Figma designs.",
   "author": {
     "name": "TemPad Dev"
   },
   "homepage": "https://github.com/ecomfe/tempad-dev#agent-integration",
   "repository": "https://github.com/ecomfe/tempad-dev",
   "license": "MIT",
-  "keywords": ["figma", "mcp", "skill", "agent-integration", "design-to-code", "frontend"],
+  "keywords": [
+    "figma",
+    "mcp",
+    "skill",
+    "agent-integration",
+    "design-to-code",
+    "canvas-authoring",
+    "design-system",
+    "frontend"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json"
 }

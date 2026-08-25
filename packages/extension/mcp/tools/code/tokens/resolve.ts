@@ -10,7 +10,7 @@ import {
 import { getVariableRawName } from '../../token/indexer'
 import { getVariableByIdCached } from './cache'
 
-type VariableAlias = { id?: string } | { type?: string; id?: string }
+type VariableAlias = { id: string; type?: string }
 type VariableWithCollection = Variable & { variableCollectionId?: string; resolvedType?: string }
 type VariableCollectionInfo = {
   id?: string

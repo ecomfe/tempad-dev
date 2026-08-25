@@ -6,7 +6,7 @@ import * as config from '../../mcp/config'
 const exports = [
   'AGENT_INTEGRATIONS',
   'AGENT_INTEGRATIONS_BY_ID',
-  'AGENT_SKILL_INSTALL_COMMAND',
+  'AGENT_SKILLS_INSTALL_COMMAND',
   'getMcpClientCopyPayload',
   'getNextMcpClientCopyVariant',
   'MCP_CLIENTS',

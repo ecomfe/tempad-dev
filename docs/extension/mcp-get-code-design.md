@@ -2,6 +2,11 @@
 
 This design describes MCP `get_code` in `packages/extension/mcp/tools/code`. It aligns with the requirements and reflects the current pipeline, including the request-scoped cache layer used to dedupe slow Figma reads within a single request.
 
+The Hub gives `get_code` a bounded 30-second default deadline because its codegen, vector export,
+and asset work can legitimately exceed the 15-second general tool deadline on larger selections.
+`TEMPAD_MCP_GET_CODE_TIMEOUT` overrides this deadline; the existing
+`TEMPAD_MCP_TOOL_TIMEOUT` remains the fallback when operators set a general override.
+
 ## High-level pipeline
 
 1. **Validate selection**
@@ -231,6 +236,13 @@ The request context is threaded through:
 
 ## SVG and asset strategy
 
+- Exact native image-fill assets include `figmaImageHash` so a canvas-authoring client can reuse
+  the same current-file resource. If any native bytes cannot be read, the rendered bitmap fallback
+  instead includes ordered unique `figmaImageHashes` for every visible image fill.
+- Native video fills share one composited PNG preview per node and record their ordered unique
+  current-file identities as `figmaVideoHashes`. Figma exposes the hash on each `VideoPaint` but no
+  API for reading the original video bytes, so the descriptor does not present the preview as the
+  source video.
 - Vector-like nodes may be exported to SVG.
 - Vector containers can be converted to a single SVG when their subtree is vector-like and the container itself does not carry wrapper semantics such as its own fill/stroke/effects/clipping or design-component hints.
 - Themeable vectors are single-color vectors that can safely use one contextual color channel. The current implementation keeps node-sized `width`/`height` plus `viewBox`, uploads the SVG asset, and injects the instance color onto the emitted placeholder `svg` root markup.

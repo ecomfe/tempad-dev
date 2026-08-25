@@ -5,6 +5,14 @@ import {
   WHITESPACE_RE,
   normalizeStyleValue
 } from '@/utils/css'
+import {
+  TAILWIND_ALIGN_ITEMS,
+  TAILWIND_FONT_WEIGHTS,
+  TAILWIND_JUSTIFY_CONTENT,
+  TAILWIND_TEXT_ALIGN,
+  TAILWIND_TEXT_CASE,
+  TAILWIND_TEXT_DECORATION
+} from '@/utils/tailwind-semantics'
 
 export type Side = 't' | 'r' | 'b' | 'l'
 export type Corner = 'tl' | 'tr' | 'br' | 'bl'
@@ -70,6 +78,12 @@ interface CompositeFamily extends FamilyConfigBase {
 export type FamilyConfig = SideFamily | CornerFamily | AxisFamily | DirectFamily | CompositeFamily
 export type NestedStyleMap = Record<string, string | Record<string, string>>
 
+function keywordDefinitions(values: Record<string, string>): KeywordDef[] {
+  return Object.entries(values).map(([value, className]) =>
+    value === className ? value : [value, className]
+  )
+}
+
 interface PropertyLookup {
   familyKey: string
   field: string
@@ -109,8 +123,9 @@ function formatFontFamily(val: string): string {
 function formatGridTemplate(val: string): FormatterResult {
   const trimmed = val.trim()
   const match = trimmed.match(/^repeat\(\s*(\d+)\s*,\s*minmax\(\s*0\s*,\s*1fr\s*\)\s*\)$/i)
-  if (match) {
-    return { text: match[1], isKeyword: true }
+  const count = match?.[1]
+  if (count) {
+    return { text: count, isKeyword: true }
   }
   return trimmed
 }
@@ -308,10 +323,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'items',
     mode: 'direct',
     valueKind: 'keyword',
-    keywords: [
-      ['flex-start', 'start'],
-      ['flex-end', 'end']
-    ],
+    keywords: keywordDefinitions(TAILWIND_ALIGN_ITEMS),
     props: { v: 'align-items' }
   },
   alignContent: {
@@ -331,13 +343,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'justify',
     mode: 'direct',
     valueKind: 'keyword',
-    keywords: [
-      ['flex-start', 'start'],
-      ['flex-end', 'end'],
-      ['space-between', 'between'],
-      ['space-around', 'around'],
-      ['space-evenly', 'evenly']
-    ],
+    keywords: keywordDefinitions(TAILWIND_JUSTIFY_CONTENT),
     props: { v: 'justify-content' }
   },
   justifyItems: {
@@ -586,21 +592,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'font',
     mode: 'direct',
     valueKind: 'number',
-    keywords: [
-      ['100', 'thin'],
-      ['200', 'extralight'],
-      ['300', 'light'],
-      ['400', 'normal'],
-      ['500', 'medium'],
-      ['600', 'semibold'],
-      ['700', 'bold'],
-      ['800', 'extrabold'],
-      ['900', 'black'],
-      'normal',
-      'bold',
-      'lighter',
-      'bolder'
-    ],
+    keywords: [...keywordDefinitions(TAILWIND_FONT_WEIGHTS), 'normal', 'bold', 'lighter', 'bolder'],
     props: { v: 'font-weight' }
   },
   fontStyle: {
@@ -635,7 +627,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'text',
     mode: 'direct',
     valueKind: 'keyword',
-    keywords: ['left', 'center', 'right', 'justify', 'start', 'end', 'match-parent'],
+    keywords: [...keywordDefinitions(TAILWIND_TEXT_ALIGN), 'start', 'end', 'match-parent'],
     props: { v: 'text-align' }
   },
   lineHeight: {
@@ -680,14 +672,14 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: '',
     mode: 'direct',
     valueKind: 'keyword',
-    keywords: [['none', 'normal-case'], 'uppercase', 'lowercase', 'capitalize'],
+    keywords: keywordDefinitions(TAILWIND_TEXT_CASE),
     props: { v: 'text-transform' }
   },
   textDecorationLine: {
     prefix: '',
     mode: 'direct',
     valueKind: 'keyword',
-    keywords: [['none', 'no-underline'], 'underline', 'line-through'],
+    keywords: keywordDefinitions(TAILWIND_TEXT_DECORATION),
     props: { v: { prop: 'text-decoration-line', defaultValue: 'none' } }
   },
   textDecorationColor: {
@@ -886,10 +878,7 @@ const NESTED_SELECTOR_VARIANTS: Record<string, string> = {
   '&:visited': 'visited'
 }
 
-Object.keys(TAILWIND_CONFIG).forEach((key) => {
-  const familyKey = key
-  const config = TAILWIND_CONFIG[familyKey]
-
+Object.entries(TAILWIND_CONFIG).forEach(([familyKey, config]) => {
   Object.entries(config.props).forEach(([field, def]) => {
     const propName = typeof def === 'string' ? def : def.prop
     const defaultValue = typeof def === 'string' ? undefined : def.defaultValue
@@ -927,8 +916,9 @@ function extractValuePart(
   inner = coerceNumeric(inner, kind)
 
   const keywordMap = KEYWORD_REGISTRY[familyKey]
-  if (keywordMap && keywordMap[inner]) {
-    return { isNegative, text: keywordMap[inner], isKeyword: true }
+  const keyword = keywordMap?.[inner]
+  if (keyword !== undefined) {
+    return { isNegative, text: keyword, isKeyword: true }
   }
 
   if (config.formatter) {
@@ -1123,9 +1113,9 @@ export function cssToTailwind(rawStyle: Record<string, string>): string {
     if (!val) continue
     if (defaultValue && val === defaultValue) continue
 
-    if (!buffers[familyKey]) buffers[familyKey] = {}
-    const buf = buffers[familyKey]
+    const buf = (buffers[familyKey] ??= {})
     const config = TAILWIND_CONFIG[familyKey]
+    if (!config) continue
 
     if (config.mode === 'side' && isSide(field)) {
       const sides = buf.sides || (buf.sides = {})
@@ -1149,6 +1139,7 @@ export function cssToTailwind(rawStyle: Record<string, string>): string {
 
   for (const [familyKey, buf] of Object.entries(buffers)) {
     const config = TAILWIND_CONFIG[familyKey]
+    if (!config) continue
 
     if (config.mode === 'side' && buf.sides) {
       classes.push(...collapseSides(config, familyKey, buf.sides))

@@ -1,0 +1,7 @@
+interface:
+  display_name: 'Design in Figma'
+  short_description: 'Create user-directed native Figma designs'
+  icon_small: './assets/icon.svg'
+  icon_large: './assets/icon.svg'
+  brand_color: '#0098FF'
+  default_prompt: 'Use $figma-canvas-authoring to create a native Figma design while following my resource constraints.'

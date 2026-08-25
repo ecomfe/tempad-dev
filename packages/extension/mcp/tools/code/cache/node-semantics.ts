@@ -1,3 +1,6 @@
+import { isVisibleMediaPaint } from '@/mcp/media'
+import { isRenderablePaint } from '@/utils/figma-paint'
+
 import type { GetCodeCacheContext, NodeSemanticSnapshot, PaintArrayState } from './types'
 
 export function getNodeSemanticsCached(
@@ -25,7 +28,7 @@ export function getNodeSemanticsCached(
       hasVisibleFill: hasVisiblePaints(fillsState),
       hasVisibleStroke: hasVisiblePaints(strokesState),
       hasRenderableStroke: hasRenderableStrokes(node),
-      hasImageFill: hasImageFill(fillsState),
+      hasMediaFill: hasMediaFill(fillsState),
       hasVisibleEffect: hasVisibleEffects(node)
     },
     layout: {
@@ -139,15 +142,15 @@ function readConstraints(node: SceneNode): Constraints | null {
 
 function hasVisiblePaints(state: PaintArrayState): boolean {
   if (state.kind !== 'array') return false
-  return state.paints.some(isVisiblePaint)
+  return state.paints.some(isRenderablePaint)
 }
 
-function hasImageFill(state: PaintArrayState): boolean {
+function hasMediaFill(state: PaintArrayState): boolean {
   if (state.kind !== 'array') return false
-  return state.paints.some((paint) => paint.type === 'IMAGE' && paint.visible !== false)
+  return state.paints.some(isVisibleMediaPaint)
 }
 
-function hasRenderableStrokes(node: SceneNode): boolean {
+export function hasRenderableStrokes(node: SceneNode): boolean {
   const typed = node as {
     strokeWeight?: number | symbol
     strokeTopWeight?: number | symbol
@@ -170,7 +173,7 @@ function hasRenderableStrokes(node: SceneNode): boolean {
   return numeric.some((value) => value > 0)
 }
 
-function hasVisibleEffects(node: SceneNode): boolean {
+export function hasVisibleEffects(node: SceneNode): boolean {
   if (!('effects' in node)) return false
   const effects = (node as { effects?: unknown }).effects
   if (effects == null) return false
@@ -180,13 +183,4 @@ function hasVisibleEffects(node: SceneNode): boolean {
     if (!effect || typeof effect !== 'object') return false
     return !('visible' in effect) || effect.visible !== false
   })
-}
-
-function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {
-  if (!paint || paint.visible === false) return false
-  if (typeof paint.opacity === 'number' && paint.opacity <= 0) return false
-  if ('gradientStops' in paint && Array.isArray(paint.gradientStops)) {
-    return paint.gradientStops.some((stop) => (stop.color?.a ?? 1) > 0)
-  }
-  return true
 }

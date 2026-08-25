@@ -14,22 +14,27 @@ import { createSharedComposable, useEventListener } from '@vueuse/core'
 import { computed, shallowRef, watch } from 'vue'
 
 import {
+  type AssetDownloader,
   type AssetUploadRequest,
-  resetUploadedAssets,
+  resetAssetCache,
+  setAssetDownloader,
   setAssetServerUrl,
   setAssetUploader
 } from '@/mcp/assets'
+import { bytesToBase64 } from '@/mcp/encoding'
 import { coerceToolErrorPayload } from '@/mcp/errors'
 import { MCP_LOCAL_HOST_PERMISSION_ERROR, MCP_PERMISSION_REQUEST_EVENT } from '@/mcp/permissions'
 import { runMcpTool } from '@/mcp/runtime'
 import { layoutReady, options, runtimeMode } from '@/ui/state'
 
-type PendingAssetUpload = {
+type PendingAssetRequest<Result> = {
   reject: (error: Error) => void
-  resolve: () => void
+  resolve: (result: Result) => void
   timer: ReturnType<typeof setTimeout>
 }
 type AssetUploadResultMessage = Extract<BridgeToPageMessage, { type: 'mcp.assetUploadResult' }>
+type AssetDownloadResultMessage = Extract<BridgeToPageMessage, { type: 'mcp.assetDownloadResult' }>
+type AssetDownloadPayload = NonNullable<AssetDownloadResultMessage['payload']>
 
 export const useMcp = createSharedComposable(() => {
   const sessionId = crypto.randomUUID()
@@ -45,7 +50,8 @@ export const useMcp = createSharedComposable(() => {
   const errorMessage = shallowRef<string | null>(null)
 
   let enabled = false
-  const pendingAssetUploads = new Map<string, PendingAssetUpload>()
+  const pendingAssetUploads = new Map<string, PendingAssetRequest<void>>()
+  const pendingAssetDownloads = new Map<string, PendingAssetRequest<AssetDownloadPayload>>()
 
   const selfActive = computed(() => activeSessionId.value === sessionId)
   const needsLocalHostPermission = computed(
@@ -77,11 +83,12 @@ export const useMcp = createSharedComposable(() => {
         type: 'mcp.disable'
       })
     }
-    rejectPendingAssetUploads('MCP disabled before asset upload completed.')
+    rejectPending(pendingAssetUploads, 'MCP disabled before asset upload completed.')
+    rejectPending(pendingAssetDownloads, 'MCP disabled before asset download completed.')
     count.value = 0
     activeSessionId.value = null
     setAssetServerUrl(null)
-    resetUploadedAssets()
+    resetAssetCache()
     status.value = 'disabled'
     errorMessage.value = null
   }
@@ -97,6 +104,10 @@ export const useMcp = createSharedComposable(() => {
       handleAssetUploadResult(message)
       return
     }
+    if (message.type === 'mcp.assetDownloadResult') {
+      handleAssetDownloadResult(message)
+      return
+    }
 
     if (message.type === 'mcp.state') {
       const state = message.payload
@@ -107,7 +118,7 @@ export const useMcp = createSharedComposable(() => {
       status.value = state.status
       setAssetServerUrl(state.assetServerUrl ?? null)
       if (state.status !== 'connected') {
-        resetUploadedAssets()
+        resetAssetCache()
       }
       return
     }
@@ -120,6 +131,7 @@ export const useMcp = createSharedComposable(() => {
 
   useEventListener(window, 'message', handleBridgeMessage)
   setAssetUploader(uploadAsset)
+  setAssetDownloader(downloadAsset)
 
   watch(
     canEnable,
@@ -166,43 +178,25 @@ export const useMcp = createSharedComposable(() => {
   }
 
   function uploadAsset(request: AssetUploadRequest): Promise<void> {
-    if (!enabled) {
-      return Promise.reject(new Error('MCP is not connected.'))
-    }
-
-    const requestId = crypto.randomUUID()
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pendingAssetUploads.delete(requestId)
-        reject(new Error('MCP asset upload timed out.'))
-      }, MCP_TOOL_TIMEOUT_MS)
-      pendingAssetUploads.set(requestId, { reject, resolve, timer })
-      try {
-        postPageMessage({
-          ...pageMessageBase,
-          payload: {
-            base64: bytesToBase64(request.bytes),
-            hash: request.hash,
-            metadata: request.metadata,
-            mimeType: request.mimeType
-          },
-          requestId,
-          type: 'mcp.uploadAsset'
-        })
-      } catch (error) {
-        pendingAssetUploads.delete(requestId)
-        clearTimeout(timer)
-        reject(error instanceof Error ? error : new Error('Failed to request asset upload.'))
-      }
-    })
+    return sendAssetRequest(pendingAssetUploads, 'upload', (requestId) =>
+      postPageMessage({
+        ...pageMessageBase,
+        payload: {
+          base64: bytesToBase64(request.bytes),
+          hash: request.hash,
+          metadata: request.metadata,
+          mimeType: request.mimeType
+        },
+        requestId,
+        type: 'mcp.uploadAsset'
+      })
+    )
   }
 
   function handleAssetUploadResult(message: AssetUploadResultMessage): void {
     if (message.sessionId !== sessionId) return
-    const pending = pendingAssetUploads.get(message.requestId)
+    const pending = takePending(pendingAssetUploads, message.requestId)
     if (!pending) return
-    pendingAssetUploads.delete(message.requestId)
-    clearTimeout(pending.timer)
     if (message.error) {
       pending.reject(new Error(message.error.message))
       return
@@ -210,12 +204,73 @@ export const useMcp = createSharedComposable(() => {
     pending.resolve()
   }
 
-  function rejectPendingAssetUploads(message: string): void {
-    for (const pending of pendingAssetUploads.values()) {
+  function downloadAsset(hash: string): ReturnType<AssetDownloader> {
+    return sendAssetRequest(pendingAssetDownloads, 'download', (requestId) =>
+      postPageMessage({
+        ...pageMessageBase,
+        payload: { hash },
+        requestId,
+        type: 'mcp.downloadAsset'
+      })
+    )
+  }
+
+  function sendAssetRequest<Result>(
+    pendingRequests: Map<string, PendingAssetRequest<Result>>,
+    action: 'download' | 'upload',
+    send: (requestId: string) => void
+  ): Promise<Result> {
+    if (!enabled) {
+      return Promise.reject(new Error('MCP is not connected.'))
+    }
+    const requestId = crypto.randomUUID()
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingRequests.delete(requestId)
+        reject(new Error(`MCP asset ${action} timed out.`))
+      }, MCP_TOOL_TIMEOUT_MS)
+      pendingRequests.set(requestId, { reject, resolve, timer })
+      try {
+        send(requestId)
+      } catch (error) {
+        pendingRequests.delete(requestId)
+        clearTimeout(timer)
+        reject(error instanceof Error ? error : new Error(`Failed to request asset ${action}.`))
+      }
+    })
+  }
+
+  function handleAssetDownloadResult(message: AssetDownloadResultMessage): void {
+    if (message.sessionId !== sessionId) return
+    const pending = takePending(pendingAssetDownloads, message.requestId)
+    if (!pending) return
+    if (message.error) {
+      pending.reject(Object.assign(new Error(message.error.message), { code: message.error.code }))
+      return
+    }
+    pending.resolve(message.payload!)
+  }
+
+  function takePending<Result>(
+    requests: Map<string, PendingAssetRequest<Result>>,
+    requestId: string
+  ): PendingAssetRequest<Result> | undefined {
+    const pending = requests.get(requestId)
+    if (!pending) return undefined
+    requests.delete(requestId)
+    clearTimeout(pending.timer)
+    return pending
+  }
+
+  function rejectPending<Result>(
+    requests: Map<string, PendingAssetRequest<Result>>,
+    message: string
+  ): void {
+    for (const pending of requests.values()) {
       clearTimeout(pending.timer)
       pending.reject(new Error(message))
     }
-    pendingAssetUploads.clear()
+    requests.clear()
   }
 
   return {
@@ -228,12 +283,3 @@ export const useMcp = createSharedComposable(() => {
     requestLocalHostPermission
   }
 })
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
-  }
-  return btoa(binary)
-}

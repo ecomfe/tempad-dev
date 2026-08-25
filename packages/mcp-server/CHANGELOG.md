@@ -1,5 +1,51 @@
 # Changelog
 
+- Clarified that the MCP badge, rather than browser foreground state, selects the Figma session
+  receiving tool calls.
+
+## 0.8.0
+
+- Released declarative Figma canvas authoring as a stable MCP workflow.
+- Expanded `apply_canvas` with typed native layout, text, paint/effect, variable/style, page,
+  component/variant, instance, Slot, SVG, and local raster-asset authoring.
+- Hardened create and incremental-update reconciliation with deterministic placement, editor-type
+  and native permission gates, compact validation errors, dependency-aware rollback, no-op
+  convergence, one Undo boundary, and post-write structural verification.
+- Added stable managed-identity recovery through `get_structure` and bounded visual validation
+  through the read-only `get_screenshot` tool.
+- Added local asset paths to read-tool responses so sandboxed desktop agents can open Hub-owned
+  screenshots and assets without a loopback HTTP download.
+- Updated agent setup for the stable `@tempad-dev/mcp@latest` release and paired the new
+  `figma-canvas-authoring` skill with the existing `figma-design-to-code` skill.
+
+## 0.8.0-alpha.0
+
+- Added `get_design_system`, which builds a compact immutable catalog with deterministic cursor
+  pages and short refs for component definitions on accessible pages plus local or directly
+  referenced variable, collection/mode, native style, and shader definitions. It neither inspects
+  canvas usage nor loads every page; exact-ref lookup returns one bounded definition only
+  when needed.
+- Added `apply_canvas`, a single declarative HTML + deterministic Tailwind utility write tool. The extension resolves
+  catalog refs, validates the complete native result, diffs the latest canvas, applies one undoable
+  patch, and performs structural verification.
+- Exposed `get_screenshot` as a bounded, read-only visual validation tool.
+- Added safe create and scoped incremental-update semantics with stable keys, omission preservation,
+  explicit descendant/root removal, no-op convergence, dependency-aware rollback, and stable-key
+  recovery through `get_structure`.
+- Added typed Figma-only result state for native geometry, layout, text, paints/effects/media,
+  variables, native styles, pages, authored components/variants, instances, and Slots without
+  exposing Plugin API operations as tools.
+- Added declarative SVG and local asset-backed image authoring without adding another model-visible
+  tool. Asset identity now uses full SHA-256 digests end to end.
+- Made `apply_canvas` available whenever MCP access is enabled in an editable Figma Design file;
+  the extension rejects Dev Mode and native read-only files.
+- Kept always-on guidance to user-priority routing and safety rules while moving authoring workflow,
+  syntax, executable local-resource examples, and advanced native features into the progressive
+  canvas-authoring skill. Design-system discovery is conditional rather than an authoring preflight,
+  while visually inventive work grounds unspecified style through project evidence, applicable
+  skills, or bounded domain research instead of generic model defaults.
+- Added standard MCP annotations for read-only and mutating tool behavior.
+
 ## 0.7.1
 
 - Aligned MCP server identity metadata around the stable `tempad-dev` name and human-readable
