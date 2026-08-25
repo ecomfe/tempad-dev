@@ -95,6 +95,10 @@ label, largest nested swap, and materially different slots. Compare descendant
 bounds with the INSTANCE root; screenshots can still paint invalid overflow.
 If content exceeds the root, enlarge the definition, add a truthful size
 variant, or move the varying region outside a smaller stable boundary.
+If consumer-specific media cannot be expressed by the available instance
+contract, keep that media direct and componentize the stable surrounding
+responsibility; never freeze one image into every instance to retain a larger
+component boundary.
 
 When stable anatomy should evolve together, expressible state differences
 support a shared contract. Keep it local only when divergence or contract cost

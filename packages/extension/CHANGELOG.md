@@ -1,7 +1,9 @@
 # Changelog
 
-- Added portable `font-serif` and `font-mono` Canvas utilities alongside `font-sans`, preserving
-  typographic contrast without guessing file-specific font availability.
+- Added portable `font-serif` and `font-mono` Canvas utilities alongside `font-sans`, resolving an
+  editor-available family in each category while preserving supported weight classes.
+- Preflight Canvas text fonts before mutation and remove any created-node remnants after rollback,
+  preventing failed applies from leaving partial screens or component definitions on the page.
 - Require an explicit Figma-tab choice when multiple MCP sessions appear or a new Hub connects,
   preventing a stale tab route from silently receiving canvas writes.
 
