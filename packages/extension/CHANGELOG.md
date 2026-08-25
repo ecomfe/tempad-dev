@@ -1,5 +1,7 @@
 # Changelog
 
+- Added portable `font-serif` and `font-mono` Canvas utilities alongside `font-sans`, preserving
+  typographic contrast without guessing file-specific font availability.
 - Require an explicit Figma-tab choice when multiple MCP sessions appear or a new Hub connects,
   preventing a stale tab route from silently receiving canvas writes.
 

@@ -67,6 +67,7 @@ import {
   removeStyleResources,
   resolveStyle
 } from './styles'
+import { normalizePortableFontStyle } from './tailwind'
 import {
   isComponentPropertyOwner,
   isInsideInstance,
@@ -3578,10 +3579,14 @@ async function loadTextFonts(
     )
   }
 
+  const desiredFamily = fontFamily ?? (currentFont === figma.mixed ? '' : currentFont.family)
+  const desiredStyle = fontStyle ?? (currentFont === figma.mixed ? '' : currentFont.style)
   const desiredFont: FontName | null = hasExplicitFont
     ? {
-        family: fontFamily ?? (currentFont === figma.mixed ? '' : currentFont.family),
-        style: fontStyle ?? (currentFont === figma.mixed ? '' : currentFont.style)
+        family: desiredFamily,
+        style: spec.figma?.text?.fontName
+          ? desiredStyle
+          : normalizePortableFontStyle(desiredFamily, desiredStyle)
       }
     : null
   const fonts = desiredFont
