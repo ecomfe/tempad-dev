@@ -273,7 +273,10 @@ evidence in the medium relevant to the decision and preserve content
 distinctions: every content-bearing consumer must depict its claimed subject,
 so one composite scene cannot substitute for several distinct record media.
 The skill does not assume an image slot, require a visual asset, or prescribe a
-source-selection tree. It encodes only the ordering invariant:
+source-selection tree. When inspected precedent establishes a conventional
+icon role for the same screen action or object, omission remains unresolved
+unless screen-specific clarity favors text. For asset acquisition, it encodes
+only the ordering invariant:
 establish a distinct visual job from the brief or evidence, choose its medium,
 then choose a source and import route. Depiction is a job rather than a synonym
 for raster imagery, so the applicable evidence still governs whether its medium

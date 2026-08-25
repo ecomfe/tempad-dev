@@ -56,12 +56,9 @@ its intended scroll container. A fixed viewport with incomplete content and no
 explicit scroll region is invalid. Do not shrink, omit, or crowd content to fit
 a familiar screenshot ratio.
 
-Before markup, audit material icon candidates across navigation, search,
-filtering, sorting, save or share, disclosure, status or object categories, and
-compact utilities. Choose icon, text, or both by recognition, scanning, and
-compactness; these examples are not a quota or checklist. An all-text vocabulary
-is valid only when genuinely clearer, not because sourcing takes effort. Route
-every selected icon through `visual-assets.md`.
+Apply the main skill's blocking icon audit while forming the interaction
+vocabulary. Route every selected icon through `visual-assets.md`; use the
+retained trace to test text-only exceptions and consistency.
 
 ## Test the representative screen
 
