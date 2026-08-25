@@ -131,7 +131,10 @@ const CONNECTIVITY_TROUBLESHOOTING_LINES = [
   '- If the connection is missing or reports a protocol mismatch, rebuild the affected runtime layers, reload the installed TemPad Dev browser extension, reload the same Figma tab, and start a fresh task.'
 ]
 
-const SELECTION_TROUBLESHOOTING_LINE = 'Tip: Select exactly one visible node, or pass nodeId.'
+const SINGLE_SELECTION_TROUBLESHOOTING_LINE =
+  'Tip: Select exactly one visible node, or pass nodeId.'
+const MULTI_SELECTION_TROUBLESHOOTING_LINE =
+  'Tip: Select one or more visible nodes, or pass nodeId.'
 const VERIFICATION_TROUBLESHOOTING_LINE =
   'Tip: TemPad rolls verification failures back. Correct the reported desired-state mismatch and retry the affected root while preserving unrelated design intent.'
 
@@ -238,7 +241,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_structure',
     description:
-      "Read a compact hierarchy and geometry outline for an exact node, exact page id/key, or the current single selection. Every x/y is relative to the node's actual Figma parent; page-query roots are page-relative. The outline includes stable keys on TemPad-managed nodes and exact page context when page identity is supplied. Set options.native for selected native read-back; it does not provide rendered pixels or general appearance.",
+      "Read a compact hierarchy and geometry outline for an exact node, exact page id/key, or the current selection of one or more visible nodes. Every x/y is relative to the node's actual Figma parent; page-query roots are page-relative. The outline includes stable keys on TemPad-managed nodes and exact page context when page identity is supplied. Set options.native for selected native read-back; it does not provide rendered pixels or general appearance.",
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetStructureParametersSchema,
     target: 'extension',
@@ -291,7 +294,7 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
   const message = extractToolErrorMessage(error)
   const code = extractToolErrorCode(error)
   const codeLabel = code ? ` [${code}]` : ''
-  const troubleshooting = buildTroubleshootingText(code, message)
+  const troubleshooting = buildTroubleshootingText(toolName, code, message)
 
   return {
     isError: true,
@@ -304,7 +307,11 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
   }
 }
 
-function buildTroubleshootingText(code: TempadMcpErrorCode | undefined, message: string): string {
+function buildTroubleshootingText(
+  toolName: string,
+  code: TempadMcpErrorCode | undefined,
+  message: string
+): string {
   const help: string[] = []
 
   if (isConnectivityToolError(code, message)) {
@@ -312,7 +319,11 @@ function buildTroubleshootingText(code: TempadMcpErrorCode | undefined, message:
   }
 
   if (isSelectionToolError(code, message)) {
-    help.push(SELECTION_TROUBLESHOOTING_LINE)
+    help.push(
+      toolName === 'get_structure'
+        ? MULTI_SELECTION_TROUBLESHOOTING_LINE
+        : SINGLE_SELECTION_TROUBLESHOOTING_LINE
+    )
   }
 
   if (code === TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC && /verification failed/i.test(message)) {
@@ -335,6 +346,7 @@ function isSelectionToolError(code: TempadMcpErrorCode | undefined, message: str
   return (
     (code ? SELECTION_ERROR_CODES.has(code) : false) ||
     /select exactly one visible node/i.test(message) ||
+    /select one or more visible nodes/i.test(message) ||
     /no visible node found/i.test(message)
   )
 }

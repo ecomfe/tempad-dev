@@ -198,10 +198,15 @@ describe('mcp/runtime', () => {
     })
   })
 
-  it('throws coded error for invalid current selection (empty or invisible)', async () => {
+  it('throws coded error for invalid get_code selection (empty, invisible or multiple)', async () => {
     setFigmaGetNodeById(null)
     const runtime = await importRuntime()
 
+    await expect(runtime.MCP_TOOL_HANDLERS.get_code()).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
+    })
+
+    setFigmaGetNodeById(null, [createSceneNode('first'), createSceneNode('second')])
     await expect(runtime.MCP_TOOL_HANDLERS.get_code()).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
     })
@@ -296,6 +301,50 @@ describe('mcp/runtime', () => {
 
     await runtime.MCP_TOOL_HANDLERS.get_structure()
     expect(mocks.runGetStructure).toHaveBeenLastCalledWith([node], undefined, undefined)
+  })
+
+  it('reads all live selected nodes for structure after the current page changes', async () => {
+    const first = createSceneNode('first')
+    const second = createSceneNode('second')
+    const stale = createSceneNode('stale-from-previous-page')
+    mocks.selection.value = [stale]
+    setFigmaGetNodeById(null, [stale])
+    mocks.runGetStructure.mockResolvedValue({ roots: [] })
+    const runtime = await importRuntime()
+
+    setFigmaGetNodeById(null, [first, second])
+    await runtime.MCP_TOOL_HANDLERS.get_structure({ options: { depth: 1, native: true } })
+
+    expect(mocks.runGetStructure).toHaveBeenCalledWith([first, second], 1, true)
+    await expect(runtime.MCP_TOOL_HANDLERS.get_screenshot()).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
+    })
+  })
+
+  it('uses an explicit structure node id instead of the current multi-selection', async () => {
+    const target = createSceneNode('target')
+    setFigmaGetNodeById(target, [createSceneNode('first'), createSceneNode('second')])
+    mocks.runGetStructure.mockResolvedValue({ roots: [] })
+    const runtime = await importRuntime()
+
+    await runtime.MCP_TOOL_HANDLERS.get_structure({ nodeId: target.id })
+
+    expect(mocks.runGetStructure).toHaveBeenCalledWith([target], undefined, undefined)
+  })
+
+  it('rejects an empty or partly hidden structure selection', async () => {
+    setFigmaGetNodeById(null)
+    const runtime = await importRuntime()
+
+    await expect(runtime.MCP_TOOL_HANDLERS.get_structure()).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
+    })
+
+    setFigmaGetNodeById(null, [createSceneNode('visible'), createSceneNode('hidden', false)])
+    await expect(runtime.MCP_TOOL_HANDLERS.get_structure()).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
+    })
+    expect(mocks.runGetStructure).not.toHaveBeenCalled()
   })
 
   it('reads an exact page by managed key without changing the active page', async () => {

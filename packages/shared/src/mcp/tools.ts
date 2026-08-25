@@ -163,7 +163,7 @@ export const GetStructureParametersSchema = z
     nodeId: z
       .string()
       .describe(
-        'Optional node id to outline; defaults to the current single selection when no page identity is supplied.'
+        'Optional node id to outline; defaults to the current selection of one or more visible nodes when no page identity is supplied.'
       )
       .optional(),
     pageId: z.string().min(1).describe('Exact local page id to outline.').optional(),

@@ -55,6 +55,27 @@ describe('mcp/tools/structure', () => {
     expect(buildBoundedStructureOutline).toHaveBeenCalledWith([], 3, 240)
   })
 
+  it('preserves separate outlines for multiple selected roots', async () => {
+    const { buildBoundedStructureOutline: buildActualOutline } =
+      await vi.importActual<typeof import('@/mcp/semantic-tree')>('@/mcp/semantic-tree')
+    vi.mocked(buildBoundedStructureOutline).mockImplementationOnce(buildActualOutline)
+    const first = {
+      id: 'node-1',
+      name: 'First',
+      type: 'FRAME',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100
+    }
+    const second = { ...first, id: 'node-2', name: 'Second', x: 200 }
+    const roots = [first, second].map((node) => ({ ...node, visible: true })) as SceneNode[]
+
+    const result = handleGetStructure(roots, 1)
+
+    expect(result).toEqual({ roots: [first, second] })
+  })
+
   it('returns stable authoring keys only for managed nodes', () => {
     const child = {
       id: 'child-1',

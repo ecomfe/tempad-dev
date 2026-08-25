@@ -62,6 +62,22 @@ function resolveSingleNode(nodeId?: string): SceneNode {
   return selectedNode
 }
 
+function resolveVisibleNodes(nodeId?: string): SceneNode[] {
+  if (nodeId) {
+    return [resolveSingleNode(nodeId)]
+  }
+
+  const currentSelection = figma.currentPage.selection
+  if (!currentSelection.length || currentSelection.some((node) => !node.visible)) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION,
+      'Select one or more visible nodes (or provide nodeId) to proceed.'
+    )
+  }
+
+  return [...currentSelection]
+}
+
 export type WindowGetCodeParametersInput = GetCodeParametersInput & {
   _unbounded?: boolean
 }
@@ -101,8 +117,8 @@ async function handleGetStructure(args?: GetStructureParametersInput): Promise<G
   const { nodeId, pageId, pageKey, options } = args ?? {}
   const depth = options?.depth
   if (!pageId && !pageKey) {
-    const root = resolveSingleNode(nodeId)
-    return runGetStructure([root], depth, options?.native)
+    const roots = resolveVisibleNodes(nodeId)
+    return runGetStructure(roots, depth, options?.native)
   }
 
   const idMatch = pageId ? pageById(pageId) : undefined

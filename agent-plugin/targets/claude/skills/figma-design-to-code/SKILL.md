@@ -63,7 +63,13 @@ implementation.
 
 ### 2. Read the design at the requested scope
 
-Call TemPad Dev's `get_code` before implementing:
+If multiple top-level designs are selected, call `get_structure` with
+`options.depth: 1` to discover their root IDs, then call `get_code` separately
+for each requested root. Use this outline only for selection discovery and
+hierarchy. If `truncated` is true, narrow the selection before treating the
+root list as complete.
+
+For each single design root, call TemPad Dev's `get_code` before implementing:
 
 - use `resolveTokens: false` by default;
 - omit `nodeId` for the current single selection; pass one only when the user
