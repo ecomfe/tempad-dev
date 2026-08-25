@@ -34,6 +34,16 @@ function applyCall(
   })
 }
 
+function imageView(path: string): string {
+  return row({
+    type: 'event_msg',
+    payload: {
+      type: 'item_completed',
+      item: { type: 'ImageView', path }
+    }
+  })
+}
+
 describe('agent authoring rollout inspection', () => {
   it('summarizes research, acquisition, icon, component, and apply evidence', () => {
     const rollout = [
@@ -41,6 +51,9 @@ describe('agent authoring rollout inspection', () => {
       customCall('await browser.goto("https://example.com/reference")'),
       customCall('await browser.screenshot()'),
       customCall('await tools.image_gen__imagegen({ prompt: "bespoke fictional object" })'),
+      imageView('file:///tmp/work/references/category-reference.png'),
+      imageView('file:///tmp/tempad-dev/assets/final-screen.png'),
+      imageView('file:///tmp/unclassified.png'),
       applyCall(
         {
           markup:
@@ -87,6 +100,7 @@ describe('agent authoring rollout inspection', () => {
         openedSourceCalls: 1,
         browserScreenshotCalls: 1
       },
+      imageViews: { total: 3, references: 1, tempadScreenshots: 1, other: 1 },
       assets: {
         imageGenerationCalls: 1,
         appliedRemoteImageDomains: ['images.unsplash.com'],
