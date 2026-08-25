@@ -195,6 +195,14 @@ describe('tools response helpers', () => {
     expect(textContent(selectionError.content[0])).toContain('[INVALID_SELECTION]')
     expect(textContent(selectionError.content[0])).toContain('Tip: Select exactly one visible node')
 
+    const structureSelectionError = createToolErrorResponse('get_structure', {
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION,
+      message: 'Select one or more visible nodes.'
+    })
+    expect(textContent(structureSelectionError.content[0])).toContain(
+      'Tip: Select one or more visible nodes'
+    )
+
     const unknownError = createToolErrorResponse('get_assets', 42)
     expect(unknownError.isError).toBe(true)
     expect(textContent(unknownError.content[0])).toBe(

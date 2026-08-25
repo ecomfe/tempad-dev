@@ -114,7 +114,7 @@ export const GetStructureParametersSchema = z.object({
   nodeId: z
     .string()
     .describe(
-      'Optional node id to outline; defaults to the current single selection. Useful when auto-layout hints are none/inferred or you need explicit geometry for refactors.'
+      'Optional node id to outline; defaults to all visible nodes in the current selection. Useful for enumerating multiple selected design roots or confirming hierarchy and geometry.'
     )
     .optional(),
   options: z
