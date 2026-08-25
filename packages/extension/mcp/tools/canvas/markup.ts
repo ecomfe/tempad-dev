@@ -9,7 +9,7 @@ import type {
   CanvasVariableBindings
 } from '@tempad-dev/shared'
 
-import { CanvasStableKeySchema, MAX_CANVAS_DEPTH, MAX_CANVAS_NODES } from '@tempad-dev/shared'
+import { CanvasStableKeySchema, MAX_CANVAS_DEPTH } from '@tempad-dev/shared'
 
 import type { CatalogComponent, DesignSystemCatalog } from '../design-system-catalog'
 import type { CanvasMarkupElement } from './html'
@@ -675,7 +675,6 @@ function validateTextFont(
 type CompileState = {
   bindings: Record<string, CanvasBinding>
   catalog?: DesignSystemCatalog
-  count: number
   existingNodeTypes?: CanvasNodeTypeHints
   keys: Set<string>
   mode: CanvasResolvedApplyParameters['mode']
@@ -960,12 +959,6 @@ function compileElement(
   gridPlacement?: GridPlacement,
   insideComponent = false
 ): CanvasNodeSpec {
-  state.count += 1
-  if (state.count > MAX_CANVAS_NODES) {
-    markupError(
-      `Canvas markup contains more than ${MAX_CANVAS_NODES} elements. Keep one root and split the update at a meaningful screen or section boundary; omitted siblings are preserved.`
-    )
-  }
   if (depth > MAX_CANVAS_DEPTH) {
     markupError(`Canvas markup may be at most ${MAX_CANVAS_DEPTH} levels deep.`)
   }
@@ -1746,7 +1739,6 @@ export function parseCanvasMarkup(
   const state: CompileState = {
     bindings: Object.assign(Object.create(null) as Record<string, CanvasBinding>, input.bindings),
     ...(catalog ? { catalog } : {}),
-    count: 0,
     ...(existingNodeTypes ? { existingNodeTypes } : {}),
     keys: new Set(),
     mode: input.mode,

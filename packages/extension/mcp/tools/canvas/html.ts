@@ -1,4 +1,4 @@
-import { MAX_CANVAS_DEPTH } from '@tempad-dev/shared'
+import { MAX_CANVAS_DEPTH, MAX_CANVAS_NODES } from '@tempad-dev/shared'
 
 export type CanvasMarkupElement = {
   attributes: Record<string, string>
@@ -75,6 +75,7 @@ function decodeEntities(value: string): string {
 }
 
 class CanvasHtmlParser {
+  private elementCount = 0
   private index = 0
 
   constructor(private readonly source: string) {}
@@ -95,6 +96,12 @@ class CanvasHtmlParser {
   private parseElement(depth: number): CanvasMarkupElement {
     if (depth > MAX_CANVAS_DEPTH) {
       htmlError(`Canvas markup may be at most ${MAX_CANVAS_DEPTH} levels deep.`)
+    }
+    this.elementCount += 1
+    if (this.elementCount > MAX_CANVAS_NODES) {
+      htmlError(
+        `Canvas markup contains more than ${MAX_CANVAS_NODES} elements. Keep one root and split the update at a meaningful screen or section boundary; omitted siblings are preserved.`
+      )
     }
     this.expect('<')
     if (this.peek('/') || this.peek('!') || this.peek('?')) {

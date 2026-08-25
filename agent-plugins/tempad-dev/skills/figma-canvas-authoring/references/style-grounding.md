@@ -1,97 +1,92 @@
-# Ground unresolved design decisions
+# Ground material design decisions
 
-Use this reference only when a material design decision is not established by
-the user, permitted project or Figma evidence, or suitable professional
-expertise. Skip exact reproduction, mechanical edits, and decisions already
-settled by sufficient evidence.
-
-This reference defines an evidence process, not a UX checklist or style guide.
-It does not prescribe which product concerns must matter, how many sources to
-inspect, or what conclusion to reach. Determine those from the actual task.
+Use this evidence process for the initial direction of net-new work or a
+significant visual redesign, and for later material decisions not settled by the
+user or permitted project or Figma evidence. Skip exact reproduction,
+mechanical edits, and choices already grounded by inspected evidence. This is
+not a UX checklist or style guide; the task determines relevant concerns and
+conclusions.
 
 ## Isolate the uncertainty
 
 Before research:
 
-1. inventory the requirements and evidence already available;
-2. name only the unresolved decisions that could materially change the result;
-3. separate missing evidence from low-consequence choices the agent can make and
-   identify as assumptions.
+1. Inventory available requirements and evidence.
+2. Name only unresolved decisions that could materially change the result.
+3. Separate missing evidence from low-consequence choices that can be stated as
+   assumptions.
 
-Do not research a broad category when one decision is unresolved. Do not turn a
-remembered convention, a tool affordance, or an example from this skill into a
-requirement.
+Research the decision, not its broad category. Do not promote remembered
+conventions, tool affordances, or skill examples into requirements. Broad
+qualitative words assign a visual decision to the designer. Apply suitable
+expertise to form an explicit, task-specific interpretation; seek more evidence
+only when materially different interpretations remain plausible after that
+reasoning.
 
-Broad qualitative words can state an intended effect without determining the
-choices that produce it. When materially different interpretations remain
-plausible, the decision is still unresolved.
-
-For a net-new result without a concrete reference or representative established
-screen or system, the direction-defining visual language is material. Giving the
-agent creative latitude assigns that decision to the agent; it does not make the
-decision low-consequence. This calls for the smallest evidence that resolves the
-choice, not a survey of the category.
+For net-new work or a significant visual redesign without a supplied reference
+or established system, inspect a small representative set of real references
+before the first `apply_canvas`. Together they must ground the initial visual
+language, core interaction pattern, and relevant detail or material treatment.
+Use external research when permitted; an inspected current-file composition,
+project evidence, or user-supplied reference can cover the dimensions it
+actually demonstrates. A named style, tradition, period, medium, or body of
+work always requires inspecting representative artifacts from it; familiarity
+or model memory does not satisfy this gate. If no usable evidence is available,
+ask for a reference or disclose the blocked grounding step instead of silently
+inventing a direction.
 
 ## Select expertise before availability
 
-Name the professional capability that owns the unresolved decision before
-examining installed skills or tools. Then, when the host permits it, discover or
-acquire a candidate and inspect its provenance, instructions, stated scope, and
-fit for the task's platform, medium, domain, and deliverable. Installed status
-or a broad label such as “frontend” does not establish suitability, and no one
-design skill is a universal default. Use complementary expertise only where the
-task needs it; TemPad remains responsible for Figma execution.
+Name the professional capability that owns the decision before inspecting
+installed skills or tools. When the host permits discovery or acquisition,
+actively seek one fit candidate and inspect its provenance, complete
+instructions, scope, and fit for the task's platform, medium, domain, and
+deliverable. Installed status or a broad label does not establish fit, and no
+design skill is universal. Use complementary expertise only where needed;
+TemPad still owns Figma execution.
 
-When the selected candidate is a remote skill, retrieve its complete current
-instructions through a path that reaches the end of the source. A truncated
-response, excerpt, or search result is not the skill; retry through another
-supported path or report that the candidate could not be inspected.
+For remote skills, retrieve the complete current source through EOF. A truncated
+response, excerpt, or search result is insufficient; retry through another
+supported route or report that inspection failed.
 
-If the host cannot supply suitable expertise, use targeted primary guidance or
-inspected visual evidence. Ask the user when the remaining choice would
-materially change the result. Never copy one candidate's contextual rules into
-this reference or silently turn missing environment capability into generic
-design defaults.
+If suitable expertise is unavailable, use targeted primary guidance or
+inspected visual evidence. Ask the user only when the remaining choice is
+material; otherwise state the assumption. Never copy contextual rules from a
+candidate into this reference or turn missing capability into generic defaults.
 
 ## Obtain sufficient evidence
 
-For each unresolved decision, choose the nearest credible source whose authority
-actually covers that decision. Project and current-file evidence usually has the
-closest product context; external primary guidance may establish scoped
-requirements; inspected products or visual artifacts may establish applicable
-precedent. These are possible evidence roles, not a mandatory source list.
+Choose the nearest credible source whose authority covers the decision. Project
+and current-file evidence has the closest context; primary guidance can establish
+requirements; inspected products and artifacts can establish precedent.
 
-Start with the closest candidate and inspect one representative source or
-artifact. Seek another only when the first leaves a material conflict or gap;
-the objective is to settle the decision, not accumulate inspiration. Search
-snippets and remembered summaries are discovery leads, not inspected evidence.
-Record:
+A source counts only when all are true:
 
-- the exact source or artifact identity;
-- the requirement or principle it supports;
-- why it applies here and where its authority stops;
-- the resulting decision or remaining uncertainty.
+- the source page or a recoverable artifact is open;
+- the relevant pixels, screen, or specification was inspected;
+- its authority covers the attributed decision;
+- the trace records the finding and resulting decision.
 
-Use as many distinct sources as the unresolved decision genuinely needs—no
-fixed minimum or comparison ceremony. Stop when the material uncertainty is
-resolved. If required evidence is unavailable or prohibited, ask the user when
-the choice would materially change the deliverable; otherwise state the
-assumption.
+Search pages, image-result tiles, snippets, metadata, and remembered summaries
+only locate candidates. Open the source or a permitted local copy. A content
+image cannot establish surrounding composition or controls; a visual precedent
+cannot establish behavior it does not show or specify.
 
-Match the evidence medium to the decision. Textual guidance, including generic
-guidance from another skill, may establish a workflow or behavioral principle;
-a direction-defining visual decision needs an inspected visual artifact or an
-exact visual specification. Search results, product descriptions, and prose
-about navigation do not by themselves establish composition, typography, color,
-density, or imagery.
+For named lineage, attribution, or system history, prefer primary, official,
+creator, or institutional evidence when reasonably available. Secondary sources
+support only the visible facts in the inspected artifact. For interaction,
+inspect a real product screen, demo, or specification covering control behavior,
+information choreography, and material state. Screen names, requested fields,
+and task sequence establish scope, not precedent.
 
-Judge sufficiency per decision. Evidence about an asset, isolated convention,
-or tool constraint does not ground unrelated composition or visual-language
-choices.
+Use no source quota. Stop when every unresolved initial visual, interaction, and
+detail decision has applicable inspected evidence. If a material gap remains,
+continue bounded research, ask for the choice, or report the block; do not call
+`apply_canvas` from memory.
 
 ## Retain a compact decision trace
 
-Keep a short working note before the first `apply_canvas` call:
+Before the first `apply_canvas`, keep only task-relevant lines:
 
 ```txt
 Outcome: requested result and scope
@@ -101,12 +96,10 @@ Assumptions: only unresolved low-consequence choices
 Verification: result-specific evidence to inspect in Figma
 ```
 
-Include only lines the current task needs. This note is not a deliverable or a
-mood board.
+This is a working note, not a deliverable or mood board.
 
 ## Apply and verify
 
-Translate the decisions into one coherent composition. Judge the rendered
-artifact against the task-specific trace, not against generic advice in this
-skill. Correct concrete mismatches; do not add more research or continue tuning
-without a remaining material uncertainty or observed defect.
+Translate the decisions into one coherent composition and judge the rendering
+against this task-specific trace. Correct concrete mismatches; research or tune
+further only for remaining material uncertainty or an observed defect.

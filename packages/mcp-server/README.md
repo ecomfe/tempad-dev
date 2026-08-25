@@ -28,6 +28,8 @@ Supported tools/resources:
   component tags, short design-system refs, typed Figma-only state, sanitized SVG, and
   content-addressed images. The extension resolves, validates, diffs, applies, and structurally
   verifies the result.
+- `upload_asset`: A bounded Hub-only bridge from a programmatically composed generated PNG/JPEG/GIF
+  data URL to a content-addressed `assetHash` for `apply_canvas`; encoded bytes are never returned.
 - `get_screenshot`: A bounded rendered PNG for selective visual validation.
 - `get_structure`: Hierarchy/geometry outline for the selection, including stable authoring keys on
   TemPad-managed nodes and optional native mask, IMAGE paint, layout-grid, and frame-guide read-back.

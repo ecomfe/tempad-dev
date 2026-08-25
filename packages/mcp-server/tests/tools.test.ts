@@ -14,7 +14,8 @@ import {
   createScreenshotToolResponse,
   createStructureToolResponse,
   createTokenDefsToolResponse,
-  createToolErrorResponse
+  createToolErrorResponse,
+  createUploadAssetToolResponse
 } from '../src/tools'
 
 const codePayload: ToolResultMap['get_code'] = {
@@ -42,7 +43,14 @@ describe('tools response helpers', () => {
     expect(
       new Set(TOOL_DEFS.filter((tool) => tool.exposed !== false).map((tool) => tool.name))
     ).toEqual(
-      new Set(['get_code', 'get_design_system', 'apply_canvas', 'get_screenshot', 'get_structure'])
+      new Set([
+        'get_code',
+        'get_design_system',
+        'apply_canvas',
+        'get_screenshot',
+        'get_structure',
+        'upload_asset'
+      ])
     )
   })
 
@@ -78,7 +86,17 @@ describe('tools response helpers', () => {
       openWorldHint: true
     })
 
-    for (const tool of TOOL_DEFS.filter((definition) => definition.name !== 'apply_canvas')) {
+    const uploadAsset = TOOL_DEFS.find((tool) => tool.name === 'upload_asset')
+    expect(uploadAsset?.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    })
+
+    for (const tool of TOOL_DEFS.filter(
+      (definition) => definition.name !== 'apply_canvas' && definition.name !== 'upload_asset'
+    )) {
       expect(tool.annotations).toEqual({
         readOnlyHint: true,
         destructiveHint: false,
@@ -86,6 +104,19 @@ describe('tools response helpers', () => {
         openWorldHint: false
       })
     }
+  })
+
+  it('formats generated asset imports without returning encoded bytes', () => {
+    const payload: ToolResultMap['upload_asset'] = {
+      assetHash: ASSET_HASH,
+      mimeType: 'image/png',
+      size: 2048
+    }
+    const result = createUploadAssetToolResponse(payload)
+    expect(result.structuredContent).toEqual(payload)
+    expect(textContent(result.content[0])).toContain(ASSET_HASH)
+    expect(textContent(result.content[0])).toContain('apply_canvas IMAGE asset declaration')
+    expect(JSON.stringify(result)).not.toContain('data:image')
   })
 
   it('formats code tool responses with summaries, warnings, assets and tokens', () => {
