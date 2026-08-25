@@ -1542,6 +1542,9 @@ function compileElement(
         ...(fontFamily !== undefined || includeDefaults
           ? { fontFamily: fontFamily ?? 'Inter' }
           : {}),
+        ...(fontName === undefined && classes.portableFontFamily
+          ? { portableFontFamily: classes.portableFontFamily }
+          : {}),
         ...(fontStyle !== undefined || includeDefaults
           ? { fontStyle: fontStyle ?? 'Regular' }
           : {}),

@@ -230,6 +230,7 @@ const FONT_FAMILY_CLASSES = {
   'font-sans': 'Inter',
   'font-serif': 'Noto Serif'
 } as const
+export type PortableFontFamily = 'mono' | 'sans' | 'serif'
 const PORTABLE_FONT_STYLE_ALIASES = {
   Inter: {
     ExtraBold: 'Extra Bold',
@@ -307,6 +308,7 @@ export type CanvasClasses = {
   insetShadows?: CanvasShadowEffect[]
   textShadows?: CanvasShadowEffect[]
   fontFamily?: string
+  portableFontFamily?: PortableFontFamily
   fontStyle?: string
   fontSize?: number
   lineHeight?: LineHeight
@@ -1015,6 +1017,7 @@ export function parseCanvasClasses(value: string): CanvasClasses {
     const fontFamily = FONT_FAMILY_CLASSES[token as keyof typeof FONT_FAMILY_CLASSES]
     if (fontFamily) {
       assign(classes, 'fontFamily', fontFamily, token)
+      classes.portableFontFamily = token.slice(5) as PortableFontFamily
       classes.textClass ??= token
       continue
     }

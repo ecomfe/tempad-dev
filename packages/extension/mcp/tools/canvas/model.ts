@@ -120,6 +120,7 @@ export type CanvasNodeSpec = {
   text?: {
     characters: string
     fontFamily?: string
+    portableFontFamily?: 'mono' | 'sans' | 'serif'
     fontStyle?: string
     fontSize?: number
     lineHeight?: LineHeight

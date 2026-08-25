@@ -116,10 +116,11 @@ styles, typography variables, project fonts, or supplied references. Confirm
 each exact Figma family/style; never guess.
 
 Use `figma.text.fontName` for exact whole-node fonts and ranges only for
-intentional mixed typography. Portable `font-sans|serif|mono` utilities deliver
-Inter, Noto Serif, or Noto Sans Mono; they do not satisfy another named family.
-For another required family, bind its style, variable, or exact font, or leave
-the brief at the supported evidence level.
+intentional mixed typography. Portable `font-sans|serif|mono` utilities resolve
+to an editor-available family in that category, preferring Inter, Noto Serif,
+or Noto Sans Mono. They do not satisfy another named family. For a required
+family, bind its style, variable, or exact font, or leave the brief at the
+supported evidence level.
 
 ## Images and illustrations
 
@@ -160,13 +161,14 @@ asset—not merely the batch—to its role, subject, medium, and unmet source
 requirement. Skip the source search only when the brief requires an unlikely
 combination or sourcing cannot preserve the role. If a source satisfies the
 role, use it; do not generate an alternative by default.
-Compose generation and Hub import programmatically so image bytes never enter
-prose: pass the generator's `data:` URL directly to TemPad's `upload_asset`,
-read its returned `assetHash`, then declare that hash as an IMAGE asset in
-`apply_canvas`. If generation or `upload_asset` is unavailable, choose a
-rights-established public image source only when it preserves the intended
-medium; otherwise disclose the required gap. Never generate first and silently
-switch medium because import failed.
+Compose generation and Hub import in one programmatic execution so image bytes
+never enter prose or expire between calls: pass the generator's `data:` URL
+directly to TemPad's `upload_asset`, read its returned `assetHash`, then declare
+that hash as an IMAGE asset in `apply_canvas`. Do not regenerate an unchanged
+prompt only to recover an importable URL. If generation or `upload_asset` is
+unavailable, choose a rights-established public image source only when it
+preserves the intended medium; otherwise disclose the required gap. Never
+generate first and silently switch medium because import failed.
 
 Use `imageUrl` for a rights-established public IMAGE paint or same-file
 `imageHash` for an existing image. For generated or other local Hub content,

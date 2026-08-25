@@ -162,6 +162,7 @@ type ProtectedNodeSnapshot = {
 
 type ApplyState = {
   assets: ResolvedCanvasAssets
+  availableFonts?: Promise<Font[]>
   claimedNodeIds: Set<string>
   componentCache: Map<string, ComponentNode>
   componentPropertyKeys: Map<string, Record<string, string>>
@@ -975,6 +976,68 @@ function loadFont(font: FontName, state: ApplyState): Promise<void> {
 async function loadFonts(fonts: Iterable<FontName>, state: ApplyState): Promise<void> {
   const unique = new Map([...fonts].map((font) => [`${font.family}\0${font.style}`, font] as const))
   await Promise.all([...unique.values()].map((font) => loadFont(font, state)))
+}
+
+const PORTABLE_FONT_CANDIDATES = {
+  mono: ['Noto Sans Mono', 'Roboto Mono', 'IBM Plex Mono', 'Source Code Pro', 'Space Mono'],
+  sans: ['Inter'],
+  serif: ['Noto Serif', 'Source Serif 4', 'Roboto Serif', 'Merriweather', 'Georgia']
+} as const
+
+function normalizedFontStyle(style: string): string {
+  return style.toLowerCase().replaceAll(/[^a-z]/g, '')
+}
+
+function fontStyleWeight(style: string): number {
+  const normalized = normalizedFontStyle(style)
+  if (normalized.includes('thin')) return 100
+  if (normalized.includes('extralight') || normalized.includes('ultralight')) return 200
+  if (normalized.includes('light')) return 300
+  if (normalized.includes('medium')) return 500
+  if (normalized.includes('semibold') || normalized.includes('demibold')) return 600
+  if (normalized.includes('extrabold') || normalized.includes('ultrabold')) return 800
+  if (normalized.includes('black') || normalized.includes('heavy')) return 900
+  if (normalized.includes('bold')) return 700
+  return 400
+}
+
+function closestFontStyle(fonts: Font[], desiredStyle: string): FontName {
+  const normalizedDesired = normalizedFontStyle(desiredStyle)
+  const exact = fonts.find(
+    ({ fontName }) => normalizedFontStyle(fontName.style) === normalizedDesired
+  )
+  if (exact) return exact.fontName
+
+  const desiredWeight = fontStyleWeight(desiredStyle)
+  const desiredItalic = /italic/i.test(desiredStyle)
+  return [...fonts].sort((a, b) => {
+    const score = (font: Font) =>
+      Math.abs(fontStyleWeight(font.fontName.style) - desiredWeight) +
+      (/italic/i.test(font.fontName.style) === desiredItalic ? 0 : 1000)
+    return score(a) - score(b)
+  })[0]!.fontName
+}
+
+async function resolvePortableFont(
+  family: NonNullable<NonNullable<CanvasNodeSpec['text']>['portableFontFamily']>,
+  desiredStyle: string,
+  state: ApplyState
+): Promise<FontName> {
+  state.availableFonts ??= figma.listAvailableFontsAsync()
+  let available: Font[]
+  try {
+    available = await state.availableFonts
+  } catch {
+    specError('Available Figma fonts could not be listed for a portable font utility.')
+  }
+
+  for (const candidate of PORTABLE_FONT_CANDIDATES[family]) {
+    const matching = available.filter(({ fontName }) => fontName.family === candidate)
+    if (matching.length) return closestFontStyle(matching, desiredStyle)
+  }
+  specError(
+    `No portable ${family} font is available in the current Figma context; use an exact available font.`
+  )
 }
 
 function currentTextFonts(node: TextNode, range?: { start: number; end: number }): FontName[] {
@@ -1812,6 +1875,43 @@ async function preflightResources(
       const style = await resolveStyle(reference, state.styles)
       validateStyleType(field, style, spec.key)
       if (style.type === 'TEXT') await loadFont(style.fontName, state)
+    }
+  }
+  if (spec.type === 'TEXT' && spec.text) {
+    const textNode = existing?.type === 'TEXT' ? existing : null
+    const hasTextStyle = !!(spec.styles?.text || textNode?.textStyleId)
+    const hasFontFamilyVariable = !!(
+      spec.variables?.fontFamily ||
+      (textNode && currentBoundVariableId(textNode, 'fontFamily'))
+    )
+    const hasFontStyleVariable = !!(
+      spec.variables?.fontStyle ||
+      (textNode && currentBoundVariableId(textNode, 'fontStyle'))
+    )
+    const fontFamily = hasTextStyle || hasFontFamilyVariable ? undefined : spec.text.fontFamily
+    const fontStyle = hasTextStyle || hasFontStyleVariable ? undefined : spec.text.fontStyle
+    if (fontFamily !== undefined || fontStyle !== undefined) {
+      const currentFont = textNode?.fontName ?? { family: 'Inter', style: 'Regular' }
+      if (currentFont === figma.mixed && (!fontFamily || !fontStyle)) {
+        specError(
+          `TEXT "${spec.key}" has mixed fonts; provide both fontFamily and fontStyle to replace them.`
+        )
+      }
+      const desiredFamily = fontFamily ?? (currentFont === figma.mixed ? '' : currentFont.family)
+      const desiredStyle = fontStyle ?? (currentFont === figma.mixed ? '' : currentFont.style)
+      const desiredFont = spec.text.portableFontFamily
+        ? await resolvePortableFont(spec.text.portableFontFamily, desiredStyle, state)
+        : {
+            family: desiredFamily,
+            style: spec.figma?.text?.fontName
+              ? desiredStyle
+              : normalizePortableFontStyle(desiredFamily, desiredStyle)
+          }
+      if (spec.text.portableFontFamily) {
+        spec.text.fontFamily = desiredFont.family
+        spec.text.fontStyle = desiredFont.style
+      }
+      await loadFont(desiredFont, state)
     }
   }
   const hyperlink = spec.figma?.text?.hyperlink
@@ -3582,13 +3682,19 @@ async function loadTextFonts(
   const desiredFamily = fontFamily ?? (currentFont === figma.mixed ? '' : currentFont.family)
   const desiredStyle = fontStyle ?? (currentFont === figma.mixed ? '' : currentFont.style)
   const desiredFont: FontName | null = hasExplicitFont
-    ? {
-        family: desiredFamily,
-        style: spec.figma?.text?.fontName
-          ? desiredStyle
-          : normalizePortableFontStyle(desiredFamily, desiredStyle)
-      }
+    ? text?.portableFontFamily
+      ? await resolvePortableFont(text.portableFontFamily, desiredStyle, state)
+      : {
+          family: desiredFamily,
+          style: spec.figma?.text?.fontName
+            ? desiredStyle
+            : normalizePortableFontStyle(desiredFamily, desiredStyle)
+        }
     : null
+  if (desiredFont && text?.portableFontFamily) {
+    text.fontFamily = desiredFont.family
+    text.fontStyle = desiredFont.style
+  }
   const fonts = desiredFont
     ? [desiredFont]
     : currentFont === figma.mixed
@@ -6336,6 +6442,35 @@ async function verifyRollbackProtectedNodes(state: ApplyState): Promise<void> {
   )
 }
 
+async function removeRollbackCreatedNodes(state: ApplyState): Promise<void> {
+  const created = (
+    await Promise.all([...state.createdNodeIds].map((id) => lookupNodeById(id)))
+  ).filter(isSupportedSceneNode)
+  if (!created.length) return
+
+  const liveIds = new Set(created.map((node) => node.id))
+  const outermost = created.filter((node) => {
+    let parent = node.parent
+    while (parent) {
+      if (liveIds.has(parent.id)) return false
+      parent = parent.parent
+    }
+    return true
+  })
+  for (const node of outermost) node.remove()
+
+  const remaining = (
+    await Promise.all([...state.createdNodeIds].map((id) => lookupNodeById(id)))
+  ).filter(isSupportedSceneNode)
+  if (!remaining.length) return
+  const shown = remaining.slice(0, 8).map((node) => node.id)
+  const suffix =
+    remaining.length > shown.length ? ` and ${remaining.length - shown.length} more` : ''
+  throw new Error(
+    `Rollback did not remove created node${remaining.length === 1 ? '' : 's'} ${shown.join(', ')}${suffix}`
+  )
+}
+
 async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): Promise<T> {
   try {
     if (state.scope) protectUnrelatedPageRoots(state, containingPage(state.scope))
@@ -6351,6 +6486,10 @@ async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): 
         // plugin session, the preceding entry may be an earlier successful apply.
         figma.commitUndo()
         figma.triggerUndo()
+        // Figma's undo boundary is authoritative for existing content and resources. Remove any
+        // newly created nodes that remain visible after the undo so a failed apply cannot leave
+        // partial component or screen roots behind in a long-lived MCP session.
+        await removeRollbackCreatedNodes(state)
         await verifyRollbackProtectedNodes(state)
       } catch (rollbackError) {
         if (readOnly) throw readOnly
