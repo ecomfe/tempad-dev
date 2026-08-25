@@ -40,6 +40,7 @@ This document records the current context-control strategy for TemPad Dev MCP ou
    - Hub-added local asset paths are optional; if they alone would exceed the final inline budget,
      the Hub returns the code and its asset URLs without those paths.
 3. `get_structure` keeps the same call shape and compacts output by default.
+   - When node and page identity are omitted, accept one or more visible roots from the current selection.
    - Bound outline construction to the prefix needed for the node limit and truncation signal;
      automatic depth selection also stops counting once it can determine the cap.
    - Normalize/trim long names.

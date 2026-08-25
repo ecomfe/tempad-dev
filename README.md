@@ -163,7 +163,7 @@ These tools are called by the agent. For everyday use, describe the task in your
   Design file.
 - `get_screenshot`: A bounded rendered PNG for selective visual validation.
 - `get_structure`: A structural outline (ids, types, geometry) for an exact node, exact managed
-  page, or the current selection.
+  page, or one or more visible nodes in the current selection.
 - `upload_asset`: Stores a generated PNG/JPEG/GIF in the local Hub and returns an `assetHash`
   for canvas authoring.
 - Binary assets are returned as metadata + HTTP download URLs (`asset.url`) in tool responses. Asset MCP resources are not exposed.

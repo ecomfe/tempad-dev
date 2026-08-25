@@ -39,7 +39,7 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 - `upload_asset`：Hub 内的受限桥梁，把程序化串联生成的 PNG/JPEG/GIF data URL 存成供
   `apply_canvas` 使用的 content-addressed `assetHash`，且不会返回编码后的图片字节。
 - `get_screenshot`：返回一张有大小限制的渲染 PNG，用于按需视觉验证。
-- `get_structure`：精确节点、页面或当前选中节点的层级/几何结构信息，并返回 TemPad 已管理节点的稳定 authoring key；
+- `get_structure`：精确节点、页面或当前选中的一个或多个可见节点的层级/几何结构信息，并返回 TemPad 已管理节点的稳定 authoring key；
   还可按需读回原生遮罩、IMAGE paint、布局网格与画框参考线。
 
 说明：

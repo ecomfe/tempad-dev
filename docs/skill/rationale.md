@@ -148,6 +148,10 @@ trustworthy top-level design snapshot, separate facts from adaptations and
 gaps, implement the smallest coherent change, then use the project's real
 verification path.
 
+For a current multi-selection, `get_structure` discovers the design roots before
+separate `get_code` reads. Its outline remains hierarchy and geometry evidence,
+not a substitute for each design's style facts.
+
 Rare large-selection and connection recovery lives in
 `references/recovery.md`. Asset and token translation lives in
 `references/assets-and-tokens.md` and loads only when those facts are present.

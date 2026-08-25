@@ -155,7 +155,7 @@ Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可
   非当前的精确目标页面，而不切换编辑器上下文。扩展会在本地解析、验证、计算与实时画布的
   差异、应用修改并校验结构。画布创作要求当前 Figma Design 文件具有编辑权限。
 - `get_screenshot`：返回一张有大小限制的渲染 PNG，用于按需视觉验证。
-- `get_structure`：精确节点、精确托管页面或当前选中节点的结构信息（id、类型、几何数据）。
+- `get_structure`：精确节点、精确托管页面或当前选中的一个或多个可见节点的结构信息（id、类型、几何数据）。
 - `upload_asset`：将生成的 PNG/JPEG/GIF 存入本地 Hub，并返回供画布创作使用的 `assetHash`。
 - 二进制资源会通过工具响应中的元数据 + HTTP 下载地址（`asset.url`）提供；MCP 不再暴露 asset 资源模板。
 

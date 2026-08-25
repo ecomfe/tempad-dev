@@ -44,7 +44,7 @@ Supported tools/resources:
 - `upload_asset`: A bounded Hub-only bridge from a programmatically composed generated PNG/JPEG/GIF
   data URL to a content-addressed `assetHash` for `apply_canvas`; encoded bytes are never returned.
 - `get_screenshot`: A bounded rendered PNG for selective visual validation.
-- `get_structure`: Hierarchy/geometry outline for an exact node, page, or current selection, including stable authoring keys on
+- `get_structure`: Hierarchy/geometry outline for an exact node, page, or one or more visible selected nodes, including stable authoring keys on
   TemPad-managed nodes and optional native mask, IMAGE paint, layout-grid, and frame-guide read-back.
 
 Notes:
