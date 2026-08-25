@@ -174,11 +174,16 @@ describe('mcp/runtime', () => {
     })
   })
 
-  it('throws coded error for invalid current selection (empty or invisible)', async () => {
+  it('throws coded error for invalid get_code selection (empty, invisible or multiple)', async () => {
     setFigmaGetNodeById(null)
     const runtime = await importRuntime()
 
     mocks.selection.value = []
+    await expect(runtime.MCP_TOOL_HANDLERS.get_code()).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
+    })
+
+    mocks.selection.value = [createSceneNode('first'), createSceneNode('second')]
     await expect(runtime.MCP_TOOL_HANDLERS.get_code()).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
     })
@@ -248,5 +253,33 @@ describe('mcp/runtime', () => {
 
     await runtime.MCP_TOOL_HANDLERS.get_structure()
     expect(mocks.runGetStructure).toHaveBeenLastCalledWith([node], undefined)
+  })
+
+  it('routes all visible selected nodes to get_structure', async () => {
+    const first = createSceneNode('first')
+    const second = createSceneNode('second')
+    mocks.selection.value = [first, second]
+    setFigmaGetNodeById(null)
+    mocks.runGetStructure.mockResolvedValue({ roots: [] })
+
+    const runtime = await importRuntime()
+    await runtime.MCP_TOOL_HANDLERS.get_structure({ options: { depth: 1 } })
+
+    expect(mocks.runGetStructure).toHaveBeenCalledWith([first, second], 1)
+  })
+
+  it('throws coded error when get_structure selection is empty or contains an invisible node', async () => {
+    setFigmaGetNodeById(null)
+    const runtime = await importRuntime()
+
+    mocks.selection.value = []
+    await expect(runtime.MCP_TOOL_HANDLERS.get_structure()).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
+    })
+
+    mocks.selection.value = [createSceneNode('visible'), createSceneNode('hidden', false)]
+    await expect(runtime.MCP_TOOL_HANDLERS.get_structure()).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
+    })
   })
 })

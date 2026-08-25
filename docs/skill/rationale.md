@@ -70,6 +70,9 @@ TemPad Dev `get_code` is treated as the primary design-evidence source.
 `get_structure` is only a structural aid for hierarchy, geometry, overlap, and
 scope recovery.
 
+The only ordering exception is a current multi-selection: use `get_structure`
+to enumerate its root node ids, then call `get_code` separately for each root.
+
 This prevents the agent from reconstructing detailed UI from structural hints
 alone.
 

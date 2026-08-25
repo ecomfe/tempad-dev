@@ -19,6 +19,7 @@ This document records the current context-control strategy for TemPad Dev MCP ou
      rendering. Other overflow causes still reuse full-tree context for correctness.
    - Only fail fast when a usable shell cannot be generated.
 2. `get_structure` keeps existing API but output is compacted by default.
+   - When `nodeId` is omitted, accept one or more visible roots from the current selection.
    - Limit total nodes.
    - Normalize/trim long names.
    - Round geometry values.
