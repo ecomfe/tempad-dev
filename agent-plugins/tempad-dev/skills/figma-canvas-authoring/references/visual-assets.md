@@ -116,9 +116,10 @@ styles, typography variables, project fonts, or supplied references. Confirm
 each exact Figma family/style; never guess.
 
 Use `figma.text.fontName` for exact whole-node fonts and ranges only for
-intentional mixed typography. A generic `font-sans` does not deliver a named
-family: bind its style/variable/exact font or leave the brief at the supported
-evidence level.
+intentional mixed typography. Portable `font-sans|serif|mono` utilities deliver
+Inter, Noto Serif, or Noto Sans Mono; they do not satisfy another named family.
+For another required family, bind its style, variable, or exact font, or leave
+the brief at the supported evidence level.
 
 ## Images and illustrations
 
@@ -197,6 +198,13 @@ records require distinct assets or crops that visibly isolate the correct
 subject. A composite scene may serve the composition it depicts, but cannot
 stand in for several named records. Stop and source or generate missing media
 instead of serializing a false mapping.
+
+When a gallery, carousel, or thumbnail set promises several views of one
+subject, every retained view must add distinct, truthful visual information.
+Repeating one unchanged source and crop does not satisfy that role; unrelated
+subjects break identity. Use distinct sourced views, evidence-supported crops,
+or generation/editing only for a named same-subject coverage need that sourcing
+cannot satisfy. Otherwise reduce the views or disclose the gap.
 
 For repeated depictions of the same subject, keep asset identity and crop stable
 unless evidence requires variation. If required media remains unavailable,

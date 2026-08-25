@@ -2238,6 +2238,52 @@ describe('mcp/tools/canvas', () => {
     expect(action.componentProperties.Disabled?.value).toBe(true)
   })
 
+  it('preserves portable weights when family and weight classes change independently', async () => {
+    const fixture = createFixture()
+    const markup = (textClass: string) => `
+      <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
+        <span data-key="title" class="w-fit h-fit ${textClass}">Title</span>
+      </div>
+    `
+    const created = await applyCanvas({ mode: 'create', markup: markup('font-sans font-semibold') })
+    const title = fixture.getNode(created.nodeIdsByKey.title ?? '') as unknown as TextNode
+
+    await applyCanvas({
+      mode: 'update',
+      targetNodeId: created.rootNodeId,
+      markup: markup('font-serif')
+    })
+    expect(title.fontName).toEqual({ family: 'Noto Serif', style: 'SemiBold' })
+
+    await applyCanvas({
+      mode: 'update',
+      targetNodeId: created.rootNodeId,
+      markup: markup('font-extrabold')
+    })
+    expect(title.fontName).toEqual({ family: 'Noto Serif', style: 'ExtraBold' })
+
+    await applyCanvas({
+      mode: 'update',
+      targetNodeId: created.rootNodeId,
+      markup: markup('font-sans')
+    })
+    expect(title.fontName).toEqual({ family: 'Inter', style: 'Extra Bold' })
+
+    await applyCanvas({
+      mode: 'update',
+      targetNodeId: created.rootNodeId,
+      markup: markup('font-extralight')
+    })
+    expect(title.fontName).toEqual({ family: 'Inter', style: 'Extra Light' })
+
+    await applyCanvas({
+      mode: 'update',
+      targetNodeId: created.rootNodeId,
+      markup: markup('font-mono')
+    })
+    expect(title.fontName).toEqual({ family: 'Noto Sans Mono', style: 'ExtraLight' })
+  })
+
   it('does not apply Auto Layout sizing fields to freeform children', async () => {
     const fixture = createFixture()
     const created = await applyCanvas({

@@ -203,7 +203,9 @@ Shared appearance:
 
 Text:
 
-- `font-sans`, `font-thin|extralight|light|normal|medium|semibold|bold|extrabold|black`
+- `font-sans|serif|mono` map to Figma-available Inter, Noto Serif, and Noto Sans
+  Mono
+- `font-thin|extralight|light|normal|medium|semibold|bold|extrabold|black`
 - `text-xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl` with their default line
   heights, `text-SIZE/N`, or `text-[Npx]`
 - `leading-none|tight|snug|normal|relaxed|loose`, `leading-N`, `leading-[Npx]`,

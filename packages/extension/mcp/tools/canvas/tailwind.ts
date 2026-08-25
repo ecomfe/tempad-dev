@@ -225,6 +225,28 @@ function classValues(values: Record<string, string>, prefix = ''): Record<string
 
 const ALIGN_ITEM_CLASSES = classValues(TAILWIND_ALIGN_ITEMS, 'items-')
 const JUSTIFY_CONTENT_CLASSES = classValues(TAILWIND_JUSTIFY_CONTENT, 'justify-')
+const FONT_FAMILY_CLASSES = {
+  'font-mono': 'Noto Sans Mono',
+  'font-sans': 'Inter',
+  'font-serif': 'Noto Serif'
+} as const
+const PORTABLE_FONT_STYLE_ALIASES = {
+  Inter: {
+    ExtraBold: 'Extra Bold',
+    ExtraLight: 'Extra Light',
+    SemiBold: 'Semi Bold'
+  },
+  'Noto Sans Mono': {
+    'Extra Bold': 'ExtraBold',
+    'Extra Light': 'ExtraLight',
+    'Semi Bold': 'SemiBold'
+  },
+  'Noto Serif': {
+    'Extra Bold': 'ExtraBold',
+    'Extra Light': 'ExtraLight',
+    'Semi Bold': 'SemiBold'
+  }
+} as const
 const FONT_WEIGHT_CLASSES = classValues(TAILWIND_FONT_WEIGHTS, 'font-')
 const TEXT_ALIGN_CLASSES = classValues(TAILWIND_TEXT_ALIGN, 'text-')
 const TEXT_CASE_CLASSES = classValues(TAILWIND_TEXT_CASE)
@@ -301,6 +323,13 @@ export type CanvasClasses = {
   textClass?: string
   assigned: Set<string>
   assignedTokens: Map<string, string>
+}
+
+export function normalizePortableFontStyle(fontFamily: string, fontStyle: string): string {
+  const aliases = PORTABLE_FONT_STYLE_ALIASES[
+    fontFamily as keyof typeof PORTABLE_FONT_STYLE_ALIASES
+  ] as Record<string, string> | undefined
+  return aliases?.[fontStyle] ?? fontStyle
 }
 
 function classError(message: string): never {
@@ -983,8 +1012,9 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       )
     }
 
-    if (token === 'font-sans') {
-      assign(classes, 'fontFamily', 'Inter', token)
+    const fontFamily = FONT_FAMILY_CLASSES[token as keyof typeof FONT_FAMILY_CLASSES]
+    if (fontFamily) {
+      assign(classes, 'fontFamily', fontFamily, token)
       classes.textClass ??= token
       continue
     }
@@ -1133,6 +1163,9 @@ export function parseCanvasClasses(value: string): CanvasClasses {
     ]
   }
   if (classes.flex && classes.direction === undefined) classes.direction = 'HORIZONTAL'
+  if (classes.fontFamily && classes.fontStyle) {
+    classes.fontStyle = normalizePortableFontStyle(classes.fontFamily, classes.fontStyle)
+  }
   classes.lineHeight ??= defaultLineHeight
   return classes
 }
