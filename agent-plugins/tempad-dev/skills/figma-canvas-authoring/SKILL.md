@@ -83,14 +83,14 @@ those criteria instead of prescribing their answers here.
    fit optional capability only for a decision that remains open after evidence;
    it may deepen, not replace, this gate.
 
-   Before markup, audit each representative screen's material icon candidates.
-   For navigation, search, filtering, sorting, save or share, disclosure,
-   status or object categories, and compact utilities, choose icon, text, or
-   both by recognition, scanning, and compactness. If none are icons, compare
-   the result with inspected precedent; an equivalent compact icon role stays
-   unresolved unless text is clearer for a screen-specific reason. Do not use
-   acquisition effort to justify an all-text vocabulary, and do not add icons
-   decoratively or by quota.
+   Before markup, audit each representative screen's material icon candidates:
+   navigation, search, filtering, sorting, save or share, disclosure, status or
+   object categories, and compact utilities. Preserve a conventional icon role
+   when inspected precedent shows it for the same action or object. Choose text
+   instead only for a screen-specific clarity reason recorded in the trace;
+   sourcing effort is not one. Choose icon, text, or both by recognition,
+   scanning, and compactness, without decorative use or quotas. An unresolved
+   conventional role blocks markup.
 
    Classify every visual mark, including symbols inside labels, by role,
    subject, medium, source, and Canvas delivery. A character or primitive that
