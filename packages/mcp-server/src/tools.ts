@@ -5,7 +5,8 @@ import type {
   ToolName,
   ToolResponseLike,
   ToolResultMap,
-  ToolSchema
+  ToolSchema,
+  UploadAssetResult
 } from '@tempad-dev/shared'
 import type { ZodType } from 'zod'
 
@@ -20,6 +21,7 @@ import {
   buildGetScreenshotToolResult,
   buildGetStructureToolResult,
   buildGetTokenDefsToolResult,
+  buildUploadAssetToolResult,
   GetAssetsParametersSchema,
   GetAssetsResultSchema,
   GetCodeParametersSchema,
@@ -29,6 +31,8 @@ import {
   GetStructureParametersSchema,
   GetTokenDefsParametersSchema,
   TEMPAD_MCP_ERROR_CODES,
+  UploadAssetParametersSchema,
+  UploadAssetResultSchema,
   measureCallToolResultBytes
 } from '@tempad-dev/shared'
 
@@ -53,7 +57,9 @@ export type {
   TokenEntry,
   ToolName,
   ToolResultMap,
-  ToolSchema
+  ToolSchema,
+  UploadAssetParametersInput,
+  UploadAssetResult
 } from '@tempad-dev/shared'
 
 type BaseToolMetadata<Name extends ToolName, Schema extends ZodType> = ToolSchema<Name> & {
@@ -89,6 +95,13 @@ const CANVAS_WRITE_ANNOTATIONS = {
   destructiveHint: true,
   idempotentHint: false,
   openWorldHint: true
+} satisfies ToolAnnotations
+
+const ASSET_WRITE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false
 } satisfies ToolAnnotations
 
 const CONNECTIVITY_ERROR_CODES = new Set<TempadMcpErrorCode>([
@@ -186,6 +199,16 @@ export const TOOL_DEFS = [
     parameters: GetStructureParametersSchema,
     target: 'extension',
     format: createStructureToolResponse
+  }),
+  hubTool({
+    name: 'upload_asset',
+    description:
+      'Store a generated PNG, JPEG, or GIF data URL in the local Hub and return its content-addressed assetHash for apply_canvas. Compose this call directly with the image-generation result; never print or copy encoded bytes into prose.',
+    annotations: ASSET_WRITE_ANNOTATIONS,
+    parameters: UploadAssetParametersSchema,
+    target: 'hub',
+    outputSchema: UploadAssetResultSchema,
+    format: createUploadAssetToolResponse
   }),
   hubTool({
     name: 'get_assets',
@@ -387,6 +410,10 @@ export function createAssetsToolResponse(payload: GetAssetsResult): CallToolResu
   return toCallToolResult(buildGetAssetsToolResult(payload))
 }
 
+export function createUploadAssetToolResponse(payload: UploadAssetResult): CallToolResult {
+  return toCallToolResult(buildUploadAssetToolResult(payload))
+}
+
 export function createInlineBudgetExceededToolResponse(
   toolName: ToolName,
   actualBytes: number
@@ -427,6 +454,8 @@ function getBudgetRetryGuidance(toolName: ToolName): string {
       return 'Pass a smaller nodeId and retry.'
     case 'get_assets':
       return 'Request fewer hashes in a single call and retry.'
+    case 'upload_asset':
+      return 'Generate a smaller PNG, JPEG, or GIF and retry without printing its data URL.'
   }
 }
 

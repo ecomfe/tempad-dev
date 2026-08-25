@@ -4,6 +4,7 @@ import type {
   CanvasFigmaProperties
 } from '@tempad-dev/shared'
 
+import { MAX_CANVAS_NODES } from '@tempad-dev/shared'
 import { describe, expect, it } from 'vitest'
 
 import type { ParsedCanvasTreeInput } from '@/mcp/tools/canvas/model'
@@ -2685,7 +2686,7 @@ describe('canvas markup', () => {
 
   it('enforces the shared node and depth limits', () => {
     const children = Array.from(
-      { length: 99 },
+      { length: MAX_CANVAS_NODES - 1 },
       (_, index) => `<span data-key="item-${index}" class="w-full h-fit">${index}</span>`
     ).join('')
     expect(() =>
@@ -2695,7 +2696,16 @@ describe('canvas markup', () => {
       parse(
         `<div data-key="root" class="flex flex-col w-[320px] h-[200px]">${children}<span data-key="overflow" class="w-full h-fit">overflow</span></div>`
       )
-    ).toThrow(/more than 100.*Keep one root.*omitted siblings are preserved/)
+    ).toThrow(
+      new RegExp(`more than ${MAX_CANVAS_NODES}.*Keep one root.*omitted siblings are preserved`)
+    )
+    expect(() =>
+      parse(
+        `<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="invalid" class="mt-[0px] w-full h-fit">invalid</span>${children}</div>`
+      )
+    ).toThrow(
+      new RegExp(`more than ${MAX_CANVAS_NODES}.*Keep one root.*omitted siblings are preserved`)
+    )
 
     expect(() =>
       parse(

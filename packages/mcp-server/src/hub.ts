@@ -6,7 +6,9 @@ import type {
   StateMessage,
   ToolCallMessage,
   ToolName,
-  ToolResultMap
+  ToolResultMap,
+  UploadAssetParametersInput,
+  UploadAssetResult
 } from '@tempad-dev/shared'
 import type { ZodType } from 'zod'
 
@@ -27,6 +29,7 @@ import { WebSocketServer } from 'ws'
 
 import type { AssetRecord } from './types'
 
+import { decodeImageDataUrl } from './asset-data-url'
 import { createAssetHttpServer } from './asset-http-server'
 import { createAssetStore } from './asset-store'
 import { buildAssetFilename } from './asset-utils'
@@ -53,7 +56,8 @@ import {
   coercePayloadToToolResponse,
   createAssetsToolResponse,
   createInlineBudgetExceededToolResponse,
-  createToolErrorResponse
+  createToolErrorResponse,
+  createUploadAssetToolResponse
 } from './tools'
 import { startExtensionWebSocketServer } from './websocket-server'
 
@@ -65,6 +69,7 @@ const {
   getCodeTimeoutMs,
   applyCanvasTimeoutMs,
   maxPayloadBytes,
+  maxAssetSizeBytes,
   maxExtensionConnections,
   autoActivateGraceMs,
   assetTtlMs,
@@ -93,10 +98,15 @@ type SchemaOutput<Schema extends ZodType> = Schema['_output']
 type ToolMetadataEntry = (typeof TOOL_DEFS)[number]
 type ExtensionToolMetadata = Extract<ToolMetadataEntry, { target: 'extension' }>
 type HubToolMetadata = Extract<ToolMetadataEntry, { target: 'hub' }>
+type HubToolByName<Name extends HubToolMetadata['name']> = Extract<HubToolMetadata, { name: Name }>
 
-type HubToolWithHandler<T extends HubToolMetadata = HubToolMetadata> = T & {
+type HubToolWithHandlerFor<T extends HubToolMetadata> = T & {
   handler: (args: SchemaOutput<T['parameters']>) => Promise<ToolResponse>
 }
+
+type HubToolWithHandler = {
+  [Name in HubToolMetadata['name']]: HubToolWithHandlerFor<HubToolByName<Name>>
+}[HubToolMetadata['name']]
 
 type SocketProbeResult = 'live' | 'missing' | { staleCode: string }
 
@@ -203,11 +213,20 @@ function enrichToolDefinition(tool: ToolMetadataEntry): RegisteredToolDefinition
   }
 
   switch (tool.name) {
-    case 'get_assets':
+    case 'get_assets': {
+      const definition = tool as HubToolByName<'get_assets'>
       return {
-        ...tool,
+        ...definition,
         handler: handleGetAssets
-      } satisfies HubToolWithHandler
+      } satisfies HubToolWithHandlerFor<typeof definition>
+    }
+    case 'upload_asset': {
+      const definition = tool as HubToolByName<'upload_asset'>
+      return {
+        ...definition,
+        handler: handleUploadAsset
+      } satisfies HubToolWithHandlerFor<typeof definition>
+    }
     default:
       throw new Error('No handler configured for hub tool.')
   }
@@ -420,7 +439,7 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
 
 function registerLocalTool(mcp: McpServer, tool: HubOnlyTool): void {
   const schema = tool.parameters
-  const handler = tool.handler
+  const handler = tool.handler as (args: unknown) => Promise<CallToolResult>
 
   const registerToolFn = mcp.registerTool.bind(mcp) as (
     name: string,
@@ -518,6 +537,31 @@ async function handleGetAssets({ hashes }: GetAssetsParametersInput): Promise<To
   })
 
   return createAssetsToolResponse(payload)
+}
+
+async function handleUploadAsset({ dataUrl }: UploadAssetParametersInput): Promise<ToolResponse> {
+  const decoded = decodeImageDataUrl(dataUrl, maxAssetSizeBytes)
+  const filename = buildAssetFilename(decoded.hash, decoded.mimeType)
+  const response = await fetch(`${assetHttpServer.getBaseUrl()}/assets/${filename}`, {
+    method: 'POST',
+    headers: {
+      'Content-Length': String(decoded.bytes.length),
+      'Content-Type': decoded.mimeType
+    },
+    body: new Uint8Array(decoded.bytes)
+  })
+
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500)
+    throw new Error(`Hub asset import failed (${response.status}): ${detail}`)
+  }
+
+  const payload: UploadAssetResult = {
+    assetHash: decoded.hash,
+    mimeType: decoded.mimeType,
+    size: decoded.bytes.length
+  }
+  return createUploadAssetToolResponse(payload)
 }
 
 function unrefTimer(timer: TimeoutHandle): void {

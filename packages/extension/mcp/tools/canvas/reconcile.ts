@@ -170,7 +170,7 @@ type ApplyState = {
   fontLoads: Map<string, Promise<void>>
   imageHashes: Map<string, string>
   imageAssetKeys: Set<string>
-  imageUrls: Set<string>
+  imageUrls: Map<string, string[]>
   keyedNodes: Map<string, SupportedCanvasNode>
   mutations: MutationCounter
   nodeIdsByKey: Record<string, string>
@@ -824,6 +824,57 @@ function findExistingNode(
   return state.keyedNodes.get(spec.key) ?? null
 }
 
+function validateExistingNodeIdentity(
+  spec: CanvasNodeSpec,
+  state: ApplyState,
+  node: SupportedCanvasNode
+): void {
+  const keyedNode = state.keyedNodes.get(spec.key)
+  if (keyedNode && keyedNode.id !== node.id) {
+    specError(
+      `Canvas key "${spec.key}" already identifies node "${keyedNode.id}", not "${node.id}".`
+    )
+  }
+  if (state.scope && !isWithinScope(node, state.scope)) {
+    scopeError(`Node "${node.id}" is outside the requested update scope.`)
+  }
+  if (node.type !== spec.type) {
+    const recovery =
+      spec.type === 'INSTANCE'
+        ? ' A keyed primitive cannot become an instance in place; give the instance a new key and remove the primitive key in the same update.'
+        : node.type === 'INSTANCE'
+          ? ' Omit this keyed subtree to preserve the instance in a partial ancestor update, or include its component binding when the instance itself is part of the desired result.'
+          : ''
+    specError(
+      `Canvas key "${spec.key}" expects ${spec.type}, but node "${node.id}" is ${node.type}.${recovery}`
+    )
+  }
+}
+
+function preflightExistingNodeIdentities(
+  root: CanvasNodeSpec,
+  state: ApplyState,
+  target: SupportedCanvasNode | null
+): void {
+  const claimed = new Set<string>()
+  const visit = (spec: CanvasNodeSpec, forcedNode?: SupportedCanvasNode): void => {
+    const node = findExistingNode(spec, state, forcedNode)
+    if (!node) {
+      if (spec.nodeId) {
+        scopeError(`Node "${spec.nodeId}" does not exist or is not supported by apply_canvas.`)
+      }
+    } else {
+      validateExistingNodeIdentity(spec, state, node)
+      if (claimed.has(node.id)) {
+        specError(`Node "${node.id}" is referenced more than once in the desired result.`)
+      }
+      claimed.add(node.id)
+    }
+    for (const child of spec.children ?? []) visit(child)
+  }
+  visit(root, target ?? undefined)
+}
+
 function resolveExistingNode(
   spec: CanvasNodeSpec,
   state: ApplyState,
@@ -837,24 +888,7 @@ function resolveExistingNode(
     return null
   }
 
-  const keyedNode = state.keyedNodes.get(spec.key)
-  if (keyedNode && keyedNode.id !== node.id) {
-    specError(
-      `Canvas key "${spec.key}" already identifies node "${keyedNode.id}", not "${node.id}".`
-    )
-  }
-  if (state.scope && !isWithinScope(node, state.scope)) {
-    scopeError(`Node "${node.id}" is outside the requested update scope.`)
-  }
-  if (node.type !== spec.type) {
-    const recovery =
-      node.type === 'INSTANCE'
-        ? ' Omit this keyed subtree to preserve the instance in a partial ancestor update, or include its component binding when the instance itself is part of the desired result.'
-        : ''
-    specError(
-      `Canvas key "${spec.key}" expects ${spec.type}, but node "${node.id}" is ${node.type}.${recovery}`
-    )
-  }
+  validateExistingNodeIdentity(spec, state, node)
   if (state.claimedNodeIds.has(node.id)) {
     specError(`Node "${node.id}" is referenced more than once in the desired result.`)
   }
@@ -1153,7 +1187,9 @@ async function preflightPaintStack(
     }
     if (paint.type === 'IMAGE') {
       if (paint.imageUrl !== undefined) {
-        state.imageUrls.add(paint.imageUrl)
+        const usages = state.imageUrls.get(paint.imageUrl) ?? []
+        usages.push(`${field} paint ${index} on "${key}"`)
+        state.imageUrls.set(paint.imageUrl, usages)
       } else if (paint.assetKey !== undefined) {
         state.imageAssetKeys.add(paint.assetKey)
       } else if (paint.imageHash && !figma.getImageByHash(paint.imageHash)) {
@@ -1798,11 +1834,15 @@ async function preflightResources(
 }
 
 async function resolveImageUrls(state: ApplyState): Promise<void> {
-  for (const url of state.imageUrls) {
+  for (const [url, usages] of state.imageUrls) {
     try {
       state.imageHashes.set(url, (await figma.createImageAsync(url)).hash)
     } catch {
-      specError('An image URL could not be loaded as a PNG, JPEG, or GIF up to 4096 by 4096 px.')
+      const usage = usages[0] ?? 'an IMAGE paint'
+      throw createCodedError(
+        TEMPAD_MCP_ERROR_CODES.IMAGE_IMPORT_FAILED,
+        `Image URL for ${usage} could not be imported as a PNG, JPEG, or GIF up to 4096 by 4096 px. Use a direct public image URL in one of those formats, or a resolved image asset for exact bytes.`
+      )
     }
   }
 }
@@ -5386,7 +5426,7 @@ function createApplyState(
     fontLoads: new Map(),
     imageHashes: new Map(),
     imageAssetKeys: new Set(),
-    imageUrls: new Set(),
+    imageUrls: new Map(),
     keyedNodes: target ? collectKeyedNodes(target) : new Map(),
     mutations: { count: 0 },
     nodeIdsByKey: Object.create(null) as Record<string, string>,
@@ -5794,6 +5834,40 @@ function formatOverflow(overflow: ContentOverflow): string {
     .join(', ')
 }
 
+function instanceDescendantOverflow(node: InstanceNode): ContentOverflow | null {
+  const absoluteRootBounds = finiteRect(node.absoluteBoundingBox)
+  const rootBounds = absoluteRootBounds ?? { x: 0, y: 0, width: node.width, height: node.height }
+  const overflow: ContentOverflow = { bottom: 0, left: 0, right: 0, top: 0 }
+  const stack: SceneNode[] = [...node.children]
+  while (stack.length) {
+    const descendant = stack.pop()!
+    if (descendant.visible === false) continue
+    const bounds = absoluteRootBounds
+      ? finiteRect(
+          descendant.type === 'TEXT'
+            ? descendant.absoluteRenderBounds
+            : descendant.absoluteBoundingBox
+        )
+      : descendant.parent === node && isSupportedSceneNode(descendant)
+        ? localNodeBounds(descendant)
+        : null
+    if (bounds) {
+      const current = overflowFromRects(bounds, rootBounds)
+      if (current) {
+        overflow.bottom = Math.max(overflow.bottom, current.bottom)
+        overflow.left = Math.max(overflow.left, current.left)
+        overflow.right = Math.max(overflow.right, current.right)
+        overflow.top = Math.max(overflow.top, current.top)
+      }
+    }
+    if ('children' in descendant) stack.push(...descendant.children)
+  }
+  return Math.max(overflow.top, overflow.right, overflow.bottom, overflow.left) >
+    CONTENT_OVERFLOW_TOLERANCE
+    ? overflow
+    : null
+}
+
 function managedContentOverflowWarnings(
   root: CanvasNodeSpec,
   state: ApplyState
@@ -5807,11 +5881,20 @@ function managedContentOverflowWarnings(
     const parentKey = readOwnedNodeKey(parent)
     if (!parentKey) continue
     const overflow = contentOverflow(node, parent)
-    if (!overflow) continue
+    if (overflow) {
+      warnings.push({
+        code: 'managed-content-overflow',
+        key: spec.key,
+        message: `"${spec.key}" extends beyond parent "${parentKey}" by ${formatOverflow(overflow)}. Parent clipping is ${parent.clipsContent ? 'enabled, so the content will be clipped' : 'disabled, so the content may overlap adjacent content'}. Resize or realign the content when unintended; otherwise verify and retain the intentional overflow.`
+      })
+    }
+    if (node.type !== 'INSTANCE') continue
+    const instanceOverflow = instanceDescendantOverflow(node)
+    if (!instanceOverflow) continue
     warnings.push({
       code: 'managed-content-overflow',
       key: spec.key,
-      message: `"${spec.key}" extends beyond parent "${parentKey}" by ${formatOverflow(overflow)}. Parent clipping is ${parent.clipsContent ? 'enabled, so the content will be clipped' : 'disabled, so the content may overlap adjacent content'}. Resize or realign the content when unintended; otherwise verify and retain the intentional overflow.`
+      message: `"${spec.key}" contains instance content extending beyond its root by ${formatOverflow(instanceOverflow)}. Figma can paint this overflow without expanding the native INSTANCE bounds. Resize the component definition for the real property values, add a size variant, or choose a smaller stable component boundary.`
     })
   }
   return warnings
@@ -6328,8 +6411,12 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
     rootSpec.type = target.type
   }
   if (target && target.type !== rootSpec.type) {
+    const recovery =
+      rootSpec.type === 'INSTANCE'
+        ? ' A keyed update root cannot become an instance in place. Update a bounded ancestor instead, give the instance a new key, and remove the old keyed node in the same ancestor update.'
+        : ' A keyed update root cannot change type in place. Update a bounded ancestor instead, give the replacement a new key, and remove the old keyed node in the same ancestor update.'
     specError(
-      `The update root expects ${rootSpec.type}, but target "${target.id}" is ${target.type}.`
+      `The update root expects ${rootSpec.type}, but target "${target.id}" is ${target.type}.${recovery}`
     )
   }
   const assets = await resolveCanvasAssets(input.assets, collectSvgColors(rootSpec))
@@ -6337,8 +6424,9 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
   const removalNodes = resolveRemovalNodes(input, state)
 
   return withUndoBoundary(async () => {
-    const page = await resolveResultPage(input.page, target, state)
     await resolveExplicitNodes(rootSpec, state)
+    preflightExistingNodeIdentities(rootSpec, state, target)
+    const page = await resolveResultPage(input.page, target, state)
     await validateRemovalComponents(outermostNodes(removalNodes))
     preflightMasks(rootSpec, state, target)
     preflightContainers(rootSpec, state, target)

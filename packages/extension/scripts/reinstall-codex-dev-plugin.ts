@@ -4,10 +4,17 @@ import { dirname, isAbsolute, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
+import {
+  assertNoDetachedReinstallJobs,
+  detachedReinstallIdentity,
+  detachedReinstallJobPrefix,
+  runtimeStateMatches
+} from './reinstall-codex-dev-plugin-runtime'
+import { parseLaunchctlLabels } from './switch-codex-host-runtime'
+
 const execFileAsync = promisify(execFile)
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const pluginRoot = join(repoRoot, '.dev/plugins/tempad-dev-dev')
-const restartLogPath = join(repoRoot, '.dev/codex-plugin-reinstall.log')
 const scriptPath = fileURLToPath(import.meta.url)
 const pluginDisplayName = 'TemPad Dev (Dev)'
 const pluginName = 'tempad-dev-dev'
@@ -257,7 +264,7 @@ function usage(): string {
     '  --app-path <path>     Codex app to launch (default: CODEX_APP_PATH or /Applications/ChatGPT.app)',
     '  --cdp-url <url>        Codex CDP endpoint (default: CODEX_CDP_URL or http://127.0.0.1:9222)',
     '  --page-url <url|substring> Select a Codex page; an exact URL wins over substring matching',
-    '  --restart-codex        Restart Codex with CDP in a detached helper when CDP is unavailable',
+    '  --restart-codex        Restart Codex with CDP in a detached helper before reinstalling',
     '  --timeout-ms <number>  Timeout for each UI/runtime transition (default: 60000)',
     '  --help                 Show this help',
     '',
@@ -400,14 +407,7 @@ async function waitForRuntimeState(
 
   while (Date.now() <= deadline) {
     latest = await listRuntimeProcesses(paths)
-    const matches =
-      expectedState === 'installed'
-        ? latest.hub.length > 0 &&
-          (baseline
-            ? latest.cli.some(({ pid }) => !baseline.cli.some((process) => process.pid === pid))
-            : latest.cli.length > 0)
-        : latest.cli.length <= Math.max(0, (baseline?.cli.length ?? 1) - 1) &&
-          (latest.cli.length > 0 ? latest.hub.length > 0 : latest.hub.length === 0)
+    const matches = runtimeStateMatches(latest, expectedState, baseline)
     stableSamples = matches ? stableSamples + 1 : 0
 
     const summary = processSummary(latest)
@@ -424,7 +424,7 @@ async function waitForRuntimeState(
       ? baseline
         ? 'a new TemPad Dev CLI and an available Hub'
         : 'the TemPad Dev CLI and Hub to be running'
-      : 'the uninstalled Codex CLI to stop and the shared Hub to match the remaining clients'
+      : 'all TemPad Dev CLI and Hub processes to stop before reinstalling'
   fail(
     `Timed out waiting for ${expected}. Last observed state: ${processSummary(latest)}` +
       (baseline ? `; baseline: ${processSummary(baseline)}` : '')
@@ -511,7 +511,9 @@ async function restartCodexForCdp(
   await new Promise((resolve) => setTimeout(resolve, 1_000))
   console.log('Requesting Codex Desktop to quit...')
   try {
-    await execFileAsync('osascript', ['-e', 'tell application id "com.openai.codex" to quit'])
+    await execFileAsync('osascript', ['-e', 'tell application id "com.openai.codex" to quit'], {
+      timeout: timeoutMs
+    })
     await waitForCodexExit(timeoutMs)
   } catch (error) {
     console.warn(`Normal Codex quit did not complete: ${errorMessage(error)}`)
@@ -520,15 +522,25 @@ async function restartCodexForCdp(
   }
 
   console.log(`Starting ${appPath} with --remote-debugging-port=${port}...`)
-  await execFileAsync('open', ['-n', appPath, '--args', `--remote-debugging-port=${String(port)}`])
+  await execFileAsync(
+    'open',
+    ['-n', appPath, '--args', `--remote-debugging-port=${String(port)}`],
+    {
+      timeout: timeoutMs
+    }
+  )
   await waitUntil(() => isCdpReady(cdpUrl), `Codex CDP endpoint ${cdpUrl}`, timeoutMs)
   console.log(`Codex CDP endpoint is ready at ${cdpUrl}.`)
 }
 
-async function startDetachedRestart(args: Arguments, connectionError: unknown): Promise<void> {
+async function startDetachedRestart(args: Arguments, reason: string): Promise<void> {
   if (process.platform !== 'darwin') fail('--restart-codex is currently supported only on macOS.')
   cdpPort(args.cdpUrl)
-  await mkdir(dirname(restartLogPath), { recursive: true })
+  const { stdout: launchctlOutput } = await execFileAsync('/bin/launchctl', ['list'], {
+    encoding: 'utf8',
+    maxBuffer: 10 * 1024 * 1024
+  })
+  assertNoDetachedReinstallJobs(parseLaunchctlLabels(launchctlOutput, detachedReinstallJobPrefix))
 
   const childArguments = [
     ...process.execArgv,
@@ -543,7 +555,9 @@ async function startDetachedRestart(args: Arguments, connectionError: unknown): 
     '--resume-after-restart',
     ...(args.pageUrl ? ['--page-url', args.pageUrl] : [])
   ]
-  const jobLabel = `com.tempad-dev.codex-plugin-reinstall.${String(process.pid)}.${String(Date.now())}`
+  const { jobLabel, logFileName } = detachedReinstallIdentity(process.pid, Date.now())
+  const restartLogPath = join(repoRoot, '.dev', logFileName)
+  await mkdir(dirname(restartLogPath), { recursive: true })
   await writeFile(restartLogPath, '')
   await execFileAsync(
     'launchctl',
@@ -566,7 +580,7 @@ async function startDetachedRestart(args: Arguments, connectionError: unknown): 
     { cwd: repoRoot }
   )
 
-  console.log(`CDP is unavailable: ${errorMessage(connectionError).split('\n', 1)[0]}`)
+  console.log(reason)
   console.log(`Detached reinstall helper submitted as ${jobLabel}.`)
   console.log(`Codex will restart; progress is written to ${restartLogPath}.`)
 }
@@ -635,8 +649,11 @@ async function connectToCodex(args: Arguments): Promise<CdpClient | null> {
   if (args.resumeAfterRestart) {
     await restartCodexForCdp(args.appPath, args.cdpUrl, args.timeoutMs)
   }
-  if (args.restartCodex && !args.resumeAfterRestart && !(await isCdpReady(args.cdpUrl))) {
-    await startDetachedRestart(args, new Error('the CDP endpoint is not listening'))
+  if (args.restartCodex && !args.resumeAfterRestart) {
+    await startDetachedRestart(
+      args,
+      'A clean Codex restart was requested before replacing the plugin.'
+    )
     return null
   }
   try {
@@ -870,32 +887,31 @@ async function main(): Promise<void> {
     if (!client) return
 
     const initialState = await openPluginDetail(client, args.timeoutMs)
-    if (initialState !== 'installed') fail(`${pluginDisplayName} is not currently installed.`)
     let initialRuntime = await listRuntimeProcesses(runtimePaths)
-    if (initialRuntime.cli.length > 0 && initialRuntime.hub.length > 0) {
-      initialRuntime = await waitForRuntimeState(runtimePaths, 'installed', args.timeoutMs)
-      console.log('Confirmed that the currently installed TemPad Dev CLI and Hub are running.')
-    } else if (initialRuntime.cli.length === 0 && initialRuntime.hub.length === 0) {
-      console.log(
-        'The plugin is installed but its runtime is absent; continuing with repair reinstall.'
-      )
+    if (initialState === 'installed') {
+      if (initialRuntime.cli.length > 0 && initialRuntime.hub.length > 0) {
+        initialRuntime = await waitForRuntimeState(runtimePaths, 'installed', args.timeoutMs)
+        console.log('Confirmed that the currently installed TemPad Dev CLI and Hub are running.')
+      } else if (initialRuntime.cli.length === 0 && initialRuntime.hub.length === 0) {
+        console.log(
+          'The plugin is installed but its runtime is absent; continuing with repair reinstall.'
+        )
+      } else {
+        fail(`The installed plugin has a partial runtime: ${processSummary(initialRuntime)}`)
+      }
+
+      console.log('Uninstalling TemPad Dev (Dev) through Codex...')
+      await uninstallPlugin(client, args.timeoutMs)
     } else {
-      fail(`The installed plugin has a partial runtime: ${processSummary(initialRuntime)}`)
+      console.log('The plugin is already uninstalled; continuing the interrupted reinstall.')
     }
 
-    console.log('Uninstalling TemPad Dev (Dev) through Codex...')
-    await uninstallPlugin(client, args.timeoutMs)
     const runtimeAfterUninstall = await waitForRuntimeState(
       runtimePaths,
       'uninstalled',
-      args.timeoutMs,
-      initialRuntime
+      args.timeoutMs
     )
-    console.log(
-      runtimeAfterUninstall.cli.length
-        ? 'Confirmed that the uninstalled Codex CLI stopped; the shared Hub remains for other clients.'
-        : 'Confirmed that the TemPad Dev CLI and Hub have stopped.'
-    )
+    console.log('Confirmed that all TemPad Dev CLI and Hub processes have stopped.')
 
     const stateAfterUninstall = await openPluginDetail(client, args.timeoutMs)
     if (stateAfterUninstall !== 'uninstalled') {
@@ -904,15 +920,25 @@ async function main(): Promise<void> {
 
     console.log(`Installing TemPad Dev (Dev) ${args.version} through Codex...`)
     await installPlugin(client, args.version, args.timeoutMs)
-    await waitForRuntimeState(runtimePaths, 'installed', args.timeoutMs, runtimeAfterUninstall)
-    console.log('Confirmed that a new TemPad Dev CLI and an available Hub are running.')
     await tryRestorePreviousCodexView(client, 4)
+    const runtimeAfterInstall = await listRuntimeProcesses(runtimePaths)
+    if (runtimeAfterInstall.cli.length === 0 && runtimeAfterInstall.hub.length === 0) {
+      console.log(
+        'Codex installed the plugin; its task-scoped MCP runtime will be verified by the next fresh task.'
+      )
+    } else {
+      await waitForRuntimeState(runtimePaths, 'installed', args.timeoutMs, runtimeAfterUninstall)
+      console.log('Confirmed that a new TemPad Dev CLI and an available Hub are running.')
+    }
   } finally {
     client?.close()
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error))
-  process.exitCode = 1
-})
+void main().then(
+  () => process.exit(0),
+  (error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
+)

@@ -3555,6 +3555,87 @@ describe('mcp/tools/canvas', () => {
     expect((fixture.getNode(draft.rootNodeId) as FrameNode).children).toEqual([action])
   })
 
+  it('rejects same-key primitive-to-instance replacement before mutation', async () => {
+    const fixture = createFixture()
+    const screen = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/action" class="w-[160px] h-[48px]"></div></div>'
+    })
+    const authored = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="button" class="w-[160px] h-[48px]"></div>',
+      native: {
+        button: { figma: { component: { type: 'COMPONENT' } } }
+      }
+    })
+    const root = fixture.getNode(screen.rootNodeId) as FrameNode
+    const component = fixture.getNode(authored.rootNodeId)
+    fixture.commitUndo.mockClear()
+    fixture.triggerUndo.mockClear()
+
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: screen.rootNodeId,
+        markup:
+          '<div data-key="screen" class="flex flex-col w-[321px] h-[200px]"><div data-key="screen/action" class="w-[160px] h-[48px]"></div></div>',
+        native: {
+          'screen/action': { component: { id: authored.rootNodeId } }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining(
+        'give the instance a new key and remove the primitive key in the same update'
+      )
+    })
+
+    expect(root.width).toBe(320)
+    expect(component.removed).toBe(false)
+    expect(fixture.commitUndo).toHaveBeenCalledOnce()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+  })
+
+  it('explains how to replace an update root with an instance', async () => {
+    const fixture = createFixture()
+    const screen = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/action-draft" class="w-[160px] h-[48px]"></div></div>'
+    })
+    const authored = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="button" class="w-[160px] h-[48px]"></div>',
+      native: {
+        button: { figma: { component: { type: 'COMPONENT' } } }
+      }
+    })
+    const draftNodeId = screen.nodeIdsByKey['screen/action-draft']!
+    fixture.commitUndo.mockClear()
+    fixture.triggerUndo.mockClear()
+
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: draftNodeId,
+        markup: '<div data-key="screen/action" class="w-[160px] h-[48px]"></div>',
+        native: {
+          'screen/action': { component: { id: authored.rootNodeId } }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringMatching(
+        /update root cannot become an instance in place.*bounded ancestor.*new key.*remove the old keyed node/
+      )
+    })
+
+    expect(fixture.getNode(draftNodeId)).toMatchObject({ removed: false, type: 'FRAME' })
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+  })
+
   it('creates multiple instances of a freshly authored keyed component', async () => {
     const fixture = createFixture()
     const authored = await applyCanvasFromTool({
@@ -3616,6 +3697,55 @@ describe('mcp/tools/canvas', () => {
           message: expect.stringMatching(
             /screen\/actions.*top 6px, bottom 6px.*clipping is enabled/
           )
+        }
+      ]
+    })
+  })
+
+  it('warns when authored instance content exceeds the native instance root', async () => {
+    const fixture = createFixture()
+    const authored = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="heading" class="w-[160px] h-[40px]"><span data-key="heading/title" class="absolute left-[0px] top-[0px] w-[160px] h-[64px]">A title that wraps beyond the component</span></div>',
+      native: {
+        heading: { figma: { component: { type: 'COMPONENT' } } }
+      }
+    })
+
+    const screen = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="screen" class="w-[240px] h-[120px]"><div data-key="screen/heading" class="absolute left-[20px] top-[20px] w-[160px] h-[40px]"></div></div>',
+      native: {
+        'screen/heading': { component: { id: authored.rootNodeId } }
+      }
+    })
+
+    const instance = fixture.getNode(screen.nodeIdsByKey['screen/heading']!) as InstanceNode
+    const overflowingTitle = fixture.createNode('TEXT')
+    overflowingTitle.resize(160, 64)
+    overflowingTitle.x = 0
+    overflowingTitle.y = 0
+    instance.insertChild(0, overflowingTitle)
+
+    const verified = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: screen.rootNodeId,
+      markup:
+        '<div data-key="screen" class="w-[240px] h-[120px]"><div data-key="screen/heading" class="absolute left-[20px] top-[20px] w-[160px] h-[40px]"></div></div>',
+      native: {
+        'screen/heading': { component: { id: authored.rootNodeId } }
+      }
+    })
+
+    expect(verified.verification).toMatchObject({
+      status: 'warning',
+      warnings: [
+        {
+          code: 'managed-content-overflow',
+          key: 'screen/heading',
+          message: expect.stringMatching(/instance content.*bottom 24px.*native INSTANCE bounds/)
         }
       ]
     })
@@ -6098,8 +6228,10 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
-      message: expect.stringContaining('could not be loaded')
+      code: TEMPAD_MCP_ERROR_CODES.IMAGE_IMPORT_FAILED,
+      message: expect.stringMatching(
+        /fill paint 0 on "root".*direct public image URL.*resolved image asset/
+      )
     })
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
     expect(figma.createFrame).not.toHaveBeenCalled()
@@ -10906,7 +11038,7 @@ describe('mcp/tools/canvas', () => {
     expect((nested as unknown as TextNode).characters).toBe('Nested')
   })
 
-  it('rejects nodes outside the update scope and rolls back partial work', async () => {
+  it('rejects nodes outside the update scope before mutation', async () => {
     const fixture = createFixture()
     const created = await applyCanvas(createSpec())
     const foreign = fixture.createNode('TEXT')
@@ -10922,11 +11054,8 @@ describe('mcp/tools/canvas', () => {
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE
     })
-    expect(fixture.commitUndo).toHaveBeenCalledTimes(2)
-    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
-    expect(fixture.commitUndo.mock.invocationCallOrder[1]).toBeLessThan(
-      fixture.triggerUndo.mock.invocationCallOrder[0]!
-    )
+    expect(fixture.commitUndo).toHaveBeenCalledOnce()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
     expect(fixture.nodes.has(created.rootNodeId)).toBe(true)
   })
 
@@ -10956,7 +11085,9 @@ describe('mcp/tools/canvas', () => {
     const unrelated = fixture.createNode('COMPONENT') as unknown as ComponentNode
     unrelated.resize(342, 68)
     const propertyName = unrelated.addComponentProperty('Artist', 'TEXT', 'Mara Vale')
-    const foreign = fixture.createNode('TEXT')
+    vi.mocked(figma.util.solidPaint).mockImplementationOnce(() => {
+      throw new Error('paint unavailable')
+    })
     fixture.triggerUndo.mockImplementationOnce(() => {
       delete unrelated.componentPropertyDefinitions[propertyName]
     })
@@ -10965,7 +11096,8 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         mode: 'update',
         targetNodeId: created.rootNodeId,
-        markup: `<div data-key="card" class="flex flex-col w-[320px] h-[200px]"><span data-key="foreign" data-node-id="${foreign.id}" class="w-full h-fit">Foreign</span></div>`
+        markup:
+          '<div data-key="card" class="flex flex-col w-[321px] h-[200px]"><div data-key="card/new" class="w-[12px] h-[12px] bg-[#112233]"></div></div>'
       })
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
@@ -10976,7 +11108,9 @@ describe('mcp/tools/canvas', () => {
   it('reports when rollback removes the pre-existing update root', async () => {
     const fixture = createFixture()
     const created = await applyCanvas(createSpec())
-    const foreign = fixture.createNode('TEXT')
+    vi.mocked(figma.util.solidPaint).mockImplementationOnce(() => {
+      throw new Error('paint unavailable')
+    })
     fixture.triggerUndo.mockImplementationOnce(() => {
       fixture.getNode(created.rootNodeId).remove()
     })
@@ -10985,7 +11119,8 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         mode: 'update',
         targetNodeId: created.rootNodeId,
-        markup: `<div data-key="card" class="flex flex-col w-[320px] h-[200px]"><span data-key="foreign" data-node-id="${foreign.id}" class="w-full h-fit">Foreign</span></div>`
+        markup:
+          '<div data-key="card" class="flex flex-col w-[321px] h-[200px]"><div data-key="card/new" class="w-[12px] h-[12px] bg-[#112233]"></div></div>'
       })
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,

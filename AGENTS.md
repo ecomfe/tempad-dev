@@ -50,9 +50,12 @@ Provide a single entry point for coding agents. This file links to package-level
   contents, including the shared skill, agent-plugin manifests, icons, or marketplace metadata.
   Ordinary `pnpm build` must not modify agent-plugin artifacts.
 - Before asking the user to test a changed development plugin, reinstall the generated cachebuster
-  in the active host and use a new task. `codex plugin add tempad-dev-dev@tempad-dev-dev` updates
-  the installation on disk, but an external CLI call alone does not prove that a running Desktop
-  host refreshed its plugin cache.
+  through the active Desktop host and use a new task. Use the no-restart reinstall path when the
+  host CDP endpoint and plugin runtime are healthy; a skill, manifest, icon, or marketplace change
+  does not itself require restarting Codex. Reserve `--restart-codex` for unavailable CDP, stale or
+  partial host/runtime state, or recovery after the ordinary replacement cannot complete. An
+  external `codex plugin add` call updates the installation on disk, but alone does not prove that
+  a running Desktop host refreshed its plugin cache.
 - `pnpm dev` watches the extension, shared package, and MCP server. The generated development
   plugin points directly at the current checkout's MCP build, so MCP-only changes require a new
   agent task or plugin reload, not an agent-plugin rebuild or reinstall.
