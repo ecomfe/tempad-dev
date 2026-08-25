@@ -20,6 +20,12 @@ export interface AuthoringRolloutInspection {
     openedSourceCalls: number
     browserScreenshotCalls: number
   }
+  imageViews: {
+    total: number
+    references: number
+    tempadScreenshots: number
+    other: number
+  }
   assets: {
     imageGenerationCalls: number
     appliedRemoteImageDomains: string[]
@@ -98,6 +104,18 @@ function customCallInputs(parsedRows: unknown[]): string[] {
   })
 }
 
+function imageViewPaths(parsedRows: unknown[]): string[] {
+  return parsedRows.flatMap((row) => {
+    if (get(row, 'type') !== 'event_msg') return []
+    const payload = get(row, 'payload')
+    if (get(payload, 'type') !== 'item_completed') return []
+    const item = get(payload, 'item')
+    if (get(item, 'type') !== 'ImageView') return []
+    const path = get(item, 'path')
+    return typeof path === 'string' ? [path] : []
+  })
+}
+
 function resultText(event: ApplyEvent): string {
   return stringify(event.result)
 }
@@ -111,6 +129,7 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
   const parsedRows = rows(rolloutJsonl)
   const applies = applyEvents(parsedRows)
   const callInputs = customCallInputs(parsedRows)
+  const viewedImages = imageViewPaths(parsedRows)
   const applyPayloads = applies.map((event) => stringify(event.arguments))
   const failureCodes: Record<string, number> = {}
   const nodeLimitAttempts: NodeLimitAttempt[] = []
@@ -151,6 +170,12 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
 
   const allCalls = callInputs.join('\n')
   const iconEvidence = [...applyPayloads, ...callInputs].join('\n')
+  const referenceImageViews = viewedImages.filter((path) =>
+    /\/work\/references\//.test(path)
+  ).length
+  const tempadScreenshotViews = viewedImages.filter((path) =>
+    /\/tempad-dev\/assets\//.test(path)
+  ).length
   if (/lucide-icons|lucide-static/i.test(iconEvidence)) iconLibraries.add('Lucide')
   if (/primer\\?\/octicons|@primer\\?\/octicons/i.test(iconEvidence)) iconLibraries.add('Octicons')
   if (/material-design-icons|material-symbols/i.test(iconEvidence)) iconLibraries.add('Material')
@@ -170,6 +195,12 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
       ).length,
       browserScreenshotCalls: callInputs.filter((input) => /\.screenshot\s*\(/.test(input)).length
     },
+    imageViews: {
+      total: viewedImages.length,
+      references: referenceImageViews,
+      tempadScreenshots: tempadScreenshotViews,
+      other: viewedImages.length - referenceImageViews - tempadScreenshotViews
+    },
     assets: {
       imageGenerationCalls: countMatches(allCalls, /image_gen__imagegen/g),
       appliedRemoteImageDomains: [...domains].sort(),
@@ -182,7 +213,7 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
     limitations: [
       'Trace signals do not prove that researched evidence or acquired assets were retained in the final artifact.',
       'Component counters identify authoring mechanics, not whether the chosen component boundary was semantically correct.',
-      'Screenshot pixels and live native structure still require direct inspection.'
+      'Trace counts do not substitute for evaluator inspection of screenshot pixels and live native structure.'
     ]
   }
 }
