@@ -142,6 +142,22 @@ describe('canvas markup', () => {
     })
   })
 
+  it('maps generic Tailwind font families to portable Figma web fonts', () => {
+    const result = parse(`
+      <div data-key="families" class="flex flex-col w-[320px] h-[160px]">
+        <span data-key="sans" class="w-fit h-fit font-sans">Sans</span>
+        <span data-key="serif" class="w-fit h-fit font-serif font-semibold">Serif</span>
+        <span data-key="mono" class="w-fit h-fit font-mono font-extrabold">Mono</span>
+      </div>
+    `)
+
+    expect(result.root.children).toMatchObject([
+      { text: { fontFamily: 'Inter' } },
+      { text: { fontFamily: 'Noto Serif', fontStyle: 'SemiBold' } },
+      { text: { fontFamily: 'Noto Sans Mono', fontStyle: 'ExtraBold' } }
+    ])
+  })
+
   it('normalizes native size, position, border-side, radius, and text defaults', () => {
     const result = parse(`
       <div data-key="root" class="w-xs h-64 border-x-2 border-t border-white rounded-t-xl rounded-br-none">
