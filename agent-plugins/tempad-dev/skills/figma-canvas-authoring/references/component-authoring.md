@@ -52,6 +52,10 @@ primitive with an instance before adding another consumer. Use the exact
 returned `rootNodeId` or `nodeIdsByKey` entry for every usage; never leave
 primitive lookalikes as final consumers.
 
+A keyed primitive cannot become an INSTANCE in place. Update its bounded
+ancestor, add the instance under a new key, and remove the old key in the same
+call.
+
 Before propagation, create the smallest real definition, instantiate it once,
 and verify the exact reference. Stop component authoring if the ID is missing,
 the instance fails, or the definition is empty, default-sized, or loses
