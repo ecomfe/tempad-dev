@@ -1,20 +1,18 @@
 # Canvas HTML and Tailwind subset
 
-Canvas HTML is a desired-result language, not browser rendering.
+Canvas HTML describes desired state, not browser rendering. Classes do not
+cover every Figma result: use routed native bindings for gradients, media,
+non-shadow effects, masks, transforms, exact fonts, and rich text. Use primitive
+layers only for intended layered geometry, never as a CSS substitute.
 
-Class coverage is not Figma result coverage. Use the routed typed native
-bindings for gradients, media, non-shadow effects, masks, transforms, exact
-fonts, and rich text. Use primitive layers only when the intended result is
-actually layered geometry, not as a substitute for missing browser CSS.
+One `apply_canvas` markup tree may contain at most 160 elements and 12 levels.
+This is a safety ceiling, not a target. Before calling, count the tree, include
+only assets referenced by that call, and split larger work at meaningful screen
+or section boundaries.
 
-One `apply_canvas` markup tree may contain at most 100 elements and 12 levels.
-Split larger work only at meaningful screen or section boundaries.
-
-Prefer the supported native Tailwind utilities below; use arbitrary pixel values
-only when the result is off the default scale. Numeric spacing utilities use
-Tailwind v4's default `4px` unit. Theme extensions, variants, plugins, and
-utilities whose meaning depends on a browser viewport or CSS cascade remain
-unsupported.
+Prefer supported Tailwind utilities; use arbitrary pixels only off the default
+scale. Numeric spacing follows Tailwind v4's `4px` unit. Theme extensions,
+variants, plugins, viewport-dependent utilities, and CSS cascade are unsupported.
 
 ## Contents
 
@@ -25,32 +23,28 @@ unsupported.
 ## Elements and identity
 
 - Use `div`, `span`, or a component tag returned by the active catalog.
-- A plain `<br>` or `<br/>` inside `span` text creates a line break. For literal
-  source newlines or repeated spaces, add `whitespace-pre-wrap` instead.
 - Give every element one unique `data-key` of letters, numbers, `. / : _ -`.
 - Use `data-node-id` only in update mode to adopt an exact live node; instance
   sublayers are not authoring targets.
 - Use no arbitrary attributes on `div` or `span`. Common catalog links use
   `data-var-<field>="vN"` and `data-style-<field>="sN"`; `"none"` explicitly
   unlinks that field.
-- A `span` contains text and optional line breaks only. Add
-  `whitespace-pre-wrap` when repeated spaces or literal source newlines are
-  intentional. A plain `&` is literal when it does not form
-  a semicolon-terminated entity; supported named and numeric entities still
-  decode normally. Do not put layout or frame-appearance utilities such as
-  flex, grid, gap, padding, borders, corners, or box shadows on a `span`; put
-  those on a parent `div` and keep dimensions, shared appearance, and text
-  utilities on the text node.
+- A `span` contains only text and `<br>` or `<br/>` line breaks. Use
+  `whitespace-pre-wrap` for literal newlines or repeated spaces. A plain `&` is
+  literal unless it forms a semicolon-terminated entity; supported entities
+  decode. Put flex/grid, gaps, padding, borders, corners, and box shadows on a
+  parent `div`, leaving dimensions, shared appearance, and text utilities on
+  the text node.
 - A component tag is childless, includes its returned `data-ref`, and accepts
   returned props plus the shared class, identity, variable, and style
   attributes.
 
-Variable attribute names are the native field in kebab case: fill, stroke,
-characters, visible, width/height and min/max bounds, gap and grid/counter
-gaps, four paddings, corner radius and four corners, stroke weight and four
-sides, opacity, and the whole-node font/line-height/letter-spacing/paragraph
-fields. Style attributes are `data-style-fill`, `stroke`, `text`, `effect`,
-and `grid`. Node-type and fallback requirements still apply.
+Variable attributes use kebab-case native field names: fill, stroke, characters,
+visible, dimensions/bounds, gaps, four paddings/corners/stroke sides, radius,
+stroke weight, opacity, and whole-node font/line-height/letter-spacing/paragraph
+fields. Style attributes are `data-style-fill`, `data-style-stroke`,
+`data-style-text`, `data-style-effect`, and `data-style-grid`. Node-type and
+fallback rules still apply.
 
 Every primitive needs one width and one height. Supported fixed forms are:
 
@@ -64,23 +58,19 @@ Every primitive needs one width and one height. Supported fixed forms are:
   width bounds also accept the default container names; use `min-w-none`, `max-w-none`,
   `min-h-none`, or `max-h-none` to clear a bound in an update
 
-When text uses `w-fit`, it must also use `h-fit`; prefer `size-fit`. A fixed-width
-`h-fit` text node remains valid when its lines should wrap within that width.
+Text using `w-fit` also needs `h-fit`; prefer `size-fit`. Fixed-width `h-fit`
+remains valid for wrapping text.
 
 Create and update markup roots require fixed width and height; fill, hug, and
 grow are invalid even when the live target has a sized parent.
 
-Use `w-full` only on the cross axis of `flex-col`, `h-full` only on the cross
-axis of `flex-row`, and `grow` on the main axis; use `grow-0` to clear growth.
-`grow` sets native main-axis growth but does not replace the required width and
-height classes: for example, use `grow w-fit h-[3px]` for a horizontal track in
-a row. Give growing text in a fixed or otherwise constrained row a meaningful
-positive `min-w-*`; `grow w-fit` text can otherwise collapse before Figma
-resolves the remaining width. Before applying a fixed Auto Layout frame, budget
-its main axis as padding + gaps + fixed/minimum child extents so content cannot
-overrun the container. Grid children may fill their cell. Direct width and height variables
-require fixed-size fallbacks. Fixed sizes are at least `0.01px`; native lines
-use `h-[0px]`.
+Use `w-full` only on a `flex-col` cross axis, `h-full` only on a `flex-row`
+cross axis, and `grow` on the main axis; `grow-0` clears growth. `grow` does not
+replace required dimensions—for a row track use `grow w-fit h-[3px]`. Give
+growing text in constrained rows a positive `min-w-*` to prevent collapse.
+Budget fixed Auto Layout main axes as padding + gaps + fixed/minimum child
+extents. Grid children may fill cells. Direct dimension variables require fixed
+fallbacks. Fixed sizes must be at least `0.01px`; native lines use `h-[0px]`.
 
 ## Layout
 
@@ -96,36 +86,30 @@ vertical stack:
 - `p`, `px`, `py`, `pt`, `pr`, `pb`, `pl` with `-N`, `-px`, or `-[Npx]`
 - `box-border`, `box-content`
 
-New Auto Layout frames use Figma's CSS-aligned model: inside strokes participate
-in layout by default (`box-border`), while `box-content` explicitly excludes
-them. Center and outside strokes never affect padding, spacing, or fill math,
-even with `box-border`; each nested frame owns its own stroke setting. Fixed
-create sizes must be large enough for opposing padding and any explicitly
-included inside stroke. Figma owns the final geometry of `FILL` children,
-including border-box distribution between multiple fill siblings.
-Derive an exact in-flow descendant or instance size from that rendered inner
-box, not from the parent's nominal size; when it should track the inner box,
-prefer valid cross-axis fill. Let it exceed the inner box only as an intentional
-bleed or overlap.
+New Auto Layout frames include inside strokes by default (`box-border`);
+`box-content` excludes them. Center/outside strokes never affect layout, and
+each nested frame owns its setting. Fixed create sizes must cover opposing
+padding plus included inside strokes. Figma determines `FILL` geometry and
+border-box distribution. Derive exact descendant or instance sizes from the
+rendered inner box, not nominal parent size; prefer valid cross-axis fill and
+exceed the box only for intentional bleed or overlap.
 
-Treat `managed-content-overflow` as a structural-verification warning: a
-managed Text or INSTANCE extends beyond its direct managed Frame or Component
-parent. Inspect the reported edges, clipping state, and rendered result. Resize
-or realign accidental overflow; retain it only after confirming the bleed,
-crop, or overlap is intentional.
+`managed-content-overflow` means managed Text or INSTANCE exceeds its direct
+managed Frame or Component, or a native INSTANCE contains descendant content
+beyond its own fixed root. Inspect edges, clipping, rendering, and instance
+bounds; resize or realign accidental overflow and retain only intentional bleed,
+crop, or overlap. Property-driven content outside an INSTANCE root is a broken
+component contract rather than intentional consumer overflow.
 
-`justify-between` uses native Auto gap: its effective gap never becomes negative
-and a single child stays at the start. Use an explicit negative native
-`figma.autoLayout.itemSpacing` only when overlap is intentional. On update,
-omitting `box-border` and `box-content` preserves the live frame's setting.
+`justify-between` uses nonnegative native Auto gap and keeps one child at the
+start. Use negative `figma.autoLayout.itemSpacing` only for intentional overlap.
+Omitting box-sizing on update preserves the live setting.
 
-`hidden` and BOOLEAN component-property visibility remove an in-flow child from
-Auto Layout, so gaps, sibling positions, and hug dimensions can change. For a
-purely visual state that must preserve geometry, keep a fixed outer slot in the
-flow and toggle only its inner child. `absolute left-[Npx] top-[Npx]` maps to
-Figma's Ignore Auto Layout behavior and is appropriate for a true overlay; it
-must have fixed offsets, cannot fill or grow, and surrounding content will
-ignore it. Text and Auto Layout frames may still hug their own content.
+`hidden` and BOOLEAN visibility remove in-flow children, changing gaps,
+positions, and hug bounds. To preserve geometry, keep a fixed slot and toggle
+its inner child. `absolute left-[Npx] top-[Npx]` maps to Ignore Auto Layout for
+true overlays; it needs fixed offsets, cannot fill/grow, and leaves surrounding
+flow unchanged. Its text and Auto Layout descendants may still hug.
 
 For grid use:
 
@@ -137,10 +121,12 @@ For grid use:
 - child alignment: `justify-self-auto|start|center|end`,
   `self-auto|start|center|end`
 
-Give a manual grid child both row and column starts or neither. Auto-flow
-children use source order and cannot set explicit starts.
-A grid that hugs its height cannot use flexible or automatic row tracks. Give
-the grid a fixed height or use fixed row tracks.
+Give manual grid children both row and column starts or neither. Auto-flow uses
+source order without explicit starts. A height-hugging grid cannot use flexible
+or automatic rows; fix either its height or row tracks. Omitting `grid-rows-*`
+creates native automatic content-sized rows. On a fixed-height grid, declare
+row tracks when children should share or fill the available height; increasing
+only the container height does not enlarge automatic rows.
 
 For a coherent board larger than one call, first create one fixed parent:
 
@@ -163,14 +149,13 @@ place:
 }
 ```
 
-For deliberate freeform composition, omit layout classes and give every described child
-`absolute` with exactly one horizontal edge (`left-*` or `right-*`) and one vertical edge
-(`top-*` or `bottom-*`), including negative forms and exact `[Npx]` values, or use a native
-relative transform. Edge-relative placement requires fixed parent and child bounds. A plain `div`
-without `flex` or `grid` is freeform even when it has only one child; opt into `flex-row`,
-`flex-col`, or grid for any in-flow child, including a partial-width fill inside a track.
-An absolute child cannot grow or fill an axis. Use `static` to return an existing absolute child to
-Auto Layout during an update.
+For freeform composition, omit layout classes and give each child `absolute`
+with exactly one horizontal edge (`left-*` or `right-*`) and one vertical edge
+(`top-*` or `bottom-*`), including negative or exact values, or use a native
+relative transform. Edge placement needs fixed parent and child bounds. A plain
+non-flex/grid `div` is freeform even with one child; opt into layout for every
+in-flow child. Absolute children cannot grow or fill; use `static` to return one
+to Auto Layout on update.
 
 ## Appearance and text
 
@@ -199,13 +184,13 @@ Frame appearance:
 Figma accepts shadow spread only on rectangles and ellipses, or on frames,
 components, and instances with a visible fill and clipping enabled.
 
-A new border needs both a weight and a paint source, supplied literally or by a
-native binding. During update, either side may change independently; omitting
-the other preserves its live value or binding.
+A new border needs weight and paint, literal or bound. Updates may change either
+independently; omission preserves the other.
 
-A newly created frame is transparent when its background is omitted, including
-when the frame is introduced by an update. Use an explicit background class
-when the frame should render a fill.
+New frames are transparent when background is omitted, including frames added
+during update. On an existing frame, omission preserves its live background;
+use `bg-transparent` to clear it. Set an explicit background when fill is
+intended.
 
 Shared appearance:
 
@@ -233,13 +218,11 @@ Text:
 - `text-shadow-[...]` for an exact pixel text-shadow list with a color and two
   or three pixel lengths; `text-shadow-none` clears it
 
-A `span` is one Figma TEXT node, so `bg-*` and `text-*` both target that node's
-single fill channel. For colored text on a background, put the background on a
-parent `div` and the text color on its child `span`.
+A `span` is one TEXT node, so `bg-*` and `text-*` share its fill channel. Put
+background on a parent `div` and color on its child `span`.
 
-Shadow classes compile to the node's native Figma effect stack. Do not combine
-them with a direct `figma.effects` binding or an Effect style on the same node;
-use one source for that stack.
+Shadow classes compile to the native effect stack; never combine them with
+`figma.effects` or an Effect style on that node.
 
-Unknown elements, attributes, classes, CSS, responsive/state prefixes, custom theme names, margins,
-percentage sizing, and plugins fail closed instead of being ignored.
+Unknown elements, attributes, classes, CSS, responsive/state prefixes, custom
+themes, margins, percentages, and plugins fail closed.

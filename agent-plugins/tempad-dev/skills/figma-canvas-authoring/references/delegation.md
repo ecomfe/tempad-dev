@@ -1,98 +1,82 @@
 # Delegate bounded evidence work
 
-Design judgment is partly tacit: no handoff fully encodes the user, product,
-canvas, references, and emerging composition. Delegate evidence and isolated
-production, never focal judgment. The main agent synthesizes and remains the
-only Canvas writer.
+Delegate evidence gathering or isolated production, never focal judgment. The
+main agent synthesizes results and remains the only Canvas writer.
 
 ## Pass the delegation gate
 
-Spawn the smallest useful number of subagents only when every condition holds:
+Delegate only work that is:
 
-1. **Separable:** the work has a stable objective and does not depend on an
-   evolving design decision.
-2. **Compressible:** the relevant context fits in a compact task-local brief
-   without recreating the main conversation.
-3. **Isolated:** the work is read-only or produces an isolated artifact; it
-   never mutates the shared Figma canvas, design-system state, or another
-   agent's files.
-4. **Verifiable:** the result can return as citations, an importable asset
-   reference, exact facts, or a bounded defect list that the main agent can
-   inspect.
-5. **Worth coordinating:** parallelism, specialized capability, or an
-   independent perspective materially outweighs handoff and synthesis cost.
+1. **Separable:** has a stable objective independent of evolving design choices.
+2. **Compressible:** needs only a compact task-local brief.
+3. **Isolated:** is read-only or produces an isolated artifact without mutating
+   Figma, design-system state, or another agent's files.
+4. **Verifiable:** returns citations, importable asset references, exact facts,
+   or a bounded defect list the main agent can inspect.
+5. **Worth coordinating:** gains enough from parallelism, specialist capability,
+   or independent review to justify handoff and synthesis.
 
-Keep work local when any condition fails. Do not delegate for ritual,
-convenience, or another unsupported aesthetic opinion.
+Keep work local if any condition fails. Do not delegate for ritual, convenience,
+or another unsupported aesthetic opinion.
 
 ## Write a complete handoff
 
-Give each subagent:
+Give each worker one objective and its relevance, only required task evidence
+and constraints, permitted tools and sources, explicit exclusions including no
+Canvas writes, and an exact output contract and stop condition. The main agent
+must read required Canvas references and set safety boundaries; never delegate
+interpretation of this skill. Prefer fresh or minimum-context workers, pass
+source evidence rather than conclusions, and avoid overlapping assignments.
 
-- one objective and why it matters to the composition;
-- only the established task, evidence, and resource constraints needed for that
-  objective;
-- permitted tools, sources, and artifacts;
-- explicit exclusions and the no-Canvas-write boundary;
-- an exact output contract and stop condition.
-
-The main agent reads required Canvas references and sets resource and safety
-boundaries; never delegate this skill's interpretation. Use a fresh or
-minimum-context worker when possible, send source evidence rather than the main
-agent's conclusion, and avoid overlapping assignments.
-
-## Delegate only suitable tracks
+## Suitable tracks
 
 ### Research scout
 
-Delegate a bounded evidence question after the main agent frames the design
-problem. Return only:
+After framing the design problem, delegate a bounded evidence question. Return:
 
 ```txt
 open decision; exact source; applicable finding; relevance; authority boundary
 ```
 
-The scout does not choose the direction. One may cover several explicit
-questions when their search space is shared; use multiple scouts only for
-independent search spaces.
+The scout does not choose direction. Combine questions only when their search
+space is shared; use multiple scouts only for independent spaces.
 
 ### Asset scout
 
-Delegate generation or source exploration only after establishing the asset's
-task-specific requirements and import contract. Return one importable `imageUrl`
-or `assetHash` per requested asset, with MIME type, dimensions, provenance, and
-a factual description. Return no bytes, discarded candidates, or transcript.
-The main agent owns integration and judgment.
+After fixing asset requirements and import contract, return one importable
+`imageUrl` or `assetHash` per asset plus MIME type, dimensions, provenance, and
+factual description. Return no bytes, rejected candidates, or transcript. The
+main agent owns selection and integration.
 
 ### Independent QA scout
 
-After the representative composition exists, give a fresh worker its screenshot
-and the frozen brief without the creator's rationale or suspected defects. Ask
-for at most eight factual observations:
+After a representative composition exists, provide a fresh worker its
+screenshot and frozen brief without creator rationale or suspected defects. Ask
+for at most eight observations:
 
 ```txt
 severity; screen/node or region; observed defect; visible evidence; violated constraint
 ```
 
-The scout does not edit, redesign, or declare completion. The main agent checks
-each observation against the live canvas.
+The scout neither edits nor declares completion; the main agent checks findings
+against the live canvas.
 
 ### Inventory scout
 
-Delegate read-only inventory only when enough independent material makes it
-worthwhile, such as checking several screens or icon candidates. Return exact
-findings and references, not a design proposal.
+Use read-only inventory when independent volume warrants it, such as several
+screens or icon candidates. Require exact findings and references, not a design
+proposal.
 
 ## Orchestrate conservatively
 
-- Default to one worker and at most two concurrent, non-overlapping workers.
-- Keep the main agent productive; do not delegate a faster local critical path.
-- Only the main agent interprets ambiguous intent, resolves conflicts, chooses
-  the direction, and calls `apply_canvas`.
-- Resolve conflicts from evidence, not voting. Discard unverifiable or
-  out-of-scope claims, and stop when evidence is sufficient.
+- Default to one worker; use at most two concurrent non-overlapping workers.
+- Keep a faster local critical path with the main agent.
+- Only the main agent resolves intent and conflicts, chooses direction, calls
+  `apply_canvas`, and accepts the result.
+- Resolve conflicts from evidence, not voting; discard unverifiable or
+  out-of-scope claims and stop when evidence is sufficient.
 
-Never delegate interdependent page/component construction, component
-authoring plus instance placement, updates to the same root, final composition,
-or final acceptance. These require the main agent's continuous awareness of the
-whole and a single ordered mutation stream.
+Never delegate interdependent page or component construction, component
+authoring plus instance placement, concurrent updates to one root, final
+composition, or final acceptance. These require one ordered mutation stream and
+continuous awareness of the whole.

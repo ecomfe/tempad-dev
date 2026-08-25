@@ -1,51 +1,75 @@
 # Author reusable components
 
-Use this reference when the user or resolved design plan selects a reusable
-local component. This reference explains representation; it does not select a
-component boundary or justify a component library. New local components do not require
-`get_design_system`. Use a catalog when discovery or normalized library props
-are useful; use an exact returned live ID for a component the agent just
-authored.
+Use this reference to run the required shared-responsibility gate or after
+selecting a reusable local component. It explains representation, not library
+strategy. New local components need no `get_design_system`; use catalogs only
+for discovery or normalized library props, and exact returned IDs for newly
+authored components.
 
-When a composition uses a new component, its final usage nodes must be native
-Figma instances. Either:
+## Shared-responsibility gate
 
-- author the component first, then use its returned `rootNodeId` or exact entry
-  from `nodeIdsByKey` in the composition;
-- stabilize the composition first, then author the component and replace each
-  managed primitive usage. Give a replacement a new `data-key` when needed and
-  list the old key in `removeKeys`.
+Run this gate for two or more screens or states, or before a second consumer of
+the same content, control, or system responsibility. Repeated appearance alone
+does not qualify.
 
-Never leave a visually equivalent primitive copy as the final usage.
-If a representative instance is later replaced to fit real content or geometry,
-the selected responsibility is no longer closed. Revise the component contract
-or instance sizing and restore the usage; if the contract no longer earns its
-cost, safely remove the now-speculative definition instead of reporting it as a
-reusable deliverable.
+Before markup can create the second consumer:
 
-Before expanding a composition around a new component, create the smallest real
-definition needed and use its exact returned `rootNodeId` or `nodeIdsByKey`
-entry in one representative native instance. Continue only after structural
-verification confirms that component reference. If the tool does not return an
-exact ID, rejects the instance, or cannot verify its reference, stop creating
-component resources. Never represent a failed instance with a primitive or
-claim the component deliverable is complete. Continue independent Direct screen
-work only when it remains a valid requested outcome and explicitly report the
-degraded component delivery; if a reusable component is itself required, that
-part of the task remains incomplete. Remove an unused temporary definition only
-when safe and not itself a requested deliverable.
+1. List every recurring semantic family: shell, navigation, actions, rows,
+   cards, and other record families. Bound each at the smallest subtree that
+   owns the complete responsibility.
+2. Identify stable anatomy and real differences. Copy, media, availability,
+   state, labels, visibility, swaps, and bounded slot content are contract inputs,
+   not reasons to duplicate.
+3. Rank candidates by consumer spread and coordination cost. Author the
+   highest-ranked qualifying family first. A label, icon, or button component
+   does not close its repeated parent row or card.
+4. Keep a candidate Direct only for a concrete structural, ownership, behavior,
+   or contract incompatibility. Narrow an incompatible boundary once before
+   rejecting it. Different screens, siblings, labels, destinations, or small
+   width changes are not incompatibilities.
 
-If a verified definition becomes empty, default-sized, or loses properties,
-treat it as transaction corruption. Do not rebuild it in place: update preserves
-its page coordinates. Re-read the definition and intended usage, then stop and
-report it. With a fixed MCP session, remove and recreate it only when unused;
-never remove or substitute a definition with instances.
+Ranking sets order, not scope. Before final markup, resolve every recurring
+family as Author or Direct with a concrete incompatibility. One authored shell,
+navigation, control, or nested child never exempts repeated rows, cards, or
+records.
 
-Markup-only updates preserve existing keyed components, component sets,
-instances, and shape nodes, so an ancestor layout repair does not need to
-restate their native declarations or instance component references. Include a
-binding only when the call changes native state; new native nodes still need an
-explicit declaration or component reference.
+Keep one ranked trace:
+
+```txt
+rank -> responsibility + consumers -> stable anatomy + differences -> Author or Direct + incompatibility
+```
+
+Build it from planned content and final markup. Scan recurring sibling families,
+cross-screen roles, and patterned `data-key` groups. An unlisted recurring
+family reopens the gate. In the first payload that could contain a candidate's
+second consumer, bind every included Author consumer as a native instance or
+omit the second consumer. Planned later conversion and a nested or lower-ranked
+component do not close the gate.
+
+This is a comparison gate, not a quota. Author nothing when no responsibility
+qualifies. If one representative usage must stabilize first, replace that
+primitive with an instance before adding another consumer. Use the exact
+returned `rootNodeId` or `nodeIdsByKey` entry for every usage; never leave
+primitive lookalikes as final consumers.
+
+Before propagation, create the smallest real definition, instantiate it once,
+and verify the exact reference. Stop component authoring if the ID is missing,
+the instance fails, or the definition is empty, default-sized, or loses
+properties. Do not substitute primitives or claim completion. Continue only
+independent Direct work, report the degraded component result, and remove a
+temporary definition only when unused and safe. Re-read a corrupt definition
+and its intended usage; never rebuild it in place or remove one with instances.
+Recreate only when unused.
+
+Before handoff, reconcile the named candidates with actual consumers. Each
+qualifying family must have native INSTANCE consumers or a recorded concrete
+incompatibility. Inspect the most demanding instance through its descendants;
+root type and size do not prove wrapping, slots, media, or state content fit.
+Revise the contract or boundary when real content breaks it.
+
+Markup-only updates preserve keyed components, sets, instances, and shapes.
+Restate native bindings only when changing native state; new native nodes still
+need declarations or component references.
 
 Copy a complete recipe and change its design facts. Do not infer TemPad's
 component shape from raw Plugin API calls.
@@ -61,47 +85,52 @@ component shape from raw Plugin API calls.
 
 ## Define the contract from real usages
 
-Before creating a definition, compare every intended usage and separate stable
-anatomy from differing content, state, or nested substitution. Map each real
-difference to the smallest supported mechanism: Text, Boolean, Instance Swap,
-a variant, a Slot, or nested composition. Treat a field as invariant only when
-the concrete usages agree.
+Compare every intended usage. Separate stable anatomy from varying content,
+state, or nested substitution; map differences to the smallest supported Text,
+Boolean, Instance Swap, variant, Slot, or nested-composition mechanism. Treat a
+field as invariant only when real usages agree.
 
-When stable anatomy is expected to evolve together, a state difference that a
-supported property or variant can express is evidence for the shared contract,
-not a reason to keep copies local. Keep the responsibility local only when
-consumer divergence or contract cost outweighs that coordinated change.
+Size the contract from real extremes: test the longest wrapping text, widest
+label, largest nested swap, and materially different slots. Compare descendant
+bounds with the INSTANCE root; screenshots can still paint invalid overflow.
+If content exceeds the root, enlarge the definition, add a truthful size
+variant, or move the varying region outside a smaller stable boundary.
 
-If a meaningful usage difference cannot be expressed by the proposed contract,
-revise the component structure or keep the responsibility local. Do not publish
-a reusable definition that makes different usages share placeholder content or
-an accidental default merely because its outer geometry repeats.
+When stable anatomy should evolve together, expressible state differences
+support a shared contract. Keep it local only when divergence or contract cost
+outweighs coordinated change.
 
-Model one mutually exclusive categorical concern as one variant axis. Do not
-replace it with independent Boolean properties whose combinations permit no
-active value or several active values when those states are not real usages.
-Use Boolean properties for independently optional content or behavior.
+If the contract cannot express a meaningful difference, revise it or keep the
+responsibility local. Never force usages to share placeholder content or an
+accidental default merely because outer geometry repeats.
 
-Do not expose one semantic choice through both a variant axis and an independent
-property unless real usages can vary them separately. When a visible value is
-determined by a variant state, keep each main variant truthful; do not give all
-source variants one accidental default and repair only their instances with
-overrides.
+Model each mutually exclusive categorical concern as one variant axis; do not
+replace it with Booleans that allow impossible combinations. Reserve Booleans
+for independently optional content or behavior.
+
+Expose one choice through both a variant and independent property only when real
+usages vary them independently. Keep each source variant's visible state
+truthful; instance overrides do not repair accidental source defaults.
 
 ## Keep source definitions discoverable
 
-Keep main components and component sets visible at natural bounds in a clearly
-named source area separate from consumer screens. Never hide, clip, make
-transparent, or invisibly nest a main definition. For several component
-families, use a top-level native SECTION with `contentsHidden: false`; keep the
-definitions as discoverable children and size the section to their content.
+Keep main components and sets visible at natural bounds in a clearly named
+source area separate from screens. Never hide, clip, make transparent, or
+invisibly nest them. For several families, use a top-level SECTION with
+`contentsHidden: false`, discoverable definition children, and content-sized
+bounds.
 
-The source area contains the real definitions once, not redundant specimens.
-Before handoff, use `get_structure` to confirm every selected definition is
-visible and each intended consumer is an INSTANCE. Inspect materially distinct
-source variants at a readable scale and confirm their names, visible content,
-and styling encode the same state; instance overrides do not repair an
-incorrect source contract.
+Keep each real definition once, without redundant specimens. Before handoff,
+use `get_structure` to verify every definition is visible and every intended
+consumer is an INSTANCE. Inspect distinct source variants at readable scale;
+names, content, and styling must encode the same state.
+
+Keep the source area operational and visually subordinate: use the smallest
+content-sized container that exposes the definitions, outside the consumer
+board or screen sequence. Do not turn it into a branded artboard, mood board,
+visual-thesis panel, token showcase, or documentation page unless the user asks
+for that deliverable. Product screenshots and presentation framing should stay
+focused on the requested experience.
 
 ## Component and properties
 
@@ -145,31 +174,26 @@ connects both properties to its label layer.
 }
 ```
 
-Stable property keys such as `label` connect definitions and sublayer
-references inside the same result. They are not the generated Figma property
-names. Supported authored property definitions are `BOOLEAN`, `TEXT`, and
-`INSTANCE_SWAP`. Link sublayers with `visible`, `characters`, or
-`mainComponent` respectively.
+Stable keys such as `label` connect definitions and sublayer references within
+one result; they are not generated Figma property names. Supported property
+types are `BOOLEAN`, `TEXT`, and `INSTANCE_SWAP`, linked through `visible`,
+`characters`, and `mainComponent` respectively.
 
-BOOLEAN properties control layer visibility, not visual styling. Figma removes
-a hidden in-flow child from Auto Layout as if it were absent. Use that behavior
-for intentionally optional content. When a state decoration must not move text
-or siblings, bind `visible` to an inner layer inside an always-present fixed
-slot, or make the decoration `absolute` when overlay positioning is the real
-semantics. Use geometry-equivalent variants when the whole visual state changes.
+BOOLEAN properties control visibility, not styling. Hidden in-flow children
+leave Auto Layout. Use this only for intentionally optional content. To preserve
+geometry, toggle an inner layer inside a fixed slot, use `absolute` for a true
+overlay, or use geometry-equivalent variants for whole-state changes.
 
-Treat `layout-affecting-visibility-property` as a state-contract warning. Fix it
-when geometry should remain stable. Accept it only when reflow is intentional,
-after creating representative true and false instances and comparing their
-bounds, sibling positions, text baselines, and clipping. A screenshot of only
-the default property state is not component verification.
+Treat `layout-affecting-visibility-property` as a contract warning. Fix it when
+geometry must stay stable. Accept intentional reflow only after comparing true
+and false instances for bounds, sibling positions, baselines, and clipping; one
+default-state screenshot is insufficient.
 
 ## Consume an authored component directly
 
-Use the exact live ID returned by the component's `apply_canvas` result. For a
-TemPad-authored component, `componentProperties` accepts the same stable
-property keys used in its definition. This complete follow-up call needs no
-catalog:
+Use the exact ID returned by `apply_canvas`. For TemPad-authored components,
+`componentProperties` accepts their stable definition keys. This follow-up
+needs no catalog:
 
 ```json
 {
@@ -184,14 +208,13 @@ catalog:
 }
 ```
 
-Replace the illustrative ID with the exact returned ID. Do not invent a live
-ID or use this shortcut for an unidentified library component.
+Replace the illustrative ID with the returned ID. Never invent IDs or use this
+shortcut for unidentified library components.
 
 ## Variant set
 
-This complete call creates two components and combines them into one variant
-set. Direct children of a new set must all be authored components. Variant
-names encode axes using Figma's `Property=Value` convention.
+This call creates two components in one variant set. Every direct child of a new
+set must be an authored component; names encode axes as `Property=Value`.
 
 ```json
 {
@@ -220,9 +243,8 @@ names encode axes using Figma's `Property=Value` convention.
 }
 ```
 
-Consume the returned set ID directly and select a sibling through its variant
-property. For example, if the call above returns the set as `rootNodeId`, this
-follow-up creates one default and one Hover instance:
+Consume the returned set ID and select siblings through variant properties. If
+the call returns the set as `rootNodeId`, this creates Default and Hover:
 
 ```json
 {
@@ -240,14 +262,12 @@ follow-up creates one default and one Hover instance:
 }
 ```
 
-Replace the illustrative ID with the exact returned `rootNodeId`. The set ID
-creates its default variant; `componentProperties` selects another real variant
-by its encoded axis. An exact child ID from `nodeIdsByKey` may instead create
-that variant directly.
+Replace the ID with returned `rootNodeId`. The set ID creates its default;
+`componentProperties` selects another encoded variant. An exact child ID from
+`nodeIdsByKey` may instantiate that variant directly.
 
-Use `descriptionMarkdown` and `documentationLink` only for real guidance. Both
-belong inside `figma.component`, beside `type` and `properties`; they are not
-siblings of `figma.component`:
+Use `descriptionMarkdown` and `documentationLink` only for real guidance, inside
+`figma.component` beside `type` and `properties`:
 
 ```json
 {
@@ -265,19 +285,17 @@ Define shared properties on the component set rather than on one variant.
 
 ## Slots and instances
 
-Use `figma.slot` only when flexible nested content is an intentional component
-API. A new slot must be inside a local authored component and must include
-`property.name`; its existing markup children become default slot content.
-Optional settings cover stretching, empty display, child limits, and preferred
-values.
+Use `figma.slot` only for an intentional flexible nested-content API. New slots
+must be inside local authored components and include `property.name`; markup
+children become defaults. Optional settings control stretching, empty display,
+child limits, and preferred values.
 
-An `INSTANCE_SWAP` default uses a design reference with an exact live component
-or set ID (`{ "id": "..." }`) or an importable library key (`{ "key": "..." }`).
-Each preferred value instead requires the strict shape
-`{ "type": "COMPONENT" | "COMPONENT_SET", "key": "..." }`; it does not accept
-a live ID or catalog ref. Resolve catalog entries to the supported identity
-before authoring and never invent one. Advanced instance state belongs under
-`figma.instance`; omission preserves normal Figma override behavior.
+An `INSTANCE_SWAP` default uses exact live component/set ID `{ "id": "..." }`
+or importable library key `{ "key": "..." }`. Preferred values require
+`{ "type": "COMPONENT" | "COMPONENT_SET", "key": "..." }` and accept neither
+live IDs nor catalog refs. Resolve catalog identity before authoring and never
+invent it. Put advanced state under `figma.instance`; omission preserves normal
+override behavior.
 
 Never edit a remote component, nest a main component inside another main
 component, delete a component with surviving instances, or create properties

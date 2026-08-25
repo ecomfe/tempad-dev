@@ -10,6 +10,7 @@ review of an implementation diff as an evaluation.
 Require every run to:
 
 - use the intended skill, MCP, and extension builds;
+- record the actual ordered skill catalog presented to the fresh task;
 - preserve the exact prompt, complete task, tool evidence, and final artifact;
 - inspect representative screenshot pixels and relevant native Figma structure.
 
@@ -48,6 +49,28 @@ fixed visual style, product-domain rule, platform convention, component quota,
 asset policy, or design process. Ground those decisions in the user request,
 project evidence, targeted research, or an applicable professional skill.
 
+Treat the host's installed skill catalog as an evaluation input, not background
+noise. Codex initially receives installed skill names and descriptions and may
+implicitly select a matching skill; large catalogs can also be shortened or
+partially omitted. A baseline and forward result are directly comparable only
+when their catalog fingerprints match. See the
+[official skills documentation](https://learn.chatgpt.com/docs/build-skills#how-chatgpt-and-codex-use-skills).
+
+Use two evaluation lanes:
+
+- **Catalog-locked core lane:** use a dedicated evaluation host/profile with a
+  pinned plugin and skill set. Do not add or remove ambient skills within a
+  baseline/forward cohort. The TemPad skill must provide its portable quality
+  floor without requiring an unrelated optional skill.
+- **Ambient integration lane:** use the normal developer host to learn whether a
+  suitable optional professional skill improves the result. Record its exact
+  provenance and keep results in a separate cohort; never compare them as if
+  the environment were hermetic.
+
+Do not temporarily uninstall a developer's normal skills to manufacture the
+core lane. Use a dedicated profile or host. When that is unavailable, keep the
+run in an explicitly named ambient cohort and limit conclusions accordingly.
+
 ## Establish a valid runtime
 
 Follow the agent-plugin workflow in `AGENTS.md`. Record the source revision or
@@ -56,8 +79,9 @@ working-tree state and the runtime layers changed.
 Refresh only the runtime layers affected by the change:
 
 - Changes to the shared authoring skill, agent-plugin manifests, icons, or
-  marketplace metadata require `pnpm agent-plugin:dev` and replacement of the
-  installed cachebuster.
+  marketplace metadata require `pnpm agent-plugin:dev`, a no-restart
+  replacement of the installed cachebuster, and a fresh task. They do not
+  require restarting a healthy Codex host.
 - MCP-only changes require the affected MCP build and a fresh agent task or
   plugin reload. When the generated manifest still points at the same
   working-tree command, they do not require agent-plugin regeneration or
@@ -91,20 +115,30 @@ agent plugin changed:
      --cdp-url http://127.0.0.1:9222
    ```
 
-   Reuse the running host's CDP endpoint when it is already available. Add
-   `--restart-codex` only when the helper cannot connect to any supported CDP
-   endpoint and a host restart is actually required. Use the script's `--help`
-   for non-default CDP or page selection.
+   A skill, manifest, icon, or marketplace change requires replacement and a
+   fresh task, not a Codex restart. The ordinary path keeps the healthy host
+   running while the helper uninstalls the old plugin, waits for its exact CLI
+   and Hub processes to stop, and installs the generated cachebuster. If Codex
+   starts the task-scoped runtime during replacement, the helper verifies it;
+   otherwise the fresh evaluation task is the runtime pickup boundary.
+
+   Add `--restart-codex` only when the CDP endpoint is unavailable, the host or
+   plugin runtime is stale or partial, or an ordinary replacement cannot reach
+   the required transition. That option runs recovery in a detached helper so
+   the coordinating host may exit safely. Use the script's `--help` for
+   non-default CDP or page selection.
 
 3. Accept a replacement only when the helper confirms this complete
    transition for the checkout's exact MCP command paths:
 
    - CLI and Hub are both running before uninstall, or both absent for an
-     explicit repair reinstall; a partial runtime is rejected;
-   - Codex reports the plugin uninstalled, then its CLI count decreases; the
-     machine-wide Hub stops only when no other working-tree MCP clients remain;
-   - Codex installs the exact generated version, then a new CLI appears and a
-     Hub is available.
+     explicit repair reinstall; a partial runtime rejects the ordinary path and
+     requires diagnosis or restart recovery;
+   - Codex reports the plugin uninstalled, then every CLI and Hub process for
+     the checkout's MCP command paths reaches zero before installation starts;
+   - Codex installs the exact generated version. If any checkout runtime process
+     starts during replacement, require a new CLI and an available Hub; if both
+     remain absent, defer runtime proof to the next fresh task.
 
    Stop and diagnose any timeout or stale host state. Never substitute a broad
    process-name kill.
@@ -154,6 +188,26 @@ agent plugin changed:
    reaches the refreshed extension, and performs authorized TemPad writes
    without pausing for approval.
 
+9. Extract the actual skill catalog from the fresh task's rollout:
+
+   ```sh
+   pnpm agent-eval:skills /absolute/path/to/rollout.jsonl
+   ```
+
+   The command reports two hashes. `catalogFingerprint` covers the ordered names
+   and descriptions that can influence implicit selection;
+   `runtimeFingerprint` also covers exact source locators and therefore the
+   TemPad cachebuster. Record both for the first accepted run in a cohort. For
+   later runs, require the same ambient catalog:
+
+   ```sh
+   pnpm agent-eval:skills /absolute/path/to/rollout.jsonl \
+     --expect-catalog "$EXPECTED_SKILL_CATALOG"
+   ```
+
+   A mismatch starts a new cohort or rejects the comparison. Do not repair it by
+   naming a preferred optional design skill in the task prompt.
+
 Do not add a probe task after every reinstall. The clean evaluation task is the
 new-task pickup boundary and must provide the runtime evidence. Use a dedicated
 probe only once when diagnosing the lifecycle.
@@ -175,13 +229,49 @@ recent runs in context, complexity, information volume, visual language,
 market context, and delivery scope without creating fixed categories or style
 mappings.
 
-Default to common web or mobile product work that a product designer would
-recognize without specialized domain knowledge: for example account settings,
-team management, onboarding, search and filtering, dashboards, checkout,
-booking, messaging, subscription management, or a standard commerce flow. Use
-a niche industry, unusual interaction model, speculative device, or highly
-stylized brief only when the capability under evaluation requires it and the
-prompt supplies enough domain evidence.
+Before choosing the next prompt, compare its evidence medium, composition
+model, asset role, and edge, shape, and depth grammar with recent completed
+runs. Replace a repeatedly sampled lineage family unless that repetition is the
+capability under test. This controls the evaluation portfolio, not the task
+answer; do not turn prior motifs into prompt-level bans.
+
+Vary visual-evidence depth across successive runs:
+
+- **Open-direction lane:** supply only a coarse visual direction. The agent must
+  independently select and inspect suitable references before synthesis; this
+  tests research selection as well as the skill's portable composition floor.
+- **Reference-grounded style lane:** name one specific visual tradition,
+  period, medium, or representative body of work that credibly fits the task.
+  The agent must inspect a small representative set from that lineage before
+  synthesis. A supplied task-local reference may replace external search only
+  for the decisions it actually demonstrates.
+
+For a style-strength test, inspect the proposed precedent before dispatch. Its
+actual surfaces must exhibit the intended contrast from recent runs and
+translate plausibly to the target platform and composition model; reputation or
+a suggestive label is insufficient. Reject a precedent whose target surfaces
+lack a recognizable, transferable visual thesis; a strong product or famous
+brand is not automatically strong style evidence.
+
+Both lanes require inspected evidence; they differ in who selects the reference
+domain. Keep them distinct in comparisons so evaluator-specified precedent is
+not confused with the agent's research judgment.
+
+Default to English-language internet products that a product designer would
+recognize without specialized domain knowledge: consumer apps, desktop
+software, websites, and B2B SaaS across varied information density. Treat
+standalone print, magazine, and editorial-layout work as out of portfolio unless
+the capability under evaluation requires it. Use a niche industry, unusual
+interaction model, speculative device, or highly stylized brief only when the
+capability under evaluation requires it and the prompt supplies enough domain
+evidence.
+
+Default visual directions to contemporary product design. Historical operating
+systems, period-specific skeuomorphism, and other retro lineages are occasional
+reference-grounded samples, not consecutive or dominant portfolio choices,
+unless that lineage is the capability under test. Keep modern samples diverse
+in composition, density, interaction model, material treatment, and brand
+expression; modern must not collapse into one generic minimal-SaaS style.
 
 The representative task is not a disguised unit test. Give it a normal product
 goal, realistic content, multiple related states or screens, and enough layout
@@ -198,7 +288,21 @@ usual case, give the fresh task only:
 - the instruction to use the installed Design in Figma skill on the prepared
   current page;
 - what product or flow to design and the smallest useful scope;
-- at most one coarse visual direction or a genuine task-local reference.
+- one bounded visual-evidence condition: a coarse direction for an
+  open-direction run, or one named lineage or reference for a
+  reference-grounded run.
+
+A reference-grounded prompt identifies what to study, not the visual answer.
+Name a specific product surface, release, or small coherent body of work rather
+than a broad brand ecosystem. Add one or two concise art-direction sentences
+that translate it into an observable perceptual thesis: state the identity-
+bearing composition and rhythm, typographic voice, asset role, material and
+depth model, and interaction character relevant to the task. Do not rely on
+soft labels such as “modern,” “premium,” or “immersive”; keep the direction
+outcome-level and do not enumerate implementation motifs.
+Do not add a research procedure or turn the reference into a palette, motif,
+border, shadow, shape, or component checklist; the installed workflow must own
+inspection and translation.
 
 Leave research, professional-skill selection, design-system strategy,
 composition, content elaboration, asset choice, Figma representation, tool
@@ -226,9 +330,10 @@ in task evidence or professional guidance rather than stereotypes.
 
 Give the evaluation agent only the minimal realistic brief described above and
 task-local context. Do not reveal the suspected defect, intended fix, expected
-tool sequence, quality rubric, or desired answer. Do not preload a research
-plan or convert review criteria into generation constraints; those make the run
-measure prompt compliance instead of the installed Design in Figma workflow.
+tool sequence, quality rubric, or desired answer. Beyond the declared
+visual-evidence condition, do not preload a research plan or convert review
+criteria into generation constraints; those make the run measure prompt
+compliance instead of the installed Design in Figma workflow.
 
 Ask the fresh task to use the installed TemPad Dev Figma canvas authoring skill
 and to work only on the prepared current page. Let that clean context discover
@@ -239,6 +344,8 @@ artifact.
 Preserve:
 
 - the exact prompt and supplied references;
+- the ordered skill catalog, catalog fingerprint, exact TemPad skill path, and
+  any optional skill actually selected;
 - the complete task, tool inputs and outputs, errors, retries, and recovery;
 - the final Figma structure and relevant native resources;
 - representative screenshots whose pixels were opened and inspected.
@@ -295,6 +402,10 @@ Review these axes:
 8. **Execution and verification:** Require scoped calls, stable identities,
    non-destructive failures, evidence-driven retries, and conclusions based on
    pixels and native structure rather than intent or mutation counts.
+9. **Environment portability:** Distinguish behavior guaranteed by the TemPad
+   skill from behavior contributed by an ambient optional skill. Treat a result
+   that only becomes acceptable when one undeclared local skill happens to be
+   installed as a dependency failure, even when that particular run looks good.
 
 Apply these evidence rules:
 
@@ -318,10 +429,53 @@ Apply these evidence rules:
   reject a primitive collage standing in for an asset whose intended medium is
   SVG, image, illustration, or an existing component. A plausible silhouette
   is not medium fidelity.
+- Audit material icon candidates even when the artifact contains no icons.
+  Verify that navigation, search or filtering, save or share, disclosure,
+  status or object categories, and compact utilities use icon, text, or both for
+  screen-specific clarity. Treat unexplained all-text fallback as a miss, but do
+  not impose an icon quota or penalize text where it is clearer.
+- When generation is used, match every generated asset to its own role and
+  unmet source requirement. For ordinary reusable-stock or CC0 subjects,
+  require an inspected asset search; one bespoke asset does not justify
+  generating unrelated siblings in the same batch.
+- For every net-new visual run, preserve the research queries, opened sources,
+  inspected artifacts, and derived visual, interaction, and detail principles.
+  Verify that each source's authority covers the decision attributed to it; a
+  visual reference alone cannot validate product behavior it does not show or
+  specify. For claims about a named lineage's provenance, attribution, system
+  history, or intended behavior, prefer primary, official, creator, or
+  institutional evidence when reasonably available; a secondary scan alone can
+  support only visual facts present in the artifact. Do not treat screen names,
+  requested fields, or a stated task
+  sequence as interaction precedent. For net-new interactive work, require
+  inspected product or behavioral evidence for interaction style, control
+  behavior, information choreography, and material state or detail choices
+  unless inspected user, project, or current-file evidence actually demonstrates
+  them. One source may cover visual and interaction decisions only when it shows
+  or specifies both. Reject a run that proceeds after an empty, unsuitable,
+  snippet-only, or unopened result leaves a material grounding dimension
+  unresolved; research activity is not inspected evidence. Verify that the final
+  pixels carry the grounded principles without copying one source. Inspect every
+  materially distinct screen: one strong image-led or material-rich screen does
+  not excuse a generic companion that preserves only palette, type, borders, or
+  isolated motifs. A style label in reasoning or a cluster of familiar surface
+  motifs is not research evidence.
 - When a local design system is required or authored, verify live component
   definitions, INSTANCE consumers, and representative variable or style
   bindings. A detached component board, repeated FRAME copies, shared literal
   values, or an agent's claim that it made a system is not usage evidence.
+  When one call creates several repeated records or controls, verify the pre-call
+  trace enumerated and ranked every planned family rather than stopping at the
+  first easy component.
+  Reconstruct candidates from actual consumers and reject an easy component
+  chosen while a higher-spread sibling-record or recurring-control responsibility
+  remains literal without a concrete incompatibility. Record-specific copy,
+  media, availability, state, and labels are differences to model, not automatic
+  Direct evidence. A reusable inner label, icon, or button does not resolve an
+  enclosing repeated row or card with stable record anatomy; evaluate each
+  qualifying boundary separately. For authored contracts, inspect the most
+  demanding real instance through its descendants—root INSTANCE type and size do
+  not prove wrapping, slots, media, or state content fit.
 - Review spatial rhythm at both levels: compare page margins and major section
   allocation, then inspect repeated row heights, control padding, inter-item
   gaps, and text-to-container relationships. Do not demand equal whitespace;
@@ -339,7 +493,21 @@ Apply these evidence rules:
   convergence in composition, color, typography, asset medium, or primitive use
   as a portfolio signal. Investigate task distribution, professional guidance,
   example fixation, tool affordances, and capability gaps before creating a
-  skill rule.
+  skill rule. Record each run's dominant composition model, material grammar,
+  asset-acquisition routes, and icon source family so recurrence is observable
+  without turning prior styles into prompt exclusions.
+
+Treat numeric authoring limits as measured implementation contracts, not design
+targets. Change a limit only after inspecting the relevant rollout distribution
+and benchmarking the transaction, payload, parser, and reconciliation boundary.
+Document the observed operating range, chosen headroom, and independent caps;
+do not select or raise a round number from intuition alone.
+
+Use `pnpm agent-eval:authoring <rollout.jsonl> [...]` to extract comparable
+trace signals for apply failures, node-limit attempts, research, acquisition,
+icon libraries, and component mechanics. These counters accelerate review; they
+do not replace opened screenshots, retained-source review, or live native
+structure inspection.
 
 ## Place the fix at the owning layer
 
@@ -359,11 +527,39 @@ Use low freedom for fragile protocol, safety, and integrity invariants; use
 concise heuristics when several workflows are valid; preserve high freedom for
 contextual design judgment.
 
-Promote a finding into a guardrail only when it is a stable invariant, recurs
-across tasks, prevents a hard-to-detect or hard-to-recover failure, or can be
-stated as a concise transferable cue. Otherwise prefer an implementation fix,
-regression test, or evaluation record. When the owning layer is a skill, apply
-the quality tests in `docs/skill/rationale.md`.
+Before editing a skill, compare the finding with the exact installed source and
+the references the task actually read. If they already state the observable
+condition, required action, and stop condition before the failing decision,
+classify a one-run miss as execution variance unless the action was unavailable
+or the discriminator was genuinely ambiguous. Do not duplicate or paraphrase
+the same rule to answer one miss. Retest the unchanged cue; only recurring
+misses that expose a discoverability, routing, or cognitive-load defect justify
+replacing or consolidating its wording.
+
+Promote a finding into a skill guardrail only when it is a stable invariant,
+recurs across tasks, prevents a hard-to-detect or hard-to-recover failure, or
+can be stated as a concise transferable cue. Do not accumulate incident-shaped
+rules. First map the finding to the narrowest existing invariant and strengthen,
+replace, or remove wording there; when several surface rules share one
+responsibility, converge them into one higher-level rule. That rule must still
+give the agent an observable discriminator, a usable next action, and a stop
+condition—an abstract principle that cannot change the next action is not an
+optimization. Keep skill guidance horizontal across products and independent
+of visual style; place conditional examples and mechanics in progressive
+references, and allow scenario-specific prescriptions only for necessary
+technical contracts or safety guardrails. Review the resulting cue topology,
+reference routing, duplication, and total cognitive load rather than treating
+every addition as free. Otherwise prefer an implementation fix, regression
+test, or evaluation record. Apply the quality tests in
+`docs/skill/rationale.md`.
+
+Treat skill compression as a semantic-preservation refactor. Remove repetition,
+unnecessary setup, conversational phrasing, and explanation the agent already
+knows; preserve every behavior-changing condition, discriminator, action,
+exception, stop condition, and safety boundary. Compare old and new guidance
+for meaning and force, not line or word count. Add necessary guidance even when
+the skill grows, and never accept shorter wording that weakens clarity,
+discoverability, or enforcement.
 
 ## Close the loop
 
@@ -391,7 +587,10 @@ Require the authoring path to carry distinct, well-grounded directions; do not
 require every result merely to avoid a prior style.
 
 Conclude with a short record of the tested revision and runtime, prompt,
-observed evidence, root cause and owning layer, change, automated checks,
-relationship to the prior round, next-round forward-test target, and remaining
-uncertainty. Do not call a round successful without verified runtime identity
-and screenshot pixels.
+skill-catalog cohort, prompt-evidence lane, observed evidence, root cause and
+owning layer, change, automated checks, relationship to the prior round,
+next-round forward-test target, and remaining uncertainty. Include each
+material asset's acquisition route, each icon source family's visual fit, every
+content-bearing representation decision, and the result of each ranked
+component candidate. Do not call a round successful without verified runtime
+identity and screenshot pixels.

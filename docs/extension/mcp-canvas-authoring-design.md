@@ -39,7 +39,7 @@ pre-existing file resources. It does not redefine Figma's file-wide variable, st
 identity scopes, and it does not prevent the extension from performing the file-wide identity
 checks required for safe reconciliation.
 
-The model-visible surface remains five tools:
+The model-visible surface contains six tools:
 
 - `get_code` reads visible design as implementation evidence;
 - `get_structure` reads hierarchy and geometry when composition is ambiguous, exposes stable
@@ -47,6 +47,8 @@ The model-visible surface remains five tools:
   optionally return compact live mask, IMAGE paint, layout-grid, and frame-guide state;
 - `get_design_system` conditionally reads deterministic pages of discoverable design-system facts;
 - `apply_canvas` is the only mutating tool;
+- `upload_asset` stores a programmatically composed generated PNG/JPEG/GIF data URL in the Hub and
+  returns only a content hash for a later Canvas IMAGE declaration;
 - `get_screenshot` returns bounded visual evidence only when pixels affect the next decision.
 
 ## Why this is the right level
@@ -321,9 +323,13 @@ and precise routing descriptions at the MCP layer, while their exact shapes and 
 load progressively from the canvas-authoring skill. The extension validates them against the
 complete private native schema after short refs are expanded.
 
-One markup tree is bounded to 100 elements and 12 levels. These limits are part of the public tool
-description and the Canvas HTML reference so an agent can split a large composition before calling
-the tool; the parser still rejects an oversized tree before any mutation.
+One markup tree is bounded to 160 elements and 12 levels. The element ceiling covers currently
+observed complete screen sections up to 129 elements with bounded headroom; it is not a target for
+packing unrelated work. The independent 200 KiB markup, 32-asset, and 4 MiB transport limits remain
+in force. These limits are part of the public tool description and Canvas HTML reference so an
+agent can split a larger composition before calling the tool. The syntax parser rejects an
+oversized tree before utility, layout, or native-state compilation, so the global split requirement
+is reported before repairable node-local errors and before any mutation.
 
 Local collection, variable, and style authoring keys persist as file-wide identities. They must be
 rooted in one collision-resistant prefix for the independent system rather than a generic product
@@ -485,6 +491,13 @@ guessing or recreating it. A node first introduced by either create or update st
 the layer name unless the desired result provides another name; omitting the name on an existing
 node preserves its live name.
 
+A keyed node keeps its native type. Replacing a primitive with an instance or another incompatible
+type requires a new key for the replacement and explicit removal of the old key in the same update.
+Identity and type compatibility are preflighted before page or resource mutation so this repairable
+specification error cannot enter rollback. When the incompatible node is itself the update target,
+the replacement update must instead target a bounded ancestor containing both the new-key
+replacement and old-key removal.
+
 The extension reads the latest canvas immediately before reconciliation, so the diff is between the
 new desired result and current live state—not between two model messages. It minimizes mutations
 subject to stronger constraints:
@@ -573,8 +586,9 @@ validation error.
 The agent is not involved in any of these Plugin API steps.
 
 Resolved native-schema failures return a bounded list of field paths and messages rather than the
-complete validator diagnostic. This preserves enough evidence to repair advanced state without
-consuming the next turn with repetitive union errors.
+complete validator diagnostic. The formatter selects the closest union branch and collapses
+repeated equivalent issues, preserving repair evidence without spending the next turn on generic or
+duplicated diagnostics.
 
 ## Verification
 
@@ -628,8 +642,11 @@ absolute child, or geometry-equivalent variants, or explicitly accept the verifi
 
 A managed Text or component instance that extends outside its direct Frame or Component parent
 produces `managed-content-overflow`, including the affected edges and whether native clipping is
-enabled. It remains non-fatal because deliberate overflow and crop are valid composition tools; the
-warning makes accidental content cropping or overlap inspectable without prohibiting either.
+enabled. The same warning reports descendant content that extends outside a native INSTANCE root;
+Figma may still paint that content without expanding the instance's bounds, so this catches broken
+text, swap, or slot contracts that screenshots alone can miss. It remains non-fatal because
+deliberate overflow and crop are valid composition tools; the warning makes accidental content
+cropping, overlap, or invalid instance bounds inspectable without prohibiting either.
 
 Its structured result also returns `rootNodeId` and the bounded `nodeIdsByKey` identity map so a
 later Author call can consume an exact component created by the preceding result.

@@ -25,6 +25,8 @@
 - `apply_canvas`：提交一次受限 HTML + 可确定转换的 Tailwind utility 目标结果，其中可以使用基础元素、
   目录组件标签、设计系统短引用、类型化的 Figma 专有状态、经过净化的 SVG 和内容寻址图片。
   扩展会在本地解析、验证、计算与实时画布的差异、应用修改并校验结构。
+- `upload_asset`：Hub 内的受限桥梁，把程序化串联生成的 PNG/JPEG/GIF data URL 存成供
+  `apply_canvas` 使用的 content-addressed `assetHash`，且不会返回编码后的图片字节。
 - `get_screenshot`：返回一张有大小限制的渲染 PNG，用于按需视觉验证。
 - `get_structure`：当前选中节点的层级/几何结构信息，并返回 TemPad 已管理节点的稳定 authoring key；
   还可按需读回原生遮罩、IMAGE paint、布局网格与画框参考线。

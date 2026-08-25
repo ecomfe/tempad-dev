@@ -178,6 +178,33 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
     expect(formatSchemaError(error)).toBe('bindings.branch.figma.shape.paths[0]: Expected object.')
   })
 
+  it('surfaces the closest union branch and collapses repeated equivalent issues', () => {
+    const solid = z
+      .object({
+        type: z.literal('SOLID'),
+        color: z.object({ r: z.number(), g: z.number(), b: z.number() }).strict(),
+        opacity: z.number().optional()
+      })
+      .strict()
+    const gradient = z
+      .object({
+        type: z.literal('GRADIENT_LINEAR'),
+        gradientStops: z.array(z.unknown())
+      })
+      .strict()
+    const parsed = z.array(z.union([solid, gradient])).safeParse([
+      { type: 'SOLID', color: { r: 1, g: 0, b: 0, a: 0.5 } },
+      { type: 'SOLID', color: { r: 0, g: 1, b: 0, a: 0.5 } }
+    ])
+    if (parsed.success) throw new Error('Expected validation to fail.')
+
+    const message = formatSchemaError(parsed.error)
+
+    expect(message).toContain('[0].color: Unrecognized key: "a"')
+    expect(message).toContain('(1 similar validation issues)')
+    expect(message).not.toContain('Invalid input')
+  })
+
   it('lists every legal variable scope for an invalid scope', () => {
     const input = ApplyCanvasParametersSchema.parse({
       mode: 'create',

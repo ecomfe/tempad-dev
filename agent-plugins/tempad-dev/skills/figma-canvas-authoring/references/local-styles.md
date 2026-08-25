@@ -1,16 +1,14 @@
 # Author local styles
 
-Use this reference only when the user explicitly requests a local style or a
-design-system extension that needs one. Do not extract styles from an ordinary
-screen. New local resources do not require a catalog; use `catalogId` only when
-a nested `{ "ref": "…" }` deliberately reuses an existing catalog resource.
+Use this reference only when the user or resolved system plan requires a local
+style. Do not extract styles from an ordinary screen. New local resources need
+no catalog; send `catalogId` only when a nested `{ "ref": "…" }` deliberately
+reuses an existing resource.
 
-Copy this complete recipe and change its design facts. Style authoring keys
-persist file-wide so later calls can recover the same resources; they are not
-Figma names or IDs. Namespace them by product and role. In a shared draft,
-also prefix human-visible style names when a generic name such as
-`Typography/Body` would collide with independent work; keep established
-project naming when it already provides a clear namespace.
+Copy this recipe and change its design facts. Style authoring keys persist
+file-wide and are neither names nor IDs. Namespace keys by product and role. In
+shared drafts, also prefix generic visible names that could collide; retain
+established project naming when already clear.
 
 ```json
 {
@@ -45,18 +43,15 @@ project naming when it already provides a clear namespace.
 }
 ```
 
-Style types are `PAINT`, `TEXT`, `EFFECT`, and `GRID`. Use the matching native
-definition: `paints`, text fields, `effects`, or `layoutGrids`. Exact Paint,
-Effect, and Grid shapes live in [paints-effects.md](paints-effects.md); read it
-when the requested definition goes beyond the simple recipe above.
+Types are `PAINT`, `TEXT`, `EFFECT`, and `GRID`, using `paints`, text fields,
+`effects`, or `layoutGrids` respectively. For exact Paint, Effect, and Grid
+shapes beyond this recipe, read [paints-effects.md](paints-effects.md).
 
-Omitted fields preserve managed resource state. A top-level `null` removes a
-managed style only when the user explicitly requires absence and every live
-consumer is cleared or removed in the same result. Never mutate or delete a
-remote resource, invent a library key, or create a broad style library for a
-one-off screen.
+Omission preserves managed state. Top-level `null` removes a managed style only
+when absence is required and all live consumers are cleared or removed in the
+same result. Never mutate remote resources, invent library keys, or create a
+broad style library for one screen.
 
-A style created without a same-result `styleKey` reference returns
-`unbound-created-style`. Treat it as unfinished authoring: bind the style to a
-representative consumer whose property performs its named role, or remove the
-speculative definition. A swatch or unrelated binding does not close coverage.
+`unbound-created-style` means a same-call style lacks a `styleKey` consumer.
+Bind it to a representative property performing its named role or remove it. A
+swatch or unrelated binding is not coverage.

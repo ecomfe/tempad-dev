@@ -1,34 +1,38 @@
 # Document and native geometry
 
-Use `native[key].figma` only for native state that HTML and classes cannot
-express honestly. This remains declarative desired state.
+Use `native[key].figma` only for state HTML and classes cannot express honestly;
+it remains declarative desired state.
 
-## Page and containers
+## Contents
+
+- [Pages and containers](#pages-and-containers)
+- [Shapes and vectors](#shapes-and-vectors)
+- [Transforms, masks, and native state](#transforms-masks-and-native-state)
+
+## Pages and containers
 
 Top-level `page` can set a name, exact zero-based document index, solid RGBA
 background, ordered guides, and explicit variable modes. In create mode it may
-target an existing `id`, adopt/reuse `pageKey`, or create a named page for a
+target an existing `id`, adopt or reuse `pageKey`, or create a named page for a
 missing key. Updates stay on the target node's page.
 
 Use:
 
-- `figma.section: { contentsHidden? }` for native canvas organization;
-- `figma.group: true` for an intrinsic layer group;
+- `figma.section: { contentsHidden? }` for canvas organization;
+- `figma.group: true` for an intrinsic group;
 - `figma.booleanOperation: "UNION" | "SUBTRACT" | "INTERSECT" | "EXCLUDE"`
   for non-destructive geometry.
 
-Sections use fixed pixel dimensions and freeform children. Groups and Boolean
-operations use `w-fit h-fit`; their direct children are freeform. A new group
-needs one child and a new Boolean operation needs two. When supplying children
-of an existing intrinsic container, describe every live direct child because
-order is semantic.
+Sections can be canvas roots or direct children of sections; a frame cannot
+contain a section. Sections require fixed pixel dimensions and freeform
+children. Groups and Booleans use `w-fit h-fit` with freeform children. A new
+group needs one child and a Boolean needs two. When updating an intrinsic
+container's children,
+describe every live direct child because order is semantic.
 
-Sections do not expose frame clipping, so omit `overflow-hidden` and
-`overflow-visible` from a section root.
-
-When `targetNodeId` is an existing section, keep `figma.section` on the update
-root even when its native section fields are unchanged. Without that desired
-root-type declaration, the markup root is a frame and the update is rejected.
+Sections have no frame clipping, so omit `overflow-hidden` and
+`overflow-visible`. When `targetNodeId` is an existing section, retain
+`figma.section` on the root or the frame-typed markup root is rejected.
 
 ## Shapes and vectors
 
@@ -42,25 +46,22 @@ Use a childless `div` with `figma.shape`:
 - `{ "type": "VECTOR", "paths": [...] }`
 - `{ "type": "VECTOR", "network": {...}, "handleMirroring": "..." }`
 
-Use exact vector paths with uppercase `M L Q C Z` for ordinary icons. Use a
-vector network only for branching segments, per-vertex state, or
-region-specific fills/styles. Do not supply paths and a network together. New
-vectors need geometry; omission preserves it on update and an empty
-path/network clears it.
+Use exact uppercase `M L Q C Z` paths for ordinary icons; use a vector network
+only for branching segments, per-vertex state, or region-specific fills or
+styles. Never provide both. New vectors need geometry; omission preserves it on
+update and an empty path or network clears it.
 
-Each `paths` item is an object, not a raw path string. `windingRule` is
-`"NONE"`, `"NONZERO"`, or `"EVENODD"`; use `"NONE"` for an open stroked path.
-Path data uses whitespace-separated uppercase commands and numbers.
+Each path item is an object. `windingRule` is `"NONE"`, `"NONZERO"`, or
+`"EVENODD"`; use `"NONE"` for an open stroked path. Path data uses
+whitespace-separated uppercase commands and numbers.
 
-Figma normalizes path geometry to the vector node's tight bounds before the
-markup dimensions are applied. Treat the childless `div`'s position and size as
-the vector's final bounding box, not as a preserved coordinate viewport. When
-the path must align with surrounding content, offset the `div` by the path's
-minimum x/y and size it to the path's x/y spans; otherwise a partial-range path
-is stretched to fill the declared box. Verify the rendered anchors after
-authoring because `get_structure` reports node bounds, not path coordinates.
+Figma normalizes path geometry to tight bounds before applying markup size. The
+childless `div` defines final bounds, not a preserved viewport. For alignment,
+offset it by the path's minimum x/y and size it to the x/y spans; otherwise a
+partial-range path stretches to the box. Verify rendered anchors because
+`get_structure` returns node bounds, not path coordinates.
 
-This complete Direct recipe creates one native editable branch curve:
+This Direct recipe creates an editable branch curve:
 
 ```json
 {
@@ -88,29 +89,26 @@ This complete Direct recipe creates one native editable branch curve:
 }
 ```
 
-## Transform, masks, and native state
+## Transforms, masks, and native state
 
-- `figma.name` sets the display-layer name; `data-key` remains identity.
-- `locked` and `aspectRatioLocked` set native interaction state.
-- `relativeTransform` is a complete native 2×3 unit-axis transform. Width and
-  height carry scale. Do not combine it with `rotate-*`. On a create root,
-  TemPad Dev preserves rotation and skew axes but replaces translation with its
-  automatic non-overlapping page placement.
-- `stroke` carries weight(s), alignment, caps, joins, miter, and dashes.
-- `corners` carries radius/radii and smoothing.
+- `figma.name` sets the display name; `data-key` remains identity.
+- `locked` and `aspectRatioLocked` set interaction state.
+- `relativeTransform` is a complete native 2×3 unit-axis transform; width and
+  height carry scale. Do not combine it with `rotate-*`. On create roots, TemPad
+  preserves rotation and skew but replaces translation with automatic placement.
+- `stroke` carries weights, alignment, caps, joins, miter, and `dashPattern`.
+- `corners` carries radii and smoothing.
 - `mask` is `"ALPHA"`, `"VECTOR"`, `"LUMINANCE"`, or `null`.
 
-Put a mask before the siblings it masks, keep the mask group in one dedicated
-frame, and describe every direct sibling during an update. A non-null mask
-must have at least one following sibling. Omission preserves mask state; null
-disables it.
+Place a mask before masked siblings inside one dedicated frame and describe all
+direct siblings on update. A non-null mask needs a following sibling. Omission
+preserves mask state; `null` disables it.
 
-After a mask, layout grid, or frame-guide change, use `get_structure` with
-`options.native: true` on the smallest relevant root. Confirm the mask's
-`native.mask` value and following-sibling order, or the root's returned
-`native.layoutGrids` and `native.guides`; do not infer those states from the
-desired binding alone.
+After changing a mask, layout grid, or frame guide, call `get_structure` with
+`options.native: true` on the smallest relevant root. Verify `native.mask` and
+sibling order, or returned `native.layoutGrids` and `native.guides`; desired
+bindings alone are insufficient.
 
-Use `{ "ref": "…" }` for catalog resources nested in advanced native state.
-Use `sourceCanvasKey` or `{ "canvasKey": "…" }` for same-result forward node
+Use `{ "ref": "…" }` for catalog resources nested in native state and
+`sourceCanvasKey` or `{ "canvasKey": "…" }` for same-result forward node
 references. Never insert raw Plugin API calls.

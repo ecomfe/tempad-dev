@@ -1,50 +1,41 @@
 # Reuse an existing design system
 
-Read this reference only when reuse is allowed and relevant to the requested
-result. If the user rejects a design system, use the Direct path instead.
+Use this reference only when reuse is allowed and relevant. If the user rejects
+a design system, use Direct.
 
 ## Discover definitions
 
-Call `get_design_system` without arguments. It returns an immutable,
-deterministic catalog of definitions already accessible to Figma:
+Call `get_design_system` without arguments. Its immutable deterministic catalog
+contains:
 
-- `catalogId` scopes all short refs;
-- components provide a tag, props, source page, and native size;
-- variables, collections, modes, styles, and shaders use short refs such as
-  `v1`, `k1`, `m1_2`, `s1`, and `h1`;
-- `omitted` and `nextCursor` mean more definitions remain in the same catalog.
+- a `catalogId` scoping all short refs;
+- component tags, props, source pages, and native sizes;
+- variables, collections, modes, styles, and shaders as refs such as `v1`,
+  `k1`, `m1_2`, `s1`, and `h1`;
+- `omitted` and `nextCursor` when more definitions remain.
 
-The catalog does not scan canvas usage, load pages, or rank resources for the
-task. Select only from names, source pages, summaries, props, types, scopes,
-and default values. Continue a cursor or inspect an exact ref only until enough
-evidence exists.
+The catalog neither scans usage nor loads pages or ranks resources. Select from
+returned names, pages, summaries, props, types, scopes, and defaults. Continue a
+cursor or inspect an exact ref only until evidence is sufficient.
 
-Use this preference order:
+Prefer, in order: catalog component, supported component prop, matching native
+style, semantic variable, then primitive or literal for a real gap.
 
-1. real catalog component;
-2. supported component prop;
-3. matching native style;
-4. semantic variable;
-5. primitive or literal for a real gap.
-
-When valid variants, component anatomy, layout, or semantic meaning affects
-the result, call `get_design_system` again with the exact `ref` and same
-`catalogId`. Use its `previewNodeId` with `get_screenshot` only when visual form
-affects the choice. Read an existing composition with `get_code` or
-`get_screenshot`; the catalog cannot infer usage conventions.
-
-Do not invent refs, native IDs, keys, component props, or variant values.
+When variants, anatomy, layout, or semantic meaning affect the result, inspect
+the exact `ref` with the same `catalogId`. Use its `previewNodeId` with
+`get_screenshot` only when appearance affects selection. Read an existing
+composition with `get_code` or `get_screenshot`; catalogs do not reveal usage
+conventions. Never invent refs, IDs, keys, props, or variant values.
 
 ## Apply catalog resources
 
-Component tags are childless, include the returned `data-ref`, and use exact
-returned prop names and values. Omitted size classes preserve native component
-size. Bind common variables and styles beside the affected element with
-`data-var-<field>="vN"` and `data-style-<field>="sN"`. Put collection modes or
-strict native links in `native[data-key]`.
+Component tags are childless, include returned `data-ref`, and use exact props.
+Omit size classes to preserve native size. Bind common variables and styles with
+`data-var-<field>="vN"` and `data-style-<field>="sN"`; put collection modes or
+strict native links under `native[data-key]`.
 
-This complete example illustrates the contract; replace every illustrative ref
-with one returned by the active catalog:
+Replace every illustrative ref in this contract with one from the active
+catalog:
 
 ```json
 {
@@ -59,10 +50,7 @@ with one returned by the active catalog:
 }
 ```
 
-If an exact required component is absent, do not assume it exists on an
-unloaded page. Ask the user to open its definition page when that design system
-is mandatory; otherwise use the normal primitive fallback.
-
-An empty canvas is not a blocker. Reuse discoverable definitions when allowed;
-otherwise create a small coherent primitive draft. Do not create a token or
-component library merely to make one screen.
+If a mandatory component is absent, ask the user to open its definition page;
+otherwise use the normal primitive fallback. An empty canvas does not block
+catalog reuse. When reuse is unavailable, create a small coherent primitive
+draft—never a token or component library solely for one screen.

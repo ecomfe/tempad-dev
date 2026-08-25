@@ -5,7 +5,8 @@ import type {
   GetDesignSystemResult,
   GetScreenshotResult,
   GetStructureResult,
-  GetTokenDefsResult
+  GetTokenDefsResult,
+  UploadAssetResult
 } from './tools'
 
 const ENCODER = new TextEncoder()
@@ -178,6 +179,13 @@ export function buildGetAssetsToolResult(payload: GetAssetsResult): ToolResponse
   summary.push('Use asset.localPath directly when present; otherwise download asset.url.')
 
   return buildTextToolResult(summary.join('\n'), payload)
+}
+
+export function buildUploadAssetToolResult(payload: UploadAssetResult): ToolResponseLike {
+  return buildTextToolResult(
+    `Stored generated image asset ${payload.assetHash} (${formatBytes(payload.size)}, ${payload.mimeType}). Use structuredContent.assetHash in an apply_canvas IMAGE asset declaration.`,
+    payload
+  )
 }
 
 function buildTextToolResult(text: string, structuredContent: unknown): ToolResponseLike {

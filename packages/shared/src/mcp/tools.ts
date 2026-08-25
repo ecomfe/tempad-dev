@@ -2,7 +2,7 @@ import type { RefinementCtx, ZodType } from 'zod'
 
 import { z } from 'zod'
 
-import { MCP_HASH_PATTERN } from './constants'
+import { MCP_HASH_PATTERN, MCP_MAX_ASSET_BYTES } from './constants'
 
 export const AssetDescriptorSchema = z.object({
   hash: z.string().regex(MCP_HASH_PATTERN),
@@ -1973,7 +1973,10 @@ export const CanvasBindingSchema = z
 
 export type CanvasBinding = z.infer<typeof CanvasBindingSchema>
 
-export const MAX_CANVAS_NODES = 100
+// Recent complete screen sections that crossed the former limit contained 102-129 elements.
+// Keep a bounded margin above that observed range while the independent markup-length, depth,
+// asset, and transport limits continue to cap request and transaction complexity.
+export const MAX_CANVAS_NODES = 160
 export const MAX_CANVAS_DEPTH = 12
 export const MAX_CANVAS_MARKUP_LENGTH = 200_000
 
@@ -2258,6 +2261,33 @@ export type GetAssetsResult = z.infer<typeof GetAssetsResultSchema>
 
 export type AssetDescriptor = z.infer<typeof AssetDescriptorSchema>
 
+// upload_asset (hub only)
+const MAX_IMAGE_DATA_URL_LENGTH = Math.ceil((MCP_MAX_ASSET_BYTES * 4) / 3) + 256
+
+export const UploadAssetParametersSchema = z
+  .object({
+    dataUrl: z
+      .string()
+      .min(1)
+      .max(MAX_IMAGE_DATA_URL_LENGTH)
+      .regex(/^data:image\/(?:png|jpeg|gif);base64,[A-Za-z0-9+/]+={0,2}$/)
+      .describe(
+        'A PNG, JPEG, or GIF data URL from an image-generation tool. Compose the tool calls programmatically; never print or copy the encoded bytes into prose.'
+      )
+  })
+  .strict()
+
+export const UploadAssetResultSchema = z
+  .object({
+    assetHash: z.string().regex(MCP_HASH_PATTERN),
+    mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif']),
+    size: z.number().int().positive()
+  })
+  .strict()
+
+export type UploadAssetParametersInput = z.input<typeof UploadAssetParametersSchema>
+export type UploadAssetResult = z.infer<typeof UploadAssetResultSchema>
+
 export type ToolResultMap = {
   get_code: GetCodeResult
   get_design_system: GetDesignSystemResult
@@ -2266,6 +2296,7 @@ export type ToolResultMap = {
   get_screenshot: GetScreenshotResult
   get_structure: GetStructureResult
   get_assets: GetAssetsResult
+  upload_asset: UploadAssetResult
 }
 
 export type ToolName = keyof ToolResultMap

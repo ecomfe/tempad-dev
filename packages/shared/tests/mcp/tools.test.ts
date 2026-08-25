@@ -13,7 +13,10 @@ import {
   GetDesignSystemResultSchema,
   GetScreenshotParametersSchema,
   GetStructureParametersSchema,
-  GetTokenDefsParametersSchema
+  GetTokenDefsParametersSchema,
+  MAX_CANVAS_NODES,
+  UploadAssetParametersSchema,
+  UploadAssetResultSchema
 } from '../../src/mcp/tools'
 
 const ASSET_HASH = 'a'.repeat(64)
@@ -65,6 +68,37 @@ describe('mcp/tools AssetDescriptorSchema', () => {
         mimeType: 'image/png',
         size: 1,
         figmaImageHashes: []
+      }).success
+    ).toBe(false)
+  })
+})
+
+describe('mcp/tools upload_asset schemas', () => {
+  it('accepts a generated image data URL and bounded result', () => {
+    expect(
+      UploadAssetParametersSchema.parse({ dataUrl: 'data:image/png;base64,aGVsbG8=' })
+    ).toEqual({ dataUrl: 'data:image/png;base64,aGVsbG8=' })
+    expect(
+      UploadAssetResultSchema.parse({
+        assetHash: ASSET_HASH,
+        mimeType: 'image/png',
+        size: 5
+      })
+    ).toEqual({ assetHash: ASSET_HASH, mimeType: 'image/png', size: 5 })
+  })
+
+  it('rejects unsupported or malformed generated image inputs', () => {
+    expect(
+      UploadAssetParametersSchema.safeParse({ dataUrl: 'data:image/svg+xml;base64,PHN2Zy8+' })
+        .success
+    ).toBe(false)
+    expect(
+      UploadAssetParametersSchema.safeParse({ dataUrl: 'data:image/png;base64,not base64' }).success
+    ).toBe(false)
+    expect(
+      UploadAssetParametersSchema.safeParse({
+        dataUrl: 'data:image/png;base64,aGVsbG8=',
+        extra: true
       }).success
     ).toBe(false)
   })
@@ -2137,6 +2171,42 @@ describe('mcp/tools canvas authoring schemas', () => {
             figma: { text: {} }
           }
         }
+      })
+    ).toBe(false)
+  })
+
+  it('bounds canvas bindings and removals at the shared node limit', () => {
+    const bindings = Object.fromEntries(
+      Array.from({ length: MAX_CANVAS_NODES }, (_, index) => [
+        `node-${index}`,
+        { variables: { fill: null } }
+      ])
+    )
+    const removeKeys = Array.from({ length: MAX_CANVAS_NODES }, (_, index) => `old-${index}`)
+
+    expect(
+      acceptsCanvas({
+        mode: 'update',
+        targetNodeId: '1:2',
+        markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
+        bindings,
+        removeKeys
+      })
+    ).toBe(true)
+    expect(
+      acceptsCanvas({
+        mode: 'update',
+        targetNodeId: '1:2',
+        markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
+        bindings: { ...bindings, overflow: { variables: { fill: null } } }
+      })
+    ).toBe(false)
+    expect(
+      acceptsCanvas({
+        mode: 'update',
+        targetNodeId: '1:2',
+        markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
+        removeKeys: [...removeKeys, 'overflow']
       })
     ).toBe(false)
   })
