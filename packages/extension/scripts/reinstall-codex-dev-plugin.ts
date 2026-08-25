@@ -887,10 +887,10 @@ async function main(): Promise<void> {
     if (!client) return
 
     const initialState = await openPluginDetail(client, args.timeoutMs)
-    let initialRuntime = await listRuntimeProcesses(runtimePaths)
+    const initialRuntime = await listRuntimeProcesses(runtimePaths)
     if (initialState === 'installed') {
       if (initialRuntime.cli.length > 0 && initialRuntime.hub.length > 0) {
-        initialRuntime = await waitForRuntimeState(runtimePaths, 'installed', args.timeoutMs)
+        await waitForRuntimeState(runtimePaths, 'installed', args.timeoutMs)
         console.log('Confirmed that the currently installed TemPad Dev CLI and Hub are running.')
       } else if (initialRuntime.cli.length === 0 && initialRuntime.hub.length === 0) {
         console.log(
