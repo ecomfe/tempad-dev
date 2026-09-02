@@ -1,14 +1,41 @@
 # Author local variables
 
-Use this reference only when the user or resolved system plan requires local
-variables. Do not extract tokens from an ordinary screen. New resources need no
-catalog; send `catalogId` only for deliberate nested `{ "ref": "…" }` reuse.
+Use this reference after the representative pixel check when repeated colors
+may carry shared semantic roles, or when the user or resolved system plan
+requires local variables. Do not extract tokens from an ordinary screen. New
+resources need no catalog; send `catalogId` only for deliberate nested
+`{ "ref": "…" }` reuse.
 
 ## Contents
 
+- [Decide from real roles](#decide-from-real-roles)
 - [Author variables](#author-variables)
 - [Bind and verify](#bind-and-verify)
 - [Update and remove](#update-and-remove)
+
+## Decide from real roles
+
+After any selected representative component reconciliation and before
+propagation, call full `get_code` with unresolved tokens only when repeated
+colors plausibly represent semantic roles whose coordinated maintenance matters.
+Treat `literalClusters` as candidate locations, not a to-do list. Select a role
+only when concrete consumers should evolve together; split mixed roles even
+when their literal values match. Leave incidental, local, and ambiguous
+repetition literal. If the diagnostic is unavailable, do not infer a system
+from repetition.
+
+For each selected role, map concrete consumer and field to a semantic variable
+key, bind every representative consumer, then re-run once to confirm the role is
+exposed through `tokens` and no longer unresolved. A non-empty
+`literalClusters` result is acceptable.
+
+Carry only selected mappings into propagation. A later apply that includes a
+consumer of a selected role must bind that field in the same call; an inherited
+instance binding does not cover sibling literals. Before finalization, scan each
+materially distinct dependent root that uses a selected role once, fix missing
+bindings for those roles, and recheck only changed roots. Do not create variables
+to empty diagnostics, expand the map from literal equality, or repeat scans after
+the selected roles are verified.
 
 ## Author variables
 

@@ -67,9 +67,18 @@ export const PingMessageSchema = z
   })
   .strict()
 
+export const RuntimeHelloMessageSchema = z
+  .object({
+    type: z.literal('runtimeHello'),
+    extensionVersion: z.string().min(1),
+    extensionRuntimeFingerprint: z.string().regex(/^[a-f0-9]{64}$/)
+  })
+  .strict()
+
 export const MessageFromExtensionSchema = z.union([
   ActivateMessageSchema,
   ToolResultMessageSchema,
+  RuntimeHelloMessageSchema,
   PingMessageSchema
 ])
 
@@ -80,6 +89,7 @@ export type ToolCallMessage = z.infer<typeof ToolCallMessageSchema>
 export type MessageToExtension = z.infer<typeof MessageToExtensionSchema>
 export type ActivateMessage = z.infer<typeof ActivateMessageSchema>
 export type ToolResultMessage = z.infer<typeof ToolResultMessageSchema>
+export type RuntimeHelloMessage = z.infer<typeof RuntimeHelloMessageSchema>
 export type MessageFromExtension = z.infer<typeof MessageFromExtensionSchema>
 
 function parseJsonWithSchema<T>(data: string, schema: ZodType<T>): T | null {

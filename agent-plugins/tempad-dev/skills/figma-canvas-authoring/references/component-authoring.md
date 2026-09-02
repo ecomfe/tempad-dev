@@ -1,74 +1,58 @@
 # Author reusable components
 
-Use this reference to run the required shared-responsibility gate or after
-selecting a reusable local component. It explains representation, not library
-strategy. New local components need no `get_design_system`; use catalogs only
-for discovery or normalized library props, and exact returned IDs for newly
-authored components.
+Use this reference after selecting a reusable local component. It explains
+representation, not library strategy. New local components need no
+`get_design_system`; use catalogs only for discovery or normalized library
+props, and exact returned IDs for newly authored components.
 
-## Shared-responsibility gate
+## Shared-responsibility decision
 
-Run this gate for two or more screens or states, or before a second consumer of
-the same content, control, or system responsibility. Repeated appearance alone
-does not qualify.
+New local components are opt-in for net-new authoring. Use Author when the user
+requested reusable components before delivery, accepted a component pass after
+seeing the completed design, or applicable project evidence makes a local
+component deliverable part of the task. Existing components may still be Reuse
+without authoring new ones. Repeated appearance, repeated data, screen count,
+possible future reuse, or tool availability do not opt the user into Author.
 
-Before markup can create the second consumer:
+Make the decision from real usages after the representative composition is
+visually sound:
 
-1. List every recurring semantic family: shell, navigation, actions, rows,
-   cards, and other record families. Bound each at the smallest subtree that
-   owns the complete responsibility.
-2. Identify stable anatomy and real differences. Copy, media, availability,
-   state, labels, visibility, swaps, and bounded slot content are contract inputs,
-   not reasons to duplicate.
-3. Rank candidates by consumer spread and coordination cost. Author the
-   highest-ranked qualifying family first. A label, icon, or button component
-   does not close its repeated parent row or card.
-4. Keep a candidate Direct only for a concrete structural, ownership, behavior,
-   or contract incompatibility. Narrow an incompatible boundary once before
-   rejecting it. Different screens, siblings, labels, destinations, or small
-   width changes are not incompatibilities.
+1. Name the shared job and compare the intended consumers.
+2. Identify stable anatomy and meaningful content, media, state, availability,
+   label, swap, or slot differences.
+3. Choose Author only when a truthful supported contract provides more
+   coordination value than it costs to create, migrate, and verify. Otherwise
+   keep the responsibility Direct; a brief reason is enough.
+4. Bound Author at the smallest subtree that owns the complete shared job. Do
+   not infer that a parent must become reusable because a nested label, icon,
+   status, or button is reusable.
 
-Ranking sets order, not scope. Before final markup, resolve every recurring
-family as Author or Direct with a concrete incompatibility. One authored shell,
-navigation, control, or nested child never exempts repeated rows, cards, or
-records.
-
-Keep one ranked trace:
-
-```txt
-rank -> responsibility + consumers -> stable anatomy + differences -> Author or Direct + incompatibility
-```
-
-Build it from planned content and final markup. Scan recurring sibling families,
-cross-screen roles, and patterned `data-key` groups. An unlisted recurring
-family reopens the gate. In the first payload that could contain a candidate's
-second consumer, bind every included Author consumer as a native instance or
-omit the second consumer. Planned later conversion and a nested or lower-ranked
-component do not close the gate.
-
-This is a comparison gate, not a quota. Author nothing when no responsibility
-qualifies. If one representative usage must stabilize first, replace that
-primitive with an instance before adding another consumer. Use the exact
-returned `rootNodeId` or `nodeIdsByKey` entry for every usage; never leave
-primitive lookalikes as final consumers.
+Do not inventory or rank every recurring family, and do not turn repetition
+into a quota. Record only selected Author responsibilities and their concrete
+consumers. Before propagation, create the smallest real definition, instantiate
+it once, and verify the exact reference. Then replace the selected consumers
+with native instances; never leave literal lookalikes for a responsibility that
+was deliberately selected as Author. Use the exact returned `rootNodeId` or
+`nodeIdsByKey` entry for every usage.
 
 A keyed primitive cannot become an INSTANCE in place. Update its bounded
 ancestor, add the instance under a new key, and remove the old key in the same
 call.
 
-Before propagation, create the smallest real definition, instantiate it once,
-and verify the exact reference. Stop component authoring if the ID is missing,
-the instance fails, or the definition is empty, default-sized, or loses
+Stop component authoring if the ID is missing, the instance fails, or the
+definition is empty, default-sized, or loses
 properties. Do not substitute primitives or claim completion. Continue only
 independent Direct work, report the degraded component result, and remove a
 temporary definition only when unused and safe. Re-read a corrupt definition
 and its intended usage; never rebuild it in place or remove one with instances.
-Recreate only when unused.
+Recreate only when unused. If a diagnostic would systematize primitives that
+this definition replaces, reconcile the component first; independent token work
+does not need to wait.
 
-Before handoff, reconcile the named candidates with actual consumers. Each
-qualifying family must have native INSTANCE consumers or a recorded concrete
-incompatibility. Inspect the most demanding instance through its descendants;
-root type and size do not prove wrapping, slots, media, or state content fit.
+Before handoff, reconcile only selected Author responsibilities with actual
+consumers. Each selected consumer must be a native INSTANCE. Inspect the most
+demanding instance through its descendants; root type and size do not prove
+wrapping, slots, media, or state content fit.
 Revise the contract or boundary when real content breaks it.
 
 Markup-only updates preserve keyed components, sets, instances, and shapes.

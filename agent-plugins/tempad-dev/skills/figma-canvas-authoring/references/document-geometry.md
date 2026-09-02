@@ -12,9 +12,16 @@ it remains declarative desired state.
 ## Pages and containers
 
 Top-level `page` can set a name, exact zero-based document index, solid RGBA
-background, ordered guides, and explicit variable modes. In create mode it may
-target an existing `id`, adopt or reuse `pageKey`, or create a named page for a
-missing key. Updates stay on the target node's page.
+background, ordered guides, and explicit variable modes. Page-only create uses
+a new `pageKey` plus name and activates the created page. Page-only update uses
+an exact `id` or `pageKey` and omits markup. A create root may target an existing
+or new page directly; writing an existing off-current page does not activate it.
+Markup updates stay on the target node's page.
+
+Use top-level `mode: "activate"` with exact page identity when editor context or
+selection matters; `selection: []` clears selection. Use top-level `mode:
+"remove"` with an owned `pageKey` to delete a page. Page deletion rejects the
+last page, manual or unowned content, and surviving external dependencies.
 
 Use:
 

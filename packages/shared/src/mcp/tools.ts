@@ -4,6 +4,12 @@ import { z } from 'zod'
 
 import { MCP_HASH_PATTERN, MCP_MAX_ASSET_BYTES } from './constants'
 
+export const CanvasStableKeySchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[\w./:-]+$/, 'Use a stable key containing letters, numbers, ., /, :, _, or -.')
+
 export const AssetDescriptorSchema = z.object({
   hash: z.string().regex(MCP_HASH_PATTERN),
   url: z.string().url(),
@@ -33,7 +39,7 @@ export const GetCodeParametersSchema = z.object({
   resolveTokens: z
     .boolean()
     .describe(
-      'Inline token values instead of references for quick renders; default false returns token metadata so you can map into your theming system. When true, values are resolved per-node (mode-aware).'
+      'Inline token values instead of references for quick renders; default false returns token metadata plus bounded repeated-unbound-color diagnostics so you can reconcile the theming system. When true, values are resolved per-node (mode-aware) and literal diagnostics are omitted.'
     )
     .optional(),
   vectorMode: z
@@ -45,8 +51,20 @@ export const GetCodeParametersSchema = z.object({
 })
 
 export type GetCodeParametersInput = z.input<typeof GetCodeParametersSchema>
+export type GetCodeLiteralConsumer = {
+  nodeId: string
+  nodeName: string
+  properties: string[]
+}
+export type GetCodeLiteralCluster = {
+  kind: 'color'
+  value: string
+  occurrences: number
+  consumers: GetCodeLiteralConsumer[]
+  omittedConsumers?: number
+}
 export type GetCodeWarning = {
-  type: 'auto-layout' | 'shell' | 'depth-cap'
+  type: 'auto-layout' | 'shell' | 'depth-cap' | 'literal-cluster'
   message: string
 }
 export type GetCodeResult = {
@@ -54,6 +72,7 @@ export type GetCodeResult = {
   lang: 'vue' | 'jsx'
   assets?: AssetDescriptor[]
   tokens?: GetTokenDefsResult
+  literalClusters?: GetCodeLiteralCluster[]
   codegen: {
     plugin: string
     config: {
@@ -110,32 +129,49 @@ export type GetScreenshotResult = {
 }
 
 // get_structure
-export const GetStructureParametersSchema = z.object({
-  nodeId: z
-    .string()
-    .describe(
-      'Optional node id to outline; defaults to the current single selection. Useful for explicit hierarchy/geometry and for recovering stable authoring keys on TemPad-managed nodes.'
+export const GetStructureParametersSchema = z
+  .object({
+    nodeId: z
+      .string()
+      .describe(
+        'Optional node id to outline; defaults to the current single selection when no page identity is supplied.'
+      )
+      .optional(),
+    pageId: z.string().min(1).describe('Exact local page id to outline.').optional(),
+    pageKey: CanvasStableKeySchema.describe(
+      'Exact stable key of a local page authored through apply_canvas.'
+    ).optional(),
+    options: z
+      .object({
+        depth: z
+          .number()
+          .int()
+          .positive()
+          .describe(
+            'Positive integer; 1 is the shallowest traversal (root plus direct children). Omit for the full tree, subject to safety caps.'
+          )
+          .optional(),
+        native: z
+          .boolean()
+          .describe(
+            'Include compact native read-back for masks, IMAGE paint hashes, layout grids, and frame guides.'
+          )
+          .optional()
+      })
+      .strict()
+      .optional()
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const identities = [value.nodeId, value.pageId, value.pageKey].filter(
+      (identity) => identity !== undefined
     )
-    .optional(),
-  options: z
-    .object({
-      depth: z
-        .number()
-        .int()
-        .positive()
-        .describe(
-          'Positive integer; 1 is the shallowest traversal (root plus direct children). Omit for the full tree, subject to safety caps.'
-        )
-        .optional(),
-      native: z
-        .boolean()
-        .describe(
-          'Include compact native read-back for masks, IMAGE paint hashes, layout grids, and frame guides.'
-        )
-        .optional()
+    if (identities.length <= 1) return
+    context.addIssue({
+      code: 'custom',
+      message: 'Use only one of nodeId, pageId, or pageKey.'
     })
-    .optional()
-})
+  })
 
 export type GetStructureParametersInput = z.input<typeof GetStructureParametersSchema>
 export type OutlineNativeImageFill = {
@@ -164,6 +200,7 @@ export type OutlineNode = {
 }
 export type GetStructureResult = {
   roots: OutlineNode[]
+  page?: CanvasPageSnapshot
   truncated?: true
 }
 
@@ -372,12 +409,6 @@ export const CanvasDesignReferenceSchema = z
       message: 'A design-system reference requires id or key.'
     }
   )
-
-export const CanvasStableKeySchema = z
-  .string()
-  .min(1)
-  .max(128)
-  .regex(/^[\w./:-]+$/, 'Use a stable key containing letters, numbers, ., /, :, _, or -.')
 
 export type CanvasVariableReference = CanvasDesignReference | { variableKey: string }
 
@@ -1643,7 +1674,7 @@ export const CanvasPagePropertiesSchema = z
     pageKey: CanvasStableKeySchema.describe(
       'Stable key of a local page authored through apply_canvas.'
     ).optional(),
-    name: z.string().optional(),
+    name: z.string().trim().min(1).max(256).optional(),
     index: z
       .number()
       .int()
@@ -1665,6 +1696,21 @@ export const CanvasPagePropertiesSchema = z
   .refine(hasFields, 'Page properties cannot be empty.')
 
 export type CanvasPageProperties = z.infer<typeof CanvasPagePropertiesSchema>
+
+export const CanvasPageSnapshotSchema = z
+  .object({
+    id: z.string().min(1),
+    pageKey: CanvasStableKeySchema.optional(),
+    name: z.string().min(1),
+    index: z.number().int().nonnegative(),
+    active: z.boolean(),
+    removed: z.literal(true).optional(),
+    childCount: z.number().int().nonnegative(),
+    selectionCount: z.number().int().nonnegative()
+  })
+  .strict()
+
+export type CanvasPageSnapshot = z.output<typeof CanvasPageSnapshotSchema>
 
 const CanvasFigmaInstancePropertiesSchema = z
   .object({
@@ -2069,9 +2115,9 @@ const CanvasNativeBindingSchema = z
   .strict()
 
 type CanvasApplyScope = {
-  mode: 'create' | 'update'
+  mode: 'activate' | 'create' | 'remove' | 'update'
   targetNodeId?: string
-  markup: string | null
+  markup?: string
   bindings?: unknown
   native?: unknown
   catalogId?: string
@@ -2079,7 +2125,8 @@ type CanvasApplyScope = {
   styles?: unknown
   assets?: unknown
   removeKeys?: string[]
-  page?: unknown
+  page?: CanvasPageProperties
+  selection?: string[]
 }
 
 function validateCanvasApplyScope<Value extends CanvasApplyScope>(
@@ -2088,36 +2135,113 @@ function validateCanvasApplyScope<Value extends CanvasApplyScope>(
 ): void {
   const issue = (message: string, path: keyof CanvasApplyScope): void =>
     context.addIssue({ code: 'custom', message, path: [path] })
-  if (value.mode === 'create' && value.targetNodeId !== undefined) {
-    issue('targetNodeId is only valid in update mode.', 'targetNodeId')
-  }
-  if (value.mode === 'create' && value.removeKeys !== undefined) {
-    issue('removeKeys is only valid in update mode.', 'removeKeys')
-  }
-  if (value.mode === 'create' && value.markup === null) {
-    issue('Create mode requires markup.', 'markup')
-  }
-  if (value.mode === 'update' && value.targetNodeId === undefined) {
-    issue('Update mode requires targetNodeId.', 'targetNodeId')
-  }
-  if (value.markup !== null) return
-  for (const field of [
+  const resources = [
     'bindings',
     'native',
     'catalogId',
     'variableCollections',
     'styles',
     'assets',
-    'removeKeys',
-    'page'
-  ] as const) {
-    if (value[field] !== undefined) issue(`Root removal cannot include ${field}.`, field)
+    'removeKeys'
+  ] as const
+  const hasResources = resources.some((field) => value[field] !== undefined)
+  const pageIdentity = value.page?.id !== undefined || value.page?.pageKey !== undefined
+
+  if (value.mode === 'create') {
+    if (value.targetNodeId !== undefined) {
+      issue('targetNodeId is not valid in create mode.', 'targetNodeId')
+    }
+    if (value.removeKeys !== undefined) {
+      issue('removeKeys is only valid in update mode.', 'removeKeys')
+    }
+    if (value.selection !== undefined) {
+      issue('selection is only valid in activate mode.', 'selection')
+    }
+    if (value.markup === undefined && value.page === undefined) {
+      issue('Create mode requires markup or page.', 'markup')
+    }
+    if (value.markup === undefined) {
+      if (hasResources) issue('Page-only create cannot include node or resource fields.', 'markup')
+      if (!value.page?.pageKey) issue('Page-only create requires page.pageKey.', 'page')
+      if (!value.page?.name) issue('Page-only create requires page.name.', 'page')
+      if (value.page?.id) issue('Page-only create cannot include page.id.', 'page')
+    }
+    return
+  }
+
+  if (value.mode === 'update') {
+    if (value.selection !== undefined) {
+      issue('selection is only valid in activate mode.', 'selection')
+    }
+    if (value.markup !== undefined && value.targetNodeId === undefined) {
+      issue('A markup update requires targetNodeId.', 'targetNodeId')
+    }
+    if (value.markup === undefined) {
+      if (value.targetNodeId !== undefined) {
+        if (value.page !== undefined) {
+          issue('Native-only update cannot include page.', 'page')
+        }
+        if (value.removeKeys !== undefined) {
+          issue('Native-only update cannot remove nodes.', 'removeKeys')
+        }
+        const bindings = value.native ?? value.bindings
+        if (
+          !bindings ||
+          typeof bindings !== 'object' ||
+          Array.isArray(bindings) ||
+          Object.keys(bindings).length === 0
+        ) {
+          issue('Native-only update requires native node state.', 'native')
+        }
+        return
+      }
+      if (hasResources) issue('Page-only update cannot include node or resource fields.', 'markup')
+      if (!value.page) issue('Update mode requires markup or page.', 'markup')
+      if (value.page && !pageIdentity) {
+        issue('Page-only update requires page.id or page.pageKey.', 'page')
+      }
+    }
+    return
+  }
+
+  if (value.mode === 'remove') {
+    if (value.markup !== undefined) issue('Remove mode cannot include markup.', 'markup')
+    if (hasResources) issue('Remove mode cannot include node or resource fields.', 'markup')
+    if (value.selection !== undefined) {
+      issue('selection is only valid in activate mode.', 'selection')
+    }
+    if ((value.targetNodeId === undefined) === (value.page === undefined)) {
+      issue('Remove mode requires exactly one of targetNodeId or page.', 'targetNodeId')
+    }
+    if (value.page) {
+      if (!value.page.pageKey) issue('Page removal requires page.pageKey.', 'page')
+      const pageFields = Object.keys(value.page)
+      if (pageFields.some((field) => field !== 'id' && field !== 'pageKey')) {
+        issue('Page removal accepts only page.id and page.pageKey.', 'page')
+      }
+    }
+    return
+  }
+
+  if (value.targetNodeId !== undefined) {
+    issue('targetNodeId is not valid in activate mode.', 'targetNodeId')
+  }
+  if (value.markup !== undefined) issue('Activate mode cannot include markup.', 'markup')
+  if (hasResources) issue('Activate mode cannot include node or resource fields.', 'markup')
+  if (!value.page || !pageIdentity) {
+    issue('Activate mode requires page.id or page.pageKey.', 'page')
+  }
+  if (value.page) {
+    const pageFields = Object.keys(value.page)
+    if (pageFields.some((field) => field !== 'id' && field !== 'pageKey')) {
+      issue('Activate mode accepts only page.id and page.pageKey.', 'page')
+    }
   }
 }
 
 export const ApplyCanvasParametersSchema = z
   .object({
-    mode: z.enum(['create', 'update']),
+    mode: z.enum(['create', 'update', 'remove', 'activate']),
     targetNodeId: z.string().min(1).optional(),
     catalogId: z.string().min(1).optional(),
     markup: z
@@ -2125,14 +2249,14 @@ export const ApplyCanvasParametersSchema = z
       .trim()
       .min(1)
       .max(MAX_CANVAS_MARKUP_LENGTH)
-      .nullable()
       .describe(
         `Canvas HTML serialization of the desired managed Figma layer tree, with at most ${MAX_CANVAS_NODES} elements and ${MAX_CANVAS_DEPTH} levels. When catalogId is supplied, use its component tags and bind its variable or style refs with data-var-<field>="vN" or data-style-<field>="sN"; use "none" to unlink.`
-      ),
+      )
+      .optional(),
     native: z
       .record(CanvasStableKeySchema, CanvasNativeBindingSchema)
       .describe(
-        'Desired native Figma state and bindings for selected capabilities, keyed by markup data-key.'
+        'Desired native Figma state and bindings for selected capabilities, keyed by a markup data-key or an existing stable key inside a markup-less update target.'
       )
       .optional(),
     variableCollections: z
@@ -2159,6 +2283,13 @@ export const ApplyCanvasParametersSchema = z
       .describe(
         'Optional local page identity and desired state. Use the canvas-authoring document-geometry reference for the exact shape.'
       )
+      .optional(),
+    selection: z
+      .array(z.string().min(1))
+      .max(100)
+      .describe(
+        'Exact scene-node ids to select after activate; an empty array clears selection and omission preserves it.'
+      )
       .optional()
   })
   .strict()
@@ -2170,24 +2301,26 @@ export type ApplyCanvasParameters = z.output<typeof ApplyCanvasParametersSchema>
 export const CanvasResolvedApplyParametersSchema = z
   .object({
     mode: z
-      .enum(['create', 'update'])
-      .describe('Create one new markup tree, or update one explicitly scoped live subtree.'),
+      .enum(['create', 'update', 'remove', 'activate'])
+      .describe(
+        'Create a page or managed root, update exact page or root state, remove an exact managed page or root, or activate an exact page.'
+      ),
     targetNodeId: z
       .string()
       .min(1)
-      .describe('Required update-scope root node id; invalid in create mode.')
+      .describe('Exact managed root identity for markup/native update or root removal.')
       .optional(),
     markup: z
       .string()
       .trim()
       .min(1)
       .max(MAX_CANVAS_MARKUP_LENGTH)
-      .nullable()
       .describe(
-        `One well-formed div/span tree using the documented Tailwind utility subset, with at most ${MAX_CANVAS_NODES} elements and ${MAX_CANVAS_DEPTH} levels. In update mode, null asserts that the managed target itself must be absent.`
-      ),
+        `One well-formed div/span tree using the documented Tailwind utility subset, with at most ${MAX_CANVAS_NODES} elements and ${MAX_CANVAS_DEPTH} levels.`
+      )
+      .optional(),
     bindings: CanvasBindingsSchema.describe(
-      'Optional Figma component, variable, style, and typed native data keyed by markup data-key.'
+      'Optional Figma component, variable, style, and typed native data keyed by a markup data-key or an existing stable key inside a markup-less update target.'
     ).optional(),
     variableCollections: CanvasVariableCollectionsSchema.describe(
       'Optional local base or extended variable collections, modes, variables, and inherited-value overrides keyed by file-wide stable authoring identities. Omission preserves resources; null explicitly removes an unconsumed managed resource. Verification warns when a new variable is unreferenced or a same-call binding silently overrides a literal fallback that matches none of its direct mode values.'
@@ -2202,23 +2335,51 @@ export const CanvasResolvedApplyParametersSchema = z
       'Optional stable keys that must be absent after a scoped update. Omitted live nodes remain untouched.'
     ).optional(),
     page: CanvasPagePropertiesSchema.describe(
-      'Optional local page identity and desired state, including its exact document position. A missing pageKey creates a named page in create mode; omission targets the page containing the result.'
-    ).optional()
+      'Optional exact local page identity and desired state. In create mode, an unknown pageKey with a name creates a page; omission targets the page containing the result.'
+    ).optional(),
+    selection: z.array(z.string().min(1)).max(100).optional()
   })
   .strict()
   .superRefine(validateCanvasApplyScope)
 
 export type CanvasResolvedApplyParameters = z.output<typeof CanvasResolvedApplyParametersSchema>
 
+export const AuthoringRuntimeEvidenceSchema = z
+  .object({
+    protocolVersion: z.number().int().positive(),
+    locked: z.boolean(),
+    valid: z.boolean(),
+    issues: z.array(z.string()),
+    hub: z
+      .object({
+        packageVersion: z.string().min(1),
+        runtimeFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+        startedAt: z.string().min(1)
+      })
+      .strict(),
+    extension: z
+      .object({
+        version: z.string().min(1),
+        runtimeFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+        connectedAt: z.string().min(1)
+      })
+      .strict()
+  })
+  .strict()
+
+export type AuthoringRuntimeEvidence = z.infer<typeof AuthoringRuntimeEvidenceSchema>
+
 export const ApplyCanvasResultSchema = z
   .object({
-    rootNodeId: z.string().min(1),
+    rootNodeId: z.string().min(1).optional(),
     rootRemoved: z.literal(true).optional(),
     nodeIdsByKey: z.record(z.string(), z.string().min(1)),
     createdNodeIds: z.array(z.string().min(1)),
     updatedNodeIds: z.array(z.string().min(1)),
     removedNodeIds: z.array(z.string().min(1)),
+    page: CanvasPageSnapshotSchema.optional(),
     mutationCount: z.number().int().nonnegative(),
+    runtime: AuthoringRuntimeEvidenceSchema.optional(),
     verification: z
       .object({
         status: z.enum(['passed', 'warning']),
@@ -2238,6 +2399,21 @@ export const ApplyCanvasResultSchema = z
       .strict()
   })
   .strict()
+  .superRefine((value, context) => {
+    if (value.rootNodeId === undefined && value.page === undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: 'An apply_canvas result requires rootNodeId or page.'
+      })
+    }
+    if (value.rootRemoved && value.rootNodeId === undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: 'rootRemoved requires rootNodeId.',
+        path: ['rootRemoved']
+      })
+    }
+  })
 
 export type ApplyCanvasResult = z.output<typeof ApplyCanvasResultSchema>
 

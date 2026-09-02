@@ -3,10 +3,21 @@ import { describe, expect, it } from 'vitest'
 import {
   assertNoDetachedReinstallJobs,
   detachedReinstallIdentity,
+  resolveDevPluginVersion,
   runtimeStateMatches
 } from '@/scripts/reinstall-codex-dev-plugin-runtime'
 
 describe('Codex plugin reinstall runtime state', () => {
+  it('uses the generated plugin version by default and rejects an explicit mismatch', () => {
+    const manifest = { name: 'tempad-dev-dev', version: '0.1.2+codex.test' }
+
+    expect(resolveDevPluginVersion(manifest)).toBe('0.1.2+codex.test')
+    expect(resolveDevPluginVersion(manifest, '0.1.2+codex.test')).toBe('0.1.2+codex.test')
+    expect(() => resolveDevPluginVersion(manifest, '0.1.2+codex.other')).toThrow(
+      'Generated plugin version is 0.1.2+codex.test, not 0.1.2+codex.other.'
+    )
+  })
+
   it('requires every CLI and Hub process to stop before reinstalling', () => {
     expect(runtimeStateMatches({ cli: [], hub: [] }, 'uninstalled')).toBe(true)
     expect(runtimeStateMatches({ cli: [{ pid: 1 }], hub: [] }, 'uninstalled')).toBe(false)

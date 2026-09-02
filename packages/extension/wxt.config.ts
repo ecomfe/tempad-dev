@@ -1,10 +1,15 @@
+import { fileURLToPath } from 'node:url'
 import cssInjectedByJsPlugin from 'vite-plugin-css-injected-by-js'
 import { defineConfig } from 'wxt'
 
+import { computeExtensionRuntimeFingerprint } from '../../scripts/extension-runtime-fingerprint.mjs'
 import { pluginSandboxWorkers } from './build/plugin-sandbox-workers'
 import { MCP_LOCAL_HOST_ORIGIN } from './mcp/permissions'
+import packageJson from './package.json' with { type: 'json' }
 
 const newElements = ['selectedcontent']
+const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url))
+const extensionRuntimeFingerprint = computeExtensionRuntimeFingerprint(repositoryRoot)
 
 export function getPluginSandboxCsp(development: boolean): string {
   const connectSources = development ? 'ws://localhost:* ws://127.0.0.1:*' : "'none'"
@@ -49,6 +54,8 @@ export default defineConfig({
   manifest: (env) => ({
     minimum_chrome_version: '116',
     name: 'TemPad Dev',
+    version: packageJson.version,
+    version_name: extensionRuntimeFingerprint,
     content_security_policy: {
       sandbox: getPluginSandboxCsp(env.command === 'serve')
     },
