@@ -72,6 +72,19 @@ describe('mcp/protocol', () => {
     })
 
     expect(parseMessageFromExtension('{"type":"ping"}')).toEqual({ type: 'ping' })
+    expect(
+      parseMessageFromExtension(
+        JSON.stringify({
+          type: 'runtimeHello',
+          extensionVersion: '0.21.0',
+          extensionRuntimeFingerprint: 'a'.repeat(64)
+        })
+      )
+    ).toEqual({
+      type: 'runtimeHello',
+      extensionVersion: '0.21.0',
+      extensionRuntimeFingerprint: 'a'.repeat(64)
+    })
   })
 
   it('returns null for invalid json', () => {
@@ -103,6 +116,15 @@ describe('mcp/protocol', () => {
       )
     ).toBeNull()
     expect(parseMessageFromExtension(JSON.stringify({ type: 'toolResult' }))).toBeNull()
+    expect(
+      parseMessageFromExtension(
+        JSON.stringify({
+          type: 'runtimeHello',
+          extensionVersion: '0.21.0',
+          extensionRuntimeFingerprint: 'short'
+        })
+      )
+    ).toBeNull()
     expect(
       parseMessageFromExtension(
         JSON.stringify({ type: 'toolResult', id: 'call-1', error: 'plain string' })

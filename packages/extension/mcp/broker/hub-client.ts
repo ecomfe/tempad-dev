@@ -1,6 +1,7 @@
 import type {
   MessageToExtension,
   RegisteredMessage,
+  RuntimeHelloMessage,
   StateMessage,
   ToolCallMessage,
   ToolResultMessage
@@ -61,7 +62,8 @@ export class McpHubClient {
 
   constructor(
     private readonly events: McpHubClientEvents = {},
-    private readonly createWebSocket: WebSocketFactory = (url) => new WebSocket(url)
+    private readonly createWebSocket: WebSocketFactory = (url) => new WebSocket(url),
+    private readonly runtimeIdentity: RuntimeHelloMessage | null = null
   ) {}
 
   getSnapshot(): HubClientSnapshot {
@@ -137,6 +139,7 @@ export class McpHubClient {
         }
         this.attachSocket(connection.ws)
         this.handleHubMessage(connection.registered)
+        if (this.runtimeIdentity) this.sendJson(this.runtimeIdentity)
         this.handleHubMessage(connection.state)
         if (!this.isCurrentConnection(epoch) || this.ws !== connection.ws) return
         this.lastSuccessfulPort = candidatePort

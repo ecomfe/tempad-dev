@@ -21,6 +21,7 @@ import {
 } from '@tempad-dev/shared'
 
 import {
+  getContainingPage,
   getLocalStyles,
   getLocalVariableCollections,
   getLocalVariables,
@@ -851,12 +852,6 @@ function compactEntry(
   }
 }
 
-function containingPage(node: BaseNode): PageNode | null {
-  let current: BaseNode | null = node
-  while (current && current.type !== 'PAGE') current = current.parent
-  return current?.type === 'PAGE' ? current : null
-}
-
 async function resolveCatalogComponent(entry: CatalogComponent): Promise<ComponentNode> {
   const node = entry.reference.id ? await readOrNull(() => getNodeById(entry.reference.id!)) : null
   if (node?.type === 'COMPONENT') return node
@@ -958,7 +953,7 @@ async function describeComponentAnatomy(component: ComponentNode) {
 
 async function describeComponentDetail(entry: CatalogComponent) {
   const component = await resolveCatalogComponent(entry)
-  const page = containingPage(component) ?? {
+  const page = getContainingPage(component) ?? {
     id: (entry.definition as DescribedComponent).pageId,
     name: entry.pageName
   }

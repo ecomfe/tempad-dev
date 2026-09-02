@@ -3,53 +3,18 @@ import { describe, expect, it } from 'vitest'
 import {
   CodeBudgetExceededError,
   assertToolResponseWithinBudget,
-  buildGetCodeWarnings,
-  isCodeBudgetExceededError
+  buildGetCodeWarnings
 } from '@/mcp/tools/code/messages'
 
 describe('mcp/code messages', () => {
   it('throws when tool result exceeds inline budget', () => {
-    expect(() =>
-      assertToolResponseWithinBudget(
-        {
-          content: [{ type: 'text', text: 'hello world' }]
-        },
-        {
-          maxResultBytes: 8
-        }
-      )
-    ).toThrow('Tool result exceeds inline budget')
-
-    let message = ''
-    let budgetError: unknown
-    try {
-      assertToolResponseWithinBudget(
-        {
-          content: [{ type: 'text', text: 'hello world' }]
-        },
-        {
-          maxResultBytes: 8
-        }
-      )
-    } catch (error) {
-      budgetError = error
-      message = error instanceof Error ? error.message : String(error)
-    }
-
-    expect(budgetError).toBeInstanceOf(CodeBudgetExceededError)
-    expect(isCodeBudgetExceededError(budgetError)).toBe(true)
-    expect(message).toContain('UTF-8 bytes')
-    expect(message).toContain('Reduce selection size')
+    const fail = () =>
+      assertToolResponseWithinBudget({ content: [{ type: 'text', text: 'hello world' }] }, 8)
+    expect(fail).toThrow(CodeBudgetExceededError)
+    expect(fail).toThrow(/UTF-8 bytes.*Reduce selection size/)
 
     expect(() =>
-      assertToolResponseWithinBudget(
-        {
-          content: [{ type: 'text', text: 'ok' }]
-        },
-        {
-          maxResultBytes: 128
-        }
-      )
+      assertToolResponseWithinBudget({ content: [{ type: 'text', text: 'ok' }] }, 128)
     ).not.toThrow()
   })
 
@@ -90,5 +55,28 @@ describe('mcp/code messages', () => {
     const depthCap = warnings?.find((item) => item.type === 'depth-cap')
 
     expect(depthCap?.message).toContain('Tree depth capped')
+  })
+
+  it('points repeated literal warnings to bounded structured evidence', () => {
+    const warnings = buildGetCodeWarnings('<div />', {
+      literalClusters: [
+        {
+          kind: 'color',
+          value: '#FFFFFF',
+          occurrences: 2,
+          consumers: [
+            { nodeId: 'a', nodeName: 'A', properties: ['color'] },
+            { nodeId: 'b', nodeName: 'B', properties: ['color'] }
+          ]
+        }
+      ]
+    })
+
+    expect(warnings).toEqual([
+      {
+        type: 'literal-cluster',
+        message: expect.stringContaining('structuredContent.literalClusters')
+      }
+    ])
   })
 })

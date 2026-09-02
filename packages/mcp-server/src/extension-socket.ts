@@ -24,6 +24,7 @@ type AttachExtensionSocketOptions = {
   onConnected?: (extensionId: string) => void
   onDisconnected?: (extensionId: string, wasActive: boolean) => void
   onProtocolWarning?: (warning: ExtensionProtocolWarning) => void
+  onRuntimeHello?: (extension: ExtensionConnection) => void
   onSocketError?: (extensionId: string, error: Error) => void
   onStateChange: () => void
   onToolError: (requestId: string, extensionId: string, error: TempadMcpErrorPayload) => void
@@ -37,6 +38,7 @@ export function attachExtensionSocket(
   const extension: ExtensionConnection = {
     id: options.createId(),
     origin: options.origin.toLowerCase(),
+    connectedAt: new Date().toISOString(),
     ws
   }
   options.registry.add(extension)
@@ -95,6 +97,25 @@ export function attachExtensionSocket(
         } else {
           options.onToolResult(message.id, extension.id, message.payload)
         }
+        break
+      case 'runtimeHello':
+        if (
+          extension.runtime &&
+          (extension.runtime.version !== message.extensionVersion ||
+            extension.runtime.fingerprint !== message.extensionRuntimeFingerprint)
+        ) {
+          options.onProtocolWarning?.({
+            error: new Error('Extension changed runtime identity on an open connection.'),
+            extensionId: extension.id,
+            kind: 'schema'
+          })
+          break
+        }
+        extension.runtime = {
+          version: message.extensionVersion,
+          fingerprint: message.extensionRuntimeFingerprint
+        }
+        options.onRuntimeHello?.(extension)
         break
       case 'ping':
         break

@@ -1,6 +1,11 @@
-import type { AssetDescriptor } from '@tempad-dev/shared'
+import type { AssetDescriptor, GetCodeLiteralCluster } from '@tempad-dev/shared'
 
 import { raw } from '@tempad-dev/plugins'
+import {
+  buildGetCodeToolResult,
+  MCP_TOOL_INLINE_BUDGET_BYTES,
+  measureCallToolResultBytes
+} from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
@@ -145,6 +150,67 @@ describe('mcp/code handleGetCode', () => {
     expect(result.assets).toEqual([image, video])
   })
 
+  it('adds repeated unbound color diagnostics only to unresolved-token full responses', async () => {
+    const root = createSnapshot({ id: 'root', children: ['first', 'second'] })
+    const first = createSnapshot({ id: 'first', parentId: 'root' })
+    first.name = 'overview / label'
+    const second = createSnapshot({ id: 'second', parentId: 'root' })
+    second.name = 'workspace / label'
+    const tree = createTree([root, first, second])
+    const styles = new Map<string, Record<string, string>>([
+      ['root', { display: 'flex' }],
+      ['first', { color: '#ffffff' }],
+      ['second', { color: 'rgb(255, 255, 255)' }]
+    ])
+
+    mocks.buildVisibleTree.mockReturnValue(tree)
+    mocks.collectNodeData.mockResolvedValue({
+      nodes: tree.nodes,
+      styles,
+      textSegments: new Map()
+    })
+    mocks.prepareStyles.mockImplementation(
+      ({ styles: input }: { styles: Map<string, Record<string, string>> }) => ({
+        styles: input,
+        layout: new Map(),
+        usedCandidateIds: new Set<string>()
+      })
+    )
+    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
+      code,
+      tokensByCanonical: {},
+      sourceIndex: new Map()
+    }))
+    mocks.renderTree.mockResolvedValue(
+      raw('<div><span className="text-white">A</span><span className="text-white">B</span></div>')
+    )
+    vi.stubGlobal('__DEV__', false)
+
+    const { handleGetCode } = await import('@/mcp/tools/code')
+    const unresolved = await handleGetCode(
+      [{ id: 'root', visible: true } as SceneNode],
+      'jsx',
+      false
+    )
+    const resolved = await handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', true)
+
+    expect(unresolved.literalClusters).toEqual([
+      {
+        kind: 'color',
+        value: '#FFFFFF',
+        occurrences: 2,
+        consumers: [
+          { nodeId: 'first', nodeName: 'overview / label', properties: ['color'] },
+          { nodeId: 'second', nodeName: 'workspace / label', properties: ['color'] }
+        ]
+      }
+    ])
+    expect(unresolved.warnings?.map((warning) => warning.type)).toEqual(['literal-cluster'])
+    expect(unresolved.warnings?.[0]?.message).toContain('structuredContent.literalClusters')
+    expect(resolved.literalClusters).toBeUndefined()
+    expect(resolved.warnings).toBeUndefined()
+  })
+
   it('omits supplemental video previews for children excluded from a shell response', async () => {
     const root = createSnapshot({ id: 'root', children: ['child'] })
     const child = createSnapshot({ id: 'child', parentId: 'root' })
@@ -182,7 +248,11 @@ describe('mcp/code handleGetCode', () => {
     mocks.buildVisibleTree.mockReturnValue(tree)
     mocks.collectNodeData.mockResolvedValue({
       nodes: tree.nodes,
-      styles: new Map([['root', { display: 'flex', 'flex-direction': 'row' }]]),
+      styles: new Map([
+        ['root', { display: 'flex', 'flex-direction': 'row' }],
+        ['b', { color: '#fff' }],
+        ['c', { color: '#fff' }]
+      ]),
       textSegments: new Map()
     })
     mocks.prepareStyles.mockImplementation(
@@ -209,10 +279,15 @@ describe('mcp/code handleGetCode', () => {
 
     expect(result.code).toContain('{/* omitted direct children: c,b */}')
     expect(result.warnings?.map((item) => item.type)).toEqual(['shell'])
+    expect(result.literalClusters).toBeUndefined()
     expect(result.warnings?.[0]?.message).toContain('Call get_code for them in that order')
     expect(mocks.processTokens).toHaveBeenCalledWith(
       expect.objectContaining({
-        styles: new Map([['root', { display: 'flex', 'flex-direction': 'row' }]]),
+        styles: new Map([
+          ['root', { display: 'flex', 'flex-direction': 'row' }],
+          ['b', { color: '#fff' }],
+          ['c', { color: '#fff' }]
+        ]),
         textSegments: new Map()
       })
     )
@@ -223,6 +298,89 @@ describe('mcp/code handleGetCode', () => {
       ['c', 'b']
     )
     expect(result.assets).toBeUndefined()
+  })
+
+  it('includes literal diagnostics in the final byte budget and omits them from fallback shells', async () => {
+    const children = ['a', 'b', 'c'].map((id) => {
+      const snapshot = createSnapshot({ id, parentId: 'root' })
+      snapshot.name = `${id}-${'consumer-path-'.repeat(7)}`
+      return snapshot
+    })
+    const root = createSnapshot({ id: 'root', children: children.map((child) => child.id) })
+    const tree = createTree([root, ...children])
+    const repeatedColors = {
+      color: '#111111',
+      'background-color': '#222222',
+      'border-top-color': '#333333',
+      'border-right-color': '#444444',
+      'border-bottom-color': '#555555',
+      'border-left-color': '#666666'
+    }
+    const styles = new Map<string, Record<string, string>>([
+      ['root', { display: 'flex' }],
+      ...children.map((child) => [child.id, { ...repeatedColors }] as const)
+    ])
+    const code = 'X'.repeat(62_000)
+    const literalClusters: GetCodeLiteralCluster[] = Object.values(repeatedColors).map((value) => ({
+      kind: 'color',
+      value,
+      occurrences: 3,
+      consumers: children.map((child) => ({
+        nodeId: child.id,
+        nodeName: child.name,
+        properties: ['color']
+      }))
+    }))
+    const codegen = {
+      plugin: 'none',
+      config: { cssUnit: 'px' as const, rootFontSize: 16, scale: 1 }
+    }
+
+    expect(
+      measureCallToolResultBytes(buildGetCodeToolResult({ lang: 'jsx', code, codegen }))
+    ).toBeLessThan(MCP_TOOL_INLINE_BUDGET_BYTES)
+    expect(
+      measureCallToolResultBytes(
+        buildGetCodeToolResult({
+          lang: 'jsx',
+          code,
+          codegen,
+          literalClusters,
+          warnings: [{ type: 'literal-cluster', message: 'Repeated literals.' }]
+        })
+      )
+    ).toBeGreaterThan(MCP_TOOL_INLINE_BUDGET_BYTES)
+
+    mocks.buildVisibleTree.mockReturnValue(tree)
+    mocks.collectNodeData.mockResolvedValue({
+      nodes: tree.nodes,
+      styles,
+      textSegments: new Map()
+    })
+    mocks.prepareStyles.mockImplementation(
+      ({ styles: input }: { styles: Map<string, Record<string, string>> }) => ({
+        styles: input,
+        layout: new Map(),
+        usedCandidateIds: new Set<string>()
+      })
+    )
+    mocks.processTokens.mockImplementation(async ({ code: input }: { code: string }) => ({
+      code: input,
+      tokensByCanonical: {},
+      sourceIndex: new Map()
+    }))
+    mocks.renderTree.mockResolvedValue(raw(code))
+    mocks.getOrderedChildIds.mockReturnValue(children.map((child) => child.id))
+    mocks.renderShellTree.mockResolvedValue(
+      raw('<div>{/* omitted direct children: a,b,c */}</div>')
+    )
+    vi.stubGlobal('__DEV__', false)
+
+    const { handleGetCode } = await import('@/mcp/tools/code')
+    const result = await handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
+
+    expect(result.warnings?.map((warning) => warning.type)).toEqual(['shell'])
+    expect(result.literalClusters).toBeUndefined()
   })
 
   it('uses a root-only shell path when descendant text alone exceeds the budget', async () => {

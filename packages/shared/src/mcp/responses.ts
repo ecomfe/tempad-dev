@@ -100,20 +100,31 @@ export function buildApplyCanvasToolResult(payload: ApplyCanvasResult): ToolResp
   const warnings = payload.verification.warnings.length
     ? `\n${payload.verification.warnings.map(({ code, key, message }) => `${code}${key ? ` (${key})` : ''}: ${message}`).join('\n')}`
     : ''
-  const root = payload.rootRemoved
-    ? `Root node is absent: ${payload.rootNodeId}. Repeating the same assertion is safe.`
-    : `Root node: ${payload.rootNodeId}.`
-  const identities = payload.rootRemoved
-    ? ''
-    : '\nRead structuredContent.nodeIdsByKey before a follow-up update or component instance call.'
-  return buildTextToolResult(`${summary}\n${verification}${warnings}\n${root}${identities}`, {
-    rootNodeId: payload.rootNodeId,
-    ...(payload.rootRemoved ? { rootRemoved: true } : {}),
-    nodeIdsByKey: payload.nodeIdsByKey,
-    mutationCount: payload.mutationCount,
-    nodeChanges,
-    verification: payload.verification
-  })
+  const root = payload.rootNodeId
+    ? payload.rootRemoved
+      ? `Root node is absent: ${payload.rootNodeId}. Repeating the same assertion is safe.`
+      : `Root node: ${payload.rootNodeId}.`
+    : undefined
+  const page = payload.page
+    ? `Page: "${payload.page.name}" (${payload.page.id}) at index ${payload.page.index}; ${payload.page.active ? 'active' : 'not active'}, ${payload.page.removed ? 'removed' : `${formatCount(payload.page.childCount, 'child', 'children')} and ${formatCount(payload.page.selectionCount, 'selected node')}`}.`
+    : undefined
+  const identities =
+    payload.rootNodeId && !payload.rootRemoved
+      ? '\nRead structuredContent.nodeIdsByKey before a follow-up update or component instance call.'
+      : ''
+  return buildTextToolResult(
+    `${summary}\n${verification}${warnings}\n${[root, page].filter(Boolean).join('\n')}${identities}`,
+    {
+      ...(payload.rootNodeId ? { rootNodeId: payload.rootNodeId } : {}),
+      ...(payload.rootRemoved ? { rootRemoved: true } : {}),
+      nodeIdsByKey: payload.nodeIdsByKey,
+      mutationCount: payload.mutationCount,
+      nodeChanges,
+      ...(payload.page ? { page: payload.page } : {}),
+      verification: payload.verification,
+      ...(payload.runtime ? { runtime: payload.runtime } : {})
+    }
+  )
 }
 
 export function buildGetStructureToolResult(payload: GetStructureResult): ToolResponseLike {
@@ -127,7 +138,10 @@ export function buildGetStructureToolResult(payload: GetStructureResult): ToolRe
     ? 'The outline is partial because the response safety cap was reached; narrow the selection or depth before treating it as complete.'
     : 'Read structuredContent for the full outline payload.'
 
-  return buildTextToolResult(`${summary}\n${guidance}`, payload)
+  const page = payload.page
+    ? ` Page "${payload.page.name}" (${payload.page.id}) is ${payload.page.active ? 'active' : 'not active'} with ${formatCount(payload.page.childCount, 'child', 'children')}.`
+    : ''
+  return buildTextToolResult(`${summary}${page}\n${guidance}`, payload)
 }
 
 export function buildGetTokenDefsToolResult(payload: GetTokenDefsResult): ToolResponseLike {
@@ -220,8 +234,8 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function formatCount(count: number, singular: string): string {
-  return `${count} ${count === 1 ? singular : `${singular}s`}`
+function formatCount(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`
 }
 
 function describeScreenshot(result: GetScreenshotResult): string {

@@ -127,7 +127,8 @@ export function resolveCanvasInput(input: ApplyCanvasParameters): Resolution {
     ...(input.styles === undefined ? {} : { styles: resolveDeep(input.styles, catalog) }),
     ...(input.assets === undefined ? {} : { assets: input.assets }),
     ...(input.removeKeys === undefined ? {} : { removeKeys: input.removeKeys }),
-    ...(input.page === undefined ? {} : { page: resolveDeep(input.page, catalog) })
+    ...(input.page === undefined ? {} : { page: resolveDeep(input.page, catalog) }),
+    ...(input.selection === undefined ? {} : { selection: input.selection })
   }
   const parsed = CanvasResolvedApplyParametersSchema.safeParse(candidate)
   if (!parsed.success) {

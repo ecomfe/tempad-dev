@@ -60,6 +60,7 @@ function createMockPage(id: string, name: string) {
     removed: false,
     parent: null as BaseNode | null,
     children: [] as SceneNode[],
+    selection: [] as SceneNode[],
     guides: [] as Guide[],
     backgrounds: defaultPageBackground(),
     explicitVariableModes: {} as Record<string, string>,
@@ -93,6 +94,16 @@ function createMockPage(id: string, name: string) {
     },
     appendChild(child: SceneNode) {
       page.insertChild(page.children.length, child)
+    },
+    remove() {
+      if (page.removed) return
+      const document = page.parent as (DocumentNode & { children: PageNode[] }) | null
+      if (document) {
+        const index = document.children.indexOf(page as unknown as PageNode)
+        if (index >= 0) document.children.splice(index, 1)
+      }
+      page.removed = true
+      page.parent = null
     }
   }
   return withSharedPluginData(page)
@@ -328,6 +339,8 @@ function createFixture(): FigmaFixture {
   }
   PAGE.parent = root as unknown as DocumentNode
   PAGE.children.length = 0
+  PAGE.selection = []
+  PAGE.removed = false
   PAGE.name = 'Page 1'
   PAGE.guides = []
   PAGE.backgrounds = defaultPageBackground()
@@ -428,6 +441,8 @@ function createFixture(): FigmaFixture {
       [0, 1, 0]
     ]
     let targetAspectRatio: Vector | null = null
+    const initialPage =
+      (globalThis as typeof globalThis & { figma?: PluginAPI }).figma?.currentPage ?? PAGE
     const node = {
       id,
       type,
@@ -444,7 +459,7 @@ function createFixture(): FigmaFixture {
       maxWidth: null,
       minHeight: null,
       maxHeight: null,
-      parent: PAGE,
+      parent: initialPage,
       opacity: 1,
       clipsContent: false,
       fillStyleId: '',
@@ -512,8 +527,31 @@ function createFixture(): FigmaFixture {
         }
       },
       setGridChildPosition: vi.fn((row: number, column: number) => {
+        const parent = node.parent
+        if (
+          parent &&
+          'layoutMode' in parent &&
+          parent.layoutMode === 'GRID' &&
+          'children' in parent
+        ) {
+          const collision = parent.children.some((sibling) => {
+            if (sibling.id === node.id || !('gridRowAnchorIndex' in sibling)) return false
+            const rowOverlaps =
+              row < sibling.gridRowAnchorIndex + sibling.gridRowSpan &&
+              row + node.gridRowSpan > sibling.gridRowAnchorIndex
+            const columnOverlaps =
+              column < sibling.gridColumnAnchorIndex + sibling.gridColumnSpan &&
+              column + node.gridColumnSpan > sibling.gridColumnAnchorIndex
+            return rowOverlaps && columnOverlaps
+          })
+          if (collision) throw new Error("Can't place child because the grid position is occupied")
+        }
         node.gridRowAnchorIndex = row
         node.gridColumnAnchorIndex = column
+        if ('layoutSizingHorizontal' in node) {
+          node.layoutSizingHorizontal = 'FIXED'
+          node.layoutSizingVertical = 'FIXED'
+        }
       }),
       lockAspectRatio: vi.fn(() => {
         targetAspectRatio = { x: node.width, y: node.height }
@@ -1271,7 +1309,7 @@ function createFixture(): FigmaFixture {
       Object.assign(node, { pointCount: 5, innerRadius: 0.5 })
     }
 
-    PAGE.children.push(node)
+    ;(initialPage.children as SceneNode[]).push(node)
     nodes.set(id, node)
     return node
   }
@@ -1843,6 +1881,9 @@ function createFixture(): FigmaFixture {
     mixed: MIXED,
     root,
     currentPage: PAGE,
+    setCurrentPageAsync: vi.fn(async (page: PageNode) => {
+      ;(figma as unknown as { currentPage: PageNode }).currentPage = page
+    }),
     loadAllPagesAsync,
     viewport: { center: { x: 500, y: 400 } },
     commitUndo,
@@ -2140,6 +2181,74 @@ describe('mcp/tools/canvas', () => {
     })
   })
 
+  it('updates native state by stable key without moving nested nodes', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[320px] h-[240px]"><div data-key="media" class="flex flex-col w-full h-[180px]"><div data-key="photo" class="w-full h-[150px]"></div><span data-key="caption" class="w-fit h-fit">Pool</span></div><span data-key="footer" class="w-fit h-fit">Book</span></div>'
+    })
+    const root = fixture.getNode(created.rootNodeId!)
+    const media = fixture.getNode(created.nodeIdsByKey.media!)
+    const photo = fixture.getNode(created.nodeIdsByKey.photo!)
+    const rootChildren = root.children.map((node) => node.id)
+    const mediaChildren = media.children.map((node) => node.id)
+    const imageUrl = 'https://images.example.com/pool.png'
+    const update = {
+      mode: 'update' as const,
+      targetNodeId: root.id,
+      native: {
+        photo: {
+          figma: { fills: [{ type: 'IMAGE' as const, imageUrl, scaleMode: 'FILL' as const }] }
+        }
+      }
+    }
+
+    const updated = await applyCanvasFromTool(update)
+
+    expect(root.children.map((node) => node.id)).toEqual(rootChildren)
+    expect(media.children.map((node) => node.id)).toEqual(mediaChildren)
+    expect(photo.parent).toBe(media)
+    expect(photo.fills).toEqual([
+      expect.objectContaining({ type: 'IMAGE', imageHash: `image:${imageUrl}`, scaleMode: 'FILL' })
+    ])
+    expect(updated).toMatchObject({
+      rootNodeId: root.id,
+      nodeIdsByKey: { photo: photo.id },
+      createdNodeIds: [],
+      updatedNodeIds: [photo.id],
+      removedNodeIds: [],
+      verification: {
+        status: 'passed',
+        nodesChecked: 1,
+        referencesChecked: 0,
+        nativeFieldsChecked: 1,
+        warnings: []
+      }
+    })
+    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('rejects a markup-less native key outside the update scope', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[120px] h-[80px]"></div>'
+    })
+
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        native: { missing: { figma: { locked: true } } }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      message: expect.stringContaining('does not exist inside the update scope')
+    })
+    expect(fixture.getNode(created.rootNodeId!).locked).toBe(false)
+  })
+
   it('rejects unsupported and read-only editors before accepting a desired result', async () => {
     const fixture = createFixture()
     const input = {
@@ -2219,7 +2328,7 @@ describe('mcp/tools/canvas', () => {
       referencesChecked: 5
     })
 
-    const root = fixture.getNode(result.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(result.rootNodeId!) as unknown as FrameNode
     expect(root.children).toHaveLength(5)
     expect(root.x).toBe(340)
     expect(root.y).toBe(300)
@@ -2267,35 +2376,35 @@ describe('mcp/tools/canvas', () => {
 
     await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: markup('font-serif')
     })
     expect(title.fontName).toEqual({ family: 'Noto Serif', style: 'SemiBold' })
 
     await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: markup('font-extrabold')
     })
     expect(title.fontName).toEqual({ family: 'Noto Serif', style: 'ExtraBold' })
 
     await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: markup('font-sans')
     })
     expect(title.fontName).toEqual({ family: 'Inter', style: 'Extra Bold' })
 
     await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: markup('font-extralight')
     })
     expect(title.fontName).toEqual({ family: 'Inter', style: 'Extra Light' })
 
     await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: markup('font-mono')
     })
     expect(title.fontName).toEqual({ family: 'Noto Sans Mono', style: 'ExtraLight' })
@@ -2329,7 +2438,7 @@ describe('mcp/tools/canvas', () => {
       mode: 'create',
       markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>'
     })
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const child = fixture.createNode('FRAME') as unknown as FrameNode
     root.appendChild(child)
     const copy = fixture.createNode('TEXT') as unknown as TextNode
@@ -2355,7 +2464,7 @@ describe('mcp/tools/canvas', () => {
 
     const updated = await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `<div data-key="root" class="w-[320px] h-[200px]"><div data-key="art" data-node-id="${child.id}" class="absolute left-[24px] top-[20px] w-[150px] h-[150px]"></div><span data-key="copy" data-node-id="${copy.id}" class="absolute left-[24px] top-[178px] w-[150px] h-fit">Caption</span></div>`
     })
 
@@ -2376,9 +2485,9 @@ describe('mcp/tools/canvas', () => {
     const firstResult = await create('first')
     const secondResult = await create('second')
     const thirdResult = await create('third')
-    const first = fixture.getNode(firstResult.rootNodeId)
-    const second = fixture.getNode(secondResult.rootNodeId)
-    const third = fixture.getNode(thirdResult.rootNodeId)
+    const first = fixture.getNode(firstResult.rootNodeId!)
+    const second = fixture.getNode(secondResult.rootNodeId!)
+    const third = fixture.getNode(thirdResult.rootNodeId!)
 
     expect(first).toMatchObject({ x: 450, y: 350 })
     expect(second).toMatchObject({ x: 630, y: 350 })
@@ -2398,7 +2507,7 @@ describe('mcp/tools/canvas', () => {
         }
       }
     })
-    expect(fixture.getNode(transformedResult.rootNodeId).relativeTransform).toEqual([
+    expect(fixture.getNode(transformedResult.rootNodeId!).relativeTransform).toEqual([
       [1, 0.25, 990],
       [0, 1, 350]
     ])
@@ -2422,8 +2531,8 @@ describe('mcp/tools/canvas', () => {
       markup: '<div data-key="second" class="w-[100px] h-[100px]"></div>'
     })
 
-    expect(fixture.getNode(first.rootNodeId)).toMatchObject({ x: 0, y: 0 })
-    expect(fixture.getNode(second.rootNodeId)).toMatchObject({ x: 180, y: 0 })
+    expect(fixture.getNode(first.rootNodeId!)).toMatchObject({ x: 0, y: 0 })
+    expect(fixture.getNode(second.rootNodeId!)).toMatchObject({ x: 180, y: 0 })
   })
 
   it('stabilizes nested fill geometry after height-auto-resizing text reflows', async () => {
@@ -2455,7 +2564,7 @@ describe('mcp/tools/canvas', () => {
     const updated = await applyCanvas({
       ...input,
       mode: 'update',
-      targetNodeId: created.rootNodeId
+      targetNodeId: created.rootNodeId!
     })
     expect(updated.mutationCount).toBe(0)
   })
@@ -2480,7 +2589,7 @@ describe('mcp/tools/canvas', () => {
     const updated = await applyCanvas({
       ...input,
       mode: 'update',
-      targetNodeId: created.rootNodeId
+      targetNodeId: created.rootNodeId!
     })
     expect(child.height).toBe(120)
     expect(updated.updatedNodeIds).toContain(child.id)
@@ -2515,7 +2624,7 @@ describe('mcp/tools/canvas', () => {
       bindings: { root: { figma: { stroke: { align: 'INSIDE' } } } }
     }
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     root.strokeLeftWeight = 2
     root.strokeRightWeight = 2
     const child = fixture.getNode(created.nodeIdsByKey.child!) as unknown as FrameNode
@@ -2528,7 +2637,7 @@ describe('mcp/tools/canvas', () => {
     })
 
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ updatedNodeIds: expect.arrayContaining([child.id]) })
     expect(child.width).toBe(0.01)
   })
@@ -2599,7 +2708,7 @@ describe('mcp/tools/canvas', () => {
     const updated = await applyCanvas({
       ...input,
       mode: 'update',
-      targetNodeId: created.rootNodeId
+      targetNodeId: created.rootNodeId!
     })
 
     expect(child.height).toBe(125)
@@ -2625,7 +2734,7 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
@@ -2653,7 +2762,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: `
           <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
             <div data-key="child" class="w-full h-[80px]"></div>
@@ -2694,7 +2803,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     const offset = fixture.getNode(created.nodeIdsByKey.offset!)
     const transformed = fixture.getNode(created.nodeIdsByKey.transformed!)
 
@@ -2708,7 +2817,7 @@ describe('mcp/tools/canvas', () => {
     const update = {
       ...input,
       mode: 'update' as const,
-      targetNodeId: created.rootNodeId
+      targetNodeId: created.rootNodeId!
     }
     await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 1 })
     expect(root.relativeTransform).toEqual(rootTransform)
@@ -2732,7 +2841,7 @@ describe('mcp/tools/canvas', () => {
     expect(created.verification.status).toBe('passed')
     expect(badge).toMatchObject({ layoutPositioning: 'ABSOLUTE', x: 322, y: 192 })
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0, verification: { status: 'passed' } })
   })
 
@@ -2771,7 +2880,7 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
@@ -2782,7 +2891,7 @@ describe('mcp/tools/canvas', () => {
     const update: CanvasResolvedApplyParameters = {
       ...input,
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       bindings: {
         child: { figma: { relativeTransform: updatedTransform } },
         overlay: { figma: { relativeTransform: updatedTransform } }
@@ -2841,7 +2950,7 @@ describe('mcp/tools/canvas', () => {
     const created = await applyCanvas(input)
     expect(created.createdNodeIds).toHaveLength(4)
 
-    const review = fixture.getNode(created.rootNodeId) as unknown as SectionNode
+    const review = fixture.getNode(created.rootNodeId!) as unknown as SectionNode
     const screen = fixture.getNode(created.nodeIdsByKey.screen!)
     const variants = fixture.getNode(created.nodeIdsByKey.variants!) as unknown as SectionNode
     const variant = fixture.getNode(created.nodeIdsByKey.variant!)
@@ -2878,7 +2987,7 @@ describe('mcp/tools/canvas', () => {
     const update = {
       ...input,
       mode: 'update' as const,
-      targetNodeId: created.rootNodeId
+      targetNodeId: created.rootNodeId!
     }
     await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
 
@@ -2939,7 +3048,7 @@ describe('mcp/tools/canvas', () => {
     expect(figma.subtract).toHaveBeenCalledTimes(1)
     expect(figma.group).toHaveBeenCalledTimes(1)
 
-    const icon = fixture.getNode(created.rootNodeId) as unknown as GroupNode
+    const icon = fixture.getNode(created.rootNodeId!) as unknown as GroupNode
     const cutout = fixture.getNode(created.nodeIdsByKey.cutout!) as unknown as BooleanOperationNode
     const base = fixture.getNode(created.nodeIdsByKey.base!)
     const hole = fixture.getNode(created.nodeIdsByKey.hole!)
@@ -2978,7 +3087,7 @@ describe('mcp/tools/canvas', () => {
     const update = {
       ...input,
       mode: 'update' as const,
-      targetNodeId: created.rootNodeId
+      targetNodeId: created.rootNodeId!
     }
     await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
 
@@ -3002,7 +3111,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: '<div data-key="icon" class="w-fit h-fit opacity-[0.8] mix-blend-multiply"></div>',
         bindings: {
           icon: { figma: { group: true } }
@@ -3014,7 +3123,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: `
           <div data-key="icon" class="w-fit h-fit">
             <div data-key="cutout" class="absolute left-[0px] top-[0px] w-fit h-fit"></div>
@@ -3036,7 +3145,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup:
           '<div data-key="icon" class="w-fit h-fit"><div data-key="cutout" class="absolute left-[0px] top-[0px] w-fit h-fit"></div></div>',
         bindings: {
@@ -3100,7 +3209,7 @@ describe('mcp/tools/canvas', () => {
     expect(figma.createComponent).toHaveBeenCalledTimes(2)
     expect(figma.combineAsVariants).toHaveBeenCalledTimes(1)
 
-    const variants = fixture.getNode(created.rootNodeId) as unknown as ComponentSetNode
+    const variants = fixture.getNode(created.rootNodeId!) as unknown as ComponentSetNode
     const defaultVariant = fixture.getNode(
       created.nodeIdsByKey.default!
     ) as unknown as ComponentNode
@@ -3139,7 +3248,7 @@ describe('mcp/tools/canvas', () => {
     const update = {
       ...input,
       mode: 'update' as const,
-      targetNodeId: created.rootNodeId
+      targetNodeId: created.rootNodeId!
     }
     await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
     await expect(
@@ -3180,7 +3289,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup:
           '<div data-key="button-set" class="flex flex-row gap-[24px] p-[24px] w-[480px] h-[160px]"></div>',
         bindings: {
@@ -3238,7 +3347,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const set = fixture.getNode(created.rootNodeId) as unknown as ComponentSetNode
+    const set = fixture.getNode(created.rootNodeId!) as unknown as ComponentSetNode
     const hover = fixture.getNode(created.nodeIdsByKey.hover!)
 
     expect(set).toMatchObject({
@@ -3258,7 +3367,7 @@ describe('mcp/tools/canvas', () => {
     })
 
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
 
@@ -3337,7 +3446,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const card = fixture.getNode(created.rootNodeId) as unknown as ComponentNode
+    const card = fixture.getNode(created.rootNodeId!) as unknown as ComponentNode
     const title = fixture.getNode(created.nodeIdsByKey.title!) as unknown as TextNode
     const icon = fixture.getNode(created.nodeIdsByKey.icon!) as unknown as InstanceNode
     const content = fixture.getNode(created.nodeIdsByKey.content!) as unknown as SlotNode
@@ -3392,7 +3501,7 @@ describe('mcp/tools/canvas', () => {
     const update = {
       ...input,
       mode: 'update' as const,
-      targetNodeId: created.rootNodeId
+      targetNodeId: created.rootNodeId!
     }
     await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
     await expect(
@@ -3617,12 +3726,12 @@ describe('mcp/tools/canvas', () => {
 
     const replaced = await applyCanvasFromTool({
       mode: 'update',
-      targetNodeId: draft.rootNodeId,
+      targetNodeId: draft.rootNodeId!,
       markup:
         '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/action" class="w-[160px] h-[48px]"></div></div>',
       native: {
         'screen/action': {
-          component: { id: authored.rootNodeId },
+          component: { id: authored.rootNodeId! },
           componentProperties: { label: 'Save' }
         }
       },
@@ -3631,13 +3740,13 @@ describe('mcp/tools/canvas', () => {
 
     const action = fixture.getNode(replaced.nodeIdsByKey['screen/action']!) as InstanceNode
     const mainComponent = await action.getMainComponentAsync()
-    expect(mainComponent?.id).toBe(authored.rootNodeId)
+    expect(mainComponent?.id).toBe(authored.rootNodeId!)
     expect(action.getSharedPluginData('tempad_dev', 'canvas-key')).toBe('screen/action')
     expect(Object.values(action.componentProperties)).toContainEqual({
       type: 'TEXT',
       value: 'Save'
     })
-    expect((fixture.getNode(draft.rootNodeId) as FrameNode).children).toEqual([action])
+    expect((fixture.getNode(draft.rootNodeId!) as FrameNode).children).toEqual([action])
   })
 
   it('rejects same-key primitive-to-instance replacement before mutation', async () => {
@@ -3654,19 +3763,19 @@ describe('mcp/tools/canvas', () => {
         button: { figma: { component: { type: 'COMPONENT' } } }
       }
     })
-    const root = fixture.getNode(screen.rootNodeId) as FrameNode
-    const component = fixture.getNode(authored.rootNodeId)
+    const root = fixture.getNode(screen.rootNodeId!) as FrameNode
+    const component = fixture.getNode(authored.rootNodeId!)
     fixture.commitUndo.mockClear()
     fixture.triggerUndo.mockClear()
 
     await expect(
       applyCanvasFromTool({
         mode: 'update',
-        targetNodeId: screen.rootNodeId,
+        targetNodeId: screen.rootNodeId!,
         markup:
           '<div data-key="screen" class="flex flex-col w-[321px] h-[200px]"><div data-key="screen/action" class="w-[160px] h-[48px]"></div></div>',
         native: {
-          'screen/action': { component: { id: authored.rootNodeId } }
+          'screen/action': { component: { id: authored.rootNodeId! } }
         }
       })
     ).rejects.toMatchObject({
@@ -3706,7 +3815,7 @@ describe('mcp/tools/canvas', () => {
         targetNodeId: draftNodeId,
         markup: '<div data-key="screen/action" class="w-[160px] h-[48px]"></div>',
         native: {
-          'screen/action': { component: { id: authored.rootNodeId } }
+          'screen/action': { component: { id: authored.rootNodeId! } }
         }
       })
     ).rejects.toMatchObject({
@@ -3741,8 +3850,8 @@ describe('mcp/tools/canvas', () => {
       markup:
         '<div data-key="screen" class="flex flex-col w-[320px] h-[200px] gap-[8px]"><div data-key="screen/track-1" class="w-[280px] h-[56px]"></div><div data-key="screen/track-2" class="w-[280px] h-[56px]"></div></div>',
       native: {
-        'screen/track-1': { component: { id: authored.rootNodeId } },
-        'screen/track-2': { component: { id: authored.rootNodeId } }
+        'screen/track-1': { component: { id: authored.rootNodeId! } },
+        'screen/track-2': { component: { id: authored.rootNodeId! } }
       }
     })
 
@@ -3769,7 +3878,7 @@ describe('mcp/tools/canvas', () => {
       markup:
         '<div data-key="screen" class="w-[200px] h-[80px]"><div data-key="screen/actions" class="absolute left-[0px] top-[0px] overflow-hidden w-[160px] h-[28px]"><div data-key="screen/send" class="absolute left-[12px] top-[-6px] w-[136px] h-[40px]"></div></div></div>',
       native: {
-        'screen/send': { component: { id: authored.rootNodeId } }
+        'screen/send': { component: { id: authored.rootNodeId! } }
       }
     })
 
@@ -3785,6 +3894,174 @@ describe('mcp/tools/canvas', () => {
         }
       ]
     })
+  })
+
+  it('warns when Text layout bounds and in-flow content exceed an auto-layout parent', async () => {
+    const fixture = createFixture()
+    const markup =
+      '<div data-key="screen" class="flex flex-col w-[100px] h-[80px]"><span data-key="screen/title" class="w-[80px] h-[20px]">Title</span><div data-key="screen/row" class="w-[80px] h-[40px]"></div></div>'
+    const created = await applyCanvasFromTool({ mode: 'create', markup })
+    const screen = fixture.getNode(created.rootNodeId!)
+    const title = fixture.getNode(created.nodeIdsByKey['screen/title']!)
+    const row = fixture.getNode(created.nodeIdsByKey['screen/row']!)
+    Object.defineProperties(screen, {
+      absoluteBoundingBox: { value: { x: 0, y: 0, width: 100, height: 80 } }
+    })
+    Object.defineProperties(title, {
+      absoluteBoundingBox: { value: { x: 30, y: 0, width: 80, height: 20 } },
+      absoluteRenderBounds: { value: null }
+    })
+    Object.defineProperties(row, {
+      absoluteBoundingBox: { value: { x: 0, y: 60, width: 80, height: 40 } }
+    })
+
+    const verified = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      markup
+    })
+
+    expect(verified.verification).toMatchObject({
+      status: 'warning',
+      warnings: expect.arrayContaining([
+        {
+          code: 'managed-content-overflow',
+          key: 'screen/title',
+          message: expect.stringMatching(/right 10px/)
+        },
+        {
+          code: 'managed-content-overflow',
+          key: 'screen/row',
+          message: expect.stringMatching(/bottom 20px/)
+        }
+      ])
+    })
+  })
+
+  it('warns when a fixed start-aligned auto-layout leaves unmodeled trailing space', async () => {
+    const fixture = createFixture()
+    const looseMarkup =
+      '<div data-key="card" class="flex flex-col w-[200px] h-[72px] p-[12px] border border-[#000000]"><div data-key="card/content" class="w-[20px] h-[20px]"></div></div>'
+    const loose = await applyCanvasFromTool({
+      mode: 'create',
+      markup: looseMarkup
+    })
+    const looseRoot = fixture.getNode(loose.rootNodeId!) as FrameNode
+    looseRoot.strokesIncludedInLayout = true
+    looseRoot.strokeAlign = 'INSIDE'
+    looseRoot.strokeBottomWeight = 1
+    Object.defineProperties(looseRoot, {
+      absoluteBoundingBox: { value: { x: 0, y: 0, width: 200, height: 72 } }
+    })
+    Object.defineProperties(fixture.getNode(loose.nodeIdsByKey['card/content']!), {
+      absoluteBoundingBox: { value: { x: 13, y: 13, width: 20, height: 20 } }
+    })
+    const looseVerified = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: loose.rootNodeId!,
+      markup: looseMarkup
+    })
+
+    expect(looseVerified.verification).toMatchObject({
+      status: 'warning',
+      warnings: expect.arrayContaining([
+        {
+          code: 'managed-auto-layout-inset-mismatch',
+          key: 'card',
+          message: expect.stringMatching(
+            /39px bottom inset.*13px.*26px of unmodeled trailing space/
+          )
+        }
+      ])
+    })
+
+    const balancedMarkup =
+      '<div data-key="balanced" class="flex flex-col w-[200px] h-[46px] p-[12px] border border-[#000000]"><div data-key="balanced/content" class="w-[20px] h-[20px]"></div></div>'
+    const balanced = await applyCanvasFromTool({
+      mode: 'create',
+      markup: balancedMarkup
+    })
+    const balancedRoot = fixture.getNode(balanced.rootNodeId!) as FrameNode
+    balancedRoot.strokesIncludedInLayout = true
+    balancedRoot.strokeAlign = 'INSIDE'
+    balancedRoot.strokeBottomWeight = 1
+    Object.defineProperties(balancedRoot, {
+      absoluteBoundingBox: { value: { x: 0, y: 0, width: 200, height: 46 } }
+    })
+    Object.defineProperties(fixture.getNode(balanced.nodeIdsByKey['balanced/content']!), {
+      absoluteBoundingBox: { value: { x: 13, y: 13, width: 20, height: 20 } }
+    })
+    const balancedVerified = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: balanced.rootNodeId!,
+      markup: balancedMarkup
+    })
+    expect(balancedVerified.verification.warnings).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'managed-auto-layout-inset-mismatch' })
+      ])
+    )
+
+    const owned = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="owned" class="flex flex-col w-[200px] h-[100px] p-[12px] gap-[8px]"><div data-key="owned/content" class="w-[20px] h-[20px]"></div><div data-key="owned/spacer" class="grow w-[20px] h-fit"></div></div>'
+    })
+    expect(owned.verification.warnings).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'managed-auto-layout-inset-mismatch' })
+      ])
+    )
+
+    const fillMarkup =
+      '<div data-key="fill-root" class="flex flex-col w-[300px] h-[64px] p-[12px]"><div data-key="fill-row" class="flex flex-row w-full h-[40px] px-[12px]"><div data-key="fill-row/content" class="w-[20px] h-[20px]"></div></div></div>'
+    const fill = await applyCanvasFromTool({ mode: 'create', markup: fillMarkup })
+    Object.defineProperties(fixture.getNode(fill.rootNodeId!), {
+      absoluteBoundingBox: { value: { x: 0, y: 0, width: 300, height: 64 } }
+    })
+    Object.defineProperties(fixture.getNode(fill.nodeIdsByKey['fill-row']!), {
+      absoluteBoundingBox: { value: { x: 12, y: 12, width: 276, height: 40 } }
+    })
+    Object.defineProperties(fixture.getNode(fill.nodeIdsByKey['fill-row/content']!), {
+      absoluteBoundingBox: { value: { x: 24, y: 22, width: 20, height: 20 } }
+    })
+    const fillVerified = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: fill.rootNodeId!,
+      markup: fillMarkup
+    })
+    expect(fillVerified.verification.warnings).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'managed-auto-layout-inset-mismatch' })
+      ])
+    )
+
+    const horizontalMarkup =
+      '<div data-key="button" class="flex flex-row items-center w-[70px] h-[44px] p-[12px]"><div data-key="button/icon" class="size-[20px]"></div></div>'
+    const horizontal = await applyCanvasFromTool({
+      mode: 'create',
+      markup: horizontalMarkup
+    })
+    Object.defineProperties(fixture.getNode(horizontal.rootNodeId!), {
+      absoluteBoundingBox: { value: { x: 0, y: 0, width: 70, height: 44 } }
+    })
+    Object.defineProperties(fixture.getNode(horizontal.nodeIdsByKey['button/icon']!), {
+      absoluteBoundingBox: { value: { x: 12, y: 12, width: 20, height: 20 } }
+    })
+    const horizontalVerified = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: horizontal.rootNodeId!,
+      markup: horizontalMarkup
+    })
+    expect(horizontalVerified.verification.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'managed-auto-layout-inset-mismatch',
+          key: 'button',
+          message: expect.stringMatching(/38px right inset.*12px.*26px of unmodeled trailing space/)
+        })
+      ])
+    )
   })
 
   it('warns when authored instance content exceeds the native instance root', async () => {
@@ -3803,7 +4080,7 @@ describe('mcp/tools/canvas', () => {
       markup:
         '<div data-key="screen" class="w-[240px] h-[120px]"><div data-key="screen/heading" class="absolute left-[20px] top-[20px] w-[160px] h-[40px]"></div></div>',
       native: {
-        'screen/heading': { component: { id: authored.rootNodeId } }
+        'screen/heading': { component: { id: authored.rootNodeId! } }
       }
     })
 
@@ -3816,11 +4093,11 @@ describe('mcp/tools/canvas', () => {
 
     const verified = await applyCanvasFromTool({
       mode: 'update',
-      targetNodeId: screen.rootNodeId,
+      targetNodeId: screen.rootNodeId!,
       markup:
         '<div data-key="screen" class="w-[240px] h-[120px]"><div data-key="screen/heading" class="absolute left-[20px] top-[20px] w-[160px] h-[40px]"></div></div>',
       native: {
-        'screen/heading': { component: { id: authored.rootNodeId } }
+        'screen/heading': { component: { id: authored.rootNodeId! } }
       }
     })
 
@@ -3850,13 +4127,13 @@ describe('mcp/tools/canvas', () => {
       markup:
         '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/track" class="w-[280px] h-[56px]"></div></div>',
       native: {
-        'screen/track': { component: { id: authored.rootNodeId } }
+        'screen/track': { component: { id: authored.rootNodeId! } }
       }
     })
 
     const update = {
       mode: 'update' as const,
-      targetNodeId: screen.rootNodeId,
+      targetNodeId: screen.rootNodeId!,
       markup:
         '<div data-key="screen" class="flex flex-col w-[340px] h-[200px]"><div data-key="screen/track" class="w-[300px] h-[56px]"></div></div>'
     }
@@ -3891,7 +4168,7 @@ describe('mcp/tools/canvas', () => {
     })
     const variant = fixture.getNode(authored.nodeIdsByKey.default!) as ComponentNode
     const active = fixture.getNode(authored.nodeIdsByKey.active!) as ComponentNode
-    const componentSet = fixture.getNode(authored.rootNodeId) as unknown as ComponentSetNode
+    const componentSet = fixture.getNode(authored.rootNodeId!) as unknown as ComponentSetNode
     Object.assign(componentSet.componentPropertyDefinitions, {
       State: {
         type: 'VARIANT',
@@ -3912,9 +4189,9 @@ describe('mcp/tools/canvas', () => {
         '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/direct" class="w-[120px] h-[40px]"></div><div data-key="screen/default" class="w-[120px] h-[40px]"></div><div data-key="screen/active" class="w-[120px] h-[40px]"></div></div>',
       native: {
         'screen/direct': { component: { id: variant.id } },
-        'screen/default': { component: { id: authored.rootNodeId } },
+        'screen/default': { component: { id: authored.rootNodeId! } },
         'screen/active': {
-          component: { id: authored.rootNodeId },
+          component: { id: authored.rootNodeId! },
           componentProperties: { State: 'Active' }
         }
       }
@@ -3943,7 +4220,7 @@ describe('mcp/tools/canvas', () => {
       markup:
         '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="track" class="w-[280px] h-[56px]"></div></div>',
       native: {
-        track: { component: { id: authored.rootNodeId } }
+        track: { component: { id: authored.rootNodeId! } }
       }
     })
 
@@ -3962,7 +4239,7 @@ describe('mcp/tools/canvas', () => {
       }
     })
     vi.mocked(figma.getNodeById).mockImplementation((id: string) =>
-      id === authored.rootNodeId ? null : (fixture.nodes.get(id) ?? null)
+      id === authored.rootNodeId! ? null : (fixture.nodes.get(id) ?? null)
     )
 
     const screen = await applyCanvasFromTool({
@@ -3970,7 +4247,7 @@ describe('mcp/tools/canvas', () => {
       markup:
         '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/action" class="w-[160px] h-[48px]"></div></div>',
       native: {
-        'screen/action': { component: { id: authored.rootNodeId } }
+        'screen/action': { component: { id: authored.rootNodeId! } }
       }
     })
 
@@ -3993,7 +4270,7 @@ describe('mcp/tools/canvas', () => {
       markup:
         '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/action" class="w-[160px] h-[48px]"></div></div>',
       native: {
-        'screen/action': { component: { id: authored.rootNodeId } }
+        'screen/action': { component: { id: authored.rootNodeId! } }
       }
     })
 
@@ -4007,16 +4284,16 @@ describe('mcp/tools/canvas', () => {
       mode: 'create',
       markup: '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"></div>'
     })
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const adopted = fixture.createNode('FRAME')
     root.appendChild(adopted)
     vi.mocked(figma.getNodeById).mockImplementation((id: string) =>
-      id === created.rootNodeId || id === adopted.id ? null : (fixture.nodes.get(id) ?? null)
+      id === created.rootNodeId! || id === adopted.id ? null : (fixture.nodes.get(id) ?? null)
     )
 
     const updated = await applyCanvasFromTool({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/adopted" data-node-id="${adopted.id}" class="w-[100px] h-[100px]"></div></div>`
     })
 
@@ -4033,7 +4310,7 @@ describe('mcp/tools/canvas', () => {
 
     const updated = await applyCanvasFromTool({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup:
         '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/child" class="w-[100px] h-[80px]"></div></div>'
     })
@@ -4051,7 +4328,7 @@ describe('mcp/tools/canvas', () => {
 
     const updated = await applyCanvasFromTool({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup:
         '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/overlay" class="w-[120px] h-[80px]"></div></div>'
     })
@@ -4189,7 +4466,7 @@ describe('mcp/tools/canvas', () => {
       mode: 'create',
       markup: '<div data-key="root" class="w-[400px] h-[240px]"></div>'
     })
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     const otherPage = createMockPage('0:2', 'Page 2')
     otherPage.appendChild(root)
 
@@ -4255,7 +4532,7 @@ describe('mcp/tools/canvas', () => {
     expect(action.componentProperties.State?.value).toBe('Hover')
     expect(action.setProperties).toHaveBeenCalledTimes(1)
 
-    const update = { ...input, mode: 'update' as const, targetNodeId: created.rootNodeId }
+    const update = { ...input, mode: 'update' as const, targetNodeId: created.rootNodeId! }
     expect((await applyCanvas(update)).mutationCount).toBe(0)
     expect(action.setProperties).toHaveBeenCalledTimes(1)
 
@@ -4368,7 +4645,7 @@ describe('mcp/tools/canvas', () => {
 
     const preserving: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup,
       bindings: {
         action: { component: { id: replacement.id } }
@@ -4414,7 +4691,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const result = await applyCanvas(input)
-    expect(result.rootNodeId).toBe(primary.id)
+    expect(result.rootNodeId!).toBe(primary.id)
     expect(primary.isExposedInstance).toBe(true)
     expect((await applyCanvas(input)).mutationCount).toBe(0)
 
@@ -4528,7 +4805,7 @@ describe('mcp/tools/canvas', () => {
 
     const created = await applyCanvas(input)
     expect(created.createdNodeIds).toHaveLength(6)
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     expect(root.children.map((node) => node.type)).toEqual([
       'RECTANGLE',
       'LINE',
@@ -4575,13 +4852,13 @@ describe('mcp/tools/canvas', () => {
     expect(star).toMatchObject({ pointCount: 7, innerRadius: 0.6 })
 
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     const updated: CanvasResolvedApplyParameters = {
       ...input,
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       bindings: {
         ...input.bindings,
         ellipse: {
@@ -4679,12 +4956,12 @@ describe('mcp/tools/canvas', () => {
       ]
     })
     await expect(
-      applyCanvas({ ...paths, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...paths, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     const preserving: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup,
       bindings: {
         icon: {
@@ -4699,7 +4976,7 @@ describe('mcp/tools/canvas', () => {
     const repaired = await applyCanvas({
       ...paths,
       mode: 'update',
-      targetNodeId: created.rootNodeId
+      targetNodeId: created.rootNodeId!
     })
     expect(repaired.mutationCount).toBeGreaterThan(0)
     expect(icon.vectorPaths[0]?.data).toBe('M 0 0 C 2 2 4 2 6 0 Z')
@@ -4873,7 +5150,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     expect(root).toMatchObject({
       strokeTopWeight: 1,
       strokeRightWeight: 2,
@@ -4891,12 +5168,12 @@ describe('mcp/tools/canvas', () => {
       cornerSmoothing: 0.75
     })
 
-    const unchanged = { ...input, mode: 'update' as const, targetNodeId: created.rootNodeId }
+    const unchanged = { ...input, mode: 'update' as const, targetNodeId: created.rootNodeId! }
     await expect(applyCanvas(unchanged)).resolves.toMatchObject({ mutationCount: 0 })
 
     const updated: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `
         <div
           data-key="root"
@@ -4972,7 +5249,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     const shape = fixture.getNode(created.nodeIdsByKey.shape ?? '')
     expect(root.boundVariables).toMatchObject({
       strokeWeight: { id: 'variable:spacing' },
@@ -4989,7 +5266,7 @@ describe('mcp/tools/canvas', () => {
 
     const preserving: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `
         <div data-key="root" class="flex flex-col w-[320px] h-[200px] border-[9px] border-[#112233] rounded-[20px]">
           <div data-key="shape" class="w-[80px] h-[48px] border-[9px] border-[#445566] rounded-[20px]"></div>
@@ -5043,7 +5320,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const title = fixture.getNode(created.nodeIdsByKey.title ?? '') as unknown as TextNode
 
     expect(root.fillStyleId).toBe('style:fill')
@@ -5069,14 +5346,14 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: `
           <div data-key="root" class="flex flex-col w-[320px] h-[200px] bg-[#FFFFFF] border-[2px] border-[#000000]">
             <span data-key="title" class="w-full h-fit font-normal text-[12px] leading-[16px] text-[#000000]">Title</span>
@@ -5093,19 +5370,19 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: '<div data-key="root" class="flex flex-col w-[320px] h-[200px] border-[3px]"></div>'
       })
     ).resolves.toMatchObject({
       mutationCount: 1,
-      updatedNodeIds: [created.rootNodeId]
+      updatedNodeIds: [created.rootNodeId!]
     })
     expect(root.strokeWeight).toBe(3)
     expect(root.strokeStyleId).toBe('style:stroke')
 
     const detached: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `
         <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
           <span data-key="title" class="w-full h-fit">Title</span>
@@ -5152,7 +5429,7 @@ describe('mcp/tools/canvas', () => {
 
     const unlinked: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `
         <div data-key="root" class="flex flex-col w-[320px] h-[200px] bg-[#FFFFFF] border-[2px] border-[#000000]">
           <span data-key="title" class="w-full h-fit font-normal text-[12px] leading-[16px] normal-case no-underline text-[#000000]">Title</span>
@@ -5257,7 +5534,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const component = fixture.getNode(
       created.nodeIdsByKey.component ?? ''
     ) as unknown as InstanceNode
@@ -5292,12 +5569,12 @@ describe('mcp/tools/canvas', () => {
     expect(created.verification.nativeFieldsChecked).toBe(4)
 
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     const changed = structuredClone(input)
     changed.mode = 'update'
-    changed.targetNodeId = created.rootNodeId
+    changed.targetNodeId = created.rootNodeId!
     changed.bindings!.root!.figma!.autoLayout!.itemSpacing = -20
     await applyCanvas(changed)
     expect(root).toMatchObject({ itemSpacing: -20, counterAxisSpacing: -20 })
@@ -5305,7 +5582,7 @@ describe('mcp/tools/canvas', () => {
 
     const cleared: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: '<div data-key="root" class="flex flex-row flex-wrap w-[320px] h-[200px]"></div>',
       bindings: { root: { figma: { layoutGrids: [], guides: [] } } }
     }
@@ -5364,7 +5641,7 @@ describe('mcp/tools/canvas', () => {
     const created = await applyCanvas(input)
 
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
 
@@ -5376,12 +5653,12 @@ describe('mcp/tools/canvas', () => {
       bindings: { root: { styles: { grid: { id: 'style:grid' } } } }
     }
     const created = await applyCanvas(styled)
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     expect(root.gridStyleId).toBe('style:grid')
 
     const direct: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: styled.markup,
       bindings: {
         root: {
@@ -5538,7 +5815,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     expect(root.fills).not.toBe(MIXED)
     const fills = root.fills as readonly Paint[]
     expect(fills.map((paint) => paint.type)).toEqual([
@@ -5570,7 +5847,7 @@ describe('mcp/tools/canvas', () => {
     expect(fixture.importShaderById).toHaveBeenCalledWith('shader:fill')
 
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
 
@@ -5640,7 +5917,7 @@ describe('mcp/tools/canvas', () => {
       }
     })
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
 
@@ -5661,7 +5938,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     const fills = root.fills as readonly Paint[]
     expect(fixture.createImageAsync).toHaveBeenCalledOnce()
     expect(fixture.createImageAsync).toHaveBeenCalledWith(imageUrl)
@@ -5684,7 +5961,7 @@ describe('mcp/tools/canvas', () => {
     expect(created.verification.nativeFieldsChecked).toBe(2)
 
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
     expect(fixture.createImageAsync).toHaveBeenCalledTimes(2)
   })
@@ -5758,16 +6035,16 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
 
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     preserveRotation = false
     root.fills = root.fills as readonly Paint[]
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: 'Verification failed for "root": direct fills do not match.'
@@ -5826,7 +6103,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const wrapper = fixture.getNode(created.rootNodeId)
+    const wrapper = fixture.getNode(created.rootNodeId!)
     const child = wrapper.children[0] as MutableNode
 
     expect(fixture.createNodeFromSvg).toHaveBeenCalledWith(
@@ -5844,7 +6121,7 @@ describe('mcp/tools/canvas', () => {
       targetNodeId: wrapper.id
     })
 
-    expect(retry.rootNodeId).toBe(wrapper.id)
+    expect(retry.rootNodeId!).toBe(wrapper.id)
     expect(retry.mutationCount).toBe(0)
     expect(fixture.createNodeFromSvg).toHaveBeenCalledTimes(1)
     expect(wrapper.children[0]?.id).toBe(child.id)
@@ -5863,7 +6140,7 @@ describe('mcp/tools/canvas', () => {
       }
     }
     const created = await applyCanvas(base)
-    const wrapper = fixture.getNode(created.rootNodeId)
+    const wrapper = fixture.getNode(created.rootNodeId!)
     const previous = wrapper.children[0] as MutableNode
 
     const updated = await applyCanvas({
@@ -5875,7 +6152,7 @@ describe('mcp/tools/canvas', () => {
       }
     })
 
-    expect(updated.rootNodeId).toBe(wrapper.id)
+    expect(updated.rootNodeId!).toBe(wrapper.id)
     expect(previous.removed).toBe(true)
     expect(wrapper.children).toHaveLength(1)
     expect(wrapper.children[0]?.id).not.toBe(previous.id)
@@ -5895,7 +6172,7 @@ describe('mcp/tools/canvas', () => {
       }
     }
     const created = await applyCanvas(input)
-    const wrapper = fixture.getNode(created.rootNodeId)
+    const wrapper = fixture.getNode(created.rootNodeId!)
     const missingChild = wrapper.children[0] as MutableNode
     missingChild.remove()
 
@@ -5931,7 +6208,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: '<div data-key="root" class="flex flex-row w-[320px] h-[200px]"></div>',
         removeKeys: ['icon']
       })
@@ -5973,7 +6250,7 @@ describe('mcp/tools/canvas', () => {
       }
     })
 
-    const root = fixture.getNode(result.rootNodeId)
+    const root = fixture.getNode(result.rootNodeId!)
     expect(downloader).toHaveBeenCalledWith(hash)
     expect(fixture.createImage).toHaveBeenCalledWith(bytes)
     expect(root.fills[0]).toMatchObject({
@@ -5986,7 +6263,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: result.rootNodeId,
+        targetNodeId: result.rootNodeId!,
         markup: '<div data-key="hero" class="w-[320px] h-[180px]"></div>',
         assets: {
           hero: { type: 'IMAGE', assetHash: hash }
@@ -6023,7 +6300,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock).toHaveBeenCalledWith(
       videoUrl,
@@ -6052,7 +6329,7 @@ describe('mcp/tools/canvas', () => {
     expect(root.strokes[0]).not.toHaveProperty('videoUrl')
 
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(fixture.createVideoAsync).toHaveBeenCalledTimes(2)
@@ -6073,13 +6350,13 @@ describe('mcp/tools/canvas', () => {
         }
       }
     })
-    const root = fixture.getNode(styled.rootNodeId)
+    const root = fixture.getNode(styled.rootNodeId!)
     expect(root.fillStyleId).toBe('style:fill')
     expect(root.strokeStyleId).toBe('style:stroke')
 
     const direct: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: styled.rootNodeId,
+      targetNodeId: styled.rootNodeId!,
       markup,
       bindings: {
         root: {
@@ -6098,7 +6375,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: styled.rootNodeId,
+        targetNodeId: styled.rootNodeId!,
         markup: preservingMarkup
       })
     ).resolves.toMatchObject({ mutationCount: 0 })
@@ -6246,7 +6523,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: `
           <div data-key="root" class="flex flex-row w-[320px] h-[200px]">
             <div data-key="surface" class="w-[100px] h-[100px]"></div>
@@ -6267,7 +6544,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: `
           <div data-key="root" class="flex flex-row w-[320px] h-[200px]">
             <div data-key="surface" class="w-[100px] h-[100px]"></div>
@@ -6508,7 +6785,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     expect(root.effects.map((effect) => effect.type)).toEqual([
       'DROP_SHADOW',
       'INNER_SHADOW',
@@ -6560,7 +6837,7 @@ describe('mcp/tools/canvas', () => {
     })
     expect(fixture.importShaderById).toHaveBeenCalledWith('shader:effect')
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
 
@@ -6573,7 +6850,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
 
     expect(created.verification.status).toBe('passed')
     expect(root.fills).toMatchObject([
@@ -6591,7 +6868,7 @@ describe('mcp/tools/canvas', () => {
       }
     ])
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0, verification: { status: 'passed' } })
   })
 
@@ -6621,7 +6898,7 @@ describe('mcp/tools/canvas', () => {
     })
 
     expect(created.verification.status).toBe('passed')
-    expect(fixture.getNode(created.rootNodeId).effects).toMatchObject([
+    expect(fixture.getNode(created.rootNodeId!).effects).toMatchObject([
       {
         type: 'DROP_SHADOW',
         color: {
@@ -6650,7 +6927,7 @@ describe('mcp/tools/canvas', () => {
     })
 
     expect(created.verification.status).toBe('passed')
-    expect(fixture.getNode(created.rootNodeId).effects).toMatchObject([
+    expect(fixture.getNode(created.rootNodeId!).effects).toMatchObject([
       {
         type: 'DROP_SHADOW',
         showShadowBehindNode: true
@@ -6724,12 +7001,12 @@ describe('mcp/tools/canvas', () => {
       bindings: { root: { styles: { effect: { id: 'style:effect' } } } }
     }
     const created = await applyCanvas(styled)
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     expect(root.effectStyleId).toBe('style:effect')
 
     const direct: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: styled.markup,
       bindings: {
         root: {
@@ -6762,7 +7039,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: styled.markup
       })
     ).resolves.toMatchObject({ mutationCount: 0 })
@@ -6965,12 +7242,12 @@ describe('mcp/tools/canvas', () => {
       hyperlink: { type: 'URL', value: 'https://example.com' }
     })
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     const updated: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `
         <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
           <span
@@ -7034,7 +7311,7 @@ describe('mcp/tools/canvas', () => {
       }
     }
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     const copy = fixture.getNode(created.nodeIdsByKey.copy ?? '') as unknown as TextNode
 
     expect(root.name).toBe('Settings panel')
@@ -7044,12 +7321,12 @@ describe('mcp/tools/canvas', () => {
       autoRename: true
     })
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     const fixed: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup:
         '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">Changed label</span></div>',
       bindings: {
@@ -7075,7 +7352,7 @@ describe('mcp/tools/canvas', () => {
 
     const derived: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup:
         '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">Derived again</span></div>',
       bindings: {
@@ -7094,7 +7371,7 @@ describe('mcp/tools/canvas', () => {
       autoRename: true
     })
     expect(derivedResult.nodeIdsByKey).toEqual({
-      root: created.rootNodeId,
+      root: created.rootNodeId!,
       copy: copy.id
     })
     await expect(applyCanvas(derived)).resolves.toMatchObject({ mutationCount: 0 })
@@ -7127,7 +7404,7 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         bindings: {
           copy: {
             figma: { text: { hyperlink: { type: 'NODE', value: 'missing:1' } } }
@@ -7189,7 +7466,7 @@ describe('mcp/tools/canvas', () => {
     expect(copy.getRangeFills(0, 4)).toMatchObject([{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }])
     expect(copy.getRangeHyperlink(0, 4)).toEqual({ type: 'NODE', value: targetId })
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
 
@@ -7219,7 +7496,7 @@ describe('mcp/tools/canvas', () => {
 
     await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup:
         '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">Link</span><div data-key="target" class="w-[80px] h-[40px]"></div></div>',
       bindings: {
@@ -7366,12 +7643,12 @@ describe('mcp/tools/canvas', () => {
     expect(copy.boundVariables?.fontSize).toMatchObject({ id: 'variable:spacing' })
     expect(copy.getRangeFillStyleId(6, 11)).toBe('style:fill')
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     const update: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: input.markup,
       bindings: {
         copy: {
@@ -7477,7 +7754,7 @@ describe('mcp/tools/canvas', () => {
       }
     }
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
 
     expect(root).toMatchObject({
       visible: false,
@@ -7490,13 +7767,13 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     const updated: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup:
         '<div data-key="root" class="w-[320px] h-[200px] visible mix-blend-pass-through rotate-[-90deg]"></div>',
       bindings: {
@@ -7546,7 +7823,7 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({ mutationCount: 0 })
     expect(media.lockAspectRatio).toHaveBeenCalledOnce()
@@ -7579,7 +7856,7 @@ describe('mcp/tools/canvas', () => {
     const update = (value?: 'ALPHA' | 'VECTOR' | 'LUMINANCE' | null) => ({
       ...input(value),
       mode: 'update' as const,
-      targetNodeId: created.rootNodeId
+      targetNodeId: created.rootNodeId!
     })
     expect(mask).toMatchObject({ type: 'ELLIPSE', isMask: true, maskType: 'VECTOR' })
 
@@ -7634,7 +7911,7 @@ describe('mcp/tools/canvas', () => {
       }
     }
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const unmanaged = fixture.createNode('RECTANGLE')
     root.insertChild(root.children.length, unmanaged)
 
@@ -7642,7 +7919,7 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
@@ -7662,7 +7939,7 @@ describe('mcp/tools/canvas', () => {
         mask: { figma: { mask: 'ALPHA' } }
       }
     })
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const mask = fixture.getNode(created.nodeIdsByKey.mask!)
     const unmanaged = fixture.createNode('RECTANGLE')
     root.appendChild(unmanaged)
@@ -7670,7 +7947,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup
       })
     ).rejects.toMatchObject({
@@ -7705,7 +7982,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const grid = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const grid = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const one = fixture.getNode(created.nodeIdsByKey.one ?? '')
     const two = fixture.getNode(created.nodeIdsByKey.two ?? '')
 
@@ -7744,14 +8021,14 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     const swapped: CanvasResolvedApplyParameters = {
       ...input,
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `
         <div
           data-key="grid"
@@ -7772,6 +8049,80 @@ describe('mcp/tools/canvas', () => {
     await expect(applyCanvas(swapped)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
+  it('restores grid child fill sizing after manual placement', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: `
+        <div data-key="grid" class="grid grid-cols-2 grid-rows-1 w-[480px] h-[240px]">
+          <div data-key="child" class="w-full h-full col-start-2 row-start-1"></div>
+        </div>
+      `
+    })
+
+    expect(fixture.getNode(created.nodeIdsByKey.child!)).toMatchObject({
+      gridRowAnchorIndex: 0,
+      gridColumnAnchorIndex: 1,
+      layoutSizingHorizontal: 'FILL',
+      layoutSizingVertical: 'FILL'
+    })
+  })
+
+  it('replaces removed grid children without colliding with their occupied cells', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: `
+        <div data-key="grid" class="grid grid-cols-3 w-[720px] h-[240px] gap-[16px]">
+          <div data-key="old-one" class="w-full h-full"></div>
+          <div data-key="old-two" class="w-full h-full"></div>
+          <div data-key="old-three" class="w-full h-full"></div>
+        </div>
+      `
+    })
+    const grid = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
+
+    const updated = await applyCanvas({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      markup: `
+        <div data-key="grid" class="grid grid-cols-3 w-[720px] h-[240px] gap-[16px]">
+          <div data-key="new-one" class="w-full h-full"></div>
+          <div data-key="new-two" class="w-full h-full"></div>
+          <div data-key="new-three" class="w-full h-full"></div>
+        </div>
+      `,
+      removeKeys: ['old-one', 'old-two', 'old-three']
+    })
+
+    expect(grid.gridRowCount).toBe(1)
+    expect(grid.children.map((child) => child.id)).toEqual([
+      updated.nodeIdsByKey['new-one'],
+      updated.nodeIdsByKey['new-two'],
+      updated.nodeIdsByKey['new-three']
+    ])
+    expect(grid.children).toEqual([
+      expect.objectContaining({ gridRowAnchorIndex: 0, gridColumnAnchorIndex: 0 }),
+      expect.objectContaining({ gridRowAnchorIndex: 0, gridColumnAnchorIndex: 1 }),
+      expect.objectContaining({ gridRowAnchorIndex: 0, gridColumnAnchorIndex: 2 })
+    ])
+
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        markup: `
+          <div data-key="grid" class="grid grid-cols-3 w-[720px] h-[240px] gap-[16px]">
+            <div data-key="new-one" class="w-full h-full"></div>
+            <div data-key="new-two" class="w-full h-full"></div>
+            <div data-key="new-three" class="w-full h-full"></div>
+          </div>
+        `,
+        removeKeys: ['old-one', 'old-two', 'old-three']
+      })
+    ).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
   it('reconciles manual placement with native automatic rows', async () => {
     const fixture = createFixture()
     const input: CanvasResolvedApplyParameters = {
@@ -7786,7 +8137,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    const grid = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const grid = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const tall = fixture.getNode(created.nodeIdsByKey.tall!)
     const one = fixture.getNode(created.nodeIdsByKey.one!)
     const two = fixture.getNode(created.nodeIdsByKey.two!)
@@ -7813,7 +8164,7 @@ describe('mcp/tools/canvas', () => {
     })
 
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     const unmanaged = fixture.createNode('RECTANGLE')
@@ -7825,7 +8176,7 @@ describe('mcp/tools/canvas', () => {
     const rearranged = {
       ...input,
       mode: 'update' as const,
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `
         <div data-key="grid" class="grid grid-cols-2 w-[480px] h-[320px] gap-[12px]">
           <div data-key="tall" class="w-full h-full col-start-1 row-start-1 row-span-2"></div>
@@ -7853,7 +8204,7 @@ describe('mcp/tools/canvas', () => {
       markup:
         '<div data-key="grid" class="grid grid-cols-[1fr_240px] grid-rows-[80px_1fr] w-[480px] h-[320px]"></div>'
     })
-    const grid = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const grid = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
 
     expect(grid).toMatchObject({
       gridAutoTracks: 'NONE',
@@ -7872,7 +8223,7 @@ describe('mcp/tools/canvas', () => {
 
     const auto = {
       mode: 'update' as const,
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup:
         '<div data-key="grid" class="grid grid-flow-row grid-cols-2 w-[480px] h-[320px]"></div>'
     }
@@ -7895,7 +8246,7 @@ describe('mcp/tools/canvas', () => {
         </div>
       `
     })
-    const grid = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const grid = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const wide = fixture.getNode(created.nodeIdsByKey.wide ?? '')
 
     expect(grid).toMatchObject({
@@ -7910,7 +8261,7 @@ describe('mcp/tools/canvas', () => {
 
     const manual = {
       mode: 'update' as const,
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `
         <div data-key="grid" class="grid grid-flow-none grid-cols-2 grid-rows-2 w-[480px] h-[320px] gap-[12px]">
           <div data-key="wide" class="w-full h-full col-start-1 row-start-2 col-span-2"></div>
@@ -7949,7 +8300,7 @@ describe('mcp/tools/canvas', () => {
       `
     }
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const one = fixture.getNode(created.nodeIdsByKey.one ?? '')
     const two = fixture.getNode(created.nodeIdsByKey.two ?? '')
     const badge = fixture.getNode(created.nodeIdsByKey.badge ?? '')
@@ -7978,19 +8329,19 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `
         <div
           data-key="root"
           class="flex flex-row flex-nowrap content-normal box-content overflow-visible w-[400px] h-[240px] gap-[8px]"
         >
-          <span data-key="one" class="grow w-fit h-fit min-w-none max-w-none">One</span>
+          <span data-key="one" class="grow w-fit h-fit min-w-0 min-h-[0px] max-w-none">One</span>
           <span data-key="two" class="grow w-fit h-fit min-w-[1px]">Two</span>
           <div data-key="badge" class="static w-[24px] h-[24px]"></div>
         </div>
@@ -8003,7 +8354,7 @@ describe('mcp/tools/canvas', () => {
       strokesIncludedInLayout: false,
       clipsContent: false
     })
-    expect(one).toMatchObject({ minWidth: null, maxWidth: null })
+    expect(one).toMatchObject({ minWidth: null, minHeight: null, maxWidth: null })
     expect(badge.layoutPositioning).toBe('AUTO')
   })
 
@@ -8027,14 +8378,14 @@ describe('mcp/tools/canvas', () => {
   it('reconciles against live state, skips an unchanged result, and preserves omissions', async () => {
     const fixture = createFixture()
     const created = await applyCanvas(createSpec())
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const unmanaged = fixture.createNode('RECTANGLE')
     root.insertChild(0, unmanaged)
 
     const update: CanvasResolvedApplyParameters = {
       ...createSpec(),
       mode: 'update',
-      targetNodeId: created.rootNodeId
+      targetNodeId: created.rootNodeId!
     }
     const unchanged = await applyCanvas(update)
     expect(unchanged.mutationCount).toBe(0)
@@ -8046,7 +8397,7 @@ describe('mcp/tools/canvas', () => {
     const changed = await applyCanvas({
       ...createSpec('Updated'),
       mode: 'update',
-      targetNodeId: created.rootNodeId
+      targetNodeId: created.rootNodeId!
     })
     expect(changed.mutationCount).toBe(1)
     expect(changed.updatedNodeIds).toEqual([created.nodeIdsByKey['card/title']])
@@ -8071,7 +8422,7 @@ describe('mcp/tools/canvas', () => {
 
     const updated = await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup:
         '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><div data-key="route" class="w-[140px] h-[0px]"></div></div>'
     })
@@ -8082,7 +8433,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup:
           '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><div data-key="route" class="w-[140px] h-[0px]"></div></div>'
       })
@@ -8105,13 +8456,13 @@ describe('mcp/tools/canvas', () => {
         }
       }
     })
-    const set = fixture.getNode(created.rootNodeId)
+    const set = fixture.getNode(created.rootNodeId!)
     const completed = fixture.getNode(created.nodeIdsByKey['set/completed']!)
     const pending = fixture.getNode(created.nodeIdsByKey['set/pending']!)
 
     const updated = await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup:
         '<div data-key="set" class="flex flex-col w-[300px] h-[128px] p-[16px] gap-[8px]"><div data-key="set/completed" class="w-[268px] h-[44px]"></div><div data-key="set/pending" class="w-[268px] h-[44px]"></div></div>'
     })
@@ -8135,7 +8486,7 @@ describe('mcp/tools/canvas', () => {
       markup:
         '<div data-key="root" class="flex flex-row w-[120px] h-[40px]"><div data-key="a" class="w-[40px] h-[40px]"></div><div data-key="b" class="w-[40px] h-[40px]"></div></div>'
     })
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const a = fixture.getNode(created.nodeIdsByKey.a!)
     const b = fixture.getNode(created.nodeIdsByKey.b!)
 
@@ -8184,7 +8535,7 @@ describe('mcp/tools/canvas', () => {
 
     const updated = await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup:
         '<div data-key="root" class="w-[320px] h-[200px]"><div data-key="root/actions" class="absolute left-[0px] top-[0px] w-[230px] h-[28px]"></div></div>'
     })
@@ -8200,12 +8551,12 @@ describe('mcp/tools/canvas', () => {
       mode: 'create',
       markup: '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"></div>'
     })
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     root.name = 'Manual root name'
 
     const updated = await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup:
         '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><div data-key="root/new-child" class="w-full h-[40px]"></div></div>'
     })
@@ -8235,7 +8586,7 @@ describe('mcp/tools/canvas', () => {
         copy: { figma: { text: { verticalAlign: 'BOTTOM' } } }
       }
     })
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const copy = fixture.getNode(created.nodeIdsByKey.copy!) as unknown as TextNode
     root.name = 'Manual root name'
     copy.name = 'Manual copy name'
@@ -8243,7 +8594,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>'
       })
     ).resolves.toMatchObject({ mutationCount: 0 })
@@ -8263,7 +8614,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup:
           '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">Hello</span></div>'
       })
@@ -8307,7 +8658,7 @@ describe('mcp/tools/canvas', () => {
     const obsoleteCopyId = created.nodeIdsByKey['obsolete/copy']!
     const update: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `
         <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
           <span data-key="keep" class="w-full h-fit">Keep</span>
@@ -8344,7 +8695,7 @@ describe('mcp/tools/canvas', () => {
 
     const result = await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `
         <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
           <span data-key="rescue" class="w-full h-fit">Keep me</span>
@@ -8354,7 +8705,7 @@ describe('mcp/tools/canvas', () => {
     })
 
     expect(result.removedNodeIds).toEqual([created.nodeIdsByKey.obsolete])
-    expect(rescue.parent?.id).toBe(created.rootNodeId)
+    expect(rescue.parent?.id).toBe(created.rootNodeId!)
     expect(fixture.nodes.has(rescue.id)).toBe(true)
   })
 
@@ -8368,20 +8719,19 @@ describe('mcp/tools/canvas', () => {
         </div>
       `
     })
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     const removal: CanvasResolvedApplyParameters = {
-      mode: 'update',
-      targetNodeId: created.rootNodeId,
-      markup: null
+      mode: 'remove',
+      targetNodeId: created.rootNodeId!
     }
 
     await expect(applyCanvas(removal)).resolves.toEqual({
-      rootNodeId: created.rootNodeId,
+      rootNodeId: created.rootNodeId!,
       rootRemoved: true,
       nodeIdsByKey: {},
       createdNodeIds: [],
       updatedNodeIds: [],
-      removedNodeIds: [created.rootNodeId],
+      removedNodeIds: [created.rootNodeId!],
       mutationCount: 1,
       verification: {
         status: 'passed',
@@ -8394,7 +8744,7 @@ describe('mcp/tools/canvas', () => {
     expect(root.removed).toBe(true)
     expect(fixture.nodes.has(created.nodeIdsByKey.copy!)).toBe(false)
     await expect(applyCanvas(removal)).resolves.toMatchObject({
-      rootNodeId: created.rootNodeId,
+      rootNodeId: created.rootNodeId!,
       rootRemoved: true,
       removedNodeIds: [],
       mutationCount: 0
@@ -8411,18 +8761,17 @@ describe('mcp/tools/canvas', () => {
 
     await expect(
       applyCanvas({
-        mode: 'update',
-        targetNodeId: created.rootNodeId,
-        markup: null
+        mode: 'remove',
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({
       rootRemoved: true,
-      removedNodeIds: [created.rootNodeId]
+      removedNodeIds: [created.rootNodeId!]
     })
     expect(PAGE.loadAsync).not.toHaveBeenCalled()
     expect(figma.loadAllPagesAsync).not.toHaveBeenCalled()
     expect(PAGE.findAll).toHaveBeenCalledOnce()
-    expect(fixture.nodes.has(created.rootNodeId)).toBe(false)
+    expect(fixture.nodes.has(created.rootNodeId!)).toBe(false)
   })
 
   it('loads non-current pages through the batch API before removal validation', async () => {
@@ -8435,20 +8784,19 @@ describe('mcp/tools/canvas', () => {
 
     await expect(
       applyCanvas({
-        mode: 'update',
-        targetNodeId: created.rootNodeId,
-        markup: null
+        mode: 'remove',
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({
       rootRemoved: true,
-      removedNodeIds: [created.rootNodeId]
+      removedNodeIds: [created.rootNodeId!]
     })
     expect(figma.loadAllPagesAsync).toHaveBeenCalledOnce()
     expect(PAGE.loadAsync).not.toHaveBeenCalled()
     expect(otherPage.loadAsync).toHaveBeenCalledOnce()
     expect(PAGE.findAll).toHaveBeenCalledOnce()
     expect(otherPage.findAll).toHaveBeenCalledOnce()
-    expect(fixture.nodes.has(created.rootNodeId)).toBe(false)
+    expect(fixture.nodes.has(created.rootNodeId!)).toBe(false)
 
     const second = await applyCanvas({
       mode: 'create',
@@ -8456,9 +8804,8 @@ describe('mcp/tools/canvas', () => {
     })
     await expect(
       applyCanvas({
-        mode: 'update',
-        targetNodeId: second.rootNodeId,
-        markup: null
+        mode: 'remove',
+        targetNodeId: second.rootNodeId!
       })
     ).resolves.toMatchObject({ rootRemoved: true })
     expect(figma.loadAllPagesAsync).toHaveBeenCalledOnce()
@@ -8477,7 +8824,7 @@ describe('mcp/tools/canvas', () => {
         }
       }
     })
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     const stale = { ...root, removed: false } as unknown as BaseNode
     vi.mocked(figma.getNodeByIdAsync).mockImplementation(async (id: string) =>
       id === root.id ? (root.removed ? stale : root) : (fixture.nodes.get(id) ?? null)
@@ -8485,9 +8832,8 @@ describe('mcp/tools/canvas', () => {
 
     await expect(
       applyCanvasFromTool({
-        mode: 'update',
-        targetNodeId: root.id,
-        markup: null
+        mode: 'remove',
+        targetNodeId: root.id
       })
     ).resolves.toMatchObject({
       rootRemoved: true,
@@ -8525,13 +8871,12 @@ describe('mcp/tools/canvas', () => {
 
     await expect(
       applyCanvasFromTool({
-        mode: 'update',
-        targetNodeId: removable.rootNodeId,
-        markup: null
+        mode: 'remove',
+        targetNodeId: removable.rootNodeId!
       })
     ).resolves.toMatchObject({
       rootRemoved: true,
-      removedNodeIds: [removable.rootNodeId]
+      removedNodeIds: [removable.rootNodeId!]
     })
     expect(variant.removed).toBe(false)
   })
@@ -8542,15 +8887,14 @@ describe('mcp/tools/canvas', () => {
       mode: 'create',
       markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>'
     })
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const manual = fixture.createNode('RECTANGLE')
     root.insertChild(0, manual)
 
     await expect(
       applyCanvas({
-        mode: 'update',
-        targetNodeId: created.rootNodeId,
-        markup: null
+        mode: 'remove',
+        targetNodeId: created.rootNodeId!
       })
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
@@ -8568,7 +8912,7 @@ describe('mcp/tools/canvas', () => {
     })
     const pattern: PatternPaint = {
       type: 'PATTERN',
-      sourceNodeId: created.rootNodeId,
+      sourceNodeId: created.rootNodeId!,
       tileType: 'RECTANGULAR',
       scalingFactor: 1,
       spacing: { x: 0, y: 0 },
@@ -8577,9 +8921,8 @@ describe('mcp/tools/canvas', () => {
     const consumer = fixture.createNode('RECTANGLE')
     consumer.fills = [pattern]
     const removal: CanvasResolvedApplyParameters = {
-      mode: 'update',
-      targetNodeId: created.rootNodeId,
-      markup: null
+      mode: 'remove',
+      targetNodeId: created.rootNodeId!
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
@@ -8598,7 +8941,7 @@ describe('mcp/tools/canvas', () => {
     style.remove()
     await expect(applyCanvas(removal)).resolves.toMatchObject({
       rootRemoved: true,
-      removedNodeIds: [created.rootNodeId]
+      removedNodeIds: [created.rootNodeId!]
     })
   })
 
@@ -8612,12 +8955,11 @@ describe('mcp/tools/canvas', () => {
     copy.characters = 'Open'
     copy.setRangeHyperlink(0, 4, {
       type: 'NODE',
-      value: created.rootNodeId
+      value: created.rootNodeId!
     })
     const removal: CanvasResolvedApplyParameters = {
-      mode: 'update',
-      targetNodeId: created.rootNodeId,
-      markup: null
+      mode: 'remove',
+      targetNodeId: created.rootNodeId!
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
@@ -8628,7 +8970,7 @@ describe('mcp/tools/canvas', () => {
     copy.setRangeHyperlink(0, 4, null)
     await expect(applyCanvas(removal)).resolves.toMatchObject({
       rootRemoved: true,
-      removedNodeIds: [created.rootNodeId]
+      removedNodeIds: [created.rootNodeId!]
     })
   })
 
@@ -8641,9 +8983,8 @@ describe('mcp/tools/canvas', () => {
       preferredValues: [{ type: 'COMPONENT', key: target.key }]
     })
     const removal: CanvasResolvedApplyParameters = {
-      mode: 'update',
-      targetNodeId: target.id,
-      markup: null
+      mode: 'remove',
+      targetNodeId: target.id
     }
 
     await expect(applyCanvas(removal)).rejects.toMatchObject({
@@ -8699,7 +9040,7 @@ describe('mcp/tools/canvas', () => {
     const created = await applyCanvas({ mode: 'create', markup })
     await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup,
       styles: {
         pattern: {
@@ -8725,7 +9066,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: `
           <div data-key="root" class="flex flex-row w-[320px] h-[200px]">
             <div data-key="keep" class="w-[80px] h-[80px]"></div>
@@ -8758,7 +9099,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
         removeKeys: ['owned']
       })
@@ -8771,7 +9112,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: '<div data-key="replacement" class="w-[320px] h-[200px]"></div>',
         removeKeys: ['root']
       })
@@ -8788,13 +9129,13 @@ describe('mcp/tools/canvas', () => {
     right.setSharedPluginData('tempad_dev', 'canvas-key', 'right')
     operation.insertChild(0, left)
     operation.insertChild(1, right)
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     root.insertChild(1, operation)
 
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
         removeKeys: ['left']
       })
@@ -8849,7 +9190,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: '<div data-key="root" class="flex flex-row w-[300px] h-[100px]"></div>',
         removeKeys: ['remove']
       })
@@ -8860,7 +9201,7 @@ describe('mcp/tools/canvas', () => {
 
     const result = await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: `
         <div data-key="root" class="flex flex-row w-[300px] h-[100px]">
           <div data-key="mask" class="w-[100px] h-[100px]"></div>
@@ -8875,7 +9216,7 @@ describe('mcp/tools/canvas', () => {
 
     expect(result.removedNodeIds).toEqual([created.nodeIdsByKey.remove])
     expect(
-      (fixture.getNode(created.rootNodeId) as unknown as FrameNode).children.map(
+      (fixture.getNode(created.rootNodeId!) as unknown as FrameNode).children.map(
         (child) => child.id
       )
     ).toEqual([created.nodeIdsByKey.mask, created.nodeIdsByKey.remain])
@@ -8894,7 +9235,7 @@ describe('mcp/tools/canvas', () => {
       }
     }
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
 
     expect([root.paddingTop, root.paddingRight, root.paddingBottom, root.paddingLeft]).toEqual([
       8, 8, 8, 8
@@ -8904,7 +9245,7 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({
       mutationCount: 0,
@@ -8929,7 +9270,7 @@ describe('mcp/tools/canvas', () => {
       }
     }
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
 
     expect(root.boundVariables).toMatchObject({
       minWidth: { id: 'variable:spacing' },
@@ -8940,7 +9281,7 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
@@ -8981,7 +9322,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup:
           '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit visible font-semibold">Changed</span></div>'
       })
@@ -9012,7 +9353,7 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
@@ -9038,12 +9379,12 @@ describe('mcp/tools/canvas', () => {
         }
       }
     })
-    const root = fixture.getNode(created.rootNodeId) as unknown as FrameNode
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
     const copy = fixture.getNode(created.nodeIdsByKey.copy ?? '') as unknown as TextNode
 
     const unbound: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup:
         '<div data-key="root" class="flex flex-row w-[320px] h-[200px] gap-[12px] bg-[#000000] hidden"><span data-key="copy" class="w-fit h-fit">Changed</span></div>',
       bindings: {
@@ -9093,7 +9434,7 @@ describe('mcp/tools/canvas', () => {
         }
       }
     })
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     Object.assign(root.boundVariables, {
       strokes: [{ type: 'VARIABLE_ALIAS', id: 'variable:color' }]
     })
@@ -9101,7 +9442,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup:
           '<div data-key="root" class="w-[320px] h-[200px] border-[1px] border-[#000000]"></div>',
         bindings: {
@@ -9135,17 +9476,17 @@ describe('mcp/tools/canvas', () => {
       }
     }
     const created = await applyCanvas(input)
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
     const copy = fixture.getNode(created.nodeIdsByKey.copy ?? '')
     expect(root.explicitVariableModes).toEqual({ 'collection:tokens': 'mode:dark' })
     expect(copy.explicitVariableModes).toEqual({ 'collection:tokens': 'mode:light' })
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
 
     const cleared: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: input.markup,
       bindings: {
         root: {
@@ -9253,7 +9594,7 @@ describe('mcp/tools/canvas', () => {
         candidate.getSharedPluginData('tempad_dev', 'variable-key') === 'tokens'
     )!
     const darkMode = collection.modes.find((mode) => mode.name === 'Dark')!
-    const root = fixture.getNode(created.rootNodeId)
+    const root = fixture.getNode(created.rootNodeId!)
 
     expect(surface).toMatchObject({
       name: 'Color/Surface',
@@ -9275,7 +9616,7 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({
       mutationCount: 0,
@@ -9284,7 +9625,7 @@ describe('mcp/tools/canvas', () => {
 
     await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: input.markup,
       variableCollections: {
         tokens: {
@@ -9370,7 +9711,7 @@ describe('mcp/tools/canvas', () => {
     })
 
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({
       verification: { status: 'passed', warnings: [] }
     })
@@ -9638,7 +9979,7 @@ describe('mcp/tools/canvas', () => {
     const inheritedDarkMode = brand.modes.find((mode) => mode.name === 'Dark')!
     const update: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup,
       variableCollections: {
         tokens: {
@@ -9670,12 +10011,12 @@ describe('mcp/tools/canvas', () => {
       [tokens.defaultModeId]: { r: 0.5, g: 0.5, b: 0.5 }
     })
     expect(PAGE.explicitVariableModes).toEqual({})
-    expect(fixture.getNode(created.rootNodeId).boundVariables.fills).toBeUndefined()
+    expect(fixture.getNode(created.rootNodeId!).boundVariables.fills).toBeUndefined()
     await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup,
         variableCollections: {
           tokens: { modes: { light: null } }
@@ -9714,7 +10055,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup,
         variableCollections: {
           tokens: {
@@ -9729,7 +10070,7 @@ describe('mcp/tools/canvas', () => {
           }
         }
       })
-    ).resolves.toMatchObject({ rootNodeId: created.rootNodeId })
+    ).resolves.toMatchObject({ rootNodeId: created.rootNodeId! })
 
     const collection = [...fixture.variableCollections.values()].find(
       (candidate) =>
@@ -9781,7 +10122,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup,
         variableCollections: { tokens: null },
         bindings: { root: { variables: { gap: null } } }
@@ -9812,7 +10153,7 @@ describe('mcp/tools/canvas', () => {
     })
     const removeBase: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup,
       variableCollections: {
         tokens: { variables: { base: null } }
@@ -9880,7 +10221,7 @@ describe('mcp/tools/canvas', () => {
     })
     const removeAccent: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup,
       variableCollections: {
         colors: { variables: { accent: null } }
@@ -9934,7 +10275,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup,
         variableCollections: { tokens: null }
       })
@@ -9945,7 +10286,7 @@ describe('mcp/tools/canvas', () => {
 
     const removeBoth: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup,
       variableCollections: { tokens: null, brand: null }
     }
@@ -10030,13 +10371,13 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
 
     const update: CanvasResolvedApplyParameters = {
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: input.markup,
       variableCollections: {
         brand: {
@@ -10198,7 +10539,7 @@ describe('mcp/tools/canvas', () => {
       valuesByMode: { [collection.defaultModeId]: 8 }
     })
     expect(spacing.getSharedPluginData('tempad_dev', 'variable-key')).toBe('space')
-    expect(fixture.getNode(result.rootNodeId).boundVariables.itemSpacing).toEqual({
+    expect(fixture.getNode(result.rootNodeId!).boundVariables.itemSpacing).toEqual({
       type: 'VARIABLE_ALIAS',
       id: spacing.id
     })
@@ -10295,7 +10636,7 @@ describe('mcp/tools/canvas', () => {
     const body = byKey('body') as TextStyle
     const raised = byKey('raised') as EffectStyle
     const columns = byKey('columns') as GridStyle
-    const card = fixture.getNode(created.rootNodeId)
+    const card = fixture.getNode(created.rootNodeId!)
     const title = fixture.getNode(created.nodeIdsByKey.title ?? '') as unknown as TextNode
 
     expect(surface).toMatchObject({
@@ -10340,7 +10681,7 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({
       mutationCount: 0,
@@ -10349,7 +10690,7 @@ describe('mcp/tools/canvas', () => {
 
     await applyCanvas({
       mode: 'update',
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: input.markup,
       styles: {
         body: {
@@ -10400,7 +10741,7 @@ describe('mcp/tools/canvas', () => {
     })
 
     await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId })
+      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({
       verification: { status: 'passed', warnings: [] }
     })
@@ -10427,7 +10768,7 @@ describe('mcp/tools/canvas', () => {
     const legacy = fixture.styles.get('style:fill')!
     expect(legacy.name).toBe('Color/Legacy')
     expect(legacy.getSharedPluginData('tempad_dev', 'style-key')).toBe('legacy')
-    expect(fixture.getNode(adopted.rootNodeId).fillStyleId).toBe(legacy.id)
+    expect(fixture.getNode(adopted.rootNodeId!).fillStyleId).toBe(legacy.id)
     expect(figma.createPaintStyle).not.toHaveBeenCalled()
 
     await expect(
@@ -10511,7 +10852,7 @@ describe('mcp/tools/canvas', () => {
     const orphan = byKey('orphan')
     const removal = {
       mode: 'update' as const,
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
       styles: {
         surface: null,
@@ -10532,7 +10873,7 @@ describe('mcp/tools/canvas', () => {
     })
     expect(removed).toMatchObject({
       mutationCount: 3,
-      updatedNodeIds: [created.rootNodeId]
+      updatedNodeIds: [created.rootNodeId!]
     })
     expect(surface.remove).toHaveBeenCalledOnce()
     expect(orphan.remove).toHaveBeenCalledOnce()
@@ -10639,7 +10980,7 @@ describe('mcp/tools/canvas', () => {
       explicitVariableModes: { 'collection:tokens': 'mode:dark' }
     })
 
-    const update = { ...input, mode: 'update' as const, targetNodeId: created.rootNodeId }
+    const update = { ...input, mode: 'update' as const, targetNodeId: created.rootNodeId! }
     await expect(applyCanvas(update)).resolves.toMatchObject({
       mutationCount: 0,
       updatedNodeIds: []
@@ -10694,7 +11035,7 @@ describe('mcp/tools/canvas', () => {
     expect(PAGE.name).toBe('Checkout')
   })
 
-  it('creates, reuses, and adopts stable-keyed pages without changing the active page', async () => {
+  it('activates newly created pages while direct writes to existing pages stay in place', async () => {
     const fixture = createFixture()
     const input: CanvasResolvedApplyParameters = {
       mode: 'create',
@@ -10709,10 +11050,11 @@ describe('mcp/tools/canvas', () => {
     const created = await applyCanvas(input)
     const checkout = fixture.pages[1]!
     expect(figma.createPage).toHaveBeenCalledOnce()
-    expect(figma.currentPage).toBe(PAGE)
+    expect(figma.currentPage).toBe(checkout)
+    expect(created.page).toMatchObject({ id: checkout.id, active: true, selectionCount: 0 })
     expect(checkout).toMatchObject({
       name: 'Checkout',
-      children: [{ id: created.rootNodeId }]
+      children: [{ id: created.rootNodeId! }]
     })
     expect(checkout.getSharedPluginData('tempad_dev', 'page-key')).toBe('flows/checkout')
     expect(PAGE.children).toEqual([])
@@ -10721,7 +11063,7 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         ...input,
         mode: 'update',
-        targetNodeId: created.rootNodeId
+        targetNodeId: created.rootNodeId!
       })
     ).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
 
@@ -10732,8 +11074,8 @@ describe('mcp/tools/canvas', () => {
     })
     expect(figma.createPage).toHaveBeenCalledOnce()
     expect(checkout.children.map((node) => node.id)).toEqual([
-      created.rootNodeId,
-      second.rootNodeId
+      created.rootNodeId!,
+      second.rootNodeId!
     ])
 
     const existing = createMockPage('0:9', 'Existing')
@@ -10749,8 +11091,107 @@ describe('mcp/tools/canvas', () => {
       }
     })
     expect(existing.name).toBe('Existing flow')
-    expect(existing.children[0]?.id).toBe(adopted.rootNodeId)
+    expect(existing.children[0]?.id).toBe(adopted.rootNodeId!)
     expect(existing.getSharedPluginData('tempad_dev', 'page-key')).toBe('flows/existing')
+  })
+
+  it('creates, updates, activates, reads context from, and removes an exact managed page', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      page: { pageKey: 'eval/fresh', name: 'Fresh evaluation' }
+    })
+    const page = fixture.pages[1]!
+
+    expect(created).toMatchObject({
+      page: {
+        id: page.id,
+        pageKey: 'eval/fresh',
+        name: 'Fresh evaluation',
+        active: true,
+        childCount: 0,
+        selectionCount: 0
+      }
+    })
+    expect(created.rootNodeId).toBeUndefined()
+
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        page: { pageKey: 'eval/fresh', name: 'Renamed evaluation' }
+      })
+    ).resolves.toMatchObject({ page: { name: 'Renamed evaluation', active: true } })
+
+    const root = await applyCanvas({
+      mode: 'create',
+      page: { pageKey: 'eval/fresh' },
+      markup: '<div data-key="eval/root" class="w-[320px] h-[200px]"></div>'
+    })
+    await applyCanvas({ mode: 'activate', page: { id: PAGE.id }, selection: [] })
+    expect(figma.currentPage).toBe(PAGE)
+    await expect(
+      applyCanvas({
+        mode: 'activate',
+        page: { pageKey: 'eval/fresh' },
+        selection: [root.rootNodeId!]
+      })
+    ).resolves.toMatchObject({
+      mutationCount: 0,
+      page: { id: page.id, active: true, selectionCount: 1 }
+    })
+
+    const removed = await applyCanvas({
+      mode: 'remove',
+      page: { id: page.id, pageKey: 'eval/fresh' }
+    })
+    expect(removed).toMatchObject({
+      page: { id: page.id, pageKey: 'eval/fresh', removed: true, active: false },
+      mutationCount: 1
+    })
+    expect(removed.removedNodeIds).toContain(root.rootNodeId!)
+    expect(fixture.pages).toEqual([PAGE])
+    expect(figma.currentPage).toBe(PAGE)
+  })
+
+  it('refuses to remove the last page or a managed page containing manual content', async () => {
+    const fixture = createFixture()
+    PAGE.setSharedPluginData('tempad_dev', 'page-key', 'eval/only')
+    await expect(
+      applyCanvas({ mode: 'remove', page: { pageKey: 'eval/only' } })
+    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE })
+
+    const created = await applyCanvas({
+      mode: 'create',
+      page: { pageKey: 'eval/manual', name: 'Manual content' }
+    })
+    const page = fixture.pages.find((candidate) => candidate.id === created.page?.id)!
+    fixture.createNode('RECTANGLE')
+    await expect(
+      applyCanvas({ mode: 'remove', page: { pageKey: 'eval/manual' } })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      message: expect.stringContaining('not owned')
+    })
+    expect(page.removed).toBe(false)
+  })
+
+  it('rolls back a newly created page when its combined root apply fails', async () => {
+    const fixture = createFixture()
+    await expect(
+      applyCanvas({
+        mode: 'create',
+        page: {
+          pageKey: 'eval/rollback',
+          name: 'Rollback',
+          variableModes: { 'collection:tokens': 'mode:missing' }
+        },
+        markup: '<div data-key="rollback/root" class="w-[320px] h-[200px]"></div>'
+      })
+    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+
+    expect(fixture.pages).toEqual([PAGE])
+    expect(figma.currentPage).toBe(PAGE)
+    expect(figma.triggerUndo).toHaveBeenCalledOnce()
   })
 
   it('loads an existing keyed page before reading its protected roots', async () => {
@@ -10779,7 +11220,7 @@ describe('mcp/tools/canvas', () => {
     })
 
     expect(existing.loadAsync).toHaveBeenCalledOnce()
-    expect(existing.children[0]?.id).toBe(created.rootNodeId)
+    expect(existing.children[0]?.id).toBe(created.rootNodeId!)
   })
 
   it('reconciles an explicit page position and rejects an out-of-range index before creation', async () => {
@@ -10798,7 +11239,7 @@ describe('mcp/tools/canvas', () => {
 
     expect(checkout.name).toBe('Checkout')
     expect(fixture.pages).toEqual([checkout, PAGE])
-    expect(figma.currentPage).toBe(PAGE)
+    expect(figma.currentPage).toBe(checkout)
 
     const insertChild = vi.fn((index: number, page: ReturnType<typeof createMockPage>) => {
       const current = fixture.pages.indexOf(page)
@@ -10819,7 +11260,7 @@ describe('mcp/tools/canvas', () => {
 
     const moved = {
       mode: 'update' as const,
-      targetNodeId: created.rootNodeId,
+      targetNodeId: created.rootNodeId!,
       markup,
       page: { index: 1 }
     }
@@ -10928,7 +11369,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: '<div data-key="owned" class="w-[100px] h-[100px]"></div>',
         page: { id: first.id }
       })
@@ -10978,12 +11419,12 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: '<div data-key="root" class="w-[320px] h-[200px] bg-[#000000]"></div>'
       })
     ).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
     expect(
-      (fixture.getNode(created.rootNodeId) as unknown as FrameNode).boundVariables?.fills
+      (fixture.getNode(created.rootNodeId!) as unknown as FrameNode).boundVariables?.fills
     ).toEqual([{ type: 'VARIABLE_ALIAS', id: 'variable:color' }])
   })
 
@@ -11133,7 +11574,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup: `<div data-key="card" class="flex flex-col w-[320px] h-[200px]"><span data-key="foreign" data-node-id="${foreign.id}" class="w-full h-fit">Foreign</span></div>`
       })
     ).rejects.toMatchObject({
@@ -11141,7 +11582,7 @@ describe('mcp/tools/canvas', () => {
     })
     expect(fixture.commitUndo).toHaveBeenCalledOnce()
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
-    expect(fixture.nodes.has(created.rootNodeId)).toBe(true)
+    expect(fixture.nodes.has(created.rootNodeId!)).toBe(true)
   })
 
   it('rejects and rolls back an apply result that would exceed the inline response budget', async () => {
@@ -11180,7 +11621,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup:
           '<div data-key="card" class="flex flex-col w-[321px] h-[200px]"><div data-key="card/new" class="w-[12px] h-[12px] bg-[#112233]"></div></div>'
       })
@@ -11197,13 +11638,13 @@ describe('mcp/tools/canvas', () => {
       throw new Error('paint unavailable')
     })
     fixture.triggerUndo.mockImplementationOnce(() => {
-      fixture.getNode(created.rootNodeId).remove()
+      fixture.getNode(created.rootNodeId!).remove()
     })
 
     await expect(
       applyCanvas({
         mode: 'update',
-        targetNodeId: created.rootNodeId,
+        targetNodeId: created.rootNodeId!,
         markup:
           '<div data-key="card" class="flex flex-col w-[321px] h-[200px]"><div data-key="card/new" class="w-[12px] h-[12px] bg-[#112233]"></div></div>'
       })

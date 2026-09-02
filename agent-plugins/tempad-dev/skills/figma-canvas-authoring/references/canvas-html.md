@@ -16,9 +16,28 @@ variants, plugins, viewport-dependent utilities, and CSS cascade are unsupported
 
 ## Contents
 
+- [Preflight each markup tree](#preflight-each-markup-tree)
 - [Elements and identity](#elements-and-identity)
 - [Layout](#layout)
 - [Appearance and text](#appearance-and-text)
+
+## Preflight each markup tree
+
+Immediately before each create or structural update, scan the complete supplied
+tree once:
+
+- require a fixed width and height on the markup root;
+- give every `div` with children `flex` or `grid`, or make every child absolute
+  with one edge per axis and fixed parent and child dimensions;
+- keep flex, grid, gap, padding, border, corner, and box-shadow classes off
+  `span`;
+- trace every `w-full`, `h-full`, and `grow` against its direct parent's axis and
+  the element's required dimensions;
+- count at most 160 elements and 12 levels, and include only assets referenced by
+  this call.
+
+Correct the complete set before calling instead of serializing until validation
+reveals issues one at a time.
 
 ## Elements and identity
 
@@ -26,6 +45,9 @@ variants, plugins, viewport-dependent utilities, and CSS cascade are unsupported
 - Give every element one unique `data-key` of letters, numbers, `. / : _ -`.
 - Use `data-node-id` only in update mode to adopt an exact live node; instance
   sublayers are not authoring targets.
+- When only native state changes, omit markup, target the exact managed root,
+  and key `native` by existing stable keys in that scope. This preserves
+  topology; masks and node removal still require structural markup.
 - Use no arbitrary attributes on `div` or `span`. Common catalog links use
   `data-var-<field>="vN"` and `data-style-<field>="sN"`; `"none"` explicitly
   unlinks that field.
@@ -68,8 +90,11 @@ Use `w-full` only on a `flex-col` cross axis, `h-full` only on a `flex-row`
 cross axis, and `grow` on the main axis; `grow-0` clears growth. `grow` does not
 replace required dimensions—for a row track use `grow w-fit h-[3px]`. Give
 growing text in constrained rows a positive `min-w-*` to prevent collapse.
-Budget fixed Auto Layout main axes as padding + gaps + fixed/minimum child
-extents. Grid children may fill cells. Direct dimension variables require fixed
+Prefer a hug main axis for content stacks whose extent is not behaviorally
+fixed. Otherwise budget the fixed axis as padding + gaps + fixed/minimum child
+extents. A non-overflowing result is still wrong when resolved content consumes
+the intended inset; compare rendered child edges with the layout's padding.
+Grid children may fill cells. Direct dimension variables require fixed
 fallbacks. Fixed sizes must be at least `0.01px`; native lines use `h-[0px]`.
 
 ## Layout

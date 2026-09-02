@@ -1,5 +1,11 @@
 import { retryAfterFigmaConnectionTimeout } from './figma-readiness'
 
+export function getContainingPage(node: BaseNode): PageNode | null {
+  let current: BaseNode | null = node
+  while (current && current.type !== 'PAGE') current = current.parent
+  return current?.type === 'PAGE' ? current : null
+}
+
 async function readWithSyncFallback<T>(readAsync: () => Promise<T>, readSync: () => T): Promise<T> {
   try {
     return await readAsync()

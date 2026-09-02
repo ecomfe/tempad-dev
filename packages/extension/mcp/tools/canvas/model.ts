@@ -1,5 +1,6 @@
 import type {
   CanvasAssets,
+  CanvasBinding,
   CanvasComponentPropertyValue,
   CanvasDesignReference,
   CanvasFigmaProperties,
@@ -13,7 +14,7 @@ import type {
 } from '@tempad-dev/shared'
 
 export type CanvasShapeNodeType = CanvasFigmaShape['type']
-export type CanvasNodeType =
+type CanvasNodeType =
   | 'BOOLEAN_OPERATION'
   | 'COMPONENT'
   | 'COMPONENT_SET'
@@ -156,10 +157,29 @@ export type ParsedCanvasTreeInput = ParsedCanvasCommon & {
   root: CanvasNodeSpec
 }
 
-type ParsedCanvasRootRemovalInput = {
+export type ParsedCanvasNativeUpdateInput = {
   mode: 'update'
+  targetNodeId: string
+  bindings: Record<string, CanvasBinding>
+  assets?: CanvasAssets
+  styles?: CanvasStyles
+  variableCollections?: CanvasVariableCollections
+}
+
+type ParsedCanvasRootRemovalInput = {
+  mode: 'remove'
   targetNodeId: string
   root: null
 }
 
-export type ParsedCanvasInput = ParsedCanvasTreeInput | ParsedCanvasRootRemovalInput
+export type ParsedCanvasPageInput = {
+  mode: 'activate' | 'create' | 'remove' | 'update'
+  page: CanvasPageProperties
+  selection?: string[]
+}
+
+export type ParsedCanvasInput =
+  | ParsedCanvasTreeInput
+  | ParsedCanvasNativeUpdateInput
+  | ParsedCanvasRootRemovalInput
+  | ParsedCanvasPageInput

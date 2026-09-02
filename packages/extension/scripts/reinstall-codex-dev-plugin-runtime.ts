@@ -1,19 +1,36 @@
-export type RuntimeProcess = {
+type RuntimeProcess = {
   pid: number
 }
 
-export type RuntimeProcessState = {
+type RuntimeProcessState = {
   cli: RuntimeProcess[]
   hub: RuntimeProcess[]
 }
 
-export type RuntimeState = 'installed' | 'uninstalled'
+type RuntimeState = 'installed' | 'uninstalled'
 
 export const detachedReinstallJobPrefix = 'com.tempad-dev.codex-plugin-reinstall.'
 
-export type DetachedReinstallIdentity = {
+type DetachedReinstallIdentity = {
   jobLabel: string
   logFileName: string
+}
+
+export function resolveDevPluginVersion(input: unknown, requested?: string): string {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('Generated development plugin manifest must be an object.')
+  }
+  const manifest = input as Record<string, unknown>
+  if (manifest.name !== 'tempad-dev-dev' || typeof manifest.version !== 'string') {
+    throw new Error('Generated development plugin manifest has an unexpected identity.')
+  }
+  if (requested && requested !== manifest.version) {
+    throw new Error(
+      `Generated plugin version is ${manifest.version}, not ${requested}. ` +
+        'Run pnpm agent-plugin:dev, then omit the version or pass the generated value.'
+    )
+  }
+  return manifest.version
 }
 
 export function detachedReinstallIdentity(

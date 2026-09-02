@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ToolResponseLike } from '../../src/mcp/responses'
 import type { ToolResultMap } from '../../src/mcp/tools'
 
+import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION } from '../../src/mcp/constants'
 import {
   buildApplyCanvasToolResult,
   buildGetCodeToolResult,
@@ -46,15 +47,27 @@ describe('mcp/responses helpers', () => {
       },
       warnings: [
         {
-          type: 'shell',
-          message: 'Shell response: omitted direct child ids are listed in the inline comment.'
+          type: 'literal-cluster',
+          message:
+            'Repeated unbound color literals are listed in structuredContent.literalClusters.'
+        }
+      ],
+      literalClusters: [
+        {
+          kind: 'color',
+          value: '#FFFFFF',
+          occurrences: 2,
+          consumers: [
+            { nodeId: 'a', nodeName: 'A', properties: ['color'] },
+            { nodeId: 'b', nodeName: 'B', properties: ['color'] }
+          ]
         }
       ]
     }
 
     const result = buildGetCodeToolResult(payload)
     expect(result.structuredContent).toEqual(payload)
-    expect(result.content?.[0]?.text).toContain('Shell response')
+    expect(result.content?.[0]?.text).toContain('Repeated unbound color literals')
     expect(result.content?.[0]?.text).not.toContain('Next: call get_code with')
   })
 
@@ -74,6 +87,20 @@ describe('mcp/responses helpers', () => {
     expect(truncated.content?.[0]?.text).toContain('truncated structure outline')
     expect(truncated.content?.[0]?.text).toContain('partial')
     expect(truncated.content?.[0]?.text).not.toContain('full outline')
+
+    const emptyPage = buildGetStructureToolResult({
+      roots: [],
+      page: {
+        id: '0:2',
+        pageKey: 'eval/fresh',
+        name: 'Fresh evaluation',
+        index: 1,
+        active: true,
+        childCount: 0,
+        selectionCount: 0
+      }
+    })
+    expect(emptyPage.content?.[0]?.text).toContain('with 0 children')
 
     const tokens = buildGetTokenDefsToolResult({
       '--color-primary': {
@@ -118,6 +145,22 @@ describe('mcp/responses helpers', () => {
       updatedNodeIds: [],
       removedNodeIds: ['2:2'],
       mutationCount: 2,
+      runtime: {
+        protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+        locked: true,
+        valid: true,
+        issues: [],
+        hub: {
+          packageVersion: '0.8.0',
+          runtimeFingerprint: 'a'.repeat(64),
+          startedAt: '2026-08-26T00:00:00.000Z'
+        },
+        extension: {
+          version: '0.21.0',
+          runtimeFingerprint: 'b'.repeat(64),
+          connectedAt: '2026-08-26T00:00:01.000Z'
+        }
+      },
       verification: {
         status: 'warning',
         nodesChecked: 1,
@@ -145,6 +188,22 @@ describe('mcp/responses helpers', () => {
       nodeIdsByKey: { root: '2:1' },
       mutationCount: 2,
       nodeChanges: { created: 1, updated: 0, removed: 1 },
+      runtime: {
+        protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+        locked: true,
+        valid: true,
+        issues: [],
+        hub: {
+          packageVersion: '0.8.0',
+          runtimeFingerprint: 'a'.repeat(64),
+          startedAt: '2026-08-26T00:00:00.000Z'
+        },
+        extension: {
+          version: '0.21.0',
+          runtimeFingerprint: 'b'.repeat(64),
+          connectedAt: '2026-08-26T00:00:01.000Z'
+        }
+      },
       verification: {
         status: 'warning',
         nodesChecked: 1,
@@ -159,6 +218,32 @@ describe('mcp/responses helpers', () => {
         ]
       }
     })
+
+    const activated = buildApplyCanvasToolResult({
+      nodeIdsByKey: {},
+      createdNodeIds: [],
+      updatedNodeIds: [],
+      removedNodeIds: [],
+      page: {
+        id: '0:2',
+        pageKey: 'eval/fresh',
+        name: 'Fresh evaluation',
+        index: 1,
+        active: true,
+        childCount: 0,
+        selectionCount: 0
+      },
+      mutationCount: 0,
+      verification: {
+        status: 'passed',
+        nodesChecked: 0,
+        referencesChecked: 0,
+        warnings: []
+      }
+    })
+    expect(activated.content?.[0]?.text).toContain('Page: "Fresh evaluation" (0:2)')
+    expect(activated.content?.[0]?.text).toContain('0 children')
+    expect(activated.content?.[0]?.text).not.toContain('Root node:')
 
     const removed = buildApplyCanvasToolResult({
       rootNodeId: '2:1',

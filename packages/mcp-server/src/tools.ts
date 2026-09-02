@@ -32,8 +32,7 @@ import {
   GetTokenDefsParametersSchema,
   TEMPAD_MCP_ERROR_CODES,
   UploadAssetParametersSchema,
-  UploadAssetResultSchema,
-  measureCallToolResultBytes
+  UploadAssetResultSchema
 } from '@tempad-dev/shared'
 
 import { getRecordProperty } from './shared'
@@ -120,8 +119,9 @@ const KNOWN_ERROR_CODES = new Set<string>(Object.values(TEMPAD_MCP_ERROR_CODES))
 
 const CONNECTIVITY_TROUBLESHOOTING_LINES = [
   'Troubleshooting:',
-  '- In Figma, open TemPad Dev panel and enable the MCP server in Preferences → Agent integration.',
-  "- If multiple Figma tabs are open, click the intended tab's MCP badge; foregrounding it alone does not activate it."
+  '- In Figma, open TemPad Dev panel and enable the MCP server in Preferences → Agent integration. Enabled permits connection; it does not prove that an extension is active.',
+  "- Confirm that the panel header MCP badge is active. If multiple Figma tabs are open, click the intended tab's badge; foregrounding it alone does not activate it.",
+  '- If the badge is missing, shows an error, or reports a protocol mismatch, rebuild the affected runtime layers, reload the installed TemPad Dev browser extension, reload the same Figma tab, and start a fresh task.'
 ]
 
 const SELECTION_TROUBLESHOOTING_LINE = 'Tip: Select exactly one visible node, or pass nodeId.'
@@ -166,7 +166,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'apply_canvas',
     description:
-      'Apply one declarative desired Figma result as a managed layer tree with selected native state, resources, and bindings. Markup serializes ordinary layers as Canvas HTML; typed fields express selected Figma capabilities. Create auto-places the new root; update targets an exact node, matches stable data-key identities, preserves omitted live state, and removes explicit removeKeys. TemPad Dev validates, applies one undoable patch, and verifies the result.',
+      'Create, update, remove, or activate exact Figma pages and managed roots. Markup is optional for page-only operations and native-only updates to existing stable keys inside an exact managed root. Create auto-places a root on the current or exact target page and activates only a newly created page; update preserves omitted live state and topology; remove accepts an exact managed root or page; activate changes editor context without a document mutation. Exact off-current-page writes do not require activation.',
     annotations: CANVAS_WRITE_ANNOTATIONS,
     parameters: ApplyCanvasParametersSchema,
     target: 'extension',
@@ -194,7 +194,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_structure',
     description:
-      "Read a compact hierarchy and geometry outline for an exact node or the current single selection. Every x/y is relative to the node's actual Figma parent, including an outlined root; only page children are page-relative. The outline includes stable keys on TemPad-managed nodes. Set options.native for read-back of masks, IMAGE paint hashes, layout grids, and frame guides; it does not provide rendered pixels or general appearance.",
+      "Read a compact hierarchy and geometry outline for an exact node, exact page id/key, or the current single selection. Every x/y is relative to the node's actual Figma parent; page-query roots are page-relative. The outline includes stable keys on TemPad-managed nodes and exact page context when page identity is supplied. Set options.native for selected native read-back; it does not provide rendered pixels or general appearance.",
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetStructureParametersSchema,
     target: 'extension',
@@ -428,10 +428,6 @@ export function createInlineBudgetExceededToolResponse(
       }
     ]
   }
-}
-
-export function isWithinInlineBudget(result: ToolResponseLike): boolean {
-  return measureCallToolResultBytes(result) <= MCP_TOOL_INLINE_BUDGET_BYTES
 }
 
 function toCallToolResult(result: ToolResponseLike): CallToolResult {

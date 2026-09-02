@@ -5,32 +5,30 @@ established composition; task evidence and suitable expertise determine style.
 
 ## Ground the initial direction
 
-Do not derive a net-new or substantially redesigned composition from prompt
-adjectives, a familiar style label, or model recall alone. Follow
-[style-grounding.md](style-grounding.md) and inspect a small representative set
-of real references before markup. Use that evidence to settle the initial
-visual language, core interaction pattern, and relevant detail or material
-treatment. Translate relationships and principles; do not assemble recognizable
+Do not treat prompt adjectives, a familiar style label, or model recall as a
+complete visual direction. Form the initial direction from the brief, applicable
+project or current-file evidence, situated expertise, and a product-specific
+thesis. When a material visual, interaction, or detail choice remains unresolved,
+follow [style-grounding.md](style-grounding.md) and inspect the smallest real
+reference set that can resolve it. A named style or precedent always requires
+inspection. Translate relationships and principles; do not assemble recognizable
 motifs from the sources.
 
 ## Form a testable thesis
 
-Before markup, resolve one composition-level idea and express it through:
+Before markup, resolve one composition-level idea: identify the primary working
+object or visual anchor and the relationship among content, state, and action
+that organizes the screen. Let document behavior, hierarchy, typography and
+rhythm, surfaces, interaction vocabulary, and assets reinforce that idea. The
+thesis does not need to predeclare every detail.
 
-- one primary hierarchy and visual anchor;
-- the document model: fixed workspace, scrolling page, or explicit viewport
-  states, with content extent and persistent regions derived from behavior;
-- typography roles, density, and spacing rhythm;
-- a coherent surface, edge, shape, and depth grammar;
-- an interaction vocabulary that decides where sourced icons improve
-  recognition, scanning, or compactness and where text remains clearer;
-- the asset treatment required by the content;
-- the relationship between persistent shell and changing screen content.
-
-The thesis must predict visible choices. A style label, palette, effect list, or
-component collection is insufficient. If it would still fit another product
-after renaming the content, it is not specific enough. Revise the anchor or
-composition before markup.
+The thesis must predict visible choices. Challenge the first plausible shell
+before committing to it: mentally hide labels and branding, then ask whether the
+remaining working object, media, state/action relationship, and major-region
+arrangement still express this user's work. If another product can occupy them
+unchanged, revise that load-bearing relationship—not palette, logo, decoration,
+or an anti-trend motif. Keep a familiar shell only when it materially simplifies
+a task-specific dependency among objects, states, evidence, and actions.
 
 ## Compose before containing
 
@@ -45,9 +43,25 @@ real content imagery where it belongs, and few consistent material behaviors.
 Do not use a familiar layout grammar as a fallback; every major region and
 material treatment must follow the task-specific thesis or inspected evidence.
 
-Do not use gradients, lines, blobs, or empty geometric panels as stand-ins for
-photos, products, food, people, places, album art, shared media, or other
-content-bearing subjects. Route those roles through `visual-assets.md`.
+Negative space must separate, focus, stage, or accommodate content. A fixed-size
+container whose children cling to one edge while an unexplained void fills the
+rest is not spacious; size it to its content or deliberately align and distribute
+the content. Repeated edges, baselines, and seams must resolve to one intentional
+grid rather than nearly meeting.
+
+Text, rectangles, flat fills, and rules can form a legitimate visual language,
+but their mere consistency is not a product-specific thesis. If they are the
+only vocabulary, the typography, composition, or central information object must
+still make the product unmistakable after its labels are hidden. Otherwise
+revisit the unresolved visual anchor or its evidence instead of adding arbitrary
+decoration.
+
+The dominant non-textual object must be what it claims. Primitives may encode UI,
+data, status, or an explicitly schematic diagram; they may not impersonate a
+product, place, media item, or other content whose appearance or identity carries
+meaning. Route depiction and first-class visualization roles through
+`visual-assets.md` instead of assembling a plausible-looking proxy from lines,
+blobs, gradients, or empty geometry.
 
 Treat a viewport as an inspection context, not a document boundary. Before
 sizing a root, decide from actual content: author the full vertical extent when
@@ -56,30 +70,31 @@ its intended scroll container. A fixed viewport with incomplete content and no
 explicit scroll region is invalid. Do not shrink, omit, or crowd content to fit
 a familiar screenshot ratio.
 
-Apply the main skill's blocking icon audit while forming the interaction
-vocabulary. Route every selected icon through `visual-assets.md`; use the
-retained trace to test text-only exceptions and consistency.
+Treat an inspected product's interaction economy and material rhythm—the balance
+of text, icons, and media; density; edge and shape treatment; and nested
+insets—as structural evidence, not optional decoration. Before the first write,
+resolve which transferable affordances remain iconographic or media-based, which
+genuinely become text, and how boundaries and insets distinguish unlike roles.
+Independence means re-solving the brief, not smoothing those relationships into
+a generic card language. If actions and regions collapse to the same text-filled
+rounded treatment without task or evidence support, revise the interaction and
+material vocabulary before authoring. Do not copy a source's asset set, counts,
+or motifs; route selected icons through `visual-assets.md`.
 
 ## Test the representative screen
 
 Open the first materially complete screen before expanding the flow. Check:
 
-- the primary action and content are legible without reading every label;
-- page extent, persistent regions, and scroll boundaries match the product
-  behavior rather than the screenshot frame;
-- icon and text choices form a coherent interaction vocabulary and support
-  scanning without decorative or primitive substitutes;
-- the chosen visual anchor belongs to this product rather than a generic
-  dashboard template;
-- container count and decoration follow semantic grouping rather than filling
-  empty space;
-- asset roles use the decided medium rather than convenient primitives;
-- depth and material effects support hierarchy without a noisy outer halo;
-- the reference findings survive as macro composition, media hierarchy,
-  spacing rhythm, material and shape grammar, and interaction or detail
-  treatment—not only as palette, type, borders, or isolated motifs;
-- recurring responsibilities are identifiable before a second consumer is
-  serialized.
+- Without relying on labels and branding, does the working object and its
+  state/action relationship make this feel designed for the product, and is the
+  essential content comfortably legible?
+- Do extent, scrolling, density, spacing, and shared edges behave like the real
+  application rather than a filled screenshot?
+- Are interaction cues and visual mediums truthful and coherent, with no visible
+  crowding, clipping, awkward void, near-miss alignment, or gratuitous effect?
+
+When research informed the direction, confirm that its applicable principle
+shaped the composition or interaction rather than surviving only as a motif.
 
 If only surface motifs survived, revise the thesis before propagation. Otherwise
 correct the thesis or composition now and stop when these relationships are
