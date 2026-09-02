@@ -33,6 +33,8 @@ tree once:
   `span`;
 - trace every `w-full`, `h-full`, and `grow` against its direct parent's axis and
   the element's required dimensions;
+- give a fixed-height grid explicit row tracks when its children should fill or
+  divide that height; omitted rows remain content-sized;
 - count at most 160 elements and 12 levels, and include only assets referenced by
   this call.
 
@@ -149,9 +151,8 @@ For grid use:
 Give manual grid children both row and column starts or neither. Auto-flow uses
 source order without explicit starts. A height-hugging grid cannot use flexible
 or automatic rows; fix either its height or row tracks. Omitting `grid-rows-*`
-creates native automatic content-sized rows. On a fixed-height grid, declare
-row tracks when children should share or fill the available height; increasing
-only the container height does not enlarge automatic rows.
+creates native automatic content-sized rows; increasing only the container
+height does not enlarge them.
 
 For a coherent board larger than one call, first create one fixed parent:
 
