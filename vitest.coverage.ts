@@ -43,7 +43,7 @@ export const EXTENSION_COVERAGE_FILES = [
   'mcp/config.ts',
   'mcp/assets.ts',
   'mcp/bounded-response.ts',
-  'mcp/local-styles.ts',
+  'mcp/local-resources.ts',
   'mcp/runtime.ts',
   'mcp/semantic-tree.ts',
   'mcp/bridge/content.ts',
@@ -103,5 +103,6 @@ export const EXTENSION_COVERAGE_FILES = [
   'mcp/tools/token/cache.ts',
   'mcp/tools/token/indexer.ts',
   'mcp/tools/token/mapping.ts',
-  'mcp/tools/token/index.ts'
+  'mcp/tools/token/index.ts',
+  'mcp/tools/token/value.ts'
 ] as const

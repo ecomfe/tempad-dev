@@ -230,7 +230,7 @@ const FONT_FAMILY_CLASSES = {
   'font-sans': 'Inter',
   'font-serif': 'Noto Serif'
 } as const
-export type PortableFontFamily = 'mono' | 'sans' | 'serif'
+type PortableFontFamily = 'mono' | 'sans' | 'serif'
 const PORTABLE_FONT_STYLE_ALIASES = {
   Inter: {
     ExtraBold: 'Extra Bold',
@@ -336,6 +336,52 @@ export function normalizePortableFontStyle(fontFamily: string, fontStyle: string
 
 function classError(message: string): never {
   throw new Error(message)
+}
+
+const MAX_UNSUPPORTED_CLASS_SCAN = 16
+const UNSUPPORTED_CLASS_MESSAGE = /^Unsupported class "([^"]+)"\.(?: .*)?$/
+const SHRINK_FAMILY_GUIDANCE =
+  'Canvas does not support shrink utilities; remove the class instead of trying another spelling.'
+
+export function unsupportedCanvasClassGuidance(tokens: Iterable<string>): string | null {
+  for (const token of tokens) {
+    if (/^shrink(?:-|$)/.test(token)) return SHRINK_FAMILY_GUIDANCE
+  }
+  return null
+}
+
+export function findUnsupportedCanvasClasses(
+  value: string,
+  limit = MAX_UNSUPPORTED_CLASS_SCAN
+): { classes: string[]; truncated: boolean } {
+  let remaining = value.trim() ? value.trim().split(/\s+/) : []
+  const classes: string[] = []
+
+  while (remaining.length && classes.length < limit) {
+    try {
+      parseCanvasClasses(remaining.join(' '))
+      return { classes, truncated: false }
+    } catch (error) {
+      const match = error instanceof Error ? UNSUPPORTED_CLASS_MESSAGE.exec(error.message) : null
+      const token = match?.[1]
+      if (!token || classes.includes(token) || !remaining.includes(token)) {
+        return { classes, truncated: false }
+      }
+      classes.push(token)
+      remaining = remaining.filter((candidate) => candidate !== token)
+    }
+  }
+
+  if (!remaining.length) return { classes, truncated: false }
+  try {
+    parseCanvasClasses(remaining.join(' '))
+    return { classes, truncated: false }
+  } catch (error) {
+    return {
+      classes,
+      truncated: error instanceof Error && UNSUPPORTED_CLASS_MESSAGE.test(error.message)
+    }
+  }
 }
 
 function finiteNumber(
@@ -801,11 +847,12 @@ export function parseCanvasClasses(value: string): CanvasClasses {
         | 'maxWidth'
         | 'minHeight'
         | 'minWidth'
-      const value =
+      let value =
         boundedSize[3] === 'none' ? null : fixedSize(boundedSize[3]!, token, boundedSize[2] === 'w')
       if (value === null && boundedSize[3] !== 'none') {
         classError(`Unsupported class "${token}".`)
       }
+      if (boundedSize[1] === 'min' && value === 0) value = null
       assign(classes, field, value, token)
       continue
     }
@@ -1137,6 +1184,8 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       }
     }
 
+    const guidance = unsupportedCanvasClassGuidance([token])
+    if (guidance) classError(`Unsupported class "${token}". ${guidance}`)
     classError(`Unsupported class "${token}".`)
   }
   if (gradientDirectionToken || gradientFromToken || gradientViaToken || gradientToToken) {

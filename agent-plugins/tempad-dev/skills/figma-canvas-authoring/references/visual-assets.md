@@ -5,6 +5,12 @@ illustrations, diagrams, or vector art. It governs role, source integrity,
 editability, and Canvas-compatible delivery—not product need or final visual
 choice. After selection, use the routed font, paint, media, or SVG mechanics.
 
+Generated screen concepts used to resolve an open composition follow
+`style-grounding.md`; they are not deliverable assets. Never import such a
+concept as the flattened Figma screen or treat it as product evidence. When a
+depicted subject from that exploration becomes part of the result, establish its
+asset role independently and satisfy the acquisition and delivery rules below.
+
 Start from the composition, not an assumed asset slot or available tools.
 Typography, layout, color, negative space, or existing media may already satisfy
 the brief. Add a visual only for an evidenced job: depicting content, signaling
@@ -21,13 +27,13 @@ Convenience never changes the medium.
 
 Treat a content-bearing visualization—such as a chart, map, waveform, notation,
 document or media preview, or domain instrument—as a first-class
-representation. Preserve its recognizable structure, information density, and
-task role. It is sufficient only when it retains the context needed for the
-decisions it supports; labels or decorative marks cannot promote a simplified
-proxy into that representation. Element limits or easy primitives do not
-justify reduction: split the work or choose an evidence-supported native,
-vector, or raster base, keeping changing overlays editable. When only topology
-or sequence is intended, name and design it as a diagram.
+representation. Before serialization, identify the user decision and the visual
+structures that make it possible. Preserve those structures with enough context
+and density to act; a stylized trace or labeled decoration is not the
+representation. If editable primitives cannot carry them, use an
+evidence-supported native, vector, or raster base with changing overlays
+editable, or disclose the gap. Element limits do not justify a proxy. When only
+topology or sequence is intended, name and design it as a diagram.
 
 When recognition depends on the subject's real appearance—such as a person,
 product, food, place, room, photograph, cover, or shared-media preview—treat a
@@ -75,8 +81,11 @@ source. Omit an optional icon when no faithful source exists. Simple geometry
 remains valid only when it is itself the intended status/data mark, divider,
 decoration, or brand shape.
 
-Verify fetched SVG content rather than trusting its URL or filename. This Direct
-example demonstrates syntax, not design defaults:
+For an external family, search results and snippets identify candidates only;
+they establish neither icon geometry nor license. Before markup, open the
+governing license once and fetch or open every exact SVG used. If either remains
+uninspected, treat the icon as unsourced and block the call. This Direct example
+demonstrates syntax, not design defaults:
 
 ```json
 {
@@ -133,10 +142,11 @@ recoverable source; a search result, accessible URL, CDN host, or lack of a
 watermark does not establish permission. Confirm Canvas delivery before layout
 depends on the asset.
 
-Do not fall back from established raster media to primitives or SVG. Source or
-generate it, use an explicit neutral placeholder only when outcome is unchanged,
-or disclose the gap. Preserve exact vector art when vector is the real medium.
-For several distinct assets, verify the route preserves content distinctions.
+When the brief or inspected evidence establishes depiction as part of a record,
+keep it. Text, category icons, generic placeholders, and numbered markers may
+index the record, but cannot replace its visual content. Source or generate an
+established raster role, preserve exact vector art when vector is the real
+medium, or disclose the gap.
 
 Keep only enough trace to recover material choices, the remote source and its
 applicable terms, or content distinctions. Combine role, evidence, medium,
@@ -148,19 +158,14 @@ route and terms may share a trace.
 When medium is unspecified, use nearest visual evidence or ask if the choice is
 material; otherwise state a low-consequence assumption.
 
-Use generation when the decided role requires a bespoke subject, identity,
-composition, or treatment that a supplied or rights-established source cannot
-satisfy. Only a named content, fidelity, rights, or import requirement can show
-that sourcing is inadequate; a missing supplied asset, mood/style adjective, or
-desire for visual consistency cannot. For an ordinary real-world subject likely
-available as reusable stock or CC0 media, inspect a bounded reusable-asset
-search—not only visual-reference results—and name the unmet role requirement
-before generating. A visual-reference search is not a reusable-asset search.
-Do not load or call a generator until the trace maps every planned generated
-asset—not merely the batch—to its role, subject, medium, and unmet source
-requirement. Skip the source search only when the brief requires an unlikely
-combination or sourcing cannot preserve the role. If a source satisfies the
-role, use it; do not generate an alternative by default.
+Use generation when the decided role needs a bespoke or fictional subject,
+identity, composition, or treatment. In a prototype, a coherent generated set
+may be the nearest truthful source for distinct fictional records; do not require
+a stock search merely because each subject is ordinary. For a real named subject
+or supplied identity, use the supplied or rights-established source and do not
+generate a substitute. Before generation, map each planned asset to the subject
+and consumer it serves; skip ceremony that does not protect fidelity, rights, or
+import.
 Compose generation and Hub import in one programmatic execution so image bytes
 never enter prose or expire between calls: pass the generator's `data:` URL
 directly to TemPad's `upload_asset`, read its returned `assetHash`, then declare
@@ -193,13 +198,17 @@ When the medium must remain a real image, verify with `get_structure` and
 Figma hash. Input URLs, successful mutation, and visually similar screenshots
 are not native read-back.
 
-The main agent owns placement, crop, and final verification. Before markup, map
-each content-bearing image consumer to the subject it claims to depict. Reuse
-one asset and crop only when consumers represent that same subject; distinct
-records require distinct assets or crops that visibly isolate the correct
-subject. A composite scene may serve the composition it depicts, but cannot
-stand in for several named records. Stop and source or generate missing media
-instead of serializing a false mapping.
+The main agent owns placement, crop, and final verification. In a comparison,
+make visual differences represent the subjects rather than their source files:
+normalize incidental canvas padding, crop, background, viewpoint, and apparent
+scale when they would bias the decision; preserve and explain differences that
+are real or cannot be normalized faithfully. Before markup, map each
+content-bearing image consumer to the subject it claims to depict. Reuse one
+asset and crop only when consumers represent that same subject; distinct records
+require distinct assets or crops that visibly isolate the correct subject. A
+composite scene may serve the composition it depicts, but cannot stand in for
+several named records. Stop and source or generate missing media instead of
+serializing a false mapping.
 
 When a gallery, carousel, or thumbnail set promises several views of one
 subject, every retained view must add distinct, truthful visual information.

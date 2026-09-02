@@ -68,12 +68,21 @@ and asset work can legitimately exceed the 15-second general tool deadline on la
 - When `resolveTokens` is true, resolve per-node (mode-aware) before final render.
 - The resolve rerender applies to both collected node styles and themeable vector-placeholder root presentation styles so emitted vector color evidence stays in sync with token resolution.
 
-11. **Enforce budget and finalize output**
+11. **Build unresolved-literal diagnostics**
+
+- For unresolved-token full responses, inspect the canonicalized collected style map for repeated
+  unbound literal colors across at least two concrete nodes.
+- Normalize supported hex and rgb/rgba forms, retain bounded node/property evidence, and omit
+  variable references, non-color values, single-node repeats, resolved-token calls, and shells.
+- Treat equal literals as a classification lead only; the tool does not decide semantic ownership.
+
+12. **Enforce budget and finalize output**
     - Validate output size using a shared `CallToolResult` UTF-8 byte budget (`64 KiB` by default).
     - If over budget, prefer a shell response for the current node.
     - Overflow not proven by the preflight remains correctness-first and reuses the already-collected
       tree/style context instead of rerunning the request.
-    - Emit lightweight `type + message` warnings for inferred auto layout, depth-cap, and shell guidance.
+    - Emit lightweight `type + message` warnings for inferred auto layout, depth-cap, repeated
+      unbound color evidence, and shell guidance.
     - If tree depth was capped, include a `depth-cap` warning that tells agents to continue with narrower `get_code` calls using returned `data-hint-id` values.
     - If a shell response is returned, list omitted direct child ids in an inline comment in render order and emit a `shell` warning that points agents to that comment.
 

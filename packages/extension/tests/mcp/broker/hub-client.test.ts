@@ -1,4 +1,4 @@
-import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION } from '@tempad-dev/shared'
+import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION, type RuntimeHelloMessage } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { McpHubClient } from '@/mcp/broker/hub-client'
@@ -79,13 +79,18 @@ function completeHandshake(socket: FakeWebSocket, activeId: string | null = null
 
 function createClient(
   sockets: FakeWebSocket[],
-  events: ConstructorParameters<typeof McpHubClient>[0] = {}
+  events: ConstructorParameters<typeof McpHubClient>[0] = {},
+  runtimeIdentity: RuntimeHelloMessage | null = null
 ): McpHubClient {
-  return new McpHubClient(events, (url) => {
-    const socket = new FakeWebSocket(url)
-    sockets.push(socket)
-    return socket as unknown as WebSocket
-  })
+  return new McpHubClient(
+    events,
+    (url) => {
+      const socket = new FakeWebSocket(url)
+      sockets.push(socket)
+      return socket as unknown as WebSocket
+    },
+    runtimeIdentity
+  )
 }
 
 function installHubProbe(isReachable: (port: number) => boolean = () => true): void {
@@ -106,6 +111,26 @@ afterEach(() => {
 })
 
 describe('mcp/broker/hub-client', () => {
+  it('publishes extension runtime identity before declaring the handshake connected', async () => {
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const runtimeIdentity = {
+      type: 'runtimeHello' as const,
+      extensionVersion: '0.21.0',
+      extensionRuntimeFingerprint: 'a'.repeat(64)
+    }
+    const client = createClient(sockets, {}, runtimeIdentity)
+
+    client.start()
+    await flushMicrotasks()
+    completeHandshake(sockets[0]!)
+    await flushMicrotasks()
+
+    expect(sockets[0]?.sent.map((message) => JSON.parse(message))).toContainEqual(runtimeIdentity)
+    expect(client.getSnapshot().status).toBe('connected')
+  })
+
   it('tries candidate ports in order and reuses the last successful port first', async () => {
     const sockets: FakeWebSocket[] = []
     const snapshots: Array<ReturnType<McpHubClient['getSnapshot']>> = []

@@ -1,5 +1,6 @@
 import {
   type ApplyCanvasResult,
+  type CanvasBinding,
   type CanvasDesignReference,
   type CanvasFigmaComponentPropertyDefinition,
   type CanvasFigmaEffect,
@@ -11,6 +12,7 @@ import {
   type CanvasFigmaVectorNetwork,
   type CanvasHyperlink,
   type CanvasPageProperties,
+  type CanvasPageSnapshot,
   type CanvasStyleBindings,
   type CanvasStyleReference,
   type CanvasStyleResource,
@@ -27,8 +29,11 @@ import type {
   CanvasGridTrack,
   CanvasNodeTypeHints,
   CanvasNodeSpec,
+  CanvasSizingMode,
   CanvasPreservedNodeType,
   ParsedCanvasInput,
+  ParsedCanvasNativeUpdateInput,
+  ParsedCanvasPageInput,
   ParsedCanvasTreeInput
 } from './model'
 
@@ -36,6 +41,7 @@ import { readBoundedResponseBytes } from '../../bounded-response'
 import { createCodedError } from '../../errors'
 import { retryAfterFigmaConnectionTimeout } from '../../figma-readiness'
 import {
+  getContainingPage,
   getCurrentContextNodeById,
   getLocalEffectStyles,
   getLocalPaintStyles,
@@ -58,6 +64,9 @@ import {
   type MutationCounter,
   claimNodeKey,
   designReferenceCacheKey,
+  pageById,
+  pageSnapshot,
+  pagesByKey,
   readOwnedNodeKey
 } from './identity'
 import {
@@ -167,6 +176,7 @@ type ApplyState = {
   componentCache: Map<string, ComponentNode>
   componentPropertyKeys: Map<string, Record<string, string>>
   createdNodeIds: Set<string>
+  createdPageIds: Set<string>
   desiredKeys: Set<string>
   explicitNodes: Map<string, SupportedCanvasNode | null>
   fontLoads: Map<string, Promise<void>>
@@ -176,6 +186,7 @@ type ApplyState = {
   keyedNodes: Map<string, SupportedCanvasNode>
   mutations: MutationCounter
   nodeIdsByKey: Record<string, string>
+  pendingGridRemovalCleanupNodeIds: Set<string>
   protectedNodes: Map<string, ProtectedNodeSnapshot | null>
   removalNodeIds: Set<string>
   referencedNodeIds: Set<string>
@@ -301,35 +312,22 @@ function assertOutsideInstance(node: BaseNode): void {
 }
 
 function containingPage(node: BaseNode): PageNode {
-  let current: BaseNode | null = node
-  while (current) {
-    if (current.type === 'PAGE') return current
-    current = current.parent
-  }
+  const page = getContainingPage(node)
+  if (page) return page
   scopeError(`Node "${node.id}" is not attached to a page.`)
 }
 
-function pageById(id: string): PageNode | undefined {
-  return figma.root.children.find((page) => page.id === id)
-}
-
 function pageByKey(key: string): PageNode | undefined {
-  let match: PageNode | undefined
-  for (const page of figma.root.children) {
-    if (page.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_PAGE_KEY_NAME) !== key) {
-      continue
-    }
-    if (match) specError(`Page key "${key}" identifies more than one local page.`)
-    match = page
-  }
-  return match
+  const matches = pagesByKey(key)
+  if (matches.length > 1) specError(`Page key "${key}" identifies more than one local page.`)
+  return matches[0]
 }
 
 async function resolveResultPage(
   properties: CanvasPageProperties | undefined,
   target: SupportedCanvasNode | null,
   state: ApplyState
-): Promise<PageNode> {
+): Promise<{ created: boolean; page: PageNode }> {
   const containing = target ? containingPage(target) : figma.currentPage
   const id = properties?.id
   const key = properties?.pageKey
@@ -358,6 +356,7 @@ async function resolveResultPage(
   }
   if (createsPage) {
     page = figma.createPage()
+    state.createdPageIds.add(page.id)
     state.mutations.count += 1
   }
   page ??= containing
@@ -372,7 +371,7 @@ async function resolveResultPage(
     page.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_PAGE_KEY_NAME, key)
     markMutation(state, page)
   }
-  return page
+  return { created: createsPage, page }
 }
 
 function collectKeyedNodes(scope: SupportedCanvasNode): Map<string, SupportedCanvasNode> {
@@ -2395,9 +2394,9 @@ function layoutStrokeWeight(
       : 0
 }
 
-function includedLayoutStroke(
+function includedLayoutEdgeStroke(
   node: CanvasFrameContainerNode,
-  axis: 'horizontal' | 'vertical'
+  field: 'strokeBottomWeight' | 'strokeLeftWeight' | 'strokeRightWeight' | 'strokeTopWeight'
 ): number {
   if (
     !node.strokesIncludedInLayout ||
@@ -2407,9 +2406,18 @@ function includedLayoutStroke(
   ) {
     return 0
   }
+  return layoutStrokeWeight(node, field)
+}
+
+function includedLayoutStroke(
+  node: CanvasFrameContainerNode,
+  axis: 'horizontal' | 'vertical'
+): number {
   return axis === 'horizontal'
-    ? layoutStrokeWeight(node, 'strokeLeftWeight') + layoutStrokeWeight(node, 'strokeRightWeight')
-    : layoutStrokeWeight(node, 'strokeTopWeight') + layoutStrokeWeight(node, 'strokeBottomWeight')
+    ? includedLayoutEdgeStroke(node, 'strokeLeftWeight') +
+        includedLayoutEdgeStroke(node, 'strokeRightWeight')
+    : includedLayoutEdgeStroke(node, 'strokeTopWeight') +
+        includedLayoutEdgeStroke(node, 'strokeBottomWeight')
 }
 
 function crossAxisFill(
@@ -4884,9 +4892,11 @@ async function applyNodeProperties(
   stabilizeGrowingTextWidth(node, parent, state)
 }
 
-function collectSvgColors(root: CanvasNodeSpec): Map<string, Set<string | undefined>> {
+function collectSvgColorsFromSpecs(
+  specs: Iterable<CanvasNodeSpec>
+): Map<string, Set<string | undefined>> {
   const colors = new Map<string, Set<string | undefined>>()
-  for (const spec of walkSpecs(root)) {
+  for (const spec of specs) {
     const svg = spec.figma?.svg
     if (svg) {
       const values = colors.get(svg.assetKey) ?? new Set<string | undefined>()
@@ -4895,6 +4905,10 @@ function collectSvgColors(root: CanvasNodeSpec): Map<string, Set<string | undefi
     }
   }
   return colors
+}
+
+function collectSvgColors(root: CanvasNodeSpec): Map<string, Set<string | undefined>> {
+  return collectSvgColorsFromSpecs(walkSpecs(root))
 }
 
 async function applyCanvasKeyReferences(
@@ -5056,6 +5070,18 @@ function setGridChildPosition(
   markMutation(state, node)
 }
 
+function gridAreasOverlap(
+  left: { column: number; columnSpan: number; row: number; rowSpan: number },
+  right: { column: number; columnSpan: number; row: number; rowSpan: number }
+): boolean {
+  return (
+    left.row < right.row + right.rowSpan &&
+    left.row + left.rowSpan > right.row &&
+    left.column < right.column + right.columnSpan &&
+    left.column + left.columnSpan > right.column
+  )
+}
+
 type ReconciledGridChild = {
   node: GridChildNode
   spec: CanvasNodeSpec
@@ -5083,7 +5109,8 @@ function finalizeManualGrid(
   node: CanvasFrameContainerNode,
   layout: CanvasGridLayout,
   children: ReconciledGridChild[],
-  state: ApplyState
+  state: ApplyState,
+  forceFinalRowCount = false
 ): void {
   const autoRows = layout.autoRows ?? (layout.rows === undefined && node.gridAutoTracks === 'ROWS')
   const rowCount =
@@ -5108,7 +5135,33 @@ function finalizeManualGrid(
       child.gridColumnSpan !== grid.columnSpan
     )
   })
-  if (moving.length) {
+  const desiredAreas = children.map(({ spec }) => {
+    const grid = spec.gridChild!
+    return {
+      column: grid.column!,
+      columnSpan: grid.columnSpan,
+      row: grid.row!,
+      rowSpan: grid.rowSpan
+    }
+  })
+  const removalBlockers = node.children.filter((child): child is GridChildNode => {
+    if (
+      !state.removalNodeIds.has(child.id) ||
+      !isSupportedSceneNode(child) ||
+      child.type === 'SECTION'
+    ) {
+      return false
+    }
+    const liveArea = {
+      column: child.gridColumnAnchorIndex,
+      columnSpan: child.gridColumnSpan,
+      row: child.gridRowAnchorIndex,
+      rowSpan: child.gridRowSpan
+    }
+    return desiredAreas.some((area) => gridAreasOverlap(liveArea, area))
+  })
+  const staging = [...moving.map(({ node: child }) => child), ...removalBlockers]
+  if (staging.length) {
     setValue(
       node,
       node.gridAutoTracks,
@@ -5120,14 +5173,15 @@ function finalizeManualGrid(
     setValue(
       node,
       node.gridRowCount,
-      stagingStart + moving.length,
+      stagingStart + staging.length,
       (value) => (node.gridRowCount = value),
       state
     )
-    for (const [index, { node: child }] of moving.entries()) {
+    for (const [index, child] of staging.entries()) {
       setGridChildSpans(child, 1, 1, state)
       setGridChildPosition(child, stagingStart + index, 0, state)
     }
+    if (removalBlockers.length) state.pendingGridRemovalCleanupNodeIds.add(node.id)
   }
 
   for (const { node: child, spec } of moving) {
@@ -5144,7 +5198,7 @@ function finalizeManualGrid(
     (value) => (node.gridColumnCount = value),
     state
   )
-  if (!autoRows || moving.length) {
+  if (!autoRows || moving.length || forceFinalRowCount) {
     const finalRowCount = autoRows ? extent.rows : Math.max(rowCount, extent.rows)
     setValue(node, node.gridRowCount, finalRowCount, (value) => (node.gridRowCount = value), state)
   }
@@ -5221,7 +5275,8 @@ function finalizeGrid(
   node: CanvasFrameContainerNode,
   spec: CanvasNodeSpec,
   children: ReconciledChild[],
-  state: ApplyState
+  state: ApplyState,
+  forceFinalRowCount = false
 ): void {
   const layout = spec.layout
   if (layout?.mode !== 'GRID') return
@@ -5234,12 +5289,39 @@ function finalizeGrid(
       return { ...child, node: child.node }
     })
   if ((layout.itemsPositioning ?? node.gridItemsPositioning) === 'MANUAL') {
-    finalizeManualGrid(node, layout, gridChildren, state)
+    finalizeManualGrid(node, layout, gridChildren, state, forceFinalRowCount)
   } else {
     finalizeFlowGrid(node, layout, gridChildren, state)
   }
   for (const child of gridChildren) {
     applyGridChildAlignment(child.node, child.spec, state)
+    // Figma can reset a grid child's sizing modes while changing its cell or span.
+    applySizingModes(child.node, child.spec, node, state)
+  }
+}
+
+function finalizeGridsAfterRemovals(rootSpec: CanvasNodeSpec, state: ApplyState): void {
+  if (!state.pendingGridRemovalCleanupNodeIds.size) return
+  for (const spec of walkSpecs(rootSpec)) {
+    const node = state.keyedNodes.get(spec.key)
+    if (
+      !node ||
+      !isFrameContainer(node) ||
+      !state.pendingGridRemovalCleanupNodeIds.delete(node.id)
+    ) {
+      continue
+    }
+    const children = (spec.children ?? []).map((childSpec) => {
+      const child = state.keyedNodes.get(childSpec.key)
+      if (!child || child.removed) {
+        specError(`Desired grid child "${childSpec.key}" was unavailable after node removal.`)
+      }
+      return { node: child, spec: childSpec }
+    })
+    finalizeGrid(node, spec, children, state, true)
+  }
+  if (state.pendingGridRemovalCleanupNodeIds.size) {
+    specError('A grid staged for node removal was unavailable for final layout cleanup.')
   }
 }
 
@@ -5532,6 +5614,7 @@ function createApplyState(
     componentCache: new Map(),
     componentPropertyKeys: new Map(),
     createdNodeIds: new Set(),
+    createdPageIds: new Set(),
     desiredKeys,
     explicitNodes: new Map(),
     fontLoads: new Map(),
@@ -5541,6 +5624,7 @@ function createApplyState(
     keyedNodes: target ? collectKeyedNodes(target) : new Map(),
     mutations: { count: 0 },
     nodeIdsByKey: Object.create(null) as Record<string, string>,
+    pendingGridRemovalCleanupNodeIds: new Set(),
     protectedNodes: new Map(),
     removalNodeIds: new Set(),
     referencedNodeIds: new Set(),
@@ -5584,16 +5668,14 @@ function collectKeyReferences(value: unknown, field: string, references: Set<str
   for (const nested of Object.values(value)) collectKeyReferences(nested, field, references)
 }
 
-function desiredKeyReferences(input: ParsedCanvasTreeInput, field: string): Set<string> {
+function desiredKeyReferences(values: unknown[], field: string): Set<string> {
   const references = new Set<string>()
-  for (const value of [input.root, input.styles, input.variableCollections, input.page]) {
-    collectKeyReferences(value, field, references)
-  }
+  for (const value of values) collectKeyReferences(value, field, references)
   return references
 }
 
 function unboundCreatedResourceWarnings(
-  input: ParsedCanvasTreeInput,
+  desiredValues: unknown[],
   state: ApplyState
 ): VerificationWarning[] {
   return [
@@ -5613,7 +5695,7 @@ function unboundCreatedResourceWarnings(
     }
   ].flatMap(({ code, consumer, keys, referenceField, resource }) => {
     if (!keys.size) return []
-    const references = desiredKeyReferences(input, referenceField)
+    const references = desiredKeyReferences(desiredValues, referenceField)
     return [...keys]
       .filter((key) => !references.has(key))
       .map((key) => ({
@@ -5772,9 +5854,12 @@ function formatFallback(value: unknown): string {
   return `#${bytes.slice(0, channels.a === 1 ? 3 : 4).join('')}`
 }
 
-function authoredVariableFallbackWarnings(input: ParsedCanvasTreeInput): VerificationWarning[] {
+function authoredVariableFallbackWarnings(
+  specs: Iterable<CanvasNodeSpec>,
+  variableCollections: ParsedCanvasTreeInput['variableCollections']
+): VerificationWarning[] {
   const authoredValues = new Map<string, unknown[]>()
-  for (const collection of Object.values(input.variableCollections ?? {})) {
+  for (const collection of Object.values(variableCollections ?? {})) {
     if (!collection) continue
     for (const [key, variable] of Object.entries(collection.variables ?? {})) {
       const values = Object.values(variable?.values ?? {})
@@ -5793,7 +5878,7 @@ function authoredVariableFallbackWarnings(input: ParsedCanvasTreeInput): Verific
   }
 
   const warnings: VerificationWarning[] = []
-  for (const spec of walkSpecs(input.root)) {
+  for (const spec of specs) {
     for (const [field, reference] of Object.entries(spec.variables ?? {}) as Array<
       [keyof CanvasVariableBindings, CanvasVariableReference | null]
     >) {
@@ -5917,14 +6002,26 @@ function contentOverflow(
   const parentBounds = finiteRect(
     'absoluteBoundingBox' in parent ? parent.absoluteBoundingBox : null
   )
-  const childBounds = finiteRect(
-    node.type === 'TEXT' && 'absoluteRenderBounds' in node
-      ? node.absoluteRenderBounds
-      : 'absoluteBoundingBox' in node
-        ? node.absoluteBoundingBox
-        : null
-  )
-  if (parentBounds && childBounds) return overflowFromRects(childBounds, parentBounds)
+  const childBounds = [
+    node.type === 'TEXT' && 'absoluteRenderBounds' in node ? node.absoluteRenderBounds : null,
+    'absoluteBoundingBox' in node ? node.absoluteBoundingBox : null
+  ].map(finiteRect)
+  if (parentBounds && childBounds.some(Boolean)) {
+    const overflow: ContentOverflow = { bottom: 0, left: 0, right: 0, top: 0 }
+    for (const bounds of childBounds) {
+      if (!bounds) continue
+      const current = overflowFromRects(bounds, parentBounds)
+      if (!current) continue
+      overflow.bottom = Math.max(overflow.bottom, current.bottom)
+      overflow.left = Math.max(overflow.left, current.left)
+      overflow.right = Math.max(overflow.right, current.right)
+      overflow.top = Math.max(overflow.top, current.top)
+    }
+    return Math.max(overflow.top, overflow.right, overflow.bottom, overflow.left) >
+      CONTENT_OVERFLOW_TOLERANCE
+      ? overflow
+      : null
+  }
   if (parent.layoutMode !== 'NONE') return null
   const local = localNodeBounds(node)
   return local
@@ -5986,9 +6083,13 @@ function managedContentOverflowWarnings(
   const warnings: VerificationWarning[] = []
   for (const spec of walkSpecs(root)) {
     const node = state.keyedNodes.get(spec.key)
-    if (!node || (node.type !== 'TEXT' && node.type !== 'INSTANCE')) continue
+    if (!node) continue
     const parent = node.parent
     if (!parent || !isSupportedSceneNode(parent) || !isFrameContainer(parent)) continue
+    const isFlowChild =
+      parent.layoutMode !== 'NONE' &&
+      (!('layoutPositioning' in node) || node.layoutPositioning !== 'ABSOLUTE')
+    if (node.type !== 'TEXT' && node.type !== 'INSTANCE' && !isFlowChild) continue
     const parentKey = readOwnedNodeKey(parent)
     if (!parentKey) continue
     const overflow = contentOverflow(node, parent)
@@ -6011,6 +6112,80 @@ function managedContentOverflowWarnings(
   return warnings
 }
 
+function includedLayoutTrailingStroke(node: CanvasFrameContainerNode): number {
+  return includedLayoutEdgeStroke(
+    node,
+    node.layoutMode === 'HORIZONTAL' ? 'strokeRightWeight' : 'strokeBottomWeight'
+  )
+}
+
+function formatGeometry(value: number): string {
+  return `${Math.round(value * 10) / 10}px`
+}
+
+function managedAutoLayoutInsetWarnings(
+  root: CanvasNodeSpec,
+  state: ApplyState
+): VerificationWarning[] {
+  const warnings: VerificationWarning[] = []
+  for (const spec of walkSpecs(root)) {
+    const node = state.keyedNodes.get(spec.key)
+    if (
+      !node ||
+      !isFrameContainer(node) ||
+      (node.layoutMode !== 'HORIZONTAL' && node.layoutMode !== 'VERTICAL') ||
+      node.primaryAxisSizingMode === 'AUTO' ||
+      node.primaryAxisAlignItems !== 'MIN' ||
+      node.layoutWrap !== 'NO_WRAP' ||
+      (node.layoutMode === 'HORIZONTAL'
+        ? spec.size.horizontal !== 'FIXED'
+        : spec.size.vertical !== 'FIXED') ||
+      Math.abs(node.rotation) > GEOMETRY_TOLERANCE
+    ) {
+      continue
+    }
+    const children = node.children.filter(
+      (child) =>
+        child.visible !== false &&
+        (!('layoutPositioning' in child) || child.layoutPositioning !== 'ABSOLUTE')
+    )
+    if (
+      !children.length ||
+      children.some(
+        (child) =>
+          ('layoutGrow' in child && child.layoutGrow > 0) ||
+          ('rotation' in child && Math.abs(child.rotation) > GEOMETRY_TOLERANCE)
+      )
+    ) {
+      continue
+    }
+    const bounds = finiteRect(node.absoluteBoundingBox)
+    const childBounds = children.map((child) => finiteRect(child.absoluteBoundingBox))
+    if (!bounds || childBounds.some((child) => !child)) continue
+    const horizontal = node.layoutMode === 'HORIZONTAL'
+    const childEnd = Math.max(
+      ...childBounds.map((child) =>
+        horizontal ? child!.x + child!.width : child!.y + child!.height
+      )
+    )
+    const actual = (horizontal ? bounds.x + bounds.width : bounds.y + bounds.height) - childEnd
+    const padding = horizontal ? node.paddingRight : node.paddingBottom
+    const expected = padding + includedLayoutTrailingStroke(node)
+    if (Math.abs(actual - expected) <= CONTENT_OVERFLOW_TOLERANCE) continue
+    const side = horizontal ? 'right' : 'bottom'
+    const diagnosis =
+      actual > expected
+        ? `The fixed start-aligned main axis leaves ${formatGeometry(actual - expected)} of unmodeled trailing space.`
+        : `Resolved content consumes ${formatGeometry(expected - actual)} of the intended trailing inset.`
+    warnings.push({
+      code: 'managed-auto-layout-inset-mismatch',
+      key: spec.key,
+      message: `"${spec.key}" resolves to a ${formatGeometry(actual)} ${side} inset after its last in-flow child, while its padding and included inside stroke account for ${formatGeometry(expected)}. ${diagnosis} Use a hugging main axis or resize after content resolves; if the empty space is intentional, express it with main-axis alignment or a growing spacer.`
+    })
+  }
+  return warnings
+}
+
 function removedRootResult(
   rootNodeId: string,
   removedNodeIds: string[] = [],
@@ -6026,6 +6201,18 @@ function removedRootResult(
     mutationCount: state?.mutations.count ?? 0,
     verification: buildVerification()
   }
+}
+
+function pageApplyResult(page: CanvasPageSnapshot, state: ApplyState): ApplyCanvasResult {
+  return boundedApplyResult({
+    nodeIdsByKey: state.nodeIdsByKey,
+    createdNodeIds: [...state.createdNodeIds],
+    updatedNodeIds: [...state.updatedNodeIds],
+    removedNodeIds: [],
+    page,
+    mutationCount: state.mutations.count,
+    verification: buildVerification()
+  })
 }
 
 function boundedApplyResult(result: ApplyCanvasResult): ApplyCanvasResult {
@@ -6471,7 +6658,26 @@ async function removeRollbackCreatedNodes(state: ApplyState): Promise<void> {
   )
 }
 
+async function removeRollbackCreatedPages(
+  state: ApplyState,
+  previousPage: PageNode
+): Promise<void> {
+  const created = figma.root.children.filter((page) => state.createdPageIds.has(page.id))
+  if (state.createdPageIds.has(figma.currentPage.id) && !previousPage.removed) {
+    await figma.setCurrentPageAsync(previousPage)
+  }
+  if (!created.length) return
+  for (const page of created) {
+    if (!page.removed) page.remove()
+  }
+  const remaining = figma.root.children.filter((page) => state.createdPageIds.has(page.id))
+  if (remaining.length) {
+    throw new Error(`Rollback did not remove created page ${remaining[0]!.id}`)
+  }
+}
+
 async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): Promise<T> {
+  const previousPage = figma.currentPage
   try {
     if (state.scope) protectUnrelatedPageRoots(state, containingPage(state.scope))
     figma.commitUndo()
@@ -6490,6 +6696,7 @@ async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): 
         // newly created nodes that remain visible after the undo so a failed apply cannot leave
         // partial component or screen roots behind in a long-lived MCP session.
         await removeRollbackCreatedNodes(state)
+        await removeRollbackCreatedPages(state, previousPage)
         await verifyRollbackProtectedNodes(state)
       } catch (rollbackError) {
         if (readOnly) throw readOnly
@@ -6504,6 +6711,177 @@ async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): 
     if (readOnly) throw readOnly
     throw error
   }
+}
+
+async function resolveExactPage(properties: CanvasPageProperties): Promise<PageNode> {
+  const explicit = properties.id ? pageById(properties.id) : undefined
+  if (properties.id && !explicit) specError(`Page "${properties.id}" does not exist.`)
+  const keyed = properties.pageKey ? pageByKey(properties.pageKey) : undefined
+  if (properties.pageKey && !keyed) {
+    specError(`Page key "${properties.pageKey}" does not identify a local page.`)
+  }
+  if (explicit && keyed && explicit.id !== keyed.id) {
+    specError(`Page key "${properties.pageKey}" does not identify "${explicit.id}".`)
+  }
+  const page = explicit ?? keyed
+  if (!page) specError('An exact page id or pageKey is required.')
+  if (page.id !== figma.currentPage.id) await page.loadAsync()
+  return page
+}
+
+async function resolvePageSelection(page: PageNode, ids: string[]): Promise<SceneNode[]> {
+  const nodes: SceneNode[] = []
+  const seen = new Set<string>()
+  for (const id of ids) {
+    if (seen.has(id)) specError(`Selection node "${id}" is duplicated.`)
+    seen.add(id)
+    const node = await lookupNodeById(id)
+    if (!isSceneNode(node) || node.removed || !node.visible) {
+      scopeError(`Selection node "${id}" does not exist, is hidden, or is not a scene node.`)
+    }
+    if (containingPage(node).id !== page.id) {
+      scopeError(`Selection node "${id}" does not belong to page "${page.id}".`)
+    }
+    nodes.push(node)
+  }
+  return nodes
+}
+
+function collectPageRemovalRoots(page: PageNode, state: ApplyState): SupportedCanvasNode[] {
+  const roots: SupportedCanvasNode[] = []
+  for (const child of page.children) {
+    if (!isSupportedSceneNode(child)) {
+      scopeError(`Page "${page.id}" contains an unsupported canvas root.`)
+    }
+    roots.push(child)
+    for (const node of walkAuthoringNodes([child])) {
+      if (!isSupportedSceneNode(node)) {
+        scopeError(`Page "${page.id}" contains an unsupported canvas node.`)
+      }
+      const key = readOwnedNodeKey(node)
+      if (!key) {
+        scopeError(`Page "${page.id}" contains content not owned by apply_canvas.`)
+      }
+      const existing = state.keyedNodes.get(key)
+      if (existing && existing.id !== node.id) {
+        scopeError(`Canvas key "${key}" is duplicated on page "${page.id}".`)
+      }
+      state.keyedNodes.set(key, node)
+    }
+  }
+  for (const root of roots) {
+    validateRemovalAncestors(root)
+    validateRemovalOwnership(root, state)
+  }
+  return roots
+}
+
+async function createPageOnly(input: ParsedCanvasPageInput): Promise<ApplyCanvasResult> {
+  if (pageByKey(input.page.pageKey!)) {
+    specError(`Page key "${input.page.pageKey}" already identifies a local page.`)
+  }
+  const state = createApplyState(null, new Set())
+  return withUndoBoundary(async () => {
+    const { created, page } = await resolveResultPage(input.page, null, state)
+    if (!created) specError('Page-only create requires a new pageKey.')
+    await preflightVariableModes(input.page.variableModes, state)
+    applyPage(page, input.page, state)
+    await figma.setCurrentPageAsync(page)
+    page.selection = []
+    if (figma.currentPage.id !== page.id || page.selection.length !== 0) {
+      specError(
+        `Verification failed: page "${page.id}" is not the active page with empty selection.`
+      )
+    }
+    return pageApplyResult(pageSnapshot(page), state)
+  }, state)
+}
+
+async function updatePageOnly(input: ParsedCanvasPageInput): Promise<ApplyCanvasResult> {
+  const page = await resolveExactPage(input.page)
+  const state = createApplyState(null, new Set())
+  protectUnrelatedPageRoots(state, page)
+  return withUndoBoundary(async () => {
+    await preflightVariableModes(input.page.variableModes, state)
+    applyPage(page, input.page, state)
+    return pageApplyResult(pageSnapshot(page), state)
+  }, state)
+}
+
+async function activatePage(input: ParsedCanvasPageInput): Promise<ApplyCanvasResult> {
+  const page = await resolveExactPage(input.page)
+  const selection =
+    input.selection === undefined ? undefined : await resolvePageSelection(page, input.selection)
+  await figma.setCurrentPageAsync(page)
+  if (selection) page.selection = selection
+  if (figma.currentPage.id !== page.id) {
+    specError(`Verification failed: page "${page.id}" is not active.`)
+  }
+  if (
+    selection &&
+    (page.selection.length !== selection.length ||
+      page.selection.some((node, index) => node.id !== selection[index]?.id))
+  ) {
+    specError(`Verification failed: page "${page.id}" selection does not match.`)
+  }
+  return pageApplyResult(pageSnapshot(page), createApplyState(null, new Set()))
+}
+
+async function removePage(input: ParsedCanvasPageInput): Promise<ApplyCanvasResult> {
+  const page = await resolveExactPage(input.page)
+  const ownedKey = page.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_PAGE_KEY_NAME)
+  if (!ownedKey || ownedKey !== input.page.pageKey) {
+    scopeError(`Page "${page.id}" is not owned by pageKey "${input.page.pageKey}".`)
+  }
+  if (figma.root.children.length <= 1) {
+    scopeError('The last Figma page cannot be removed.')
+  }
+  const state = createApplyState(null, new Set())
+  const roots = collectPageRemovalRoots(page, state)
+  await validateRemovalComponents(roots)
+  await validateRemovalReferences(roots, state)
+  const previousPage = figma.currentPage
+  const fallback = figma.root.children.find((candidate) => candidate.id !== page.id)!
+  const snapshot = pageSnapshot(page, { active: false, removed: true, selectionCount: 0 })
+  const removedNodeIds = roots.flatMap((root) =>
+    [...walkPhysicalNodes([root])].map((node) => node.id)
+  )
+
+  try {
+    return await withUndoBoundary(async () => {
+      if (figma.currentPage.id === page.id) await figma.setCurrentPageAsync(fallback)
+      page.remove()
+      state.mutations.count += 1
+      if (figma.root.children.some((candidate) => candidate.id === page.id)) {
+        specError(`Verification failed: page "${page.id}" is still present.`)
+      }
+      return boundedApplyResult({
+        nodeIdsByKey: {},
+        createdNodeIds: [],
+        updatedNodeIds: [],
+        removedNodeIds,
+        page: snapshot,
+        mutationCount: state.mutations.count,
+        verification: buildVerification()
+      })
+    }, state)
+  } catch (error) {
+    if (!previousPage.removed && figma.currentPage.id !== previousPage.id) {
+      try {
+        await figma.setCurrentPageAsync(previousPage)
+      } catch {
+        // Preserve the apply error; rollback state remains authoritative.
+      }
+    }
+    throw error
+  }
+}
+
+async function reconcilePageOperation(input: ParsedCanvasPageInput): Promise<ApplyCanvasResult> {
+  if (input.mode === 'create') return createPageOnly(input)
+  if (input.mode === 'update') return updatePageOnly(input)
+  if (input.mode === 'remove') return removePage(input)
+  return activatePage(input)
 }
 
 async function removeUpdateRoot(targetNodeId: string): Promise<ApplyCanvasResult> {
@@ -6534,7 +6912,137 @@ async function removeUpdateRoot(targetNodeId: string): Promise<ApplyCanvasResult
   }, state)
 }
 
+function preservedSizingMode(value: unknown): CanvasSizingMode {
+  return value === 'FILL' || value === 'HUG' ? value : 'FIXED'
+}
+
+function nativeUpdateSpec(
+  key: string,
+  binding: CanvasBinding,
+  node: SupportedCanvasNode
+): CanvasNodeSpec {
+  const size: CanvasNodeSpec['size'] = {
+    width: node.width,
+    height: node.height,
+    horizontal: preservedSizingMode(
+      'layoutSizingHorizontal' in node ? node.layoutSizingHorizontal : undefined
+    ),
+    vertical: preservedSizingMode(
+      'layoutSizingVertical' in node ? node.layoutSizingVertical : undefined
+    ),
+    ...('minWidth' in node ? { minWidth: node.minWidth } : {}),
+    ...('maxWidth' in node ? { maxWidth: node.maxWidth } : {}),
+    ...('minHeight' in node ? { minHeight: node.minHeight } : {}),
+    ...('maxHeight' in node ? { maxHeight: node.maxHeight } : {})
+  }
+  return {
+    key,
+    type: node.type,
+    size,
+    ...('layoutGrow' in node ? { grow: node.layoutGrow > 0 } : {}),
+    ...binding
+  }
+}
+
+function nativeUpdateParent(node: SupportedCanvasNode): CanvasParentNode | undefined {
+  const parent = node.parent
+  if (!parent || parent.type === 'DOCUMENT' || parent.type === 'INSTANCE') return undefined
+  return parent as CanvasParentNode
+}
+
+async function reconcileNativeUpdate(
+  input: ParsedCanvasNativeUpdateInput
+): Promise<ApplyCanvasResult> {
+  const candidate = await lookupNodeById(input.targetNodeId)
+  if (!isSupportedSceneNode(candidate)) {
+    scopeError('The requested update target does not exist or is not a supported scene node.')
+  }
+  assertOutsideInstance(candidate)
+  if (!readOwnedNodeKey(candidate)) {
+    scopeError('A markup-less native update requires an exact managed root.')
+  }
+
+  const keyedNodes = collectKeyedNodes(candidate)
+  const specs = Object.entries(input.bindings).map(([key, binding]) => {
+    const node = keyedNodes.get(key)
+    if (!node) scopeError(`Canvas key "${key}" does not exist inside the update scope.`)
+    assertOutsideInstance(node)
+    if (binding.figma?.mask !== undefined) {
+      specError(
+        `Mask state on "${key}" requires a structural markup update that describes its sibling scope.`
+      )
+    }
+    return nativeUpdateSpec(key, binding, node)
+  })
+  const assets = await resolveCanvasAssets(input.assets, collectSvgColorsFromSpecs(specs))
+  const state = createApplyState(candidate, new Set(Object.keys(input.bindings)), assets)
+  for (const spec of specs) {
+    const node = state.keyedNodes.get(spec.key)!
+    state.nodeIdsByKey[spec.key] = node.id
+  }
+
+  return withUndoBoundary(async () => {
+    await reconcileVariableCollections(input.variableCollections, state.variables, state.mutations)
+    await prepareStyleResources(input.styles, state.styles, state.mutations)
+    await preflightStyleResources(state)
+    for (const spec of specs) {
+      const node = state.keyedNodes.get(spec.key)!
+      preflightContainers(spec, state, node)
+      await preflightResources(spec, state, node)
+    }
+    await resolveImageUrls(state)
+    resolveImageAssets(state)
+    await resolveVideoUrls(state)
+    applyStyleResources(state)
+    for (const spec of specs) {
+      const node = state.keyedNodes.get(spec.key)!
+      await applyNodeProperties(node, spec, state, nativeUpdateParent(node))
+    }
+    for (const spec of specs) await applyCanvasKeyReferences(spec, state)
+    await removeStyleResources(state.styles, state.mutations)
+    await removeVariableResources(state.variables, state.mutations)
+
+    const verified = { nodes: 0, references: 0, nativeFields: 0 }
+    for (const spec of specs) {
+      const node = state.keyedNodes.get(spec.key)!
+      const result = await verifyAppliedNode(
+        spec,
+        node,
+        state,
+        isSupportedSceneNode(node.parent) ? node.parent : undefined
+      )
+      verified.nodes += result.nodes
+      verified.references += result.references
+      verified.nativeFields += result.nativeFields
+    }
+    const warnings = [
+      ...unboundCreatedResourceWarnings([...specs, input.styles, input.variableCollections], state),
+      ...authoredVariableFallbackWarnings(specs, input.variableCollections),
+      ...specs.flatMap((spec) => layoutAffectingVisibilityWarnings(spec, state)),
+      ...specs.flatMap((spec) => managedContentOverflowWarnings(spec, state)),
+      ...specs.flatMap((spec) => managedAutoLayoutInsetWarnings(spec, state))
+    ]
+    return boundedApplyResult({
+      rootNodeId: candidate.id,
+      nodeIdsByKey: state.nodeIdsByKey,
+      createdNodeIds: [],
+      updatedNodeIds: [...state.updatedNodeIds],
+      removedNodeIds: [],
+      page: pageSnapshot(containingPage(candidate)),
+      mutationCount: state.mutations.count,
+      verification: buildVerification(
+        verified.nodes,
+        verified.references,
+        verified.nativeFields,
+        warnings
+      )
+    })
+  }, state)
+}
+
 export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCanvasResult> {
+  if ('bindings' in input) return reconcileNativeUpdate(input)
+  if (!('root' in input)) return reconcilePageOperation(input)
   if (input.root === null) return removeUpdateRoot(input.targetNodeId)
 
   const rootSpec = input.root
@@ -6570,7 +7078,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
   return withUndoBoundary(async () => {
     await resolveExplicitNodes(rootSpec, state)
     preflightExistingNodeIdentities(rootSpec, state, target)
-    const page = await resolveResultPage(input.page, target, state)
+    const { created: createdPage, page } = await resolveResultPage(input.page, target, state)
     await validateRemovalComponents(outermostNodes(removalNodes))
     preflightMasks(rootSpec, state, target)
     preflightContainers(rootSpec, state, target)
@@ -6599,14 +7107,23 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
     }
     applyMask(root, rootSpec, state)
     const removedNodeIds = await applyRemovals(removalNodes, state)
+    finalizeGridsAfterRemovals(rootSpec, state)
     await removeStyleResources(state.styles, state.mutations)
     await removeVariableResources(state.variables, state.mutations)
     const verified = await verifyAppliedNode(rootSpec, root, state)
+    if (createdPage) {
+      await figma.setCurrentPageAsync(page)
+      page.selection = []
+    }
     const warnings = [
-      ...unboundCreatedResourceWarnings(input, state),
-      ...authoredVariableFallbackWarnings(input),
+      ...unboundCreatedResourceWarnings(
+        [rootSpec, input.styles, input.variableCollections, input.page],
+        state
+      ),
+      ...authoredVariableFallbackWarnings(walkSpecs(rootSpec), input.variableCollections),
       ...layoutAffectingVisibilityWarnings(rootSpec, state),
-      ...managedContentOverflowWarnings(rootSpec, state)
+      ...managedContentOverflowWarnings(rootSpec, state),
+      ...managedAutoLayoutInsetWarnings(rootSpec, state)
     ]
     return boundedApplyResult({
       rootNodeId: root.id,
@@ -6614,6 +7131,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
       createdNodeIds: [...state.createdNodeIds],
       updatedNodeIds: [...state.updatedNodeIds],
       removedNodeIds,
+      page: pageSnapshot(page),
       mutationCount: state.mutations.count,
       verification: buildVerification(
         verified.nodes,

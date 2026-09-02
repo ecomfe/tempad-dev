@@ -2,6 +2,7 @@ import type {
   BridgeToPageMessage,
   McpBrowserStatePayload,
   PageToBridgeMessage,
+  RuntimeHelloMessage,
   TempadMcpErrorCode,
   ToolCallMessage
 } from '@tempad-dev/shared'
@@ -51,10 +52,14 @@ export class McpServiceWorkerBroker {
   constructor(hubClient?: McpBrokerHubClient) {
     this.hubClient =
       hubClient ??
-      new McpHubClient({
-        onSnapshot: (snapshot) => this.handleHubSnapshot(snapshot),
-        onToolCall: (message) => this.routeToolCall(message)
-      })
+      new McpHubClient(
+        {
+          onSnapshot: (snapshot) => this.handleHubSnapshot(snapshot),
+          onToolCall: (message) => this.routeToolCall(message)
+        },
+        undefined,
+        extensionRuntimeIdentity()
+      )
   }
 
   start(): void {
@@ -423,6 +428,19 @@ export class McpServiceWorkerBroker {
         this.broadcastState()
       }
     }
+  }
+}
+
+function extensionRuntimeIdentity(): RuntimeHelloMessage | null {
+  const manifest = browser.runtime.getManifest()
+  const runtimeFingerprint = manifest.version_name
+  if (typeof runtimeFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(runtimeFingerprint)) {
+    return null
+  }
+  return {
+    type: 'runtimeHello',
+    extensionVersion: manifest.version,
+    extensionRuntimeFingerprint: runtimeFingerprint
   }
 }
 

@@ -387,7 +387,7 @@ describe('canvas markup', () => {
         class="flex flex-row flex-wrap content-between box-border overflow-hidden w-[400px] h-[240px] gap-x-[12px] gap-y-[20px]"
       >
         <span data-key="one" class="grow w-fit h-fit min-w-[80px] max-w-[160px]">One</span>
-        <span data-key="two" class="grow w-fit h-fit">Two</span>
+        <span data-key="two" class="grow w-fit h-fit min-w-0 min-h-[0px]">Two</span>
         <div
           data-key="badge"
           class="absolute left-[-4px] top-[8px] w-[24px] h-[24px]"
@@ -416,7 +416,7 @@ describe('canvas markup', () => {
     })
     expect(result.root.children?.[1]).toMatchObject({
       grow: true,
-      size: { horizontal: 'FILL' }
+      size: { minWidth: null, minHeight: null, horizontal: 'FILL' }
     })
     expect(result.root.children?.[2]).toMatchObject({
       position: { x: -4, y: 8 }
@@ -2229,6 +2229,77 @@ describe('canvas markup', () => {
   ])('rejects %s', (_, markup) => {
     expect(() => parse(markup)).toThrow()
   })
+
+  it('reports distinct unsupported classes across the markup tree in one pass', () => {
+    const markup =
+      '<div data-key="root" class="flex flex-col w-[320px] h-[200px] p-[0]"><div data-key="panel" class="flex flex-col w-full h-[100px] shrink-[0] self-stretch border-t-[#152A46]"><span data-key="copy" class="w-full h-fit font-[Inter]">Copy</span></div></div>'
+
+    let message = ''
+    try {
+      parse(markup)
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+
+    expect(message).toContain('Unsupported Canvas classes:')
+    expect(message).toContain('"p-[0]"')
+    expect(message).toContain('"shrink-[0]"')
+    expect(message).toContain('"self-stretch"')
+    expect(message).toContain('"border-t-[#152A46]"')
+    expect(message).toContain('"font-[Inter]"')
+    expect(message).toContain(
+      'Canvas does not support shrink utilities; remove the class instead of trying another spelling.'
+    )
+    expect(message).toContain('Fix all listed classes before retrying.')
+  })
+
+  it('reports independent static markup issues across the tree in one pass', () => {
+    const markup = `
+      <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
+        <div data-key="missing-width" class="flex h-[40px]"></div>
+        <span data-key="padded-copy" class="size-fit py-[4px]">Copy</span>
+        <div data-key="text-on-frame" class="w-[40px] h-[40px] text-[#112233]"></div>
+        <div data-key="direct-copy" class="w-[40px] h-[40px]">Copy</div>
+        <span data-key="filled-copy" class="size-fit bg-[#FFFFFF] text-[#112233]">Copy</span>
+        <div data-key="row" class="flex w-[120px] h-[40px]">
+          <span data-key="row-copy" class="w-full h-fit">Copy</span>
+        </div>
+      </div>
+    `
+
+    let message = ''
+    try {
+      parse(markup)
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+
+    expect(message).toContain('Canvas markup has multiple repairable issues:')
+    expect(message).toContain(
+      'Element "missing-width" requires exactly one width and one height class.'
+    )
+    expect(message).toContain('Class "py-[4px]" is not supported on span "padded-copy".')
+    expect(message).toContain('Class "text-[#112233]" is not supported on div "text-on-frame".')
+    expect(message).toContain('div "direct-copy" cannot contain direct text.')
+    expect(message).toContain(
+      'Element "filled-copy": Class "text-[#112233]" conflicts with "bg-[#FFFFFF]" for fill.'
+    )
+    expect(message).toContain(
+      'w-full on "row-copy" requires a flex-col parent; use grow on a row main axis.'
+    )
+    expect(message).toContain('Fix all listed issues before retrying.')
+  })
+
+  it.each(['shrink-0', 'shrink-[0]'])(
+    'explains the family-level remedy for unsupported %s',
+    (className) => {
+      const markup = `<div data-key="root" class="flex w-[320px] h-[200px] ${className}"></div>`
+
+      expect(() => parse(markup)).toThrow(
+        `Unsupported class "${className}". Canvas does not support shrink utilities; remove the class instead of trying another spelling.`
+      )
+    }
+  )
 
   it.each([
     [

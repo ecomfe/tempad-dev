@@ -1,4 +1,4 @@
-import type { CanvasDesignReference } from '@tempad-dev/shared'
+import type { CanvasDesignReference, CanvasPageSnapshot } from '@tempad-dev/shared'
 
 import { specError } from './errors'
 import { isInsideInstance } from './traversal'
@@ -26,6 +26,31 @@ export function readAuthoringKey(
 ): string | undefined {
   const key = resource.getSharedPluginData?.(CANVAS_KEY_NAMESPACE, name)
   return key || undefined
+}
+
+export function pagesByKey(key: string): PageNode[] {
+  return figma.root.children.filter((page) => readAuthoringKey(page, CANVAS_PAGE_KEY_NAME) === key)
+}
+
+export function pageById(id: string): PageNode | undefined {
+  return figma.root.children.find((page) => page.id === id)
+}
+
+export function pageSnapshot(
+  page: PageNode,
+  overrides: Partial<CanvasPageSnapshot> = {}
+): CanvasPageSnapshot {
+  const pageKey = readAuthoringKey(page, CANVAS_PAGE_KEY_NAME)
+  return {
+    id: page.id,
+    ...(pageKey ? { pageKey } : {}),
+    name: page.name,
+    index: Math.max(0, figma.root.children.indexOf(page)),
+    active: !page.removed && figma.currentPage.id === page.id,
+    childCount: page.children.length,
+    selectionCount: page.selection.length,
+    ...overrides
+  }
 }
 
 export function readOwnedNodeKey(node: SceneNode): string | undefined {

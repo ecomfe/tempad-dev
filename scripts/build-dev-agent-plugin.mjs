@@ -54,7 +54,10 @@ function buildDevAgentPlugin() {
       [devName]: {
         type: 'stdio',
         command: 'node',
-        args: [join(root, 'packages/mcp-server/dist/cli.mjs')]
+        args: [join(root, 'packages/mcp-server/dist/cli.mjs')],
+        env: {
+          TEMPAD_MCP_DEV_CHECKOUT: root
+        }
       }
     }
   })

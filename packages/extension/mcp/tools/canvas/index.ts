@@ -46,13 +46,35 @@ export async function applyResolvedCanvas(
   applyInProgress = true
   try {
     const existingNodeTypes =
-      input.mode === 'update' && input.markup !== null
+      input.mode === 'update' && input.markup !== undefined
         ? await collectUpdateNodeTypeHints(input.targetNodeId!)
         : undefined
-    const parsedInput = parseSpec(
-      () => parseCanvasMarkup(input, catalog, existingNodeTypes),
-      'Canvas markup is invalid.'
-    )
+    const parsedInput = parseSpec(() => {
+      if (input.mode === 'remove' && input.targetNodeId) {
+        return { mode: 'remove' as const, targetNodeId: input.targetNodeId, root: null }
+      }
+      if (input.markup === undefined) {
+        if (input.mode === 'update' && input.targetNodeId) {
+          return {
+            mode: 'update' as const,
+            targetNodeId: input.targetNodeId,
+            bindings: input.bindings!,
+            ...(input.assets === undefined ? {} : { assets: input.assets }),
+            ...(input.styles === undefined ? {} : { styles: input.styles }),
+            ...(input.variableCollections === undefined
+              ? {}
+              : { variableCollections: input.variableCollections })
+          }
+        }
+        if (!input.page) throw new Error('A page identity is required for this operation.')
+        return {
+          mode: input.mode,
+          page: input.page,
+          ...(input.selection === undefined ? {} : { selection: input.selection })
+        }
+      }
+      return parseCanvasMarkup(input, catalog, existingNodeTypes)
+    }, 'Canvas markup is invalid.')
     return await reconcileCanvas(parsedInput)
   } catch (error) {
     if (error instanceof Error && 'code' in error) throw error

@@ -5,7 +5,7 @@ import type {
   GetTokenDefsResult
 } from '@tempad-dev/shared'
 
-import { buildGetCodeToolResult } from '@tempad-dev/shared'
+import { MCP_TOOL_INLINE_BUDGET_BYTES, buildGetCodeToolResult } from '@tempad-dev/shared'
 
 import type { DevComponent } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
@@ -27,12 +27,11 @@ import { planAssets } from './assets/plan'
 import { preflightGetCodeBudget } from './budget-preflight'
 import { createGetCodeCacheContext } from './cache'
 import { collectNodeData } from './collect'
+import { collectUnboundColorLiteralClusters } from './literal-clusters'
 import {
+  CodeBudgetExceededError,
   assertToolResponseWithinBudget,
-  buildGetCodeWarnings,
-  isCodeBudgetExceededError,
-  resolveCodeBudget,
-  resolveUnlimitedCodeBudget
+  buildGetCodeWarnings
 } from './messages'
 import { getOrderedChildIds, renderShellTree, renderTree } from './render'
 import { resolvePluginComponents } from './render/plugin'
@@ -160,9 +159,11 @@ export async function handleGetCode(
 
   const config = currentCodegenConfig()
   const pluginCode = activePlugin.value?.code
-  const codeBudget = runtimeOptions.unbounded ? resolveUnlimitedCodeBudget() : resolveCodeBudget()
+  const maxResultBytes = runtimeOptions.unbounded
+    ? Number.MAX_SAFE_INTEGER
+    : MCP_TOOL_INLINE_BUDGET_BYTES
   const budgetPreflight = preflightGetCodeBudget(tree, rootId, {
-    maxResultBytes: codeBudget.maxResultBytes,
+    maxResultBytes,
     pluginEnabled: !!pluginCode,
     unbounded: !!runtimeOptions.unbounded
   })
@@ -271,8 +272,8 @@ export async function handleGetCode(
       shell: true
     })
     const assets = selectAssetsForCode(allAssets, shell.code, videoPreviewAssetHashes)
-    const result = buildCodeResult(shell, codegen, assets, warnings)
-    assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
+    const result = buildCodeResult(shell, codegen, assets, undefined, warnings)
+    assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
     logTrace(
       trace,
       `nodes=${tree.order.length} collected=1 assets=${assets.length} shell=early preflightNodes=${budgetPreflight.scannedDescendants}${formatCacheMetrics(cache)}`
@@ -285,12 +286,16 @@ export async function handleGetCode(
       ...baseInput,
       mode: { kind: 'full' }
     })
+    const literalClusters = resolveTokens
+      ? undefined
+      : collectUnboundColorLiteralClusters(collected.styles, tree)
     const warnings = buildGetCodeWarnings(output.code, {
-      cappedNodeIds: tree.stats.cappedNodeIds
+      cappedNodeIds: tree.stats.cappedNodeIds,
+      literalClusters
     })
     const assets = selectAssetsForCode(allAssets, output.code, videoPreviewAssetHashes)
-    const result = buildCodeResult(output, codegen, assets, warnings)
-    assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
+    const result = buildCodeResult(output, codegen, assets, literalClusters, warnings)
+    assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
 
     logTrace(
       trace,
@@ -299,7 +304,7 @@ export async function handleGetCode(
 
     return result
   } catch (error) {
-    if (!isCodeBudgetExceededError(error)) {
+    if (!(error instanceof CodeBudgetExceededError)) {
       throw error
     }
 
@@ -321,12 +326,12 @@ export async function handleGetCode(
       shell: true
     })
     const assets = selectAssetsForCode(allAssets, shell.code, rootVideoPreviewAssetHashes)
-    const result = buildCodeResult(shell, codegen, assets, warnings)
+    const result = buildCodeResult(shell, codegen, assets, undefined, warnings)
 
     try {
-      assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
+      assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
     } catch (shellError) {
-      if (isCodeBudgetExceededError(shellError)) {
+      if (shellError instanceof CodeBudgetExceededError) {
         throw error
       }
       throw shellError
@@ -755,6 +760,7 @@ function buildCodeResult(
   output: PipelineOutput,
   codegen: GetCodeResult['codegen'],
   assets: AssetDescriptor[],
+  literalClusters?: GetCodeResult['literalClusters'],
   warnings?: GetCodeResult['warnings']
 ): GetCodeResult {
   return {
@@ -762,6 +768,7 @@ function buildCodeResult(
     code: output.code,
     ...(assets.length ? { assets } : {}),
     ...(output.tokens ? { tokens: output.tokens } : {}),
+    ...(literalClusters?.length ? { literalClusters } : {}),
     codegen,
     ...(warnings?.length ? { warnings } : {})
   }

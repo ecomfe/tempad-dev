@@ -1,18 +1,36 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
-export interface NodeLimitAttempt {
+interface NodeLimitAttempt {
   limit: number
   dataKeyCount: number
   markupCharacters: number
 }
 
-export interface AuthoringRolloutInspection {
+interface AuthoringRolloutInspection {
+  prompt: {
+    text: string | null
+    sha256: string | null
+    wordCount: number
+    characterCount: number
+  }
+  tools: {
+    completedCalls: number
+    failures: number
+    byName: Record<string, number>
+  }
+  skillContext: {
+    readCalls: number
+    uniqueResources: string[]
+  }
   applyCanvas: {
     calls: number
     failures: number
     failureCodes: Record<string, number>
     nodeLimitAttempts: NodeLimitAttempt[]
+    maxMarkupCharacters: number
+    maxDataKeyCount: number
   }
   research: {
     webCalls: number
@@ -35,6 +53,30 @@ export interface AuthoringRolloutInspection {
     authoredComponentCalls: number
     instanceBindingCalls: number
   }
+  timing: {
+    rolloutStartedAt: string | null
+    finalResponseAt: string | null
+    totalWallClockMs: number | null
+    firstToolCallMs: number | null
+    firstApplyAttemptMs: number | null
+    firstSuccessfulApplyMs: number | null
+    firstResearchCallMs: number | null
+    lastResearchCallMs: number | null
+    firstOpenedTempadScreenshotMs: number | null
+    firstApplyToOpenedScreenshotMs: number | null
+    lastSuccessfulApplyMs: number | null
+    finalizationAfterLastApplyMs: number | null
+    observedToolBusyMs: number | null
+    nonToolWallClockMs: number | null
+  }
+  runtime: {
+    observations: number
+    locked: boolean
+    valid: boolean
+    hubFingerprints: string[]
+    extensionFingerprints: string[]
+    issues: string[]
+  }
   limitations: string[]
 }
 
@@ -42,6 +84,32 @@ interface ApplyEvent {
   arguments: unknown
   result: unknown
   status: unknown
+  timestampMs: number | null
+}
+
+interface TimedInterval {
+  startMs: number
+  endMs: number
+}
+
+interface CustomCallEvent {
+  input: string
+  name: string
+  timestampMs: number | null
+}
+
+interface CompletedToolEvent {
+  failed: boolean
+  name: string
+  timestampMs: number | null
+}
+
+interface RuntimeObservation {
+  locked: boolean
+  valid: boolean
+  hubFingerprint: string | null
+  extensionFingerprint: string | null
+  issues: string[]
 }
 
 function rows(rolloutJsonl: string): unknown[] {
@@ -78,6 +146,47 @@ function increment(counts: Record<string, number>, key: string): void {
   counts[key] = (counts[key] ?? 0) + 1
 }
 
+function timestampMs(value: unknown): number | null {
+  if (typeof value !== 'string') return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function elapsedMs(startMs: number | null, endMs: number | null): number | null {
+  if (startMs === null || endMs === null || endMs < startMs) return null
+  return endMs - startMs
+}
+
+function toolBusyMs(intervals: TimedInterval[], startMs: number, endMs: number): number {
+  const clipped = intervals
+    .map((interval) => ({
+      startMs: Math.max(startMs, interval.startMs),
+      endMs: Math.min(endMs, interval.endMs)
+    }))
+    .filter((interval) => interval.endMs >= interval.startMs)
+    .sort((a, b) => a.startMs - b.startMs)
+
+  let total = 0
+  let activeStart: number | null = null
+  let activeEnd: number | null = null
+  for (const interval of clipped) {
+    if (activeStart === null || activeEnd === null) {
+      activeStart = interval.startMs
+      activeEnd = interval.endMs
+      continue
+    }
+    if (interval.startMs <= activeEnd) {
+      activeEnd = Math.max(activeEnd, interval.endMs)
+      continue
+    }
+    total += activeEnd - activeStart
+    activeStart = interval.startMs
+    activeEnd = interval.endMs
+  }
+  if (activeStart !== null && activeEnd !== null) total += activeEnd - activeStart
+  return total
+}
+
 function applyEvents(parsedRows: unknown[]): ApplyEvent[] {
   return parsedRows.flatMap((row) => {
     if (get(row, 'type') !== 'event_msg') return []
@@ -89,19 +198,204 @@ function applyEvents(parsedRows: unknown[]): ApplyEvent[] {
       {
         arguments: get(item, 'arguments'),
         result: get(item, 'result'),
-        status: get(item, 'status')
+        status: get(item, 'status'),
+        timestampMs: timestampMs(get(row, 'timestamp'))
       }
     ]
   })
 }
 
-function customCallInputs(parsedRows: unknown[]): string[] {
+function customCallEvents(parsedRows: unknown[]): CustomCallEvent[] {
   return parsedRows.flatMap((row) => {
     if (get(row, 'type') !== 'response_item') return []
     const payload = get(row, 'payload')
     if (get(payload, 'type') !== 'custom_tool_call') return []
-    return [stringify(get(payload, 'input'))]
+    return [
+      {
+        input: stringify(get(payload, 'input')),
+        name: typeof get(payload, 'name') === 'string' ? String(get(payload, 'name')) : '<unknown>',
+        timestampMs: timestampMs(get(row, 'timestamp'))
+      }
+    ]
   })
+}
+
+function commandExecutionInputs(parsedRows: unknown[]): string[] {
+  return parsedRows.flatMap((row) => {
+    if (get(row, 'type') !== 'event_msg') return []
+    const payload = get(row, 'payload')
+    if (get(payload, 'type') !== 'item_completed') return []
+    const item = get(payload, 'item')
+    if (get(item, 'type') !== 'CommandExecution' || get(item, 'status') === 'failed') return []
+    const command = get(item, 'command')
+    if (typeof command === 'string') return [command]
+    if (!Array.isArray(command)) return []
+    return [command.map(stringify).join(' ')]
+  })
+}
+
+function itemToolName(item: unknown): string | null {
+  const type = get(item, 'type')
+  if (type === 'McpToolCall') {
+    const server = get(item, 'server')
+    const tool = get(item, 'tool')
+    return typeof tool === 'string'
+      ? `${typeof server === 'string' ? `${server}.` : ''}${tool}`
+      : null
+  }
+  if (type === 'ImageView') return 'view_image'
+  if (type === 'CommandExecution') return 'exec_command'
+  if (type === 'Extension') {
+    const name = get(item, 'name') ?? get(item, 'tool')
+    return typeof name === 'string' ? name : 'extension'
+  }
+  return null
+}
+
+function completedToolEvents(parsedRows: unknown[]): CompletedToolEvent[] {
+  return parsedRows.flatMap((row) => {
+    if (get(row, 'type') !== 'event_msg') return []
+    const payload = get(row, 'payload')
+    if (get(payload, 'type') !== 'item_completed') return []
+    const item = get(payload, 'item')
+    const name = itemToolName(item)
+    if (!name) return []
+    return [
+      {
+        name,
+        failed: get(item, 'status') === 'failed' || get(get(item, 'result'), 'isError') === true,
+        timestampMs: timestampMs(get(row, 'timestamp'))
+      }
+    ]
+  })
+}
+
+function messageText(row: unknown): { role: string | null; text: string } | null {
+  if (get(row, 'type') !== 'response_item') return null
+  const payload = get(row, 'payload')
+  if (get(payload, 'type') !== 'message') return null
+  const content = get(payload, 'content')
+  if (!Array.isArray(content)) return null
+  return {
+    role: typeof get(payload, 'role') === 'string' ? String(get(payload, 'role')) : null,
+    text: content
+      .map((item) => (typeof get(item, 'text') === 'string' ? String(get(item, 'text')) : ''))
+      .join('\n')
+  }
+}
+
+function createThreadOutputText(row: unknown): string | null {
+  if (get(row, 'type') !== 'response_item') return null
+  const payload = get(row, 'payload')
+  if (
+    get(payload, 'type') !== 'function_call_output' ||
+    get(payload, 'namespace') !== 'codex_app' ||
+    get(payload, 'name') !== 'create_thread'
+  ) {
+    return null
+  }
+  const output = get(payload, 'output')
+  return typeof output === 'string' ? output : null
+}
+
+function normalizePrompt(value: string): string {
+  return value.trim().replaceAll(/\s+/g, ' ')
+}
+
+function decodeXmlText(value: string): string {
+  return value
+    .replaceAll(/&#(x[0-9a-f]+|\d+);/gi, (entity, code: string) => {
+      const point = code.toLowerCase().startsWith('x')
+        ? Number.parseInt(code.slice(1), 16)
+        : Number.parseInt(code, 10)
+      try {
+        return String.fromCodePoint(point)
+      } catch {
+        return entity
+      }
+    })
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&apos;', "'")
+    .replaceAll('&amp;', '&')
+}
+
+function extractPrompt(parsedRows: unknown[]): string | null {
+  const messages = parsedRows.flatMap((row) => {
+    const message = messageText(row)
+    return message ? [message] : []
+  })
+  const delegatedTexts = [
+    ...messages.map(({ text }) => text),
+    ...parsedRows.flatMap((row) => {
+      const output = createThreadOutputText(row)
+      return output ? [output] : []
+    })
+  ]
+  for (const text of delegatedTexts) {
+    const delegated = text.match(/<codex_delegation>[\s\S]*?<input>([\s\S]*?)<\/input>/)
+    if (delegated?.[1]) return normalizePrompt(decodeXmlText(delegated[1]))
+  }
+  const userMessages = messages
+    .filter(
+      ({ role, text }) =>
+        role === 'user' && !/<recommended_plugins>|<environment_context>/.test(text)
+    )
+    .map(({ text }) => normalizePrompt(text))
+    .filter(Boolean)
+  return userMessages.at(-1) ?? null
+}
+
+function skillResources(input: string): string[] {
+  const normalized = input.replaceAll('\\/', '/').replaceAll('\\\\', '/')
+  const expanded = normalized.replace(
+    /(\/skills\/[^/"'\s]+\/references\/)\{([^{}]+)\}/g,
+    (_match, prefix: string, resources: string) =>
+      resources
+        .split(',')
+        .map((resource) => `${prefix}${resource}`)
+        .join(' ')
+  )
+  return [
+    ...expanded.matchAll(/\/skills\/([^/"'\s]+)\/(SKILL\.md|references\/[^"'\s),{}]+\.md)/g)
+  ].flatMap((match) => (match[1] && match[2] ? [`${match[1]}/${match[2]}`] : []))
+}
+
+function runtimeObservation(value: unknown, seen = new Set<unknown>()): RuntimeObservation | null {
+  const trimmedValue = typeof value === 'string' ? value.trimStart() : ''
+  if (trimmedValue.startsWith('{') || trimmedValue.startsWith('[')) {
+    try {
+      return runtimeObservation(JSON.parse(trimmedValue), seen)
+    } catch {
+      return null
+    }
+  }
+  if (!value || typeof value !== 'object' || seen.has(value)) return null
+  seen.add(value)
+  const locked = get(value, 'locked')
+  const valid = get(value, 'valid')
+  const hub = get(value, 'hub')
+  const extension = get(value, 'extension')
+  if (typeof locked === 'boolean' && typeof valid === 'boolean' && hub && extension) {
+    const hubFingerprint = get(hub, 'runtimeFingerprint')
+    const extensionFingerprint = get(extension, 'runtimeFingerprint')
+    const issues = get(value, 'issues')
+    return {
+      locked,
+      valid,
+      hubFingerprint: typeof hubFingerprint === 'string' ? hubFingerprint : null,
+      extensionFingerprint: typeof extensionFingerprint === 'string' ? extensionFingerprint : null,
+      issues: Array.isArray(issues)
+        ? issues.filter((issue): issue is string => typeof issue === 'string')
+        : []
+    }
+  }
+  for (const nested of Object.values(value)) {
+    const observation = runtimeObservation(nested, seen)
+    if (observation) return observation
+  }
+  return null
 }
 
 function imageViewPaths(parsedRows: unknown[]): string[] {
@@ -113,6 +407,38 @@ function imageViewPaths(parsedRows: unknown[]): string[] {
     if (get(item, 'type') !== 'ImageView') return []
     const path = get(item, 'path')
     return typeof path === 'string' ? [path] : []
+  })
+}
+
+function itemTimestampMs(row: unknown, itemType: string): number | null {
+  if (get(row, 'type') !== 'event_msg') return null
+  const payload = get(row, 'payload')
+  if (get(payload, 'type') !== 'item_completed') return null
+  const item = get(payload, 'item')
+  if (get(item, 'type') !== itemType) return null
+  return timestampMs(get(row, 'timestamp'))
+}
+
+function completedToolIntervals(parsedRows: unknown[]): TimedInterval[] {
+  const toolItemTypes = new Set(['CommandExecution', 'Extension', 'ImageView', 'McpToolCall'])
+  return parsedRows.flatMap((row) => {
+    if (get(row, 'type') !== 'event_msg') return []
+    const payload = get(row, 'payload')
+    if (get(payload, 'type') !== 'item_completed') return []
+    const item = get(payload, 'item')
+    if (!toolItemTypes.has(String(get(item, 'type')))) return []
+    const startMs = get(payload, 'started_at_ms')
+    const endMs = get(payload, 'completed_at_ms')
+    if (
+      typeof startMs !== 'number' ||
+      typeof endMs !== 'number' ||
+      !Number.isFinite(startMs) ||
+      !Number.isFinite(endMs) ||
+      endMs < startMs
+    ) {
+      return []
+    }
+    return [{ startMs, endMs }]
   })
 }
 
@@ -128,13 +454,71 @@ function markup(event: ApplyEvent): string {
 export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutInspection {
   const parsedRows = rows(rolloutJsonl)
   const applies = applyEvents(parsedRows)
-  const callInputs = customCallInputs(parsedRows)
+  const customCalls = customCallEvents(parsedRows)
+  const callInputs = customCalls.map(({ input }) => input)
+  const commandInputs = commandExecutionInputs(parsedRows)
+  const completedTools = completedToolEvents(parsedRows)
   const viewedImages = imageViewPaths(parsedRows)
   const applyPayloads = applies.map((event) => stringify(event.arguments))
   const failureCodes: Record<string, number> = {}
   const nodeLimitAttempts: NodeLimitAttempt[] = []
   const domains = new Set<string>()
   const iconLibraries = new Set<string>()
+  const rowTimestamps = parsedRows
+    .map((row) => timestampMs(get(row, 'timestamp')))
+    .filter((value): value is number => value !== null)
+  const rolloutStartedMs = rowTimestamps.length ? Math.min(...rowTimestamps) : null
+  const prompt = extractPrompt(parsedRows)
+  const finalResponseMs = parsedRows.reduce<number | null>((latest, row) => {
+    const value = itemTimestampMs(row, 'AgentMessage')
+    return value === null || (latest !== null && value <= latest) ? latest : value
+  }, null)
+  const successfulApplyTimestamps = applies
+    .filter((event) => event.status === 'completed' && get(event.result, 'isError') !== true)
+    .map((event) => event.timestampMs)
+    .filter((value): value is number => value !== null)
+  const firstSuccessfulApplyAt = successfulApplyTimestamps.length
+    ? Math.min(...successfulApplyTimestamps)
+    : null
+  const applyAttemptTimestamps = applies
+    .map((event) => event.timestampMs)
+    .filter((value): value is number => value !== null)
+  const firstApplyAttemptAt = applyAttemptTimestamps.length
+    ? Math.min(...applyAttemptTimestamps)
+    : null
+  const completedToolTimestamps = completedTools
+    .map(({ timestampMs: value }) => value)
+    .filter((value): value is number => value !== null)
+  const firstToolTimestamps = [
+    ...completedToolTimestamps,
+    ...customCalls
+      .map(({ timestampMs: value }) => value)
+      .filter((value): value is number => value !== null)
+  ]
+  const researchTimestamps = customCalls
+    .filter(({ input, name }) =>
+      /web__run|image_query|browser|chrome|goto|open|screenshot/i.test(`${name}\n${input}`)
+    )
+    .map(({ timestampMs: value }) => value)
+    .filter((value): value is number => value !== null)
+  const lastSuccessfulApplyAt = successfulApplyTimestamps.length
+    ? Math.max(...successfulApplyTimestamps)
+    : null
+  const openedTempadScreenshotTimestamps = parsedRows.flatMap((row) => {
+    const value = itemTimestampMs(row, 'ImageView')
+    if (value === null) return []
+    const payload = get(row, 'payload')
+    const path = get(get(payload, 'item'), 'path')
+    return typeof path === 'string' && /\/tempad-dev\/assets\//.test(path) ? [value] : []
+  })
+  const firstOpenedTempadScreenshotAt = openedTempadScreenshotTimestamps.length
+    ? Math.min(...openedTempadScreenshotTimestamps)
+    : null
+  const totalWallClockMs = elapsedMs(rolloutStartedMs, finalResponseMs)
+  const observedToolBusyMs =
+    rolloutStartedMs !== null && finalResponseMs !== null
+      ? toolBusyMs(completedToolIntervals(parsedRows), rolloutStartedMs, finalResponseMs)
+      : null
 
   let failures = 0
   let authoredComponentCalls = 0
@@ -171,7 +555,7 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
   const allCalls = callInputs.join('\n')
   const iconEvidence = [...applyPayloads, ...callInputs].join('\n')
   const referenceImageViews = viewedImages.filter((path) =>
-    /\/work\/references\//.test(path)
+    /\/work\/(?:references|research)\//.test(path)
   ).length
   const tempadScreenshotViews = viewedImages.filter((path) =>
     /\/tempad-dev\/assets\//.test(path)
@@ -180,12 +564,49 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
   if (/primer\\?\/octicons|@primer\\?\/octicons/i.test(iconEvidence)) iconLibraries.add('Octicons')
   if (/material-design-icons|material-symbols/i.test(iconEvidence)) iconLibraries.add('Material')
 
+  const byName: Record<string, number> = {}
+  for (const tool of completedTools) increment(byName, tool.name)
+  const executedSkillReads = commandInputs
+    .map(skillResources)
+    .filter((resources) => resources.length)
+  const requestedSkillReads = callInputs.map(skillResources).filter((resources) => resources.length)
+  const skillReads = executedSkillReads.length ? executedSkillReads : requestedSkillReads
+  const uniqueResources = new Set(skillReads.flat())
+  const runtimeObservations = applies.flatMap((event) => {
+    const observation = runtimeObservation(event.result)
+    return observation ? [observation] : []
+  })
+  const runtimeIssues = new Set(runtimeObservations.flatMap(({ issues }) => issues))
+  if (applies.length > 0 && runtimeObservations.length === 0) {
+    runtimeIssues.add('No runtime identity evidence was returned by apply_canvas.')
+  }
+
   return {
+    prompt: {
+      text: prompt,
+      sha256: prompt ? createHash('sha256').update(prompt).digest('hex') : null,
+      wordCount: prompt ? prompt.split(/\s+/).filter(Boolean).length : 0,
+      characterCount: prompt?.length ?? 0
+    },
+    tools: {
+      completedCalls: completedTools.length,
+      failures: completedTools.filter(({ failed }) => failed).length,
+      byName
+    },
+    skillContext: {
+      readCalls: skillReads.length,
+      uniqueResources: [...uniqueResources].sort()
+    },
     applyCanvas: {
       calls: applies.length,
       failures,
       failureCodes,
-      nodeLimitAttempts
+      nodeLimitAttempts,
+      maxMarkupCharacters: Math.max(0, ...applies.map((event) => markup(event).length)),
+      maxDataKeyCount: Math.max(
+        0,
+        ...applies.map((event) => countMatches(markup(event), /\bdata-key\s*=/g))
+      )
     },
     research: {
       webCalls: callInputs.filter((input) => input.includes('web__run')).length,
@@ -210,9 +631,59 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
       authoredComponentCalls,
       instanceBindingCalls
     },
+    timing: {
+      rolloutStartedAt: rolloutStartedMs === null ? null : new Date(rolloutStartedMs).toISOString(),
+      finalResponseAt: finalResponseMs === null ? null : new Date(finalResponseMs).toISOString(),
+      totalWallClockMs,
+      firstToolCallMs: elapsedMs(
+        rolloutStartedMs,
+        firstToolTimestamps.length ? Math.min(...firstToolTimestamps) : null
+      ),
+      firstApplyAttemptMs: elapsedMs(rolloutStartedMs, firstApplyAttemptAt),
+      firstSuccessfulApplyMs: elapsedMs(rolloutStartedMs, firstSuccessfulApplyAt),
+      firstResearchCallMs: elapsedMs(
+        rolloutStartedMs,
+        researchTimestamps.length ? Math.min(...researchTimestamps) : null
+      ),
+      lastResearchCallMs: elapsedMs(
+        rolloutStartedMs,
+        researchTimestamps.length ? Math.max(...researchTimestamps) : null
+      ),
+      firstOpenedTempadScreenshotMs: elapsedMs(rolloutStartedMs, firstOpenedTempadScreenshotAt),
+      firstApplyToOpenedScreenshotMs: elapsedMs(
+        firstSuccessfulApplyAt,
+        firstOpenedTempadScreenshotAt
+      ),
+      lastSuccessfulApplyMs: elapsedMs(rolloutStartedMs, lastSuccessfulApplyAt),
+      finalizationAfterLastApplyMs: elapsedMs(lastSuccessfulApplyAt, finalResponseMs),
+      observedToolBusyMs,
+      nonToolWallClockMs:
+        totalWallClockMs === null || observedToolBusyMs === null
+          ? null
+          : Math.max(0, totalWallClockMs - observedToolBusyMs)
+    },
+    runtime: {
+      observations: runtimeObservations.length,
+      locked:
+        runtimeObservations.length > 0 &&
+        runtimeObservations.every((observation) => observation.locked),
+      valid:
+        runtimeObservations.length > 0 &&
+        runtimeObservations.every((observation) => observation.valid),
+      hubFingerprints: [
+        ...new Set(runtimeObservations.flatMap(({ hubFingerprint }) => hubFingerprint ?? []))
+      ].sort(),
+      extensionFingerprints: [
+        ...new Set(
+          runtimeObservations.flatMap(({ extensionFingerprint }) => extensionFingerprint ?? [])
+        )
+      ].sort(),
+      issues: [...runtimeIssues].sort()
+    },
     limitations: [
       'Trace signals do not prove that researched evidence or acquired assets were retained in the final artifact.',
       'Component counters identify authoring mechanics, not whether the chosen component boundary was semantically correct.',
+      'Timing milestones identify trace events, not the first usable design: an apply may be scaffolding and a screenshot may show a component or partial screen. Inspect the opened pixels and record usability separately.',
       'Trace counts do not substitute for evaluator inspection of screenshot pixels and live native structure.'
     ]
   }

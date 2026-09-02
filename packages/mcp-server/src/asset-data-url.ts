@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 
 const IMAGE_DATA_URL_PATTERN = /^data:(image\/(?:png|jpeg|gif));base64,([A-Za-z0-9+/]+={0,2})$/
 
-export interface DecodedImageDataUrl {
+interface DecodedImageDataUrl {
   bytes: Buffer
   hash: string
   mimeType: 'image/png' | 'image/jpeg' | 'image/gif'

@@ -113,5 +113,5 @@ function connection(
   id: string,
   origin = 'chrome-extension://lgoeakbaikpkihoiphamaeopmliaimpc'
 ): ExtensionConnection {
-  return { id, origin, ws: {} as WebSocket }
+  return { connectedAt: '2026-08-26T00:00:00.000Z', id, origin, ws: {} as WebSocket }
 }

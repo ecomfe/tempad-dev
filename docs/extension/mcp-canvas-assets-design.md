@@ -114,8 +114,9 @@ newly invented vector artwork. Agent-authored vectors require an independently e
 illustration, diagram, pattern, or decorative-geometry role.
 
 Allow at most 32 declarations and 64 KiB of inline SVG across one call. Every declaration must be
-referenced, every reference must exist and match the required type, and `markup: null` cannot carry
-assets. These rules prevent an asset manifest from becoming hidden general-purpose payload storage.
+referenced, every reference must exist and match the required type, and page-only or remove
+operations cannot carry assets. These rules prevent an asset manifest from becoming hidden
+general-purpose payload storage.
 
 ### SVG placement
 

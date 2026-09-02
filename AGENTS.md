@@ -2,157 +2,102 @@
 
 ## Purpose
 
-Provide a single entry point for coding agents. This file links to package-level guides and highlights repo-wide constraints and workflows.
+Use this file as the repo-wide router and source of global invariants. Read only
+the package guide and conditional runbook required by the task; do not preload
+every linked document.
 
-## Repo map (high level)
+## Repository routing
 
-- `packages/extension/` — Figma plugin + MCP tools implementation
-- `packages/mcp-server/` — MCP server runtime
-- `packages/shared/` — shared types and contracts
-- `packages/plugins/` — plugin-side code and transforms
-- `agent-plugins/` — shared agent plugin bundles and platform manifests
+| Work area                     | Read next                       | Responsibility                                                                   |
+| ----------------------------- | ------------------------------- | -------------------------------------------------------------------------------- |
+| `packages/extension/`         | `packages/extension/AGENTS.md`  | Figma extension, UI, codegen, browser runtime, and MCP tool implementation       |
+| `packages/mcp-server/`        | `packages/mcp-server/AGENTS.md` | MCP server, Hub, transport, and tool exposure                                    |
+| `packages/shared/`            | `packages/shared/AGENTS.md`     | Shared schemas, types, and contracts                                             |
+| `packages/plugins/`           | `packages/plugins/AGENTS.md`    | Plugin transforms and sandboxed plugin-side code                                 |
+| `skill/` and `agent-plugins/` | This guide                      | Shared agent skills, manifests, compatibility wrappers, and marketplace metadata |
 
-## Start here
+For a cross-package change, read the guides for every affected package. For a
+repo-wide documentation, configuration, or release task, this root guide is the
+default authority unless a routed document says otherwise.
 
-- `packages/extension/AGENTS.md`
-- `packages/mcp-server/AGENTS.md`
-- `packages/shared/AGENTS.md`
-- `packages/plugins/AGENTS.md`
+## Repo-wide invariants
 
-## Global conventions
+- Package manager: `pnpm`. Prefer repo-level scripts unless a package guide
+  explicitly requires a filtered command.
+- Keep changes minimal and consistent with existing style. Do not add global
+  dependencies without explicit approval.
+- When a tool schema or shared contract changes, update `packages/shared` first,
+  then `packages/mcp-server`, then `packages/extension`.
+- Generated artifacts are not source. Follow the owning workflow and never edit
+  ignored or generated output to simulate a source change.
+- Do not create or amend commits unless explicitly requested. When creating a
+  commit, use Conventional Commits.
+- Keep pull request descriptions concise. Do not add a validation section unless
+  explicitly requested.
 
-- Package manager: `pnpm`
-- Prefer repo-level scripts unless a package explicitly documents otherwise.
-- When creating commits, use Conventional Commits (for example: `feat: ...`, `fix: ...`, `docs: ...`, `chore: ...`).
+## Agent plugin invariants
 
-## Common commands
-
-- Typecheck: `pnpm typecheck`
-- Lint (and format): `pnpm lint:fix`
-- Test (watch): `pnpm test`
-- Test (run): `pnpm test:run`
-- Test (coverage): `pnpm test:coverage`
-- Generate the local agent plugin: `pnpm agent-plugin:dev`
-- Extension node tests: `pnpm --filter @tempad-dev/extension test:node`
-- Extension browser tests: `pnpm --filter @tempad-dev/extension test:browser`
-- Extension browser setup: `pnpm --filter @tempad-dev/extension test:setup`
-
-## Agent plugin workflow
-
-- Before running or reviewing an end-to-end Figma authoring agent test, read
-  `docs/testing/agent-authoring-evaluation.md` and follow its runtime identity,
-  clean-task, evidence-review, and fix-placement rules.
-- `agent-plugins/tempad-dev/` is the tracked release source shared by Codex and Claude. The agent
-  plugin is distributed through the Git marketplace, not npm.
+- `agent-plugins/tempad-dev/` is the tracked release source shared by Codex and
+  Claude. The plugin is distributed through the Git marketplace, not npm.
+- Edit `skill/` for `figma-design-to-code`; the development generator copies it
+  into the tracked release plugin. Edit the tracked
+  `agent-plugins/tempad-dev/skills/figma-canvas-authoring/` source directly.
+- The portable `plugin.json` and `mcp.json` own shared manifest and MCP fields.
+  `pnpm agent-plugin:dev` synchronizes client compatibility wrappers, the copied
+  design-to-code skill, derived icons, and shared marketplace metadata; do not
+  hand-edit those derived fields or copies.
 - `.dev/plugins/tempad-dev-dev/` is the ignored local build. Generate it with
-  `pnpm agent-plugin:dev`; do not edit generated files under `.dev/`.
-- Run `pnpm agent-plugin:dev` after every change that affects the generated `tempad-dev-dev`
-  contents, including the shared skill, agent-plugin manifests, icons, or marketplace metadata.
+  `pnpm agent-plugin:dev`; never edit it directly.
+- Run `pnpm agent-plugin:dev` after a change to any generator input, inspect all
+  tracked synchronized outputs, and include the intended release-source changes.
   Ordinary `pnpm build` must not modify agent-plugin artifacts.
-- Before asking the user to test a changed development plugin, reinstall the generated cachebuster
-  through the active Desktop host and use a new task. Use the no-restart reinstall path when the
-  host CDP endpoint and plugin runtime are healthy; a skill, manifest, icon, or marketplace change
-  does not itself require restarting Codex. Reserve `--restart-codex` for unavailable CDP, stale or
-  partial host/runtime state, or recovery after the ordinary replacement cannot complete. An
-  external `codex plugin add` call updates the installation on disk, but alone does not prove that
-  a running Desktop host refreshed its plugin cache.
-- `pnpm dev` watches the extension, shared package, and MCP server. The generated development
-  plugin points directly at the current checkout's MCP build, so MCP-only changes require a new
-  agent task or plugin reload, not an agent-plugin rebuild or reinstall.
-- After an extension-side rebuild, refresh the target Figma tab before testing. An open tab can keep
-  its previous page-context runtime even when WXT has emitted the new bundle; reinstalling the Codex
-  agent plugin does not reload that browser runtime. Verify that MCP reconnects before the test.
-- Keep Codex and Claude support equivalent. Both development manifests must launch the same
-  working-tree MCP runtime.
-- Release MCP configuration must use `@tempad-dev/mcp@latest`, never an alpha tag, fixed version,
-  or local path.
-- See `agent-plugins/tempad-dev/README.md` for the Codex and Claude installation commands.
+- Keep Codex and Claude development support equivalent. Both manifests must
+  launch the same working-tree MCP runtime.
+- Release MCP configuration must use `@tempad-dev/mcp@latest`, never an alpha
+  tag, fixed version, or local path.
+- Before preparing, running, reviewing, or asking the user to test an end-to-end
+  Figma authoring task, read `docs/testing/agent-authoring-evolution.md`. It is
+  the sole detailed runbook for runtime refresh, plugin replacement, clean-task
+  identity, evidence review, fix placement, and candidate promotion.
 
-## Doc index
+## Core commands
 
-- `TESTING.md`
-- `docs/testing/architecture.md`
-- `docs/testing/agent-authoring-evaluation.md`
-- `docs/extension/mcp-get-code-requirements.md`
-- `docs/extension/mcp-get-code-design.md`
-- `docs/extension/mcp-canvas-authoring-design.md`
-- `docs/extension/mcp-canvas-assets-design.md`
-- `docs/extension/mcp-browser-gateway-design.md`
-- `docs/marketing-screenshots.md`
+Run these from the repo root:
 
-## Guardrails
+| Task                              | Command                       |
+| --------------------------------- | ----------------------------- |
+| Development                       | `pnpm dev`                    |
+| Build all packages                | `pnpm build`                  |
+| Typecheck                         | `pnpm typecheck`              |
+| Lint / auto-fix                   | `pnpm lint` / `pnpm lint:fix` |
+| Test once                         | `pnpm test:run`               |
+| Coverage                          | `pnpm test:coverage`          |
+| Format                            | `pnpm format`                 |
+| Generate development agent plugin | `pnpm agent-plugin:dev`       |
 
-- Keep changes minimal and consistent with existing style.
-- Avoid adding new global dependencies unless explicitly requested or approved.
-- Keep pull request descriptions concise. Do not include a validation section unless explicitly requested.
+Use package-owned commands from the applicable package guide when a narrower
+check is sufficient.
 
-## Contributing & verification
+## Conditional documentation
 
-### Tech stack (repo-wide)
+| Task                                                    | Read first                                                      |
+| ------------------------------------------------------- | --------------------------------------------------------------- |
+| Test selection, required checks, or troubleshooting     | `TESTING.md`                                                    |
+| Test runtime or coverage architecture                   | `docs/testing/architecture.md`                                  |
+| End-to-end authoring evolution or live agent evaluation | `docs/testing/agent-authoring-evolution.md`                     |
+| Extension implementation or MCP behavior                | `packages/extension/AGENTS.md`, then its routed design document |
+| Public agent-plugin installation or usage documentation | `agent-plugins/tempad-dev/README.md`                            |
+| Marketing screenshot work                               | `docs/marketing-screenshots.md`                                 |
 
-- Package manager: `pnpm` (workspace scripts are commonly run as `pnpm -r ...`).
-- Language: TypeScript.
-- Extension: Vue 3 + WXT (Web Extension Toolkit).
-- MCP server: Node.js 18+ + `@modelcontextprotocol/sdk` + WebSocket transport.
-- Shared contracts: `zod` schemas.
-- Build tool (non-extension packages): `tsdown`.
+## Verification
 
-### Key scripts
+Follow `TESTING.md` and every affected package guide. The default repository
+checks are:
 
-Run these at repo root unless noted.
+1. `pnpm typecheck`
+2. `pnpm lint`
+3. `pnpm test:run`
 
-- Dev extension: `pnpm dev`
-- Dev site: `pnpm dev:site`
-- Build everything: `pnpm build`
-- Build site: `pnpm build:site`
-- Build extension: `pnpm build:ext`
-- Build plugins: `pnpm build:plugins`
-- Build MCP: `pnpm build:mcp`
-- Typecheck all packages: `pnpm typecheck`
-- Lint all packages: `pnpm lint` / auto-fix: `pnpm lint:fix`
-- Test all packages: `pnpm test:run`
-- Coverage report: `pnpm test:coverage`
-- Format: `pnpm format`
-- Zip extension artifact: `pnpm zip`
-
-### Verification checklist (agent-driven changes)
-
-Pick the checks that match your change.
-
-1. Always
-
-- `pnpm typecheck`
-- `pnpm lint` (or `pnpm lint:fix`)
-- `pnpm test:run`
-
-2. Extension UI / codegen
-
-- `pnpm dev`
-- In Figma, open TemPad Dev panel and validate the impacted section (e.g. “Inspect → Code”).
-
-3. Extension build / packaging
-
-- `pnpm build:ext`
-- `pnpm zip`
-
-4. Rewrite subsystem
-
-- `pnpm --filter @tempad-dev/extension build:rewrite`
-- Optional: `pnpm --filter @tempad-dev/extension tsx scripts/check-rewrite.ts`
-  - Requires `FIGMA_EMAIL`, `FIGMA_PASSWORD`, `FIGMA_FILE_KEY`.
-
-5. MCP schemas / tool behavior
-
-- If you change tool schemas/contracts: update `packages/shared` first, then `packages/mcp-server`, then `packages/extension`.
-- Re-check payload limits and omission rules; see `docs/extension/mcp-get-code-requirements.md` and `docs/extension/mcp-get-code-design.md`.
-
-## Testing notes
-
-- Testing runbook and required checks: `TESTING.md`.
-- Testing architecture and coverage model: `docs/testing/architecture.md`.
-- Root coverage composition is configured in `vitest.config.ts`; shared thresholds and the extension
-  node source list live in `vitest.coverage.ts`.
-- Root coverage excludes build artifacts (`**/dist/**`, `**/.output/**`) to avoid polluted reports.
-- Root coverage provider is `istanbul` to avoid V8 remap parse failures under Vite 8 dependency trees.
-- Extension browser tests run in Playwright via `packages/extension/vitest.browser.config.ts`.
-- Do not introduce jsdom-based tests in this repository.
+Add build, browser, packaging, rewrite, coverage, or live Figma checks only when
+the routed guidance and change risk require them. Browser runtime tests must use
+Playwright; do not introduce jsdom-based tests.

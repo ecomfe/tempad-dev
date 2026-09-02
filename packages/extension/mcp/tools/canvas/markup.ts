@@ -19,12 +19,17 @@ import type {
   CanvasPreservedNodeType,
   CanvasShapeNodeType,
   CanvasSizingMode,
-  ParsedCanvasInput
+  ParsedCanvasTreeInput
 } from './model'
 import type { CanvasClasses } from './tailwind'
 
 import { parseCanvasHtml } from './html'
-import { MAX_GRID_TRACKS, parseCanvasClasses } from './tailwind'
+import {
+  findUnsupportedCanvasClasses,
+  MAX_GRID_TRACKS,
+  parseCanvasClasses,
+  unsupportedCanvasClassGuidance
+} from './tailwind'
 
 const ALLOWED_ATTRIBUTES = new Set(['class', 'data-key', 'data-node-id'])
 const SIZE_VARIABLE_FIELDS = [
@@ -300,6 +305,129 @@ function normalizeCatalogElement(
 
 function hasText(value: string): boolean {
   return /[^\t\n\f\r ]/.test(value)
+}
+
+const MAX_REPORTED_UNSUPPORTED_CLASSES = 16
+const MAX_REPORTED_MARKUP_ISSUES = 16
+
+function unsupportedClassesIssue(root: CanvasMarkupElement): string | undefined {
+  const found = new Set<string>()
+  let truncated = false
+  const visit = (element: CanvasMarkupElement): void => {
+    const scan = findUnsupportedCanvasClasses(element.attributes.class ?? '')
+    for (const token of scan.classes) found.add(token)
+    truncated ||= scan.truncated
+    for (const child of element.children) visit(child)
+  }
+  visit(root)
+
+  if (found.size < 2) return undefined
+  const classes = [...found]
+  if (classes.length > MAX_REPORTED_UNSUPPORTED_CLASSES) truncated = true
+  const listedClasses = classes.slice(0, MAX_REPORTED_UNSUPPORTED_CLASSES)
+  const shown = listedClasses.map((token) => `"${token}"`)
+  const suffix = truncated ? ' Additional unsupported classes may remain.' : ''
+  const guidance = unsupportedCanvasClassGuidance(listedClasses)
+  return `Unsupported Canvas classes: ${shown.join(', ')}.${suffix}${guidance ? ` ${guidance}` : ''} Fix all listed classes before retrying.`
+}
+
+type ParentLayoutMode = 'NONE' | 'HORIZONTAL' | 'VERTICAL' | 'GRID'
+
+function parentLayoutMode(classes: CanvasClasses): ParentLayoutMode {
+  if (classes.grid) return 'GRID'
+  if (classes.flex) return classes.direction!
+  return 'NONE'
+}
+
+function childLayoutIssues(
+  key: string,
+  classes: CanvasClasses,
+  parentMode: ParentLayoutMode
+): string[] {
+  if (classes.absolute) return []
+
+  const issues: string[] = []
+  if (classes.width?.mode === 'FILL' && parentMode !== 'VERTICAL' && parentMode !== 'GRID') {
+    issues.push(
+      parentMode === 'NONE'
+        ? `w-full on "${key}" cannot resolve in a freeform parent; add flex-col or grid to the parent, or use a fixed width with absolute offsets or a relative transform.`
+        : `w-full on "${key}" requires a flex-col parent; use grow on a row main axis.`
+    )
+  }
+  if (classes.height?.mode === 'FILL' && parentMode !== 'HORIZONTAL' && parentMode !== 'GRID') {
+    issues.push(
+      parentMode === 'NONE'
+        ? `h-full on "${key}" cannot resolve in a freeform parent; add flex-row or grid to the parent, or use a fixed height with absolute offsets or a relative transform.`
+        : `h-full on "${key}" requires a flex-row parent; use grow on a column main axis.`
+    )
+  }
+  if (classes.grow && parentMode === 'GRID') {
+    issues.push(`grow on "${key}" is not supported in grid; use w-full or h-full.`)
+  }
+  if (classes.grow && parentMode === 'NONE') {
+    issues.push(`grow on "${key}" requires a flex parent.`)
+  }
+  return issues
+}
+
+function assertStaticMarkupLegality(root: CanvasMarkupElement): void {
+  const issues: string[] = []
+  let issueCount = 0
+  const add = (message: string): void => {
+    issueCount += 1
+    if (issues.length < MAX_REPORTED_MARKUP_ISSUES) issues.push(message)
+  }
+  const unsupported = unsupportedClassesIssue(root)
+  if (unsupported) add(unsupported)
+
+  const visit = (element: CanvasMarkupElement, parentClasses?: CanvasClasses): void => {
+    let className: string
+    let key: string
+    try {
+      ;({ className, key } = validateAttributes(element))
+    } catch (error) {
+      add(error instanceof Error ? error.message : String(error))
+      for (const child of element.children) visit(child)
+      return
+    }
+    let classes: CanvasClasses | undefined
+    if (!findUnsupportedCanvasClasses(className).classes.length) {
+      try {
+        classes = parseCanvasClasses(className)
+        if (!classes.width || !classes.height) {
+          add(`Element "${key}" requires exactly one width and one height class.`)
+        }
+        if (element.tag === 'span') {
+          if (element.children.length) add(`span "${key}" cannot contain elements.`)
+          if (classes.frameClass || classes.layoutClass) {
+            add(
+              `Class "${classes.frameClass ?? classes.layoutClass}" is not supported on span "${key}".`
+            )
+          }
+        } else {
+          if (hasText(element.text)) add(`div "${key}" cannot contain direct text.`)
+          if (classes.textClass) {
+            add(`Class "${classes.textClass}" is not supported on div "${key}".`)
+          }
+        }
+        if (parentClasses) {
+          for (const issue of childLayoutIssues(key, classes, parentLayoutMode(parentClasses))) {
+            add(issue)
+          }
+        }
+      } catch (error) {
+        add(`Element "${key}": ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    for (const child of element.children) visit(child, classes)
+  }
+  visit(root)
+
+  if (!issues.length) return
+  if (issues.length === 1) markupError(issues[0]!)
+  markupError(
+    `Canvas markup has multiple repairable issues:\n${issues.map((issue) => `- ${issue}`).join('\n')}${issueCount > issues.length ? '\n- Additional issues may remain.' : ''}\nFix all listed issues before retrying.`
+  )
 }
 
 function textContent(value: string, preserve: boolean, lineBreakOffsets: number[]): string {
@@ -1356,27 +1484,8 @@ function compileElement(
     }
     if (classes.grow) markupError('Canvas markup root cannot grow.')
     if (classes.absolute) markupError('Canvas markup root cannot use absolute positioning.')
-  } else if (!classes.absolute) {
-    if (classes.width.mode === 'FILL' && parentMode !== 'VERTICAL' && parentMode !== 'GRID') {
-      markupError(
-        parentMode === 'NONE'
-          ? `w-full on "${key}" cannot resolve in a freeform parent; add flex-col or grid to the parent, or use a fixed width with absolute offsets or a relative transform.`
-          : `w-full on "${key}" requires a flex-col parent; use grow on a row main axis.`
-      )
-    }
-    if (classes.height.mode === 'FILL' && parentMode !== 'HORIZONTAL' && parentMode !== 'GRID') {
-      markupError(
-        parentMode === 'NONE'
-          ? `h-full on "${key}" cannot resolve in a freeform parent; add flex-row or grid to the parent, or use a fixed height with absolute offsets or a relative transform.`
-          : `h-full on "${key}" requires a flex-row parent; use grow on a column main axis.`
-      )
-    }
-    if (classes.grow && parentMode === 'GRID') {
-      markupError(`grow on "${key}" is not supported in grid; use w-full or h-full.`)
-    }
-    if (classes.grow && parentMode === 'NONE') {
-      markupError(`grow on "${key}" requires a flex parent.`)
-    }
+  } else {
+    for (const issue of childLayoutIssues(key, classes, parentMode)) markupError(issue)
   }
   if (relativeTransform && classes.rotation !== undefined) {
     markupError(`Relative transform on "${key}" cannot be combined with a rotation class.`)
@@ -1731,14 +1840,11 @@ export function parseCanvasMarkup(
   input: CanvasResolvedApplyParameters,
   catalog?: DesignSystemCatalog,
   existingNodeTypes?: CanvasNodeTypeHints
-): ParsedCanvasInput {
-  if (input.markup === null) {
-    return {
-      mode: 'update',
-      targetNodeId: input.targetNodeId!,
-      root: null
-    }
+): ParsedCanvasTreeInput {
+  if (input.mode !== 'create' && input.mode !== 'update') {
+    markupError('Canvas HTML is valid only in create or update mode.')
   }
+  if (input.markup === undefined) markupError('Canvas HTML markup is required for this operation.')
   const state: CompileState = {
     bindings: Object.assign(Object.create(null) as Record<string, CanvasBinding>, input.bindings),
     ...(catalog ? { catalog } : {}),
@@ -1747,11 +1853,9 @@ export function parseCanvasMarkup(
     mode: input.mode,
     nodeIds: new Set()
   }
-  const rootElement = normalizeCatalogElement(
-    parseCanvasHtml(input.markup),
-    state.bindings,
-    catalog
-  )
+  const parsedElement = parseCanvasHtml(input.markup)
+  const rootElement = normalizeCatalogElement(parsedElement, state.bindings, catalog)
+  assertStaticMarkupLegality(rootElement)
   const root = compileElement(rootElement, state, 1)
   validateAssetReferences(root, input.assets)
   for (const key of Object.keys(state.bindings)) {

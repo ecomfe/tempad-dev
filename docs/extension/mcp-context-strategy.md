@@ -19,10 +19,17 @@ This document records the current context-control strategy for TemPad Dev MCP ou
    - Task-specific workflows, resource policy, design judgment, syntax, examples, and advanced
      native features live in triggered skills and their progressive references.
    - Tool results carry factual recovery instructions only when that condition occurs.
+   - Unscoped read tools resolve `figma.currentPage.selection` at invocation time rather than a
+     reactive UI cache, so navigating to another page cannot silently reuse the previous page's
+     selection.
 2. `get_code` keeps existing API but uses a shared inline budget guard.
    - Budget is computed on the final `CallToolResult` UTF-8 bytes (`64 KiB` default).
    - If over budget, prefer a shell response that preserves the current node wrapper and omits direct children.
    - Warnings stay lightweight (`type + message` only); shell continuation lives in the inline omitted-child comment, and depth-cap recovery relies on returned `data-hint-id` values.
+   - Unresolved-token full responses may add bounded `literalClusters` metadata for repeated unbound
+     colors, with concrete sampled consumer nodes and properties plus one lightweight warning. The
+     evidence makes missing coordination observable without claiming that equal colors share one
+     semantic owner; resolved-token and shell responses omit it.
    - A bounded descendant-text preflight enters a root-only shell path when UTF-8 text alone proves
      the response cannot fit, avoiding descendant variables, plugins, collection, assets, and full
      rendering. Other overflow causes still reuse full-tree context for correctness.

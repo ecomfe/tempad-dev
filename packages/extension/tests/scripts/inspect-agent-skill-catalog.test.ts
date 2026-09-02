@@ -42,6 +42,26 @@ describe('agent skill catalog inspection', () => {
     expect(first.runtimeFingerprint).not.toBe(second.runtimeFingerprint)
   })
 
+  it('resolves aliased file locators through the catalog skill roots', () => {
+    const aliased = `<skills_instructions>
+## Skills
+### Skill roots
+- \`r8\` = \`/plugins/cache/tempad-dev-dev/0.1+codex.a/skills\`
+### Available skills
+- tempad-dev-dev:figma-canvas-authoring: Create Figma designs. (file: r8/figma-canvas-authoring/SKILL.md)
+</skills_instructions>`
+
+    const first = fingerprintSkillCatalog(extractSkillCatalog(rollout(aliased)))
+    const second = fingerprintSkillCatalog(
+      extractSkillCatalog(rollout(aliased.replace('+codex.a', '+codex.b')))
+    )
+
+    expect(first.tempadSkillPaths).toEqual([
+      '/plugins/cache/tempad-dev-dev/0.1+codex.a/skills/figma-canvas-authoring/SKILL.md'
+    ])
+    expect(first.runtimeFingerprint).not.toBe(second.runtimeFingerprint)
+  })
+
   it('fails when the rollout has no complete catalog', () => {
     expect(() => extractSkillCatalog(rollout('no skills here'))).toThrow(
       'No complete <skills_instructions> catalog found'

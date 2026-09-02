@@ -8,6 +8,7 @@ import {
   assertNoDetachedReinstallJobs,
   detachedReinstallIdentity,
   detachedReinstallJobPrefix,
+  resolveDevPluginVersion,
   runtimeStateMatches
 } from './reinstall-codex-dev-plugin-runtime'
 import { parseLaunchctlLabels } from './switch-codex-host-runtime'
@@ -80,6 +81,8 @@ type Arguments = {
   timeoutMs: number
   version: string
 }
+
+type ParsedArguments = Omit<Arguments, 'version'> & { version?: string }
 
 type ProcessInfo = {
   command: string
@@ -252,13 +255,13 @@ function usage(): string {
   return [
     'Reinstall TemPad Dev (Dev) through a running Codex Desktop CDP endpoint:',
     '',
-    '  pnpm agent-plugin:reinstall <version>',
-    '  pnpm agent-plugin:reinstall <version> --restart-codex',
-    '  pnpm agent-plugin:reinstall <version> --restart-codex --app-path "/path/to/ChatGPT.app"',
-    '  pnpm agent-plugin:reinstall <version> --cdp-url http://127.0.0.1:9222',
+    '  pnpm agent-plugin:reinstall [version]',
+    '  pnpm agent-plugin:reinstall [version] --restart-codex',
+    '  pnpm agent-plugin:reinstall [version] --restart-codex --app-path "/path/to/ChatGPT.app"',
+    '  pnpm agent-plugin:reinstall [version] --cdp-url http://127.0.0.1:9222',
     '',
     'Arguments:',
-    '  <version>              Exact generated plugin version to install',
+    '  [version]             Exact generated plugin version; defaults to the generated manifest',
     '',
     'Options:',
     '  --app-path <path>     Codex app to launch (default: CODEX_APP_PATH or /Applications/ChatGPT.app)',
@@ -273,7 +276,7 @@ function usage(): string {
   ].join('\n')
 }
 
-function parseArguments(argv: string[]): Arguments | null {
+function parseArguments(argv: string[]): ParsedArguments | null {
   if (argv.includes('--help')) return null
 
   let appPath = process.env.CODEX_APP_PATH ?? '/Applications/ChatGPT.app'
@@ -320,7 +323,6 @@ function parseArguments(argv: string[]): Arguments | null {
     version = argument
   }
 
-  if (!version) fail(`Missing plugin version.\n\n${usage()}`)
   return { appPath, cdpUrl, pageUrl, restartCodex, resumeAfterRestart, timeoutMs, version }
 }
 
@@ -335,17 +337,12 @@ function objectValue(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-async function resolveRuntimePaths(expectedVersion: string): Promise<RuntimePaths> {
+async function resolveRequestedVersion(requested?: string): Promise<string> {
   const manifestPath = join(pluginRoot, '.codex-plugin/plugin.json')
-  const manifest = objectValue(await readJson(manifestPath), manifestPath)
-  if (manifest.name !== pluginName) fail(`Unexpected plugin name in ${manifestPath}.`)
-  if (manifest.version !== expectedVersion) {
-    fail(
-      `Generated plugin version is ${String(manifest.version)}, not ${expectedVersion}. ` +
-        'Run pnpm agent-plugin:dev and pass the generated version.'
-    )
-  }
+  return resolveDevPluginVersion(await readJson(manifestPath), requested)
+}
 
+async function resolveRuntimePaths(): Promise<RuntimePaths> {
   const mcpPath = join(pluginRoot, '.mcp.json')
   const mcp = objectValue(await readJson(mcpPath), mcpPath)
   const servers = objectValue(mcp.mcpServers, `${mcpPath}#mcpServers`)
@@ -754,11 +751,12 @@ async function openPluginDetail(client: CdpClient, timeoutMs: number): Promise<P
     client,
     {
       action: 'element-exists',
-      query: { selector: 'input[placeholder="Search plugins"]', visible: false }
+      query: { selector: 'input[placeholder="Search plugins"]' }
     },
     'the plugin directory search input',
     timeoutMs
   )
+  await new Promise((resolve) => setTimeout(resolve, 500))
 
   const filled = await client.runPageRequest<boolean>({
     action: 'set-input-value',
@@ -868,8 +866,8 @@ async function tryRestorePreviousCodexView(client: CdpClient, steps: number): Pr
 }
 
 async function main(): Promise<void> {
-  const args = parseArguments(process.argv.slice(2))
-  if (!args) {
+  const parsedArgs = parseArguments(process.argv.slice(2))
+  if (!parsedArgs) {
     console.log(usage())
     return
   }
@@ -877,7 +875,11 @@ async function main(): Promise<void> {
     fail('Runtime process verification is not implemented for Windows.')
   }
 
-  const runtimePaths = await resolveRuntimePaths(args.version)
+  const args: Arguments = {
+    ...parsedArgs,
+    version: await resolveRequestedVersion(parsedArgs.version)
+  }
+  const runtimePaths = await resolveRuntimePaths()
   console.log(`Expected CLI: ${runtimePaths.cli}`)
   console.log(`Expected Hub: ${runtimePaths.hub}`)
 

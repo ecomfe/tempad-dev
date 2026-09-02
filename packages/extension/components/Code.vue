@@ -41,7 +41,9 @@ const lang = computed(() => {
 })
 
 const highlighted = computed(() => {
-  const Prism = prismRevision.value >= 0 ? window.Prism : window.Prism
+  // Recompute when asynchronously loaded Prism languages become available.
+  void prismRevision.value
+  const Prism = window.Prism
   const language = Prism?.languages[lang.value]
   if (!Prism || !language) {
     return escapeHTML(code.value)

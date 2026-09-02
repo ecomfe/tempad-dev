@@ -6,7 +6,7 @@ export type HostProcess = {
   ppid: number
 }
 
-export type SwitchPaths = {
+type SwitchPaths = {
   appPath: string
   retireAppPath: string
 }

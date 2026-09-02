@@ -141,13 +141,31 @@ export function buildLayoutStyles(
 }
 
 export function styleToClassNames(style: StyleMap, config: CodegenConfig): string[] {
-  const normalizedStyle = normalizeStyleValues(style, config)
+  const normalizedStyle = canonicalizeUniformVisibleBorderColor(normalizeStyleValues(style, config))
   const resolved = resolveGradientBorderClasses(normalizedStyle)
   if (!resolved) {
     return cssToClassNames(normalizedStyle)
   }
 
   return nestedCssToClassNames(resolved.style)
+}
+
+function canonicalizeUniformVisibleBorderColor(style: StyleMap): StyleMap {
+  const visibleSides = BORDER_SIDES.filter((side) => {
+    const width = style[`border-${side}-width`]
+    return width ? !isZeroBorderWidth(width) : false
+  })
+  if (visibleSides.length === 0) return style
+
+  const colors = visibleSides.map((side) => style[`border-${side}-color`])
+  const [color] = colors
+  if (!color || colors.some((candidate) => candidate !== color)) return style
+
+  const next: StyleMap = { ...style }
+  for (const side of BORDER_SIDES) {
+    next[`border-${side}-color`] = color
+  }
+  return next
 }
 
 type GradientBorderClassResult = {

@@ -9,11 +9,17 @@ import {
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { activePlugin } from '@/ui/state'
-import { formatHexAlpha, normalizeCssValue } from '@/utils/css'
 import { logger } from '@/utils/log'
 
 import { currentCodegenConfig } from '../config'
 import { canonicalizeName, canonicalizeNames, getTokenIndex, getVariableRawName } from './indexer'
+import {
+  isVariableAlias,
+  pickPreferredModeId,
+  readActiveModeId,
+  resolveFallbackValue,
+  serializeVariableValue
+} from './value'
 
 type TokenModeValue = {
   modeId: string
@@ -23,7 +29,6 @@ type TokenModeValue = {
   aliasChain?: string[]
 }
 
-type VariableAlias = { id: string; type?: string }
 type VariableWithCollection = Variable & { variableCollectionId?: string; resolvedType?: string }
 type VariableCollectionInfo = {
   id?: string
@@ -287,7 +292,9 @@ function resolveVariableCollection(variable: Variable): VariableCollectionInfo |
       id: collection.id,
       name: collection.name,
       defaultModeId: collection.defaultModeId,
-      activeModeId: readActiveModeId(collection.id),
+      activeModeId: readActiveModeId(collection.id, (error) =>
+        logger.warn('Failed to read active mode id:', error)
+      ),
       modes: Array.isArray(collection.modes)
         ? collection.modes.map((m) => ({ id: m.modeId, name: m.name }))
         : undefined
@@ -309,37 +316,6 @@ function trackCollectionName(collection: VariableCollection): void {
     warnedDuplicateCollections.add(collection.name)
     logger.warn(`Duplicate variable collection name "${collection.name}" detected.`)
   }
-}
-
-function readActiveModeId(collectionId?: string): string | undefined {
-  if (!collectionId) return undefined
-  const variablesApi = (
-    figma as unknown as { variables?: { getVariableModeId?: (id: string) => string } }
-  ).variables
-  const getter = variablesApi?.getVariableModeId
-  if (typeof getter !== 'function') return undefined
-  try {
-    return getter(collectionId)
-  } catch (error) {
-    logger.warn('Failed to read active mode id:', error)
-    return undefined
-  }
-}
-
-function pickPreferredModeId(
-  variable: Variable,
-  collection?: VariableCollectionInfo | null,
-  desiredModeId?: string
-): string | undefined {
-  const { valuesByMode = {} } = variable
-  if (desiredModeId && desiredModeId in valuesByMode) return desiredModeId
-  if (collection?.activeModeId && collection.activeModeId in valuesByMode) {
-    return collection.activeModeId
-  }
-  if (collection?.defaultModeId && collection.defaultModeId in valuesByMode) {
-    return collection.defaultModeId
-  }
-  return Object.keys(valuesByMode)[0]
 }
 
 async function resolveModeValue(
@@ -414,74 +390,6 @@ async function resolveModeValue(
     resolved: serialized,
     aliasChain: undefined
   }
-}
-
-function resolveFallbackValue(
-  valuesByMode: Variable['valuesByMode'],
-  modeId: string,
-  collection: VariableCollectionInfo | null
-): unknown {
-  if (valuesByMode[modeId] !== undefined) return valuesByMode[modeId]
-  if (collection?.defaultModeId && collection.defaultModeId !== modeId) {
-    const fallback = valuesByMode[collection.defaultModeId]
-    if (fallback !== undefined) return fallback
-  }
-  return valuesByMode[modeId]
-}
-
-function isVariableAlias(value: unknown): value is VariableAlias {
-  if (!value || typeof value !== 'object') return false
-  const alias = value as VariableAlias
-  return typeof alias.id === 'string'
-}
-
-function serializeVariableValue(
-  value: unknown,
-  resolvedType: Variable['resolvedType'],
-  config: CodegenConfig,
-  canonicalName?: string
-): string | Record<string, unknown> | null {
-  if (value == null) return null
-
-  switch (resolvedType) {
-    case 'COLOR':
-      return formatHexAlpha(value as RGBA, (value as RGBA).a)
-    case 'FLOAT':
-      if (isUnitlessFloatToken(canonicalName)) {
-        return String(value)
-      }
-      // Default: treat numbers as pixels and normalize (e.g. 16 -> 1rem)
-      return normalizeCssValue(`${value}px`, config)
-    case 'BOOLEAN':
-      return (value as boolean).toString()
-    case 'STRING':
-      return String(value)
-    default:
-      if (typeof value === 'object') {
-        return value as Record<string, unknown>
-      }
-      return null
-  }
-}
-
-function isUnitlessFloatToken(canonicalName?: string): boolean {
-  if (!canonicalName) return false
-  const lower = canonicalName.trim().toLowerCase()
-  if (!lower.startsWith('--')) return false
-
-  // Typography weights are unitless.
-  if (lower.startsWith('--font-weight')) return true
-  if (lower.startsWith('--fontweight')) return true
-
-  // Opacity values are unitless.
-  if (lower.startsWith('--opacity')) return true
-
-  // z-index values are unitless.
-  if (lower.startsWith('--z-index')) return true
-  if (lower === '--z') return true
-  if (lower.startsWith('--z-')) return true
-
-  return false
 }
 
 async function resolveAliasName(

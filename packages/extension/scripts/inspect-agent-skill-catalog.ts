@@ -1,15 +1,16 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-export interface SkillCatalogEntry {
+interface SkillCatalogEntry {
   name: string
   description: string
   locatorKind: 'file' | 'environment resource' | 'orchestrator package' | 'custom resource'
   locator: string
 }
 
-export interface SkillCatalogFingerprint {
+interface SkillCatalogFingerprint {
   catalogFingerprint: string
   runtimeFingerprint: string
   count: number
@@ -19,6 +20,7 @@ export interface SkillCatalogFingerprint {
 
 const SKILL_ENTRY_PATTERN =
   /^- ([^\n]+?): (.*) \((file|environment resource|orchestrator package|custom resource): (.+)\)$/gm
+const SKILL_ROOT_PATTERN = /^- `([^`]+)` = `([^`]+)`$/gm
 
 function hash(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -56,15 +58,22 @@ export function extractSkillCatalog(rolloutJsonl: string): SkillCatalogEntry[] {
     if (start === -1 || end === -1 || end <= start) continue
 
     const block = text.slice(start, end)
+    const roots = new Map<string, string>()
+    for (const match of block.matchAll(SKILL_ROOT_PATTERN)) {
+      const [, alias, root] = match
+      if (alias && root) roots.set(alias, root)
+    }
     const entries: SkillCatalogEntry[] = []
     for (const match of block.matchAll(SKILL_ENTRY_PATTERN)) {
       const [, name, description, locatorKind, locator] = match
       if (!name || !description || !locatorKind || !locator) continue
+      const [alias, ...relativeSegments] = locator.split('/')
+      const root = alias ? roots.get(alias) : undefined
       entries.push({
         name,
         description,
         locatorKind: locatorKind as SkillCatalogEntry['locatorKind'],
-        locator
+        locator: root && relativeSegments.length ? join(root, ...relativeSegments) : locator
       })
     }
     if (entries.length) return entries

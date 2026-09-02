@@ -10,6 +10,7 @@ extension:
 ```txt
 task intent
   -> ground unresolved material design decisions in user / project / skill / research evidence
+  -> optional page-only apply_canvas create/activate when a fresh page is requested
   -> optionally delegate isolated evidence, asset, inventory, or QA work
   -> choose reuse or direct resources from the user's constraints
   -> explicit design-system authoring branch only when requested
@@ -46,7 +47,8 @@ The model-visible surface contains six tools:
   authoring keys for managed nodes when an update resumes without prior call context, and can
   optionally return compact live mask, IMAGE paint, layout-grid, and frame-guide state;
 - `get_design_system` conditionally reads deterministic pages of discoverable design-system facts;
-- `apply_canvas` is the only mutating tool;
+- `apply_canvas` creates, updates, removes, or activates exact pages and managed roots and is the
+  only design-result/context mutating tool;
 - `upload_asset` stores a programmatically composed generated PNG/JPEG/GIF data URL in the Hub and
   returns only a content hash for a later Canvas IMAGE declaration;
 - `get_screenshot` returns bounded visual evidence only when pixels affect the next decision.
@@ -283,10 +285,10 @@ geometry or numeric values.
 
 ```ts
 type ApplyCanvasInput = {
-  mode: 'create' | 'update'
+  mode: 'create' | 'update' | 'remove' | 'activate'
   targetNodeId?: string
   catalogId?: string
-  markup: string | null
+  markup?: string
   native?: Record<
     string,
     {
@@ -312,8 +314,17 @@ type ApplyCanvasInput = {
   assets?: Record<string, unknown>
   removeKeys?: string[]
   page?: Record<string, unknown>
+  selection?: string[]
 }
 ```
+
+Markup is present for managed-tree create or structural update. A native-only update instead uses
+an exact managed `targetNodeId`, omits markup, and addresses existing stable keys inside that scope;
+it preserves topology and cannot remove nodes or mutate page state. Page-only
+create/update/remove/activate uses exact page identity and also omits markup. A newly created page
+becomes active with an empty selection. A root may also be created directly on an exact existing
+page without activating that page first. `selection` is valid only with activate; omission
+preserves selection and `[]` clears it.
 
 The public schema stays below 8 KiB; expanding the complete native schema would be roughly 190 KiB
 before other instructions or task evidence. Common catalog variable/style refs live beside their
@@ -412,6 +423,19 @@ CSS, JavaScript, project theme extensions, Tailwind variants/plugins, or remote 
 exact supported subset is documented in the canvas-authoring skill. A plain ampersand remains text
 when it does not begin a semicolon-terminated entity; supported named and numeric entities decode.
 
+Before compilation, parsing reports a bounded set of independent static markup issues in the same
+pre-mutation error so the caller can repair them together. This includes unsupported classes,
+invalid attributes, missing dimensions, invalid frame/text class placement, direct text on a `div`,
+class conflicts, and invalid fill or grow sizing against the declared parent layout. Errors that
+depend on native bindings or live Figma state remain fail-fast in the later compiler. This
+diagnostic does not make implementation-oriented `get_code` JSX a Canvas authoring format or widen
+the supported utility subset.
+
+For a recognized unsupported utility family, the single-class error may also state the family-level
+remedy. Shrink utilities, for example, are rejected with an instruction to remove the class rather
+than retry an alias or arbitrary-value spelling. The parser remains fail-closed; the explanation
+does not turn the rejected class into a no-op.
+
 Create-mode uses Figma's CSS-aligned Auto Layout model. Inside strokes participate by default;
 `box-content` explicitly excludes them, while center and outside strokes never affect layout. Each
 frame owns its stroke setting. Fixed create geometry is rejected when it cannot contain its literal
@@ -468,7 +492,12 @@ Update is an incremental declarative patch scoped by `targetNodeId`:
 - supplied nodes and fields state desired values;
 - omitted live fields and children are preserved;
 - `removeKeys` explicitly asserts that owned descendants must be absent;
-- `markup: null` is the isolated assertion that the managed update root itself must be absent.
+- top-level `mode: "remove"` asserts that an exact managed root or page must be absent.
+
+When structure is unchanged, update may omit markup and supply only `native`. Each native entry must
+name an existing stable key inside the exact managed target. This path applies and verifies native
+state without reconciling parent/child relationships; masks and node removal remain structural
+operations and require markup.
 
 This applies within a stroke as well: update may supply paint or weight alone
 while the omitted counterpart preserves its live literal, style, or variable
@@ -551,6 +580,8 @@ adoption, and removal. Physical traversal still includes descendants for safety 
 Existing nodes still reject ownership reassignment. Newly created Frames and Components normalize
 an omitted fill to transparent and omitted overflow to Canvas HTML's visible default even during
 update; explicit paint, style, variable, or `overflow-hidden` state then overrides that baseline.
+Zero-valued minimum-size utilities normalize to an absent native minimum because Figma represents
+that constraint as `null`; zero-valued maximums remain literal constraints.
 This keeps Figma's creation defaults from changing the meaning of markup first introduced by an
 incremental update. Main-axis `grow` is validated by its effective `FILL` sizing mode, so a
 primitive track may use `grow w-fit` inside a row without being misclassified as a freeform
@@ -640,13 +671,23 @@ A visible component-property reference that can alter Auto Layout flow produces
 designed to reflow. The authoring workflow must either preserve geometry with a fixed slot,
 absolute child, or geometry-equivalent variants, or explicitly accept the verified state change.
 
-A managed Text or component instance that extends outside its direct Frame or Component parent
-produces `managed-content-overflow`, including the affected edges and whether native clipping is
-enabled. The same warning reports descendant content that extends outside a native INSTANCE root;
+A managed Text, component instance, or in-flow Auto Layout child that extends outside its direct
+Frame or Component parent produces `managed-content-overflow`, including the affected edges and
+whether native clipping is enabled. Verification considers both Text ink and layout bounds; for a
+freeform parent it can fall back to parent-local geometry when Figma omits absolute bounds. The same
+warning reports descendant content that extends outside a native INSTANCE root;
 Figma may still paint that content without expanding the instance's bounds, so this catches broken
 text, swap, or slot contracts that screenshots alone can miss. It remains non-fatal because
 deliberate overflow and crop are valid composition tools; the warning makes accidental content
 cropping, overlap, or invalid instance bounds inspectable without prohibiting either.
+
+A fixed, start-aligned Auto Layout main axis with no growing child produces
+`managed-auto-layout-inset-mismatch` when the resolved trailing inset differs from its declared
+trailing padding plus included inside stroke. This remains non-fatal because intentionally open
+space is valid, but it must be modeled explicitly with main-axis alignment or a growing spacer;
+otherwise the warning exposes content that consumed its padding or a fixed container that retained
+unowned slack after text resolved. Hugging containers and explicitly space-owning layouts do not
+produce the warning.
 
 Its structured result also returns `rootNodeId` and the bounded `nodeIdsByKey` identity map so a
 later Author call can consume an exact component created by the preceding result.
@@ -685,7 +726,7 @@ of treating the apply request as proof that Figma retained the desired native pr
 - Unsupported, ambiguous, or internally contradictory inputs fail before mutation.
 - Any mutation-stage failure rolls back the entire apply.
 - MCP annotations mark all reads as read-only and `apply_canvas` as potentially destructive and
-  non-idempotent because its create mode can add another root. These hints improve client routing;
+  non-idempotent because create and remove can change document topology. These hints improve client routing;
   deterministic scope, ownership, validation, and rollback remain the actual safety boundary.
 
 ## Deliberate non-goals

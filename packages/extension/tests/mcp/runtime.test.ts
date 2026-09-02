@@ -50,9 +50,10 @@ function createSceneNode(id: string, visible = true): SceneNode {
   } as unknown as SceneNode
 }
 
-function setFigmaGetNodeById(returnValue: BaseNode | null) {
+function setFigmaGetNodeById(returnValue: BaseNode | null, currentSelection: SceneNode[] = []) {
   vi.stubGlobal('figma', {
-    getNodeById: vi.fn().mockReturnValue(returnValue)
+    getNodeById: vi.fn().mockReturnValue(returnValue),
+    currentPage: { selection: currentSelection }
   } as unknown as PluginAPI)
 }
 
@@ -201,12 +202,11 @@ describe('mcp/runtime', () => {
     setFigmaGetNodeById(null)
     const runtime = await importRuntime()
 
-    mocks.selection.value = []
     await expect(runtime.MCP_TOOL_HANDLERS.get_code()).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
     })
 
-    mocks.selection.value = [createSceneNode('hidden', false)]
+    setFigmaGetNodeById(null, [createSceneNode('hidden', false)])
     await expect(runtime.MCP_TOOL_HANDLERS.get_code()).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
     })
@@ -214,8 +214,7 @@ describe('mcp/runtime', () => {
 
   it('uses current visible selection when nodeId is omitted', async () => {
     const selected = createSceneNode('selected')
-    mocks.selection.value = [selected]
-    setFigmaGetNodeById(null)
+    setFigmaGetNodeById(null, [selected])
     mocks.runGetCode.mockResolvedValue({ blocks: [{ lang: 'jsx', code: '<div />' }] })
 
     const runtime = await importRuntime()
@@ -238,6 +237,30 @@ describe('mcp/runtime', () => {
     )
   })
 
+  it('reads the live current-page selection instead of stale UI selection state', async () => {
+    const stale = createSceneNode('stale-from-previous-page')
+    const current = createSceneNode('current-page-node')
+    mocks.selection.value = [stale]
+    setFigmaGetNodeById(null, [current])
+    mocks.runGetCode.mockResolvedValue({ blocks: [] })
+
+    const runtime = await importRuntime()
+    await runtime.MCP_TOOL_HANDLERS.get_code()
+
+    expect(mocks.runGetCode).toHaveBeenCalledWith(
+      [current],
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    )
+
+    setFigmaGetNodeById(null)
+    await expect(runtime.MCP_TOOL_HANDLERS.get_structure()).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
+    })
+  })
+
   it('validates get_token_defs input and forwards includeAllModes', async () => {
     setFigmaGetNodeById(null)
     mocks.runGetTokenDefs.mockResolvedValue({ defs: [] })
@@ -256,8 +279,7 @@ describe('mcp/runtime', () => {
 
   it('routes screenshot and structure calls with node resolution and depth options', async () => {
     const node = createSceneNode('node-2')
-    setFigmaGetNodeById(node)
-    mocks.selection.value = [node]
+    setFigmaGetNodeById(node, [node])
     mocks.runGetScreenshot.mockResolvedValue({ imageData: 'data:image/png;base64,AA==' })
     mocks.runGetStructure.mockResolvedValue({ nodes: [] })
 
@@ -274,5 +296,54 @@ describe('mcp/runtime', () => {
 
     await runtime.MCP_TOOL_HANDLERS.get_structure()
     expect(mocks.runGetStructure).toHaveBeenLastCalledWith([node], undefined, undefined)
+  })
+
+  it('reads an exact page by managed key without changing the active page', async () => {
+    const root = createSceneNode('page-root')
+    const page = {
+      id: '0:2',
+      name: 'Evaluation',
+      type: 'PAGE',
+      children: [root],
+      selection: [],
+      loadAsync: vi.fn().mockResolvedValue(undefined),
+      getSharedPluginData: vi.fn((_namespace: string, key: string) =>
+        key === 'page-key' ? 'eval/fresh' : ''
+      )
+    } as unknown as PageNode
+    const currentPage = {
+      id: '0:1',
+      name: 'Current',
+      type: 'PAGE',
+      children: [],
+      selection: [],
+      getSharedPluginData: vi.fn(() => '')
+    } as unknown as PageNode
+    vi.stubGlobal('figma', {
+      root: { children: [currentPage, page] },
+      currentPage,
+      getNodeById: vi.fn()
+    } as unknown as PluginAPI)
+    mocks.runGetStructure.mockReturnValue({ roots: [{ id: root.id }] })
+
+    const runtime = await importRuntime()
+    const result = await runtime.MCP_TOOL_HANDLERS.get_structure({
+      pageKey: 'eval/fresh',
+      options: { depth: 2 }
+    })
+
+    expect(page.loadAsync).toHaveBeenCalledOnce()
+    expect(mocks.runGetStructure).toHaveBeenCalledWith([root], 2, undefined)
+    expect(result).toMatchObject({
+      page: {
+        id: page.id,
+        pageKey: 'eval/fresh',
+        name: 'Evaluation',
+        active: false,
+        childCount: 1,
+        selectionCount: 0
+      }
+    })
+    expect(figma.currentPage).toBe(currentPage)
   })
 })

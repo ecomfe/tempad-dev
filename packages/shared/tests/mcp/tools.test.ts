@@ -2052,49 +2052,116 @@ describe('mcp/tools canvas authoring schemas', () => {
     for (const input of invalidCreates) {
       expect(acceptsCanvas(input)).toBe(false)
     }
-  })
 
-  it('accepts isolated update-root removal and rejects ambiguous combinations', () => {
+    const nativeOnlyUpdate = ApplyCanvasPublicParametersSchema.safeParse({
+      mode: 'update',
+      targetNodeId: '1:2',
+      native: { root: { figma: { opacity: 0.5 } } }
+    })
+    expect(nativeOnlyUpdate.success).toBe(true)
+
+    const emptyNativeUpdate = ApplyCanvasPublicParametersSchema.safeParse({
+      mode: 'update',
+      targetNodeId: '1:2'
+    })
+    expect(emptyNativeUpdate.success).toBe(false)
+    if (!emptyNativeUpdate.success) {
+      expect(emptyNativeUpdate.error.issues).toEqual([
+        expect.objectContaining({
+          message: 'Native-only update requires native node state.',
+          path: ['native']
+        })
+      ])
+    }
+
     expect(
       acceptsCanvas({
         mode: 'update',
         targetNodeId: '1:2',
-        markup: null
+        native: { root: { figma: { opacity: 0.5 } } },
+        page: { pageKey: 'eval/fresh' }
+      })
+    ).toBe(false)
+    expect(
+      acceptsCanvas({
+        mode: 'update',
+        targetNodeId: '1:2',
+        native: { root: { figma: { opacity: 0.5 } } },
+        removeKeys: ['old/child']
+      })
+    ).toBe(false)
+  })
+
+  it('uses explicit modes for page and root lifecycle operations', () => {
+    expect(
+      acceptsCanvas({
+        mode: 'remove',
+        targetNodeId: '1:2'
+      })
+    ).toBe(true)
+    expect(
+      acceptsCanvas({
+        mode: 'create',
+        page: { pageKey: 'eval/fresh', name: 'Fresh page' }
+      })
+    ).toBe(true)
+    expect(
+      acceptsCanvas({
+        mode: 'update',
+        page: { pageKey: 'eval/fresh', name: 'Renamed page' }
+      })
+    ).toBe(true)
+    expect(
+      acceptsCanvas({
+        mode: 'remove',
+        page: { id: '0:2', pageKey: 'eval/fresh' }
+      })
+    ).toBe(true)
+    expect(
+      acceptsCanvas({
+        mode: 'activate',
+        page: { pageKey: 'eval/fresh' },
+        selection: []
+      })
+    ).toBe(true)
+    expect(
+      acceptsCanvas({
+        mode: 'create',
+        page: { pageKey: 'flows/existing' },
+        markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>'
       })
     ).toBe(true)
 
     for (const input of [
       { mode: 'create', markup: null },
-      { mode: 'update', markup: null },
+      { mode: 'update' },
       {
-        mode: 'update',
+        mode: 'remove',
         targetNodeId: '1:2',
-        markup: null,
         bindings: {}
       },
       {
-        mode: 'update',
+        mode: 'remove',
         targetNodeId: '1:2',
-        markup: null,
         removeKeys: []
       },
       {
-        mode: 'update',
+        mode: 'remove',
         targetNodeId: '1:2',
-        markup: null,
+        page: { pageKey: 'eval/fresh' }
+      },
+      {
+        mode: 'remove',
+        page: { pageKey: 'eval/fresh', name: 'Archive' }
+      },
+      {
+        mode: 'activate',
         page: { name: 'Archive' }
       },
       {
-        mode: 'update',
-        targetNodeId: '1:2',
-        markup: null,
-        variableCollections: { tokens: null }
-      },
-      {
-        mode: 'update',
-        targetNodeId: '1:2',
-        markup: null,
-        styles: { legacy: null }
+        mode: 'activate',
+        page: { pageKey: 'eval/fresh' },
+        markup: '<div data-key="root" class="w-[1px] h-[1px]"></div>'
       }
     ]) {
       expect(acceptsCanvas(input)).toBe(false)
@@ -2327,6 +2394,31 @@ describe('mcp/tools canvas authoring result schemas', () => {
         verification: { ...result.verification, nativeFieldsChecked: -1 }
       }).success
     ).toBe(false)
+
+    expect(
+      ApplyCanvasResultSchema.safeParse({
+        nodeIdsByKey: {},
+        createdNodeIds: [],
+        updatedNodeIds: [],
+        removedNodeIds: [],
+        page: {
+          id: '0:2',
+          pageKey: 'eval/fresh',
+          name: 'Fresh evaluation',
+          index: 1,
+          active: true,
+          childCount: 0,
+          selectionCount: 0
+        },
+        mutationCount: 2,
+        verification: {
+          status: 'passed',
+          nodesChecked: 0,
+          referencesChecked: 0,
+          warnings: []
+        }
+      }).success
+    ).toBe(true)
   })
 })
 
@@ -2385,6 +2477,11 @@ describe('mcp/tools parameter schemas', () => {
         options: { depth: 2, native: true }
       }).success
     ).toBe(true)
+    expect(GetStructureParametersSchema.safeParse({ pageId: '0:2' }).success).toBe(true)
+    expect(GetStructureParametersSchema.safeParse({ pageKey: 'eval/fresh' }).success).toBe(true)
+    expect(
+      GetStructureParametersSchema.safeParse({ nodeId: '1:2', pageKey: 'eval/fresh' }).success
+    ).toBe(false)
 
     expect(
       GetStructureParametersSchema.safeParse({

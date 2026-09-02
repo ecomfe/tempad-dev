@@ -61,13 +61,14 @@ describe('tools response helpers', () => {
 
     expect(designSystem?.description).toContain('reuse is permitted and relevant')
     expect(designSystem?.description).toContain('limits design evidence to the current page')
-    expect(applyCanvas?.description).toContain('declarative desired Figma result')
-    expect(applyCanvas?.description).toContain('Markup serializes ordinary layers as Canvas HTML')
-    expect(applyCanvas?.description).toContain('typed fields express selected Figma capabilities')
-    expect(applyCanvas?.description).toContain('Create auto-places the new root')
+    expect(applyCanvas?.description).toContain('Create, update, remove, or activate')
+    expect(applyCanvas?.description).toContain(
+      'Markup is optional for page-only operations and native-only updates'
+    )
+    expect(applyCanvas?.description).toContain('Exact off-current-page writes')
     expect(applyCanvas?.description).toContain('preserves omitted live state')
-    expect(getStructure?.description).toContain("relative to the node's actual Figma parent")
-    expect(getStructure?.description).toContain('only page children are page-relative')
+    expect(getStructure?.description).toContain('exact page id/key')
+    expect(getStructure?.description).toContain('page-query roots are page-relative')
     expect(designSystem?.parameters.parse({})).toEqual({})
     expect(
       applyCanvas?.parameters.parse({
@@ -122,7 +123,24 @@ describe('tools response helpers', () => {
   it('formats code tool responses with summaries, warnings, assets and tokens', () => {
     const payload: ToolResultMap['get_code'] = {
       ...codePayload,
-      warnings: [{ type: 'depth-cap', message: 'Depth capped.' }],
+      warnings: [
+        { type: 'depth-cap', message: 'Depth capped.' },
+        {
+          type: 'literal-cluster',
+          message: 'Repeated unbound color literals are listed in literalClusters.'
+        }
+      ],
+      literalClusters: [
+        {
+          kind: 'color',
+          value: '#6699CC',
+          occurrences: 2,
+          consumers: [
+            { nodeId: 'a', nodeName: 'A', properties: ['color'] },
+            { nodeId: 'b', nodeName: 'B', properties: ['color'] }
+          ]
+        }
+      ],
       tokens: {
         '--color-primary': {
           kind: 'color',
@@ -146,6 +164,7 @@ describe('tools response helpers', () => {
     const summaryText = textContent(result.content[0])
     expect(summaryText).toContain('Generated `jsx` snippet')
     expect(summaryText).toContain('Depth capped.')
+    expect(summaryText).toContain('Repeated unbound color literals')
     expect(summaryText).toContain('Assets attached: 1')
     expect(summaryText).toContain('Token references included: 1')
     expect(result.content).toHaveLength(1)
@@ -382,6 +401,15 @@ describe('tools response helpers', () => {
     expect(textContent(connectivityError.content[0])).toContain('[NO_ACTIVE_EXTENSION]')
     expect(textContent(connectivityError.content[0])).toContain('Troubleshooting:')
     expect(textContent(connectivityError.content[0])).toContain('enable the MCP server')
+    expect(textContent(connectivityError.content[0])).toContain(
+      'Enabled permits connection; it does not prove that an extension is active'
+    )
+    expect(textContent(connectivityError.content[0])).toContain('panel header MCP badge is active')
+    expect(textContent(connectivityError.content[0])).toContain('reports a protocol mismatch')
+    expect(textContent(connectivityError.content[0])).toContain(
+      'reload the installed TemPad Dev browser extension'
+    )
+    expect(textContent(connectivityError.content[0])).toContain('start a fresh task')
 
     const selectionError = createToolErrorResponse('get_code', {
       cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION },

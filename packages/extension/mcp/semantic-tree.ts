@@ -71,8 +71,6 @@ type TraversalContext = {
   cappedNodeIds: string[]
 }
 
-type FlattenResult = SemanticNode[]
-
 function assignIndexes(nodes: SemanticNode[]): void {
   nodes.forEach((node, idx) => {
     node.index = idx
@@ -289,12 +287,38 @@ function getLayoutKind(node: SceneNode): 'auto' | 'absolute' {
   return 'absolute'
 }
 
+function createSemanticNode(
+  node: SceneNode,
+  depth: number,
+  index: number,
+  children: SemanticNode[],
+  capped = false
+): SemanticNode {
+  const dataHint = composeDataHint(node)
+  return {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    tag: resolveSemanticTag(node),
+    depth,
+    index,
+    layout: getLayoutKind(node),
+    bounds: getBounds(node),
+    isComponentInstance: node.type === 'INSTANCE',
+    ...describeAsset(node),
+    ...(dataHint ? { dataHint } : {}),
+    autoLayout: extractAutoLayout(node),
+    ...(capped ? { capped: true } : {}),
+    children
+  }
+}
+
 function visit(
   node: SceneNode,
   depth: number,
   index: number,
   ctx: TraversalContext
-): FlattenResult {
+): SemanticNode[] {
   if (!node.visible) return []
 
   if (ctx.depthLimit !== undefined && depth >= ctx.depthLimit) {
@@ -303,28 +327,7 @@ function visit(
     ctx.stats.capped = true
     ctx.cappedNodeIds.push(node.id)
 
-    const semanticNode: SemanticNode = {
-      id: node.id,
-      name: node.name,
-      type: node.type,
-      tag: resolveSemanticTag(node),
-      depth,
-      index,
-      layout: getLayoutKind(node),
-      bounds: getBounds(node),
-      isComponentInstance: node.type === 'INSTANCE',
-      ...describeAsset(node),
-      autoLayout: extractAutoLayout(node),
-      capped: true,
-      children: []
-    }
-
-    const hint = composeDataHint(node)
-    if (hint) {
-      semanticNode.dataHint = hint
-    }
-
-    return [semanticNode]
+    return [createSemanticNode(node, depth, index, [], true)]
   }
 
   if (isWrapper(node)) {
@@ -337,30 +340,10 @@ function visit(
   )
   assignIndexes(children)
 
-  const semanticNode: SemanticNode = {
-    id: node.id,
-    name: node.name,
-    type: node.type,
-    tag: resolveSemanticTag(node),
-    depth,
-    index,
-    layout: getLayoutKind(node),
-    bounds: getBounds(node),
-    isComponentInstance: node.type === 'INSTANCE',
-    ...describeAsset(node),
-    autoLayout: extractAutoLayout(node),
-    children
-  }
-
-  const hint = composeDataHint(node)
-  if (hint) {
-    semanticNode.dataHint = hint
-  }
-
   ctx.stats.totalNodes += 1
   ctx.stats.maxDepth = Math.max(ctx.stats.maxDepth, depth)
 
-  return [semanticNode]
+  return [createSemanticNode(node, depth, index, children)]
 }
 
 function collectDepthCounts(nodes: SceneNode[], depth = 0, counts: number[] = []): number[] {

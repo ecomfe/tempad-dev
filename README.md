@@ -223,12 +223,15 @@ With the TemPad Dev panel open and MCP enabled, the MCP server exposes:
   definitions on accessible pages plus local or directly referenced variable, collection/mode,
   style, and shader definitions without inspecting canvas usage or loading every page. Cursor
   continuation exposes omitted definitions; exact-ref lookup returns one bounded definition.
-- `apply_canvas`: One restricted HTML + deterministic Tailwind utility desired result using primitives, catalog
-  component tags, short design-system refs, typed Figma-only state, sanitized SVG, and
-  content-addressed images. The extension resolves, validates, diffs, applies, and structurally
-  verifies the result. Authoring requires edit access to the current Figma Design file.
+- `apply_canvas`: Creates, updates, removes, or activates exact pages and managed roots. Canvas HTML
+  is optional for page-only operations and native-only updates to existing stable keys inside an
+  exact managed root; a root can be written directly to an exact off-current page without switching
+  editor context. The extension resolves, validates, diffs, applies, and
+  structurally verifies each requested result. Authoring requires edit access to the current Figma
+  Design file.
 - `get_screenshot`: A bounded rendered PNG for selective visual validation.
-- `get_structure`: A structural outline (ids, types, geometry) for the current selection.
+- `get_structure`: A structural outline (ids, types, geometry) for an exact node, exact managed
+  page, or the current selection.
 - Binary assets are returned as metadata + HTTP download URLs (`asset.url`) in tool responses. Asset MCP resources are not exposed.
 
 ### Setup guide

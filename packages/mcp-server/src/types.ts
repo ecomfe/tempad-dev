@@ -4,6 +4,11 @@ export interface ExtensionConnection {
   id: string
   ws: WebSocket
   origin: string
+  connectedAt: string
+  runtime?: {
+    version: string
+    fingerprint: string
+  }
 }
 
 export interface PendingToolCall {

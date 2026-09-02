@@ -11,12 +11,11 @@ import type {
 
 import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 
-import { selection } from '@/ui/state'
-
 import type { GetCodeRuntimeOptions } from './tools/code'
 
 import { createCodedError } from './errors'
 import { handleApplyCanvas } from './tools/canvas'
+import { pageById, pageSnapshot, pagesByKey } from './tools/canvas/identity'
 import { handleGetCode as runGetCode } from './tools/code'
 import { handleGetDesignSystem } from './tools/design-system'
 import { handleGetScreenshot as runGetScreenshot } from './tools/screenshot'
@@ -51,8 +50,9 @@ function resolveSingleNode(nodeId?: string): SceneNode {
     return node
   }
 
-  const [selectedNode] = selection.value
-  if (selection.value.length !== 1 || !selectedNode?.visible) {
+  const currentSelection = figma.currentPage.selection
+  const [selectedNode] = currentSelection
+  if (currentSelection.length !== 1 || !selectedNode?.visible) {
     throw createCodedError(
       TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION,
       'Select exactly one visible node (or provide nodeId) to proceed.'
@@ -98,10 +98,38 @@ async function handleGetScreenshot(
 }
 
 async function handleGetStructure(args?: GetStructureParametersInput): Promise<GetStructureResult> {
-  const { nodeId, options } = args ?? {}
-  const root = resolveSingleNode(nodeId)
+  const { nodeId, pageId, pageKey, options } = args ?? {}
   const depth = options?.depth
-  return runGetStructure([root], depth, options?.native)
+  if (!pageId && !pageKey) {
+    const root = resolveSingleNode(nodeId)
+    return runGetStructure([root], depth, options?.native)
+  }
+
+  const idMatch = pageId ? pageById(pageId) : undefined
+  const keyMatches = pageKey ? pagesByKey(pageKey) : []
+  if (keyMatches.length > 1) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+      `Page key "${pageKey}" identifies more than one local page.`
+    )
+  }
+  const keyMatch = keyMatches[0]
+  if (idMatch && keyMatch && idMatch.id !== keyMatch.id) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+      `Page key "${pageKey}" does not identify page "${pageId}".`
+    )
+  }
+  const page = idMatch ?? keyMatch
+  if (!page) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+      pageId ? `Page "${pageId}" does not exist.` : `Page key "${pageKey}" does not exist.`
+    )
+  }
+  if (page.id !== figma.currentPage.id) await page.loadAsync()
+  const result = runGetStructure([...page.children], depth, options?.native)
+  return { ...result, page: pageSnapshot(page) }
 }
 
 export const MCP_TOOL_HANDLERS = {
