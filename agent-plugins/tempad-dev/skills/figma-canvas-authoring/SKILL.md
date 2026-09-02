@@ -10,19 +10,16 @@ description: >-
 
 # Design on the Figma canvas
 
-Create one native, editable Figma result. Work from intended experience and
-evidence to the Figma artifact model, representation mechanics, serialization,
-and rendered verification. Markup and classes only transport ordinary layer
-hierarchy, layout, spacing, typography, color, and appearance; use native fields
-where meaning depends on Figma node types, resources, or state. Tools, schemas,
-catalogs, and examples support the result but do not determine the design.
+Create one native, editable Figma result. Keep the intended product experience
+focal. The brief, inspected artifacts, professional knowledge, tools, schemas,
+and rendered checks are clues to think from, not separate targets to optimize.
 
-Derive product, platform, accessibility, content, and visual requirements from
-the user, permitted evidence, applicable expertise, or targeted research.
-Suitable product or interface-design expertise may contribute scoped constraints
-and judgment; the product-specific direction must still come from the brief and
-evidence. This skill remains responsible for Figma execution, representation
-integrity, verification, and a portable quality floor.
+Use exact rules for scope, permission, identity, source fidelity, native
+representation, serialization, and observed defects because errors there are
+concrete. Leave product structure, interaction, visual language, hierarchy,
+density, and media treatment to situated design judgment because their right
+answer depends on the task. Never turn a past result, benchmark, example, or
+tool affordance into a preferred style.
 
 Before authoring, require an editable Figma Design file and an active MCP badge
 in the intended tab. Use only the host's TemPad MCP tools. If they are absent,
@@ -30,169 +27,163 @@ report the integration problem and stop; never bypass the boundary, emit raw
 Plugin API operations, launch the MCP CLI, recreate its transport, or substitute
 shell commands.
 
-## Authority and quality
+## Non-negotiables
 
 Apply explicit user requirements first, then applicable evidence, this skill's
 authoring and safety constraints, and situated judgment. Infer low-consequence
 gaps; ask only when a missing choice would materially change the result.
 
-- Ground material decisions in the brief, evidence, targeted research, or a
-  stated low-consequence assumption. Tool availability and examples are not
-  design evidence.
-- Do not derive product content or personalization from unrelated account,
-  filesystem, task, page, or tool metadata. When the brief supplies no identity,
-  keep it neutral rather than inventing one from context.
-- Deliver one coherent result whose content, states, assets, and reusable
-  resources agree with the brief and one another.
-- Preserve required sources, assets, representations, and behavior rather than
-  replacing them with easier substitutes.
-- Make the result complete, editable, intentionally structured, and free of
-  observed unintended defects. Disclose accepted limitations.
+- Use the exact target established by the user or current context. Write to a
+  known page directly; create or activate a page only when the task calls for
+  it. Never use browser automation, a disposable proof node, or an invented page
+  to set up the canvas.
+- Ground material decisions in the brief, inspected evidence, applicable
+  expertise, or a stated low-consequence assumption. Model recall, search
+  snippets, tool availability, and skill examples are not product evidence.
+- Preserve required sources, content, behavior, states, and representations.
+  Do not replace a hard-to-source image, icon, visualization, or native semantic
+  with easier text or plausible geometry.
+- Keep unrelated account, filesystem, task, page, and tool metadata out of the
+  product. When the brief supplies no person or product identity, keep it
+  neutral rather than inventing personalization or branding from context.
+- Keep research artifacts outside the authored result unless the user explicitly
+  asks to reproduce, place, annotate, or compare them on the canvas.
+- Deliver one coherent result that is complete, editable, intentionally
+  structured, and free of observed unintended defects. Disclose accepted
+  limitations.
 
-The brief and its evidence define task-specific quality; establish and verify
-those criteria instead of prescribing their answers here.
+The brief and its evidence define task-specific quality. This skill shapes how
+to reach and verify a decision; it does not prescribe the visible answer.
 
-## Workflow
+## Situated authoring loop
 
-1. **Fix scope and evidence.** Determine the smallest complete outcome, target,
-   relevant evidence, content and state distinctions, and unresolved material
-   decisions. Use `get_code` only when existing composition matters or for the
-   post-representative resource decision in step 5. Use `get_structure` only for
-   hierarchy, geometry, identity uncertainty, or routed native read-back.
-   Use the exact target established by the user or current context. When the
-   request names the current or selected page, write there and do not create or
-   activate another page. Only when a fresh page is part of the task, use
-   page-only `apply_canvas` create with a stable `pageKey`, then activate it when
-   current-page context matters. An exact known page can receive a root directly
-   without activation. Never use browser automation, a disposable proof node,
-   or an invented page for setup.
+1. **Frame the experience.** Determine the smallest complete outcome, exact
+   target, person and situation, consequential content and states, and the way
+   the application behaves beyond one captured frame. Choose natural document
+   flow, a fixed shell with owned scrolling regions, or a hybrid from the
+   product's work—never from a preferred screenshot size. Use `get_code` when an
+   existing composition matters and `get_structure` only for hierarchy,
+   geometry, managed identity, or routed native read-back.
 
-2. **Resolve material design decisions.** Follow the user and permitted file or
-   project evidence. For net-new or materially redesigned product interfaces,
-   read [visual-composition.md](references/visual-composition.md) and
-   [style-grounding.md](references/style-grounding.md). For other work, use
-   style-grounding when the user asks for design research or a material choice
-   remains unresolved. Research must inspect actual product artifacts, not stop
-   at prose descriptions, and must translate principles rather than motifs.
+2. **Encounter relevant reality.** For a net-new or materially redesigned
+   interface without an established system, read
+   [visual-composition.md](references/visual-composition.md) and
+   [style-grounding.md](references/style-grounding.md), then open real product
+   screens or a permitted implementation at useful scale before the first
+   Canvas write. The evidence must expose the product or interface relationships
+   informing the design: subject or content imagery grounds only what it depicts,
+   not the surrounding interaction, composition, or visual system. Search
+   results, prose descriptions, URLs, thumbnails, generated images, and failed
+   retrievals do not satisfy this boundary. Try another permitted route when
+   retrieval fails; if no inspectable source can be obtained, disclose the gap
+   and stop rather than claim grounded design.
 
-   Use applicable design expertise to turn the brief and evidence into one
-   product-specific thesis: identify the working object and relationship that
-   organize the experience, then let document behavior, type, material,
-   interaction, and assets reinforce them. A mood or style label is not enough.
+   Research is grounded only when what was encountered bears on a material
+   decision in the new whole. Independence means re-solving the brief, not
+   silently discarding an applicable behavior, interaction economy, or
+   representation; depart for a reason in the new product, not because another
+   answer is easier to source or serialize. Do not copy the source or place its
+   pixels on the canvas. For other work, read style-grounding only when the user
+   asks for research or a consequential decision remains open.
 
-   Before markup, resolve how to represent the central working object and
-   interactions. Choose text, icon, image, data visualization, diagram, or
-   another medium by what the product needs people to recognize and do—never by
-   quota or implementation convenience. Primitives may encode layout, state,
-   data, or an explicitly schematic diagram, but may not impersonate meaningful
-   content. When an icon role—including a character or primitive used as an
-   affordance—another visual asset, or an exact typeface is selected, read
-   [visual-assets.md](references/visual-assets.md) before acquisition or markup.
-   Retain only enough private rationale to keep evidence, decisions, and later
-   verification coherent; do not turn it into a fixed design report.
+3. **Synthesize one direction.** Integrate the brief, evidence, and professional
+   judgment into a product-specific relationship among content, state, and
+   action. Let structure, hierarchy, interaction, visual language, and media
+   arise together from that relationship. Keep only enough private rationale to
+   remain coherent; do not produce a fixed design report, axis inventory, or
+   style checklist.
 
-3. **Model the result and choose a resource path.** Define visible roles,
-   grouping, layout, type, color, media, states, and editable relationships in
-   Figma terms. Separate ordinary Canvas HTML from exact resources, components,
-   variables, masks, media paints, guides, or native node types.
+   Choose text, icons, images, illustration, data visualization, diagrams, and
+   native controls by what people need to recognize, compare, manipulate, or
+   feel—not by quota or serialization convenience. Treat a character or
+   primitive doing an icon's job as an icon role. Before representing any
+   chosen icon or other visual asset—or using an exact typeface—read
+   [visual-assets.md](references/visual-assets.md).
+
+   Model visible roles, grouping, layout, type, color, media, states, and
+   editable relationships in Figma terms. Separate ordinary Canvas HTML from
+   exact resources, components, variables, masks, media paints, guides, and
+   native node types. Choose one resource path:
 
    - **Reuse:** only when the user, selected source, or applicable project
-     evidence establishes the identity of a relevant existing system. A catalog
-     name, source page, domain match, or mere presence in the file is not such
-     evidence. Then read [design-system-reuse.md](references/design-system-reuse.md)
-     and use only resources relevant to the result.
-   - **Direct:** the default for a first complete net-new design. Use primitives,
-     literals, and permitted assets; do not call `get_design_system`, use catalog
-     refs, or author resources merely because values or shapes repeat.
-   - **Author:** only when the user requested reusable resources, project evidence
-     makes them part of the deliverable, or the user accepts a separate pass.
-     Read [design-system-authoring.md](references/design-system-authoring.md) and
+     evidence establishes a relevant existing system. A catalog name, source
+     page, domain match, or mere presence in the file is insufficient. Read
+     [design-system-reuse.md](references/design-system-reuse.md).
+   - **Direct:** the default for the first complete net-new design. Use
+     primitives, literals, and permitted assets; do not call
+     `get_design_system`, use catalog refs, or author resources merely because
+     values or shapes repeat.
+   - **Author:** only when the user requested reusable resources, project
+     evidence makes them part of the deliverable, or the user accepts a separate
+     pass. Read
+     [design-system-authoring.md](references/design-system-authoring.md) and
      select only responsibilities whose real consumers justify the contract.
 
    Treat an explicitly editable diagram as native semantics with independently
    editable nodes and connectors, not styled FRAME lookalikes.
 
-4. **Load mechanics, then serialize.** Read only references selected by step 3.
-   For Canvas HTML create or structural update, read
-   [canvas-html.md](references/canvas-html.md) in full. For a trustworthy
-   unchanged structure, read its identity section plus only the changed layout,
-   appearance, or text section. Page-only operations omit markup. A native-only
-   update also omits markup, targets one exact managed root, and addresses only
-   existing stable keys inside it, preserving topology. Preserve every
-   unaffected field and keyed element. Use supported
-   equivalents only when they preserve intent; otherwise report the missing
-   capability. Read [paints-effects.md](references/paints-effects.md) before any
-   nontrivial shadow, blur, glass, texture, noise, layered gradient, or advanced
-   media treatment.
+4. **Build a representative composition.** Read only the mechanical references
+   selected by the design. For Canvas HTML create or structural update, read
+   [canvas-html.md](references/canvas-html.md) through EOF and run its preflight
+   immediately before the call. Page-only and native-only operations omit
+   markup. On update, trace the requested change through every visible
+   representation that depends on it, then preserve every unrelated field and
+   keyed element; preservation never protects stale evidence of the prior state.
+   Use a supported equivalent only when it preserves intent; otherwise report
+   the capability gap.
 
-5. **Prove one representative composition.** Apply the smallest materially
-   complete real screen that establishes visual language, density, layout, and
-   representation, then stop and open its PNG. A skeleton, mood board, resource
-   area, generated concept image, mutation summary, or unchanged duplicate does
-   not count. Keep possible components and tokens Direct until this screen is
-   visibly usable and shaped by its product context.
+   Apply the smallest materially complete real screen that establishes the
+   product relationship, visual language, density, layout, and representation.
+   Open its PNG before expanding the flow or extracting resources. A skeleton,
+   mood board, generated concept, resource area, mutation summary, or unchanged
+   duplicate does not count.
 
-   After that check, read [variables.md](references/variables.md) only when
-   repeated colors plausibly represent shared semantic roles that should evolve
-   together. On Author, read
-   [component-authoring.md](references/component-authoring.md), reconcile real
-   consumers, and verify one native usage before propagation. Carry the corrected
-   visual contract across dependent screens as described in
-   [visual-composition.md](references/visual-composition.md); preserving only
-   palette, type, or isolated motifs is not propagation.
+   Experience the rendered whole before diagnosing parts. Correct the
+   composition while it is local. Keep possible components and tokens Direct
+   until the result is visibly usable and shaped by its context. After that
+   check, read [variables.md](references/variables.md) only when shared semantic
+   roles should evolve together. On Author, read
+   [component-authoring.md](references/component-authoring.md), prove one native
+   usage, and reconcile real consumers before propagation.
 
-6. **Apply the complete result.** Call `apply_canvas` once per coherent root and
-   split large work at meaningful screen or section boundaries. For one movable
-   board, create a fixed final-bounds parent before appending bounded sections;
-   omitted existing children remain. Never scan for free space, keep a coordinate
-   ledger, or translate a create root.
+5. **Complete, experience, and repair.** Call `apply_canvas` once per coherent
+   root and split large work only at meaningful screen or section boundaries.
+   Reconcile every selected representation and asset with its role and source
+   before sending it. Carry the representative composition's relevant product
+   relationship, hierarchy, media logic, interaction vocabulary, rhythm, and
+   visual language into dependent screens without forcing identical layouts.
 
-   Immediately before each Canvas HTML call, run the preflight in
-   [canvas-html.md](references/canvas-html.md). Reconcile selected icons,
-   visualizations, and assets with their decided roles and sources; do not send
-   invented or unsourced content. On Author, included consumers must already be
-   native instances or bindings—literal lookalikes and planned later conversion
-   do not count.
+   Open the final PNG and every materially distinct screen. Without opened
+   pixels, do not claim visual verification. First judge whether the whole is
+   useful, coherent, product-specific, and faithful to the intended experience;
+   then focus on any particular hierarchy, attention, density, spacing, edge,
+   clipping, crowding, content, state, or asset issue needed to explain and
+   repair a mismatch. Use `get_structure` only where placement, identity,
+   editability, or native semantics matter.
 
-7. **Verify the delivered result.** Open the final PNG and materially distinct
-   screens; without opened pixels, do not claim visual verification. Compare the
-   result with the brief and decided direction, including hierarchy, density,
-   outer edges, glyph clipping, crowding, content loss, interaction and state
-   contradictions, and asset treatment. Use `get_structure` only where
-   placement, identity, editability, or routed native semantics matter. Mutation
-   success and `nativeFieldsChecked` do not prove pixels or undeclared state.
-
-   Inspect—not summarize away—the full result of every `apply_canvas` call.
-   Correct failures; repair each verification warning or state why the reported
-   geometry is intentional before finalizing.
-
-   Repair and recheck only affected compositions while preserving unaffected
-   content, state, assets, and relationships. Keep the last opened usable
-   composition as the recovery point: a failed local repair is evidence to fix
-   that payload or boundary, not to remove or wholesale recreate the working
-   root. Validation repair may change transport syntax or geometry, not discard
-   the decided hierarchy, controls, icon roles, or assets. Replace the root only
-   when an observed structural defect requires replacement and the complete
-   intent can be preserved. Finish only when each observed defect is corrected,
-   accepted with reason, or disclosed.
+   Inspect the complete result of every `apply_canvas` call. Correct failures;
+   repair each warning or state why its geometry is intentional. Repair only the
+   affected composition while preserving unaffected content and relationships.
+   A failed local repair is evidence to fix that payload, not to discard a
+   working root. Validation repair may change transport syntax or geometry, not
+   discard the decided content, hierarchy, representation, or interaction.
+   Replace a root only when an observed structural defect requires it and the
+   complete intent can be preserved. Finish only when each observed defect is
+   corrected, accepted with reason, or disclosed.
 
    Deliver a verified Direct result when Author was not selected. If a plausible
-   reusable responsibility remains, ask an actual optional yes-or-no question
-   about a separate component pass; do not delay delivery or imply incompleteness.
+   reusable responsibility remains, ask a genuine optional question about a
+   separate component pass; do not imply that the design is incomplete.
 
 ## Load references by decision
 
-Load references only after selecting their branch or capability; they provide
-mechanics, not design ideas.
-
-Read each routed reference through EOF at the workflow step that selects it.
-Do not batch later-stage references into an earlier read; a truncated combined
-read leaves every truncated file unresolved until completed.
+Read each routed reference through EOF when its decision or capability is
+selected. References provide mechanics or decision support, not design ideas.
 
 | Selected decision or capability                                          | Reference                                                           |
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------- |
 | Net-new visual composition                                               | [visual-composition.md](references/visual-composition.md)           |
-| Product-interface research or unresolved material design decision        | [style-grounding.md](references/style-grounding.md)                 |
+| Product research or unresolved material design decision                  | [style-grounding.md](references/style-grounding.md)                 |
 | Asset role, subject, medium, source, or typeface                         | [visual-assets.md](references/visual-assets.md)                     |
 | Existing-system reuse                                                    | [design-system-reuse.md](references/design-system-reuse.md)         |
 | Local-system authoring                                                   | [design-system-authoring.md](references/design-system-authoring.md) |
@@ -205,16 +196,17 @@ read leaves every truncated file unresolved until completed.
 | Paint, Text, Effect, or Grid styles and bindings                         | [local-styles.md](references/local-styles.md)                       |
 | Canvas elements, identity, layout, appearance, and text syntax           | [canvas-html.md](references/canvas-html.md)                         |
 
-## Create and update contract
+## Mutation contract
 
-Create describes one complete root or one exact new page. Update changes an exact
-`targetNodeId` or page; supplied fields state desired values and omissions
+Create describes one complete root or one exact new page. Update changes an
+exact `targetNodeId` or page; supplied fields state desired values and omissions
 preserve live state. With no structural change, target the managed root and send
-only `native` for its existing stable keys. `removeKeys` removes owned
-descendants inside an update; top-level `mode: "remove"` removes an exact managed
-root or page. `mode: "activate"` changes exact page context and optional selection
-without requiring a document mutation. Keep `data-key` and `pageKey` stable and
-recover them from structured tool results, not names.
+only `native` for existing stable keys. `removeKeys` removes owned descendants;
+top-level `mode: "remove"` removes an exact managed root or page. `mode:
+"activate"` always identifies the page by `page.id` or `page.pageKey`, including
+when only changing its optional selection, and makes no document mutation. Keep
+`data-key` and `pageKey` stable and recover them from structured tool results,
+not names.
 
 ## Safety
 

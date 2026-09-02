@@ -35,6 +35,23 @@ Applied here:
 - **Diagnostic:** One subsidiary clue becomes focal temporarily when a concrete
   defect needs an explanation.
 
+This yields a five-part framework for both the authoring skill and its
+evaluation:
+
+| Layer               | What belongs there                                                                             | Guidance form                                                 |
+| ------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Intended experience | The person, situation, product behavior, and coherent authored result                          | One outcome, held focal                                       |
+| Evidence            | Brief, code, real-product pixels, source artifacts, professional knowledge, rendered result    | Clues to integrate, not boxes to tick                         |
+| Judgment            | Synthesis, composition, interaction, visual language, representation, and stopping             | High freedom with situated questions                          |
+| Integrity           | Scope, permission, identity, provenance, native semantics, serialization, and observed defects | Explicit boundaries and deterministic checks                  |
+| Evolution           | Transfer across representative tasks and the smallest general correction                       | Evidence-driven replacement or removal, not rule accumulation |
+
+The framework is deliberately asymmetric. Integrity can often be stated and
+tested explicitly. Design judgment cannot be reconstructed by enumerating all
+of its particulars; instructions should help the agent attend to the right
+reality and own the synthesis, not attempt to contain the finished design in
+prose.
+
 The evaluator's judgment is personal but not arbitrary. They must own it,
 describe what they experienced, point to the evidence that mattered, and remain
 open to correction. Automated graders can assist with exact properties, but
@@ -58,6 +75,12 @@ hacking](https://developers.openai.com/api/docs/guides/graders#grader-hacking).
 7. **Protect variation.** Never turn one good output into a mandatory template.
 8. **Prefer transfer over repetition.** The next materially different task is
    stronger evidence than repeatedly polishing the same prompt.
+9. **Match specificity to risk.** Keep creative and product decisions at high
+   freedom; use exact instructions only for permissions, integrity, fragile
+   mechanics, and observable correctness.
+10. **Diagnose relationships before motifs.** A visible symptom matters through
+    its effect on product use, attention, representation, or coherence. Its
+    opposite is not automatically a general solution.
 
 Official eval guidance similarly recommends representative tasks rather than a
 demonstration set detached from real use; see [Working with
@@ -333,13 +356,27 @@ Only then inspect enough evidence to support or challenge the judgment:
 
 A research call proves an attempt, not grounding. When a claimed precedent
 matters, confirm that the task actually received and inspected the relevant
-product pixels, implementation, or specification. Connection errors,
-interstitials, screenshots that were never emitted or opened, and textual help
-pages do not establish a visual precedent.
+product state, implementation, or specification. A subject or content image
+establishes only what it depicts; it cannot by itself establish the surrounding
+application or page behavior, composition, interaction economy, or visual
+language. Connection errors, interstitials, screenshots that were never emitted
+or opened, and textual help pages do not establish a visual precedent. Then ask
+what material expectation the evidence created and where it bears on the
+artifact. If nothing consequential changed or was confirmed, record attempted
+research rather than a grounded precedent; a reasoned product-specific departure
+remains legitimate.
 
 Do not inventory every component, variable, effect, timing field, or tool call.
 Their presence is not a quality quota. Ask instead how a particular clue affects
 the usefulness of the whole.
+
+Treat descriptions such as "no icons," "too many colors," "large rounded
+buttons," or "only text and boxes" as observations, not proposed skill rules.
+Ask whether the representation supports recognition and interaction economy,
+whether attention follows task importance, whether spacing expresses the
+intended relationships, and whether inspected evidence actually shaped the
+result. Different visual styles can satisfy those relationships. Evaluation
+should expose the mismatch without prescribing its visible inverse.
 
 ### 6. Separate judgment from diagnosis
 
@@ -439,6 +476,11 @@ the following are true:
 5. A small instruction can express the principle without prescribing the
    artifact.
 6. The change does not duplicate guidance already present.
+7. The instruction remains valid across materially different legitimate visual
+   styles. If reversing its named motif could also be correct for another brief,
+   move that choice to task evidence instead of the general skill.
+8. The instruction improves what the agent notices, preserves, or verifies
+   without supplying the design answer it is supposed to discover.
 
 Prefer principles, questions, decision boundaries, and stop conditions. Avoid:
 

@@ -11,11 +11,20 @@ concept as the flattened Figma screen or treat it as product evidence. When a
 depicted subject from that exploration becomes part of the result, establish its
 asset role independently and satisfy the acquisition and delivery rules below.
 
+The same boundary applies to screenshots and artifacts inspected during product
+research: they remain evidence, not canvas content. Import, reproduce, annotate,
+or compare them only when the user explicitly asks for that source treatment.
+When a reference establishes that the product needs a content image, icon, or
+visualization, acquire or author a truthful asset for the new result instead of
+redrawing or embedding the reference itself.
+
 Start from the composition, not an assumed asset slot or available tools.
 Typography, layout, color, negative space, or existing media may already satisfy
 the brief. Add a visual only for an evidenced job: depicting content, signaling
 action, explaining relationships, establishing identity, or expressing an
-intentional visual language. These are cues, not a checklist.
+intentional visual language. These are cues, not a checklist. Once a material
+role is selected, fulfill it faithfully; omitting it because sourcing is harder
+than writing text is not a safer or more neutral design choice.
 
 Depiction is a role, not a medium. Choose photo/raster, sourced vector,
 agent-authored vector illustration or diagram, or another medium only when the
