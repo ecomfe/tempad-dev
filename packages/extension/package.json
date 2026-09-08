@@ -41,7 +41,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
-    "@figma/plugin-typings": "^1.136.0",
+    "@figma/plugin-typings": "^1.137.0",
     "@types/node": "^24.13.3",
     "@types/prismjs": "^1.26.6",
     "@types/stringify-object": "^4.0.5",
@@ -53,21 +53,21 @@
     "esbuild": "^0.28.2",
     "eslint": "^10.9.1",
     "eslint-config-flat-gitignore": "^2.4.0",
-    "eslint-plugin-perfectionist": "^5.10.1",
+    "eslint-plugin-perfectionist": "^5.11.0",
     "eslint-plugin-vue": "^10.10.0",
     "jiti": "^2.7.0",
-    "p-limit": "^7.3.1",
+    "p-limit": "^7.3.2",
     "pino": "^10.3.1",
     "playwright": "^1.62.1",
     "prismjs": "^1.30.0",
     "proper-lockfile": "^4.1.2",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "^6.0.3",
     "vite": "8.2.2",
     "vite-plugin-css-injected-by-js": "^5.0.2",
     "vitest": "4.1.11",
     "vue-tsc": "^3.3.11",
     "wxt": "^0.21.4",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   }
 }
