@@ -40,9 +40,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@figma/plugin-typings": "^1.130.0",
-    "tsdown": "^0.22.7",
+    "@figma/plugin-typings": "^1.136.0",
+    "tsdown": "^0.22.14",
     "typescript": "^6.0.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }

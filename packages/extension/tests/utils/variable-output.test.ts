@@ -42,8 +42,9 @@ function createTextNode(overrides: Record<string, unknown> = {}): TextNode {
         boundVariables: { color: { id: 'color-brand' } }
       }
     ],
-    getRangeBoundVariable: vi.fn((_start: number, _end: number, field: VariableBindableTextField) =>
-      field === 'fontFamily' ? { id: 'font-body' } : figma.mixed
+    getRangeBoundVariable: vi.fn(
+      (_start: number, _end: number, field: VariableBindableTextField) =>
+        field === 'fontFamily' ? { id: 'font-body' } : figma.mixed
     ),
     ...overrides
   } as unknown as TextNode

@@ -31,8 +31,8 @@ const COLOR_MODE_OPTIONS: readonly SiteColorModeOption[] = [
 const isScrolled = ref(false)
 const colorModeCyclePhase = ref<ColorModeCyclePhase>(null)
 const { colorMode, resolvedColorMode, selectedColorMode } = useSiteColorMode()
-const activeColorModeOption = computed(
-  () => COLOR_MODE_OPTIONS.find((option) => option.value === selectedColorMode.value)!
+const activeColorModeOption = computed(() =>
+  COLOR_MODE_OPTIONS.find((option) => option.value === selectedColorMode.value)!
 )
 
 function syncHeaderState(): void {
