@@ -31,7 +31,7 @@
     "eslint-plugin-vue": "~10.10.0",
     "jiti": "^2.7.0",
     "marked": "^18.0.11",
-    "typescript": "~6.0.3",
+    "typescript": "~7.0.2",
     "vite": "8.2.2",
     "vue-tsc": "^3.3.11",
     "yaml": "^2.9.0"
