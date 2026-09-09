@@ -87,7 +87,10 @@ const CONNECTIVITY_TROUBLESHOOTING_LINES = [
   '- Keep the Figma tab active/foreground while using the MCP server.'
 ]
 
-const SELECTION_TROUBLESHOOTING_LINE = 'Tip: Select exactly one visible node, or pass nodeId.'
+const SINGLE_SELECTION_TROUBLESHOOTING_LINE =
+  'Tip: Select exactly one visible node, or pass nodeId.'
+const MULTI_SELECTION_TROUBLESHOOTING_LINE =
+  'Tip: Select one or more visible nodes, or pass nodeId.'
 
 function getRecordProperty(record: unknown, key: string): unknown {
   if (!record || typeof record !== 'object') {
@@ -138,7 +141,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_structure',
     description:
-      'Get a compact structural + geometry outline for nodeId/current single selection to understand hierarchy and layout intent.',
+      'Get a compact structural + geometry outline for nodeId or all visible nodes in the current selection. Use multi-selection to enumerate design roots before calling get_code once per root nodeId.',
     parameters: GetStructureParametersSchema,
     target: 'extension',
     format: createStructureToolResponse
@@ -181,7 +184,7 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
   const message = extractToolErrorMessage(error)
   const code = extractToolErrorCode(error)
   const codeLabel = code ? ` [${code}]` : ''
-  const troubleshooting = buildTroubleshootingText(code, message)
+  const troubleshooting = buildTroubleshootingText(toolName, code, message)
 
   return {
     isError: true,
@@ -194,7 +197,11 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
   }
 }
 
-function buildTroubleshootingText(code: TempadMcpErrorCode | undefined, message: string): string {
+function buildTroubleshootingText(
+  toolName: string,
+  code: TempadMcpErrorCode | undefined,
+  message: string
+): string {
   const help: string[] = []
 
   if (isConnectivityToolError(code, message)) {
@@ -202,7 +209,11 @@ function buildTroubleshootingText(code: TempadMcpErrorCode | undefined, message:
   }
 
   if (isSelectionToolError(code, message)) {
-    help.push(SELECTION_TROUBLESHOOTING_LINE)
+    help.push(
+      toolName === 'get_structure'
+        ? MULTI_SELECTION_TROUBLESHOOTING_LINE
+        : SINGLE_SELECTION_TROUBLESHOOTING_LINE
+    )
   }
 
   return help.length ? `\n\n${help.join('\n')}` : ''
@@ -221,6 +232,7 @@ function isSelectionToolError(code: TempadMcpErrorCode | undefined, message: str
   return (
     (code ? SELECTION_ERROR_CODES.has(code) : false) ||
     /select exactly one visible node/i.test(message) ||
+    /select one or more visible nodes/i.test(message) ||
     /no visible node found/i.test(message)
   )
 }

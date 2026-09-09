@@ -20,7 +20,7 @@ For agent-specific setup, open TemPad Dev's **Preferences → Agent integration 
 Supported tools/resources:
 
 - `get_code`: Tailwind-first JSX/Vue markup plus assets and token references.
-- `get_structure`: Hierarchy/geometry outline for the selection.
+- `get_structure`: Hierarchy/geometry outline for one or more selected nodes.
 
 Notes:
 

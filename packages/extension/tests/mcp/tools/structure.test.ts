@@ -46,6 +46,25 @@ describe('mcp/tools/structure', () => {
     expect(buildSemanticTree).toHaveBeenCalledWith([], { depthLimit: 3 })
   })
 
+  it('preserves separate outlines for multiple selected roots', () => {
+    const roots = [
+      { id: 'node-1', visible: true },
+      { id: 'node-2', visible: true }
+    ] as unknown as SceneNode[]
+    vi.mocked(buildSemanticTree).mockReturnValue({
+      roots: [{ id: 'semantic-1' }, { id: 'semantic-2' }]
+    } as unknown as ReturnType<typeof buildSemanticTree>)
+    vi.mocked(semanticTreeToOutline).mockReturnValue([
+      { id: 'outline-1', name: 'First', type: 'FRAME', x: 0, y: 0, width: 100, height: 100 },
+      { id: 'outline-2', name: 'Second', type: 'FRAME', x: 200, y: 0, width: 100, height: 100 }
+    ])
+
+    const result = handleGetStructure(roots, 1)
+
+    expect(buildSemanticTree).toHaveBeenCalledWith(roots, { depthLimit: 1 })
+    expect(result.roots.map(({ id }) => id)).toEqual(['outline-1', 'outline-2'])
+  })
+
   it('compacts large outlines to keep structure output small', () => {
     vi.mocked(buildSemanticTree).mockReturnValue({ roots: [] } as unknown as ReturnType<
       typeof buildSemanticTree

@@ -47,6 +47,21 @@ function resolveSingleNode(nodeId?: string): SceneNode {
   return selection.value[0]
 }
 
+function resolveVisibleNodes(nodeId?: string): SceneNode[] {
+  if (nodeId) {
+    return [resolveSingleNode(nodeId)]
+  }
+
+  if (!selection.value.length || selection.value.some((node) => !node.visible)) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION,
+      'Select one or more visible nodes (or provide nodeId) to proceed.'
+    )
+  }
+
+  return [...selection.value]
+}
+
 async function handleGetCode(args?: GetCodeParametersInput): Promise<GetCodeResult> {
   return dispatchGetCode(args)
 }
@@ -88,9 +103,9 @@ async function handleGetScreenshot(
 
 async function handleGetStructure(args?: GetStructureParametersInput): Promise<GetStructureResult> {
   const { nodeId, options } = args ?? {}
-  const root = resolveSingleNode(nodeId)
+  const roots = resolveVisibleNodes(nodeId)
   const depth = options?.depth
-  return runGetStructure([root], depth)
+  return runGetStructure(roots, depth)
 }
 
 export type MCPHandlers = {

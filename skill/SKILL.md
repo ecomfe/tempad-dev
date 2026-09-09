@@ -136,12 +136,19 @@ ask the user instead of inferring it.
 
 ### 2. Fetch the top-level design snapshot
 
-Call `tempad-dev:get_code` first.
+If multiple top-level designs are selected, call `tempad-dev:get_structure`
+with `options.depth: 1` to enumerate the selected roots, then call
+`tempad-dev:get_code` separately with each returned root `nodeId`. Use this
+multi-root structure response only for selection discovery and hierarchy, not
+as style evidence.
+
+For each single design root, call `tempad-dev:get_code` first.
 
 Use these defaults:
 
 - `resolveTokens: false`
-- pass `nodeId` only when the user provided one; otherwise use the current
+- pass `nodeId` when the user provided one or when iterating roots returned by
+  a multi-selection `get_structure` call; otherwise use the current single
   selection
 - set `preferredLang` to match the project target, such as `jsx` or `vue`
 
