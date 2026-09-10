@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { cropPngWithCanvas, rasterizeSvgWithCanvas } from '@/mcp/tools/screenshot'
+import { cropPngWithCanvas } from '@/mcp/tools/screenshot'
 
 function canvasToPng(canvas: HTMLCanvasElement): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
@@ -46,22 +46,6 @@ describe('mcp/tools/screenshot browser crop', () => {
       if (!outputContext) throw new Error('Expected output canvas context.')
       outputContext.drawImage(bitmap, 0, 0)
       expect([...outputContext.getImageData(0, 0, 1, 1).data]).toEqual([0, 0, 255, 255])
-    } finally {
-      bitmap.close()
-    }
-  })
-
-  it('rasterizes SVG screenshots at the requested scale', async () => {
-    const svg = new TextEncoder().encode(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="2"><rect width="4" height="2" fill="#00ff00"/></svg>'
-    )
-
-    const png = await rasterizeSvgWithCanvas(svg, 2)
-    const bitmap = await createImageBitmap(new Blob([png.slice().buffer], { type: 'image/png' }))
-
-    try {
-      expect(bitmap.width).toBe(8)
-      expect(bitmap.height).toBe(4)
     } finally {
       bitmap.close()
     }

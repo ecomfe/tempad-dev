@@ -2,7 +2,7 @@
 const props = withDefaults(
   defineProps<{
     href?: string
-    variant?: 'primary' | 'secondary' | 'ghost'
+    variant?: 'primary' | 'secondary'
     external?: boolean
     type?: 'button' | 'submit' | 'reset'
   }>(),

@@ -10,7 +10,8 @@ export default defineConfig({
       'packages/extension/vitest.node.config.ts',
       'packages/plugins/vitest.config.ts',
       'packages/mcp-server/vitest.config.ts',
-      'packages/shared/vitest.config.ts'
+      'packages/shared/vitest.config.ts',
+      'packages/site/vitest.config.ts'
     ],
     coverage: {
       provider: 'istanbul',

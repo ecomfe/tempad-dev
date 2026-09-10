@@ -10,6 +10,8 @@ import type {
   DesignSystemCatalogStyle,
   DesignSystemCatalogVariable,
   GetDesignSystemParametersInput,
+  DesignSystemResourcesResult,
+  DesignSystemFontsResult,
   GetDesignSystemResult
 } from '@tempad-dev/shared'
 
@@ -47,6 +49,7 @@ import {
   type CatalogComponentProperty,
   type CatalogEntry
 } from './design-system-catalog'
+import { queryAvailableFonts } from './fonts'
 
 const TARGET_BYTES = 16 * 1024
 const MAX_SUMMARY_LENGTH = 240
@@ -100,17 +103,30 @@ function describeVariableAlias(alias: VariableAlias): { id: string } {
   return { id: alias.id }
 }
 
-function describeVariableValue(value: VariableValue): CanvasVariableValue {
-  return typeof value === 'object' && 'type' in value
-    ? { variable: describeVariableAlias(value) }
-    : value
+function isSupportedVariable(variable: Variable): variable is Variable & {
+  resolvedType: Extract<CatalogEntry, { kind: 'variable' }>['resolvedType']
+} {
+  return (
+    variable.resolvedType === 'BOOLEAN' ||
+    variable.resolvedType === 'COLOR' ||
+    variable.resolvedType === 'FLOAT' ||
+    variable.resolvedType === 'STRING'
+  )
+}
+
+function describeVariableValue(value: VariableValue): CanvasVariableValue | undefined {
+  if (typeof value !== 'object' || !('type' in value)) return value
+  return value.type === 'VARIABLE_ALIAS' ? { variable: describeVariableAlias(value) } : undefined
 }
 
 function describeVariableValues(
   values: Record<string, VariableValue>
 ): Record<string, CanvasVariableValue> {
   return Object.fromEntries(
-    Object.entries(values).map(([modeId, value]) => [modeId, describeVariableValue(value)])
+    Object.entries(values).flatMap(([modeId, value]) => {
+      const described = describeVariableValue(value)
+      return described === undefined ? [] : [[modeId, described]]
+    })
   )
 }
 
@@ -269,6 +285,12 @@ async function collectVariables(referencedDefinitionIds: Set<string>, warnings: 
     }
 
     const variables = [...variablesById.values()]
+    const supportedVariables = variables.filter(isSupportedVariable)
+    if (supportedVariables.length !== variables.length) {
+      warnings.push(
+        'Variables with unsupported types were skipped; only BOOLEAN, COLOR, FLOAT, and STRING are supported.'
+      )
+    }
     const collectionsById = new Map(
       localCollections.map((collection) => [collection.id, collection])
     )
@@ -287,7 +309,7 @@ async function collectVariables(referencedDefinitionIds: Set<string>, warnings: 
     }
 
     return {
-      variables: variables.map((variable) => {
+      variables: supportedVariables.map((variable) => {
         const description = boundedText(variable.description)
         const scopes = variable.scopes?.map(String)
         const variableAuthoringKey = readAuthoringKey(variable, CANVAS_VARIABLE_KEY_NAME)
@@ -303,6 +325,7 @@ async function collectVariables(referencedDefinitionIds: Set<string>, warnings: 
           ...(description ? { description } : {}),
           remote: variable.remote,
           resolvedType: variable.resolvedType,
+          ...(variable.codeSyntax?.WEB ? { codeSyntax: { WEB: variable.codeSyntax.WEB } } : {}),
           ...(scopes?.length ? { scopes } : {}),
           ...(Object.keys(valuesByMode).length ? { valuesByMode } : {})
         }
@@ -318,10 +341,12 @@ async function collectVariables(referencedDefinitionIds: Set<string>, warnings: 
           : undefined
         const variableOverrides = extended
           ? Object.fromEntries(
-              Object.entries(extended.variableOverrides).map(([variableId, values]) => [
-                variableId,
-                describeVariableValues(values)
-              ])
+              Object.entries(extended.variableOverrides)
+                .filter(([variableId]) => {
+                  const variable = variablesById.get(variableId)
+                  return !variable || isSupportedVariable(variable)
+                })
+                .map(([variableId, values]) => [variableId, describeVariableValues(values)])
             )
           : {}
         return {
@@ -803,6 +828,7 @@ function compactEntry(
       return {
         ref: entry.ref,
         name: entry.name,
+        ...(entry.cssName ? { cssName: entry.cssName } : {}),
         collection:
           'collectionName' in definition ? definition.collectionName : 'Unknown collection',
         type: {
@@ -838,6 +864,7 @@ function compactEntry(
         name: entry.name,
         type: entry.styleType.toLowerCase() as DesignSystemCatalogStyle['type'],
         signature: styleSignature(definition),
+        ...(entry.className ? { className: entry.className } : {}),
         ...(summary ? { summary } : {})
       }
     }
@@ -1012,7 +1039,7 @@ function exactCatalogPayload(
   catalogId: string,
   entry: CatalogEntry,
   definition: unknown
-): GetDesignSystemResult {
+): DesignSystemResourcesResult {
   return {
     catalogId,
     components: [],
@@ -1027,7 +1054,7 @@ function exactCatalogPayload(
   }
 }
 
-function exactResultFits(result: GetDesignSystemResult): boolean {
+function exactResultFits(result: DesignSystemResourcesResult): boolean {
   return (
     measureCallToolResultBytes(buildGetDesignSystemToolResult(result)) <=
     MCP_TOOL_INLINE_BUDGET_BYTES
@@ -1042,7 +1069,7 @@ function compactComponentDetailResult(
   catalogId: string,
   entry: CatalogComponent,
   source: ComponentDetail
-): GetDesignSystemResult {
+): DesignSystemResourcesResult {
   const mutableProperties = source.properties
     ? (Object.fromEntries(
         Object.entries(source.properties).map(([name, property]) => [
@@ -1159,7 +1186,10 @@ function compactComponentDetailResult(
   return minimalResult
 }
 
-async function exactCatalogResult(catalogId: string, ref: string): Promise<GetDesignSystemResult> {
+async function exactCatalogResult(
+  catalogId: string,
+  ref: string
+): Promise<DesignSystemResourcesResult> {
   const catalog = requireDesignSystemCatalog(catalogId, figma.fileKey)
   const entry = catalog.entries.get(ref)
   if (!entry) throw new Error(`Unknown design-system ref ${ref} in catalog ${catalogId}`)
@@ -1201,10 +1231,10 @@ function buildCompactResult(
   entries: CatalogEntry[],
   warnings: string[],
   cursor = 0
-): GetDesignSystemResult {
+): DesignSystemResourcesResult {
   const selected: CatalogEntry[] = []
-  const build = (): GetDesignSystemResult => {
-    const result: GetDesignSystemResult = {
+  const build = (): DesignSystemResourcesResult => {
+    const result: DesignSystemResourcesResult = {
       catalogId,
       components: [],
       variables: [],
@@ -1258,7 +1288,7 @@ function buildCompactResult(
   return build()
 }
 
-function continueCatalog(catalogId: string, cursor: number): GetDesignSystemResult {
+function continueCatalog(catalogId: string, cursor: number): DesignSystemResourcesResult {
   const catalog = requireDesignSystemCatalog(catalogId, figma.fileKey)
   if (cursor >= catalog.orderedRefs.length) {
     throw new Error(`Unknown design-system cursor ${cursor} in catalog ${catalogId}`)
@@ -1267,7 +1297,7 @@ function continueCatalog(catalogId: string, cursor: number): GetDesignSystemResu
   return buildCompactResult(catalogId, entries, catalog.warnings, cursor)
 }
 
-async function createCatalog(): Promise<GetDesignSystemResult> {
+async function createCatalog(): Promise<DesignSystemResourcesResult> {
   const componentWarnings: string[] = []
   const variableWarnings: string[] = []
   const styleWarnings: string[] = []
@@ -1340,16 +1370,14 @@ async function createCatalog(): Promise<GetDesignSystemResult> {
     }
     entries.push(
       entry,
-      ...modes.map(
-        (mode): CatalogEntry => ({
-          kind: 'mode',
-          ref: mode.ref,
-          name: mode.name,
-          id: mode.id,
-          collectionRef: ref,
-          definition: { id: mode.id, name: mode.name }
-        })
-      )
+      ...modes.map((mode): CatalogEntry => ({
+        kind: 'mode',
+        ref: mode.ref,
+        name: mode.name,
+        id: mode.id,
+        collectionRef: ref,
+        definition: { id: mode.id, name: mode.name }
+      }))
     )
   }
 
@@ -1395,14 +1423,28 @@ async function createCatalog(): Promise<GetDesignSystemResult> {
     orderedEntries.map((entry) => entry.ref),
     warnings
   )
-  return buildCompactResult(catalog.id, orderedEntries, warnings)
+  return buildCompactResult(
+    catalog.id,
+    catalog.orderedRefs.map((ref) => catalog.entries.get(ref)!),
+    warnings
+  )
 }
 
-let pendingCatalog: Promise<GetDesignSystemResult> | undefined
+let pendingCatalog: Promise<DesignSystemResourcesResult> | undefined
 
+export function handleGetDesignSystem(
+  args: GetDesignSystemParametersInput & { scope: 'fonts' }
+): Promise<DesignSystemFontsResult>
+export function handleGetDesignSystem(
+  args?: GetDesignSystemParametersInput & { scope?: 'resources' }
+): Promise<DesignSystemResourcesResult>
+export function handleGetDesignSystem(
+  args: GetDesignSystemParametersInput
+): Promise<GetDesignSystemResult>
 export async function handleGetDesignSystem(
   args: GetDesignSystemParametersInput = {}
 ): Promise<GetDesignSystemResult> {
+  if (args.scope === 'fonts') return queryAvailableFonts(args)
   if (args.catalogId) {
     return args.ref
       ? exactCatalogResult(args.catalogId, args.ref)

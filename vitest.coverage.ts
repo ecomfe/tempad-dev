@@ -7,6 +7,7 @@ export const AGGREGATE_COVERAGE_THRESHOLDS = {
 } as const
 
 export const EXTENSION_COVERAGE_FILES = [
+  'scripts/inspect-agent-run-identity.ts',
   'utils/number.ts',
   'utils/string.ts',
   'utils/object.ts',
@@ -63,6 +64,7 @@ export const EXTENSION_COVERAGE_FILES = [
   'mcp/variable-references.ts',
   'mcp/tools/canvas/**/*.ts',
   'mcp/tools/design-system.ts',
+  'mcp/tools/fonts.ts',
   'mcp/tools/design-system-catalog.ts',
   'mcp/tools/structure.ts',
   'mcp/tools/screenshot.ts',

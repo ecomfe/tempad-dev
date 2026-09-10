@@ -50,7 +50,7 @@ pnpm -C packages/mcp-server test:coverage
 
 ## Tech stack
 
-- Language: TypeScript (Node.js 18+)
+- Language: TypeScript (Node.js 22.x, 24.x, or 26+)
 - MCP SDK: `@modelcontextprotocol/sdk`
 - WebSocket transport
 - Logging: pino

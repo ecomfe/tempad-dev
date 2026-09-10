@@ -1,16 +1,4 @@
-export type SiteDetailIconId =
-  | 'braces'
-  | 'component'
-  | 'open-source'
-  | 'pocket-knife'
-  | 'sliders-horizontal'
-  | 'variable'
-
-export type SiteDetail = {
-  title: string
-  body: string
-  icon: SiteDetailIconId
-}
+export type SiteSkill = 'canvas' | 'code'
 
 export type SiteMarketingImage = {
   alt: string
@@ -20,12 +8,10 @@ export type SiteMarketingImage = {
   height: number
 }
 
-export type HeroCarouselSlide = {
+export type InspectionSlide = {
   id: string
   caption: string
   image: SiteMarketingImage
-  objectFit?: 'cover' | 'contain'
-  objectPosition?: string
 }
 
 export const SITE_LINKS = {
@@ -33,43 +19,37 @@ export const SITE_LINKS = {
   github: 'https://github.com/ecomfe/tempad-dev',
   discord: 'https://discord.gg/MXGXwtkEck',
   license: 'https://github.com/ecomfe/tempad-dev/blob/main/LICENSE',
-  plugins: 'https://www.npmjs.com/package/@tempad-dev/plugins'
+  guide: 'https://github.com/ecomfe/tempad-dev#readme',
+  agentGuide: 'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev',
+  inspectGuide: 'https://github.com/ecomfe/tempad-dev#inspect-designs'
 } as const
-
-export const HERO_NOTES = ['Free', 'Open source', 'MIT licensed'] as const
 
 function createMarketingImage(name: string, alt: string): SiteMarketingImage {
   return {
     alt,
-    dark: `/marketing/${name}-dark${name === 'hero' ? '.svg' : '.png'}`,
-    light: `/marketing/${name}-light${name === 'hero' ? '.svg' : '.png'}`,
+    dark: `/marketing/${name}-dark.png`,
+    light: `/marketing/${name}-light.png`,
     width: 1440,
     height: 960
   }
 }
 
-export const INSPECT_SHOT = createMarketingImage(
-  'code',
-  'TemPad Dev showing generated code for a selected frame in Figma.'
-)
-
-export const TRANSFORM_SHOT = createMarketingImage(
-  'plugins',
-  'TemPad Dev plugin output for a selected button inside Figma.'
-)
-
-export const HERO_CAROUSEL_SLIDES: readonly HeroCarouselSlide[] = [
+export const INSPECTION_SLIDES: readonly InspectionSlide[] = [
   {
     id: 'inspect-code',
-    image: INSPECT_SHOT,
-    caption: 'Code view',
-    objectFit: 'contain'
+    image: createMarketingImage(
+      'code',
+      'TemPad Dev showing generated code for a selected frame in Figma.'
+    ),
+    caption: 'Code view'
   },
   {
     id: 'transform-plugins',
-    image: TRANSFORM_SHOT,
-    caption: 'Plugin output',
-    objectFit: 'contain'
+    image: createMarketingImage(
+      'plugins',
+      'TemPad Dev plugin output for a selected button inside Figma.'
+    ),
+    caption: 'Plugin output'
   },
   {
     id: 'inspect-deep',
@@ -77,8 +57,7 @@ export const HERO_CAROUSEL_SLIDES: readonly HeroCarouselSlide[] = [
       'deep',
       'TemPad Dev showing deep selection tools inside the extension.'
     ),
-    caption: 'Deep selection',
-    objectFit: 'contain'
+    caption: 'Deep selection'
   },
   {
     id: 'inspect-measure',
@@ -86,8 +65,7 @@ export const HERO_CAROUSEL_SLIDES: readonly HeroCarouselSlide[] = [
       'measure',
       'TemPad Dev showing measurement tools inside the extension.'
     ),
-    caption: 'Measure',
-    objectFit: 'contain'
+    caption: 'Measure'
   },
   {
     id: 'inspect-scroll',
@@ -95,8 +73,7 @@ export const HERO_CAROUSEL_SLIDES: readonly HeroCarouselSlide[] = [
       'scroll',
       'TemPad Dev showing scroll-into-view tools inside the extension.'
     ),
-    caption: 'Scroll into view',
-    objectFit: 'contain'
+    caption: 'Scroll into view'
   },
   {
     id: 'inspect-units',
@@ -104,43 +81,14 @@ export const HERO_CAROUSEL_SLIDES: readonly HeroCarouselSlide[] = [
       'unit',
       'TemPad Dev showing units and conversion controls inside the extension.'
     ),
-    caption: 'Units and scale',
-    objectFit: 'contain'
+    caption: 'Units and scale'
   }
 ] as const
 
-export const INSPECT_DETAILS: readonly SiteDetail[] = [
-  {
-    title: 'Code views',
-    body: 'CSS and JavaScript from the current selection, ready to read or copy.',
-    icon: 'braces'
-  },
-  {
-    title: 'Resolved context',
-    body: 'Variables, units, scale, and root font size shown in the same place.',
-    icon: 'variable'
-  },
-  {
-    title: 'Handoff tools',
-    body: 'Deep select, measure, and scroll-into-view built into the inspect flow.',
-    icon: 'pocket-knife'
-  }
-] as const
-
-export const TRANSFORM_DETAILS: readonly SiteDetail[] = [
-  {
-    title: 'Component mapping',
-    body: 'Map the same design context to your own component names.',
-    icon: 'component'
-  },
-  {
-    title: 'Syntax transforms',
-    body: 'Generate CSS, JavaScript, Tailwind, or repo-specific output through plugins.',
-    icon: 'sliders-horizontal'
-  },
-  {
-    title: 'Open by nature',
-    body: 'Load shared plugins, inspect how they work, or point at your own module URL.',
-    icon: 'open-source'
-  }
-] as const
+export const AGENT_SETUP_SHOT: SiteMarketingImage = {
+  alt: 'TemPad Dev’s agent setup dialog with the Codex plugin installation options.',
+  light: '/marketing/mcp-config-light.png',
+  dark: '/marketing/mcp-config-dark.png',
+  width: 1200,
+  height: 960
+}

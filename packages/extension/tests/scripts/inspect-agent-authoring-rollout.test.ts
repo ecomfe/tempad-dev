@@ -14,6 +14,18 @@ function customCall(input: string, timestamp?: string): string {
   })
 }
 
+function functionCall(name: string, argumentsValue: unknown, timestamp?: string): string {
+  return row({
+    ...(timestamp ? { timestamp } : {}),
+    type: 'response_item',
+    payload: {
+      type: 'function_call',
+      name,
+      arguments: JSON.stringify(argumentsValue)
+    }
+  })
+}
+
 function message(role: string, text: string): string {
   return row({
     type: 'response_item',
@@ -114,7 +126,7 @@ describe('agent authoring rollout inspection', () => {
           assets: {
             icon: {
               type: 'SVG',
-              svg: '<!-- @license lucide-static v0.468.0 - ISC --><svg></svg>'
+              svg: '<!-- @license lucide-static v0.468.0 - ISC --><svg xmlns="http://www.w3.org/2000/svg"></svg>'
             }
           },
           native: {
@@ -167,6 +179,34 @@ describe('agent authoring rollout inspection', () => {
         iconLibraries: ['Lucide']
       },
       components: { authoredComponentCalls: 1, instanceBindingCalls: 1 }
+    })
+  })
+
+  it('counts browser research performed through native computer-use calls', () => {
+    const rollout = [
+      functionCall('js', { code: 'const state = await cua.getState();' }),
+      functionCall('js', {
+        code: "const figmaTab = await cua.getTab('123', { browser: 'chrome' });"
+      }),
+      functionCall('js', {
+        code: "const researchTab = await cua.createBrowserTab('iab', 'https://example.com');"
+      }),
+      functionCall('js', {
+        code: "await researchTab.goto('https://example.com/product');"
+      }),
+      functionCall('js', {
+        code: 'const screenshot = await researchTab.getScreenshot();'
+      }),
+      functionCall('js', {
+        code: 'await researchTab.getAXStateAndScreenshot();'
+      })
+    ].join('')
+
+    expect(inspectAuthoringRollout(rollout).research).toEqual({
+      webCalls: 0,
+      imageQueryCalls: 0,
+      openedSourceCalls: 2,
+      browserScreenshotCalls: 2
     })
   })
 
@@ -244,8 +284,10 @@ describe('agent authoring rollout inspection', () => {
       firstResearchCallMs: null,
       lastResearchCallMs: null,
       firstOpenedTempadScreenshotMs: 8_000,
+      lastOpenedTempadScreenshotMs: 8_000,
       firstApplyToOpenedScreenshotMs: 3_000,
       lastSuccessfulApplyMs: 12_000,
+      lastApplyToOpenedScreenshotMs: null,
       finalizationAfterLastApplyMs: 3_000,
       observedToolBusyMs: 3_500,
       nonToolWallClockMs: 11_500
@@ -253,6 +295,28 @@ describe('agent authoring rollout inspection', () => {
     expect(inspection.limitations).toContain(
       'Timing milestones identify trace events, not the first usable design: an apply may be scaffolding and a screenshot may show a component or partial screen. Inspect the opened pixels and record usability separately.'
     )
+  })
+
+  it('reports the first opened TemPad screenshot after the final successful apply', () => {
+    const rollout = [
+      row({ timestamp: '2026-08-26T00:00:00.000Z', type: 'session_meta', payload: {} }),
+      applyCall({ markup: '<div data-key="root"></div>' }, { isError: false }, 'completed', {
+        timestamp: '2026-08-26T00:00:05.000Z',
+        startedAtMs: Date.parse('2026-08-26T00:00:04.000Z'),
+        completedAtMs: Date.parse('2026-08-26T00:00:05.000Z')
+      }),
+      timedItem('2026-08-26T00:00:08.000Z', {
+        type: 'ImageView',
+        path: '/tmp/tempad-dev/assets/final.png'
+      }),
+      timedItem('2026-08-26T00:00:10.000Z', { type: 'AgentMessage' })
+    ].join('')
+
+    expect(inspectAuthoringRollout(rollout).timing).toMatchObject({
+      lastOpenedTempadScreenshotMs: 8_000,
+      lastSuccessfulApplyMs: 5_000,
+      lastApplyToOpenedScreenshotMs: 3_000
+    })
   })
 
   it('records the exact delegated brief, effective skill reads, tools, and runtime identity', () => {

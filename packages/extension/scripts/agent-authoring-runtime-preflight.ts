@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 const defaultRepoRoot = fileURLToPath(new URL('../../../', import.meta.url))
+const defaultCodexAppPath = '/Applications/ChatGPT.app'
 const tempadPluginId = 'tempad-dev-dev@tempad-dev-dev'
 const tempadPluginName = 'tempad-dev-dev'
 const monthIndexes = new Map(
@@ -44,6 +45,7 @@ interface PreflightIssue {
 }
 
 interface AuthoringPreflightArguments {
+  appPath?: string
   checkout: string
 }
 
@@ -89,6 +91,7 @@ export interface AuthoringPreflightResult {
     }
   }
   plugin: {
+    codexExecutable: string
     generatedVersion: string
     installedVersion: string | null
     installedPath: string | null
@@ -104,31 +107,34 @@ function usage(): string {
   return [
     'Verify the live authoring runtime before page creation:',
     '',
-    '  pnpm agent-eval:preflight [--checkout <path>]',
+    '  pnpm agent-eval:preflight [--checkout <path>] [--app-path <path>]',
     '',
     'Options:',
     '  --checkout <path>  TemPad checkout (default: current repository)',
+    '  --app-path <path>  Codex host app (default: CODEX_APP_PATH or /Applications/ChatGPT.app)',
     '  --help             Show this help'
   ].join('\n')
 }
 
 function parseArguments(argv: string[]): AuthoringPreflightArguments | null {
   if (argv.includes('--help')) return null
+  let appPath = process.env.CODEX_APP_PATH ?? defaultCodexAppPath
   let checkout = defaultRepoRoot
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]
     if (!argument) continue
-    if (argument !== '--checkout') {
+    if (argument !== '--checkout' && argument !== '--app-path') {
       fail(`Unknown option: ${argument}\n\n${usage()}`)
     }
     const value = argv[index + 1]
     if (!value || value.startsWith('--')) fail(`Missing value for ${argument}.`)
     index += 1
-    checkout = normalize(resolve(value))
+    if (argument === '--checkout') checkout = normalize(resolve(value))
+    if (argument === '--app-path') appPath = normalize(resolve(value))
   }
 
-  return { checkout }
+  return { appPath, checkout }
 }
 
 function objectValue(value: unknown, label: string): Record<string, unknown> {
@@ -439,8 +445,26 @@ async function listProcesses(): Promise<RuntimeProcess[]> {
   return parseProcessTable(stdout)
 }
 
-async function listEnabledPlugins(): Promise<EnabledPlugin[]> {
-  const { stdout } = await execFileAsync('codex', ['plugin', 'list'], {
+export function resolveCodexExecutable(
+  appPath = process.env.CODEX_APP_PATH ?? defaultCodexAppPath,
+  platform: NodeJS.Platform = process.platform
+): string {
+  return platform === 'darwin'
+    ? join(normalize(resolve(appPath)), 'Contents/Resources/codex')
+    : 'codex'
+}
+
+async function listEnabledPlugins(codexExecutable: string): Promise<EnabledPlugin[]> {
+  if (isAbsolute(codexExecutable)) {
+    try {
+      await access(codexExecutable)
+    } catch {
+      fail(
+        `Codex host CLI not found at ${codexExecutable}. Set CODEX_APP_PATH or pass --app-path for the desktop host under evaluation.`
+      )
+    }
+  }
+  const { stdout } = await execFileAsync(codexExecutable, ['plugin', 'list'], {
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024
   })
@@ -458,12 +482,13 @@ export async function runPreflight(
   args: AuthoringPreflightArguments
 ): Promise<AuthoringPreflightResult> {
   const runtime = await resolveRuntimeConfiguration(args.checkout)
+  const codexExecutable = resolveCodexExecutable(args.appPath)
   const [cliStat, hubStat, processes, plugins, checkoutExtensionFingerprint, hubRuntimeIdentity] =
     await Promise.all([
       stat(runtime.paths.cli),
       stat(runtime.paths.hub),
       listProcesses(),
-      listEnabledPlugins(),
+      listEnabledPlugins(codexExecutable),
       resolveCheckoutExtensionFingerprint(args.checkout),
       readOptionalJson(runtime.hubRuntimeIdentityPath)
     ])
@@ -503,6 +528,7 @@ export async function runPreflight(
       }
     },
     plugin: {
+      codexExecutable,
       generatedVersion: runtime.generatedVersion,
       installedVersion: pluginIdentity.installed?.version ?? null,
       installedPath: pluginIdentity.installed?.path ?? null

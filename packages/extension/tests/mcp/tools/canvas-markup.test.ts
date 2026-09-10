@@ -2274,6 +2274,9 @@ describe('canvas markup', () => {
       message = error instanceof Error ? error.message : String(error)
     }
 
+    expect(message).toContain(
+      'Canvas typography does not inherit; put text utilities on each span/TEXT node.'
+    )
     expect(message).toContain('Canvas markup has multiple repairable issues:')
     expect(message).toContain(
       'Element "missing-width" requires exactly one width and one height class.'

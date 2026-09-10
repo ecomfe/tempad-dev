@@ -21,6 +21,21 @@ const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/)
 const DevelopmentPluginCacheVersionPattern =
   /(\/plugins\/cache\/tempad-dev-dev\/tempad-dev-dev\/)[^/]+(\/skills\/)/
 
+const AgentSettingsSchema = z
+  .object({ model: z.string().min(1), reasoningEffort: z.string().min(1) })
+  .strict()
+
+const RunExecutionSchema = z
+  .object({
+    taskId: z.string().min(1).nullable(),
+    model: z.string().min(1).nullable(),
+    reasoningEffort: z.string().min(1).nullable(),
+    promptCount: z.number().int().nonnegative(),
+    promptSha256: Sha256Schema.nullable(),
+    issues: z.array(z.string())
+  })
+  .strict()
+
 const ComparisonSchema = z
   .object({
     id: z.string().min(1),
@@ -42,6 +57,7 @@ export const AuthoringRunNoteSchema = z
         expectedPageName: z.string().min(1).optional()
       })
       .strict(),
+    agent: AgentSettingsSchema.optional(),
     comparison: ComparisonSchema.optional()
   })
   .strict()
@@ -73,6 +89,7 @@ const RunArtifactsSchema = z
 
 const RunRolloutSchema = z
   .object({
+    execution: RunExecutionSchema.optional(),
     source: z.string().min(1),
     sha256: Sha256Schema,
     startedAt: IsoDateSchema.nullable(),
@@ -176,11 +193,15 @@ function comparisonSkillLocator(name: string, locator: string): string {
 
 function hasSameComparisonSkillContext(
   first: AuthoringRunRollout['skills'],
-  second: AuthoringRunRollout['skills']
+  second: AuthoringRunRollout['skills'],
+  legacy: boolean
 ): boolean {
   if (!first || !second) return first === second
   if (first.contextFingerprint === second.contextFingerprint) return true
+  // Old records used a version-sensitive context hash. Keep them readable, but
+  // never use that fallback for newly recorded execution evidence.
   return (
+    legacy &&
     first.catalogFingerprint === second.catalogFingerprint &&
     first.authoringSkillLocator !== null &&
     second.authoringSkillLocator !== null &&
@@ -226,6 +247,7 @@ export function buildStartEvent(
 ): AuthoringRunStartEvent {
   const note = AuthoringRunNoteSchema.parse(noteInput)
   validatePreflight(preflightInput)
+  if (!note.agent) throw new Error('New run notes must freeze model and reasoningEffort in agent.')
   const event = AuthoringRunStartEventSchema.parse({
     schemaVersion: 1,
     type: 'start',
@@ -284,6 +306,7 @@ function buildRolloutEvidence(
     ({ name }) => name === 'tempad-dev-dev:figma-canvas-authoring'
   )
   return {
+    execution: inspection.execution,
     source: basename(input.source),
     sha256: sha256(input.text),
     startedAt: inspection.timing.rolloutStartedAt,
@@ -381,7 +404,38 @@ export function validateRunRecord(record: AuthoringRunRecord): void {
     throw new Error('Rollout extension runtime differs from the successful preflight checkout.')
   }
   if (!validatesExpectedTempadSkill(start, finish.rollout.skills?.authoringSkillLocator)) {
-    throw new Error('Rollout did not load the TemPad authoring skill verified at run start.')
+    throw new Error('Rollout did not present the TemPad authoring skill verified at run start.')
+  }
+  const execution = finish.rollout.execution
+  if (execution) {
+    if (
+      execution.issues.length ||
+      !execution.taskId ||
+      !execution.model ||
+      !execution.reasoningEffort
+    ) {
+      throw new Error(
+        `Run execution identity is incomplete or changed: ${execution.issues.join(' ')}`
+      )
+    }
+    if (
+      execution.promptCount !== 1 ||
+      execution.promptSha256 !== promptFingerprint(start.note.task.prompt)
+    ) {
+      throw new Error('Run execution does not contain exactly the frozen task prompt.')
+    }
+    if (execution.taskId !== finish.review.artifacts.taskId) {
+      throw new Error('Reviewed task identity differs from the rollout session.')
+    }
+    if (
+      start.note.agent &&
+      (execution.model !== start.note.agent.model ||
+        execution.reasoningEffort !== start.note.agent.reasoningEffort)
+    ) {
+      throw new Error('Rollout model or reasoning effort differs from the frozen run settings.')
+    }
+  } else if (start.note.agent) {
+    throw new Error('A run with frozen agent settings requires execution identity evidence.')
   }
   const artifacts = finish.review.artifacts
   if (
@@ -442,6 +496,9 @@ function parseStartEvent(input: unknown): AuthoringRunStartEvent {
   if (fingerprintRunNote(event.note) !== event.noteSha256) {
     throw new Error(`Run note hash mismatch for ${event.note.id}.`)
   }
+  if (Date.parse(event.preflight.checkedAt) > Date.parse(event.recordedAt)) {
+    throw new Error('Run start cannot precede its preflight.')
+  }
   if (Date.parse(event.note.createdAt) > Date.parse(event.recordedAt)) {
     throw new Error(`Run note ${event.note.id} was created after its start event.`)
   }
@@ -475,12 +532,28 @@ export function validateComparisonRecords(records: AuthoringRunRecord[]): void {
     }
     const firstRollout = first.finish.rollout
     const secondRollout = second.finish.rollout
+    if (firstRollout?.execution || secondRollout?.execution) {
+      const firstExecution = firstRollout?.execution
+      const secondExecution = secondRollout?.execution
+      if (
+        !firstExecution?.model ||
+        !firstExecution.reasoningEffort ||
+        firstExecution.model !== secondExecution?.model ||
+        firstExecution.reasoningEffort !== secondExecution.reasoningEffort
+      ) {
+        throw new Error(`Comparison ${id} changed its model or reasoning effort.`)
+      }
+    }
     if (
       !firstRollout ||
       !secondRollout ||
       firstRollout.runtime.hubFingerprint !== secondRollout.runtime.hubFingerprint ||
       firstRollout.runtime.extensionFingerprint !== secondRollout.runtime.extensionFingerprint ||
-      !hasSameComparisonSkillContext(firstRollout.skills, secondRollout.skills)
+      !hasSameComparisonSkillContext(
+        firstRollout.skills,
+        secondRollout.skills,
+        !firstRollout.execution && !secondRollout.execution
+      )
     ) {
       throw new Error(`Comparison ${id} changed its supporting context or runtime.`)
     }
@@ -578,7 +651,7 @@ function usage(): string {
   return [
     'Record live authoring evidence without turning the log into a rubric:',
     '',
-    '  pnpm agent-eval:log start --note <note.json> --log <runs.jsonl> [--checkout <path>]',
+    '  pnpm agent-eval:log start --note <note.json> --log <runs.jsonl> [--checkout <path>] [--app-path <path>]',
     '  pnpm agent-eval:log finish --note-id <id> --review <review.json> --log <runs.jsonl> [--rollout <rollout.jsonl>]',
     '  pnpm agent-eval:log abandon --note-id <id> --reason <text> --log <runs.jsonl>',
     '  pnpm agent-eval:log check <runs.jsonl>',
@@ -593,6 +666,7 @@ async function main(): Promise<void> {
     return
   }
   if (command === 'start') {
+    const appPath = flag(args, '--app-path')
     const notePath = flag(args, '--note')
     const logPath = flag(args, '--log')
     const checkout = flag(args, '--checkout') ?? repositoryRoot
@@ -602,7 +676,7 @@ async function main(): Promise<void> {
     const state = parseRunLogState(existingText)
     const note = AuthoringRunNoteSchema.parse(readJson(notePath))
     validateFreshRunPrompt(note, state.starts)
-    const preflight = await runPreflight({ checkout: resolveRunLogPath(checkout) })
+    const preflight = await runPreflight({ appPath, checkout: resolveRunLogPath(checkout) })
     if (!preflight.valid) {
       throw new Error(
         `Runtime preflight failed:\n${preflight.issues.map(({ code, message }) => `- ${code}: ${message}`).join('\n')}`

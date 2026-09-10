@@ -17,6 +17,7 @@ dist
 .dev/
 coverage
 .artifacts/
+.vitest-attachments/
 packages/*/coverage
 packages/extension/tests/**/__screenshots__/
 

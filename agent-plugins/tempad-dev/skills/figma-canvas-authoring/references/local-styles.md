@@ -10,6 +10,10 @@ file-wide and are neither names nor IDs. Namespace keys by product and role. In
 shared drafts, also prefix generic visible names that could collide; retain
 established project naming when already clear.
 
+For whole-node typography, prefer a `theme.textStyles` alias and a `type-*`
+class using [resource-mapping.md](resource-mapping.md). The recipe below shows
+the explicit native binding form, also used for paint, effect, and grid styles.
+
 ```json
 {
   "mode": "create",

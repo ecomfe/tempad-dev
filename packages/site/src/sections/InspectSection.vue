@@ -1,34 +1,44 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { Component as ComponentIcon, PocketKnife, Variable } from 'lucide-vue-next'
 
 import DetailList from '@/components/DetailList.vue'
+import HeroFigure from '@/components/HeroFigure.vue'
 import SectionShell from '@/components/SectionShell.vue'
-import { useSiteColorMode } from '@/composables/useSiteColorMode'
-import { INSPECT_DETAILS, INSPECT_SHOT } from '@/content/landing'
-
-const { resolvedColorMode } = useSiteColorMode()
-const inspectShotSrc = computed(() => INSPECT_SHOT[resolvedColorMode.value])
+import { SITE_LINKS } from '@/content/landing'
 </script>
 
 <template>
   <SectionShell
     id="inspect"
-    eyebrow="Inspect"
-    title="Reveal the design"
-    copy="TemPad Dev surfaces the current selection in code, variables, and layout terms that are easier to carry into implementation."
+    title="Inspect and adapt"
+    copy="Inspect directly in Figma. No agent setup required."
   >
-    <div class="site-section-layout">
-      <figure class="site-shot">
-        <img
-          class="site-shot-image"
-          :src="inspectShotSrc"
-          :alt="INSPECT_SHOT.alt"
-          :width="INSPECT_SHOT.width"
-          :height="INSPECT_SHOT.height"
+    <div class="site-inspect-layout">
+      <HeroFigure />
+      <div class="site-inspect-details">
+        <DetailList
+          :items="[
+            {
+              title: 'Styles and variables',
+              body: 'Read CSS and JavaScript styles, keep variable references, and adjust units and scale.',
+              icon: Variable
+            },
+            {
+              title: 'Selection and measurements',
+              body: 'Select nested layers, measure spacing, and bring the selected node into view.',
+              icon: PocketKnife
+            },
+            {
+              title: 'Output plugins',
+              body: 'Map components and transform styles into the syntax your codebase uses.',
+              icon: ComponentIcon
+            }
+          ]"
         />
-      </figure>
-
-      <DetailList :items="INSPECT_DETAILS" />
+        <a class="site-text-link" :href="SITE_LINKS.inspectGuide" target="_blank" rel="noopener"
+          >Inspection guide →</a
+        >
+      </div>
     </div>
   </SectionShell>
 </template>

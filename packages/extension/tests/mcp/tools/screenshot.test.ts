@@ -367,13 +367,9 @@ describe('mcp/tools/screenshot', () => {
     })
   })
 
-  it('rasterizes a page-root SVG so nested updates are fully composed', async () => {
-    const svgBytes = new TextEncoder().encode('<svg width="200" height="100"/>')
+  it('exports a page-root node directly as PNG', async () => {
     const bytes = createPngBytes(200, 100, 1024)
-    const target = createNode(new Map())
-    vi.mocked(target.exportAsync).mockResolvedValue(svgBytes)
-    const rasterizeSvg = vi.fn(() => Promise.resolve(bytes))
-    const cropPng = vi.fn()
+    const target = createNode(new Map([[1, bytes]]))
     const page = {
       children: [target],
       type: 'PAGE'
@@ -386,13 +382,12 @@ describe('mcp/tools/screenshot', () => {
       size: 1024
     })
 
-    await handleGetScreenshot(target, { cropPng, rasterizeSvg })
+    await handleGetScreenshot(target)
 
-    expect(cropPng).not.toHaveBeenCalled()
     expect(target.exportAsync).toHaveBeenCalledWith({
-      format: 'SVG'
+      format: 'PNG',
+      constraint: { type: 'SCALE', value: 1 }
     })
-    expect(rasterizeSvg).toHaveBeenCalledWith(svgBytes, 1)
   })
 
   it('falls back to lower scales until payload fits', async () => {

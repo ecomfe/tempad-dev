@@ -124,11 +124,11 @@ function selectManualSetup(): void {
 
 function getStepDescription(id: ActionGroupId): string {
   if (id === 'plugin')
-    return 'Installs one Agent Plugins package with MCP access and both design workflows.'
+    return 'Connects your agent to Figma for native design editing and code implementation.'
   if (id === 'skill')
-    return 'Adds workflows for implementing designs in code and authoring native Figma designs.'
+    return 'Adds guidance for editing native Figma designs and implementing UI in your project.'
   const agent = selectedSetup.value.id === 'other' ? 'your agent' : selectedSetup.value.name
-  return `Lets ${agent} inspect the open Figma file and author native designs when it is editable.`
+  return `Lets ${agent} read the open Figma file and edit its canvas when you have edit access.`
 }
 
 function selectAdjacentTarget(direction: -1 | 1): void {
@@ -221,10 +221,10 @@ function getCopyTitle(action: AgentIntegrationAction): string {
             <h2>{{ selectedSetup.name }}</h2>
           </div>
           <p v-if="pluginStep">
-            Install the open-standard plugin to add MCP access and both agent skills.
+            Install the TemPad Dev plugin to work with Figma from your coding agent.
           </p>
           <p v-else-if="selectedSetup.id === 'other'">
-            Set up MCP access and both agent skills with any compatible agent.
+            Connect a compatible coding agent to Figma, then install the two skills.
           </p>
           <p v-else>Connect the MCP server, then add both agent skills.</p>
         </div>

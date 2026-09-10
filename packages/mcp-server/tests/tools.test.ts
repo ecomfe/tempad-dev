@@ -306,6 +306,17 @@ describe('tools response helpers', () => {
     expect(textContent(removalResult.content[0])).not.toContain('Reuse nodeIdsByKey')
   })
 
+  it('accepts environment font results without a resource catalog', () => {
+    const payload: ToolResultMap['get_design_system'] = {
+      scope: 'fonts',
+      fonts: [{ family: 'Noto Sans SC', style: 'SemiBold' }],
+      missingFamilies: ['Missing']
+    }
+    const result = createDesignSystemToolResponse(payload)
+    expect(result.structuredContent).toEqual(payload)
+    expect(textContent(result.content[0])).toContain('1 available font faces')
+  })
+
   it('formats screenshot tool responses with a bounded image resource link', () => {
     const payload: ToolResultMap['get_screenshot'] = {
       format: 'png',

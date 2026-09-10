@@ -64,6 +64,12 @@ export function buildGetCodeToolResult(payload: GetCodeResult): ToolResponseLike
 }
 
 export function buildGetDesignSystemToolResult(payload: GetDesignSystemResult): ToolResponseLike {
+  if ('scope' in payload) {
+    return buildTextToolResult(
+      `Returned ${payload.fonts?.length ?? payload.families?.length ?? 0} available font ${payload.fonts ? 'faces' : 'families'}.${payload.nextCursor === undefined ? '' : ` Continue with the same font filters and cursor ${payload.nextCursor}.`} Availability does not establish glyph coverage; verify rendered text.`,
+      payload
+    )
+  }
   if (payload.details) {
     return buildTextToolResult(
       `Returned bounded ${payload.details.kind} definition ${payload.details.ref} from catalog ${payload.catalogId}.`,

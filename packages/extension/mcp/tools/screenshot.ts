@@ -24,7 +24,6 @@ interface AncestorCropSource extends CropSource {
 
 interface ScreenshotRuntimeOptions {
   cropPng?: (bytes: Uint8Array, rect: PngCropRect) => Promise<Uint8Array>
-  rasterizeSvg?: (bytes: Uint8Array, scale: number) => Promise<Uint8Array>
 }
 
 function finiteRect(value: Rect | null | undefined): Rect | null {
@@ -199,34 +198,6 @@ export async function cropPngWithCanvas(bytes: Uint8Array, rect: PngCropRect): P
   }
 }
 
-export async function rasterizeSvgWithCanvas(
-  bytes: Uint8Array,
-  scale: number
-): Promise<Uint8Array> {
-  const sourceBlob = new Blob([bytes.slice().buffer], { type: 'image/svg+xml' })
-  const sourceUrl = URL.createObjectURL(sourceBlob)
-  const image = new Image()
-
-  try {
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve()
-      image.onerror = () => reject(new Error('Browser image could not decode the SVG screenshot.'))
-      image.src = sourceUrl
-    })
-
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
-    const context = canvas.getContext('2d')
-    if (!context) throw new Error('Browser canvas 2D context is unavailable.')
-    context.drawImage(image, 0, 0, canvas.width, canvas.height)
-    const png = await canvasToPng(canvas)
-    return new Uint8Array(await png.arrayBuffer())
-  } finally {
-    URL.revokeObjectURL(sourceUrl)
-  }
-}
-
 function readPngDimensions(bytes: Uint8Array): { width: number; height: number } {
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
   const isPng =
@@ -259,19 +230,12 @@ export async function handleGetScreenshot(
   const directCropSource = resolveDirectCropSource(node)
   const ancestorCropSource = resolveAncestorCropSource(node)
   const cropPng = options.cropPng ?? cropPngWithCanvas
-  const rasterizeSvg = options.rasterizeSvg ?? rasterizeSvgWithCanvas
-  const pageRootSvg =
-    node.parent?.type === 'PAGE' && !directCropSource
-      ? await node.exportAsync({ format: 'SVG' })
-      : null
 
   for (const scale of SCALE_STEPS) {
-    const directBytes = pageRootSvg
-      ? await rasterizeSvg(pageRootSvg, scale)
-      : await node.exportAsync({
-          format: 'PNG',
-          constraint: { type: 'SCALE', value: scale }
-        })
+    const directBytes = await node.exportAsync({
+      format: 'PNG',
+      constraint: { type: 'SCALE', value: scale }
+    })
     const directCropRect = directCropSource
       ? resolveCropRect(directCropSource, readPngDimensions(directBytes))
       : null

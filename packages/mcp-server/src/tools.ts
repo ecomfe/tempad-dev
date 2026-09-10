@@ -157,7 +157,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_design_system',
     description:
-      'Discover a bounded deterministic catalog of accessible components, variables, styles, and shaders when existing-resource reuse is permitted and relevant. Do not call it when the user limits design evidence to the current page or requests an independent system without pre-existing resource reuse. Start without arguments; continue the same catalog by cursor or inspect one returned ref.',
+      'Discover resources or available fonts. For fonts, use scope: "fonts" with query to find families or families to read exact native styles; this reads the environment without scanning file resources and is allowed for independent designs. Resource discovery returns a bounded catalog with component tags, variable cssName and text-style className aliases. Use resource discovery only when existing-resource reuse is permitted and relevant; skip it when the user limits design evidence to the current page or requests an independent system. Start without arguments; continue by catalogId/cursor or inspect catalogId/ref.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetDesignSystemParametersSchema,
     target: 'extension',
@@ -166,7 +166,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'apply_canvas',
     description:
-      'Create, update, remove, or activate exact Figma pages and managed roots. Markup is optional for page-only operations and native-only updates to existing stable keys inside an exact managed root. Create auto-places a root on the current or exact target page and activates only a newly created page; update preserves omitted live state and topology; remove accepts an exact managed root or page; activate changes editor context without a document mutation. Exact off-current-page writes do not require activation.',
+      'Create, update, remove, or activate exact Figma pages and managed roots. Canvas HTML supports documented Tailwind utilities, including CSS variable classes bound through catalog aliases or theme; type-* classes bind native text styles. Define new resources with variableCollections/styles and use their stable keys in theme in the same call. Markup is optional for page-only operations and native-only updates inside an exact managed root. Create auto-places a root; update preserves omitted live state and topology; remove accepts an exact managed root or page; activate changes editor context without a document mutation. Exact off-current-page writes do not require activation.',
     annotations: CANVAS_WRITE_ANNOTATIONS,
     parameters: ApplyCanvasParametersSchema,
     target: 'extension',

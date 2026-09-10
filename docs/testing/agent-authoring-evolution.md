@@ -52,6 +52,18 @@ of its particulars; instructions should help the agent attend to the right
 reality and own the synthesis, not attempt to contain the finished design in
 prose.
 
+This is a design heuristic inspired by Polanyi's account of human knowing, not
+an empirical claim that an LLM has human tacit knowledge. Its value must be
+established by actual authoring outcomes.
+
+Use explicit constraints for concrete invalid outcomes and precise mechanics
+for selected tools. Use short questions where they change what the agent
+notices. Concrete demonstrations can also teach a difficult distinction:
+preserve their situation, evidence, consequence, and limits so they do not turn
+into a preferred visible answer. A syntax example belongs beside its mechanic;
+a historical design case belongs in evaluator evidence, not the always-loaded
+skill. Avoid making a sentence classification system another compliance task.
+
 The evaluator's judgment is personal but not arbitrary. They must own it,
 describe what they experienced, point to the evidence that mattered, and remain
 open to correction. Automated graders can assist with exact properties, but
@@ -184,12 +196,19 @@ Create a small note immediately before dispatch:
   "id": "2026-08-29-control-room",
   "createdAt": "2026-08-29T09:15:00.000Z",
   "kind": "open",
+  "agent": { "model": "gpt-5.6-sol", "reasoningEffort": "xhigh" },
   "intent": "See whether the request becomes a coherent editable control room.",
   "task": {
     "prompt": "Use the current blank Figma page to design a native, editable desktop application result for a regional rail dispatcher coordinating service during a storm. Research relevant real products and choose a fitting visual direction, then create an independent design. Complete it yourself with the connected TemPad Dev MCP tools."
   }
 }
 ```
+
+Freeze the actual intended model and reasoning effort in `agent`; the values
+above identify the historical Sol Extra High series, not a global model default.
+New starts require both fields. Dispatch with those settings and verify the
+rollout's actual turn contexts. A model or effort change is a new experimental
+condition, even when the skill and prompt are identical.
 
 For a comparison only:
 
@@ -223,6 +242,11 @@ Before every live dispatch:
    pnpm agent-plugin:reinstall
    ```
 
+   This is the normal replacement path. Do not add `--restart-codex`
+   preemptively: it is a recovery option only after the plain command reports
+   that the Codex CDP endpoint is unavailable. A reachable endpoint with a
+   missing or ambiguous page target must be fixed without restarting Codex.
+
 3. Reload the development browser extension and the intended Figma tab. Keep
    one intended live Figma tab and file active.
 4. Confirm the extension is connected to the same checkout's Hub.
@@ -243,8 +267,14 @@ on failure.
 For diagnosis, preflight can also run alone:
 
 ```sh
-pnpm agent-eval:preflight [--checkout /absolute/path/to/checkout]
+pnpm agent-eval:preflight \
+  [--checkout /absolute/path/to/checkout] \
+  [--app-path /Applications/ChatGPT.app]
 ```
+
+On macOS, preflight queries the configured desktop app's bundled Codex CLI
+(`CODEX_APP_PATH` or `/Applications/ChatGPT.app` by default), so plugin identity
+comes from the host under evaluation rather than an unrelated `codex` on `PATH`.
 
 Do not edit the frozen note. Abandon it with a plain reason if the run can no
 longer proceed:
@@ -285,7 +315,8 @@ pnpm agent-eval:log abandon \
    dispatch context. If the page, selection, or fixture is wrong, do not
    dispatch; recreate it on a fresh page or abandon the run.
 
-4. Create a new native Codex task from the main app window. A task inherits the
+4. Create a new native Codex task from the main app window, using the frozen
+   model and reasoning effort. A task inherits the
    host's automatically invokable skill catalog. Before dispatch, remove an
    unintended overlap at its owning skill policy or use an isolated host
    profile; a broad auxiliary trigger that also matches Figma application work
@@ -344,6 +375,12 @@ Only then inspect enough evidence to support or challenge the judgment:
 
 - Render the target page or important regions when visual hierarchy, density,
   overflow, legibility, or craft matters.
+- In the rollout inspection, a non-null `timing.lastApplyToOpenedScreenshotMs`
+  indicates that an image under the TemPad asset path was opened after the
+  final successful Canvas call. This path/timing heuristic does not establish
+  screenshot provenance, capture freshness, target coverage, or good judgment.
+  Confirm the screenshot call, target, capture order, and actual opened pixels
+  when final visual verification matters.
 - Treat a passed structural verification as evidence only for the condition it
   checked. It does not prove spacing quality: inspect whether rendered content
   preserves its intended insets and rhythm, especially where fixed-size parents
@@ -432,10 +469,31 @@ pnpm agent-eval:log finish \
   --log /absolute/path/to/authoring-runs.jsonl
 ```
 
-A valid finish proves that the rollout began after the note was frozen, used the
-same prompt, current extension fingerprint, locked runtime, and generated
-TemPad skill, and retained task, page, and artifact evidence. An invalid finish
-may omit rollout and artifacts if dispatch identity could not be established.
+A new valid finish checks that the rollout began after the note was frozen,
+contains one original task prompt, matches the session task ID and frozen
+model/effort, and has matching extension/runtime and presented TemPad skill
+locator evidence. Malformed JSON, additional task prompts, missing settings,
+and changes within the recorded execution fail this integrity check. An invalid
+finish may omit rollout and artifacts if dispatch identity is unknown.
+
+Keep these proof boundaries explicit:
+
+- A presented skill locator proves catalog exposure, not that the skill was
+  loaded completely or that its bytes match a past source snapshot. Inspect
+  successful reads and retain the candidate source revision/diff when attribution
+  depends on skill content. A cachebuster alone is not a content hash.
+- Page IDs and evidence strings in a review are retained reviewer assertions;
+  the log does not independently authenticate their pixels or native contents.
+- The execution inspector recognizes native host message envelopes. Unrecognized
+  formats or external intervention require manual investigation, not guessed
+  settings or fabricated evidence.
+- Existing records without `agent`/`execution` remain readable under their old
+  checks, including legacy comparison catalog matching. They gain no new proof
+  retroactively. Reinspect their original rollouts for model or prompt claims;
+  never rewrite old records to imply checks ran at dispatch.
+
+`valid` means trustworthy enough to review under those checks, not a good design,
+compliance with every skill instruction, or evidence that a candidate improved.
 
 The log is useful for provenance and memory. It is not a ledger of merit. Its
 summary reports only run status and kind:
@@ -495,17 +553,24 @@ For every skill edit:
 
 1. State the general behavior it changes and why code is not the owning layer.
 2. Search for overlap and simplify or replace existing text before adding text.
-3. Prefer the smallest edit that changes the decision boundary.
-4. Record `skillChangeRationale` in the review.
-5. Regenerate the development plugin and inspect synchronized tracked output:
+3. Explain the decision the text changes. Keep exact constraints, orienting
+   questions, selected mechanics, or a necessary contextual demonstration;
+   remove text that merely restates generic expertise or earlier instructions.
+4. Reverse-test visible advice: if its opposite can be right for another
+   legitimate brief, replace it with the relationship or question that decides
+   between them.
+5. Prefer the smallest edit that changes the decision boundary.
+6. Record `skillChangeRationale` in the review.
+7. Regenerate the development plugin and inspect synchronized tracked output:
 
    ```sh
    pnpm agent-plugin:dev
    ```
 
-6. Test transfer on a materially different fresh task. Do not validate solely
-   by replaying the source prompt.
-7. Revert or simplify the instruction if it reduces legitimate variation,
+8. Test transfer on a materially different fresh task before claiming behavioral
+   improvement. Keep a mechanically verified but untested rewrite explicitly
+   provisional. Do not validate solely by replaying the source prompt.
+9. Revert or simplify the instruction if it reduces legitimate variation,
    causes formulaic output, or merely moves the failure elsewhere.
 
 The desired trajectory is often fewer, sharper instructions—not a monotonically
@@ -518,8 +583,9 @@ resolve a specific decision. Both arms must use:
 
 - the same newly authored prompt and comparison subject;
 - the same model and relevant settings;
-- the same presented skill catalog except for the deliberately varied skill
-  content;
+- the same supporting skill context, with only the intended skill content
+  varied; normalized locator equality does not establish supporting file-byte
+  equality, so preserve those snapshots when a content change is plausible;
 - the same checkout runtime and active extension identity;
 - separate isolated pages and native Codex tasks;
 - no mid-run steering.
@@ -527,6 +593,29 @@ resolve a specific decision. Both arms must use:
 Review both completed artifacts as wholes before inspecting traces. Describe the
 tradeoff in prose. A pair can inform judgment, but it cannot establish a general
 law; transfer still requires a different task.
+
+## Learn without converting the archive into a template
+
+Read successful and unsuccessful cases as situated examples. Start with the
+artifact and brief before reading the earlier verdict. Preserve disagreements
+with that verdict in prose. Choose contrasts that explain a real decision:
+source adaptation versus system substitution, meaningful visualization versus
+plausible decoration, or a state change propagated versus merely relabeled.
+Do not present historical winners to the authoring agent as desired answers in
+an independent run.
+
+A novel product noun does not make every run a transfer test. Vary the work,
+source conditions, platform, and resource responsibilities when selecting the
+next question. Freeze a candidate long enough to learn from distinct tasks;
+if several instructions change between every run, treat the sequence as
+exploration and do not attribute a later success to one sentence. Representative
+repeats are justified when stochastic variation is the unresolved question;
+use a declared comparison under the existing prompt-identity rule rather than
+quietly repeating an open run.
+
+Keep the case archive and any retrospective analysis outside the distributed
+skill. The [September 2026 review](agent-authoring-review-2026-09.md) records
+one such analysis, its evidence limits, and provisional changes.
 
 ## Finishing one evolution round
 

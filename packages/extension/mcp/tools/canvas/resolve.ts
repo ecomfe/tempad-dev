@@ -111,6 +111,7 @@ export function resolveCanvasInput(input: ApplyCanvasParameters): Resolution {
     mode: input.mode,
     ...(input.targetNodeId ? { targetNodeId: input.targetNodeId } : {}),
     markup: input.markup,
+    ...(input.theme === undefined ? {} : { theme: input.theme }),
     ...(input.native
       ? {
           bindings: Object.fromEntries(

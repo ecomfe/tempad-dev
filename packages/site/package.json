@@ -12,25 +12,31 @@
     "lint": "eslint . --cache",
     "lint:fix": "eslint . --fix --cache",
     "format": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore",
-    "format:check": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore --check"
+    "format:check": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore --check",
+    "test:run": "vitest run && pnpm test:browser",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:setup": "pnpm exec playwright install chromium"
   },
   "dependencies": {
     "@tempad-dev/shared": "workspace:^0.1.0",
     "@vercel/analytics": "^2.0.1",
     "@vueuse/core": "^14.4.0",
     "lucide-vue-next": "^1.0.0",
+    "overlayscrollbars": "^2.16.0",
     "vue": "^3.5.42"
   },
   "devDependencies": {
     "@tsconfig/node24": "^24.0.5",
     "@types/node": "^24.13.3",
     "@vitejs/plugin-vue": "^6.0.8",
+    "@vitest/browser-playwright": "4.1.11",
     "@vue/eslint-config-typescript": "^14.9.0",
     "@vue/tsconfig": "^0.9.1",
     "eslint": "^10.9.1",
     "eslint-plugin-vue": "~10.10.0",
     "jiti": "^2.7.0",
     "marked": "^18.0.11",
+    "playwright": "^1.62.1",
     "typescript": "~6.0.3",
     "vite": "8.2.2",
     "vue-tsc": "^3.3.11",

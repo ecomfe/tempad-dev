@@ -6,10 +6,14 @@ import { promisify } from 'node:util'
 
 import {
   assertNoDetachedReinstallJobs,
+  assertRestartCodexNeeded,
   detachedReinstallIdentity,
   detachedReinstallJobPrefix,
+  formatCodexConnectionError,
   resolveDevPluginVersion,
-  runtimeStateMatches
+  runtimeStateMatches,
+  selectCodexTarget,
+  type CdpTarget
 } from './reinstall-codex-dev-plugin-runtime'
 import { parseLaunchctlLabels } from './switch-codex-host-runtime'
 
@@ -35,8 +39,8 @@ const pageFunctionDeclaration = `function (request) {
     return match && query.closest ? match.closest(query.closest) : match || null
   }
   const pluginState = () => {
-    if (findElement({ selector: 'button', ariaLabel: 'More actions' })) return 'installed'
     if (findElement({ selector: 'button', text: 'Install plugin' })) return 'uninstalled'
+    if (findElement({ selector: 'button', ariaLabel: 'More actions' })) return 'installed'
     return null
   }
 
@@ -120,13 +124,6 @@ type PageRequest =
   | { action: 'plugin-state' }
   | { action: 'plugin-state-is'; state: PluginState }
   | { action: 'set-input-value'; selector: string; value: string }
-
-type CdpTarget = {
-  title: string
-  type: string
-  url: string
-  webSocketDebuggerUrl: string
-}
 
 type PendingCdpRequest = {
   reject: (error: Error) => void
@@ -256,8 +253,6 @@ function usage(): string {
     'Reinstall TemPad Dev (Dev) through a running Codex Desktop CDP endpoint:',
     '',
     '  pnpm agent-plugin:reinstall [version]',
-    '  pnpm agent-plugin:reinstall [version] --restart-codex',
-    '  pnpm agent-plugin:reinstall [version] --restart-codex --app-path "/path/to/ChatGPT.app"',
     '  pnpm agent-plugin:reinstall [version] --cdp-url http://127.0.0.1:9222',
     '',
     'Arguments:',
@@ -267,12 +262,16 @@ function usage(): string {
     '  --app-path <path>     Codex app to launch (default: CODEX_APP_PATH or /Applications/ChatGPT.app)',
     '  --cdp-url <url>        Codex CDP endpoint (default: CODEX_CDP_URL or http://127.0.0.1:9222)',
     '  --page-url <url|substring> Select a Codex page; an exact URL wins over substring matching',
-    '  --restart-codex        Restart Codex with CDP in a detached helper before reinstalling',
+    '  --restart-codex        Recovery only: restart Codex after the plain command reports that CDP is unavailable',
     '  --timeout-ms <number>  Timeout for each UI/runtime transition (default: 60000)',
     '  --help                 Show this help',
     '',
     'Codex Desktop must already be running with remote debugging enabled, for example on macOS:',
-    '  open -a ChatGPT --args --remote-debugging-port=9222'
+    '  open -a ChatGPT --args --remote-debugging-port=9222',
+    '',
+    'Recovery when the plain command reports that the CDP endpoint is unavailable:',
+    '  pnpm agent-plugin:reinstall [version] --restart-codex',
+    'Do not use --restart-codex preemptively or to repair page-target selection.'
   ].join('\n')
 }
 
@@ -426,6 +425,22 @@ async function waitForRuntimeState(
     `Timed out waiting for ${expected}. Last observed state: ${processSummary(latest)}` +
       (baseline ? `; baseline: ${processSummary(baseline)}` : '')
   )
+}
+
+function stopRemainingRuntimeProcesses(processes: RuntimeProcesses): void {
+  const remaining = [...processes.cli, ...processes.hub]
+  if (remaining.length === 0) return
+
+  console.log(
+    `Stopping runtime processes left behind after uninstall: ${processSummary(processes)}`
+  )
+  for (const { pid } of remaining) {
+    try {
+      process.kill(pid, 'SIGTERM')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+    }
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -600,53 +615,12 @@ async function listCdpTargets(cdpUrl: string): Promise<CdpTarget[]> {
   )
 }
 
-async function selectCodexTarget(
-  cdpUrl: string,
-  pageUrl: string | undefined,
-  timeoutMs: number
-): Promise<CdpTarget> {
-  const deadline = Date.now() + timeoutMs
-  let targets: CdpTarget[] = []
-  while (Date.now() <= deadline) {
-    targets = await listCdpTargets(cdpUrl).catch(() => [])
-    const codexPages = targets.filter((target) => {
-      if (target.type !== 'page' || target.url.includes('initialRoute=%2Favatar-overlay')) {
-        return false
-      }
-      try {
-        return new URL(target.url).protocol === 'app:'
-      } catch {
-        return false
-      }
-    })
-    const exactCandidates = pageUrl ? codexPages.filter((target) => target.url === pageUrl) : []
-    if (exactCandidates.length === 1 && exactCandidates[0]) return exactCandidates[0]
-    const candidates = pageUrl
-      ? codexPages.filter((target) => target.url.includes(pageUrl))
-      : codexPages
-    const candidate = candidates[0]
-    if (candidates.length === 1 && candidate) return candidate
-    if (candidates.length > 1) {
-      fail(
-        `Multiple Codex pages are available. Pass --page-url with a unique substring:\n${candidates
-          .map(({ title, url }) => `- ${title}: ${url}`)
-          .join('\n')}`
-      )
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
-  }
-  fail(
-    `No Codex app page found at the CDP endpoint. Exposed pages:\n${targets
-      .map(({ title, url }) => `- ${title}: ${url}`)
-      .join('\n')}`
-  )
-}
-
 async function connectToCodex(args: Arguments): Promise<CdpClient | null> {
   if (args.resumeAfterRestart) {
     await restartCodexForCdp(args.appPath, args.cdpUrl, args.timeoutMs)
   }
   if (args.restartCodex && !args.resumeAfterRestart) {
+    assertRestartCodexNeeded(await isCdpReady(args.cdpUrl))
     await startDetachedRestart(
       args,
       'A clean Codex restart was requested before replacing the plugin.'
@@ -654,17 +628,16 @@ async function connectToCodex(args: Arguments): Promise<CdpClient | null> {
     return null
   }
   try {
-    const target = await selectCodexTarget(args.cdpUrl, args.pageUrl, args.timeoutMs)
+    const target = await selectCodexTarget(
+      () => listCdpTargets(args.cdpUrl),
+      args.pageUrl,
+      args.timeoutMs
+    )
     console.log(`Codex page: ${target.title || '(untitled)'} (${target.url})`)
     return await CdpClient.connect(target.webSocketDebuggerUrl, args.timeoutMs)
   } catch (error) {
-    const recovery =
-      args.restartCodex || args.resumeAfterRestart
-        ? 'The CDP endpoint is reachable; fix the exposed target or --page-url selection without restarting Codex.'
-        : 'Start Codex with remote debugging, or pass --restart-codex when the CDP endpoint is unavailable.'
     fail(
-      `Could not connect to Codex CDP at ${args.cdpUrl}: ${errorMessage(error).split('\n', 1)[0]}. ` +
-        recovery
+      formatCodexConnectionError(args.cdpUrl, errorMessage(error), await isCdpReady(args.cdpUrl))
     )
   }
 }
@@ -768,7 +741,7 @@ async function openPluginDetail(client: CdpClient, timeoutMs: number): Promise<P
   const cardQuery: PageElementQuery = {
     closest: '[role="button"]',
     leafOnly: true,
-    selector: 'div',
+    selector: 'span, div',
     text: pluginDisplayName
   }
   await waitForPageCondition(
@@ -908,6 +881,7 @@ async function main(): Promise<void> {
       console.log('The plugin is already uninstalled; continuing the interrupted reinstall.')
     }
 
+    stopRemainingRuntimeProcesses(await listRuntimeProcesses(runtimePaths))
     const runtimeAfterUninstall = await waitForRuntimeState(
       runtimePaths,
       'uninstalled',
