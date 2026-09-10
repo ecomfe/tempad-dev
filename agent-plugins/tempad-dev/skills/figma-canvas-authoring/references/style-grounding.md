@@ -1,101 +1,80 @@
 # Ground design judgment
 
-Use this reference for the initial direction of net-new work, a material
-redesign, or a consequential design decision not settled by the user or an
-established source. Skip exact reproduction and mechanical edits.
+Use this reference for a new direction, material redesign, or consequential
+uncertainty not settled by the user or an established source. Exact reproduction
+and mechanical edits use their supplied evidence directly.
 
-Research is something to think from, not a design to copy or a report to
-complete. The aim is to encounter enough of the real product and relevant
-design practice to make a responsible independent judgment.
+## Inspect what can change the decision
 
-## Frame what is actually open
+Start with the nearest credible evidence: the supplied design or implementation,
+real product states, primary platform requirements, or adjacent visual work.
+Choose separate evidence for behavior and visual expression when needed. A
+functional walkthrough can establish behavior without settling visual language;
+a visually relevant product state or adjacent visual work can show how density,
+controls, surfaces, icon/text economy, and states cohere without establishing
+behavior it does not expose. One artifact may inform both only when the relevant
+behavior and pixels are actually inspected.
 
-Understand the person, situation, product behavior, important content or state
-changes, and consequences of success or failure. Separate what the brief or
-source already settles from decisions that could materially change the
-experience.
+Open the relevant state at useful scale. A homepage or brand campaign may not
+show the working interface. Search cards, prose, remembered products, generated
+images, and failed retrievals are not inspected visual precedents. A content
+photograph establishes what it depicts, not the surrounding application's
+interaction or composition. Follow the main skill's first-write evidence
+boundary when retrieval fails.
 
-Keep product behavior and visual expression distinct while investigating both.
-A functional precedent can reveal how work is organized without deciding how
-the new product should feel. An expressive reference can broaden visual
-possibility without establishing behavior it does not show. Generic expertise
-contributes principles and questions; it does not establish this product's
-layout, component grammar, visual language, or asset treatment.
+An image-search result that exposes only a screenshot description or URL remains
+a search card. Open the actual product-state pixels at useful scale before
+treating them as visual grounding; otherwise use the result only as behavioral
+description.
 
-## Inspect relevant reality
+Research is grounded when it changes, confirms, or reopens a material decision
+in the new result. Retain enough source identity and context to support that
+claim; do not invent a source-by-source decision report. If a source contributed
+nothing consequential, do not cite it as a precedent. Generic expertise helps
+interpret the evidence; its familiar defaults are not evidence about this
+product.
 
-Use the nearest credible evidence for each consequential uncertainty:
+There is no source quota. Stop when further investigation is unlikely to change
+a material choice. Do not research routine decisions for ceremony. Keep source
+screens outside the authored result unless the user asked to place or reproduce
+them, and preserve required source content and behavior when adapting a design.
 
-- supplied pixels, implementation, and current-file evidence for the source's
-  actual content, hierarchy, behavior, and visual language;
-- real product screens or demos for interaction economy, application patterns,
-  and the visible consequence of state;
-- primary platform or accessibility guidance for requirements;
-- adjacent visual work for expressive possibility when product precedents leave
-  that choice open.
+## Form a provisional direction
 
-Open the relevant pixels or implementation at useful scale. Search-result
-cards, snippets, prose descriptions, remembered products, and generated images
-do not establish a precedent. Inspect the state that bears on the decision, not
-merely a homepage or brand campaign.
+Integrate the brief, evidence, and professional judgment into a relationship
+among content, state, and action, with a visual language that makes it fitting
+and perceptible. A new design needs its own solution; independence is not a
+reason to discard an applicable interaction or representation because it is
+harder to source or serialize.
 
-Reference artifacts remain research evidence. Do not reproduce them, trace
-their composition, import their screenshots, or assemble their recognizable
-motifs unless the user explicitly asks for source placement or reproduction.
-Instead, understand what a choice accomplishes for that product, then decide
-whether the same relationship applies here.
+Before the first write, be able to state privately what the inspected pixels
+changed or confirmed about the recurring visual language. A mood label or
+task-themed palette is not that direction; if the same control and surface
+grammar could survive a noun swap, inspect more relevant pixels or reconsider
+the synthesis.
 
-Research becomes grounding through its bearing on synthesis: what was inspected
-must change, confirm, or reopen a consequential decision and imply something the
-new whole should make perceptible. If no clue does so, do not cite the source as
-a precedent; inspect a more relevant state or proceed from professional judgment
-without claiming that source as grounding. Acquisition or serialization effort
-is not a product reason to change an applicable representation.
+Resolve recurring visual roles enough to try them in a real composition. The
+foundation is provisional and may change after seeing pixels. It is not a
+separate foundation board or permission to create components, variables, or
+styles outside the task's resource scope.
 
-There is no source quota. Continue while another artifact could change a
-material decision; stop when the remaining uncertainty can be resolved by
-responsible design judgment. Do not research routine choices to satisfy a
-ceremony.
+Reconsider choices whose only justification is habit or semantic association.
+Ask what in the brief or inspected reality makes the proposed treatment fit.
+Familiar solutions can be appropriate; choosing the opposite of a criticized
+motif is no stronger evidence. Functional specificity alone does not settle
+expression, and stylistic difference alone does not make the product useful.
 
-## Synthesize instead of averaging
+## Externalize unresolved visual choices
 
-Integrate the brief, inspected evidence, applicable expertise, and explicit
-low-consequence assumptions into one situated direction. It should explain how
-content, state, and action organize the experience and how attention,
-interaction, media, and visual expression reinforce that organization. It need
-not predeclare every visible detail.
+If materially different visual hypotheses remain and a capable image-generation
+tool is available, a bounded visual exploration can help you see their
+consequences. Open those pixels and use them to reconsider the composition;
+omit this step when the direction is already clear.
 
-Challenge the first plausible answer:
+Generated concepts are speculative sketches, not real-product evidence or
+flattened Figma deliverables. Do not trust their text/data or trace them
+literally. A generated subject chosen as actual product content is a separate
+asset decision under `visual-assets.md`.
 
-> If the product name and content were replaced, could the same visible and
-> interactive design serve an unrelated product essentially unchanged?
-
-If yes, revisit the load-bearing relationship or inspect the missing evidence.
-Do not manufacture specificity with decoration, arbitrary novelty, or the
-opposite of a recently criticized motif. Familiar and unfamiliar solutions are
-both valid when the situation supports them.
-
-## Externalize visual uncertainty when useful
-
-When inspection still leaves materially different visual hypotheses plausible
-and a capable image-generation tool is available, use it as a bounded visual
-thinking aid. Generate meaningfully different possibilities, open the pixels,
-and use them to reconsider the whole composition, attention, rhythm, media,
-material, or interaction treatment.
-
-Generated screen concepts are speculative sketches, not product evidence,
-benchmarks, or flattened Figma deliverables. Do not trust their text or data,
-trace them literally, or use generation when the direction is already clear. A
-generated subject chosen as actual product content is a separate asset role
-governed by `visual-assets.md`.
-
-## Return to the whole
-
-Keep only enough private rationale to remember what the rendered result must
-make true because of the evidence. Do not require a mood board, fixed template,
-source-by-source trace, or user-facing research report.
-
-Translate the judgment into one representative composition and open its pixels.
-Revise when the experienced whole contradicts the intended product or reveals a
-material uncertainty; otherwise continue the work instead of decorating or
-researching indefinitely.
+Return to the representative native composition and inspect it. Let a mismatch
+reopen the decision it actually challenges; otherwise complete the design.

@@ -1,75 +1,35 @@
 # Changelog
 
-- Added portable `font-serif` and `font-mono` Canvas utilities alongside `font-sans`, resolving an
-  editor-available family in each category while preserving supported weight classes.
-- Preflight Canvas text fonts before mutation and remove any created-node remnants after rollback,
-  preventing failed applies from leaving partial screens or component definitions on the page.
-- Require an explicit Figma-tab choice when multiple MCP sessions appear or a new Hub connects,
-  preventing a stale tab route from silently receiving canvas writes.
-
 ## 0.21.0
 
-- Added native Figma canvas authoring through declarative `apply_canvas` results instead of
-  agent-generated Plugin API calls.
-- Added `get_design_system` for bounded discovery and exact lookup of accessible components,
-  variables, collections and modes, native styles, and shaders through stable short references.
-- Added safe create, update, and delete reconciliation against the latest canvas, with stable
-  managed identities, dependency preflight and rollback, one Undo boundary, no-op convergence,
-  structural verification, and identity recovery through `get_structure`.
-- Expanded authoring coverage across HTML and Tailwind utilities, native geometry and layout, rich
-  text, paints and effects, variables and styles, pages, components and variants, instances, Slots,
-  inline SVG, and local PNG/JPEG/GIF assets.
-- Added deterministic non-overlapping placement for independent creates, bounded read-only
-  screenshot validation, and compact field-level error feedback.
-- Added the `figma-canvas-authoring` skill to the portable Agent Plugin, compatibility packages,
-  and standalone agent setup, alongside the existing `figma-design-to-code` skill.
-- Made the Agent Plugins 1.0 package the primary installation and packaging source for compatible
-  agents, while retaining native manifests and direct MCP plus skill setup as compatibility paths.
-- Restricted canvas writes to editable Figma Design files and stabilized Auto Layout verification
-  after text reflow and native Figma setter updates.
-- Fixed freshly authored component instances inheriting the definition's managed identity, added
-  rollback survivor checks, isolated failed-attempt Undo from preceding successful applies, guarded
-  unrelated page roots against rollback corruption, and documented file-wide resource keys plus
-  canvas size and variable-scope constraints.
-- Fixed exact variant and component-set instance creation, preserved authored root types on partial
-  component updates, ignored stale removed-node lookups, and limited Auto Layout sizing setters to
-  native contexts that support them.
-- Tightened visual-evidence, asset-medium, component-coverage, and screenshot-inspection guidance,
-  and normalized plain `<br>` elements inside span text to native line breaks.
-- Rejected mutually exclusive variable scopes before mutation, disallowed agent-authored primitive
-  or SVG substitutions for content-image roles, and moved asset-medium, screenshot, and file-wide
-  namespace checks closer to their authoring actions.
-- Fixed deletion of managed SVG wrappers and their opaque imported descendants, avoided reloading
-  the already accessible current page during removal checks, and preserved native Figma error text
-  even when the runtime throws a cross-realm error object.
-- Clarified fill-sized child errors in freeform Canvas HTML parents so recovery points directly to
-  the missing parent layout mode and its valid alternatives.
-- Identified unresolved variable references by their exact authoring, native, or library key so
-  cross-call token bindings expose typos directly.
-- Warned when a same-call variable binding silently overrides a literal fallback that matches none
-  of the variable's direct mode values, including locally authored aliases.
-- Reused the non-variant component-property capability check during variable-removal scans so files
-  containing component-set variants no longer fail unrelated token cleanup.
-- Clarified component closure so expressible state differences strengthen a shared contract when
-  stable anatomy should evolve together, without turning repetition into a component threshold.
-- Documented direct component-set consumption and variant selection so authored state contracts can
-  be instantiated without falling back to local copies.
-- Kept fixed text sizing stable when Figma normalizes auto-resize during truncation updates.
-- Clarified that a representative token binding proves connectivity but does not close an intended
-  shared semantic role whose coordinated consumers remain literal.
-- Required fetched SVG inputs to be checked as actual SVG content before declaration, avoiding
-  recoverable Canvas failures caused by CDN error bodies saved under icon filenames.
-- Tightened authored-system closure so a retained local rationale addresses the strongest component
-  candidate actually reviewed, while material typography and layout roles are evaluated independently.
-- Required generated imagery to have a confirmed Canvas import route before generation, and made
-  clipped text glyphs an explicit rendered-QA concern without introducing a font-size heuristic.
-- Tightened authored-system closure around abandoned representative instances and semantic-resource
-  consumers, and made oversized or multi-root Canvas recovery point to one-root partial updates.
-- Kept authored-system closure outcome-based instead of prescribing resource counts or tool
-  sequences, and made instance type mismatches explain partial-update preservation directly.
-- Made fill-conflict errors explain the Figma text/background boundary instead of leaving agents to
-  retry the same label markup, and clarified that authored-system closure covers independently
-  shared resource decisions without prescribing an inventory.
+- Added declarative native Figma canvas authoring with `apply_canvas`: create and incrementally
+  update designs, remove managed roots or pages, and choose the active page. Writes require an
+  editable Figma Design file with MCP access enabled.
+- Added bounded `get_design_system` discovery and exact lookup for accessible components,
+  variables, collections and modes, native styles, and shaders. Font queries discover available
+  families and exact native styles without scanning file resources.
+- Added native layout and geometry, rich text, paints and effects, pages, components and variants,
+  instances, Slots, variables, styles, SVG, and PNG/JPEG/GIF asset authoring.
+- Added CSS variable utilities and named text-style classes for native resource bindings, including
+  resources declared in the same call. New theme tokens and aliases now resolve correctly when
+  added to existing variable collections whose modes are omitted.
+- Preserved stable identities and omitted live state during partial updates, with explicit removal,
+  deterministic create placement, dependency and font preflight, rollback, no-op convergence,
+  one Undo boundary, and structural verification.
+- Added bounded screenshots and native structure read-back for visual inspection, identity recovery,
+  and focused repair. Improved field-level validation and recovery for invalid Canvas markup.
+- Added portable sans, serif, and monospace font utilities and hardened text reflow, truncation,
+  component updates, variable cleanup, and SVG removal.
+- Added the `figma-canvas-authoring` skill alongside `figma-design-to-code`, with progressive native
+  references, grounded design guidance, scoped editing, and explicit Direct, Reuse, and Author
+  resource workflows.
+- Made the portable Agent Plugins 1.0 bundle the shared installation source, with synchronized
+  Codex and Claude compatibility packages and refreshed icons.
+- Required an explicit Figma-tab choice when MCP sessions need disambiguation. Unsupported native
+  EASING and TIMING variables are skipped with a warning while supported catalog resources remain
+  available.
+- Updated dependencies and paired this release with MCP 0.8.0 and Agent Plugin 0.2.0. The MCP server
+  now requires Node.js 22.x, 24.x, or 26+.
 
 ## 0.20.0
 

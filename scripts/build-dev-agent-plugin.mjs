@@ -8,6 +8,7 @@ const agentPluginRoot = join(root, 'agent-plugins/tempad-dev')
 const devMarketplaceRoot = join(root, '.dev')
 const devAgentPluginRoot = join(devMarketplaceRoot, 'plugins/tempad-dev-dev')
 const devName = 'tempad-dev-dev'
+const devMaxAssetStoreBytes = 1024 * 1024 * 1024
 const pluginSchema = 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json'
 const mcpSchema = 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json'
 
@@ -56,7 +57,8 @@ function buildDevAgentPlugin() {
         command: 'node',
         args: [join(root, 'packages/mcp-server/dist/cli.mjs')],
         env: {
-          TEMPAD_MCP_DEV_CHECKOUT: root
+          TEMPAD_MCP_DEV_CHECKOUT: root,
+          TEMPAD_MCP_MAX_ASSET_STORE_BYTES: String(devMaxAssetStoreBytes)
         }
       }
     }

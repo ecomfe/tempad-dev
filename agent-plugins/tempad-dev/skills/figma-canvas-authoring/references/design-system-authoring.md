@@ -42,6 +42,12 @@ Preserve the decided semantics:
 - A component carries a reusable responsibility. Define stable anatomy and
   expose only variations required by real usages.
 
+Use [resource-mapping.md](resource-mapping.md) to map selected variable and text
+style identities once per apply, then consume them through familiar variable
+utilities and `type-*` classes. A new resource and its first consumer can share
+one call. Query available fonts independently through `get_design_system` with
+`scope: "fonts"`; selecting a family does not require discovering a file system.
+
 Consume a component through a childless instance placeholder without layout or
 appearance classes. Do not make a repeated shell or wrapping top-level subtree
 a component unless every consumer can use that placeholder through supported

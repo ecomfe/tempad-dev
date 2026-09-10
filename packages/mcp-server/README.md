@@ -2,6 +2,10 @@
 
 <a href="./README.zh-Hans.md"><img src="https://img.shields.io/badge/%E4%B8%AD%E6%96%87%E7%89%88%20%C2%BB-000" alt="前往中文版"></a>
 
+The TemPad Dev MCP server connects coding agents to the Figma file open in your browser. It provides design context for UI implementation and tools to create and edit native Figma layers.
+
+Requires the TemPad Dev extension, an open panel, and **MCP access** enabled. Canvas writes also require edit access to the Figma Design file. See the [user guide](../../README.md#agent-integration) for setup and workflows.
+
 ## Usage
 
 ```json
@@ -23,15 +27,17 @@ Supported tools/resources:
 - `get_design_system`: An immutable, deterministic catalog. It returns compact pages of component
   definitions on accessible pages plus local or directly referenced variable, collection/mode,
   style, and shader definitions without inspecting canvas usage. Cursor continuation exposes
-  omitted definitions; exact-ref lookup returns one bounded definition.
-- `apply_canvas`: One restricted HTML + deterministic Tailwind utility desired result using primitives, catalog
-  component tags, short design-system refs, typed Figma-only state, sanitized SVG, and
-  content-addressed images. The extension resolves, validates, diffs, applies, and structurally
-  verifies the result.
+  omitted definitions; exact-ref lookup returns one bounded definition. `scope: "fonts"` queries
+  available font families and exact native styles without reading file resources.
+- `apply_canvas`: Creates, updates, removes, or activates exact pages and managed roots using
+  restricted HTML, deterministic Tailwind utilities, typed native state, SVG, and image assets.
+  Variable utilities and named text-style classes bind existing resources or resources declared
+  in the same call. Page-only operations and native-only updates can omit markup. The extension
+  resolves, validates, diffs, applies, and structurally verifies the result.
 - `upload_asset`: A bounded Hub-only bridge from a programmatically composed generated PNG/JPEG/GIF
   data URL to a content-addressed `assetHash` for `apply_canvas`; encoded bytes are never returned.
 - `get_screenshot`: A bounded rendered PNG for selective visual validation.
-- `get_structure`: Hierarchy/geometry outline for the selection, including stable authoring keys on
+- `get_structure`: Hierarchy/geometry outline for an exact node, page, or current selection, including stable authoring keys on
   TemPad-managed nodes and optional native mask, IMAGE paint, layout-grid, and frame-guide read-back.
 
 Notes:
@@ -39,6 +45,10 @@ Notes:
 - Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
 - `apply_canvas` is available whenever MCP access is enabled and the current Figma Design file is
   editable. Dev Mode and view-only files remain read-only.
+- MCP **0.8.0** pairs with extension **0.21.0** and Agent Plugin **0.2.0**. Update the extension
+  and installed skills, replace any alpha-pinned MCP configuration with `@tempad-dev/mcp@latest`,
+  then reconnect the MCP client and start a new task. See the
+  [upgrade guide](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev#upgrading).
 - Assets are ephemeral and tool-linked. Local stdio clients receive `asset.localPath` when the Hub
   has the bytes and can open it without a loopback download; other clients use the
   capability-bearing HTTP `asset.url`. Treat the full URL as a temporary secret and do not persist
@@ -70,4 +80,5 @@ The hub accepts WebSocket handshakes only from Chrome extension origins on its r
 
 ## Requirements
 
-- Node.js 18.20.0+
+- Node.js 22.x, 24.x, or 26+. MCP 0.8.0 no longer supports Node.js 18 or 20 because its runtime
+  dependencies require newer Node.js versions.

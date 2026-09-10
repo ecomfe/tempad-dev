@@ -12,6 +12,7 @@ contains:
 - component tags, props, source pages, and native sizes;
 - variables, collections, modes, styles, and shaders as refs such as `v1`,
   `k1`, `m1_2`, `s1`, and `h1`;
+- `cssName` on variables and `className` on text styles for direct use in markup;
 - `omitted` and `nextCursor` when more definitions remain.
 
 The catalog neither scans usage nor loads pages or ranks resources. Select from
@@ -30,9 +31,10 @@ conventions. Never invent refs, IDs, keys, props, or variant values.
 ## Apply catalog resources
 
 Component tags are childless, include returned `data-ref`, and use exact props.
-Omit size classes to preserve native size. Bind common variables and styles with
-`data-var-<field>="vN"` and `data-style-<field>="sN"`; put collection modes or
-strict native links under `native[data-key]`.
+Omit size classes to preserve native size. Use returned CSS variable names and
+text-style classes through [resource-mapping.md](resource-mapping.md). For other
+native fields, bind `data-var-<field>="vN"` or `data-style-<field>="sN"`; put
+collection modes or strict native links under `native[data-key]`.
 
 Replace every illustrative ref in this contract with one from the active
 catalog:
@@ -41,7 +43,8 @@ catalog:
 {
   "mode": "create",
   "catalogId": "ds_example",
-  "markup": "<div data-key=\"settings\" class=\"flex flex-col w-[320px] h-[200px] gap-[16px] p-[24px] bg-[#FFFFFF]\"><span data-key=\"settings/title\" data-var-font-size=\"v1\" data-style-text=\"s1\" class=\"w-fit h-fit text-[16px]\">Team settings</span><Button data-key=\"settings/save\" data-ref=\"c1\" label=\"Save\" disabled=\"false\" tone=\"Primary\" /></div>",
+  "markup": "<div data-key=\"settings\" class=\"flex flex-col w-[320px] h-[200px] gap-[16px] p-[24px] bg-[#FFFFFF]\"><span data-key=\"settings/title\" class=\"w-fit h-fit type-body\">Team settings</span><Button data-key=\"settings/save\" data-ref=\"c1\" label=\"Save\" disabled=\"false\" tone=\"Primary\" /></div>",
+  "theme": { "textStyles": { "type-body": { "ref": "s1" } } },
   "native": {
     "settings": {
       "variableModes": { "k1": "m1_1" }

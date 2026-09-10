@@ -53,10 +53,12 @@ Use a childless `div` with `figma.shape`:
 - `{ "type": "VECTOR", "paths": [...] }`
 - `{ "type": "VECTOR", "network": {...}, "handleMirroring": "..." }`
 
-Use exact uppercase `M L Q C Z` paths for ordinary icons; use a vector network
-only for branching segments, per-vertex state, or region-specific fills or
-styles. Never provide both. New vectors need geometry; omission preserves it on
-update and an empty path or network clears it.
+Use exact uppercase `M L Q C Z` paths for already-decided custom vector
+geometry. Selected icon roles use sourced SVG through [icons.md](icons.md), not
+remembered paths. Use a vector network only for branching segments, per-vertex
+state, or region-specific fills or styles. Never provide both. New vectors need
+geometry; omission preserves it on update and an empty path or network clears
+it.
 
 Each path item is an object. `windingRule` is `"NONE"`, `"NONZERO"`, or
 `"EVENODD"`; use `"NONE"` for an open stroked path. Path data uses

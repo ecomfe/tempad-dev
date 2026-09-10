@@ -1,7 +1,7 @@
 {
   "name": "tempad-dev",
-  "version": "0.1.2",
-  "description": "Use TemPad Dev to turn Figma evidence into UI code and create native Figma designs.",
+  "version": "0.2.0",
+  "description": "Connect your coding agent to Figma. Create and edit native designs, inspect existing designs, and implement UI in your codebase.",
   "author": {
     "name": "TemPad Dev"
   },
@@ -21,8 +21,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "TemPad Dev",
-    "shortDescription": "Read Figma evidence and author native canvas content.",
-    "longDescription": "TemPad Dev packages skills for implementing Figma designs in code and authoring native Figma content with optional accessible design-system resources, together with its MCP server configuration.",
+    "shortDescription": "Inspect, edit, and implement Figma designs with your agent.",
+    "longDescription": "TemPad Dev connects your coding agent to Figma. Read designs, components, variables, and assets; create and edit native Figma layers; and implement existing designs using your project’s conventions. Includes the MCP connection and skills for canvas editing and design-to-code. Requires the TemPad Dev browser extension; canvas editing also requires edit access to the Figma Design file.",
     "developerName": "TemPad Dev",
     "category": "Design",
     "capabilities": [
@@ -35,9 +35,9 @@
     ],
     "websiteURL": "https://github.com/ecomfe/tempad-dev",
     "defaultPrompt": [
-      "Use TemPad Dev to implement the selected Figma node.",
-      "Inspect the selected Figma node with TemPad Dev.",
-      "Create a native Figma design while following my resource constraints."
+      "Implement the selected Figma design using this project’s components and styles.",
+      "Create an editable settings screen in Figma using the available components.",
+      "Update the spacing and typography in this Figma design."
     ],
     "brandColor": "#0098FF",
     "composerIcon": "./assets/icon-padded.svg",

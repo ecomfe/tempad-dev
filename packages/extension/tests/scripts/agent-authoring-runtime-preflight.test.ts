@@ -6,7 +6,8 @@ import {
   evaluateRuntimeFreshness,
   evaluateTempadPluginIdentity,
   parseEnabledPlugins,
-  parseProcessTable
+  parseProcessTable,
+  resolveCodexExecutable
 } from '@/scripts/agent-authoring-runtime-preflight'
 
 const paths = {
@@ -23,6 +24,16 @@ function runtimeProcess(
 }
 
 describe('agent authoring runtime preflight', () => {
+  it('queries plugins with the evaluated desktop host instead of an arbitrary PATH CLI', () => {
+    expect(resolveCodexExecutable('/Applications/ChatGPT.app', 'darwin')).toBe(
+      '/Applications/ChatGPT.app/Contents/Resources/codex'
+    )
+    expect(resolveCodexExecutable('/opt/ChatGPT Preview.app', 'darwin')).toBe(
+      '/opt/ChatGPT Preview.app/Contents/Resources/codex'
+    )
+    expect(resolveCodexExecutable('/ignored', 'linux')).toBe('codex')
+  })
+
   it('parses macOS process start times and matches only an exact bundle path token', () => {
     const processes = parseProcessTable(
       [

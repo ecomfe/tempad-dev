@@ -1,22 +1,26 @@
 # Changelog
 
-- Clarified that the MCP badge, rather than browser foreground state, selects the Figma session
-  receiving tool calls.
-
 ## 0.8.0
 
-- Released declarative Figma canvas authoring as a stable MCP workflow.
+- BREAKING: supported Node.js versions are now 22.x, 24.x, or 26+, matching the upgraded runtime
+  dependencies. Node.js 18 and 20 are no longer supported.
+- Released declarative Figma canvas authoring as a stable MCP workflow, paired with extension
+  0.21.0 and Agent Plugin 0.2.0. Release setup uses `@tempad-dev/mcp@latest`.
+- Added bounded `get_design_system` catalogs, exact resource lookup, and environment-only queries
+  for available font families and native styles.
 - Expanded `apply_canvas` with typed native layout, text, paint/effect, variable/style, page,
-  component/variant, instance, Slot, SVG, and local raster-asset authoring.
-- Hardened create and incremental-update reconciliation with deterministic placement, editor-type
-  and native permission gates, compact validation errors, dependency-aware rollback, no-op
-  convergence, one Undo boundary, and post-write structural verification.
-- Added stable managed-identity recovery through `get_structure` and bounded visual validation
-  through the read-only `get_screenshot` tool.
-- Added local asset paths to read-tool responses so sandboxed desktop agents can open Hub-owned
-  screenshots and assets without a loopback HTTP download.
-- Updated agent setup for the stable `@tempad-dev/mcp@latest` release and paired the new
-  `figma-canvas-authoring` skill with the existing `figma-design-to-code` skill.
+  component/variant, instance, Slot, SVG, and raster-asset authoring. Variable utilities and named
+  text-style classes can bind resources declared in the same call.
+- Added exact page operations and native-only updates without markup, stable managed identities,
+  omission preservation, deterministic placement, dependency-aware rollback, no-op convergence,
+  and post-write structural verification.
+- Added bounded screenshots, exact node/page structure queries, and local asset paths so desktop
+  agents can inspect Hub-owned evidence. `upload_asset` stores generated raster images for canvas
+  authoring without returning encoded bytes.
+- Kept long-running canvas writes pending until a definitive result or extension disconnect,
+  rejected stale Hub reuse, and clarified that the MCP badge selects the target Figma session.
+- Paired the progressive `figma-canvas-authoring` skill with `figma-design-to-code` in the portable
+  Agent Plugin and synchronized client compatibility packages.
 
 ## 0.8.0-alpha.0
 

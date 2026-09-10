@@ -2,11 +2,11 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/hero-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/hero-light.svg">
-    <img alt="Shows a screenshot of the extension panel." src="packages/site/public/marketing/hero-light.svg" width="540" height="200">
+    <img alt="TemPad Dev" src="packages/site/public/marketing/hero-light.svg" width="540" height="200">
   </picture>
 </p>
 
-<p align="center">Open handoff tooling for Figma</p>
+<p align="center">Connecting Figma with developers and their coding agents</p>
 
 <p align="center">
   <a href="https://chrome.google.com/webstore/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc"><img src="https://img.shields.io/badge/Install%20on%20Chrome%20Web%20Store-4285F4?logo=chromewebstore&logoColor=%23fff" alt="Install on Chrome Web Store"></a>
@@ -20,17 +20,159 @@
   <a href="https://github.com/ecomfe/tempad-dev/actions/workflows/check-rewrite.yml"><img src="https://img.shields.io/github/actions/workflow/status/ecomfe/tempad-dev/check-rewrite.yml?branch=main&label=script-rewrite" alt="check-script-rewrite"></a>
 </p>
 
-<p align="center">
+TemPad Dev is an open-source connection between Figma, developers, and their coding agents. Inspect designs and customize code output in the browser, or let your agent read designs, create and edit native Figma content, and implement UI in your project.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Agent integration](#agent-integration): [canvas design](#create-and-edit-figma-designs), [implementation](#implement-designs-in-code), [setup](#setup-guide), [connection status](#mcp-connection-status)
+- [Inspect designs](#inspect-designs): [CSS and variables](#inspect-css-code), [deep select](#deep-select-mode), [measure](#measure-to-selection-mode), [scroll into view](#scroll-selection-into-view)
+- [Output plugins](#output-plugins): installation, development, and sharing
+
+## Quick start
+
+1. Install TemPad Dev from the [Chrome Web Store](https://chromewebstore.google.com/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc) and open a Figma Design file.
+2. Select an element to inspect its code, variables, and layout in the TemPad Dev panel. Manual inspection needs no agent setup.
+3. To use a coding agent, enable **Preferences → Agent integration → MCP access**, select **Set up agents**, and follow the instructions for your client.
+
+The agent connection requires Node.js 22.x, 24.x, or 26+. Canvas editing also requires edit access to the Figma Design file. Setup and upgrade details for the extension, MCP server, and both skills follow below.
+
+## Agent integration
+
+Work with Figma through the coding agent or IDE you already use. TemPad Dev provides design context and canvas operations; your agent uses them alongside your instructions and project context.
+
+### Create and edit Figma designs
+
+Create screens, adjust layout and typography, or revise existing designs. The result consists of native, editable layers. Reuse accessible components, variables, and styles when the task calls for them.
+
+For example, after connecting your agent:
+
+> Create a settings screen in Figma using the available components.
+
+Or select an existing design and ask:
+
+> Adjust the spacing and typography in this screen, keeping its components and content.
+
+The `figma-canvas-authoring` skill guides your agent through relevant resource inspection, editing, and checking the rendered result. Writes require an editable Figma Design file; view-only files and Dev Mode remain read-only.
+
+### Implement designs in code
+
+Select the design in Figma, then ask your agent in the target code project:
+
+> Implement the current Figma selection using this project’s components and styling conventions.
+
+TemPad Dev provides layout, styles, variable references, component information, and assets. The `figma-design-to-code` skill guides the agent through adapting that evidence to the repository and validating the implementation. Generated design code is a starting point; the agent produces the project implementation.
+
+Both workflows use the same MCP connection to Figma. Compatible clients can install the [Agent Plugin](./agent-plugins/tempad-dev/README.md), which bundles the MCP configuration and both skills. Other clients can set up MCP and skills separately.
+
+### Setup guide
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-light.png">
+  <img alt="TemPad Dev agent setup dialog." src="packages/site/public/marketing/mcp-config-light.png" width="600">
+</picture>
+
+1. Install Node.js 22.x, 24.x, or 26+ with `npx`. Keep TemPad Dev open in the Figma tab you want the agent to inspect, then enable **Preferences → Agent integration → MCP access**. When prompted, allow the loopback connection to `127.0.0.1`. Canvas authoring is available while MCP access is enabled and the current Figma Design file is editable.
+2. Select **Set up agents**, choose Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, or TRAE, and follow the displayed path. Use **Other** for another compatible client. The choice only changes the instructions shown; it does not bind or activate an agent.
+3. The setup flow installs the portable Agent Plugin first for Codex, Cursor, Claude Code, and VS Code. For Gemini, OpenCode, TRAE, and other clients without compatible plugin installation, it uses the client's MCP flow plus the two standalone skills. Every command or config is shown in full for review and copying.
+
+For clients with separate MCP and skill installation, the setup shows each command. Gemini is one example:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-gemini-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-gemini-light.png">
+  <img alt="Gemini setup showing the MCP installation command." src="packages/site/public/marketing/mcp-config-gemini-light.png" width="600">
+</picture>
+
+Scroll down in the dialog for both skill installation commands:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-gemini-skills-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-gemini-skills-light.png">
+  <img alt="The complete Gemini commands for the design-to-code and canvas authoring skills." src="packages/site/public/marketing/mcp-config-gemini-skills-light.png" width="600">
+</picture>
+
+To install the portable package into all compatible agents detected on your machine:
+
+```bash
+npx plugins add ecomfe/tempad-dev
+```
+
+Pass `--target codex`, `--target cursor`, `--target claude-code`, or `--target vscode` to limit the
+installation to one of the built-in setup targets. Native Codex and Claude marketplace commands,
+plus direct MCP and skill installation, remain documented as compatibility fallbacks in the
+[Agent Plugin guide](./agent-plugins/tempad-dev/README.md).
+
+All plugin and direct `npx`-based setup paths use `@tempad-dev/mcp@latest`.
+
+For the canvas-authoring release, use extension **0.21.0**, MCP server **0.8.0**, and Agent
+Plugin **0.2.0** together. See the [upgrade guide](./agent-plugins/tempad-dev/README.md#upgrading)
+when updating an existing installation.
+
+Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context.
+
+### MCP connection status
+
+When the MCP server is enabled, a badge appears in the TemPad Dev panel title bar showing the current connection status:
+
+- **Unavailable**: The local MCP server is not configured or not running.
+
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/code-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/code-light.png">
-    <img alt="Shows a screenshot of the extension panel." src="packages/site/public/marketing/code-light.png" width="720">
+    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-unavailable-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-unavailable-light.png">
+    <img alt="MCP status badge showing Unavailable." src="packages/site/public/marketing/mcp-unavailable-light.png" width="360">
   </picture>
-</p>
+
+- **Inactive**: TemPad Dev is connected to a local MCP server, but this tab is not currently active because multiple Figma tabs are open. Click the badge to activate MCP for this tab (this deactivates MCP in other tabs).
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-inactive-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-inactive-light.png">
+    <img alt="MCP status badge showing Inactive." src="packages/site/public/marketing/mcp-inactive-light.png" width="360">
+  </picture>
+
+- **Active**: The MCP server is running, and this tab is active and ready to respond to MCP tool calls.
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-active-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-active-light.png">
+    <img alt="MCP status badge showing Active." src="packages/site/public/marketing/mcp-active-light.png" width="360">
+  </picture>
+
+### Configuration
+
+For optional environment variables, see [`packages/mcp-server/README.md`](./packages/mcp-server/README.md).
+
+### MCP tools
+
+These tools are called by the agent. For everyday use, describe the task in your own words.
+
+- `get_code`: High-fidelity JSX/Vue + TailwindCSS code output by default, plus attached assets and the codegen preset/config used.
+- `get_design_system`: An immutable, deterministic catalog. It returns compact pages of component
+  definitions on accessible pages plus local or directly referenced variable, collection/mode,
+  style, and shader definitions without inspecting canvas usage or loading every page. Cursor
+  continuation exposes omitted definitions; exact-ref lookup returns one bounded definition.
+  With `scope: "fonts"`, it queries available font families and exact native styles without
+  scanning file resources.
+- `apply_canvas`: Creates, updates, removes, or activates exact pages and managed roots. Canvas HTML
+  is optional for page-only operations and native-only updates to existing stable keys inside an
+  exact managed root; a root can be written directly to an exact off-current page without switching
+  editor context. The extension resolves, validates, diffs, applies, and
+  structurally verifies each requested result. Authoring requires edit access to the current Figma
+  Design file.
+- `get_screenshot`: A bounded rendered PNG for selective visual validation.
+- `get_structure`: A structural outline (ids, types, geometry) for an exact node, exact managed
+  page, or the current selection.
+- `upload_asset`: Stores a generated PNG/JPEG/GIF in the local Hub and returns an `assetHash`
+  for canvas authoring.
+- Binary assets are returned as metadata + HTTP download URLs (`asset.url`) in tool responses. Asset MCP resources are not exposed.
 
 ---
 
-## Key features
+<a id="key-features"></a>
+
+## Inspect designs
 
 ### Inspect CSS code
 
@@ -40,7 +182,7 @@
   <img alt="Shows the CSS and JavaScript code for a selected element." src="packages/site/public/marketing/code-light.png" width="720">
 </picture>
 
-Select any element, and you can obtain the CSS code through the plugin's Code panel. In addition to standard CSS code, TemPad Dev also provides styles in the form of JavaScript objects, making it convenient for use in JSX and similar scenarios.
+Select an element to read its CSS in the extension’s Code panel. In addition to standard CSS code, TemPad Dev also provides styles in the form of JavaScript objects, making it convenient for use in JSX and similar scenarios.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/unit-dark.png">
@@ -89,7 +231,9 @@ When you hover over a node name section in TemPad Dev's inspect panel, a corresp
 
 ---
 
-### Plugins
+<a id="plugins"></a>
+
+## Output plugins
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/plugins-dark.png">
@@ -104,7 +248,7 @@ A TemPad Dev plugin is a simple JavaScript file that exports a plugin object as 
 > [!NOTE]
 > Plugin code is stored in the browser's local storage. Plugins are not versioned or auto-updated, so you must manually update them from the UI.
 
-#### Creating plugins
+### Creating plugins
 
 Use the fully typed `definePlugin` function from the `@tempad-dev/plugins` package to simplify plugin creation.
 
@@ -154,7 +298,7 @@ Additionally, you can specify a custom `title` and `lang` for the code block or 
 
 For full type definitions and helper functions, see [`packages/plugins/src/index.ts`](./packages/plugins/src/index.ts).
 
-#### Deploying a plugin
+### Deploying a plugin
 
 Ensure your plugin is accessible via a URL that supports cross-origin requests, such as a GitHub repository (or Gist). For instance, you can use a raw URL:
 
@@ -177,7 +321,7 @@ side channels, deliberate memory pressure, and unsafe generated output are outsi
 Review plugin sources accordingly. See [the threat model](./docs/security/local-mcp-threat-model.md)
 for the exact guarantees and non-goals.
 
-#### Sharing a plugin
+### Sharing a plugin
 
 You can also register the plugin into our [plugin registry file](https://github.com/ecomfe/tempad-dev/blob/main/packages/extension/plugins/available-plugins.json) so that your plugin can be installed by name directly.
 
@@ -200,98 +344,6 @@ Current available plugins:
 | `@react-native` | CSS to React Native StyleSheet | [@CANntyield](https://github.com/@CANntyield) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/CANntyield/tempad-dev-plugin-react-native) |
 <!-- availablePlugins:end -->
 <!-- prettier-ignore-end -->
-
-## Agent integration
-
-TemPad Dev ships an agent integration for coding agents and IDEs. The integration combines:
-
-- an [MCP](https://modelcontextprotocol.io/) server that lets agents inspect Figma and apply
-  declarative canvas results when the current Figma Design file is editable
-- two agent skills: one for implementing Figma evidence in code, and one for designing on the Figma canvas with accessible component definitions and bounded design-system resources
-
-These portable capabilities are packaged first as an
-[Agent Plugins 1.0](https://agent-plugins.org/) bundle. Its root `plugin.json`, `skills/`, and
-`mcp.json` are the canonical package; client-specific manifests are compatibility layers for
-installers and hosts that do not consume the open format directly.
-
-Figma also provides official [remote and desktop MCP servers](https://developers.figma.com/docs/figma-mcp-server/), with the remote server recommended for most users. TemPad Dev is an open, local-control complement for teams that specifically want an inspectable browser-extension pipeline, local inspection and MCP-gated declarative canvas authoring, programmable output plugins, canonical agent-facing code/token IR, and an explicit context budget. It provides design evidence and a code starting point; the coding agent remains responsible for adapting that evidence to the repository, validating behavior, and producing the final implementation.
-
-With the TemPad Dev panel open and MCP enabled, the MCP server exposes:
-
-- `get_code`: High-fidelity JSX/Vue + TailwindCSS code output by default, plus attached assets and the codegen preset/config used.
-- `get_design_system`: An immutable, deterministic catalog. It returns compact pages of component
-  definitions on accessible pages plus local or directly referenced variable, collection/mode,
-  style, and shader definitions without inspecting canvas usage or loading every page. Cursor
-  continuation exposes omitted definitions; exact-ref lookup returns one bounded definition.
-- `apply_canvas`: Creates, updates, removes, or activates exact pages and managed roots. Canvas HTML
-  is optional for page-only operations and native-only updates to existing stable keys inside an
-  exact managed root; a root can be written directly to an exact off-current page without switching
-  editor context. The extension resolves, validates, diffs, applies, and
-  structurally verifies each requested result. Authoring requires edit access to the current Figma
-  Design file.
-- `get_screenshot`: A bounded rendered PNG for selective visual validation.
-- `get_structure`: A structural outline (ids, types, geometry) for an exact node, exact managed
-  page, or the current selection.
-- Binary assets are returned as metadata + HTTP download URLs (`asset.url`) in tool responses. Asset MCP resources are not exposed.
-
-### Setup guide
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-light.png">
-  <img alt="TemPad Dev agent setup dialog." src="packages/site/public/marketing/mcp-config-light.png" width="600">
-</picture>
-
-1. Install Node.js 18.20.0 or later with `npx`. Keep TemPad Dev open in the Figma tab you want the agent to inspect, then enable **Preferences → Agent integration → MCP access**. When prompted, allow the loopback connection to `127.0.0.1`. Canvas authoring is available while MCP access is enabled and the current Figma Design file is editable.
-2. Select **Set up agents**, choose Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, or TRAE, and follow the displayed path. Use **Other** for another compatible client. The choice only changes the instructions shown; it does not bind or activate an agent.
-3. The setup flow installs the portable Agent Plugin first for Codex, Cursor, Claude Code, and VS Code. For Gemini, OpenCode, TRAE, and other clients without compatible plugin installation, it uses the client's MCP flow plus the two standalone skills. Every command or config is shown in full for review and copying.
-
-To install the portable package into all compatible agents detected on your machine:
-
-```bash
-npx plugins add ecomfe/tempad-dev
-```
-
-Pass `--target codex`, `--target cursor`, `--target claude-code`, or `--target vscode` to limit the
-installation to one of the built-in setup targets. Native Codex and Claude marketplace commands,
-plus direct MCP and skill installation, remain documented as compatibility fallbacks in the
-[Agent Plugin guide](./agent-plugins/tempad-dev/README.md).
-
-All plugin and direct `npx`-based setup paths use `@tempad-dev/mcp@latest`.
-
-Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context.
-
-### MCP connection status
-
-When the MCP server is enabled, a badge appears in the TemPad Dev panel title bar showing the current connection status:
-
-- **Unavailable**: The local MCP server is not configured or not running.
-
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-unavailable-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-unavailable-light.png">
-    <img alt="MCP status badge showing Unavailable." src="packages/site/public/marketing/mcp-unavailable-light.png" width="360">
-  </picture>
-
-- **Inactive**: TemPad Dev is connected to a local MCP server, but this tab is not currently active because multiple Figma tabs are open. Click the badge to activate MCP for this tab (this deactivates MCP in other tabs).
-
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-inactive-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-inactive-light.png">
-    <img alt="MCP status badge showing Inactive." src="packages/site/public/marketing/mcp-inactive-light.png" width="360">
-  </picture>
-
-- **Active**: The MCP server is running, and this tab is active and ready to respond to MCP tool calls.
-
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-active-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-active-light.png">
-    <img alt="MCP status badge showing Active." src="packages/site/public/marketing/mcp-active-light.png" width="360">
-  </picture>
-
-### Configuration
-
-For optional environment variables, see [`packages/mcp-server/README.md`](./packages/mcp-server/README.md).
 
 <details>
 <summary><h3>Inspect TemPad component code</h3></summary>

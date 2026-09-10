@@ -1,15 +1,19 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
+import { AGENT_SETUP_SHOT, INSPECTION_SLIDES } from '../../site/src/content/landing'
+
 type Scenario = {
   assertions: unknown[]
+  group: string
+  consumers: string[]
   clip?: {
     height: number
     width: number
     x: number
     y: number
   }
-  figma: {
+  figma?: {
     captureAnchor?: {
       x: number
       y: number
@@ -86,13 +90,14 @@ const readmes = await Promise.all(
 )
 
 const errors: string[] = []
+const siteImages = [AGENT_SETUP_SHOT, ...INSPECTION_SLIDES.map(({ image }) => image)]
 
-if (manifest.version !== 2) {
-  errors.push(`scenarios.json: expected version 2, got ${manifest.version}`)
+if (manifest.version !== 3) {
+  errors.push(`scenarios.json: expected version 3, got ${manifest.version}`)
 }
 
 if (
-  manifest.fixture.file.key !== '4HPsWWxVESGJ9ka4CDdVMx' ||
+  manifest.fixture.file.key !== 'vJBML2e6g7btKGytwiiyvn' ||
   manifest.fixture.file.title !== 'TemPad Dev fixtures' ||
   !manifest.fixture.file.url.includes(manifest.fixture.file.key)
 ) {
@@ -140,10 +145,13 @@ for (const scenario of manifest.scenarios) {
   if (!scenario.intent.trim()) {
     errors.push(`scenarios.json: ${scenario.id} is missing its display intent`)
   }
-  if (!scenario.figma.focus || !Array.isArray(scenario.figma.selection)) {
+  if (
+    scenario.group !== 'setup' &&
+    (!scenario.figma?.focus || !Array.isArray(scenario.figma.selection))
+  ) {
     errors.push(`scenarios.json: ${scenario.id} is missing deterministic Figma focus/selection`)
   }
-  if (scenario.figma.zoom !== undefined && scenario.figma.zoom <= 0) {
+  if (scenario.figma?.zoom !== undefined && scenario.figma.zoom <= 0) {
     errors.push(`scenarios.json: ${scenario.id} must use a positive Figma zoom`)
   }
   if (scenario.pointer.shape !== 'default' || !scenario.pointer.target.kind) {
@@ -151,6 +159,16 @@ for (const scenario of manifest.scenarios) {
   }
   if (!scenario.assertions.length) {
     errors.push(`scenarios.json: ${scenario.id} must declare pre-capture assertions`)
+  }
+
+  if (!['inspect', 'setup', 'status'].includes(scenario.group)) {
+    errors.push(`scenarios.json: ${scenario.id} has an unknown capture group`)
+  }
+  if (
+    !scenario.consumers?.length ||
+    scenario.consumers.some((consumer) => !['readme', 'site'].includes(consumer))
+  ) {
+    errors.push(`scenarios.json: ${scenario.id} must declare its consumers`)
   }
 
   const plugins = scenario.panel?.plugins ?? []
@@ -209,10 +227,21 @@ for (const scenario of manifest.scenarios) {
         `${relativePath}: expected ${scenario.width}x${scenario.height}, got ${size.width}x${size.height}`
       )
     }
+    if (scenario.group === 'setup' && buffer[25] !== 6) {
+      errors.push(`${relativePath}: setup captures must retain the transparent PNG alpha channel`)
+    }
 
-    for (const readme of readmes) {
+    for (const readme of scenario.consumers.includes('readme') ? readmes : []) {
       if (!readme.content.includes(relativePath)) {
         errors.push(`${readme.path}: missing reference to ${relativePath}`)
+      }
+    }
+    if (scenario.consumers.includes('site')) {
+      const image = siteImages.find((image) =>
+        [image.light, image.dark].includes(`/marketing/${scenario.id}-${theme}.png`)
+      )
+      if (!image || image.width !== scenario.width || image.height !== scenario.height) {
+        errors.push(`Site: missing reference or incorrect dimensions for ${relativePath}`)
       }
     }
   }

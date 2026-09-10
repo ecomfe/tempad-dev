@@ -123,7 +123,7 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
         'design-system-reuse.md#1',
         'local-styles.md#1',
         'variables.md#1',
-        'visual-assets.md#1'
+        'icons.md#1'
       ])
     )
   })

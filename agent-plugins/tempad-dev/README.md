@@ -2,16 +2,15 @@
 
 [简体中文](./README.zh-Hans.md)
 
-This directory is the portable TemPad Dev integration for compatible coding agents and IDEs. It
-bundles:
+Read, edit, and implement Figma designs through your coding agent or IDE. This plugin includes:
 
-- `figma-design-to-code` for turning Figma evidence into project-consistent UI code
-- `figma-canvas-authoring` for grounded native Figma design with accessible component definitions,
-  file resources, and progressive style guidance
-- the TemPad Dev MCP server configuration for design evidence and MCP-gated canvas authoring
+- `figma-canvas-authoring`: create and revise native Figma designs, reusing accessible components, variables, and styles as needed.
+- `figma-design-to-code`: use Figma design context to implement UI with your project’s components and conventions.
+- The TemPad Dev MCP server configuration: connect to the Figma file open in your browser.
 
-The root `plugin.json`, `skills/`, and `mcp.json` follow
-[Agent Plugins 1.0](https://agent-plugins.org/) and are the canonical package contents.
+Requires the TemPad Dev browser extension. Canvas editing also requires edit access to the Figma Design file. For manual inspection and output plugins, see the full [user guide](../../README.md).
+
+The root `plugin.json`, `skills/`, and `mcp.json` follow [Agent Plugins 1.0](https://agent-plugins.org/); client-specific manifests are compatibility wrappers.
 
 ## Install the portable plugin
 
@@ -65,6 +64,21 @@ For clients without Agent Plugin support, follow the direct MCP and standalone s
 Before using the integration, open TemPad Dev in Figma, then open **Preferences → Agent
 integration** and enable **MCP access**. Canvas authoring is available while the active Figma
 Design file is editable.
+
+## Upgrading
+
+The canvas-authoring release pairs Agent Plugin **0.2.0**, TemPad Dev extension **0.21.0**, and
+MCP server **0.8.0**. Node.js **22.x, 24.x, or 26+** is required for the MCP server.
+
+1. Update the browser extension and reload the Figma tab.
+2. Update the installed plugin through the client or installer used originally. With standalone
+   setup, update both `figma-design-to-code` and `figma-canvas-authoring`.
+3. Keep the release MCP configuration on `@tempad-dev/mcp@latest`; replace any previous
+   `@alpha` or fixed alpha version. Reconnect the MCP client and start a new task so it loads the
+   updated tools and skills. If a stale Hub is reported, close tasks using the old MCP server
+   before reconnecting.
+4. Open TemPad Dev, enable **MCP access**, and click the MCP badge in the intended Figma tab when
+   a session choice is needed. The badge selects the file receiving tool calls.
 
 ## Packaging source of truth
 

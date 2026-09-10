@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
+import { inspectAgentRunIdentity } from './inspect-agent-run-identity'
+
 interface NodeLimitAttempt {
   limit: number
   dataKeyCount: number
@@ -9,6 +11,7 @@ interface NodeLimitAttempt {
 }
 
 interface AuthoringRolloutInspection {
+  execution: ReturnType<typeof inspectAgentRunIdentity>
   prompt: {
     text: string | null
     sha256: string | null
@@ -63,8 +66,10 @@ interface AuthoringRolloutInspection {
     firstResearchCallMs: number | null
     lastResearchCallMs: number | null
     firstOpenedTempadScreenshotMs: number | null
+    lastOpenedTempadScreenshotMs: number | null
     firstApplyToOpenedScreenshotMs: number | null
     lastSuccessfulApplyMs: number | null
+    lastApplyToOpenedScreenshotMs: number | null
     finalizationAfterLastApplyMs: number | null
     observedToolBusyMs: number | null
     nonToolWallClockMs: number | null
@@ -213,6 +218,21 @@ function customCallEvents(parsedRows: unknown[]): CustomCallEvent[] {
     return [
       {
         input: stringify(get(payload, 'input')),
+        name: typeof get(payload, 'name') === 'string' ? String(get(payload, 'name')) : '<unknown>',
+        timestampMs: timestampMs(get(row, 'timestamp'))
+      }
+    ]
+  })
+}
+
+function functionCallEvents(parsedRows: unknown[]): CustomCallEvent[] {
+  return parsedRows.flatMap((row) => {
+    if (get(row, 'type') !== 'response_item') return []
+    const payload = get(row, 'payload')
+    if (get(payload, 'type') !== 'function_call') return []
+    return [
+      {
+        input: stringify(get(payload, 'arguments')),
         name: typeof get(payload, 'name') === 'string' ? String(get(payload, 'name')) : '<unknown>',
         timestampMs: timestampMs(get(row, 'timestamp'))
       }
@@ -455,7 +475,8 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
   const parsedRows = rows(rolloutJsonl)
   const applies = applyEvents(parsedRows)
   const customCalls = customCallEvents(parsedRows)
-  const callInputs = customCalls.map(({ input }) => input)
+  const callEvents = [...customCalls, ...functionCallEvents(parsedRows)]
+  const callInputs = callEvents.map(({ input }) => input)
   const commandInputs = commandExecutionInputs(parsedRows)
   const completedTools = completedToolEvents(parsedRows)
   const viewedImages = imageViewPaths(parsedRows)
@@ -491,13 +512,15 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
     .filter((value): value is number => value !== null)
   const firstToolTimestamps = [
     ...completedToolTimestamps,
-    ...customCalls
+    ...callEvents
       .map(({ timestampMs: value }) => value)
       .filter((value): value is number => value !== null)
   ]
-  const researchTimestamps = customCalls
+  const researchTimestamps = callEvents
     .filter(({ input, name }) =>
-      /web__run|image_query|browser|chrome|goto|open|screenshot/i.test(`${name}\n${input}`)
+      /web__run|image_query|createBrowserTab|\.goto\s*\(|\.(?:getScreenshot|getAXStateAndScreenshot|screenshot)\s*\(|\bopen\s*:/i.test(
+        `${name}\n${input}`
+      )
     )
     .map(({ timestampMs: value }) => value)
     .filter((value): value is number => value !== null)
@@ -514,6 +537,13 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
   const firstOpenedTempadScreenshotAt = openedTempadScreenshotTimestamps.length
     ? Math.min(...openedTempadScreenshotTimestamps)
     : null
+  const lastOpenedTempadScreenshotAt = openedTempadScreenshotTimestamps.length
+    ? Math.max(...openedTempadScreenshotTimestamps)
+    : null
+  const firstOpenedTempadScreenshotAfterLastApplyAt =
+    lastSuccessfulApplyAt === null
+      ? null
+      : (openedTempadScreenshotTimestamps.find((value) => value >= lastSuccessfulApplyAt) ?? null)
   const totalWallClockMs = elapsedMs(rolloutStartedMs, finalResponseMs)
   const observedToolBusyMs =
     rolloutStartedMs !== null && finalResponseMs !== null
@@ -542,7 +572,7 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
     }
 
     const payload = stringify(event.arguments)
-    for (const match of payload.matchAll(/https?:\\?\/\\?\/([^/\\?"\s]+)/g)) {
+    for (const match of payload.matchAll(/"imageUrl"\s*:\s*"https?:\\?\/\\?\/([^/\\?"\s]+)/g)) {
       if (match[1]) domains.add(match[1].replaceAll('\\', '').toLowerCase())
     }
 
@@ -582,6 +612,7 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
   }
 
   return {
+    execution: inspectAgentRunIdentity(rolloutJsonl),
     prompt: {
       text: prompt,
       sha256: prompt ? createHash('sha256').update(prompt).digest('hex') : null,
@@ -612,9 +643,14 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
       webCalls: callInputs.filter((input) => input.includes('web__run')).length,
       imageQueryCalls: callInputs.filter((input) => /\bimage_query\s*:/.test(input)).length,
       openedSourceCalls: callInputs.filter(
-        (input) => /\.goto\s*\(/.test(input) || /\bopen\s*:/.test(input)
+        (input) =>
+          /\.goto\s*\(/.test(input) ||
+          /\bcreateBrowserTab\s*\(/.test(input) ||
+          /\bopen\s*:/.test(input)
       ).length,
-      browserScreenshotCalls: callInputs.filter((input) => /\.screenshot\s*\(/.test(input)).length
+      browserScreenshotCalls: callInputs.filter((input) =>
+        /\.(?:getScreenshot|getAXStateAndScreenshot|screenshot)\s*\(/.test(input)
+      ).length
     },
     imageViews: {
       total: viewedImages.length,
@@ -650,11 +686,16 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
         researchTimestamps.length ? Math.max(...researchTimestamps) : null
       ),
       firstOpenedTempadScreenshotMs: elapsedMs(rolloutStartedMs, firstOpenedTempadScreenshotAt),
+      lastOpenedTempadScreenshotMs: elapsedMs(rolloutStartedMs, lastOpenedTempadScreenshotAt),
       firstApplyToOpenedScreenshotMs: elapsedMs(
         firstSuccessfulApplyAt,
         firstOpenedTempadScreenshotAt
       ),
       lastSuccessfulApplyMs: elapsedMs(rolloutStartedMs, lastSuccessfulApplyAt),
+      lastApplyToOpenedScreenshotMs: elapsedMs(
+        lastSuccessfulApplyAt,
+        firstOpenedTempadScreenshotAfterLastApplyAt
+      ),
       finalizationAfterLastApplyMs: elapsedMs(lastSuccessfulApplyAt, finalResponseMs),
       observedToolBusyMs,
       nonToolWallClockMs:
@@ -681,6 +722,7 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
       issues: [...runtimeIssues].sort()
     },
     limitations: [
+      'Image-view categories use path heuristics; final-write timing does not prove screenshot capture freshness, target identity, or full-screen coverage.',
       'Trace signals do not prove that researched evidence or acquired assets were retained in the final artifact.',
       'Component counters identify authoring mechanics, not whether the chosen component boundary was semantically correct.',
       'Timing milestones identify trace events, not the first usable design: an apply may be scaffolding and a screenshot may show a component or partial screen. Inspect the opened pixels and record usability separately.',

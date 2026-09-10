@@ -1,7 +1,7 @@
 {
   "name": "tempad-dev",
-  "version": "0.1.2",
-  "description": "Use TemPad Dev to turn Figma evidence into UI code and create native Figma designs.",
+  "version": "0.2.0",
+  "description": "Connect your coding agent to Figma. Create and edit native designs, inspect existing designs, and implement UI in your codebase.",
   "author": {
     "name": "TemPad Dev"
   },

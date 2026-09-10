@@ -1000,21 +1000,42 @@ function fontStyleWeight(style: string): number {
   return 400
 }
 
-function closestFontStyle(fonts: Font[], desiredStyle: string): FontName {
+function closestFontStyle(fonts: Font[], desiredStyle: string, weight?: number): FontName {
   const normalizedDesired = normalizedFontStyle(desiredStyle)
   const exact = fonts.find(
     ({ fontName }) => normalizedFontStyle(fontName.style) === normalizedDesired
   )
-  if (exact) return exact.fontName
+  if (exact && weight === undefined) return exact.fontName
 
-  const desiredWeight = fontStyleWeight(desiredStyle)
+  const desiredWeight = weight ?? fontStyleWeight(desiredStyle)
   const desiredItalic = /italic/i.test(desiredStyle)
-  return [...fonts].sort((a, b) => {
-    const score = (font: Font) =>
+  let closest = fonts[0]!
+  let closestScore = Infinity
+  for (const font of fonts) {
+    const score =
       Math.abs(fontStyleWeight(font.fontName.style) - desiredWeight) +
       (/italic/i.test(font.fontName.style) === desiredItalic ? 0 : 1000)
-    return score(a) - score(b)
-  })[0]!.fontName
+    if (score < closestScore) {
+      closest = font
+      closestScore = score
+    }
+  }
+  return closest.fontName
+}
+
+async function resolveFamilyFont(
+  family: string,
+  desiredStyle: string,
+  state: ApplyState,
+  weight?: number
+): Promise<FontName> {
+  state.availableFonts ??= figma.listAvailableFontsAsync()
+  const fonts = (await state.availableFonts).filter(({ fontName }) => fontName.family === family)
+  if (!fonts.length)
+    specError(
+      `Font family "${family}" is unavailable. Query get_design_system with scope: "fonts" for available families and styles.`
+    )
+  return closestFontStyle(fonts, desiredStyle, weight)
 }
 
 async function resolvePortableFont(
@@ -1889,7 +1910,10 @@ async function preflightResources(
     )
     const fontFamily = hasTextStyle || hasFontFamilyVariable ? undefined : spec.text.fontFamily
     const fontStyle = hasTextStyle || hasFontStyleVariable ? undefined : spec.text.fontStyle
-    if (fontFamily !== undefined || fontStyle !== undefined) {
+    if (
+      (fontFamily !== undefined || fontStyle !== undefined) &&
+      !(spec.text.fontStyleMatching && (hasFontFamilyVariable || hasFontStyleVariable))
+    ) {
       const currentFont = textNode?.fontName ?? { family: 'Inter', style: 'Regular' }
       if (currentFont === figma.mixed && (!fontFamily || !fontStyle)) {
         specError(
@@ -1900,12 +1924,14 @@ async function preflightResources(
       const desiredStyle = fontStyle ?? (currentFont === figma.mixed ? '' : currentFont.style)
       const desiredFont = spec.text.portableFontFamily
         ? await resolvePortableFont(spec.text.portableFontFamily, desiredStyle, state)
-        : {
-            family: desiredFamily,
-            style: spec.figma?.text?.fontName
-              ? desiredStyle
-              : normalizePortableFontStyle(desiredFamily, desiredStyle)
-          }
+        : spec.text.fontStyleMatching
+          ? await resolveFamilyFont(desiredFamily, desiredStyle, state)
+          : {
+              family: desiredFamily,
+              style: spec.figma?.text?.fontName
+                ? desiredStyle
+                : normalizePortableFontStyle(desiredFamily, desiredStyle)
+            }
       if (spec.text.portableFontFamily) {
         spec.text.fontFamily = desiredFont.family
         spec.text.fontStyle = desiredFont.style
@@ -2624,8 +2650,38 @@ function applyPosition(
     )
   }
   if (!spec.position) return
-  setValue(node, node.x, spec.position.x, (value) => (node.x = value), state)
-  setValue(node, node.y, spec.position.y, (value) => (node.y = value), state)
+  const { right, bottom } = spec.absoluteOffsets ?? {}
+  const x =
+    right !== undefined && 'width' in parent ? parent.width - right - node.width : spec.position.x
+  const y =
+    bottom !== undefined && 'height' in parent
+      ? parent.height - bottom - node.height
+      : spec.position.y
+  setValue(node, node.x, x, (value) => (node.x = value), state)
+  setValue(node, node.y, y, (value) => (node.y = value), state)
+}
+
+function finalizeAbsolutePositions(root: CanvasNodeSpec, state: ApplyState): void {
+  for (const spec of walkSpecs(root)) {
+    const offsets = spec.absoluteOffsets
+    if (!offsets) continue
+    const node = state.keyedNodes.get(spec.key)
+    const parent = node?.parent
+    if (!node || !parent || !('width' in parent)) continue
+    // Bindings, consumer modes, and layout may change either bound after markup parsing.
+    if (offsets.right !== undefined) {
+      setValue(node, node.x, parent.width - offsets.right - node.width, (x) => (node.x = x), state)
+    }
+    if (offsets.bottom !== undefined) {
+      setValue(
+        node,
+        node.y,
+        parent.height - offsets.bottom - node.height,
+        (y) => (node.y = y),
+        state
+      )
+    }
+  }
 }
 
 function transformsMatch(current: Transform, desired: Transform): boolean {
@@ -3672,6 +3728,40 @@ async function loadTextFonts(
   const text = spec.text
   const currentFont = node.fontName
   const hasTextStyle = !!(spec.styles?.text || node.textStyleId)
+  if (text?.fontStyleMatching && !hasTextStyle) {
+    const familyReference = spec.variables?.fontFamily
+    const styleReference = spec.variables?.fontStyle
+    const weightReference = spec.variables?.fontWeight
+    const family = familyReference
+      ? resolvedFontVariableValue(node, familyReference, state)
+      : currentBoundVariableId(node, 'fontFamily') && currentFont !== figma.mixed
+        ? currentFont.family
+        : (text.fontFamily ?? (currentFont === figma.mixed ? '' : currentFont.family))
+    const style = styleReference
+      ? resolvedFontVariableValue(node, styleReference, state)
+      : currentBoundVariableId(node, 'fontStyle') && currentFont !== figma.mixed
+        ? currentFont.style
+        : (text.fontStyle ?? (currentFont === figma.mixed ? '' : currentFont.style))
+    if (currentFont === figma.mixed && (!family || !style)) {
+      specError(
+        `TEXT "${spec.key}" has mixed fonts; provide both fontFamily and fontStyle to replace them.`
+      )
+    }
+    const weight = weightReference
+      ? resolvedVariable(weightReference, state.variables).resolveForConsumer(node).value
+      : undefined
+    if (
+      weight !== undefined &&
+      (typeof weight !== 'number' || !Number.isFinite(weight) || weight < 1 || weight > 1000)
+    ) {
+      specError(`Font weight on "${spec.key}" must resolve to a number between 1 and 1000.`)
+    }
+    const desiredFont = styleReference
+      ? { family, style }
+      : await resolveFamilyFont(family, style, state, weight)
+    await loadFont(desiredFont, state)
+    return desiredFont
+  }
   const fontFamily =
     hasTextStyle || spec.variables?.fontFamily || currentBoundVariableId(node, 'fontFamily')
       ? undefined
@@ -5883,6 +5973,7 @@ function authoredVariableFallbackWarnings(
       [keyof CanvasVariableBindings, CanvasVariableReference | null]
     >) {
       if (!reference || !('variableKey' in reference)) continue
+      if (spec.themeVariableFields?.includes(field)) continue
       const values = directValues(reference.variableKey)
       const fallback = variableFallback(spec, field)
       if (
@@ -6112,6 +6203,122 @@ function managedContentOverflowWarnings(
   return warnings
 }
 
+type RoundedCorner = 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right'
+
+function hasVisibleAreaFill(node: SupportedCanvasNode): boolean {
+  if (
+    node.type === 'TEXT' ||
+    node.type === 'LINE' ||
+    node.type === 'VECTOR' ||
+    !('fills' in node) ||
+    node.fills === figma.mixed
+  ) {
+    return false
+  }
+  return node.fills.some(
+    (paint) => paint.visible !== false && (paint.opacity === undefined || paint.opacity > 0)
+  )
+}
+
+function roundedCornerRadius(node: SupportedCanvasNode, corner: RoundedCorner): number {
+  if (!('topLeftRadius' in node)) return 0
+  if ('cornerRadius' in node && typeof node.cornerRadius === 'number') {
+    return Number.isFinite(node.cornerRadius) ? node.cornerRadius : 0
+  }
+  const field =
+    corner === 'top-left'
+      ? 'topLeftRadius'
+      : corner === 'top-right'
+        ? 'topRightRadius'
+        : corner === 'bottom-right'
+          ? 'bottomRightRadius'
+          : 'bottomLeftRadius'
+  const value = node[field]
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function managedRoundedStrokeOcclusionWarnings(
+  root: CanvasNodeSpec,
+  state: ApplyState
+): VerificationWarning[] {
+  const warnings: VerificationWarning[] = []
+  for (const parentSpec of walkSpecs(root)) {
+    const parent = state.keyedNodes.get(parentSpec.key)
+    if (
+      !parent ||
+      !isFrameContainer(parent) ||
+      !parent.clipsContent ||
+      parent.strokeAlign === 'OUTSIDE' ||
+      !parent.strokes.some(
+        (paint) => paint.visible !== false && (paint.opacity === undefined || paint.opacity > 0)
+      )
+    ) {
+      continue
+    }
+
+    const innerStrokeWeight = (
+      field: 'strokeBottomWeight' | 'strokeLeftWeight' | 'strokeRightWeight' | 'strokeTopWeight'
+    ): number => layoutStrokeWeight(parent, field) * (parent.strokeAlign === 'CENTER' ? 0.5 : 1)
+
+    const strokes = {
+      bottom: innerStrokeWeight('strokeBottomWeight'),
+      left: innerStrokeWeight('strokeLeftWeight'),
+      right: innerStrokeWeight('strokeRightWeight'),
+      top: innerStrokeWeight('strokeTopWeight')
+    }
+    for (const child of parent.children) {
+      if (
+        child.visible === false ||
+        !isSupportedSceneNode(child) ||
+        !hasVisibleAreaFill(child) ||
+        ('rotation' in child && Math.abs(child.rotation) > GEOMETRY_TOLERANCE)
+      ) {
+        continue
+      }
+      const childKey = readOwnedNodeKey(child)
+      const bounds = localNodeBounds(child)
+      if (!childKey || !bounds) continue
+      const touches = {
+        bottom:
+          bounds.y + bounds.height >= parent.height - strokes.bottom - CONTENT_OVERFLOW_TOLERANCE,
+        left: bounds.x <= strokes.left + CONTENT_OVERFLOW_TOLERANCE,
+        right: bounds.x + bounds.width >= parent.width - strokes.right - CONTENT_OVERFLOW_TOLERANCE,
+        top: bounds.y <= strokes.top + CONTENT_OVERFLOW_TOLERANCE
+      }
+      const affected = (
+        [
+          ['top-left', touches.top && touches.left, Math.max(strokes.top, strokes.left)],
+          ['top-right', touches.top && touches.right, Math.max(strokes.top, strokes.right)],
+          [
+            'bottom-right',
+            touches.bottom && touches.right,
+            Math.max(strokes.bottom, strokes.right)
+          ],
+          ['bottom-left', touches.bottom && touches.left, Math.max(strokes.bottom, strokes.left)]
+        ] as Array<[RoundedCorner, boolean, number]>
+      ).filter(([corner, touching, stroke]) => {
+        if (!touching) return false
+        const requiredRadius = Math.max(0, roundedCornerRadius(parent, corner) - stroke)
+        return (
+          requiredRadius > CONTENT_OVERFLOW_TOLERANCE &&
+          roundedCornerRadius(child, corner) + CONTENT_OVERFLOW_TOLERANCE < requiredRadius
+        )
+      })
+      if (!affected.length) continue
+      warnings.push({
+        code: 'managed-rounded-stroke-occlusion',
+        key: childKey,
+        message: `"${childKey}" has a visible fill reaching the ${affected
+          .map(([corner]) => corner)
+          .join(
+            ' and '
+          )} of rounded, stroked parent "${parentSpec.key}" without a corresponding inner radius. Figma clips to the outer frame but paints the parent stroke behind its children, so the fill can square off or hide that boundary. Inset the child, give its touching corners an inner radius that follows the parent, or add a dedicated foreground boundary; then inspect the rendered pixels.`
+      })
+    }
+  }
+  return warnings
+}
+
 function includedLayoutTrailingStroke(node: CanvasFrameContainerNode): number {
   return includedLayoutEdgeStroke(
     node,
@@ -6241,6 +6448,17 @@ function verifySizingGeometry(
   node: SupportedCanvasNode,
   parent?: SupportedCanvasNode
 ): void {
+  if (parent && spec.absoluteOffsets) {
+    const { right, bottom } = spec.absoluteOffsets
+    if (
+      (right !== undefined &&
+        Math.abs(parent.width - node.x - node.width - right) > GEOMETRY_TOLERANCE) ||
+      (bottom !== undefined &&
+        Math.abs(parent.height - node.y - node.height - bottom) > GEOMETRY_TOLERANCE)
+    ) {
+      specError(`Verification failed for "${spec.key}": absolute edge placement does not match.`)
+    }
+  }
   if (!isIntrinsicNode(node) && supportsLayoutSizing(node, parent)) {
     if (
       node.layoutSizingHorizontal !== spec.size.horizontal ||
@@ -6916,11 +7134,95 @@ function preservedSizingMode(value: unknown): CanvasSizingMode {
   return value === 'FILL' || value === 'HUG' ? value : 'FIXED'
 }
 
+function validateNativeUpdateBinding(
+  key: string,
+  binding: CanvasBinding,
+  node: SupportedCanvasNode
+): void {
+  const properties = binding.figma
+  const declaredTypes: Array<CanvasNodeSpec['type'] | undefined> = [
+    binding.component || binding.componentProperties || properties?.instance
+      ? 'INSTANCE'
+      : undefined,
+    properties?.text ? 'TEXT' : undefined,
+    properties?.shape?.type,
+    properties?.section ? 'SECTION' : undefined,
+    properties?.group ? 'GROUP' : undefined,
+    properties?.booleanOperation ? 'BOOLEAN_OPERATION' : undefined,
+    properties?.component?.type,
+    properties?.slot ? 'SLOT' : undefined,
+    properties?.svg ? 'FRAME' : undefined
+  ]
+  for (const type of declaredTypes) {
+    if (type !== undefined && type !== node.type) {
+      specError(`Native state on "${key}" requires ${type}, but the existing node is ${node.type}.`)
+    }
+  }
+  const requiredFields: Array<[unknown, string]> = [
+    [properties?.stroke, 'strokeAlign'],
+    [properties?.stroke?.weights, 'strokeTopWeight'],
+    [properties?.stroke?.cap, 'strokeCap'],
+    [properties?.stroke?.miterLimit, 'strokeMiterLimit'],
+    [properties?.corners, 'cornerRadius'],
+    [properties?.corners?.radii, 'topLeftRadius'],
+    [properties?.corners?.smoothing, 'cornerSmoothing'],
+    [properties?.layoutGrids, 'layoutGrids'],
+    [properties?.guides, 'guides'],
+    [properties?.aspectRatioLocked, 'targetAspectRatio']
+  ]
+  for (const [value, field] of requiredFields) {
+    if (value !== undefined && !(field in node)) {
+      specError(`Native field "${field}" is not supported on ${node.type} node "${key}".`)
+    }
+  }
+  if (properties?.text?.fontName) {
+    if (binding.variables?.fontFamily || binding.variables?.fontStyle) {
+      specError(`Font on "${key}" cannot use both variables and an exact Figma font name.`)
+    }
+    if (binding.styles?.text) {
+      specError(`Font on "${key}" cannot use both a Text style and an exact Figma font name.`)
+    }
+  }
+}
+
+function nativeUpdateLayout(
+  key: string,
+  binding: CanvasBinding,
+  node: SupportedCanvasNode
+): CanvasNodeSpec['layout'] {
+  const autoLayout = binding.figma?.autoLayout
+  if (!autoLayout) return
+
+  if (
+    !isFrameContainer(node) ||
+    (node.layoutMode !== 'HORIZONTAL' && node.layoutMode !== 'VERTICAL')
+  ) {
+    specError(
+      `Figma Auto Layout properties on "${key}" require an existing linear Auto Layout container.`
+    )
+  }
+  if (autoLayout.counterAxisSpacing !== undefined && node.layoutWrap !== 'WRAP') {
+    specError(
+      `Figma counter-axis spacing on "${key}" requires an existing wrapping Auto Layout container.`
+    )
+  }
+  if (autoLayout.counterAxisSpacing === null && binding.variables?.counterAxisSpacing) {
+    specError(
+      `Synchronized counter-axis spacing and a counter-axis variable cannot be combined on "${key}".`
+    )
+  }
+  return { mode: node.layoutMode }
+}
+
 function nativeUpdateSpec(
   key: string,
   binding: CanvasBinding,
   node: SupportedCanvasNode
 ): CanvasNodeSpec {
+  validateNativeUpdateBinding(key, binding, node)
+  const layout = nativeUpdateLayout(key, binding, node)
+  const stroke = binding.figma?.stroke
+  const corners = binding.figma?.corners
   const size: CanvasNodeSpec['size'] = {
     width: node.width,
     height: node.height,
@@ -6938,8 +7240,43 @@ function nativeUpdateSpec(
   return {
     key,
     type: node.type,
+    ...(binding.figma?.name !== undefined ? { displayName: binding.figma.name } : {}),
     size,
+    ...(layout ? { layout } : {}),
+    ...(stroke || corners
+      ? {
+          appearance: {
+            strokeWeight: stroke?.weight,
+            strokeTopWeight: stroke?.weights?.top,
+            strokeRightWeight: stroke?.weights?.right,
+            strokeBottomWeight: stroke?.weights?.bottom,
+            strokeLeftWeight: stroke?.weights?.left,
+            cornerRadius: corners?.radius,
+            topLeftRadius: corners?.radii?.topLeft,
+            topRightRadius: corners?.radii?.topRight,
+            bottomRightRadius: corners?.radii?.bottomRight,
+            bottomLeftRadius: corners?.radii?.bottomLeft
+          }
+        }
+      : {}),
     ...('layoutGrow' in node ? { grow: node.layoutGrow > 0 } : {}),
+    ...(node.type === 'TEXT'
+      ? {
+          text: {
+            characters: node.characters,
+            autoResize: node.textAutoResize,
+            ...(binding.figma?.text?.fontName
+              ? {
+                  fontFamily: binding.figma.text.fontName.family,
+                  fontStyle: binding.figma.text.fontName.style
+                }
+              : {}),
+            ...(binding.figma?.text?.verticalAlign !== undefined
+              ? { alignVertical: binding.figma.text.verticalAlign }
+              : {})
+          }
+        }
+      : {}),
     ...binding
   }
 }
@@ -6963,7 +7300,8 @@ async function reconcileNativeUpdate(
   }
 
   const keyedNodes = collectKeyedNodes(candidate)
-  const specs = Object.entries(input.bindings).map(([key, binding]) => {
+  const specsByKey = new Map<string, CanvasNodeSpec>()
+  for (const [key, binding] of Object.entries(input.bindings)) {
     const node = keyedNodes.get(key)
     if (!node) scopeError(`Canvas key "${key}" does not exist inside the update scope.`)
     assertOutsideInstance(node)
@@ -6972,8 +7310,14 @@ async function reconcileNativeUpdate(
         `Mask state on "${key}" requires a structural markup update that describes its sibling scope.`
       )
     }
-    return nativeUpdateSpec(key, binding, node)
-  })
+    specsByKey.set(key, nativeUpdateSpec(key, binding, node))
+  }
+  // Apply owners before sublayers, regardless of the binding order.
+  const specs: CanvasNodeSpec[] = []
+  for (const key of keyedNodes.keys()) {
+    const spec = specsByKey.get(key)
+    if (spec) specs.push(spec)
+  }
   const assets = await resolveCanvasAssets(input.assets, collectSvgColorsFromSpecs(specs))
   const state = createApplyState(candidate, new Set(Object.keys(input.bindings)), assets)
   for (const spec of specs) {
@@ -6988,7 +7332,11 @@ async function reconcileNativeUpdate(
     for (const spec of specs) {
       const node = state.keyedNodes.get(spec.key)!
       preflightContainers(spec, state, node)
-      await preflightResources(spec, state, node)
+      const owner = componentPropertyOwner(node)
+      const inherited = owner
+        ? { existing: owner, spec: specsByKey.get(readOwnedNodeKey(owner) ?? '') }
+        : undefined
+      await preflightResources(spec, state, node, inherited)
     }
     await resolveImageUrls(state)
     resolveImageAssets(state)
@@ -6998,7 +7346,10 @@ async function reconcileNativeUpdate(
       const node = state.keyedNodes.get(spec.key)!
       await applyNodeProperties(node, spec, state, nativeUpdateParent(node))
     }
-    for (const spec of specs) await applyCanvasKeyReferences(spec, state)
+    for (const spec of specs) {
+      const node = state.keyedNodes.get(spec.key)!
+      await applyCanvasKeyReferences(spec, state, nativeUpdateParent(node))
+    }
     await removeStyleResources(state.styles, state.mutations)
     await removeVariableResources(state.variables, state.mutations)
 
@@ -7020,6 +7371,7 @@ async function reconcileNativeUpdate(
       ...authoredVariableFallbackWarnings(specs, input.variableCollections),
       ...specs.flatMap((spec) => layoutAffectingVisibilityWarnings(spec, state)),
       ...specs.flatMap((spec) => managedContentOverflowWarnings(spec, state)),
+      ...specs.flatMap((spec) => managedRoundedStrokeOcclusionWarnings(spec, state)),
       ...specs.flatMap((spec) => managedAutoLayoutInsetWarnings(spec, state))
     ]
     return boundedApplyResult({
@@ -7108,6 +7460,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
     applyMask(root, rootSpec, state)
     const removedNodeIds = await applyRemovals(removalNodes, state)
     finalizeGridsAfterRemovals(rootSpec, state)
+    finalizeAbsolutePositions(rootSpec, state)
     await removeStyleResources(state.styles, state.mutations)
     await removeVariableResources(state.variables, state.mutations)
     const verified = await verifyAppliedNode(rootSpec, root, state)
@@ -7123,6 +7476,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
       ...authoredVariableFallbackWarnings(walkSpecs(rootSpec), input.variableCollections),
       ...layoutAffectingVisibilityWarnings(rootSpec, state),
       ...managedContentOverflowWarnings(rootSpec, state),
+      ...managedRoundedStrokeOcclusionWarnings(rootSpec, state),
       ...managedAutoLayoutInsetWarnings(rootSpec, state)
     ]
     return boundedApplyResult({

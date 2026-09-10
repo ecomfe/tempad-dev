@@ -207,6 +207,20 @@ export type GetStructureResult = {
 // get_design_system
 export const GetDesignSystemParametersSchema = z
   .object({
+    scope: z.enum(['resources', 'fonts']).optional(),
+    query: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .describe('Case-insensitive font-family search.')
+      .optional(),
+    families: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(8)
+      .describe('Exact font families to inspect for available native style names.')
+      .optional(),
     catalogId: z
       .string()
       .min(1)
@@ -216,14 +230,23 @@ export const GetDesignSystemParametersSchema = z
       .number()
       .int()
       .nonnegative()
-      .describe('Continuation cursor returned by the same catalog.')
+      .describe('Continuation cursor from the same catalog, or font query with the same filters.')
       .optional(),
     ref: z.string().min(1).describe('Exact resource ref from the same catalog.').optional()
   })
   .strict()
   .superRefine((value, context) => {
-    const issue = (message: string, path: 'catalogId' | 'cursor' | 'ref'): void =>
-      context.addIssue({ code: 'custom', message, path: [path] })
+    const issue = (
+      message: string,
+      path: 'catalogId' | 'cursor' | 'ref' | 'query' | 'families'
+    ): void => context.addIssue({ code: 'custom', message, path: [path] })
+    if (value.scope === 'fonts') {
+      if (value.catalogId || value.ref)
+        issue('Font queries cannot use resource catalog refs.', 'catalogId')
+      if (value.query && value.families) issue('Use query or families, not both.', 'query')
+      return
+    }
+    if (value.query || value.families) issue('Font filters require scope: fonts.', 'query')
     if (!value.catalogId) {
       if (value.cursor !== undefined) issue('cursor requires catalogId.', 'cursor')
       if (value.ref !== undefined) issue('ref requires catalogId.', 'ref')
@@ -261,6 +284,7 @@ export type DesignSystemCatalogComponent = {
 
 export type DesignSystemCatalogVariable = {
   ref: string
+  cssName?: string
   name: string
   collection: string
   type: 'boolean' | 'color' | 'number' | 'string'
@@ -280,6 +304,7 @@ export type DesignSystemCatalogCollection = {
 
 export type DesignSystemCatalogStyle = {
   ref: string
+  className?: string
   name: string
   type: 'effect' | 'grid' | 'paint' | 'text'
   signature: string
@@ -326,6 +351,7 @@ const DesignSystemCatalogComponentSchema = z
 const DesignSystemCatalogVariableSchema = z
   .object({
     ref: z.string().min(1),
+    cssName: z.string().optional(),
     name: z.string(),
     collection: z.string(),
     type: z.enum(['boolean', 'color', 'number', 'string']),
@@ -353,6 +379,7 @@ const DesignSystemCatalogCollectionSchema = z
 const DesignSystemCatalogStyleSchema = z
   .object({
     ref: z.string().min(1),
+    className: z.string().optional(),
     name: z.string(),
     type: z.enum(['effect', 'grid', 'paint', 'text']),
     signature: z.string(),
@@ -369,7 +396,7 @@ const DesignSystemCatalogShaderSchema = z
   })
   .strict()
 
-export const GetDesignSystemResultSchema = z
+export const DesignSystemResourcesResultSchema = z
   .object({
     catalogId: z.string().min(1),
     components: z.array(DesignSystemCatalogComponentSchema),
@@ -391,6 +418,26 @@ export const GetDesignSystemResultSchema = z
   })
   .strict()
 
+export const DesignSystemFontsResultSchema = z
+  .object({
+    scope: z.literal('fonts'),
+    families: z.array(z.string()).optional(),
+    fonts: z.array(z.object({ family: z.string(), style: z.string() }).strict()).optional(),
+    missingFamilies: z.array(z.string()).optional(),
+    nextCursor: z.number().int().nonnegative().optional()
+  })
+  .strict()
+  .refine(
+    (value) => (value.families === undefined) !== (value.fonts === undefined),
+    'A font result requires either families or fonts.'
+  )
+
+export const GetDesignSystemResultSchema = z.union([
+  DesignSystemResourcesResultSchema,
+  DesignSystemFontsResultSchema
+])
+export type DesignSystemResourcesResult = z.output<typeof DesignSystemResourcesResultSchema>
+export type DesignSystemFontsResult = z.output<typeof DesignSystemFontsResultSchema>
 export type GetDesignSystemResult = z.output<typeof GetDesignSystemResultSchema>
 
 // apply_canvas
@@ -2114,6 +2161,31 @@ const CanvasNativeBindingSchema = z
   })
   .strict()
 
+export const CanvasThemeSchema = z
+  .object({
+    variables: z
+      .record(
+        z.string().regex(/^--[a-zA-Z0-9_-]+$/),
+        z.union([
+          z.object({ ref: z.string().min(1) }).strict(),
+          z.object({ variableKey: CanvasStableKeySchema }).strict()
+        ])
+      )
+      .optional(),
+    textStyles: z
+      .record(
+        z.string().regex(/^type-[a-zA-Z0-9_-]+$/),
+        z.union([
+          z.object({ ref: z.string().min(1) }).strict(),
+          z.object({ styleKey: CanvasStableKeySchema }).strict()
+        ])
+      )
+      .optional()
+  })
+  .strict()
+
+export type CanvasTheme = z.output<typeof CanvasThemeSchema>
+
 type CanvasApplyScope = {
   mode: 'activate' | 'create' | 'remove' | 'update'
   targetNodeId?: string
@@ -2121,6 +2193,7 @@ type CanvasApplyScope = {
   bindings?: unknown
   native?: unknown
   catalogId?: string
+  theme?: unknown
   variableCollections?: unknown
   styles?: unknown
   assets?: unknown
@@ -2139,6 +2212,7 @@ function validateCanvasApplyScope<Value extends CanvasApplyScope>(
     'bindings',
     'native',
     'catalogId',
+    'theme',
     'variableCollections',
     'styles',
     'assets',
@@ -2146,6 +2220,9 @@ function validateCanvasApplyScope<Value extends CanvasApplyScope>(
   ] as const
   const hasResources = resources.some((field) => value[field] !== undefined)
   const pageIdentity = value.page?.id !== undefined || value.page?.pageKey !== undefined
+  if (value.theme !== undefined && value.markup === undefined) {
+    issue('theme requires markup.', 'theme')
+  }
 
   if (value.mode === 'create') {
     if (value.targetNodeId !== undefined) {
@@ -2244,6 +2321,9 @@ export const ApplyCanvasParametersSchema = z
     mode: z.enum(['create', 'update', 'remove', 'activate']),
     targetNodeId: z.string().min(1).optional(),
     catalogId: z.string().min(1).optional(),
+    theme: CanvasThemeSchema.describe(
+      'Call-scoped aliases: CSS custom property names to catalog variable refs or local variableKey; type-* classes to catalog text-style refs or local styleKey. Catalog cssName/className aliases work automatically.'
+    ).optional(),
     markup: z
       .string()
       .trim()
@@ -2300,6 +2380,7 @@ export type ApplyCanvasParameters = z.output<typeof ApplyCanvasParametersSchema>
 
 export const CanvasResolvedApplyParametersSchema = z
   .object({
+    theme: CanvasThemeSchema.optional(),
     mode: z
       .enum(['create', 'update', 'remove', 'activate'])
       .describe(

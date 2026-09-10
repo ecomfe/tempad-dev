@@ -3,8 +3,9 @@
 Use this reference whenever the result uses a nontrivial shadow, blur, glass,
 texture, noise, image paint, layered gradient material, or layout aid, including
 effects expressed as Canvas HTML classes. Resolve an image or illustration's
-role, subject, medium, and source through [visual-assets.md](visual-assets.md)
-first. Prefer a matching catalog style; otherwise use direct native arrays.
+role, subject, and medium through [visual-assets.md](visual-assets.md), then its
+source and delivery through [images.md](images.md). Prefer a matching catalog
+style; otherwise use direct native arrays.
 
 ## Catalog links
 

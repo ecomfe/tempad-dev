@@ -30,6 +30,7 @@ import {
   parseCanvasClasses,
   unsupportedCanvasClassGuidance
 } from './tailwind'
+import { createThemeResources, normalizeThemeClasses, type ThemeResources } from './theme'
 
 const ALLOWED_ATTRIBUTES = new Set(['class', 'data-key', 'data-node-id'])
 const SIZE_VARIABLE_FIELDS = [
@@ -407,7 +408,9 @@ function assertStaticMarkupLegality(root: CanvasMarkupElement): void {
         } else {
           if (hasText(element.text)) add(`div "${key}" cannot contain direct text.`)
           if (classes.textClass) {
-            add(`Class "${classes.textClass}" is not supported on div "${key}".`)
+            add(
+              `Class "${classes.textClass}" is not supported on div "${key}". Canvas typography does not inherit; put text utilities on each span/TEXT node.`
+            )
           }
         }
         if (parentClasses) {
@@ -1198,7 +1201,9 @@ function compileElement(
   } else {
     if (hasText(element.text)) markupError(`div "${key}" cannot contain direct text.`)
     if (classes.textClass) {
-      markupError(`Class "${classes.textClass}" is not supported on div "${key}".`)
+      markupError(
+        `Class "${classes.textClass}" is not supported on div "${key}". Canvas typography does not inherit; put text utilities on each span/TEXT node.`
+      )
     }
   }
 
@@ -1622,6 +1627,14 @@ function compileElement(
       ? { positioning: classes.absolute ? ('ABSOLUTE' as const) : ('AUTO' as const) }
       : {}),
     ...(absolutePosition ? { position: absolutePosition } : {}),
+    ...(classes.right !== undefined || classes.bottom !== undefined
+      ? {
+          absoluteOffsets: {
+            ...(classes.right === undefined ? {} : { right: classes.right }),
+            ...(classes.bottom === undefined ? {} : { bottom: classes.bottom })
+          }
+        }
+      : {}),
     ...(binding?.variables ? { variables: binding.variables } : {}),
     ...(binding?.variableModes ? { variableModes: binding.variableModes } : {}),
     ...(binding?.styles ? { styles: binding.styles } : {}),
@@ -1651,6 +1664,7 @@ function compileElement(
         ...(fontFamily !== undefined || includeDefaults
           ? { fontFamily: fontFamily ?? 'Inter' }
           : {}),
+        ...(classes.fontStyleMatching ? { fontStyleMatching: true as const } : {}),
         ...(fontName === undefined && classes.portableFontFamily
           ? { portableFontFamily: classes.portableFontFamily }
           : {}),
@@ -1839,7 +1853,8 @@ function compileElement(
 export function parseCanvasMarkup(
   input: CanvasResolvedApplyParameters,
   catalog?: DesignSystemCatalog,
-  existingNodeTypes?: CanvasNodeTypeHints
+  existingNodeTypes?: CanvasNodeTypeHints,
+  themeResources?: ThemeResources
 ): ParsedCanvasTreeInput {
   if (input.mode !== 'create' && input.mode !== 'update') {
     markupError('Canvas HTML is valid only in create or update mode.')
@@ -1854,9 +1869,23 @@ export function parseCanvasMarkup(
     nodeIds: new Set()
   }
   const parsedElement = parseCanvasHtml(input.markup)
-  const rootElement = normalizeCatalogElement(parsedElement, state.bindings, catalog)
+  const resources = themeResources ?? createThemeResources(input, catalog)
+  const themedElement = normalizeThemeClasses(
+    parsedElement,
+    state.bindings,
+    input,
+    catalog,
+    resources
+  )
+  const rootElement = normalizeCatalogElement(themedElement, state.bindings, catalog)
   assertStaticMarkupLegality(rootElement)
   const root = compileElement(rootElement, state, 1)
+  const markThemeFields = (node: CanvasNodeSpec): void => {
+    const fields = resources.boundFields.get(node.key)
+    if (fields?.length) node.themeVariableFields = fields
+    node.children?.forEach(markThemeFields)
+  }
+  markThemeFields(root)
   validateAssetReferences(root, input.assets)
   for (const key of Object.keys(state.bindings)) {
     if (!state.keys.has(key)) markupError(`Binding "${key}" has no matching data-key.`)

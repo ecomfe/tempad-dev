@@ -308,6 +308,7 @@ export type CanvasClasses = {
   insetShadows?: CanvasShadowEffect[]
   textShadows?: CanvasShadowEffect[]
   fontFamily?: string
+  fontStyleMatching?: true
   portableFontFamily?: PortableFontFamily
   fontStyle?: string
   fontSize?: number
@@ -1061,6 +1062,30 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       )
     }
 
+    const exactFamily = /^font-\[family-name:([^[\]]+)\]$/.exec(token)
+    if (exactFamily) {
+      const family = exactFamily[1]!.replaceAll(
+        /\\([_\\])|_/g,
+        (_, escaped: string | undefined) => escaped ?? ' '
+      )
+      assign(classes, 'fontFamily', family, token)
+      classes.fontStyleMatching = true
+      classes.textClass ??= token
+      continue
+    }
+    const numericWeight = /^font-\[(\d+(?:\.\d+)?)\]$/.exec(token)
+    if (numericWeight) {
+      const weight = Number(numericWeight[1])
+      if (weight < 1 || weight > 1000)
+        classError(`Font weight in "${token}" must be between 1 and 1000.`)
+      const nearest = String(
+        Math.max(100, Math.min(900, Math.round(weight / 100) * 100))
+      ) as keyof typeof FONT_STYLES
+      assign(classes, 'fontStyle', FONT_STYLES[nearest], token)
+      classes.fontStyleMatching = true
+      classes.textClass ??= token
+      continue
+    }
     const fontFamily = FONT_FAMILY_CLASSES[token as keyof typeof FONT_FAMILY_CLASSES]
     if (fontFamily) {
       assign(classes, 'fontFamily', fontFamily, token)
