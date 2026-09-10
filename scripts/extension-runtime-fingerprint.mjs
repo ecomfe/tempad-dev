@@ -27,8 +27,11 @@ const EXTENSION_RUNTIME_ENTRIES = [
 ]
 
 function listFiles(path) {
-  if (!statSync(path).isDirectory()) return [path]
+  const stats = statSync(path, { throwIfNoEntry: false })
+  if (!stats) return []
+  if (!stats.isDirectory()) return [path]
   return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === '.DS_Store') return []
     const child = join(path, entry.name)
     if (entry.isDirectory()) return listFiles(child)
     return entry.isFile() ? [child] : []
