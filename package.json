@@ -44,6 +44,7 @@
     "eslint-config-flat-gitignore": "^2.4.0",
     "eslint-plugin-perfectionist": "^5.11.0",
     "eslint-plugin-vue": "^10.10.0",
+    "globby": "^16.2.4",
     "jiti": "^2.7.0",
     "lefthook": "^2.1.12",
     "oxfmt": "^0.65.0",

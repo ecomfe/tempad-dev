@@ -1,6 +1,7 @@
+import { globbySync } from 'globby'
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { relative, resolve } from 'node:path'
 
 const EXTENSION_RUNTIME_ENTRIES = [
   'packages/extension/assets',
@@ -26,23 +27,15 @@ const EXTENSION_RUNTIME_ENTRIES = [
   'scripts/extension-runtime-fingerprint.mjs'
 ]
 
-function listFiles(path) {
-  const stats = statSync(path, { throwIfNoEntry: false })
-  if (!stats) return []
-  if (!stats.isDirectory()) return [path]
-  return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
-    if (entry.name === '.DS_Store') return []
-    const child = join(path, entry.name)
-    if (entry.isDirectory()) return listFiles(child)
-    return entry.isFile() ? [child] : []
-  })
-}
-
 export function listExtensionRuntimeSources(repositoryRoot) {
   const root = resolve(repositoryRoot)
-  return EXTENSION_RUNTIME_ENTRIES.flatMap((entry) => listFiles(join(root, entry))).sort(
-    (left, right) => relative(root, left).localeCompare(relative(root, right), 'en')
-  )
+  return globbySync(EXTENSION_RUNTIME_ENTRIES, {
+    cwd: root,
+    absolute: true,
+    dot: true,
+    gitignore: true,
+    followSymbolicLinks: false
+  }).sort((left, right) => relative(root, left).localeCompare(relative(root, right), 'en'))
 }
 
 export function computeExtensionRuntimeFingerprint(repositoryRoot) {
