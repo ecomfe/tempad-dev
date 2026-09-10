@@ -47,6 +47,7 @@ function preflight(overrides: Partial<AuthoringPreflightResult> = {}): Authoring
       }
     },
     plugin: {
+      codexExecutable: '/Applications/ChatGPT.app/Contents/Resources/codex',
       generatedVersion: pluginVersion,
       installedVersion: pluginVersion,
       installedPath: '/repo/.dev/plugins/tempad-dev-dev'
@@ -62,6 +63,7 @@ function note(overrides: Partial<AuthoringRunNote> = {}): AuthoringRunNote {
     id: 'note-1',
     createdAt: '2026-08-29T00:00:00.000Z',
     kind: 'open',
+    agent: { model: 'gpt-5.6-sol', reasoningEffort: 'xhigh' },
     intent: 'Observe whether the agent produces a useful, coherent design for the request.',
     task: {
       prompt: 'Design a focused control room.',
@@ -114,7 +116,8 @@ function rollout(
   const skillRoots = options.skillAlias ? `### Skill roots\n- \`r8\` = \`${skillRoot}\`\n` : ''
   const skills = `<skills_instructions>\n## Skills\n${skillRoots}- tempad-dev-dev:figma-canvas-authoring: Create native editable Figma designs. (file: ${skillLocator})\n- tempad-dev-dev:figma-design-to-code: Implement visible Figma designs. (file: ${supportingSkillLocator})\n</skills_instructions>`
   return [
-    row({ timestamp: '2026-08-29T00:00:20.000Z', type: 'session_meta', payload: {} }),
+    row({ timestamp: '2026-08-29T00:00:20.000Z', type: 'session_meta', payload: { id: 'task-1' } }),
+    row({ type: 'turn_context', payload: { model: 'gpt-5.6-sol', effort: 'xhigh' } }),
     row({
       type: 'response_item',
       payload: {
@@ -351,6 +354,72 @@ describe('agent authoring run log', () => {
     expect(finish.review.status).toBe('invalid')
   })
 
+  it('requires settings for new runs while retaining legacy log readability', () => {
+    expect(() => buildStartEvent(note({ agent: undefined }), preflight())).toThrow('freeze model')
+    const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:11.000Z')
+    const finish = buildFinishEvent(start, review(), { source: 'run.jsonl', text: rollout() })
+    const legacyNote = note({ agent: undefined })
+    const noteSha256 = fingerprintRunNote(legacyNote)
+    const { execution: _execution, ...legacyRollout } = finish.rollout!
+    expect(
+      parseRunLogState(
+        row({ ...start, note: legacyNote, noteSha256 }) +
+          row({ ...finish, noteSha256, rollout: legacyRollout })
+      ).records
+    ).toHaveLength(1)
+  })
+
+  it('rejects missing settings, changed settings, intervening prompts, malformed evidence, and task substitution', () => {
+    const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:11.000Z')
+    const variants = [
+      rollout().replace('"effort":"xhigh"', '"effort":"high"'),
+      rollout().replace('"model":"gpt-5.6-sol"', '"model":"another-model"'),
+      rollout().replace('"id":"task-1"', '"id":"task-2"'),
+      rollout().replace('"effort":"xhigh"', '"unknown":"xhigh"'),
+      rollout() +
+        row({
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Make it blue.' }]
+          }
+        }),
+      rollout() + '{truncated record'
+    ]
+    for (const source of variants) {
+      expect(() =>
+        buildFinishEvent(start, review(), { source: 'run.jsonl', text: source })
+      ).toThrow()
+    }
+  })
+
+  it('rejects a model change within a comparison even when supporting runtime is identical', () => {
+    const make = (arm: 'baseline' | 'candidate', model: string) => {
+      const start = buildStartEvent(
+        note({
+          id: arm,
+          kind: 'comparison',
+          agent: { model, reasoningEffort: 'xhigh' },
+          comparison: { id: 'pair', arm, subject: 'skill' }
+        }),
+        preflight(),
+        '2026-08-29T00:00:11.000Z'
+      )
+      const finish = buildFinishEvent(start, review({ noteId: arm }), {
+        source: `${arm}.jsonl`,
+        text: rollout().replace('gpt-5.6-sol', model)
+      })
+      return { start, finish }
+    }
+    expect(() =>
+      validateComparisonRecords([
+        make('baseline', 'gpt-5.6-sol'),
+        make('candidate', 'another-model')
+      ])
+    ).toThrow('model or reasoning effort')
+  })
+
   it('allows prompt reuse only across the two arms of one comparison', () => {
     const baselineNote = note({
       id: 'baseline-note',
@@ -391,6 +460,7 @@ describe('agent authoring run log', () => {
       }),
       preflight({
         plugin: {
+          codexExecutable: '/Applications/ChatGPT.app/Contents/Resources/codex',
           generatedVersion: '0.1.2+codex.candidate',
           installedVersion: '0.1.2+codex.candidate',
           installedPath: '/repo/.dev/plugins/tempad-dev-dev'
@@ -437,7 +507,7 @@ describe('agent authoring run log', () => {
         },
         { start: candidateStart, finish: candidateFinish }
       ])
-    ).not.toThrow()
+    ).toThrow('supporting context or runtime')
     expect(() =>
       validateComparisonRecords([
         { start: baselineStart, finish: baselineFinish },

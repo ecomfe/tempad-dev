@@ -14,11 +14,11 @@ task intent
   -> optionally delegate isolated evidence, asset, inventory, or QA work
   -> choose reuse or direct resources from the user's constraints
   -> explicit design-system authoring branch only when requested
-  -> optional get_design_system() for permitted existing-resource reuse
+  -> optional get_design_system() for permitted existing-resource reuse, or scope: fonts for environment availability
   -> optional exact skill reference for authored Figma-only resources
   -> optionally consume exact live component ids returned by earlier canvas work
   -> apply_canvas(desired result)
-  -> resolve refs + validate
+  -> resolve refs and resource classes + validate
   -> diff latest canvas
   -> one undoable native patch
   -> structural verification
@@ -29,7 +29,8 @@ The model never emits Plugin API calls or an operation sequence. It describes th
 TemPad Dev chooses the safe operations against the latest live document.
 
 User constraints govern routing. A request to avoid the file's design system skips
-`get_design_system`, `catalogId`, catalog tags, and catalog refs. Creating new local variables,
+resource-catalog discovery, `catalogId`, catalog tags, and catalog refs. Environment-only
+`get_design_system({ scope: 'fonts' })` remains available. Creating new local variables,
 styles, or components also does not require a catalog. The agent creates them only when the user
 requests that resource or explicitly asks to create or extend a design system. Detailed modeling
 guidance and executable resource shapes remain in progressive references rather than the core
@@ -46,7 +47,7 @@ The model-visible surface contains six tools:
 - `get_structure` reads hierarchy and geometry when composition is ambiguous, exposes stable
   authoring keys for managed nodes when an update resumes without prior call context, and can
   optionally return compact live mask, IMAGE paint, layout-grid, and frame-guide state;
-- `get_design_system` conditionally reads deterministic pages of discoverable design-system facts;
+- `get_design_system` conditionally reads deterministic resource catalogs or bounded available-font queries;
 - `apply_canvas` creates, updates, removes, or activates exact pages and managed roots and is the
   only design-result/context mutating tool;
 - `upload_asset` stores a programmatically composed generated PNG/JPEG/GIF data URL in the Hub and
@@ -65,6 +66,8 @@ therefore uses:
 - a strict Tailwind utility subset for common layout and appearance, including native default
   spacing, sizing, border, radius, opacity, rotation, and typography scales plus exact arbitrary
   pixel/color values;
+- CSS custom-property utility syntax mapped to exact variable identities, and `type-*` utility
+  classes mapped to native TextStyle identities;
 - a typed `figma` extension for native state that HTML cannot represent honestly.
 
 This is one dialect, not parallel “simple” and “advanced” languages. The native extension is an
@@ -94,12 +97,12 @@ The progressive skill therefore uses a decision-scoped evidence process:
 1. inventory explicit user requirements and permitted project and Figma evidence;
 2. isolate only unresolved decisions that could materially change the result;
 3. inspect the nearest credible source whose authority covers each decision;
-4. retain the exact source, applicable finding, authority boundary, and resulting decision;
-5. stop when the uncertainty is resolved and verify the rendered result against that trace.
+4. retain enough source identity and context to support material design decisions;
+5. try the direction in a representative native composition and revise from its pixels.
 
 The process prescribes no universal UX checklist, source count, platform value, visual vocabulary,
 or preferred design answer. Source types are selected by the open decision, and an applicable
-installed domain skill may itself be evidence; a procedural Figma skill, remembered convention,
+installed domain skill may contribute domain constraints or interpretive expertise; a procedural Figma skill, remembered convention,
 payload example, or available tool is not. Search snippets are discovery leads rather than inspected
 evidence. Exact reproduction, mechanical edits, and decisions already established by sufficient
 evidence do not trigger ceremonial research. Evidence must also match the decision's medium:
@@ -148,7 +151,7 @@ workers, and verify every QA finding against the live canvas.
 
 ## Design-system retrieval
 
-`get_design_system` is conditional evidence retrieval, not a canvas-authoring preflight. Use it
+Resource-catalog discovery through `get_design_system` is conditional evidence retrieval. Use it
 only when the user permits existing-resource reuse and that evidence is relevant. When used, it
 starts without arguments and returns definitions only. It never inspects instances, applied
 resources, text ranges, or other canvas usage, and it does not perform text, semantic, or relevance
@@ -159,11 +162,14 @@ A normal call returns an immutable catalog with:
 - `catalogId`;
 - deterministic, name-ordered component families from pages that are already accessible;
 - local variables and variables directly referenced by returned definitions, with default-mode
-  values when materialized;
+  values when materialized, and a `cssName` for binding through variable utilities;
 - collections and mode refs;
-- Paint, Text, Effect, and Grid style signatures;
+- Paint, Text, Effect, and Grid style signatures, with a `className` for TEXT styles;
 - fill/effect shaders;
 - omitted counts, `nextCursor`, and factual read warnings when applicable.
+
+The catalog supports `BOOLEAN`, `COLOR`, `FLOAT`, and `STRING` variables. Other native variable
+types and their overrides are skipped with a factual warning.
 
 The normal result targets 16 KiB. Components, variables, and styles are interleaved first.
 Collections/modes and shaders follow as progressive native detail. When more resources remain, the
@@ -191,6 +197,24 @@ h1       shader
 
 The short refs are meaningful only with their `catalogId`. Catalogs are session-local, immutable,
 bounded to eight recent catalogs, and rejected if the connected Figma file changes.
+
+### Environment fonts
+
+`{ scope: 'fonts', query?: string, families?: string[], cursor?: number }` bypasses resource
+discovery entirely and reads `figma.listAvailableFontsAsync()`. `query` performs case-insensitive
+family substring search and returns deduplicated names. `families` inspects up to eight exact
+family identities and returns `{ family, style }` faces plus `missingFamilies`. The filters are
+mutually exclusive. The font response has `scope: 'fonts'` and no resource `catalogId` or refs.
+Pages contain at most 32 entries and 12 KiB of structured data, retaining exact usable identities.
+Continue with the same filters and `nextCursor`; a changed font environment may require a fresh
+query. This is availability evidence, not language/glyph coverage or a font recommendation.
+
+Font lookup does not load or import fonts, inspect components/styles, or read other pages. It is
+valid for Direct and independent-system work. Applying an exact `fontName` or TextStyle retains
+the selected native face. A family utility selects only within that exact available family and
+matches the closest available weight/style. The consumer's mode determines family and weight
+variable values, and the resolved face is loaded before applying the text and bindings. There is
+no silent substitution of an unavailable named family.
 
 When one resource could change the design decision, the caller sends its exact `ref` with the same
 `catalogId`. Every detail response remains bounded by the shared 64 KiB limit. Component detail is
@@ -288,6 +312,10 @@ type ApplyCanvasInput = {
   mode: 'create' | 'update' | 'remove' | 'activate'
   targetNodeId?: string
   catalogId?: string
+  theme?: {
+    variables?: Record<string, { ref: string } | { variableKey: string }>
+    textStyles?: Record<string, { ref: string } | { styleKey: string }>
+  }
   markup?: string
   native?: Record<
     string,
@@ -327,12 +355,55 @@ page without activating that page first. `selection` is valid only with activate
 preserves selection and `[]` clears it.
 
 The public schema stays below 8 KiB; expanding the complete native schema would be roughly 190 KiB
-before other instructions or task evidence. Common catalog variable/style refs live beside their
-element as `data-var-*` and `data-style-*` attributes. The `native` sidecar is reserved for local
+before other instructions or task evidence. Common variable and text-style identities can be
+mapped once per call through `theme`, or consumed directly through catalog aliases. Explicit
+`data-var-*` and `data-style-*` attributes remain available. The `native` sidecar carries local
 authored resources, mode overrides, and Figma-only state. Advanced fields expose object boundaries
 and precise routing descriptions at the MCP layer, while their exact shapes and complete examples
 load progressively from the canvas-authoring skill. The extension validates them against the
 complete private native schema after short refs are expanded.
+
+### Resource classes
+
+`bg-(--surface)`, `gap-(--content-gap)`, `font-(family-name:--body-family)`, and
+`text-(length:--body-size)` use Tailwind custom-property shorthand; bracketed `var(...)` forms
+are equivalent. The bounded subset covers fills/strokes, dimensions, gaps, padding, corner radii,
+stroke width, opacity, and typography metrics. FLOAT measurements use native pixel units; opacity
+uses 0–1 and weight uses 1–1000. No expression evaluation, `calc()`, CSS fallback, cascade, or
+project stylesheet execution is introduced. Ordinary scale utilities remain literals.
+
+Catalog aliases use valid WEB custom-property syntax when present, otherwise a normalized name.
+Colliding aliases receive deterministic ref suffixes. The returned alias is authoritative for
+that immutable catalog; equal values or similar names never choose a resource. These are binding
+aliases and do not rewrite native names or code syntax. `theme.variables` can supply another CSS
+name mapped to a catalog `{ ref }` or an authored `{ variableKey }`; an alias cannot redirect an
+existing catalog alias to a different identity. Equality is based on native identity, including
+authoring-key metadata and explicit same-call resource adoption, rather than reference spelling.
+
+For a new system, `variableCollections` and `styles` define native resources while `theme` maps
+their stable keys to page-facing aliases in the same apply. Later calls retain the mapping and
+omit definitions unless updating resources. No second persistent registry or implicit global
+theme state is created. This works without resource discovery, including independent designs.
+
+`theme.textStyles` maps reserved `type-*` class names to `{ ref }` or `{ styleKey }` TEXT styles.
+The class links the composite TextStyle instead of duplicating its font and metrics on every
+node. It rejects competing typography classes/native declarations, while independent color,
+alignment, and sizing remain usable. Figma has no composite typography variable, so `type-*`
+is an explicit custom utility convention rather than a claimed Tailwind default.
+
+The compiler normalizes these classes into the existing binding model before static markup
+validation. Initial literal values come from same-call definitions, the immutable catalog, or
+read-only local/native identity resolution for used aliases. Variable aliases are cycle checked.
+This read stage never imports or creates resources. Initial values make native creation and
+geometry validation possible; final variable bindings and modes remain authoritative. Right/bottom
+absolute offsets retain their edge intent and are placed and verified against live bounds after
+reconciliation, including variable and mode changes in that apply. They do not install reactive
+CSS anchors; use native Auto Layout for alignment across later mode changes without markup. Generated
+fallbacks are excluded from caller-literal mismatch warnings. Native resource creation, type and
+scope checks, binding, undo, and verification remain in the existing reconciler.
+
+Use `resource-mapping.md` in the canvas skill for executable new/existing-system recipes and the
+supported utility table. Other native fields and explicit unlinks retain inline/native bindings.
 
 One markup tree is bounded to 160 elements and 12 levels. The element ceiling covers currently
 observed complete screen sections up to 129 elements with bounded headroom; it is not a target for
@@ -688,6 +759,14 @@ space is valid, but it must be modeled explicitly with main-axis alignment or a 
 otherwise the warning exposes content that consumed its padding or a fixed container that retained
 unowned slack after text resolved. Hugging containers and explicitly space-owning layouts do not
 produce the warning.
+
+A clipped frame with rounded corners and a stroke painted inside its boundary produces
+`managed-rounded-stroke-occlusion` when a filled managed child reaches a curved edge without the
+corresponding inner radius. Figma clips children to the outer frame but paints the parent's stroke
+behind them, so a child can visibly square off or hide the rounded boundary even though ordinary
+overflow checks pass. The warning remains non-fatal because an inset child, matched child radius,
+or dedicated foreground boundary can each be correct; the authored pixels decide which repair
+preserves the intended composition.
 
 Its structured result also returns `rootNodeId` and the bounded `nodeIdsByKey` identity map so a
 later Author call can consume an exact component created by the preceding result.

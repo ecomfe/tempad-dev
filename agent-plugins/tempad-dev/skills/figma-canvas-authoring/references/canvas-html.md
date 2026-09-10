@@ -1,9 +1,12 @@
 # Canvas HTML and Tailwind subset
 
-Canvas HTML describes desired state, not browser rendering. Classes do not
-cover every Figma result: use routed native bindings for gradients, media,
-non-shadow effects, masks, transforms, exact fonts, and rich text. Use primitive
-layers only for intended layered geometry, never as a CSS substitute.
+Canvas HTML describes desired state, not browser rendering. Use its elements for
+interface structure and genuine simple UI geometry, not as a drawing medium.
+Do not assemble `div` or `span` primitives to imitate a photograph,
+illustration, icon, logo, texture, or other content-bearing visual; acquire the
+appropriate routed raster or vector asset instead. Classes do not cover every
+Figma result: use routed native bindings for gradients, media, non-shadow
+effects, masks, transforms, exact fonts, and rich text.
 
 One `apply_canvas` markup tree may contain at most 160 elements and 12 levels.
 This is a safety ceiling, not a target. Before calling, count the tree, include
@@ -11,7 +14,9 @@ only assets referenced by that call, and split larger work at meaningful screen
 or section boundaries.
 
 Prefer supported Tailwind utilities; use arbitrary pixels only off the default
-scale. Numeric spacing follows Tailwind v4's `4px` unit. Theme extensions,
+scale. Numeric spacing follows Tailwind v4's `4px` unit. Selected Figma resources
+can use CSS variable utilities and `type-*` text-style classes through
+[resource-mapping.md](resource-mapping.md). Arbitrary project theme extensions,
 variants, plugins, viewport-dependent utilities, and CSS cascade are unsupported.
 
 ## Contents
@@ -56,9 +61,9 @@ reveals issues one at a time.
 - A `span` contains only text and `<br>` or `<br/>` line breaks. Use
   `whitespace-pre-wrap` for literal newlines or repeated spaces. A plain `&` is
   literal unless it forms a semicolon-terminated entity; supported entities
-  decode. Put flex/grid, gaps, padding, borders, corners, and box shadows on a
-  parent `div`, leaving dimensions, shared appearance, and text utilities on
-  the text node.
+  decode. Canvas typography does not inherit from a parent `div`: put font and
+  other text utilities on each `span`/TEXT node. Put flex/grid, gaps, padding,
+  borders, corners, and box shadows on a parent `div`.
 - A component tag is childless, includes its returned `data-ref`, and accepts
   returned props plus the shared class, identity, variable, and style
   attributes.
@@ -178,7 +183,10 @@ place:
 For freeform composition, omit layout classes and give each child `absolute`
 with exactly one horizontal edge (`left-*` or `right-*`) and one vertical edge
 (`top-*` or `bottom-*`), including negative or exact values, or use a native
-relative transform. Edge placement needs fixed parent and child bounds. A plain
+relative transform. Edge placement needs fixed parent and child sizing modes;
+right/bottom offsets are resolved from live bounds after each markup apply. They
+are placements, not reactive CSS anchors: use Auto Layout for alignment that
+must follow later mode changes without another markup apply. A plain
 non-flex/grid `div` is freeform even with one child; opt into layout for every
 in-flow child. Absolute children cannot grow or fill; use `static` to return one
 to Auto Layout on update.
@@ -198,6 +206,11 @@ Frame appearance:
 - `rounded`, `rounded-none|xs|sm|md|lg|xl|2xl|3xl|4xl|full`, or `rounded-[Npx]`;
   prefix the value with `t`, `r`, `b`, `l`, `tl`, `tr`, `br`, or `bl` for individual sides/corners
 - `overflow-hidden`, `overflow-visible`
+- A clipped rounded frame does not paint its inside stroke above children. A
+  filled child that reaches a curved edge can therefore square off or hide the
+  boundary even with `overflow-hidden`; inset it, give the touching child
+  corners a corresponding inner radius, or add a dedicated foreground
+  boundary, then inspect the rendered pixels.
 - Exact pixel shadow lists through `shadow-[...]` or `inset-shadow-[...]`.
   Each layer needs an explicit hex, `rgb()`, or `rgba()` color and two to four
   pixel lengths; use underscores for spaces, for example

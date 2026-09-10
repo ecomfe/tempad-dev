@@ -63,7 +63,9 @@ function expandSchemaIssue(
   groupable = false
 ): SchemaIssue[] {
   const path = [...prefix, ...issue.path]
-  if (issue.code !== 'invalid_union') return [{ issue, path, groupable }]
+  // Zod can report a selected union branch directly, without an invalid_union wrapper.
+  if (issue.code !== 'invalid_union')
+    return [{ issue, path, groupable: groupable || issue.code === 'unrecognized_keys' }]
 
   const branches = issue.errors.map((branch) =>
     branch.flatMap((nested) => expandSchemaIssue(nested, path, true))

@@ -71,6 +71,7 @@ type CanvasLayout =
 
 export type CanvasNodeSpec = {
   key: string
+  themeVariableFields?: Array<keyof CanvasVariableBindings>
   nodeId?: string
   type: CanvasNodeType
   displayName?: string
@@ -91,6 +92,10 @@ export type CanvasNodeSpec = {
   position?: {
     x: number
     y: number
+  }
+  absoluteOffsets?: {
+    right?: number
+    bottom?: number
   }
   positioning?: 'ABSOLUTE' | 'AUTO'
   layout?: CanvasLayout
@@ -121,6 +126,7 @@ export type CanvasNodeSpec = {
   text?: {
     characters: string
     fontFamily?: string
+    fontStyleMatching?: true
     portableFontFamily?: 'mono' | 'sans' | 'serif'
     fontStyle?: string
     fontSize?: number
@@ -128,7 +134,7 @@ export type CanvasNodeSpec = {
     letterSpacing?: LetterSpacing
     alignHorizontal?: 'CENTER' | 'JUSTIFIED' | 'LEFT' | 'RIGHT'
     alignVertical?: 'BOTTOM' | 'CENTER' | 'TOP'
-    autoResize: 'HEIGHT' | 'NONE' | 'WIDTH_AND_HEIGHT'
+    autoResize: TextNode['textAutoResize']
     textCase?: TextCase
     textDecoration?: TextDecoration
     textTruncation?: 'DISABLED' | 'ENDING'

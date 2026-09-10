@@ -12,12 +12,14 @@ host skill owns task workflow, representation choice, and design judgment.
   `apply_canvas` to describe one declarative desired result. Canvas HTML serializes ordinary layers;
   typed fields carry selected native state, resources, and bindings. Never emit raw Plugin API
   operations or arbitrary JavaScript. `get_design_system` is optional discovery for relevant,
-  permitted reuse; new local resources do not require it. Load the skill's progressive references
+  permitted reuse; new local resources do not require it. Font queries with `scope: "fonts"` read
+  environment availability independently of resource reuse. Use catalog CSS names or a call-scoped
+  `theme` for variable utilities and native text-style classes. Load the skill's progressive references
   for exact shapes only after choosing the native concept.
 
 When the user limits design evidence to the current page or requests an independent system without
-pre-existing resource reuse, stay on the Direct path: do not call `get_design_system`, inspect other
-pages, or use catalog refs. Local variables and styles remain file-wide Figma resources, and the
+pre-existing resource reuse, stay on the Direct path: do not discover resource catalogs, inspect other
+pages, or use catalog refs. `get_design_system` with `scope: "fonts"` remains available. Local variables and styles remain file-wide Figma resources, and the
 extension may still perform file-wide identity checks internally for safe reconciliation.
 
 Create operations add and automatically place one new root. Updates are scoped by exact node

@@ -1,7 +1,7 @@
 # Rich text and hyperlinks
 
-Use this reference for an already chosen typeface or Figma-only text behavior;
-resolve material typeface choices through [visual-assets.md](visual-assets.md).
+Use this reference for native font application or Figma-only text behavior;
+use [typefaces.md](typefaces.md) when font selection or availability needs resolving.
 Use `span` for editable text. Put whole-node typography in classes, a catalog
 Text style, or semantic variable bindings when possible.
 

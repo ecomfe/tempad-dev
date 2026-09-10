@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [raw()],
   format: ['esm'],
   platform: 'node',
-  target: 'node18',
+  target: 'node22',
   sourcemap: true,
   clean: true,
   outDir: 'dist',

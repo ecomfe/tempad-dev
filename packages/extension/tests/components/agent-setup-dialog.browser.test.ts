@@ -123,7 +123,7 @@ describe('AgentSetupDialog', () => {
 
     expect(host.querySelector('.tp-agent-dialog-brand svg title')?.textContent).toBe('Cursor')
     expect(host.textContent).toContain('Run in your terminal:')
-    expect(host.textContent).toContain('one Agent Plugins package')
+    expect(host.textContent).toContain('Connects your agent to Figma')
     expect(getCode(host)).toEqual([`${PLUGIN_INSTALL_COMMAND} --target cursor`])
     expect(host.querySelectorAll('[aria-label="Copy configuration"]')).toHaveLength(0)
     expect(host.querySelectorAll('[aria-label="Copy command"]')).toHaveLength(1)

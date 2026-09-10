@@ -186,6 +186,24 @@ afterEach(() => {
 })
 
 describe('mcp/tools/design-system', () => {
+  it('preserves WEB variable syntax for authoritative resource aliases', async () => {
+    stubFigma({
+      localCollections: [collection('collection:1', 'Theme')],
+      localVariables: [
+        variable('var:1', 'Brand/Surface', 'collection:1', {
+          codeSyntax: { WEB: 'var(--surface)' },
+          getSharedPluginData: (_namespace, key) =>
+            key === 'variable-key' ? 'product/surface' : ''
+        })
+      ]
+    })
+    const result = await handleGetDesignSystem()
+    expect(result.variables[0]?.cssName).toBe('--surface')
+    expect(
+      requireDesignSystemCatalog(result.catalogId).entries.get(result.variables[0]!.ref)?.definition
+    ).toMatchObject({ authoringKey: 'product/surface', codeSyntax: { WEB: 'var(--surface)' } })
+  })
+
   it('returns one custom tag per component family', async () => {
     const set = {
       id: 'set:button',
@@ -372,6 +390,7 @@ describe('mcp/tools/design-system', () => {
       {
         ref: 'v1',
         name: 'Text / Foreground',
+        cssName: '--text-foreground',
         collection: 'Semantic colors',
         type: 'color',
         scopes: ['ALL_FILLS'],
@@ -417,6 +436,72 @@ describe('mcp/tools/design-system', () => {
     expect(result.variables[0]?.defaultValue).toBe('#00FF80FF')
   })
 
+  it('skips unsupported motion variables and overrides without losing supported definitions', async () => {
+    const spacing = variable('variable:spacing', 'Spacing', 'collection:tokens', {
+      resolvedType: 'FLOAT',
+      valuesByMode: { 'collection:tokens:light': 16 }
+    })
+    const alias = variable('variable:alias', 'Spacing alias', 'collection:tokens', {
+      resolvedType: 'FLOAT',
+      valuesByMode: {
+        'collection:tokens:light': { type: 'VARIABLE_ALIAS', id: spacing.id }
+      }
+    })
+    const easing = variable('variable:easing', 'Easing', 'collection:tokens', {
+      resolvedType: 'EASING',
+      valuesByMode: { 'collection:tokens:light': { type: 'LINEAR' } }
+    })
+    const timing = variable('variable:timing', 'Timing', 'collection:tokens', {
+      resolvedType: 'TIMING',
+      valuesByMode: { 'collection:tokens:light': 200 }
+    })
+    const variables = [spacing, alias, easing, timing]
+    const tokens = collection('collection:tokens', 'Tokens', {
+      variableIds: variables.map(({ id }) => id)
+    })
+    const extended = {
+      ...collection('collection:extended', 'Extended tokens'),
+      isExtension: true,
+      parentVariableCollectionId: tokens.id,
+      rootVariableCollectionId: tokens.id,
+      modes: [
+        {
+          modeId: 'collection:extended:light',
+          name: 'Light',
+          parentModeId: tokens.defaultModeId
+        }
+      ],
+      variableOverrides: {
+        [spacing.id]: { 'collection:extended:light': 24 },
+        [easing.id]: { 'collection:extended:light': { type: 'EASE_IN' } },
+        [timing.id]: { 'collection:extended:light': 400 }
+      }
+    } as unknown as VariableCollection
+    stubFigma({ localCollections: [tokens, extended], localVariables: variables })
+
+    const result = await handleGetDesignSystem()
+    expect(result.variables.map(({ name }) => name)).toEqual(['Spacing', 'Spacing alias'])
+    expect(result.warnings).toEqual([
+      'Variables with unsupported types were skipped; only BOOLEAN, COLOR, FLOAT, and STRING are supported.'
+    ])
+    const catalog = requireDesignSystemCatalog(result.catalogId)
+    expect(catalog.entries.get(result.variables[1]!.ref)?.definition).toMatchObject({
+      valuesByMode: { 'collection:tokens:light': { variable: { id: spacing.id } } }
+    })
+    const extendedRef = result.collections.find(({ name }) => name === 'Extended tokens')!.ref
+    expect(catalog.entries.get(extendedRef)?.definition).toMatchObject({
+      variableOverrides: { [spacing.id]: { 'collection:extended:light': 24 } }
+    })
+    expect(catalog.entries.get(extendedRef)?.definition).not.toHaveProperty([
+      'variableOverrides',
+      easing.id
+    ])
+    expect(catalog.entries.get(extendedRef)?.definition).not.toHaveProperty([
+      'variableOverrides',
+      timing.id
+    ])
+  })
+
   it('summarizes styles and shaders while keeping exact definitions on demand', async () => {
     stubFigma({
       localStyles: [
@@ -460,6 +545,7 @@ describe('mcp/tools/design-system', () => {
       {
         ref: 's2',
         name: 'Typography / Heading',
+        className: 'type-typography-heading',
         type: 'text',
         signature: 'Inter Medium, 32px',
         summary: 'Page **heading**'

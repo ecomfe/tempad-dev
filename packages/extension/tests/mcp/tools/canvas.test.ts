@@ -310,7 +310,22 @@ function mockVariable(
     removeVariableCodeSyntax(platform: CodeSyntaxPlatform) {
       delete codeSyntax[platform]
     },
-    resolveForConsumer: vi.fn(),
+    resolveForConsumer: vi.fn((consumer: SceneNode) => {
+      let current: BaseNode | null = consumer
+      let mode = collection.defaultModeId
+      while (current && current.type !== 'DOCUMENT') {
+        const explicit =
+          'explicitVariableModes' in current
+            ? current.explicitVariableModes[collection.id]
+            : undefined
+        if (explicit) {
+          mode = explicit
+          break
+        }
+        current = current.parent
+      }
+      return { value: valuesByMode[mode], resolvedType }
+    }),
     remove: vi.fn()
   })
   return variable as unknown as Variable
@@ -2229,6 +2244,409 @@ describe('mcp/tools/canvas', () => {
     await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
+  it('updates native display names without changing stable identity or omitted state', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-fit h-fit">Guest</span></div>'
+    })
+    const root = fixture.getNode(created.rootNodeId!)
+    const copy = fixture.getNode(created.nodeIdsByKey.copy!) as unknown as TextNode
+    const update = {
+      mode: 'update' as const,
+      targetNodeId: root.id,
+      native: {
+        root: { figma: { name: 'Seating plan' } },
+        copy: { figma: { name: 'Guest name' } }
+      }
+    }
+
+    const updated = await applyCanvasFromTool(update)
+
+    expect(root.name).toBe('Seating plan')
+    expect(copy).toMatchObject({ name: 'Guest name', characters: 'Guest' })
+    expect(root.children.map((node) => node.id)).toEqual([copy.id])
+    expect(updated).toMatchObject({
+      nodeIdsByKey: created.nodeIdsByKey,
+      createdNodeIds: [],
+      updatedNodeIds: [root.id, copy.id],
+      removedNodeIds: []
+    })
+    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
+
+    await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: root.id,
+      native: {
+        root: { figma: { locked: true } },
+        copy: { figma: { locked: true } }
+      }
+    })
+    expect(root.name).toBe('Seating plan')
+    expect(copy.name).toBe('Guest name')
+
+    await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: root.id,
+      native: { root: { figma: { name: '' } } }
+    })
+    expect(root.name).toBe('')
+  })
+
+  it('updates native text properties without markup and preserves omitted typography', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-[240px] h-[80px] text-[20px] leading-[28px]">Guest</span></div>'
+    })
+    const copy = fixture.getNode(created.nodeIdsByKey.copy!) as unknown as TextNode
+    const update = {
+      mode: 'update' as const,
+      targetNodeId: created.rootNodeId!,
+      native: {
+        copy: {
+          figma: {
+            text: {
+              fontName: { family: 'IBM Plex Sans', style: 'Medium' },
+              verticalAlign: 'CENTER' as const,
+              paragraphSpacing: 8
+            }
+          }
+        }
+      }
+    }
+
+    await applyCanvasFromTool(update)
+    expect(copy).toMatchObject({
+      characters: 'Guest',
+      textAutoResize: 'NONE',
+      fontName: { family: 'IBM Plex Sans', style: 'Medium' },
+      textAlignVertical: 'CENTER',
+      paragraphSpacing: 8,
+      fontSize: 20,
+      lineHeight: { unit: 'PIXELS', value: 28 },
+      width: 240,
+      height: 80
+    })
+    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
+
+    copy.fontName = figma.mixed
+    copy.textAutoResize = 'TRUNCATE'
+    await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      native: { copy: { figma: { name: 'Guest name' } } }
+    })
+    expect(copy.fontName).toBe(figma.mixed)
+    expect(copy.textAutoResize).toBe('TRUNCATE')
+    expect(copy.characters).toBe('Guest')
+    expect(copy.textAlignVertical).toBe('CENTER')
+  })
+
+  it('updates native-only Auto Layout spacing and stacking while preserving the live layout', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-row flex-wrap w-[320px] h-[200px] gap-[8px] p-[16px] items-center"><div data-key="child" class="w-[40px] h-[20px]"></div></div>'
+    })
+    const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
+    const update = {
+      mode: 'update' as const,
+      targetNodeId: root.id,
+      native: {
+        root: {
+          figma: {
+            autoLayout: { itemSpacing: -12, counterAxisSpacing: 20, itemReverseZIndex: true }
+          }
+        }
+      }
+    }
+
+    await applyCanvasFromTool(update)
+    expect(root).toMatchObject({
+      itemSpacing: -12,
+      counterAxisSpacing: 20,
+      itemReverseZIndex: true,
+      layoutMode: 'HORIZONTAL',
+      layoutWrap: 'WRAP',
+      paddingLeft: 16,
+      paddingRight: 16,
+      counterAxisAlignItems: 'CENTER',
+      width: 320,
+      height: 200
+    })
+    expect(root.children.map((node) => node.id)).toEqual([created.nodeIdsByKey.child])
+    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
+
+    const synchronized = {
+      ...update,
+      native: {
+        root: {
+          figma: {
+            autoLayout: { itemSpacing: 0, counterAxisSpacing: null, itemReverseZIndex: false }
+          }
+        }
+      }
+    }
+    await applyCanvasFromTool(synchronized)
+    expect(root).toMatchObject({ itemSpacing: 0, counterAxisSpacing: 0, itemReverseZIndex: false })
+    await expect(applyCanvasFromTool(synchronized)).resolves.toMatchObject({ mutationCount: 0 })
+
+    await applyCanvasFromTool({
+      ...update,
+      native: { root: { figma: { autoLayout: { itemSpacing: 6 } } } }
+    })
+    expect(root).toMatchObject({ itemSpacing: 6, counterAxisSpacing: 6, itemReverseZIndex: false })
+  })
+
+  it.each<CanvasFigmaProperties>([
+    { text: { paragraphSpacing: 8 } },
+    { shape: { type: 'RECTANGLE' } },
+    { section: { contentsHidden: true } },
+    { group: true },
+    { booleanOperation: 'UNION' },
+    { component: { type: 'COMPONENT' } },
+    { slot: {} }
+  ])(
+    'rejects native-only type declarations that do not match the live frame: %j',
+    async (properties) => {
+      const fixture = createFixture()
+      const created = await applyCanvasFromTool({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[120px] h-[80px]"></div>'
+      })
+      const root = fixture.getNode(created.rootNodeId!)
+
+      await expect(
+        applyCanvasFromTool({
+          mode: 'update',
+          targetNodeId: root.id,
+          native: { root: { figma: { ...properties, name: 'Must not be applied' } } }
+        })
+      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      expect(root).toMatchObject({ name: 'root', type: 'FRAME', width: 120, height: 80 })
+    }
+  )
+
+  it.each([
+    { classes: 'w-[120px] h-[80px]', autoLayout: { itemSpacing: 4 } },
+    { classes: 'grid grid-cols-2 w-[120px] h-[80px]', autoLayout: { itemSpacing: 4 } },
+    { classes: 'flex flex-row w-[120px] h-[80px]', autoLayout: { counterAxisSpacing: 4 } }
+  ])(
+    'rejects native-only Auto Layout state incompatible with the live layout: %j',
+    async ({ classes, autoLayout }) => {
+      const fixture = createFixture()
+      const created = await applyCanvasFromTool({
+        mode: 'create',
+        markup: `<div data-key="root" class="${classes}"></div>`
+      })
+      const root = fixture.getNode(created.rootNodeId!)
+      await expect(
+        applyCanvasFromTool({
+          mode: 'update',
+          targetNodeId: root.id,
+          native: { root: { figma: { autoLayout, name: 'Must not be applied' } } }
+        })
+      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      expect(root.name).toBe('root')
+    }
+  )
+
+  it.each<CanvasFigmaProperties>([
+    { corners: { radius: 8 } },
+    { corners: { smoothing: 0.5 } },
+    { stroke: { weights: { top: 1, right: 2, bottom: 3, left: 4 } } }
+  ])('rejects native-only geometry unsupported by a text node: %j', async (properties) => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[120px] h-[80px]"><span data-key="copy" class="w-fit h-fit">Text</span></div>'
+    })
+    const copy = fixture.getNode(created.nodeIdsByKey.copy!)
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: copy.id,
+        native: { copy: { figma: { ...properties, name: 'Must not be applied' } } }
+      })
+    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    expect(copy.name).toBe('copy')
+  })
+
+  it('resolves native-only component property definitions before dependent sublayer bindings', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="card" class="flex flex-col w-[200px] h-[100px]"><span data-key="title" class="w-fit h-fit">Title</span></div>',
+      native: { card: { figma: { component: { type: 'COMPONENT' } } } }
+    })
+    const card = fixture.getNode(created.rootNodeId!) as unknown as ComponentNode
+    const title = fixture.getNode(created.nodeIdsByKey.title!) as unknown as TextNode
+    const update = {
+      mode: 'update' as const,
+      targetNodeId: card.id,
+      native: {
+        title: { figma: { componentPropertyReferences: { characters: 'title' } } },
+        card: {
+          figma: {
+            component: {
+              type: 'COMPONENT' as const,
+              properties: { title: { type: 'TEXT' as const, name: 'Title', defaultValue: 'Title' } }
+            }
+          }
+        }
+      }
+    }
+
+    await applyCanvasFromTool(update)
+    const propertyName = Object.keys(card.componentPropertyDefinitions).find((name) =>
+      name.startsWith('Title#')
+    )!
+    expect(propertyName).toBeDefined()
+    expect(title.componentPropertyReferences).toEqual({ characters: propertyName })
+    expect(card.children.map((node) => node.id)).toEqual([title.id])
+    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('preserves Auto Layout translation while resolving native-only vector Pattern references', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-row w-[200px] h-[100px]"><div data-key="icon" class="w-[24px] h-[24px]"></div><div data-key="source" class="w-[24px] h-[24px]"></div></div>',
+      native: {
+        icon: {
+          figma: {
+            shape: {
+              type: 'VECTOR',
+              paths: [{ windingRule: 'NONZERO', data: 'M 0 0 L 24 0 L 0 24 Z' }]
+            }
+          }
+        }
+      }
+    })
+    const icon = fixture.getNode(created.nodeIdsByKey.icon!) as unknown as VectorNode
+    const source = fixture.getNode(created.nodeIdsByKey.source!)
+    const translation = [icon.relativeTransform[0][2], icon.relativeTransform[1][2]]
+    const update = {
+      mode: 'update' as const,
+      targetNodeId: created.rootNodeId!,
+      native: {
+        icon: {
+          figma: {
+            relativeTransform: [
+              [0, -1, 300],
+              [1, 0, 400]
+            ],
+            shape: {
+              type: 'VECTOR',
+              network: {
+                vertices: [
+                  { x: 0, y: 0 },
+                  { x: 24, y: 0 },
+                  { x: 0, y: 24 }
+                ],
+                segments: [
+                  { start: 0, end: 1 },
+                  { start: 1, end: 2 },
+                  { start: 2, end: 0 }
+                ],
+                regions: [
+                  {
+                    windingRule: 'NONZERO',
+                    loops: [[0, 1, 2]],
+                    fills: [
+                      {
+                        type: 'PATTERN',
+                        sourceCanvasKey: 'source',
+                        tileType: 'RECTANGULAR',
+                        scalingFactor: 1,
+                        spacing: { x: 0, y: 0 },
+                        horizontalAlignment: 'START'
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+
+    await applyCanvasFromTool(update)
+    expect(icon.relativeTransform).toEqual([
+      [0, -1, translation[0]],
+      [1, 0, translation[1]]
+    ])
+    expect(icon.vectorNetwork.regions?.[0]?.fills).toMatchObject([
+      { type: 'PATTERN', sourceNodeId: source.id }
+    ])
+    expect(icon).toMatchObject({ width: 24, height: 24 })
+    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('rejects conflicting native-only exact fonts and text styles before mutation', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[200px] h-[100px]"><span data-key="copy" class="w-fit h-fit">Text</span></div>',
+      styles: {
+        body: {
+          type: 'TEXT',
+          name: 'Body',
+          fontName: { family: 'Inter', style: 'Regular' },
+          fontSize: 16
+        }
+      }
+    })
+    const copy = fixture.getNode(created.nodeIdsByKey.copy!) as unknown as TextNode
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        native: {
+          copy: {
+            styles: { text: { styleKey: 'body' } },
+            figma: {
+              name: 'Must not be applied',
+              text: { fontName: { family: 'Roboto', style: 'Bold' } }
+            }
+          }
+        }
+      })
+    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    expect(copy).toMatchObject({ name: 'copy', textStyleId: '' })
+    const update = {
+      mode: 'update' as const,
+      targetNodeId: created.rootNodeId!,
+      native: { copy: { styles: { text: { styleKey: 'body' } } } }
+    }
+    await applyCanvasFromTool(update)
+    expect(copy.textStyleId).not.toBe('')
+    expect(copy.fontName).toEqual({ family: 'Inter', style: 'Regular' })
+    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
+
+    const unlinked = {
+      ...update,
+      native: {
+        copy: {
+          styles: { text: null },
+          figma: { text: { fontName: { family: 'Roboto', style: 'Bold' } } }
+        }
+      }
+    }
+    await applyCanvasFromTool(unlinked)
+    expect(copy).toMatchObject({ textStyleId: '', fontName: { family: 'Roboto', style: 'Bold' } })
+    await expect(applyCanvasFromTool(unlinked)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
   it('rejects a markup-less native key outside the update scope', async () => {
     const fixture = createFixture()
     const created = await applyCanvasFromTool({
@@ -3938,6 +4356,50 @@ describe('mcp/tools/canvas', () => {
     })
   })
 
+  it('warns when filled children hide a rounded parent stroke', async () => {
+    const fixture = createFixture()
+    const markup =
+      '<div data-key="phone" class="flex flex-col w-[390px] h-[844px] border-[2px] border-[#17212B] rounded-[28px] overflow-hidden box-border"><div data-key="phone/header" class="w-full h-[50px] bg-white"></div><div data-key="phone/body" class="grow w-full h-fit"></div><div data-key="phone/nav" class="w-full h-[64px] bg-white"></div></div>'
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup
+    })
+    const nav = fixture.getNode(created.nodeIdsByKey['phone/nav']!) as SceneNode
+    nav.y = 780
+    const phone = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      markup
+    })
+
+    expect(phone.verification).toMatchObject({
+      status: 'warning',
+      warnings: expect.arrayContaining([
+        {
+          code: 'managed-rounded-stroke-occlusion',
+          key: 'phone/header',
+          message: expect.stringMatching(/top-left and top-right.*rounded.*parent "phone"/)
+        },
+        {
+          code: 'managed-rounded-stroke-occlusion',
+          key: 'phone/nav',
+          message: expect.stringMatching(/bottom-right and bottom-left.*parent stroke behind/)
+        }
+      ])
+    })
+
+    const inset = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="inset" class="flex flex-col w-[390px] h-[844px] border-[2px] border-[#17212B] rounded-[28px] overflow-hidden box-border"><div data-key="inset/header" class="w-full h-[50px] rounded-[28px] bg-white"></div><div data-key="inset/body" class="grow w-full h-fit"></div><div data-key="inset/nav" class="w-full h-[64px] rounded-[28px] bg-white"></div></div>'
+    })
+    expect(inset.verification.warnings).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'managed-rounded-stroke-occlusion' })
+      ])
+    )
+  })
+
   it('warns when a fixed start-aligned auto-layout leaves unmodeled trailing space', async () => {
     const fixture = createFixture()
     const looseMarkup =
@@ -5213,6 +5675,100 @@ describe('mcp/tools/canvas', () => {
       cornerSmoothing: 0
     })
     await expect(applyCanvas(updated)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('updates native stroke and corner geometry without markup and preserves omitted appearance', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><div data-key="shape" class="w-[80px] h-[48px] bg-[#112233] border-[2px] border-[#445566] rounded-[4px] opacity-50"></div></div>',
+      native: { shape: { figma: { shape: { type: 'RECTANGLE' } } } }
+    })
+    const root = fixture.getNode(created.rootNodeId!)
+    const shape = fixture.getNode(created.nodeIdsByKey.shape!) as unknown as RectangleNode
+    const fills = shape.fills
+    const strokes = shape.strokes
+    const update = {
+      mode: 'update' as const,
+      targetNodeId: root.id,
+      native: {
+        shape: {
+          figma: {
+            stroke: {
+              weight: 5,
+              align: 'OUTSIDE' as const,
+              cap: 'SQUARE' as const,
+              join: 'BEVEL' as const,
+              miterLimit: 6,
+              dashPattern: [4, 3]
+            },
+            corners: { radius: 10, smoothing: 0.75 }
+          }
+        }
+      }
+    }
+
+    await applyCanvasFromTool(update)
+    expect(shape).toMatchObject({
+      strokeWeight: 5,
+      strokeAlign: 'OUTSIDE',
+      strokeCap: 'SQUARE',
+      strokeJoin: 'BEVEL',
+      strokeMiterLimit: 6,
+      dashPattern: [4, 3],
+      cornerRadius: 10,
+      cornerSmoothing: 0.75,
+      width: 80,
+      height: 48,
+      opacity: 0.5,
+      fills,
+      strokes
+    })
+    expect(root.children.map((node) => node.id)).toEqual([shape.id])
+    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
+
+    await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: root.id,
+      native: {
+        shape: { figma: { stroke: { dashPattern: [] }, corners: { smoothing: 0 } } }
+      }
+    })
+    expect(shape).toMatchObject({
+      strokeWeight: 5,
+      strokeAlign: 'OUTSIDE',
+      dashPattern: [],
+      cornerRadius: 10,
+      cornerSmoothing: 0
+    })
+
+    const individual = {
+      mode: 'update' as const,
+      targetNodeId: root.id,
+      native: {
+        shape: {
+          figma: {
+            stroke: { weights: { top: 0, right: 2, bottom: 3, left: 4 } },
+            corners: { radii: { topLeft: 0, topRight: 6, bottomRight: 7, bottomLeft: 8 } }
+          }
+        }
+      }
+    }
+    await applyCanvasFromTool(individual)
+    expect(shape).toMatchObject({
+      strokeTopWeight: 0,
+      strokeRightWeight: 2,
+      strokeBottomWeight: 3,
+      strokeLeftWeight: 4,
+      topLeftRadius: 0,
+      topRightRadius: 6,
+      bottomRightRadius: 7,
+      bottomLeftRadius: 8,
+      fills,
+      strokes
+    })
+    await expect(applyCanvasFromTool(individual)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
   it('binds every stroke and corner variable field and preserves bound geometry', async () => {
@@ -10542,6 +11098,319 @@ describe('mcp/tools/canvas', () => {
     expect(fixture.getNode(result.rootNodeId!).boundVariables.itemSpacing).toEqual({
       type: 'VARIABLE_ALIAS',
       id: spacing.id
+    })
+  })
+
+  it('creates a local theme, binds its consumers, and reuses it without redefining resources', async () => {
+    const fixture = createFixture()
+    const theme = {
+      variables: {
+        '--surface': { variableKey: 'product/surface' },
+        '--space': { variableKey: 'product/space' }
+      },
+      textStyles: { 'type-body': { styleKey: 'product/body' } }
+    }
+    const markup =
+      '<div data-key="card" class="flex flex-col w-[320px] h-[200px] bg-(--surface) gap-(--space)"><span data-key="body" class="w-full h-fit type-body">你好</span></div>'
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup,
+      theme,
+      variableCollections: {
+        product: {
+          name: 'Product',
+          modes: { light: { name: 'Light' }, dark: { name: 'Dark' } },
+          variables: {
+            'product/surface': {
+              name: 'Surface',
+              type: 'COLOR',
+              values: { light: { r: 1, g: 1, b: 1 }, dark: { r: 0, g: 0, b: 0 } }
+            },
+            'product/space': { name: 'Space', type: 'FLOAT', values: { light: 16, dark: 20 } }
+          }
+        }
+      },
+      styles: {
+        'product/body': {
+          type: 'TEXT',
+          name: 'Product/Body',
+          fontName: { family: 'Inter', style: 'Regular' },
+          fontSize: 18,
+          lineHeight: { unit: 'PIXELS', value: 28 }
+        }
+      }
+    })
+    const findVariable = (key: string) =>
+      [...fixture.variables.values()].find(
+        (variable) => variable.getSharedPluginData?.('tempad_dev', 'variable-key') === key
+      )!
+    const card = fixture.getNode(created.rootNodeId!)
+    const body = fixture.getNode(created.nodeIdsByKey.body!) as unknown as TextNode
+    expect(card.boundVariables.itemSpacing).toMatchObject({ id: findVariable('product/space').id })
+    expect((card.fills as SolidPaint[])[0]!.boundVariables?.color).toMatchObject({
+      id: findVariable('product/surface').id
+    })
+    expect(body.textStyleId).toBe(
+      [...fixture.styles.values()].find((style) => style.name === 'Product/Body')!.id
+    )
+    expect(body.fontSize).toBe(18)
+    expect(created.verification.warnings).toEqual([])
+    const updated = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: card.id,
+      markup,
+      theme
+    })
+    expect(updated.mutationCount).toBe(0)
+    expect(
+      [...fixture.styles.values()].filter((style) => style.name === 'Product/Body')
+    ).toHaveLength(1)
+    const changed = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: card.id,
+      markup,
+      theme,
+      variableCollections: {
+        product: { variables: { 'product/space': { values: { light: 24, dark: 32 } } } }
+      }
+    })
+    expect(changed.verification.warnings).toEqual([])
+    expect(card.boundVariables.itemSpacing).toMatchObject({ id: findVariable('product/space').id })
+  })
+
+  it.each(['key', 'id'])(
+    'adds and consumes theme tokens in an existing collection identified by %s',
+    async (identity) => {
+      const fixture = createFixture()
+      const created = await applyCanvasFromTool({
+        mode: 'create',
+        markup: '<div data-key="root" class="flex flex-col w-[320px] h-[200px] gap-4"/>',
+        variableCollections: {
+          metrics: {
+            name: 'Metrics',
+            modes: { light: { name: 'Light' }, dark: { name: 'Dark' } },
+            variables: {
+              small: { name: 'Small', type: 'FLOAT', values: { light: 16, dark: 20 } }
+            }
+          }
+        }
+      })
+      const collection = [...fixture.variableCollections.values()].find(
+        (value) => value.name === 'Metrics'
+      )!
+      const update = {
+        mode: 'update' as const,
+        targetNodeId: created.rootNodeId!,
+        markup:
+          '<div data-key="root" class="flex flex-col w-[320px] h-[200px] gap-(--space) p-(--inset)"/>',
+        theme: {
+          variables: {
+            '--space': { variableKey: 'large-alias' },
+            '--inset': { variableKey: 'large' }
+          }
+        },
+        variableCollections: {
+          metrics: {
+            ...(identity === 'id' ? { id: collection.id } : {}),
+            variables: {
+              large: { name: 'Large', type: 'FLOAT', values: { light: 24, dark: 32 } },
+              'large-alias': {
+                name: 'Large alias',
+                type: 'FLOAT',
+                values: {
+                  light: { variable: { variableKey: 'large' } },
+                  dark: { variable: { variableKey: 'large' } }
+                }
+              }
+            }
+          }
+        }
+      }
+      const updated = await applyCanvasFromTool(update)
+      const root = fixture.getNode(updated.rootNodeId!)
+      const large = [...fixture.variables.values()].find((value) => value.name === 'Large')!
+      const alias = [...fixture.variables.values()].find((value) => value.name === 'Large alias')!
+      expect(root.boundVariables.itemSpacing).toMatchObject({ id: alias.id })
+      expect(root.boundVariables.paddingTop).toMatchObject({ id: large.id })
+      expect(large.valuesByMode[collection.defaultModeId]).toBe(24)
+      expect(collection.modes.map((mode) => mode.name)).toEqual(['Light', 'Dark'])
+      expect((await applyCanvasFromTool(update)).mutationCount).toBe(0)
+    }
+  )
+
+  it('places absolute edges from live mode and same-call variable values, idempotently', async () => {
+    const fixture = createFixture()
+    vi.mocked(figma.createFrame).mockImplementation(() => {
+      const node = fixture.createNode('FRAME')
+      for (const axis of ['width', 'height'] as const) {
+        let literal = node[axis]
+        Object.defineProperty(node, axis, {
+          get: () => {
+            const alias = node.boundVariables[axis] as VariableAlias | undefined
+            const value = alias && fixture.variables.get(alias.id)?.resolveForConsumer(node).value
+            return typeof value === 'number' ? value : literal
+          },
+          set: (value: number) => {
+            literal = value
+          }
+        })
+      }
+      return node as unknown as FrameNode
+    })
+    const spec: CanvasResolvedApplyParameters = {
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="w-(--parent-w) h-(--parent-h)"><div data-key="badge" class="absolute right-[16px] bottom-[12px] w-(--child-w) h-(--child-h)"/></div>',
+      theme: {
+        variables: {
+          '--parent-w': { variableKey: 'parent-w' },
+          '--parent-h': { variableKey: 'parent-h' },
+          '--child-w': { variableKey: 'child-w' },
+          '--child-h': { variableKey: 'child-h' }
+        }
+      },
+      variableCollections: {
+        metrics: {
+          name: 'Metrics',
+          modes: { light: { name: 'Light' }, dark: { name: 'Dark' } },
+          variables: {
+            'parent-w': { name: 'Parent width', type: 'FLOAT', values: { light: 320, dark: 640 } },
+            'parent-h': { name: 'Parent height', type: 'FLOAT', values: { light: 180, dark: 360 } },
+            'child-w': { name: 'Child width', type: 'FLOAT', values: { light: 100, dark: 200 } },
+            'child-h': { name: 'Child height', type: 'FLOAT', values: { light: 30, dark: 60 } }
+          }
+        }
+      },
+      bindings: { root: { variableModes: { metrics: 'dark' } } }
+    }
+    const created = await applyCanvas(spec)
+    const badge = fixture.getNode(created.nodeIdsByKey.badge!)
+    expect([badge.x, badge.y]).toEqual([424, 288])
+    spec.mode = 'update'
+    spec.targetNodeId = created.rootNodeId!
+    delete spec.variableCollections
+    expect((await applyCanvas(spec)).mutationCount).toBe(0)
+    spec.bindings!.root!.variableModes = { metrics: 'light' }
+    await applyCanvas(spec)
+    expect([badge.x, badge.y]).toEqual([204, 138])
+    spec.variableCollections = {
+      metrics: {
+        variables: {
+          'parent-w': { values: { light: 800 } },
+          'child-w': { values: { light: 120 } }
+        }
+      }
+    }
+    await applyCanvas(spec)
+    expect([badge.x, badge.y]).toEqual([664, 138])
+    delete spec.variableCollections
+    expect((await applyCanvas(spec)).mutationCount).toBe(0)
+  })
+
+  it('replaces an authored typography variable with a TextStyle in one update', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[300px] h-[100px]"><span data-key="label" class="w-full h-fit text-(length:--size)">Hello</span></div>',
+      theme: { variables: { '--size': { variableKey: 'type/size' } } },
+      variableCollections: {
+        typography: {
+          name: 'Typography',
+          modes: { base: { name: 'Base' } },
+          variables: { 'type/size': { name: 'Size', type: 'FLOAT', values: { base: 18 } } }
+        }
+      }
+    })
+    const label = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+    expect(label.boundVariables?.fontSize).toBeDefined()
+    const updated = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      markup:
+        '<div data-key="root" class="flex flex-col w-[300px] h-[100px]"><span data-key="label" class="w-full h-fit type-body">Hello</span></div>',
+      theme: { textStyles: { 'type-body': { styleKey: 'type/body' } } },
+      native: { label: { variables: { fontSize: null } } },
+      styles: {
+        'type/body': {
+          type: 'TEXT',
+          name: 'Body',
+          fontName: { family: 'Inter', style: 'Regular' },
+          fontSize: 16
+        }
+      }
+    })
+    expect(updated.nodeIdsByKey.label).toBe(label.id)
+    expect(label.boundVariables?.fontSize).toBeUndefined()
+    expect(label.textStyleId).not.toBe('')
+    expect(label.fontSize).toBe(16)
+  })
+
+  it.each([
+    { styles: ['Light', 'Medium', 'Regular Italic'], weight: 'font-[400]', expected: 'Light' },
+    { styles: ['Medium', 'Light', 'Regular Italic'], weight: 'font-[400]', expected: 'Medium' },
+    { styles: ['Light', 'Regular', 'Medium'], weight: 'font-[400]', expected: 'Regular' },
+    { styles: ['Bold Italic', 'Regular', 'Light'], weight: 'font-bold', expected: 'Regular' }
+  ])(
+    'preserves closest-font ordering and slant for $styles with $weight',
+    async ({ styles, weight, expected }) => {
+      const fixture = createFixture()
+      fixture.listAvailableFontsAsync.mockResolvedValue(
+        styles.map((style) => ({ fontName: { family: 'Test Family', style } }))
+      )
+      const created = await applyCanvasFromTool({
+        mode: 'create',
+        markup: `<div data-key="root" class="flex flex-col w-[300px] h-[100px]"><span data-key="label" class="w-fit h-fit font-[family-name:Test_Family] ${weight}">Text</span></div>`
+      })
+      const label = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+      expect(label.fontName).toEqual({ family: 'Test Family', style: expected })
+    }
+  )
+
+  it('loads the available font face for the consumer mode before binding family and weight tokens', async () => {
+    const fixture = createFixture()
+    fixture.listAvailableFontsAsync.mockResolvedValue([
+      { fontName: { family: 'Noto Sans SC', style: 'Regular' } },
+      { fontName: { family: 'Noto Sans SC', style: 'SemiBold' } },
+      { fontName: { family: 'Noto Sans TC', style: 'DemiBold' } }
+    ])
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="label" class="w-full h-fit font-(family-name:--family) font-(--weight)">中文</span></div>',
+      theme: {
+        variables: {
+          '--family': { variableKey: 'type/family' },
+          '--weight': { variableKey: 'type/weight' }
+        }
+      },
+      variableCollections: {
+        typography: {
+          name: 'Typography',
+          modes: { light: { name: 'Light' }, dark: { name: 'Dark' } },
+          variables: {
+            'type/family': {
+              name: 'Family',
+              type: 'STRING',
+              values: { light: 'Noto Sans SC', dark: 'Noto Sans TC' }
+            },
+            'type/weight': { name: 'Weight', type: 'FLOAT', values: { light: 600, dark: 600 } }
+          }
+        }
+      },
+      native: { root: { variableModes: { typography: 'dark' } } }
+    })
+    const label = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+    expect(label.fontName).toEqual({ family: 'Noto Sans TC', style: 'DemiBold' })
+    expect(fixture.loadFontAsync).toHaveBeenCalledWith({
+      family: 'Noto Sans TC',
+      style: 'DemiBold'
+    })
+    expect(label.boundVariables?.fontFamily).toBeDefined()
+    expect(label.boundVariables?.fontWeight).toBeDefined()
+    expect(fixture.loadFontAsync).not.toHaveBeenCalledWith({
+      family: 'Noto Sans TC',
+      style: 'Semi Bold'
     })
   })
 

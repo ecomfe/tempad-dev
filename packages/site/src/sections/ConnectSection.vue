@@ -6,276 +6,60 @@ import type {
 } from '@tempad-dev/shared'
 
 import { AGENT_INTEGRATIONS } from '@tempad-dev/shared'
-import { Copy, ExternalLink, FileText, SquareTerminal } from 'lucide-vue-next'
-import {
-  computed,
-  defineAsyncComponent,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch
-} from 'vue'
+import { Check, Copy, ExternalLink } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 
 import ActionButton from '@/components/ActionButton.vue'
 import BrandIcon from '@/components/BrandIcon.vue'
 import SectionShell from '@/components/SectionShell.vue'
-import { SITE_LINKS } from '@/content/landing'
+import { useSiteColorMode } from '@/composables/useSiteColorMode'
+import { AGENT_SETUP_SHOT, SITE_LINKS, type SiteSkill } from '@/content/landing'
 
 type FeedbackKind = 'success' | 'info' | 'error'
-
-type TerminalSegment = {
-  kind: 'text' | 'label' | 'code' | 'code-secondary' | 'diff-add' | 'diff-del'
-  text: string
-}
-
-type TerminalLineKind = 'prompt' | 'body' | 'sub' | 'mcp' | 'agent'
-
-type TerminalEntry =
-  | { kind: 'divider' }
-  | { kind: TerminalLineKind; segments: readonly TerminalSegment[] }
-
-type TerminalContentEntry = Exclude<TerminalEntry, { kind: 'divider' }>
-
-type RenderedTerminalEntry =
-  | { kind: 'divider' }
-  | {
-      kind: TerminalLineKind
-      cursor: boolean
-      segments: readonly TerminalSegment[]
-    }
-
 const agents = AGENT_INTEGRATIONS
-const SkillPreviewDialog = defineAsyncComponent(() => import('@/components/SkillPreviewDialog.vue'))
-
+const emit = defineEmits<{ 'open-skill': [skill: SiteSkill] }>()
 const feedback = ref<{ kind: FeedbackKind; text: string } | null>(null)
-const isSkillPreviewOpen = ref(false)
-const hasLoadedSkillPreview = ref(false)
-const activeTerminalEntryIndex = ref(0)
-const activeTerminalCharCount = ref(0)
+const copiedText = ref<string | null>(null)
 const selectedAgentId = ref<AgentIntegrationId>('codex')
-const terminalCardRef = ref<HTMLElement | null>(null)
-const terminalViewportRef = ref<HTMLElement | null>(null)
-function getAgentDescription(agent: AgentIntegrationConfig): string {
-  return agent.actions.some(({ id }) => id.startsWith('plugin-'))
-    ? 'Install one portable plugin with MCP access and both agent skills.'
-    : 'Use client-specific MCP and skill setup when plugins are not supported.'
-}
-
-const terminalEntries: readonly TerminalEntry[] = [
-  {
-    kind: 'prompt',
-    segments: [{ kind: 'text', text: '› Implement the Figma selection with HTML/CSS' }]
-  },
-  {
-    kind: 'body',
-    segments: [
-      { kind: 'text', text: '• Using the ' },
-      { kind: 'code', text: 'figma-design-to-code' },
+const selectedAgent = computed(() => agents.find(({ id }) => id === selectedAgentId.value)!)
+const pluginInstallLink = computed(() =>
+  selectedAgent.value.actions.find(({ id }) => id === 'plugin-prompt')
+)
+const setupGroups = computed(() => {
+  const { actions } = selectedAgent.value
+  const pluginCommand = actions.find(({ id }) => id === 'plugin-cli')
+  if (pluginCommand) {
+    return [
       {
-        kind: 'text',
-        text: ' skill for this turn. I’m reading the repo and the skill instructions first so I can map the selected Figma node into the existing codebase instead of generating disconnected markup.'
+        id: 'plugin',
+        title: 'Install the Agent Plugin',
+        copy: 'Run in your terminal. Includes MCP and both skills.',
+        actions: [pluginCommand]
       }
     ]
-  },
-  {
-    kind: 'body',
-    segments: [
-      { kind: 'text', text: '• ' },
-      { kind: 'label', text: 'Explored' }
-    ]
-  },
-  {
-    kind: 'sub',
-    segments: [
-      { kind: 'text', text: '└ ' },
-      { kind: 'code', text: 'Read' },
-      { kind: 'text', text: ' SKILL.md' }
-    ]
-  },
-  { kind: 'divider' },
-  {
-    kind: 'body',
-    segments: [
-      { kind: 'text', text: '• ' },
-      { kind: 'label', text: 'Explored' }
-    ]
-  },
-  {
-    kind: 'sub',
-    segments: [
-      { kind: 'text', text: '└ ' },
-      { kind: 'code', text: 'Read' },
-      { kind: 'text', text: ' index.html, styles.css' }
-    ]
-  },
-  { kind: 'divider' },
-  {
-    kind: 'mcp',
-    segments: [
-      { kind: 'text', text: '• ' },
-      { kind: 'label', text: 'Called' },
-      { kind: 'text', text: ' ' },
-      { kind: 'code', text: 'tempad-dev.get_code' },
-      { kind: 'text', text: '(' },
-      { kind: 'code-secondary', text: '{"preferredLang":"jsx","resolveTokens":false}' },
-      { kind: 'text', text: ')' }
-    ]
-  },
-  {
-    kind: 'sub',
-    segments: [
-      { kind: 'text', text: '└ Generated ' },
-      { kind: 'code', text: 'jsx' },
-      { kind: 'text', text: ' snippet (1.7 kB). No binary assets were attached to this response.' }
-    ]
-  },
-  { kind: 'divider' },
-  {
-    kind: 'agent',
-    segments: [
-      {
-        kind: 'text',
-        text: '• I have the TemPad output now. I’m translating it into the host HTML/CSS structure without inventing styles outside the design evidence.'
-      }
-    ]
-  },
-  { kind: 'divider' },
-  {
-    kind: 'body',
-    segments: [
-      { kind: 'text', text: '• ' },
-      { kind: 'label', text: 'Edited' },
-      { kind: 'text', text: ' index.html (' },
-      { kind: 'diff-add', text: '+6' },
-      { kind: 'text', text: ' ' },
-      { kind: 'diff-del', text: '-0' },
-      { kind: 'text', text: ')' }
-    ]
-  },
-  {
-    kind: 'body',
-    segments: [
-      { kind: 'text', text: '• ' },
-      { kind: 'label', text: 'Edited' },
-      { kind: 'text', text: ' styles.css (' },
-      { kind: 'diff-add', text: '+18' },
-      { kind: 'text', text: ' ' },
-      { kind: 'diff-del', text: '-4' },
-      { kind: 'text', text: ')' }
-    ]
-  }
-] as const
-
-const renderedTerminalEntries = computed<readonly RenderedTerminalEntry[]>(() => {
-  const entries: RenderedTerminalEntry[] = []
-
-  for (const [index, entry] of terminalEntries.entries()) {
-    if (index > activeTerminalEntryIndex.value) {
-      break
-    }
-
-    if (entry.kind === 'divider') {
-      entries.push({ kind: 'divider' })
-      continue
-    }
-
-    entries.push({
-      kind: entry.kind,
-      cursor: index === activeTerminalEntryIndex.value,
-      segments: getRenderedSegments(entry, index)
-    })
   }
 
-  return entries
+  return [
+    {
+      id: 'mcp',
+      title: 'Connect MCP',
+      copy: actions.some(({ kind }) => kind === 'config')
+        ? 'Add this to your OpenCode configuration.'
+        : actions.some(({ id }) => id === 'mcp-deep-link')
+          ? 'Add TemPad Dev in your agent.'
+          : 'Run in your terminal.',
+      actions: actions.filter(({ id }) => id.startsWith('mcp-'))
+    },
+    {
+      id: 'skills',
+      title: 'Install both skills',
+      copy: 'Run in your terminal for canvas authoring and design-to-code.',
+      actions: actions.filter(({ id }) => id.startsWith('skill-'))
+    }
+  ]
 })
-
+const { resolvedColorMode } = useSiteColorMode()
 let feedbackTimer: number | undefined
-let terminalTimer: number | undefined
-let terminalObserver: IntersectionObserver | undefined
-let terminalRestartPending = false
-
-function setTerminalIdleState(): void {
-  activeTerminalEntryIndex.value = 0
-  activeTerminalCharCount.value = 1
-}
-
-function getRenderedSegments(
-  entry: TerminalContentEntry,
-  index: number
-): readonly TerminalSegment[] {
-  if (index !== activeTerminalEntryIndex.value) {
-    return entry.segments
-  }
-
-  return sliceSegments(entry.segments, activeTerminalCharCount.value)
-}
-
-function getEntryLength(entry: TerminalContentEntry): number {
-  return entry.segments.reduce((sum, segment) => sum + segment.text.length, 0)
-}
-
-function getEntryText(entry: TerminalContentEntry): string {
-  return entry.segments.map((segment) => segment.text).join('')
-}
-
-function getPreferredChunkSize(kind: TerminalLineKind): number {
-  switch (kind) {
-    case 'prompt':
-      return 14 + Math.floor(Math.random() * 12)
-    case 'mcp':
-      return 18 + Math.floor(Math.random() * 14)
-    case 'sub':
-      return 16 + Math.floor(Math.random() * 12)
-    default:
-      return 22 + Math.floor(Math.random() * 18)
-  }
-}
-
-function getNextChunkCharCount(entry: TerminalContentEntry, currentCount: number): number {
-  const fullText = getEntryText(entry)
-
-  if (currentCount >= fullText.length) {
-    return currentCount
-  }
-
-  const preferredChunkSize = getPreferredChunkSize(entry.kind)
-  const target = Math.min(currentCount + preferredChunkSize, fullText.length)
-
-  if (target === fullText.length) {
-    return target
-  }
-
-  const boundary = fullText.slice(target).search(/[ .,;:)}\]]/)
-
-  if (boundary < 0) {
-    return fullText.length
-  }
-
-  return Math.min(target + boundary + 1, fullText.length)
-}
-
-function sliceSegments(
-  segments: readonly TerminalSegment[],
-  visibleChars: number
-): readonly TerminalSegment[] {
-  let remainingChars = visibleChars
-
-  return segments.flatMap((segment) => {
-    if (remainingChars <= 0) {
-      return []
-    }
-
-    const text = segment.text.slice(0, remainingChars)
-    remainingChars -= text.length
-
-    if (!text) {
-      return []
-    }
-
-    return [{ kind: segment.kind, text }]
-  })
-}
 
 function showFeedback(text: string, kind: FeedbackKind = 'success'): void {
   if (feedbackTimer) {
@@ -285,6 +69,7 @@ function showFeedback(text: string, kind: FeedbackKind = 'success'): void {
   feedback.value = { kind, text }
   feedbackTimer = window.setTimeout(() => {
     feedback.value = null
+    copiedText.value = null
   }, 2400)
 }
 
@@ -304,6 +89,7 @@ async function writeClipboard(text: string, successMessage: string): Promise<voi
       document.body.removeChild(textarea)
     }
 
+    copiedText.value = text
     showFeedback(successMessage)
   } catch {
     showFeedback('Clipboard access failed. Please copy it manually.', 'error')
@@ -347,27 +133,6 @@ function openDeepLink(action: AgentIntegrationAction, agent: AgentIntegrationCon
   window.location.href = action.value
 }
 
-function getActionLabel(action: AgentIntegrationAction, agent: AgentIntegrationConfig): string {
-  switch (action.id) {
-    case 'plugin-prompt':
-      return `Open ${agent.name}`
-    case 'plugin-cli':
-      return 'Plugin command'
-    case 'mcp-deep-link':
-      return 'Install MCP'
-    case 'mcp-cli':
-      return 'MCP command'
-    case 'mcp-config':
-      return 'MCP config'
-    case 'skill-cli':
-      return 'Skills command'
-    case 'skill-design-to-code-cli':
-      return 'Code skill command'
-    case 'skill-canvas-authoring-cli':
-      return 'Canvas skill command'
-  }
-}
-
 function handleAgentAction(action: AgentIntegrationAction, agent: AgentIntegrationConfig): void {
   if (action.kind === 'deep-link') {
     openDeepLink(action, agent)
@@ -380,319 +145,132 @@ function handleAgentAction(action: AgentIntegrationAction, agent: AgentIntegrati
 
 function selectAdjacentAgent(direction: -1 | 1): void {
   const index = agents.findIndex(({ id }) => id === selectedAgentId.value)
-  const nextIndex = (index + direction + agents.length) % agents.length
-  selectedAgentId.value = agents[nextIndex]?.id ?? 'codex'
-
-  nextTick(() =>
-    document.querySelector<HTMLElement>(`#site-agent-tab-${selectedAgentId.value}`)?.focus()
-  )
+  selectedAgentId.value = agents[(index + direction + agents.length) % agents.length]!.id
+  void nextTick(() => document.getElementById(`site-agent-${selectedAgentId.value}`)?.focus())
 }
-
-function handleOpenSkillPreview(): void {
-  hasLoadedSkillPreview.value = true
-  isSkillPreviewOpen.value = true
-}
-
-function scheduleTerminalAdvance(delay: number): void {
-  terminalTimer = window.setTimeout(advanceTerminalAnimation, delay)
-}
-
-function clearTerminalTimer(): void {
-  if (terminalTimer) {
-    window.clearTimeout(terminalTimer)
-    terminalTimer = undefined
-  }
-}
-
-function getRandomDelay(min: number, max: number): number {
-  return Math.round(min + Math.random() * (max - min))
-}
-
-function advanceTerminalAnimation(): void {
-  if (terminalRestartPending) {
-    terminalRestartPending = false
-    setTerminalIdleState()
-    scheduleTerminalAdvance(getRandomDelay(700, 1100))
-    return
-  }
-
-  const currentEntry = terminalEntries[activeTerminalEntryIndex.value]
-
-  if (!currentEntry) {
-    terminalTimer = undefined
-    return
-  }
-
-  if (currentEntry.kind === 'divider') {
-    activeTerminalEntryIndex.value += 1
-    activeTerminalCharCount.value = 0
-    scheduleTerminalAdvance(getRandomDelay(220, 360))
-    return
-  }
-
-  const entryLength = getEntryLength(currentEntry)
-
-  if (activeTerminalCharCount.value < entryLength) {
-    activeTerminalCharCount.value = getNextChunkCharCount(
-      currentEntry,
-      activeTerminalCharCount.value
-    )
-    scheduleTerminalAdvance(
-      currentEntry.kind === 'prompt' ? getRandomDelay(80, 160) : getRandomDelay(100, 220)
-    )
-    return
-  }
-
-  if (activeTerminalEntryIndex.value >= terminalEntries.length - 1) {
-    terminalRestartPending = true
-    scheduleTerminalAdvance(getRandomDelay(5000, 5600))
-    return
-  }
-
-  activeTerminalEntryIndex.value += 1
-  activeTerminalCharCount.value = 0
-  scheduleTerminalAdvance(getRandomDelay(260, 520))
-}
-
-function startTerminalAnimation(): void {
-  clearTerminalTimer()
-  terminalRestartPending = false
-
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-  if (reducedMotion) {
-    activeTerminalEntryIndex.value = terminalEntries.length - 1
-    const lastEntry = terminalEntries[terminalEntries.length - 1]
-
-    if (!lastEntry || lastEntry.kind === 'divider') {
-      activeTerminalCharCount.value = 0
-      return
-    }
-
-    activeTerminalCharCount.value = getEntryLength(lastEntry)
-    return
-  }
-
-  setTerminalIdleState()
-  scheduleTerminalAdvance(getRandomDelay(700, 1100))
-}
-
-watch([activeTerminalEntryIndex, activeTerminalCharCount], async () => {
-  await nextTick()
-
-  const viewport = terminalViewportRef.value
-
-  if (!viewport) {
-    return
-  }
-
-  viewport.scrollTop = viewport.scrollHeight
-})
-
-onMounted(() => {
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-  if (reducedMotion) {
-    startTerminalAnimation()
-    return
-  }
-
-  const target = terminalCardRef.value
-
-  if (!target || typeof IntersectionObserver === 'undefined') {
-    startTerminalAnimation()
-    return
-  }
-
-  terminalObserver = new IntersectionObserver(
-    (entries) => {
-      const [entry] = entries
-
-      if (!entry?.isIntersecting) {
-        return
-      }
-
-      startTerminalAnimation()
-      terminalObserver?.disconnect()
-      terminalObserver = undefined
-    },
-    {
-      threshold: 0.45
-    }
-  )
-
-  terminalObserver.observe(target)
-})
 
 onBeforeUnmount(() => {
-  if (feedbackTimer) {
-    window.clearTimeout(feedbackTimer)
-  }
-
-  if (terminalObserver) {
-    terminalObserver.disconnect()
-  }
-
-  clearTerminalTimer()
+  if (feedbackTimer) window.clearTimeout(feedbackTimer)
 })
 </script>
 
 <template>
-  <SectionShell
-    id="connect"
-    eyebrow="Connect"
-    title="Connect design and code"
-    copy="TemPad Dev packages MCP access and two design workflows as one portable Agent Plugin, with client-specific setup only where plugins are not supported."
-  >
-    <div class="site-connect-layout">
-      <div class="site-connect-setup">
-        <div class="site-connect-row">
-          <div class="site-connect-row-head">
-            <p class="site-connect-row-step">Step 1</p>
-            <p class="site-connect-row-label">Open TemPad Dev in Figma</p>
-            <p class="site-connect-row-copy">
-              Enable MCP access under Preferences → Agent integration, then keep the panel open in
-              the file you want the agent to inspect or, when editable, update.
-            </p>
-          </div>
-          <div class="site-connect-actions">
-            <ActionButton
-              :href="SITE_LINKS.install"
-              external
-              variant="primary"
-              class="site-connect-action-button"
-            >
-              <ExternalLink aria-hidden="true" />
-              <span>Install extension</span>
-            </ActionButton>
-            <ActionButton
-              type="button"
-              variant="secondary"
-              class="site-connect-action-button"
-              @click="handleOpenSkillPreview"
-            >
-              <FileText aria-hidden="true" />
-              <span>View skill</span>
-            </ActionButton>
-          </div>
+  <SectionShell id="connect" title="Set up TemPad Dev">
+    <div class="site-connect-workbench">
+      <div class="site-extension-setup">
+        <div class="site-connect-intro">
+          <h3 class="site-connect-stage-title">Start in Figma</h3>
+          <p>Open a Figma file, then enable MCP access in Preferences → Agent integration.</p>
+          <ActionButton :href="SITE_LINKS.install" external>
+            <ExternalLink aria-hidden="true" /><span>Install extension</span>
+          </ActionButton>
+          <p class="site-connect-row-copy">
+            Keep the Figma file and TemPad Dev open while your agent works.
+          </p>
         </div>
-
-        <div class="site-connect-row">
-          <div class="site-connect-row-head">
-            <p class="site-connect-row-step">Step 2</p>
-            <p class="site-connect-row-label">Set up your agent</p>
-            <p class="site-connect-row-copy">
-              Choose an agent. The setup uses the open plugin format first and falls back to its
-              native MCP and skill flow only when needed.
-            </p>
-          </div>
-          <div class="site-client-quicklist" role="tablist" aria-label="Agent">
-            <button
-              v-for="agent in agents"
-              :id="`site-agent-tab-${agent.id}`"
-              :key="agent.id"
-              type="button"
-              role="tab"
-              class="site-client-icon-button"
-              :aria-label="agent.name"
-              :aria-selected="selectedAgentId === agent.id"
-              :aria-controls="`site-connect-agent-panel-${agent.id}`"
-              :tabindex="selectedAgentId === agent.id ? 0 : -1"
-              :title="agent.name"
-              @click="selectedAgentId = agent.id"
-              @keydown.left.prevent="selectAdjacentAgent(-1)"
-              @keydown.up.prevent="selectAdjacentAgent(-1)"
-              @keydown.right.prevent="selectAdjacentAgent(1)"
-              @keydown.down.prevent="selectAdjacentAgent(1)"
-            >
-              <BrandIcon :client-id="agent.id" />
+        <figure class="site-setup-figure">
+          <img
+            class="site-shot-image"
+            :src="AGENT_SETUP_SHOT[resolvedColorMode]"
+            :alt="AGENT_SETUP_SHOT.alt"
+            :width="AGENT_SETUP_SHOT.width"
+            :height="AGENT_SETUP_SHOT.height"
+            loading="lazy"
+          />
+        </figure>
+      </div>
+      <div class="site-agent-setup">
+        <div class="site-connect-stage-head">
+          <h3 class="site-connect-stage-title">Connect your agent</h3>
+          <span class="site-active-agent-name">{{ selectedAgent.name }}</span>
+        </div>
+        <div class="site-agent-logos" role="tablist" aria-label="Coding agent">
+          <button
+            v-for="agent in agents"
+            :id="`site-agent-${agent.id}`"
+            :key="agent.id"
+            type="button"
+            role="tab"
+            class="site-agent-logo-button"
+            :aria-label="agent.name"
+            :title="agent.name"
+            :aria-selected="selectedAgentId === agent.id"
+            aria-controls="site-agent-configuration"
+            :tabindex="selectedAgentId === agent.id ? 0 : -1"
+            @click="selectedAgentId = agent.id"
+            @keydown.left.prevent="selectAdjacentAgent(-1)"
+            @keydown.right.prevent="selectAdjacentAgent(1)"
+          >
+            <BrandIcon :client-id="agent.id" />
+          </button>
+        </div>
+        <p class="site-connect-requirement">Node.js 22.x, 24.x, or 26+ required.</p>
+        <div
+          id="site-agent-configuration"
+          class="site-setup-options"
+          role="tabpanel"
+          :aria-labelledby="`site-agent-${selectedAgentId}`"
+          tabindex="0"
+        >
+          <section v-for="group in setupGroups" :key="group.id" class="site-setup-group">
+            <div class="site-setup-group-heading">
+              <h4>{{ group.title }}</h4>
+              <p class="site-connect-row-copy">{{ group.copy }}</p>
+            </div>
+            <div class="site-setup-group-actions">
+              <div v-for="action in group.actions" :key="action.id" class="site-setup-action">
+                <ActionButton
+                  v-if="action.kind === 'deep-link'"
+                  type="button"
+                  variant="secondary"
+                  class="site-connect-action-button"
+                  @click="handleAgentAction(action, selectedAgent)"
+                >
+                  <ExternalLink aria-hidden="true" />
+                  <span>Install MCP in {{ selectedAgent.name }}</span>
+                </ActionButton>
+                <div v-else class="site-setup-command">
+                  <pre :aria-label="action.label"><code>{{ action.value }}</code></pre>
+                  <button
+                    type="button"
+                    class="site-command-copy"
+                    :aria-label="`Copy ${action.label}`"
+                    :title="copiedText === action.value ? 'Copied' : `Copy ${action.label}`"
+                    @click="handleAgentAction(action, selectedAgent)"
+                  >
+                    <Check v-if="copiedText === action.value" aria-hidden="true" />
+                    <Copy v-else aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+              <p v-if="group.id === 'plugin' && pluginInstallLink" class="site-setup-alternative">
+                Or
+                <button
+                  type="button"
+                  class="site-text-link"
+                  @click="handleAgentAction(pluginInstallLink, selectedAgent)"
+                >
+                  open {{ selectedAgent.name }} to install it →
+                </button>
+              </p>
+            </div>
+          </section>
+        </div>
+        <div class="site-setup-resources">
+          <div class="site-skill-links">
+            <button type="button" class="site-text-link" @click="emit('open-skill', 'canvas')">
+              Canvas skill
+            </button>
+            <button type="button" class="site-text-link" @click="emit('open-skill', 'code')">
+              Design-to-code skill
             </button>
           </div>
-          <div class="site-connect-agent-panels">
-            <div
-              v-for="agent in agents"
-              :id="`site-connect-agent-panel-${agent.id}`"
-              :key="agent.id"
-              class="site-connect-agent-panel"
-              :class="{ 'is-selected': selectedAgentId === agent.id }"
-              role="tabpanel"
-              :aria-labelledby="`site-agent-tab-${agent.id}`"
-              :aria-hidden="selectedAgentId === agent.id ? undefined : 'true'"
-              :inert="selectedAgentId !== agent.id"
-            >
-              <div class="site-connect-agent-copy">
-                <p class="site-connect-agent-name">{{ agent.name }}</p>
-                <p class="site-connect-agent-description" :title="getAgentDescription(agent)">
-                  {{ getAgentDescription(agent) }}
-                </p>
-              </div>
-              <div class="site-connect-actions">
-                <ActionButton
-                  v-for="(action, index) in agent.actions"
-                  :key="action.id"
-                  type="button"
-                  :variant="index === 0 ? 'primary' : 'secondary'"
-                  class="site-connect-action-button"
-                  @click="handleAgentAction(action, agent)"
-                >
-                  <ExternalLink v-if="action.kind === 'deep-link'" aria-hidden="true" />
-                  <Copy v-else aria-hidden="true" />
-                  <span>{{ getActionLabel(action, agent) }}</span>
-                </ActionButton>
-              </div>
-            </div>
-          </div>
+          <a class="site-text-link" :href="SITE_LINKS.agentGuide" target="_blank" rel="noopener"
+            >Setup guide →</a
+          >
         </div>
       </div>
-
-      <article ref="terminalCardRef" class="site-agent-card">
-        <div class="site-agent-card-head">
-          <span class="site-agent-card-title">
-            <SquareTerminal aria-hidden="true" />
-            <span>Terminal</span>
-          </span>
-          <span class="site-agent-card-note">example turn</span>
-        </div>
-
-        <div ref="terminalViewportRef" class="site-terminal">
-          <template
-            v-for="(entry, index) in renderedTerminalEntries"
-            :key="`${entry.kind}-${index}`"
-          >
-            <div v-if="entry.kind === 'divider'" class="site-terminal-divider" />
-            <p
-              v-else
-              class="site-terminal-line"
-              :class="`is-${entry.kind}`"
-              :data-cursor="entry.cursor ? 'true' : undefined"
-            >
-              <template v-for="(segment, segmentIndex) in entry.segments" :key="segmentIndex">
-                <strong v-if="segment.kind === 'label'" class="site-terminal-label">
-                  {{ segment.text }}
-                </strong>
-                <code
-                  v-else-if="
-                    segment.kind === 'code' ||
-                    segment.kind === 'code-secondary' ||
-                    segment.kind === 'diff-add' ||
-                    segment.kind === 'diff-del'
-                  "
-                  :class="{
-                    'is-secondary': segment.kind === 'code-secondary',
-                    'is-diff-add': segment.kind === 'diff-add',
-                    'is-diff-del': segment.kind === 'diff-del'
-                  }"
-                >
-                  {{ segment.text }}
-                </code>
-                <template v-else>{{ segment.text }}</template>
-              </template>
-            </p>
-          </template>
-        </div>
-      </article>
     </div>
-
     <Transition name="site-feedback-popup">
       <p
         v-if="feedback"
@@ -703,11 +281,5 @@ onBeforeUnmount(() => {
         {{ feedback.text }}
       </p>
     </Transition>
-
-    <SkillPreviewDialog
-      v-if="hasLoadedSkillPreview"
-      :open="isSkillPreviewOpen"
-      @close="isSkillPreviewOpen = false"
-    />
   </SectionShell>
 </template>

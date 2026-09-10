@@ -53,8 +53,8 @@ This document records the current context-control strategy for TemPad Dev MCP ou
      `resources/read`.
    - Canvas inputs use small inline SVG or a full Hub SHA-256 hash. Hash-addressed bytes cross only
      the bounded extension bridge.
-6. `get_design_system` returns a deterministic immutable catalog rather than a file dump.
-   - It is called only when existing-resource reuse is permitted and relevant; direct or new local
+6. `get_design_system` separates resource definitions from environment font availability.
+   - Resource discovery returns a deterministic immutable catalog only when existing-resource reuse is permitted and relevant; direct or new local
      resource authoring does not require it.
    - Normal discovery targets 16 KiB and uses short catalog-scoped refs.
    - It reads definitions only and performs no canvas-usage, text, semantic, or relevance retrieval.
@@ -62,6 +62,13 @@ This document records the current context-control strategy for TemPad Dev MCP ou
    - Component discovery uses optimized type-filtered queries on already-accessible pages and never
      loads a page; variables, styles, and shaders use their file-level definition APIs.
    - Omitted counts and a cursor expose the remaining immutable catalog without another read.
+   - Variable `cssName` and TEXT-style `className` aliases refer to exact catalog identities;
+     collisions are disambiguated, never matched by equal values or first occurrence.
+   - `scope: "fonts"` reads only `listAvailableFontsAsync()`, including for independent designs.
+     Search returns family names; up to eight exact families return native faces and explicit
+     missing families. Each page is capped at 32 entries and 12 KiB of structured data; cursors
+     repeat the same filters against current environment availability. Names are never truncated
+     into unusable font identities. Availability does not imply glyph coverage.
    - An exact component ref returns a bounded usage contract with valid variants, default layout,
      semantic anatomy, and a node id for selective visual inspection; every exact result remains
      under the shared 64 KiB limit.
@@ -70,6 +77,10 @@ This document records the current context-control strategy for TemPad Dev MCP ou
      always-on context.
    - Complete, executable variable/style and component recipes live in matching progressive skill
      references and are contract-tested against the public and resolved schemas.
+   - Call-scoped `theme` maps CSS names and `type-*` classes to existing catalog refs or local
+     authoring keys. The markup compiler lowers these to the same native bindings as explicit
+     attributes/sidecars. New systems can define and consume resources in one call; later calls
+     reuse stable keys without sending definitions. No persistent implicit theme registry is added.
    - Visual verification is one explicit `get_screenshot` call after new or materially changed
      visual work, not an automatic response payload or iterative loop.
    - Resolved native-schema failures return at most four actionable field paths and bounded
