@@ -472,7 +472,8 @@ pnpm agent-eval:log finish \
 A new valid finish checks that the rollout began after the note was frozen,
 contains one original task prompt, matches the session task ID and frozen
 model/effort, and has matching extension/runtime and presented TemPad skill
-locator evidence. Malformed JSON, additional task prompts, missing settings,
+locator evidence. Every successful `apply_canvas` result must carry runtime
+identity. Malformed JSON, additional task prompts, missing settings,
 and changes within the recorded execution fail this integrity check. An invalid
 finish may omit rollout and artifacts if dispatch identity is unknown.
 

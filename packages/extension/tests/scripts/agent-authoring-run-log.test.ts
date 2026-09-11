@@ -316,6 +316,44 @@ describe('agent authoring run log', () => {
     ).not.toThrow()
   })
 
+  it.each([false, true])(
+    'checks missing runtime evidence after a verified apply (isError=%s)',
+    (isError) => {
+      const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:15.000Z')
+      const unverifiedApply = row({
+        timestamp: '2026-08-29T00:00:40.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'item_completed',
+          item: {
+            type: 'McpToolCall',
+            server: 'tempad-dev-dev',
+            tool: 'apply_canvas',
+            arguments: {
+              mode: 'update',
+              targetNodeId: '1:2',
+              native: { root: { figma: { name: 'Updated' } } }
+            },
+            result: { isError },
+            status: 'completed'
+          }
+        }
+      })
+      const finish = () =>
+        buildFinishEvent(
+          start,
+          review(),
+          {
+            source: 'run.jsonl',
+            text: rollout() + unverifiedApply
+          },
+          '2026-08-29T00:01:00.000Z'
+        )
+      if (isError) expect(finish).not.toThrow()
+      else expect(finish).toThrow('locked runtime evidence')
+    }
+  )
+
   it('rejects cross-task dispatch from a valid live run', () => {
     const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:11.000Z')
     const delegated = {

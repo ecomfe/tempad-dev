@@ -80,8 +80,9 @@ satisfy, so those package commands failed despite high aggregate coverage.
   must be opt-in and version-negotiated rather than changing the default flow.
 - **Completed: full asset content identity.** Extension, Hub, store paths, browser bridge, and shared
   contracts use one complete lowercase SHA-256 digest and verify it after upload and download.
-  Internal callers migrated together; no short-ID compatibility path remains. The random capability
-  URL—not the digest—continues to authorize loopback access.
+  Internal callers migrated together; the Hub retains download-only support for legacy 8-character
+  identifiers until cached assets expire. The random capability URL—not the digest—continues to
+  authorize loopback access.
 - **Completed: Hub admission and activation extraction.** Port selection and handshake admission now
   live in a testable WebSocket server module with real loopback integration tests for accepted and
   rejected Origins/paths, connection limits, occupied-port fallback, and exhaustion. Registration,
