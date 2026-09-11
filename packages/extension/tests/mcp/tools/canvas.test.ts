@@ -1225,6 +1225,14 @@ function createFixture(): FigmaFixture {
             if (fields.includes('hyperlink')) {
               segment.hyperlink = rangeValue(start, end, 'hyperlink', text.hyperlink)
             }
+            if (fields.includes('textDecorationColor')) {
+              segment.textDecorationColor = rangeValue(
+                start,
+                end,
+                'textDecorationColor',
+                text.textDecorationColor
+              )
+            }
             if (fields.includes('boundVariables')) {
               const variables = { ...text.boundVariables } as Record<string, VariableAlias>
               const prefix = `${start}:${end}:variable:`
@@ -3576,6 +3584,57 @@ describe('mcp/tools/canvas', () => {
     })
   })
 
+  it('combines existing keyed components into a new component set', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[400px] h-[400px]"><div data-key="a" class="w-[100px] h-[40px]"></div><div data-key="b" class="w-[100px] h-[40px]"></div></div>',
+      native: {
+        a: { figma: { name: 'State=A', component: { type: 'COMPONENT' } } },
+        b: { figma: { name: 'State=B', component: { type: 'COMPONENT' } } }
+      }
+    })
+    const a = fixture.getNode(created.nodeIdsByKey.a!) as unknown as ComponentNode
+    const instance = a.createInstance()
+    const input = {
+      mode: 'update' as const,
+      targetNodeId: created.rootNodeId!,
+      markup:
+        '<div data-key="root" class="flex flex-col w-[400px] h-[400px]"><div data-key="set" class="flex flex-col w-[200px] h-[120px]"><div data-key="a" class="w-[100px] h-[40px]"></div><div data-key="b" class="w-[100px] h-[40px]"></div></div></div>',
+      native: { set: { figma: { component: { type: 'COMPONENT_SET' as const } } } }
+    }
+    const updated = await applyCanvasFromTool(input)
+    expect(updated.nodeIdsByKey.a).toBe(a.id)
+    expect(updated.nodeIdsByKey.b).toBe(created.nodeIdsByKey.b)
+    expect(instance.mainComponent?.id).toBe(a.id)
+    expect(updated.createdNodeIds).toEqual([updated.nodeIdsByKey.set])
+    const reapplied = await applyCanvasFromTool(input)
+    expect(reapplied.createdNodeIds).toEqual([])
+    expect(reapplied.mutationCount).toBe(0)
+  })
+
+  it('moves existing nested nodes into sibling positions in a new group', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[400px] h-[400px]"><div data-key="a" class="w-[100px] h-[100px]"><div data-key="b" class="absolute left-[0px] top-[0px] w-[20px] h-[20px]"></div></div></div>'
+    })
+    const updated = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      markup:
+        '<div data-key="root" class="flex flex-col w-[400px] h-[400px]"><div data-key="group" class="w-fit h-fit"><div data-key="a" class="absolute left-[0px] top-[0px] w-[100px] h-[100px]"></div><div data-key="b" class="absolute left-[0px] top-[0px] w-[20px] h-[20px]"></div></div></div>',
+      native: { group: { figma: { group: true } } }
+    })
+    expect(fixture.getNode(updated.nodeIdsByKey.group!).children.map((child) => child.id)).toEqual([
+      created.nodeIdsByKey.a,
+      created.nodeIdsByKey.b
+    ])
+    expect(updated.createdNodeIds).toEqual([updated.nodeIdsByKey.group])
+  })
+
   it('authors reusable components and variant sets idempotently', async () => {
     const fixture = createFixture()
     const input: CanvasResolvedApplyParameters = {
@@ -4615,7 +4674,7 @@ describe('mcp/tools/canvas', () => {
   it('creates and selects variants from exact variant and component-set ids', async () => {
     const fixture = createFixture()
     const authored = await applyCanvasFromTool({
-      mode: 'create',
+      mode: 'create' as const,
       markup:
         '<div data-key="set" class="flex flex-row w-[280px] h-[80px]"><div data-key="default" class="w-[120px] h-[40px]"></div><div data-key="active" class="w-[120px] h-[40px]"></div></div>',
       native: {
@@ -4645,8 +4704,8 @@ describe('mcp/tools/canvas', () => {
       }
     })
 
-    const screen = await applyCanvasFromTool({
-      mode: 'create',
+    const screenInput = {
+      mode: 'create' as const,
       markup:
         '<div data-key="screen" class="flex flex-col w-[320px] h-[200px]"><div data-key="screen/direct" class="w-[120px] h-[40px]"></div><div data-key="screen/default" class="w-[120px] h-[40px]"></div><div data-key="screen/active" class="w-[120px] h-[40px]"></div></div>',
       native: {
@@ -4657,7 +4716,8 @@ describe('mcp/tools/canvas', () => {
           componentProperties: { State: 'Active' }
         }
       }
-    })
+    }
+    const screen = await applyCanvasFromTool(screenInput)
 
     const direct = fixture.getNode(screen.nodeIdsByKey['screen/direct']!) as InstanceNode
     const fromSet = fixture.getNode(screen.nodeIdsByKey['screen/default']!) as InstanceNode
@@ -4665,6 +4725,24 @@ describe('mcp/tools/canvas', () => {
     expect((await direct.getMainComponentAsync())?.id).toBe(variant.id)
     expect((await fromSet.getMainComponentAsync())?.id).toBe(variant.id)
     expect((await selected.getMainComponentAsync())?.id).toBe(active.id)
+    const reapplied = await applyCanvasFromTool({
+      ...screenInput,
+      mode: 'update',
+      targetNodeId: screen.rootNodeId!
+    })
+    expect(reapplied.mutationCount).toBe(0)
+    expect(selected.swapComponent).not.toHaveBeenCalled()
+    expect((await selected.getMainComponentAsync())?.id).toBe(active.id)
+
+    await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: screen.rootNodeId!,
+      native: { 'screen/active': { component: { id: variant.id } } }
+    })
+    expect(vi.mocked(selected.swapComponent).mock.calls.map(([component]) => component.id)).toEqual(
+      [variant.id]
+    )
+    expect((await selected.getMainComponentAsync())?.id).toBe(variant.id)
   })
 
   it('claims instance ownership when its key matches the inherited definition key', async () => {
@@ -6776,65 +6854,56 @@ describe('mcp/tools/canvas', () => {
     expect(vector.removed).toBe(true)
   })
 
-  it('imports Hub image assets without putting bytes in the canvas payload', async () => {
-    const fixture = createFixture()
-    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-    const digest = await crypto.subtle.digest('SHA-256', bytes)
-    const hash = Array.from(new Uint8Array(digest))
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('')
-    const downloader = vi.fn().mockResolvedValue({
-      base64: btoa(String.fromCharCode(...bytes)),
-      hash,
-      mimeType: 'image/png',
-      size: bytes.byteLength
-    })
-    setAssetDownloader(downloader)
-
-    const result = await applyCanvas({
-      mode: 'create',
-      markup: '<div data-key="hero" class="w-[320px] h-[180px]"></div>',
-      assets: {
-        hero: { type: 'IMAGE', assetHash: hash }
-      },
-      bindings: {
-        hero: {
-          figma: {
-            fills: [{ type: 'IMAGE', assetKey: 'hero', scaleMode: 'FILL' }]
-          }
-        }
-      }
-    })
-
-    const root = fixture.getNode(result.rootNodeId!)
-    expect(downloader).toHaveBeenCalledWith(hash)
-    expect(fixture.createImage).toHaveBeenCalledWith(bytes)
-    expect(root.fills[0]).toMatchObject({
-      imageHash: `image:${Array.from(bytes).join(',')}`,
-      scaleMode: 'FILL',
-      type: 'IMAGE'
-    })
-    expect(root.fills[0]).not.toHaveProperty('assetKey')
-
-    await expect(
-      applyCanvas({
-        mode: 'update',
-        targetNodeId: result.rootNodeId!,
-        markup: '<div data-key="hero" class="w-[320px] h-[180px]"></div>',
-        assets: {
-          hero: { type: 'IMAGE', assetHash: hash }
-        },
-        bindings: {
-          hero: {
-            figma: {
-              fills: [{ type: 'IMAGE', assetKey: 'hero', scaleMode: 'FILL' }]
-            }
-          }
-        }
+  it.each(['node', 'style'] as const)(
+    'imports Hub image assets referenced by a %s without putting bytes in the canvas payload',
+    async (consumer) => {
+      const fixture = createFixture()
+      const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+      const digest = await crypto.subtle.digest('SHA-256', bytes)
+      const hash = Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join('')
+      const downloader = vi.fn().mockResolvedValue({
+        base64: btoa(String.fromCharCode(...bytes)),
+        hash,
+        mimeType: 'image/png',
+        size: bytes.byteLength
       })
-    ).resolves.toMatchObject({ mutationCount: 0 })
-    expect(fixture.createImage).toHaveBeenCalledOnce()
-  })
+      setAssetDownloader(downloader)
+      const paint = { type: 'IMAGE', assetKey: 'hero', scaleMode: 'FILL' } as const
+      const input: CanvasResolvedApplyParameters = {
+        mode: 'create',
+        markup: '<div data-key="hero" class="w-[320px] h-[180px]"></div>',
+        assets: { hero: { type: 'IMAGE', assetHash: hash } },
+        ...(consumer === 'style'
+          ? {
+              styles: { hero: { type: 'PAINT', name: 'Hero image', paints: [paint] } },
+              bindings: { hero: { styles: { fill: { styleKey: 'hero' } } } }
+            }
+          : { bindings: { hero: { figma: { fills: [paint] } } } })
+      }
+
+      const result = await applyCanvas(input)
+      const root = fixture.getNode(result.rootNodeId!)
+      const paints =
+        consumer === 'style'
+          ? (fixture.styles.get(root.fillStyleId)! as PaintStyle).paints
+          : root.fills
+      expect(downloader).toHaveBeenCalledWith(hash)
+      expect(fixture.createImage).toHaveBeenCalledWith(bytes)
+      expect(paints[0]).toMatchObject({
+        imageHash: `image:${Array.from(bytes).join(',')}`,
+        scaleMode: 'FILL',
+        type: 'IMAGE'
+      })
+      expect(paints[0]).not.toHaveProperty('assetKey')
+
+      await expect(
+        applyCanvas({ ...input, mode: 'update', targetNodeId: result.rootNodeId! })
+      ).resolves.toMatchObject({ mutationCount: 0 })
+      expect(fixture.createImage).toHaveBeenCalledOnce()
+    }
+  )
 
   it('imports URL video paints once per result and reconciles their native hash', async () => {
     const fixture = createFixture()
@@ -8679,6 +8748,24 @@ describe('mcp/tools/canvas', () => {
     ).resolves.toMatchObject({ mutationCount: 0 })
   })
 
+  it('restores automatic grid rows when only a removed cell needs staging', async () => {
+    const fixture = createFixture()
+    const markup = (key: string) =>
+      `<div data-key="grid" class="grid grid-cols-1 w-[200px] h-[120px]"><div data-key="${key}" class="w-full h-full"></div></div>`
+    const created = await applyCanvasFromTool({ mode: 'create', markup: markup('old') })
+    const grid = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
+    const update = {
+      mode: 'update' as const,
+      targetNodeId: created.rootNodeId!,
+      markup: markup('new'),
+      removeKeys: ['old']
+    }
+    await applyCanvasFromTool(update)
+    expect(grid.gridAutoTracks).toBe('ROWS')
+    expect(grid.gridRowCount).toBe(1)
+    await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
   it('reconciles manual placement with native automatic rows', async () => {
     const fixture = createFixture()
     const input: CanvasResolvedApplyParameters = {
@@ -9499,6 +9586,39 @@ describe('mcp/tools/canvas', () => {
       rootRemoved: true,
       removedNodeIds: [created.rootNodeId!]
     })
+  })
+
+  it('protects instance descendants used by external node hyperlinks', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex w-[240px] h-[120px]"><div data-key="action" class="w-[80px] h-[40px]"></div></div>',
+      bindings: { action: { component: { id: 'component:1' } } }
+    })
+    const instance = fixture.getNode(created.nodeIdsByKey.action!)
+    const child = fixture.createNode('TEXT')
+    instance.appendChild(child)
+    const link = fixture.createNode('TEXT') as unknown as TextNode
+    link.hyperlink = { type: 'NODE', value: child.id }
+    const removal: CanvasResolvedApplyParameters = {
+      mode: 'remove',
+      targetNodeId: instance.id
+    }
+
+    await expect(applyCanvas(removal)).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      message: expect.stringContaining('still referenced outside')
+    })
+    expect(instance.removed).toBe(false)
+    expect(child.removed).toBe(false)
+
+    link.hyperlink = null
+    await expect(applyCanvas(removal)).resolves.toMatchObject({
+      rootRemoved: true,
+      removedNodeIds: [instance.id]
+    })
+    expect(child.removed).toBe(true)
   })
 
   it('protects update roots used by live rich-text node hyperlinks', async () => {
@@ -10638,6 +10758,141 @@ describe('mcp/tools/canvas', () => {
     expect(collection.modes.map((mode) => mode.name)).toEqual(['Light'])
     expect(added.valuesByMode).toEqual({ [collection.defaultModeId]: 12 })
   })
+
+  it.each(['variable', 'collection'] as const)(
+    'protects instance property bindings during %s removal until explicitly replaced',
+    async (resource) => {
+      const fixture = createFixture()
+      const markup =
+        '<div data-key="root" class="flex w-[240px] h-[120px]"><div data-key="action" class="w-[80px] h-[40px]"></div></div>'
+      const created = await applyCanvas({
+        mode: 'create',
+        markup,
+        variableCollections: {
+          tokens: {
+            name: 'Tokens',
+            modes: { base: { name: 'Base' } },
+            variables: {
+              label: { name: 'Label', type: 'STRING', values: { base: 'Save' } }
+            }
+          }
+        },
+        bindings: {
+          action: {
+            component: { id: 'component:1' },
+            componentProperties: { Label: { variable: { variableKey: 'label' } } }
+          }
+        }
+      })
+      const instance = fixture.getNode(created.nodeIdsByKey.action!) as unknown as InstanceNode
+      const variableId = instance.componentProperties.Label!.boundVariables!.value!.id
+      const variable = fixture.variables.get(variableId)!
+      const removal: CanvasResolvedApplyParameters = {
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        markup,
+        variableCollections: {
+          tokens: resource === 'collection' ? null : { variables: { label: null } }
+        }
+      }
+
+      await expect(applyCanvas(removal)).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+        message: expect.stringContaining('still used by')
+      })
+      expect(variable.remove).not.toHaveBeenCalled()
+      expect(instance.componentProperties.Label!.boundVariables!.value!.id).toBe(variableId)
+
+      await expect(
+        applyCanvas({
+          ...removal,
+          bindings: { action: { componentProperties: { Label: 'Save' } } }
+        })
+      ).resolves.toMatchObject({ verification: { status: 'passed' } })
+      expect(fixture.variables.has(variableId)).toBe(false)
+      expect(instance.componentProperties.Label!.boundVariables?.value).toBeUndefined()
+    }
+  )
+
+  it.each(['variable', 'collection'] as const)(
+    'protects rich-text decoration colors during %s removal until explicitly cleared',
+    async (resource) => {
+      const fixture = createFixture()
+      const created = await applyCanvasFromTool({
+        mode: 'create',
+        markup:
+          '<div data-key="root" class="flex w-[240px] h-[120px]"><span data-key="copy" class="w-fit h-fit">Read more</span></div>',
+        variableCollections: {
+          tokens: {
+            name: 'Tokens',
+            modes: { base: { name: 'Base' } },
+            variables: {
+              accent: { name: 'Accent', type: 'COLOR', values: { base: { r: 1, g: 0, b: 0 } } }
+            }
+          }
+        },
+        native: {
+          copy: {
+            figma: {
+              text: {
+                ranges: [
+                  {
+                    start: 0,
+                    end: 4,
+                    textDecoration: 'UNDERLINE',
+                    textDecorationColor: {
+                      value: {
+                        type: 'SOLID',
+                        color: { r: 1, g: 0, b: 0 },
+                        variables: { color: { variableKey: 'accent' } }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      })
+      const copy = fixture.getNode(created.nodeIdsByKey.copy!) as unknown as TextNode
+      const color = copy.getRangeTextDecorationColor(0, 4) as { value: SolidPaint }
+      const variableId = color.value.boundVariables!.color!.id
+      const variable = fixture.variables.get(variableId)!
+      const removal = {
+        mode: 'update' as const,
+        targetNodeId: created.rootNodeId!,
+        variableCollections: {
+          tokens: resource === 'collection' ? null : { variables: { accent: null } }
+        }
+      }
+
+      await expect(
+        applyCanvasFromTool({
+          ...removal,
+          native: { root: { figma: { name: 'root' } } }
+        })
+      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE })
+      expect(variable.remove).not.toHaveBeenCalled()
+      expect(copy.getRangeTextDecorationColor(0, 4)).toEqual(color)
+
+      await expect(
+        applyCanvasFromTool({
+          ...removal,
+          native: {
+            copy: {
+              figma: {
+                text: {
+                  ranges: [{ start: 0, end: 4, textDecorationColor: { value: 'AUTO' } }]
+                }
+              }
+            }
+          }
+        })
+      ).resolves.toMatchObject({ verification: { status: 'passed' } })
+      expect(fixture.variables.has(variableId)).toBe(false)
+      expect(copy.getRangeTextDecorationColor(0, 4)).toEqual({ value: 'AUTO' })
+    }
+  )
 
   it('inspects variable removal without reading property definitions from variants', async () => {
     const fixture = createFixture()
@@ -12022,6 +12277,42 @@ describe('mcp/tools/canvas', () => {
     expect(figma.currentPage).toBe(PAGE)
   })
 
+  it('removes a managed page with an opaque SVG subtree but protects manual siblings', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      page: { pageKey: 'eval/svg', name: 'SVG' },
+      markup: '<div data-key="icon" class="w-[24px] h-[24px]"></div>',
+      assets: {
+        icon: { type: 'SVG', svg: '<svg viewBox="0 0 24 24"><path d="M0 0h2"/></svg>' }
+      },
+      bindings: { icon: { figma: { svg: { assetKey: 'icon' } } } }
+    })
+    const wrapper = fixture.getNode(created.rootNodeId!)
+    const imported = wrapper.children[0]!
+    const manual = fixture.createNode('RECTANGLE')
+    wrapper.appendChild(manual)
+    const removal: CanvasResolvedApplyParameters = {
+      mode: 'remove',
+      page: { id: created.page!.id, pageKey: 'eval/svg' }
+    }
+
+    await expect(applyCanvas(removal)).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      message: expect.stringContaining('not owned')
+    })
+    expect(wrapper.removed).toBe(false)
+    expect(imported.removed).toBe(false)
+    expect(manual.removed).toBe(false)
+
+    manual.remove()
+    await expect(applyCanvas(removal)).resolves.toMatchObject({
+      page: { id: created.page!.id, removed: true },
+      removedNodeIds: expect.arrayContaining([wrapper.id, imported.id])
+    })
+    expect(fixture.pages).toEqual([PAGE])
+  })
+
   it('refuses to remove the last page or a managed page containing manual content', async () => {
     const fixture = createFixture()
     PAGE.setSharedPluginData('tempad_dev', 'page-key', 'eval/only')
@@ -12454,25 +12745,31 @@ describe('mcp/tools/canvas', () => {
     expect(fixture.nodes.has(created.rootNodeId!)).toBe(true)
   })
 
-  it('rejects and rolls back an apply result that would exceed the inline response budget', async () => {
-    const fixture = createFixture()
-    const rootKey = `root-${'r'.repeat(120)}`
-    const children = Array.from({ length: 99 }, (_, index) => {
-      const key = `item-${String(index).padStart(2, '0')}-${'x'.repeat(115)}`
-      return `<span data-key="${key}" class="absolute left-[-10px] top-[0px] w-fit h-fit">X</span>`
-    }).join('')
+  it.each([
+    { count: 99, rootKey: `root-${'r'.repeat(120)}`, keyLength: 115 },
+    // Fits the raw 64 KiB limit, but exceeds it once the Hub adds runtime evidence.
+    { count: 55, rootKey: 'root', keyLength: 117 }
+  ])(
+    'rolls back an apply result that would exceed the final response budget ($count nodes)',
+    async ({ count, rootKey, keyLength }) => {
+      const fixture = createFixture()
+      const children = Array.from({ length: count }, (_, index) => {
+        const key = `item-${index}-${'x'.repeat(keyLength)}`
+        return `<span data-key="${key}" class="absolute left-[-10px] top-[0px] w-fit h-fit">X</span>`
+      }).join('')
 
-    await expect(
-      applyCanvas({
-        mode: 'create',
-        markup: `<div data-key="${rootKey}" class="w-[100px] h-[100px]">${children}</div>`
+      await expect(
+        applyCanvasFromTool({
+          mode: 'create',
+          markup: `<div data-key="${rootKey}" class="w-[100px] h-[100px]">${children}</div>`
+        })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        message: expect.stringContaining('64 KiB inline budget')
       })
-    ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
-      message: expect.stringContaining('64 KiB inline budget')
-    })
-    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
-  })
+      expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    }
+  )
 
   it('reports when rollback changes an unrelated existing top-level root', async () => {
     const fixture = createFixture()

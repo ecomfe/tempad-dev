@@ -17,10 +17,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   GetAssetsResultSchema,
+  MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES,
   MCP_TOOL_INLINE_BUDGET_BYTES,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_ERROR_CODES,
   measureCallToolResultBytes,
+  utf8Bytes,
   type TempadMcpErrorCode
 } from '@tempad-dev/shared'
 import { randomUUID } from 'node:crypto'
@@ -407,6 +409,15 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
         )
       }
 
+      const runtime =
+        tool.name === 'apply_canvas' ? buildAuthoringRuntimeEvidence(activeExt) : undefined
+      if (runtime && utf8Bytes({ runtime }) > MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES) {
+        throw createCodedError(
+          TEMPAD_MCP_ERROR_CODES.RUNTIME_IDENTITY_MISMATCH,
+          'Runtime evidence exceeds the reserved response budget. No canvas write was dispatched.'
+        )
+      }
+
       const timeoutMs =
         tool.name === 'get_code'
           ? getCodeTimeoutMs
@@ -433,7 +444,7 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
       )
 
       const payload = await registration.promise
-      return createToolResponse(tool.name, payload, activeExt)
+      return createToolResponse(tool.name, payload, runtime)
     } catch (error) {
       const normalized = coerceToolError(error)
       log.error(
@@ -496,7 +507,7 @@ function registerLocalTool(mcp: McpServer, tool: HubOnlyTool): void {
 function createToolResponse<Name extends ToolName>(
   toolName: Name,
   payload: ToolResultMap[Name],
-  extension?: ExtensionConnection
+  runtime?: AuthoringRuntimeEvidence
 ): ToolResponse {
   const enrichedPayload = (() => {
     if (toolName === 'get_screenshot') {
@@ -509,9 +520,9 @@ function createToolResponse<Name extends ToolName>(
         ? { ...code, assets: code.assets.map((asset) => addLocalAssetPath(asset)) }
         : code
     }
-    if (toolName === 'apply_canvas' && extension) {
+    if (toolName === 'apply_canvas' && runtime) {
       const apply = payload as ToolResultMap['apply_canvas']
-      return { ...apply, runtime: buildAuthoringRuntimeEvidence(extension) }
+      return { ...apply, runtime }
     }
     return payload
   })() as ToolResultMap[Name]

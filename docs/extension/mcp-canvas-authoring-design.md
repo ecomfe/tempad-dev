@@ -13,7 +13,7 @@ task intent
   -> optional page-only apply_canvas create/activate when a fresh page is requested
   -> optionally delegate isolated evidence, asset, inventory, or QA work
   -> choose reuse or direct resources from the user's constraints
-  -> explicit design-system authoring branch only when requested
+  -> design-system authoring only when requested or established by the resolved plan
   -> optional get_design_system() for permitted existing-resource reuse, or scope: fonts for environment availability
   -> optional exact skill reference for authored Figma-only resources
   -> optionally consume exact live component ids returned by earlier canvas work
@@ -31,10 +31,10 @@ TemPad Dev chooses the safe operations against the latest live document.
 User constraints govern routing. A request to avoid the file's design system skips
 resource-catalog discovery, `catalogId`, catalog tags, and catalog refs. Environment-only
 `get_design_system({ scope: 'fonts' })` remains available. Creating new local variables,
-styles, or components also does not require a catalog. The agent creates them only when the user
-requests that resource or explicitly asks to create or extend a design system. Detailed modeling
-guidance and executable resource shapes remain in progressive references rather than the core
-skill or server instructions.
+styles, or components also does not require a catalog. The agent creates them only when requested
+or established as part of the resolved deliverable. A verified Direct result does not require an
+unsolicited resource pass. Detailed modeling guidance and executable resource shapes remain in
+progressive references rather than the core skill or server instructions.
 
 A current-page-only evidence constraint also keeps the agent from inspecting other pages or using
 pre-existing file resources. It does not redefine Figma's file-wide variable, style, or authoring
@@ -685,6 +685,11 @@ page also retain their type, parent, canvas key, geometry, and direct child iden
 changing one is reported as rollback failure instead of masking partial corruption with the original
 validation error.
 
+The result budget is checked inside this rollback boundary, reserving 2 KiB of the shared 64 KiB
+limit for runtime evidence. The Hub checks that evidence against the reservation before dispatch
+and attaches the same snapshot to the response, so enrichment cannot turn a committed write into
+an inline-budget error.
+
 The agent is not involved in any of these Plugin API steps.
 
 Resolved native-schema failures return a bounded list of field paths and messages rather than the
@@ -773,7 +778,8 @@ later Author call can consume an exact component created by the preceding result
 
 `get_screenshot` is a separate read-only validation tool. It returns one bounded PNG as a linked MCP
 resource backed by the existing capability URL; structured content contains metadata, not binary
-bytes. The client must download and display the actual PNG before claiming pixel-level verification;
+bytes. The client must open the actual PNG through `asset.localPath` when available, or download
+and display it through `asset.url`, before claiming pixel-level verification;
 receiving or copying the link is not inspection. When it is the representative-screen gate, that
 inspection precedes any dependent canvas write. For material
 design changes, a representative composition is checked before its decisions propagate, then the

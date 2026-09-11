@@ -45,6 +45,25 @@ const BLEND_MODE_CLASSES = [
 ] as const satisfies ReadonlyArray<readonly [string, BlendMode]>
 
 describe('canvas markup', () => {
+  it('validates image asset declarations referenced by Paint styles', () => {
+    const markup = '<div data-key="root" class="w-[100px] h-[100px]"></div>'
+    const styles = {
+      hero: {
+        type: 'PAINT' as const,
+        name: 'Hero',
+        paints: [{ type: 'IMAGE' as const, assetKey: 'photo', scaleMode: 'FILL' as const }]
+      }
+    }
+
+    expect(() => parse(markup, { styles })).toThrow('is not declared')
+    expect(() =>
+      parse(markup, {
+        styles,
+        assets: { photo: { type: 'SVG', svg: '<svg viewBox="0 0 24 24"></svg>' } }
+      })
+    ).toThrow('expected IMAGE')
+  })
+
   it('normalizes supported layout, appearance, and text classes', () => {
     const result = parse(`
       <div

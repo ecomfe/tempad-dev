@@ -18,6 +18,7 @@ import {
   type CanvasStyleResource,
   type CanvasVariableBindings,
   type CanvasVariableReference,
+  MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES,
   MCP_TOOL_INLINE_BUDGET_BYTES,
   buildApplyCanvasToolResult,
   measureCallToolResultBytes,
@@ -459,13 +460,23 @@ function outermostNodes(nodes: SupportedCanvasNode[]): SupportedCanvasNode[] {
   })
 }
 
-function validateRemovalOwnership(root: SupportedCanvasNode, state: ApplyState): void {
-  const stack: SceneNode[] = [root]
+function* walkRemovalOwnershipNodes(
+  roots: Iterable<SceneNode>,
+  state: ApplyState
+): Generator<SceneNode> {
+  const stack = [...roots]
   while (stack.length) {
     const node = stack.pop()!
     const svgWrapper = isOwnedSvgChild(node) && node.parent?.type === 'FRAME' ? node.parent : null
     const wrapperKey = svgWrapper && readOwnedNodeKey(svgWrapper)
     if (wrapperKey && state.keyedNodes.get(wrapperKey)?.id === svgWrapper.id) continue
+    yield node
+    if ('children' in node && node.type !== 'INSTANCE') stack.push(...node.children)
+  }
+}
+
+function validateRemovalOwnership(root: SupportedCanvasNode, state: ApplyState): void {
+  for (const node of walkRemovalOwnershipNodes([root], state)) {
     if (!isSupportedSceneNode(node)) {
       scopeError(`Removing "${root.id}" would also remove an unsupported canvas node.`)
     }
@@ -473,7 +484,6 @@ function validateRemovalOwnership(root: SupportedCanvasNode, state: ApplyState):
     if (!key || state.keyedNodes.get(key)?.id !== node.id) {
       scopeError(`Removing "${root.id}" would also remove a node not owned by apply_canvas.`)
     }
-    if ('children' in node && node.type !== 'INSTANCE') stack.push(...node.children)
   }
 }
 
@@ -597,9 +607,8 @@ function collectRemovedIdentities(roots: SupportedCanvasNode[]): {
   nodeIds: Set<string>
 } {
   const componentKeys = new Set<string>()
-  const nodeIds = new Set<string>()
+  const nodeIds = new Set([...walkPhysicalNodes(roots)].map((node) => node.id))
   for (const node of walkAuthoringNodes(roots)) {
-    nodeIds.add(node.id)
     if ((node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') && node.key) {
       componentKeys.add(node.key)
     }
@@ -620,9 +629,6 @@ async function validateRemovalReferences(
     nodeIds: new Set(),
     shaders: []
   }
-  const removedPhysicalNodeIds = new Set(
-    roots.flatMap((root) => [...walkPhysicalNodes([root])].map((node) => node.id))
-  )
   if (
     !fullyLoadedRemovalDocuments.has(figma.root) &&
     figma.root.children.some((page) => page.id !== figma.currentPage.id)
@@ -637,7 +643,7 @@ async function validateRemovalReferences(
   for (const page of figma.root.children) {
     collectReferences(page.backgrounds, references)
     for (const node of page.findAll()) {
-      if (removedPhysicalNodeIds.has(node.id)) continue
+      if (removed.nodeIds.has(node.id)) continue
       collectSceneReferences(node, references)
     }
   }
@@ -4288,7 +4294,7 @@ async function applyComponent(
   }
   if (spec.component && !preservesComponentPropertyReference(node, spec, 'mainComponent')) {
     const currentComponent = await getMainComponent(node)
-    if (currentComponent?.id !== component.id) {
+    if (!componentLinkMatches(spec, node, component, currentComponent, state)) {
       if (instance?.preserveOverrides === false) node.mainComponent = component
       else node.swapComponent(component)
       markMutation(state, node)
@@ -5309,7 +5315,7 @@ function finalizeManualGrid(
       node.gridRowCount > layout.rows.length
     )
   }
-  if (autoRows && moving.length) {
+  if (autoRows && staging.length) {
     setValue(
       node,
       node.gridAutoTracks,
@@ -5467,12 +5473,17 @@ async function reconcileNewWrappedContainer(
   index: number
 ): Promise<WrappedContainerNode> {
   state.nodeIdsByKey[spec.key] = ''
-  const stagingParent = parent ? containingPage(parent) : figma.currentPage
+  // Keep staged descendants inside the update scope when their existing ancestors move.
+  const stagingParent = parent ?? figma.currentPage
   if (spec.type === 'COMPONENT_SET') {
     const children = spec.children!
     const variants = children.map((child) => {
-      const variant = figma.createComponent()
-      recordCreatedNode(variant, state, false)
+      const existing = findExistingNode(child, state)
+      if (existing && existing.type !== 'COMPONENT') {
+        specError(`Component set "${spec.key}" can contain only component nodes.`)
+      }
+      const variant = existing ?? figma.createComponent()
+      if (!existing) recordCreatedNode(variant, state, false)
       setValue(variant, variant.name, child.displayName, (value) => (variant.name = value), state)
       if (variant.parent?.id !== stagingParent.id) {
         moveIntoParent(variant, stagingParent, stagingParent.children.length, state)
@@ -6424,7 +6435,7 @@ function pageApplyResult(page: CanvasPageSnapshot, state: ApplyState): ApplyCanv
 
 function boundedApplyResult(result: ApplyCanvasResult): ApplyCanvasResult {
   const bytes = measureCallToolResultBytes(buildApplyCanvasToolResult(result))
-  if (bytes > MCP_TOOL_INLINE_BUDGET_BYTES) {
+  if (bytes > MCP_TOOL_INLINE_BUDGET_BYTES - MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES) {
     specError(
       'apply_canvas result exceeds the 64 KiB inline budget. Reduce the desired subtree or split the operation.'
     )
@@ -6972,7 +6983,7 @@ function collectPageRemovalRoots(page: PageNode, state: ApplyState): SupportedCa
       scopeError(`Page "${page.id}" contains an unsupported canvas root.`)
     }
     roots.push(child)
-    for (const node of walkAuthoringNodes([child])) {
+    for (const node of walkRemovalOwnershipNodes([child], state)) {
       if (!isSupportedSceneNode(node)) {
         scopeError(`Page "${page.id}" contains an unsupported canvas node.`)
       }

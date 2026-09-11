@@ -911,10 +911,16 @@ function inspectNodeVariables(node: SceneNode, removedVariableIds: Set<string>):
       removedVariableIds,
       `component properties on node "${node.id}"`
     )
+  } else if (node.type === 'INSTANCE') {
+    assertNoRemovedVariable(
+      node.componentProperties,
+      removedVariableIds,
+      `component properties on node "${node.id}"`
+    )
   }
   if (node.type !== 'TEXT') return
   try {
-    const segments = node.getStyledTextSegments(['boundVariables', 'fills'])
+    const segments = node.getStyledTextSegments(['boundVariables', 'fills', 'textDecorationColor'])
     assertNoRemovedVariable(segments, removedVariableIds, `rich text on node "${node.id}"`)
   } catch {
     scopeError(`Rich text on node "${node.id}" could not be inspected before variable removal.`)

@@ -5,7 +5,7 @@ Date: 2026-07-31
 
 ## Decision
 
-Keep `apply_canvas` as the only mutating tool. Add a call-scoped asset manifest, one SVG placement
+Keep `apply_canvas` as the only canvas-mutating tool. Add a call-scoped asset manifest, one SVG placement
 field, and one content-addressed image source:
 
 ```txt
@@ -77,13 +77,13 @@ Add one optional top-level field to the compact public schema:
 ```ts
 type ApplyCanvasInput = {
   // existing fields
-  assets?: unknown
+  assets?: Record<CanvasStableKey, unknown>
 }
 ```
 
-As with `styles`, `variableCollections`, and advanced `native` state, the public schema keeps this
-field opaque so the always-visible `apply_canvas` schema remains below 8 KiB. The resolver validates
-the complete private shape:
+As with `styles`, `variableCollections`, and advanced `native` state, the public schema exposes the
+outer record while keeping each asset definition opaque. The resolver validates the complete
+private shape:
 
 ```ts
 type CanvasAssets = Record<
@@ -310,9 +310,10 @@ an SSRF surface.
 
 ### Content identity
 
-All asset descriptors and store paths use the complete lowercase SHA-256 digest. The extension and
-Hub validate the digest again after every upload and download. There is no parallel short
-model-facing asset ID.
+New asset descriptors and store paths use the complete lowercase SHA-256 digest. The extension and
+Hub validate the digest again after every upload and download. The Hub retains download-only
+support for legacy 8-character identifiers until cached assets expire; new model-facing asset IDs
+always use the full digest.
 
 The additional characters are negligible beside the bytes they replace.
 
@@ -425,8 +426,8 @@ corrections recheck only affected compositions.
 
 The feature adds almost no always-on context:
 
-- no new exposed tool;
-- one opaque `assets` field in the public tool schema;
+- one narrow Hub-only `upload_asset` tool for programmatically composed image data URLs;
+- one `assets` record with opaque definitions in the public canvas schema;
 - one sentence in the tool description only if needed;
 - exact syntax stays in the canvas-authoring skill's progressive visual-assets reference;
 - asset bytes move through the local binary bridge;
@@ -491,9 +492,9 @@ The shared contract, full SHA-256 store identity, hash-only reverse bridge, byte
 sanitizer, image MIME sniffing, stable SVG wrapper lifecycle, image-paint resolution, rollback,
 verification, tests, and progressive skill guidance are implemented.
 
-TemPad does not itself expose generated-image upload to the model. A host may provide the optional
-private upload capability described above; otherwise generated imagery must arrive through a public
-supported image URL. This is a client integration boundary, not a missing model-visible TemPad tool.
+TemPad exposes the Hub-only `upload_asset` tool for generated-image data URLs. The host must compose
+generation and upload programmatically so encoded bytes never need to be copied through model
+context. Hosts without that composition path can use a supported public image URL.
 
 ## Acceptance tests
 
@@ -516,16 +517,17 @@ At minimum cover:
 - apply output and error messages stay within the inline budget;
 - material SVG/image compositions use bounded linked screenshots rather than binary responses.
 
-Client integrations that provide generated-image upload separately verify that only the final hash
-or public URL—not bytes, candidate history, or generation transcripts—enters model-visible
-payloads. This is outside the TemPad extension and MCP server test boundary.
+MCP server tests cover upload decoding, MIME validation, quotas, hashing, and response shape.
+Client integrations separately verify that generation and upload are composed without exposing
+encoded bytes, candidate history, or generation transcripts to the model; later canvas calls carry
+only the final hash or public URL.
 
 ## Non-goals
 
 - asset search or stock-photo selection;
 - an icon-library registry inside TemPad;
 - arbitrary SVG-to-VectorPath conversion;
-- model-visible binary upload;
+- model-authored or model-visible encoded image bytes;
 - server-managed subagents or image-generation orchestration;
 - arbitrary local file reads or authenticated remote fetch recipes;
 - stable identity or declarative editing for SVG importer descendants;
