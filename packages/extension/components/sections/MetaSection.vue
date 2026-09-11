@@ -10,8 +10,9 @@ import { selection, selectedNode, selectedTemPadComponent } from '@/ui/state'
 
 const title = computed(() => {
   const nodes = selection.value
+  const [node] = nodes
 
-  if (!nodes || nodes.length === 0) {
+  if (!node) {
     return null
   }
 
@@ -24,7 +25,7 @@ const title = computed(() => {
     return component.name
   }
 
-  return nodes[0].name
+  return node.name
 })
 
 const showFocusButton = computed(

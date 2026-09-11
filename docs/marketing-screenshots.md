@@ -5,8 +5,23 @@ Chrome profile. Do not replace the Figma runtime with a mock page: the extension
 Figma's fonts, theme tokens, CSS variables, canvas overlays, and patched `window.figma` API.
 
 The canonical source file is
-[TemPad Dev fixtures](https://www.figma.com/design/4HPsWWxVESGJ9ka4CDdVMx/TemPad-Dev-fixtures).
+[TemPad Dev fixtures](https://www.figma.com/design/vJBML2e6g7btKGytwiiyvn/TemPad-Dev-fixtures),
+owned by `justice360@gmail.com`. Use that account for screenshot captures.
 Do not create README scenes in another Figma file.
+
+## Content coverage
+
+The website introduces TemPad Dev as the connection between Figma, developers, and their coding agents. The READMEs also serve as the complete user guide. Capture assets for the actual task each surface explains; do not turn every manual control into a homepage feature.
+
+The version 3 manifest declares `group` and `consumers` for each screenshot:
+
+- `inspect`: native code, output plugins, units, selection, measurement, and navigation. Keep the six manual examples available in both READMEs and the website’s inspection carousel.
+- `setup`: the current agent integration dialog. `mcp-config` covers Codex’s portable plugin path; `mcp-config-gemini` shows Gemini’s separate MCP installation, and `mcp-config-gemini-skills` shows both standalone skills after scrolling to the bottom. The Codex view is also shown in the website’s setup section.
+- `status`: the real MCP unavailable, inactive, and active badges, retained in the READMEs as troubleshooting documentation.
+
+`consumers` declares `readme`, `site`, or both. Adding a new scenario does not require inserting it into every surface. Update the relevant prose, alt text, display dimensions, and consumer declaration together.
+
+The inspection carousel uses real product captures; the hero uses a workflow illustration to cover design editing and code implementation. Keep any diagrams and example prompts visibly distinct from screenshots. Do not manufacture an agent transcript or a Figma result to illustrate a capability.
 
 ## Source of truth
 
@@ -33,18 +48,20 @@ becomes `720 × 320`.
 
 ## Scenario intent
 
-| Scenario          | Visual state that must be preserved                                                                                               |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `code`            | Selected frame with blue handles and size label beside CSS and JavaScript output; pointer hidden.                                 |
-| `unit`            | Same selected frame, preferences open, `rem` active, root size `16` focused with its text selected, arrow pointer over the field. |
-| `deep`            | No Figma selection, Deep Select active, arrow pointer over the nested frame, hover-only blue outline without handles.             |
-| `measure`         | Inner frame selected, Measure active, outer frame under the pointer, orange target outline and four `20` distance labels.         |
-| `scroll`          | Frame selected in the native code view, arrow pointer hovering Scroll Into View with its tooltip visible.                         |
-| `plugins`         | Real Kong Button instance selected with Figma's purple instance highlight and Kong UI-specific output; pointer hidden.            |
-| `mcp-config`      | Agent integration with MCP enabled, Codex selected, and its plugin prompt/CLI paths visible.                                      |
-| `mcp-unavailable` | Preferences visible with the gray-dot, dashed MCP badge.                                                                          |
-| `mcp-inactive`    | Preferences visible with the green-dot, dashed MCP badge.                                                                         |
-| `mcp-active`      | Preferences visible with the green-dot, solid-green MCP badge.                                                                    |
+| Scenario                   | Visual state that must be preserved                                                                                               |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `code`                     | Selected frame with blue handles and size label beside CSS and JavaScript output; pointer hidden.                                 |
+| `unit`                     | Same selected frame, preferences open, `rem` active, root size `16` focused with its text selected, arrow pointer over the field. |
+| `deep`                     | No Figma selection, Deep Select active, arrow pointer over the nested frame, hover-only blue outline without handles.             |
+| `measure`                  | Inner frame selected, Measure active, outer frame under the pointer, orange target outline and four `20` distance labels.         |
+| `scroll`                   | Frame selected in the native code view, arrow pointer hovering Scroll Into View with its tooltip visible.                         |
+| `plugins`                  | Real Kong Button instance selected with Figma's purple instance highlight and Kong UI-specific output; pointer hidden.            |
+| `mcp-config`               | Agent integration with MCP enabled, Codex selected, current plugin command and purpose visible.                                   |
+| `mcp-config-gemini`        | Gemini selected, content scrolled to the top, MCP command and first skill command fully visible.                                  |
+| `mcp-config-gemini-skills` | Gemini selected, content scrolled to the bottom, both standalone skill commands fully visible.                                    |
+| `mcp-unavailable`          | Preferences visible with the gray-dot, dashed MCP badge.                                                                          |
+| `mcp-inactive`             | Preferences visible with the green-dot, dashed MCP badge.                                                                         |
+| `mcp-active`               | Preferences visible with the green-dot, solid-green MCP badge.                                                                    |
 
 ## Composition contract
 
@@ -61,7 +78,7 @@ appear in the crop.
 | `deep`                   | Outer frame top-left `(402, 151)`, zoom `1`; centers the nested hover target without selection handles.              |
 | `measure`                | Outer frame top-left `(400, 151)`, zoom `1`; leaves room for all four distance labels and the right-side pointer.    |
 | `plugins`                | Button top-left `(431, 180)`, zoom `1.3`; gives the real 66 × 40 Kong instance the same visual weight as the source. |
-| `mcp-config`             | `600 × 480` crop anchored to the open Set up agents dialog; excludes the surrounding Figma canvas.                   |
+| All `setup` scenarios    | `600 × 480` crop anchored to the open Set up agents dialog; excludes the surrounding Figma canvas.                   |
 | `mcp-*` status snapshots | Header/context crop `(617, 26, 360, 160)`; no canvas geometry is included.                                           |
 
 The dark canvas stays black while fixture surfaces switch to `#333` and nested outer frames to
@@ -94,8 +111,8 @@ remain Figma-owned highlight colors in either theme.
 
 ## Prerequisites
 
-1. Open the canonical `TemPad Dev fixtures` file in the Chrome profile already connected to Codex.
-2. Keep its verified Kong `Button` component instance. On the first run the fixture runtime finds
+1. Open the canonical `TemPad Dev fixtures` file as `justice360@gmail.com` in the Chrome profile already connected to Codex.
+2. For fixture-based captures, keep its verified Kong `Button` component instance and use an editable file. On the first run the fixture runtime finds
    the page containing that instance, renames the page to `README Fixtures`, and binds the instance
    to the `plugins` fixture marker.
 3. Run the current TemPad Dev extension build in that tab.
@@ -104,6 +121,39 @@ remain Figma-owned highlight colors in either theme.
 5. Expose the already-open Chrome through a CDP endpoint. Set `TEMPAD_SCREENSHOT_CDP_URL` when it
    is not `http://127.0.0.1:9222`. When Codex owns the Chrome connection, Codex supplies this outer
    adapter and runs the same repository capture contract.
+
+## Refreshing agent integration screenshots
+
+Configuration-only capture must not rebuild or recolor canvas fixtures, toggle unrelated inspection settings, or require a remote Kong component. This path works even when the canonical file is read-only:
+
+```sh
+pnpm screenshots capture --group setup
+pnpm screenshots compare --group setup
+pnpm screenshots promote --group setup --yes
+pnpm screenshots verify
+```
+
+Capture, compare, and promote accept the same `--group` or `--only` selection and `--themes light|dark|light,dark`. Use one theme consistently when refreshing a single variant. Unknown selections fail before changing files. New scenarios are shown explicitly without a baseline in the comparison report.
+
+The capture checks the selected agent, compares displayed commands against `AGENT_INTEGRATIONS` from the shared package, and verifies the declared purpose text. It also checks that the crop contains the complete dialog. Changing package versions, installation paths, skills, or dialog copy requires refreshing these images; do not rely on PNG dimensions alone to establish freshness.
+
+Setup captures use `screenshots/dialog-capture.mjs` to isolate the real dialog on a transparent browser surface. The capture temporarily hides surrounding page content and the modal backdrop, omits the outside shadow, and restores those overrides in `finally`. It preserves the dialog’s native geometry, colors, text, and antialiased rounded corners. Keep the resulting RGBA PNG: do not flatten it against the gray overlay or a theme-specific background. Review all four corners on both light and dark backgrounds before promotion. This is capture-only styling; do not change the shipped dialog to fix screenshot composition.
+
+If setup content needs scrolling, declare separate views in the manifest with exact scroll targets and visible assertions. Do not expand the dialog using injected styles or silently crop out a skill command. Keep screenshots faithful to the shipped interface.
+
+When the existing tab is connected through Codex’s browser API instead of a standalone CDP endpoint, use `packages/extension/screenshots/codex-setup-capture.mjs` as the outer adapter. Build `@tempad-dev/shared` first, then import the adapter in that browser session. Stage MCP access, the selected agent, and the declared Home/End scroll position through the visible UI. Call `captureSetupCandidate(tab, { scenarioId, theme })` for each scene and theme. It reads the manifest, verifies live text, commands, viewport scale, visible command bounds, and dialog dimensions, then saves a candidate PNG and JSON evidence together. `setSetupCaptureTheme(tab, theme)` uses Figma’s actual theme menu; restore `light` when finished. The same compare, review, promote, and verify commands apply to these candidates.
+
+## Native design and implementation examples
+
+An authoring result needs its own evidence before becoming a screenshot scenario:
+
+1. Use the canonical fixture file with edit access. Follow [the authoring runbook](./testing/agent-authoring-evolution.md) when preparing or executing the agent task. A setup screenshot does not require an authoring run.
+2. Record the user request, exact Figma page/root identity, and actual TemPad tool result. Keep authored content separate from the six deterministic inspection fixtures. Never create a native-design example with `fixture-runtime.js` and attribute it to the agent.
+3. Inspect the rendered result and the native facts needed to support the caption, such as editable text, component instances, or variable bindings. For an implementation example, also record the actual project result and its validation.
+4. Define the new scene’s framing, source identities, expected visible state, consumers, and output dimensions before capture. Use `get_screenshot` for a rendered design result or the real browser view when Figma layers and controls are part of the evidence. Never pass an arbitrary image through `process` and treat that as provenance.
+5. Review the candidate with its source evidence before publishing. Later captures reuse the recorded result; regenerate it only when the scenario’s purpose or relevant product behavior changes.
+
+If the file is read-only or the authoring runtime is unavailable, finish the text and setup updates, retain accurate inspection captures, and report the missing authoring image. Do not substitute an invented result.
 
 ## Automated capture procedure
 
@@ -122,10 +172,10 @@ rerun a subset, for example `--only code,unit,deep`, and `--themes light` for on
 never overwrite committed assets. `pnpm screenshots compare --baseline-dir <path>` can compare
 against an archived or checked-out baseline instead of the working tree.
 
-The runner performs these steps:
+The runner performs these steps for fixture-based captures. Setup-only runs skip fixture creation, canvas staging, panel relocation, and inspection resets:
 
 1. Claim the open Figma tab through the configured Chrome CDP adapter.
-2. Confirm Chrome's minimized Figma capture is exactly `1728 × 837`, then evaluate
+2. For `inspect` and `status`, confirm Chrome's minimized Figma capture is exactly `1728 × 837`, then evaluate
    `fixture-runtime.js` in
    the page's main JavaScript world through CDP. Verify that the returned page is `README Fixtures`
    and that every marker from the scenario manifest exists.
@@ -189,7 +239,7 @@ The runner performs these steps:
 pnpm screenshots verify
 ```
 
-11. Always restore Figma through `Preferences → Theme → Light` and call
+11. For fixture-based captures, always restore Figma through `Preferences → Theme → Light` and call
     `__TEMPAD_README_SCREENSHOTS__.setCanvasTheme('light')` before handing the tab back.
 
 ## Stability rules

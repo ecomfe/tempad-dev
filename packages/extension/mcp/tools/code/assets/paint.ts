@@ -1,4 +1,5 @@
 import { formatHexAlpha } from '@/utils/css'
+import { isRenderablePaint } from '@/utils/figma-paint'
 import { getVariableCssExpr } from '@/utils/figma-variables'
 
 import type { GetCodeCacheContext } from '../cache'
@@ -53,62 +54,15 @@ export function resolveStylePaintChannel(
     const style = figma.getStyleById(styleId)
     if (!style || !('paints' in style) || !Array.isArray(style.paints)) return null
 
-    const visible = style.paints.filter(isVisiblePaint)
+    const visible = style.paints.filter(isRenderablePaint)
     if (visible.length !== 1) return null
-    const paint = visible[0]
-    if (paint.type !== 'SOLID' || !paint.color) return null
+    const [paint] = visible
+    if (paint?.type !== 'SOLID') return null
 
     return resolveSolidPaintChannel(paint)
   } catch {
     return null
   }
-}
-
-export function hasRenderableStrokes(node: SceneNode): boolean {
-  const typed = node as {
-    strokeWeight?: number | symbol
-    strokeTopWeight?: number | symbol
-    strokeRightWeight?: number | symbol
-    strokeBottomWeight?: number | symbol
-    strokeLeftWeight?: number | symbol
-  }
-
-  const uniform = typed.strokeWeight
-  if (typeof uniform === 'number') return uniform > 0
-
-  const perSide = [
-    typed.strokeTopWeight,
-    typed.strokeRightWeight,
-    typed.strokeBottomWeight,
-    typed.strokeLeftWeight
-  ]
-  const numeric = perSide.filter((value): value is number => typeof value === 'number')
-  if (!numeric.length) return true
-  return numeric.some((value) => value > 0)
-}
-
-export function hasVisibleEffects(node: SceneNode, ctx?: GetCodeCacheContext): boolean {
-  if (ctx) {
-    return getNodeSemanticsCached(node, ctx).paint.hasVisibleEffect
-  }
-  if (!('effects' in node)) return false
-  const effects = (node as { effects?: unknown }).effects
-  if (effects == null) return false
-  if (!Array.isArray(effects)) return true
-
-  return effects.some((effect) => {
-    if (!effect || typeof effect !== 'object') return false
-    return !('visible' in effect) || effect.visible !== false
-  })
-}
-
-export function isVisiblePaint(paint: Paint | null | undefined): paint is Paint {
-  if (!paint || paint.visible === false) return false
-  if (typeof paint.opacity === 'number' && paint.opacity <= 0) return false
-  if ('gradientStops' in paint && Array.isArray(paint.gradientStops)) {
-    return paint.gradientStops.some((stop) => (stop.color?.a ?? 1) > 0)
-  }
-  return true
 }
 
 function getPaintStyleId(node: SceneNode, kind: keyof typeof PAINT_STYLE_KEYS): string | null {

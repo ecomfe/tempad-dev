@@ -18,7 +18,7 @@ await build({
   outdir: DIST_DIR,
   platform: 'node',
   format: 'esm',
-  target: ['node18'],
+  target: ['node22'],
   bundle: true,
   external: externalDeps,
   sourcemap: true,

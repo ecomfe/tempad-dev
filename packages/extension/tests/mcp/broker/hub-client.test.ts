@@ -1,3 +1,4 @@
+import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION, type RuntimeHelloMessage } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { McpHubClient } from '@/mcp/broker/hub-client'
@@ -68,19 +69,28 @@ function stateMessage(activeId: string | null = null) {
 
 function completeHandshake(socket: FakeWebSocket, activeId: string | null = null): void {
   socket.open()
-  socket.receive({ type: 'registered', id: 'gateway-1' })
+  socket.receive({
+    type: 'registered',
+    id: 'gateway-1',
+    protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
+  })
   socket.receive(stateMessage(activeId))
 }
 
 function createClient(
   sockets: FakeWebSocket[],
-  events: ConstructorParameters<typeof McpHubClient>[0] = {}
+  events: ConstructorParameters<typeof McpHubClient>[0] = {},
+  runtimeIdentity: RuntimeHelloMessage | null = null
 ): McpHubClient {
-  return new McpHubClient(events, (url) => {
-    const socket = new FakeWebSocket(url)
-    sockets.push(socket)
-    return socket as unknown as WebSocket
-  })
+  return new McpHubClient(
+    events,
+    (url) => {
+      const socket = new FakeWebSocket(url)
+      sockets.push(socket)
+      return socket as unknown as WebSocket
+    },
+    runtimeIdentity
+  )
 }
 
 function installHubProbe(isReachable: (port: number) => boolean = () => true): void {
@@ -101,6 +111,26 @@ afterEach(() => {
 })
 
 describe('mcp/broker/hub-client', () => {
+  it('publishes extension runtime identity before declaring the handshake connected', async () => {
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const runtimeIdentity = {
+      type: 'runtimeHello' as const,
+      extensionVersion: '0.21.0',
+      extensionRuntimeFingerprint: 'a'.repeat(64)
+    }
+    const client = createClient(sockets, {}, runtimeIdentity)
+
+    client.start()
+    await flushMicrotasks()
+    completeHandshake(sockets[0]!)
+    await flushMicrotasks()
+
+    expect(sockets[0]?.sent.map((message) => JSON.parse(message))).toContainEqual(runtimeIdentity)
+    expect(client.getSnapshot().status).toBe('connected')
+  })
+
   it('tries candidate ports in order and reuses the last successful port first', async () => {
     const sockets: FakeWebSocket[] = []
     const snapshots: Array<ReturnType<McpHubClient['getSnapshot']>> = []
@@ -148,6 +178,26 @@ describe('mcp/broker/hub-client', () => {
     vi.advanceTimersByTime(20_000)
 
     expect(sockets[0]?.sent).toContain(JSON.stringify({ type: 'ping' }))
+  })
+
+  it('does not install keepalive after a reentrant stop during handshake completion', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const client = createClient(sockets, {
+      onSnapshot: (snapshot) => {
+        if (snapshot.status === 'connected') client.stop()
+      }
+    })
+
+    client.start()
+    await flushMicrotasks()
+    completeHandshake(sockets[0]!)
+    await flushMicrotasks()
+
+    expect(client.getSnapshot().status).toBe('idle')
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('ignores stale socket probes after a stop/start cycle', async () => {
@@ -198,7 +248,11 @@ describe('mcp/broker/hub-client', () => {
     ['malformed traffic', '{', 'Received malformed message from MCP server'],
     [
       'duplicate registration',
-      JSON.stringify({ type: 'registered', id: 'replacement' }),
+      JSON.stringify({
+        type: 'registered',
+        id: 'replacement',
+        protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
+      }),
       'Received duplicate registration from MCP server'
     ],
     [
@@ -291,8 +345,16 @@ describe('mcp/broker/hub-client', () => {
     [
       'duplicate registration',
       [
-        JSON.stringify({ type: 'registered', id: 'gateway-1' }),
-        JSON.stringify({ type: 'registered', id: 'gateway-2' })
+        JSON.stringify({
+          type: 'registered',
+          id: 'gateway-1',
+          protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
+        }),
+        JSON.stringify({
+          type: 'registered',
+          id: 'gateway-2',
+          protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
+        })
       ]
     ],
     ['duplicate state', [JSON.stringify(stateMessage()), JSON.stringify(stateMessage())]],
@@ -303,7 +365,11 @@ describe('mcp/broker/hub-client', () => {
     [
       'a non-loopback asset URL',
       [
-        JSON.stringify({ type: 'registered', id: 'gateway-1' }),
+        JSON.stringify({
+          type: 'registered',
+          id: 'gateway-1',
+          protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
+        }),
         JSON.stringify({
           activeId: null,
           assetServerUrl: 'https://collector.example/assets',
@@ -326,6 +392,37 @@ describe('mcp/broker/hub-client', () => {
     expect(sockets[0]?.readyState).toBe(3)
     expect(sockets[1]?.url).toBe('ws://127.0.0.1:7431')
     expect(client.getSnapshot().assetServerUrl).toBeNull()
+    client.stop()
+  })
+
+  it.each([
+    ['missing', undefined],
+    ['different', TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION + 1]
+  ])('reports a %s bridge protocol after probing candidates', async (_case, protocolVersion) => {
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const client = createClient(sockets)
+
+    client.start()
+    await flushMicrotasks()
+    for (let index = 0; index < 3; index++) {
+      sockets[index]?.open()
+      sockets[index]?.receive({
+        type: 'registered',
+        id: `gateway-${index}`,
+        ...(protocolVersion === undefined ? {} : { protocolVersion })
+      })
+      await flushMicrotasks()
+    }
+
+    expect(client.getSnapshot()).toMatchObject({
+      errorMessage: expect.stringContaining('protocol mismatch'),
+      status: 'error'
+    })
+    expect(client.getSnapshot().errorMessage).toContain(
+      'Update the extension and MCP server together'
+    )
     client.stop()
   })
 

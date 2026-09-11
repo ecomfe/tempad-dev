@@ -22,7 +22,8 @@ For contributor workflow and commands, see `TESTING.md`.
 
 - Packages own their runtime-sensitive scripts such as `test`, `test:run`, and browser-specific commands.
 - Root owns repo-level checks for root-only files and provides thin aggregation scripts such as `lint`, `format`, `typecheck`, and `test:run`.
-- Root coverage remains centralized in `vitest.config.ts` because coverage policy is shared across packages.
+- Root coverage remains centralized in `vitest.config.ts`; shared thresholds and the extension node
+  source list live in `vitest.coverage.ts` so package and workspace coverage cannot drift.
 
 ## Coverage model
 
@@ -40,11 +41,9 @@ For contributor workflow and commands, see `TESTING.md`.
 There is no manually maintained pure-function matrix in docs anymore.
 Coverage scope is defined only in executable Vitest configuration:
 
-- root: `vitest.config.ts`
-- shared aggregate thresholds: `vitest.coverage.ts`
-- extension node: `packages/extension/vitest.node.config.ts`
+- workspace and package composition: `vitest.config.ts` and package-level configs
+- shared aggregate thresholds and extension node source list: `vitest.coverage.ts`
 - extension browser: `packages/extension/vitest.browser.config.ts`
-- package-level configs where applicable
 
 If a file should enter or leave strict coverage scope, update config + tests in the same PR.
 

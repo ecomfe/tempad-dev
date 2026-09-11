@@ -225,7 +225,9 @@ describe('tokens/process processTokens', () => {
       })()
     })
 
-    const mergedIds = vi.mocked(buildSourceNameIndex).mock.calls[0][0] as Set<string>
+    const call = vi.mocked(buildSourceNameIndex).mock.calls[0]
+    if (!call) throw new Error('Expected buildSourceNameIndex to be called')
+    const mergedIds = call[0] as Set<string>
     expect(mergedIds).toEqual(new Set(['var-1', 'var-2']))
     expect(stamps).toEqual(['tokens:detect', 'tokens:rewrite', 'tokens:used'])
     expect(result.code).toBe('short')

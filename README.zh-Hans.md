@@ -2,11 +2,11 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/hero-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/hero-light.svg">
-    <img alt="展示扩展面板的截图。" src="packages/site/public/marketing/hero-light.svg" width="540" height="200">
+    <img alt="TemPad Dev" src="packages/site/public/marketing/hero-light.svg" width="540" height="200">
   </picture>
 </p>
 
-<p align="center">Figma 上的开放交付工具</p>
+<p align="center">连接 Figma、开发者和 coding agent 的开放工具</p>
 
 <p align="center">
   <a href="https://chrome.google.com/webstore/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc"><img src="https://img.shields.io/badge/Install%20on%20Chrome%20Web%20Store-4285F4?logo=chromewebstore&logoColor=%23fff" alt="在 Chrome Web Store 安装"></a>
@@ -19,17 +19,153 @@
   <a href="https://github.com/ecomfe/tempad-dev/actions/workflows/check-rewrite.yml"><img src="https://img.shields.io/github/actions/workflow/status/ecomfe/tempad-dev/check-rewrite.yml?branch=main&label=script-rewrite" alt="check-script-rewrite"></a>
 </p>
 
-<p align="center">
+TemPad Dev 是连接 Figma、开发者和 coding agent 的开源工具。你可以直接在浏览器里检查设计、定制代码输出，也可以让 agent 读取设计、创建和修改原生 Figma 内容，并结合项目实现 UI。
+
+## 目录
+
+- [快速开始](#快速开始)
+- [Agent 集成](#agent-集成)：[画布设计](#创建和修改-figma-设计)、[代码实现](#根据设计实现代码)、[配置指南](#配置指南)、[连接状态](#mcp-连接状态)
+- [检查设计](#检查设计)：[CSS 与变量](#查看-css-代码)、[深度选择](#深度选择模式)、[测量](#测量到选中项模式)、[定位](#将选中项滚动到视图中)
+- [输出插件](#输出插件)：安装、开发与分享
+
+## 快速开始
+
+1. 从 [Chrome Web Store](https://chromewebstore.google.com/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc) 安装 TemPad Dev，打开 Figma Design 文件。
+2. 选中设计中的元素，在 TemPad Dev 面板查看代码、变量和布局信息。手动检查无需配置 agent。
+3. 如需使用 coding agent，启用 **Preferences → Agent integration → MCP access**，点击 **Set up agents**，按所选客户端的说明安装。
+
+Agent 连接需要 Node.js 22.x、24.x 或 26+；画布编辑还需要当前 Figma Design 文件的编辑权限。扩展、MCP server 和两个 skill 的配置与升级说明见下文。
+
+## Agent 集成
+
+通过你已经在使用的 coding agent 或 IDE 处理 Figma 设计。TemPad Dev 提供设计信息和画布操作，agent 结合你的要求与项目上下文完成工作。
+
+### 创建和修改 Figma 设计
+
+在 Figma 中创建界面、调整布局和文字，或修改已有设计。结果由原生、可编辑的图层构成；任务需要时，可以复用可访问的组件、变量和样式。
+
+例如，在连接好 agent 后提出：
+
+> 在 Figma 中使用可访问的组件创建一个设置页面。
+
+也可以选中已有设计后提出：
+
+> 调整这个页面的间距和文字层级，保留现有组件和内容。
+
+`figma-canvas-authoring` skill 指导 agent 检查相关资源、执行修改并检查实际渲染结果。写入需要可编辑的 Figma Design 文件；只读文件和 Dev Mode 中的访问仍然是只读的。
+
+### 根据设计实现代码
+
+在 Figma 中选中要实现的设计，在目标代码项目中提出：
+
+> 根据当前 Figma 选区实现 UI，使用这个项目已有的组件和样式约定。
+
+TemPad Dev 提供布局、样式、变量引用、组件信息和素材。`figma-design-to-code` skill 指导 agent 结合仓库实现界面，完成验证。生成的设计代码是实现起点，最终代码由 agent 适配项目。
+
+这两个工作流通过同一个 MCP 连接访问 Figma。兼容客户端可以安装包含 MCP 配置和两个 skill 的 [Agent Plugin](./agent-plugins/tempad-dev/README.zh-Hans.md)；其它客户端可以分别配置 MCP 和 skill。
+
+### 配置指南
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-light.png">
+  <img alt="TemPad Dev agent setup 对话框。" src="packages/site/public/marketing/mcp-config-light.png" width="600">
+</picture>
+
+1. 安装 Node.js 22.x、24.x 或 26+ 并确保 `npx` 可用。在希望 agent 检查的 Figma 标签页中保持 TemPad Dev 打开，然后启用 **Preferences → Agent integration → MCP access**。出现提示时，请允许连接到 loopback 地址 `127.0.0.1`。启用 MCP access 且当前 Figma Design 文件可编辑时，即可进行画布创作。
+2. 点击 **Set up agents**，选择 Codex、Cursor、Claude Code、Gemini、VS Code、OpenCode 或 TRAE，然后按界面显示的路径配置。其它兼容客户端请选择 **Other**。这里的选择只会切换说明，不会绑定或激活 agent。
+3. 对 Codex、Cursor、Claude Code 和 VS Code，配置流程会优先安装可移植的 Agent Plugin。对 Gemini、OpenCode、TRAE 及其它尚无兼容 plugin 安装能力的客户端，则使用对应客户端的 MCP 流程并单独安装两个 skill。所有命令和 config 都会完整显示，便于检查和复制。
+
+以下以 Gemini 为例，展示分别配置 MCP 和两个 skill 的安装路径：
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-gemini-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-gemini-light.png">
+  <img alt="Gemini 的 MCP 安装说明。" src="packages/site/public/marketing/mcp-config-gemini-light.png" width="600">
+</picture>
+
+向下滚动可查看两个 skill 的完整安装命令：
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-gemini-skills-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-gemini-skills-light.png">
+  <img alt="Gemini 的两个 skill 安装命令。" src="packages/site/public/marketing/mcp-config-gemini-skills-light.png" width="600">
+</picture>
+
+要把可移植插件安装到本机检测到的所有兼容 agent，可运行：
+
+```bash
+npx plugins add ecomfe/tempad-dev
+```
+
+使用 `--target codex`、`--target cursor`、`--target claude-code` 或 `--target vscode` 可以只
+安装到内置配置入口中的某一个目标。Codex 与 Claude 的原生 marketplace 命令，以及直接
+安装 MCP 和 skill 的方式，仍作为兼容回退保留在
+[Agent Plugin 指南](./agent-plugins/tempad-dev/README.zh-Hans.md)中。
+
+所有 plugin 和直接使用 `npx` 的配置路径都使用 `@tempad-dev/mcp@latest`。
+
+本次画布创作版本应配套使用扩展 **0.21.0**、MCP server **0.8.0** 和 Agent Plugin
+**0.2.0**。更新既有安装时，请参阅 [升级指南](./agent-plugins/tempad-dev/README.zh-Hans.md#升级)。
+
+使用期间请保持 TemPad Dev 打开并启用 MCP。如果连接了多个 Figma 文件，请点击目标文件面板中的 MCP 徽标；该文件会成为 agent 当前访问的上下文。
+
+### MCP 连接状态
+
+启用 MCP 服务器后，TemPad Dev 面板标题栏中会显示一个徽标，表示当前的连接状态：
+
+- **Unavailable**：本地 MCP 服务器未配置或未运行。
+
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/code-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/code-light.png">
-    <img alt="展示扩展面板代码视图的截图。" src="packages/site/public/marketing/code-light.png" width="720">
+    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-unavailable-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-unavailable-light.png">
+    <img alt="MCP 状态徽标，显示为 Unavailable。" src="packages/site/public/marketing/mcp-unavailable-light.png" width="360">
   </picture>
-</p>
+
+- **Inactive**：TemPad Dev 已连接到本地 MCP 服务器，但由于打开了多个 Figma 标签页，此标签页当前未激活。点击徽标即可为当前标签页激活 MCP（同时会停用其他标签页的 MCP）。
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-inactive-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-inactive-light.png">
+    <img alt="MCP 状态徽标，显示为 Inactive。" src="packages/site/public/marketing/mcp-inactive-light.png" width="360">
+  </picture>
+
+- **Active**：MCP 服务器正在运行，并且当前标签页已激活，可随时响应 MCP 工具调用。
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-active-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-active-light.png">
+    <img alt="MCP 状态徽标，显示为 Active。" src="packages/site/public/marketing/mcp-active-light.png" width="360">
+  </picture>
+
+### 配置项
+
+`@tempad-dev/mcp` 的环境变量配置请参见 [`packages/mcp-server/README.zh-Hans.md`](./packages/mcp-server/README.zh-Hans.md)。
+
+### MCP 工具
+
+以下工具供 agent 调用；日常使用可以直接描述任务。
+
+- `get_code`：默认输出高保真的 JSX/Vue + TailwindCSS 代码，同时包含相关资源以及使用的 codegen 预设和配置。
+- `get_design_system`：创建不可变、确定性的紧凑目录，按资源类型平衡分页返回可访问页面的
+  组件定义，以及本地或被定义直接引用的变量、集合/模式、样式和 shader 定义；既不扫描
+  画布中的使用情况，也不加载所有页面。游标可继续读取遗漏定义；使用同一目录精确查询
+  某个引用时，返回该资源的有界定义。使用 `scope: "fonts"` 可查询当前可用字体家族和精确
+  原生样式，不扫描文件资源。
+- `apply_canvas`：对精确页面或托管根节点执行创建、更新、删除或激活。仅操作页面时可省略
+  Canvas HTML；对精确托管根内既有稳定 key 的纯 native 更新也可省略。也可以直接把根节点写入
+  非当前的精确目标页面，而不切换编辑器上下文。扩展会在本地解析、验证、计算与实时画布的
+  差异、应用修改并校验结构。画布创作要求当前 Figma Design 文件具有编辑权限。
+- `get_screenshot`：返回一张有大小限制的渲染 PNG，用于按需视觉验证。
+- `get_structure`：精确节点、精确托管页面或当前选中节点的结构信息（id、类型、几何数据）。
+- `upload_asset`：将生成的 PNG/JPEG/GIF 存入本地 Hub，并返回供画布创作使用的 `assetHash`。
+- 二进制资源会通过工具响应中的元数据 + HTTP 下载地址（`asset.url`）提供；MCP 不再暴露 asset 资源模板。
 
 ---
 
-## 主要功能
+<a id="主要功能"></a>
+
+## 检查设计
 
 ### 查看 CSS 代码
 
@@ -39,7 +175,7 @@
   <img alt="展示所选元素的 CSS 和 JavaScript 代码。" src="packages/site/public/marketing/code-light.png" width="720">
 </picture>
 
-选择任意元素后，你可以在插件的 Code 面板中获取对应的 CSS 代码。除了标准的 CSS 代码之外，TemPad Dev 还会以 JavaScript 对象的形式提供样式，方便在 JSX 等场景中直接使用。
+选择元素后，你可以在扩展的 Code 面板中获取对应的 CSS 代码。除了标准的 CSS 代码之外，TemPad Dev 还会以 JavaScript 对象的形式提供样式，方便在 JSX 等场景中直接使用。
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/unit-dark.png">
@@ -88,7 +224,9 @@
 
 ---
 
-### 插件
+<a id="插件"></a>
+
+## 输出插件
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/plugins-dark.png">
@@ -103,7 +241,7 @@
 > [!NOTE]
 > 插件代码存储在浏览器的本地存储中，不支持版本管理或自动更新，需要你在 UI 中手动更新。
 
-#### 创建插件
+### 创建插件
 
 使用 `@tempad-dev/plugins` 包中提供的、带完整类型定义的 `definePlugin` 函数，可以简化插件的创建过程。
 
@@ -153,7 +291,7 @@ export default definePlugin({
 
 完整的类型定义和辅助函数请参见 [`packages/plugins/src/index.ts`](./packages/plugins/src/index.ts)。
 
-#### 部署插件
+### 部署插件
 
 请确保你的插件可以通过支持跨域请求的 URL 访问，例如托管在 GitHub 仓库或 Gist 中。比如可以使用 raw 地址：
 
@@ -173,7 +311,7 @@ sandboxed extension page 内启动一个全新的 Worker，并在完成或五秒
 蓄意内存压力以及不安全的生成内容不属于该边界。仍建议审查插件来源。准确保证与非目标见
 [威胁模型](./docs/security/local-mcp-threat-model.md)。
 
-#### 分享插件
+### 分享插件
 
 你也可以将插件注册到我们的 [插件注册表文件](https://github.com/ecomfe/tempad-dev/blob/main/packages/extension/plugins/available-plugins.json) 中，这样就可以通过插件名直接安装。
 
@@ -196,67 +334,6 @@ sandboxed extension page 内启动一个全新的 Worker，并在完成或五秒
 | `@react-native` | CSS 转 React Native StyleSheet | [@CANntyield](https://github.com/@CANntyield) | <img alt="GitHub" src="https://simpleicons.org/icons/github.svg" width="12" height="12"> [GitHub](https://github.com/CANntyield/tempad-dev-plugin-react-native) |
 <!-- availablePlugins:end -->
 <!-- prettier-ignore-end -->
-
-## Agent 集成
-
-TemPad Dev 内置了面向编码 agent 和 IDE 的 Agent 集成。该集成包含：
-
-- 一个 [MCP](https://modelcontextprotocol.io/) 服务器，使 agent 可以直接从你在 Figma 中选中的节点拉取代码和上下文
-- 一个 agent skill，用于指导 agent 在当前仓库中理解并使用这些证据
-
-Figma 也提供官方的 [remote 与 desktop MCP server](https://developers.figma.com/docs/figma-mcp-server/)，并建议大多数用户优先使用 remote server。TemPad Dev 的定位是一个开放、强调本地控制的补充方案，适合明确需要可审计的浏览器扩展链路、现有只读检查流程、可编程输出插件、规范化的 agent-facing 代码/token IR，以及显式上下文预算的团队。TemPad Dev 提供设计证据与代码起点；最终仍由 coding agent 结合目标仓库完成适配、验证和实现。
-
-打开 TemPad Dev 面板并启用 MCP 后，MCP 服务器会暴露以下能力：
-
-- `get_code`：默认输出高保真的 JSX/Vue + TailwindCSS 代码，同时包含相关资源以及使用的 codegen 预设和配置。
-- `get_structure`：当前选中节点的结构信息（id、类型、几何数据）。
-- 二进制资源会通过工具响应中的元数据 + HTTP 下载地址（`asset.url`）提供；MCP 不再暴露 asset 资源模板。
-
-### 配置指南
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-light.png">
-  <img alt="TemPad Dev agent setup 对话框。" src="packages/site/public/marketing/mcp-config-light.png" width="600">
-</picture>
-
-1. 安装 Node.js 18.20.0 或更高版本并确保 `npx` 可用。在希望 agent 检查的 Figma 标签页中保持 TemPad Dev 打开，然后启用 **Preferences → Agent integration → MCP access**。出现提示时，请允许连接到 loopback 地址 `127.0.0.1`。
-2. 点击 **Set up agents**，选择 Codex、Cursor、Claude Code、Gemini、VS Code、OpenCode 或 TRAE，然后按界面显示的路径配置。其它兼容客户端请选择 **Other**。这里的选择只会切换说明，不会绑定或激活 agent。
-3. 如果界面提供直接操作，请优先使用。所有备用命令和 config 都会完整显示，便于检查和复制。Codex 与 Claude Code 的 plugin 同时包含 MCP 和 `figma-design-to-code` skill；其它路径会分别展示两个必要步骤。
-
-使用期间请保持 TemPad Dev 打开并启用 MCP。如果连接了多个 Figma 文件，请点击目标文件面板中的 MCP 徽标；该文件会成为 agent 当前访问的上下文。
-
-### MCP 连接状态
-
-启用 MCP 服务器后，TemPad Dev 面板标题栏中会显示一个徽标，表示当前的连接状态：
-
-- **Unavailable**：本地 MCP 服务器未配置或未运行。
-
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-unavailable-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-unavailable-light.png">
-    <img alt="MCP 状态徽标，显示为 Unavailable。" src="packages/site/public/marketing/mcp-unavailable-light.png" width="360">
-  </picture>
-
-- **Inactive**：TemPad Dev 已连接到本地 MCP 服务器，但由于打开了多个 Figma 标签页，此标签页当前未激活。点击徽标即可为当前标签页激活 MCP（同时会停用其他标签页的 MCP）。
-
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-inactive-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-inactive-light.png">
-    <img alt="MCP 状态徽标，显示为 Inactive。" src="packages/site/public/marketing/mcp-inactive-light.png" width="360">
-  </picture>
-
-- **Active**：MCP 服务器正在运行，并且当前标签页已激活，可随时响应 MCP 工具调用。
-
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-active-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-active-light.png">
-    <img alt="MCP 状态徽标，显示为 Active。" src="packages/site/public/marketing/mcp-active-light.png" width="360">
-  </picture>
-
-### 配置项
-
-`@tempad-dev/mcp` 的环境变量配置请参见 [`packages/mcp-server/README.zh-Hans.md`](./packages/mcp-server/README.zh-Hans.md)。
 
 <details>
 <summary><h3>查看 TemPad 组件代码</h3></summary>

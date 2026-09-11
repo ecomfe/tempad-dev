@@ -3,6 +3,7 @@ import { raw } from '@tempad-dev/plugins'
 import type { DevComponent } from '@/types/plugin'
 
 import { stripDefaultTextStyles } from '@/utils/css'
+import { isRenderablePaint } from '@/utils/figma-paint'
 
 import type { NodeSnapshot, VisibleTree } from '../model'
 import type { PluginComponent } from './plugin'
@@ -87,7 +88,8 @@ async function renderNode(
       const mergedProps = Object.keys(props).length ? props : undefined
       return raw(svgEntry.raw, mergedProps as Record<string, string> | undefined)
     }
-    if (classNames.length) svgProps[classAttr] = props[classAttr]
+    const className = props[classAttr]
+    if (classNames.length && className) svgProps[classAttr] = className
     Object.entries(props).forEach(([key, val]) => {
       if (key === classAttr) return
       svgProps[key] = val
@@ -464,26 +466,17 @@ function hasVisibleTextFill(
 ): boolean {
   const nodeFills = Array.isArray(node.fills) ? (node.fills as Paint[]) : null
   if (nodeFills) {
-    return nodeFills.some((fill) => isVisiblePaint(fill))
+    return nodeFills.some((fill) => isRenderablePaint(fill))
   }
 
   if (Array.isArray(segments)) {
     for (const seg of segments) {
       const fills = Array.isArray(seg.fills) ? (seg.fills as Paint[]) : null
-      if (fills && fills.some((fill) => isVisiblePaint(fill))) return true
+      if (fills && fills.some((fill) => isRenderablePaint(fill))) return true
     }
     return false
   }
 
-  return true
-}
-
-function isVisiblePaint(paint?: Paint): boolean {
-  if (!paint || paint.visible === false) return false
-  if (typeof paint.opacity === 'number' && paint.opacity <= 0) return false
-  if ('gradientStops' in paint && Array.isArray(paint.gradientStops)) {
-    return paint.gradientStops.some((stop) => (stop.color?.a ?? 1) > 0)
-  }
   return true
 }
 

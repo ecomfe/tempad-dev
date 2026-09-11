@@ -1,12 +1,15 @@
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import type {
   AssetDescriptor,
+  AuthoringRuntimeEvidence,
   GetAssetsParametersInput,
   GetAssetsResult,
   StateMessage,
   ToolCallMessage,
   ToolName,
-  ToolResultMap
+  ToolResultMap,
+  UploadAssetParametersInput,
+  UploadAssetResult
 } from '@tempad-dev/shared'
 import type { ZodType } from 'zod'
 
@@ -14,19 +17,24 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   GetAssetsResultSchema,
+  MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES,
   MCP_TOOL_INLINE_BUDGET_BYTES,
+  TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_ERROR_CODES,
   measureCallToolResultBytes,
+  utf8Bytes,
   type TempadMcpErrorCode
 } from '@tempad-dev/shared'
 import { randomUUID } from 'node:crypto'
 import { existsSync, rmSync, chmodSync } from 'node:fs'
 import { connect, createServer } from 'node:net'
+import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
 import { WebSocketServer } from 'ws'
 
-import type { AssetRecord } from './types'
+import type { AssetRecord, ExtensionConnection } from './types'
 
+import { decodeImageDataUrl } from './asset-data-url'
 import { createAssetHttpServer } from './asset-http-server'
 import { createAssetStore } from './asset-store'
 import { buildAssetFilename } from './asset-utils'
@@ -35,24 +43,35 @@ import { ExtensionRegistry } from './extension-registry'
 import { attachExtensionSocket } from './extension-socket'
 import MCP_INSTRUCTIONS from './instructions.md?raw'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
+import {
+  compareExtensionRuntimeIdentity,
+  createHubRuntimeIdentity,
+  removeHubRuntimeIdentityIfOwned,
+  resolveExpectedExtensionRuntimeFingerprint,
+  writeHubRuntimeIdentity,
+  type HubRuntimeIdentity
+} from './runtime-identity'
 import { createExtensionOriginPolicy } from './security'
 import {
   HUB_BUSY_EXIT_CODE,
   HUB_LOCK_PATH,
   HUB_LOCK_STALE_MS,
   HUB_LOCK_UPDATE_MS,
+  HUB_RUNTIME_IDENTITY_PATH,
   PACKAGE_VERSION,
   log,
   RUNTIME_DIR,
   SOCK_PATH,
-  ensureDir
+  ensureDir,
+  getRecordProperty
 } from './shared'
 import {
   TOOL_DEFS,
   coercePayloadToToolResponse,
   createAssetsToolResponse,
   createInlineBudgetExceededToolResponse,
-  createToolErrorResponse
+  createToolErrorResponse,
+  createUploadAssetToolResponse
 } from './tools'
 import { startExtensionWebSocketServer } from './websocket-server'
 
@@ -61,7 +80,10 @@ const SOCKET_PROBE_TIMEOUT_MS = 300
 const {
   wsPortCandidates,
   toolTimeoutMs,
+  getCodeTimeoutMs,
+  applyCanvasTimeoutMs,
   maxPayloadBytes,
+  maxAssetSizeBytes,
   maxExtensionConnections,
   autoActivateGraceMs,
   assetTtlMs,
@@ -78,26 +100,28 @@ let selectedWsPort = 0
 let releaseHubLock: (() => Promise<void>) | null = null
 let shuttingDown = false
 let wss: WebSocketServer | null = null
+let hubRuntimeIdentity: HubRuntimeIdentity | null = null
 const consumerSessions = new Set<McpServer>()
-type RegisterToolOptions = Parameters<McpServer['registerTool']>[1]
-type McpInputSchema = RegisterToolOptions['inputSchema']
-type McpOutputSchema = RegisterToolOptions['outputSchema']
 type ToolResponse = CallToolResult
+type ToolRegistrationOptions = {
+  annotations?: ToolAnnotations
+  description: string
+  inputSchema: ZodType
+  outputSchema?: ZodType
+}
 type SchemaOutput<Schema extends ZodType> = Schema['_output']
 type ToolMetadataEntry = (typeof TOOL_DEFS)[number]
 type ExtensionToolMetadata = Extract<ToolMetadataEntry, { target: 'extension' }>
 type HubToolMetadata = Extract<ToolMetadataEntry, { target: 'hub' }>
+type HubToolByName<Name extends HubToolMetadata['name']> = Extract<HubToolMetadata, { name: Name }>
 
-type HubToolWithHandler<T extends HubToolMetadata = HubToolMetadata> = T & {
+type HubToolWithHandlerFor<T extends HubToolMetadata> = T & {
   handler: (args: SchemaOutput<T['parameters']>) => Promise<ToolResponse>
 }
 
-function getRecordProperty(record: unknown, key: string): unknown {
-  if (!record || typeof record !== 'object') {
-    return undefined
-  }
-  return Reflect.get(record, key)
-}
+type HubToolWithHandler = {
+  [Name in HubToolMetadata['name']]: HubToolWithHandlerFor<HubToolByName<Name>>
+}[HubToolMetadata['name']]
 
 type SocketProbeResult = 'live' | 'missing' | { staleCode: string }
 
@@ -204,11 +228,20 @@ function enrichToolDefinition(tool: ToolMetadataEntry): RegisteredToolDefinition
   }
 
   switch (tool.name) {
-    case 'get_assets':
+    case 'get_assets': {
+      const definition = tool as HubToolByName<'get_assets'>
       return {
-        ...tool,
+        ...definition,
         handler: handleGetAssets
-      } satisfies HubToolWithHandler
+      } satisfies HubToolWithHandlerFor<typeof definition>
+    }
+    case 'upload_asset': {
+      const definition = tool as HubToolByName<'upload_asset'>
+      return {
+        ...definition,
+        handler: handleUploadAsset
+      } satisfies HubToolWithHandlerFor<typeof definition>
+    }
     default:
       throw new Error('No handler configured for hub tool.')
   }
@@ -309,6 +342,7 @@ function buildAssetDescriptor(record: AssetRecord): AssetDescriptor {
   return {
     hash: record.hash,
     url: `${assetHttpServer.getBaseUrl()}/assets/${filename}`,
+    localPath: record.filePath,
     mimeType: record.mimeType,
     size: record.size,
     width: record.metadata?.width,
@@ -348,7 +382,7 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
 
   const registerToolFn = mcp.registerTool.bind(mcp) as (
     name: string,
-    options: { description: string; inputSchema: ZodType; outputSchema?: ZodType },
+    options: ToolRegistrationOptions,
     handler: (args: unknown) => Promise<CallToolResult>
   ) => unknown
 
@@ -364,8 +398,35 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
           'No active TemPad Dev extension available.'
         )
       }
+      const runtimeIssues = compareExtensionRuntimeIdentity(
+        activeExt.runtime,
+        hubRuntimeIdentity?.expectedExtensionRuntimeFingerprint ?? null
+      )
+      if (runtimeIssues.length) {
+        throw createCodedError(
+          TEMPAD_MCP_ERROR_CODES.RUNTIME_IDENTITY_MISMATCH,
+          `${runtimeIssues.join('; ')}. Rebuild/reload the extension and start a fresh agent task.`
+        )
+      }
 
-      const registration = register<Result>(activeExt.id, toolTimeoutMs)
+      const runtime =
+        tool.name === 'apply_canvas' ? buildAuthoringRuntimeEvidence(activeExt) : undefined
+      if (runtime && utf8Bytes({ runtime }) > MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES) {
+        throw createCodedError(
+          TEMPAD_MCP_ERROR_CODES.RUNTIME_IDENTITY_MISMATCH,
+          'Runtime evidence exceeds the reserved response budget. No canvas write was dispatched.'
+        )
+      }
+
+      const timeoutMs =
+        tool.name === 'get_code'
+          ? getCodeTimeoutMs
+          : tool.name === 'apply_canvas'
+            ? applyCanvasTimeoutMs
+            : toolTimeoutMs
+      const registration = register<Result>(activeExt.id, timeoutMs, {
+        waitForDefinitiveResult: tool.name === 'apply_canvas'
+      })
       requestId = registration.requestId
 
       const message: ToolCallMessage = {
@@ -383,7 +444,7 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
       )
 
       const payload = await registration.promise
-      return createToolResponse(tool.name, payload)
+      return createToolResponse(tool.name, payload, runtime)
     } catch (error) {
       const normalized = coerceToolError(error)
       log.error(
@@ -402,8 +463,9 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
   registerToolFn(
     tool.name,
     {
+      annotations: tool.annotations,
       description: tool.description,
-      inputSchema: schema as unknown as McpInputSchema
+      inputSchema: schema
     },
     handler
   )
@@ -411,25 +473,22 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
 
 function registerLocalTool(mcp: McpServer, tool: HubOnlyTool): void {
   const schema = tool.parameters
-  const handler = tool.handler
+  const handler = tool.handler as (args: unknown) => Promise<CallToolResult>
 
   const registerToolFn = mcp.registerTool.bind(mcp) as (
     name: string,
-    options: { description: string; inputSchema: ZodType; outputSchema?: ZodType },
+    options: ToolRegistrationOptions,
     handler: (args: unknown) => Promise<CallToolResult>
   ) => unknown
 
-  const registrationOptions: {
-    description: string
-    inputSchema: McpInputSchema
-    outputSchema?: McpOutputSchema
-  } = {
+  const registrationOptions: ToolRegistrationOptions = {
+    annotations: tool.annotations,
     description: tool.description,
-    inputSchema: schema as unknown as McpInputSchema
+    inputSchema: schema
   }
 
   if (tool.outputSchema) {
-    registrationOptions.outputSchema = tool.outputSchema as unknown as McpOutputSchema
+    registrationOptions.outputSchema = tool.outputSchema
   }
 
   const registerHandler = async (args: unknown) => {
@@ -447,22 +506,40 @@ function registerLocalTool(mcp: McpServer, tool: HubOnlyTool): void {
 
 function createToolResponse<Name extends ToolName>(
   toolName: Name,
-  payload: ToolResultMap[Name]
+  payload: ToolResultMap[Name],
+  runtime?: AuthoringRuntimeEvidence
 ): ToolResponse {
-  const rawResult = (() => {
-    const definition = getToolDefinition(toolName)
-    if (definition && hasFormatter(definition)) {
-      try {
-        const formatter = definition.format as (input: ToolResultMap[Name]) => ToolResponse
-        return formatter(payload)
-      } catch (error) {
-        log.warn({ tool: toolName, error }, 'Failed to format tool result; returning raw payload.')
-        return coercePayloadToToolResponse(payload)
-      }
+  const enrichedPayload = (() => {
+    if (toolName === 'get_screenshot') {
+      const screenshot = payload as ToolResultMap['get_screenshot']
+      return { ...screenshot, asset: addLocalAssetPath(screenshot.asset) }
     }
+    if (toolName === 'get_code') {
+      const code = payload as ToolResultMap['get_code']
+      return code.assets
+        ? { ...code, assets: code.assets.map((asset) => addLocalAssetPath(asset)) }
+        : code
+    }
+    if (toolName === 'apply_canvas' && runtime) {
+      const apply = payload as ToolResultMap['apply_canvas']
+      return { ...apply, runtime }
+    }
+    return payload
+  })() as ToolResultMap[Name]
 
-    return coercePayloadToToolResponse(payload)
-  })()
+  let rawResult: ToolResponse
+  const definition = getToolDefinition(toolName)
+  if (definition && hasFormatter(definition)) {
+    try {
+      const formatter = definition.format as (input: ToolResultMap[Name]) => ToolResponse
+      rawResult = formatter(enrichedPayload)
+    } catch (error) {
+      log.warn({ tool: toolName, error }, 'Failed to format tool result; returning raw payload.')
+      rawResult = coercePayloadToToolResponse(enrichedPayload)
+    }
+  } else {
+    rawResult = coercePayloadToToolResponse(enrichedPayload)
+  }
 
   const resultBytes = measureCallToolResultBytes(rawResult)
   if (resultBytes > MCP_TOOL_INLINE_BUDGET_BYTES) {
@@ -474,6 +551,36 @@ function createToolResponse<Name extends ToolName>(
   }
 
   return rawResult
+}
+
+function buildAuthoringRuntimeEvidence(extension: ExtensionConnection): AuthoringRuntimeEvidence {
+  const runtime = extension.runtime
+  const issues = compareExtensionRuntimeIdentity(
+    runtime,
+    hubRuntimeIdentity?.expectedExtensionRuntimeFingerprint ?? null
+  )
+  if (!hubRuntimeIdentity) issues.unshift('Hub runtime identity is unavailable')
+  return {
+    protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+    locked: hubRuntimeIdentity?.expectedExtensionRuntimeFingerprint != null,
+    valid: issues.length === 0,
+    issues,
+    hub: {
+      packageVersion: hubRuntimeIdentity?.packageVersion ?? PACKAGE_VERSION,
+      runtimeFingerprint: hubRuntimeIdentity?.runtimeFingerprint ?? '0'.repeat(64),
+      startedAt: hubRuntimeIdentity?.startedAt ?? new Date(0).toISOString()
+    },
+    extension: {
+      version: runtime?.version ?? '<missing>',
+      runtimeFingerprint: runtime?.fingerprint ?? '0'.repeat(64),
+      connectedAt: extension.connectedAt
+    }
+  }
+}
+
+function addLocalAssetPath(asset: AssetDescriptor): AssetDescriptor {
+  const record = assetStore.get(asset.hash)
+  return record && existsSync(record.filePath) ? { ...asset, localPath: record.filePath } : asset
 }
 
 async function handleGetAssets({ hashes }: GetAssetsParametersInput): Promise<ToolResponse> {
@@ -495,6 +602,31 @@ async function handleGetAssets({ hashes }: GetAssetsParametersInput): Promise<To
   return createAssetsToolResponse(payload)
 }
 
+async function handleUploadAsset({ dataUrl }: UploadAssetParametersInput): Promise<ToolResponse> {
+  const decoded = decodeImageDataUrl(dataUrl, maxAssetSizeBytes)
+  const filename = buildAssetFilename(decoded.hash, decoded.mimeType)
+  const response = await fetch(`${assetHttpServer.getBaseUrl()}/assets/${filename}`, {
+    method: 'POST',
+    headers: {
+      'Content-Length': String(decoded.bytes.length),
+      'Content-Type': decoded.mimeType
+    },
+    body: new Uint8Array(decoded.bytes)
+  })
+
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500)
+    throw new Error(`Hub asset import failed (${response.status}): ${detail}`)
+  }
+
+  const payload: UploadAssetResult = {
+    assetHash: decoded.hash,
+    mimeType: decoded.mimeType,
+    size: decoded.bytes.length
+  }
+  return createUploadAssetToolResponse(payload)
+}
+
 function unrefTimer(timer: TimeoutHandle): void {
   if (typeof timer === 'object' && timer !== null) {
     const handle = timer as NodeJS.Timeout
@@ -505,6 +637,7 @@ function unrefTimer(timer: TimeoutHandle): void {
 }
 
 function broadcastState(): void {
+  publishHubRuntimeIdentity()
   const activeId = extensionRegistry.getActiveId()
   const message: StateMessage = {
     type: 'state',
@@ -513,6 +646,23 @@ function broadcastState(): void {
   }
   extensionRegistry.list().forEach((ext) => ext.ws.send(JSON.stringify(message)))
   log.debug({ activeId, count: extensionRegistry.size }, 'Broadcasted state.')
+}
+
+function publishHubRuntimeIdentity(): void {
+  if (!hubRuntimeIdentity) return
+  const activeExtension = extensionRegistry.getActive()
+  hubRuntimeIdentity = {
+    ...hubRuntimeIdentity,
+    activeExtension: activeExtension
+      ? {
+          id: activeExtension.id,
+          connectedAt: activeExtension.connectedAt,
+          version: activeExtension.runtime?.version ?? null,
+          fingerprint: activeExtension.runtime?.fingerprint ?? null
+        }
+      : null
+  }
+  writeHubRuntimeIdentity(HUB_RUNTIME_IDENTITY_PATH, hubRuntimeIdentity)
 }
 
 function shutdown(): void {
@@ -531,6 +681,7 @@ function shutdown(): void {
   netServer.close(() => log.info('Net server closed.'))
   wss?.close(() => log.info('WebSocket server closed.'))
   cleanupAll()
+  removeHubRuntimeIdentityIfOwned(HUB_RUNTIME_IDENTITY_PATH, process.pid)
   void releaseHubLockIfNeeded()
   const timer = setTimeout(() => {
     log.warn('Shutdown timed out. Forcing exit.')
@@ -578,6 +729,12 @@ async function initializeHubRuntime(): Promise<void> {
   }
   releaseHubLock = await acquireHubLock()
   await cleanSocketPath()
+  hubRuntimeIdentity = createHubRuntimeIdentity(
+    fileURLToPath(import.meta.url),
+    PACKAGE_VERSION,
+    await resolveExpectedExtensionRuntimeFingerprint()
+  )
+  writeHubRuntimeIdentity(HUB_RUNTIME_IDENTITY_PATH, hubRuntimeIdentity)
   await assetHttpServer.start()
   scheduleAssetCleanup()
 }
@@ -647,6 +804,7 @@ async function startHubRuntime(): Promise<WebSocketServer> {
 async function abortStartup(error: unknown): Promise<never> {
   log.error({ err: error }, 'Failed to initialize Hub runtime.')
   assetHttpServer.stop()
+  removeHubRuntimeIdentityIfOwned(HUB_RUNTIME_IDENTITY_PATH, process.pid)
   await releaseHubLockIfNeeded()
   process.exit(1)
 }
@@ -692,6 +850,17 @@ activeWss.on('connection', (ws, request) => {
       } else {
         log.warn({ error: warning.error, extId: warning.extensionId }, 'Invalid message shape.')
       }
+    },
+    onRuntimeHello: (extension) => {
+      publishHubRuntimeIdentity()
+      log.info(
+        {
+          extId: extension.id,
+          extensionVersion: extension.runtime?.version,
+          extensionRuntimeFingerprint: extension.runtime?.fingerprint
+        },
+        'Extension runtime identity received.'
+      )
     },
     onSocketError: (extensionId, error) => {
       log.warn({ err: error, extId: extensionId }, 'Extension WebSocket error.')

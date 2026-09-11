@@ -9,6 +9,10 @@ import { log } from './shared'
 
 const pendingCalls = new Map<string, PendingToolCall>()
 
+type RegisterOptions = {
+  waitForDefinitiveResult?: boolean
+}
+
 function createToolError(
   code: TempadMcpErrorCode,
   message: string
@@ -20,11 +24,19 @@ function createToolError(
 
 export function register<T>(
   extensionId: string,
-  timeout: number
+  timeout: number,
+  options: RegisterOptions = {}
 ): { promise: Promise<T>; requestId: string } {
   const requestId = nanoid()
   const promise = new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
+      if (options.waitForDefinitiveResult) {
+        log.warn(
+          { reqId: requestId, extId: extensionId, timeout },
+          'Extension call exceeded its warning threshold; waiting for a definitive result.'
+        )
+        return
+      }
       pendingCalls.delete(requestId)
       reject(
         createToolError(

@@ -1,5 +1,6 @@
 import type { OutlineNode } from '@tempad-dev/shared'
 
+import { isVisibleMediaPaint } from '@/mcp/media'
 import { toPascalCase } from '@/utils/string'
 
 const NODE_CAP = 2048
@@ -70,8 +71,6 @@ type TraversalContext = {
   cappedNodeIds: string[]
 }
 
-type FlattenResult = SemanticNode[]
-
 function assignIndexes(nodes: SemanticNode[]): void {
   nodes.forEach((node, idx) => {
     node.index = idx
@@ -87,6 +86,10 @@ const VECTOR_LIKE_TYPES = new Set<SceneNode['type']>([
   'ELLIPSE',
   'POLYGON'
 ])
+
+export function isVectorLikeNode(node: SceneNode): boolean {
+  return VECTOR_LIKE_TYPES.has(node.type)
+}
 
 function getBounds(node: SceneNode): Bounds {
   return { x: node.x, y: node.y, width: node.width, height: node.height }
@@ -110,44 +113,35 @@ function isWrapper(node: SceneNode): boolean {
   )
 }
 
-function resolveTag(node: SceneNode): string {
-  const { type } = node
-  if (type === 'TEXT') {
+export function resolveSemanticTag(node: SceneNode): string {
+  if (node.type === 'TEXT') {
     return node.characters.includes('\n') ? 'p' : 'span'
   }
 
-  if (VECTOR_LIKE_TYPES.has(type)) {
+  if (isVectorLikeNode(node)) {
     return 'svg'
   }
 
-  if (type === 'RECTANGLE' && Array.isArray(node.fills)) {
-    const { fills } = node
-    const hasImageFill = fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
-    if (hasImageFill) return 'img'
+  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
+    if (node.fills.some(isVisibleMediaPaint)) return 'img'
   }
 
   return 'div'
 }
 
-function classifyAsset(node: SceneNode): { isAsset: boolean; assetKind?: 'vector' | 'image' } {
-  const { type } = node
-  if (VECTOR_LIKE_TYPES.has(type)) {
-    return { isAsset: true, assetKind: 'vector' }
+export function classifySemanticAsset(node: SceneNode): 'vector' | 'image' | undefined {
+  if (isVectorLikeNode(node)) return 'vector'
+
+  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
+    if (node.fills.some(isVisibleMediaPaint)) return 'image'
   }
 
-  if (type === 'RECTANGLE' && Array.isArray(node.fills)) {
-    const { fills } = node
-    const hasImageFill = fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
-    if (hasImageFill) {
-      return { isAsset: true, assetKind: 'image' }
-    }
-  }
+  return undefined
+}
 
-  if (type === 'ELLIPSE' || type === 'POLYGON' || type === 'STAR') {
-    return { isAsset: true, assetKind: 'vector' }
-  }
-
-  return { isAsset: false }
+function describeAsset(node: SceneNode): Pick<SemanticNode, 'isAsset' | 'assetKind'> {
+  const assetKind = classifySemanticAsset(node)
+  return assetKind ? { isAsset: true, assetKind } : { isAsset: false }
 }
 
 function hasExplicitOverflow(node: SceneNode): boolean {
@@ -190,15 +184,8 @@ function composeDataHint(node: SceneNode): DataHint | undefined {
   const hints: DataHint = {}
 
   if (node.type === 'INSTANCE') {
-    const { mainComponent } = node as InstanceNode
-    const name =
-      mainComponent?.parent?.type === 'COMPONENT_SET'
-        ? mainComponent.parent.name
-        : (mainComponent?.name ?? node.name)
-    const props = summarizeComponentProperties(node) ?? ''
-    if (name) {
-      hints['data-hint-design-component'] = `${toPascalCase(name)}${props}`
-    }
+    const componentHint = summarizeComponentHint(node)
+    if (componentHint) hints['data-hint-design-component'] = componentHint
   }
 
   const layoutHint = summarizeLayoutHint(node)
@@ -269,6 +256,15 @@ function summarizeComponentProperties(node: InstanceNode): string | undefined {
   return entries.length ? entries.map((e) => `[${e}]`).join('') : undefined
 }
 
+export function summarizeComponentHint(node: InstanceNode): string | undefined {
+  const { mainComponent } = node
+  const name =
+    mainComponent?.parent?.type === 'COMPONENT_SET'
+      ? mainComponent.parent.name
+      : (mainComponent?.name ?? node.name)
+  return name ? `${toPascalCase(name)}${summarizeComponentProperties(node) ?? ''}` : undefined
+}
+
 function summarizeLayoutHint(node: SceneNode): string | undefined {
   const layoutSource = resolveAutoLayoutSource(node)
   // Explicit auto layout is obvious; only hint when not explicitly set.
@@ -291,12 +287,38 @@ function getLayoutKind(node: SceneNode): 'auto' | 'absolute' {
   return 'absolute'
 }
 
+function createSemanticNode(
+  node: SceneNode,
+  depth: number,
+  index: number,
+  children: SemanticNode[],
+  capped = false
+): SemanticNode {
+  const dataHint = composeDataHint(node)
+  return {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    tag: resolveSemanticTag(node),
+    depth,
+    index,
+    layout: getLayoutKind(node),
+    bounds: getBounds(node),
+    isComponentInstance: node.type === 'INSTANCE',
+    ...describeAsset(node),
+    ...(dataHint ? { dataHint } : {}),
+    autoLayout: extractAutoLayout(node),
+    ...(capped ? { capped: true } : {}),
+    children
+  }
+}
+
 function visit(
   node: SceneNode,
   depth: number,
   index: number,
   ctx: TraversalContext
-): FlattenResult {
+): SemanticNode[] {
   if (!node.visible) return []
 
   if (ctx.depthLimit !== undefined && depth >= ctx.depthLimit) {
@@ -305,28 +327,7 @@ function visit(
     ctx.stats.capped = true
     ctx.cappedNodeIds.push(node.id)
 
-    const semanticNode: SemanticNode = {
-      id: node.id,
-      name: node.name,
-      type: node.type,
-      tag: resolveTag(node),
-      depth,
-      index,
-      layout: getLayoutKind(node),
-      bounds: getBounds(node),
-      isComponentInstance: node.type === 'INSTANCE',
-      ...classifyAsset(node),
-      autoLayout: extractAutoLayout(node),
-      capped: true,
-      children: []
-    }
-
-    const hint = composeDataHint(node)
-    if (hint) {
-      semanticNode.dataHint = hint
-    }
-
-    return [semanticNode]
+    return [createSemanticNode(node, depth, index, [], true)]
   }
 
   if (isWrapper(node)) {
@@ -339,30 +340,10 @@ function visit(
   )
   assignIndexes(children)
 
-  const semanticNode: SemanticNode = {
-    id: node.id,
-    name: node.name,
-    type: node.type,
-    tag: resolveTag(node),
-    depth,
-    index,
-    layout: getLayoutKind(node),
-    bounds: getBounds(node),
-    isComponentInstance: node.type === 'INSTANCE',
-    ...classifyAsset(node),
-    autoLayout: extractAutoLayout(node),
-    children
-  }
-
-  const hint = composeDataHint(node)
-  if (hint) {
-    semanticNode.dataHint = hint
-  }
-
   ctx.stats.totalNodes += 1
   ctx.stats.maxDepth = Math.max(ctx.stats.maxDepth, depth)
 
-  return [semanticNode]
+  return [createSemanticNode(node, depth, index, children)]
 }
 
 function collectDepthCounts(nodes: SceneNode[], depth = 0, counts: number[] = []): number[] {
@@ -385,8 +366,8 @@ export function suggestDepthLimit(roots: SceneNode[]): number | undefined {
   }
 
   let cumulative = 0
-  for (let i = 0; i < counts.length; i += 1) {
-    cumulative += counts[i]
+  for (const [i, count] of counts.entries()) {
+    cumulative += count
     if (cumulative > NODE_TARGET) {
       return i
     }

@@ -1,19 +1,8 @@
-import type { GetCodeWarning, ToolResponseLike } from '@tempad-dev/shared'
+import type { GetCodeLiteralCluster, GetCodeWarning, ToolResponseLike } from '@tempad-dev/shared'
 
-import { MCP_TOOL_INLINE_BUDGET_BYTES, measureCallToolResultBytes } from '@tempad-dev/shared'
+import { measureCallToolResultBytes } from '@tempad-dev/shared'
 
 const AUTO_LAYOUT_REGEX = /data-hint-auto-layout\s*=\s*["']?inferred["']?/i
-
-const SHELL_WARNING_MESSAGE =
-  'Shell response: omitted direct child ids are listed in the inline comment. Call get_code for them in that order, then fill the results back into this shell instead of re-creating the parent layout.'
-
-export type CodeBudget = {
-  maxResultBytes: number
-}
-
-const UNBOUNDED_CODE_BUDGET: CodeBudget = {
-  maxResultBytes: Number.MAX_SAFE_INTEGER
-}
 
 export class CodeBudgetExceededError extends Error {
   constructor(message: string) {
@@ -22,21 +11,14 @@ export class CodeBudgetExceededError extends Error {
   }
 }
 
-export function resolveCodeBudget(): CodeBudget {
-  return {
-    maxResultBytes: MCP_TOOL_INLINE_BUDGET_BYTES
-  }
-}
-
-export function resolveUnlimitedCodeBudget(): CodeBudget {
-  return UNBOUNDED_CODE_BUDGET
-}
-
-export function assertToolResponseWithinBudget(result: ToolResponseLike, budget: CodeBudget): void {
+export function assertToolResponseWithinBudget(
+  result: ToolResponseLike,
+  maxResultBytes: number
+): void {
   const size = measureCallToolResultBytes(result)
-  if (size <= budget.maxResultBytes) return
+  if (size <= maxResultBytes) return
   throw new CodeBudgetExceededError(
-    `Tool result exceeds inline budget (${size} UTF-8 bytes > ${budget.maxResultBytes} UTF-8 bytes). Reduce selection size and retry, or call get_code on a smaller nodeId subtree.`
+    `Tool result exceeds inline budget (${size} UTF-8 bytes > ${maxResultBytes} UTF-8 bytes). Reduce selection size and retry, or call get_code on a smaller nodeId subtree.`
   )
 }
 
@@ -44,6 +26,7 @@ export function buildGetCodeWarnings(
   code: string,
   options?: {
     cappedNodeIds?: string[]
+    literalClusters?: GetCodeLiteralCluster[]
     shell?: boolean
   }
 ): GetCodeWarning[] | undefined {
@@ -57,37 +40,29 @@ export function buildGetCodeWarnings(
     })
   }
 
-  const depthCapWarning = buildDepthCapWarning(options?.cappedNodeIds ?? [])
-  if (depthCapWarning) {
-    warnings.push(depthCapWarning)
+  if (options?.cappedNodeIds?.length) {
+    warnings.push({
+      type: 'depth-cap',
+      message:
+        'Tree depth capped; some subtree roots were omitted. Use returned data-hint-id values to continue with narrower get_code calls.'
+    })
+  }
+
+  if (options?.literalClusters?.length) {
+    warnings.push({
+      type: 'literal-cluster',
+      message:
+        'Repeated unbound color literals are listed in structuredContent.literalClusters with concrete consumer nodes. Classify each cluster before propagating a system: bind consumers that should change together, or keep them literal only when independently owned.'
+    })
   }
 
   if (options?.shell) {
-    warnings.push(buildShellWarning())
+    warnings.push({
+      type: 'shell',
+      message:
+        'Shell response: omitted direct child ids are listed in the inline comment. Call get_code for them in that order, then fill the results back into this shell instead of re-creating the parent layout.'
+    })
   }
 
   return warnings.length ? warnings : undefined
-}
-
-export function isCodeBudgetExceededError(error: unknown): error is CodeBudgetExceededError {
-  return error instanceof CodeBudgetExceededError
-}
-
-function buildDepthCapWarning(nodeIds: string[]): GetCodeWarning | undefined {
-  if (!nodeIds.length) {
-    return undefined
-  }
-
-  return {
-    type: 'depth-cap',
-    message:
-      'Tree depth capped; some subtree roots were omitted. Use returned data-hint-id values to continue with narrower get_code calls.'
-  }
-}
-
-function buildShellWarning(): GetCodeWarning {
-  return {
-    type: 'shell',
-    message: SHELL_WARNING_MESSAGE
-  }
 }

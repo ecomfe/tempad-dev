@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import type { HeroCarouselSlide } from '@/content/landing'
-
 import { useSiteColorMode } from '@/composables/useSiteColorMode'
-import { HERO_CAROUSEL_SLIDES } from '@/content/landing'
+import { INSPECTION_SLIDES } from '@/content/landing'
 
 type HeroGlowSpec = {
   id: number
@@ -130,31 +128,17 @@ let motionMediaQuery: MediaQueryList | undefined
 let enterAnimationFrame: number | undefined
 const preloadedModes = new Set<string>()
 
-const activeSlide = computed(() => getSlideByIndex(activeIndex.value))
-const outgoingSlide = computed(() => getOptionalSlideByIndex(outgoingIndex.value))
-
-function getSlideByIndex(index: number): HeroCarouselSlide {
-  return HERO_CAROUSEL_SLIDES[index]!
-}
-
-function getOptionalSlideByIndex(index: number | null): HeroCarouselSlide | null {
-  if (index === null) {
-    return null
-  }
-
-  return getSlideByIndex(index)
-}
-
-function getSlideImageSrc(slide: HeroCarouselSlide): string {
-  return slide.image[resolvedColorMode.value]
-}
+const activeSlide = computed(() => INSPECTION_SLIDES[activeIndex.value]!)
+const outgoingSlide = computed(() =>
+  outgoingIndex.value === null ? null : INSPECTION_SLIDES[outgoingIndex.value]!
+)
 
 function preloadCarouselImages(mode: 'light' | 'dark'): void {
   if (preloadedModes.has(mode)) {
     return
   }
 
-  HERO_CAROUSEL_SLIDES.forEach((slide) => {
+  INSPECTION_SLIDES.forEach((slide) => {
     const image = new Image()
     image.decoding = 'async'
     image.src = slide.image[mode]
@@ -265,7 +249,7 @@ function scheduleAutoplay(): void {
 }
 
 function advanceSlide(): void {
-  const nextIndex = (activeIndex.value + 1) % HERO_CAROUSEL_SLIDES.length
+  const nextIndex = (activeIndex.value + 1) % INSPECTION_SLIDES.length
 
   if (prefersReducedMotion.value) {
     activeIndex.value = nextIndex
@@ -341,7 +325,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <figure class="site-hero-figure" aria-label="TemPad Dev product surfaces shown in the hero.">
+  <figure class="site-hero-figure" aria-label="TemPad Dev inspection examples.">
     <div class="site-hero-shot-frame" aria-hidden="true">
       <div class="site-hero-shot-glows">
         <span
@@ -368,14 +352,10 @@ onBeforeUnmount(() => {
         <div class="site-hero-shot-media">
           <img
             class="site-hero-shot-image"
-            :src="getSlideImageSrc(outgoingSlide)"
+            :src="outgoingSlide.image[resolvedColorMode]"
             :width="outgoingSlide.image.width"
             :height="outgoingSlide.image.height"
             alt=""
-            :style="{
-              objectFit: outgoingSlide.objectFit ?? 'contain',
-              objectPosition: outgoingSlide.objectPosition ?? 'center center'
-            }"
           />
           <p class="site-hero-shot-caption">{{ outgoingSlide.caption }}</p>
         </div>
@@ -393,14 +373,10 @@ onBeforeUnmount(() => {
         <div class="site-hero-shot-media">
           <img
             class="site-hero-shot-image"
-            :src="getSlideImageSrc(activeSlide)"
+            :src="activeSlide.image[resolvedColorMode]"
             :alt="activeSlide.image.alt"
             :width="activeSlide.image.width"
             :height="activeSlide.image.height"
-            :style="{
-              objectFit: activeSlide.objectFit ?? 'contain',
-              objectPosition: activeSlide.objectPosition ?? 'center center'
-            }"
           />
           <p class="site-hero-shot-caption">{{ activeSlide.caption }}</p>
         </div>

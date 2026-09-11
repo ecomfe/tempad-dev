@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION } from '../../src/mcp/constants'
 import {
   ToolResultMessageSchema,
   parseMessageFromExtension,
@@ -8,9 +9,18 @@ import {
 
 describe('mcp/protocol', () => {
   it('parses valid messages to extension', () => {
-    expect(parseMessageToExtension('{"type":"registered","id":"ext-1"}')).toEqual({
+    expect(
+      parseMessageToExtension(
+        JSON.stringify({
+          type: 'registered',
+          id: 'ext-1',
+          protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
+        })
+      )
+    ).toEqual({
       type: 'registered',
-      id: 'ext-1'
+      id: 'ext-1',
+      protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
     })
 
     expect(
@@ -62,6 +72,19 @@ describe('mcp/protocol', () => {
     })
 
     expect(parseMessageFromExtension('{"type":"ping"}')).toEqual({ type: 'ping' })
+    expect(
+      parseMessageFromExtension(
+        JSON.stringify({
+          type: 'runtimeHello',
+          extensionVersion: '0.21.0',
+          extensionRuntimeFingerprint: 'a'.repeat(64)
+        })
+      )
+    ).toEqual({
+      type: 'runtimeHello',
+      extensionVersion: '0.21.0',
+      extensionRuntimeFingerprint: 'a'.repeat(64)
+    })
   })
 
   it('returns null for invalid json', () => {
@@ -70,6 +93,16 @@ describe('mcp/protocol', () => {
   })
 
   it('returns null when schema validation fails', () => {
+    expect(parseMessageToExtension('{"type":"registered","id":"ext-1"}')).toBeNull()
+    expect(
+      parseMessageToExtension(
+        JSON.stringify({
+          type: 'registered',
+          id: 'ext-1',
+          protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION + 1
+        })
+      )
+    ).toBeNull()
     expect(parseMessageToExtension(JSON.stringify({ type: 'state', activeId: null }))).toBeNull()
     expect(
       parseMessageToExtension(
@@ -83,6 +116,15 @@ describe('mcp/protocol', () => {
       )
     ).toBeNull()
     expect(parseMessageFromExtension(JSON.stringify({ type: 'toolResult' }))).toBeNull()
+    expect(
+      parseMessageFromExtension(
+        JSON.stringify({
+          type: 'runtimeHello',
+          extensionVersion: '0.21.0',
+          extensionRuntimeFingerprint: 'short'
+        })
+      )
+    ).toBeNull()
     expect(
       parseMessageFromExtension(
         JSON.stringify({ type: 'toolResult', id: 'call-1', error: 'plain string' })

@@ -428,7 +428,7 @@ For v1:
 - leave current image-fill behavior unchanged
 - only generate layered backgrounds when the preserved fill stack is composed entirely of representable solid/gradient paints
 
-This keeps the first implementation focused and avoids reworking `replaceImageUrlsWithAssets()` and shorthand merging at the same time.
+This keeps the first implementation focused and avoids reworking `replaceMediaUrlsWithAssets()` and shorthand merging at the same time.
 
 ### Phase 6: Optional follow-up for mixed image/fill stacks
 
@@ -561,7 +561,7 @@ Target files:
 
 - `packages/extension/tests/mcp/tools/code/styles/background.test.ts`
 - optionally `packages/extension/tests/mcp/tools/code/cache/context.test.ts`
-- optionally `packages/extension/tests/mcp/tools/code/assets/image.test.ts` if the normalization path needs extra coverage
+- optionally `packages/extension/tests/mcp/tools/code/assets/media.test.ts` if the normalization path needs extra coverage
 
 Add tests for:
 

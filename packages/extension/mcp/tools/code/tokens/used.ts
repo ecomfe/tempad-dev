@@ -30,15 +30,22 @@ export async function buildUsedTokens(
     .map((id) => getVariableByIdCached(id, cache))
     .filter(Boolean) as Variable[]
 
-  const rawNames = variables.map((v) => getVariableRawName(v))
-  const canonicalNames = await canonicalizeNames(rawNames, config, pluginCode)
+  const variablesWithRawNames = variables.map((variable) => ({
+    variable,
+    rawName: getVariableRawName(variable)
+  }))
+  const canonicalNames = await canonicalizeNames(
+    variablesWithRawNames.map(({ rawName }) => rawName),
+    config,
+    pluginCode
+  )
 
   const nameSet = new Set<string>()
   const candidateNameById = new Map<string, string>()
-  for (let i = 0; i < variables.length; i += 1) {
-    const canonical = canonicalNames[i] ?? normalizeFigmaVarName(rawNames[i])
+  for (const [i, { variable, rawName }] of variablesWithRawNames.entries()) {
+    const canonical = canonicalNames[i] ?? normalizeFigmaVarName(rawName)
     nameSet.add(canonical)
-    candidateNameById.set(variables[i].id, canonical)
+    candidateNameById.set(variable.id, canonical)
   }
 
   const tokensByCanonical = await resolveTokenDefsByNames(nameSet, config, pluginCode, {

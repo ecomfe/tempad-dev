@@ -1,25 +1,13 @@
-import { suggestDepthLimit } from '@/mcp/semantic-tree'
+import {
+  classifySemanticAsset,
+  resolveSemanticTag,
+  suggestDepthLimit,
+  summarizeComponentHint
+} from '@/mcp/semantic-tree'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
-import { toPascalCase } from '@/utils/string'
 
 import type { AutoLayoutHint, DataHint, NodeSnapshot, TreeStats, VisibleTree } from './model'
-
-const VECTOR_LIKE_TYPES = new Set<SceneNode['type']>([
-  'VECTOR',
-  'BOOLEAN_OPERATION',
-  'STAR',
-  'LINE',
-  'ELLIPSE',
-  'POLYGON'
-])
-
-type ComponentPropertyValueLike =
-  | { type: 'BOOLEAN'; value: boolean }
-  | { type: 'TEXT'; value: string }
-  | { type: 'VARIANT'; value: string }
-  | { type: 'INSTANCE_SWAP'; value: string }
-  | { type: string; value: unknown }
 
 export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
   const depthLimit = suggestDepthLimit(roots)
@@ -106,7 +94,7 @@ export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
     const snapshot: NodeSnapshot = {
       id: node.id,
       type: node.type,
-      tag: resolveTag(node),
+      tag: resolveSemanticTag(node),
       name: node.name ?? '',
       visible: node.visible,
       parentId,
@@ -118,7 +106,7 @@ export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
         height: toDecimalPlace(node.height)
       },
       renderBounds: getRenderBounds(node),
-      assetKind: classifyAsset(node),
+      assetKind: classifySemanticAsset(node),
       node
     }
 
@@ -167,30 +155,6 @@ export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
   return { rootIds, nodes, order, stats }
 }
 
-function resolveTag(node: SceneNode): string {
-  if (node.type === 'TEXT') {
-    return node.characters.includes('\n') ? 'p' : 'span'
-  }
-  if (VECTOR_LIKE_TYPES.has(node.type)) return 'svg'
-  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
-    const hasImageFill = node.fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
-    if (hasImageFill) return 'img'
-  }
-  return 'div'
-}
-
-function classifyAsset(node: SceneNode): 'vector' | 'image' | undefined {
-  if (VECTOR_LIKE_TYPES.has(node.type)) return 'vector'
-  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
-    const hasImageFill = node.fills.some((fill) => fill.type === 'IMAGE' && fill.visible !== false)
-    if (hasImageFill) return 'image'
-  }
-  if (node.type === 'ELLIPSE' || node.type === 'POLYGON' || node.type === 'STAR') {
-    return 'vector'
-  }
-  return undefined
-}
-
 function getRenderBounds(
   node: SceneNode
 ): { x: number; y: number; width: number; height: number } | null {
@@ -228,65 +192,16 @@ function composeDataHint(node: SceneNode): DataHint | undefined {
   const hints: DataHint = {}
 
   if (node.type === 'INSTANCE') {
-    const instance = node as InstanceNode
-    const { mainComponent } = instance
-    const name =
-      mainComponent?.parent?.type === 'COMPONENT_SET'
-        ? mainComponent.parent.name
-        : (mainComponent?.name ?? node.name)
-    const props = summarizeComponentProperties(instance) ?? ''
-    if (name) {
-      hints['data-hint-design-component'] = `${toPascalCase(name)}${props}`
-    }
+    const componentHint = summarizeComponentHint(node)
+    if (componentHint) hints['data-hint-design-component'] = componentHint
   }
 
   return Object.keys(hints).length ? hints : undefined
 }
 
-function getComponentProperties(
-  node: InstanceNode
-): Record<string, ComponentPropertyValueLike> | undefined {
-  try {
-    const { componentProperties: props } = node
-    if (!props || typeof props !== 'object') return undefined
-    return props as Record<string, ComponentPropertyValueLike>
-  } catch {
-    return undefined
-  }
-}
-
-function summarizeComponentProperties(node: InstanceNode): string | undefined {
-  const properties = getComponentProperties(node)
-  if (!properties) return undefined
-
-  const variants: string[] = []
-  const others: string[] = []
-
-  for (const [rawKey, prop] of Object.entries(properties)) {
-    if (!prop) continue
-    const key = rawKey.split('#')[0]
-
-    switch (prop.type) {
-      case 'BOOLEAN':
-        others.push(`${key}=${prop.value ? 'on' : 'off'}`)
-        break
-      case 'TEXT':
-        if (typeof prop.value === 'string' && prop.value.trim()) {
-          others.push(`${key}=${prop.value}`)
-        }
-        break
-      case 'VARIANT':
-        if (typeof prop.value === 'string' && prop.value.trim()) {
-          variants.push(`${key}=${prop.value}`)
-        }
-        break
-      case 'INSTANCE_SWAP':
-        break
-      default:
-        break
-    }
-  }
-
-  const entries = [...variants, ...others]
-  return entries.length ? entries.map((e) => `[${e}]`).join('') : undefined
+export function addSubtreeIds(id: string, tree: VisibleTree, target: Set<string>): void {
+  const node = tree.nodes.get(id)
+  if (!node || target.has(id)) return
+  target.add(id)
+  node.children.forEach((childId) => addSubtreeIds(childId, tree, target))
 }

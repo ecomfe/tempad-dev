@@ -1,7 +1,7 @@
 {
   "name": "@tempad-dev/mcp",
-  "version": "0.7.1",
-  "description": "MCP server for TemPad Dev.",
+  "version": "0.8.0",
+  "description": "Connect coding agents to Figma for design inspection, native canvas editing, and UI implementation.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ecomfe/tempad-dev.git",
@@ -19,6 +19,7 @@
   },
   "scripts": {
     "build": "tsdown",
+    "dev": "tsdown --watch --no-clean",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest --config vitest.config.ts",
     "test:run": "vitest run --config vitest.config.ts",
@@ -49,6 +50,6 @@
     "vitest": "4.1.11"
   },
   "engines": {
-    "node": ">=18.20.0"
+    "node": "^22 || ^24 || >=26"
   }
 }

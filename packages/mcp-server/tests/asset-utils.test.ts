@@ -32,12 +32,15 @@ describe('asset-utils', () => {
   })
 
   it('builds asset filenames and parses hashes', () => {
-    expect(buildAssetFilename('a1b2c3d4', 'image/png')).toBe('a1b2c3d4.png')
-    expect(buildAssetFilename('a1b2c3d4', 'application/octet-stream')).toBe('a1b2c3d4')
+    const hash = 'a1b2c3d4'.repeat(8)
+    expect(buildAssetFilename(hash, 'image/png')).toBe(`${hash}.png`)
+    expect(buildAssetFilename(hash, 'application/octet-stream')).toBe(hash)
 
-    expect(getHashFromAssetFilename('a1b2c3d4')).toBe('a1b2c3d4')
-    expect(getHashFromAssetFilename('A1B2C3D4.JPG')).toBe('A1B2C3D4')
+    expect(getHashFromAssetFilename(hash)).toBe(hash)
+    expect(getHashFromAssetFilename(`${hash}.jpg`)).toBe(hash)
+    expect(getHashFromAssetFilename('a1b2c3d4.png')).toBe('a1b2c3d4')
+    expect(getHashFromAssetFilename(`${hash.toUpperCase()}.JPG`)).toBeNull()
     expect(getHashFromAssetFilename('too-short.png')).toBeNull()
-    expect(getHashFromAssetFilename('a1b2c3d4.bad-ext!')).toBeNull()
+    expect(getHashFromAssetFilename(`${hash}.bad-ext!`)).toBeNull()
   })
 })

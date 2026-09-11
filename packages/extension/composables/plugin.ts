@@ -1,5 +1,6 @@
 import { shallowRef } from 'vue'
 
+import { readBoundedResponseBytes } from '@/mcp/bounded-response'
 import SNAPSHOT_PLUGINS from '@/plugins/available-plugins.json'
 import { codegen } from '@/utils'
 
@@ -196,40 +197,9 @@ function ensureScriptLikeResponse(response: Response): void {
 }
 
 async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
-  const contentLength = Number(response.headers.get('content-length'))
   const tooLarge = () => new Error(`Plugin content exceeds the ${maxBytes / 1024} KiB limit.`)
-  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw tooLarge()
-  }
-
-  if (!response.body) {
-    const text = await response.text()
-    if (new TextEncoder().encode(text).byteLength > maxBytes) {
-      throw tooLarge()
-    }
-    return text
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let bytes = 0
-  let text = ''
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      bytes += value.byteLength
-      if (bytes > maxBytes) {
-        await reader.cancel()
-        throw tooLarge()
-      }
-      text += decoder.decode(value, { stream: true })
-    }
-    text += decoder.decode()
-    return text
-  } finally {
-    reader.releaseLock()
-  }
+  const bytes = await readBoundedResponseBytes(response, maxBytes, tooLarge)
+  return new TextDecoder().decode(bytes)
 }
 
 async function sha256(value: string): Promise<string> {

@@ -13,12 +13,10 @@ function isTempadMcpErrorCode(value: unknown): value is TempadMcpErrorCode {
   return typeof value === 'string' && TEMPAD_MCP_ERROR_CODE_SET.has(value)
 }
 
-function hasCode(value: unknown): value is { code?: unknown } {
-  return !!value && typeof value === 'object' && 'code' in value
-}
-
-function hasMessage(value: unknown): value is { message?: unknown; code?: unknown } {
-  return !!value && typeof value === 'object'
+function getErrorCode(value: unknown): TempadMcpErrorCode | undefined {
+  return value && typeof value === 'object' && 'code' in value && isTempadMcpErrorCode(value.code)
+    ? value.code
+    : undefined
 }
 
 export function createCodedError(
@@ -31,7 +29,7 @@ export function createCodedError(
 export function coerceToolErrorPayload(error: unknown): ToolErrorPayload {
   if (error instanceof Error) {
     const message = error.message || 'Unknown error'
-    const code = hasCode(error) && isTempadMcpErrorCode(error.code) ? error.code : undefined
+    const code = getErrorCode(error)
     return code ? { message, code } : { message }
   }
 
@@ -39,8 +37,14 @@ export function coerceToolErrorPayload(error: unknown): ToolErrorPayload {
     return { message: error }
   }
 
-  if (hasMessage(error) && typeof error.message === 'string' && error.message.trim()) {
-    const code = isTempadMcpErrorCode(error.code) ? error.code : undefined
+  if (
+    error &&
+    typeof error === 'object' &&
+    'message' in error &&
+    typeof error.message === 'string' &&
+    error.message.trim()
+  ) {
+    const code = getErrorCode(error)
     if (code) {
       return { message: error.message, code }
     }

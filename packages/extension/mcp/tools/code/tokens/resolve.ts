@@ -1,16 +1,17 @@
 import type { CodegenConfig } from '@/utils/codegen'
 
-import {
-  formatHexAlpha,
-  normalizeCssValue,
-  normalizeFigmaVarName,
-  replaceVarFunctions
-} from '@/utils/css'
+import { normalizeFigmaVarName, replaceVarFunctions } from '@/utils/css'
 
 import { getVariableRawName } from '../../token/indexer'
+import {
+  isVariableAlias,
+  pickPreferredModeId,
+  readActiveModeId,
+  resolveFallbackValue,
+  serializeVariableValue
+} from '../../token/value'
 import { getVariableByIdCached } from './cache'
 
-type VariableAlias = { id?: string } | { type?: string; id?: string }
 type VariableWithCollection = Variable & { variableCollectionId?: string; resolvedType?: string }
 type VariableCollectionInfo = {
   id?: string
@@ -125,7 +126,7 @@ function resolveVariableValue(
   seen.add(variable.id)
 
   const valuesByMode = variable.valuesByMode
-  const rawValue = valuesByMode[modeId] ?? resolveFallbackValue(valuesByMode, modeId, collection)
+  const rawValue = resolveFallbackValue(valuesByMode, modeId, collection)
 
   if (isVariableAlias(rawValue)) {
     const target = getVariableByIdCached(rawValue.id, ctx.cache)
@@ -200,98 +201,6 @@ function resolveVariableCollection(
     cache.set(collectionId, null)
     return null
   }
-}
-
-function readActiveModeId(collectionId?: string): string | undefined {
-  if (!collectionId) return undefined
-  const variablesApi = (
-    figma as unknown as { variables?: { getVariableModeId?: (id: string) => string } }
-  ).variables
-  const getter = variablesApi?.getVariableModeId
-  if (typeof getter !== 'function') return undefined
-  try {
-    return getter(collectionId)
-  } catch {
-    return undefined
-  }
-}
-
-function pickPreferredModeId(
-  variable: Variable,
-  collection?: VariableCollectionInfo | null,
-  desiredModeId?: string
-): string | undefined {
-  const valuesByMode = variable.valuesByMode ?? {}
-  if (desiredModeId && desiredModeId in valuesByMode) return desiredModeId
-  if (collection?.activeModeId && collection.activeModeId in valuesByMode) {
-    return collection.activeModeId
-  }
-  if (collection?.defaultModeId && collection.defaultModeId in valuesByMode) {
-    return collection.defaultModeId
-  }
-  return Object.keys(valuesByMode)[0]
-}
-
-function resolveFallbackValue(
-  valuesByMode: Variable['valuesByMode'],
-  modeId: string,
-  collection: VariableCollectionInfo | null
-): unknown {
-  if (valuesByMode[modeId] !== undefined) return valuesByMode[modeId]
-  if (collection?.defaultModeId && collection.defaultModeId !== modeId) {
-    const fallback = valuesByMode[collection.defaultModeId]
-    if (fallback !== undefined) return fallback
-  }
-  return valuesByMode[modeId]
-}
-
-function isVariableAlias(value: unknown): value is VariableAlias {
-  if (!value || typeof value !== 'object') return false
-  const alias = value as VariableAlias
-  return typeof alias.id === 'string'
-}
-
-function serializeVariableValue(
-  value: unknown,
-  resolvedType: Variable['resolvedType'],
-  config: CodegenConfig,
-  canonicalName?: string
-): string | Record<string, unknown> | null {
-  if (value == null) return null
-
-  switch (resolvedType) {
-    case 'COLOR':
-      return formatHexAlpha(value as RGBA, (value as RGBA).a)
-    case 'FLOAT':
-      if (isUnitlessFloatToken(canonicalName)) {
-        return String(value)
-      }
-      return normalizeCssValue(`${value}px`, config)
-    case 'BOOLEAN':
-      return (value as boolean).toString()
-    case 'STRING':
-      return String(value)
-    default:
-      if (typeof value === 'object') {
-        return value as Record<string, unknown>
-      }
-      return null
-  }
-}
-
-function isUnitlessFloatToken(canonicalName?: string): boolean {
-  if (!canonicalName) return false
-  const lower = canonicalName.trim().toLowerCase()
-  if (!lower.startsWith('--')) return false
-
-  if (lower.startsWith('--font-weight')) return true
-  if (lower.startsWith('--fontweight')) return true
-  if (lower.startsWith('--opacity')) return true
-  if (lower.startsWith('--z-index')) return true
-  if (lower === '--z') return true
-  if (lower.startsWith('--z-')) return true
-
-  return false
 }
 
 function toLiteralString(value: unknown): string | undefined {

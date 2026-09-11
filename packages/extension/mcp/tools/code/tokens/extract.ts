@@ -33,7 +33,8 @@ export function extractTokenNames(code: string, plainNames?: Set<string>): Set<s
   if (tokenRe) {
     let match: RegExpExecArray | null
     while ((match = tokenRe.exec(code)) !== null) {
-      out.add(match[2])
+      const name = match[2]
+      if (name) out.add(name)
     }
   }
 

@@ -2,7 +2,9 @@ import { copyFile, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-type Scenario = { height: number; id: string; width: number }
+import { selectScenarios, selectThemes, type ScreenshotScenario } from './screenshot-plan'
+
+type Scenario = ScreenshotScenario & { height: number; width: number }
 type Manifest = { capture: { themes: string[] }; scenarios: Scenario[] }
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
@@ -31,16 +33,15 @@ async function main(): Promise<void> {
   const candidateDir = candidateDirArgument
     ? resolve(repoRoot, candidateDirArgument)
     : `${repoRoot}.artifacts/marketing-screenshots`
-  const selected = new Set(
-    (readArgument('--only') ?? manifest.scenarios.map((scenario) => scenario.id).join(','))
-      .split(',')
-      .filter(Boolean)
-  )
+  const selected = selectScenarios(manifest.scenarios, {
+    only: readArgument('--only'),
+    group: readArgument('--group')
+  })
+  const themes = selectThemes(manifest.capture.themes, readArgument('--themes'))
   const candidates: Array<{ source: string; target: string }> = []
 
-  for (const scenario of manifest.scenarios) {
-    if (!selected.has(scenario.id)) continue
-    for (const theme of manifest.capture.themes) {
+  for (const scenario of selected) {
+    for (const theme of themes) {
       const filename = `${scenario.id}-${theme}.png`
       const source = resolve(candidateDir, filename)
       const size = readPngSize(await readFile(source))

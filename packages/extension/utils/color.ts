@@ -2,14 +2,19 @@ export function fadeTo(hex: string, alpha: number = 1): string {
   let h = hex.replace(/^#/, '')
 
   if (alpha === 1) {
-    if (h.length === 6 && h[0] === h[1] && h[2] === h[3] && h[4] === h[5]) {
-      return `#${h[0]}${h[2]}${h[4]}`
+    if (
+      h.length === 6 &&
+      h.charAt(0) === h.charAt(1) &&
+      h.charAt(2) === h.charAt(3) &&
+      h.charAt(4) === h.charAt(5)
+    ) {
+      return `#${h.charAt(0)}${h.charAt(2)}${h.charAt(4)}`
     }
     return hex
   }
 
   if (h.length === 3) {
-    h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2]
+    h = h.charAt(0) + h.charAt(0) + h.charAt(1) + h.charAt(1) + h.charAt(2) + h.charAt(2)
   }
 
   if (h.length !== 6) {

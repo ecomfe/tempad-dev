@@ -23,14 +23,16 @@ describe('composables/input', () => {
     expect(mocks.useEventListener).toHaveBeenCalledTimes(1)
     expect(mocks.useEventListener).toHaveBeenCalledWith(input, 'focus', expect.any(Function))
 
-    const callback = mocks.useEventListener.mock.calls[0][2] as (e: Event) => void
+    const callback = mocks.useEventListener.mock.calls[0]?.[2] as ((e: Event) => void) | undefined
+    if (!callback) throw new Error('Expected focus callback')
     callback({ target: input } as unknown as Event)
     expect(input.select).toHaveBeenCalledTimes(1)
   })
 
   it('handles null-ish event targets safely', () => {
     useSelectAll(null)
-    const callback = mocks.useEventListener.mock.calls[0][2] as (e: Event) => void
+    const callback = mocks.useEventListener.mock.calls[0]?.[2] as ((e: Event) => void) | undefined
+    if (!callback) throw new Error('Expected focus callback')
 
     expect(() => callback({ target: null } as unknown as Event)).not.toThrow()
   })

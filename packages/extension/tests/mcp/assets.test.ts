@@ -1,8 +1,4 @@
-import {
-  MCP_HASH_HEX_LENGTH,
-  MCP_MAX_ASSET_BYTES,
-  TEMPAD_MCP_ERROR_CODES
-} from '@tempad-dev/shared'
+import { MCP_MAX_ASSET_BYTES, TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/utils/log', () => ({
@@ -15,8 +11,10 @@ vi.mock('@/utils/log', () => ({
 }))
 
 import {
+  downloadAsset,
   ensureAssetUploaded,
-  resetUploadedAssets,
+  resetAssetCache,
+  setAssetDownloader,
   setAssetServerUrl,
   setAssetUploader
 } from '@/mcp/assets'
@@ -25,7 +23,7 @@ const DIGEST_BYTES = new Uint8Array(Array.from({ length: 32 }, (_, index) => ind
 const DIGEST_HEX = Array.from(DIGEST_BYTES)
   .map((byte) => byte.toString(16).padStart(2, '0'))
   .join('')
-const EXPECTED_HASH = DIGEST_HEX.slice(0, MCP_HASH_HEX_LENGTH)
+const EXPECTED_HASH = DIGEST_HEX
 
 function mockCryptoDigest() {
   vi.stubGlobal('crypto', {
@@ -36,13 +34,70 @@ function mockCryptoDigest() {
 }
 
 afterEach(() => {
-  resetUploadedAssets()
+  resetAssetCache()
   setAssetServerUrl(null)
+  setAssetDownloader(null)
   setAssetUploader(null)
   vi.unstubAllGlobals()
 })
 
 describe('mcp/assets', () => {
+  it('downloads, verifies, and caches content-addressed assets', async () => {
+    mockCryptoDigest()
+    const downloader = vi.fn().mockResolvedValue({
+      base64: 'AQID',
+      mimeType: 'image/png',
+      size: 3
+    })
+    setAssetDownloader(downloader)
+
+    const first = await downloadAsset(EXPECTED_HASH)
+    const second = await downloadAsset(EXPECTED_HASH)
+
+    expect(downloader).toHaveBeenCalledTimes(1)
+    expect(first).toEqual({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: 'image/png'
+    })
+    expect(second).toBe(first)
+  })
+
+  it('accepts legacy short hashes for cached downloads during migration', async () => {
+    mockCryptoDigest()
+    const downloader = vi.fn().mockResolvedValue({
+      base64: 'AQID',
+      mimeType: 'image/png',
+      size: 3
+    })
+    setAssetDownloader(downloader)
+
+    await expect(downloadAsset(EXPECTED_HASH.slice(0, 8))).resolves.toMatchObject({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: 'image/png'
+    })
+  })
+
+  it('rejects unavailable or invalid downloads without caching failures', async () => {
+    await expect(downloadAsset(EXPECTED_HASH)).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.ASSET_BRIDGE_UNAVAILABLE
+    })
+
+    mockCryptoDigest()
+    const downloader = vi.fn().mockResolvedValue({
+      base64: 'AQID',
+      mimeType: 'image/png',
+      size: 4
+    })
+    setAssetDownloader(downloader)
+    await expect(downloadAsset(EXPECTED_HASH)).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.ASSET_HASH_MISMATCH
+    })
+    await expect(downloadAsset(EXPECTED_HASH)).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.ASSET_HASH_MISMATCH
+    })
+    expect(downloader).toHaveBeenCalledTimes(2)
+  })
+
   it('rejects oversized assets before hashing or uploading', async () => {
     const digest = vi.fn()
     vi.stubGlobal('crypto', { subtle: { digest } })
@@ -155,6 +210,73 @@ describe('mcp/assets', () => {
 
     const [first, second] = await Promise.all([firstPromise, secondPromise])
     expect(first).toEqual(second)
+  })
+
+  it('does not let a pre-reset upload mark a newer generation as complete', async () => {
+    mockCryptoDigest()
+    const resolvers: Array<() => void> = []
+    const uploadMock = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvers.push(resolve)
+        })
+    )
+    setAssetUploader(uploadMock)
+    setAssetServerUrl('http://assets.local')
+    const bytes = new Uint8Array([1, 2, 3])
+
+    const stale = ensureAssetUploaded(bytes, 'image/png')
+    await vi.waitFor(() => expect(uploadMock).toHaveBeenCalledTimes(1))
+    resetAssetCache()
+    const current = ensureAssetUploaded(bytes, 'image/png')
+    await vi.waitFor(() => expect(uploadMock).toHaveBeenCalledTimes(2))
+
+    resolvers[0]!()
+    await stale
+    let joinedCurrent = false
+    const joined = ensureAssetUploaded(bytes, 'image/png').then(() => {
+      joinedCurrent = true
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(joinedCurrent).toBe(false)
+    expect(uploadMock).toHaveBeenCalledTimes(2)
+
+    resolvers[1]!()
+    await Promise.all([current, joined])
+  })
+
+  it('does not let a stale failed download evict a newer cached promise', async () => {
+    mockCryptoDigest()
+    let rejectStale!: (error: Error) => void
+    let resolveCurrent!: (value: { base64: string; mimeType: string; size: number }) => void
+    const downloader = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectStale = reject
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveCurrent = resolve
+          })
+      )
+    setAssetDownloader(downloader)
+
+    const stale = downloadAsset(EXPECTED_HASH).catch((error) => error)
+    resetAssetCache()
+    const current = downloadAsset(EXPECTED_HASH)
+    rejectStale(new Error('stale failure'))
+    await stale
+    const joined = downloadAsset(EXPECTED_HASH)
+
+    expect(joined).toBe(current)
+    expect(downloader).toHaveBeenCalledTimes(2)
+    resolveCurrent({ base64: 'AQID', mimeType: 'image/png', size: 3 })
+    await expect(joined).resolves.toMatchObject({ mimeType: 'image/png' })
   })
 
   it('propagates uploader errors', async () => {

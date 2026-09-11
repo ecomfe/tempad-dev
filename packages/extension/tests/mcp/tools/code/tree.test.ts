@@ -4,7 +4,8 @@ import { suggestDepthLimit } from '@/mcp/semantic-tree'
 import { buildVisibleTree } from '@/mcp/tools/code/tree'
 import { logger } from '@/utils/log'
 
-vi.mock('@/mcp/semantic-tree', () => ({
+vi.mock('@/mcp/semantic-tree', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/mcp/semantic-tree')>()),
   suggestDepthLimit: vi.fn()
 }))
 
@@ -71,6 +72,9 @@ describe('mcp/tools/code/tree', () => {
     const image = createNode('RECTANGLE', 'image-1', {
       fills: [{ type: 'IMAGE', visible: true }]
     })
+    const video = createNode('RECTANGLE', 'video-1', {
+      fills: [{ type: 'VIDEO', visible: true, videoHash: 'video-hash' }]
+    })
     const vector = createNode('VECTOR', 'vector-1')
 
     const instance = createNode(
@@ -103,15 +107,15 @@ describe('mcp/tools/code/tree', () => {
           height: 40.1111
         }
       },
-      [text, image, vector]
+      [text, image, video, vector]
     )
 
     const tree = buildVisibleTree([instance])
 
     expect(tree.rootIds).toEqual(['instance-1'])
-    expect(tree.order).toEqual(['instance-1', 'text-1', 'image-1', 'vector-1'])
+    expect(tree.order).toEqual(['instance-1', 'text-1', 'image-1', 'video-1', 'vector-1'])
     expect(tree.stats).toEqual({
-      totalNodes: 4,
+      totalNodes: 5,
       maxDepth: 1,
       depthLimit: undefined,
       capped: false,
@@ -138,6 +142,8 @@ describe('mcp/tools/code/tree', () => {
     expect(tree.nodes.get('text-1')?.tag).toBe('p')
     expect(tree.nodes.get('image-1')?.tag).toBe('img')
     expect(tree.nodes.get('image-1')?.assetKind).toBe('image')
+    expect(tree.nodes.get('video-1')?.tag).toBe('img')
+    expect(tree.nodes.get('video-1')?.assetKind).toBe('image')
     expect(tree.nodes.get('vector-1')?.tag).toBe('svg')
     expect(tree.nodes.get('vector-1')?.assetKind).toBe('vector')
     expect(logger.warn).toHaveBeenCalledWith('Duplicate variable collection name "Theme" detected.')

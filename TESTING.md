@@ -39,6 +39,13 @@ Root:
 - `pnpm --filter @tempad-dev/extension test:setup` (install extension browser runtime)
 - `pnpm --filter @tempad-dev/extension test:node` (extension node tests only)
 - `pnpm --filter @tempad-dev/extension test:browser` (extension browser tests only)
+- `pnpm agent-eval:authoring <rollout.jsonl> [...]` (inspect comparable rollout evidence)
+- `pnpm agent-eval:preflight [--checkout <path>] [--app-path <path>]` (reject a stale
+  checkout runtime, inactive extension, or development plugin that does not match
+  the configured Codex desktop host before page creation)
+- `pnpm agent-eval:skills <rollout.jsonl>` (fingerprint the presented skill catalog)
+- `pnpm agent-eval:log <start|finish|abandon|check|summary>` (retain the small amount
+  of provenance needed to trust a live authoring run)
 
 Per package:
 
@@ -57,6 +64,9 @@ Per package:
 - `pnpm --filter @tempad-dev/mcp test:coverage`
 - `pnpm --filter @tempad-dev/shared test:run`
 - `pnpm --filter @tempad-dev/shared test:coverage`
+- `pnpm --filter @tempad-dev/site test:run` (node and Chromium reader regressions)
+- `pnpm --filter @tempad-dev/site test:browser`
+- `pnpm --filter @tempad-dev/site test:setup` (install Chromium for site browser tests)
 
 ## Required checks by change type
 
@@ -80,6 +90,23 @@ When changing DOM/browser runtime behavior in extension:
 
 - `pnpm --filter @tempad-dev/extension test:browser`
 - Use Playwright browser tests only; do not add jsdom-based tests.
+
+When changing the end-to-end authoring evaluation process or its runtime identity gate:
+
+- Follow `docs/testing/agent-authoring-evolution.md`.
+- Use the stable minimal open-run wrapper from the evolution runbook, varying only the product
+  platform and product situation by default; add a broad visual direction only when relevant
+  to the question. The agent chooses dimensions and screen/flow extent. Freeze the prompt, intent,
+  model, and reasoning effort immediately before dispatch; do not add a predicted result or evaluator-authored solution detail.
+- Judge the authored result as a whole in plain language. Treat screenshots, native structure,
+  timing, and tool traces as clues: inspect only what can confirm or explain the judgment. Do not
+  introduce fixed quality axes, scores, finding counts, or promotion gates.
+- Add deterministic tests for run-log integrity, runtime fingerprinting, bridge handshake, and
+  write-before rejection at the owning package layers. Deterministic checks do not need live-run
+  log entries.
+- A fresh live Figma task is required only when the selected question needs agent
+  discoverability, visual, structural, transfer, or drift evidence; it is not a default check for
+  deterministic process infrastructure.
 
 ## Coverage rules (operational)
 
@@ -136,3 +163,4 @@ When changing DOM/browser runtime behavior in extension:
 - Testing architecture: `docs/testing/architecture.md`
 - Extension get_code requirements: `docs/extension/mcp-get-code-requirements.md`
 - Extension get_code design: `docs/extension/mcp-get-code-design.md`
+- Agent authoring evolution: `docs/testing/agent-authoring-evolution.md`

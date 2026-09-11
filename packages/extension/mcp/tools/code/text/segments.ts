@@ -40,9 +40,7 @@ function splitIntoLines(node: TextNode, segments: StyledTextSegmentSubset[]): Te
     const text = seg.characters
     const parts = text.split(NEWLINE_RE)
 
-    for (let i = 0; i < parts.length; i++) {
-      const partText = parts[i]
-
+    for (const [i, partText] of parts.entries()) {
       if (partText.length > 0) {
         const run = createRun(node, seg, partText)
         currentRuns.push(run)
@@ -73,8 +71,6 @@ function groupLinesIntoBlocks(lines: TextLine[]): TextBlock[] {
   const blocks: TextBlock[] = []
   if (!lines.length) return blocks
 
-  let currentBlock: TextBlock | null = null
-
   for (const line of lines) {
     const { listType } = line.attrs
     const isList = listType !== 'NONE'
@@ -84,17 +80,15 @@ function groupLinesIntoBlocks(lines: TextLine[]): TextBlock[] {
         : 'unordered-list'
       : 'paragraph'
 
-    const canMerge = currentBlock && currentBlock.type === blockType
-
-    if (canMerge) {
-      currentBlock!.lines.push(line)
+    const currentBlock = blocks.at(-1)
+    if (currentBlock?.type === blockType) {
+      currentBlock.lines.push(line)
     } else {
-      currentBlock = {
+      blocks.push({
         type: blockType,
         lines: [line],
         attrs: line.attrs
-      }
-      blocks.push(currentBlock)
+      })
     }
   }
 
@@ -124,7 +118,11 @@ function optimizeRuns(runs: TextRun[]): TextRun[] {
       continue
     }
 
-    const prev = result[result.length - 1]
+    const prev = result.at(-1)
+    if (!prev) {
+      result.push(run)
+      continue
+    }
     const isWhitespace = /^[\s\u200B-\u200D\uFEFF]*$/.test(run.text)
 
     if (isWhitespace) {
@@ -163,19 +161,20 @@ function optimizeRuns(runs: TextRun[]): TextRun[] {
       continue
     }
 
-    const prevKeys = Object.keys(prev.attrs)
+    const prevEntries = Object.entries(prev.attrs)
     const runKeys = Object.keys(run.attrs)
 
-    if (prevKeys.length !== runKeys.length) {
+    if (prevEntries.length !== runKeys.length) {
       result.push(run)
       continue
     }
 
     let attrsMatch = true
-    for (const key of prevKeys) {
+    for (const [key, prevValue] of prevEntries) {
+      const runValue = run.attrs[key]
       if (
-        !(key in run.attrs) ||
-        canonicalizeValue(key, prev.attrs[key]) !== canonicalizeValue(key, run.attrs[key])
+        runValue === undefined ||
+        canonicalizeValue(key, prevValue) !== canonicalizeValue(key, runValue)
       ) {
         attrsMatch = false
         break
@@ -237,10 +236,9 @@ function createRun(node: TextNode, seg: StyledTextSegmentSubset, text: string): 
 function applyStickySpace(runs: TextRun[]): TextRun[] {
   for (let i = 1; i < runs.length - 1; i++) {
     const curr = runs[i]
-    if (!curr.text.trim()) {
-      const prev = runs[i - 1]
-      const next = runs[i + 1]
-
+    const prev = runs[i - 1]
+    const next = runs[i + 1]
+    if (curr && prev && next && !curr.text.trim()) {
       const commonMarks = new Set([...prev.marks].filter((m) => next.marks.has(m)))
 
       for (const m of commonMarks) {

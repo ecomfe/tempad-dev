@@ -1,8 +1,7 @@
 {
   "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
-    // WXT 0.21 enables this by default; preserve the extension's existing checking semantics.
-    "noUncheckedIndexedAccess": false,
+    "noUncheckedIndexedAccess": true,
     "typeRoots": ["./node_modules/@types", "./node_modules/@figma"]
   }
 }

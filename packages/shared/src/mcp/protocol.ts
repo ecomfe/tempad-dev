@@ -2,6 +2,7 @@ import type { ZodType } from 'zod'
 
 import { z } from 'zod'
 
+import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION } from './constants'
 import { TempadMcpErrorPayloadSchema } from './errors'
 import { hasToolResultOutcome, TOOL_RESULT_OUTCOME_ERROR } from './tool-result'
 
@@ -9,7 +10,8 @@ import { hasToolResultOutcome, TOOL_RESULT_OUTCOME_ERROR } from './tool-result'
 export const RegisteredMessageSchema = z
   .object({
     type: z.literal('registered'),
-    id: z.string().min(1)
+    id: z.string().min(1),
+    protocolVersion: z.literal(TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION)
   })
   .strict()
 
@@ -65,9 +67,18 @@ export const PingMessageSchema = z
   })
   .strict()
 
+export const RuntimeHelloMessageSchema = z
+  .object({
+    type: z.literal('runtimeHello'),
+    extensionVersion: z.string().min(1),
+    extensionRuntimeFingerprint: z.string().regex(/^[a-f0-9]{64}$/)
+  })
+  .strict()
+
 export const MessageFromExtensionSchema = z.union([
   ActivateMessageSchema,
   ToolResultMessageSchema,
+  RuntimeHelloMessageSchema,
   PingMessageSchema
 ])
 
@@ -78,6 +89,7 @@ export type ToolCallMessage = z.infer<typeof ToolCallMessageSchema>
 export type MessageToExtension = z.infer<typeof MessageToExtensionSchema>
 export type ActivateMessage = z.infer<typeof ActivateMessageSchema>
 export type ToolResultMessage = z.infer<typeof ToolResultMessageSchema>
+export type RuntimeHelloMessage = z.infer<typeof RuntimeHelloMessageSchema>
 export type MessageFromExtension = z.infer<typeof MessageFromExtensionSchema>
 
 function parseJsonWithSchema<T>(data: string, schema: ZodType<T>): T | null {

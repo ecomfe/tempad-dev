@@ -2,7 +2,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-type Scenario = { height: number; id: string; width: number }
+import { selectScenarios, selectThemes, type ScreenshotScenario } from './screenshot-plan'
+
+type Scenario = ScreenshotScenario & { height: number; width: number }
 type Manifest = {
   capture: { sourceScale: number; themes: string[] }
   scenarios: Scenario[]
@@ -42,36 +44,32 @@ async function main(): Promise<void> {
   const outputPath = outputArgument
     ? resolve(repoRoot, outputArgument)
     : `${candidateDir}/comparison.html`
-  const selected = new Set(
-    (readArgument('--only') ?? manifest.scenarios.map((scenario) => scenario.id).join(','))
-      .split(',')
-      .filter(Boolean)
-  )
+  const selected = selectScenarios(manifest.scenarios, {
+    only: readArgument('--only'),
+    group: readArgument('--group')
+  })
+  const themes = selectThemes(manifest.capture.themes, readArgument('--themes'))
   const rows: string[] = []
 
-  for (const scenario of manifest.scenarios) {
-    if (!selected.has(scenario.id)) continue
+  for (const scenario of selected) {
     const displayWidth = scenario.width / manifest.capture.sourceScale
-    for (const theme of manifest.capture.themes) {
+    for (const theme of themes) {
       const filename = `${scenario.id}-${theme}.png`
       const baselinePath = resolve(baselineDir, filename)
       const candidatePath = resolve(candidateDir, filename)
-      let baseline: string
-      let candidate: string
+      const candidate = await imageData(candidatePath)
+      let baseline: string | null = null
       try {
-        ;[baseline, candidate] = await Promise.all([
-          imageData(baselinePath),
-          imageData(candidatePath)
-        ])
-      } catch {
-        throw new Error(`Missing baseline or candidate for ${filename}.`)
+        baseline = await imageData(baselinePath)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
 
       rows.push(`
         <section class="comparison">
           <h2>${escapeHtml(scenario.id)} <span>${escapeHtml(theme)}</span></h2>
           <div class="pair">
-            <figure><figcaption>Committed baseline</figcaption><img src="${baseline}" width="${displayWidth}"></figure>
+            <figure><figcaption>Committed baseline</figcaption>${baseline ? `<img src="${baseline}" width="${displayWidth}">` : '<p>New scenario — no committed baseline.</p>'}</figure>
             <figure><figcaption>New candidate</figcaption><img src="${candidate}" width="${displayWidth}"></figure>
           </div>
         </section>`)

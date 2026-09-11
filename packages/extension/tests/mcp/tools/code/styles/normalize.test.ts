@@ -144,6 +144,60 @@ describe('mcp/styles/normalize', () => {
     )
     expect(normal).toEqual(expect.arrayContaining(['flex', 'w-[1rem]']))
 
+    const singleSideBorder = styleToClassNames(
+      {
+        'border-top-width': '0px',
+        'border-right-width': '0px',
+        'border-bottom-width': '1px',
+        'border-left-width': '0px',
+        'border-bottom-color': '#B9B09D'
+      },
+      {
+        cssUnit: 'px',
+        rootFontSize: 16,
+        scale: 1
+      }
+    )
+    expect(singleSideBorder).toEqual(expect.arrayContaining(['border-b-[1px]', 'border-[#B9B09D]']))
+    expect(singleSideBorder).not.toContain('border-b-[#B9B09D]')
+
+    const matchingVisibleSides = styleToClassNames(
+      {
+        'border-top-width': '1px',
+        'border-right-width': '0px',
+        'border-bottom-width': '1px',
+        'border-left-width': '0px',
+        'border-top-color': '#B6812C',
+        'border-bottom-color': '#B6812C'
+      },
+      {
+        cssUnit: 'px',
+        rootFontSize: 16,
+        scale: 1
+      }
+    )
+    expect(matchingVisibleSides).toEqual(
+      expect.arrayContaining(['border-y-[1px]', 'border-[#B6812C]'])
+    )
+    expect(matchingVisibleSides).not.toContain('border-y-[#B6812C]')
+
+    const distinctVisibleSide = styleToClassNames(
+      {
+        'border-top-width': '1px',
+        'border-bottom-width': '1px',
+        'border-top-color': '#496875',
+        'border-bottom-color': '#B9B09D'
+      },
+      {
+        cssUnit: 'px',
+        rootFontSize: 16,
+        scale: 1
+      }
+    )
+    expect(distinctVisibleSide).toContain('border-t-[#496875]')
+    expect(distinctVisibleSide).toContain('border-b-[#B9B09D]')
+    expect(distinctVisibleSide).not.toContain('border-[#B9B09D]')
+
     const gradient = styleToClassNames(
       {
         'border-image': 'linear-gradient(red, blue) 1',

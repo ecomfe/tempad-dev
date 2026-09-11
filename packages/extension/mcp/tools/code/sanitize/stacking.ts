@@ -14,8 +14,7 @@ function visit(nodeId: string, tree: VisibleTree, styles: StyleMap): void {
   if (children.length) {
     const needsIsolation = new Set<string>()
 
-    for (let i = 0; i < children.length; i += 1) {
-      const childId = children[i]
+    for (const [i, childId] of children.entries()) {
       const childStyle = styles.get(childId)
       if (!isAbsolute(childStyle)) continue
 

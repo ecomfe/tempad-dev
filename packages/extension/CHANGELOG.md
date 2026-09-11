@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.21.0
+
+- Added declarative native Figma canvas authoring with `apply_canvas`: create and incrementally
+  update designs, remove managed roots or pages, and choose the active page. Writes require an
+  editable Figma Design file with MCP access enabled.
+- Added bounded `get_design_system` discovery and exact lookup for accessible components,
+  variables, collections and modes, native styles, and shaders. Font queries discover available
+  families and exact native styles without scanning file resources.
+- Added native layout and geometry, rich text, paints and effects, pages, components and variants,
+  instances, Slots, variables, styles, SVG, and PNG/JPEG/GIF asset authoring.
+- Added CSS variable utilities and named text-style classes for native resource bindings, including
+  resources declared in the same call. New theme tokens and aliases now resolve correctly when
+  added to existing variable collections whose modes are omitted.
+- Preserved stable identities and omitted live state during partial updates, with explicit removal,
+  deterministic create placement, dependency and font preflight, rollback, no-op convergence,
+  one Undo boundary, and structural verification.
+- Added bounded screenshots and native structure read-back for visual inspection, identity recovery,
+  and focused repair. Improved field-level validation and recovery for invalid Canvas markup.
+- Added portable sans, serif, and monospace font utilities and hardened text reflow, truncation,
+  component updates, variable cleanup, and SVG removal.
+- Added the `figma-canvas-authoring` skill alongside `figma-design-to-code`, with progressive native
+  references, grounded design guidance, scoped editing, and explicit Direct, Reuse, and Author
+  resource workflows.
+- Made the portable Agent Plugins 1.0 bundle the shared installation source, with synchronized
+  Codex and Claude compatibility packages and refreshed icons.
+- Required an explicit Figma-tab choice when MCP sessions need disambiguation. Unsupported native
+  EASING and TIMING variables are skipped with a warning while supported catalog resources remain
+  available.
+- Updated dependencies and paired this release with MCP 0.8.0 and Agent Plugin 0.2.0. The MCP server
+  now requires Node.js 22.x, 24.x, or 26+.
+
 ## 0.20.0
 
 - Hid Figma's inactive mode switcher in read-only files after its toolbar structure changed.

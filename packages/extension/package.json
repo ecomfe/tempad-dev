@@ -1,8 +1,8 @@
 {
   "name": "@tempad-dev/extension",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "private": true,
-  "description": "Open handoff tooling for Figma",
+  "description": "Inspect Figma designs, customize code output, and connect your coding agent to read and edit the canvas.",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -17,6 +17,12 @@
     "check:rewrite": "tsx ./scripts/check-rewrite.ts",
     "check:plugin-sandbox": "wxt build && tsx ./scripts/check-plugin-sandbox.ts",
     "check:worker-sandbox": "tsx ./scripts/check-worker-sandbox.ts",
+    "codex-host:switch": "tsx ./scripts/switch-codex-host.ts",
+    "codex-plugin:reinstall": "tsx ./scripts/reinstall-codex-dev-plugin.ts",
+    "agent-eval:authoring": "tsx ./scripts/inspect-agent-authoring-rollout.ts",
+    "agent-eval:log": "tsx ./scripts/agent-authoring-run-log.ts",
+    "agent-eval:preflight": "tsx ./scripts/agent-authoring-runtime-preflight.ts",
+    "agent-eval:skills": "tsx ./scripts/inspect-agent-skill-catalog.ts",
     "screenshots": "tsx ./scripts/screenshots.ts",
     "test": "vitest --config vitest.config.ts",
     "test:run": "vitest run --config vitest.config.ts && pnpm run check:worker-sandbox && pnpm run check:plugin-sandbox",

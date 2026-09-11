@@ -5,7 +5,7 @@ import type {
   GetTokenDefsResult
 } from '@tempad-dev/shared'
 
-import { buildGetCodeToolResult } from '@tempad-dev/shared'
+import { MCP_TOOL_INLINE_BUDGET_BYTES, buildGetCodeToolResult } from '@tempad-dev/shared'
 
 import type { DevComponent } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
@@ -27,18 +27,17 @@ import { planAssets } from './assets/plan'
 import { preflightGetCodeBudget } from './budget-preflight'
 import { createGetCodeCacheContext } from './cache'
 import { collectNodeData } from './collect'
+import { collectUnboundColorLiteralClusters } from './literal-clusters'
 import {
+  CodeBudgetExceededError,
   assertToolResponseWithinBudget,
-  buildGetCodeWarnings,
-  isCodeBudgetExceededError,
-  resolveCodeBudget,
-  resolveUnlimitedCodeBudget
+  buildGetCodeWarnings
 } from './messages'
 import { getOrderedChildIds, renderShellTree, renderTree } from './render'
 import { resolvePluginComponents } from './render/plugin'
 import { buildLayoutStyles, prepareStyles } from './styles'
 import { createStyleVarResolver, processTokens, resolveStyleMap } from './tokens'
-import { buildVisibleTree } from './tree'
+import { addSubtreeIds, buildVisibleTree } from './tree'
 
 // Tags that should render children without extra whitespace/newlines.
 const COMPACT_TAGS = new Set([
@@ -137,11 +136,11 @@ export async function handleGetCode(
   const { now, stamp } = trace
   const traceInfo: TraceInfo = { now, stamp }
 
-  if (nodes.length !== 1) {
+  const [node] = nodes
+  if (nodes.length !== 1 || !node) {
     throw new Error('Select exactly one node or provide a single root node id.')
   }
 
-  const node = nodes[0]
   if (!node.visible) {
     throw new Error('The selected node is not visible.')
   }
@@ -160,9 +159,11 @@ export async function handleGetCode(
 
   const config = currentCodegenConfig()
   const pluginCode = activePlugin.value?.code
-  const codeBudget = runtimeOptions.unbounded ? resolveUnlimitedCodeBudget() : resolveCodeBudget()
+  const maxResultBytes = runtimeOptions.unbounded
+    ? Number.MAX_SAFE_INTEGER
+    : MCP_TOOL_INLINE_BUDGET_BYTES
   const budgetPreflight = preflightGetCodeBudget(tree, rootId, {
-    maxResultBytes: codeBudget.maxResultBytes,
+    maxResultBytes,
     pluginEnabled: !!pluginCode,
     unbounded: !!runtimeOptions.unbounded
   })
@@ -251,6 +252,8 @@ export async function handleGetCode(
     trace: traceInfo
   }
   const allAssets = Array.from(assetRegistry.values())
+  const videoPreviewAssetHashes = collected.videoPreviewAssetHashes ?? new Set<string>()
+  const rootVideoPreviewAssetHashes = collected.rootVideoPreviewAssetHashes ?? new Set<string>()
 
   if (earlyShell) {
     const shellMode = createShellMode(rootId, tree, ctx)
@@ -268,9 +271,9 @@ export async function handleGetCode(
       cappedNodeIds: tree.stats.cappedNodeIds,
       shell: true
     })
-    const assets = filterAssetsReferencedInCode(allAssets, shell.code)
-    const result = buildCodeResult(shell, codegen, assets, warnings)
-    assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
+    const assets = selectAssetsForCode(allAssets, shell.code, videoPreviewAssetHashes)
+    const result = buildCodeResult(shell, codegen, assets, undefined, warnings)
+    assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
     logTrace(
       trace,
       `nodes=${tree.order.length} collected=1 assets=${assets.length} shell=early preflightNodes=${budgetPreflight.scannedDescendants}${formatCacheMetrics(cache)}`
@@ -283,20 +286,25 @@ export async function handleGetCode(
       ...baseInput,
       mode: { kind: 'full' }
     })
+    const literalClusters = resolveTokens
+      ? undefined
+      : collectUnboundColorLiteralClusters(collected.styles, tree)
     const warnings = buildGetCodeWarnings(output.code, {
-      cappedNodeIds: tree.stats.cappedNodeIds
+      cappedNodeIds: tree.stats.cappedNodeIds,
+      literalClusters
     })
-    const result = buildCodeResult(output, codegen, allAssets, warnings)
-    assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
+    const assets = selectAssetsForCode(allAssets, output.code, videoPreviewAssetHashes)
+    const result = buildCodeResult(output, codegen, assets, literalClusters, warnings)
+    assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
 
     logTrace(
       trace,
-      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${allAssets.length}${runtimeOptions.unbounded ? ' budget=unbounded' : ''}${formatCacheMetrics(cache)}`
+      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assets.length}${runtimeOptions.unbounded ? ' budget=unbounded' : ''}${formatCacheMetrics(cache)}`
     )
 
     return result
   } catch (error) {
-    if (!isCodeBudgetExceededError(error)) {
+    if (!(error instanceof CodeBudgetExceededError)) {
       throw error
     }
 
@@ -317,13 +325,13 @@ export async function handleGetCode(
       cappedNodeIds: tree.stats.cappedNodeIds,
       shell: true
     })
-    const assets = filterAssetsReferencedInCode(allAssets, shell.code)
-    const result = buildCodeResult(shell, codegen, assets, warnings)
+    const assets = selectAssetsForCode(allAssets, shell.code, rootVideoPreviewAssetHashes)
+    const result = buildCodeResult(shell, codegen, assets, undefined, warnings)
 
     try {
-      assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
+      assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
     } catch (shellError) {
-      if (isCodeBudgetExceededError(shellError)) {
+      if (shellError instanceof CodeBudgetExceededError) {
         throw error
       }
       throw shellError
@@ -589,19 +597,11 @@ async function collectPluginOutput(
       if (!component) continue
       const snapshot = tree.nodes.get(id)
       if (!snapshot) continue
-      snapshot.children.forEach((childId) => skipDescendants(childId, tree, pluginSkipped))
+      snapshot.children.forEach((childId) => addSubtreeIds(childId, tree, pluginSkipped))
     }
   }
 
   return { pluginComponents, pluginSkipped }
-}
-
-function skipDescendants(id: string, tree: VisibleTree, skipped: Set<string>): void {
-  const node = tree.nodes.get(id)
-  if (!node) return
-  if (skipped.has(id)) return
-  skipped.add(id)
-  node.children.forEach((childId) => skipDescendants(childId, tree, skipped))
 }
 
 function buildSkipIds(base: Set<string>, extra: Set<string>): Set<string> {
@@ -743,14 +743,24 @@ function stampRenderPhase(
   trace.stamp(label, start)
 }
 
-function filterAssetsReferencedInCode(assets: AssetDescriptor[], code: string): AssetDescriptor[] {
-  return assets.filter((asset) => code.includes(asset.url) || code.includes(asset.hash))
+function selectAssetsForCode(
+  assets: AssetDescriptor[],
+  code: string,
+  supplementalAssetHashes?: ReadonlySet<string>
+): AssetDescriptor[] {
+  return assets.filter(
+    (asset) =>
+      code.includes(asset.url) ||
+      code.includes(asset.hash) ||
+      supplementalAssetHashes?.has(asset.hash)
+  )
 }
 
 function buildCodeResult(
   output: PipelineOutput,
   codegen: GetCodeResult['codegen'],
   assets: AssetDescriptor[],
+  literalClusters?: GetCodeResult['literalClusters'],
   warnings?: GetCodeResult['warnings']
 ): GetCodeResult {
   return {
@@ -758,6 +768,7 @@ function buildCodeResult(
     code: output.code,
     ...(assets.length ? { assets } : {}),
     ...(output.tokens ? { tokens: output.tokens } : {}),
+    ...(literalClusters?.length ? { literalClusters } : {}),
     codegen,
     ...(warnings?.length ? { warnings } : {})
   }

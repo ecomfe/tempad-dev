@@ -1,0 +1,7 @@
+interface:
+  display_name: 'Figma Design to Code'
+  short_description: 'Implement project-consistent UI code from Figma'
+  icon_small: './assets/icon.svg'
+  icon_large: './assets/icon.svg'
+  brand_color: '#0098FF'
+  default_prompt: 'Use $figma-design-to-code to implement the selected Figma design in the current project.'

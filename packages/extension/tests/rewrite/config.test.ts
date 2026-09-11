@@ -3,16 +3,19 @@ import { describe, expect, it } from 'vitest'
 import { GROUPS } from '@/rewrite/config'
 
 function applyFirstReplacement(groupIndex: number, input: string): string {
-  const replacement = GROUPS[groupIndex].replacements[0]
+  const replacement = GROUPS[groupIndex]?.replacements[0]
+  if (!replacement) throw new Error(`Missing replacement group ${groupIndex}`)
   return input.replace(replacement.pattern as string | RegExp, replacement.replacer as string)
 }
 
 describe('rewrite/config', () => {
   it('defines rewrite groups with stable marker contracts', () => {
     expect(GROUPS).toHaveLength(3)
-    expect(GROUPS[0].markers).toEqual(['.appModel.isReadOnly'])
-    expect(GROUPS[1].markers).toEqual(['{type:"global",closePluginFunc:'])
-    expect(GROUPS[2].markers).toEqual(['let{canRunExtensions:'])
+    expect(GROUPS.map((group) => group.markers)).toEqual([
+      ['.appModel.isReadOnly'],
+      ['{type:"global",closePluginFunc:'],
+      ['let{canRunExtensions:']
+    ])
   })
 
   it('applies configured replacement rules for readonly and dev-mode unlock flows', () => {

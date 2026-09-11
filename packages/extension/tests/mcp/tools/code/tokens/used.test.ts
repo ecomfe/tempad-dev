@@ -81,6 +81,7 @@ describe('tokens/used buildUsedTokens', () => {
     })
 
     const call = vi.mocked(resolveTokenDefsByNames).mock.calls[0]
+    if (!call) throw new Error('Expected resolveTokenDefsByNames to be called')
     const nameSet = call[0] as Set<string>
     const options = call[3] as {
       includeAllModes: boolean
@@ -111,6 +112,7 @@ describe('tokens/used buildUsedTokens', () => {
 
     expect(normalizeFigmaVarName).toHaveBeenCalledWith('Color Primary')
     const call = vi.mocked(resolveTokenDefsByNames).mock.calls[0]
+    if (!call) throw new Error('Expected resolveTokenDefsByNames to be called')
     expect(call[0]).toEqual(new Set(['--norm-Color Primary']))
     expect(call[3]).toMatchObject({
       includeAllModes: false,
@@ -135,6 +137,7 @@ describe('tokens/used buildUsedTokens', () => {
     )
 
     const call = vi.mocked(resolveTokenDefsByNames).mock.calls[0]
+    if (!call) throw new Error('Expected resolveTokenDefsByNames to be called')
     const options = call[3] as {
       candidateIds: Set<string>
       candidateNameById: Map<string, string>
