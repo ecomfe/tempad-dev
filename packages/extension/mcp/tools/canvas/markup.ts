@@ -1886,7 +1886,7 @@ export function parseCanvasMarkup(
     node.children?.forEach(markThemeFields)
   }
   markThemeFields(root)
-  validateAssetReferences(root, input.assets)
+  validateAssetReferences(root, input.assets, input.styles)
   for (const key of Object.keys(state.bindings)) {
     if (!state.keys.has(key)) markupError(`Binding "${key}" has no matching data-key.`)
   }
@@ -1912,7 +1912,11 @@ export function parseCanvasMarkup(
   }
 }
 
-function validateAssetReferences(root: CanvasNodeSpec, assets: CanvasAssets | undefined): void {
+function validateAssetReferences(
+  root: CanvasNodeSpec,
+  assets: CanvasAssets | undefined,
+  styles: CanvasResolvedApplyParameters['styles']
+): void {
   const referenced = new Set<string>()
   const requireAsset = (key: string, type: 'IMAGE' | 'SVG', owner: string): void => {
     const asset = assets?.[key]
@@ -1944,6 +1948,9 @@ function validateAssetReferences(root: CanvasNodeSpec, assets: CanvasAssets | un
     for (const child of spec.children ?? []) visit(child)
   }
   visit(root)
+  for (const [key, style] of Object.entries(styles ?? {})) {
+    if (style?.type === 'PAINT') visitPaints(style.paints, `style "${key}"`)
+  }
   for (const key of Object.keys(assets ?? {})) {
     if (!referenced.has(key)) markupError(`Declared asset "${key}" is not referenced.`)
   }

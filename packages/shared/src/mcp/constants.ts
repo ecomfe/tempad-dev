@@ -7,6 +7,8 @@ export const TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION = 3
 export const MCP_MAX_PAYLOAD_BYTES = 4 * 1024 * 1024
 // Default inline budget for tool responses measured on CallToolResult bytes.
 export const MCP_TOOL_INLINE_BUDGET_BYTES = 64 * 1024
+// Reserve space before committing canvas writes for runtime evidence added by the Hub.
+export const MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES = 2 * 1024
 
 // Default tool timeout used by the MCP hub (ms).
 export const MCP_TOOL_TIMEOUT_MS = 15000

@@ -602,13 +602,19 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
   const requestedSkillReads = callInputs.map(skillResources).filter((resources) => resources.length)
   const skillReads = executedSkillReads.length ? executedSkillReads : requestedSkillReads
   const uniqueResources = new Set(skillReads.flat())
+  let missingRuntimeEvidence = false
   const runtimeObservations = applies.flatMap((event) => {
     const observation = runtimeObservation(event.result)
+    if (!observation && event.status === 'completed' && get(event.result, 'isError') !== true) {
+      missingRuntimeEvidence = true
+    }
     return observation ? [observation] : []
   })
   const runtimeIssues = new Set(runtimeObservations.flatMap(({ issues }) => issues))
   if (applies.length > 0 && runtimeObservations.length === 0) {
     runtimeIssues.add('No runtime identity evidence was returned by apply_canvas.')
+  } else if (missingRuntimeEvidence) {
+    runtimeIssues.add('A successful apply_canvas call has no runtime identity evidence.')
   }
 
   return {
@@ -710,6 +716,7 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
         runtimeObservations.every((observation) => observation.locked),
       valid:
         runtimeObservations.length > 0 &&
+        !missingRuntimeEvidence &&
         runtimeObservations.every((observation) => observation.valid),
       hubFingerprints: [
         ...new Set(runtimeObservations.flatMap(({ hubFingerprint }) => hubFingerprint ?? []))
