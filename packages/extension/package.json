@@ -46,7 +46,7 @@
     "@types/prismjs": "^1.26.6",
     "@types/stringify-object": "^4.0.5",
     "@vitejs/plugin-vue": "6.0.8",
-    "@vitest/browser-playwright": "4.1.11",
+    "@vitest/browser-playwright": "5.0.0",
     "@vue/eslint-config-typescript": "^14.9.0",
     "@wxt-dev/module-vue": "^1.0.3",
     "comment-mark": "^2.0.1",
