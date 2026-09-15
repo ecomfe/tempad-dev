@@ -54,9 +54,7 @@ describe('Select', () => {
     await page.getByRole('combobox', { name: 'Agent' }).click()
 
     const controlRect = select.getBoundingClientRect()
-    const selectedOption = select.selectedOptions[0]
-    if (!selectedOption) throw new Error('Expected a selected option')
-    const selectedRect = selectedOption.getBoundingClientRect()
+    const selectedRect = select.selectedOptions[0].getBoundingClientRect()
 
     expect(Math.abs(selectedRect.top - controlRect.top)).toBeLessThanOrEqual(1)
     expect(Math.abs(selectedRect.left - controlRect.left)).toBeLessThanOrEqual(2)

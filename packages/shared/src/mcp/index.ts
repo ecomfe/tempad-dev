@@ -1,5 +1,6 @@
 export * from './browser-gateway'
 export * from './constants'
+export * from './design-task'
 export * from './errors'
 export * from './install'
 export * from './protocol'

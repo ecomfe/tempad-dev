@@ -1,8 +1,11 @@
+import type { FigmaSession } from '@tempad-dev/shared'
+
 export type McpBrokerPort = ReturnType<typeof browser.runtime.connect>
 
 export type McpBrokerSession = {
   port: McpBrokerPort
   sessionId: string
+  document?: Omit<FigmaSession, 'sessionId'>
 }
 
 export class McpSessionRegistry {

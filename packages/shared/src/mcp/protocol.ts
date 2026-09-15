@@ -3,6 +3,13 @@ import type { ZodType } from 'zod'
 import { z } from 'zod'
 
 import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION } from './constants'
+import {
+  DesignTaskSchema,
+  DesignToolRouteSchema,
+  FigmaSessionSchema,
+  DesignActionSchema,
+  DesignActionResultSchema
+} from './design-task'
 import { TempadMcpErrorPayloadSchema } from './errors'
 import { hasToolResultOutcome, TOOL_RESULT_OUTCOME_ERROR } from './tool-result'
 
@@ -34,13 +41,36 @@ export const ToolCallMessageSchema = z
   .object({
     type: z.literal('toolCall'),
     id: z.string().min(1),
+    route: DesignToolRouteSchema.optional(),
     payload: ToolCallPayloadSchema
   })
   .strict()
 
+export const DesignTaskStateMessageSchema = z
+  .object({ type: z.literal('designTaskState'), task: DesignTaskSchema })
+  .strict()
+
+export const DesignActionResultMessageSchema = z
+  .object({
+    type: z.literal('designActionResult'),
+    sessionId: z.string().min(1),
+    result: DesignActionResultSchema
+  })
+  .strict()
+
+export const DesignActionMessageSchema = z
+  .object({
+    type: z.literal('designAction'),
+    sessionId: z.string().min(1),
+    action: DesignActionSchema
+  })
+  .strict()
+
 export const MessageToExtensionSchema = z.discriminatedUnion('type', [
+  DesignActionResultMessageSchema,
   RegisteredMessageSchema,
   StateMessageSchema,
+  DesignTaskStateMessageSchema,
   ToolCallMessageSchema
 ])
 
@@ -75,10 +105,26 @@ export const RuntimeHelloMessageSchema = z
   })
   .strict()
 
+export const FigmaSessionsMessageSchema = z
+  .object({
+    type: z.literal('sessions'),
+    browserId: z.string().min(1),
+    activeSessionId: z.string().nullable(),
+    sessions: z.array(FigmaSessionSchema).max(128),
+    reviews: z
+      .array(z.object({ sessionId: z.string().min(1), task: DesignTaskSchema }).strict())
+      .max(128)
+      .optional(),
+    openTabIds: z.array(z.number().int().nonnegative()).max(10000).optional()
+  })
+  .strict()
+
 export const MessageFromExtensionSchema = z.union([
+  DesignActionMessageSchema,
   ActivateMessageSchema,
   ToolResultMessageSchema,
   RuntimeHelloMessageSchema,
+  FigmaSessionsMessageSchema,
   PingMessageSchema
 ])
 
@@ -90,6 +136,8 @@ export type MessageToExtension = z.infer<typeof MessageToExtensionSchema>
 export type ActivateMessage = z.infer<typeof ActivateMessageSchema>
 export type ToolResultMessage = z.infer<typeof ToolResultMessageSchema>
 export type RuntimeHelloMessage = z.infer<typeof RuntimeHelloMessageSchema>
+export type FigmaSessionsMessage = z.infer<typeof FigmaSessionsMessageSchema>
+export type DesignTaskStateMessage = z.infer<typeof DesignTaskStateMessageSchema>
 export type MessageFromExtension = z.infer<typeof MessageFromExtensionSchema>
 
 function parseJsonWithSchema<T>(data: string, schema: ZodType<T>): T | null {
@@ -110,3 +158,6 @@ export function parseMessageToExtension(data: string): MessageToExtension | null
 export function parseMessageFromExtension(data: string): MessageFromExtension | null {
   return parseJsonWithSchema(data, MessageFromExtensionSchema)
 }
+
+export type DesignActionMessage = z.infer<typeof DesignActionMessageSchema>
+export type DesignActionResultMessage = z.infer<typeof DesignActionResultMessageSchema>

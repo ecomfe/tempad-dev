@@ -14,6 +14,9 @@ defineProps<{
         <p v-if="copy" class="site-section-copy">{{ copy }}</p>
       </div>
       <slot />
+      <footer v-if="$slots.footer" class="site-section-footer">
+        <slot name="footer" />
+      </footer>
     </div>
   </section>
 </template>

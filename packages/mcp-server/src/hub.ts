@@ -2,6 +2,11 @@ import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/
 import type {
   AssetDescriptor,
   AuthoringRuntimeEvidence,
+  BeginDesignParameters,
+  EndDesignParameters,
+  ResumeDesignParameters,
+  DesignTask,
+  FigmaSession,
   GetAssetsParametersInput,
   GetAssetsResult,
   StateMessage,
@@ -16,6 +21,7 @@ import type { ZodType } from 'zod'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
+  DesignTaskSchema,
   GetAssetsResultSchema,
   MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES,
   MCP_TOOL_INLINE_BUDGET_BYTES,
@@ -28,26 +34,34 @@ import {
 import { randomUUID } from 'node:crypto'
 import { existsSync, rmSync, chmodSync } from 'node:fs'
 import { connect, createServer } from 'node:net'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
 import { WebSocketServer } from 'ws'
 
 import type { AssetRecord, ExtensionConnection } from './types'
 
+import { CodexAppFeedback } from './agent-clients/codex-feedback'
+import { CodexAppLifecycle } from './agent-clients/codex-lifecycle'
+import { ClientHookRequestSchema } from './agent-clients/hooks'
+import { ClientEventSchema } from './agent-clients/identity'
+import { AgentClients } from './agent-clients/registry'
 import { decodeImageDataUrl } from './asset-data-url'
 import { createAssetHttpServer } from './asset-http-server'
 import { createAssetStore } from './asset-store'
 import { buildAssetFilename } from './asset-utils'
 import { getMcpServerConfig } from './config'
+import { DesignTaskStore } from './design-task-store'
+import { DesignTasks, resolveDesignTarget, type DesignTaskRecord } from './design-tasks'
 import { ExtensionRegistry } from './extension-registry'
 import { attachExtensionSocket } from './extension-socket'
 import MCP_INSTRUCTIONS from './instructions.md?raw'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
 import {
-  compareExtensionRuntimeIdentity,
+  getExtensionRuntimeIssues,
   createHubRuntimeIdentity,
   removeHubRuntimeIdentityIfOwned,
-  resolveExpectedExtensionRuntimeFingerprint,
   writeHubRuntimeIdentity,
   type HubRuntimeIdentity
 } from './runtime-identity'
@@ -69,6 +83,7 @@ import {
   TOOL_DEFS,
   coercePayloadToToolResponse,
   createAssetsToolResponse,
+  createDesignTaskToolResponse,
   createInlineBudgetExceededToolResponse,
   createToolErrorResponse,
   createUploadAssetToolResponse
@@ -94,6 +109,31 @@ const extensionOriginPolicy = createExtensionOriginPolicy(allowedExtensionOrigin
 log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Hub starting...')
 
 const extensionRegistry = new ExtensionRegistry(autoActivateGraceMs)
+const taskStateDirectory = join(homedir(), '.tempad-dev', 'state')
+const designTasks = new DesignTasks({
+  createId: randomUUID,
+  onChange: publishDesignTask,
+  store: new DesignTaskStore(join(taskStateDirectory, 'design-tasks.json'))
+})
+const agentClients = new AgentClients(
+  designTasks,
+  new CodexAppFeedback(join(taskStateDirectory, 'codex-feedback')),
+  (changed) => new CodexAppLifecycle(changed)
+)
+let refreshingCapabilities = false
+const clientCapabilityTimer = setInterval(() => {
+  if (refreshingCapabilities) return
+  refreshingCapabilities = true
+  void agentClients
+    .refreshCapabilities()
+    .catch((error) => log.warn({ error }, 'Could not refresh agent capabilities.'))
+    .finally(() => {
+      refreshingCapabilities = false
+    })
+}, 10000)
+const pendingDesignBindings = new Map<string, Promise<void>>()
+const designTaskTimer = setInterval(() => designTasks.sweep(), 1000)
+designTaskTimer.unref()
 let consumerCount = 0
 type TimeoutHandle = ReturnType<typeof setTimeout>
 let selectedWsPort = 0
@@ -116,7 +156,7 @@ type HubToolMetadata = Extract<ToolMetadataEntry, { target: 'hub' }>
 type HubToolByName<Name extends HubToolMetadata['name']> = Extract<HubToolMetadata, { name: Name }>
 
 type HubToolWithHandlerFor<T extends HubToolMetadata> = T & {
-  handler: (args: SchemaOutput<T['parameters']>) => Promise<ToolResponse>
+  handler: (args: SchemaOutput<T['parameters']>, ownerId: string) => Promise<ToolResponse>
 }
 
 type HubToolWithHandler = {
@@ -228,20 +268,35 @@ function enrichToolDefinition(tool: ToolMetadataEntry): RegisteredToolDefinition
   }
 
   switch (tool.name) {
-    case 'get_assets': {
-      const definition = tool as HubToolByName<'get_assets'>
+    case 'get_design_task':
       return {
-        ...definition,
-        handler: handleGetAssets
-      } satisfies HubToolWithHandlerFor<typeof definition>
-    }
-    case 'upload_asset': {
-      const definition = tool as HubToolByName<'upload_asset'>
+        ...tool,
+        handler: async (args: { taskId: string }, ownerId: string) =>
+          createDesignTaskToolResponse(designTasks.owned(args.taskId, ownerId).task)
+      }
+    case 'list_design_sessions':
       return {
-        ...definition,
-        handler: handleUploadAsset
-      } satisfies HubToolWithHandlerFor<typeof definition>
-    }
+        ...tool,
+        handler: async () => {
+          const result = {
+            sessions: extensionRegistry.list().flatMap((value) => value.sessions?.sessions ?? [])
+          }
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+            structuredContent: result
+          }
+        }
+      }
+    case 'resume_design':
+      return { ...tool, handler: handleResumeDesign }
+    case 'begin_design':
+      return { ...tool, handler: handleBeginDesign }
+    case 'end_design':
+      return { ...tool, handler: handleEndDesign }
+    case 'get_assets':
+      return { ...tool, handler: handleGetAssets }
+    case 'upload_asset':
+      return { ...tool, handler: handleUploadAsset }
     default:
       throw new Error('No handler configured for hub tool.')
   }
@@ -351,16 +406,171 @@ function buildAssetDescriptor(record: AssetRecord): AssetDescriptor {
   }
 }
 
-function createMcpServer(): McpServer {
+function publishDesignTask({ task }: DesignTaskRecord): void {
+  const message = JSON.stringify({ type: 'designTaskState', task })
+  for (const extension of extensionRegistry.list()) {
+    if (!extension.sessions?.sessions.some((session) => session.fileKey === task.target.fileKey))
+      continue
+    try {
+      extension.ws.send(message)
+    } catch (error) {
+      log.warn({ error, taskId: task.taskId }, 'Failed to synchronize design task.')
+    }
+  }
+}
+
+function resolveDesignRoute(
+  ownerId: string,
+  taskId?: string,
+  active = true,
+  explicitSessionId?: string
+): {
+  extension: ExtensionConnection
+  session: FigmaSession
+} {
+  return resolveDesignTarget(
+    designTasks,
+    extensionRegistry.list(),
+    extensionRegistry.getActiveId(),
+    ownerId,
+    taskId,
+    active,
+    explicitSessionId
+  )
+}
+
+async function handleBeginDesign(
+  args: BeginDesignParameters,
+  ownerId: string
+): Promise<ToolResponse> {
+  let record = designTasks.retry(ownerId, args.requestId)
+  if (record) {
+    if (
+      record.task.title !== args.title ||
+      (args.sessionId && args.sessionId !== record.task.target.sessionId)
+    ) {
+      throw createCodedError(
+        TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_INACTIVE,
+        'requestId already has another title or Figma target.'
+      )
+    }
+    await pendingDesignBindings.get(record.task.taskId)
+    return createDesignTaskToolResponse(record.task)
+  }
+  const { extension, session } = resolveDesignRoute(ownerId, undefined, true, args.sessionId)
+  const issues = getExtensionRuntimeIssues(extension.runtime)
+  if (issues.length) {
+    throw createCodedError(TEMPAD_MCP_ERROR_CODES.RUNTIME_IDENTITY_MISMATCH, issues.join('; '))
+  }
+  const { client, capabilities } = await agentClients.describe(ownerId)
+  record = designTasks.begin(
+    ownerId,
+    extension.id,
+    session,
+    args.title,
+    args.requestId,
+    client,
+    capabilities,
+    extension.sessions
+      ? { browserId: extension.sessions.browserId, origin: extension.origin }
+      : undefined
+  )
+  const task = record.task
+  const binding = bindDesignTask(record, extension, session)
+  pendingDesignBindings.set(task.taskId, binding)
+  try {
+    await binding
+    return createDesignTaskToolResponse(task)
+  } finally {
+    if (pendingDesignBindings.get(task.taskId) === binding)
+      pendingDesignBindings.delete(task.taskId)
+  }
+}
+
+async function bindDesignTask(
+  { task, ownerId }: DesignTaskRecord,
+  extension: ExtensionConnection,
+  session: FigmaSession
+): Promise<void> {
+  const epoch = task.epoch ?? 0
+  const registration = register<DesignTask>(extension.id, toolTimeoutMs)
+  try {
+    const message: ToolCallMessage = {
+      type: 'toolCall',
+      id: registration.requestId,
+      route: { gatewayId: extension.id, sessionId: session.sessionId, fileKey: session.fileKey },
+      payload: { name: '__begin_design', args: task }
+    }
+    extension.ws.send(JSON.stringify(message))
+    const bound = DesignTaskSchema.parse(await registration.promise)
+    if (
+      bound.taskId !== task.taskId ||
+      bound.target.sessionId !== session.sessionId ||
+      bound.target.fileKey !== session.fileKey ||
+      bound.target.pageId !== task.target.pageId ||
+      (bound.epoch ?? 0) !== epoch
+    ) {
+      throw createCodedError(
+        TEMPAD_MCP_ERROR_CODES.DESIGN_TARGET_CHANGED,
+        'The page acknowledged a different design target.'
+      )
+    }
+    designTasks.assertEpoch(task.taskId, ownerId, epoch)
+    designTasks.confirm(task.taskId, ownerId)
+  } catch (error) {
+    reject(registration.requestId, extension.id, coerceToolError(error))
+    await registration.promise.catch(() => undefined)
+    if ((task.epoch ?? 0) === epoch && task.target.sessionId === session.sessionId)
+      designTasks.stop(task.taskId, 'interrupted')
+    throw error
+  }
+}
+
+async function handleResumeDesign(
+  args: ResumeDesignParameters,
+  ownerId: string
+): Promise<ToolResponse> {
+  const { extension, session } = resolveDesignRoute(ownerId, args.taskId, false)
+  const { client, capabilities } = await agentClients.describe(ownerId)
+  designTasks.attachClient(ownerId, client, capabilities)
+  const record = designTasks.resume(args.taskId, ownerId, args.epoch, session)
+  record.extensionId = extension.id
+  if (!record.ready)
+    await (pendingDesignBindings.get(args.taskId) ?? bindDesignTask(record, extension, session))
+  return createDesignTaskToolResponse(record.task)
+}
+
+async function handleEndDesign(args: EndDesignParameters, ownerId: string): Promise<ToolResponse> {
+  const record = designTasks.assertEpoch(args.taskId, ownerId, args.taskEpoch)
+  if (args.outcome === 'completed' && record.task.operation) {
+    throw createCodedError(
+      TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_BUSY,
+      'Wait for the running operation before completing the design task.'
+    )
+  }
+  if (args.outcome === 'cancelled') agentClients.cancelFeedback(args.taskId)
+  designTasks.snapshotResult(args.taskId, args.summary)
+  designTasks.stop(args.taskId, args.outcome)
+  return createDesignTaskToolResponse(record.task)
+}
+
+function createMcpServer(ownerId: string): McpServer {
   const mcp = new McpServer(
     { name: 'tempad-dev', title: 'TemPad Dev', version: PACKAGE_VERSION },
     MCP_INSTRUCTIONS ? { instructions: MCP_INSTRUCTIONS } : undefined
   )
 
+  mcp.server.setNotificationHandler(ClientEventSchema, (notification) =>
+    agentClients.event(ownerId, notification)
+  )
+  mcp.server.setRequestHandler(ClientHookRequestSchema, (request) =>
+    agentClients.clientHook(request.params)
+  )
+
   const registered: string[] = []
   for (const tool of TOOL_DEFINITIONS) {
     if ('exposed' in tool && tool.exposed === false) continue
-    registerTool(mcp, tool)
+    registerTool(mcp, tool, ownerId)
     registered.push(tool.name)
   }
   log.info({ tools: registered }, 'Registered tools.')
@@ -368,40 +578,42 @@ function createMcpServer(): McpServer {
   return mcp
 }
 
-function registerTool(mcp: McpServer, tool: RegisteredTool): void {
+function registerTool(mcp: McpServer, tool: RegisteredTool, ownerId: string): void {
   if (tool.target === 'extension') {
-    registerProxiedTool(mcp, tool)
+    registerProxiedTool(mcp, tool, ownerId)
   } else {
-    registerLocalTool(mcp, tool)
+    registerLocalTool(mcp, tool, ownerId)
   }
 }
 
-function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): void {
+function registerProxiedTool<T extends ExtensionTool>(
+  mcp: McpServer,
+  tool: T,
+  ownerId: string
+): void {
   type Name = T['name']
   type Result = ToolResultMap[Name]
 
   const registerToolFn = mcp.registerTool.bind(mcp) as (
     name: string,
     options: ToolRegistrationOptions,
-    handler: (args: unknown) => Promise<CallToolResult>
+    handler: (args: unknown, extra: { _meta?: unknown }) => Promise<CallToolResult>
   ) => unknown
 
   const schema = tool.parameters
-  const handler = async (args: unknown) => {
+  const connectionId = ownerId
+  const handler = async (args: unknown, extra: { _meta?: unknown }) => {
+    const ownerId = await agentClients.owner(
+      connectionId,
+      extra._meta,
+      mcp.server.getClientVersion()
+    )
     let requestId: string | undefined
     try {
-      const parsedArgs = schema.parse(args)
-      const activeExt = extensionRegistry.getActive()
-      if (!activeExt) {
-        throw createCodedError(
-          TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION,
-          'No active TemPad Dev extension available.'
-        )
-      }
-      const runtimeIssues = compareExtensionRuntimeIdentity(
-        activeExt.runtime,
-        hubRuntimeIdentity?.expectedExtensionRuntimeFingerprint ?? null
-      )
+      const { taskId, taskEpoch, ...parsedArgs } = schema.parse(args)
+      if (taskId) designTasks.assertEpoch(taskId, ownerId, taskEpoch)
+      const { extension: activeExt, session } = resolveDesignRoute(ownerId, taskId)
+      const runtimeIssues = getExtensionRuntimeIssues(activeExt.runtime)
       if (runtimeIssues.length) {
         throw createCodedError(
           TEMPAD_MCP_ERROR_CODES.RUNTIME_IDENTITY_MISMATCH,
@@ -424,26 +636,63 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
           : tool.name === 'apply_canvas'
             ? applyCanvasTimeoutMs
             : toolTimeoutMs
+      designTasks.checkOperation(ownerId, session, taskId, tool.name === 'apply_canvas')
       const registration = register<Result>(activeExt.id, timeoutMs, {
         waitForDefinitiveResult: tool.name === 'apply_canvas'
       })
       requestId = registration.requestId
-
       const message: ToolCallMessage = {
         type: 'toolCall',
         id: registration.requestId,
+        route: {
+          gatewayId: activeExt.id,
+          sessionId: session.sessionId,
+          fileKey: session.fileKey,
+          ...(taskId ? { taskId, epoch: taskEpoch ?? 0 } : {})
+        },
         payload: {
           name: tool.name,
           args: parsedArgs
         }
       }
-      activeExt.ws.send(JSON.stringify(message))
+      try {
+        designTasks.startOperation(
+          requestId,
+          ownerId,
+          activeExt.id,
+          activeExt.sessions!.browserId,
+          session,
+          taskId,
+          tool.name === 'apply_canvas'
+        )
+        activeExt.ws.send(JSON.stringify(message))
+      } catch (error) {
+        designTasks.finishOperation(requestId, activeExt.id)
+        reject(requestId, activeExt.id, coerceToolError(error))
+      }
       log.info(
         { tool: tool.name, req: registration.requestId, extId: activeExt.id },
         'Forwarded tool call.'
       )
 
       const payload = await registration.promise
+      if (taskId && ['get_structure', 'get_code'].includes(tool.name)) {
+        designTasks.acknowledgeRead(taskId, ownerId, taskEpoch)
+      }
+      if (taskId && tool.name === 'apply_canvas') {
+        const rootNodeId = getRecordProperty(payload, 'rootNodeId')
+        if (typeof rootNodeId === 'string')
+          designTasks.captureResult(
+            taskId,
+            rootNodeId,
+            getRecordProperty(payload, 'rootRemoved') === true
+          )
+        const page = getRecordProperty(payload, 'page')
+        if (getRecordProperty(page, 'active') === true) {
+          const pageId = getRecordProperty(page, 'id')
+          if (typeof pageId === 'string') designTasks.updatePage(taskId, pageId)
+        }
+      }
       return createToolResponse(tool.name, payload, runtime)
     } catch (error) {
       const normalized = coerceToolError(error)
@@ -471,14 +720,14 @@ function registerProxiedTool<T extends ExtensionTool>(mcp: McpServer, tool: T): 
   )
 }
 
-function registerLocalTool(mcp: McpServer, tool: HubOnlyTool): void {
+function registerLocalTool(mcp: McpServer, tool: HubOnlyTool, ownerId: string): void {
   const schema = tool.parameters
-  const handler = tool.handler as (args: unknown) => Promise<CallToolResult>
+  const handler = tool.handler as (args: unknown, ownerId: string) => Promise<CallToolResult>
 
   const registerToolFn = mcp.registerTool.bind(mcp) as (
     name: string,
     options: ToolRegistrationOptions,
-    handler: (args: unknown) => Promise<CallToolResult>
+    handler: (args: unknown, extra: { _meta?: unknown }) => Promise<CallToolResult>
   ) => unknown
 
   const registrationOptions: ToolRegistrationOptions = {
@@ -491,10 +740,28 @@ function registerLocalTool(mcp: McpServer, tool: HubOnlyTool): void {
     registrationOptions.outputSchema = tool.outputSchema
   }
 
-  const registerHandler = async (args: unknown) => {
+  const connectionId = ownerId
+  const registerHandler = async (args: unknown, extra: { _meta?: unknown }) => {
+    const ownerId = await agentClients.owner(
+      connectionId,
+      extra._meta,
+      mcp.server.getClientVersion()
+    )
     try {
       const parsed = schema.parse(args)
-      return await handler(parsed)
+      const taskId = getRecordProperty(parsed, 'taskId')
+      if (
+        !['end_design', 'resume_design', 'get_design_task'].includes(tool.name) &&
+        typeof taskId === 'string'
+      ) {
+        designTasks.assertEpoch(
+          taskId,
+          ownerId,
+          getRecordProperty(parsed, 'taskEpoch') as number | undefined
+        )
+        designTasks.touch(taskId, ownerId)
+      }
+      return await handler(parsed, ownerId)
     } catch (error) {
       log.error({ tool: tool.name, error }, 'Local tool invocation failed.')
       return createToolErrorResponse(tool.name, error)
@@ -555,14 +822,11 @@ function createToolResponse<Name extends ToolName>(
 
 function buildAuthoringRuntimeEvidence(extension: ExtensionConnection): AuthoringRuntimeEvidence {
   const runtime = extension.runtime
-  const issues = compareExtensionRuntimeIdentity(
-    runtime,
-    hubRuntimeIdentity?.expectedExtensionRuntimeFingerprint ?? null
-  )
+  const issues = getExtensionRuntimeIssues(runtime)
   if (!hubRuntimeIdentity) issues.unshift('Hub runtime identity is unavailable')
   return {
     protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
-    locked: hubRuntimeIdentity?.expectedExtensionRuntimeFingerprint != null,
+    locked: false,
     valid: issues.length === 0,
     issues,
     hub: {
@@ -668,6 +932,9 @@ function publishHubRuntimeIdentity(): void {
 function shutdown(): void {
   if (shuttingDown) return
   shuttingDown = true
+  clearInterval(designTaskTimer)
+  clearInterval(clientCapabilityTimer)
+  agentClients.close()
   log.info('Hub is shutting down...')
   consumerSessions.forEach((session) => {
     session.close().catch((err) => {
@@ -691,7 +958,8 @@ function shutdown(): void {
 }
 
 const netServer = createServer((sock) => {
-  const mcp = createMcpServer()
+  const ownerId = randomUUID()
+  const mcp = createMcpServer(ownerId)
   consumerSessions.add(mcp)
   consumerCount++
   log.info(`Consumer connected. Total: ${consumerCount}`)
@@ -708,6 +976,7 @@ const netServer = createServer((sock) => {
     transport.close().catch((closeErr) => log.warn({ err: closeErr }, 'Transport close failed.'))
   })
   sock.on('close', async () => {
+    agentClients.disconnect(ownerId)
     await transport
       .close()
       .catch((closeErr) => log.warn({ err: closeErr }, 'Transport close failed.'))
@@ -728,12 +997,9 @@ async function initializeHubRuntime(): Promise<void> {
     await exitExistingHub()
   }
   releaseHubLock = await acquireHubLock()
+  designTasks.restore()
   await cleanSocketPath()
-  hubRuntimeIdentity = createHubRuntimeIdentity(
-    fileURLToPath(import.meta.url),
-    PACKAGE_VERSION,
-    await resolveExpectedExtensionRuntimeFingerprint()
-  )
+  hubRuntimeIdentity = createHubRuntimeIdentity(fileURLToPath(import.meta.url), PACKAGE_VERSION)
   writeHubRuntimeIdentity(HUB_RUNTIME_IDENTITY_PATH, hubRuntimeIdentity)
   await assetHttpServer.start()
   scheduleAssetCleanup()
@@ -839,6 +1105,7 @@ activeWss.on('connection', (ws, request) => {
     },
     onDisconnected: (extensionId, wasActive) => {
       log.info({ id: extensionId }, `Extension disconnected. Remaining: ${extensionRegistry.size}`)
+      designTasks.disconnectExtension(extensionId)
       cleanupForExtension(extensionId)
       if (wasActive) log.warn({ id: extensionId }, 'Active extension disconnected.')
     },
@@ -862,11 +1129,94 @@ activeWss.on('connection', (ws, request) => {
         'Extension runtime identity received.'
       )
     },
+    onSessions: (extension) => {
+      const snapshot = extension.sessions!
+      for (const review of snapshot.reviews ?? []) {
+        const session = snapshot.sessions.find((value) => value.sessionId === review.sessionId)
+        if (!session) continue
+        designTasks.restoreReview(review.task, extension, session)
+        if (review.task.reviewClosed || review.task.status === 'cancelled')
+          agentClients.cancelFeedback(review.task.taskId)
+      }
+      designTasks.reconcileSessions(snapshot.browserId, snapshot.sessions, snapshot.openTabIds)
+      for (const record of designTasks.list()) {
+        if (
+          designTasks.current(record.task.target.fileKey) === record &&
+          snapshot.sessions.some((session) => session.fileKey === record.task.target.fileKey)
+        ) {
+          extension.ws.send(JSON.stringify({ type: 'designTaskState', task: record.task }))
+        }
+        if (
+          record.extensionId === extension.id &&
+          !snapshot.sessions.some((session) => session.sessionId === record.task.target.sessionId)
+        ) {
+          designTasks.stop(record.task.taskId, 'interrupted')
+        }
+      }
+      for (const { record, extension: target, session } of designTasks.recoverSessions(
+        extensionRegistry.list()
+      )) {
+        const taskId = record.task.taskId
+        const binding = bindDesignTask(record, target, session)
+        pendingDesignBindings.set(taskId, binding)
+        void binding
+          .catch((error) => log.warn({ error, taskId }, 'Failed to restore a refreshed Figma tab.'))
+          .finally(() => {
+            if (pendingDesignBindings.get(taskId) === binding) pendingDesignBindings.delete(taskId)
+          })
+      }
+    },
+    onDesignAction: (extension, sessionId, action) => {
+      const session = extension.sessions?.sessions.find((value) => value.sessionId === sessionId)
+      const record = designTasks.find(action.taskId)
+      const reply = (result: import('@tempad-dev/shared').DesignActionResult) => {
+        try {
+          extension.ws.send(JSON.stringify({ type: 'designActionResult', sessionId, result }))
+        } catch {
+          /* The client may have disconnected. */
+        }
+      }
+      if (
+        !session ||
+        record?.task.target.fileKey !== session.fileKey ||
+        (['feedback', 'steer'].includes(action.action) &&
+          record.task.target.sessionId !== sessionId)
+      ) {
+        reply({
+          requestId: action.requestId,
+          taskId: action.taskId,
+          status: 'failed',
+          message: 'This action belongs to another Figma file.'
+        })
+        return
+      }
+      const accepted = () =>
+        reply({
+          requestId: action.requestId,
+          taskId: action.taskId,
+          status: 'accepted',
+          message: action.action === 'stop' ? 'Stopping design task…' : 'Sending feedback…'
+        })
+      void agentClients
+        .action(action, accepted)
+        .then(reply)
+        .catch((error) =>
+          reply({
+            requestId: action.requestId,
+            taskId: action.taskId,
+            status: 'failed',
+            message: String(error).slice(0, 500)
+          })
+        )
+    },
     onSocketError: (extensionId, error) => {
       log.warn({ err: error, extId: extensionId }, 'Extension WebSocket error.')
     },
     onStateChange: broadcastState,
     onToolError: (requestId, extensionId, error) => {
+      if (error.code === TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED) {
+        designTasks.uncertain(requestId, extensionId)
+      } else designTasks.finishOperation(requestId, extensionId)
       const normalized = coerceToolError(error)
       log.warn(
         {
@@ -880,6 +1230,7 @@ activeWss.on('connection', (ws, request) => {
       reject(requestId, extensionId, normalized)
     },
     onToolResult: (requestId, extensionId, payload) => {
+      designTasks.finishOperation(requestId, extensionId)
       resolve(requestId, extensionId, payload)
     }
   })

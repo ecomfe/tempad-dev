@@ -16,7 +16,7 @@ The website introduces TemPad Dev as the connection between Figma, developers, a
 The version 3 manifest declares `group` and `consumers` for each screenshot:
 
 - `inspect`: native code, output plugins, units, selection, measurement, and navigation. Keep the six manual examples available in both READMEs and the website’s inspection carousel.
-- `setup`: the current agent integration dialog. `mcp-config` covers Codex’s portable plugin path; `mcp-config-gemini` shows Gemini’s separate MCP installation, and `mcp-config-gemini-skills` shows both standalone skills after scrolling to the bottom. The Codex view is also shown in the website’s setup section.
+- `setup`: the current agent integration dialog. `mcp-config-gemini` shows Gemini’s separate MCP installation, and `mcp-config-gemini-skills` shows both standalone skills after scrolling to the bottom. The Gemini MCP view is also shown in the website’s setup section.
 - `status`: the real MCP unavailable, inactive, and active badges, retained in the READMEs as troubleshooting documentation.
 
 `consumers` declares `readme`, `site`, or both. Adding a new scenario does not require inserting it into every surface. Update the relevant prose, alt text, display dimensions, and consumer declaration together.
@@ -56,7 +56,6 @@ becomes `720 × 320`.
 | `measure`                  | Inner frame selected, Measure active, outer frame under the pointer, orange target outline and four `20` distance labels.         |
 | `scroll`                   | Frame selected in the native code view, arrow pointer hovering Scroll Into View with its tooltip visible.                         |
 | `plugins`                  | Real Kong Button instance selected with Figma's purple instance highlight and Kong UI-specific output; pointer hidden.            |
-| `mcp-config`               | Agent integration with MCP enabled, Codex selected, current plugin command and purpose visible.                                   |
 | `mcp-config-gemini`        | Gemini selected, content scrolled to the top, MCP command and first skill command fully visible.                                  |
 | `mcp-config-gemini-skills` | Gemini selected, content scrolled to the bottom, both standalone skill commands fully visible.                                    |
 | `mcp-unavailable`          | Preferences visible with the gray-dot, dashed MCP badge.                                                                          |
@@ -140,8 +139,6 @@ The capture checks the selected agent, compares displayed commands against `AGEN
 Setup captures use `screenshots/dialog-capture.mjs` to isolate the real dialog on a transparent browser surface. The capture temporarily hides surrounding page content and the modal backdrop, omits the outside shadow, and restores those overrides in `finally`. It preserves the dialog’s native geometry, colors, text, and antialiased rounded corners. Keep the resulting RGBA PNG: do not flatten it against the gray overlay or a theme-specific background. Review all four corners on both light and dark backgrounds before promotion. This is capture-only styling; do not change the shipped dialog to fix screenshot composition.
 
 If setup content needs scrolling, declare separate views in the manifest with exact scroll targets and visible assertions. Do not expand the dialog using injected styles or silently crop out a skill command. Keep screenshots faithful to the shipped interface.
-
-When the existing tab is connected through Codex’s browser API instead of a standalone CDP endpoint, use `packages/extension/screenshots/codex-setup-capture.mjs` as the outer adapter. Build `@tempad-dev/shared` first, then import the adapter in that browser session. Stage MCP access, the selected agent, and the declared Home/End scroll position through the visible UI. Call `captureSetupCandidate(tab, { scenarioId, theme })` for each scene and theme. It reads the manifest, verifies live text, commands, viewport scale, visible command bounds, and dialog dimensions, then saves a candidate PNG and JSON evidence together. `setSetupCaptureTheme(tab, theme)` uses Figma’s actual theme menu; restore `light` when finished. The same compare, review, promote, and verify commands apply to these candidates.
 
 ## Native design and implementation examples
 

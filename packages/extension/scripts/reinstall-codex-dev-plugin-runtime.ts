@@ -1,93 +1,36 @@
-type RuntimeProcess = {
-  pid: number
-}
+import { normalize, resolve } from 'node:path'
 
-type RuntimeProcessState = {
-  cli: RuntimeProcess[]
-  hub: RuntimeProcess[]
-}
+export const devPluginName = 'tempad-dev-dev'
+export const devPluginId = `${devPluginName}@${devPluginName}`
 
-type RuntimeState = 'installed' | 'uninstalled'
-
-export type CdpTarget = {
-  title: string
-  type: string
-  url: string
-  webSocketDebuggerUrl: string
-}
-
-export function formatCodexConnectionError(
-  cdpUrl: string,
-  message: string,
-  cdpReady: boolean
-): string {
-  const recovery = cdpReady
-    ? 'The CDP endpoint is reachable; inspect the connection error and exposed targets without restarting Codex.'
-    : 'Start Codex with remote debugging, or pass --restart-codex when the CDP endpoint is unavailable.'
-  return `Could not connect to Codex CDP at ${cdpUrl}: ${message}\n${recovery}`
-}
-
-export async function selectCodexTarget(
-  listTargets: () => Promise<CdpTarget[]>,
-  pageUrl: string | undefined,
+export type ReinstallArguments = {
+  appPath?: string
   timeoutMs: number
-): Promise<CdpTarget> {
-  const deadline = Date.now() + timeoutMs
-  let targets: CdpTarget[] = []
-  let lastFailure: { error: unknown } | undefined
-  while (Date.now() <= deadline) {
-    try {
-      targets = await listTargets()
-      lastFailure = undefined
-    } catch (error) {
-      targets = []
-      lastFailure = { error }
-    }
-    const codexPages = targets.filter((target) => {
-      if (target.type !== 'page' || target.url.includes('initialRoute=%2Favatar-overlay')) {
-        return false
-      }
-      try {
-        return new URL(target.url).protocol === 'app:'
-      } catch {
-        return false
-      }
-    })
-    const exactCandidates = pageUrl ? codexPages.filter((target) => target.url === pageUrl) : []
-    if (exactCandidates.length === 1 && exactCandidates[0]) return exactCandidates[0]
-    const candidates = pageUrl
-      ? codexPages.filter((target) => target.url.includes(pageUrl))
-      : codexPages
-    const candidate = candidates[0]
-    if (candidates.length === 1 && candidate) return candidate
-    if (candidates.length > 1) {
-      throw new Error(
-        `Multiple Codex pages are available. Pass --page-url with a unique substring:\n${candidates
-          .map(({ title, url }) => `- ${title}: ${url}`)
-          .join('\n')}`
-      )
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500))
-  }
-  if (lastFailure) {
-    const { error } = lastFailure
-    throw new Error(
-      `Could not list Codex CDP targets: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error }
-    )
-  }
-  throw new Error(
-    `No Codex app page found at the CDP endpoint. Exposed pages:\n${targets
-      .map(({ title, url }) => `- ${title}: ${url}`)
-      .join('\n')}`
-  )
+  version?: string
 }
 
-export const detachedReinstallJobPrefix = 'com.tempad-dev.codex-plugin-reinstall.'
-
-type DetachedReinstallIdentity = {
-  jobLabel: string
-  logFileName: string
+export function parseReinstallArguments(argv: string[]): ReinstallArguments | null {
+  if (argv.includes('--help')) return null
+  const args: ReinstallArguments = { timeoutMs: 60_000 }
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]!
+    if (argument === '--app-path' || argument === '--timeout-ms') {
+      const value = argv[++index]
+      if (!value || value.startsWith('--')) throw new Error(`Missing value for ${argument}.`)
+      if (argument === '--app-path') args.appPath = value
+      else {
+        args.timeoutMs = Number(value)
+        if (!Number.isSafeInteger(args.timeoutMs) || args.timeoutMs <= 0) {
+          throw new Error(`Invalid --timeout-ms value: ${value}`)
+        }
+      }
+    } else {
+      if (argument.startsWith('--')) throw new Error(`Unknown option: ${argument}`)
+      if (args.version) throw new Error(`Unexpected positional argument: ${argument}`)
+      args.version = argument
+    }
+  }
+  return args
 }
 
 export function resolveDevPluginVersion(input: unknown, requested?: string): string {
@@ -107,44 +50,72 @@ export function resolveDevPluginVersion(input: unknown, requested?: string): str
   return manifest.version
 }
 
-export function detachedReinstallIdentity(
-  pid: number,
-  timestamp: number
-): DetachedReinstallIdentity {
-  const suffix = `${String(pid)}.${String(timestamp)}`
-  return {
-    jobLabel: `${detachedReinstallJobPrefix}${suffix}`,
-    logFileName: `codex-plugin-reinstall.${suffix}.log`
+function objectValue(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Expected a JSON object from the Codex plugin CLI.')
+  }
+  return value as Record<string, unknown>
+}
+
+function assertLocalPlugin(entry: Record<string, unknown>, pluginRoot: string): void {
+  const source = objectValue(entry.source)
+  const marketplace = objectValue(entry.marketplaceSource)
+  if (
+    entry.name !== devPluginName ||
+    entry.marketplaceName !== devPluginName ||
+    source.source !== 'local' ||
+    typeof source.path !== 'string' ||
+    normalize(source.path) !== normalize(pluginRoot) ||
+    marketplace.sourceType !== 'local' ||
+    typeof marketplace.source !== 'string' ||
+    normalize(marketplace.source) !== resolve(pluginRoot, '../..')
+  ) {
+    throw new Error(
+      'The configured development marketplace must point at this checkout’s local generated plugin.'
+    )
   }
 }
 
-export function assertNoDetachedReinstallJobs(labels: string[]): void {
-  if (labels.length === 0) return
-  throw new Error(`A detached Codex plugin reinstall is already running: ${labels.join(', ')}`)
-}
-
-export function assertRestartCodexNeeded(cdpReady: boolean): void {
-  if (!cdpReady) return
-  throw new Error(
-    'Refusing to restart Codex because its CDP endpoint is already available. ' +
-      'Run pnpm agent-plugin:reinstall without --restart-codex; if target selection fails, ' +
-      'fix --page-url instead.'
+export async function reinstallDevPlugin(
+  runCodex: (args: string[]) => Promise<unknown>,
+  pluginRoot: string,
+  version: string
+): Promise<string> {
+  const listed = objectValue(
+    await runCodex(['plugin', 'list', '--available', '--json', '--marketplace', devPluginName])
   )
-}
-
-export function runtimeStateMatches(
-  processes: RuntimeProcessState,
-  expectedState: RuntimeState,
-  baseline?: RuntimeProcessState
-): boolean {
-  if (expectedState === 'uninstalled') {
-    return processes.cli.length === 0 && processes.hub.length === 0
+  if (!Array.isArray(listed.installed) || !Array.isArray(listed.available)) {
+    throw new Error('Codex did not return installed and available plugin lists.')
   }
+  const candidates = [...listed.installed, ...listed.available]
+    .map(objectValue)
+    .filter((entry) => entry.pluginId === devPluginId)
+  if (candidates.length !== 1) {
+    throw new Error('Expected exactly one development plugin in the configured local marketplace.')
+  }
+  assertLocalPlugin(candidates[0]!, pluginRoot)
 
-  return (
-    processes.hub.length > 0 &&
-    (baseline
-      ? processes.cli.some(({ pid }) => !baseline.cli.some((process) => process.pid === pid))
-      : processes.cli.length > 0)
+  const added = objectValue(await runCodex(['plugin', 'add', devPluginId, '--json']))
+  if (
+    added.pluginId !== devPluginId ||
+    added.version !== version ||
+    typeof added.installedPath !== 'string'
+  ) {
+    throw new Error(`Codex did not confirm installation of ${devPluginId} ${version}.`)
+  }
+  const verified = objectValue(
+    await runCodex(['plugin', 'list', '--json', '--marketplace', devPluginName])
   )
+  if (!Array.isArray(verified.installed)) throw new Error('Codex did not return installed plugins.')
+  const installed = verified.installed
+    .map(objectValue)
+    .filter((entry) => entry.pluginId === devPluginId)
+  if (installed.length !== 1)
+    throw new Error('Codex did not report exactly one installed development plugin.')
+  const entry = installed[0]!
+  assertLocalPlugin(entry, pluginRoot)
+  if (entry.installed !== true || entry.enabled !== true || entry.version !== version) {
+    throw new Error(`The installed development plugin is not enabled at version ${version}.`)
+  }
+  return added.installedPath
 }

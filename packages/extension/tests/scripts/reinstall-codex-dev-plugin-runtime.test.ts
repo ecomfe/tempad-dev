@@ -1,164 +1,143 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
-  assertNoDetachedReinstallJobs,
-  assertRestartCodexNeeded,
-  detachedReinstallIdentity,
-  formatCodexConnectionError,
-  resolveDevPluginVersion,
-  runtimeStateMatches,
-  selectCodexTarget,
-  type CdpTarget
+  devPluginId,
+  parseReinstallArguments,
+  reinstallDevPlugin,
+  resolveDevPluginVersion
 } from '@/scripts/reinstall-codex-dev-plugin-runtime'
 
-describe('Codex plugin reinstall runtime state', () => {
-  it('uses the generated plugin version by default and rejects an explicit mismatch', () => {
-    const manifest = { name: 'tempad-dev-dev', version: '0.1.2+codex.test' }
+const pluginRoot = '/checkout/.dev/plugins/tempad-dev-dev'
+const version = '0.2.0+codex.new'
+const entry = {
+  pluginId: devPluginId,
+  name: 'tempad-dev-dev',
+  marketplaceName: 'tempad-dev-dev',
+  installed: true,
+  enabled: true,
+  version,
+  source: { source: 'local', path: pluginRoot },
+  marketplaceSource: { sourceType: 'local', source: '/checkout/.dev' }
+}
+const added = { pluginId: devPluginId, version, installedPath: '/cache/plugin' }
 
-    expect(resolveDevPluginVersion(manifest)).toBe('0.1.2+codex.test')
-    expect(resolveDevPluginVersion(manifest, '0.1.2+codex.test')).toBe('0.1.2+codex.test')
-    expect(() => resolveDevPluginVersion(manifest, '0.1.2+codex.other')).toThrow(
-      'Generated plugin version is 0.1.2+codex.test, not 0.1.2+codex.other.'
+function runner(
+  initial: unknown = { installed: [entry], available: [] },
+  result: unknown = added,
+  final: unknown = { installed: [entry] }
+) {
+  return vi
+    .fn<(args: string[]) => Promise<unknown>>()
+    .mockResolvedValueOnce(initial)
+    .mockResolvedValueOnce(result)
+    .mockResolvedValueOnce(final)
+}
+
+describe('Codex plugin reinstall arguments', () => {
+  it('defaults to the generated version and permits an exact requested version', () => {
+    const manifest = { name: 'tempad-dev-dev', version }
+    expect(resolveDevPluginVersion(manifest)).toBe(version)
+    expect(resolveDevPluginVersion(manifest, version)).toBe(version)
+    expect(() => resolveDevPluginVersion(manifest, 'old')).toThrow('not old')
+    expect(() => resolveDevPluginVersion(null)).toThrow('must be an object')
+    expect(() => resolveDevPluginVersion({ name: 'another', version })).toThrow(
+      'unexpected identity'
     )
   })
 
-  it('requires every CLI and Hub process to stop before reinstalling', () => {
-    expect(runtimeStateMatches({ cli: [], hub: [] }, 'uninstalled')).toBe(true)
-    expect(runtimeStateMatches({ cli: [{ pid: 1 }], hub: [] }, 'uninstalled')).toBe(false)
-    expect(runtimeStateMatches({ cli: [], hub: [{ pid: 2 }] }, 'uninstalled')).toBe(false)
-    expect(runtimeStateMatches({ cli: [{ pid: 1 }], hub: [{ pid: 2 }] }, 'uninstalled')).toBe(false)
-  })
-
-  it('requires a new CLI and an available Hub after installation', () => {
-    const baseline = { cli: [{ pid: 1 }], hub: [] }
-
+  it('accepts the host and timeout options without requiring CDP', () => {
+    expect(parseReinstallArguments([])).toEqual({ timeoutMs: 60000 })
     expect(
-      runtimeStateMatches({ cli: [{ pid: 1 }], hub: [{ pid: 2 }] }, 'installed', baseline)
-    ).toBe(false)
-    expect(
-      runtimeStateMatches(
-        { cli: [{ pid: 1 }, { pid: 3 }], hub: [{ pid: 2 }] },
-        'installed',
-        baseline
-      )
-    ).toBe(true)
-  })
-
-  it('gives each detached restart an isolated job and log', () => {
-    expect(detachedReinstallIdentity(42, 1_787_422_000_000)).toEqual({
-      jobLabel: 'com.tempad-dev.codex-plugin-reinstall.42.1787422000000',
-      logFileName: 'codex-plugin-reinstall.42.1787422000000.log'
+      parseReinstallArguments([version, '--app-path', '/Apps/Codex.app', '--timeout-ms', '2500'])
+    ).toEqual({
+      version,
+      appPath: '/Apps/Codex.app',
+      timeoutMs: 2500
     })
+    expect(parseReinstallArguments(['--help'])).toBeNull()
   })
 
-  it('rejects a second detached restart while one is active', () => {
-    expect(() => assertNoDetachedReinstallJobs([])).not.toThrow()
-    expect(() =>
-      assertNoDetachedReinstallJobs(['com.tempad-dev.codex-plugin-reinstall.42.1'])
-    ).toThrow(
-      'A detached Codex plugin reinstall is already running: ' +
-        'com.tempad-dev.codex-plugin-reinstall.42.1'
-    )
-  })
+  it.each(['--restart-codex', '--resume-after-restart', '--cdp-url', '--page-url'])(
+    'rejects unsupported option %s before installation',
+    (option) => {
+      expect(() => parseReinstallArguments([option])).toThrow('Unknown option')
+    }
+  )
 
-  it('allows restart recovery only when the CDP endpoint is unavailable', () => {
-    expect(() => assertRestartCodexNeeded(false)).not.toThrow()
-    expect(() => assertRestartCodexNeeded(true)).toThrow(
-      'Refusing to restart Codex because its CDP endpoint is already available.'
-    )
+  it.each([
+    ['--timeout-ms', '0'],
+    ['--timeout-ms', 'NaN'],
+    ['--timeout-ms', '1.5'],
+    ['--app-path'],
+    ['--unknown'],
+    ['one', 'two']
+  ])('rejects invalid arguments %j', (...args) => {
+    expect(() => parseReinstallArguments(args)).toThrow()
   })
 })
 
-describe('Codex CDP target discovery', () => {
-  const page = (title: string, url = 'app://-/index.html'): CdpTarget => ({
-    title,
-    type: 'page',
-    url,
-    webSocketDebuggerUrl: 'ws://localhost/page'
+describe('Codex CLI plugin replacement', () => {
+  it('updates an existing plugin and verifies its enabled version without uninstall or restart', async () => {
+    const run = runner({ installed: [{ ...entry, version: 'old' }], available: [] })
+    await expect(reinstallDevPlugin(run, pluginRoot, version)).resolves.toBe('/cache/plugin')
+    expect(run.mock.calls).toEqual([
+      [['plugin', 'list', '--available', '--json', '--marketplace', 'tempad-dev-dev']],
+      [['plugin', 'add', devPluginId, '--json']],
+      [['plugin', 'list', '--json', '--marketplace', 'tempad-dev-dev']]
+    ])
   })
 
-  afterEach(() => vi.useRealTimers())
-
-  it('preserves persistent connection failures instead of reporting an empty page list', async () => {
-    vi.useFakeTimers()
-    const failure = new Error('connect ECONNREFUSED 127.0.0.1:9222')
-    const result = selectCodexTarget(vi.fn().mockRejectedValue(failure), undefined, 1000)
-    const assertion = expect(result).rejects.toMatchObject({
-      message: 'Could not list Codex CDP targets: connect ECONNREFUSED 127.0.0.1:9222',
-      cause: failure
-    })
-    await vi.runAllTimersAsync()
-    await assertion
+  it('installs an available local plugin after an interrupted uninstall', async () => {
+    const run = runner({ installed: [], available: [{ ...entry, installed: false }] })
+    await expect(reinstallDevPlugin(run, pluginRoot, version)).resolves.toBe('/cache/plugin')
   })
 
-  it('retries a transient failure and selects the recovered app page', async () => {
-    vi.useFakeTimers()
-    const expected = page('Codex')
-    const list = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('fetch failed'))
-      .mockResolvedValue([expected])
-    const result = selectCodexTarget(list, undefined, 1000)
-    await vi.runAllTimersAsync()
-    await expect(result).resolves.toEqual(expected)
-    expect(list).toHaveBeenCalledTimes(2)
+  it.each([
+    { ...entry, source: { source: 'git', path: pluginRoot } },
+    { ...entry, source: { source: 'local', path: '/other/.dev/plugins/tempad-dev-dev' } },
+    { ...entry, marketplaceSource: { sourceType: 'git', source: '/checkout/.dev' } },
+    { ...entry, marketplaceSource: { sourceType: 'local', source: '/other/.dev' } }
+  ])('refuses a different or non-local source before any write', async (candidate) => {
+    const run = runner({ installed: [candidate], available: [] })
+    await expect(reinstallDevPlugin(run, pluginRoot, version)).rejects.toThrow('this checkout')
+    expect(run).toHaveBeenCalledTimes(1)
   })
 
-  it('reports the last successful target list after a connection recovers without an app page', async () => {
-    vi.useFakeTimers()
-    const list = vi
-      .fn()
-      .mockRejectedValueOnce('offline')
-      .mockResolvedValue([page('Docs', 'https://example.com/')])
-    const assertion = expect(selectCodexTarget(list, undefined, 1000)).rejects.toThrow(
-      'No Codex app page found at the CDP endpoint. Exposed pages:\n- Docs: https://example.com/'
+  it.each([null, {}, { installed: [], available: [] }, { installed: [entry], available: [entry] }])(
+    'refuses missing, malformed, or ambiguous discovery before any write',
+    async (listed) => {
+      const run = runner(listed)
+      await expect(reinstallDevPlugin(run, pluginRoot, version)).rejects.toThrow()
+      expect(run).toHaveBeenCalledTimes(1)
+    }
+  )
+
+  it('propagates CLI failure without retrying or removing the existing plugin', async () => {
+    const failure = new Error('plugin command unavailable')
+    const run = vi.fn().mockRejectedValue(failure)
+    await expect(reinstallDevPlugin(run, pluginRoot, version)).rejects.toBe(failure)
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects an unexpected version returned by installation', async () => {
+    const run = runner(undefined, { ...added, version: 'old' })
+    await expect(reinstallDevPlugin(run, pluginRoot, version)).rejects.toThrow(
+      'did not confirm installation'
     )
-    await vi.runAllTimersAsync()
-    await assertion
+    expect(run).toHaveBeenCalledTimes(2)
   })
 
-  it('reports the latest connection failure instead of a stale target list', async () => {
-    vi.useFakeTimers()
-    const list = vi.fn().mockResolvedValueOnce([]).mockRejectedValue('offline')
-    const assertion = expect(selectCodexTarget(list, undefined, 1000)).rejects.toThrow(
-      'Could not list Codex CDP targets: offline'
-    )
-    await vi.runAllTimersAsync()
-    await assertion
-  })
-
-  it('excludes overlays, non-page targets and non-app URLs', async () => {
-    const expected = page('Codex')
-    const list = async () => [
-      page('Overlay', 'app://-/index.html?initialRoute=%2Favatar-overlay'),
-      { ...page('Worker'), type: 'worker' },
-      page('Web', 'https://example.com/'),
-      page('Malformed', 'invalid url'),
-      expected
-    ]
-    await expect(selectCodexTarget(list, undefined, 1000)).resolves.toEqual(expected)
-  })
-
-  it('preserves ambiguous target identities and permits exact or unique substring selection', async () => {
-    const main = page('Main')
-    const other = page('Other', 'app://-/index.html?window=other')
-    const list = async () => [main, other]
-    await expect(selectCodexTarget(list, undefined, 1000)).rejects.toThrow(
-      'Multiple Codex pages are available. Pass --page-url with a unique substring:\n' +
-        '- Main: app://-/index.html\n- Other: app://-/index.html?window=other'
-    )
-    await expect(selectCodexTarget(list, main.url, 1000)).resolves.toEqual(main)
-    await expect(selectCodexTarget(list, 'window=other', 1000)).resolves.toEqual(other)
-  })
-
-  it('keeps multiline diagnostics and bases recovery advice on current endpoint availability', () => {
-    const message = 'Multiple Codex pages:\n- Main: app://-/index.html\n- Other: app://-/other.html'
-    const reachable = formatCodexConnectionError('http://localhost:9222', message, true)
-    expect(reachable).toContain(message)
-    expect(reachable).toContain('without restarting Codex')
-    expect(reachable).not.toContain('--restart-codex')
-    expect(formatCodexConnectionError('http://localhost:9222', 'fetch failed', false)).toContain(
-      'pass --restart-codex when the CDP endpoint is unavailable'
-    )
+  it.each([
+    { ...entry, enabled: false },
+    { ...entry, installed: false },
+    { ...entry, version: 'old' }
+  ])('rejects success when the installed plugin is disabled or stale', async (installed) => {
+    await expect(
+      reinstallDevPlugin(
+        runner(undefined, undefined, { installed: [installed] }),
+        pluginRoot,
+        version
+      )
+    ).rejects.toThrow('not enabled at version')
   })
 })

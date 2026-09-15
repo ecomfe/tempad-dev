@@ -98,6 +98,7 @@ function row(value: unknown): string {
 function rollout(
   options: {
     extension?: string
+    locked?: boolean
     crossTaskTool?: 'create_thread' | 'fork_thread' | 'handoff_thread' | 'send_message_to_thread'
     prompt?: string
     skillAlias?: boolean
@@ -148,7 +149,7 @@ function rollout(
             isError: false,
             structuredContent: {
               runtime: {
-                locked: true,
+                locked: options.locked ?? false,
                 valid: true,
                 issues: [],
                 hub: { runtimeFingerprint: hubFingerprint },
@@ -243,6 +244,39 @@ describe('agent authoring run log', () => {
         '2026-08-29T00:01:00.000Z'
       )
     ).not.toThrow()
+  })
+
+  it.each([false, true])('validates observed fingerprints with legacy lock=%s', (locked) => {
+    const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:11.000Z')
+    const finish = buildFinishEvent(
+      start,
+      review(),
+      { source: '/tmp/run.jsonl', text: rollout({ locked }) },
+      '2026-08-29T00:01:00.000Z'
+    )
+    expect(finish.rollout?.runtime).toEqual({
+      locked,
+      valid: true,
+      hubFingerprint,
+      extensionFingerprint
+    })
+  })
+
+  it('rejects changing Hub fingerprints even without a global extension lock', () => {
+    const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:11.000Z')
+    const original = rollout()
+    const changedApply = original
+      .split('\n')
+      .find((line) => line.includes('apply_canvas'))!
+      .replace(hubFingerprint, 'c'.repeat(64))
+    expect(() =>
+      buildFinishEvent(
+        start,
+        review(),
+        { source: '/tmp/changed-hub.jsonl', text: original + changedApply + '\n' },
+        '2026-08-29T00:01:00.000Z'
+      )
+    ).toThrow('consistent runtime evidence')
   })
 
   it('rejects post-start prompt, runtime, skill, and artifact substitutions', () => {
@@ -350,7 +384,7 @@ describe('agent authoring run log', () => {
           '2026-08-29T00:01:00.000Z'
         )
       if (isError) expect(finish).not.toThrow()
-      else expect(finish).toThrow('locked runtime evidence')
+      else expect(finish).toThrow('consistent runtime evidence')
     }
   )
 

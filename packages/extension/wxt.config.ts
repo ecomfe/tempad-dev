@@ -72,7 +72,12 @@ export default defineConfig({
         matches: ['https://www.figma.com/*']
       }
     ],
-    permissions: ['declarativeNetRequest', 'declarativeNetRequestWithHostAccess', 'alarms'],
+    permissions: [
+      'declarativeNetRequest',
+      'declarativeNetRequestWithHostAccess',
+      'alarms',
+      'storage'
+    ],
     host_permissions: ['https://www.figma.com/*'],
     optional_host_permissions: [MCP_LOCAL_HOST_ORIGIN],
     declarative_net_request: {

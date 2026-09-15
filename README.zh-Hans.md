@@ -66,15 +66,9 @@ TemPad Dev 提供布局、样式、变量引用、组件信息和素材。`figma
 
 ### 配置指南
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-light.png">
-  <img alt="TemPad Dev agent setup 对话框。" src="packages/site/public/marketing/mcp-config-light.png" width="600">
-</picture>
-
 1. 安装 Node.js 22.x、24.x 或 26+ 并确保 `npx` 可用。在希望 agent 检查的 Figma 标签页中保持 TemPad Dev 打开，然后启用 **Preferences → Agent integration → MCP access**。出现提示时，请允许连接到 loopback 地址 `127.0.0.1`。启用 MCP access 且当前 Figma Design 文件可编辑时，即可进行画布创作。
 2. 点击 **Set up agents**，选择 Codex、Cursor、Claude Code、Gemini、VS Code、OpenCode 或 TRAE，然后按界面显示的路径配置。其它兼容客户端请选择 **Other**。这里的选择只会切换说明，不会绑定或激活 agent。
-3. 对 Codex、Cursor、Claude Code 和 VS Code，配置流程会优先安装可移植的 Agent Plugin。对 Gemini、OpenCode、TRAE 及其它尚无兼容 plugin 安装能力的客户端，则使用对应客户端的 MCP 流程并单独安装两个 skill。所有命令和 config 都会完整显示，便于检查和复制。
+3. Codex 和 Claude Code 使用原生 marketplace 安装；Codex App 集成通过原生 IPC 工作，无需生命周期 hooks。Cursor 和 VS Code 使用可移植的 Agent Plugin。对 Gemini、OpenCode、TRAE 及其它尚无兼容 plugin 安装能力的客户端，则使用对应客户端的 MCP 流程并单独安装两个 skill。所有命令和 config 都会完整显示，便于检查和复制。
 
 以下以 Gemini 为例，展示分别配置 MCP 和两个 skill 的安装路径：
 
@@ -92,16 +86,8 @@ TemPad Dev 提供布局、样式、变量引用、组件信息和素材。`figma
   <img alt="Gemini 的两个 skill 安装命令。" src="packages/site/public/marketing/mcp-config-gemini-skills-light.png" width="600">
 </picture>
 
-要把可移植插件安装到本机检测到的所有兼容 agent，可运行：
-
-```bash
-npx plugins add ecomfe/tempad-dev
-```
-
-使用 `--target codex`、`--target cursor`、`--target claude-code` 或 `--target vscode` 可以只
-安装到内置配置入口中的某一个目标。Codex 与 Claude 的原生 marketplace 命令，以及直接
-安装 MCP 和 skill 的方式，仍作为兼容回退保留在
-[Agent Plugin 指南](./agent-plugins/tempad-dev/README.zh-Hans.md)中。
+Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可移植插件安装方式，见
+[Agent Plugin 指南](./agent-plugins/tempad-dev/README.zh-Hans.md)。
 
 所有 plugin 和直接使用 `npx` 的配置路径都使用 `@tempad-dev/mcp@latest`。
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Component as ComponentIcon, PocketKnife, Variable } from 'lucide-vue-next'
+import { ArrowUpRight, Component as ComponentIcon, PocketKnife, Variable } from 'lucide-vue-next'
 
 import DetailList from '@/components/DetailList.vue'
 import HeroFigure from '@/components/HeroFigure.vue'
@@ -35,10 +35,12 @@ import { SITE_LINKS } from '@/content/landing'
             }
           ]"
         />
-        <a class="site-text-link" :href="SITE_LINKS.inspectGuide" target="_blank" rel="noopener"
-          >Inspection guide →</a
-        >
       </div>
     </div>
+    <template #footer>
+      <a class="site-text-link" :href="SITE_LINKS.inspectGuide" target="_blank" rel="noopener">
+        Inspection guide <ArrowUpRight aria-hidden="true" />
+      </a>
+    </template>
   </SectionShell>
 </template>

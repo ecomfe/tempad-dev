@@ -10,6 +10,8 @@ import {
   createAssetsToolResponse,
   createCodeToolResponse,
   createDesignSystemToolResponse,
+  createDesignTaskToolResponse,
+  createDesignAnchorToolResponse,
   createInlineBudgetExceededToolResponse,
   createScreenshotToolResponse,
   createStructureToolResponse,
@@ -39,11 +41,35 @@ function textContent(block: unknown): string {
 }
 
 describe('tools response helpers', () => {
+  it('returns structured lifecycle results matching the advertised output schema', () => {
+    const task = {
+      taskId: 'task-a',
+      title: 'Settings',
+      status: 'active' as const,
+      operation: null,
+      target: { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a' },
+      expiresAt: 1000,
+      revision: 1
+    }
+    const response = createDesignTaskToolResponse(task)
+    expect(response.structuredContent).toEqual(task)
+    expect(JSON.parse(textContent(response.content[0]))).toEqual(task)
+    for (const name of ['begin_design', 'end_design']) {
+      const definition = TOOL_DEFS.find((tool) => tool.name === name)!
+      expect(definition.outputSchema?.safeParse(response.structuredContent).success).toBe(true)
+    }
+  })
   it('exposes result-oriented canvas authoring tools', () => {
     expect(
       new Set(TOOL_DEFS.filter((tool) => tool.exposed !== false).map((tool) => tool.name))
     ).toEqual(
       new Set([
+        'get_design_task',
+        'list_design_sessions',
+        'resume_design',
+        'begin_design',
+        'end_design',
+        'set_design_anchor',
         'get_code',
         'get_design_system',
         'apply_canvas',
@@ -52,6 +78,19 @@ describe('tools response helpers', () => {
         'upload_asset'
       ])
     )
+  })
+
+  it('exposes explicit anchor binding as task-scoped metadata with a validated result', () => {
+    const tool = TOOL_DEFS.find((tool) => tool.name === 'set_design_anchor')!
+    expect(tool.target).toBe('extension')
+    expect(tool.parameters.safeParse({ taskId: 'task-a', nodeId: '1:2' }).success).toBe(true)
+    expect(tool.parameters.safeParse({ nodeId: '1:2' }).success).toBe(false)
+    const anchor = { nodeId: '1:2', pageId: 'page-a' }
+    const response = createDesignAnchorToolResponse(anchor)
+    expect(response.structuredContent).toEqual(anchor)
+    expect(tool.outputSchema?.safeParse(response.structuredContent).success).toBe(true)
+    expect(() => createDesignAnchorToolResponse({ nodeId: '1:2' } as never)).toThrow()
+    expect(createInlineBudgetExceededToolResponse('set_design_anchor', 70000).isError).toBe(true)
   })
 
   it('keeps canvas authoring outcome-focused and catalog-optional', () => {
@@ -96,7 +135,15 @@ describe('tools response helpers', () => {
     })
 
     for (const tool of TOOL_DEFS.filter(
-      (definition) => definition.name !== 'apply_canvas' && definition.name !== 'upload_asset'
+      (definition) =>
+        ![
+          'apply_canvas',
+          'upload_asset',
+          'begin_design',
+          'end_design',
+          'resume_design',
+          'set_design_anchor'
+        ].includes(definition.name)
     )) {
       expect(tool.annotations).toEqual({
         readOnlyHint: true,

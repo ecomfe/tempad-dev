@@ -17,7 +17,7 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
-function decodeXml(value: string): string {
+export function decodeXmlText(value: string): string {
   return value
     .replaceAll(/&#(x[0-9a-f]+|\d+);/gi, (entity, code: string) => {
       const point = code.toLowerCase().startsWith('x')
@@ -88,7 +88,7 @@ export function inspectAgentRunIdentity(source: string): AgentRunIdentity {
       for (const match of output.matchAll(
         /<codex_delegation>[\s\S]*?<input>([\s\S]*?)<\/input>[\s\S]*?<\/codex_delegation>/g
       )) {
-        delegatedPrompts.add(decodeXml(match[1]!))
+        delegatedPrompts.add(decodeXmlText(match[1]!))
       }
       continue
     }
@@ -101,7 +101,7 @@ export function inspectAgentRunIdentity(source: string): AgentRunIdentity {
       for (const match of message.matchAll(
         /<codex_delegation>[\s\S]*?<input>([\s\S]*?)<\/input>[\s\S]*?<\/codex_delegation>/g
       )) {
-        delegatedPrompts.add(decodeXml(match[1]!))
+        delegatedPrompts.add(decodeXmlText(match[1]!))
       }
     } else if (field(payload, 'role') === 'user') {
       let remainder = message

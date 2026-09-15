@@ -28,11 +28,6 @@ interface RuntimePaths {
   hub: string
 }
 
-interface RuntimeBundleMtimes {
-  cli: number
-  hub: number
-}
-
 interface EnabledPlugin {
   id: string
   path: string
@@ -64,7 +59,6 @@ interface ActiveExtensionRuntimeIdentity {
 
 interface HubRuntimeIdentitySnapshot {
   activeExtension: ActiveExtensionRuntimeIdentity | null
-  expectedExtensionRuntimeFingerprint: string | null
   processId: number
 }
 
@@ -163,20 +157,12 @@ function isSha256(value: unknown): value is string {
 function parseHubRuntimeIdentitySnapshot(value: unknown): HubRuntimeIdentitySnapshot | null {
   if (!value || typeof value !== 'object') return null
   const candidate = value as Record<string, unknown>
-  if (
-    !Number.isInteger(candidate.processId) ||
-    (candidate.expectedExtensionRuntimeFingerprint !== null &&
-      !isSha256(candidate.expectedExtensionRuntimeFingerprint)) ||
-    !Object.hasOwn(candidate, 'activeExtension')
-  ) {
+  if (!Number.isInteger(candidate.processId) || !Object.hasOwn(candidate, 'activeExtension')) {
     return null
   }
   if (candidate.activeExtension === null) {
     return {
       activeExtension: null,
-      expectedExtensionRuntimeFingerprint: candidate.expectedExtensionRuntimeFingerprint as
-        | string
-        | null,
       processId: candidate.processId as number
     }
   }
@@ -193,9 +179,6 @@ function parseHubRuntimeIdentitySnapshot(value: unknown): HubRuntimeIdentitySnap
   }
   return {
     activeExtension: active as unknown as ActiveExtensionRuntimeIdentity,
-    expectedExtensionRuntimeFingerprint: candidate.expectedExtensionRuntimeFingerprint as
-      | string
-      | null,
     processId: candidate.processId as number
   }
 }
@@ -223,13 +206,6 @@ export function evaluateActiveExtensionRuntime(
     issues.push({
       code: 'RUNTIME_IDENTITY_RECORD_STALE',
       message: `The runtime identity record belongs to Hub PID ${String(identity.processId)}, not the exact-checkout Hub selected by preflight.`
-    })
-  }
-  if (identity.expectedExtensionRuntimeFingerprint !== expectedFingerprint) {
-    issues.push({
-      code: 'RUNTIME_HUB_EXTENSION_EXPECTATION_MISMATCH',
-      message:
-        'The active Hub extension-source expectation differs from the current checkout. Refresh the MCP runtime before dispatch.'
     })
   }
   if (!identity.activeExtension) {
@@ -299,9 +275,8 @@ export function parseProcessTable(output: string): RuntimeProcess[] {
     .filter((process): process is RuntimeProcess => process !== null)
 }
 
-export function evaluateRuntimeFreshness(
+export function evaluateRuntimeProcesses(
   paths: RuntimePaths,
-  bundleMtimes: RuntimeBundleMtimes,
   processes: RuntimeProcess[]
 ): {
   cli: RuntimeProcess[]
@@ -329,24 +304,6 @@ export function evaluateRuntimeFreshness(
     issues.push({
       code: 'RUNTIME_MULTIPLE_HUBS',
       message: `Found ${String(hub.length)} exact-checkout Hub processes; require exactly one unambiguous Hub before dispatch.`
-    })
-  }
-
-  // macOS `ps lstart` has one-second precision. Treat an equal-second process
-  // as stale rather than guessing that it started after a sub-second bundle write.
-  const staleCli = cli.filter(({ startedAtMs }) => startedAtMs <= bundleMtimes.cli)
-  const staleHub = hub.filter(({ startedAtMs }) => startedAtMs <= bundleMtimes.hub)
-  if (staleCli.length > 0) {
-    issues.push({
-      code: 'RUNTIME_STALE_CLI',
-      message: `${String(staleCli.length)} exact-checkout CLI process(es) predate the current CLI bundle. Replace the plugin runtime before dispatch.`
-    })
-  }
-  if (staleHub.length > 0) {
-    issues.push({
-      code: 'RUNTIME_STALE_HUB',
-      message:
-        'The exact-checkout Hub predates the current Hub bundle. Replace the plugin runtime before dispatch; a fresh task alone may reuse this stale Hub.'
     })
   }
 
@@ -492,18 +449,14 @@ export async function runPreflight(
       resolveCheckoutExtensionFingerprint(args.checkout),
       readOptionalJson(runtime.hubRuntimeIdentityPath)
     ])
-  const freshness = evaluateRuntimeFreshness(
-    runtime.paths,
-    { cli: cliStat.mtimeMs, hub: hubStat.mtimeMs },
-    processes
-  )
+  const runtimeProcesses = evaluateRuntimeProcesses(runtime.paths, processes)
   const pluginIdentity = evaluateTempadPluginIdentity(runtime.generatedVersion, plugins)
   const activeExtension = evaluateActiveExtensionRuntime(
     checkoutExtensionFingerprint,
-    freshness.hub,
+    runtimeProcesses.hub,
     hubRuntimeIdentity
   )
-  const issues = [...freshness.issues, ...pluginIdentity.issues, ...activeExtension.issues]
+  const issues = [...runtimeProcesses.issues, ...pluginIdentity.issues, ...activeExtension.issues]
 
   return {
     valid: issues.length === 0,
@@ -513,12 +466,12 @@ export async function runPreflight(
       cli: {
         bundle: runtime.paths.cli,
         bundleModifiedAt: cliStat.mtime.toISOString(),
-        processes: processEvidence(freshness.cli)
+        processes: processEvidence(runtimeProcesses.cli)
       },
       hub: {
         bundle: runtime.paths.hub,
         bundleModifiedAt: hubStat.mtime.toISOString(),
-        processes: processEvidence(freshness.hub)
+        processes: processEvidence(runtimeProcesses.hub)
       },
       extension: {
         checkoutFingerprint: checkoutExtensionFingerprint,
@@ -544,7 +497,7 @@ async function main(): Promise<void> {
     return
   }
   if (process.platform === 'win32') {
-    fail('Authoring runtime process freshness verification is not implemented for Windows.')
+    fail('Authoring runtime process discovery is not implemented for Windows.')
   }
   const result = await runPreflight(args)
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)

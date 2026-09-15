@@ -25,7 +25,6 @@
     "agent-eval:log": "pnpm --filter @tempad-dev/extension agent-eval:log",
     "agent-eval:preflight": "pnpm --filter @tempad-dev/extension agent-eval:preflight",
     "agent-eval:skills": "pnpm --filter @tempad-dev/extension agent-eval:skills",
-    "codex-host:switch": "pnpm --filter @tempad-dev/extension codex-host:switch",
     "format": "pnpm format:root && pnpm -r --if-present format",
     "format:check": "pnpm format:root:check && pnpm -r --if-present format:check",
     "format:root": "oxfmt --ignore-path ./.gitignore --ignore-path ./.oxfmtignore",

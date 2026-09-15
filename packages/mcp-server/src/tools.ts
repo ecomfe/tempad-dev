@@ -1,5 +1,6 @@
 import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import type {
+  DesignTask,
   GetAssetsResult,
   TempadMcpErrorCode,
   ToolName,
@@ -8,11 +9,18 @@ import type {
   ToolSchema,
   UploadAssetResult
 } from '@tempad-dev/shared'
-import type { ZodType } from 'zod'
 
 import {
   ApplyCanvasParametersSchema,
   ApplyCanvasResultSchema,
+  BeginDesignParametersSchema,
+  DesignAnchorSchema,
+  SetDesignAnchorParametersSchema,
+  EndDesignParametersSchema,
+  ResumeDesignParametersSchema,
+  FigmaSessionSchema,
+  DesignTaskSchema,
+  DesignTaskIdSchema,
   MCP_TOOL_INLINE_BUDGET_BYTES,
   buildApplyCanvasToolResult,
   buildGetAssetsToolResult,
@@ -34,6 +42,7 @@ import {
   UploadAssetParametersSchema,
   UploadAssetResultSchema
 } from '@tempad-dev/shared'
+import { z, type ZodType } from 'zod'
 
 import { getRecordProperty } from './shared'
 
@@ -145,6 +154,61 @@ function hubTool<Name extends ToolName, Schema extends ZodType>(
 }
 
 export const TOOL_DEFS = [
+  hubTool({
+    name: 'get_design_task',
+    description:
+      'Read this conversation’s task state and current epoch for recovery or an explicit status request. Does not renew its lease. Do not poll it for routine progress.',
+    annotations: READ_ONLY_ANNOTATIONS,
+    parameters: z.object({ taskId: DesignTaskIdSchema }).strict(),
+    target: 'hub',
+    outputSchema: DesignTaskSchema
+  }),
+  hubTool({
+    name: 'list_design_sessions',
+    description:
+      'List connected Figma targets before beginning a design. Select an exact sessionId when more than one file is connected.',
+    annotations: READ_ONLY_ANNOTATIONS,
+    parameters: z.object({}).strict(),
+    target: 'hub',
+    outputSchema: z.object({ sessions: z.array(FigmaSessionSchema) })
+  }),
+  hubTool({
+    name: 'resume_design',
+    description:
+      'Continue the current design task after pause, expiry, interruption, or completion awaiting review. Keep the same taskId and design region for follow-up comments until the user clicks Done. Cancelled, closed, or replaced tasks cannot resume. The original browser tab automatically rebinds after a page refresh; get_design_task returns its current epoch. Pass that epoch to resume. Pass the returned epoch as taskEpoch on subsequent calls, and read the bound canvas with get_structure or get_code before writing. Never replay an old write.',
+    annotations: ASSET_WRITE_ANNOTATIONS,
+    parameters: ResumeDesignParametersSchema,
+    target: 'hub',
+    outputSchema: DesignTaskSchema
+  }),
+  hubTool({
+    name: 'begin_design',
+    description:
+      'Begin a new design task in the active Figma session before design research or writing. Returns a taskId bound to that file and session; pass it on subsequent task calls. No coordinates or progress reports are needed. Idle ownership expires after five minutes. Reuse requestId only when retrying this same begin. Stop a busy task in TemPad Dev before another task takes over. For follow-up comments on an open review, use resume_design on the same task, including after completion. Beginning a new task replaces the previous task for that file.',
+    annotations: ASSET_WRITE_ANNOTATIONS,
+    parameters: BeginDesignParametersSchema,
+    target: 'hub',
+    outputSchema: DesignTaskSchema
+  }),
+  hubTool({
+    name: 'end_design',
+    description:
+      'Mark this design pass complete after the requested outcome and its verification. Releases file ownership and keeps the same task, design region, and review open for comments. Follow-up comments resume this task; only the user’s Done closes the review. Waiting for input before the outcome is ready or stopping a turn is a pause. Cancel when abandoning a task; already completed writes remain. Retrying within the same epoch is safe. Cancellation waits for a running operation to finish before handing over the file.',
+    annotations: ASSET_WRITE_ANNOTATIONS,
+    parameters: EndDesignParametersSchema,
+    target: 'hub',
+    outputSchema: DesignTaskSchema
+  }),
+  extTool({
+    name: 'set_design_anchor',
+    description:
+      'Choose an existing Frame as this task’s stable design region once its scope is known, or explicitly switch to a different region. Beginning a task does not require an anchor; the first created top-level Frame binds automatically. Reads, selections, and later writes never switch the anchor. This only places task UI and does not modify the frame, page, viewport, or selection.',
+    annotations: ASSET_WRITE_ANNOTATIONS,
+    parameters: SetDesignAnchorParametersSchema,
+    target: 'extension',
+    outputSchema: DesignAnchorSchema,
+    format: createDesignAnchorToolResponse
+  }),
   extTool({
     name: 'get_code',
     description:
@@ -414,6 +478,18 @@ export function createUploadAssetToolResponse(payload: UploadAssetResult): CallT
   return toCallToolResult(buildUploadAssetToolResult(payload))
 }
 
+export function createDesignTaskToolResponse(payload: DesignTask): CallToolResult {
+  const task = DesignTaskSchema.parse(payload)
+  return { content: [{ type: 'text', text: JSON.stringify(task) }], structuredContent: task }
+}
+
+export function createDesignAnchorToolResponse(
+  payload: ToolResultMap['set_design_anchor']
+): CallToolResult {
+  const anchor = DesignAnchorSchema.parse(payload)
+  return { content: [{ type: 'text', text: JSON.stringify(anchor) }], structuredContent: anchor }
+}
+
 export function createInlineBudgetExceededToolResponse(
   toolName: ToolName,
   actualBytes: number
@@ -436,6 +512,13 @@ function toCallToolResult(result: ToolResponseLike): CallToolResult {
 
 function getBudgetRetryGuidance(toolName: ToolName): string {
   switch (toolName) {
+    case 'get_design_task':
+    case 'list_design_sessions':
+    case 'begin_design':
+    case 'resume_design':
+    case 'end_design':
+    case 'set_design_anchor':
+      return 'Retry the same task lifecycle request without changing its identity.'
     case 'apply_canvas':
       return 'Submit a smaller desired subtree and retry.'
     case 'get_code':

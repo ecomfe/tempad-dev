@@ -9,16 +9,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
 
-import {
-  RuntimeIdentityMismatchError,
-  assertHubRuntimeIdentity,
-  fingerprintRuntimeFile,
-  readHubRuntimeIdentity,
-  resolveExpectedExtensionRuntimeFingerprint
-} from './runtime-identity'
+import { runtimeIdentity } from './agent-clients/identity'
 import {
   HUB_BUSY_EXIT_CODE,
-  HUB_RUNTIME_IDENTITY_PATH,
   PACKAGE_VERSION,
   log,
   LOCK_PATH,
@@ -85,6 +78,19 @@ function bridge(socket: Socket): Promise<void> {
     }
     socket.once('close', onSocketClose)
     socket.on('error', (err) => log.warn({ err }, 'Socket error occurred.'))
+
+    const binding = runtimeIdentity(process.env)
+    socket.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'notifications/tempad/client-event',
+        params: {
+          event: 'connect',
+          kind: binding.client.kind,
+          sessionId: binding.client.sessionId
+        }
+      }) + '\n'
+    )
 
     // The `{ end: false }` option prevents stdin from closing the socket.
     process.stdin.pipe(socket, { end: false }).pipe(process.stdout)
@@ -188,11 +194,6 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
 
 async function main() {
   log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Client starting...')
-  const runtimeExpectation = {
-    packageVersion: PACKAGE_VERSION,
-    runtimeFingerprint: fingerprintRuntimeFile(HUB_ENTRY),
-    expectedExtensionRuntimeFingerprint: await resolveExpectedExtensionRuntimeFingerprint()
-  }
 
   while (true) {
     try {
@@ -200,25 +201,9 @@ async function main() {
         log.info('Hub not running. Initiating startup sequence...')
         return tryBecomeLeaderAndStartHub()
       })
-      try {
-        assertHubRuntimeIdentity(
-          readHubRuntimeIdentity(HUB_RUNTIME_IDENTITY_PATH),
-          runtimeExpectation
-        )
-      } catch (error) {
-        socket.destroy()
-        throw error
-      }
       await bridge(socket)
       log.info('Bridge disconnected. Restarting connection process...')
     } catch (err: unknown) {
-      if (err instanceof RuntimeIdentityMismatchError) {
-        log.error(
-          { issues: err.issues },
-          'Refusing to reuse a stale Hub. Close the existing agent task so the Hub can restart, then retry.'
-        )
-        process.exit(1)
-      }
       log.error(
         { err },
         `Connection attempt failed. Retrying in ${FAILED_RESTART_DELAY / 1000}s...`
@@ -228,4 +213,4 @@ async function main() {
   }
 }
 
-main()
+void main()

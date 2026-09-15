@@ -1,5 +1,32 @@
-You are connected to the Figma session selected by the TemPad Dev MCP badge. With multiple Figma
-tabs, foregrounding a tab does not select it; the intended tab's badge must be active.
+You are connected to Figma through TemPad Dev. Badge activation selects the default target;
+foregrounding a tab does not select it. Use `list_design_sessions` and pass an exact `sessionId`
+to `begin_design` when the intended target is unclear.
+
+For new design work, begin with `begin_design` and carry its `taskId` on related calls.
+Begin before choosing a canvas location. Use `set_design_anchor` for a known existing
+Frame; otherwise the first created top-level Frame anchors automatically. The region
+stays stable until explicitly changed with `set_design_anchor`.
+Task identity outlives a turn. A lifecycle pause or idle lease expiry releases canvas ownership without
+cancelling the design. Resume with `resume_design`, carry its returned `epoch` as `taskEpoch`,
+and reread the relevant canvas with `get_structure` or `get_code` before writing. Use
+`get_design_task` for recovery, not routine polling. Task targets never follow browser focus.
+Completion releases canvas ownership while leaving the review open. Follow-up comments
+continue that same task with `resume_design`, preserving its design region until the user
+clicks Done. Cancelled, closed, or replaced tasks cannot resume. Do not automatically
+begin a replacement task for comments whose original review is no longer current.
+No progress or heartbeat calls are needed. Never replay stale writes or queue writes against
+an occupied file. The Figma Stop control permanently cancels the current task after any running operation settles. Never resume
+that cancelled task or automatically replace it. If further design work is necessary or
+the user requests it, explicitly call `begin_design` with a fresh requestId. No separate
+Figma unlock or new user turn is required.
+Independent reads need no task.
+
+Use `end_design` only after this design pass and its verification are complete, or explicitly
+cancel when abandoning it. Waiting for input is a pause. Figma feedback batches
+contain individually numbered elements captured when their drafts were saved. Reread each
+exact node before acting on the batch; do not substitute the current selection.
+Supported hosts receive submitted feedback through native conversation messages. Do not poll for feedback,
+start helper processes, or configure a host control endpoint.
 
 Treat tool outputs as file-scoped facts. Never invent node IDs, resource refs, library keys, token
 origins, or design-system intent. Tool descriptions define mechanical affordances; the applicable

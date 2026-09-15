@@ -6,12 +6,13 @@ import type {
 } from '@tempad-dev/shared'
 
 import { AGENT_INTEGRATIONS } from '@tempad-dev/shared'
-import { Check, Copy, ExternalLink } from 'lucide-vue-next'
+import { ArrowUpRight, Check, Copy, ExternalLink } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 
 import ActionButton from '@/components/ActionButton.vue'
 import BrandIcon from '@/components/BrandIcon.vue'
 import SectionShell from '@/components/SectionShell.vue'
+import SkillLink from '@/components/SkillLink.vue'
 import { useSiteColorMode } from '@/composables/useSiteColorMode'
 import { AGENT_SETUP_SHOT, SITE_LINKS, type SiteSkill } from '@/content/landing'
 
@@ -256,21 +257,17 @@ onBeforeUnmount(() => {
             </div>
           </section>
         </div>
-        <div class="site-setup-resources">
-          <div class="site-skill-links">
-            <button type="button" class="site-text-link" @click="emit('open-skill', 'canvas')">
-              Canvas skill
-            </button>
-            <button type="button" class="site-text-link" @click="emit('open-skill', 'code')">
-              Design-to-code skill
-            </button>
-          </div>
-          <a class="site-text-link" :href="SITE_LINKS.agentGuide" target="_blank" rel="noopener"
-            >Setup guide →</a
-          >
-        </div>
       </div>
     </div>
+    <template #footer>
+      <div class="site-skill-links">
+        <SkillLink skill="canvas" @click="emit('open-skill', 'canvas')" />
+        <SkillLink skill="code" @click="emit('open-skill', 'code')" />
+      </div>
+      <a class="site-text-link" :href="SITE_LINKS.agentGuide" target="_blank" rel="noopener">
+        Setup guide <ArrowUpRight aria-hidden="true" />
+      </a>
+    </template>
     <Transition name="site-feedback-popup">
       <p
         v-if="feedback"

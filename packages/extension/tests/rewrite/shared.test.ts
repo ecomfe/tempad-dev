@@ -116,10 +116,8 @@ describe('rewrite/shared applyGroups', () => {
       }
     ]
 
-    const [matchingGroup] = groups
-    if (!matchingGroup) throw new Error('Expected a matching rewrite group')
-    expect(groupMatches('alpha beta', matchingGroup)).toBe(true)
-    expect(groupMatches('alpha', matchingGroup)).toBe(false)
+    expect(groupMatches('alpha beta', groups[0])).toBe(true)
+    expect(groupMatches('alpha', groups[0])).toBe(false)
     expect(groupMatches('any', { replacements: [] })).toBe(true)
 
     const result = applyGroups('alpha beta gamma 123', groups)

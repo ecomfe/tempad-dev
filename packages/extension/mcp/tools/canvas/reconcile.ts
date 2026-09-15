@@ -57,6 +57,7 @@ import {
   SVG_POLICY_VERSION
 } from './assets'
 import { canvasReadOnlyError, errorMessage, scopeError, specError } from './errors'
+import { reportCanvasPlacement } from './feedback'
 import {
   CANVAS_KEY_NAMESPACE,
   CANVAS_NODE_KEY_NAME,
@@ -183,7 +184,7 @@ type ApplyState = {
   fontLoads: Map<string, Promise<void>>
   imageHashes: Map<string, string>
   imageAssetKeys: Set<string>
-  imageUrls: Map<string, string[]>
+  imageUrls: Map<string, string>
   keyedNodes: Map<string, SupportedCanvasNode>
   mutations: MutationCounter
   nodeIdsByKey: Record<string, string>
@@ -1097,15 +1098,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function isComponentPropertyVariable(
-  value: unknown
-): value is { variable: CanvasVariableReference } {
-  return isRecord(value) && 'variable' in value
-}
-
-function isShaderVariable(
-  value: CanvasFigmaShaderPropertyValue
-): value is { variable: CanvasVariableReference } {
+function isVariableBinding(value: unknown): value is { variable: CanvasVariableReference } {
   return isRecord(value) && 'variable' in value
 }
 
@@ -1114,7 +1107,7 @@ function collectShaderVariableReferences(
   references: CanvasVariableReference[]
 ): void {
   if (!isRecord(value)) return
-  if (isShaderVariable(value)) {
+  if (isVariableBinding(value)) {
     references.push(value.variable)
     return
   }
@@ -1131,7 +1124,7 @@ function shaderPropertyMatches(
   type: ShaderPropertyDefinition['type'],
   value: CanvasFigmaShaderPropertyValue
 ): boolean {
-  if (isShaderVariable(value)) return true
+  if (isVariableBinding(value)) return true
   switch (type) {
     case 'BOOLEAN':
       return typeof value === 'boolean'
@@ -1277,9 +1270,9 @@ async function preflightPaintStack(
     }
     if (paint.type === 'IMAGE') {
       if (paint.imageUrl !== undefined) {
-        const usages = state.imageUrls.get(paint.imageUrl) ?? []
-        usages.push(`${field} paint ${index} on "${key}"`)
-        state.imageUrls.set(paint.imageUrl, usages)
+        if (!state.imageUrls.has(paint.imageUrl)) {
+          state.imageUrls.set(paint.imageUrl, `${field} paint ${index} on "${key}"`)
+        }
       } else if (paint.assetKey !== undefined) {
         state.imageAssetKeys.add(paint.assetKey)
       } else if (paint.imageHash && !figma.getImageByHash(paint.imageHash)) {
@@ -1523,7 +1516,7 @@ async function preflightComponentPropertyDefinition(
   definition: CanvasFigmaComponentPropertyDefinition,
   state: ApplyState
 ): Promise<void> {
-  if (isComponentPropertyVariable(definition.defaultValue)) {
+  if (isVariableBinding(definition.defaultValue)) {
     const variable = await resolveVariable(definition.defaultValue.variable, state.variables)
     const expected = expectedComponentPropertyVariableType(definition.type)
     if (variable.resolvedType !== expected) {
@@ -1698,7 +1691,7 @@ async function preflightComponentProperties(
     if (definition.type === 'SLOT') {
       specError(`Slot property "${name}" on "${spec.key}" cannot be set with componentProperties.`)
     }
-    if (isComponentPropertyVariable(value)) {
+    if (isVariableBinding(value)) {
       if (definition.type === 'VARIANT' || definition.type === 'INSTANCE_SWAP') {
         specError(
           `Component property "${name}" on "${spec.key}" cannot bind a variable because it is ${definition.type}.`
@@ -1966,11 +1959,10 @@ async function preflightResources(
 }
 
 async function resolveImageUrls(state: ApplyState): Promise<void> {
-  for (const [url, usages] of state.imageUrls) {
+  for (const [url, usage] of state.imageUrls) {
     try {
       state.imageHashes.set(url, (await figma.createImageAsync(url)).hash)
     } catch {
-      const usage = usages[0] ?? 'an IMAGE paint'
       throw createCodedError(
         TEMPAD_MCP_ERROR_CODES.IMAGE_IMPORT_FAILED,
         `Image URL for ${usage} could not be imported as a PNG, JPEG, or GIF up to 4096 by 4096 px. Use a direct public image URL in one of those formats, or a resolved image asset for exact bytes.`
@@ -2372,37 +2364,21 @@ function applySizingModes(
   if (!isFrameContainer(node) || node.layoutMode === 'NONE' || node.layoutMode === 'GRID') return
   const horizontalMode: 'AUTO' | 'FIXED' = size.horizontal === 'HUG' ? 'AUTO' : 'FIXED'
   const verticalMode: 'AUTO' | 'FIXED' = size.vertical === 'HUG' ? 'AUTO' : 'FIXED'
-  if (node.layoutMode === 'HORIZONTAL') {
-    setValue(
-      node,
-      node.primaryAxisSizingMode,
-      horizontalMode,
-      (value) => (node.primaryAxisSizingMode = value),
-      state
-    )
-    setValue(
-      node,
-      node.counterAxisSizingMode,
-      verticalMode,
-      (value) => (node.counterAxisSizingMode = value),
-      state
-    )
-  } else {
-    setValue(
-      node,
-      node.primaryAxisSizingMode,
-      verticalMode,
-      (value) => (node.primaryAxisSizingMode = value),
-      state
-    )
-    setValue(
-      node,
-      node.counterAxisSizingMode,
-      horizontalMode,
-      (value) => (node.counterAxisSizingMode = value),
-      state
-    )
-  }
+  const horizontal = node.layoutMode === 'HORIZONTAL'
+  setValue(
+    node,
+    node.primaryAxisSizingMode,
+    horizontal ? horizontalMode : verticalMode,
+    (value) => (node.primaryAxisSizingMode = value),
+    state
+  )
+  setValue(
+    node,
+    node.counterAxisSizingMode,
+    horizontal ? verticalMode : horizontalMode,
+    (value) => (node.counterAxisSizingMode = value),
+    state
+  )
 }
 
 type CrossAxisFill = {
@@ -2826,46 +2802,18 @@ function applyAppearance(node: SupportedCanvasNode, spec: CanvasNodeSpec, state:
       state
     )
     if ('strokeTopWeight' in node) {
-      applyIndividualValue(
-        node,
-        node.strokeTopWeight,
-        appearance.strokeTopWeight,
-        'strokeTopWeight',
-        'strokeWeight',
-        spec,
-        (value) => (node.strokeTopWeight = value),
-        state
-      )
-      applyIndividualValue(
-        node,
-        node.strokeRightWeight,
-        appearance.strokeRightWeight,
-        'strokeRightWeight',
-        'strokeWeight',
-        spec,
-        (value) => (node.strokeRightWeight = value),
-        state
-      )
-      applyIndividualValue(
-        node,
-        node.strokeBottomWeight,
-        appearance.strokeBottomWeight,
-        'strokeBottomWeight',
-        'strokeWeight',
-        spec,
-        (value) => (node.strokeBottomWeight = value),
-        state
-      )
-      applyIndividualValue(
-        node,
-        node.strokeLeftWeight,
-        appearance.strokeLeftWeight,
-        'strokeLeftWeight',
-        'strokeWeight',
-        spec,
-        (value) => (node.strokeLeftWeight = value),
-        state
-      )
+      for (const field of STROKE_WEIGHT_FIELDS) {
+        applyIndividualValue(
+          node,
+          node[field],
+          appearance[field],
+          field,
+          'strokeWeight',
+          spec,
+          (value) => (node[field] = value),
+          state
+        )
+      }
     }
   }
   if ('cornerRadius' in node) {
@@ -2883,46 +2831,18 @@ function applyAppearance(node: SupportedCanvasNode, spec: CanvasNodeSpec, state:
       state
     )
     if ('topLeftRadius' in node) {
-      applyIndividualValue(
-        node,
-        node.topLeftRadius,
-        appearance.topLeftRadius,
-        'topLeftRadius',
-        'cornerRadius',
-        spec,
-        (value) => (node.topLeftRadius = value),
-        state
-      )
-      applyIndividualValue(
-        node,
-        node.topRightRadius,
-        appearance.topRightRadius,
-        'topRightRadius',
-        'cornerRadius',
-        spec,
-        (value) => (node.topRightRadius = value),
-        state
-      )
-      applyIndividualValue(
-        node,
-        node.bottomRightRadius,
-        appearance.bottomRightRadius,
-        'bottomRightRadius',
-        'cornerRadius',
-        spec,
-        (value) => (node.bottomRightRadius = value),
-        state
-      )
-      applyIndividualValue(
-        node,
-        node.bottomLeftRadius,
-        appearance.bottomLeftRadius,
-        'bottomLeftRadius',
-        'cornerRadius',
-        spec,
-        (value) => (node.bottomLeftRadius = value),
-        state
-      )
+      for (const field of CORNER_RADIUS_FIELDS) {
+        applyIndividualValue(
+          node,
+          node[field],
+          appearance[field],
+          field,
+          'cornerRadius',
+          spec,
+          (value) => (node[field] = value),
+          state
+        )
+      }
     }
   }
   if ('clipsContent' in node) {
@@ -2992,7 +2912,7 @@ function nativeShaderValue(
   state: ApplyState
 ): ShaderPropertyValue {
   if (!isRecord(value)) return value
-  if (isShaderVariable(value)) {
+  if (isVariableBinding(value)) {
     return figma.variables.createVariableAlias(resolvedVariable(value.variable, state.variables))
   }
   if ('color' in value) {
@@ -4322,7 +4242,7 @@ async function applyComponent(
   )
   const changedProperties = desiredProperties.filter(([name, value]) => {
     const current = node.componentProperties[name]
-    return isComponentPropertyVariable(value)
+    return isVariableBinding(value)
       ? current?.boundVariables?.value?.id !== resolvedVariable(value.variable, state.variables).id
       : current?.value !== value || current?.boundVariables?.value !== undefined
   })
@@ -4331,7 +4251,7 @@ async function applyComponent(
       Object.fromEntries(
         changedProperties.map(([name, value]) => [
           name,
-          isComponentPropertyVariable(value)
+          isVariableBinding(value)
             ? figma.variables.createVariableAlias(resolvedVariable(value.variable, state.variables))
             : value
         ])
@@ -4610,7 +4530,7 @@ function nativeComponentPropertyDefault(
   state: ApplyState
 ): string | boolean | VariableAlias {
   const value = definition.defaultValue
-  if (isComponentPropertyVariable(value)) {
+  if (isVariableBinding(value)) {
     return figma.variables.createVariableAlias(resolvedVariable(value.variable, state.variables))
   }
   return definition.type === 'INSTANCE_SWAP'
@@ -5648,11 +5568,7 @@ function placementBounds(node: SceneNode): Rect | null {
       width: node.width,
       height: node.height
     }
-  return [bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) &&
-    bounds.width >= 0 &&
-    bounds.height >= 0
-    ? bounds
-    : null
+  return finiteRect(bounds)
 }
 
 function placementOverlap(candidate: Rect, obstacle: Rect): boolean {
@@ -5702,6 +5618,7 @@ function placeCreatedRoot(node: SupportedCanvasNode, page: PageNode, state: Appl
     ]
     markMutation(state, node)
   }
+  reportCanvasPlacement(node)
 }
 
 function createApplyState(
@@ -6572,7 +6489,7 @@ function componentLinkMatches(
     variantProperties.length > 0 &&
     variantProperties.every(([name, value]) => {
       const applied = node.componentProperties[name]
-      return isComponentPropertyVariable(value)
+      return isVariableBinding(value)
         ? applied?.boundVariables?.value?.id ===
             resolvedVariable(value.variable, state.variables).id
         : applied?.value === value && applied.boundVariables?.value === undefined
@@ -6608,7 +6525,7 @@ async function verifyInstanceState(
   for (const [key, value] of Object.entries(spec.componentProperties)) {
     const name = componentPropertyName(owner, key, state) ?? key
     const applied = node.componentProperties[name]
-    const matches = isComponentPropertyVariable(value)
+    const matches = isVariableBinding(value)
       ? applied?.boundVariables?.value?.id === resolvedVariable(value.variable, state.variables).id
       : applied?.value === value && applied.boundVariables?.value === undefined
     if (!matches) {
@@ -6864,16 +6781,7 @@ async function removeRollbackCreatedNodes(state: ApplyState): Promise<void> {
   ).filter(isSupportedSceneNode)
   if (!created.length) return
 
-  const liveIds = new Set(created.map((node) => node.id))
-  const outermost = created.filter((node) => {
-    let parent = node.parent
-    while (parent) {
-      if (liveIds.has(parent.id)) return false
-      parent = parent.parent
-    }
-    return true
-  })
-  for (const node of outermost) node.remove()
+  for (const node of outermostNodes(created)) node.remove()
 
   const remaining = (
     await Promise.all([...state.createdNodeIds].map((id) => lookupNodeById(id)))
@@ -7015,12 +6923,9 @@ async function createPageOnly(input: ParsedCanvasPageInput): Promise<ApplyCanvas
     if (!created) specError('Page-only create requires a new pageKey.')
     await preflightVariableModes(input.page.variableModes, state)
     applyPage(page, input.page, state)
-    await figma.setCurrentPageAsync(page)
     page.selection = []
-    if (figma.currentPage.id !== page.id || page.selection.length !== 0) {
-      specError(
-        `Verification failed: page "${page.id}" is not the active page with empty selection.`
-      )
+    if (page.selection.length !== 0) {
+      specError(`Verification failed: page "${page.id}" does not have an empty selection.`)
     }
     return pageApplyResult(pageSnapshot(page), state)
   }, state)
@@ -7441,7 +7346,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
   return withUndoBoundary(async () => {
     await resolveExplicitNodes(rootSpec, state)
     preflightExistingNodeIdentities(rootSpec, state, target)
-    const { created: createdPage, page } = await resolveResultPage(input.page, target, state)
+    const { page } = await resolveResultPage(input.page, target, state)
     await validateRemovalComponents(outermostNodes(removalNodes))
     preflightMasks(rootSpec, state, target)
     preflightContainers(rootSpec, state, target)
@@ -7475,10 +7380,6 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
     await removeStyleResources(state.styles, state.mutations)
     await removeVariableResources(state.variables, state.mutations)
     const verified = await verifyAppliedNode(rootSpec, root, state)
-    if (createdPage) {
-      await figma.setCurrentPageAsync(page)
-      page.selection = []
-    }
     const warnings = [
       ...unboundCreatedResourceWarnings(
         [rootSpec, input.styles, input.variableCollections, input.page],
