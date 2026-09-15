@@ -943,8 +943,10 @@ function extractValuePart(
 
   if (!isKeyword) {
     const shouldTag = config.arbitraryType && (inner.includes('var(') || config.valueKind === 'any')
-
-    text = shouldTag ? `[${config.arbitraryType}:${inner}]` : `[${inner}]`
+    const customProperty = inner.match(/^var\((--[A-Za-z0-9_-]+)\)$/)?.[1]
+    const value = customProperty ?? inner
+    const typedValue = shouldTag ? `${config.arbitraryType}:${value}` : value
+    text = customProperty ? `(${typedValue})` : `[${typedValue}]`
   }
 
   return { isNegative, text, isKeyword }

@@ -140,6 +140,14 @@ and asset work can legitimately exceed the 15-second general tool deadline on la
   - Removes only redundant size or padding expressions without changing the emitted flow model.
 - `ensureRelativeForAbsoluteChildren`
 
+### Tailwind output
+
+Tailwind output uses the v4 custom-property shorthand for standalone variable
+references, for example `w-(--size)` and `text-(length:--font-size)`. Type hints
+remain explicit where configured. Expressions and arbitrary properties retain
+their bracket syntax. Internal style values remain CSS `var(...)` expressions;
+token collection, renaming, and resolution use the same variable identities.
+
 ## Variable output semantics
 
 ### Product boundary

@@ -103,9 +103,10 @@ Codex App binds tasks from host-supplied MCP metadata and follows native convers
 state through the existing IPC connection. Claude retains lifecycle and Stop hooks.
 Comments are delivered only through native conversation messages on compatible Codex App
 hosts. TemPad Dev discovers the original conversation through the App's existing local
-connection. Idle conversations start immediately; busy conversations wait for the current
-response to finish. Native active-turn Steer is not yet available. Waiting comments remain
-saved until delivery is confirmed, and failures never fall back to hooks.
+connection. By default, idle conversations start immediately and busy conversations wait
+for the current response to finish. Hold Command or Ctrl when sending to use Steer: busy conversations
+receive the comments in their active response, while idle conversations start immediately.
+Waiting comments remain saved until delivery is confirmed, and failures never fall back to hooks.
 Claude, Codex CLI, and other clients currently provide task status and Stop/Done without
 comment controls. Previously saved drafts remain in extension-local storage.
 
@@ -118,6 +119,10 @@ newer turn. Local cancellation remains effective if the host is unavailable. Cla
 Stop at the next hooked tool boundary. Native Codex delivery is enabled
 only after the exact conversation owner reports support; no manual connection setup
 is required. See the task and client design for the current validation scope.
+
+The native adapter uses Unix sockets on macOS/Linux and Codex's local named pipe on Windows.
+Windows transport support has automated regression coverage; it still requires validation
+against a native Windows Codex App installation.
 
 With a supported connection, select an element, save its feedback draft, then send the
 numbered batch from the canvas status bar. Drafts can be edited or deleted and survive
