@@ -3,6 +3,13 @@ import type { RefinementCtx, ZodType } from 'zod'
 import { z } from 'zod'
 
 import { MCP_HASH_PATTERN, MCP_MAX_ASSET_BYTES } from './constants'
+import {
+  DesignTaskParameterSchema,
+  DesignTaskEpochSchema,
+  type DesignAnchor,
+  type DesignTask,
+  type FigmaSession
+} from './design-task'
 
 export const CanvasStableKeySchema = z
   .string()
@@ -26,6 +33,8 @@ export const AssetDescriptorSchema = z.object({
 
 // get_code
 export const GetCodeParametersSchema = z.object({
+  taskId: DesignTaskParameterSchema,
+  taskEpoch: DesignTaskEpochSchema,
   nodeId: z
     .string()
     .describe('Optional exact target node id; omit to use the current single selection.')
@@ -86,6 +95,8 @@ export type GetCodeResult = {
 
 // get_token_defs
 export const GetTokenDefsParametersSchema = z.object({
+  taskId: DesignTaskParameterSchema,
+  taskEpoch: DesignTaskEpochSchema,
   names: z
     .array(z.string().regex(/^--[a-zA-Z0-9-_]+$/))
     .min(1)
@@ -112,6 +123,8 @@ export type GetTokenDefsResult = {
 
 // get_screenshot
 export const GetScreenshotParametersSchema = z.object({
+  taskId: DesignTaskParameterSchema,
+  taskEpoch: DesignTaskEpochSchema,
   nodeId: z
     .string()
     .describe('Optional exact node id to render; omit to use the current single selection.')
@@ -131,6 +144,8 @@ export type GetScreenshotResult = {
 // get_structure
 export const GetStructureParametersSchema = z
   .object({
+    taskId: DesignTaskParameterSchema,
+    taskEpoch: DesignTaskEpochSchema,
     nodeId: z
       .string()
       .describe(
@@ -207,6 +222,8 @@ export type GetStructureResult = {
 // get_design_system
 export const GetDesignSystemParametersSchema = z
   .object({
+    taskId: DesignTaskParameterSchema,
+    taskEpoch: DesignTaskEpochSchema,
     scope: z.enum(['resources', 'fonts']).optional(),
     query: z
       .string()
@@ -2318,6 +2335,8 @@ function validateCanvasApplyScope<Value extends CanvasApplyScope>(
 
 export const ApplyCanvasParametersSchema = z
   .object({
+    taskId: DesignTaskParameterSchema,
+    taskEpoch: DesignTaskEpochSchema,
     mode: z.enum(['create', 'update', 'remove', 'activate']),
     targetNodeId: z.string().min(1).optional(),
     catalogId: z.string().min(1).optional(),
@@ -2428,6 +2447,7 @@ export type CanvasResolvedApplyParameters = z.output<typeof CanvasResolvedApplyP
 export const AuthoringRuntimeEvidenceSchema = z
   .object({
     protocolVersion: z.number().int().positive(),
+    // Legacy global checkout lock; current Hubs report false. Evaluators compare observed fingerprints.
     locked: z.boolean(),
     valid: z.boolean(),
     issues: z.array(z.string()),
@@ -2500,6 +2520,8 @@ export type ApplyCanvasResult = z.output<typeof ApplyCanvasResultSchema>
 
 // get_assets (hub only)
 export const GetAssetsParametersSchema = z.object({
+  taskId: DesignTaskParameterSchema,
+  taskEpoch: DesignTaskEpochSchema,
   hashes: z
     .array(z.string().regex(MCP_HASH_PATTERN))
     .min(1)
@@ -2523,6 +2545,8 @@ const MAX_IMAGE_DATA_URL_LENGTH = Math.ceil((MCP_MAX_ASSET_BYTES * 4) / 3) + 256
 
 export const UploadAssetParametersSchema = z
   .object({
+    taskId: DesignTaskParameterSchema,
+    taskEpoch: DesignTaskEpochSchema,
     dataUrl: z
       .string()
       .min(1)
@@ -2546,6 +2570,12 @@ export type UploadAssetParametersInput = z.input<typeof UploadAssetParametersSch
 export type UploadAssetResult = z.infer<typeof UploadAssetResultSchema>
 
 export type ToolResultMap = {
+  set_design_anchor: DesignAnchor
+  get_design_task: DesignTask
+  list_design_sessions: { sessions: FigmaSession[] }
+  resume_design: DesignTask
+  begin_design: DesignTask
+  end_design: DesignTask
   get_code: GetCodeResult
   get_design_system: GetDesignSystemResult
   apply_canvas: ApplyCanvasResult

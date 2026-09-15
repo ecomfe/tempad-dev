@@ -168,9 +168,9 @@ The skill preserves these invariants:
 
 The main file keeps the requested native result focal: establish scope and
 available evidence, research unresolved material decisions, choose the native
-representation, then build, inspect, and repair. The current candidate replaces
-an earlier composition checklist and screen-count extraction gates with
-situated questions. Those former gates are not current skill requirements.
+representation, then build, inspect, and repair. Situated questions guide design
+decisions without imposing a composition checklist or screen-count extraction
+rules.
 
 Direct is the default for a first net-new composition. Reuse requires the user,
 selected source, or project evidence to establish an applicable system; resource
@@ -212,9 +212,9 @@ Declarative desired state, exact scope, stable identity, and host-supplied MCP
 tools remain integrity boundaries. Native mechanics and serialization examples
 load only for selected capabilities. Unknown outcomes require recovery before
 another write. Tool verification proves only its checked conditions; material
-visual claims require opened pixels and targeted native evidence. The candidate
-remains provisional until materially different live tasks establish transfer,
-as recorded in [the September review](../testing/agent-authoring-review-2026-09.md).
+visual claims require opened pixels and targeted native evidence. Claims of
+improved design judgment require transfer evidence from materially different
+live tasks, following the [authoring evolution runbook](../testing/agent-authoring-evolution.md).
 
 ## Packaging and validation
 

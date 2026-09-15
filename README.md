@@ -12,7 +12,7 @@
   <a href="https://chrome.google.com/webstore/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc"><img src="https://img.shields.io/badge/Install%20on%20Chrome%20Web%20Store-4285F4?logo=chromewebstore&logoColor=%23fff" alt="Install on Chrome Web Store"></a>
   <a href="https://discord.gg/MXGXwtkEck"><img src="https://img.shields.io/badge/Chat%20on%20Discord-5865F2?logo=discord&logoColor=%23fff" alt="Chat on Discord"></a>
   <a href="https://deepwiki.com/ecomfe/tempad-dev"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
-  <a href="./README.zh-Hans.md"><img src="https://img.shields.io/badge/%E4%B8%AD%E6%96%87%E7%89%88%20%C2%BB-000" alt="前往中文版"></a>
+  <a href="./README.zh-Hans.md"><img src="https://img.shields.io/badge/Simplified%20Chinese%20%C2%BB-000" alt="Read in Simplified Chinese"></a>
 </p>
 
 <p align="center">
@@ -67,15 +67,9 @@ Both workflows use the same MCP connection to Figma. Compatible clients can inst
 
 ### Setup guide
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-light.png">
-  <img alt="TemPad Dev agent setup dialog." src="packages/site/public/marketing/mcp-config-light.png" width="600">
-</picture>
-
 1. Install Node.js 22.x, 24.x, or 26+ with `npx`. Keep TemPad Dev open in the Figma tab you want the agent to inspect, then enable **Preferences → Agent integration → MCP access**. When prompted, allow the loopback connection to `127.0.0.1`. Canvas authoring is available while MCP access is enabled and the current Figma Design file is editable.
 2. Select **Set up agents**, choose Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, or TRAE, and follow the displayed path. Use **Other** for another compatible client. The choice only changes the instructions shown; it does not bind or activate an agent.
-3. The setup flow installs the portable Agent Plugin first for Codex, Cursor, Claude Code, and VS Code. For Gemini, OpenCode, TRAE, and other clients without compatible plugin installation, it uses the client's MCP flow plus the two standalone skills. Every command or config is shown in full for review and copying.
+3. The setup flow uses native marketplace installation for Codex and Claude Code, and the portable Agent Plugin for Cursor and VS Code. Codex App integration uses native IPC without lifecycle hooks. For Gemini, OpenCode, TRAE, and other clients without compatible plugin installation, it uses the client's MCP flow plus the two standalone skills. Every command or config is shown in full for review and copying.
 
 For clients with separate MCP and skill installation, the setup shows each command. Gemini is one example:
 
@@ -93,16 +87,8 @@ Scroll down in the dialog for both skill installation commands:
   <img alt="The complete Gemini commands for the design-to-code and canvas authoring skills." src="packages/site/public/marketing/mcp-config-gemini-skills-light.png" width="600">
 </picture>
 
-To install the portable package into all compatible agents detected on your machine:
-
-```bash
-npx plugins add ecomfe/tempad-dev
-```
-
-Pass `--target codex`, `--target cursor`, `--target claude-code`, or `--target vscode` to limit the
-installation to one of the built-in setup targets. Native Codex and Claude marketplace commands,
-plus direct MCP and skill installation, remain documented as compatibility fallbacks in the
-[Agent Plugin guide](./agent-plugins/tempad-dev/README.md).
+For native Codex and Claude marketplace commands and portable Cursor and VS Code installation,
+see the [Agent Plugin guide](./agent-plugins/tempad-dev/README.md).
 
 All plugin and direct `npx`-based setup paths use `@tempad-dev/mcp@latest`.
 

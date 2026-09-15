@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   commandIncludesExactPath,
   evaluateActiveExtensionRuntime,
-  evaluateRuntimeFreshness,
+  evaluateRuntimeProcesses,
   evaluateTempadPluginIdentity,
   parseEnabledPlugins,
   parseProcessTable,
@@ -50,8 +50,8 @@ describe('agent authoring runtime preflight', () => {
     expect(commandIncludesExactPath(`/usr/bin/node "${paths.cli}"`, paths.cli)).toBe(true)
   })
 
-  it('accepts one fresh Hub and one or more fresh exact-checkout CLIs', () => {
-    const result = evaluateRuntimeFreshness(paths, { cli: 19_500, hub: 19_500 }, [
+  it('accepts one Hub and one or more exact-checkout CLIs', () => {
+    const result = evaluateRuntimeProcesses(paths, [
       runtimeProcess(paths.cli, 1, 20_000),
       runtimeProcess(paths.cli, 2, 21_000),
       runtimeProcess(paths.hub, 3, 20_000),
@@ -63,41 +63,17 @@ describe('agent authoring runtime preflight', () => {
     expect(result.issues).toEqual([])
   })
 
-  it('rejects either stale bundle process independently', () => {
-    const staleCli = evaluateRuntimeFreshness(paths, { cli: 20_500, hub: 10_000 }, [
-      runtimeProcess(paths.cli, 1, 19_000),
-      runtimeProcess(paths.hub, 2, 20_000)
-    ])
-    const staleHub = evaluateRuntimeFreshness(paths, { cli: 10_000, hub: 20_500 }, [
-      runtimeProcess(paths.cli, 1, 20_000),
-      runtimeProcess(paths.hub, 2, 19_000)
-    ])
-
-    expect(staleCli.issues.map(({ code }) => code)).toContain('RUNTIME_STALE_CLI')
-    expect(staleHub.issues.map(({ code }) => code)).toContain('RUNTIME_STALE_HUB')
-
-    const sameSecond = evaluateRuntimeFreshness(paths, { cli: 20_500, hub: 20_500 }, [
-      runtimeProcess(paths.cli, 1, 20_000),
-      runtimeProcess(paths.hub, 2, 20_000)
-    ])
-    expect(sameSecond.issues.map(({ code }) => code)).toEqual([
-      'RUNTIME_STALE_CLI',
-      'RUNTIME_STALE_HUB'
-    ])
-  })
-
   it('rejects absent, partial, and multiple-Hub runtime states', () => {
-    const mtimes = { cli: 10_000, hub: 10_000 }
-    expect(evaluateRuntimeFreshness(paths, mtimes, []).issues.map(({ code }) => code)).toEqual([
+    expect(evaluateRuntimeProcesses(paths, []).issues.map(({ code }) => code)).toEqual([
       'RUNTIME_ABSENT'
     ])
     expect(
-      evaluateRuntimeFreshness(paths, mtimes, [runtimeProcess(paths.cli, 1, 20_000)]).issues.map(
+      evaluateRuntimeProcesses(paths, [runtimeProcess(paths.cli, 1, 20_000)]).issues.map(
         ({ code }) => code
       )
     ).toContain('RUNTIME_PARTIAL')
     expect(
-      evaluateRuntimeFreshness(paths, mtimes, [
+      evaluateRuntimeProcesses(paths, [
         runtimeProcess(paths.cli, 1, 20_000),
         runtimeProcess(paths.hub, 2, 20_000),
         runtimeProcess(paths.hub, 3, 20_000)
@@ -115,7 +91,6 @@ describe('agent authoring runtime preflight', () => {
         id: 'extension-1',
         version: '0.21.0'
       },
-      expectedExtensionRuntimeFingerprint: expectedFingerprint,
       processId: hub.pid
     }
 
@@ -141,12 +116,6 @@ describe('agent authoring runtime preflight', () => {
         processId: 4
       }).issues.map(({ code }) => code)
     ).toEqual(['RUNTIME_IDENTITY_RECORD_STALE'])
-    expect(
-      evaluateActiveExtensionRuntime(expectedFingerprint, [hub], {
-        ...matching,
-        expectedExtensionRuntimeFingerprint: 'b'.repeat(64)
-      }).issues.map(({ code }) => code)
-    ).toEqual(['RUNTIME_HUB_EXTENSION_EXPECTATION_MISMATCH'])
     expect(
       evaluateActiveExtensionRuntime(expectedFingerprint, [hub], {
         ...matching,

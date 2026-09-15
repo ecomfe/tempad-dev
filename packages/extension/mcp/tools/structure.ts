@@ -57,20 +57,10 @@ function compactStructure(
     ...(countStructureNodes(compactRoots) < totalNodes ? { truncated: true as const } : {})
   })
 
-  const initial = compactByNodeLimit(
-    roots,
-    STRUCTURE_NODE_LIMIT_STEPS[0],
-    authoringKeys,
-    nativeById
-  )
-  if (estimateToolResultBytes(result(initial)) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
-    return result(initial)
-  }
-
-  for (const nodeLimit of STRUCTURE_NODE_LIMIT_STEPS.slice(1)) {
-    const candidate = compactByNodeLimit(roots, nodeLimit, authoringKeys, nativeById)
-    if (estimateToolResultBytes(result(candidate)) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
-      return result(candidate)
+  for (const nodeLimit of STRUCTURE_NODE_LIMIT_STEPS) {
+    const candidate = result(compactByNodeLimit(roots, nodeLimit, authoringKeys, nativeById))
+    if (estimateToolResultBytes(candidate) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
+      return candidate
     }
   }
 

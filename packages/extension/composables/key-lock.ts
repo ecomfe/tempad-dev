@@ -124,9 +124,8 @@ function isDuplicateCursor(host: HTMLElement) {
 function learnDuplicateClass(host: HTMLElement) {
   if (duplicateClass) return
   const added = Array.from(host.classList).filter((c) => !classSnapshot.has(c))
-  const [addedClass] = added
-  if (added.length === 1 && addedClass) {
-    duplicateClass = addedClass
+  if (added.length === 1) {
+    duplicateClass = added[0]
   }
 }
 

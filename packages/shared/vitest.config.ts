@@ -16,6 +16,7 @@ export default defineConfig({
         'src/mcp/tool-result.ts',
         'src/mcp/tools.ts',
         'src/mcp/constants.ts',
+        'src/mcp/design-task.ts',
         'src/mcp/errors.ts'
       ],
       thresholds: {

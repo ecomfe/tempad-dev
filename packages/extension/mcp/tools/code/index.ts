@@ -490,8 +490,8 @@ async function rerenderResolvedOutput({
   const resolvedStyles = resolveStyleMap(input.collected.styles, input.nodeMap, resolveStyleVars)
   const resolvedSvgs = resolveSvgEntries(input.ctx.svgs, input.nodeMap, resolveStyleVars)
   if (
-    !stylesChanged(input.collected.styles, resolvedStyles) &&
-    !svgEntriesChanged(input.ctx.svgs, resolvedSvgs)
+    !resolvedEntriesChanged(input.collected.styles, resolvedStyles) &&
+    !resolvedEntriesChanged(input.ctx.svgs, resolvedSvgs)
   ) {
     return null
   }
@@ -512,13 +512,10 @@ async function rerenderResolvedOutput({
   })
 }
 
-function stylesChanged(
-  original: Map<string, Record<string, string>>,
-  resolved: Map<string, Record<string, string>>
-): boolean {
+function resolvedEntriesChanged<T>(original: Map<string, T>, resolved: Map<string, T>): boolean {
   if (original === resolved) return false
-  for (const [id, style] of resolved.entries()) {
-    if (style !== original.get(id)) return true
+  for (const [id, value] of resolved) {
+    if (value !== original.get(id)) return true
   }
   return false
 }
@@ -550,17 +547,6 @@ function resolveSvgEntries(
   }
 
   return out
-}
-
-function svgEntriesChanged(
-  original: Map<string, SvgEntry>,
-  resolved: Map<string, SvgEntry>
-): boolean {
-  if (original === resolved) return false
-  for (const [id, entry] of resolved.entries()) {
-    if (entry !== original.get(id)) return true
-  }
-  return false
 }
 
 async function collectPluginOutput(
@@ -605,7 +591,6 @@ async function collectPluginOutput(
 }
 
 function buildSkipIds(base: Set<string>, extra: Set<string>): Set<string> {
-  if (!base.size && !extra.size) return base
   if (!extra.size) return base
   if (!base.size) return extra
   return new Set<string>([...base, ...extra])

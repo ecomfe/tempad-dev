@@ -324,7 +324,6 @@ export type CanvasClasses = {
   gridChildClass?: string
   layoutClass?: string
   textClass?: string
-  assigned: Set<string>
   assignedTokens: Map<string, string>
 }
 
@@ -604,7 +603,7 @@ function assignIndividuals<Key extends string>(
 ): void {
   for (const field of fields) {
     const assignment = `${group}-${field}`
-    if (classes.assigned.has(assignment)) {
+    if (classes.assignedTokens.has(assignment)) {
       const previous = classes.assignedTokens.get(assignment)
       classError(
         `Class "${token}" conflicts${previous ? ` with "${previous}"` : ''} for ${assignment}.`
@@ -613,7 +612,6 @@ function assignIndividuals<Key extends string>(
   }
   for (const field of fields) {
     const assignment = `${group}-${field}`
-    classes.assigned.add(assignment)
     classes.assignedTokens.set(assignment, token)
     values[field] = value
   }
@@ -625,7 +623,7 @@ function assign<T extends keyof CanvasClasses>(
   value: CanvasClasses[T],
   token: string
 ): void {
-  if (classes.assigned.has(field)) {
+  if (classes.assignedTokens.has(field)) {
     const previous = classes.assignedTokens.get(field)
     const hint =
       field === 'fill'
@@ -637,7 +635,6 @@ function assign<T extends keyof CanvasClasses>(
       `Class "${token}" conflicts${previous ? ` with "${previous}"` : ''} for ${field}.${hint}`
     )
   }
-  classes.assigned.add(field)
   classes.assignedTokens.set(field, token)
   classes[field] = value
 }
@@ -648,19 +645,7 @@ function assignPadding(
   value: number,
   token: string
 ): void {
-  for (const side of sides) {
-    const field = `padding-${side}`
-    if (classes.assigned.has(field)) {
-      const previous = classes.assignedTokens.get(field)
-      classError(`Class "${token}" conflicts${previous ? ` with "${previous}"` : ''} for ${field}.`)
-    }
-  }
-  for (const side of sides) {
-    const field = `padding-${side}`
-    classes.assigned.add(field)
-    classes.assignedTokens.set(field, token)
-    classes.padding[side] = value
-  }
+  assignIndividuals(classes, 'padding', classes.padding, sides, value, token)
   classes.layoutClass ??= token
 }
 
@@ -687,7 +672,6 @@ export function parseCanvasClasses(value: string): CanvasClasses {
     cornerRadii: {},
     padding: {},
     strokeWeights: {},
-    assigned: new Set(),
     assignedTokens: new Map()
   }
   let defaultLineHeight: LineHeight | undefined

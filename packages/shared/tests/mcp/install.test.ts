@@ -131,18 +131,23 @@ describe('shared/mcp/install', () => {
         id: 'plugin-cli',
         label: 'Plugin CLI',
         kind: 'command',
-        value: `${PLUGIN_INSTALL_COMMAND} --target codex`
+        value:
+          'codex plugin marketplace add ecomfe/tempad-dev --ref main && codex plugin add tempad-dev@tempad-dev'
       })
     ])
     const codexPluginPrompt = decodeURIComponent(codex.actions[0]?.value ?? '')
-    expect(codexPluginPrompt).toContain(`${PLUGIN_INSTALL_COMMAND} --target codex`)
+    expect(codexPluginPrompt).toContain(
+      'codex plugin marketplace add ecomfe/tempad-dev --ref main && codex plugin add tempad-dev@tempad-dev'
+    )
     expect(codexPluginPrompt).toContain('figma-design-to-code')
     expect(codexPluginPrompt).toContain('figma-canvas-authoring')
 
     const claude = mcp.AGENT_INTEGRATIONS_BY_ID.claude
     expect(claude.actions[0]?.value).toMatch(/^claude-cli:\/\/open\?q=/)
     const claudePluginPrompt = decodeURIComponent(claude.actions[0]?.value ?? '')
-    expect(claudePluginPrompt).toContain(`${PLUGIN_INSTALL_COMMAND} --target claude-code`)
+    expect(claudePluginPrompt).toContain(
+      'claude plugin marketplace add ecomfe/tempad-dev && claude plugin install tempad-dev@tempad-dev'
+    )
     expect(claudePluginPrompt).toContain('figma-canvas-authoring')
 
     const cursor = mcp.AGENT_INTEGRATIONS_BY_ID.cursor

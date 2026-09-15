@@ -80,16 +80,13 @@ function resolveNativeBinding(
           if (mode && mode.kind !== 'mode') {
             inputError(`Design-system ref "${modeRef}" is not a mode.`)
           }
-          if (collection?.kind === 'collection' && mode?.kind === 'mode') {
-            if (mode.collectionRef !== collection.ref) {
-              inputError(`Mode "${modeRef}" does not belong to collection "${collectionRef}".`)
-            }
+          if (collection && mode && mode.collectionRef !== collection.ref) {
+            inputError(`Mode "${modeRef}" does not belong to collection "${collectionRef}".`)
           }
-          const resolvedCollection =
-            collection?.kind === 'collection'
-              ? (collection.reference.id ?? collection.reference.key)
-              : collectionRef
-          return [resolvedCollection, mode?.kind === 'mode' ? mode.id : modeRef]
+          const resolvedCollection = collection
+            ? (collection.reference.id ?? collection.reference.key)
+            : collectionRef
+          return [resolvedCollection, mode ? mode.id : modeRef]
         })
       )
     : undefined

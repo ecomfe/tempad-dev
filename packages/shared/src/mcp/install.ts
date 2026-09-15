@@ -169,7 +169,7 @@ const OPENCODE_CONFIG_SNIPPET = JSON.stringify(
   2
 )
 
-function buildCliCommand(prefix: 'claude' | 'codex' | 'gemini' | 'vscode'): string {
+function buildCliCommand(prefix: 'claude' | 'codex' | 'gemini'): string {
   const args = `${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`
   if (prefix === 'claude') {
     return `claude mcp add --transport stdio "${SERVER_NAME}" -- ${args}`
@@ -179,30 +179,39 @@ function buildCliCommand(prefix: 'claude' | 'codex' | 'gemini' | 'vscode'): stri
     return `gemini mcp add --scope user "${SERVER_NAME}" ${args}`
   }
 
-  if (prefix === 'vscode') {
-    return `code --add-mcp '${JSON.stringify({
-      name: SERVER_NAME,
-      ...commandConfig
-    })}'`
-  }
-
   return `codex mcp add "${SERVER_NAME}" -- ${args}`
 }
 
 function buildPluginSetupCommand(agent: PluginAgentId): string {
+  if (agent === 'codex')
+    return `codex plugin marketplace add ${REPOSITORY} --ref main && codex plugin add tempad-dev@tempad-dev`
+  if (agent === 'claude-code')
+    return `claude plugin marketplace add ${REPOSITORY} && claude plugin install tempad-dev@tempad-dev`
   return `${PLUGIN_INSTALL_COMMAND} --target ${agent}`
+}
+
+function pluginCliAction(agent: PluginAgentId): AgentIntegrationAction {
+  return {
+    id: 'plugin-cli',
+    label: 'Plugin CLI',
+    kind: 'command',
+    value: buildPluginSetupCommand(agent)
+  }
 }
 
 function buildPluginSetupDeepLink(prefix: 'claude' | 'codex'): string {
   const command = buildPluginSetupCommand(prefix === 'claude' ? 'claude-code' : 'codex')
-  const prompt = `Install the portable TemPad Dev Agent Plugin by running this command, then confirm that its MCP server plus figma-design-to-code and figma-canvas-authoring skills are available:\n\n${command}`
+  const hooks =
+    prefix === 'claude'
+      ? ' Confirm its lifecycle hooks are available and leave hook trust review to the user.'
+      : ''
+  const prompt = `Install the TemPad Dev plugin using the native marketplace command below, then confirm that its MCP server and figma-design-to-code and figma-canvas-authoring skills are available.${hooks}\n\n${command}`
   const target = prefix === 'claude' ? 'claude-cli://open?q=' : 'codex://new?prompt='
   return `${target}${encodeURIComponent(prompt)}`
 }
 
-function buildSkillsInstallCommand(...agents: SkillAgentId[]): string {
-  const targets = agents.map((agent) => `--agent ${agent}`).join(' ')
-  return `${SKILLS_INSTALL_COMMAND} --global ${targets}`
+function buildSkillsInstallCommand(agent: SkillAgentId): string {
+  return `${SKILLS_INSTALL_COMMAND} --global --agent ${agent}`
 }
 
 function buildGeminiSkillInstallCommand(skillName: (typeof SKILL_NAMES)[number]): string {
@@ -342,25 +351,13 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
         kind: 'deep-link',
         value: buildPluginSetupDeepLink('codex')
       },
-      {
-        id: 'plugin-cli',
-        label: 'Plugin CLI',
-        kind: 'command',
-        value: buildPluginSetupCommand('codex')
-      }
+      pluginCliAction('codex')
     ]
   },
   cursor: {
     id: 'cursor',
     name: 'Cursor',
-    actions: [
-      {
-        id: 'plugin-cli',
-        label: 'Plugin CLI',
-        kind: 'command',
-        value: buildPluginSetupCommand('cursor')
-      }
-    ]
+    actions: [pluginCliAction('cursor')]
   },
   claude: {
     id: 'claude',
@@ -372,12 +369,7 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
         kind: 'deep-link',
         value: buildPluginSetupDeepLink('claude')
       },
-      {
-        id: 'plugin-cli',
-        label: 'Plugin CLI',
-        kind: 'command',
-        value: buildPluginSetupCommand('claude-code')
-      }
+      pluginCliAction('claude-code')
     ]
   },
   gemini: {
@@ -407,14 +399,7 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
   vscode: {
     id: 'vscode',
     name: 'VS Code',
-    actions: [
-      {
-        id: 'plugin-cli',
-        label: 'Plugin CLI',
-        kind: 'command',
-        value: buildPluginSetupCommand('vscode')
-      }
-    ]
+    actions: [pluginCliAction('vscode')]
   },
   opencode: {
     id: 'opencode',

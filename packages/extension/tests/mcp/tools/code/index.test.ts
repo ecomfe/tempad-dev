@@ -8,6 +8,7 @@ import {
 } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { handleGetCode } from '@/mcp/tools/code'
 import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 
 const mocks = vi.hoisted(() => ({
@@ -142,7 +143,6 @@ describe('mcp/code handleGetCode', () => {
     mockAssetCollection(tree, [image, video], new Set([video.hash]))
     mocks.renderTree.mockResolvedValue(raw(`<img src="${image.url}" />`))
 
-    const { handleGetCode } = await import('@/mcp/tools/code')
     const result = await handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
 
     expect(result.code).toContain(image.url)
@@ -186,7 +186,6 @@ describe('mcp/code handleGetCode', () => {
     )
     vi.stubGlobal('__DEV__', false)
 
-    const { handleGetCode } = await import('@/mcp/tools/code')
     const unresolved = await handleGetCode(
       [{ id: 'root', visible: true } as SceneNode],
       'jsx',
@@ -233,7 +232,6 @@ describe('mcp/code handleGetCode', () => {
     mocks.getOrderedChildIds.mockReturnValue(['child'])
     mocks.renderShellTree.mockResolvedValue(raw(`<img src="${image.url}" />`))
 
-    const { handleGetCode } = await import('@/mcp/tools/code')
     const result = await handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
 
     expect(result.assets).toEqual([image, rootVideo])
@@ -274,7 +272,6 @@ describe('mcp/code handleGetCode', () => {
     )
     vi.stubGlobal('__DEV__', false)
 
-    const { handleGetCode } = await import('@/mcp/tools/code')
     const result = await handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
 
     expect(result.code).toContain('{/* omitted direct children: c,b */}')
@@ -376,7 +373,6 @@ describe('mcp/code handleGetCode', () => {
     )
     vi.stubGlobal('__DEV__', false)
 
-    const { handleGetCode } = await import('@/mcp/tools/code')
     const result = await handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
 
     expect(result.warnings?.map((warning) => warning.type)).toEqual(['shell'])
@@ -418,7 +414,6 @@ describe('mcp/code handleGetCode', () => {
     )
     vi.stubGlobal('__DEV__', false)
 
-    const { handleGetCode } = await import('@/mcp/tools/code')
     const result = await handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
 
     expect(result.warnings?.map((warning) => warning.type)).toEqual(['shell'])
@@ -473,8 +468,6 @@ describe('mcp/code handleGetCode', () => {
     mocks.renderShellTree.mockResolvedValue(null)
     vi.stubGlobal('__DEV__', false)
 
-    const { handleGetCode } = await import('@/mcp/tools/code')
-
     await expect(
       handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
     ).rejects.toThrow('Tool result exceeds inline budget')
@@ -510,7 +503,6 @@ describe('mcp/code handleGetCode', () => {
     )
     vi.stubGlobal('__DEV__', false)
 
-    const { handleGetCode } = await import('@/mcp/tools/code')
     const result = await handleGetCode(
       [{ id: 'root', visible: true } as SceneNode],
       'jsx',
@@ -590,7 +582,6 @@ describe('mcp/code handleGetCode', () => {
       ) => raw(`<svg data-color="${ctx.svgs.get('icon')?.presentationStyle?.color}" />`)
     )
 
-    const { handleGetCode } = await import('@/mcp/tools/code')
     const result = await handleGetCode([{ id: 'icon', visible: true } as SceneNode], 'jsx', true)
 
     expect(result.code).toContain('data-color="#fff"')
@@ -624,7 +615,6 @@ describe('mcp/code handleGetCode', () => {
     }))
     vi.stubGlobal('__DEV__', false)
 
-    const { handleGetCode } = await import('@/mcp/tools/code')
     await handleGetCode([instances[0]?.node as SceneNode], 'jsx', false)
 
     expect(mocks.resolvePluginComponents).toHaveBeenCalledOnce()

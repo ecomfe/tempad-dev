@@ -22,7 +22,9 @@ type EnableMessage = Extract<PageToBridgeMessage, { type: 'mcp.enable' }>
 
 export function startMcpContentBridge(): void {
   let enableMessage: EnableMessage | null = null
+  let enableReady: Promise<void> | null = null
   let port: ReturnType<typeof browser.runtime.connect> | null = null
+  let permissionGranted = false
   let permissionRequest: Promise<boolean> | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -33,7 +35,7 @@ export function startMcpContentBridge(): void {
   }
 
   function scheduleReconnect(): void {
-    if (!enableMessage || reconnectTimer) return
+    if (!enableMessage || !permissionGranted || reconnectTimer) return
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       if (enableMessage) postToServiceWorker(enableMessage)
@@ -67,14 +69,32 @@ export function startMcpContentBridge(): void {
     return true
   }
 
-  function postToServiceWorker(message: PageToBridgeMessage): void {
-    if (!connect() || !port) return
+  function postToServiceWorker(message: PageToBridgeMessage): boolean {
+    if (message.type !== 'mcp.disable' && !permissionGranted) return false
+    const connected = !!port
+    if (!connect() || !port) return false
     try {
+      // A request can arrive before the scheduled reconnect re-registers this tab.
+      if (!connected && message.type !== 'mcp.enable' && enableMessage)
+        port.postMessage(enableMessage)
       port.postMessage(message)
+      return true
     } catch {
       port = null
       scheduleReconnect()
+      return false
     }
+  }
+
+  async function enable(message: EnableMessage): Promise<void> {
+    const granted = await ensureLocalHostPermission()
+    if (enableMessage !== message) return
+    if (!granted) {
+      postMissingLocalHostPermission(message.sessionId)
+      return
+    }
+    permissionGranted = true
+    postToServiceWorker(message)
   }
 
   async function forwardToServiceWorker(raw: unknown): Promise<void> {
@@ -83,17 +103,36 @@ export function startMcpContentBridge(): void {
 
     if (message.type === 'mcp.enable') {
       enableMessage = message
-      if (!(await ensureLocalHostPermission())) {
-        if (enableMessage === message) {
-          postMissingLocalHostPermission(message.sessionId)
+      permissionGranted = false
+      enableReady = enable(message)
+      return enableReady
+    } else {
+      if (enableMessage?.sessionId !== message.sessionId) return
+      if (message.type === 'mcp.feedbackDrafts') {
+        const currentEnable = enableMessage
+        // Restored task UI can request drafts while the initial permission check is pending.
+        await enableReady
+        if (enableMessage !== currentEnable || !postToServiceWorker(message)) {
+          window.postMessage(
+            {
+              source: TEMPAD_MCP_BROWSER_SOURCE,
+              version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
+              type: 'mcp.feedbackDraftsResult',
+              sessionId: message.sessionId,
+              requestId: message.requestId,
+              error: { message: 'Comments unavailable.' }
+            },
+            TEMPAD_MCP_FIGMA_ORIGIN
+          )
         }
         return
       }
-      if (enableMessage !== message) return
-    } else {
-      if (enableMessage?.sessionId !== message.sessionId) return
+      if (message.type === 'mcp.sessionInfo') {
+        enableMessage.document = message.document
+      }
       if (message.type === 'mcp.disable') {
         enableMessage = null
+        permissionGranted = false
         clearReconnectTimer()
       }
     }

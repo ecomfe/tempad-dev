@@ -209,6 +209,59 @@ describe('utils/css parsing and normalization', () => {
     expect(expanded).not.toHaveProperty('border-top')
   })
 
+  it('drops blank flex declarations without changing other styles or the input', () => {
+    for (const flex of ['', ' ', '\t\n']) {
+      const style = { flex, 'flex-grow': '2', color: 'red' }
+      expect(expandShorthands(style)).toEqual({ 'flex-grow': '2', color: 'red' })
+      expect(style.flex).toBe(flex)
+    }
+  })
+
+  it.each([
+    ['0%', '1', '1', '0%'],
+    ['0px', '1', '1', '0px'],
+    ['1 0%', '1', '1', '0%'],
+    ['1 0px', '1', '1', '0px'],
+    ['1 0', '1', '0', '0%'],
+    ['1 2 0', '1', '2', '0'],
+    ['1 2 0%', '1', '2', '0%'],
+    ['10px 2', '2', '1', '10px'],
+    ['10px 2 3', '2', '3', '10px'],
+    ['content', '1', '1', 'content'],
+    ['.5 +2 10rem', '.5', '+2', '10rem'],
+    ['1e2', '1e2', '1', '0%'],
+    ['  AUTO  ', '1', '1', 'auto']
+  ])('expands literal flex %s with its basis units intact', (flex, grow, shrink, basis) => {
+    expect(expandShorthands({ flex })).toEqual({
+      'flex-grow': grow,
+      'flex-shrink': shrink,
+      'flex-basis': basis
+    })
+  })
+
+  it.each([
+    'var(--layout-flex)',
+    '  var(--layout-flex, 1 0 auto)  ',
+    '1 var(--basis, 10px)',
+    'calc(100% - 10px)',
+    '1 1 calc(100% - 10px)',
+    '1 1 calc(20px)',
+    'inherit',
+    'unset',
+    'revert-layer',
+    'bogus',
+    '-1',
+    '1 -2',
+    '1 1 -10px',
+    '1 2 3',
+    '1 2 10foo',
+    '1 10px 2',
+    '1 2 10px extra',
+    '1 /* comment */ 0 auto'
+  ])('preserves unsupported flex %s without inventing longhands', (flex) => {
+    expect(expandShorthands({ flex, 'flex-grow': '2' })).toEqual({ flex, 'flex-grow': '2' })
+  })
+
   it('expands flex/grid variants and keeps multi-layer background shorthand', () => {
     expect(expandShorthands({ flex: 'initial' })).toMatchObject({
       'flex-grow': '0',

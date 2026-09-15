@@ -25,6 +25,8 @@ describe('extension socket lifecycle', () => {
     const onDisconnected = vi.fn()
     const onProtocolWarning = vi.fn()
     const onRuntimeHello = vi.fn()
+    const onSessions = vi.fn()
+    const onDesignAction = vi.fn()
     const onToolError = vi.fn()
     const onToolResult = vi.fn()
     const started = await startExtensionWebSocketServer({
@@ -53,6 +55,8 @@ describe('extension socket lifecycle', () => {
         onDisconnected,
         onProtocolWarning,
         onRuntimeHello,
+        onSessions,
+        onDesignAction,
         onStateChange: broadcastState,
         onToolError,
         onToolResult
@@ -92,6 +96,27 @@ describe('extension socket lifecycle', () => {
     expect(registry.list()[0]).toMatchObject({
       runtime: { version: '0.21.0', fingerprint: 'a'.repeat(64) }
     })
+
+    const sessions = {
+      type: 'sessions',
+      browserId: 'browser-a',
+      activeSessionId: 'tab-a',
+      sessions: [
+        { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a', busy: false }
+      ]
+    }
+    client.send(JSON.stringify(sessions))
+    await waitUntil(() => onSessions.mock.calls.length === 1)
+    expect(registry.list()[0]?.sessions).toEqual(sessions)
+    const action = {
+      requestId: '00000000-0000-4000-8000-000000000001',
+      taskId: 'task-a',
+      epoch: 0,
+      action: 'stop'
+    }
+    client.send(JSON.stringify({ type: 'designAction', sessionId: 'tab-a', action }))
+    await waitUntil(() => onDesignAction.mock.calls.length === 1)
+    expect(onDesignAction).toHaveBeenCalledWith(registry.list()[0], 'tab-a', action)
 
     client.send(JSON.stringify({ type: 'activate' }))
     await waitUntil(() => onActivated.mock.calls.length === 1 && received.length >= 3)

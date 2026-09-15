@@ -12,6 +12,27 @@ The process is intentionally small:
 Runtime proof and a thin run log make the experience trustworthy. They do not
 replace judgment and must not grow into a second product-quality rubric.
 
+## Operational tools
+
+Run the live evolution workflow through CLI commands, native task-management
+tools, and TemPad MCP. Do not use computer-use or browser-use tools, CDP,
+accessibility automation, or browser-driving scripts to operate the live apps.
+
+- Build, install, inspect processes/logs, and run preflight through the CLI.
+- Create, inspect, and wait for native evaluation tasks through the host's
+  task-management tools.
+- Inspect and change Figma through TemPad MCP; use `get_screenshot` and open
+  the returned image for visual review.
+- Research through web/image search, direct source retrieval, and supplied
+  references. Preserve the distinction between retrieved text and visual
+  evidence; do not claim to have experienced an interface from text alone.
+
+If a required extension reload, tab reload, or task reconnection has no
+supported CLI or native API, request that specific manual action and resume
+with preflight and a native MCP read. Do not substitute UI automation or
+dispatch against an unverified runtime. This boundary applies to live app
+operation; isolated repository browser regression tests still follow `TESTING.md`.
+
 ## Why this process exists
 
 Authoring quality is not a list of independently measurable parts. A useful
@@ -225,31 +246,83 @@ For a comparison only:
 
 ### 3. Establish a trustworthy runtime
 
+After changing code, the agent must decide whether the running Hub can still be used.
+A changed source fingerprint, package version, executable hash, or build timestamp does
+not establish a breaking change and must not automatically invalidate a connection.
+
+Inspect the changes since the running version, focusing on messages, tool arguments and
+results, and connection or task-state semantics shared with the extension. If the old Hub
+can still serve the intended operation with the updated peers, reuse it. If a change makes
+those peers incompatible, refresh the affected runtime before continuing and bump the
+bridge protocol version when the shared contract requires upgrading together. Keep that
+version unchanged for compatible changes. If compatibility cannot be established from
+the available version and change evidence, refresh rather than assume it.
+
+State the reuse or refresh decision and its concrete reason in the existing preparation
+notes. This is agent judgment under this guide, not a new automated freshness gate.
+Compatibility also does not prove that new behavior is running: an evaluation of a Hub
+fix or feature must use a Hub that contains that change, even when it is backward compatible.
+
+Runtime records retain the actual process and fingerprint evidence. Preflight checks
+process presence, ownership of the identity record, the active extension checkout, and
+plugin identity; process/build timestamps are observations, not restart requirements.
+Run validation compares the observed extension fingerprint with the frozen preflight
+value and requires consistent Hub evidence. Existing protocol, message-schema, connection
+ownership, and stale-request checks remain enforced. The legacy `runtime.locked` field
+remains readable but is not required.
+
 Before every live dispatch:
 
-1. Build the affected packages and generate the development plugin when any
-   generator input changed:
+1. Build the affected packages when the change needs them and generate the
+   development plugin when a generator input changed:
 
    ```sh
    pnpm build
    pnpm agent-plugin:dev
    ```
 
-2. Replace the installed `tempad-dev-dev` plugin rather than assuming a fresh
-   task reloads it:
+2. When generated plugin content changed, replace the installed `tempad-dev-dev`
+   plugin through a supported native installation tool when the configured host exposes one. Otherwise use the
+   host's bundled CLI through the existing wrapper:
 
    ```sh
    pnpm agent-plugin:reinstall
    ```
 
-   This is the normal replacement path. Do not add `--restart-codex`
-   preemptively: it is a recovery option only after the plain command reports
-   that the Codex CDP endpoint is unavailable. A reachable endpoint with a
-   missing or ambiguous page target must be fixed without restarting Codex.
+   The script checks that the configured local marketplace points at this
+   checkout, runs `codex plugin add tempad-dev-dev@tempad-dev-dev`, and verifies
+   the installed, enabled version against the generated manifest. On macOS it
+   uses the configured desktop app's bundled CLI. Select the same host for
+   installation and preflight with `CODEX_APP_PATH` or `--app-path`.
 
-3. Reload the development browser extension and the intended Figma tab. Keep
-   one intended live Figma tab and file active.
-4. Confirm the extension is connected to the same checkout's Hub.
+   Plugin replacement requires neither an app restart nor remote debugging.
+   Do not pass `--restart-codex`, `--resume-after-restart`, `--cdp-url`, or
+   `--page-url`; these options are rejected. If the CLI is unavailable or the
+   marketplace points elsewhere, correct that reported mismatch and rerun the
+   command. Do not fall back to restarting Codex or automating its plugin UI.
+
+   Installation does not refresh existing MCP processes or task transports.
+   If the compatibility or evaluation decision above requires new code to run,
+   identify and stop only the affected checkout's TemPad processes,
+   then reconnect through the configured host to start them from the finished
+   build. A missing or partial runtime also requires reconnection. This may
+   close existing tasks' MCP transports; account for other live users before
+   replacing shared processes. A fresh task alone may still reuse the previous Hub.
+
+   When available on that same host, `config/mcpServer/reload` queues a refresh
+   for loaded tasks. Wait for replacement processes and verify the connection;
+   the API response alone is not readiness. Protocol support does not imply
+   the current task has a callable endpoint. Do not start a separate app-server
+   or helper MCP client to stand in for the host under evaluation. Use the
+   manual recovery boundary above if the host cannot be reached natively.
+
+3. When extension runtime code changed, reload it and the intended Figma tab through
+   a supported native interface, or request the manual reload under the
+   operational-tools rule above. Keep one intended live Figma tab and file active.
+4. Confirm the extension is connected to the same checkout's Hub, then make a
+   read-only native MCP call such as `list_design_sessions` through the
+   evaluator task's own connection. A connected extension badge or another
+   task's successful call does not prove this transport is usable.
 5. Start the run. This executes preflight, freezes the note, and appends both to
    the run log atomically:
 
@@ -275,6 +348,24 @@ pnpm agent-eval:preflight \
 On macOS, preflight queries the configured desktop app's bundled Codex CLI
 (`CODEX_APP_PATH` or `/Applications/ChatGPT.app` by default), so plugin identity
 comes from the host under evaluation rather than an unrelated `codex` on `PATH`.
+
+Any later runtime source edit, bundle rebuild, plugin replacement, or extension/
+tab reload invalidates the previous runtime proof. Repeat the refresh and
+connection checks before freezing a new run. Coordinate with tasks sharing the
+checkout so these changes wait until the live run ends. If the runtime changes
+during a run, stop treating it as evidence for one version and record the run
+as invalid; do not repair the runtime underneath the author and keep the old
+baseline.
+
+For `Transport closed`, stop retrying calls on that closed connection. Inspect
+the CLI/Hub logs and run preflight: replacing a CLI closes its task transport,
+while a fingerprint difference alone does not reject a compatible connection. Diagnose the
+observed cause rather than assuming the Figma tab disconnected. Correct any
+reported runtime mismatch, reconnect the affected task through the host, and
+require both a passing preflight and a successful native read. If that task's
+transport cannot be replaced, use a fresh task after the runtime is healthy.
+Do not automatically replay failed writes; establish whether they executed
+before deciding what to do with their page.
 
 Do not edit the frozen note. Abandon it with a plain reason if the run can no
 longer proceed:
@@ -315,8 +406,14 @@ pnpm agent-eval:log abandon \
    dispatch context. If the page, selection, or fixture is wrong, do not
    dispatch; recreate it on a fresh page or abandon the run.
 
-4. Create a new native Codex task from the main app window, using the frozen
-   model and reasoning effort. A task inherits the
+4. After runtime refresh and connection checks succeed, create a new native
+   Codex task through the host's task-management tool, using the frozen model
+   and reasoning effort. The new task loads the updated skills and tools; do
+   not reuse a task created before the last plugin or MCP runtime replacement as evidence for
+   that version. Preflight does not prove this new task's transport: its first
+   ordinary MCP invocation must receive a server response through its own
+   connection. Do not add a separate setup prompt to the frozen authoring
+   request. A task inherits the
    host's automatically invokable skill catalog. Before dispatch, remove an
    unintended overlap at its owning skill policy or use an isolated host
    profile; a broad auxiliary trigger that also matches Figma application work
@@ -614,9 +711,9 @@ repeats are justified when stochastic variation is the unresolved question;
 use a declared comparison under the existing prompt-identity rule rather than
 quietly repeating an open run.
 
-Keep the case archive and any retrospective analysis outside the distributed
-skill. The [September 2026 review](agent-authoring-review-2026-09.md) records
-one such analysis, its evidence limits, and provisional changes.
+Keep local run records, case archives, and retrospective analyses outside
+version control and the distributed skill. Repository documentation should
+retain reusable decisions, their rationale, and verification procedures.
 
 ## Finishing one evolution round
 

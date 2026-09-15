@@ -67,6 +67,26 @@ async function main(): Promise<void> {
 
   try {
     const extensionId = await resolveExtensionId(context)
+    // Exercise the installed manifest's storage permission in the real background worker.
+    const stored = await context.serviceWorkers()[0]!.evaluate(async () => {
+      const storage = Reflect.get(globalThis, 'chrome').storage.local
+      const key = 'tempad-feedback-storage-probe'
+      const draft = { items: [{ nodeId: 'probe-node', text: 'Persisted annotation' }] }
+      await storage.set({ [key]: draft })
+      const restored = await storage.get(key)
+      await storage.remove(key)
+      const removed = await storage.get(key)
+      return { restored: restored[key], removed: removed[key] ?? null }
+    })
+    assert.deepEqual(
+      stored,
+      {
+        restored: { items: [{ nodeId: 'probe-node', text: 'Persisted annotation' }] },
+        removed: null
+      },
+      'Extension-local annotation storage must support save, restore, and delete.'
+    )
+
     const page = await context.newPage()
     await page.goto(`chrome-extension://${extensionId}/plugin-sandbox.html`)
 

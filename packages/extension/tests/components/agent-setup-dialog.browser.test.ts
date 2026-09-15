@@ -73,9 +73,11 @@ describe('AgentSetupDialog', () => {
       width: 32,
       height: 32
     })
-    expect(host.textContent).toContain('Portable Agent Plugin')
+    expect(host.textContent).toContain('Agent Plugin')
     expect(host.textContent).toContain('Continue in Codex')
-    expect(getCode(host)).toContain(`${PLUGIN_INSTALL_COMMAND} --target codex`)
+    expect(getCode(host)).toContain(
+      'codex plugin marketplace add ecomfe/tempad-dev --ref main && codex plugin add tempad-dev@tempad-dev'
+    )
     expect(host.querySelector('[aria-label="Copy command"]')).not.toBeNull()
 
     const codeWell = host.querySelector<HTMLElement>('.tp-agent-dialog-code-well')
