@@ -1376,9 +1376,13 @@ describe('element feedback drafts', () => {
     expect(f.send).not.toHaveBeenCalled()
   })
 
-  it.each(['click', 'Enter'] as const)(
-    'steers guidance with Meta+%s and keeps the arrow on release',
-    async (action) => {
+  it.each(
+    ['Meta', 'Control'].flatMap((modifier) =>
+      ['click', 'Enter'].map((action) => ({ modifier, action }))
+    )
+  )(
+    'steers guidance with $modifier+$action and keeps the arrow on release',
+    async ({ modifier, action }) => {
       const f = fixture()
       f.send.mockImplementation(async (feedback) => {
         await f.store.recordSubmission(scope, feedback)
@@ -1389,12 +1393,17 @@ describe('element feedback drafts', () => {
       input.focus()
       const button = document.querySelector<HTMLButtonElement>('.tp-feedback-send')!
       expect(button.querySelector('svg')!.getAttribute('viewBox')).toBe('0 0 24 24')
-      await userEvent.keyboard('{Meta>}')
+      await userEvent.keyboard(`{${modifier}>}`)
       await expect.element(page.getByRole('button', { name: 'Steer comments' })).toBeEnabled()
       expect(button.querySelector('svg')!.getAttribute('viewBox')).toBe('0 0 24 24')
-      if (action === 'click') await page.getByRole('button', { name: 'Steer comments' }).click()
-      else await userEvent.keyboard('{Enter}')
-      await userEvent.keyboard('{/Meta}')
+      if (action === 'click' && modifier === 'Control') {
+        // macOS turns a native Ctrl-click into a context menu. Exercise the Windows
+        // primary-click event here; native Windows input still needs host verification.
+        button.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }))
+      } else if (action === 'click') {
+        await page.getByRole('button', { name: 'Steer comments' }).click()
+      } else await userEvent.keyboard('{Enter}')
+      await userEvent.keyboard(`{/${modifier}}`)
       await expect.poll(() => f.send.mock.calls.length).toBe(1)
       expect(f.send.mock.calls[0]![0]).toMatchObject({
         mode: 'steer',

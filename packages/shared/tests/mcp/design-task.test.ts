@@ -222,7 +222,7 @@ describe('design task contracts', () => {
     expect(parseBridgeToPageMessage({ ...result, payload, error })).toBeNull()
   })
 
-  it('identifies each element once in an ordered feedback batch without repeating navigation metadata', () => {
+  it('pairs comments with exact Figma links in marker order without a review template', () => {
     const feedback = DesignFeedbackSchema.parse({
       id: '77bf50b5-d652-4b94-9970-a537b6a32e1f',
       mode: 'queue',
@@ -251,29 +251,23 @@ describe('design task contracts', () => {
     const prompt = formatDesignFeedback(feedback)
     expect(prompt).toBe(
       [
-        '# Figma design review',
-        '## General comment\n\n> Use the same spacing rhythm throughout.',
-        '## Element comments',
-        '### 1. `"Heading"`',
-        '> Make this clearer',
-        'nodeId: `"1:2"` · pageId: `"page-1"`',
-        '### 2. `"Button"`',
-        '> Use more space',
-        'nodeId: `"2:3"` · pageId: `"page-2"`'
+        'Use the same spacing rhythm throughout.',
+        '1. [Heading](https://www.figma.com/design/file-1?node-id=1%3A2&page-id=page-1)',
+        '   Make this clearer',
+        '2. [Button](https://www.figma.com/design/file-1?node-id=2%3A3&page-id=page-2)',
+        '   Use more space'
       ].join('\n\n')
     )
     // Delivery timing and bookkeeping do not change the review's meaning or order.
-    expect(
-      formatDesignFeedback({ ...feedback, mode: 'steer', createdAt: 9999, fileKey: 'file-2' })
-    ).toBe(prompt)
+    expect(formatDesignFeedback({ ...feedback, mode: 'steer', createdAt: 9999 })).toBe(prompt)
     const elementsOnly = formatDesignFeedback({ ...feedback, comment: undefined })
-    expect(elementsOnly).not.toContain('## General comment')
-    expect(elementsOnly.slice(elementsOnly.indexOf('## Element comments'))).toBe(
-      prompt.slice(prompt.indexOf('## Element comments'))
-    )
+    expect(elementsOnly).toBe(prompt.slice(prompt.indexOf('1. [Heading]')))
+    expect(formatDesignFeedback({ ...feedback, fileKey: 'file-2' })).toContain('/design/file-2?')
+    expect(prompt).not.toContain('nodeId:')
+    expect(prompt).not.toContain('pageId:')
   })
 
-  it('keeps multiline comments and captured Markdown inside their original element', () => {
+  it('keeps captured names literal, URLs intact, and user Markdown inside its target list item', () => {
     const prompt = formatDesignFeedback(
       DesignFeedbackSchema.parse({
         id: '77bf50b5-d652-4b94-9970-a537b6a32e1f',
@@ -291,14 +285,56 @@ describe('design task contracts', () => {
         createdAt: 0
       })
     )
-    expect(prompt).toContain('### 1. `"Label\\u0060\\n## General comment"`')
+    expect(prompt).toContain('1. [Label\\` ## General comment](')
     expect(prompt).toContain(
-      '> 保留原文。\n> \n> ### 2. Another element\n> - Keep `code`\n> > nested quote'
+      '   保留原文。\n   \n   ### 2. Another element\n   - Keep `code`\n   > nested quote'
     )
     expect(prompt).not.toContain('\n### 2.')
     expect(prompt).not.toContain('\n## General comment')
     expect(prompt).not.toContain('file/with space)')
-    expect(prompt).toContain('nodeId: `"1:2?x#y"`')
+    const url = new URL(prompt.match(/\]\((https:[^)]+)\)/)![1]!)
+    expect(decodeURIComponent(url.pathname.split('/').at(-1)!)).toBe('file/with space)')
+    expect(url.searchParams.get('node-id')).toBe('1:2?x#y')
+    expect(url.searchParams.get('page-id')).toBe('page-1')
+  })
+
+  it('keeps complex Markdown and two-digit marker numbers scoped to the correct target', () => {
+    const comment = 'Keep **this** emphasis.\n\n```css\nwidth: 100%;\n```\n\n- First\n- Second'
+    const items = Array.from({ length: 12 }, (_, index) => ({
+      nodeId: `1:${index}`,
+      nodeName: index ? '[Same] <name> & `code`' : '',
+      pageId: `page-${index % 2}`,
+      text: comment,
+      createdAt: 0
+    }))
+    const prompt = formatDesignFeedback({
+      id: '77bf50b5-d652-4b94-9970-a537b6a32e1f',
+      mode: 'queue',
+      fileKey: 'file-1',
+      items,
+      comment: 'Keep **this** overall guidance.\n\n- Preserve the navigation.',
+      createdAt: 0
+    })
+    expect(prompt).toMatch(/^Keep \*\*this\*\* overall guidance\.\n\n- Preserve the navigation\./)
+    expect(prompt).toContain('1. [Unnamed element](')
+    expect(prompt).toContain('10. [\\[Same\\] \\<name\\> \\& \\`code\\`](')
+    const links = [...prompt.matchAll(/\]\((https:[^)]+)\)/g)].map((match) => new URL(match[1]!))
+    expect(links.map((url) => url.searchParams.get('node-id'))).toEqual(
+      items.map((item) => item.nodeId)
+    )
+    expect(links.map((url) => url.searchParams.get('page-id'))).toEqual(
+      items.map((item) => item.pageId)
+    )
+    const tenth = prompt.slice(prompt.indexOf('10. ['), prompt.indexOf('\n\n11. ['))
+    expect(
+      tenth
+        .split('\n\n')
+        .slice(1)
+        .join('\n\n')
+        .split('\n')
+        .map((line) => line.slice(4))
+        .join('\n')
+    ).toBe(comment)
   })
 
   it('allows overall guidance without element annotations while rejecting an empty message', () => {
@@ -313,9 +349,7 @@ describe('design task contracts', () => {
     const parsed = DesignFeedbackSchema.parse(feedback)
     expect(parsed.comment).toBe('Make the overall design calmer.')
     const prompt = formatDesignFeedback(parsed)
-    expect(prompt).not.toContain('File:')
-    expect(prompt).toContain('## General comment\n\n> Make the overall design calmer.')
-    expect(prompt).not.toContain('## Element comments')
+    expect(prompt).toBe('Make the overall design calmer.')
     for (const comment of [undefined, '', '   '])
       expect(DesignFeedbackSchema.safeParse({ ...feedback, comment }).success).toBe(false)
     const action = {

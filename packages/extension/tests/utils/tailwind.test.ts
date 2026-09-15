@@ -78,9 +78,53 @@ describe('utils/tailwind cssToTailwind', () => {
         '-ml-[4px]',
         'font-medium',
         'w-[calc(100%_-_24px)]',
-        'bg-[position:var(--pos)]'
+        'bg-(position:--pos)'
       ])
     )
+  })
+
+  it('uses Tailwind 4 variable shorthand across utility families and keeps type hints', () => {
+    expect(
+      cssToClassNames({
+        width: 'var(--size)',
+        color: 'var(--text-color)',
+        'font-size': 'var(--font-size)',
+        'background-color': 'var(--surface)',
+        'background-position': 'var(--position)',
+        'padding-left': 'var(--spacing_2)',
+        'padding-right': 'var(--spacing_2)',
+        'border-radius': 'var(--radius)',
+        'row-gap': 'var(--gap)',
+        'column-gap': 'var(--gap)',
+        'flex-grow': 'var(--grow)'
+      })
+    ).toEqual([
+      'w-(--size)',
+      'text-(color:--text-color)',
+      'text-(length:--font-size)',
+      'bg-(--surface)',
+      'bg-(position:--position)',
+      'px-(--spacing_2)',
+      'rounded-(--radius)',
+      'gap-(--gap)',
+      'grow-(--grow)'
+    ])
+  })
+
+  it('keeps expressions and mixed values in arbitrary-value syntax', () => {
+    expect(
+      cssToClassNames({
+        width: 'calc(var(--size) * 2)',
+        'background-image': 'linear-gradient(var(--start), var(--end))',
+        'font-family': 'var(--font), sans-serif',
+        height: '12px'
+      })
+    ).toEqual([
+      'w-[calc(var(--size)_*_2)]',
+      'bg-[linear-gradient(var(--start),_var(--end))]',
+      'font-[var(--font),sans-serif]',
+      'h-[12px]'
+    ])
   })
 
   it('maps shorthand and pseudo-related properties to canonical utilities', () => {
@@ -231,6 +275,19 @@ describe('utils/tailwind class extraction', () => {
 
     const unique = Array.from(new Set(classes))
     expect(classes).toEqual(unique)
+  })
+
+  it('uses variable shorthand within variants while keeping arbitrary properties intact', () => {
+    expect(
+      nestedCssToClassNames({
+        '&:hover': { color: 'var(--hover-color)' },
+        '&::before': { content: 'var(--label)', 'mask-image': 'var(--mask)' }
+      })
+    ).toEqual([
+      'hover:text-(color:--hover-color)',
+      'before:content-(--label)',
+      'before:[mask-image:var(--mask)]'
+    ])
   })
 
   it('skips empty arbitrary properties and invalid nested nodes', () => {

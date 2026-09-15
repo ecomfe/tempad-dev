@@ -40,6 +40,15 @@ describe('mcp/code tokens extract', () => {
     expect(extractTokenNames('rounded-2xl', new Set(['']))).toEqual(new Set())
   })
 
+  it('detects tokens in Tailwind 4 shorthand alongside expressions and arbitrary properties', () => {
+    const code =
+      '<div class="w-(--size) text-(color:--color) hover:bg-(--color-hover) w-[calc(var(--size)*2)] [mask-image:var(--mask)]" />'
+    const names = new Set(['--size', '--color', '--color-hover', '--mask'])
+    expect(extractTokenNames(code, names)).toEqual(names)
+    expect(extractTokenNames(code)).toEqual(names)
+    expect(createTokenMatcher(new Set(['--color']))('bg-(--color-hover)')).toBe(false)
+  })
+
   it('creates token matcher function with safe fallback', () => {
     const fallbackMatcher = createTokenMatcher()
     expect(fallbackMatcher('anything')).toBe(false)

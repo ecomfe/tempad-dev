@@ -328,27 +328,22 @@ export type DesignActionResult = z.infer<typeof DesignActionResultSchema>
 export type ResumeDesignParameters = z.infer<typeof ResumeDesignParametersSchema>
 
 export function formatDesignFeedback(feedback: DesignFeedback): string {
-  // Quote every line so Markdown in a comment cannot become another item's heading.
-  const quote = (text: string) =>
-    text
+  // Names are captured context; comments are the user's own Markdown.
+  const label = (text: string) => text.replace(/\r\n|\r|\n/g, ' ').replace(/[\\[\]`*_<>&]/g, '\\$&')
+  const encode = (text: string) =>
+    encodeURIComponent(text).replace(
+      /[!'()*]/g,
+      (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+    )
+  const sections = feedback.comment ? [feedback.comment] : []
+  feedback.items.forEach((item, index) => {
+    const prefix = `${index + 1}. `
+    const url = `https://www.figma.com/design/${encode(feedback.fileKey)}?node-id=${encode(item.nodeId)}&page-id=${encode(item.pageId)}`
+    const comment = item.text
       .split(/\r\n|\r|\n/)
-      .map((line) => `> ${line}`)
+      .map((line) => `${' '.repeat(prefix.length)}${line}`)
       .join('\n')
-  // Captured names remain literal context, including newlines and code delimiters.
-  const literal = (text: string) => `\`${JSON.stringify(text).replace(/`/g, '\\u0060')}\``
-  const sections = ['# Figma design review']
-  if (feedback.comment) sections.push(`## General comment\n\n${quote(feedback.comment)}`)
-  if (feedback.items.length) {
-    sections.push('## Element comments')
-    feedback.items.forEach((item, index) => {
-      sections.push(
-        [
-          `### ${index + 1}. ${literal(item.nodeName)}`,
-          quote(item.text),
-          `nodeId: ${literal(item.nodeId)} · pageId: ${literal(item.pageId)}`
-        ].join('\n\n')
-      )
-    })
-  }
+    sections.push(`${prefix}[${label(item.nodeName) || 'Unnamed element'}](${url})\n\n${comment}`)
+  })
   return sections.join('\n\n')
 }
