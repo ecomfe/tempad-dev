@@ -5,6 +5,7 @@ import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 type Message = Record<string, unknown>
+const WINDOWS_PIPE = String.raw`\\.\pipe\codex-ipc`
 export class CodexIpcError extends Error {
   constructor(
     message: string,
@@ -23,7 +24,8 @@ export class CodexDiscoveryError extends CodexIpcError {
 }
 
 export function codexSocketPaths(env: NodeJS.ProcessEnv = process.env): string[] {
-  if (process.platform === 'win32' || !process.getuid) return []
+  if (process.platform === 'win32') return [WINDOWS_PIPE]
+  if (!process.getuid) return []
   const uid = process.getuid()
   return [
     join(env.CODEX_HOME || join(homedir(), '.codex'), 'ipc', 'ipc.sock'),
@@ -31,8 +33,11 @@ export function codexSocketPaths(env: NodeJS.ProcessEnv = process.env): string[]
   ]
 }
 
-/** Only attach to existing, current-user sockets. Never launch or repair the host. */
+/** Use the host's fixed local pipe or existing current-user Unix sockets. */
 async function trustedSocket(path: string): Promise<boolean> {
+  // Named pipes have no filesystem inode/uid. Windows enforces pipe access on connect;
+  // accept only the host's local name, never a remote pipe or an arbitrary endpoint.
+  if (process.platform === 'win32') return path === WINDOWS_PIPE
   try {
     const [socket, parent] = await Promise.all([lstat(path), lstat(dirname(path))])
     const uid = process.getuid?.()

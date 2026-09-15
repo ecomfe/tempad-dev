@@ -56,10 +56,14 @@ claude plugin install tempad-dev@tempad-dev
 并启用 **MCP access**。启用后，只要当前 Figma Design 文件可编辑，即可进行画布创作。
 
 评论目前仅支持通过 Codex App 的原生会话通道发送，不再通过 hooks 注入。目标会话忙碌时，
-评论会等待当前回复结束；投递失败时保留草稿。Claude、Codex CLI 等尚未接入原生投递的
+默认 Queue 会等待当前回复结束；按住 Command 或 Ctrl 发送则使用 Steer，将评论追加到正在执行的回复，
+空闲时直接开始新回复。投递失败时保留草稿。Claude、Codex CLI 等尚未接入原生投递的
 客户端暂不显示评论入口，已有草稿不会删除。Codex App 的任务绑定和状态同步也不依赖 hooks。
 Figma Stop 会立即取消当前设计任务，并请求中断对应的 Codex 回合；即使宿主断线，旧任务也不能继续修改画布。
 Claude 保留任务绑定、生命周期和 Stop 通知 hooks。
+
+原生适配器在 macOS/Linux 上使用 Unix socket，在 Windows 上使用 Codex 的本机 Named Pipe。
+Windows 连接适配已覆盖自动化回归测试，仍需使用 Windows 原生 Codex App 实机验证。
 
 ## 升级
 

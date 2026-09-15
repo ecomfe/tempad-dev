@@ -328,7 +328,7 @@ export class AgentClients {
       }
       if (action.action === 'steer') {
         throw new Error(
-          'Steer is not available through native delivery yet. Queued comments will wait for the current response to finish.'
+          'Switching an already queued batch to Steer is not available. Queued comments will wait for the current response to finish.'
         )
       }
       if (!binding || !action.feedback) throw new Error(CANVAS_ONLY.reason)

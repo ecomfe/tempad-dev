@@ -159,15 +159,25 @@ turn is still active; it cannot stop a newer turn. The response must identify th
 owner and interrupted turn, or confirm that the turn has ended. Failure to confirm host
 interruption does not undo the local write fence. There is no hook fallback.
 
-### Native Codex Queue
+### Codex feedback: Hub Queue and native Steer
+
+Queue currently waits in the TemPad Hub, then delivers through native IPC. It does
+not admit messages into Codex's own queue. The host also exposes a native queue
+state interface, but TemPad has not integrated it. See
+[Codex desktop IPC research](../engineering/codex-desktop-ipc.md#native-queues)
+for its replacement semantics, input restrictions, and the separate app-server queue.
 
 The adapter discovers existing current-user Unix sockets under Codex home or the host's
-temporary directory. It identifies itself as `tempad-dev`, discovers the exact conversation
-owner, and requires `supportsUntrustedAppInput`. It does not alter host/model/approval settings.
+temporary directory. On Windows it connects to the host's fixed local named pipe,
+`\\.\pipe\codex-ipc`, using Windows pipe access control instead of Unix inode checks.
+Remote and arbitrary pipe names are rejected. It identifies itself as `tempad-dev`, discovers
+the exact conversation owner, and requires `supportsUntrustedAppInput`. It does not alter
+host/model/approval settings.
 
-Only an explicit submission can load an absent conversation: on macOS an exact
-`no-client-found` response opens its `codex://threads/<id>` link, then retries discovery
-for up to five seconds. Capability polls never navigate. Other failures retain drafts and
+Only an explicit submission can load an absent conversation: on macOS or Windows an exact
+`no-client-found` response opens its `codex://threads/<id>` link through the registered OS
+handler, then retries discovery for up to five seconds. Capability polls never navigate.
+Other failures retain drafts and
 return their error. Stop, Done, and replacement are checked again before dispatch.
 Submission discovery allows the host router's ten-second client-discovery window to finish
 before deciding that the conversation is absent; capability polls keep a short timeout.
@@ -182,19 +192,27 @@ known pre-creation rejection is retried with cancellation checks for at most fiv
 other uncertain failures are not replayed. Queued submissions preserve insertion order.
 An explicit Steer submission uses this same start path for an idle conversation.
 The host's pre-creation guard decides whether it is idle;
-the design task's status is not a substitute for conversation state. A busy rejection fails
-immediately with drafts retained, and Steer never waits behind a pending native delivery.
-Native active-turn Steer and queued-batch Steer promotion remain unavailable.
+the design task's status is not a substitute for conversation state. After a known busy
+rejection, Steer calls `thread-follower-steer-turn` v1 on that same owner, retaining the
+receipt and user-message identity. The review remains user input; the task ID is separate
+untrusted additional context. The owner selects the active turn and applies its native
+turn-ID precondition. Its acknowledgement must name the owner and the steered turn.
+If the active turn ends before delivery, drafts remain available for an explicit retry;
+uncertain delivery is never replayed. Steer never waits behind a pending native delivery.
+Switching an already queued batch to Steer remains unavailable.
 Comments never fall back to hooks.
 
 Before sending, a durable receipt reserves conversation/file/comment identity. Only the
 selected owner's acknowledgement with a turn ID confirms delivery. Pending, disconnected,
 timed-out, or incompatible acknowledgements retain drafts and prevent duplicate submission,
 including across Hub restarts. Receipts retain content hashes and turn IDs, not comment text.
-Starting the feedback turn confirms delivery, not completion of design changes.
+Acknowledgement confirms delivery, not completion of design changes.
 
-The private protocol was inspected against Codex App 26.908.40834. Incompatible or
-unavailable hosts keep drafts until native delivery becomes available. Fixtures alone
+The private protocol was inspected against Codex App 26.908.70816, and the busy-owner
+Steer path was verified against that macOS host. Windows endpoint selection, handshake,
+URL loading, and rejection of unexpected pipe names have regression coverage; native
+Windows host verification is still required. Incompatible or unavailable hosts keep drafts
+until native delivery becomes available. Fixtures alone
 cannot establish support across host versions or platforms.
 
 ## Canvas controls and comments
@@ -232,8 +250,8 @@ closing restores it. Delete renumbers remaining comments. The status count inclu
 element comments only; a general comment has no marker and can be sent alone.
 
 - Save persists an element draft without sending. Enter saves; Shift+Enter inserts a newline.
-- Enter in the general composer queues the batch. Meta+Enter or Meta+click saves current
-  guidance and requests Steer for the whole batch, without falling back to Queue. IME
+- Enter in the general composer queues the batch. Command/Ctrl+Enter or Command/Ctrl+click
+  saves current guidance and requests Steer for the whole batch, without falling back to Queue. IME
   confirmation never submits.
 - Escape discards the current element edit without deleting its saved comment. An unchanged
   editor closes on outside click; an unsaved edit first signals a warning, then a second
@@ -284,27 +302,49 @@ Limits are 20 element comments, 8,000 characters per comment, and 32,000 total p
 
 ## Delivered review
 
-One review contains an optional general comment and numbered element comments in marker
-order. File identity is bound and validated by the task runtime, so the review does not
-repeat it. Each heading gives the captured name, followed by the user's
-wording and paragraph structure as a blockquote and one line with `nodeId` and `pageId`.
-Names are literal quoted strings; node IDs identify targets within the bound file. The page ID allows
-`get_structure` to load a target page when necessary. Page names and containing-frame
-metadata remain in stored drafts for UI context but are omitted from the review, along
-with redundant navigation links.
-Do not sort or regroup comments. Batch IDs, timestamps, and transport details stay out of
-the delivered prose.
+Feedback is a follow-up instruction with a target, not a generated report. Preserve the
+user's words, identify each target exactly, and keep delivery bookkeeping outside the prose.
+A general-only comment is sent verbatim. When elements are included, append a numbered
+Markdown list in marker order. Each item has one link using the captured element name and
+then the user's comment, indented as the list item's body. User lists, emphasis, code blocks,
+and paragraphs remain Markdown; comments are not wrapped in blockquotes.
+
+For example:
+
+```markdown
+Make the overall layout more compact.
+
+1. [Heading](https://www.figma.com/design/FILE?node-id=1%3A2&page-id=0%3A1)
+
+   Increase the contrast.
+
+2. [Button](https://www.figma.com/design/FILE?node-id=1%3A3&page-id=0%3A1)
+
+   Keep the label on one line.
+```
+
+The link carries the exact file, node, and page identities, including the page ID needed
+for an unloaded page. Captured names are escaped link labels, not instructions or matching
+keys. Page names and containing-frame metadata remain in drafts for UI context. Do not add
+a review title, category headings, separate ID lines, batch IDs, timestamps, or instructions
+about how to acknowledge each comment. Do not sort or regroup comments.
+
+Codex App 26.908.70816's native response annotations represent text selected from an earlier
+assistant message. Their source consists of a message ID and text offsets; there is no
+Figma-node source in that contract. Reusing its envelope would describe the wrong source
+and add annotation-reply directives without providing native Figma navigation. Use ordinary
+feedback and real Figma links instead. This limitation concerns response annotations, not
+the native Queue and Steer transports.
 
 General guidance applies to the task's design region; each element comment applies to its
 captured target in that context. Read the whole review before editing. Scope does not
 establish priority: conflicting requests need clarification. Reread exact targets and report
 missing nodes by number rather than matching names or substituting the current selection.
-Native delivery sends the review directly as the user message, with only the original task ID
-in tool context. Hooks never carry the review. A conversation can own
-multiple design tasks, so recovery must identify the task that received these comments.
-Task lifecycle rules remain in server instructions, the authoring skill, and runtime guards;
-each batch does not repeat them. Captured names remain quoted data in the review.
-Queue/Steer changes timing only.
+Native delivery sends the same review body through Queue and Steer, with the original task ID
+in separate context. Hooks never carry the review. A conversation can own multiple design
+tasks, so recovery must identify the task that received these comments. Task lifecycle rules
+remain in server instructions, the authoring skill, and runtime guards; each batch does not
+repeat them. Queue/Steer changes timing only.
 
 This follows [GitHub's batch review model](https://docs.github.com/en/pull-requests/get-started/reviewing-pull-requests-quickstart),
 [Figma's exact comment targets](https://developers.figma.com/docs/rest-api/comments-types/), and

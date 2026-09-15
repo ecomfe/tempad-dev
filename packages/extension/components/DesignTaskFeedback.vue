@@ -156,11 +156,21 @@ const draftsBusy = computed(
   () => deliveryPending.value || fading.value || persisting.value || loading.value || clearing.value
 )
 const busy = computed(() => draftsBusy.value || commentSaving.value)
-const metaPressed = shallowRef(false)
-useEventListener(window, 'keydown', (event) => (metaPressed.value = event.metaKey), {
-  capture: true
-})
-useEventListener(window, 'keyup', (event) => (metaPressed.value = event.metaKey), { capture: true })
+const steerPressed = shallowRef(false)
+useEventListener(
+  window,
+  'keydown',
+  (event) => (steerPressed.value = event.metaKey || event.ctrlKey),
+  {
+    capture: true
+  }
+)
+useEventListener(
+  window,
+  'keyup',
+  (event) => (steerPressed.value = event.metaKey || event.ctrlKey),
+  { capture: true }
+)
 const suppressedNode = shallowRef<string | null>(null)
 let selectedNodeId: string | null = null
 const hoveredMarker = shallowRef<string | null>(null)
@@ -189,7 +199,7 @@ const commentsEnabled = computed(
 const canDraft = computed(() => commentsEnabled.value && !!scope.value && !!props.requestDrafts)
 
 useEventListener(window, 'blur', () => {
-  metaPressed.value = false
+  steerPressed.value = false
   pointer = null
   hoveredMarker.value = null
 })
@@ -202,9 +212,11 @@ const submissionBlockedHint = computed(() => {
   if (!hasContent.value) return 'Add a comment first.'
   return ''
 })
-const batchMode = computed(() => (metaPressed.value && hasContent.value ? 'steer' : 'queue'))
+const batchMode = computed(() => (steerPressed.value && hasContent.value ? 'steer' : 'queue'))
 const hasEditorContent = computed(() => !!editorText.value.trim())
-const editorMode = computed(() => (metaPressed.value && hasEditorContent.value ? 'steer' : 'queue'))
+const editorMode = computed(() =>
+  steerPressed.value && hasEditorContent.value ? 'steer' : 'queue'
+)
 const requestError = shallowRef('')
 watch(
   [editorError, commentError, requestError],
@@ -433,7 +445,7 @@ function openEditor(marker: Pick<Marker, 'node' | 'nodeId'>): void {
 
 async function submitEditor(mode: DesignFeedback['mode']): Promise<void> {
   if (!hasEditorContent.value || submitting.value || deliveryPending.value) return
-  const immediate = metaPressed.value
+  const immediate = steerPressed.value
   const target = editor.value
   const token = generation
   submitting.value = 'editor'
@@ -1147,10 +1159,10 @@ onScopeDispose(() => {
             <IconButton
               class="tp-feedback-submit"
               type="submit"
-              :aria-label="metaPressed && hasEditorContent ? 'Steer comments' : 'Save comment'"
+              :aria-label="steerPressed && hasEditorContent ? 'Steer comments' : 'Save comment'"
               :aria-busy="submitting === 'editor'"
               :disabled="!hasEditorContent"
-              ><ArrowUp v-if="metaPressed && hasEditorContent" /><Check
+              ><ArrowUp v-if="steerPressed && hasEditorContent" /><Check
                 v-else
                 class="tp-feedback-check"
             /></IconButton>
