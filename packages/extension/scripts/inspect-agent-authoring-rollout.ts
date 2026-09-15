@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
-import { inspectAgentRunIdentity } from './inspect-agent-run-identity'
+import { decodeXmlText, inspectAgentRunIdentity } from './inspect-agent-run-identity'
 
 interface NodeLimitAttempt {
   limit: number
@@ -97,7 +97,7 @@ interface TimedInterval {
   endMs: number
 }
 
-interface CustomCallEvent {
+interface CallEvent {
   input: string
   name: string
   timestampMs: number | null
@@ -210,29 +210,17 @@ function applyEvents(parsedRows: unknown[]): ApplyEvent[] {
   })
 }
 
-function customCallEvents(parsedRows: unknown[]): CustomCallEvent[] {
+function toolCallEvents(
+  parsedRows: unknown[],
+  type: 'custom_tool_call' | 'function_call'
+): CallEvent[] {
   return parsedRows.flatMap((row) => {
     if (get(row, 'type') !== 'response_item') return []
     const payload = get(row, 'payload')
-    if (get(payload, 'type') !== 'custom_tool_call') return []
+    if (get(payload, 'type') !== type) return []
     return [
       {
-        input: stringify(get(payload, 'input')),
-        name: typeof get(payload, 'name') === 'string' ? String(get(payload, 'name')) : '<unknown>',
-        timestampMs: timestampMs(get(row, 'timestamp'))
-      }
-    ]
-  })
-}
-
-function functionCallEvents(parsedRows: unknown[]): CustomCallEvent[] {
-  return parsedRows.flatMap((row) => {
-    if (get(row, 'type') !== 'response_item') return []
-    const payload = get(row, 'payload')
-    if (get(payload, 'type') !== 'function_call') return []
-    return [
-      {
-        input: stringify(get(payload, 'arguments')),
+        input: stringify(get(payload, type === 'custom_tool_call' ? 'input' : 'arguments')),
         name: typeof get(payload, 'name') === 'string' ? String(get(payload, 'name')) : '<unknown>',
         timestampMs: timestampMs(get(row, 'timestamp'))
       }
@@ -320,25 +308,6 @@ function createThreadOutputText(row: unknown): string | null {
 
 function normalizePrompt(value: string): string {
   return value.trim().replaceAll(/\s+/g, ' ')
-}
-
-function decodeXmlText(value: string): string {
-  return value
-    .replaceAll(/&#(x[0-9a-f]+|\d+);/gi, (entity, code: string) => {
-      const point = code.toLowerCase().startsWith('x')
-        ? Number.parseInt(code.slice(1), 16)
-        : Number.parseInt(code, 10)
-      try {
-        return String.fromCodePoint(point)
-      } catch {
-        return entity
-      }
-    })
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&apos;', "'")
-    .replaceAll('&amp;', '&')
 }
 
 function extractPrompt(parsedRows: unknown[]): string | null {
@@ -462,10 +431,6 @@ function completedToolIntervals(parsedRows: unknown[]): TimedInterval[] {
   })
 }
 
-function resultText(event: ApplyEvent): string {
-  return stringify(event.result)
-}
-
 function markup(event: ApplyEvent): string {
   const value = get(event.arguments, 'markup')
   return typeof value === 'string' ? value : ''
@@ -474,8 +439,10 @@ function markup(event: ApplyEvent): string {
 export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutInspection {
   const parsedRows = rows(rolloutJsonl)
   const applies = applyEvents(parsedRows)
-  const customCalls = customCallEvents(parsedRows)
-  const callEvents = [...customCalls, ...functionCallEvents(parsedRows)]
+  const callEvents = [
+    ...toolCallEvents(parsedRows, 'custom_tool_call'),
+    ...toolCallEvents(parsedRows, 'function_call')
+  ]
   const callInputs = callEvents.map(({ input }) => input)
   const commandInputs = commandExecutionInputs(parsedRows)
   const completedTools = completedToolEvents(parsedRows)
@@ -555,7 +522,7 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
   let instanceBindingCalls = 0
 
   for (const event of applies) {
-    const output = resultText(event)
+    const output = stringify(event.result)
     const failed = event.status === 'failed' || get(event.result, 'isError') === true
     if (failed) failures += 1
     const failureCode = output.match(/failed \[([A-Z][A-Z0-9_]*)\]/)?.[1]

@@ -38,6 +38,7 @@ jobs:
           pnpm agent-plugin:dev &&
           test -z "$(git status --porcelain --untracked-files=all --
           agent-plugins/tempad-dev
+          agent-plugins/tempad-dev-native
           .agents/plugins/marketplace.json
           .claude-plugin/marketplace.json)"
 

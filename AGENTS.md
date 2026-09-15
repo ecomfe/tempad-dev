@@ -34,6 +34,8 @@ default authority unless a routed document says otherwise.
   commit, use Conventional Commits.
 - Keep pull request descriptions concise. Do not add a validation section unless
   explicitly requested.
+- Write repository documentation in English. Public Chinese documentation uses
+  the `.zh-Hans.md` suffix.
 
 ## Agent plugin invariants
 
@@ -46,7 +48,11 @@ default authority unless a routed document says otherwise.
   `pnpm agent-plugin:dev` synchronizes client compatibility wrappers, the copied
   design-to-code skill, derived icons, and shared marketplace metadata; do not
   hand-edit those derived fields or copies.
-- `.dev/plugins/tempad-dev-dev/` is the ignored local build. Generate it with
+- `agent-plugins/tempad-dev-native/` is the generated native marketplace package for
+  Codex and Claude. It intentionally omits the portable root manifests to use each
+  host's native marketplace layout. Keep editing `agent-plugins/tempad-dev/` and
+  regenerate; never edit the native package directly.
+- `.dev/plugins/tempad-dev-dev/` is the ignored local native build. Generate it with
   `pnpm agent-plugin:dev`; never edit it directly.
 - Run `pnpm agent-plugin:dev` after a change to any generator input, inspect all
   tracked synchronized outputs, and include the intended release-source changes.
@@ -55,6 +61,22 @@ default authority unless a routed document says otherwise.
   launch the same working-tree MCP runtime.
 - Release MCP configuration must use `@tempad-dev/mcp@latest`, never an alpha
   tag, fixed version, or local path.
+- Host integration must require only the normal TemPad Dev extension setup and
+  installation of the host plugin, including any host-required trust prompts.
+  The plugin/runtime owns connection discovery, conversation binding, and
+  reconnection. Manual control endpoints, environment edits, helper launches, or
+  agent instructions to configure the connection do not satisfy this requirement.
+  Do not claim full host support until feedback and host controls work through
+  that installation path against the actual host.
+- Codex App uses MCP request metadata and native IPC for task identity, lifecycle,
+  comments, and interruption; do not register Codex hooks or add a hook fallback.
+  Claude may use installed hooks for lifecycle and Stop notices only.
+  Deliver comments through verified native conversation channels, never hooks. Clients
+  without native delivery do not expose feedback controls. Stop permanently cancels the current task independently of
+  host interruption and keeps its old lease fenced across ordinary reconnects.
+  Respect Stop without automatically replacing the task. Further design work may
+  explicitly begin a fresh task when necessary or requested by the user; no separate
+  Figma unlock or new user turn is required.
 - Before preparing, running, reviewing, or asking the user to test an end-to-end
   Figma authoring task, read `docs/testing/agent-authoring-evolution.md`. It is
   the sole detailed runbook for runtime refresh, plugin replacement, clean-task

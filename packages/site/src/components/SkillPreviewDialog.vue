@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ArrowLeft, ChevronDown, X } from 'lucide-vue-next'
+import { ArrowLeft, FileText, X } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
-import SkillFileSelect from '@/components/SkillFileSelect.vue'
+import SkillMetadata from '@/components/SkillMetadata.vue'
+import SkillSelect from '@/components/SkillSelect.vue'
 import { createSiteScrollbar, setPageScrollLocked, vScrollbar } from '@/composables/scrollbar'
 
 import canvasSkillPreview from '../../../../agent-plugins/tempad-dev/skills/figma-canvas-authoring/SKILL.md?skill-preview'
@@ -21,7 +22,6 @@ const dialogRef = ref<HTMLDialogElement | null>(null)
 const closeButtonRef = ref<HTMLButtonElement | null>(null)
 const mobileCloseButtonRef = ref<HTMLButtonElement | null>(null)
 const articleRef = ref<HTMLElement | null>(null)
-const isSidebarOpen = ref(false)
 
 let previousFocusTarget: HTMLElement | null = null
 const skillPackage = computed(() =>
@@ -35,11 +35,16 @@ const skillPreviewMeta = computed(
     skillPackage.value.files[0]!
 )
 const skillFiles = computed(() =>
-  [...skillPackage.value.files].sort((a, b) => {
-    if (a.path === skillPackage.value.entry) return -1
-    if (b.path === skillPackage.value.entry) return 1
-    return a.path.localeCompare(b.path)
-  })
+  [...skillPackage.value.files]
+    .sort((a, b) => {
+      if (a.path === skillPackage.value.entry) return -1
+      if (b.path === skillPackage.value.entry) return 1
+      return a.path.localeCompare(b.path)
+    })
+    .map(({ path }) => ({ value: path, label: path }))
+)
+const headingOptions = computed(() =>
+  skillPreviewMeta.value.toc.map(({ id, text }) => ({ value: id, label: text }))
 )
 
 watch([() => props.skill, () => props.open], () => {
@@ -71,7 +76,6 @@ watch(
 const hasSidebar = computed(
   () => skillPreviewMeta.value.metadataEntries.length > 0 || skillPreviewMeta.value.toc.length > 0
 )
-const mobileToggleText = 'Contents'
 
 watch(
   [() => props.open, dialogRef],
@@ -82,7 +86,6 @@ watch(
 
     if (open) {
       lockRootScroll()
-      isSidebarOpen.value = false
       previousFocusTarget =
         typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
           ? document.activeElement
@@ -106,7 +109,6 @@ watch(
     }
 
     unlockRootScroll()
-    isSidebarOpen.value = false
 
     if (dialog.open) {
       dialog.close()
@@ -179,7 +181,10 @@ function handleCancel(event: Event): void {
 function scrollToHeading(anchor: string): void {
   const id = decodeURIComponent(anchor.replace(/^#/, ''))
   const target = articleRef.value?.querySelector<HTMLElement>(`#${CSS.escape(id)}`)
-  target?.scrollIntoView({ block: 'start', behavior: 'auto' })
+  target?.scrollIntoView({
+    block: 'start',
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'
+  })
 }
 
 async function openFile(path: string, anchor = ''): Promise<void> {
@@ -188,7 +193,6 @@ async function openFile(path: string, anchor = ''): Promise<void> {
     fileHistory.value.push({ path: activePath.value, scrollTop: articleRef.value?.scrollTop ?? 0 })
     activePath.value = path
   }
-  isSidebarOpen.value = false
   await nextTick()
   articleRef.value?.focus({ preventScroll: true })
   if (anchor) scrollToHeading(anchor)
@@ -199,7 +203,6 @@ async function goBack(): Promise<void> {
   const previous = fileHistory.value.pop()
   if (!previous) return
   activePath.value = previous.path
-  isSidebarOpen.value = false
   await nextTick()
   articleRef.value?.focus({ preventScroll: true })
   if (articleRef.value) articleRef.value.scrollTop = previous.scrollTop
@@ -219,7 +222,11 @@ function handleDocumentClick(event: MouseEvent): void {
 function handleTocClick(id: string, event: MouseEvent): void {
   event.preventDefault()
   scrollToHeading(id)
-  if (window.matchMedia('(max-width: 900px)').matches) isSidebarOpen.value = false
+}
+
+function selectHeading(id: string): void {
+  scrollToHeading(id)
+  articleRef.value?.focus({ preventScroll: true })
 }
 </script>
 
@@ -243,23 +250,16 @@ function handleTocClick(id: string, event: MouseEvent): void {
           <X aria-hidden="true" />
         </button>
 
-        <div
-          class="site-skill-dialog-body"
-          :class="{ 'has-sidebar': hasSidebar, 'is-sidebar-open': isSidebarOpen }"
-        >
-          <div class="site-skill-dialog-mobile-bar">
-            <button
-              v-if="hasSidebar"
-              type="button"
-              class="site-skill-dialog-mobile-toggle"
-              :aria-expanded="isSidebarOpen"
-              aria-controls="skill-preview-sidebar"
-              @click="isSidebarOpen = !isSidebarOpen"
-            >
-              <span class="site-skill-dialog-mobile-toggle-text">{{ mobileToggleText }}</span>
-              <ChevronDown aria-hidden="true" class="site-skill-dialog-mobile-toggle-icon" />
-            </button>
-
+        <div class="site-skill-dialog-body" :class="{ 'has-sidebar': hasSidebar }">
+          <div class="site-skill-dialog-file-selector">
+            <SkillSelect
+              label="Files"
+              :model-value="activePath"
+              :options="skillFiles"
+              :icon="FileText"
+              monospace
+              @update:model-value="openFile"
+            />
             <button
               ref="mobileCloseButtonRef"
               type="button"
@@ -271,12 +271,17 @@ function handleTocClick(id: string, event: MouseEvent): void {
             </button>
           </div>
 
-          <div class="site-skill-dialog-file-selector">
-            <SkillFileSelect
-              :model-value="activePath"
-              :files="skillFiles"
-              @update:model-value="openFile"
-            />
+          <div v-if="hasSidebar" class="site-skill-dialog-mobile-bar">
+            <SkillSelect
+              label="Contents"
+              model-value=""
+              :options="headingOptions"
+              @update:model-value="selectHeading"
+            >
+              <template v-if="skillPreviewMeta.metadataEntries.length" #details>
+                <SkillMetadata :entries="skillPreviewMeta.metadataEntries" />
+              </template>
+            </SkillSelect>
           </div>
 
           <div v-if="hasSidebar" class="site-skill-dialog-sidebar-shell">
@@ -309,16 +314,7 @@ function handleTocClick(id: string, event: MouseEvent): void {
                 class="site-skill-dialog-sidebar-section"
                 aria-label="Metadata"
               >
-                <dl class="site-skill-dialog-meta">
-                  <div
-                    v-for="entry in skillPreviewMeta.metadataEntries"
-                    :key="entry.key"
-                    class="site-skill-dialog-meta-row"
-                  >
-                    <dt>{{ entry.key }}</dt>
-                    <dd>{{ entry.value }}</dd>
-                  </div>
-                </dl>
+                <SkillMetadata :entries="skillPreviewMeta.metadataEntries" />
               </section>
             </aside>
           </div>
@@ -440,57 +436,6 @@ html.dark .site-skill-dialog-shell {
   display: none;
 }
 
-.site-skill-dialog-mobile-toggle {
-  appearance: none;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
-  min-width: 0;
-  min-height: 40px;
-  padding: 0 12px;
-  border: 1px solid color-mix(in srgb, var(--site-line) 88%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--site-surface) 80%, transparent);
-  color: var(--site-text);
-  text-align: left;
-  transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    color 160ms ease;
-}
-
-.site-skill-dialog-mobile-toggle:hover {
-  border-color: color-mix(in srgb, var(--site-line) 62%, transparent);
-  background: color-mix(in srgb, var(--site-toggle-button-hover) 92%, transparent);
-}
-
-.site-skill-dialog-mobile-toggle:focus-visible {
-  outline: none;
-  border-color: color-mix(in srgb, var(--site-accent) 36%, var(--site-line));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--site-accent) 14%, transparent);
-}
-
-.site-skill-dialog-mobile-toggle-text {
-  overflow: hidden;
-  font-size: 0.84rem;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.site-skill-dialog-mobile-toggle-icon {
-  margin-left: auto;
-  width: 16px;
-  height: 16px;
-  color: var(--site-text-soft);
-  transition: transform 180ms ease;
-}
-
-.site-skill-dialog-body.is-sidebar-open .site-skill-dialog-mobile-toggle-icon {
-  transform: rotate(180deg);
-}
-
 .site-skill-dialog-sidebar-shell {
   grid-area: sidebar;
   min-height: 0;
@@ -535,45 +480,6 @@ html.dark .site-skill-dialog-sidebar {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.site-skill-dialog-meta {
-  display: grid;
-  gap: 0;
-  margin: 0;
-}
-
-.site-skill-dialog-meta-row {
-  display: grid;
-  gap: 6px;
-  padding: 12px 0;
-}
-
-.site-skill-dialog-meta-row:first-child {
-  padding-top: 0;
-}
-
-.site-skill-dialog-meta-row:last-child {
-  padding-bottom: 0;
-  border-bottom: none;
-}
-
-.site-skill-dialog-meta-row dt {
-  color: var(--site-text-soft);
-  font-family: var(--site-font-mono);
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.site-skill-dialog-meta-row dd {
-  margin: 0;
-  color: var(--site-text);
-  font-size: 0.78rem;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .site-skill-dialog-toc-list {
@@ -814,22 +720,26 @@ html.dark .site-skill-dialog-sidebar {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto minmax(0, 1fr);
     grid-template-areas:
-      'mobilebar'
       'files'
+      'mobilebar'
       'content';
   }
 
   .site-skill-dialog-file-selector {
-    padding: 12px 20px;
+    padding: 14px 74px 12px 18px;
+    border-bottom: 0;
   }
 
   .site-skill-dialog-mobile-bar {
+    position: relative;
+    z-index: 2;
     display: flex;
     align-items: center;
     justify-content: flex-end;
     gap: 12px;
     grid-area: mobilebar;
-    padding: 16px 20px 0;
+    padding: 0 74px 14px 18px;
+    border-bottom: 1px solid var(--site-line);
   }
 
   .site-skill-dialog-close {
@@ -837,100 +747,27 @@ html.dark .site-skill-dialog-sidebar {
   }
 
   .site-skill-dialog-close-mobile {
-    position: static;
+    position: absolute;
+    top: 14px;
+    right: 18px;
     display: inline-flex;
     flex: none;
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
   }
 
   .site-skill-dialog-sidebar-shell {
-    position: absolute;
-    inset: 126px 20px 20px;
-    z-index: 2;
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transform: translateY(-6px);
-    transition:
-      opacity 180ms ease,
-      transform 180ms ease;
-  }
-
-  .site-skill-dialog-body.is-sidebar-open .site-skill-dialog-sidebar-shell {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
-
-  .site-skill-dialog-sidebar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px 18px;
-    height: 100%;
-    max-height: none;
-    padding: 18px 20px 20px;
-    border: 1px solid color-mix(in srgb, var(--site-line) 88%, transparent);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--site-panel) 99%, transparent);
-    box-shadow:
-      0 12px 28px rgb(15 23 42 / 8%),
-      0 1px 3px rgb(15 23 42 / 5%);
-  }
-
-  html.dark .site-skill-dialog-sidebar {
-    background: color-mix(in srgb, var(--site-panel) 99%, transparent);
-    box-shadow:
-      0 16px 36px rgb(0 0 0 / 18%),
-      0 1px 6px rgb(0 0 0 / 14%);
+    display: none;
   }
 
   .site-skill-prose {
     padding-top: 18px;
-  }
-
-  .site-skill-dialog-body.is-sidebar-open .site-skill-prose {
-    overflow: hidden;
-  }
-}
-
-@media (min-width: 641px) and (max-width: 900px) {
-  .site-skill-dialog-sidebar-section + .site-skill-dialog-sidebar-section {
-    padding-top: 0;
-    border-top: none;
   }
 }
 
 @media (max-width: 640px) {
   .site-skill-dialog {
     height: 100svh;
-  }
-
-  .site-skill-dialog-close {
-    width: 44px;
-    height: 44px;
-  }
-
-  .site-skill-dialog-close-mobile {
-    width: 44px;
-    height: 44px;
-  }
-
-  .site-skill-dialog-mobile-bar {
-    padding: 14px 18px 0;
-  }
-
-  .site-skill-dialog-mobile-toggle {
-    min-height: 44px;
-  }
-
-  .site-skill-dialog-sidebar-shell {
-    inset: 124px 18px 18px;
-  }
-
-  .site-skill-dialog-sidebar {
-    grid-template-columns: 1fr;
-    padding: 18px;
   }
 
   .site-skill-prose {
@@ -941,12 +778,7 @@ html.dark .site-skill-dialog-sidebar {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .site-skill-dialog-mobile-toggle-icon,
   .site-skill-dialog-close {
-    transition: none;
-  }
-
-  .site-skill-dialog-sidebar-shell {
     transition: none;
   }
 }

@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { resolve } from 'node:path'
 
 export interface HubRuntimeIdentity {
   schemaVersion: 1
@@ -10,7 +9,6 @@ export interface HubRuntimeIdentity {
   entryPath: string
   startedAt: string
   processId: number
-  expectedExtensionRuntimeFingerprint: string | null
   activeExtension: ActiveExtensionRuntimeIdentity | null
 }
 
@@ -21,50 +19,18 @@ export interface ActiveExtensionRuntimeIdentity {
   fingerprint: string | null
 }
 
-export interface HubRuntimeExpectation {
-  packageVersion: string
-  runtimeFingerprint: string
-  expectedExtensionRuntimeFingerprint: string | null
-}
-
 export interface ExtensionRuntimeSnapshot {
   version: string
   fingerprint: string
-}
-
-export class RuntimeIdentityMismatchError extends Error {
-  readonly issues: string[]
-
-  constructor(issues: string[]) {
-    super(`TemPad runtime identity mismatch: ${issues.join('; ')}`)
-    this.name = 'RuntimeIdentityMismatchError'
-    this.issues = issues
-  }
 }
 
 export function fingerprintRuntimeFile(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
-export async function resolveExpectedExtensionRuntimeFingerprint(
-  env: NodeJS.ProcessEnv = process.env
-): Promise<string | null> {
-  const checkout = env.TEMPAD_MCP_DEV_CHECKOUT
-  if (!checkout) return null
-  const modulePath = join(resolve(checkout), 'scripts/extension-runtime-fingerprint.mjs')
-  const fingerprintModule = (await import(pathToFileURL(modulePath).href)) as {
-    computeExtensionRuntimeFingerprint?: (root: string) => string
-  }
-  if (typeof fingerprintModule.computeExtensionRuntimeFingerprint !== 'function') {
-    throw new Error(`Invalid extension runtime fingerprint module: ${modulePath}`)
-  }
-  return fingerprintModule.computeExtensionRuntimeFingerprint(resolve(checkout))
-}
-
 export function createHubRuntimeIdentity(
   entryPath: string,
   packageVersion: string,
-  expectedExtensionRuntimeFingerprint: string | null,
   options: { now?: Date; processId?: number } = {}
 ): HubRuntimeIdentity {
   return {
@@ -74,7 +40,6 @@ export function createHubRuntimeIdentity(
     entryPath: resolve(entryPath),
     startedAt: (options.now ?? new Date()).toISOString(),
     processId: options.processId ?? process.pid,
-    expectedExtensionRuntimeFingerprint,
     activeExtension: null
   }
 }
@@ -96,8 +61,6 @@ export function parseHubRuntimeIdentity(value: unknown): HubRuntimeIdentity | nu
     !Number.isFinite(Date.parse(candidate.startedAt)) ||
     typeof candidate.processId !== 'number' ||
     !Number.isInteger(candidate.processId) ||
-    (candidate.expectedExtensionRuntimeFingerprint !== null &&
-      !isSha256(candidate.expectedExtensionRuntimeFingerprint)) ||
     activeExtension === undefined
   ) {
     return null
@@ -108,8 +71,7 @@ export function parseHubRuntimeIdentity(value: unknown): HubRuntimeIdentity | nu
 function parseActiveExtensionRuntimeIdentity(
   value: unknown
 ): ActiveExtensionRuntimeIdentity | null | undefined {
-  // Runtime records from before active-extension publication remain readable so
-  // a new CLI can reject or replace their stale Hub by executable fingerprint.
+  // Keep runtime records from before active-extension publication readable for diagnostics.
   if (value === undefined || value === null) return null
   if (!value || typeof value !== 'object') return undefined
   const candidate = value as Partial<ActiveExtensionRuntimeIdentity>
@@ -144,44 +106,7 @@ export function removeHubRuntimeIdentityIfOwned(path: string, processId: number)
   rmSync(path, { force: true })
 }
 
-export function compareHubRuntimeIdentity(
-  identity: HubRuntimeIdentity | null,
-  expected: HubRuntimeExpectation
-): string[] {
-  if (!identity) return ['Hub did not publish a valid runtime identity record']
-  const issues: string[] = []
-  if (identity.packageVersion !== expected.packageVersion) {
-    issues.push(
-      `Hub package version is ${identity.packageVersion}; expected ${expected.packageVersion}`
-    )
-  }
-  if (identity.runtimeFingerprint !== expected.runtimeFingerprint) {
-    issues.push('Hub executable fingerprint differs from the requesting MCP client')
-  }
-  if (
-    identity.expectedExtensionRuntimeFingerprint !== expected.expectedExtensionRuntimeFingerprint
-  ) {
-    issues.push('Hub extension-source cohort differs from the requesting MCP client')
-  }
-  return issues
-}
-
-export function assertHubRuntimeIdentity(
-  identity: HubRuntimeIdentity | null,
-  expected: HubRuntimeExpectation
-): HubRuntimeIdentity {
-  const issues = compareHubRuntimeIdentity(identity, expected)
-  if (issues.length) throw new RuntimeIdentityMismatchError(issues)
-  return identity as HubRuntimeIdentity
-}
-
-export function compareExtensionRuntimeIdentity(
-  runtime: ExtensionRuntimeSnapshot | undefined,
-  expectedFingerprint: string | null
-): string[] {
+export function getExtensionRuntimeIssues(runtime: ExtensionRuntimeSnapshot | undefined): string[] {
   if (!runtime) return ['Extension did not publish a runtime identity handshake']
-  if (expectedFingerprint && runtime.fingerprint !== expectedFingerprint) {
-    return ['Active extension fingerprint differs from the development checkout']
-  }
   return []
 }

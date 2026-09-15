@@ -21,7 +21,7 @@ export const SITE_LINKS = {
   license: 'https://github.com/ecomfe/tempad-dev/blob/main/LICENSE',
   guide: 'https://github.com/ecomfe/tempad-dev#readme',
   agentGuide: 'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev',
-  inspectGuide: 'https://github.com/ecomfe/tempad-dev#inspect-designs'
+  inspectGuide: 'https://github.com/ecomfe/tempad-dev#inspect-css-code'
 } as const
 
 function createMarketingImage(name: string, alt: string): SiteMarketingImage {
@@ -86,9 +86,9 @@ export const INSPECTION_SLIDES: readonly InspectionSlide[] = [
 ] as const
 
 export const AGENT_SETUP_SHOT: SiteMarketingImage = {
-  alt: 'TemPad Dev’s agent setup dialog with the Codex plugin installation options.',
-  light: '/marketing/mcp-config-light.png',
-  dark: '/marketing/mcp-config-dark.png',
+  alt: 'TemPad Dev’s agent setup dialog with Gemini’s MCP installation instructions.',
+  light: '/marketing/mcp-config-gemini-light.png',
+  dark: '/marketing/mcp-config-gemini-dark.png',
   width: 1200,
   height: 960
 }

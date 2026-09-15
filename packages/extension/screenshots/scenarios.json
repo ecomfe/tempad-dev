@@ -464,104 +464,6 @@
       "consumers": ["readme", "site"]
     },
     {
-      "id": "mcp-config",
-      "intent": "Show the selected Codex installation path, its current portable plugin command, and the purpose of the Figma connection.",
-      "view": "mcpInstall",
-      "panel": {
-        "preferencesOpen": true,
-        "mcpEnabled": true,
-        "setupTarget": "Codex",
-        "setupScroll": "start",
-        "visibleActionIds": ["plugin-cli"]
-      },
-      "pointer": {
-        "visible": false,
-        "shape": "default",
-        "target": {
-          "kind": "hiddenPointer"
-        }
-      },
-      "clip": {
-        "x": 0,
-        "y": 0,
-        "width": 600,
-        "height": 480,
-        "anchor": {
-          "kind": "dialog",
-          "name": "Set up agents",
-          "edge": "top-left",
-          "offset": {
-            "x": 0,
-            "y": 0
-          }
-        }
-      },
-      "assertions": [
-        {
-          "kind": "panel-text",
-          "text": "Agent integration"
-        },
-        {
-          "kind": "panel-text",
-          "text": "MCP access"
-        },
-        {
-          "kind": "panel-text",
-          "text": "Set up agents"
-        },
-        {
-          "kind": "dialog-text",
-          "text": "Codex"
-        },
-        {
-          "kind": "dialog-text",
-          "text": "Recommended"
-        },
-        {
-          "kind": "dialog-text",
-          "text": "Portable Agent Plugin"
-        },
-        {
-          "kind": "dialog-text",
-          "text": "Continue in Codex"
-        },
-        {
-          "kind": "dialog-text",
-          "text": "Or run in your terminal:"
-        },
-        {
-          "kind": "dialog-text",
-          "text": "npx plugins add ecomfe/tempad-dev --target codex"
-        },
-        {
-          "kind": "panel-control-state",
-          "name": "MCP access",
-          "value": true
-        },
-        {
-          "kind": "setup-contract"
-        },
-        {
-          "kind": "dialog-text",
-          "text": "Install the TemPad Dev plugin to work with Figma from your coding agent."
-        },
-        {
-          "kind": "dialog-text",
-          "text": "Connects your agent to Figma for native design editing and code implementation."
-        },
-        {
-          "kind": "dialog-fits-clip"
-        },
-        {
-          "kind": "setup-visible-actions"
-        }
-      ],
-      "width": 1200,
-      "height": 960,
-      "group": "setup",
-      "consumers": ["readme", "site"]
-    },
-    {
       "id": "mcp-config-gemini",
       "intent": "Show Gemini’s separate MCP installation at the top of the real setup dialog.",
       "view": "mcpInstall",
@@ -625,7 +527,7 @@
       "width": 1200,
       "height": 960,
       "group": "setup",
-      "consumers": ["readme"]
+      "consumers": ["readme", "site"]
     },
     {
       "id": "mcp-config-gemini-skills",

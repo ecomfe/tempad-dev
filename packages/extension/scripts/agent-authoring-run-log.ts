@@ -396,8 +396,8 @@ export function validateRunRecord(record: AuthoringRunRecord): void {
     throw new Error('Rollout prompt does not match the frozen live task.')
   }
   const runtime = finish.rollout.runtime
-  if (!runtime.locked || !runtime.valid) {
-    throw new Error('A valid live run requires locked runtime evidence from the rollout.')
+  if (!runtime.valid || !runtime.hubFingerprint) {
+    throw new Error('A valid live run requires consistent runtime evidence from the rollout.')
   }
   const expectedExtension = start.preflight.runtime.extension.checkoutFingerprint
   if (runtime.extensionFingerprint !== expectedExtension) {

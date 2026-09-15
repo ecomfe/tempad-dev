@@ -2,6 +2,7 @@
 import { useIdle, useIntervalFn, useTimeoutFn } from '@vueuse/core'
 
 import Badge from '@/components/Badge.vue'
+import DesignTaskStatus from '@/components/DesignTaskStatus.vue'
 import IconButton from '@/components/IconButton.vue'
 import Minus from '@/components/icons/Minus.vue'
 import Plus from '@/components/icons/Plus.vue'
@@ -35,6 +36,16 @@ function toggleMinimized() {
 }
 
 const {
+  designTask,
+  designTaskRestored,
+  designActionResult,
+  sendDesignFeedback,
+  requestFeedbackDrafts,
+  designAnchor,
+  sessionId,
+  stopDesignTask,
+  dismissDesignTask,
+  closeDesignReview,
   status,
   selfActive,
   count,
@@ -191,6 +202,18 @@ function activateMcp() {
         </IconButton>
       </div>
     </template>
+    <DesignTaskStatus
+      :task="designTask"
+      :anchor="designAnchor"
+      :action-result="designActionResult"
+      :send-feedback="sendDesignFeedback"
+      :request-drafts="requestFeedbackDrafts"
+      :close-review="closeDesignReview"
+      :session-id="sessionId"
+      :restored="designTaskRestored"
+      @stop="stopDesignTask"
+      @done="dismissDesignTask"
+    />
     <ErrorSection v-if="runtimeMode === 'unavailable'" />
     <template v-else>
       <PrefSection :collapsed="!options.prefOpen" />

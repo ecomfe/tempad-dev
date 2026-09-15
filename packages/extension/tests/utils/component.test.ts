@@ -33,6 +33,17 @@ describe('utils/component', () => {
     expect(getDesignComponent(frame)).toBeNull()
   })
 
+  it('ignores component properties whose name is empty before the ID suffix', () => {
+    const instance = createNode('INSTANCE', 'instance-1', {
+      componentProperties: {
+        '': { type: 'BOOLEAN', value: true },
+        '#123:4': { type: 'VARIANT', value: 'ignored' },
+        'size#123:5': { type: 'VARIANT', value: 'Large' }
+      }
+    })
+    expect(getDesignComponent(instance)?.properties).toEqual({ size: 'Large' })
+  })
+
   it('extracts design component data with instance swap and vector fills', () => {
     const getNodeById = vi.fn((id: string) => {
       if (id === 'swap-target') {
@@ -238,5 +249,21 @@ describe('utils/component', () => {
     expect(mergedBooleanAndInserted).toContain('disabled="false"')
     expect(mergedBooleanAndInserted).toContain(' alt="cover"')
     expect(mergedBooleanAndInserted).toContain('/>')
+  })
+
+  it.each([
+    [
+      '<div title="old"></div>',
+      { title: 'new & "quoted"' },
+      '<div title="new &amp; &quot;quoted&quot;"></div>'
+    ],
+    ["<div title='old'></div>", { title: 'new & value' }, "<div title='new &amp; value'></div>"],
+    ['<div title=old></div>', { title: 'new value' }, '<div title="new value"></div>'],
+    ['<input disabled>', { disabled: 'false' }, '<input disabled="false">'],
+    ['<div class="one two"></div>', { class: 'two three' }, '<div class="one two three"></div>'],
+    ['<div class=one></div>', { class: 'two' }, '<div class="one two"></div>'],
+    ['<Widget className="one" />', { className: 'one two' }, '<Widget className="one two" />']
+  ])('preserves attribute quoting and class merging for %s', (source, attributes, expected) => {
+    expect(mergeAttributes(source, attributes)).toBe(expected)
   })
 })

@@ -15,6 +15,7 @@ import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import type { SiteSkill } from '@/content/landing'
 
 import SectionShell from '@/components/SectionShell.vue'
+import SkillLink from '@/components/SkillLink.vue'
 
 const emit = defineEmits<{ 'open-skill': [skill: SiteSkill] }>()
 const scenarios = [
@@ -40,8 +41,7 @@ const scenarios = [
         body: 'Review spacing, hierarchy, and visual details in Figma.'
       }
     ],
-    note: 'Requires edit access to a Figma Design file.',
-    guide: 'Read the canvas skill'
+    note: 'Requires edit access to a Figma Design file.'
   },
   {
     id: 'code' as const,
@@ -65,8 +65,7 @@ const scenarios = [
         body: 'Build the interface and run the project’s checks.'
       }
     ],
-    note: '',
-    guide: 'Read the design-to-code skill'
+    note: ''
   }
 ]
 const selectedId = ref<SiteSkill>('canvas')
@@ -149,12 +148,6 @@ onBeforeUnmount(() => window.clearTimeout(copyTimer))
             </button>
           </blockquote>
           <span class="site-sr-only" role="status">{{ copyStatus }}</span>
-          <div class="site-scenario-actions">
-            <button type="button" class="site-text-link" @click="emit('open-skill', selectedId)">
-              {{ scenario.guide }} →
-            </button>
-          </div>
-          <p v-if="scenario.note" class="site-scenario-note">{{ scenario.note }}</p>
         </div>
         <ol class="site-scenario-steps site-detail-list">
           <li v-for="step in scenario.steps" :key="step.title" class="site-detail-item">
@@ -167,5 +160,9 @@ onBeforeUnmount(() => window.clearTimeout(copyTimer))
         </ol>
       </div>
     </div>
+    <template #footer>
+      <SkillLink :skill="selectedId" @click="emit('open-skill', selectedId)" />
+      <p v-if="scenario.note" class="site-section-footer-note">{{ scenario.note }}</p>
+    </template>
   </SectionShell>
 </template>

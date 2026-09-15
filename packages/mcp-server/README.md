@@ -1,6 +1,6 @@
 # @tempad-dev/mcp
 
-<a href="./README.zh-Hans.md"><img src="https://img.shields.io/badge/%E4%B8%AD%E6%96%87%E7%89%88%20%C2%BB-000" alt="前往中文版"></a>
+<a href="./README.zh-Hans.md"><img src="https://img.shields.io/badge/Simplified%20Chinese%20%C2%BB-000" alt="Read in Simplified Chinese"></a>
 
 The TemPad Dev MCP server connects coding agents to the Figma file open in your browser. It provides design context for UI implementation and tools to create and edit native Figma layers.
 

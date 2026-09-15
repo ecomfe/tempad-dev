@@ -223,6 +223,8 @@ const rightHandleCursor = computed(() => getResizeCursor('right'))
 <style scoped>
 .tp-panel {
   position: fixed;
+  /* Above canvas task controls, below feedback popovers. */
+  z-index: 10;
   display: flex;
   flex-direction: column;
   width: v-bind(panelWidthPx);

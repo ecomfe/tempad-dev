@@ -40,7 +40,7 @@ Root:
 - `pnpm --filter @tempad-dev/extension test:node` (extension node tests only)
 - `pnpm --filter @tempad-dev/extension test:browser` (extension browser tests only)
 - `pnpm agent-eval:authoring <rollout.jsonl> [...]` (inspect comparable rollout evidence)
-- `pnpm agent-eval:preflight [--checkout <path>] [--app-path <path>]` (reject a stale
+- `pnpm agent-eval:preflight [--checkout <path>] [--app-path <path>]` (reject an absent or partial
   checkout runtime, inactive extension, or development plugin that does not match
   the configured Codex desktop host before page creation)
 - `pnpm agent-eval:skills <rollout.jsonl>` (fingerprint the presented skill catalog)

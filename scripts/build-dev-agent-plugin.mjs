@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const agentPluginRoot = join(root, 'agent-plugins/tempad-dev')
+const nativeAgentPluginRoot = join(root, 'agent-plugins/tempad-dev-native')
 const devMarketplaceRoot = join(root, '.dev')
 const devAgentPluginRoot = join(devMarketplaceRoot, 'plugins/tempad-dev-dev')
 const devName = 'tempad-dev-dev'
@@ -15,6 +16,7 @@ const mcpSchema = 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json'
 syncAgentPluginSource()
 syncClientCompatibility(agentPluginRoot)
 syncMarketplaceCompatibility()
+buildNativeAgentPlugin()
 buildDevAgentPlugin()
 
 console.log(`Built development agent plugin at ${relative(root, devAgentPluginRoot)}.`)
@@ -32,6 +34,18 @@ function syncAgentPluginSource() {
     join(agentPluginRoot, 'assets/icon-padded.svg'),
     join(agentPluginRoot, 'skills/figma-canvas-authoring/assets/icon.svg')
   )
+}
+
+// Keep both native marketplace layouts derived from the shared portable source.
+function buildNativeAgentPlugin() {
+  rmSync(nativeAgentPluginRoot, { force: true, recursive: true })
+  cpSync(agentPluginRoot, nativeAgentPluginRoot, { recursive: true })
+  removePortableManifests(nativeAgentPluginRoot)
+}
+
+function removePortableManifests(pluginRoot) {
+  rmSync(join(pluginRoot, 'plugin.json'))
+  rmSync(join(pluginRoot, 'mcp.json'))
 }
 
 function buildDevAgentPlugin() {
@@ -64,6 +78,7 @@ function buildDevAgentPlugin() {
     }
   })
   syncClientCompatibility(devAgentPluginRoot, { displayName: 'TemPad Dev (Dev)' })
+  removePortableManifests(devAgentPluginRoot)
 
   const marketplace = readJson(join(root, '.agents/plugins/marketplace.json'))
   marketplace.name = devName
@@ -119,6 +134,7 @@ function syncClientCompatibility(pluginRoot, options = {}) {
   writeJson(join(pluginRoot, '.claude-plugin/plugin.json'), {
     ...sharedManifest,
     skills: './skills/',
+    hooks: './clients/claude/hooks.json',
     mcpServers: './.mcp.json'
   })
   writeJson(join(pluginRoot, '.mcp.json'), buildClientMcpConfig(portableMcp))
@@ -129,11 +145,13 @@ function syncMarketplaceCompatibility() {
   const codexMarketplacePath = join(root, '.agents/plugins/marketplace.json')
   const codexMarketplace = readJson(codexMarketplacePath)
   codexMarketplace.plugins[0].name = manifest.name
+  codexMarketplace.plugins[0].source.path = `./${relative(root, nativeAgentPluginRoot)}`
   writeJson(codexMarketplacePath, codexMarketplace)
 
   const claudeMarketplacePath = join(root, '.claude-plugin/marketplace.json')
   const claudeMarketplace = readJson(claudeMarketplacePath)
   claudeMarketplace.plugins[0].name = manifest.name
+  claudeMarketplace.plugins[0].source = `./${relative(root, nativeAgentPluginRoot)}`
   claudeMarketplace.plugins[0].description = manifest.description
   writeJson(claudeMarketplacePath, claudeMarketplace)
 }

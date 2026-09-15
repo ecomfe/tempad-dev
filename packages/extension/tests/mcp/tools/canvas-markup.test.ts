@@ -1350,6 +1350,17 @@ describe('canvas markup', () => {
     ).toThrow(/parent div and a child span/)
   })
 
+  it.each([
+    ['p-4 px-2', 'px-2', 'p-4', 'padding-left'],
+    ['px-2 p-4', 'p-4', 'px-2', 'padding-right'],
+    ['border-x-2 border-l-4', 'border-l-4', 'border-x-2', 'stroke-left'],
+    ['rounded-t-lg rounded-tl-sm', 'rounded-tl-sm', 'rounded-t-lg', 'corner-topLeft']
+  ])('identifies overlapping individual assignments in %s', (classes, token, previous, field) => {
+    expect(() => parse(`<div data-key="root" class="flex w-80 h-48 ${classes}"></div>`)).toThrow(
+      `Class "${token}" conflicts with "${previous}" for ${field}.`
+    )
+  })
+
   it('identifies conflicting stroke colors and explains how to represent distinct edges', () => {
     expect(() =>
       parse(

@@ -7192,7 +7192,7 @@ describe('mcp/tools/canvas', () => {
     expect(source.removed).toBe(false)
   })
 
-  it('rolls back when a URL image cannot be loaded', async () => {
+  it('reports the first usage when a shared URL image cannot be loaded', async () => {
     const fixture = createFixture()
     fixture.createImageAsync.mockRejectedValueOnce(new Error('network failed'))
 
@@ -7209,6 +7209,13 @@ describe('mcp/tools/canvas', () => {
                   imageUrl: 'https://images.example.com/invalid.png',
                   scaleMode: 'FILL'
                 }
+              ],
+              strokes: [
+                {
+                  type: 'IMAGE',
+                  imageUrl: 'https://images.example.com/invalid.png',
+                  scaleMode: 'FIT'
+                }
               ]
             }
           }
@@ -7220,6 +7227,7 @@ describe('mcp/tools/canvas', () => {
         /fill paint 0 on "root".*direct public image URL.*resolved image asset/
       )
     })
+    expect(fixture.createImageAsync).toHaveBeenCalledTimes(1)
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
     expect(figma.createFrame).not.toHaveBeenCalled()
   })
@@ -12159,7 +12167,7 @@ describe('mcp/tools/canvas', () => {
     expect(PAGE.name).toBe('Checkout')
   })
 
-  it('activates newly created pages while direct writes to existing pages stay in place', async () => {
+  it('preserves the current page and selection when creating on new or existing pages', async () => {
     const fixture = createFixture()
     const input: CanvasResolvedApplyParameters = {
       mode: 'create',
@@ -12174,8 +12182,8 @@ describe('mcp/tools/canvas', () => {
     const created = await applyCanvas(input)
     const checkout = fixture.pages[1]!
     expect(figma.createPage).toHaveBeenCalledOnce()
-    expect(figma.currentPage).toBe(checkout)
-    expect(created.page).toMatchObject({ id: checkout.id, active: true, selectionCount: 0 })
+    expect(figma.currentPage).toBe(PAGE)
+    expect(created.page).toMatchObject({ id: checkout.id, active: false, selectionCount: 0 })
     expect(checkout).toMatchObject({
       name: 'Checkout',
       children: [{ id: created.rootNodeId! }]
@@ -12232,7 +12240,7 @@ describe('mcp/tools/canvas', () => {
         id: page.id,
         pageKey: 'eval/fresh',
         name: 'Fresh evaluation',
-        active: true,
+        active: false,
         childCount: 0,
         selectionCount: 0
       }
@@ -12244,7 +12252,7 @@ describe('mcp/tools/canvas', () => {
         mode: 'update',
         page: { pageKey: 'eval/fresh', name: 'Renamed evaluation' }
       })
-    ).resolves.toMatchObject({ page: { name: 'Renamed evaluation', active: true } })
+    ).resolves.toMatchObject({ page: { name: 'Renamed evaluation', active: false } })
 
     const root = await applyCanvas({
       mode: 'create',
@@ -12325,7 +12333,7 @@ describe('mcp/tools/canvas', () => {
       page: { pageKey: 'eval/manual', name: 'Manual content' }
     })
     const page = fixture.pages.find((candidate) => candidate.id === created.page?.id)!
-    fixture.createNode('RECTANGLE')
+    page.appendChild(fixture.createNode('RECTANGLE'))
     await expect(
       applyCanvas({ mode: 'remove', page: { pageKey: 'eval/manual' } })
     ).rejects.toMatchObject({
@@ -12399,7 +12407,7 @@ describe('mcp/tools/canvas', () => {
 
     expect(checkout.name).toBe('Checkout')
     expect(fixture.pages).toEqual([checkout, PAGE])
-    expect(figma.currentPage).toBe(checkout)
+    expect(figma.currentPage).toBe(PAGE)
 
     const insertChild = vi.fn((index: number, page: ReturnType<typeof createMockPage>) => {
       const current = fixture.pages.indexOf(page)

@@ -14,6 +14,10 @@ in Figma's page world.
 Shared browser-gateway schemas validate page, session, tool, and asset traffic. Permission requests
 use a separate narrow runtime message validated by the background worker.
 
+Explicit design tasks add file leases, fixed session routing, page-side fencing,
+and DOM feedback. See [design tasks](mcp-design-tasks.md) for lifecycle, takeover,
+expiry, and recovery semantics. Taskless reads still use the active route.
+
 ## Connection lifecycle
 
 1. Enabling Agent integration requests optional access to `http://127.0.0.1/*` from the initiating
@@ -29,9 +33,21 @@ use a separate narrow runtime message validated by the background worker.
    socket and resumes the existing reconnect loop.
 6. A 20-second ping keeps the Manifest V3 service worker alive. A disconnected content port or
    WebSocket reconnects while its session remains enabled.
+   Draft requests wait for the initial permission check and session registration. A request
+   that opens a replacement runtime port registers its session before forwarding the request.
+   A draft request that cannot be forwarded receives an error response instead of being
+   silently dropped. A waiting request never carries over into a replacement enable.
 
 The bridge protocol version covers the shared tool contract as well as transport messages. Bump it
 whenever a Hub and extension built from different revisions must not exchange tool calls.
+
+Runtime identities record the observed builds; changed source fingerprints, versions,
+executable hashes, or build timestamps do not determine compatibility. The modifying
+agent decides whether to reuse or refresh the Hub under the
+[evolution guide](../testing/agent-authoring-evolution.md#3-establish-a-trustworthy-runtime).
+Compatible extension updates can reconnect to the same Hub. Runtime handshakes,
+protocol validation, connection ownership, and stale-request checks remain enforced.
+Exact checkout matching belongs to preflight and the frozen run record.
 
 The hub chooses the active browser connection. Inside that connection, the broker chooses the
 active Figma session. A sole session is selected automatically. More than one session requires an
@@ -44,6 +60,15 @@ or reject another connection's request by guessing its id. While an extension co
 the hub accepts replacement activation only from the same extension Origin. Normal reconnects and
 all Figma-tab switching inside one extension context keep the current flow; a later connection from
 a differently identified extension cannot take over the established route.
+
+Review recovery uses the same registered session inventory. An optional saved review in
+`mcp.enable` identifies the task this page is restoring; the broker sends its durable latest
+review as `sessions.reviews` only for the matching file and page claim. Hub task records,
+not cached capabilities or transport IDs, remain authoritative for sending comments.
+`reviewClosed` is a one-way Done fence. The broker persists it together with draft deletion
+before acknowledging Done, then synchronizes it on reconnect. `mcp.designReviewClosed`
+notifies other registered tabs locally; it never grants a canvas lease. Both browser and
+Hub protocol versions advance for this contract.
 
 ## Assets
 

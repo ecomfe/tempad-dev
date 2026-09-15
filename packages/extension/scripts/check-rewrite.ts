@@ -106,8 +106,7 @@ async function runCheck() {
         replacementIndex,
         changed: replacementChanged
       } of scriptReplacementStats) {
-        const stat = replacementStats[groupIndex]?.[replacementIndex]
-        if (!stat) continue
+        const stat = replacementStats[groupIndex][replacementIndex]
         if (replacementChanged) {
           stat.hits.push(url)
         } else {
@@ -148,7 +147,6 @@ async function runCheck() {
       reportLines.push('', 'FAIL: Some replacements were never applied.')
       missingReplacements.forEach(({ groupIndex, replacementIndex, noEffect }) => {
         const group = GROUPS[groupIndex]
-        if (!group) return
         const statusText =
           noEffect.length > 0 ? `no effect in ${noEffect.length} script(s)` : 'group never matched'
         reportLines.push(

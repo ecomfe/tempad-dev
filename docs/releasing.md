@@ -18,7 +18,8 @@ Plugin **0.2.0**. `@tempad-dev/plugins` is the separate code-output SDK; its ver
    package changelogs and English/Chinese installation guidance. Obtain explicit authorization
    before creating commits, as required by the repository's agent guide.
 2. Run `pnpm agent-plugin:dev` after changing plugin inputs. Inspect synchronized release files
-   under `agent-plugins/tempad-dev`, `.agents/plugins/marketplace.json`, and
+   under `agent-plugins/tempad-dev`, `agent-plugins/tempad-dev-native`,
+   `.agents/plugins/marketplace.json`, and
    `.claude-plugin/marketplace.json`. Release MCP configuration must use `@tempad-dev/mcp@latest`.
 3. Run the checks in [TESTING.md](../TESTING.md), then `pnpm format:check`, `pnpm build`, and
    `pnpm zip`. Ordinary build must not change tracked agent-plugin files. The extension archive is

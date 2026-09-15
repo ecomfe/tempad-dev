@@ -29,7 +29,7 @@ export function getDesignComponent(node: SceneNode): DesignComponent | null {
   const properties: Record<string, ComponentPropertyValue> = {}
 
   for (const [name, data] of Object.entries(componentProperties)) {
-    const [key] = name.split('#')
+    const key = name.split('#')[0]
     if (!key) continue
     if (data.type === 'INSTANCE_SWAP') {
       const component = figma.getNodeById(data.value as string)
@@ -214,16 +214,11 @@ function stringifyBaseComponent(
     .map((entry) => stringifyProp(...entry))
     .filter(Boolean)
 
-  const [firstItem] = propItems
   let propsString = ''
-  if (propItems.length === 1 && firstItem) {
-    propsString = firstItem.includes('\n')
-      ? ` ${indentAll(firstItem, indent, true)}`
-      : ` ${firstItem}`
+  if (propItems.length === 1) {
+    propsString = ` ${indentAll(propItems[0], indent, true)}`
   } else if (propItems.length > 1) {
-    propsString = `\n${propItems
-      .map((prop) => `${indentAll(prop, indent + INDENT_UNIT)}`)
-      .join('\n')}\n${indent}`
+    propsString = `\n${propItems.map((prop) => indentAll(prop, indent + INDENT_UNIT)).join('\n')}\n${indent}`
   }
 
   const children = rawChildren.filter((child) => child != null)
@@ -283,7 +278,7 @@ function stringifyBaseComponent(
 function isCustomComponentTag(tag: string): boolean {
   // React/Vue components are usually PascalCase; custom elements contain a hyphen.
   if (!tag) return false
-  const first = tag.charAt(0)
+  const first = tag[0]
   return first === first.toUpperCase() || tag.includes('-')
 }
 
@@ -308,7 +303,7 @@ const EVENT_HANDLER_RE = /^on[A-Z]/
 
 function getEventName(key: string) {
   if (EVENT_HANDLER_RE.test(key)) {
-    return key.charAt(2).toLowerCase() + key.slice(3)
+    return key[2].toLowerCase() + key.slice(3)
   }
 
   if (key.startsWith('@')) {
@@ -423,23 +418,20 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
 
   let i = 0
   // Skip leading whitespace
-  while (i < code.length && /\s/.test(code.charAt(i))) i++
+  while (i < code.length && /\s/.test(code[i])) i++
 
   if (code[i] !== '<') return code
   i++
 
   // Scan Tag Name
-  while (i < code.length && /[a-zA-Z0-9\-_:.]/.test(code.charAt(i))) i++
+  while (i < code.length && /[a-zA-Z0-9\-_:.]/.test(code[i])) i++
   const tagNameEnd = i
 
-  const existingAttrs = new Map<
-    string,
-    { nameStart: number; valueStart: number; valueEnd: number; quote: string }
-  >()
+  const existingAttrs = new Map<string, { valueStart: number; valueEnd: number; quote: string }>()
 
   while (i < code.length) {
     // Skip whitespace
-    while (i < code.length && /\s/.test(code.charAt(i))) i++
+    while (i < code.length && /\s/.test(code[i])) i++
 
     if (i >= code.length) break
 
@@ -453,25 +445,25 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
 
     // Attribute Name
     const attrNameStart = i
-    while (i < code.length && /[^=\s/>]/.test(code.charAt(i))) i++
+    while (i < code.length && /[^=\s/>]/.test(code[i])) i++
     const attrName = code.slice(attrNameStart, i)
 
     // Skip whitespace after name
-    while (i < code.length && /\s/.test(code.charAt(i))) i++
+    while (i < code.length && /\s/.test(code[i])) i++
 
     // Check for equals
     if (code[i] === '=') {
       i++ // skip =
       // Skip whitespace after =
-      while (i < code.length && /\s/.test(code.charAt(i))) i++
+      while (i < code.length && /\s/.test(code[i])) i++
 
       // Attribute Value
       let quote = ''
       let valueStart = i
       let valueEnd
 
-      if (code.charAt(i) === '"' || code.charAt(i) === "'") {
-        quote = code.charAt(i)
+      if (code[i] === '"' || code[i] === "'") {
+        quote = code[i]
         i++
         valueStart = i
         while (i < code.length && code[i] !== quote) {
@@ -482,15 +474,14 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
         if (i < code.length) i++ // skip closing quote
       } else {
         // Unquoted value
-        while (i < code.length && /[^>\s]/.test(code.charAt(i))) i++
+        while (i < code.length && /[^>\s]/.test(code[i])) i++
         valueEnd = i
       }
 
-      existingAttrs.set(attrName, { nameStart: attrNameStart, valueStart, valueEnd, quote })
+      existingAttrs.set(attrName, { valueStart, valueEnd, quote })
     } else {
       // Boolean attribute
       existingAttrs.set(attrName, {
-        nameStart: attrNameStart,
         valueStart: i,
         valueEnd: i,
         quote: ''
@@ -516,48 +507,22 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
       }
     }
 
-    if (existing) {
-      if (key === 'class' || key === 'className') {
-        const currentVal = code.slice(existing.valueStart, existing.valueEnd)
-        const merged = mergeClasses(currentVal, String(value))
-        if (existing.quote) {
-          replacements.push({
-            start: existing.valueStart,
-            end: existing.valueEnd,
-            content: escapeHTML(merged)
-          })
-        } else {
-          replacements.push({
-            start: existing.valueStart,
-            end: existing.valueEnd,
-            content: `"${escapeHTML(merged)}"`
-          })
-        }
-      } else {
-        if (existing.quote === '' && existing.valueStart === existing.valueEnd) {
-          // Boolean attribute, add value
-          replacements.push({
-            start: existing.valueStart,
-            end: existing.valueEnd,
-            content: `="${escapeHTML(String(value))}"`
-          })
-        } else if (existing.quote) {
-          replacements.push({
-            start: existing.valueStart,
-            end: existing.valueEnd,
-            content: escapeHTML(String(value))
-          })
-        } else {
-          replacements.push({
-            start: existing.valueStart,
-            end: existing.valueEnd,
-            content: `"${escapeHTML(String(value))}"`
-          })
-        }
-      }
-    } else {
+    if (!existing) {
       insertions.push(` ${key}="${escapeHTML(String(value))}"`)
+      continue
     }
+
+    const { valueStart, valueEnd, quote } = existing
+    const isClass = key === 'class' || key === 'className'
+    const content = escapeHTML(
+      isClass ? mergeClasses(code.slice(valueStart, valueEnd), String(value)) : String(value)
+    )
+    let replacement = content
+    if (!quote) {
+      replacement = `"${content}"`
+      if (!isClass && valueStart === valueEnd) replacement = `=${replacement}`
+    }
+    replacements.push({ start: valueStart, end: valueEnd, content: replacement })
   }
 
   replacements.sort((a, b) => b.start - a.start)

@@ -1,4 +1,8 @@
 import type {
+  DesignTaskStateMessage,
+  DesignActionMessage,
+  DesignActionResultMessage,
+  FigmaSessionsMessage,
   MessageToExtension,
   RegisteredMessage,
   RuntimeHelloMessage,
@@ -33,6 +37,8 @@ type HubClientSnapshot = {
 type McpHubClientEvents = {
   onSnapshot?: (snapshot: HubClientSnapshot) => void
   onToolCall?: (message: ToolCallMessage) => void
+  onDesignActionResult?: (message: DesignActionResultMessage) => void
+  onDesignTask?: (message: DesignTaskStateMessage) => void
 }
 
 type WebSocketFactory = (url: string) => WebSocket
@@ -115,6 +121,14 @@ export class McpHubClient {
   }
 
   sendToolResult(message: ToolResultMessage): void {
+    this.sendJson(message)
+  }
+
+  sendSessions(message: FigmaSessionsMessage): void {
+    this.sendJson(message)
+  }
+
+  sendDesignAction(message: DesignActionMessage): void {
     this.sendJson(message)
   }
 
@@ -319,6 +333,12 @@ export class McpHubClient {
         break
       case 'toolCall':
         this.events.onToolCall?.(message)
+        break
+      case 'designActionResult':
+        this.events.onDesignActionResult?.(message)
+        break
+      case 'designTaskState':
+        this.events.onDesignTask?.(message)
         break
     }
   }

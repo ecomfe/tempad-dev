@@ -62,7 +62,7 @@ const actionGroups: Record<AgentIntegrationAction['id'], ActionGroupId> = {
 }
 
 const groupLabels: Record<ActionGroupId, string> = {
-  plugin: 'Portable Agent Plugin',
+  plugin: 'Agent Plugin',
   mcp: 'MCP server',
   skill: 'Agent skills'
 }

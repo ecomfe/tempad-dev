@@ -30,12 +30,11 @@ export async function replaceMediaUrlsWithAssets(
 ): Promise<Record<string, string>> {
   if (!style['background-color'] && !style['background-image'] && !style.background) return style
   const fills = await collectMediaFillAssets(node, assetRegistry, videoPreviewAssetHashes)
-  if (!fills.length) return replaceMediaUrlsWithPlaceholder(style, node, config)
+  const lastAsset = fills.at(-1)
+  if (!lastAsset) return replaceMediaUrlsWithPlaceholder(style, node, config)
 
   const result = { ...style }
   const regex = new RegExp(BG_URL_RE.source, 'gi')
-  const lastAsset = fills.at(-1)
-  if (!lastAsset) return replaceMediaUrlsWithPlaceholder(style, node, config)
 
   for (const key of ['background', 'background-image']) {
     if (!result[key]) continue
@@ -94,9 +93,6 @@ async function collectMediaFillAssets(
   const videoHashes = collectMediaHashes(fills, (fill) =>
     fill.type === 'VIDEO' ? fill.videoHash : null
   )
-  const hasVisibleImage = fills.some(
-    (fill) => isVisibleMediaPaint(fill) && fill.type === 'IMAGE' && !!fill.imageHash
-  )
   const assets: AssetDescriptor[] = []
   let preview: Promise<AssetDescriptor> | undefined
   const getPreview = () =>
@@ -116,7 +112,7 @@ async function collectMediaFillAssets(
         }
         registerAsset(assetRegistry, asset)
         videoPreviewAssetHashes?.add(asset.hash)
-        if (!hasVisibleImage) assets.push(asset)
+        if (!imageHashes.length) assets.push(asset)
       } catch (error) {
         logger.warn('Failed to export video fill preview:', error)
       }

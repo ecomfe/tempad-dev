@@ -41,7 +41,13 @@ pre-existing file resources. It does not redefine Figma's file-wide variable, st
 identity scopes, and it does not prevent the extension from performing the file-wide identity
 checks required for safe reconciliation.
 
-The model-visible surface contains six tools:
+The model-visible surface includes these tools:
+
+- `set_design_anchor` binds an active task to an exact existing Frame without moving
+  the viewport; the first created top-level Frame otherwise anchors automatically.
+  The region stays stable until explicitly changed; beginning a task needs no anchor.
+- `begin_design` binds one design task to the selected file/session with an idle lease;
+- `end_design` releases the task after delivery or cancellation;
 
 - `get_code` reads visible design as implementation evidence;
 - `get_structure` reads hierarchy and geometry when composition is ambiguous, exposes stable
@@ -53,6 +59,10 @@ The model-visible surface contains six tools:
 - `upload_asset` stores a programmatically composed generated PNG/JPEG/GIF data URL in the Hub and
   returns only a content hash for a later Canvas IMAGE declaration;
 - `get_screenshot` returns bounded visual evidence only when pixels affect the next decision.
+
+Related calls carry the returned task ID. The runtime owns status, expiry, safe
+takeover, and optional DOM placement feedback; the agent does not report progress.
+See [design tasks](mcp-design-tasks.md) for the lifecycle and execution boundaries.
 
 ## Why this is the right level
 
@@ -349,9 +359,9 @@ type ApplyCanvasInput = {
 Markup is present for managed-tree create or structural update. A native-only update instead uses
 an exact managed `targetNodeId`, omits markup, and addresses existing stable keys inside that scope;
 it preserves topology and cannot remove nodes or mutate page state. Page-only
-create/update/remove/activate uses exact page identity and also omits markup. A newly created page
-becomes active with an empty selection. A root may also be created directly on an exact existing
-page without activating that page first. `selection` is valid only with activate; omission
+create/update/remove/activate uses exact page identity and also omits markup. Creating pages or
+writing roots preserves the user's current page and viewport. A new page starts with an empty
+selection. Explicit `activate` changes the current page. `selection` is valid only with activate; omission
 preserves selection and `[]` clears it.
 
 The public schema stays below 8 KiB; expanding the complete native schema would be roughly 190 KiB

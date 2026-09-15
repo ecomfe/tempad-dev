@@ -1,4 +1,4 @@
-import type { TempadMcpErrorPayload } from '@tempad-dev/shared'
+import type { DesignAction, TempadMcpErrorPayload } from '@tempad-dev/shared'
 import type { RawData, WebSocket } from 'ws'
 
 import {
@@ -25,6 +25,8 @@ type AttachExtensionSocketOptions = {
   onDisconnected?: (extensionId: string, wasActive: boolean) => void
   onProtocolWarning?: (warning: ExtensionProtocolWarning) => void
   onRuntimeHello?: (extension: ExtensionConnection) => void
+  onSessions?: (extension: ExtensionConnection) => void
+  onDesignAction?: (extension: ExtensionConnection, sessionId: string, action: DesignAction) => void
   onSocketError?: (extensionId: string, error: Error) => void
   onStateChange: () => void
   onToolError: (requestId: string, extensionId: string, error: TempadMcpErrorPayload) => void
@@ -79,6 +81,13 @@ export function attachExtensionSocket(
 
     const message = parseResult.data
     switch (message.type) {
+      case 'sessions':
+        extension.sessions = message
+        options.onSessions?.(extension)
+        break
+      case 'designAction':
+        options.onDesignAction?.(extension, message.sessionId, message.action)
+        break
       case 'activate':
         if (options.registry.activate(extension.id)) {
           options.onActivated?.(extension.id)
