@@ -36,6 +36,10 @@ tree once:
   with one edge per axis and fixed parent and child dimensions;
 - keep flex, grid, gap, padding, border, corner, and box-shadow classes off
   `span`;
+- resolve defaults and overrides before assembling each class list. Both
+  `text-[16px] text-[18px]` and `text-black text-white` are conflicts, not
+  overrides. A helper must choose the final font size, color, and line height
+  instead of appending them to hard-coded defaults;
 - trace every `w-full`, `h-full`, and `grow` against its direct parent's axis and
   the element's required dimensions;
 - give a fixed-height grid explicit row tracks when its children should fill or
@@ -52,9 +56,13 @@ reveals issues one at a time.
 - Give every element one unique `data-key` of letters, numbers, `. / : _ -`.
 - Use `data-node-id` only in update mode to adopt an exact live node; instance
   sublayers are not authoring targets.
-- When only native state changes, omit markup, target the exact managed root,
-  and key `native` by existing stable keys in that scope. This preserves
-  topology; masks and node removal still require structural markup.
+- When markup is supplied, every `native` key must occur as a `data-key` in that
+  supplied tree; existence elsewhere in the live target does not satisfy this.
+  For mixed structural/native edits, include each bound node under its actual
+  parent path, or send the omitted nodes' changes in a separate native-only update.
+  When only native state changes, omit markup, target the exact managed root,
+  and key `native` by existing stable keys in that scope. This preserves topology;
+  masks and node removal still require structural markup.
 - Use no arbitrary attributes on `div` or `span`. Common catalog links use
   `data-var-<field>="vN"` and `data-style-<field>="sN"`; `"none"` explicitly
   unlinks that field.

@@ -159,13 +159,17 @@ turn is still active; it cannot stop a newer turn. The response must identify th
 owner and interrupted turn, or confirm that the turn has ended. Failure to confirm host
 interruption does not undo the local write fence. There is no hook fallback.
 
-### Codex feedback: Hub Queue and native Steer
+### Codex feedback: native Queue and Steer
 
-Queue currently waits in the TemPad Hub, then delivers through native IPC. It does
-not admit messages into Codex's own queue. The host also exposes a native queue
-state interface, but TemPad has not integrated it. See
-[Codex desktop IPC research](../engineering/codex-desktop-ipc.md#native-queues)
-for its replacement semantics, input restrictions, and the separate app-server queue.
+Queue admits comments into Codex's local native queue and settles after the host
+acknowledges storage. The Hub serializes submissions per conversation, reads the
+latest committed `queued-follow-ups` snapshot from Codex home without modifying
+that file, and submits the complete merged list through native IPC. Existing messages
+and all their fields are preserved. This is best-effort read/merge/set: the host has no
+revision precondition, so a simultaneous composer edit can race the replacement.
+See [Codex desktop IPC research](../engineering/codex-desktop-ipc.md#native-queues)
+for the storage evidence and separate, feature-gated app-server queue. Ordering between
+those two queues has not been verified.
 
 The adapter discovers existing current-user Unix sockets under Codex home or the host's
 temporary directory. On Windows it connects to the host's fixed local named pipe,
@@ -185,12 +189,18 @@ Discovery failures occur before comment dispatch and must not be reported as unc
 After opening, short repeated discovery queries observe the owner as it loads; a query begun
 before loading can otherwise wait for the router's entire window without noticing the new owner.
 
-Queue calls `thread-follower-start-turn` with the review as the user message and the original
-task ID in paired tool-response items. Nonempty app context preserves the host's busy-turn
-guard before turn creation. Idle conversations can start immediately. A busy owner's
-known pre-creation rejection is retried with cancellation checks for at most five minutes;
-other uncertain failures are not replayed. Queued submissions preserve insertion order.
-An explicit Steer submission uses this same start path for an idle conversation.
+Queue uses `thread-follower-set-queued-follow-ups-state` v1. The message ID is the
+stable feedback ID; composer context holds the review prompt and empty attachment lists.
+The original conversation snapshot supplies its working directory. The task ID remains
+untrusted `writingBlockAdditionalContext`; the owner derives workspace roots, model, and
+permissions. Its selected-owner `{ ok: true }` receipt confirms native admission without
+waiting for a turn to end. No legacy untrusted-App-input flags are stripped to bypass validation.
+
+When the local store or native snapshot is unavailable, Queue retains the bounded Hub
+waiting path: `thread-follower-start-turn` with the review as user input and the original
+task ID in paired tool-response items. Nonempty app context preserves the pre-creation busy
+check. A known busy rejection retries with cancellation checks for at most five minutes.
+An explicit Steer submission uses this Start path for an idle conversation.
 The host's pre-creation guard decides whether it is idle;
 the design task's status is not a substitute for conversation state. After a known busy
 rejection, Steer calls `thread-follower-steer-turn` v1 on that same owner, retaining the
@@ -202,14 +212,27 @@ uncertain delivery is never replayed. Steer never waits behind a pending native 
 Switching an already queued batch to Steer remains unavailable.
 Comments never fall back to hooks.
 
-Before sending, a durable receipt reserves conversation/file/comment identity. Only the
-selected owner's acknowledgement with a turn ID confirms delivery. Pending, disconnected,
-timed-out, or incompatible acknowledgements retain drafts and prevent duplicate submission,
-including across Hub restarts. Receipts retain content hashes and turn IDs, not comment text.
-Acknowledgement confirms delivery, not completion of design changes.
+Before sending, a durable receipt reserves conversation/file/comment identity. Native
+queue acknowledgement or the selected owner's Start/Steer turn ID confirms admission.
+For uncertain queue writes, the adapter rereads committed state: presence of the stable
+message ID confirms admission; absence remains uncertain because the host may already
+have consumed it or the user may have deleted it. Neither a retry nor a Hub restart restores
+an absent uncertain message. Acknowledged receipts never enqueue again. Receipts retain
+content hashes and routing/message identities, not comment text.
+
+Stop and Done fence pending submissions and remove only this task's native message IDs
+from a fresh complete queue. Stop's local fence and host interruption do not wait for that
+cleanup. Failed cleanup remains fenced and retries during capability refresh, including
+after a Hub restart. Cancellation tombstones remain after an empty-queue check, so a
+late commit from a disconnected writer is removed on subsequent reconciliation.
+Ordinary transport disconnects do not remove admitted messages.
+Already consumed input cannot be recalled. Acknowledgement confirms admission, not
+execution or completion of design changes.
 
 The private protocol was inspected against Codex App 26.908.70816, and the busy-owner
-Steer path was verified against that macOS host. Windows endpoint selection, handshake,
+Steer path and paused native queue admission/removal were verified against that macOS host.
+Automatic queued execution and the refreshed plugin/Figma UI flow remain live verification
+items. Windows endpoint selection, handshake,
 URL loading, and rejection of unexpected pipe names have regression coverage; native
 Windows host verification is still required. Incompatible or unavailable hosts keep drafts
 until native delivery becomes available. Fixtures alone
@@ -249,10 +272,17 @@ Saved comments become numbered markers in saved order. Editing hides only that m
 closing restores it. Delete renumbers remaining comments. The status count includes saved
 element comments only; a general comment has no marker and can be sent alone.
 
-- Save persists an element draft without sending. Enter saves; Shift+Enter inserts a newline.
-- Enter in the general composer queues the batch. Command/Ctrl+Enter or Command/Ctrl+click
-  saves current guidance and requests Steer for the whole batch, without falling back to Queue. IME
-  confirmation never submits.
+- In the element editor, Enter or click saves the current comment without sending.
+  Command/Ctrl+Enter or Command/Ctrl+click saves the current edit, then queues the whole batch,
+  including saved element comments and general guidance. A failed save prevents submission.
+- In the general composer, Enter or click queues the whole batch. Command/Ctrl+Enter or
+  Command/Ctrl+click requests Steer for the same batch. Empty general guidance can submit saved
+  element comments; an empty batch cannot submit. These choices do not depend on observed agent
+  activity or cached capabilities.
+- Submit buttons keep their icon-only presentation. Tooltips identify Save comment / Save & Queue
+  in the element editor and Queue comments / Steer now in the general composer, updating while
+  Command/Ctrl is held. The actual input event determines the action. Shift+Enter inserts a
+  newline in either editor; IME confirmation never submits.
 - Escape discards the current element edit without deleting its saved comment. An unchanged
   editor closes on outside click; an unsaved edit first signals a warning, then a second
   outside click discards it. Further typing resets the warning.
@@ -265,10 +295,11 @@ element comments only; a general comment has no marker and can be sent alone.
   saving, sending, and queueing; the sending spinner belongs to the status-bar comment entry.
 - Acceptance closes the submitting popover and unlocks the status-bar comment entry. Only
   confirmed delivery clears submitted revisions and animates their markers away. The entry keeps
-  its spinner while queued, with a tooltip naming the agent it is waiting for; enabling review
-  does not imply that the host has received the comments. Reopening a
-  queued batch allows review; editing, deletion, and resubmission
-  remain blocked until the final receipt. New batches are not composed on top of a pending batch.
+  its spinner until native admission, with a tooltip naming the agent it is waiting for;
+  enabling review does not imply that the host has received the comments. Reopening a
+  pending batch allows review; editing, deletion, and resubmission remain blocked until
+  the final admission receipt. Native queue admission clears submitted revisions and
+  permits a new batch while the host still has earlier comments queued for execution.
   Failures retain comments and use one native toast per failed request.
   Initial draft-load failures retry with bounded backoff; scope changes and Stop cancel retries.
 
@@ -280,8 +311,9 @@ element comments only; a general comment has no marker and can be sent alone.
 | Confirmed delivery                        | Enabled, comment icon                    | Clear only acknowledged revisions, then reload drafts            |
 | Transport timeout without a final receipt | Enabled, comment icon                    | Retain drafts and identity; a late receipt can still settle them |
 
-Acceptance is not proof of delivery. A final receipt that arrives before the initial request
-resolves takes precedence over a late acceptance or transport error. Acceptance after a transport
+Hub acceptance is not proof of native admission. A final receipt that arrives before the
+initial request resolves immediately ends its submission state. It takes precedence over a
+late acceptance or transport error; the old request cannot reset a newer batch's pending state. Acceptance after a transport
 timeout locks the unchanged submitted batch, but never freezes newer saved edits. Unrelated task/batch and
 control receipts cannot settle the feedback batch. Disconnect does not prevent review.
 Stop/interruption clears pending UI authority; a late acceptance cannot

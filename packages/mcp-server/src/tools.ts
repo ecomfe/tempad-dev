@@ -230,7 +230,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'apply_canvas',
     description:
-      'Create, update, remove, or activate exact Figma pages and managed roots. Canvas HTML supports documented Tailwind utilities, including CSS variable classes bound through catalog aliases or theme; type-* classes bind native text styles. Define new resources with variableCollections/styles and use their stable keys in theme in the same call. Markup is optional for page-only operations and native-only updates inside an exact managed root. Create auto-places a root; update preserves omitted live state and topology; remove accepts an exact managed root or page; activate changes editor context without a document mutation. Exact off-current-page writes do not require activation.',
+      'Create, update, remove, or activate exact Figma pages and managed roots. Canvas HTML supports documented Tailwind utilities without CSS cascade: resolve conflicting classes before sending. CSS variable classes bind through catalog aliases or theme; type-* classes bind native text styles. Define new resources with variableCollections/styles and use their stable keys in theme in the same call. Markup is optional for page-only operations and native-only updates inside an exact managed root. When markup is supplied, every native key must occur in that tree. Create auto-places a root; update preserves omitted live state and topology; remove accepts an exact managed root or page; activate changes editor context without a document mutation. Exact off-current-page writes do not require activation.',
     annotations: CANVAS_WRITE_ANNOTATIONS,
     parameters: ApplyCanvasParametersSchema,
     target: 'extension',

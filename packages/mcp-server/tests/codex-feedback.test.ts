@@ -12,6 +12,7 @@ import {
   codexFeedbackTurn
 } from '../src/agent-clients/codex-feedback'
 import { CodexDiscoveryError, CodexIpc, CodexIpcError } from '../src/agent-clients/codex-ipc'
+import { CodexNativeQueue, CodexQueueUnavailable } from '../src/agent-clients/codex-queue'
 import { AgentClients } from '../src/agent-clients/registry'
 import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
@@ -46,16 +47,38 @@ async function fixture() {
   const request = vi.fn().mockResolvedValue(accepted)
   const owner = vi.fn().mockResolvedValue('owner-a')
   const close = vi.fn()
-  const open = vi.fn(async () => ({ request, owner, close }))
+  const open = vi.fn(async () => ({
+    request,
+    owner,
+    close,
+    broadcast: vi.fn(),
+    onBroadcast: vi.fn(() => () => {}),
+    onDisconnect: vi.fn(() => () => {})
+  }))
+  const queue = new CodexNativeQueue()
+  vi.spyOn(queue, 'admit').mockRejectedValue(new CodexQueueUnavailable('Queue unavailable'))
   const load = vi.fn<(id: string, signal: AbortSignal) => Promise<void>>().mockResolvedValue()
-  const native = new CodexAppFeedback(dir, open, 1, load)
+  const native = new CodexAppFeedback(dir, open, 1, load, queue)
   cleanups.push(async () => native.close())
   const controller = new AbortController()
   const validate = vi.fn()
   const dispatched = vi.fn()
   const send = (value: DesignFeedback = feedback) =>
     native.enqueue(binding, 'task-a', value, controller.signal, validate, dispatched)
-  return { dir, request, owner, close, open, load, native, controller, validate, dispatched, send }
+  return {
+    dir,
+    request,
+    owner,
+    close,
+    open,
+    load,
+    queue,
+    native,
+    controller,
+    validate,
+    dispatched,
+    send
+  }
 }
 
 describe('Codex feedback delivery', () => {
@@ -305,7 +328,7 @@ describe('Codex feedback delivery', () => {
     clients.close()
     const restarted = new DesignTasks({ createId: () => 'unused', now: () => 3000, store })
     restarted.restore()
-    const native = new CodexAppFeedback(f.dir, f.open)
+    const native = new CodexAppFeedback(f.dir, f.open, undefined, undefined, f.queue)
     const retried = new AgentClients(restarted, native)
     cleanups.push(async () => retried.close())
     expect(
@@ -410,7 +433,7 @@ describe('Codex feedback delivery', () => {
       .mockRejectedValueOnce(new CodexIpcError('Connection lost', true))
     await expect(f.send(batch)).rejects.toThrow('Steer could not be confirmed')
     expect(f.dispatched).toHaveBeenCalledOnce()
-    const restarted = new CodexAppFeedback(f.dir, f.open)
+    const restarted = new CodexAppFeedback(f.dir, f.open, undefined, undefined, f.queue)
     cleanups.push(async () => restarted.close())
     await expect(
       restarted.enqueue(binding, 'task-a', batch, f.controller.signal, f.validate, f.dispatched)
@@ -616,7 +639,7 @@ describe('Codex feedback delivery', () => {
         f.request.mockRejectedValueOnce(new CodexIpcError('Disconnected', true))
         await expect(f.send()).rejects.toThrow('could not be confirmed')
       } else await f.send()
-      const restarted = new CodexAppFeedback(f.dir, f.open)
+      const restarted = new CodexAppFeedback(f.dir, f.open, undefined, undefined, f.queue)
       const retry = restarted.enqueue(
         binding,
         'new-lease-task',
