@@ -1,7 +1,7 @@
 # Codex desktop IPC: protocol and integration research
 
 Research date: **2026-09-15**. Inspected host: **Codex App 26.908.70816, build 9275,
-macOS**. Bundled executable: **codex-cli 0.154.0-alpha.6.2**.
+macOS**. Native queue follow-up: **2026-09-16**. Bundled executable: **codex-cli 0.154.0-alpha.6.2**.
 
 Read this report when changing TemPad's Codex conversation routing, lifecycle,
 comments, Queue, Steer, or Stop. It describes the installed desktop application's
@@ -13,8 +13,8 @@ remain in [Design tasks, client integration, and feedback](../extension/mcp-desi
 1. **Desktop IPC has a native queue interface.**
    `thread-follower-set-queued-follow-ups-state` persists a conversation's local
    follow-up queue and acknowledges the write without waiting for execution.
-   TemPad currently uses a different path: its Hub waits for an idle conversation
-   and calls `thread-follower-start-turn`.
+   TemPad now reads the committed local queue and submits a merged list through
+   this interface. An unavailable local store retains the bounded Hub waiting path.
 2. **The native queue interface replaces a whole conversation queue.** It is not
    an atomic append operation. Its request has no expected revision, and its
    acknowledgement has no message ID or queue revision. Finding this method does
@@ -36,9 +36,9 @@ remain in [Design tasks, client integration, and feedback](../extension/mcp-desi
    The optional source is a message ID and text range; there is no Figma node
    source in that contract.
 
-The claim “IPC cannot queue” is incorrect. The narrower conclusion is that TemPad
-has not integrated native queue admission, and the available interfaces require
-more work on concurrent edits, input provenance, cancellation, and queue recovery.
+The working-tree integration uses best-effort read/merge/set, with conversation-level
+serialization, stable message IDs, durable receipts, and targeted cancellation.
+The endpoint still has no compare-and-swap protection against simultaneous composer edits.
 
 ## Contents
 
@@ -77,6 +77,10 @@ Minified function names are search aids for this build only.
 | S4  | `webview/assets/src-996ff3571e1f.js`                                                                     | `lv`, `App input requires confirmation before legacy delivery`, `threadQueue`, `QUEUED_FOLLOW_UPS` |
 | S5  | `codex_app_server_protocol.v2.schemas.json`, generated with `--experimental` from the bundled executable | `ThreadQueueAddParams`, `QueuedSubmission`, `TurnSteerParams`, `AdditionalContextKind`             |
 
+Additional source S6: `.vite/build/window-all-closed-BxbCP6YG.js`, specifically
+`JT.updateAndPersist`, `iE`, and `.codex-global-state.json`, establishes the local
+commit-before-acknowledgement behavior used by the queue integration.
+
 SHA-256 fingerprints:
 
 ```text
@@ -85,6 +89,7 @@ S2 0765260be74e8843630d5a92e30bca574783892688e67180c119a5c58679bb61
 S3 5dcf4a29db25b086f9bd11d053eec60cf0c50bfd988494969cec452e03f19245
 S4 d85e9d112eebcc71ae35bc012bca39313111c438f360092b5375165239bbd02c
 S5 7b9e7d385fffef8d428cc5490b56ce9c393bd3ed7bc7ccd730956387e723ec05
+S6 8939f42fd89899a649b8062699b386e9ff933c241155b611c3b5ec7a738673ed
 ```
 
 ### Live evidence
@@ -104,10 +109,15 @@ the busy `start-turn` rejection was followed by `steer-turn`, the diagnostic use
 message arrived, and the durable receipt recorded `delivered` with a turn ID.
 That establishes direct macOS IPC delivery, not a new end-to-end Figma UI test.
 
-Native queue writes, concurrent queue producers, queued-message removal, approval
-responses, history edits, and new Stop mutations were **not** exercised for this
-report. Windows and Linux observations are limited to code and TemPad's existing
-tests. No native queue integration is claimed as shipped.
+On 2026-09-16, the working-tree native queue adapter admitted a deliberately paused
+diagnostic into this conversation, verified its committed composer context, and removed
+only that message through IPC. The queue was empty before and after the probe. Admission,
+including the original-conversation snapshot, took 782.96 ms in this single observation.
+The probe did not execute the diagnostic or measure the read-to-write conflict window.
+Unit tests cover preservation of existing messages, multiple batches, uncertain admission,
+restart recovery, and targeted removal. Automatic queued execution, simultaneous native
+composer edits, and the full installed-plugin/Figma UI flow still need live verification.
+Windows and Linux observations remain limited to source and deterministic tests.
 
 ## Protocol boundaries
 
@@ -430,8 +440,9 @@ compare-and-swap token, or per-message admission result in this request/response
 
 The legacy queue stores composer-shaped objects. These are distinct from the
 `UserInput[]` passed directly to `start-turn` and `steer-turn`. The following is
-a structural example inferred from native producers and consumers, not a
-validated external enqueue recipe:
+a structural example from native producers and consumers. The adapter's variant
+omits `workspaceRoots` so the owner derives its existing roots and permissions,
+and carries the task ID as untrusted `writingBlockAdditionalContext`:
 
 ```ts
 {
@@ -482,8 +493,13 @@ snapshot should not be assumed to provide the coordinator's separate queue store
 Internal `readState` and global-state services exist, but are not thereby exposed
 on this socket.
 
-This is a concrete integration gap. Even obtaining an initial list is insufficient
-without a strategy for intervening composer edits. Never submit only TemPad's new
+TemPad reads `queued-follow-ups` from the host's `.codex-global-state.json` without
+modifying that file. S2 uses `updateAndPersist`; S6 writes and commits the complete
+file before updating the in-memory store and resolving the native write. Each
+admission reads again after durable receipt preparation, immediately before dispatch.
+A missing or unreadable store uses the existing Hub waiting path; incompatible queue
+contents fail without replacement. This is a best-effort integration, not atomic append.
+Even obtaining an initial list is insufficient to exclude intervening composer edits. Never submit only TemPad's new
 batch as the replacement list when other queued messages may exist. Likewise,
 retrying an acknowledged or uncertain replacement can restore messages that the
 host has already consumed or that the user has removed.
@@ -651,45 +667,30 @@ requirement.
 The following describes the working-tree adapter inspected for this report.
 It is not a claim about a published release.
 
-| Capability   | Current TemPad behavior                                                                | Remaining distinction                                                     |
-| ------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Identity     | Host-supplied MCP `x-codex-turn-metadata`, then exact owner discovery                  | A process or focused window alone is not conversation identity            |
-| Lifecycle    | Follows v11 snapshots/patches and retains a minimal turn projection                    | Full initial snapshot is still transferred                                |
-| Queue        | Hub serializes delivery; retries the known Start busy rejection for up to five minutes | No native queue admission or queue-state subscription                     |
-| Steer        | Idle Start path; busy owner uses native `steer-turn`                                   | Promotion of an already queued TemPad batch is not implemented            |
-| Stop         | Permanent local task cancellation plus expected-turn IPC interruption                  | Does not establish cancellation of future native queued messages or goals |
-| Windows      | Fixed local pipe and OS URL handler; deterministic tests                               | No native Windows host verification                                       |
-| Reconnection | Rediscovers owner, reacquires snapshot, preserves durable receipt/fence rules          | Unknown mutation outcomes are not automatically replayed                  |
+| Capability   | Current TemPad behavior                                                         | Remaining distinction                                                            |
+| ------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Identity     | Host-supplied MCP metadata, then exact owner discovery                          | Focused windows never establish identity                                         |
+| Lifecycle    | Follows v11 snapshots/patches with a minimal turn projection                    | Full initial snapshot still transfers                                            |
+| Queue        | Fresh committed local snapshot, merge, native replacement acknowledgement       | Composer races remain possible; server-queue ordering is unverified              |
+| Steer        | Idle Start path; busy owner uses native Steer                                   | Promotion of an already admitted batch is unavailable                            |
+| Stop         | Permanent task fence, expected-turn interruption, targeted native queue removal | A consumed message cannot be recalled; failed removal retries after reconnection |
+| Windows      | Fixed local pipe, OS URL handler, deterministic tests                           | Native Windows host verification is outstanding                                  |
+| Reconnection | Durable identities and reconciliation; never restore absent uncertain messages  | Absence is not evidence of execution                                             |
 
-`queueDelivery: "native"` in the current capability object describes its eventual
-IPC delivery channel. It does **not** mean the message was admitted to Codex's
-own queue. Documentation and UI should not blur those meanings.
+A final `delivered` receipt means native input admission, either into the local queue
+or into a turn. It does not mean execution or completion. The UI clears only submitted
+revisions and permits the next batch after native admission. A final receipt arriving
+before the initial Hub response unlocks the editor immediately; the late response cannot
+reset a newer batch's submission state. Initial Hub acceptance alone keeps the batch pending.
 
-The current comment component treats a pending queued delivery as `draftsBusy`:
-editing and further submission wait until delivery succeeds or fails. This
-restriction comes from TemPad's draft/delivery coupling, not the socket protocol.
-A future implementation can keep an immutable submitted batch separate from the
-next editable draft. Releasing the composer at acceptance does not require
-pretending the agent has already received the message.
+The adapter keeps user-authored comments in `context.prompt` and the original task ID
+in untrusted `writingBlockAdditionalContext`. It does not remove provenance flags from
+existing queued messages, alter their fields, or change the owner's permission settings.
 
-### Decisions needed before native Queue integration
-
-- Establish an admission path that preserves concurrent composer messages. The
-  legacy replacement endpoint alone does not provide atomic append or a safe
-  read/modify/write contract.
-- Determine which queue backend is active and how to observe it through the
-  normal installed host connection. Do not assume an empty legacy queue means
-  no app-server queue entries exist.
-- Verify the host-supported representation of user instructions, captured Figma
-  metadata, and task identity. Respect legacy untrusted-App-input rejection.
-- Define separate states for saved draft, admitted batch, uncertain admission,
-  accepted turn input, and terminal execution. Persist enough identity to
-  reconcile reconnection without duplicate delivery.
-- Cancel only the current design task's pending messages on Stop/Done, and verify
-  races with execution and user edits. Clearing the conversation's entire native
-  queue would exceed that scope.
-
-These are follow-up implementation requirements, not changes made by this report.
+Native admission and removal have been exercised against the inspected macOS host.
+A paused diagnostic cannot establish automatic execution, coexistence with an enabled
+app-server queue, or the complete installed-plugin authoring flow. These remain explicit
+live verification limits, not reasons to describe the replacement endpoint as atomic.
 
 ## Reproducing and extending the research
 

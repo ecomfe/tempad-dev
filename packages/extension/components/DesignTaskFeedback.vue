@@ -142,6 +142,7 @@ let pendingComment: Promise<boolean> | undefined
 
 // These flags belong to the current scope; generation guards reject callbacks after a reset.
 const sending = shallowRef(false)
+let submissionGeneration = 0
 const submitting = shallowRef<'editor' | 'batch' | null>(null)
 const queuedFeedbackId = shallowRef<string | null>(null)
 const fading = shallowRef(false)
@@ -156,11 +157,11 @@ const draftsBusy = computed(
   () => deliveryPending.value || fading.value || persisting.value || loading.value || clearing.value
 )
 const busy = computed(() => draftsBusy.value || commentSaving.value)
-const steerPressed = shallowRef(false)
+const submitModifierPressed = shallowRef(false)
 useEventListener(
   window,
   'keydown',
-  (event) => (steerPressed.value = event.metaKey || event.ctrlKey),
+  (event) => (submitModifierPressed.value = event.metaKey || event.ctrlKey),
   {
     capture: true
   }
@@ -168,7 +169,7 @@ useEventListener(
 useEventListener(
   window,
   'keyup',
-  (event) => (steerPressed.value = event.metaKey || event.ctrlKey),
+  (event) => (submitModifierPressed.value = event.metaKey || event.ctrlKey),
   { capture: true }
 )
 const suppressedNode = shallowRef<string | null>(null)
@@ -199,7 +200,7 @@ const commentsEnabled = computed(
 const canDraft = computed(() => commentsEnabled.value && !!scope.value && !!props.requestDrafts)
 
 useEventListener(window, 'blur', () => {
-  steerPressed.value = false
+  submitModifierPressed.value = false
   pointer = null
   hoveredMarker.value = null
 })
@@ -212,10 +213,12 @@ const submissionBlockedHint = computed(() => {
   if (!hasContent.value) return 'Add a comment first.'
   return ''
 })
-const batchMode = computed(() => (steerPressed.value && hasContent.value ? 'steer' : 'queue'))
+const batchMode = computed(() =>
+  submitModifierPressed.value && hasContent.value ? 'steer' : 'queue'
+)
 const hasEditorContent = computed(() => !!editorText.value.trim())
-const editorMode = computed(() =>
-  steerPressed.value && hasEditorContent.value ? 'steer' : 'queue'
+const editorAction = computed(() =>
+  submitModifierPressed.value && hasEditorContent.value ? 'Save & Queue' : 'Save comment'
 )
 const requestError = shallowRef('')
 watch(
@@ -443,15 +446,15 @@ function openEditor(marker: Pick<Marker, 'node' | 'nodeId'>): void {
   editorError.value = ''
 }
 
-async function submitEditor(mode: DesignFeedback['mode']): Promise<void> {
+async function submitEditor(event?: KeyboardEvent | MouseEvent): Promise<void> {
   if (!hasEditorContent.value || submitting.value || deliveryPending.value) return
-  const immediate = steerPressed.value
+  const queueBatch = !!(event?.metaKey || event?.ctrlKey)
   const target = editor.value
   const token = generation
   submitting.value = 'editor'
   try {
-    if (!(await saveDraft(!immediate)) || token !== generation) return
-    if (immediate && editor.value === target) await sendBatch(mode, true)
+    if (!(await saveDraft(!queueBatch)) || token !== generation) return
+    if (queueBatch && editor.value === target) await sendBatch('queue', true)
   } finally {
     if (token === generation) submitting.value = null
   }
@@ -570,6 +573,7 @@ async function sendBatch(
     return
   }
   const token = generation
+  const submission = ++submissionGeneration
   const submittedEditor = editor.value
   let feedbackId: string | undefined
   submitting.value = fromEditor ? 'editor' : 'batch'
@@ -622,21 +626,21 @@ async function sendBatch(
     if (token === generation && (!feedbackId || deliveries.has(feedbackId)))
       requestError.value = error instanceof Error ? error.message : 'Could not send comments.'
   } finally {
-    if (token === generation) {
+    if (token === generation && submission === submissionGeneration) {
       sending.value = false
       submitting.value = null
     }
   }
 }
 
-function submitOnEnter(
-  event: KeyboardEvent,
-  submit: (mode: DesignFeedback['mode']) => unknown,
-  mode: DesignFeedback['mode']
-): void {
+function submitBatch(event: KeyboardEvent | MouseEvent): Promise<void> {
+  return sendBatch(event.metaKey || event.ctrlKey ? 'steer' : 'queue')
+}
+
+function submitOnEnter(event: KeyboardEvent, submit: (event: KeyboardEvent) => unknown): void {
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return
   event.preventDefault()
-  void submit(mode)
+  void submit(event)
 }
 
 onClickOutside(editorElement, dismissEditor, {
@@ -662,6 +666,10 @@ function acknowledgeDelivery(requestId: string): void {
   const feedback = deliveries.get(requestId)
   if (!feedback) return
   if (sending.value && attempt?.id === requestId) {
+    // Native admission is final even if the initial Hub request is still resolving.
+    submissionGeneration++
+    sending.value = false
+    submitting.value = null
     batchOpen.value = false
     cancelEditor()
   }
@@ -1110,15 +1118,15 @@ onScopeDispose(() => {
               maxlength="8000"
               placeholder="Add a general comment…"
               :disabled="!canDraft || !ready || draftsBusy || !!submitting"
-              @keydown="submitOnEnter($event, sendBatch, batchMode)"
+              @keydown="submitOnEnter($event, submitBatch)"
               @input="commentError = ''"
             />
             <IconButton
               class="tp-feedback-submit tp-feedback-send"
-              :aria-label="batchMode === 'steer' ? 'Steer comments' : 'Queue comments'"
+              :title="batchMode === 'steer' ? 'Steer now' : 'Queue comments'"
               :aria-busy="!!submitting || deliveryPending || loading"
               :disabled="!hasContent || !!queuedFeedbackId"
-              @click="sendBatch(batchMode)"
+              @click="submitBatch"
               ><ArrowUp
             /></IconButton>
           </div>
@@ -1135,7 +1143,7 @@ onScopeDispose(() => {
           :class="{ 'tp-feedback-editor-warned': editorWarned }"
           :style="projection.editor"
           aria-label="Element comment draft"
-          @submit.prevent="submitEditor(editorMode)"
+          @submit.prevent="submitEditor()"
           @keydown.esc.prevent.stop="cancelEditor"
         >
           <header v-if="editedDraft">
@@ -1154,15 +1162,16 @@ onScopeDispose(() => {
               maxlength="8000"
               placeholder="Add a comment…"
               :disabled="busy || !!submitting"
-              @keydown="submitOnEnter($event, submitEditor, editorMode)"
+              @keydown="submitOnEnter($event, submitEditor)"
             />
             <IconButton
               class="tp-feedback-submit"
               type="submit"
-              :aria-label="steerPressed && hasEditorContent ? 'Steer comments' : 'Save comment'"
+              :title="editorAction"
               :aria-busy="submitting === 'editor'"
               :disabled="!hasEditorContent"
-              ><ArrowUp v-if="steerPressed && hasEditorContent" /><Check
+              @click.prevent="submitEditor"
+              ><ArrowUp v-if="submitModifierPressed && hasEditorContent" /><Check
                 v-else
                 class="tp-feedback-check"
             /></IconButton>

@@ -464,6 +464,7 @@ describe('design task leases', () => {
     const task = f.begin()
     expect(() => f.call('legacy')).toThrow('occupied')
     f.call('read', undefined, false)
+    expect(() => f.call('concurrent-read', task.taskId, false)).toThrow('not finished')
     expect(() => f.call('write', task.taskId)).toThrow('not finished')
     f.tasks.finishOperation('read', 'extension-a')
     f.call('task-read', task.taskId, false)

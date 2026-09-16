@@ -2252,6 +2252,58 @@ describe('mcp/tools/canvas', () => {
     await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
+  it.each(['include the bound node', 'separate native-only update'] as const)(
+    'repairs a mixed update by choosing to %s without replacing existing nodes',
+    async (repair) => {
+      const fixture = createFixture()
+      const content =
+        '<div data-key="content" class="flex flex-col w-full h-fit"><div data-key="panel" class="w-full h-[32px] bg-black"></div></div>'
+      const markup = (children: string) =>
+        `<div data-key="root" class="flex flex-col w-[320px] h-[200px]">${children}</div>`
+      const created = await applyCanvasFromTool({ mode: 'create', markup: markup(content) })
+      const root = fixture.getNode(created.rootNodeId!)
+      const parent = fixture.getNode(created.nodeIdsByKey.content!)
+      const panel = fixture.getNode(created.nodeIdsByKey.panel!)
+      const update = {
+        mode: 'update' as const,
+        targetNodeId: root.id,
+        native: { panel: { figma: { name: 'Updated panel' } } }
+      }
+      const banner = '<div data-key="banner" class="w-full h-[24px]"></div>'
+      vi.mocked(figma.createFrame).mockClear()
+      fixture.commitUndo.mockClear()
+
+      await expect(applyCanvasFromTool({ ...update, markup: markup(banner) })).rejects.toThrow(
+        'Binding "panel" has no matching data-key in the supplied markup.'
+      )
+      expect(figma.createFrame).not.toHaveBeenCalled()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(root.children.map((node) => node.id)).toEqual([parent.id])
+      expect(panel.name).toBe('panel')
+
+      if (repair === 'include the bound node') {
+        await applyCanvasFromTool({ ...update, markup: markup(banner + content) })
+      } else {
+        await applyCanvasFromTool({
+          mode: 'update',
+          targetNodeId: root.id,
+          markup: markup(banner)
+        })
+        await applyCanvasFromTool(update)
+      }
+
+      expect(panel.name).toBe('Updated panel')
+      expect(panel.parent).toBe(parent)
+      expect(parent.parent).toBe(root)
+      expect(parent.children.map((node) => node.id)).toEqual([panel.id])
+      expect(root.children).toHaveLength(2)
+      expect(root.children.map((node) => node.name)).toEqual(
+        expect.arrayContaining(['banner', 'content'])
+      )
+      expect(figma.createFrame).toHaveBeenCalledOnce()
+    }
+  )
+
   it('updates native display names without changing stable identity or omitted state', async () => {
     const fixture = createFixture()
     const created = await applyCanvasFromTool({

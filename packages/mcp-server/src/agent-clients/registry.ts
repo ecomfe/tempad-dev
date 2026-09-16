@@ -261,8 +261,14 @@ export class AgentClients {
       dispatched = true
     }).then((result) => {
       // A rejection before host dispatch is safe to retry with the same delivery
-      // identity. Preserve uncertain host results so retry cannot duplicate them.
-      if (result.status === 'failed' && !dispatched) this.actions.delete(key)
+      // identity. Queue retries re-enter the adapter's durable receipt reconciliation;
+      // they cannot replay an uncertain native write.
+      if (
+        result.status === 'failed' &&
+        (!dispatched ||
+          (action.action === 'feedback' && action.feedback?.mode === 'queue' && this.codex))
+      )
+        this.actions.delete(key)
       return result
     })
     this.actions.set(key, { signature, pending })
@@ -284,9 +290,17 @@ export class AgentClients {
       const record = this.tasks.find(action.taskId)
       if (!record) throw new Error('This design task is no longer available.')
       if (action.action === 'done') {
-        this.cancelFeedback(action.taskId)
+        const cancelled = this.cancelFeedback(action.taskId, true).then(
+          () => true,
+          () => false
+        )
         this.tasks.closeReview(action.taskId)
-        return result('delivered', 'Design review closed.')
+        return result(
+          'delivered',
+          (await cancelled)
+            ? 'Design review closed.'
+            : 'Design review closed. Removing native queued comments will be retried when Codex reconnects.'
+        )
       }
       this.tasks.assertEpoch(action.taskId, record.ownerId, action.epoch)
       if (record.task.reviewClosed) throw new Error('This design review is closed.')
@@ -297,7 +311,8 @@ export class AgentClients {
         if (['completed', 'cancelled'].includes(record.task.status))
           return result('delivered', 'This design task has already ended.')
         if (binding?.client.kind === 'claude') this.hooks.stop(binding, action.taskId)
-        this.cancelFeedback(action.taskId)
+        // Stop's local fence and host interruption must not wait for a pending queue write.
+        void this.cancelFeedback(action.taskId, true).catch(() => {})
         this.tasks.stop(action.taskId, 'cancelled')
         onAccepted?.()
         if (
@@ -377,6 +392,15 @@ export class AgentClients {
 
   async refreshCapabilities(): Promise<void> {
     if (!this.codex) return
+    await this.codex.reconcileQueued((taskId) => {
+      const record = this.tasks.find(taskId)
+      return (
+        !!record &&
+        (record.task.reviewClosed === true ||
+          record.task.status === 'cancelled' ||
+          this.tasks.current(record.task.target.fileKey) !== record)
+      )
+    })
     const reviews = this.tasks
       .list()
       .filter(
@@ -410,9 +434,10 @@ export class AgentClients {
     for (const taskId of this.feedbackSignals.keys()) this.cancelFeedback(taskId)
   }
 
-  cancelFeedback(taskId: string): void {
+  cancelFeedback(taskId: string, removeQueued = false): Promise<void> {
     this.feedbackSignals.get(taskId)?.abort()
     this.feedbackSignals.delete(taskId)
+    return removeQueued && this.codex ? this.codex.cancelQueued(taskId) : Promise.resolve()
   }
 
   disconnect(connectionId: string): void {

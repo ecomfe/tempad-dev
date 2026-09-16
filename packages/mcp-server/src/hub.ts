@@ -548,7 +548,8 @@ async function handleEndDesign(args: EndDesignParameters, ownerId: string): Prom
       'Wait for the running operation before completing the design task.'
     )
   }
-  if (args.outcome === 'cancelled') agentClients.cancelFeedback(args.taskId)
+  if (args.outcome === 'cancelled')
+    void agentClients.cancelFeedback(args.taskId, true).catch(() => {})
   designTasks.snapshotResult(args.taskId, args.summary)
   designTasks.stop(args.taskId, args.outcome)
   return createDesignTaskToolResponse(record.task)
@@ -1136,7 +1137,7 @@ activeWss.on('connection', (ws, request) => {
         if (!session) continue
         designTasks.restoreReview(review.task, extension, session)
         if (review.task.reviewClosed || review.task.status === 'cancelled')
-          agentClients.cancelFeedback(review.task.taskId)
+          void agentClients.cancelFeedback(review.task.taskId, true).catch(() => {})
       }
       designTasks.reconcileSessions(snapshot.browserId, snapshot.sessions, snapshot.openTabIds)
       for (const record of designTasks.list()) {

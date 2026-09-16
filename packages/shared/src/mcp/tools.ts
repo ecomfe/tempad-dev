@@ -2349,13 +2349,13 @@ export const ApplyCanvasParametersSchema = z
       .min(1)
       .max(MAX_CANVAS_MARKUP_LENGTH)
       .describe(
-        `Canvas HTML serialization of the desired managed Figma layer tree, with at most ${MAX_CANVAS_NODES} elements and ${MAX_CANVAS_DEPTH} levels. When catalogId is supplied, use its component tags and bind its variable or style refs with data-var-<field>="vN" or data-style-<field>="sN"; use "none" to unlink.`
+        `Canvas HTML serialization of the desired managed Figma layer tree, with at most ${MAX_CANVAS_NODES} elements and ${MAX_CANVAS_DEPTH} levels. Conflicting classes are rejected, not resolved by order: replace default font sizes, colors, or line heights instead of appending overrides. When catalogId is supplied, use its component tags and bind its variable or style refs with data-var-<field>="vN" or data-style-<field>="sN"; use "none" to unlink.`
       )
       .optional(),
     native: z
       .record(CanvasStableKeySchema, CanvasNativeBindingSchema)
       .describe(
-        'Desired native Figma state and bindings for selected capabilities, keyed by a markup data-key or an existing stable key inside a markup-less update target.'
+        'Desired native Figma state and bindings for selected capabilities. With markup, every native key must match a data-key in that supplied tree, even for existing nodes. Without markup, update may bind existing stable keys inside targetNodeId. For a mixed structural/native edit, include the bound nodes in the supplied structure or use a separate native-only update.'
       )
       .optional(),
     variableCollections: z

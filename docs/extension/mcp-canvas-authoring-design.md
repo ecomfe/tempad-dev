@@ -580,6 +580,14 @@ name an existing stable key inside the exact managed target. This path applies a
 state without reconciling parent/child relationships; masks and node removal remain structural
 operations and require markup.
 
+When markup is supplied, native bindings resolve against that supplied tree, not all live keys in
+the target. A mixed structural/native update must include each bound node under its actual parent
+path, or apply changes to omitted nodes in a separate native-only update. Class lists likewise
+describe final state: conflicting font sizes, colors, or line heights are rejected rather than
+resolved by class order. Helpers must select final values instead of appending overrides to defaults.
+These constraints belong in tool metadata and the routed Canvas HTML reference, before dispatch;
+the validator remains the authoritative rejection boundary.
+
 This applies within a stroke as well: update may supply paint or weight alone
 while the omitted counterpart preserves its live literal, style, or variable
 state. Create still requires a complete visible-stroke contract.
