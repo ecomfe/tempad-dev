@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CodexAppFeedback } from '../src/agent-clients/codex-feedback'
 import { CodexIpc, CodexIpcError, codexSocketPaths } from '../src/agent-clients/codex-ipc'
+import { CodexNativeQueue, CodexQueueUnavailable } from '../src/agent-clients/codex-queue'
 
 vi.mock('node:net', async (original) => ({
   ...(await original<typeof import('node:net')>()),
@@ -107,10 +108,21 @@ describe('Codex Windows integration', () => {
       handledByClientId: 'owner',
       result: { result: { turn: { id: 'turn-a' } } }
     })
+    const queue = new CodexNativeQueue()
+    vi.spyOn(queue, 'admit').mockRejectedValue(new CodexQueueUnavailable('Queue unavailable'))
     const native = new CodexAppFeedback(
       directory,
-      async () => ({ owner, request, close: vi.fn() }),
-      1
+      async () => ({
+        owner,
+        request,
+        close: vi.fn(),
+        broadcast: vi.fn(),
+        onBroadcast: vi.fn(() => () => {}),
+        onDisconnect: vi.fn(() => () => {})
+      }),
+      1,
+      undefined,
+      queue
     )
     const binding = { client: { kind: 'codex-app' as const, name: 'Codex', sessionId: id } }
     vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {

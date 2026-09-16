@@ -20,6 +20,8 @@ that cancelled task or automatically replace it. If further design work is neces
 the user requests it, explicitly call `begin_design` with a fresh requestId. No separate
 Figma unlock or new user turn is required.
 Independent reads need no task.
+Run calls against the same Figma file sequentially, including reads such as `get_screenshot`
+and `get_structure`; await each result before starting the next file operation.
 
 Use `end_design` only after this design pass and its verification are complete, or explicitly
 cancel when abandoning it. Waiting for input is a pause. Figma feedback batches

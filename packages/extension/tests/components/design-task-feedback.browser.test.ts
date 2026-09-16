@@ -215,9 +215,13 @@ afterEach(() => {
 })
 
 describe('element feedback drafts', () => {
-  it.each(['Enter', 'click'] as const)(
-    'submits the entire batch from the element editor with Meta+%s and closes after acceptance',
-    async (action) => {
+  it.each(
+    ['Meta', 'Control'].flatMap((modifier) =>
+      ['Enter', 'click'].map((action) => ({ modifier, action }))
+    )
+  )(
+    'queues the entire batch from the element editor with $modifier+$action and closes after acceptance',
+    async ({ modifier, action }) => {
       await page.viewport(900, 700)
       const f = fixture()
       await save(f, 0, 'Previously saved element')
@@ -248,10 +252,19 @@ describe('element feedback drafts', () => {
           accepted = resolve
         })
       })
-      await userEvent.keyboard('{Meta>}')
-      if (action === 'click') await page.getByRole('button', { name: 'Steer comments' }).click()
+      const submitButton = document.querySelector<HTMLButtonElement>(
+        '.tp-feedback-editor [type="submit"]'
+      )!
+      expect(submitButton.getAttribute('data-tooltip')).toBe('Save comment')
+      await userEvent.keyboard(`{${modifier}>}`)
+      expect(submitButton.getAttribute('data-tooltip')).toBe('Save & Queue')
+      if (action === 'click' && modifier === 'Control') {
+        // Native macOS Ctrl-click opens a context menu; use the Windows primary-click event.
+        submitButton.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }))
+      } else if (action === 'click')
+        await page.getByRole('button', { name: 'Save & Queue' }).click()
       else await userEvent.keyboard('{Enter}')
-      await userEvent.keyboard('{/Meta}')
+      await userEvent.keyboard(`{/${modifier}}`)
       await expect.poll(() => typeof saved).toBe('function')
       expect(f.send).not.toHaveBeenCalled()
       const button = document.querySelector<HTMLButtonElement>(
@@ -260,14 +273,14 @@ describe('element feedback drafts', () => {
       expect(button.getAttribute('aria-busy')).toBe('true')
       expect(button.querySelector('.tp-feedback-spinner')).toBeNull()
       expect(button.querySelector('svg')).not.toBeNull()
-      expect(button.hasAttribute('data-tooltip')).toBe(false)
+      expect(button.getAttribute('data-tooltip')).toBe('Save comment')
       button.click()
       saved()
       await expect.poll(() => typeof accepted).toBe('function')
       expect(f.send).toHaveBeenCalledOnce()
       const feedback = f.send.mock.calls[0]![0]
       expect(feedback).toMatchObject({
-        mode: 'steer',
+        mode: 'queue',
         comment: 'General guidance',
         items: [
           { nodeId: 'node-0', text: 'Previously saved element' },
@@ -288,6 +301,52 @@ describe('element feedback drafts', () => {
       expect((await f.store.request({ operation: 'load', scope })).items).toHaveLength(2)
     }
   )
+
+  it.each(['element', 'general'] as const)(
+    'uses the click modifier without a preceding keydown in the %s composer',
+    async (composer) => {
+      const f = fixture()
+      if (composer === 'element') {
+        await save(f, 0, 'Original comment')
+        markers()[0]!.click()
+        await page
+          .getByRole('textbox', { name: 'Element comment', exact: true })
+          .fill('Revised comment')
+      } else await writeComment('General guidance')
+      const button = document.querySelector<HTMLButtonElement>(
+        composer === 'element' ? '.tp-feedback-editor [type="submit"]' : '.tp-feedback-send'
+      )!
+      button.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true })
+      )
+      await expect.poll(() => f.send.mock.calls.length).toBe(1)
+      expect(f.send.mock.calls[0]![0]).toMatchObject(
+        composer === 'element'
+          ? { mode: 'queue', items: [{ text: 'Revised comment' }] }
+          : { mode: 'steer', comment: 'General guidance' }
+      )
+    }
+  )
+
+  it('retains an element edit and does not queue other drafts when Save & Queue cannot save', async () => {
+    const f = fixture()
+    await save(f, 0, 'Original comment')
+    await writeComment('General guidance')
+    markers()[0]!.click()
+    const input = page.getByRole('textbox', { name: 'Element comment', exact: true })
+    await input.fill('Revised comment')
+    f.requestDrafts.mockImplementation(async (request) => {
+      if (request.operation === 'save') throw new Error('Could not save the comment.')
+      return f.store.request(request)
+    })
+    await userEvent.keyboard('{Meta>}{Enter}{/Meta}')
+    await expect.poll(() => f.api.notify.mock.calls).toEqual([['Could not save the comment.']])
+    await expect.element(input).toHaveValue('Revised comment')
+    expect((await f.store.request({ operation: 'load', scope })).items[0]?.text).toBe(
+      'Original comment'
+    )
+    expect(f.send).not.toHaveBeenCalled()
+  })
 
   it('shows submission progress only on the status-bar entry, retains failures, and closes a successful retry', async () => {
     const f = fixture()
@@ -955,6 +1014,63 @@ describe('element feedback drafts', () => {
     }
   )
 
+  it('unlocks on native admission and keeps a new batch busy when the old request resolves late', async () => {
+    const f = fixture()
+    const pending: ((result: DesignActionResult) => void)[] = []
+    f.send.mockImplementation(async (feedback) => {
+      await f.store.recordSubmission(scope, feedback)
+      return new Promise((resolve) => pending.push(resolve))
+    })
+    await writeComment('First queued batch')
+    await sendBatch()
+    await expect.poll(() => pending.length).toBe(1)
+    const first = f.send.mock.calls[0]![0]
+    await f.store.settle(first.id, 'delivered')
+    f.actionResult.value = {
+      requestId: first.id,
+      taskId: 'task-a',
+      status: 'delivered',
+      message: 'Accepted by the native queue'
+    }
+    const toggle = document.querySelector<HTMLButtonElement>('.tp-feedback-toggle')!
+    await expect.poll(() => toggle.getAttribute('aria-busy')).toBe('false')
+    expect(toggle.disabled).toBe(false)
+    await openBatch()
+    await expect
+      .poll(() => document.querySelector<HTMLTextAreaElement>('#tp-feedback-comment')!.disabled)
+      .toBe(false)
+    await writeComment('Second queued batch')
+    await sendBatch()
+    await expect.poll(() => pending.length).toBe(2)
+    const second = f.send.mock.calls[1]![0]
+    expect(second.id).not.toBe(first.id)
+    expect(second.comment).toBe('Second queued batch')
+    pending[0]!({
+      requestId: first.id,
+      taskId: 'task-a',
+      status: 'accepted',
+      message: 'Late acceptance'
+    })
+    await nextTick()
+    expect(toggle.getAttribute('aria-busy')).toBe('true')
+    expect(toggle.disabled).toBe(true)
+    await f.store.settle(second.id, 'delivered')
+    f.actionResult.value = {
+      requestId: second.id,
+      taskId: 'task-a',
+      status: 'delivered',
+      message: 'Queued'
+    }
+    await expect.poll(() => toggle.getAttribute('aria-busy')).toBe('false')
+    pending[1]!({
+      requestId: second.id,
+      taskId: 'task-a',
+      status: 'accepted',
+      message: 'Late acceptance'
+    })
+    expect(f.send).toHaveBeenCalledTimes(2)
+  })
+
   it.each([false, true])(
     'handles acceptance after a transport timeout with newer edits: %s',
     async (revised) => {
@@ -1353,7 +1469,7 @@ describe('element feedback drafts', () => {
     ;(input.element() as HTMLTextAreaElement).focus()
     await userEvent.keyboard('{Meta>}')
     expect(button().disabled).toBe(false)
-    expect(button().getAttribute('aria-label')).toBe('Steer comments')
+    expect(button().getAttribute('aria-label')).toBe('Steer now')
     await userEvent.keyboard('{Enter}{/Meta}')
     await expect.poll(() => f.send.mock.calls.length).toBe(2)
     expect(f.send.mock.calls.map(([feedback]) => feedback.mode)).toEqual(['queue', 'steer'])
@@ -1393,15 +1509,17 @@ describe('element feedback drafts', () => {
       input.focus()
       const button = document.querySelector<HTMLButtonElement>('.tp-feedback-send')!
       expect(button.querySelector('svg')!.getAttribute('viewBox')).toBe('0 0 24 24')
+      expect(button.getAttribute('data-tooltip')).toBe('Queue comments')
       await userEvent.keyboard(`{${modifier}>}`)
-      await expect.element(page.getByRole('button', { name: 'Steer comments' })).toBeEnabled()
+      await expect.element(page.getByRole('button', { name: 'Steer now' })).toBeEnabled()
+      expect(button.getAttribute('data-tooltip')).toBe('Steer now')
       expect(button.querySelector('svg')!.getAttribute('viewBox')).toBe('0 0 24 24')
       if (action === 'click' && modifier === 'Control') {
         // macOS turns a native Ctrl-click into a context menu. Exercise the Windows
         // primary-click event here; native Windows input still needs host verification.
         button.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }))
       } else if (action === 'click') {
-        await page.getByRole('button', { name: 'Steer comments' }).click()
+        await page.getByRole('button', { name: 'Steer now' }).click()
       } else await userEvent.keyboard('{Enter}')
       await userEvent.keyboard(`{/${modifier}}`)
       await expect.poll(() => f.send.mock.calls.length).toBe(1)
@@ -1426,14 +1544,14 @@ describe('element feedback drafts', () => {
     }
   )
 
-  it('saves an inline edit before steering the batch and never substitutes Queue when Steer is unavailable', async () => {
+  it('queues an inline edit despite stale capabilities and allows a general-composer Steer after failure', async () => {
     const f = fixture()
     f.task.value = {
       ...f.task.value,
       capabilities: {
         interrupt: false,
-        queue: true,
-        steer: false,
+        queue: false,
+        steer: true,
         continue: false,
         queueDelivery: 'native'
       }
@@ -1444,11 +1562,11 @@ describe('element feedback drafts', () => {
     const input = page.getByRole('textbox', { name: 'Element comment', exact: true })
     await input.fill('Increase the heading size')
     await userEvent.keyboard('{Meta>}')
-    await expect.element(page.getByRole('button', { name: 'Steer comments' })).toBeEnabled()
-    f.send.mockRejectedValueOnce(new Error('Steer is unavailable.'))
+    await expect.element(page.getByRole('button', { name: 'Save & Queue' })).toBeEnabled()
+    f.send.mockRejectedValueOnce(new Error('Queue is unavailable.'))
     await userEvent.keyboard('{Enter}{/Meta}')
-    await expect.poll(() => f.api.notify.mock.calls).toEqual([['Steer is unavailable.']])
-    expect(f.send.mock.calls[0]![0].mode).toBe('steer')
+    await expect.poll(() => f.api.notify.mock.calls).toEqual([['Queue is unavailable.']])
+    expect(f.send.mock.calls[0]![0].mode).toBe('queue')
     expect((await f.store.request({ operation: 'load', scope })).items[0]?.text).toBe(
       'Increase the heading size'
     )
@@ -1458,7 +1576,7 @@ describe('element feedback drafts', () => {
       ...f.task.value,
       capabilities: { interrupt: false, queue: false, steer: true, continue: false }
     }
-    await expect.element(page.getByRole('button', { name: 'Steer comments' })).toBeEnabled()
+    await expect.element(page.getByRole('button', { name: 'Steer now' })).toBeEnabled()
     await userEvent.keyboard('{Enter}{/Meta}')
     await expect.poll(() => f.send.mock.calls.length).toBe(2)
     expect(f.send.mock.calls[1]![0]).toMatchObject({

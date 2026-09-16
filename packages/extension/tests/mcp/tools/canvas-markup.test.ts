@@ -2283,6 +2283,19 @@ describe('canvas markup', () => {
     expect(message).toContain('Fix all listed classes before retrying.')
   })
 
+  it.each([
+    ['text-[16px]', 'text-[18px]'],
+    ['text-black', 'text-white'],
+    ['leading-[24px]', 'leading-[26px]']
+  ])('rejects a default %s plus override %s regardless of class order', (base, override) => {
+    const markup = (classes: string) =>
+      `<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="size-fit ${classes}">Copy</span></div>`
+
+    expect(() => parse(markup(`${base} ${override}`))).toThrow(/conflicts/)
+    expect(() => parse(markup(`${override} ${base}`))).toThrow(/conflicts/)
+    expect(() => parse(markup(override))).not.toThrow()
+  })
+
   it('reports independent static markup issues across the tree in one pass', () => {
     const markup = `
       <div data-key="root" class="flex flex-col w-[320px] h-[200px]">

@@ -1888,7 +1888,10 @@ export function parseCanvasMarkup(
   markThemeFields(root)
   validateAssetReferences(root, input.assets, input.styles)
   for (const key of Object.keys(state.bindings)) {
-    if (!state.keys.has(key)) markupError(`Binding "${key}" has no matching data-key.`)
+    if (!state.keys.has(key))
+      markupError(
+        `Binding "${key}" has no matching data-key in the supplied markup. Include the keyed element in this tree, or update an existing node inside targetNodeId with a separate native-only call that omits markup.`
+      )
   }
   for (const key of input.removeKeys ?? []) {
     if (state.keys.has(key)) {
