@@ -26,6 +26,10 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
   组件定义，以及本地或被定义直接引用的变量、集合/模式、样式和 shader 定义，不扫描画布
   中的使用情况。游标可继续读取遗漏定义；使用同一目录精确查询某个引用时，返回该资源的
   有界定义。使用 `scope: "fonts"` 可查询当前可用字体家族和精确原生样式，不读取文件资源。
+- `begin_design`、`resume_design`、`set_design_anchor`、`end_design`：将画布写入绑定到设计任务，
+  恢复暂停的任务、设置状态栏锚点，以及结束或取消任务。Stop 会永久禁止旧任务写入，重新连接也不会恢复。
+  兼容 Codex App 的原生评论支持 Queue 和 Steer；确认接收后清空已提交草稿，无需等待执行完成。
+  详细行为与宿主验证范围见[评论指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugins/tempad-dev/README.zh-Hans.md#使用)。
 - `apply_canvas`：使用受限 HTML、可确定转换的 Tailwind utility、类型化原生状态、SVG 和图片资源，
   对精确页面或托管根节点执行创建、更新、删除或激活。变量 utility 和命名文字样式 class 可绑定
   既有资源或同次调用中声明的资源；仅操作页面或更新 native 状态时可省略标记。

@@ -355,7 +355,7 @@ before creating the turn with:
 App context must wait until the current turn finishes
 ```
 
-This guard is why TemPad's current Queue can retry a known busy rejection. It is
+This guard lets TemPad's Hub waiting fallback retry a known busy rejection. It is
 not a native queue acknowledgement. Removing `responseItems` just to avoid the
 guard does not establish Queue semantics.
 
@@ -617,10 +617,10 @@ equate an IPC interrupt acknowledgement with stopping every future source of
 work or clearing a native queue.
 
 TemPad cancels the design task and fences Figma writes before requesting host
-interruption. An IPC failure cannot remove that fence. If native Queue is added,
-cancelling a Hub promise will no longer remove messages already owned by Codex:
-TemPad will need targeted queue cancellation and reconciliation that preserve
-unrelated user messages. The task fence remains necessary even if cancellation
+interruption. An IPC failure cannot remove that fence. Cancelling a Hub promise
+does not remove messages already owned by Codex. TemPad therefore removes this task's
+native queue IDs and reconciles failed or late removals while preserving unrelated
+user messages. The task fence remains necessary even if cancellation
 races with execution.
 
 ## Input context and annotations

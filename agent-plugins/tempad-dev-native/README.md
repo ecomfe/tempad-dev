@@ -103,10 +103,24 @@ Codex App binds tasks from host-supplied MCP metadata and follows native convers
 state through the existing IPC connection. Claude retains lifecycle and Stop hooks.
 Comments are delivered only through native conversation messages on compatible Codex App
 hosts. TemPad Dev discovers the original conversation through the App's existing local
-connection. By default, idle conversations start immediately and busy conversations wait
-for the current response to finish. Hold Command or Ctrl when sending to use Steer: busy conversations
-receive the comments in their active response, while idle conversations start immediately.
-Waiting comments remain saved until delivery is confirmed, and failures never fall back to hooks.
+connection. Queue submits the batch to the host's native queue, where it waits until the
+conversation is ready. As soon as the host confirms admission, TemPad Dev clears the submitted
+comments and markers, stops the sending indicator, and allows another batch. This confirmation
+means the host received the comments, not that the agent finished the requested changes.
+If the native queue snapshot is unavailable, Queue waits in the Hub until the conversation can
+accept a new response. The sending indicator remains until that admission is confirmed.
+Steer adds comments to an active response or starts a response when the conversation is idle.
+Failed or uncertain delivery retains drafts; uncertain delivery is not automatically resent.
+Comments never fall back to hooks.
+
+| Editor                            | Enter or click the submit button | Command/Ctrl+Enter or Command/Ctrl+click |
+| --------------------------------- | -------------------------------- | ---------------------------------------- |
+| Element comment                   | Save the comment without sending | Save & Queue the whole batch             |
+| General comment in the status bar | Queue the whole batch            | Steer the whole batch                    |
+
+A batch includes all saved element comments and the general comment. Shift+Enter inserts a
+newline in either editor. Saving an element comment alone does not send it.
+
 Claude, Codex CLI, and other clients currently provide task status and Stop/Done without
 comment controls. Previously saved drafts remain in extension-local storage.
 
@@ -115,14 +129,18 @@ once an executing operation drains. The cancelled task cannot resume. The agent 
 Stop without automatically replacing it; necessary or user-requested design work can
 explicitly begin a fresh task. No separate Figma unlock is needed. Codex App Stop also
 requests native interruption of the exact bound turn; a delayed Stop cannot interrupt a
-newer turn. Local cancellation remains effective if the host is unavailable. Claude conveys
-Stop at the next hooked tool boundary. Native Codex delivery is enabled
+newer turn. Stop and Done also remove this task's comments that are still in the native queue,
+leaving unrelated messages intact. Failed cleanup is retried after reconnection; already consumed
+input cannot be recalled. Local cancellation remains effective if the host is unavailable. Claude
+conveys Stop at the next hooked tool boundary. Native Codex delivery is enabled
 only after the exact conversation owner reports support; no manual connection setup
 is required. See the task and client design for the current validation scope.
 
 The native adapter uses Unix sockets on macOS/Linux and Codex's local named pipe on Windows.
-Windows transport support has automated regression coverage; it still requires validation
-against a native Windows Codex App installation.
+macOS Steer and paused native queue admission/removal have been exercised against Codex App
+26.908.70816. Automatic queue execution and the complete installed-plugin/Figma UI flow still
+require live verification. Windows and Linux coverage is limited to source inspection and
+automated tests; it does not establish complete host support.
 
 With a supported connection, select an element, save its feedback draft, then send the
 numbered batch from the canvas status bar. Drafts can be edited or deleted and survive

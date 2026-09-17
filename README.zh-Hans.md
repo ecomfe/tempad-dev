@@ -54,6 +54,18 @@ Agent 连接需要 Node.js 22.x、24.x 或 26+；画布编辑还需要当前 Fig
 
 `figma-canvas-authoring` skill 指导 agent 检查相关资源、执行修改并检查实际渲染结果。写入需要可编辑的 Figma Design 文件；只读文件和 Dev Mode 中的访问仍然是只读的。
 
+### 设计任务控制与评论
+
+任务状态栏跟随设计锚点，显示 agent 活动状态和 Stop/Done。Stop 会永久取消当前任务，
+重新连接不会恢复该任务的写入。在兼容的 Codex App 中，可以保存元素评论或添加总体评论，
+再使用 Queue 或 Steer 发送整批内容。Queue 在宿主确认接收后清空已提交草稿，因此请求仍在
+排队时就可以继续写下一批；确认接收不表示 agent 已完成修改。
+
+元素编辑器中，Enter 保存评论，Command/Ctrl+Enter 保存并排队整批评论；总体评论中，
+Enter 排队，Command/Ctrl+Enter 使用 Steer。Shift+Enter 换行。Claude、Codex CLI 等客户端
+目前提供任务控制，但不支持发送评论。详细行为和宿主验证范围见
+[评论指南](./agent-plugins/tempad-dev/README.zh-Hans.md#使用)。
+
 ### 根据设计实现代码
 
 在 Figma 中选中要实现的设计，在目标代码项目中提出：

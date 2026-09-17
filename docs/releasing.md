@@ -28,8 +28,21 @@ Plugin **0.2.0**. `@tempad-dev/plugins` is the separate code-output SDK; its ver
    code, package metadata, and both README languages must be present. Install it outside the
    workspace and verify MCP initialization and tool discovery on a supported Node.js runtime.
    Use separate runtime, log, and asset directories for the check so an active local Hub is
-   unaffected. MCP 0.8.0 supports Node.js 22.x, 24.x, or 26+.
-5. Push the authorized candidate and require its own `build` and `check-script-rewrite` CI results.
+   unaffected. Restrict the smoke Hub's allowed extension origin to a dedicated test origin,
+   remove inherited host task-identity variables from its child environment, and verify its
+   runtime identity points at the installed tarball. Close the smoke client and confirm that
+   only its isolated Hub exits. MCP 0.8.0 supports Node.js 22.x, 24.x, or 26+.
+   Retain the package and extension archive hashes with the candidate revision; rebuild them
+   if packaged source or documentation changes.
+5. Before claiming full native host support, follow the
+   [authoring evolution runbook](testing/agent-authoring-evolution.md) to verify the normal
+   installed-plugin and extension path against the intended host version. Check Queue admission
+   clears the submitted drafts and permits a second batch, queued input actually executes in the
+   original conversation, Steer reaches the active response, and Stop prevents further writes
+   while removing this task's remaining queued comments. Include reconnect/uncertain-admission
+   recovery and preservation of unrelated queued messages. Record host/platform scope separately:
+   a paused IPC admission/removal probe or package smoke test does not establish this full flow.
+6. Push the authorized candidate and require its own `build` and `check-script-rewrite` CI results.
    An older branch revision's green checks do not validate the candidate. The rewrite check needs
    the repository's configured Figma credentials; keep them in CI secrets.
 
