@@ -3,7 +3,7 @@ import type { CanvasResolvedApplyParameters, CanvasVariableValue } from '@tempad
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { parseCanvasMarkup } from '@/mcp/tools/canvas/markup'
-import { prepareThemeResources } from '@/mcp/tools/canvas/theme'
+import { prepareCanvasTheme } from '@/mcp/tools/canvas/theme'
 import { registerDesignSystemCatalog } from '@/mcp/tools/design-system-catalog'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -222,8 +222,8 @@ describe('Canvas theme compilation', () => {
     const spec = input('gap-(--token)')
     delete spec.variableCollections
     spec.theme!.variables!['--unused'] = { variableKey: 'unknown-unused-key' }
-    const resources = await prepareThemeResources(spec)
-    expect(parseCanvasMarkup(spec, undefined, undefined, resources).root.layout).toMatchObject({
+    const prepared = await prepareCanvasTheme(spec)
+    expect(parseCanvasMarkup(spec, undefined, undefined, prepared).root.layout).toMatchObject({
       gap: 28
     })
     expect(getVariables).toHaveBeenCalledTimes(1)
@@ -260,8 +260,8 @@ describe('Canvas theme compilation', () => {
           }
         }
       }
-      const resources = await prepareThemeResources(spec)
-      expect(parseCanvasMarkup(spec, undefined, undefined, resources).root.layout).toMatchObject({
+      const prepared = await prepareCanvasTheme(spec)
+      expect(parseCanvasMarkup(spec, undefined, undefined, prepared).root.layout).toMatchObject({
         gap: 0
       })
       expect(getVariableByIdAsync).not.toHaveBeenCalled()
@@ -292,7 +292,7 @@ describe('Canvas theme compilation', () => {
     })
     const spec = input('gap-(--token)')
     delete spec.variableCollections
-    await expect(prepareThemeResources(spec)).rejects.toThrow(
+    await expect(prepareCanvasTheme(spec)).rejects.toThrow(
       `Theme variable "Motion" has unsupported type ${type}.`
     )
   })

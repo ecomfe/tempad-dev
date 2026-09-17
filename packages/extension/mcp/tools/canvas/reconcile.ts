@@ -1,6 +1,7 @@
 import {
   type ApplyCanvasResult,
   type CanvasBinding,
+  type CanvasComponentPropertyValue,
   type CanvasDesignReference,
   type CanvasFigmaComponentPropertyDefinition,
   type CanvasFigmaEffect,
@@ -38,9 +39,7 @@ import type {
   ParsedCanvasTreeInput
 } from './model'
 
-import { readBoundedResponseBytes } from '../../bounded-response'
 import { createCodedError } from '../../errors'
-import { retryAfterFigmaConnectionTimeout } from '../../figma-readiness'
 import {
   getContainingPage,
   getCurrentContextNodeById,
@@ -52,12 +51,20 @@ import {
 import {
   type ResolvedCanvasAssets,
   resolveCanvasAssets,
-  resolvedImageAsset,
   resolvedSvgAsset,
   SVG_POLICY_VERSION
 } from './assets'
 import { canvasReadOnlyError, errorMessage, scopeError, specError } from './errors'
 import { reportCanvasPlacement } from './feedback'
+import {
+  type CanvasFontState,
+  createFontState,
+  loadFont,
+  loadFonts,
+  resolveFamilyFont,
+  resolvePortableFont,
+  currentTextFonts
+} from './fonts'
 import {
   CANVAS_KEY_NAMESPACE,
   CANVAS_NODE_KEY_NAME,
@@ -71,6 +78,13 @@ import {
   pagesByKey,
   readOwnedNodeKey
 } from './identity'
+import { type CanvasMediaState, createMediaState, importCanvasMedia } from './media'
+import {
+  isCanvasNodeType,
+  isFrameContainerType,
+  isIntrinsicContainer,
+  isPreservedNodeType
+} from './model'
 import {
   type CanvasStyleState,
   createStyleState,
@@ -106,40 +120,9 @@ const CANVAS_SVG_CHILD_NAME = 'svg-child'
 const CANVAS_SVG_COLOR_NAME = 'svg-color'
 const CANVAS_SVG_DIGEST_NAME = 'svg-digest'
 const CANVAS_SVG_POLICY_NAME = 'svg-policy'
-const MAX_VIDEO_BYTES = 100 * 1024 * 1024
 const ROOT_PLACEMENT_GAP = 80
 const GEOMETRY_TOLERANCE = 0.01
 const CONTENT_OVERFLOW_TOLERANCE = 0.5
-const MAX_IMPORTED_IMAGE_HASHES = 256
-const importedImageHashes = new Map<string, string>()
-const SUPPORTED_NODE_TYPES = new Set<CanvasNodeSpec['type']>([
-  'BOOLEAN_OPERATION',
-  'COMPONENT',
-  'COMPONENT_SET',
-  'FRAME',
-  'GROUP',
-  'INSTANCE',
-  'SECTION',
-  'SLOT',
-  'TEXT',
-  'RECTANGLE',
-  'LINE',
-  'ELLIPSE',
-  'POLYGON',
-  'STAR',
-  'VECTOR'
-])
-const PRESERVED_NODE_TYPES = new Set<CanvasPreservedNodeType>([
-  'COMPONENT',
-  'COMPONENT_SET',
-  'INSTANCE',
-  'RECTANGLE',
-  'LINE',
-  'ELLIPSE',
-  'POLYGON',
-  'STAR',
-  'VECTOR'
-])
 type SupportedCanvasNode = Extract<SceneNode, { type: CanvasNodeSpec['type'] }>
 type CanvasFrameContainerNode = ComponentNode | ComponentSetNode | FrameNode | SlotNode
 type CanvasParentNode =
@@ -172,8 +155,7 @@ type ProtectedNodeSnapshot = {
 }
 
 type ApplyState = {
-  assets: ResolvedCanvasAssets
-  availableFonts?: Promise<Font[]>
+  media: CanvasMediaState
   claimedNodeIds: Set<string>
   componentCache: Map<string, ComponentNode>
   componentPropertyKeys: Map<string, Record<string, string>>
@@ -181,10 +163,7 @@ type ApplyState = {
   createdPageIds: Set<string>
   desiredKeys: Set<string>
   explicitNodes: Map<string, SupportedCanvasNode | null>
-  fontLoads: Map<string, Promise<void>>
-  imageHashes: Map<string, string>
-  imageAssetKeys: Set<string>
-  imageUrls: Map<string, string>
+  fonts: CanvasFontState
   keyedNodes: Map<string, SupportedCanvasNode>
   mutations: MutationCounter
   nodeIdsByKey: Record<string, string>
@@ -198,12 +177,10 @@ type ApplyState = {
   styles: CanvasStyleState
   updatedNodeIds: Set<string>
   variables: CanvasVariableState
-  videoHashes: Map<string, string>
-  videoUrls: Set<string>
 }
 
 function isSupportedSceneNode(node: BaseNode | null): node is SupportedCanvasNode {
-  return !!node && SUPPORTED_NODE_TYPES.has(node.type as CanvasNodeSpec['type'])
+  return !!node && isCanvasNodeType(node.type)
 }
 
 function isSceneNode(node: BaseNode | null): node is SceneNode {
@@ -224,16 +201,14 @@ export async function collectUpdateNodeTypeHints(
   const byKey = new Map<string, CanvasPreservedNodeType>()
   const byNodeId = new Map<string, CanvasPreservedNodeType>()
   for (const node of walkAuthoringNodes([target])) {
-    if (!PRESERVED_NODE_TYPES.has(node.type as CanvasPreservedNodeType)) continue
-    const type = node.type as CanvasPreservedNodeType
+    if (!isPreservedNodeType(node.type)) continue
+    const type = node.type
     byNodeId.set(node.id, type)
     const key = readOwnedNodeKey(node)
     if (key && !byKey.has(key)) byKey.set(key, type)
   }
 
-  const root = PRESERVED_NODE_TYPES.has(target.type as CanvasPreservedNodeType)
-    ? (target.type as CanvasPreservedNodeType)
-    : undefined
+  const root = isPreservedNodeType(target.type) ? target.type : undefined
   return { byKey, byNodeId, ...(root ? { root } : {}) }
 }
 
@@ -284,18 +259,13 @@ function isWrappedSpec(spec: CanvasNodeSpec): spec is WrappedContainerSpec {
 }
 
 function isIntrinsicNode(node: SupportedCanvasNode): node is IntrinsicContainerNode {
-  return node.type === 'BOOLEAN_OPERATION' || node.type === 'GROUP'
+  return isIntrinsicContainer(node.type)
 }
 
 function isFrameContainer(
   node: SupportedCanvasNode | CanvasParentNode
 ): node is CanvasFrameContainerNode {
-  return (
-    node.type === 'COMPONENT' ||
-    node.type === 'COMPONENT_SET' ||
-    node.type === 'FRAME' ||
-    node.type === 'SLOT'
-  )
+  return isFrameContainerType(node.type)
 }
 
 function isWithinScope(node: BaseNode, scope: BaseNode): boolean {
@@ -965,115 +935,6 @@ function validateStyleType(field: keyof CanvasStyleBindings, style: BaseStyle, k
   }
 }
 
-function loadFont(font: FontName, state: ApplyState): Promise<void> {
-  const key = `${font.family}\0${font.style}`
-  const pending = state.fontLoads.get(key)
-  if (pending) return pending
-  const load = Promise.resolve()
-    .then(() => figma.loadFontAsync(font))
-    .catch((error) => retryAfterFigmaConnectionTimeout(() => figma.loadFontAsync(font), error))
-    .catch(() =>
-      specError(`Font "${font.family} ${font.style}" is unavailable in the current Figma context.`)
-    )
-  state.fontLoads.set(key, load)
-  return load
-}
-
-async function loadFonts(fonts: Iterable<FontName>, state: ApplyState): Promise<void> {
-  const unique = new Map([...fonts].map((font) => [`${font.family}\0${font.style}`, font] as const))
-  await Promise.all([...unique.values()].map((font) => loadFont(font, state)))
-}
-
-const PORTABLE_FONT_CANDIDATES = {
-  mono: ['Noto Sans Mono', 'Roboto Mono', 'IBM Plex Mono', 'Source Code Pro', 'Space Mono'],
-  sans: ['Inter'],
-  serif: ['Noto Serif', 'Source Serif 4', 'Roboto Serif', 'Merriweather', 'Georgia']
-} as const
-
-function normalizedFontStyle(style: string): string {
-  return style.toLowerCase().replaceAll(/[^a-z]/g, '')
-}
-
-function fontStyleWeight(style: string): number {
-  const normalized = normalizedFontStyle(style)
-  if (normalized.includes('thin')) return 100
-  if (normalized.includes('extralight') || normalized.includes('ultralight')) return 200
-  if (normalized.includes('light')) return 300
-  if (normalized.includes('medium')) return 500
-  if (normalized.includes('semibold') || normalized.includes('demibold')) return 600
-  if (normalized.includes('extrabold') || normalized.includes('ultrabold')) return 800
-  if (normalized.includes('black') || normalized.includes('heavy')) return 900
-  if (normalized.includes('bold')) return 700
-  return 400
-}
-
-function closestFontStyle(fonts: Font[], desiredStyle: string, weight?: number): FontName {
-  const normalizedDesired = normalizedFontStyle(desiredStyle)
-  const exact = fonts.find(
-    ({ fontName }) => normalizedFontStyle(fontName.style) === normalizedDesired
-  )
-  if (exact && weight === undefined) return exact.fontName
-
-  const desiredWeight = weight ?? fontStyleWeight(desiredStyle)
-  const desiredItalic = /italic/i.test(desiredStyle)
-  let closest = fonts[0]!
-  let closestScore = Infinity
-  for (const font of fonts) {
-    const score =
-      Math.abs(fontStyleWeight(font.fontName.style) - desiredWeight) +
-      (/italic/i.test(font.fontName.style) === desiredItalic ? 0 : 1000)
-    if (score < closestScore) {
-      closest = font
-      closestScore = score
-    }
-  }
-  return closest.fontName
-}
-
-async function resolveFamilyFont(
-  family: string,
-  desiredStyle: string,
-  state: ApplyState,
-  weight?: number
-): Promise<FontName> {
-  state.availableFonts ??= figma.listAvailableFontsAsync()
-  const fonts = (await state.availableFonts).filter(({ fontName }) => fontName.family === family)
-  if (!fonts.length)
-    specError(
-      `Font family "${family}" is unavailable. Query get_design_system with scope: "fonts" for available families and styles.`
-    )
-  return closestFontStyle(fonts, desiredStyle, weight)
-}
-
-async function resolvePortableFont(
-  family: NonNullable<NonNullable<CanvasNodeSpec['text']>['portableFontFamily']>,
-  desiredStyle: string,
-  state: ApplyState
-): Promise<FontName> {
-  state.availableFonts ??= figma.listAvailableFontsAsync()
-  let available: Font[]
-  try {
-    available = await state.availableFonts
-  } catch {
-    specError('Available Figma fonts could not be listed for a portable font utility.')
-  }
-
-  for (const candidate of PORTABLE_FONT_CANDIDATES[family]) {
-    const matching = available.filter(({ fontName }) => fontName.family === candidate)
-    if (matching.length) return closestFontStyle(matching, desiredStyle)
-  }
-  specError(
-    `No portable ${family} font is available in the current Figma context; use an exact available font.`
-  )
-}
-
-function currentTextFonts(node: TextNode, range?: { start: number; end: number }): FontName[] {
-  if (range) return node.getRangeAllFontNames(range.start, range.end)
-  return node.fontName === figma.mixed
-    ? node.getRangeAllFontNames(0, node.characters.length)
-    : [node.fontName]
-}
-
 function expectedVariableType(field: keyof CanvasVariableBindings): VariableResolvedDataType {
   if (field === 'fill' || field === 'stroke') return 'COLOR'
   if (field === 'characters' || field === 'fontFamily' || field === 'fontStyle') return 'STRING'
@@ -1270,11 +1131,11 @@ async function preflightPaintStack(
     }
     if (paint.type === 'IMAGE') {
       if (paint.imageUrl !== undefined) {
-        if (!state.imageUrls.has(paint.imageUrl)) {
-          state.imageUrls.set(paint.imageUrl, `${field} paint ${index} on "${key}"`)
+        if (!state.media.imageUrls.has(paint.imageUrl)) {
+          state.media.imageUrls.set(paint.imageUrl, `${field} paint ${index} on "${key}"`)
         }
       } else if (paint.assetKey !== undefined) {
-        state.imageAssetKeys.add(paint.assetKey)
+        state.media.imageAssetKeys.add(paint.assetKey)
       } else if (paint.imageHash && !figma.getImageByHash(paint.imageHash)) {
         specError(
           `Image "${paint.imageHash}" for ${field} paint ${index} on "${key}" does not exist.`
@@ -1282,7 +1143,7 @@ async function preflightPaintStack(
       }
     }
     if (paint.type === 'VIDEO' && paint.videoUrl !== undefined) {
-      state.videoUrls.add(paint.videoUrl)
+      state.media.videoUrls.add(paint.videoUrl)
     }
     if (paint.type === 'PATTERN') {
       await preflightNodeReference(
@@ -1328,7 +1189,7 @@ async function preflightVector(spec: CanvasNodeSpec, state: ApplyState): Promise
 async function preflightTextRanges(spec: CanvasNodeSpec, state: ApplyState): Promise<void> {
   for (const [index, range] of (spec.figma?.text?.ranges ?? []).entries()) {
     const key = `${spec.key} text range ${index}`
-    if (range.fontName) await loadFont(range.fontName, state)
+    if (range.fontName) await loadFont(range.fontName, state.fonts)
     for (const [field, reference] of [
       ['text', range.textStyle],
       ['fill', range.fillStyle]
@@ -1336,7 +1197,7 @@ async function preflightTextRanges(spec: CanvasNodeSpec, state: ApplyState): Pro
       if (!reference) continue
       const style = await resolveStyle(reference, state.styles)
       validateStyleType(field, style, key)
-      if (style.type === 'TEXT') await loadFont(style.fontName, state)
+      if (style.type === 'TEXT') await loadFont(style.fontName, state.fonts)
     }
     for (const [field, reference] of Object.entries(range.variables ?? {}) as Array<
       [keyof CanvasVariableBindings, CanvasVariableReference | null]
@@ -1441,7 +1302,7 @@ async function preflightStyleResources(state: ApplyState): Promise<void> {
         await preflightPaintStack(spec.paints, 'style', key, state)
         break
       case 'TEXT':
-        if (spec.fontName) await loadFont(spec.fontName, state)
+        if (spec.fontName) await loadFont(spec.fontName, state.fonts)
         for (const [field, reference] of textStyleVariableEntries(spec)) {
           if (!reference) continue
           validateVariableType(
@@ -1893,7 +1754,7 @@ async function preflightResources(
       if (!reference) continue
       const style = await resolveStyle(reference, state.styles)
       validateStyleType(field, style, spec.key)
-      if (style.type === 'TEXT') await loadFont(style.fontName, state)
+      if (style.type === 'TEXT') await loadFont(style.fontName, state.fonts)
     }
   }
   if (spec.type === 'TEXT' && spec.text) {
@@ -1922,9 +1783,9 @@ async function preflightResources(
       const desiredFamily = fontFamily ?? (currentFont === figma.mixed ? '' : currentFont.family)
       const desiredStyle = fontStyle ?? (currentFont === figma.mixed ? '' : currentFont.style)
       const desiredFont = spec.text.portableFontFamily
-        ? await resolvePortableFont(spec.text.portableFontFamily, desiredStyle, state)
+        ? await resolvePortableFont(spec.text.portableFontFamily, desiredStyle, state.fonts)
         : spec.text.fontStyleMatching
-          ? await resolveFamilyFont(desiredFamily, desiredStyle, state)
+          ? await resolveFamilyFont(desiredFamily, desiredStyle, state.fonts)
           : {
               family: desiredFamily,
               style: spec.figma?.text?.fontName
@@ -1935,7 +1796,7 @@ async function preflightResources(
         spec.text.fontFamily = desiredFont.family
         spec.text.fontStyle = desiredFont.style
       }
-      await loadFont(desiredFont, state)
+      await loadFont(desiredFont, state.fonts)
     }
   }
   const hyperlink = spec.figma?.text?.hyperlink
@@ -1955,75 +1816,6 @@ async function preflightResources(
   await preflightLayoutGrids(spec.figma?.layoutGrids, spec.key, state)
   for (const child of spec.children ?? []) {
     await preflightResources(child, state, findExistingNode(child, state) ?? undefined, component)
-  }
-}
-
-async function resolveImageUrls(state: ApplyState): Promise<void> {
-  for (const [url, usage] of state.imageUrls) {
-    try {
-      state.imageHashes.set(url, (await figma.createImageAsync(url)).hash)
-    } catch {
-      throw createCodedError(
-        TEMPAD_MCP_ERROR_CODES.IMAGE_IMPORT_FAILED,
-        `Image URL for ${usage} could not be imported as a PNG, JPEG, or GIF up to 4096 by 4096 px. Use a direct public image URL in one of those formats, or a resolved image asset for exact bytes.`
-      )
-    }
-  }
-}
-
-function resolveImageAssets(state: ApplyState): void {
-  for (const key of state.imageAssetKeys) {
-    const asset = resolvedImageAsset(state.assets, key)
-    if (!asset) {
-      throw createCodedError(
-        TEMPAD_MCP_ERROR_CODES.ASSET_NOT_FOUND,
-        `Image asset "${key}" was not resolved.`
-      )
-    }
-    try {
-      const cachedHash = importedImageHashes.get(asset.hash)
-      if (cachedHash) importedImageHashes.delete(asset.hash)
-      const imageHash =
-        cachedHash && figma.getImageByHash(cachedHash)
-          ? cachedHash
-          : figma.createImage(asset.bytes).hash
-      importedImageHashes.set(asset.hash, imageHash)
-      while (importedImageHashes.size > MAX_IMPORTED_IMAGE_HASHES) {
-        importedImageHashes.delete(importedImageHashes.keys().next().value!)
-      }
-      state.imageHashes.set(`asset:${key}`, imageHash)
-    } catch {
-      throw createCodedError(
-        TEMPAD_MCP_ERROR_CODES.IMAGE_IMPORT_FAILED,
-        `Image asset "${key}" could not be imported as a PNG, JPEG, or GIF up to 4096 by 4096 px.`
-      )
-    }
-  }
-}
-
-async function readVideoBytes(response: Response): Promise<Uint8Array> {
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  return readBoundedResponseBytes(
-    response,
-    MAX_VIDEO_BYTES,
-    () => new Error('Video exceeds 100MB.')
-  )
-}
-
-async function resolveVideoUrls(state: ApplyState): Promise<void> {
-  for (const url of state.videoUrls) {
-    try {
-      const response = await fetch(url, {
-        credentials: 'omit',
-        signal: AbortSignal.timeout(60_000)
-      })
-      const video = await figma.createVideoAsync(await readVideoBytes(response))
-      state.videoHashes.set(url, video.hash)
-    } catch {
-      specError(
-        'A video URL could not be imported as an MP4, MOV, or WebM up to 100MB. Figma video uploads require a paid team file.'
-      )
-    }
   }
 }
 
@@ -3008,10 +2800,10 @@ function nativePaint(paint: CanvasFigmaPaint, state: ApplyState): Paint {
         ...fields,
         imageHash:
           assetKey !== undefined
-            ? state.imageHashes.get(`asset:${assetKey}`)!
+            ? state.media.imageHashes.get(`asset:${assetKey}`)!
             : imageUrl === undefined
               ? (fields.imageHash ?? null)
-              : state.imageHashes.get(imageUrl)!,
+              : state.media.imageHashes.get(imageUrl)!,
         ...paintDefaults(paint)
       }
     }
@@ -3020,7 +2812,9 @@ function nativePaint(paint: CanvasFigmaPaint, state: ApplyState): Paint {
       return {
         ...fields,
         videoHash:
-          videoUrl === undefined ? (fields.videoHash ?? null) : state.videoHashes.get(videoUrl)!,
+          videoUrl === undefined
+            ? (fields.videoHash ?? null)
+            : state.media.videoHashes.get(videoUrl)!,
         ...paintDefaults(paint)
       }
     }
@@ -3288,17 +3082,22 @@ function comparableEffect(effect: Effect, expected: Effect): unknown {
     : effect
 }
 
-function effectsEqual(current: readonly Effect[], desired: readonly Effect[]): boolean {
-  if (current.length !== desired.length) return false
-  return current.every((effect, index) => {
-    const expected = desired[index]!
-    if (effect.type !== expected.type) return false
-    return nativeValueEqual(
-      comparableEffect(effect, expected),
-      comparableEffect(expected, expected),
+function effectEqual(current: Effect, desired: Effect): boolean {
+  return (
+    current.type === desired.type &&
+    nativeValueEqual(
+      comparableEffect(current, desired),
+      comparableEffect(desired, desired),
       FIGMA_NATIVE_TOLERANCE
     )
-  })
+  )
+}
+
+function effectsEqual(current: readonly Effect[], desired: readonly Effect[]): boolean {
+  return (
+    current.length === desired.length &&
+    current.every((effect, index) => effectEqual(effect, desired[index]!))
+  )
 }
 
 function summarizeNativeValue(value: unknown): string {
@@ -3311,17 +3110,9 @@ function describeEffectMismatch(current: readonly Effect[], desired: readonly Ef
   if (current.length !== desired.length) {
     return `expected ${desired.length} effect${desired.length === 1 ? '' : 's'}, found ${current.length}.`
   }
-  const index = current.findIndex((effect, effectIndex) => {
-    const expected = desired[effectIndex]!
-    return (
-      effect.type !== expected.type ||
-      !nativeValueEqual(
-        comparableEffect(effect, expected),
-        comparableEffect(expected, expected),
-        FIGMA_NATIVE_TOLERANCE
-      )
-    )
-  })
+  const index = current.findIndex(
+    (effect, effectIndex) => !effectEqual(effect, desired[effectIndex]!)
+  )
   if (index < 0) return 'effect stack changed before verification completed.'
   const expected = desired[index]!
   const found = current[index]!
@@ -3684,8 +3475,8 @@ async function loadTextFonts(
     }
     const desiredFont = styleReference
       ? { family, style }
-      : await resolveFamilyFont(family, style, state, weight)
-    await loadFont(desiredFont, state)
+      : await resolveFamilyFont(family, style, state.fonts, weight)
+    await loadFont(desiredFont, state.fonts)
     return desiredFont
   }
   const fontFamily =
@@ -3707,7 +3498,7 @@ async function loadTextFonts(
   const desiredStyle = fontStyle ?? (currentFont === figma.mixed ? '' : currentFont.style)
   const desiredFont: FontName | null = hasExplicitFont
     ? text?.portableFontFamily
-      ? await resolvePortableFont(text.portableFontFamily, desiredStyle, state)
+      ? await resolvePortableFont(text.portableFontFamily, desiredStyle, state.fonts)
       : {
           family: desiredFamily,
           style: spec.figma?.text?.fontName
@@ -3724,7 +3515,7 @@ async function loadTextFonts(
     : currentFont === figma.mixed
       ? node.getRangeAllFontNames(0, node.characters.length)
       : [currentFont]
-  await loadFonts(fonts, state)
+  await loadFonts(fonts, state.fonts)
   return desiredFont
 }
 
@@ -4030,7 +3821,7 @@ async function loadVariableFonts(
       fonts.push({ family, style })
     }
   }
-  await loadFonts(fonts, state)
+  await loadFonts(fonts, state.fonts)
 }
 
 async function applyTextRangeVariables(
@@ -4200,6 +3991,16 @@ async function applyTextRanges(
   }
 }
 
+function componentPropertyMatches(
+  current: ComponentProperties[string] | undefined,
+  value: CanvasComponentPropertyValue,
+  state: ApplyState
+): boolean {
+  return isVariableBinding(value)
+    ? current?.boundVariables?.value?.id === resolvedVariable(value.variable, state.variables).id
+    : current?.value === value && current.boundVariables?.value === undefined
+}
+
 async function applyComponent(
   node: InstanceNode,
   spec: CanvasNodeSpec,
@@ -4240,12 +4041,9 @@ async function applyComponent(
   const desiredProperties = Object.entries(spec.componentProperties ?? {}).map(
     ([key, value]) => [componentPropertyName(owner, key, state) ?? key, value] as const
   )
-  const changedProperties = desiredProperties.filter(([name, value]) => {
-    const current = node.componentProperties[name]
-    return isVariableBinding(value)
-      ? current?.boundVariables?.value?.id !== resolvedVariable(value.variable, state.variables).id
-      : current?.value !== value || current?.boundVariables?.value !== undefined
-  })
+  const changedProperties = desiredProperties.filter(
+    ([name, value]) => !componentPropertyMatches(node.componentProperties[name], value, state)
+  )
   if (changedProperties.length) {
     node.setProperties(
       Object.fromEntries(
@@ -4324,7 +4122,7 @@ async function setStyleLink(
 ): Promise<void> {
   const target = styleTarget(node, field)
   if (target.current === id) return
-  if (!id && target.text) await loadFonts(currentTextFonts(target.text), state)
+  if (!id && target.text) await loadFonts(currentTextFonts(target.text), state.fonts)
   await target.apply(id)
   markMutation(state, node)
 }
@@ -4783,7 +4581,7 @@ async function applySvg(
   if (node.type !== 'FRAME') {
     specError(`SVG binding "${spec.key}" requires a frame wrapper.`)
   }
-  const asset = resolvedSvgAsset(state.assets, placement.assetKey, placement.color)
+  const asset = resolvedSvgAsset(state.media.assets, placement.assetKey, placement.color)
   if (!asset) {
     throw createCodedError(
       TEMPAD_MCP_ERROR_CODES.ASSET_NOT_FOUND,
@@ -5627,7 +5425,7 @@ function createApplyState(
   assets: ResolvedCanvasAssets = new Map()
 ): ApplyState {
   const state: ApplyState = {
-    assets,
+    media: createMediaState(assets),
     claimedNodeIds: new Set(),
     componentCache: new Map(),
     componentPropertyKeys: new Map(),
@@ -5635,10 +5433,7 @@ function createApplyState(
     createdPageIds: new Set(),
     desiredKeys,
     explicitNodes: new Map(),
-    fontLoads: new Map(),
-    imageHashes: new Map(),
-    imageAssetKeys: new Set(),
-    imageUrls: new Map(),
+    fonts: createFontState(),
     keyedNodes: target ? collectKeyedNodes(target) : new Map(),
     mutations: { count: 0 },
     nodeIdsByKey: Object.create(null) as Record<string, string>,
@@ -5651,9 +5446,7 @@ function createApplyState(
     stabilizedCrossAxisFillNodeIds: new Set(),
     styles: createStyleState(),
     updatedNodeIds: new Set(),
-    variables: createVariableState(),
-    videoHashes: new Map(),
-    videoUrls: new Set()
+    variables: createVariableState()
   }
   if (target) protectNode(state, target, false)
   return state
@@ -6487,13 +6280,9 @@ function componentLinkMatches(
   )
   return (
     variantProperties.length > 0 &&
-    variantProperties.every(([name, value]) => {
-      const applied = node.componentProperties[name]
-      return isVariableBinding(value)
-        ? applied?.boundVariables?.value?.id ===
-            resolvedVariable(value.variable, state.variables).id
-        : applied?.value === value && applied.boundVariables?.value === undefined
-    })
+    variantProperties.every(([name, value]) =>
+      componentPropertyMatches(node.componentProperties[name], value, state)
+    )
   )
 }
 
@@ -6524,11 +6313,7 @@ async function verifyInstanceState(
   const owner = componentDefinitionOwner(component)
   for (const [key, value] of Object.entries(spec.componentProperties)) {
     const name = componentPropertyName(owner, key, state) ?? key
-    const applied = node.componentProperties[name]
-    const matches = isVariableBinding(value)
-      ? applied?.boundVariables?.value?.id === resolvedVariable(value.variable, state.variables).id
-      : applied?.value === value && applied.boundVariables?.value === undefined
-    if (!matches) {
+    if (!componentPropertyMatches(node.componentProperties[name], value, state)) {
       specError(
         `Verification failed for "${spec.key}": component property "${name}" does not match.`
       )
@@ -6690,7 +6475,11 @@ async function verifyAppliedNode(
     if (node.type !== 'FRAME') {
       specError(`Verification failed for "${spec.key}": SVG wrapper is not a frame.`)
     }
-    const asset = resolvedSvgAsset(state.assets, spec.figma.svg.assetKey, spec.figma.svg.color)
+    const asset = resolvedSvgAsset(
+      state.media.assets,
+      spec.figma.svg.assetKey,
+      spec.figma.svg.color
+    )
     const owned = node.children.filter(isOwnedSvgChild)
     const unexpected = node.children.filter((child) => !isOwnedSvgChild(child))
     if (
@@ -7203,6 +6992,33 @@ function nativeUpdateParent(node: SupportedCanvasNode): CanvasParentNode | undef
   return parent as CanvasParentNode
 }
 
+type ResourceInput = Pick<ParsedCanvasTreeInput, 'variableCollections' | 'styles'>
+
+async function prepareResources(input: ResourceInput, state: ApplyState): Promise<void> {
+  await reconcileVariableCollections(input.variableCollections, state.variables, state.mutations)
+  await prepareStyleResources(input.styles, state.styles, state.mutations)
+  await preflightStyleResources(state)
+}
+
+async function applyResources(state: ApplyState): Promise<void> {
+  await importCanvasMedia(state.media)
+  applyStyleResources(state)
+}
+
+async function removeResources(state: ApplyState): Promise<void> {
+  await removeStyleResources(state.styles, state.mutations)
+  await removeVariableResources(state.variables, state.mutations)
+}
+
+function layoutWarnings(specs: CanvasNodeSpec[], state: ApplyState): VerificationWarning[] {
+  return [
+    ...specs.flatMap((spec) => layoutAffectingVisibilityWarnings(spec, state)),
+    ...specs.flatMap((spec) => managedContentOverflowWarnings(spec, state)),
+    ...specs.flatMap((spec) => managedRoundedStrokeOcclusionWarnings(spec, state)),
+    ...specs.flatMap((spec) => managedAutoLayoutInsetWarnings(spec, state))
+  ]
+}
+
 async function reconcileNativeUpdate(
   input: ParsedCanvasNativeUpdateInput
 ): Promise<ApplyCanvasResult> {
@@ -7242,9 +7058,7 @@ async function reconcileNativeUpdate(
   }
 
   return withUndoBoundary(async () => {
-    await reconcileVariableCollections(input.variableCollections, state.variables, state.mutations)
-    await prepareStyleResources(input.styles, state.styles, state.mutations)
-    await preflightStyleResources(state)
+    await prepareResources(input, state)
     for (const spec of specs) {
       const node = state.keyedNodes.get(spec.key)!
       preflightContainers(spec, state, node)
@@ -7254,10 +7068,7 @@ async function reconcileNativeUpdate(
         : undefined
       await preflightResources(spec, state, node, inherited)
     }
-    await resolveImageUrls(state)
-    resolveImageAssets(state)
-    await resolveVideoUrls(state)
-    applyStyleResources(state)
+    await applyResources(state)
     for (const spec of specs) {
       const node = state.keyedNodes.get(spec.key)!
       await applyNodeProperties(node, spec, state, nativeUpdateParent(node))
@@ -7266,8 +7077,7 @@ async function reconcileNativeUpdate(
       const node = state.keyedNodes.get(spec.key)!
       await applyCanvasKeyReferences(spec, state, nativeUpdateParent(node))
     }
-    await removeStyleResources(state.styles, state.mutations)
-    await removeVariableResources(state.variables, state.mutations)
+    await removeResources(state)
 
     const verified = { nodes: 0, references: 0, nativeFields: 0 }
     for (const spec of specs) {
@@ -7285,10 +7095,7 @@ async function reconcileNativeUpdate(
     const warnings = [
       ...unboundCreatedResourceWarnings([...specs, input.styles, input.variableCollections], state),
       ...authoredVariableFallbackWarnings(specs, input.variableCollections),
-      ...specs.flatMap((spec) => layoutAffectingVisibilityWarnings(spec, state)),
-      ...specs.flatMap((spec) => managedContentOverflowWarnings(spec, state)),
-      ...specs.flatMap((spec) => managedRoundedStrokeOcclusionWarnings(spec, state)),
-      ...specs.flatMap((spec) => managedAutoLayoutInsetWarnings(spec, state))
+      ...layoutWarnings(specs, state)
     ]
     return boundedApplyResult({
       rootNodeId: candidate.id,
@@ -7350,15 +7157,10 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
     await validateRemovalComponents(outermostNodes(removalNodes))
     preflightMasks(rootSpec, state, target)
     preflightContainers(rootSpec, state, target)
-    await reconcileVariableCollections(input.variableCollections, state.variables, state.mutations)
-    await prepareStyleResources(input.styles, state.styles, state.mutations)
-    await preflightStyleResources(state)
+    await prepareResources(input, state)
     await preflightVariableModes(input.page?.variableModes, state)
     await preflightResources(rootSpec, state, target ?? undefined)
-    await resolveImageUrls(state)
-    resolveImageAssets(state)
-    await resolveVideoUrls(state)
-    applyStyleResources(state)
+    await applyResources(state)
     if (input.page) applyPage(page, input.page, state)
     const destination =
       input.mode === 'create' && page.id !== figma.currentPage.id ? page : undefined
@@ -7377,8 +7179,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
     const removedNodeIds = await applyRemovals(removalNodes, state)
     finalizeGridsAfterRemovals(rootSpec, state)
     finalizeAbsolutePositions(rootSpec, state)
-    await removeStyleResources(state.styles, state.mutations)
-    await removeVariableResources(state.variables, state.mutations)
+    await removeResources(state)
     const verified = await verifyAppliedNode(rootSpec, root, state)
     const warnings = [
       ...unboundCreatedResourceWarnings(
@@ -7386,10 +7187,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
         state
       ),
       ...authoredVariableFallbackWarnings(walkSpecs(rootSpec), input.variableCollections),
-      ...layoutAffectingVisibilityWarnings(rootSpec, state),
-      ...managedContentOverflowWarnings(rootSpec, state),
-      ...managedRoundedStrokeOcclusionWarnings(rootSpec, state),
-      ...managedAutoLayoutInsetWarnings(rootSpec, state)
+      ...layoutWarnings([rootSpec], state)
     ]
     return boundedApplyResult({
       rootNodeId: root.id,

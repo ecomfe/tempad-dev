@@ -5,8 +5,8 @@ import type { CodegenConfig } from '@/utils/codegen'
 import { normalizeFigmaVarName } from '@/utils/css'
 
 import { resolveTokenDefsByNames } from '../../token'
+import { getVariableByIdCached } from '../../token/cache'
 import { canonicalizeNames, getVariableRawName } from '../../token/indexer'
-import { getVariableByIdCached } from './cache'
 
 export async function buildUsedTokens(
   finalBridge: Map<string, string>,

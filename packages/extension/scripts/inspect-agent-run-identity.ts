@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 
+import type { RolloutRow } from './rollout-rows'
+
 export interface AgentRunIdentity {
   taskId: string | null
   model: string | null
@@ -37,7 +39,7 @@ export function decodeXmlText(value: string): string {
 }
 
 // Inspect source records, not model prose or tool output claiming an identity.
-export function inspectAgentRunIdentity(source: string): AgentRunIdentity {
+export function inspectAgentRunIdentity(rows: Iterable<RolloutRow>): AgentRunIdentity {
   const taskIds = new Set<string>()
   const models = new Set<string>()
   const efforts = new Set<string>()
@@ -45,15 +47,12 @@ export function inspectAgentRunIdentity(source: string): AgentRunIdentity {
   const delegatedPrompts = new Set<string>()
   const issues = new Set<string>()
 
-  for (const [index, line] of source.split('\n').entries()) {
-    if (!line.trim()) continue
-    let row: unknown
-    try {
-      row = JSON.parse(line) as unknown
-    } catch {
-      issues.add(`Invalid rollout JSON on line ${String(index + 1)}.`)
+  for (const entry of rows) {
+    if ('error' in entry) {
+      issues.add(entry.error)
       continue
     }
+    const row = entry.value
     const payload = field(row, 'payload')
     if (field(row, 'type') === 'session_meta') {
       for (const key of ['id', 'session_id']) {

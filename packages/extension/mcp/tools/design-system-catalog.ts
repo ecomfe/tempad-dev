@@ -143,10 +143,10 @@ export function registerDesignSystemCatalog(
 ): DesignSystemCatalog {
   entries = withResourceAliases(entries)
   const id = `ds_${crypto.randomUUID()}`
+  const components = entries.filter((entry) => entry.kind === 'component')
   const catalog = {
     componentReferences: new Map(
-      entries
-        .filter((entry): entry is CatalogComponent => entry.kind === 'component')
+      components
         .flatMap((entry) => [entry.reference, ...(entry.nativeReferences ?? [])])
         .flatMap((reference) =>
           [reference.id, reference.key]
@@ -158,11 +158,7 @@ export function registerDesignSystemCatalog(
     ...(fileKey ? { fileKey } : {}),
     entries: new Map(entries.map((entry) => [entry.ref, entry])),
     orderedRefs,
-    tags: new Map(
-      entries
-        .filter((entry): entry is CatalogComponent => entry.kind === 'component')
-        .map((entry) => [entry.tag, entry])
-    ),
+    tags: new Map(components.map((entry) => [entry.tag, entry])),
     warnings: [...warnings]
   }
   catalogs.set(id, catalog)

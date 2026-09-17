@@ -113,37 +113,11 @@ function optimizeRuns(runs: TextRun[]): TextRun[] {
   })
 
   for (const run of cleanedRuns) {
-    if (result.length === 0) {
-      result.push(run)
-      continue
-    }
-
     const prev = result.at(-1)
     if (!prev) {
       result.push(run)
       continue
     }
-    const isWhitespace = /^[\s\u200B-\u200D\uFEFF]*$/.test(run.text)
-
-    if (isWhitespace) {
-      if (prev.marks.size !== run.marks.size) {
-        result.push(run)
-        continue
-      }
-      let marksMatch = true
-      for (const m of prev.marks) {
-        if (!run.marks.has(m)) {
-          marksMatch = false
-          break
-        }
-      }
-
-      if (marksMatch && prev.link === run.link) {
-        prev.text += run.text
-        continue
-      }
-    }
-
     if (prev.marks.size !== run.marks.size) {
       result.push(run)
       continue
@@ -158,6 +132,11 @@ function optimizeRuns(runs: TextRun[]): TextRun[] {
     }
     if (!marksMatch) {
       result.push(run)
+      continue
+    }
+
+    if (/^[\s\u200B-\u200D\uFEFF]*$/.test(run.text) && prev.link === run.link) {
+      prev.text += run.text
       continue
     }
 

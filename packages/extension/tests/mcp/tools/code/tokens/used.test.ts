@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
-import { getVariableByIdCached } from '@/mcp/tools/code/tokens/cache'
 import { buildUsedTokens } from '@/mcp/tools/code/tokens/used'
 import { resolveTokenDefsByNames } from '@/mcp/tools/token'
+import { getVariableByIdCached } from '@/mcp/tools/token/cache'
 import { canonicalizeNames, getVariableRawName } from '@/mcp/tools/token/indexer'
 import { normalizeFigmaVarName } from '@/utils/css'
 
@@ -21,7 +21,7 @@ vi.mock('@/mcp/tools/token/indexer', () => ({
   getVariableRawName: vi.fn()
 }))
 
-vi.mock('@/mcp/tools/code/tokens/cache', () => ({
+vi.mock('@/mcp/tools/token/cache', () => ({
   getVariableByIdCached: vi.fn()
 }))
 

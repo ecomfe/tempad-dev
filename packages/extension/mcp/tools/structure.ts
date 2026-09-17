@@ -52,13 +52,12 @@ function compactStructure(
   if (!roots.length) return { roots }
 
   const totalNodes = countStructureNodes(roots)
-  const result = (compactRoots: StructureNode[]): GetStructureResult => ({
-    roots: compactRoots,
-    ...(countStructureNodes(compactRoots) < totalNodes ? { truncated: true as const } : {})
-  })
 
   for (const nodeLimit of STRUCTURE_NODE_LIMIT_STEPS) {
-    const candidate = result(compactByNodeLimit(roots, nodeLimit, authoringKeys, nativeById))
+    const candidate: GetStructureResult = {
+      roots: compactByNodeLimit(roots, nodeLimit, authoringKeys, nativeById),
+      ...(totalNodes > nodeLimit ? { truncated: true } : {})
+    }
     if (estimateToolResultBytes(candidate) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
       return candidate
     }

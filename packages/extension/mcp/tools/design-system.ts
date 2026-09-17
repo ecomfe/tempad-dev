@@ -1416,7 +1416,7 @@ async function createCatalog(): Promise<DesignSystemResourcesResult> {
     })
   }
 
-  const orderedEntries = orderEntries(entries.filter((entry) => entry.kind !== 'mode'))
+  const orderedEntries = orderEntries(entries)
   const catalog = registerDesignSystemCatalog(
     entries,
     figma.fileKey ?? undefined,
