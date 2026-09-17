@@ -29,6 +29,11 @@ Supported tools/resources:
   style, and shader definitions without inspecting canvas usage. Cursor continuation exposes
   omitted definitions; exact-ref lookup returns one bounded definition. `scope: "fonts"` queries
   available font families and exact native styles without reading file resources.
+- `begin_design`, `resume_design`, `set_design_anchor`, and `end_design`: Bind canvas writes to
+  a design task, resume a paused task, place its status controls, and finish or cancel the task.
+  Stop permanently fences the old task across reconnects. Native Codex App comments support Queue
+  and Steer; confirmed admission clears submitted drafts before execution finishes. See the
+  [comment guide and host validation scope](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev#task-controls-and-client-enhancements).
 - `apply_canvas`: Creates, updates, removes, or activates exact pages and managed roots using
   restricted HTML, deterministic Tailwind utilities, typed native state, SVG, and image assets.
   Variable utilities and named text-style classes bind existing resources or resources declared

@@ -55,6 +55,20 @@ Or select an existing design and ask:
 
 The `figma-canvas-authoring` skill guides your agent through relevant resource inspection, editing, and checking the rendered result. Writes require an editable Figma Design file; view-only files and Dev Mode remain read-only.
 
+### Design task controls and comments
+
+The task status bar follows the design anchor and shows the agent's activity and Stop/Done
+controls. Stop permanently cancels the current task; reconnecting cannot resume its writes.
+On compatible Codex App hosts, save element comments or add a general comment, then send the
+batch with Queue or Steer. Queue clears submitted drafts after the host confirms receipt, so
+another batch can be written while the queued request waits. Confirmation does not mean the
+agent has completed the changes.
+
+In an element editor, Enter saves; Command/Ctrl+Enter saves and queues the whole batch. In the
+general composer, Enter queues the batch and Command/Ctrl+Enter uses Steer. Shift+Enter adds a
+newline. Claude, Codex CLI, and other clients currently have task controls without comment
+sending. See the [comment guide and host validation scope](./agent-plugins/tempad-dev/README.md#task-controls-and-client-enhancements).
+
 ### Implement designs in code
 
 Select the design in Figma, then ask your agent in the target code project:
