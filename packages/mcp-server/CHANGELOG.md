@@ -2,6 +2,13 @@
 
 ## 0.8.0
 
+- Added design-task leases, pause/resume, anchored status, and permanent Stop cancellation.
+  Codex App uses host MCP metadata and native IPC; Claude retains lifecycle and Stop hooks.
+- Added native Codex App Queue and Steer feedback with stable delivery identities, durable
+  receipts, uncertain-admission reconciliation, and targeted removal of a task's queued comments.
+  Queue confirms host admission independently of execution; unavailable local queue snapshots
+  retain the bounded Hub waiting path. Comments never fall back to hooks.
+
 - BREAKING: supported Node.js versions are now 22.x, 24.x, or 26+, matching the upgraded runtime
   dependencies. Node.js 18 and 20 are no longer supported.
 - Released declarative Figma canvas authoring as a stable MCP workflow, paired with extension

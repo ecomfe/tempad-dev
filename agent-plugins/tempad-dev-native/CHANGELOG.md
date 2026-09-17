@@ -2,6 +2,11 @@
 
 ## 0.2.0
 
+- Added design-task lifecycle guidance and Stop/Done controls. Codex App uses MCP metadata and
+  native IPC without hooks; Claude uses installed lifecycle and Stop hooks.
+- Documented native Codex App comments, Queue/Steer timing, and element-editor Save & Queue
+  shortcuts. Other clients retain task controls without comment delivery.
+
 - Added `figma-canvas-authoring` for creating and editing native Figma designs, alongside the
   existing `figma-design-to-code` skill.
 - Added progressive references for native authoring, fonts, images, icons, resource bindings,

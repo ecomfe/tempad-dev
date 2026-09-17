@@ -18,7 +18,7 @@ The user-facing feature is **Comments**. A **comment** is a user's written desig
 
 General and element describe scope, not different kinds of content or delivery modes. Both may contain a question, direction, or requested change. The current review contains at most one general comment and one saved comment per element. A general comment can be sent alone; when sent with element comments, all belong to the same request. General scope is attached to the current design task and its original conversation/file binding, not the current selection.
 
-Use **Review comments**, **Add comment**, **Save comment**, **Queue comments**, and **Steer comments** for the corresponding controls. Contextual accessibility labels name the target, such as **Add comment to Header**. The element editor's field is **Element comment**. Keep Queue and Steer distinct because they deliver at different times; saving a draft does not send it.
+Use **Review comments**, **Add comment**, **Save comment**, **Save & Queue**, **Queue comments**, and **Steer now** for the corresponding controls. In the element editor, Command/Ctrl changes Save comment to Save & Queue; in the general composer, it changes Queue comments to Steer now. Contextual accessibility labels name the target, such as **Add comment to Header**. The element editor's field is **Element comment**. Keep Queue and Steer distinct because they deliver at different times; saving a draft does not send it.
 
 The trigger's number counts saved element comments and matches the numbered canvas markers. The general comment has no marker and does not increment that count or add a notification dot. The trigger remains available with no element comments. Draft, queued, and delivered describe lifecycle independently of scope.
 

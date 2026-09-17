@@ -2,6 +2,14 @@
 
 ## 0.21.0
 
+- Added anchored design-task status, Stop/Done controls, and persistent general and element
+  comments. Stop permanently fences the cancelled task, including after reconnection.
+- Added native Codex App Queue and Steer delivery. Confirmed host admission clears the submitted
+  comments and allows a new batch before queued work executes; uncertain delivery retains drafts
+  without automatic resubmission.
+- Added context-specific shortcuts: Command/Ctrl+Enter saves an element comment and queues the
+  whole batch; in the general composer it sends the batch with Steer. Shift+Enter inserts a newline.
+
 - Added declarative native Figma canvas authoring with `apply_canvas`: create and incrementally
   update designs, remove managed roots or pages, and choose the active page. Writes require an
   editable Figma Design file with MCP access enabled.
