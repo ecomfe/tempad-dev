@@ -47,30 +47,33 @@ export class DesignReviews {
           task = { ...task, status: 'cancelled', operation: null }
         if (JSON.stringify(previous) === JSON.stringify(task)) return previous
       }
-      const next = new Map(this.tasks).set(task.target.fileKey, task)
-      await this.storage.set({ [KEY]: [...next.values()] })
-      this.tasks.set(task.target.fileKey, task)
-      return task
+      return this.commit(task)
     })
   }
 
   close(
     task: DesignTask,
-    persist: (values: Record<string, unknown>) => Promise<void> = (values) =>
-      this.storage.set(values)
+    persist?: (values: Record<string, unknown>) => Promise<void>
   ): Promise<DesignTask> {
     return this.serial(async () => {
       await this.load()
       const previous = this.tasks.get(task.target.fileKey)
       if (previous && previous.taskId !== task.taskId)
         throw new Error('This review has been replaced by a newer task.')
-      const closed = { ...task, reviewClosed: true }
-      // Publish the local fence only after durable storage acknowledges it.
-      const next = new Map(this.tasks).set(task.target.fileKey, closed)
-      await persist({ [KEY]: [...next.values()] })
-      this.tasks.set(task.target.fileKey, closed)
-      return closed
+      return this.commit({ ...task, reviewClosed: true }, persist)
     })
+  }
+
+  private async commit(
+    task: DesignTask,
+    persist: (values: Record<string, unknown>) => Promise<void> = (values) =>
+      this.storage.set(values)
+  ): Promise<DesignTask> {
+    // Publish the local state only after durable storage acknowledges it.
+    const next = new Map(this.tasks).set(task.target.fileKey, task)
+    await persist({ [KEY]: [...next.values()] })
+    this.tasks.set(task.target.fileKey, task)
+    return task
   }
 
   private async load(): Promise<void> {

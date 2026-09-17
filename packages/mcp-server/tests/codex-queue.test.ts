@@ -273,6 +273,62 @@ describe('native Codex queue admission', () => {
     await expect(f.send()).rejects.toThrow('cancelled')
   })
 
+  it.each([false, true])(
+    'keeps later deliveries serialized after cancellation settles (failure: %s)',
+    async (failRemoval) => {
+      const f = await fixture()
+      await f.send()
+      const request = f.request.getMockImplementation()!
+      let finishRemoval!: () => void
+      let finishDelivery!: () => void
+      f.request.mockImplementationOnce(async (...args) => {
+        await new Promise<void>((resolve) => {
+          finishRemoval = resolve
+        })
+        if (failRemoval) throw new CodexIpcError('Removal disconnected', true)
+        return request(...args)
+      })
+      const cancelled = f.native.cancelQueued('task-a')
+      const cancellation = failRemoval
+        ? expect(cancelled).rejects.toThrow('Removal disconnected')
+        : expect(cancelled).resolves.toBeUndefined()
+      await vi.waitFor(() => expect(finishRemoval).toBeTypeOf('function'))
+      f.request.mockImplementationOnce(async (...args) => {
+        await new Promise<void>((resolve) => {
+          finishDelivery = resolve
+        })
+        return request(...args)
+      })
+      const next = { ...feedback, id: '00000000-0000-4000-8000-000000000002' }
+      const sending = f.native.enqueue(
+        binding,
+        'task-b',
+        next,
+        f.controller.signal,
+        f.validate,
+        f.dispatched
+      )
+      finishRemoval()
+      await cancellation
+      await vi.waitFor(() => expect(finishDelivery).toBeTypeOf('function'))
+      await expect(
+        f.native.enqueue(
+          binding,
+          'task-b',
+          { ...next, mode: 'steer' },
+          f.controller.signal,
+          f.validate,
+          f.dispatched
+        )
+      ).rejects.toThrow('pending delivery')
+      finishDelivery()
+      await sending
+      expect(f.messages().map((message) => message.id)).toEqual(
+        failRemoval ? [feedback.id, next.id] : [next.id]
+      )
+    }
+  )
+
   it('allows an explicit retry after a definite owner rejection', async () => {
     const f = await fixture()
     f.request.mockRejectedValueOnce(new CodexIpcError('Owner changed'))

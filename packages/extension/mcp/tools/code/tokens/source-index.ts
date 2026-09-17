@@ -1,6 +1,6 @@
 import { canonicalizeVarName, normalizeFigmaVarName } from '@/utils/css'
 
-import { getVariableByIdCached } from './cache'
+import { getVariableByIdCached } from '../../token/cache'
 
 export function buildSourceNameIndex(
   candidateIds: Set<string>,

@@ -34,6 +34,11 @@ export type ThemeResources = {
   boundFields: Map<string, VariableField[]>
 }
 
+export type PreparedCanvasTheme = {
+  element?: CanvasMarkupElement
+  resources: ThemeResources
+}
+
 const CSS_VARIABLE =
   /^([a-z-]+)-(?:\((?:(color|length|number|family-name):)?(--[a-zA-Z0-9_-]+)\)|\[(?:(color|length|number|family-name):)?var\((--[a-zA-Z0-9_-]+)\)\])$/
 
@@ -239,12 +244,13 @@ async function readVariableDefaultValue(
 }
 
 // Hydrate only aliases used in markup. Reads never import or create a resource.
-export async function prepareThemeResources(
+export async function prepareCanvasTheme(
   input: CanvasResolvedApplyParameters,
   catalog?: DesignSystemCatalog
-): Promise<ThemeResources> {
+): Promise<PreparedCanvasTheme> {
   const resources = createThemeResources(input, catalog)
-  if (!input.markup) return resources
+  if (!input.markup) return { resources }
+  const element = parseCanvasHtml(input.markup)
   const names = new Set<string>()
   const visit = (element: CanvasMarkupElement): void => {
     for (const token of (element.attributes.class ?? '').split(/\s+/)) {
@@ -253,7 +259,7 @@ export async function prepareThemeResources(
     }
     element.children.forEach(visit)
   }
-  visit(parseCanvasHtml(input.markup))
+  visit(element)
   const state = createVariableState()
   for (const name of names) {
     const reference = resources.variables.get(name)
@@ -274,7 +280,7 @@ export async function prepareThemeResources(
       }
     }
   }
-  return resources
+  return { element, resources }
 }
 
 function colorLiteral(value: unknown, token: string): string {

@@ -15,6 +15,7 @@ export default defineConfig({
         'src/mcp/protocol.ts',
         'src/mcp/tool-result.ts',
         'src/mcp/tools.ts',
+        'src/mcp/canvas.ts',
         'src/mcp/constants.ts',
         'src/mcp/design-task.ts',
         'src/mcp/errors.ts'

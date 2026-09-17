@@ -260,14 +260,11 @@ export class DesignTasks {
       )
     }
     this.assertFileIdle(session)
-    const occupant = this.occupant(session.fileKey)
-    if (occupant && occupant !== record) this.busy(occupant)
     record.ending = undefined
     record.ready = false
     record.task.status = 'active'
     record.task.epoch = (record.task.epoch ?? 0) + 1
     record.task.needsRead = true
-    this.currentTaskIds.set(session.fileKey, taskId)
     // The task keeps its page binding; switching pages is an explicit operation.
     this.renew(record)
     return record
@@ -290,17 +287,18 @@ export class DesignTasks {
     return [...this.records.values()]
   }
 
-  /** History can refresh independently; only the latest claim owns the file's UI. */
+  /** Only the current claim may own a lease or the file's task UI. */
   current(fileKey: string): DesignTaskRecord | undefined {
     const taskId = this.currentTaskIds.get(fileKey)
     return taskId ? this.records.get(taskId) : undefined
   }
 
   private occupant(fileKey: string): DesignTaskRecord | undefined {
-    return [...this.records.values()].find(
-      ({ task }) =>
-        task.target.fileKey === fileKey && (task.status === 'active' || task.status === 'stopping')
-    )
+    // Begin, resume and recovery only activate the current task for this file.
+    const record = this.current(fileKey)
+    return record && (record.task.status === 'active' || record.task.status === 'stopping')
+      ? record
+      : undefined
   }
 
   private busy(record: DesignTaskRecord): never {

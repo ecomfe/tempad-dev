@@ -173,10 +173,14 @@ export class CodexAppFeedback {
       return Promise.reject(new Error('Too many pending Codex conversations.'))
     this.taskConversations.set(taskId, conversationId)
     const combined = AbortSignal.any([signal, this.shutdown.signal])
+    return this.schedule(conversationId, () =>
+      this.deliver(conversationId, taskId, feedback, combined, beforeSend, onDispatch)
+    )
+  }
+
+  private schedule(conversationId: string, action: () => Promise<void>): Promise<void> {
     const previous = this.queues.get(conversationId) ?? Promise.resolve()
-    const pending = previous
-      .catch(() => {})
-      .then(() => this.deliver(conversationId, taskId, feedback, combined, beforeSend, onDispatch))
+    const pending = previous.catch(() => {}).then(action)
     this.queues.set(conversationId, pending)
     void pending
       .finally(() => {
@@ -432,52 +436,43 @@ export class CodexAppFeedback {
       if (receipt.taskId === taskId) conversations.add(receipt.conversationId)
     }
     for (const conversationId of conversations) {
-      const previous = this.queues.get(conversationId) ?? Promise.resolve()
-      const pending = previous
-        .catch(() => {})
-        .then(async () => {
-          const receipts = (await this.queueReceipts()).filter(
-            ({ receipt }) =>
-              receipt.taskId === taskId &&
-              receipt.conversationId === conversationId &&
-              receipt.messageId
-          )
-          if (!receipts.length) return
-          const ids = new Set(receipts.map(({ receipt }) => receipt.messageId))
+      await this.schedule(conversationId, async () => {
+        const receipts = (await this.queueReceipts()).filter(
+          ({ receipt }) =>
+            receipt.taskId === taskId &&
+            receipt.conversationId === conversationId &&
+            receipt.messageId
+        )
+        if (!receipts.length) return
+        const ids = new Set(receipts.map(({ receipt }) => receipt.messageId))
+        for (const { path, receipt } of receipts) {
+          if (receipt.status !== 'removed')
+            await this.saveReceipt(path, { ...receipt, status: 'cancelled' })
+        }
+        const hasMessages = (await this.nativeQueue.read(conversationId)).some((message) =>
+          ids.has(message.id)
+        )
+        let connection: Connection | undefined
+        try {
+          if (hasMessages) {
+            connection = await this.open()
+            const owner = await connection.owner(conversationId, this.shutdown.signal)
+            await this.nativeQueue.remove(
+              connection,
+              owner,
+              conversationId,
+              ids,
+              this.shutdown.signal
+            )
+          }
           for (const { path, receipt } of receipts) {
-            if (receipt.status !== 'removed')
-              await this.saveReceipt(path, { ...receipt, status: 'cancelled' })
+            if (hasMessages || receipt.status !== 'removed')
+              await this.saveReceipt(path, { ...receipt, status: 'removed' })
           }
-          const hasMessages = (await this.nativeQueue.read(conversationId)).some((message) =>
-            ids.has(message.id)
-          )
-          let connection: Connection | undefined
-          try {
-            if (hasMessages) {
-              connection = await this.open()
-              const owner = await connection.owner(conversationId, this.shutdown.signal)
-              await this.nativeQueue.remove(
-                connection,
-                owner,
-                conversationId,
-                ids,
-                this.shutdown.signal
-              )
-            }
-            for (const { path, receipt } of receipts) {
-              if (hasMessages || receipt.status !== 'removed')
-                await this.saveReceipt(path, { ...receipt, status: 'removed' })
-            }
-          } finally {
-            connection?.close()
-          }
-        })
-      this.queues.set(conversationId, pending)
-      try {
-        await pending
-      } finally {
-        if (this.queues.get(conversationId) === pending) this.queues.delete(conversationId)
-      }
+        } finally {
+          connection?.close()
+        }
+      })
     }
   }
 

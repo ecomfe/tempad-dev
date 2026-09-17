@@ -677,12 +677,7 @@ export function parseCanvasClasses(value: string): CanvasClasses {
   let defaultLineHeight: LineHeight | undefined
   let gradientDirection: keyof typeof LINEAR_GRADIENT_TRANSFORMS | undefined
   let gradientDirectionToken: string | undefined
-  let gradientFrom: RGBA | undefined
-  let gradientFromToken: string | undefined
-  let gradientVia: RGBA | undefined
-  let gradientViaToken: string | undefined
-  let gradientTo: RGBA | undefined
-  let gradientToToken: string | undefined
+  const gradientStops: Partial<Record<'from' | 'via' | 'to', { color: RGBA; token: string }>> = {}
   const tokens = value.trim() ? value.trim().split(/\s+/) : []
   for (const token of tokens) {
     if (token === 'flex') {
@@ -923,26 +918,12 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       const value = color(gradientStop[2]!)
       const parsed = value ? cssColor(value) : null
       if (!parsed) classError(`Unsupported gradient stop class "${token}".`)
-      const kind = gradientStop[1]!
-      if (kind === 'from') {
-        if (gradientFromToken) {
-          classError(`Class "${token}" conflicts with gradient stop class "${gradientFromToken}".`)
-        }
-        gradientFrom = parsed
-        gradientFromToken = token
-      } else if (kind === 'via') {
-        if (gradientViaToken) {
-          classError(`Class "${token}" conflicts with gradient stop class "${gradientViaToken}".`)
-        }
-        gradientVia = parsed
-        gradientViaToken = token
-      } else {
-        if (gradientToToken) {
-          classError(`Class "${token}" conflicts with gradient stop class "${gradientToToken}".`)
-        }
-        gradientTo = parsed
-        gradientToToken = token
+      const kind = gradientStop[1] as keyof typeof gradientStops
+      const previous = gradientStops[kind]
+      if (previous) {
+        classError(`Class "${token}" conflicts with gradient stop class "${previous.token}".`)
       }
+      gradientStops[kind] = { color: parsed, token }
       classes.frameClass ??= token
       continue
     }
@@ -1197,8 +1178,9 @@ export function parseCanvasClasses(value: string): CanvasClasses {
     if (guidance) classError(`Unsupported class "${token}". ${guidance}`)
     classError(`Unsupported class "${token}".`)
   }
-  if (gradientDirectionToken || gradientFromToken || gradientViaToken || gradientToToken) {
-    if (!gradientDirection || !gradientFrom || !gradientTo) {
+  if (gradientDirectionToken || Object.keys(gradientStops).length) {
+    const { from, via, to } = gradientStops
+    if (!gradientDirection || !from || !to) {
       classError(
         'A linear gradient requires one bg-linear-to-* direction plus exact from-* and to-* colors; via-* is optional.'
       )
@@ -1210,15 +1192,15 @@ export function parseCanvasClasses(value: string): CanvasClasses {
       {
         type: 'GRADIENT_LINEAR',
         gradientTransform: LINEAR_GRADIENT_TRANSFORMS[gradientDirection],
-        gradientStops: gradientVia
+        gradientStops: via
           ? [
-              { position: 0, color: gradientFrom },
-              { position: 0.5, color: gradientVia },
-              { position: 1, color: gradientTo }
+              { position: 0, color: from.color },
+              { position: 0.5, color: via.color },
+              { position: 1, color: to.color }
             ]
           : [
-              { position: 0, color: gradientFrom },
-              { position: 1, color: gradientTo }
+              { position: 0, color: from.color },
+              { position: 1, color: to.color }
             ]
       }
     ]

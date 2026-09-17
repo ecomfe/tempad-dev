@@ -25,7 +25,7 @@ import {
   parseVariableModeKeys,
   readAuthoringKey
 } from './identity'
-import { isComponentPropertyOwner } from './traversal'
+import { isComponentPropertyOwner, walkPhysicalNodes } from './traversal'
 
 type CollectionSpec = Exclude<CanvasVariableCollections[string], null>
 type ModeSpec = Exclude<NonNullable<CollectionSpec['modes']>[string], null>
@@ -874,12 +874,7 @@ async function collectDocumentConsumers(): Promise<{
     } catch {
       scopeError(`Page "${page.id}" could not be inspected before variable removal.`)
     }
-    const pending = [...page.children]
-    while (pending.length) {
-      const node = pending.pop()!
-      nodes.push(node)
-      if ('children' in node) pending.push(...node.children)
-    }
+    for (const node of walkPhysicalNodes(page.children)) nodes.push(node)
   }
   return { nodes, pages }
 }
