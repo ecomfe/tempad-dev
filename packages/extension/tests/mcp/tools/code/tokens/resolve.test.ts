@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
-import { getVariableByIdCached } from '@/mcp/tools/code/tokens/cache'
 import { createStyleVarResolver, resolveStyleMap } from '@/mcp/tools/code/tokens/resolve'
+import { getVariableByIdCached } from '@/mcp/tools/token/cache'
 import { getVariableRawName } from '@/mcp/tools/token/indexer'
 import { formatHexAlpha, normalizeCssValue, normalizeFigmaVarName } from '@/utils/css'
 
@@ -21,7 +21,7 @@ vi.mock('@/utils/css', () => ({
   )
 }))
 
-vi.mock('@/mcp/tools/code/tokens/cache', () => ({
+vi.mock('@/mcp/tools/token/cache', () => ({
   getVariableByIdCached: vi.fn()
 }))
 

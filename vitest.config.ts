@@ -45,7 +45,8 @@ export default defineConfig({
         'packages/shared/src/mcp/protocol.ts',
         'packages/shared/src/mcp/responses.ts',
         'packages/shared/src/mcp/tool-result.ts',
-        'packages/shared/src/mcp/tools.ts'
+        'packages/shared/src/mcp/tools.ts',
+        'packages/shared/src/mcp/canvas.ts'
       ],
       exclude: ['**/dist/**', '**/.output/**'],
       thresholds: AGGREGATE_COVERAGE_THRESHOLDS

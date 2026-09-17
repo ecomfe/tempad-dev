@@ -100,15 +100,12 @@ type PipelineInput = {
   tree: VisibleTree
   ctx: RenderContext
   collected: CollectedContext
-  nodeMap: Map<string, SceneNode>
   vectorRoots: Set<string>
   rootTag?: string
   lang?: CodeLanguage
   variableIds: Set<string>
   usedCandidateIds: Set<string>
   variableCache: Map<string, Variable | null>
-  config: CodegenConfig
-  pluginCode?: string
   resolveTokens?: boolean
   trace?: TraceInfo
 }
@@ -217,7 +214,7 @@ export async function handleGetCode(
   stamp('export-assets', t)
 
   const nodeMap = buildNodeMap(collected.nodes)
-  const ctx: RenderContext = buildRenderContext({
+  const ctx: RenderContext = {
     styles: collected.styles,
     layout: layoutStyles,
     nodes: nodeMap,
@@ -227,7 +224,7 @@ export async function handleGetCode(
     pluginCode,
     config,
     preferredLang
-  })
+  }
 
   const rootTag = collected.nodes.get(rootId)?.tag
   const codegen = {
@@ -239,15 +236,12 @@ export async function handleGetCode(
     tree,
     ctx,
     collected,
-    nodeMap,
     vectorRoots: plan.vectorRoots,
     rootTag,
     lang: preferredLang,
     variableIds: mappings.variableIds,
     usedCandidateIds,
     variableCache,
-    config,
-    pluginCode,
     resolveTokens,
     trace: traceInfo
   }
@@ -408,8 +402,8 @@ async function finalizeRenderedOutput(
     styles: collected.styles,
     textSegments: collected.textSegments,
     svgs: input.ctx.svgs,
-    config: input.config,
-    pluginCode: input.pluginCode,
+    config: input.ctx.config,
+    pluginCode: input.ctx.pluginCode,
     resolveTokens: input.resolveTokens,
     stamp: input.trace?.stamp,
     now: input.trace?.now
@@ -483,12 +477,12 @@ async function rerenderResolvedOutput({
   const resolveStyleVars = createStyleVarResolver(
     sourceIndex,
     input.variableCache,
-    input.config,
+    input.ctx.config,
     resolveNodeIds,
     tokenMatcher
   )
-  const resolvedStyles = resolveStyleMap(input.collected.styles, input.nodeMap, resolveStyleVars)
-  const resolvedSvgs = resolveSvgEntries(input.ctx.svgs, input.nodeMap, resolveStyleVars)
+  const resolvedStyles = resolveStyleMap(input.collected.styles, input.ctx.nodes, resolveStyleVars)
+  const resolvedSvgs = resolveSvgEntries(input.ctx.svgs, input.ctx.nodes, resolveStyleVars)
   if (
     !resolvedEntriesChanged(input.collected.styles, resolvedStyles) &&
     !resolvedEntriesChanged(input.ctx.svgs, resolvedSvgs)
@@ -496,13 +490,15 @@ async function rerenderResolvedOutput({
     return null
   }
   const resolvedLayout = buildLayoutStyles(resolvedStyles, input.vectorRoots)
-  const resolvedCtx = buildRenderContext({
+  const resolvedCtx: RenderContext = {
     ...input.ctx,
+    // Each render detects its language independently; keep the first result language below.
+    detectedLang: undefined,
     styles: resolvedStyles,
     layout: resolvedLayout,
     svgs: resolvedSvgs,
     resolveStyleVars
-  })
+  }
 
   return renderMarkup({
     ...input,
@@ -600,32 +596,6 @@ function buildNodeMap(nodes: Map<string, { node: SceneNode }>): Map<string, Scen
   const out = new Map<string, SceneNode>()
   nodes.forEach((snap, id) => out.set(id, snap.node))
   return out
-}
-
-function buildRenderContext({
-  styles,
-  layout,
-  nodes,
-  svgs,
-  textSegments,
-  pluginComponents,
-  pluginCode,
-  config,
-  preferredLang,
-  resolveStyleVars
-}: RenderContext): RenderContext {
-  return {
-    styles,
-    layout,
-    nodes,
-    svgs,
-    textSegments,
-    pluginComponents,
-    pluginCode,
-    config,
-    preferredLang,
-    resolveStyleVars
-  }
 }
 
 function normalizeRootString(

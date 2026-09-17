@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  getVariableByIdCached: vi.fn(),
   buildTokenRegex: vi.fn(),
   buildSourceNameIndex: vi.fn(),
   applyPluginTransformToNames: vi.fn(),
@@ -9,10 +8,6 @@ const mocks = vi.hoisted(() => ({
   buildUsedTokens: vi.fn(),
   createStyleVarResolver: vi.fn(),
   processTokens: vi.fn()
-}))
-
-vi.mock('@/mcp/tools/code/tokens/cache', () => ({
-  getVariableByIdCached: mocks.getVariableByIdCached
 }))
 
 vi.mock('@/mcp/tools/code/tokens/extract', () => ({
@@ -47,7 +42,6 @@ import * as tokensIndex from '@/mcp/tools/code/tokens'
 
 describe('tokens/index exports', () => {
   it('re-exports token pipeline helpers', () => {
-    expect(tokensIndex.getVariableByIdCached).toBe(mocks.getVariableByIdCached)
     expect(tokensIndex.buildTokenRegex).toBe(mocks.buildTokenRegex)
     expect(tokensIndex.buildSourceNameIndex).toBe(mocks.buildSourceNameIndex)
     expect(tokensIndex.applyPluginTransformToNames).toBe(mocks.applyPluginTransformToNames)

@@ -23,6 +23,8 @@ describe('design-resource and environment-font contracts', () => {
     { scope: 'fonts', ref: 'v1' },
     { scope: 'fonts', query: 'Noto', families: ['Inter'] },
     { query: 'Noto' },
+    { ref: 'v1' },
+    { cursor: 0 },
     { families: ['Inter'] },
     { scope: 'fonts', families: [] },
     { scope: 'fonts', families: Array.from({ length: 9 }, () => 'Inter') }

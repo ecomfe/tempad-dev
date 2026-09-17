@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import { parseRolloutRows } from './rollout-rows'
+
 interface SkillCatalogEntry {
   name: string
   description: string
@@ -44,14 +46,9 @@ function messageText(value: unknown): string {
 }
 
 export function extractSkillCatalog(rolloutJsonl: string): SkillCatalogEntry[] {
-  for (const line of rolloutJsonl.split('\n')) {
-    if (!line.trim()) continue
-    let row: unknown
-    try {
-      row = JSON.parse(line)
-    } catch {
-      continue
-    }
+  for (const entry of parseRolloutRows(rolloutJsonl)) {
+    if ('error' in entry) continue
+    const row = entry.value
     const text = messageText(row)
     const start = text.indexOf('<skills_instructions>')
     const end = text.indexOf('</skills_instructions>')

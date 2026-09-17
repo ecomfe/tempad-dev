@@ -14,22 +14,59 @@ import type {
 } from '@tempad-dev/shared'
 
 export type CanvasShapeNodeType = CanvasFigmaShape['type']
-type CanvasNodeType =
-  | 'BOOLEAN_OPERATION'
-  | 'COMPONENT'
-  | 'COMPONENT_SET'
-  | 'FRAME'
-  | 'GROUP'
-  | 'INSTANCE'
-  | 'SECTION'
-  | 'SLOT'
-  | 'TEXT'
-  | CanvasShapeNodeType
-export type CanvasPreservedNodeType =
-  | CanvasShapeNodeType
-  | 'COMPONENT'
-  | 'COMPONENT_SET'
-  | 'INSTANCE'
+const SHAPE_NODE_TYPES = [
+  'RECTANGLE',
+  'LINE',
+  'ELLIPSE',
+  'POLYGON',
+  'STAR',
+  'VECTOR'
+] as const satisfies ReadonlyArray<CanvasShapeNodeType>
+const PRESERVED_NODE_TYPES = [
+  ...SHAPE_NODE_TYPES,
+  'COMPONENT',
+  'COMPONENT_SET',
+  'INSTANCE'
+] as const
+const CANVAS_NODE_TYPES = [
+  ...PRESERVED_NODE_TYPES,
+  'BOOLEAN_OPERATION',
+  'FRAME',
+  'GROUP',
+  'SECTION',
+  'SLOT',
+  'TEXT'
+] as const
+
+type CanvasNodeType = (typeof CANVAS_NODE_TYPES)[number]
+export type CanvasPreservedNodeType = (typeof PRESERVED_NODE_TYPES)[number]
+
+const shapeNodeTypes: ReadonlySet<string> = new Set(SHAPE_NODE_TYPES)
+const preservedNodeTypes: ReadonlySet<string> = new Set(PRESERVED_NODE_TYPES)
+const canvasNodeTypes: ReadonlySet<string> = new Set(CANVAS_NODE_TYPES)
+
+export function isShapeType(type: string): type is CanvasShapeNodeType {
+  return shapeNodeTypes.has(type)
+}
+
+export function isPreservedNodeType(type: string): type is CanvasPreservedNodeType {
+  return preservedNodeTypes.has(type)
+}
+
+export function isCanvasNodeType(type: string): type is CanvasNodeType {
+  return canvasNodeTypes.has(type)
+}
+
+export function isFrameContainerType(
+  type: string
+): type is 'COMPONENT' | 'COMPONENT_SET' | 'FRAME' | 'SLOT' {
+  return type === 'COMPONENT' || type === 'COMPONENT_SET' || type === 'FRAME' || type === 'SLOT'
+}
+
+export function isIntrinsicContainer(type: string): type is 'BOOLEAN_OPERATION' | 'GROUP' {
+  return type === 'BOOLEAN_OPERATION' || type === 'GROUP'
+}
+
 export type CanvasNodeTypeHints = {
   byKey: ReadonlyMap<string, CanvasPreservedNodeType>
   byNodeId: ReadonlyMap<string, CanvasPreservedNodeType>

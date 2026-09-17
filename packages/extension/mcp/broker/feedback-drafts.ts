@@ -55,11 +55,7 @@ export class FeedbackDraftStore {
       const snapshot = await this.read(request.scope)
       if (request.operation === 'load') return snapshot
       if (request.operation === 'clear') {
-        const key = feedbackDraftKey(request.scope)
-        const roundKey = key + '.round'
-        const round = (await this.storage.get(roundKey))[roundKey] as number | undefined
-        // Fence old receipts even when the next round contains identical text.
-        await this.storage.set({ [key]: { items: [] }, [roundKey]: (round ?? 0) + 1 })
+        await this.advanceRound(request.scope)
         return { items: [] }
       }
       const comment = request.operation === 'comment' ? request.comment.trim() : snapshot.comment
@@ -94,18 +90,20 @@ export class FeedbackDraftStore {
   }
 
   closeReview(scope: FeedbackDraftScope, values: Record<string, unknown>): Promise<void> {
-    return this.serial(async () => {
-      const key = feedbackDraftKey(scope)
-      const roundKey = key + '.round'
-      const round = (await this.storage.get(roundKey))[roundKey] as number | undefined
-      // Done and draft deletion commit together. A late save or receipt cannot reopen the round.
-      await this.storage.set({
-        ...values,
-        [key]: { items: [] },
-        [key + '.closed']: true,
-        [roundKey]: (round ?? 0) + 1
-      })
-    })
+    return this.serial(() =>
+      this.advanceRound(scope, { ...values, [feedbackDraftKey(scope) + '.closed']: true })
+    )
+  }
+
+  private async advanceRound(
+    scope: FeedbackDraftScope,
+    values: Record<string, unknown> = {}
+  ): Promise<void> {
+    const key = feedbackDraftKey(scope)
+    const roundKey = key + '.round'
+    const round = (await this.storage.get(roundKey))[roundKey] as number | undefined
+    // Fence old receipts even if text repeats; Done also commits its closed review here.
+    await this.storage.set({ ...values, [key]: { items: [] }, [roundKey]: (round ?? 0) + 1 })
   }
 
   recordSubmission(scope: FeedbackDraftScope, feedback: DesignFeedback): Promise<void> {

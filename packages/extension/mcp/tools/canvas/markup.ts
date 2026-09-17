@@ -17,20 +17,20 @@ import type {
   CanvasNodeTypeHints,
   CanvasNodeSpec,
   CanvasPreservedNodeType,
-  CanvasShapeNodeType,
   CanvasSizingMode,
   ParsedCanvasTreeInput
 } from './model'
 import type { CanvasClasses } from './tailwind'
 
 import { parseCanvasHtml } from './html'
+import { isFrameContainerType, isIntrinsicContainer, isShapeType } from './model'
 import {
   findUnsupportedCanvasClasses,
   MAX_GRID_TRACKS,
   parseCanvasClasses,
   unsupportedCanvasClassGuidance
 } from './tailwind'
-import { createThemeResources, normalizeThemeClasses, type ThemeResources } from './theme'
+import { createThemeResources, normalizeThemeClasses, type PreparedCanvasTheme } from './theme'
 
 const ALLOWED_ATTRIBUTES = new Set(['class', 'data-key', 'data-node-id'])
 const SIZE_VARIABLE_FIELDS = [
@@ -456,31 +456,8 @@ function textAutoResize(
   return horizontal === 'HUG' ? 'WIDTH_AND_HEIGHT' : vertical === 'HUG' ? 'HEIGHT' : 'NONE'
 }
 
-const SHAPE_TYPES = new Set<CanvasShapeNodeType>([
-  'RECTANGLE',
-  'LINE',
-  'ELLIPSE',
-  'POLYGON',
-  'STAR',
-  'VECTOR'
-])
-
-function isShapeType(type: CanvasNodeSpec['type']): type is CanvasShapeNodeType {
-  return SHAPE_TYPES.has(type as CanvasShapeNodeType)
-}
-
-function isFrameContainerType(
-  type: CanvasNodeSpec['type']
-): type is 'COMPONENT' | 'COMPONENT_SET' | 'FRAME' | 'SLOT' {
-  return type === 'COMPONENT' || type === 'COMPONENT_SET' || type === 'FRAME' || type === 'SLOT'
-}
-
 function hasShapeAppearance(type: CanvasNodeSpec['type']): boolean {
   return type === 'BOOLEAN_OPERATION' || isShapeType(type)
-}
-
-function isIntrinsicContainer(type: CanvasNodeSpec['type']): boolean {
-  return type === 'BOOLEAN_OPERATION' || type === 'GROUP'
 }
 
 function hasFields(value: object): boolean {
@@ -804,6 +781,7 @@ function validateTextFont(
 }
 
 type CompileState = {
+  themeFields: Map<string, Array<keyof CanvasVariableBindings>>
   bindings: Record<string, CanvasBinding>
   catalog?: DesignSystemCatalog
   existingNodeTypes?: CanvasNodeTypeHints
@@ -1313,9 +1291,7 @@ function compileElement(
     }
     if (
       binding?.variables &&
-      ['width', 'height', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight'].some(
-        (field) => binding.variables?.[field as keyof CanvasVariableBindings] !== undefined
-      )
+      SIZE_VARIABLE_FIELDS.some((field) => binding.variables?.[field] !== undefined)
     ) {
       markupError(`Size variables are not supported on intrinsic ${type} node "${key}".`)
     }
@@ -1739,6 +1715,8 @@ function compileElement(
   } else {
     const rowGap = classes.rowGap ?? classes.gap
     const columnGap = classes.columnGap ?? classes.gap
+    const mainGap = classes.direction === 'HORIZONTAL' ? columnGap : rowGap
+    const counterGap = classes.direction === 'HORIZONTAL' ? rowGap : columnGap
     const padding = includeDefaults
       ? {
           top: classes.padding.top ?? 0,
@@ -1771,14 +1749,9 @@ function compileElement(
       : classes.flex
         ? {
             mode: classes.direction!,
-            ...((classes.direction === 'HORIZONTAL' ? columnGap : rowGap) !== undefined ||
-            includeDefaults
-              ? { gap: (classes.direction === 'HORIZONTAL' ? columnGap : rowGap) ?? 0 }
-              : {}),
-            ...(classes.wrap === 'WRAP' &&
-            ((classes.direction === 'HORIZONTAL' ? rowGap : columnGap) !== undefined ||
-              includeDefaults)
-              ? { counterGap: (classes.direction === 'HORIZONTAL' ? rowGap : columnGap) ?? 0 }
+            ...(mainGap !== undefined || includeDefaults ? { gap: mainGap ?? 0 } : {}),
+            ...(classes.wrap === 'WRAP' && (counterGap !== undefined || includeDefaults)
+              ? { counterGap: counterGap ?? 0 }
               : {}),
             ...(hasPadding ? { padding } : {}),
             ...(classes.primaryAlign !== undefined || includeDefaults
@@ -1847,6 +1820,8 @@ function compileElement(
   if (state.mode === 'create' && type === 'COMPONENT_SET' && !node.children?.length) {
     markupError(`New component set "${key}" requires at least one component child.`)
   }
+  const themeFields = state.themeFields.get(key)
+  if (themeFields?.length) node.themeVariableFields = themeFields
   return node
 }
 
@@ -1854,38 +1829,31 @@ export function parseCanvasMarkup(
   input: CanvasResolvedApplyParameters,
   catalog?: DesignSystemCatalog,
   existingNodeTypes?: CanvasNodeTypeHints,
-  themeResources?: ThemeResources
+  preparedTheme?: PreparedCanvasTheme
 ): ParsedCanvasTreeInput {
   if (input.mode !== 'create' && input.mode !== 'update') {
     markupError('Canvas HTML is valid only in create or update mode.')
   }
   if (input.markup === undefined) markupError('Canvas HTML markup is required for this operation.')
+  const bindings = Object.assign(
+    Object.create(null) as Record<string, CanvasBinding>,
+    input.bindings
+  )
+  const parsedElement = preparedTheme?.element ?? parseCanvasHtml(input.markup)
+  const resources = preparedTheme?.resources ?? createThemeResources(input, catalog)
+  const themedElement = normalizeThemeClasses(parsedElement, bindings, input, catalog, resources)
+  const rootElement = normalizeCatalogElement(themedElement, bindings, catalog)
+  assertStaticMarkupLegality(rootElement)
   const state: CompileState = {
-    bindings: Object.assign(Object.create(null) as Record<string, CanvasBinding>, input.bindings),
+    bindings,
     ...(catalog ? { catalog } : {}),
     ...(existingNodeTypes ? { existingNodeTypes } : {}),
     keys: new Set(),
     mode: input.mode,
-    nodeIds: new Set()
+    nodeIds: new Set(),
+    themeFields: resources.boundFields
   }
-  const parsedElement = parseCanvasHtml(input.markup)
-  const resources = themeResources ?? createThemeResources(input, catalog)
-  const themedElement = normalizeThemeClasses(
-    parsedElement,
-    state.bindings,
-    input,
-    catalog,
-    resources
-  )
-  const rootElement = normalizeCatalogElement(themedElement, state.bindings, catalog)
-  assertStaticMarkupLegality(rootElement)
   const root = compileElement(rootElement, state, 1)
-  const markThemeFields = (node: CanvasNodeSpec): void => {
-    const fields = resources.boundFields.get(node.key)
-    if (fields?.length) node.themeVariableFields = fields
-    node.children?.forEach(markThemeFields)
-  }
-  markThemeFields(root)
   validateAssetReferences(root, input.assets, input.styles)
   for (const key of Object.keys(state.bindings)) {
     if (!state.keys.has(key))

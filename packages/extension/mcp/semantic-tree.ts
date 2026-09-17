@@ -118,13 +118,9 @@ export function resolveSemanticTag(node: SceneNode): string {
     return node.characters.includes('\n') ? 'p' : 'span'
   }
 
-  if (isVectorLikeNode(node)) {
-    return 'svg'
-  }
-
-  if (node.type === 'RECTANGLE' && Array.isArray(node.fills)) {
-    if (node.fills.some(isVisibleMediaPaint)) return 'img'
-  }
+  const assetKind = classifySemanticAsset(node)
+  if (assetKind === 'vector') return 'svg'
+  if (assetKind === 'image') return 'img'
 
   return 'div'
 }

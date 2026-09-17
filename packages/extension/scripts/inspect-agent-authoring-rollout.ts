@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 import { decodeXmlText, inspectAgentRunIdentity } from './inspect-agent-run-identity'
+import { parseRolloutRows } from './rollout-rows'
 
 interface NodeLimitAttempt {
   limit: number
@@ -115,19 +116,6 @@ interface RuntimeObservation {
   hubFingerprint: string | null
   extensionFingerprint: string | null
   issues: string[]
-}
-
-function rows(rolloutJsonl: string): unknown[] {
-  return rolloutJsonl
-    .split('\n')
-    .filter((line) => line.trim())
-    .flatMap((line) => {
-      try {
-        return [JSON.parse(line) as unknown]
-      } catch {
-        return []
-      }
-    })
 }
 
 function get(value: unknown, key: string): unknown {
@@ -437,7 +425,8 @@ function markup(event: ApplyEvent): string {
 }
 
 export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutInspection {
-  const parsedRows = rows(rolloutJsonl)
+  const rows = [...parseRolloutRows(rolloutJsonl)]
+  const parsedRows = rows.flatMap((entry) => ('value' in entry ? [entry.value] : []))
   const applies = applyEvents(parsedRows)
   const callEvents = [
     ...toolCallEvents(parsedRows, 'custom_tool_call'),
@@ -585,7 +574,7 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
   }
 
   return {
-    execution: inspectAgentRunIdentity(rolloutJsonl),
+    execution: inspectAgentRunIdentity(rows),
     prompt: {
       text: prompt,
       sha256: prompt ? createHash('sha256').update(prompt).digest('hex') : null,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { inspectAgentRunIdentity } from '@/scripts/inspect-agent-run-identity'
+import { parseRolloutRows } from '@/scripts/rollout-rows'
 
 const row = (value: unknown): string => `${JSON.stringify(value)}\n`
 const message = (role: string, text: string): string =>
@@ -40,7 +41,7 @@ describe('agent run identity', () => {
         type: 'response_item',
         payload: { type: 'function_call_output', output: 'model: other' }
       })
-    expect(inspectAgentRunIdentity(source)).toEqual({
+    expect(inspectAgentRunIdentity(parseRolloutRows(source))).toEqual({
       taskId: 'task-1',
       model: 'gpt-5.6-sol',
       reasoningEffort: 'xhigh',
@@ -66,8 +67,10 @@ describe('agent run identity', () => {
       session +
       context() +
       message('user', '<environment_context>cwd</environment_context>Shape & finish & form.')
-    expect(inspectAgentRunIdentity(delegated)).toEqual(inspectAgentRunIdentity(direct))
-    expect(inspectAgentRunIdentity(delegated).issues).toEqual([])
+    expect(inspectAgentRunIdentity(parseRolloutRows(delegated))).toEqual(
+      inspectAgentRunIdentity(parseRolloutRows(direct))
+    )
+    expect(inspectAgentRunIdentity(parseRolloutRows(delegated)).issues).toEqual([])
   })
 
   it('accepts the native create-thread envelope and ignores projectless host metadata', () => {
@@ -80,8 +83,10 @@ describe('agent run identity', () => {
         '<recommended_plugins>Catalog</recommended_plugins>\n# AGENTS.md instructions\n<INSTRUCTIONS>Context</INSTRUCTIONS>\n<environment_context>cwd</environment_context>'
       )
     const direct = session + context() + message('user', 'Shape & finish & form.')
-    expect(inspectAgentRunIdentity(delegated)).toEqual(inspectAgentRunIdentity(direct))
-    expect(inspectAgentRunIdentity(delegated).issues).toEqual([])
+    expect(inspectAgentRunIdentity(parseRolloutRows(delegated))).toEqual(
+      inspectAgentRunIdentity(parseRolloutRows(direct))
+    )
+    expect(inspectAgentRunIdentity(parseRolloutRows(delegated)).issues).toEqual([])
   })
 
   it('retains duplicate prompts, model switches, and malformed lines as invalid evidence', () => {
@@ -92,7 +97,7 @@ describe('agent run identity', () => {
       message('user', 'Design a player.') +
       context('other-model', 'high') +
       '{broken\n'
-    const result = inspectAgentRunIdentity(source)
+    const result = inspectAgentRunIdentity(parseRolloutRows(source))
     expect(result.promptCount).toBe(2)
     expect(result.model).toBeNull()
     expect(result.reasoningEffort).toBeNull()
@@ -107,7 +112,7 @@ describe('agent run identity', () => {
   })
 
   it('does not infer unknown settings or accept contradictory collaboration settings', () => {
-    expect(inspectAgentRunIdentity('').issues).toContain('No model evidence.')
+    expect(inspectAgentRunIdentity(parseRolloutRows('')).issues).toContain('No model evidence.')
     const source =
       session +
       row({
@@ -119,7 +124,7 @@ describe('agent run identity', () => {
         }
       }) +
       message('user', 'Design a player.')
-    expect(inspectAgentRunIdentity(source).issues).toEqual([
+    expect(inspectAgentRunIdentity(parseRolloutRows(source)).issues).toEqual([
       'Turn model disagrees with collaboration settings.',
       'Turn reasoning effort disagrees with collaboration settings.'
     ])
@@ -132,10 +137,10 @@ describe('agent run identity', () => {
         'user',
         '# AGENTS.md instructions for /repo\n<INSTRUCTIONS>Context</INSTRUCTIONS>\nDesign a player.'
       )
-    expect(inspectAgentRunIdentity(source).issues).toEqual([])
+    expect(inspectAgentRunIdentity(parseRolloutRows(source)).issues).toEqual([])
     const changed =
       source + row({ type: 'session_meta', payload: { id: 'task-1', session_id: 'task-2' } })
-    expect(inspectAgentRunIdentity(changed).issues).toContain(
+    expect(inspectAgentRunIdentity(parseRolloutRows(changed)).issues).toContain(
       'Task identity changed within the rollout.'
     )
   })
@@ -151,9 +156,9 @@ describe('agent run identity', () => {
         }
       }) +
       message('user', 'Design a player.')
-    expect(inspectAgentRunIdentity(source).issues).toEqual([])
+    expect(inspectAgentRunIdentity(parseRolloutRows(source)).issues).toEqual([])
     const missing = source + row({ type: 'turn_context', payload: {} })
-    expect(inspectAgentRunIdentity(missing).issues).toEqual(
+    expect(inspectAgentRunIdentity(parseRolloutRows(missing)).issues).toEqual(
       expect.arrayContaining([
         'A turn context has no model identity.',
         'A turn context has no reasoning effort.'

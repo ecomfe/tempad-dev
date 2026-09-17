@@ -2,6 +2,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { normalizeFigmaVarName, replaceVarFunctions } from '@/utils/css'
 
+import { getVariableByIdCached } from '../../token/cache'
 import { getVariableRawName } from '../../token/indexer'
 import {
   isVariableAlias,
@@ -10,7 +11,6 @@ import {
   resolveFallbackValue,
   serializeVariableValue
 } from '../../token/value'
-import { getVariableByIdCached } from './cache'
 
 type VariableWithCollection = Variable & { variableCollectionId?: string; resolvedType?: string }
 type VariableCollectionInfo = {

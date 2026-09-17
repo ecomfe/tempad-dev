@@ -13,7 +13,7 @@ import { errorMessage, formatSchemaError, specError } from './errors'
 import { parseCanvasMarkup } from './markup'
 import { collectUpdateNodeTypeHints, reconcileCanvas } from './reconcile'
 import { resolveCanvasInput } from './resolve'
-import { prepareThemeResources } from './theme'
+import { prepareCanvasTheme } from './theme'
 
 let applyInProgress = false
 
@@ -46,9 +46,9 @@ export async function applyResolvedCanvas(
 ): Promise<ApplyCanvasResult> {
   applyInProgress = true
   try {
-    let themeResources
+    let preparedTheme
     try {
-      themeResources = await prepareThemeResources(input, catalog)
+      preparedTheme = await prepareCanvasTheme(input, catalog)
     } catch (error) {
       specError(errorMessage(error, 'Canvas theme is invalid.'))
     }
@@ -80,7 +80,7 @@ export async function applyResolvedCanvas(
           ...(input.selection === undefined ? {} : { selection: input.selection })
         }
       }
-      return parseCanvasMarkup(input, catalog, existingNodeTypes, themeResources)
+      return parseCanvasMarkup(input, catalog, existingNodeTypes, preparedTheme)
     }, 'Canvas markup is invalid.')
     return await reconcileCanvas(parsedInput)
   } catch (error) {
