@@ -40,7 +40,7 @@ useScrollbar(nav, VERTICAL_SCROLLBAR_OPTIONS)
 useScrollbar(content, VERTICAL_SCROLLBAR_OPTIONS)
 
 const actionGroups: Record<AgentIntegrationAction['id'], ActionGroupId> = {
-  'plugin-prompt': 'plugin',
+  'plugin-app': 'plugin',
   'plugin-cli': 'plugin',
   'mcp-deep-link': 'mcp',
   'mcp-cli': 'mcp',
@@ -144,7 +144,7 @@ function handleSetupAction(action: AgentIntegrationAction): void {
 }
 
 function getActionLabel(action: AgentIntegrationAction): string {
-  if (action.id === 'plugin-prompt') return `Continue in ${selectedSetup.value.name}`
+  if (action.id === 'plugin-app') return `Continue in ${selectedSetup.value.name} App`
   return `Install in ${selectedSetup.value.name}`
 }
 

@@ -122,8 +122,8 @@ describe('shared/mcp/install', () => {
     const codex = mcp.AGENT_INTEGRATIONS_BY_ID.codex
     expect(codex.actions).toEqual([
       expect.objectContaining({
-        id: 'plugin-prompt',
-        label: 'Plugin install',
+        id: 'plugin-app',
+        label: 'App install',
         kind: 'deep-link',
         value: expect.stringMatching(/^codex:\/\/new\?prompt=/)
       }),
@@ -142,13 +142,30 @@ describe('shared/mcp/install', () => {
     expect(codexPluginPrompt).toContain('figma-design-to-code')
     expect(codexPluginPrompt).toContain('figma-canvas-authoring')
 
+    // Terminal clients read the command directly, so only the desktop app carries a deep link.
     const claude = mcp.AGENT_INTEGRATIONS_BY_ID.claude
-    expect(claude.actions[0]?.value).toMatch(/^claude-cli:\/\/open\?q=/)
-    const claudePluginPrompt = decodeURIComponent(claude.actions[0]?.value ?? '')
-    expect(claudePluginPrompt).toContain(
-      'claude plugin marketplace add ecomfe/tempad-dev && claude plugin install tempad-dev@tempad-dev'
+    expect(claude.actions).toEqual([
+      expect.objectContaining({
+        id: 'plugin-cli',
+        kind: 'command',
+        value:
+          'claude plugin marketplace add ecomfe/tempad-dev && claude plugin install tempad-dev@tempad-dev'
+      })
+    ])
+    expect(
+      mcp.AGENT_INTEGRATIONS.flatMap(({ actions }) => actions).filter(
+        ({ kind }) => kind === 'deep-link'
+      )
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: expect.stringMatching(/^\w+:\/\//) })
+      ])
     )
-    expect(claudePluginPrompt).toContain('figma-canvas-authoring')
+    expect(
+      mcp.AGENT_INTEGRATIONS.flatMap(({ actions }) => actions).some(({ value }) =>
+        value.startsWith('claude-cli://')
+      )
+    ).toBe(false)
 
     const cursor = mcp.AGENT_INTEGRATIONS_BY_ID.cursor
     expect(cursor.actions).toEqual([
