@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { parseProcessTable } from '@/scripts/agent-authoring-runtime-preflight'
 import {
   assertCdpOwner,
   assertNoRestartJob,
@@ -13,6 +14,15 @@ import {
   resolveDevPluginVersion,
   selectCodexPageUrl
 } from '@/scripts/reinstall-codex-dev-plugin-runtime'
+
+/** Real `ps -axo pid=,ppid=,lstart=,command=` rows, so the shared parser is exercised too. */
+function rows(...entries: [pid: number, ppid: number, command: string][]) {
+  return parseProcessTable(
+    entries
+      .map(([pid, ppid, command]) => `${pid} ${ppid} Thu Sep 18 14:00:00 2026 ${command}`)
+      .join('\n')
+  )
+}
 
 const pluginRoot = '/checkout/.dev/plugins/tempad-dev-dev'
 const version = '0.2.0+codex.new'
@@ -198,16 +208,30 @@ describe('App restart and CDP target boundaries', () => {
   })
 
   it('allows inherited listeners only within the configured App process tree', () => {
-    expect(() => assertCdpOwner('p42\np99\np100', [42], '42 1\n99 42\n100 99')).not.toThrow()
-    expect(() => assertCdpOwner('p42\np99', [42], '42 1\n99 1')).toThrow('configured Codex App')
-    expect(() => assertCdpOwner('p42\np99', [42], '99 100\n100 99')).toThrow('configured Codex App')
-    expect(() => assertCdpOwner('p99', [42], '99 42')).toThrow('configured Codex App')
+    const tree = rows([42, 1, 'Codex'], [99, 42, 'Codex Helper'], [100, 99, 'Codex Renderer'])
+    expect(() => assertCdpOwner('p42\np99\np100', [42], tree)).not.toThrow()
+    expect(() =>
+      assertCdpOwner('p42\np99', [42], rows([42, 1, 'Codex'], [99, 1, 'Other']))
+    ).toThrow('configured Codex App')
+    expect(() =>
+      assertCdpOwner('p42\np99', [42], rows([99, 100, 'Other'], [100, 99, 'Other']))
+    ).toThrow('configured Codex App')
+    expect(() => assertCdpOwner('p99', [42], rows([99, 42, 'Codex Helper']))).toThrow(
+      'configured Codex App'
+    )
   })
+
   it('selects only the configured executable, never a helper, another app, or a prefix match', () => {
     const executable = '/Apps/My Codex.app/Contents/MacOS/Codex'
     expect(
       matchingProcesses(
-        `1 ${executable}\n2 ${executable} --flag\n3 ${executable}Helper\n4 /Other/Codex\n5 /bin/sh -c ${executable}`,
+        rows(
+          [1, 1, executable],
+          [2, 1, `${executable} --flag`],
+          [3, 1, `${executable}Helper`],
+          [4, 1, '/Other/Codex'],
+          [5, 1, `/bin/sh -c ${executable}`]
+        ),
         executable
       )
     ).toEqual([1, 2])
@@ -218,7 +242,13 @@ describe('App restart and CDP target boundaries', () => {
     const hub = '/checkout/packages/mcp-server/dist/hub.mjs'
     expect(
       checkoutRuntimeProcesses(
-        `1 node ${cli}\n2 node ${hub} --port 1\n3 node /other/dist/cli.mjs\n4 node ${cli}.bak\n5 node`,
+        rows(
+          [1, 1, `node ${cli}`],
+          [2, 1, `node ${hub} --port 1`],
+          [3, 1, 'node /other/dist/cli.mjs'],
+          [4, 1, `node ${cli}.bak`],
+          [5, 1, 'node']
+        ),
         [cli, hub]
       )
     ).toEqual([1, 2])
