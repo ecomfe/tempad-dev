@@ -24,7 +24,7 @@ const copiedText = ref<string | null>(null)
 const selectedAgentId = ref<AgentIntegrationId>('codex')
 const selectedAgent = computed(() => agents.find(({ id }) => id === selectedAgentId.value)!)
 const pluginInstallLink = computed(() =>
-  selectedAgent.value.actions.find(({ id }) => id === 'plugin-prompt')
+  selectedAgent.value.actions.find(({ id }) => id === 'plugin-app')
 )
 const setupGroups = computed(() => {
   const { actions } = selectedAgent.value

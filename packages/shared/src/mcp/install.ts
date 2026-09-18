@@ -56,7 +56,7 @@ export type McpClientConfig = {
 
 export type AgentIntegrationAction = {
   id:
-    | 'plugin-prompt'
+    | 'plugin-app'
     | 'plugin-cli'
     | 'mcp-deep-link'
     | 'mcp-cli'
@@ -199,15 +199,13 @@ function pluginCliAction(agent: PluginAgentId): AgentIntegrationAction {
   }
 }
 
-function buildPluginSetupDeepLink(prefix: 'claude' | 'codex'): string {
-  const command = buildPluginSetupCommand(prefix === 'claude' ? 'claude-code' : 'codex')
-  const hooks =
-    prefix === 'claude'
-      ? ' Confirm its lifecycle hooks are available and leave hook trust review to the user.'
-      : ''
-  const prompt = `Install the TemPad Dev plugin using the native marketplace command below, then confirm that its MCP server and figma-design-to-code and figma-canvas-authoring skills are available.${hooks}\n\n${command}`
-  const target = prefix === 'claude' ? 'claude-cli://open?q=' : 'codex://new?prompt='
-  return `${target}${encodeURIComponent(prompt)}`
+/**
+ * Only the desktop app gets a deep link: it can run the install itself. Terminal clients read the
+ * command directly instead of having an agent relay it.
+ */
+function buildCodexAppDeepLink(): string {
+  const prompt = `Install the TemPad Dev plugin using the native marketplace command below, then confirm that its MCP server and figma-design-to-code and figma-canvas-authoring skills are available.\n\n${buildPluginSetupCommand('codex')}`
+  return `codex://new?prompt=${encodeURIComponent(prompt)}`
 }
 
 function buildSkillsInstallCommand(agent: SkillAgentId): string {
@@ -338,10 +336,10 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
     name: 'Codex',
     actions: [
       {
-        id: 'plugin-prompt',
-        label: 'Plugin install',
+        id: 'plugin-app',
+        label: 'App install',
         kind: 'deep-link',
-        value: buildPluginSetupDeepLink('codex')
+        value: buildCodexAppDeepLink()
       },
       pluginCliAction('codex')
     ]
@@ -354,15 +352,7 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
   claude: {
     id: 'claude',
     name: 'Claude Code',
-    actions: [
-      {
-        id: 'plugin-prompt',
-        label: 'Plugin install',
-        kind: 'deep-link',
-        value: buildPluginSetupDeepLink('claude')
-      },
-      pluginCliAction('claude-code')
-    ]
+    actions: [pluginCliAction('claude-code')]
   },
   gemini: {
     id: 'gemini',
