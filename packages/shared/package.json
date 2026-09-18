@@ -2,6 +2,7 @@
   "name": "@tempad-dev/shared",
   "version": "0.1.0",
   "description": "Shared utilities, schemas and constants used by TemPad Dev extension and MCP server.",
+  "license": "MIT",
   "files": [
     "dist",
     "src/ui",
