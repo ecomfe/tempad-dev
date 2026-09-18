@@ -1,4 +1,7 @@
-import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION } from '@tempad-dev/shared'
+import {
+  TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+  TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS
+} from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket, WebSocketServer } from 'ws'
 
@@ -76,6 +79,8 @@ describe('extension socket lifecycle', () => {
       {
         id: 'ext-1',
         protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+        // Announced so an extension that predates this Hub can still recognize itself as served.
+        supportedProtocolVersions: [...TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS],
         type: 'registered'
       },
       {

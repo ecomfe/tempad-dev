@@ -2,6 +2,8 @@
 
 ## 0.8.0
 
+- Announced the extension bridge protocol versions the Hub serves, so a Hub upgrade can reach
+  an extension that predates it instead of forcing both sides to ship together.
 - Added design-task leases, pause/resume, anchored status, and permanent Stop cancellation.
   Codex App uses host MCP metadata and native IPC; Claude retains lifecycle and Stop hooks.
 - Preserved native Codex turn identity across conversation-only MCP requests and recovered

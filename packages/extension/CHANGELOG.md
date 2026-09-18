@@ -2,6 +2,9 @@
 
 ## 0.21.0
 
+- Accepted any MCP server that still serves this extension's bridge protocol, and ignored
+  fields added by a newer server, so an MCP release no longer has to wait for store review.
+  A server that dropped this protocol still reports an explicit mismatch and keeps retrying.
 - Added anchored design-task status, Stop/Done controls, and persistent general and element
   comments. Stop permanently fences the cancelled task, including after reconnection.
 - Added native Codex App Queue and Steer delivery. Confirmed host admission clears the submitted

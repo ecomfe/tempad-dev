@@ -4,6 +4,7 @@ import type { RawData, WebSocket } from 'ws'
 import {
   MessageFromExtensionSchema,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+  TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS,
   type RegisteredMessage
 } from '@tempad-dev/shared'
 
@@ -49,6 +50,7 @@ export function attachExtensionSocket(
   const registered: RegisteredMessage = {
     id: extension.id,
     protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+    supportedProtocolVersions: [...TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS],
     type: 'registered'
   }
   ws.send(JSON.stringify(registered))

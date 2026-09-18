@@ -396,9 +396,16 @@ describe('mcp/broker/hub-client', () => {
   })
 
   it.each([
-    ['missing', undefined],
-    ['different', TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION + 1]
-  ])('reports a %s bridge protocol after probing candidates', async (_case, protocolVersion) => {
+    ['missing', {}],
+    ['different', { protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION + 1 }],
+    [
+      'dropped',
+      {
+        protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION + 2,
+        supportedProtocolVersions: [TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION + 1]
+      }
+    ]
+  ])('reports a %s bridge protocol after probing candidates', async (_case, announcement) => {
     vi.stubGlobal('WebSocket', { OPEN: 1 })
     installHubProbe()
     const sockets: FakeWebSocket[] = []
@@ -408,11 +415,7 @@ describe('mcp/broker/hub-client', () => {
     await flushMicrotasks()
     for (let index = 0; index < 3; index++) {
       sockets[index]?.open()
-      sockets[index]?.receive({
-        type: 'registered',
-        id: `gateway-${index}`,
-        ...(protocolVersion === undefined ? {} : { protocolVersion })
-      })
+      sockets[index]?.receive({ type: 'registered', id: `gateway-${index}`, ...announcement })
       await flushMicrotasks()
     }
 
@@ -423,6 +426,37 @@ describe('mcp/broker/hub-client', () => {
     expect(client.getSnapshot().errorMessage).toContain(
       'Update the extension and MCP server together'
     )
+    client.stop()
+  })
+
+  it('connects to a newer hub that still serves this extension protocol', async () => {
+    // A Hub can ship ahead of store review; it stays usable while it announces this version.
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const client = createClient(sockets)
+
+    client.start()
+    await flushMicrotasks()
+    sockets[0]?.open()
+    sockets[0]?.receive({
+      type: 'registered',
+      id: 'gateway-0',
+      protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION + 1,
+      supportedProtocolVersions: [
+        TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+        TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION + 1
+      ],
+      announcedLater: 'ignored'
+    })
+    sockets[0]?.receive({
+      type: 'state',
+      activeId: 'gateway-0',
+      assetServerUrl: 'http://127.0.0.1:6220'
+    })
+    await flushMicrotasks()
+
+    expect(client.getSnapshot()).toMatchObject({ errorMessage: null, status: 'connected' })
     client.stop()
   })
 

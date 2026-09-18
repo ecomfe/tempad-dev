@@ -225,8 +225,8 @@ export class McpHubClient {
       }
       const handleMessage = (event: Event) => {
         const registration = inspectHubRegistration(event)
-        if (registration && registration.protocolVersion !== TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION) {
-          fail(createProtocolMismatchError(registration.protocolVersion))
+        if (registration && !servesThisExtension(registration)) {
+          fail(createProtocolMismatchError(registration))
           return
         }
         const message = parseHubMessage(event)
@@ -281,11 +281,8 @@ export class McpHubClient {
   private handleMessage(ws: WebSocket, event: MessageEvent<string>): void {
     if (this.ws !== ws) return
     const registration = inspectHubRegistration(event)
-    if (registration && registration.protocolVersion !== TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION) {
-      this.rejectConnectedMessage(
-        ws,
-        createProtocolMismatchError(registration.protocolVersion).message
-      )
+    if (registration && !servesThisExtension(registration)) {
+      this.rejectConnectedMessage(ws, createProtocolMismatchError(registration).message)
       return
     }
     const message = parseHubMessage(event)
@@ -413,7 +410,9 @@ function parseHubMessage(event: Event): MessageToExtension | null {
   return parseMessageToExtension(typeof data === 'string' ? data : '')
 }
 
-function inspectHubRegistration(event: Event): { protocolVersion: number } | null {
+type HubRegistration = { protocolVersion: number; supportedProtocolVersions: number[] }
+
+function inspectHubRegistration(event: Event): HubRegistration | null {
   const data = (event as MessageEvent<unknown>).data
   if (typeof data !== 'string') return null
   try {
@@ -421,19 +420,42 @@ function inspectHubRegistration(event: Event): { protocolVersion: number } | nul
     if (typeof value !== 'object' || value === null || !('type' in value)) return null
     if (value.type !== 'registered') return null
     const protocolVersion = 'protocolVersion' in value ? value.protocolVersion : Number.NaN
+    const supported =
+      'supportedProtocolVersions' in value ? value.supportedProtocolVersions : undefined
     return {
-      protocolVersion: typeof protocolVersion === 'number' ? protocolVersion : Number.NaN
+      protocolVersion: typeof protocolVersion === 'number' ? protocolVersion : Number.NaN,
+      supportedProtocolVersions: Array.isArray(supported)
+        ? supported.filter((version): version is number => typeof version === 'number')
+        : []
     }
   } catch {
     return null
   }
 }
 
-function createProtocolMismatchError(protocolVersion: number): McpBridgeProtocolMismatchError {
+/**
+ * A newer Hub may still serve this extension's protocol. Accept that, so a Hub release never has to
+ * wait for store review; refuse only when the Hub no longer speaks this version at all.
+ */
+function servesThisExtension(registration: HubRegistration): boolean {
+  return (
+    registration.protocolVersion === TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION ||
+    registration.supportedProtocolVersions.includes(TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION)
+  )
+}
+
+function createProtocolMismatchError(
+  registration: HubRegistration
+): McpBridgeProtocolMismatchError {
+  const { protocolVersion, supportedProtocolVersions } = registration
   const received = Number.isFinite(protocolVersion) ? String(protocolVersion) : 'missing or invalid'
+  const serves = supportedProtocolVersions.length
+    ? ` It serves ${supportedProtocolVersions.join(', ')}.`
+    : ''
   return new McpBridgeProtocolMismatchError(
     `TemPad Dev protocol mismatch: the extension requires ${TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION}, ` +
-      `but the MCP server reported ${received}. Update the extension and MCP server together.`
+      `but the MCP server reported ${received}.${serves} ` +
+      'Update the extension and MCP server together.'
   )
 }
 
