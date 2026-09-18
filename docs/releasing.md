@@ -23,10 +23,11 @@ Plugin **0.2.0**. `@tempad-dev/plugins` is the separate code-output SDK; its ver
 3. Run the checks in [TESTING.md](../TESTING.md), then `pnpm format:check`, `pnpm build`, and
    `pnpm zip`. Ordinary build must not change tracked agent-plugin files. The extension archive is
    written to `packages/extension/.output/tempad-dev-0.21.0-chrome.zip` for this release.
-4. Remove `packages/mcp-server/dist` first: repeated local builds can leave a stale hashed chunk
-   behind, and packing from that tree ships both copies. Then run `npm pack` in
-   `packages/mcp-server` and inspect the tarball: the CLI, Hub, exactly one bundled shared chunk,
-   package metadata, and both README languages must be present. Install it outside the
+4. Remove `packages/mcp-server/dist` and rebuild before packing. A working tree that has been
+   built repeatedly has been seen holding a stale hashed shared chunk even though `clean` is
+   configured, and packing from it ships both copies. Then run `npm pack` in `packages/mcp-server`
+   and inspect the tarball: the CLI, Hub, exactly one bundled shared chunk, package metadata, and
+   both README languages must be present. Install it outside the
    workspace and verify MCP initialization and tool discovery on a supported Node.js runtime.
    Use separate runtime, log, and asset directories for the check so an active local Hub is
    unaffected. Restrict the smoke Hub's allowed extension origin to a dedicated test origin,
