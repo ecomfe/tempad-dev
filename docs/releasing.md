@@ -23,8 +23,10 @@ Plugin **0.2.0**. `@tempad-dev/plugins` is the separate code-output SDK; its ver
 3. Run the checks in [TESTING.md](../TESTING.md), then `pnpm format:check`, `pnpm build`, and
    `pnpm zip`. Ordinary build must not change tracked agent-plugin files. The extension archive is
    written to `packages/extension/.output/tempad-dev-0.21.0-chrome.zip` for this release.
-4. Run `npm pack` in `packages/mcp-server` and inspect the tarball: the CLI, Hub, bundled shared
-   code, package metadata, and both README languages must be present. Install it outside the
+4. Remove `packages/mcp-server/dist` first: repeated local builds can leave a stale hashed chunk
+   behind, and packing from that tree ships both copies. Then run `npm pack` in
+   `packages/mcp-server` and inspect the tarball: the CLI, Hub, exactly one bundled shared chunk,
+   package metadata, and both README languages must be present. Install it outside the
    workspace and verify MCP initialization and tool discovery on a supported Node.js runtime.
    Use separate runtime, log, and asset directories for the check so an active local Hub is
    unaffected. Restrict the smoke Hub's allowed extension origin to a dedicated test origin,
@@ -55,7 +57,7 @@ order:
 | Hub change                                        | Order                                                 |
 | ------------------------------------------------- | ----------------------------------------------------- |
 | Still announces the released extension's protocol | Publish `latest` any time; store release is unrelated |
-| Dropped the released extension's protocol         | Promote `latest` at store publication, before rollout |
+| Dropped the released extension's protocol         | Publish `latest` at store publication, before rollout |
 
 Keep the previous extension protocol in `TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS` for at
 least one store cycle so the first case stays the normal one. Extensions released before this rule
@@ -69,16 +71,15 @@ version available before exposing the new plugin on `main`.
 
 1. Prepare the Chrome Web Store submission using the archive from the checked candidate. Retain
    its SHA-256 digest and the exact source revision.
-2. Dispatch `publish-mcp.yml` from that checked candidate ref with `tag=next`. Its
-   `prepublishOnly` hook rebuilds the package before npm publication. Confirm that
-   `npm view @tempad-dev/mcp@0.8.0 version` returns `0.8.0` and that `@latest` is unchanged.
-   Publishing without promoting keeps every existing installation on its working pair and gives
-   support an exact version to pin.
-3. When the Chrome Web Store publishes extension 0.21.0, promote the same version with
-   `npm dist-tag add @tempad-dev/mcp@0.8.0 latest`, before the store rollout reaches users.
-   Confirm `npm view @tempad-dev/mcp@latest version` returns `0.8.0`. MCP 0.8.0 stops serving the
-   protocol of extension 0.20.0 and earlier, so promoting it before the store publication breaks
+2. Wait for the Chrome Web Store to publish extension 0.21.0. Do not publish MCP before that:
+   0.8.0 stops serving the protocol of extension 0.20.0 and earlier, so an earlier `latest` breaks
    every installation that has not updated yet.
+3. Once the store has published, dispatch `publish-mcp.yml` from that checked candidate ref with
+   `tag=latest`, before the store rollout reaches users. Its `prepublishOnly` hook rebuilds the
+   package before npm publication. Confirm that both `npm view @tempad-dev/mcp@0.8.0 version` and
+   `npm view @tempad-dev/mcp@latest version` return `0.8.0`. If the dispatch cannot follow the
+   publication promptly, publish `tag=next` first so support can pin an exact version, then
+   dispatch `tag=latest`.
 4. Merge the approved candidate so the marketplace serves Agent Plugin 0.2.0. Verify that the
    portable, Codex, and Claude manifests agree, and that each generated package carries only its
    own channel's manifests. Do not publish the Agent Plugin through `publish-plugins.yml`; that

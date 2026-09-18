@@ -2,6 +2,7 @@
   "name": "@tempad-dev/plugins",
   "version": "0.6.2",
   "description": "Plugin utils for TemPad Dev.",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ecomfe/tempad-dev.git",
