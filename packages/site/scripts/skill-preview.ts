@@ -218,7 +218,6 @@ export async function loadSkillPreview(entryPath: string, watchFile: (path: stri
         : []
       return {
         path: localPath(path),
-        sourceUrl: sourceUrl(path),
         source,
         metadataEntries,
         ...renderSkillPreview(body, sourceUrl(path), fileUrls)

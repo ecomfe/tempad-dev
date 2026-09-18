@@ -338,7 +338,7 @@ function classError(message: string): never {
   throw new Error(message)
 }
 
-const MAX_UNSUPPORTED_CLASS_SCAN = 16
+export const MAX_UNSUPPORTED_CLASS_SCAN = 16
 const UNSUPPORTED_CLASS_MESSAGE = /^Unsupported class "([^"]+)"\.(?: .*)?$/
 const SHRINK_FAMILY_GUIDANCE =
   'Canvas does not support shrink utilities; remove the class instead of trying another spelling.'
@@ -350,14 +350,14 @@ export function unsupportedCanvasClassGuidance(tokens: Iterable<string>): string
   return null
 }
 
-export function findUnsupportedCanvasClasses(
-  value: string,
-  limit = MAX_UNSUPPORTED_CLASS_SCAN
-): { classes: string[]; truncated: boolean } {
+export function findUnsupportedCanvasClasses(value: string): {
+  classes: string[]
+  truncated: boolean
+} {
   let remaining = value.trim() ? value.trim().split(/\s+/) : []
   const classes: string[] = []
 
-  while (remaining.length && classes.length < limit) {
+  while (remaining.length && classes.length < MAX_UNSUPPORTED_CLASS_SCAN) {
     try {
       parseCanvasClasses(remaining.join(' '))
       return { classes, truncated: false }

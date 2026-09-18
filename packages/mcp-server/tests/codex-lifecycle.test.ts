@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CodexAppLifecycle } from '../src/agent-clients/codex-lifecycle'
 import { AgentClients } from '../src/agent-clients/registry'
 import { DesignTasks } from '../src/design-tasks'
+import { log } from '../src/shared'
+
+vi.mock('../src/shared', () => ({ log: { info: vi.fn(), warn: vi.fn() } }))
 
 const cleanups: (() => void)[] = []
 afterEach(() => {
@@ -278,7 +281,12 @@ describe('hook-free task lifecycle', () => {
       createId: () => `task-${taskCount++ === 0 ? 'a' : 'b'}`,
       now: () => 1000
     })
-    const clients = new AgentClients(tasks, undefined, (callback) => {
+    const feedback = {
+      available: vi.fn().mockResolvedValue(true),
+      cancelQueued: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn()
+    } as unknown as NonNullable<ConstructorParameters<typeof AgentClients>[1]>
+    const clients = new AgentClients(tasks, feedback, (callback) => {
       changed = callback
       return native
     })
@@ -362,6 +370,130 @@ describe('hook-free task lifecycle', () => {
     expect(f.record.task.status).toBe('paused')
     await f.clients.action({ requestId: 'stop', taskId: 'task-a', epoch: 0, action: 'stop' })
     expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b')
+  })
+
+  it('retains the native turn identity when a later MCP request only identifies the conversation', async () => {
+    const f = await taskFixture()
+    f.update([
+      { turnId: 'turn-a', status: 'completed' },
+      { turnId: 'turn-b', status: 'inProgress' }
+    ])
+    await f.clients.owner('transport', {
+      'x-codex-turn-metadata': { thread_id: 'thread-a' }
+    })
+    await f.clients.action({ requestId: 'stop', taskId: 'task-a', epoch: 0, action: 'stop' })
+    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b')
+  })
+
+  it('recovers the current native turn when the conversation reconnects without turn metadata', async () => {
+    const f = await taskFixture()
+    const turns = [
+      { turnId: 'turn-a', status: 'completed' },
+      { turnId: 'turn-b', status: 'inProgress' }
+    ]
+    f.update(turns)
+    f.native.state.mockReturnValue({ turns })
+    await f.clients.owner('reconnected', {
+      'x-codex-turn-metadata': { thread_id: 'thread-a' }
+    })
+    await f.clients.action({ requestId: 'stop', taskId: 'task-a', epoch: 0, action: 'stop' })
+    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b')
+  })
+
+  it.each([
+    { turns: undefined },
+    { turns: [] },
+    {
+      turns: [
+        { turnId: 'turn-b', status: 'inProgress' },
+        { turnId: 'turn-c', status: 'inProgress' }
+      ]
+    }
+  ])(
+    'does not guess a reconnected turn from an absent or ambiguous native state',
+    async ({ turns }) => {
+      const f = await taskFixture()
+      f.update([{ turnId: 'turn-a', status: 'completed' }])
+      f.clients.disconnect('transport')
+      f.native.state.mockReturnValue(turns ? { turns } : undefined)
+      await f.clients.owner('reconnected', {
+        'x-codex-turn-metadata': { thread_id: 'thread-a' }
+      })
+      expect((await f.clients.describe(f.record.ownerId)).capabilities.interrupt).toBe(false)
+      const result = await f.clients.action({
+        requestId: 'stop',
+        taskId: 'task-a',
+        epoch: 0,
+        action: 'stop'
+      })
+      expect(f.record.task.status).toBe('cancelled')
+      expect(f.native.interrupt).not.toHaveBeenCalled()
+      expect(result.message).toContain('interruption was not sent')
+      expect(log.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId: 'task-a', expectedTurnId: undefined }),
+        'Native Codex Stop skipped: no verified interruption target.'
+      )
+    }
+  )
+
+  it('uses the native target for both capabilities and Stop after MCP disconnect', async () => {
+    const f = await taskFixture()
+    f.clients.disconnect('transport')
+    f.native.state.mockReturnValue({ turns: [{ turnId: 'turn-a', status: 'inProgress' }] })
+    expect((await f.clients.describe(f.record.ownerId)).capabilities.interrupt).toBe(true)
+    const result = await f.clients.action({
+      requestId: 'stop',
+      taskId: 'task-a',
+      epoch: 0,
+      action: 'stop'
+    })
+    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-a')
+    expect(result.message).toContain('Codex turn interrupted')
+    expect(f.record.task.status).toBe('cancelled')
+  })
+
+  it('recovers a snapshot that arrived after reconnect, before its change callback', async () => {
+    const f = await taskFixture()
+    f.clients.disconnect('transport')
+    await f.clients.owner('reconnected', {
+      'x-codex-turn-metadata': { thread_id: 'thread-a' }
+    })
+    expect((await f.clients.describe(f.record.ownerId)).capabilities.interrupt).toBe(false)
+    f.native.state.mockReturnValue({ turns: [{ turnId: 'turn-b', status: 'inProgress' }] })
+    expect((await f.clients.describe(f.record.ownerId)).capabilities.interrupt).toBe(true)
+    await f.clients.action({ requestId: 'stop', taskId: 'task-a', epoch: 0, action: 'stop' })
+    expect(f.native.interrupt).toHaveBeenCalledWith('thread-a', 'turn-b')
+  })
+
+  it('keeps an exact metadata target across a state gap and never chases another turn', async () => {
+    const f = await taskFixture()
+    expect((await f.clients.describe(f.owner)).capabilities.interrupt).toBe(true)
+    f.native.state.mockReturnValue({ turns: [{ turnId: 'turn-b', status: 'inProgress' }] })
+    f.native.interrupt.mockResolvedValue(false)
+    const result = await f.clients.action({
+      requestId: 'stop',
+      taskId: 'task-a',
+      epoch: 0,
+      action: 'stop'
+    })
+    expect(f.native.interrupt).toHaveBeenCalledExactlyOnceWith('thread-a', 'turn-a')
+    expect(result.message).toContain('did not interrupt the expected turn')
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedTurnId: 'turn-a', interrupted: false }),
+      'Native Codex Stop interruption settled.'
+    )
+  })
+
+  it('freezes the interruption target before local acceptance callbacks', async () => {
+    const f = await taskFixture()
+    await f.clients.action({ requestId: 'stop', taskId: 'task-a', epoch: 0, action: 'stop' }, () =>
+      f.update([
+        { turnId: 'turn-a', status: 'completed' },
+        { turnId: 'turn-b', status: 'inProgress' }
+      ])
+    )
+    expect(f.native.interrupt).toHaveBeenCalledExactlyOnceWith('thread-a', 'turn-a')
+    expect(f.record.task.status).toBe('cancelled')
   })
 
   it('pauses every lease from the finished turn before advancing their shared conversation binding', async () => {

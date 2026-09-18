@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useDraggable, useEventListener, useWindowSize, watchDebounced } from '@vueuse/core'
 
-import { useScrollbar } from '@/composables'
+import { useScrollbar, VERTICAL_SCROLLBAR_OPTIONS } from '@/composables'
 import { ui } from '@/ui/figma'
 import { options } from '@/ui/state'
 
@@ -9,16 +9,7 @@ const panel = useTemplateRef('panel')
 const header = useTemplateRef('header')
 const main = useTemplateRef('main')
 
-useScrollbar(main, {
-  overflow: {
-    x: 'hidden'
-  },
-  scrollbars: {
-    autoHide: 'leave',
-    autoHideDelay: 0,
-    clickScroll: true
-  }
-})
+useScrollbar(main, VERTICAL_SCROLLBAR_OPTIONS)
 
 const position = options.value.panelPosition
 const { x, y, isDragging } = useDraggable(panel, {

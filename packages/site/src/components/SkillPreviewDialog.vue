@@ -6,8 +6,8 @@ import SkillMetadata from '@/components/SkillMetadata.vue'
 import SkillSelect from '@/components/SkillSelect.vue'
 import { createSiteScrollbar, setPageScrollLocked, vScrollbar } from '@/composables/scrollbar'
 
-import canvasSkillPreview from '../../../../agent-plugins/tempad-dev/skills/figma-canvas-authoring/SKILL.md?skill-preview'
-import codeSkillPreview from '../../../../skill/SKILL.md?skill-preview'
+import canvasSkillPreview from '../../../../agent-plugin/src/skills/figma-canvas-authoring/SKILL.md?skill-preview'
+import codeSkillPreview from '../../../../agent-plugin/src/skills/figma-design-to-code/SKILL.md?skill-preview'
 
 const props = defineProps<{
   open: boolean
@@ -87,17 +87,14 @@ watch(
     if (open) {
       lockRootScroll()
       previousFocusTarget =
-        typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
-          ? document.activeElement
-          : null
+        document.activeElement instanceof HTMLElement ? document.activeElement : null
 
       if (!dialog.open) {
         dialog.showModal()
       }
 
       await nextTick()
-      const isCompactLayout =
-        typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches
+      const isCompactLayout = window.matchMedia('(max-width: 900px)').matches
 
       if (isCompactLayout) {
         mobileCloseButtonRef.value?.focus()
@@ -131,10 +128,6 @@ onBeforeUnmount(() => {
 let previousRootOverflow = ''
 
 function lockRootScroll(): void {
-  if (typeof document === 'undefined') {
-    return
-  }
-
   const root = document.documentElement
 
   if (root.style.overflow === 'hidden') {
@@ -147,10 +140,6 @@ function lockRootScroll(): void {
 }
 
 function unlockRootScroll(): void {
-  if (typeof document === 'undefined') {
-    return
-  }
-
   document.documentElement.style.overflow = previousRootOverflow
   setPageScrollLocked(false)
 }

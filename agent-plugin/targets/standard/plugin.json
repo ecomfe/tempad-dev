@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "tempad-dev",
+  "version": "0.2.0",
+  "description": "Connect your coding agent to Figma. Create and edit native designs, inspect existing designs, and implement UI in your codebase.",
+  "author": {
+    "name": "TemPad Dev"
+  },
+  "homepage": "https://github.com/ecomfe/tempad-dev#agent-integration",
+  "repository": "https://github.com/ecomfe/tempad-dev",
+  "license": "MIT",
+  "keywords": [
+    "figma",
+    "mcp",
+    "skill",
+    "agent-integration",
+    "design-to-code",
+    "canvas-authoring",
+    "design-system",
+    "frontend"
+  ]
+}

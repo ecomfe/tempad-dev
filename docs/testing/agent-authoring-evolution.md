@@ -15,8 +15,10 @@ replace judgment and must not grow into a second product-quality rubric.
 ## Operational tools
 
 Run the live evolution workflow through CLI commands, native task-management
-tools, and TemPad MCP. Do not use computer-use or browser-use tools, CDP,
-accessibility automation, or browser-driving scripts to operate the live apps.
+tools, and TemPad MCP. The development-plugin replacement script below is the
+sole CDP exception: it operates Codex App’s plugin installation UI. Do not use
+computer-use or browser-use tools, CDP, accessibility automation, or browser-driving
+scripts for Figma authoring, feedback acceptance, or other live app operations.
 
 - Build, install, inspect processes/logs, and run preflight through the CLI.
 - Create, inspect, and wait for native evaluation tasks through the host's
@@ -278,43 +280,47 @@ Before every live dispatch:
 
    ```sh
    pnpm build
-   pnpm agent-plugin:dev
+   pnpm agent-plugin:build
    ```
 
-2. When generated plugin content changed, replace the installed `tempad-dev-dev`
-   plugin through a supported native installation tool when the configured host exposes one. Otherwise use the
-   host's bundled CLI through the existing wrapper:
+2. When generated plugin content changed, replace `tempad-dev-dev` **in the running
+   Codex App** using the CDP script:
 
    ```sh
-   pnpm agent-plugin:reinstall
+   pnpm agent-plugin:reinstall --cdp-url http://127.0.0.1:9222
    ```
 
-   The script checks that the configured local marketplace points at this
-   checkout, runs `codex plugin add tempad-dev-dev@tempad-dev-dev`, and verifies
-   the installed, enabled version against the generated manifest. On macOS it
-   uses the configured desktop app's bundled CLI. Select the same host for
-   installation and preflight with `CODEX_APP_PATH` or `--app-path`.
+   The script validates that the configured local marketplace points at this checkout,
+   selects one Codex App page, uninstalls the development plugin in its UI, waits for
+   this checkout's old MCP processes to stop, then installs the generated version in
+   the App. It checks both the visible installed state and the enabled version on disk.
+   CLI `plugin add` alone changes installation on disk; it does **not** establish that
+   the running App refreshed its plugin state, skills, tools, or MCP connections.
+   The script uses the bundled CLI only for read-only source/version checks.
 
-   Plugin replacement requires neither an app restart nor remote debugging.
-   Do not pass `--restart-codex`, `--resume-after-restart`, `--cdp-url`, or
-   `--page-url`; these options are rejected. If the CLI is unavailable or the
-   marketplace points elsewhere, correct that reported mismatch and rerun the
-   command. Do not fall back to restarting Codex or automating its plugin UI.
+   Select the same host for installation and preflight with `CODEX_APP_PATH` or
+   `--app-path`. `CODEX_CDP_URL` sets the default endpoint. If several App windows
+   are exposed, use `--page-url` with an exact URL or unique substring. Target
+   ambiguity is not a reason to restart the App.
 
-   Installation does not refresh existing MCP processes or task transports.
-   If the compatibility or evaluation decision above requires new code to run,
-   identify and stop only the affected checkout's TemPad processes,
-   then reconnect through the configured host to start them from the finished
-   build. A missing or partial runtime also requires reconnection. This may
-   close existing tasks' MCP transports; account for other live users before
-   replacing shared processes. A fresh task alone may still reuse the previous Hub.
+   When CDP is unavailable, explicitly authorize App restart and use:
 
-   When available on that same host, `config/mcpServer/reload` queues a refresh
-   for loaded tasks. Wait for replacement processes and verify the connection;
-   the API response alone is not readiness. Protocol support does not imply
-   the current task has a callable endpoint. Do not start a separate app-server
-   or helper MCP client to stand in for the host under evaluation. Use the
-   manual recovery boundary above if the host cannot be reached natively.
+   ```sh
+   pnpm agent-plugin:reinstall --restart-codex --cdp-url http://127.0.0.1:9222
+   ```
+
+   Restart can interrupt other Codex tasks. The macOS script runs the recovery in
+   a detached launchctl job, quits only the configured App, relaunches it with a
+   loopback debugging port, and continues UI installation. It prints a log path
+   under `.dev/`; inspect the final log after reconnecting. Scheduling the job is
+   not installation success. Do not start a second reinstall while it is running.
+   `--resume-after-restart` is an internal continuation flag, not a normal command.
+
+   App installation success still does not prove that the current task transport is
+   ready. Use a new task when the host cannot refresh its existing tools or connection;
+   verify the actual Hub includes the intended change, rerun preflight, and require a
+   successful native MCP read. A fresh task alone may reuse an old Hub. Do not launch
+   another app-server or helper MCP client to stand in for the App under evaluation.
 
 3. When extension runtime code changed, reload it and the intended Figma tab through
    a supported native interface, or request the manual reload under the
@@ -662,7 +668,7 @@ For every skill edit:
 7. Regenerate the development plugin and inspect synchronized tracked output:
 
    ```sh
-   pnpm agent-plugin:dev
+   pnpm agent-plugin:build
    ```
 
 8. Test transfer on a materially different fresh task before claiming behavioral

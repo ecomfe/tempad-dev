@@ -337,7 +337,7 @@ async function resolveModeValue(
   }
   aliasSeen.add(variable.id)
 
-  const rawValue = valuesByMode[modeId] ?? resolveFallbackValue(valuesByMode, modeId, collection)
+  const rawValue = resolveFallbackValue(valuesByMode, modeId, collection)
 
   if (isVariableAlias(rawValue)) {
     const target = figma.variables.getVariableById(rawValue.id)

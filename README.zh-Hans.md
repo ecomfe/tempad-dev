@@ -64,7 +64,7 @@ Agent 连接需要 Node.js 22.x、24.x 或 26+；画布编辑还需要当前 Fig
 元素编辑器中，Enter 保存评论，Command/Ctrl+Enter 保存并排队整批评论；总体评论中，
 Enter 排队，Command/Ctrl+Enter 使用 Steer。Shift+Enter 换行。Claude、Codex CLI 等客户端
 目前提供任务控制，但不支持发送评论。详细行为和宿主验证范围见
-[评论指南](./agent-plugins/tempad-dev/README.zh-Hans.md#使用)。
+[评论指南](./agent-plugin/src/README.zh-Hans.md#使用)。
 
 ### 根据设计实现代码
 
@@ -74,7 +74,7 @@ Enter 排队，Command/Ctrl+Enter 使用 Steer。Shift+Enter 换行。Claude、C
 
 TemPad Dev 提供布局、样式、变量引用、组件信息和素材。`figma-design-to-code` skill 指导 agent 结合仓库实现界面，完成验证。生成的设计代码是实现起点，最终代码由 agent 适配项目。
 
-这两个工作流通过同一个 MCP 连接访问 Figma。兼容客户端可以安装包含 MCP 配置和两个 skill 的 [Agent Plugin](./agent-plugins/tempad-dev/README.zh-Hans.md)；其它客户端可以分别配置 MCP 和 skill。
+这两个工作流通过同一个 MCP 连接访问 Figma。兼容客户端可以安装包含 MCP 配置和两个 skill 的 [Agent Plugin](./agent-plugin/src/README.zh-Hans.md)；其它客户端可以分别配置 MCP 和 skill。
 
 ### 配置指南
 
@@ -99,12 +99,12 @@ TemPad Dev 提供布局、样式、变量引用、组件信息和素材。`figma
 </picture>
 
 Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可移植插件安装方式，见
-[Agent Plugin 指南](./agent-plugins/tempad-dev/README.zh-Hans.md)。
+[Agent Plugin 指南](./agent-plugin/src/README.zh-Hans.md)。
 
 所有 plugin 和直接使用 `npx` 的配置路径都使用 `@tempad-dev/mcp@latest`。
 
 本次画布创作版本应配套使用扩展 **0.21.0**、MCP server **0.8.0** 和 Agent Plugin
-**0.2.0**。更新既有安装时，请参阅 [升级指南](./agent-plugins/tempad-dev/README.zh-Hans.md#升级)。
+**0.2.0**。更新既有安装时，请参阅 [升级指南](./agent-plugin/src/README.zh-Hans.md#升级)。
 
 使用期间请保持 TemPad Dev 打开并启用 MCP。如果连接了多个 Figma 文件，请点击目标文件面板中的 MCP 徽标；该文件会成为 agent 当前访问的上下文。
 

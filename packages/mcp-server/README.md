@@ -33,7 +33,7 @@ Supported tools/resources:
   a design task, resume a paused task, place its status controls, and finish or cancel the task.
   Stop permanently fences the old task across reconnects. Native Codex App comments support Queue
   and Steer; confirmed admission clears submitted drafts before execution finishes. See the
-  [comment guide and host validation scope](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev#task-controls-and-client-enhancements).
+  [comment guide and host validation scope](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src#task-controls-and-client-enhancements).
 - `apply_canvas`: Creates, updates, removes, or activates exact pages and managed roots using
   restricted HTML, deterministic Tailwind utilities, typed native state, SVG, and image assets.
   Variable utilities and named text-style classes bind existing resources or resources declared
@@ -53,7 +53,7 @@ Notes:
 - MCP **0.8.0** pairs with extension **0.21.0** and Agent Plugin **0.2.0**. Update the extension
   and installed skills, replace any alpha-pinned MCP configuration with `@tempad-dev/mcp@latest`,
   then reconnect the MCP client and start a new task. See the
-  [upgrade guide](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev#upgrading).
+  [upgrade guide](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src#upgrading).
 - Assets are ephemeral and tool-linked. Local stdio clients receive `asset.localPath` when the Hub
   has the bytes and can open it without a loopback download; other clients use the
   capability-bearing HTTP `asset.url`. Treat the full URL as a temporary secret and do not persist

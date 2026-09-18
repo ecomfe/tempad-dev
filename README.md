@@ -67,7 +67,7 @@ agent has completed the changes.
 In an element editor, Enter saves; Command/Ctrl+Enter saves and queues the whole batch. In the
 general composer, Enter queues the batch and Command/Ctrl+Enter uses Steer. Shift+Enter adds a
 newline. Claude, Codex CLI, and other clients currently have task controls without comment
-sending. See the [comment guide and host validation scope](./agent-plugins/tempad-dev/README.md#task-controls-and-client-enhancements).
+sending. See the [comment guide and host validation scope](./agent-plugin/src/README.md#task-controls-and-client-enhancements).
 
 ### Implement designs in code
 
@@ -77,7 +77,7 @@ Select the design in Figma, then ask your agent in the target code project:
 
 TemPad Dev provides layout, styles, variable references, component information, and assets. The `figma-design-to-code` skill guides the agent through adapting that evidence to the repository and validating the implementation. Generated design code is a starting point; the agent produces the project implementation.
 
-Both workflows use the same MCP connection to Figma. Compatible clients can install the [Agent Plugin](./agent-plugins/tempad-dev/README.md), which bundles the MCP configuration and both skills. Other clients can set up MCP and skills separately.
+Both workflows use the same MCP connection to Figma. Compatible clients can install the [Agent Plugin](./agent-plugin/src/README.md), which bundles the MCP configuration and both skills. Other clients can set up MCP and skills separately.
 
 ### Setup guide
 
@@ -102,12 +102,12 @@ Scroll down in the dialog for both skill installation commands:
 </picture>
 
 For native Codex and Claude marketplace commands and portable Cursor and VS Code installation,
-see the [Agent Plugin guide](./agent-plugins/tempad-dev/README.md).
+see the [Agent Plugin guide](./agent-plugin/src/README.md).
 
 All plugin and direct `npx`-based setup paths use `@tempad-dev/mcp@latest`.
 
 For the canvas-authoring release, use extension **0.21.0**, MCP server **0.8.0**, and Agent
-Plugin **0.2.0** together. See the [upgrade guide](./agent-plugins/tempad-dev/README.md#upgrading)
+Plugin **0.2.0** together. See the [upgrade guide](./agent-plugin/src/README.md#upgrading)
 when updating an existing installation.
 
 Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context.

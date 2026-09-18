@@ -30,7 +30,7 @@ const tokens = {
 } as const
 
 const SKILLS_SOURCE_URL =
-  'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev/skills'
+  'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/targets/standard/skills'
 const DESIGN_TO_CODE_SKILL_URL = `${SKILLS_SOURCE_URL}/figma-design-to-code`
 const CANVAS_AUTHORING_SKILL_URL = `${SKILLS_SOURCE_URL}/figma-canvas-authoring`
 const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill figma-design-to-code figma-canvas-authoring`

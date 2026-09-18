@@ -4,6 +4,11 @@
 
 - Added design-task leases, pause/resume, anchored status, and permanent Stop cancellation.
   Codex App uses host MCP metadata and native IPC; Claude retains lifecycle and Stop hooks.
+- Preserved native Codex turn identity across conversation-only MCP requests and recovered
+  unambiguous active turns after reconnection, so Stop can retain its interruption target.
+- Unified Codex Stop capability checks and target resolution, including after MCP disconnect.
+  Missing targets now report local cancellation without implying host interruption; Stop logs
+  record dispatch and outcome while exact-turn guards prevent stopping a later response.
 - Added native Codex App Queue and Steer feedback with stable delivery identities, durable
   receipts, uncertain-admission reconciliation, and targeted removal of a task's queued comments.
   Queue confirms host admission independently of execution; unavailable local queue snapshots

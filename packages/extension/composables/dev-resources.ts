@@ -2,6 +2,8 @@ import type { MaybeRefOrGetter } from 'vue'
 
 import { computed, reactive, toValue, watchEffect } from 'vue'
 
+import { bytesToBase64 } from '@/mcp/encoding'
+
 const devResourcesCache = reactive<Map<string, DevResourceWithNodeId[]>>(new Map())
 const inflightDevResources = new Map<string, Promise<void>>()
 
@@ -24,7 +26,7 @@ async function getFavicon(url: string) {
       return null
     }
     const { meta } = await response.json()
-    return bytesToDataURL(new Uint8Array(meta))
+    return `data:image/png;base64,${bytesToBase64(new Uint8Array(meta))}`
   } catch {
     return null
   }
@@ -111,15 +113,6 @@ function ensureFavicon(url: string) {
   }
 
   inflightFavicons.set(url, request())
-}
-
-function bytesToDataURL(bytes: Uint8Array) {
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
-  }
-  return `data:image/png;base64,${btoa(binary)}`
 }
 
 function toLink(name: string, url: string, inherited: boolean = false): DevResourceLink {

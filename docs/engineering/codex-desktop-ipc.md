@@ -1,12 +1,63 @@
 # Codex desktop IPC: protocol and integration research
 
 Research date: **2026-09-15**. Inspected host: **Codex App 26.908.70816, build 9275,
-macOS**. Native queue follow-up: **2026-09-16**. Bundled executable: **codex-cli 0.154.0-alpha.6.2**.
+macOS**. Native queue follow-ups: **2026-09-16 and 2026-09-17**. Bundled executable:
+**codex-cli 0.154.0-alpha.6.2**.
 
 Read this report when changing TemPad's Codex conversation routing, lifecycle,
 comments, Queue, Steer, or Stop. It describes the installed desktop application's
 private protocol, not a stable public API. The implementation and product rules
 remain in [Design tasks, client integration, and feedback](../extension/mcp-design-tasks.md).
+
+## Release-blocking installed-host findings
+
+The 2026-09-17 installed-plugin acceptance exposed a queue-backend conflict. After
+the user queued an independent message in Codex, admitting a Figma comment through
+the legacy follower endpoint made that independent message disappear from the
+displayed queue. The user reported that it did not reappear after Figma Stop.
+Source inspection explains the queue selection: `R1t` selects the server queue only
+when enabled **and** the legacy queue is empty, while `acceptFromFollower` always
+writes legacy storage. This establishes a visibility/coexistence failure, not proof
+that TemPad deleted the server-side submission. The adapter does not call
+`thread/queue/delete`.
+
+Basic Queue admission, consecutive submission, draft clearing, queued execution,
+and Steer had passed immediately before this test. Those observations remain valid
+for their exercised paths; they do not establish safe coexistence with independent
+server-queue input. Release remains blocked on that coexistence requirement.
+
+Further inspection of the same installed build found these transport boundaries:
+
+| Candidate access path                  | Evidence                                                                                                                         | Result                                                                                        |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Existing desktop IPC owner             | Complete follower handler registration in S1 `y9`; a targeted, read-only `thread/queue/list` v0 probe returned `no-client-found` | No server-queue route is exposed by the inspected follower registry.                          |
+| Desktop's generic `mcp-request` bridge | S2 dispatches it through `handleClientRequest` from a registered Electron view; the outer IPC handler checks the trusted sender  | This is an internal renderer bridge, not a generic method on the desktop coordination socket. |
+| App tools native pipe                  | S2 `wse`, `Tse`, and `Dse` accept `tools/list`, `tools/call`, and `tools/cancel`; calls dispatch catalogued app tools            | No generic app-server forwarding operation or queue tool was found.                           |
+| Existing local app-server transport    | The running bundled process uses stdio; inspection found no named Unix or TCP listener for that process                          | There is no discovered local endpoint for a second plugin client.                             |
+| SSH app-server control transport       | S2 `Tk` selects it only for SSH hosts; `Ck` owns the remote connection                                                           | It does not provide access to this existing local conversation.                               |
+
+No server-queue mutation was used for this investigation. These results apply to
+the inspected build and running host; they do not prove that every future host will
+lack an endpoint. Completing the requested integration requires an externally
+reachable owner route for atomic queue addition and targeted removal, with native
+queue change observation or reads. Starting a second server, changing host state,
+or injecting calls into the renderer would not establish the normal plugin
+installation path.
+
+Figma Stop also failed to interrupt the active Codex response in this test, although
+the design task became permanently cancelled. A deterministic regression showed
+that conversation-only MCP metadata could overwrite a binding's lifecycle-derived
+turn ID, leaving Stop without its interruption target. The working-tree fix retains
+that identity and uses a single known active native turn when reconnecting without
+turn metadata; absent or ambiguous state is not guessed. A refreshed-runtime test
+still cancelled the design task without interrupting the host response. A further
+deterministic gap was found: after MCP disconnection, the fallback binding retained
+only the conversation, and Stop skipped IPC even when native state identified one
+active turn. Capability reporting and Stop now share target resolution, capture the
+target before cancellation callbacks, and record skipped, dispatched, acknowledged,
+and failed interruptions. These are reproduced failure paths; the live request
+metadata and interruption result were not retained, so neither is conclusive
+attribution of the observed interruption failure. Live acceptance remains pending.
 
 ## Findings
 
@@ -671,7 +722,7 @@ It is not a claim about a published release.
 | ------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | Identity     | Host-supplied MCP metadata, then exact owner discovery                          | Focused windows never establish identity                                         |
 | Lifecycle    | Follows v11 snapshots/patches with a minimal turn projection                    | Full initial snapshot still transfers                                            |
-| Queue        | Fresh committed local snapshot, merge, native replacement acknowledgement       | Composer races remain possible; server-queue ordering is unverified              |
+| Queue        | Fresh committed local snapshot, merge, native replacement acknowledgement       | Composer races remain possible; installed-host server-queue coexistence failed   |
 | Steer        | Idle Start path; busy owner uses native Steer                                   | Promotion of an already admitted batch is unavailable                            |
 | Stop         | Permanent task fence, expected-turn interruption, targeted native queue removal | A consumed message cannot be recalled; failed removal retries after reconnection |
 | Windows      | Fixed local pipe, OS URL handler, deterministic tests                           | Native Windows host verification is outstanding                                  |
@@ -687,10 +738,10 @@ The adapter keeps user-authored comments in `context.prompt` and the original ta
 in untrusted `writingBlockAdditionalContext`. It does not remove provenance flags from
 existing queued messages, alter their fields, or change the owner's permission settings.
 
-Native admission and removal have been exercised against the inspected macOS host.
-A paused diagnostic cannot establish automatic execution, coexistence with an enabled
-app-server queue, or the complete installed-plugin authoring flow. These remain explicit
-live verification limits, not reasons to describe the replacement endpoint as atomic.
+Native admission, automatic execution, and removal have been exercised against the
+inspected macOS host. The subsequent installed-plugin acceptance exposed a server-queue
+coexistence failure and an interruption failure, described above. A successful admission
+does not establish queue isolation or make the replacement endpoint atomic.
 
 ## Reproducing and extending the research
 

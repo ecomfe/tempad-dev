@@ -22,6 +22,8 @@ import {
   utf8Bytes
 } from '@tempad-dev/shared'
 
+import { compareText } from '@/utils/string'
+
 import {
   getContainingPage,
   getLocalStyles,
@@ -65,10 +67,6 @@ function boundedText(value: string | undefined, maxLength = MAX_DETAIL_TEXT_LENG
   const text = value?.replaceAll(/\s+/g, ' ').trim()
   if (!text || text.length <= maxLength) return text
   return `${text.slice(0, maxLength - 1).trimEnd()}…`
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 function sortByName<T extends { name: string }>(items: T[]): T[] {
@@ -656,7 +654,7 @@ function collectStyleVariableIds(styles: BaseStyle[], ids: Set<string>): void {
   }
 }
 
-type DescribedComponent = Awaited<ReturnType<typeof collectComponents>>[number]
+type DescribedComponent = ReturnType<typeof collectComponents>[number]
 type DescribedVariable = Awaited<ReturnType<typeof collectVariables>>['variables'][number]
 type DescribedStyle = ReturnType<typeof describeStyle>
 
@@ -1381,8 +1379,9 @@ async function createCatalog(): Promise<DesignSystemResourcesResult> {
     )
   }
 
+  const collectionById = new Map(variableData.collections.map((item) => [item.id, item]))
   for (const [index, variable] of orderedVariables.entries()) {
-    const collection = variableData.collections.find((item) => item.id === variable.collectionId)
+    const collection = collectionById.get(variable.collectionId)
     const modeId = collection?.defaultModeId
     entries.push({
       kind: 'variable',

@@ -13,7 +13,7 @@ import { ClientHookRequestSchema, ClientHooks, type ClientHook } from '../src/ag
 import { ClientEventSchema } from '../src/agent-clients/identity'
 
 const hook = fileURLToPath(
-  new URL('../../../agent-plugins/tempad-dev/clients/shared/lifecycle.mjs', import.meta.url)
+  new URL('../../../agent-plugin/src/clients/shared/lifecycle.mjs', import.meta.url)
 )
 
 async function withHookHub(

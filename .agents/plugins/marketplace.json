@@ -8,7 +8,7 @@
       "name": "tempad-dev",
       "source": {
         "source": "local",
-        "path": "./agent-plugins/tempad-dev-native"
+        "path": "./agent-plugin/targets/codex"
       },
       "policy": {
         "installation": "AVAILABLE",

@@ -1,5 +1,8 @@
 # Package contents are formatted by package-level scripts.
 packages/**
 
+# Generated agent plugin targets. Format agent-plugin/src/ instead.
+agent-plugin/targets/**
+
 # Lockfile formatting is managed by pnpm.
 pnpm-lock.yaml

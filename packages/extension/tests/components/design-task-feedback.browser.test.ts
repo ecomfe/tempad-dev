@@ -648,7 +648,7 @@ describe('element feedback drafts', () => {
       await save(f, 1, 'Follow-up comment')
       await writeComment('Another round of feedback')
       await expect.element(page.getByRole('button', { name: 'Queue comments' })).toBeEnabled()
-      expect(document.querySelector('.tp-feedback-continue')).toBeNull()
+      expect(page.getByRole('button', { name: /continue/i }).elements()).toEqual([])
       expect(document.querySelector('.tp-feedback-review')?.textContent).not.toMatch(
         /Copy|Continue|Retry loading/
       )
@@ -1145,7 +1145,7 @@ describe('element feedback drafts', () => {
       await expect.poll(() => document.querySelector('.tp-feedback-review')).toBeNull()
       await openBatch()
       const original = f.send.mock.calls[0]![0]
-      expect(document.querySelector('.tp-feedback-steer')).toBeNull()
+      expect(page.getByRole('button', { name: 'Steer now' }).elements()).toEqual([])
       expect(document.querySelector<HTMLButtonElement>('.tp-feedback-toggle')!.disabled).toBe(false)
       expect(document.querySelector<HTMLTextAreaElement>('#tp-feedback-comment')!.disabled).toBe(
         true
@@ -1194,7 +1194,7 @@ describe('element feedback drafts', () => {
     expect(document.querySelector<HTMLTextAreaElement>('#tp-feedback-comment')!.disabled).toBe(
       false
     )
-    expect(document.querySelector('.tp-feedback-steer')).toBeNull()
+    expect(page.getByRole('button', { name: 'Steer now' }).elements()).toEqual([])
     expect((await f.store.request({ operation: 'load', scope })).comment).toBe(feedback.comment)
   })
 
@@ -1254,7 +1254,6 @@ describe('element feedback drafts', () => {
     expect(document.querySelector('.tp-feedback-editor header')).toBeNull()
     await page.getByRole('textbox', { name: 'Element comment', exact: true }).fill('First line')
     await userEvent.keyboard('{Shift>}{Enter}{/Shift}')
-    expect(document.querySelector('.tp-feedback-editor-actions')).toBeNull()
     expect(document.querySelector('.tp-feedback-delete')).toBeNull()
     await userEvent.keyboard('Second line')
     await expect
@@ -1481,7 +1480,6 @@ describe('element feedback drafts', () => {
     const trigger = document.querySelector<HTMLElement>('.tp-feedback-toggle')!
     const width = trigger.offsetWidth
     await writeComment('Saved guidance')
-    expect(document.querySelector('.tp-feedback-indicator')).toBeNull()
     expect(trigger.offsetWidth).toBe(width)
     trigger.click()
     await nextTick()
@@ -1774,7 +1772,7 @@ describe('element feedback drafts', () => {
       const buttons = [...document.querySelectorAll<HTMLButtonElement>('.tp-feedback-send')]
       expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(['Queue comments'])
       expect(buttons[0]!.getBoundingClientRect().height).toBe(24)
-      expect(document.querySelector('.tp-feedback-steer')).toBeNull()
+      expect(page.getByRole('button', { name: 'Steer now' }).elements()).toEqual([])
       buttons[0]!.click()
       await expect.poll(() => f.send.mock.calls.length).toBe(1)
       expect(f.send.mock.calls[0]![0].mode).toBe('queue')
@@ -1790,7 +1788,7 @@ describe('element feedback drafts', () => {
     await save(f, 0, 'Keep this saved note')
     await openBatch()
     await expect.element(page.getByRole('button', { name: 'Queue comments' })).toBeEnabled()
-    expect(document.querySelector('.tp-feedback-continue')).toBeNull()
+    expect(page.getByRole('button', { name: /continue/i }).elements()).toEqual([])
     await expect
       .element(page.getByRole('button', { name: 'Copy comments' }))
       .not.toBeInTheDocument()
@@ -1841,7 +1839,7 @@ describe('element feedback drafts', () => {
       .toContain('1')
     await openBatch()
     expect(document.querySelector('.tp-feedback-review')?.textContent).toContain('Retain this note')
-    expect(document.querySelector('.tp-feedback-continue')).toBeNull()
+    expect(page.getByRole('button', { name: /continue/i }).elements()).toEqual([])
     await expect
       .element(page.getByRole('button', { name: 'Copy comments' }))
       .not.toBeInTheDocument()
@@ -1905,7 +1903,7 @@ describe('element feedback drafts', () => {
       }
       await save(f, 0, 'Increase this heading')
       await writeComment('Make the whole design calmer')
-      expect(document.querySelector('.tp-feedback-continue')).toBeNull()
+      expect(page.getByRole('button', { name: /continue/i }).elements()).toEqual([])
       await expect
         .element(page.getByRole('button', { name: 'Copy comments' }))
         .not.toBeInTheDocument()
@@ -2245,7 +2243,6 @@ describe('element feedback drafts', () => {
     await expect
       .poll(() => document.querySelector('.tp-feedback-toggle')?.getAttribute('data-tooltip'))
       .toBe('Review comments')
-    expect(document.querySelector('.tp-feedback-indicator')).toBeNull()
     const sent = f.send.mock.calls[0]![0]
     await writeComment('New overall guidance')
     await expect
@@ -2481,7 +2478,6 @@ describe('element feedback drafts', () => {
     await expect
       .poll(() => document.querySelector('.tp-feedback-toggle')?.getAttribute('data-tooltip'))
       .toBe('Review comments')
-    expect(document.querySelector('.tp-feedback-indicator')).toBeNull()
     await openBatch()
     await expect.poll(() => f.api.notify.mock.calls).toEqual([['Waiting deadline elapsed']])
     const sent = f.send.mock.calls[0]![0]
@@ -2638,7 +2634,6 @@ describe('element feedback drafts', () => {
     await expect
       .poll(() => document.querySelector('.tp-feedback-toggle')?.getAttribute('data-tooltip'))
       .toBe('Review comments')
-    expect(document.querySelector('.tp-feedback-indicator')).toBeNull()
     await openBatch()
     await expect.poll(() => f.api.notify.mock.calls).toEqual([['Delivery was not acknowledged']])
     expect(markers()).toHaveLength(1)
@@ -2654,7 +2649,6 @@ describe('element feedback drafts', () => {
     await expect
       .poll(() => document.querySelector('.tp-feedback-toggle')?.getAttribute('data-tooltip'))
       .toBe('Review comments')
-    expect(document.querySelector('.tp-feedback-indicator')).toBeNull()
     await openBatch()
     await expect.poll(() => reopened.api.notify.mock.calls).toEqual([['Sending not confirmed.']])
     expect(reopened.send).not.toHaveBeenCalled()

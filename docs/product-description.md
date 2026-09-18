@@ -67,9 +67,9 @@ TemPad Dev is free and open source under the MIT license.
 
 - Browser manifest and short store text: `packages/extension/package.json`.
 - npm MCP description: `packages/mcp-server/package.json`.
-- Shared Agent Plugin description: `agent-plugins/tempad-dev/plugin.json`.
-- Codex display text: the `interface` in `agent-plugins/tempad-dev/.codex-plugin/plugin.json`.
+- Shared Agent Plugin description: `agent-plugin/src/plugin.json`.
+- Codex display text: `agent-plugin/src/clients/codex/interface.json`.
 - Website title and search description: `packages/site/index.html`.
 - Product screenshots and capture contracts: [marketing screenshot workflow](./marketing-screenshots.md).
 
-Run `pnpm agent-plugin:dev` after changing the portable plugin or its generator inputs. Review synchronized client wrappers and marketplace files. Store submission, repository-hosted About text, and deployment remain separate release actions.
+Run `pnpm agent-plugin:build` after changing anything under `agent-plugin/src/`. Review the generated packages and marketplace files. Store submission, repository-hosted About text, and deployment remain separate release actions.

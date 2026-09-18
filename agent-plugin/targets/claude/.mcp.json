@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "tempad-dev": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@tempad-dev/mcp@latest"
+      ]
+    }
+  }
+}

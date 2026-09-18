@@ -11,7 +11,7 @@ import { resolveCanvasInput } from '@/mcp/tools/canvas/resolve'
 import { registerDesignSystemCatalog } from '@/mcp/tools/design-system-catalog'
 
 const AUTHORING_REFERENCE_DIR = new URL(
-  '../../../../../agent-plugins/tempad-dev/skills/figma-canvas-authoring/references/',
+  '../../../../../agent-plugin/src/skills/figma-canvas-authoring/references/',
   import.meta.url
 )
 

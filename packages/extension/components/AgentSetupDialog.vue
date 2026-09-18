@@ -13,7 +13,7 @@ import IconButton from '@/components/IconButton.vue'
 import BrandIcon from '@/components/icons/brands/BrandIcon.vue'
 import Copy from '@/components/icons/Copy.vue'
 import ExternalLink from '@/components/icons/ExternalLink.vue'
-import { useCopy, useDeepLinkGuard, useScrollbar } from '@/composables'
+import { useCopy, useDeepLinkGuard, useScrollbar, VERTICAL_SCROLLBAR_OPTIONS } from '@/composables'
 import {
   AGENT_INTEGRATIONS,
   AGENT_INTEGRATIONS_BY_ID,
@@ -36,19 +36,8 @@ const open = defineModel<boolean>({ default: false })
 const nav = useTemplateRef('nav')
 const content = useTemplateRef('content')
 
-const scrollbarOptions = {
-  overflow: {
-    x: 'hidden' as const
-  },
-  scrollbars: {
-    autoHide: 'leave' as const,
-    autoHideDelay: 0,
-    clickScroll: true
-  }
-}
-
-useScrollbar(nav, scrollbarOptions)
-useScrollbar(content, scrollbarOptions)
+useScrollbar(nav, VERTICAL_SCROLLBAR_OPTIONS)
+useScrollbar(content, VERTICAL_SCROLLBAR_OPTIONS)
 
 const actionGroups: Record<AgentIntegrationAction['id'], ActionGroupId> = {
   'plugin-prompt': 'plugin',
