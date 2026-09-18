@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { renderSkillPreview } from '../scripts/skill-preview'
 
-const root = 'https://github.com/ecomfe/tempad-dev/blob/main/skill/'
+const root =
+  'https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/skills/figma-design-to-code/'
 const files = new Map([
   [`${root}SKILL.md`, 'SKILL.md'],
   [`${root}references/assets.md`, 'references/assets.md'],
@@ -46,7 +47,7 @@ describe('multi-file skill previews', () => {
 
   it('preserves external and out-of-package links without inventing local files', () => {
     const preview = renderSkillPreview(
-      '[External](https://example.com/docs) [Outside](../README.md) [Missing](missing.md)',
+      '[External](https://example.com/docs) [Outside](../../../../README.md) [Missing](missing.md)',
       `${root}SKILL.md`,
       files
     )

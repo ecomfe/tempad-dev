@@ -26,6 +26,7 @@ import { parseCanvasHtml } from './html'
 import { isFrameContainerType, isIntrinsicContainer, isShapeType } from './model'
 import {
   findUnsupportedCanvasClasses,
+  MAX_UNSUPPORTED_CLASS_SCAN,
   MAX_GRID_TRACKS,
   parseCanvasClasses,
   unsupportedCanvasClassGuidance
@@ -308,7 +309,6 @@ function hasText(value: string): boolean {
   return /[^\t\n\f\r ]/.test(value)
 }
 
-const MAX_REPORTED_UNSUPPORTED_CLASSES = 16
 const MAX_REPORTED_MARKUP_ISSUES = 16
 
 function unsupportedClassesIssue(root: CanvasMarkupElement): string | undefined {
@@ -324,8 +324,8 @@ function unsupportedClassesIssue(root: CanvasMarkupElement): string | undefined 
 
   if (found.size < 2) return undefined
   const classes = [...found]
-  if (classes.length > MAX_REPORTED_UNSUPPORTED_CLASSES) truncated = true
-  const listedClasses = classes.slice(0, MAX_REPORTED_UNSUPPORTED_CLASSES)
+  if (classes.length > MAX_UNSUPPORTED_CLASS_SCAN) truncated = true
+  const listedClasses = classes.slice(0, MAX_UNSUPPORTED_CLASS_SCAN)
   const shown = listedClasses.map((token) => `"${token}"`)
   const suffix = truncated ? ' Additional unsupported classes may remain.' : ''
   const guidance = unsupportedCanvasClassGuidance(listedClasses)

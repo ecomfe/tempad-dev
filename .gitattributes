@@ -1,0 +1,2 @@
+# Generated agent plugin targets: collapse them in diffs and reviews.
+agent-plugin/targets/** linguist-generated=true

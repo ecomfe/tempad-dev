@@ -246,8 +246,7 @@ export async function handleGetCode(
     trace: traceInfo
   }
   const allAssets = Array.from(assetRegistry.values())
-  const videoPreviewAssetHashes = collected.videoPreviewAssetHashes ?? new Set<string>()
-  const rootVideoPreviewAssetHashes = collected.rootVideoPreviewAssetHashes ?? new Set<string>()
+  const { rootVideoPreviewAssetHashes, videoPreviewAssetHashes } = collected
 
   if (earlyShell) {
     const shellMode = createShellMode(rootId, tree, ctx)

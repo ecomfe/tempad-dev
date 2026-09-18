@@ -29,7 +29,7 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 - `begin_design`、`resume_design`、`set_design_anchor`、`end_design`：将画布写入绑定到设计任务，
   恢复暂停的任务、设置状态栏锚点，以及结束或取消任务。Stop 会永久禁止旧任务写入，重新连接也不会恢复。
   兼容 Codex App 的原生评论支持 Queue 和 Steer；确认接收后清空已提交草稿，无需等待执行完成。
-  详细行为与宿主验证范围见[评论指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugins/tempad-dev/README.zh-Hans.md#使用)。
+  详细行为与宿主验证范围见[评论指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#使用)。
 - `apply_canvas`：使用受限 HTML、可确定转换的 Tailwind utility、类型化原生状态、SVG 和图片资源，
   对精确页面或托管根节点执行创建、更新、删除或激活。变量 utility 和命名文字样式 class 可绑定
   既有资源或同次调用中声明的资源；仅操作页面或更新 native 状态时可省略标记。
@@ -47,7 +47,7 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
   只读文件仍不可写。
 - MCP **0.8.0** 应配套使用扩展 **0.21.0** 和 Agent Plugin **0.2.0**。请更新扩展和已安装的 skill，
   将固定 alpha 版本的 MCP 配置改为 `@tempad-dev/mcp@latest`，然后重新连接 MCP client 并新建任务。
-  详见[升级指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugins/tempad-dev/README.zh-Hans.md#升级)。
+  详见[升级指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#升级)。
 - 资源是临时且与工具调用关联的。本地 stdio client 在 Hub 持有字节时会收到
   `asset.localPath`，可直接打开而不必经过 loopback 下载；其他 client 使用带 capability 的
   HTTP `asset.url`。完整 URL 应视作临时密钥，不要持久化到日志中。

@@ -5,7 +5,7 @@ const REPOSITORY = 'ecomfe/tempad-dev'
 const PLUGIN_INSTALL_COMMAND = `npx plugins add ${REPOSITORY}`
 
 const SKILLS_SOURCE_URL =
-  'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev/skills'
+  'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/targets/standard/skills'
 const DESIGN_TO_CODE_SKILL_NAME = 'figma-design-to-code'
 const CANVAS_AUTHORING_SKILL_NAME = 'figma-canvas-authoring'
 const SKILL_NAMES = [DESIGN_TO_CODE_SKILL_NAME, CANVAS_AUTHORING_SKILL_NAME] as const
@@ -330,15 +330,7 @@ export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
   }
 }
 
-export const MCP_CLIENTS: McpClientConfig[] = [
-  MCP_CLIENTS_BY_ID.vscode,
-  MCP_CLIENTS_BY_ID.cursor,
-  MCP_CLIENTS_BY_ID.claude,
-  MCP_CLIENTS_BY_ID.codex,
-  MCP_CLIENTS_BY_ID.gemini,
-  MCP_CLIENTS_BY_ID.opencode,
-  MCP_CLIENTS_BY_ID.trae
-]
+export const MCP_CLIENTS: McpClientConfig[] = Object.values(MCP_CLIENTS_BY_ID)
 
 export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrationConfig> = {
   codex: {
@@ -440,12 +432,4 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
   }
 }
 
-export const AGENT_INTEGRATIONS: AgentIntegrationConfig[] = [
-  AGENT_INTEGRATIONS_BY_ID.codex,
-  AGENT_INTEGRATIONS_BY_ID.cursor,
-  AGENT_INTEGRATIONS_BY_ID.claude,
-  AGENT_INTEGRATIONS_BY_ID.gemini,
-  AGENT_INTEGRATIONS_BY_ID.vscode,
-  AGENT_INTEGRATIONS_BY_ID.opencode,
-  AGENT_INTEGRATIONS_BY_ID.trae
-]
+export const AGENT_INTEGRATIONS: AgentIntegrationConfig[] = Object.values(AGENT_INTEGRATIONS_BY_ID)

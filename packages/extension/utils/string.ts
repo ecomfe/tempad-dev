@@ -4,6 +4,10 @@ export function kebabToCamel(str: string) {
   return str.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
 }
 
+export function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
 export function camelToKebab(str: string) {
   return str.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)
 }

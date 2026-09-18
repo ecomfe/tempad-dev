@@ -12,6 +12,7 @@ import type { ClientBinding } from './types'
 
 import { CodexDiscoveryError, CodexIpc, CodexIpcError } from './codex-ipc'
 import { CodexNativeQueue, CodexQueueUnavailable, type CodexQueueConnection } from './codex-queue'
+import { nativeFeedback } from './types'
 
 export const CODEX_APP_FEEDBACK: AgentCapabilities = {
   interrupt: false,
@@ -129,9 +130,8 @@ export class CodexAppFeedback {
   ) {}
 
   async available(binding: ClientBinding): Promise<boolean> {
-    const { kind, sessionId } = binding.client
-    if (!sessionId || !['codex-app', 'codex'].includes(kind) || this.shutdown.signal.aborted)
-      return false
+    const { sessionId } = binding.client
+    if (!sessionId || !nativeFeedback(binding.client) || this.shutdown.signal.aborted) return false
     const cached = this.availability.get(sessionId)
     if (cached && cached.expiresAt > Date.now()) return cached.available
     let connection: Connection | undefined
