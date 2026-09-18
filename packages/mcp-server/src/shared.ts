@@ -13,7 +13,7 @@ export function ensureDir(dirPath: string): void {
   mkdirSync(dirPath, { recursive: true, mode: 0o700 })
 }
 
-function getRecordProperty(record: unknown, key: string): unknown {
+export function getRecordProperty(record: unknown, key: string): unknown {
   if (!record || typeof record !== 'object') {
     return undefined
   }
@@ -74,6 +74,7 @@ export function ensureFile(filePath: string): void {
 
 export const LOCK_PATH = join(RUNTIME_DIR, 'mcp.lock')
 export const HUB_LOCK_PATH = join(RUNTIME_DIR, 'hub.lock')
+export const HUB_RUNTIME_IDENTITY_PATH = join(RUNTIME_DIR, 'hub-runtime.json')
 ensureFile(LOCK_PATH)
 ensureFile(HUB_LOCK_PATH)
 

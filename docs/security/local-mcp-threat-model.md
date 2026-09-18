@@ -71,8 +71,13 @@ are therefore required even though the listeners bind only to `127.0.0.1`.
 - Uploads enforce per-asset size, reserve aggregate quota before concurrent bodies are accepted, and
   cap concurrent uploads. Server connections and concurrent downloads are capped; HTTP headers,
   header wait time, request/response time, and keep-alive time are bounded.
+- New uploads use full lowercase SHA-256 identifiers. Legacy 8-character identifiers remain
+  download-only until the asset TTL expires so upgrades do not strand cached assets.
 - Downloads use attachment disposition, `nosniff`, a restrictive CSP, no referrer, and private cache
   semantics.
+- Stdio tool results may expose an existing asset-store file as `asset.localPath`. The path creates
+  no second copy, remains under the private asset directory and its existing TTL, and is delivered
+  only to the local MCP consumer alongside the capability URL.
 - Asset responses remain ephemeral and are not exposed as MCP resources.
 
 ### Plugin Workers
@@ -126,9 +131,9 @@ are therefore required even though the listeners bind only to `127.0.0.1`.
    take over an already-active route, and connection-bound results prevent guessed-id completion.
    This is a useful no-config containment boundary, but it cannot distinguish a same-user process
    that deliberately forges the same Origin header.
-3. **Short asset hashes.** The asset protocol uses the existing 8-hex-character content identifier.
-   Uploads recompute and verify it, but the collision space is too small to treat the hash as a
-   security identity. The random URL capability is the authorization control.
+3. **Asset hashes are not authorization.** The protocol uses and verifies a complete lowercase
+   SHA-256 digest as content identity. Possession of that digest still grants no network access; the
+   random loopback URL capability remains the authorization control.
 4. **Plugin sandbox scope.** The boundary is designed to contain hostile application-level plugin
    behavior, but it is not a virtual machine or a browser security proof. Browser/JavaScript-engine
    vulnerabilities, side channels, and hard renderer-wide memory exhaustion are out of scope. The
@@ -152,22 +157,16 @@ The following changes intentionally remain proposals because they affect setup o
 ### Optional high-threat pairing mode
 
 The normal local workflow must remain zero-config. If a managed or higher-threat deployment later
-needs mutual identity, first add protocol-version and feature negotiation, then design pairing as an
-opt-in mode with explicit setup, rotation, recovery, and legacy fallback. It must not silently become
-mandatory for Codex, VS Code, Cursor, Claude Code, or manual stdio configurations.
+needs mutual identity, extend the versioned handshake with feature negotiation, then design pairing
+as an opt-in mode with explicit setup, rotation, recovery, and legacy fallback. It must not silently
+become mandatory for Codex, VS Code, Cursor, Claude Code, or manual stdio configurations.
 
 There is no reliable no-config substitute for a shared credential or OS-mediated identity channel:
 Origin is public metadata and a same-user process can forge it. The current design therefore uses
 Origin partitioning for transparent containment and documents the remaining first-connection race
 instead of claiming mutual authentication.
 
-### P1: asset identifier migration
-
-Move new writes from 8 hex characters to at least 32 hex characters while accepting both lengths
-during a transition. Advertise the negotiated length in the registration feature list, keep old
-catalog entries readable until TTL cleanup, then remove short-hash writes before short-hash reads.
-
-### P2: response continuation contract
+### Response continuation contract
 
 If shell responses evolve into opaque cursor-based continuation, add a new optional response field
 behind protocol negotiation. Keep the current inline child-id comment during the compatibility

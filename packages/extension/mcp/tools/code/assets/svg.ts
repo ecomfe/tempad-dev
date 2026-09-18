@@ -278,18 +278,28 @@ function parseViewBoxSize(value: string): { width: number; height: number } | nu
     .trim()
     .split(/[\s,]+/)
     .map((item) => Number.parseFloat(item))
-  if (parts.length !== 4 || parts.some((item) => !Number.isFinite(item))) return null
+  const width = parts[2]
+  const height = parts[3]
+  if (
+    parts.length !== 4 ||
+    width === undefined ||
+    height === undefined ||
+    parts.some((item) => !Number.isFinite(item))
+  ) {
+    return null
+  }
   return {
-    width: parts[2],
-    height: parts[3]
+    width,
+    height
   }
 }
 
 function parseLength(value?: string): number | null {
   if (!value) return null
   const match = value.trim().match(/^(-?(?:\d+\.?\d*|\.\d+))/)
-  if (!match) return null
-  const parsed = Number.parseFloat(match[1])
+  const rawLength = match?.[1]
+  if (!rawLength) return null
+  const parsed = Number.parseFloat(rawLength)
   return Number.isFinite(parsed) ? parsed : null
 }
 

@@ -17,6 +17,20 @@ describe('mcp/code tokens rewrite', () => {
     expect(out).toBe('radius-2xl brand-red brand-red-1 xcolor-red')
   })
 
+  it('renames Tailwind 4 variables without changing type hints or matching longer names', () => {
+    expect(
+      rewriteTokenNamesInCode(
+        '<div class="text-(color:--color) hover:bg-(--color-hover) w-(--size) w-[calc(var(--size)*2)]" />',
+        new Map([
+          ['--color', '--brand'],
+          ['--size', '--spacing']
+        ])
+      )
+    ).toBe(
+      '<div class="text-(color:--brand) hover:bg-(--color-hover) w-(--spacing) w-[calc(var(--spacing)*2)]" />'
+    )
+  })
+
   it('returns source code unchanged when rewrite map is empty', () => {
     const code = 'color-red'
     expect(rewriteTokenNamesInCode(code, new Map())).toBe(code)

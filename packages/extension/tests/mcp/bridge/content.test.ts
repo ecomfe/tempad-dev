@@ -118,6 +118,23 @@ function pageMessage(
   }
 }
 
+function draftLoad(): PageToBridgeMessage {
+  return {
+    ...pageMessage('mcp.enable'),
+    type: 'mcp.feedbackDrafts',
+    requestId: '77bf50b5-d652-4b94-9970-a537b6a32e1f',
+    request: {
+      operation: 'load',
+      scope: {
+        taskId: 'task-a',
+        fileKey: 'file-a',
+        clientKind: 'codex',
+        conversationId: 'thread-a'
+      }
+    }
+  }
+}
+
 function stateMessage(): BridgeToPageMessage {
   return {
     payload: {
@@ -158,6 +175,92 @@ describe('mcp/bridge/content', () => {
 
     expect(ports).toHaveLength(2)
     expect(ports[1]?.postMessage).toHaveBeenCalledWith(enable)
+  })
+
+  it('forwards an initial draft load after permission checking and session registration', async () => {
+    const ports: Array<ReturnType<typeof createPort>> = []
+    const windowMock = installWindow()
+    const permission = createDeferred<{ granted: boolean }>()
+    installBrowser(ports, vi.fn().mockReturnValue(permission.promise))
+    startMcpContentBridge()
+    const enable = pageMessage('mcp.enable')
+    const request = draftLoad()
+    windowMock.sendPageMessage(enable)
+    windowMock.sendPageMessage(request)
+    await flushMicrotasks()
+    expect(ports).toHaveLength(0)
+    permission.resolve({ granted: true })
+    await flushMicrotasks()
+    expect(ports[0]?.postMessage.mock.calls.map(([message]) => message)).toEqual([enable, request])
+  })
+
+  it('registers the session before forwarding a draft load during reconnect', async () => {
+    vi.useFakeTimers()
+    const ports: Array<ReturnType<typeof createPort>> = []
+    const windowMock = installWindow()
+    installBrowser(ports)
+    startMcpContentBridge()
+    const enable = pageMessage('mcp.enable')
+    windowMock.sendPageMessage(enable)
+    await flushMicrotasks()
+    ports[0]!.disconnect()
+    const request = draftLoad()
+    windowMock.sendPageMessage(request)
+    await flushMicrotasks()
+    expect(ports[1]?.postMessage.mock.calls.map(([message]) => message)).toEqual([enable, request])
+  })
+
+  it.each(['denied', 'disabled', 'replaced'])(
+    'rejects a waiting draft request when enabling is %s instead of dropping or replaying it',
+    async (outcome) => {
+      const ports: Array<ReturnType<typeof createPort>> = []
+      const windowMock = installWindow()
+      const permission = createDeferred<{ granted: boolean }>()
+      installBrowser(ports, vi.fn().mockReturnValue(permission.promise))
+      startMcpContentBridge()
+      windowMock.sendPageMessage(pageMessage('mcp.enable'))
+      windowMock.sendPageMessage(draftLoad())
+      if (outcome === 'disabled') windowMock.sendPageMessage(pageMessage('mcp.disable'))
+      if (outcome === 'replaced') windowMock.sendPageMessage(pageMessage('mcp.enable'))
+      permission.resolve({ granted: outcome !== 'denied' })
+      await flushMicrotasks()
+      expect(
+        ports.flatMap((port) => port.postMessage.mock.calls.map(([message]) => message))
+      ).not.toContainEqual(draftLoad())
+      expect(windowMock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mcp.feedbackDraftsResult',
+          requestId: '77bf50b5-d652-4b94-9970-a537b6a32e1f',
+          sessionId: 'session-1',
+          error: { message: 'Comments unavailable.' }
+        }),
+        TEMPAD_MCP_FIGMA_ORIGIN
+      )
+    }
+  )
+
+  it('rejects a draft request immediately when the runtime port cannot send it', async () => {
+    vi.useFakeTimers()
+    const ports: Array<ReturnType<typeof createPort>> = []
+    const windowMock = installWindow()
+    installBrowser(ports)
+    startMcpContentBridge()
+    windowMock.sendPageMessage(pageMessage('mcp.enable'))
+    await flushMicrotasks()
+    ports[0]!.postMessage.mockImplementationOnce(() => {
+      throw new Error('Disconnected')
+    })
+    windowMock.sendPageMessage(draftLoad())
+    await flushMicrotasks()
+    expect(windowMock.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'mcp.feedbackDraftsResult',
+        error: { message: 'Comments unavailable.' }
+      }),
+      TEMPAD_MCP_FIGMA_ORIGIN
+    )
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(ports[1]!.postMessage).toHaveBeenCalledExactlyOnceWith(pageMessage('mcp.enable'))
   })
 
   it('clears replayed enable state after disable', async () => {
@@ -297,5 +400,62 @@ describe('mcp/bridge/content', () => {
     await flushMicrotasks()
 
     expect(ports).toHaveLength(0)
+  })
+  it.each([true, false])(
+    'waits for permission (%s) while the page publishes its initial document',
+    async (granted) => {
+      vi.useFakeTimers()
+      const ports: Array<ReturnType<typeof createPort>> = []
+      const windowMock = installWindow()
+      const permission = createDeferred<{ granted: boolean }>()
+      installBrowser(ports, vi.fn().mockReturnValue(permission.promise))
+      startMcpContentBridge()
+      const enable = pageMessage('mcp.enable')
+      const document = { fileKey: 'file-1', fileName: 'File', pageId: '1:1', busy: false }
+      windowMock.sendPageMessage(enable)
+      windowMock.sendPageMessage({ ...enable, type: 'mcp.sessionInfo', document })
+      windowMock.sendPageMessage(pageMessage('mcp.activateSession'))
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(ports).toHaveLength(0)
+      permission.resolve({ granted })
+      await flushMicrotasks()
+      if (granted) {
+        expect(ports).toHaveLength(1)
+        expect(ports[0]?.postMessage).toHaveBeenCalledExactlyOnceWith({ ...enable, document })
+        ports[0]?.disconnect()
+        await vi.advanceTimersByTimeAsync(1000)
+        expect(ports[1]?.postMessage).toHaveBeenCalledExactlyOnceWith({ ...enable, document })
+      } else {
+        expect(ports).toHaveLength(0)
+        expect(windowMock.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            payload: expect.objectContaining({ errorMessage: MCP_LOCAL_HOST_PERMISSION_ERROR })
+          }),
+          TEMPAD_MCP_FIGMA_ORIGIN
+        )
+      }
+    }
+  )
+
+  it('does not revive an earlier enable when permission completes after disable and re-enable', async () => {
+    const ports: Array<ReturnType<typeof createPort>> = []
+    const windowMock = installWindow()
+    const first = createDeferred<{ granted: boolean }>()
+    const second = createDeferred<{ granted: boolean }>()
+    installBrowser(
+      ports,
+      vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    )
+    startMcpContentBridge()
+    const enable = pageMessage('mcp.enable')
+    windowMock.sendPageMessage(enable)
+    windowMock.sendPageMessage(pageMessage('mcp.disable'))
+    windowMock.sendPageMessage(enable)
+    first.resolve({ granted: true })
+    await flushMicrotasks()
+    expect(ports).toHaveLength(0)
+    second.resolve({ granted: true })
+    await flushMicrotasks()
+    expect(ports[0]?.postMessage).toHaveBeenCalledExactlyOnceWith(enable)
   })
 })

@@ -1,14 +1,19 @@
 declare module '*?skill-preview' {
   const preview: {
-    metadataEntries: readonly {
-      key: string
-      value: string
-    }[]
-    html: string
-    toc: readonly {
-      depth: number
-      id: string
-      text: string
+    entry: string
+    files: readonly {
+      path: string
+      source: string
+      metadataEntries: readonly {
+        key: string
+        value: string
+      }[]
+      html: string
+      toc: readonly {
+        depth: number
+        id: string
+        text: string
+      }[]
     }[]
   }
 

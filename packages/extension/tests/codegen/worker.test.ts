@@ -280,6 +280,27 @@ describe('codegen/worker', () => {
     })
   })
 
+  it.each([undefined, null, false, 0, ''])(
+    'skips falsy extra code block options (%s)',
+    async (extra) => {
+      mocks.evaluate.mockResolvedValueOnce({
+        default: { name: 'Optional blocks', code: { css: false, js: false, extra } }
+      })
+      await importWorker()
+
+      await dispatch({
+        id: 5,
+        payload: { style: { color: 'red' }, options: baseOptions, pluginCode: 'export default {}' }
+      })
+
+      expect(mocks.serializeCSS).not.toHaveBeenCalled()
+      expect(mocks.postMessage).toHaveBeenCalledWith({
+        id: 5,
+        payload: { pluginName: 'Optional blocks', codeBlocks: [] }
+      })
+    }
+  )
+
   it('stringifies dev component output and optionally returns it', async () => {
     const devComponent = {
       name: 'div',

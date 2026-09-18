@@ -1,9 +1,16 @@
+import type { FigmaSessionsMessage } from '@tempad-dev/shared'
 import type { WebSocket } from 'ws'
 
 export interface ExtensionConnection {
   id: string
   ws: WebSocket
   origin: string
+  connectedAt: string
+  sessions?: FigmaSessionsMessage
+  runtime?: {
+    version: string
+    fingerprint: string
+  }
 }
 
 export interface PendingToolCall {

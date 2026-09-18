@@ -5,7 +5,7 @@ This document records the requirements and hard constraints for the MCP `get_cod
 ## Non-negotiables
 
 - Accept exactly one visible node; otherwise throw a user-facing error.
-- Never emit empty optional fields (`assets`, `tokens`, `warnings`).
+- Never emit empty optional fields (`assets`, `tokens`, `literalClusters`, `warnings`).
 - Do not use `renderBounds` diffs for positioning.
 - Do not inject positioning containers on GROUP/BOOLEAN nodes.
 - Keep `getCSSAsync()` at most once per node.
@@ -37,8 +37,16 @@ This document records the requirements and hard constraints for the MCP `get_cod
 - Optional fields (omit when empty):
   - `assets`: array of exported assets (image/vector).
   - `tokens`: one-layer map of token entries keyed by canonical token name.
-  - `warnings`: lightweight `type + message` guidance for inferred auto layout, depth-cap, or shell fallback.
+  - `literalClusters`: bounded repeated unbound color evidence for unresolved-token full responses.
+    Each entry carries a normalized literal, occurrence count, and sampled concrete consumer node
+    ids, names, and properties. Equal values are classification evidence, not proof that consumers
+    share one semantic variable.
+  - `warnings`: lightweight `type + message` guidance for inferred auto layout, depth-cap, repeated
+    unbound color evidence, or shell fallback.
 - SVG assets may include `themeable: true` when the vector can safely adopt a single contextual color channel.
+- Exact native-byte image assets include their current-file `figmaImageHash`. When any native bytes
+  are unavailable, the rendered-node fallback instead includes ordered unique
+  `figmaImageHashes` for every visible image fill.
 
 ## Size and budget guard
 
@@ -114,7 +122,13 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 - Vector-only nodes or containers are classified before render as either:
   - themeable single-color vectors, which preserve one contextual color channel on the emitted placeholder `svg` root markup.
   - fixed-color vectors, which keep their internal palette in the exported SVG asset.
-- Images are exported as PNG/JPEG when the node is an image fill.
+- Image fills are exported from their exact native bytes when available.
+- Native image fills retain current-file identities as `figmaImageHash` on exact native-byte assets
+  or ordered unique `figmaImageHashes` on a composited fallback; preview bytes do not replace those
+  separately reported identities.
+- Video fills use one composited PNG node preview because the Plugin API has no video-byte reader.
+  Its asset descriptor retains ordered unique current-file identities as `figmaVideoHashes`; those
+  hashes describe the native fills, not the preview bytes.
 - Vector placeholders use the form `<svg data-src="...">`, keep `viewBox`, retain node-sized `width`/`height`, and expose the uploaded asset URL via `data-src` on the emitted `svg` root markup.
 - Themeable vector placeholders preserve the instance color on the emitted `svg` root markup, preferring token/class output when available.
 - Themeable-vector eligibility and single-channel color detection must share the same paint/effect visibility semantics used elsewhere in the asset pipeline; do not maintain a separate vector-only interpretation of visible paints, effects, or variable-backed solid colors.
@@ -163,6 +177,19 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 - Collection names are assumed unique; duplicates are unsupported and should emit a warning.
 - Omit `tokens` when empty.
 
+### Repeated unbound color diagnostics
+
+- Only unresolved-token full responses may include `literalClusters`; resolved-token and shell
+  responses omit the field.
+- Consider exact literal colors on color-bearing properties after canonical variable output. Values
+  containing `var(...)`, gradients, images, shadows, non-color values, and repeats confined to one
+  node are excluded.
+- Normalize equivalent supported hex and rgb/rgba forms, require consumers on at least two concrete
+  nodes, sort deterministically, and cap both clusters and sampled consumers.
+- Emit one `literal-cluster` warning that points to the structured evidence. The diagnostic asks the
+  agent to classify ownership; it must not infer semantic equivalence from visual equality.
+- Include the additive metadata in the existing final `CallToolResult` byte-budget check.
+
 ### Token pipeline guards
 
 - If no source names exist, skip the token pipeline entirely.
@@ -182,7 +209,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 ## Logging
 
-- Emit `warnings` for inferred auto layout, depth-cap, and shell guidance.
+- Emit `warnings` for inferred auto layout, depth-cap, repeated unbound color evidence, and shell guidance.
 - Emit `depth-cap` warnings when tree depth is capped.
 - Other degradations should be logged via the shared `logger` (prefix is automatic).
 - The tool may log high-level timing info via `logger.debug` for performance diagnostics.

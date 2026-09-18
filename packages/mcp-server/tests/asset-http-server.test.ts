@@ -27,6 +27,13 @@ function createStoreMock(): AssetStore & StoreMock {
 }
 
 const createdPaths: string[] = []
+const ASSET_HASH = 'a'.repeat(64)
+const ASSET_FILENAME = `${ASSET_HASH}.png`
+const LEGACY_ASSET_HASH = 'b'.repeat(8)
+
+function assetUrl(baseUrl: string): string {
+  return `${baseUrl}/assets/${ASSET_FILENAME}`
+}
 
 function trackFile(path: string, content: string | Buffer = ''): void {
   writeFileSync(path, content)
@@ -51,14 +58,14 @@ describe('asset-http-server', () => {
     const baseUrl = server.getBaseUrl()
 
     const extensionOrigin = 'chrome-extension://lgoeakbaikpkihoiphamaeopmliaimpc'
-    const optionsRes = await fetch(`${baseUrl}/assets/abcdef12.png`, {
+    const optionsRes = await fetch(assetUrl(baseUrl), {
       method: 'OPTIONS',
       headers: { Origin: extensionOrigin }
     })
     expect(optionsRes.status).toBe(204)
     expect(optionsRes.headers.get('access-control-allow-origin')).toBe(extensionOrigin)
 
-    const unauthenticatedUrl = `${new URL(baseUrl).origin}/assets/abcdef12.png`
+    const unauthenticatedUrl = assetUrl(new URL(baseUrl).origin)
     expect((await fetch(unauthenticatedUrl)).status).toBe(404)
     expect(
       (
@@ -70,7 +77,7 @@ describe('asset-http-server', () => {
     ).toBe(404)
     expect(
       (
-        await fetch(`${baseUrl}/assets/abcdef12.png`, {
+        await fetch(assetUrl(baseUrl), {
           headers: { Origin: 'https://evil.example' }
         })
       ).status
@@ -79,7 +86,7 @@ describe('asset-http-server', () => {
     const notFoundRes = await fetch(`${baseUrl}/unknown`)
     expect(notFoundRes.status).toBe(404)
 
-    const invalidMethodRes = await fetch(`${baseUrl}/assets/abcdef12.png`, { method: 'PUT' })
+    const invalidMethodRes = await fetch(assetUrl(baseUrl), { method: 'PUT' })
     expect(invalidMethodRes.status).toBe(405)
 
     server.stop()
@@ -93,7 +100,7 @@ describe('asset-http-server', () => {
       authorizeExtensionOrigin: (origin) => origin === activeOrigin
     })
     await server.start()
-    const url = `${server.getBaseUrl()}/assets/abcdef12.png`
+    const url = assetUrl(server.getBaseUrl())
 
     expect(
       (
@@ -122,35 +129,53 @@ describe('asset-http-server', () => {
     const baseUrl = server.getBaseUrl()
 
     store.get.mockReturnValueOnce(undefined)
-    const missingRecordRes = await fetch(`${baseUrl}/assets/abcdef12.png`)
+    const missingRecordRes = await fetch(assetUrl(baseUrl))
     expect(missingRecordRes.status).toBe(404)
 
     store.get.mockReturnValueOnce({
-      hash: 'abcdef12',
+      hash: ASSET_HASH,
       filePath: '/no/such/file.png',
       mimeType: 'image/png',
       size: 0,
       uploadedAt: 1,
       lastAccess: 1
     })
-    const missingFileRes = await fetch(`${baseUrl}/assets/abcdef12.png`)
+    const missingFileRes = await fetch(assetUrl(baseUrl))
     expect(missingFileRes.status).toBe(404)
-    expect(store.remove).toHaveBeenCalledWith('abcdef12', { removeFile: false })
+    expect(store.remove).toHaveBeenCalledWith(ASSET_HASH, { removeFile: false })
 
-    const existingPath = join(ASSET_DIR, 'abcdef12.png')
+    const existingPath = join(ASSET_DIR, ASSET_FILENAME)
     trackFile(existingPath, 'hello')
     store.get.mockReturnValueOnce({
-      hash: 'abcdef12',
+      hash: ASSET_HASH,
       filePath: existingPath,
       mimeType: 'text/plain',
       size: 5,
       uploadedAt: 1,
       lastAccess: 1
     })
-    const okRes = await fetch(`${baseUrl}/assets/abcdef12.png`)
+    const okRes = await fetch(assetUrl(baseUrl))
     expect(okRes.status).toBe(200)
     expect(await okRes.text()).toBe('hello')
-    expect(store.touch).toHaveBeenCalledWith('abcdef12')
+    expect(store.touch).toHaveBeenCalledWith(ASSET_HASH)
+
+    const legacyPath = join(ASSET_DIR, `${LEGACY_ASSET_HASH}.png`)
+    trackFile(legacyPath, 'legacy')
+    store.get.mockReturnValueOnce({
+      hash: LEGACY_ASSET_HASH,
+      filePath: legacyPath,
+      mimeType: 'text/plain',
+      size: 6,
+      uploadedAt: 1,
+      lastAccess: 1
+    })
+    const legacyUrl = `${baseUrl}/assets/${LEGACY_ASSET_HASH}.png`
+    const legacyRes = await fetch(legacyUrl)
+    expect(legacyRes.status).toBe(200)
+    expect(await legacyRes.text()).toBe('legacy')
+    expect(store.touch).toHaveBeenCalledWith(LEGACY_ASSET_HASH)
+    const legacyUploadRes = await fetch(legacyUrl, { method: 'POST', body: 'legacy' })
+    expect(legacyUploadRes.status).toBe(400)
 
     server.stop()
   })
@@ -161,10 +186,10 @@ describe('asset-http-server', () => {
     await server.start()
     const baseUrl = server.getBaseUrl()
 
-    const existingPath = join(ASSET_DIR, 'abcdef12.png')
+    const existingPath = join(ASSET_DIR, ASSET_FILENAME)
     trackFile(existingPath, 'already-there')
     store.get.mockReturnValueOnce({
-      hash: 'abcdef12',
+      hash: ASSET_HASH,
       filePath: existingPath,
       mimeType: 'application/octet-stream',
       size: 12,
@@ -172,7 +197,7 @@ describe('asset-http-server', () => {
       lastAccess: 100
     })
 
-    const res = await fetch(`${baseUrl}/assets/abcdef12.png`, {
+    const res = await fetch(assetUrl(baseUrl), {
       method: 'POST',
       headers: {
         'content-type': 'image/png',
@@ -187,7 +212,7 @@ describe('asset-http-server', () => {
     expect(payload.message).toBe('Asset Already Exists')
     expect(store.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        hash: 'abcdef12',
+        hash: ASSET_HASH,
         filePath: existingPath,
         mimeType: 'image/png',
         metadata: { width: 320, height: 240 }
@@ -203,11 +228,11 @@ describe('asset-http-server', () => {
     await server.start()
     const baseUrl = server.getBaseUrl()
 
-    const legacyPath = join(ASSET_DIR, 'abcdef12')
-    const expectedPath = join(ASSET_DIR, 'abcdef12.png')
+    const legacyPath = join(ASSET_DIR, ASSET_HASH)
+    const expectedPath = join(ASSET_DIR, ASSET_FILENAME)
     trackFile(legacyPath, 'legacy')
     store.get.mockReturnValueOnce({
-      hash: 'abcdef12',
+      hash: ASSET_HASH,
       filePath: legacyPath,
       mimeType: 'application/octet-stream',
       size: 6,
@@ -215,7 +240,7 @@ describe('asset-http-server', () => {
       lastAccess: 100
     })
 
-    const res = await fetch(`${baseUrl}/assets/abcdef12.png`, {
+    const res = await fetch(assetUrl(baseUrl), {
       method: 'POST',
       headers: { 'content-type': 'image/png' },
       body: 'ignored'
@@ -223,7 +248,7 @@ describe('asset-http-server', () => {
     expect(res.status).toBe(200)
     expect(store.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        hash: 'abcdef12',
+        hash: ASSET_HASH,
         filePath: expectedPath,
         mimeType: 'image/png'
       })
@@ -241,7 +266,7 @@ describe('asset-http-server', () => {
 
     store.get.mockReturnValue(undefined)
 
-    const mismatchRes = await fetch(`${baseUrl}/assets/aaaaaaaa.png`, {
+    const mismatchRes = await fetch(assetUrl(baseUrl), {
       method: 'POST',
       headers: { 'content-type': 'image/png' },
       body: 'payload'
@@ -250,7 +275,7 @@ describe('asset-http-server', () => {
     expect((await mismatchRes.json()) as { error: string }).toEqual({ error: 'Hash Mismatch' })
 
     const body = Buffer.from('new-image-bytes')
-    const hash = createHash('sha256').update(body).digest('hex').slice(0, 8)
+    const hash = createHash('sha256').update(body).digest('hex')
     const uploadRes = await fetch(`${baseUrl}/assets/${hash}.png`, {
       method: 'POST',
       headers: { 'content-type': 'image/png' },
@@ -273,13 +298,13 @@ describe('asset-http-server', () => {
 
   it('rejects payloads that exceed the maximum configured asset size', async () => {
     const store = createStoreMock()
-    const server = createAssetHttpServer(store)
+    const server = createAssetHttpServer(store, { maxAssetSizeBytes: 8 })
     await server.start()
     const baseUrl = server.getBaseUrl()
 
     store.get.mockReturnValue(undefined)
-    const oversizedBody = Buffer.alloc(8 * 1024 * 1024 + 1, 1)
-    const res = await fetch(`${baseUrl}/assets/abcdef12.png`, {
+    const oversizedBody = Buffer.alloc(9, 1)
+    const res = await fetch(assetUrl(baseUrl), {
       method: 'POST',
       headers: { 'content-type': 'image/png' },
       body: oversizedBody
@@ -294,7 +319,7 @@ describe('asset-http-server', () => {
     const store = createStoreMock()
     store.list.mockReturnValue([
       {
-        hash: '11111111',
+        hash: '1111111111111111111111111111111111111111111111111111111111111111',
         filePath: '/tmp/existing',
         mimeType: 'image/png',
         size: 5,
@@ -306,7 +331,7 @@ describe('asset-http-server', () => {
     await server.start()
 
     const body = Buffer.from('four')
-    const hash = createHash('sha256').update(body).digest('hex').slice(0, 8)
+    const hash = createHash('sha256').update(body).digest('hex')
     const res = await fetch(`${server.getBaseUrl()}/assets/${hash}.png`, {
       method: 'POST',
       headers: { 'content-type': 'image/png' },

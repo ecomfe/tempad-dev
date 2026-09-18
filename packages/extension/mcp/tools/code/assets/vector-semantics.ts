@@ -1,15 +1,15 @@
+import { isRenderablePaint } from '@/utils/figma-paint'
+
 import type { GetCodeCacheContext } from '../cache'
 import type { NodeSnapshot, VisibleTree } from '../model'
 
-import { getNodeSemanticsCached, getPaintsFromState } from '../cache'
 import {
-  type PaintChannel,
+  getNodeSemanticsCached,
+  getPaintsFromState,
   hasRenderableStrokes,
-  hasVisibleEffects,
-  isVisiblePaint,
-  resolveSolidPaintChannel,
-  resolveStylePaintChannel
-} from './paint'
+  hasVisibleEffects
+} from '../cache'
+import { type PaintChannel, resolveSolidPaintChannel, resolveStylePaintChannel } from './paint'
 
 const PAINT_KINDS = ['fills', 'strokes'] as const
 
@@ -29,7 +29,6 @@ export function analyzeVectorColorModel(
 
   const channels = new Set<string>()
   const colors = new Set<string>()
-  let hasVisiblePaint = false
   const stack = [rootId]
 
   while (stack.length) {
@@ -48,7 +47,6 @@ export function analyzeVectorColorModel(
         return cacheColorModel(ctx, rootId, { kind: 'fixed' })
       }
       if (!nextChannels.length) continue
-      hasVisiblePaint = true
       nextChannels.forEach((channel) => {
         channels.add(channel.key)
         colors.add(channel.color)
@@ -58,7 +56,7 @@ export function analyzeVectorColorModel(
     stack.push(...snapshot.children)
   }
 
-  if (!hasVisiblePaint || channels.size !== 1 || colors.size !== 1) {
+  if (channels.size !== 1 || colors.size !== 1) {
     return cacheColorModel(ctx, rootId, { kind: 'fixed' })
   }
 
@@ -75,7 +73,7 @@ function breaksThemeable(snapshot: NodeSnapshot, ctx?: GetCodeCacheContext): boo
     snapshot.assetKind === 'image' ||
     semantics?.layout.isMask === true ||
     (!semantics && isMaskNode(snapshot.node)) ||
-    hasVisibleEffects(snapshot.node, ctx)
+    (semantics?.paint.hasVisibleEffect ?? hasVisibleEffects(snapshot.node))
   )
 }
 
@@ -99,14 +97,14 @@ function collectPaintChannels(
     return []
   }
 
-  const visiblePaints = paints.filter(isVisiblePaint)
+  const visiblePaints = paints.filter(isRenderablePaint)
   const styleChannel = visiblePaints.length === 1 ? resolveStylePaintChannel(node, kind, ctx) : null
   const channels: PaintChannel[] = []
   for (const paint of visiblePaints) {
     if (paint.type !== 'SOLID' || !paint.color) {
       return null
     }
-    const channel = styleChannel ?? resolvePaintChannel(paint, ctx)
+    const channel = styleChannel ?? resolveSolidPaintChannel(paint, ctx)
     if (!channel) return null
     channels.push(channel)
   }
@@ -121,10 +119,6 @@ function readLivePaints(
   if (!(kind in node)) return null
   const paints = (node as { fills?: unknown; strokes?: unknown })[kind]
   return Array.isArray(paints) ? paints : null
-}
-
-function resolvePaintChannel(paint: SolidPaint, ctx?: GetCodeCacheContext): PaintChannel | null {
-  return resolveSolidPaintChannel(paint, ctx)
 }
 
 function isMaskNode(node: SceneNode): boolean {

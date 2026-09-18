@@ -36,16 +36,12 @@ const prismRevision = shallowRef(0)
 
 const code = computed(() => props.code.replace(STRIP_TRAILING_WS_RE, ''))
 
-const lang = computed(() => {
-  if (prismAlias[props.lang]) {
-    return prismAlias[props.lang]
-  }
-
-  return props.lang
-})
+const lang = computed(() => prismAlias[props.lang] || props.lang)
 
 const highlighted = computed(() => {
-  const Prism = prismRevision.value >= 0 ? window.Prism : window.Prism
+  // Recompute after asynchronously loaded grammars become available.
+  void prismRevision.value
+  const Prism = window.Prism
   if (!Prism || !Prism.languages[lang.value]) {
     return escapeHTML(code.value)
   }

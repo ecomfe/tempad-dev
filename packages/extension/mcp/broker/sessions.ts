@@ -1,8 +1,11 @@
+import type { FigmaSession } from '@tempad-dev/shared'
+
 export type McpBrokerPort = ReturnType<typeof browser.runtime.connect>
 
 export type McpBrokerSession = {
   port: McpBrokerPort
   sessionId: string
+  document?: Omit<FigmaSession, 'sessionId'>
 }
 
 export class McpSessionRegistry {
@@ -30,7 +33,16 @@ export class McpSessionRegistry {
   }
 
   register(session: McpBrokerSession): void {
+    const isNew = !this.sessions.has(session.sessionId)
     this.sessions.set(session.sessionId, session)
+    if (isNew && this.sessions.size > 1) {
+      this.activeSessionId = null
+    }
+    this.autoActivateSoleSession()
+  }
+
+  resetActive(): void {
+    this.activeSessionId = null
     this.autoActivateSoleSession()
   }
 
@@ -53,6 +65,6 @@ export class McpSessionRegistry {
       return
     }
     const [sessionId] = this.sessions.keys()
-    this.activeSessionId = this.sessions.size === 1 ? sessionId : null
+    this.activeSessionId = this.sessions.size === 1 ? (sessionId ?? null) : null
   }
 }

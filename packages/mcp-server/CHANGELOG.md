@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.8.0
+
+- Announced the extension bridge protocol versions the Hub serves, so a Hub upgrade can reach
+  an extension that predates it instead of forcing both sides to ship together.
+- Added design-task leases, pause/resume, anchored status, and permanent Stop cancellation.
+  Codex App uses host MCP metadata and native IPC; Claude retains lifecycle and Stop hooks.
+- Preserved native Codex turn identity across conversation-only MCP requests and recovered
+  unambiguous active turns after reconnection, so Stop can retain its interruption target.
+- Unified Codex Stop capability checks and target resolution, including after MCP disconnect.
+  Missing targets now report local cancellation without implying host interruption; Stop logs
+  record dispatch and outcome while exact-turn guards prevent stopping a later response.
+- Added native Codex App Queue and Steer feedback with stable delivery identities, durable
+  receipts, uncertain-admission reconciliation, and targeted removal of a task's queued comments.
+  Queue confirms host admission independently of execution; unavailable local queue snapshots
+  retain the bounded Hub waiting path. Comments never fall back to hooks.
+
+- BREAKING: supported Node.js versions are now 22.x, 24.x, or 26+, matching the upgraded runtime
+  dependencies. Node.js 18 and 20 are no longer supported.
+- Released declarative Figma canvas authoring as a stable MCP workflow, paired with extension
+  0.21.0 and Agent Plugin 0.2.0. Release setup uses `@tempad-dev/mcp@latest`.
+- Added bounded `get_design_system` catalogs, exact resource lookup, and environment-only queries
+  for available font families and native styles.
+- Expanded `apply_canvas` with typed native layout, text, paint/effect, variable/style, page,
+  component/variant, instance, Slot, SVG, and raster-asset authoring. Variable utilities and named
+  text-style classes can bind resources declared in the same call.
+- Added exact page operations and native-only updates without markup, stable managed identities,
+  omission preservation, deterministic placement, dependency-aware rollback, no-op convergence,
+  and post-write structural verification.
+- Added bounded screenshots, exact node/page structure queries, and local asset paths so desktop
+  agents can inspect Hub-owned evidence. `upload_asset` stores generated raster images for canvas
+  authoring without returning encoded bytes.
+- Kept long-running canvas writes pending until a definitive result or extension disconnect,
+  rejected stale Hub reuse, and clarified that the MCP badge selects the target Figma session.
+- Paired the progressive `figma-canvas-authoring` skill with `figma-design-to-code` in the portable
+  Agent Plugin and synchronized client compatibility packages.
+
+## 0.8.0-alpha.0
+
+- Added `get_design_system`, which builds a compact immutable catalog with deterministic cursor
+  pages and short refs for component definitions on accessible pages plus local or directly
+  referenced variable, collection/mode, native style, and shader definitions. It neither inspects
+  canvas usage nor loads every page; exact-ref lookup returns one bounded definition only
+  when needed.
+- Added `apply_canvas`, a single declarative HTML + deterministic Tailwind utility write tool. The extension resolves
+  catalog refs, validates the complete native result, diffs the latest canvas, applies one undoable
+  patch, and performs structural verification.
+- Exposed `get_screenshot` as a bounded, read-only visual validation tool.
+- Added safe create and scoped incremental-update semantics with stable keys, omission preservation,
+  explicit descendant/root removal, no-op convergence, dependency-aware rollback, and stable-key
+  recovery through `get_structure`.
+- Added typed Figma-only result state for native geometry, layout, text, paints/effects/media,
+  variables, native styles, pages, authored components/variants, instances, and Slots without
+  exposing Plugin API operations as tools.
+- Added declarative SVG and local asset-backed image authoring without adding another model-visible
+  tool. Asset identity now uses full SHA-256 digests end to end.
+- Made `apply_canvas` available whenever MCP access is enabled in an editable Figma Design file;
+  the extension rejects Dev Mode and native read-only files.
+- Kept always-on guidance to user-priority routing and safety rules while moving authoring workflow,
+  syntax, executable local-resource examples, and advanced native features into the progressive
+  canvas-authoring skill. Design-system discovery is conditional rather than an authoring preflight,
+  while visually inventive work grounds unspecified style through project evidence, applicable
+  skills, or bounded domain research instead of generic model defaults.
+- Added standard MCP annotations for read-only and mutating tool behavior.
+
 ## 0.7.1
 
 - Aligned MCP server identity metadata around the stable `tempad-dev` name and human-readable

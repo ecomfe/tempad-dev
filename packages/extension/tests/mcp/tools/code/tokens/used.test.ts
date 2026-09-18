@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
-import { getVariableByIdCached } from '@/mcp/tools/code/tokens/cache'
 import { buildUsedTokens } from '@/mcp/tools/code/tokens/used'
 import { resolveTokenDefsByNames } from '@/mcp/tools/token'
+import { getVariableByIdCached } from '@/mcp/tools/token/cache'
 import { canonicalizeNames, getVariableRawName } from '@/mcp/tools/token/indexer'
 import { normalizeFigmaVarName } from '@/utils/css'
 
@@ -21,7 +21,7 @@ vi.mock('@/mcp/tools/token/indexer', () => ({
   getVariableRawName: vi.fn()
 }))
 
-vi.mock('@/mcp/tools/code/tokens/cache', () => ({
+vi.mock('@/mcp/tools/token/cache', () => ({
   getVariableByIdCached: vi.fn()
 }))
 
@@ -81,6 +81,7 @@ describe('tokens/used buildUsedTokens', () => {
     })
 
     const call = vi.mocked(resolveTokenDefsByNames).mock.calls[0]
+    if (!call) throw new Error('Expected resolveTokenDefsByNames to be called')
     const nameSet = call[0] as Set<string>
     const options = call[3] as {
       includeAllModes: boolean
@@ -111,6 +112,7 @@ describe('tokens/used buildUsedTokens', () => {
 
     expect(normalizeFigmaVarName).toHaveBeenCalledWith('Color Primary')
     const call = vi.mocked(resolveTokenDefsByNames).mock.calls[0]
+    if (!call) throw new Error('Expected resolveTokenDefsByNames to be called')
     expect(call[0]).toEqual(new Set(['--norm-Color Primary']))
     expect(call[3]).toMatchObject({
       includeAllModes: false,
@@ -135,6 +137,7 @@ describe('tokens/used buildUsedTokens', () => {
     )
 
     const call = vi.mocked(resolveTokenDefsByNames).mock.calls[0]
+    if (!call) throw new Error('Expected resolveTokenDefsByNames to be called')
     const options = call[3] as {
       candidateIds: Set<string>
       candidateNameById: Map<string, string>

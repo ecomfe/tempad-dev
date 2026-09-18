@@ -5,7 +5,7 @@ import type {
   GetTokenDefsResult
 } from '@tempad-dev/shared'
 
-import { buildGetCodeToolResult } from '@tempad-dev/shared'
+import { MCP_TOOL_INLINE_BUDGET_BYTES, buildGetCodeToolResult } from '@tempad-dev/shared'
 
 import type { DevComponent } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
@@ -27,18 +27,17 @@ import { planAssets } from './assets/plan'
 import { preflightGetCodeBudget } from './budget-preflight'
 import { createGetCodeCacheContext } from './cache'
 import { collectNodeData } from './collect'
+import { collectUnboundColorLiteralClusters } from './literal-clusters'
 import {
+  CodeBudgetExceededError,
   assertToolResponseWithinBudget,
-  buildGetCodeWarnings,
-  isCodeBudgetExceededError,
-  resolveCodeBudget,
-  resolveUnlimitedCodeBudget
+  buildGetCodeWarnings
 } from './messages'
 import { getOrderedChildIds, renderShellTree, renderTree } from './render'
 import { resolvePluginComponents } from './render/plugin'
 import { buildLayoutStyles, prepareStyles } from './styles'
 import { createStyleVarResolver, processTokens, resolveStyleMap } from './tokens'
-import { buildVisibleTree } from './tree'
+import { addSubtreeIds, buildVisibleTree } from './tree'
 
 // Tags that should render children without extra whitespace/newlines.
 const COMPACT_TAGS = new Set([
@@ -101,15 +100,12 @@ type PipelineInput = {
   tree: VisibleTree
   ctx: RenderContext
   collected: CollectedContext
-  nodeMap: Map<string, SceneNode>
   vectorRoots: Set<string>
   rootTag?: string
   lang?: CodeLanguage
   variableIds: Set<string>
   usedCandidateIds: Set<string>
   variableCache: Map<string, Variable | null>
-  config: CodegenConfig
-  pluginCode?: string
   resolveTokens?: boolean
   trace?: TraceInfo
 }
@@ -137,11 +133,11 @@ export async function handleGetCode(
   const { now, stamp } = trace
   const traceInfo: TraceInfo = { now, stamp }
 
-  if (nodes.length !== 1) {
+  const [node] = nodes
+  if (nodes.length !== 1 || !node) {
     throw new Error('Select exactly one node or provide a single root node id.')
   }
 
-  const node = nodes[0]
   if (!node.visible) {
     throw new Error('The selected node is not visible.')
   }
@@ -160,9 +156,11 @@ export async function handleGetCode(
 
   const config = currentCodegenConfig()
   const pluginCode = activePlugin.value?.code
-  const codeBudget = runtimeOptions.unbounded ? resolveUnlimitedCodeBudget() : resolveCodeBudget()
+  const maxResultBytes = runtimeOptions.unbounded
+    ? Number.MAX_SAFE_INTEGER
+    : MCP_TOOL_INLINE_BUDGET_BYTES
   const budgetPreflight = preflightGetCodeBudget(tree, rootId, {
-    maxResultBytes: codeBudget.maxResultBytes,
+    maxResultBytes,
     pluginEnabled: !!pluginCode,
     unbounded: !!runtimeOptions.unbounded
   })
@@ -216,7 +214,7 @@ export async function handleGetCode(
   stamp('export-assets', t)
 
   const nodeMap = buildNodeMap(collected.nodes)
-  const ctx: RenderContext = buildRenderContext({
+  const ctx: RenderContext = {
     styles: collected.styles,
     layout: layoutStyles,
     nodes: nodeMap,
@@ -226,7 +224,7 @@ export async function handleGetCode(
     pluginCode,
     config,
     preferredLang
-  })
+  }
 
   const rootTag = collected.nodes.get(rootId)?.tag
   const codegen = {
@@ -238,19 +236,17 @@ export async function handleGetCode(
     tree,
     ctx,
     collected,
-    nodeMap,
     vectorRoots: plan.vectorRoots,
     rootTag,
     lang: preferredLang,
     variableIds: mappings.variableIds,
     usedCandidateIds,
     variableCache,
-    config,
-    pluginCode,
     resolveTokens,
     trace: traceInfo
   }
   const allAssets = Array.from(assetRegistry.values())
+  const { rootVideoPreviewAssetHashes, videoPreviewAssetHashes } = collected
 
   if (earlyShell) {
     const shellMode = createShellMode(rootId, tree, ctx)
@@ -268,9 +264,9 @@ export async function handleGetCode(
       cappedNodeIds: tree.stats.cappedNodeIds,
       shell: true
     })
-    const assets = filterAssetsReferencedInCode(allAssets, shell.code)
-    const result = buildCodeResult(shell, codegen, assets, warnings)
-    assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
+    const assets = selectAssetsForCode(allAssets, shell.code, videoPreviewAssetHashes)
+    const result = buildCodeResult(shell, codegen, assets, undefined, warnings)
+    assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
     logTrace(
       trace,
       `nodes=${tree.order.length} collected=1 assets=${assets.length} shell=early preflightNodes=${budgetPreflight.scannedDescendants}${formatCacheMetrics(cache)}`
@@ -283,20 +279,25 @@ export async function handleGetCode(
       ...baseInput,
       mode: { kind: 'full' }
     })
+    const literalClusters = resolveTokens
+      ? undefined
+      : collectUnboundColorLiteralClusters(collected.styles, tree)
     const warnings = buildGetCodeWarnings(output.code, {
-      cappedNodeIds: tree.stats.cappedNodeIds
+      cappedNodeIds: tree.stats.cappedNodeIds,
+      literalClusters
     })
-    const result = buildCodeResult(output, codegen, allAssets, warnings)
-    assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
+    const assets = selectAssetsForCode(allAssets, output.code, videoPreviewAssetHashes)
+    const result = buildCodeResult(output, codegen, assets, literalClusters, warnings)
+    assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
 
     logTrace(
       trace,
-      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${allAssets.length}${runtimeOptions.unbounded ? ' budget=unbounded' : ''}${formatCacheMetrics(cache)}`
+      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assets.length}${runtimeOptions.unbounded ? ' budget=unbounded' : ''}${formatCacheMetrics(cache)}`
     )
 
     return result
   } catch (error) {
-    if (!isCodeBudgetExceededError(error)) {
+    if (!(error instanceof CodeBudgetExceededError)) {
       throw error
     }
 
@@ -317,13 +318,13 @@ export async function handleGetCode(
       cappedNodeIds: tree.stats.cappedNodeIds,
       shell: true
     })
-    const assets = filterAssetsReferencedInCode(allAssets, shell.code)
-    const result = buildCodeResult(shell, codegen, assets, warnings)
+    const assets = selectAssetsForCode(allAssets, shell.code, rootVideoPreviewAssetHashes)
+    const result = buildCodeResult(shell, codegen, assets, undefined, warnings)
 
     try {
-      assertToolResponseWithinBudget(buildGetCodeToolResult(result), codeBudget)
+      assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
     } catch (shellError) {
-      if (isCodeBudgetExceededError(shellError)) {
+      if (shellError instanceof CodeBudgetExceededError) {
         throw error
       }
       throw shellError
@@ -400,8 +401,8 @@ async function finalizeRenderedOutput(
     styles: collected.styles,
     textSegments: collected.textSegments,
     svgs: input.ctx.svgs,
-    config: input.config,
-    pluginCode: input.pluginCode,
+    config: input.ctx.config,
+    pluginCode: input.ctx.pluginCode,
     resolveTokens: input.resolveTokens,
     stamp: input.trace?.stamp,
     now: input.trace?.now
@@ -475,26 +476,28 @@ async function rerenderResolvedOutput({
   const resolveStyleVars = createStyleVarResolver(
     sourceIndex,
     input.variableCache,
-    input.config,
+    input.ctx.config,
     resolveNodeIds,
     tokenMatcher
   )
-  const resolvedStyles = resolveStyleMap(input.collected.styles, input.nodeMap, resolveStyleVars)
-  const resolvedSvgs = resolveSvgEntries(input.ctx.svgs, input.nodeMap, resolveStyleVars)
+  const resolvedStyles = resolveStyleMap(input.collected.styles, input.ctx.nodes, resolveStyleVars)
+  const resolvedSvgs = resolveSvgEntries(input.ctx.svgs, input.ctx.nodes, resolveStyleVars)
   if (
-    !stylesChanged(input.collected.styles, resolvedStyles) &&
-    !svgEntriesChanged(input.ctx.svgs, resolvedSvgs)
+    !resolvedEntriesChanged(input.collected.styles, resolvedStyles) &&
+    !resolvedEntriesChanged(input.ctx.svgs, resolvedSvgs)
   ) {
     return null
   }
   const resolvedLayout = buildLayoutStyles(resolvedStyles, input.vectorRoots)
-  const resolvedCtx = buildRenderContext({
+  const resolvedCtx: RenderContext = {
     ...input.ctx,
+    // Each render detects its language independently; keep the first result language below.
+    detectedLang: undefined,
     styles: resolvedStyles,
     layout: resolvedLayout,
     svgs: resolvedSvgs,
     resolveStyleVars
-  })
+  }
 
   return renderMarkup({
     ...input,
@@ -504,13 +507,10 @@ async function rerenderResolvedOutput({
   })
 }
 
-function stylesChanged(
-  original: Map<string, Record<string, string>>,
-  resolved: Map<string, Record<string, string>>
-): boolean {
+function resolvedEntriesChanged<T>(original: Map<string, T>, resolved: Map<string, T>): boolean {
   if (original === resolved) return false
-  for (const [id, style] of resolved.entries()) {
-    if (style !== original.get(id)) return true
+  for (const [id, value] of resolved) {
+    if (value !== original.get(id)) return true
   }
   return false
 }
@@ -542,17 +542,6 @@ function resolveSvgEntries(
   }
 
   return out
-}
-
-function svgEntriesChanged(
-  original: Map<string, SvgEntry>,
-  resolved: Map<string, SvgEntry>
-): boolean {
-  if (original === resolved) return false
-  for (const [id, entry] of resolved.entries()) {
-    if (entry !== original.get(id)) return true
-  }
-  return false
 }
 
 async function collectPluginOutput(
@@ -589,23 +578,14 @@ async function collectPluginOutput(
       if (!component) continue
       const snapshot = tree.nodes.get(id)
       if (!snapshot) continue
-      snapshot.children.forEach((childId) => skipDescendants(childId, tree, pluginSkipped))
+      snapshot.children.forEach((childId) => addSubtreeIds(childId, tree, pluginSkipped))
     }
   }
 
   return { pluginComponents, pluginSkipped }
 }
 
-function skipDescendants(id: string, tree: VisibleTree, skipped: Set<string>): void {
-  const node = tree.nodes.get(id)
-  if (!node) return
-  if (skipped.has(id)) return
-  skipped.add(id)
-  node.children.forEach((childId) => skipDescendants(childId, tree, skipped))
-}
-
 function buildSkipIds(base: Set<string>, extra: Set<string>): Set<string> {
-  if (!base.size && !extra.size) return base
   if (!extra.size) return base
   if (!base.size) return extra
   return new Set<string>([...base, ...extra])
@@ -615,32 +595,6 @@ function buildNodeMap(nodes: Map<string, { node: SceneNode }>): Map<string, Scen
   const out = new Map<string, SceneNode>()
   nodes.forEach((snap, id) => out.set(id, snap.node))
   return out
-}
-
-function buildRenderContext({
-  styles,
-  layout,
-  nodes,
-  svgs,
-  textSegments,
-  pluginComponents,
-  pluginCode,
-  config,
-  preferredLang,
-  resolveStyleVars
-}: RenderContext): RenderContext {
-  return {
-    styles,
-    layout,
-    nodes,
-    svgs,
-    textSegments,
-    pluginComponents,
-    pluginCode,
-    config,
-    preferredLang,
-    resolveStyleVars
-  }
 }
 
 function normalizeRootString(
@@ -743,14 +697,24 @@ function stampRenderPhase(
   trace.stamp(label, start)
 }
 
-function filterAssetsReferencedInCode(assets: AssetDescriptor[], code: string): AssetDescriptor[] {
-  return assets.filter((asset) => code.includes(asset.url) || code.includes(asset.hash))
+function selectAssetsForCode(
+  assets: AssetDescriptor[],
+  code: string,
+  supplementalAssetHashes?: ReadonlySet<string>
+): AssetDescriptor[] {
+  return assets.filter(
+    (asset) =>
+      code.includes(asset.url) ||
+      code.includes(asset.hash) ||
+      supplementalAssetHashes?.has(asset.hash)
+  )
 }
 
 function buildCodeResult(
   output: PipelineOutput,
   codegen: GetCodeResult['codegen'],
   assets: AssetDescriptor[],
+  literalClusters?: GetCodeResult['literalClusters'],
   warnings?: GetCodeResult['warnings']
 ): GetCodeResult {
   return {
@@ -758,6 +722,7 @@ function buildCodeResult(
     code: output.code,
     ...(assets.length ? { assets } : {}),
     ...(output.tokens ? { tokens: output.tokens } : {}),
+    ...(literalClusters?.length ? { literalClusters } : {}),
     codegen,
     ...(warnings?.length ? { warnings } : {})
   }

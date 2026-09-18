@@ -30,6 +30,7 @@ export function getDesignComponent(node: SceneNode): DesignComponent | null {
 
   for (const [name, data] of Object.entries(componentProperties)) {
     const key = name.split('#')[0]
+    if (!key) continue
     if (data.type === 'INSTANCE_SWAP') {
       const component = figma.getNodeById(data.value as string)
       if (component?.type === 'COMPONENT') {
@@ -213,18 +214,12 @@ function stringifyBaseComponent(
     .map((entry) => stringifyProp(...entry))
     .filter(Boolean)
 
-  const firstItem = propItems[0]
-
-  const propsString =
-    propItems.length === 0
-      ? ''
-      : propItems.length === 1
-        ? firstItem.includes('\n')
-          ? ` ${indentAll(firstItem, indent, true)}`
-          : ` ${firstItem}`
-        : `\n${propItems
-            .map((prop) => `${indentAll(prop, indent + INDENT_UNIT)}`)
-            .join('\n')}\n${indent}`
+  let propsString = ''
+  if (propItems.length === 1) {
+    propsString = ` ${indentAll(propItems[0], indent, true)}`
+  } else if (propItems.length > 1) {
+    propsString = `\n${propItems.map((prop) => indentAll(prop, indent + INDENT_UNIT)).join('\n')}\n${indent}`
+  }
 
   const children = rawChildren.filter((child) => child != null)
 
@@ -432,10 +427,7 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
   while (i < code.length && /[a-zA-Z0-9\-_:.]/.test(code[i])) i++
   const tagNameEnd = i
 
-  const existingAttrs = new Map<
-    string,
-    { nameStart: number; valueStart: number; valueEnd: number; quote: string }
-  >()
+  const existingAttrs = new Map<string, { valueStart: number; valueEnd: number; quote: string }>()
 
   while (i < code.length) {
     // Skip whitespace
@@ -486,11 +478,10 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
         valueEnd = i
       }
 
-      existingAttrs.set(attrName, { nameStart: attrNameStart, valueStart, valueEnd, quote })
+      existingAttrs.set(attrName, { valueStart, valueEnd, quote })
     } else {
       // Boolean attribute
       existingAttrs.set(attrName, {
-        nameStart: attrNameStart,
         valueStart: i,
         valueEnd: i,
         quote: ''
@@ -516,48 +507,22 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
       }
     }
 
-    if (existing) {
-      if (key === 'class' || key === 'className') {
-        const currentVal = code.slice(existing.valueStart, existing.valueEnd)
-        const merged = mergeClasses(currentVal, String(value))
-        if (existing.quote) {
-          replacements.push({
-            start: existing.valueStart,
-            end: existing.valueEnd,
-            content: escapeHTML(merged)
-          })
-        } else {
-          replacements.push({
-            start: existing.valueStart,
-            end: existing.valueEnd,
-            content: `"${escapeHTML(merged)}"`
-          })
-        }
-      } else {
-        if (existing.quote === '' && existing.valueStart === existing.valueEnd) {
-          // Boolean attribute, add value
-          replacements.push({
-            start: existing.valueStart,
-            end: existing.valueEnd,
-            content: `="${escapeHTML(String(value))}"`
-          })
-        } else if (existing.quote) {
-          replacements.push({
-            start: existing.valueStart,
-            end: existing.valueEnd,
-            content: escapeHTML(String(value))
-          })
-        } else {
-          replacements.push({
-            start: existing.valueStart,
-            end: existing.valueEnd,
-            content: `"${escapeHTML(String(value))}"`
-          })
-        }
-      }
-    } else {
+    if (!existing) {
       insertions.push(` ${key}="${escapeHTML(String(value))}"`)
+      continue
     }
+
+    const { valueStart, valueEnd, quote } = existing
+    const isClass = key === 'class' || key === 'className'
+    const content = escapeHTML(
+      isClass ? mergeClasses(code.slice(valueStart, valueEnd), String(value)) : String(value)
+    )
+    let replacement = content
+    if (!quote) {
+      replacement = `"${content}"`
+      if (!isClass && valueStart === valueEnd) replacement = `=${replacement}`
+    }
+    replacements.push({ start: valueStart, end: valueEnd, content: replacement })
   }
 
   replacements.sort((a, b) => b.start - a.start)

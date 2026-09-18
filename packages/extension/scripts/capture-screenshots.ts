@@ -1,7 +1,16 @@
-import { mkdir, readFile } from 'node:fs/promises'
+import { AGENT_INTEGRATIONS } from '@tempad-dev/shared'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, type Locator, type Page } from 'playwright'
+
+import { captureDialogPng } from '../screenshots/dialog-capture.mjs'
+import {
+  needsFixtureRuntime,
+  selectScenarios,
+  selectThemes,
+  type ScreenshotScenario
+} from './screenshot-plan'
 
 type Point = { x: number; y: number }
 type Rect = Point & { height: number; width: number }
@@ -16,7 +25,7 @@ type Assertion = {
   values?: number[]
 }
 
-type Scenario = {
+type Scenario = ScreenshotScenario & {
   assertions: Assertion[]
   clip?: Rect & {
     anchor?: {
@@ -26,7 +35,7 @@ type Scenario = {
       offset?: Point
     }
   }
-  figma: {
+  figma?: {
     captureAnchor?: Point
     focus: string
     selection: string[]
@@ -43,6 +52,8 @@ type Scenario = {
       selectText?: boolean
     }
     setupTarget?: string
+    setupScroll?: 'start' | 'end'
+    visibleActionIds?: string[]
     mcpEnabled?: boolean
     measure?: boolean
     options?: {
@@ -79,6 +90,7 @@ type Manifest = {
     }
   }
   capture: {
+    clipScale: number
     canvasAnchor: Point
     clip: Rect
     hiddenPointer: Point
@@ -134,11 +146,13 @@ function usage(): string {
     '',
     '  pnpm screenshots capture --cdp-url http://127.0.0.1:9222',
     '  pnpm screenshots capture --only code,unit,deep',
+    '  pnpm screenshots capture --group setup',
     '',
     'Options:',
     '  --cdp-url <url>       Chrome DevTools endpoint (default: TEMPAD_SCREENSHOT_CDP_URL or http://127.0.0.1:9222)',
     '  --output-dir <path>   Candidate directory (default: .artifacts/marketing-screenshots)',
     '  --only <ids>          Comma-separated scenario ids',
+    '  --group <name>        inspect, setup, or status (exclusive with --only)',
     '  --themes <values>     light,dark or one theme',
     '  --help                Show this help',
     '',
@@ -274,8 +288,21 @@ async function resetPanel(page: Page): Promise<void> {
 }
 
 async function configureScenario(page: Page, scenario: Scenario): Promise<void> {
-  await resetPanel(page)
   const panel = scenario.panel ?? {}
+  if (scenario.group === 'setup') {
+    await closeSetupDialog(page)
+    await ensurePreferences(page, true)
+    await setMcpEnabled(page, panel.mcpEnabled ?? true)
+    if (!panel.setupTarget) fail(`${scenario.id}: a setup target is required.`)
+    const tempad = page.locator('tempad')
+    await tempad.getByRole('button', { name: 'Set up agents', exact: true }).click()
+    await tempad.getByRole('tab', { name: panel.setupTarget, exact: true }).click()
+    await page
+      .locator('#tp-agent-setup-panel [data-overlayscrollbars-viewport]')
+      .press(panel.setupScroll === 'end' ? 'End' : 'Home')
+    return
+  }
+  await resetPanel(page)
 
   if (panel.options?.cssUnit) await setSelect(page, 'CSS unit', panel.options.cssUnit)
   if (panel.options?.rootFontSize !== undefined) {
@@ -302,6 +329,7 @@ async function stageCanvas(
   scenario: Scenario,
   theme: Theme
 ): Promise<{ selection: unknown[] }> {
+  if (!scenario.figma) fail(`${scenario.id}: missing Figma fixture contract.`)
   const anchor = scenario.figma.captureAnchor ?? manifest.capture.canvasAnchor
   return page.evaluate(
     ({ input }) => {
@@ -469,7 +497,8 @@ async function assertMcpStatus(
 async function assertScenario(
   page: Page,
   scenario: Scenario,
-  stage: { selection: unknown[] } | null
+  stage: { selection: unknown[] } | null,
+  clip: Rect
 ): Promise<void> {
   const panelText = await page.locator('article main').innerText()
   let dialogText: string | undefined
@@ -477,6 +506,60 @@ async function assertScenario(
 
   for (const assertion of scenario.assertions) {
     switch (assertion.kind) {
+      case 'setup-contract': {
+        const target = AGENT_INTEGRATIONS.find(({ name }) => name === scenario.panel?.setupTarget)
+        if (!target) fail(`${scenario.id}: unknown agent setup target.`)
+        const selected = page.locator('tempad').getByRole('tab', { name: target.name, exact: true })
+        if ((await selected.getAttribute('aria-selected')) !== 'true') {
+          fail(`${scenario.id}: ${target.name} is not the selected setup target.`)
+        }
+        const content = await page.locator('#tp-agent-setup-panel').innerText()
+        const pluginActions = target.actions.filter(({ id }) => id.startsWith('plugin-'))
+        const actions = pluginActions.length ? pluginActions : target.actions
+        for (const action of actions) {
+          if (action.kind !== 'deep-link' && !content.includes(action.value)) {
+            fail(
+              `${scenario.id}: displayed ${action.id} does not match the current shared setup configuration.`
+            )
+          }
+        }
+        break
+      }
+      case 'setup-visible-actions': {
+        const target = AGENT_INTEGRATIONS.find(({ name }) => name === scenario.panel?.setupTarget)
+        if (!target) fail(`${scenario.id}: unknown setup target.`)
+        const viewport = await expectRect(
+          page.locator('#tp-agent-setup-panel [data-overlayscrollbars-viewport]'),
+          'Setup content'
+        )
+        for (const id of scenario.panel?.visibleActionIds ?? []) {
+          const action = target.actions.find((action) => action.id === id)
+          if (!action) fail(`${scenario.id}: unknown action ${id}.`)
+          const code = await expectRect(
+            page.locator('#tp-agent-setup-panel code').filter({ hasText: action.value }),
+            id
+          )
+          if (code.y < viewport.y - 1 || code.y + code.height > viewport.y + viewport.height + 1) {
+            fail(`${scenario.id}: ${id} is clipped at the declared scroll position.`)
+          }
+        }
+        break
+      }
+      case 'dialog-fits-clip': {
+        const dialog = await expectRect(
+          page.locator('tempad').getByRole('dialog', { name: 'Set up agents', exact: true }),
+          'Agent setup dialog'
+        )
+        if (
+          dialog.x < clip.x - 1 ||
+          dialog.y < clip.y - 1 ||
+          dialog.x + dialog.width > clip.x + clip.width + 1 ||
+          dialog.y + dialog.height > clip.y + clip.height + 1
+        ) {
+          fail(`${scenario.id}: the capture would crop the agent setup dialog.`)
+        }
+        break
+      }
       case 'figma-selection-count':
         if (stage && stage.selection.length !== assertion.value) {
           fail(
@@ -565,7 +648,10 @@ async function captureScenario(
     fail(`${scenario.id}: leave TemPad Dev preferences open before capturing this MCP state.`)
   }
 
-  const stage = isStateGated ? null : await stageCanvas(page, manifest, scenario, theme)
+  const stage =
+    isStateGated || scenario.group === 'setup'
+      ? null
+      : await stageCanvas(page, manifest, scenario, theme)
   if (isStateGated) {
     await page.evaluate((value) => {
       const runtime = (
@@ -583,11 +669,23 @@ async function captureScenario(
   await renderPointer(page, point, scenario.pointer.visible)
   await stabilizeCompositor(page, manifest.capture.hiddenPointer)
   await page.waitForTimeout(scenario.pointer.tooltip ? 700 : manifest.capture.settleMs)
-  await assertScenario(page, scenario, stage)
-
   const clip = await resolveClip(page, manifest, scenario)
+  await assertScenario(page, scenario, stage, clip)
   const outputPath = resolve(outputDir, `${scenario.id}-${theme}.png`)
-  await page.screenshot({ animations: 'disabled', clip, path: outputPath, scale: 'device' })
+  if (scenario.group === 'setup') {
+    const cdp = await page.context().newCDPSession(page)
+    try {
+      const capture = await captureDialogPng((method, params) => cdp.send(method, params), {
+        ...clip,
+        scale: manifest.capture.clipScale
+      })
+      await writeFile(outputPath, Buffer.from(capture.data, 'base64'))
+    } finally {
+      await cdp.detach()
+    }
+  } else {
+    await page.screenshot({ animations: 'disabled', clip, path: outputPath, scale: 'device' })
+  }
   const size = readPngSize(await readFile(outputPath))
   if (!size || size.width !== scenario.width || size.height !== scenario.height) {
     fail(
@@ -611,35 +709,19 @@ async function main(): Promise<void> {
   const outputDir = outputDirArgument
     ? resolve(repoRoot, outputDirArgument)
     : `${repoRoot}.artifacts/marketing-screenshots`
-  const defaultScenarioIds = manifest.scenarios
-    .filter((scenario) => !['inactive', 'unavailable'].includes(scenario.mcpStatus ?? ''))
-    .map((scenario) => scenario.id)
-  const selectedIds = new Set(
-    (readArgument('--only') ?? defaultScenarioIds.join(',')).split(',').filter(Boolean)
-  )
-  const selectedThemes = new Set(
-    (readArgument('--themes') ?? manifest.capture.themes.join(','))
-      .split(',')
-      .filter(Boolean) as Theme[]
-  )
-  const scenarios = manifest.scenarios.filter((scenario) => selectedIds.has(scenario.id))
+  const scenarios = selectScenarios(manifest.scenarios, {
+    only: readArgument('--only'),
+    group: readArgument('--group'),
+    capture: true
+  })
+  const selectedThemes = new Set(selectThemes(manifest.capture.themes, readArgument('--themes')))
   const orderedScenarios = [...scenarios].sort(
     (a, b) => Number(a.id === 'plugins') - Number(b.id === 'plugins')
   )
-  const unknown = [...selectedIds].filter(
-    (id) => !manifest.scenarios.some((scenario) => scenario.id === id)
+  const useFixtures = needsFixtureRuntime(scenarios)
+  const hasStateGatedScenario = scenarios.some(({ mcpStatus }) =>
+    ['inactive', 'unavailable'].includes(mcpStatus ?? '')
   )
-  if (unknown.length) fail(`Unknown scenarios: ${unknown.join(', ')}`)
-  if (!scenarios.length) fail('No scenarios selected.')
-  const hasStateGatedScenario = scenarios.some((scenario) =>
-    ['inactive', 'unavailable'].includes(scenario.mcpStatus ?? '')
-  )
-  if (hasStateGatedScenario && scenarios.length !== 1) {
-    fail('Capture MCP unavailable/inactive as a single --only scenario after preparing its state.')
-  }
-  if ([...selectedThemes].some((theme) => !manifest.capture.themes.includes(theme))) {
-    fail(`Themes must be one of: ${manifest.capture.themes.join(', ')}.`)
-  }
 
   await mkdir(outputDir, { recursive: true })
   const browser = await chromium.connectOverCDP(cdpUrl)
@@ -659,32 +741,42 @@ async function main(): Promise<void> {
     )
   }
 
-  const cdp = await page.context().newCDPSession(page)
-  await cdp.send('Runtime.evaluate', {
-    awaitPromise: true,
-    expression: fixtureRuntime,
-    returnByValue: true
-  })
-  await page.waitForFunction(() => '__TEMPAD_README_SCREENSHOTS__' in globalThis)
-  const markers = await page.evaluate(() => {
-    const runtime = (
-      globalThis as typeof globalThis & {
-        __TEMPAD_README_SCREENSHOTS__: FixtureRuntime
-      }
-    ).__TEMPAD_README_SCREENSHOTS__
-    return runtime.list().map((node) => node.marker)
-  })
-  if (
-    !['code', 'deep_outer', 'deep_inner', 'measure_outer', 'measure_inner', 'plugins'].every(
-      (marker) => markers.includes(marker)
+  if (useFixtures) {
+    const cdp = await page.context().newCDPSession(page)
+    const editable = await cdp.send('Runtime.evaluate', {
+      expression:
+        "typeof figma !== 'undefined' && figma.editorType === 'figma' && figma.mode === 'default'",
+      returnByValue: true
+    })
+    if (!editable.result.value) {
+      fail(
+        'Fixture capture requires an editable Figma Design file. Setup-only captures work with --group setup without changing canvas content.'
+      )
+    }
+    const result = await cdp.send('Runtime.evaluate', {
+      awaitPromise: true,
+      expression: fixtureRuntime,
+      returnByValue: true
+    })
+    if (result.exceptionDetails)
+      fail('Could not prepare the canonical Figma fixtures. No screenshots were captured.')
+    await page.waitForFunction(() => '__TEMPAD_README_SCREENSHOTS__' in globalThis)
+    const markers = await page.evaluate(() => {
+      const runtime = (
+        globalThis as typeof globalThis & {
+          __TEMPAD_README_SCREENSHOTS__: FixtureRuntime
+        }
+      ).__TEMPAD_README_SCREENSHOTS__
+      return runtime.list().map((node) => node.marker)
+    })
+    const requiredMarkers = new Set(
+      scenarios.flatMap(({ figma }) => (figma ? [figma.focus, ...figma.selection] : []))
     )
-  ) {
-    fail('The canonical Figma fixture page is incomplete.')
-  }
-
-  await minimizeFigmaUi(page)
-  if (!hasStateGatedScenario) {
-    await placePanel(page, manifest.capture.panel)
+    if ([...requiredMarkers].some((marker) => !markers.includes(marker))) {
+      fail('The canonical Figma fixture page is incomplete.')
+    }
+    await minimizeFigmaUi(page)
+    if (!hasStateGatedScenario) await placePanel(page, manifest.capture.panel)
   }
 
   try {
@@ -698,21 +790,22 @@ async function main(): Promise<void> {
       }
     }
   } finally {
+    await closeSetupDialog(page).catch(() => undefined)
     await setFigmaTheme(page, 'light').catch(() => undefined)
     await page
-      .evaluate(() => {
+      .evaluate((restoreFixtures) => {
         const runtime = (
           globalThis as typeof globalThis & {
             __TEMPAD_README_SCREENSHOTS__: FixtureRuntime
           }
         ).__TEMPAD_README_SCREENSHOTS__
-        runtime.setCanvasTheme('light')
+        if (restoreFixtures) runtime?.setCanvasTheme('light')
         document.querySelector('#tempad-readme-cursor')?.remove()
         document.querySelector('#tempad-readme-compositor')?.remove()
-      })
+      }, useFixtures)
       .catch(() => undefined)
 
-    if (!hasStateGatedScenario) {
+    if (useFixtures && !hasStateGatedScenario) {
       await resetPanel(page).catch(() => undefined)
       await ensurePreferences(page, false).catch(() => undefined)
       const code = manifest.scenarios.find((scenario) => scenario.id === 'code')

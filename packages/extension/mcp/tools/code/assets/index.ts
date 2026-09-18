@@ -1,4 +1,4 @@
 export * from './vector'
-export * from './image'
+export * from './media'
 export * from './plan'
 export * from './export'

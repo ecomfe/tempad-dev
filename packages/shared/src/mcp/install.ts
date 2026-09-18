@@ -2,13 +2,17 @@ const SERVER_NAME = 'tempad-dev'
 const SERVER_COMMAND = 'npx'
 const SERVER_ARGS = ['-y', '@tempad-dev/mcp@latest'] as const
 const REPOSITORY = 'ecomfe/tempad-dev'
-const MARKETPLACE_NAME = 'tempad-dev'
-const PLUGIN_NAME = 'tempad-dev'
+const PLUGIN_INSTALL_COMMAND = `npx plugins add ${REPOSITORY}`
 
-const SKILL_URL = 'https://github.com/ecomfe/tempad-dev/tree/main/skill'
-const SKILL_INSTALL_COMMAND = `npx skills add ${SKILL_URL}`
+const SKILLS_SOURCE_URL =
+  'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/targets/standard/skills'
+const DESIGN_TO_CODE_SKILL_NAME = 'figma-design-to-code'
+const CANVAS_AUTHORING_SKILL_NAME = 'figma-canvas-authoring'
+const SKILL_NAMES = [DESIGN_TO_CODE_SKILL_NAME, CANVAS_AUTHORING_SKILL_NAME] as const
+const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill ${SKILL_NAMES.join(' ')}`
 
-type SkillAgentId = 'cursor' | 'github-copilot' | 'opencode' | 'trae' | 'trae-cn'
+type SkillAgentId = 'opencode' | 'trae'
+type PluginAgentId = 'claude-code' | 'codex' | 'cursor' | 'vscode'
 
 type BaseCommandConfig = {
   command: string
@@ -51,7 +55,15 @@ export type McpClientConfig = {
 }
 
 export type AgentIntegrationAction = {
-  id: 'plugin-prompt' | 'plugin-cli' | 'mcp-deep-link' | 'mcp-cli' | 'mcp-config' | 'skill-cli'
+  id:
+    | 'plugin-app'
+    | 'plugin-cli'
+    | 'mcp-deep-link'
+    | 'mcp-cli'
+    | 'mcp-config'
+    | 'skill-cli'
+    | 'skill-design-to-code-cli'
+    | 'skill-canvas-authoring-cli'
   label: string
   kind: 'deep-link' | McpClientCopyKind
   value: string
@@ -157,7 +169,7 @@ const OPENCODE_CONFIG_SNIPPET = JSON.stringify(
   2
 )
 
-function buildCliCommand(prefix: 'claude' | 'codex' | 'gemini' | 'vscode'): string {
+function buildCliCommand(prefix: 'claude' | 'codex' | 'gemini'): string {
   const args = `${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`
   if (prefix === 'claude') {
     return `claude mcp add --transport stdio "${SERVER_NAME}" -- ${args}`
@@ -167,39 +179,41 @@ function buildCliCommand(prefix: 'claude' | 'codex' | 'gemini' | 'vscode'): stri
     return `gemini mcp add --scope user "${SERVER_NAME}" ${args}`
   }
 
-  if (prefix === 'vscode') {
-    return `code --add-mcp '${JSON.stringify({
-      name: SERVER_NAME,
-      ...commandConfig
-    })}'`
-  }
-
   return `codex mcp add "${SERVER_NAME}" -- ${args}`
 }
 
-function buildPluginSetupCommand(prefix: 'claude' | 'codex'): string {
-  if (prefix === 'claude') {
-    return [
-      `claude plugin marketplace add ${REPOSITORY}`,
-      `claude plugin install ${PLUGIN_NAME}@${MARKETPLACE_NAME}`
-    ].join(' && ')
+function buildPluginSetupCommand(agent: PluginAgentId): string {
+  if (agent === 'codex')
+    return `codex plugin marketplace add ${REPOSITORY} --ref main && codex plugin add tempad-dev@tempad-dev`
+  if (agent === 'claude-code')
+    return `claude plugin marketplace add ${REPOSITORY} && claude plugin install tempad-dev@tempad-dev`
+  return `${PLUGIN_INSTALL_COMMAND} --target ${agent}`
+}
+
+function pluginCliAction(agent: PluginAgentId): AgentIntegrationAction {
+  return {
+    id: 'plugin-cli',
+    label: 'Plugin CLI',
+    kind: 'command',
+    value: buildPluginSetupCommand(agent)
   }
-
-  return [
-    `codex plugin marketplace add ${REPOSITORY} --ref main`,
-    `codex plugin add ${PLUGIN_NAME}@${MARKETPLACE_NAME}`
-  ].join(' && ')
 }
 
-function buildPluginSetupDeepLink(prefix: 'claude' | 'codex'): string {
-  const command = buildPluginSetupCommand(prefix)
-  const prompt = `Install the TemPad Dev agent plugin by running this command, then confirm that its MCP server and figma-design-to-code skill are available:\n\n${command}`
-  const target = prefix === 'claude' ? 'claude-cli://open?q=' : 'codex://new?prompt='
-  return `${target}${encodeURIComponent(prompt)}`
+/**
+ * Only the desktop app gets a deep link: it can run the install itself. Terminal clients read the
+ * command directly instead of having an agent relay it.
+ */
+function buildCodexAppDeepLink(): string {
+  const prompt = `Install the TemPad Dev plugin using the native marketplace command below, then confirm that its MCP server and figma-design-to-code and figma-canvas-authoring skills are available.\n\n${buildPluginSetupCommand('codex')}`
+  return `codex://new?prompt=${encodeURIComponent(prompt)}`
 }
 
-function buildSkillInstallCommand(...agents: SkillAgentId[]): string {
-  return `${SKILL_INSTALL_COMMAND} --global ${agents.map((agent) => `--agent ${agent}`).join(' ')}`
+function buildSkillsInstallCommand(agent: SkillAgentId): string {
+  return `${SKILLS_INSTALL_COMMAND} --global --agent ${agent}`
+}
+
+function buildGeminiSkillInstallCommand(skillName: (typeof SKILL_NAMES)[number]): string {
+  return `gemini skills install ${SKILLS_SOURCE_URL}/${skillName}`
 }
 
 export function getMcpClientCopyPayload(
@@ -250,7 +264,8 @@ export const MCP_DEFAULT_CONFIG_SNIPPET = JSON.stringify(
 
 export const MCP_SERVERS_CONFIG_SNIPPET = buildMcpConfigSnippet()
 
-export const AGENT_SKILL_INSTALL_COMMAND = SKILL_INSTALL_COMMAND
+export const AGENT_SKILLS_INSTALL_COMMAND = SKILLS_INSTALL_COMMAND
+export const AGENT_PLUGIN_INSTALL_COMMAND = PLUGIN_INSTALL_COMMAND
 
 export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
   vscode: {
@@ -313,15 +328,7 @@ export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
   }
 }
 
-export const MCP_CLIENTS: McpClientConfig[] = [
-  MCP_CLIENTS_BY_ID.vscode,
-  MCP_CLIENTS_BY_ID.cursor,
-  MCP_CLIENTS_BY_ID.claude,
-  MCP_CLIENTS_BY_ID.codex,
-  MCP_CLIENTS_BY_ID.gemini,
-  MCP_CLIENTS_BY_ID.opencode,
-  MCP_CLIENTS_BY_ID.trae
-]
+export const MCP_CLIENTS: McpClientConfig[] = Object.values(MCP_CLIENTS_BY_ID)
 
 export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrationConfig> = {
   codex: {
@@ -329,60 +336,23 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
     name: 'Codex',
     actions: [
       {
-        id: 'plugin-prompt',
-        label: 'Plugin install',
+        id: 'plugin-app',
+        label: 'App install',
         kind: 'deep-link',
-        value: buildPluginSetupDeepLink('codex')
+        value: buildCodexAppDeepLink()
       },
-      {
-        id: 'plugin-cli',
-        label: 'Plugin CLI',
-        kind: 'command',
-        value: buildPluginSetupCommand('codex')
-      }
+      pluginCliAction('codex')
     ]
   },
   cursor: {
     id: 'cursor',
     name: 'Cursor',
-    actions: [
-      {
-        id: 'mcp-deep-link',
-        label: 'MCP install',
-        kind: 'deep-link',
-        value: MCP_CLIENTS_BY_ID.cursor.deepLink ?? ''
-      },
-      {
-        id: 'mcp-config',
-        label: 'MCP config',
-        kind: 'config',
-        value: buildMcpConfigSnippet()
-      },
-      {
-        id: 'skill-cli',
-        label: 'Agent skill',
-        kind: 'command',
-        value: buildSkillInstallCommand('cursor')
-      }
-    ]
+    actions: [pluginCliAction('cursor')]
   },
   claude: {
     id: 'claude',
     name: 'Claude Code',
-    actions: [
-      {
-        id: 'plugin-prompt',
-        label: 'Plugin install',
-        kind: 'deep-link',
-        value: buildPluginSetupDeepLink('claude')
-      },
-      {
-        id: 'plugin-cli',
-        label: 'Plugin CLI',
-        kind: 'command',
-        value: buildPluginSetupCommand('claude')
-      }
-    ]
+    actions: [pluginCliAction('claude-code')]
   },
   gemini: {
     id: 'gemini',
@@ -395,36 +365,23 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
         value: buildCliCommand('gemini')
       },
       {
-        id: 'skill-cli',
-        label: 'Agent skill',
+        id: 'skill-design-to-code-cli',
+        label: 'Design-to-code skill',
         kind: 'command',
-        value: `gemini skills install ${SKILL_URL}`
+        value: buildGeminiSkillInstallCommand(DESIGN_TO_CODE_SKILL_NAME)
+      },
+      {
+        id: 'skill-canvas-authoring-cli',
+        label: 'Canvas authoring skill',
+        kind: 'command',
+        value: buildGeminiSkillInstallCommand(CANVAS_AUTHORING_SKILL_NAME)
       }
     ]
   },
   vscode: {
     id: 'vscode',
     name: 'VS Code',
-    actions: [
-      {
-        id: 'mcp-deep-link',
-        label: 'MCP install',
-        kind: 'deep-link',
-        value: MCP_CLIENTS_BY_ID.vscode.deepLink ?? ''
-      },
-      {
-        id: 'mcp-cli',
-        label: 'MCP CLI',
-        kind: 'command',
-        value: buildCliCommand('vscode')
-      },
-      {
-        id: 'skill-cli',
-        label: 'Agent skill',
-        kind: 'command',
-        value: buildSkillInstallCommand('github-copilot')
-      }
-    ]
+    actions: [pluginCliAction('vscode')]
   },
   opencode: {
     id: 'opencode',
@@ -438,9 +395,9 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
       },
       {
         id: 'skill-cli',
-        label: 'Agent skill',
+        label: 'Agent skills',
         kind: 'command',
-        value: buildSkillInstallCommand('opencode')
+        value: buildSkillsInstallCommand('opencode')
       }
     ]
   },
@@ -457,20 +414,12 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
       },
       {
         id: 'skill-cli',
-        label: 'Agent skill',
+        label: 'Agent skills',
         kind: 'command',
-        value: buildSkillInstallCommand('trae', 'trae-cn')
+        value: buildSkillsInstallCommand('trae')
       }
     ]
   }
 }
 
-export const AGENT_INTEGRATIONS: AgentIntegrationConfig[] = [
-  AGENT_INTEGRATIONS_BY_ID.codex,
-  AGENT_INTEGRATIONS_BY_ID.cursor,
-  AGENT_INTEGRATIONS_BY_ID.claude,
-  AGENT_INTEGRATIONS_BY_ID.gemini,
-  AGENT_INTEGRATIONS_BY_ID.vscode,
-  AGENT_INTEGRATIONS_BY_ID.opencode,
-  AGENT_INTEGRATIONS_BY_ID.trae
-]
+export const AGENT_INTEGRATIONS: AgentIntegrationConfig[] = Object.values(AGENT_INTEGRATIONS_BY_ID)

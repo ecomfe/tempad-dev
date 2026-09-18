@@ -11,7 +11,7 @@ import { formatNodeStyleForMcp } from '@/utils/variable-output'
 import type { GetCodeCacheContext } from './cache'
 import type { CollectedData, NodeSnapshot, VisibleTree } from './model'
 
-import { hasImageFills, replaceImageUrlsWithAssets } from './assets'
+import { hasMediaFills, replaceMediaUrlsWithAssets } from './assets'
 import { getNodeSemanticsCached, getPaintsFromState } from './cache'
 import { getLayoutParent } from './layout-parent'
 import { preprocessStyles, stripInertShadows } from './styles'
@@ -26,6 +26,9 @@ export async function collectNodeData(
 ): Promise<CollectedData> {
   const styles = new Map<string, Record<string, string>>()
   const textSegments = new Map<string, StyledTextSegment[] | null>()
+  const videoPreviewAssetHashes = new Set<string>()
+  const rootVideoPreviewAssetHashes = new Set<string>()
+  const rootIds = new Set(tree.rootIds)
 
   for (const id of tree.order) {
     if (skipIds?.has(id)) continue
@@ -54,8 +57,19 @@ export async function collectNodeData(
         processed = applyConstraintsPosition(processed, snapshot, tree, cache)
       }
 
-      if (hasImageFills(node, cache)) {
-        processed = await replaceImageUrlsWithAssets(processed, node, config, assetRegistry)
+      if (hasMediaFills(node, cache)) {
+        const nodeVideoPreviewAssetHashes = new Set<string>()
+        processed = await replaceMediaUrlsWithAssets(
+          processed,
+          node,
+          config,
+          assetRegistry,
+          nodeVideoPreviewAssetHashes
+        )
+        for (const hash of nodeVideoPreviewAssetHashes) {
+          videoPreviewAssetHashes.add(hash)
+          if (rootIds.has(id)) rootVideoPreviewAssetHashes.add(hash)
+        }
       }
 
       stripInertShadows(processed, node, cache)
@@ -65,7 +79,13 @@ export async function collectNodeData(
     }
   }
 
-  return { nodes: tree.nodes, styles, textSegments }
+  return {
+    nodes: tree.nodes,
+    rootVideoPreviewAssetHashes,
+    styles,
+    textSegments,
+    videoPreviewAssetHashes
+  }
 }
 
 function preprocessRawStyle(style: Record<string, string>): Record<string, string> {

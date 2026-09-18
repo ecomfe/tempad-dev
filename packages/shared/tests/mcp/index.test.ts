@@ -24,6 +24,8 @@ describe('shared/mcp index barrel', () => {
 
     expect(mcp.AssetDescriptorSchema).toBe(tools.AssetDescriptorSchema)
     expect(mcp.GetCodeParametersSchema).toBe(tools.GetCodeParametersSchema)
+    expect(mcp.GetDesignSystemParametersSchema).toBe(tools.GetDesignSystemParametersSchema)
+    expect(mcp.ApplyCanvasParametersSchema).toBe(tools.ApplyCanvasParametersSchema)
     expect(mcp.GetAssetsResultSchema).toBe(tools.GetAssetsResultSchema)
   })
 })

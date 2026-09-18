@@ -9,6 +9,10 @@ import { log } from './shared'
 
 const pendingCalls = new Map<string, PendingToolCall>()
 
+type RegisterOptions = {
+  waitForDefinitiveResult?: boolean
+}
+
 function createToolError(
   code: TempadMcpErrorCode,
   message: string
@@ -20,11 +24,19 @@ function createToolError(
 
 export function register<T>(
   extensionId: string,
-  timeout: number
+  timeout: number,
+  options: RegisterOptions = {}
 ): { promise: Promise<T>; requestId: string } {
   const requestId = nanoid()
   const promise = new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
+      if (options.waitForDefinitiveResult) {
+        log.warn(
+          { reqId: requestId, extId: extensionId, timeout },
+          'Extension call exceeded its warning threshold; waiting for a definitive result.'
+        )
+        return
+      }
       pendingCalls.delete(requestId)
       reject(
         createToolError(
@@ -44,42 +56,39 @@ export function register<T>(
   return { promise, requestId }
 }
 
-export function resolve(requestId: string, extensionId: string, payload: unknown): void {
+function pendingResponse(
+  requestId: string,
+  extensionId: string,
+  outcome: 'result' | 'error'
+): PendingToolCall | undefined {
   const call = pendingCalls.get(requestId)
-  if (call) {
-    if (call.extensionId !== extensionId) {
-      log.warn(
-        { reqId: requestId, expectedExtId: call.extensionId, receivedExtId: extensionId },
-        'Ignored tool result from the wrong extension.'
-      )
-      return
-    }
-    const { timer, resolve: finish } = call
-    clearTimeout(timer)
-    finish(payload)
-    pendingCalls.delete(requestId)
-  } else {
-    log.warn({ reqId: requestId }, 'Received result for unknown/timed-out call.')
+  if (!call) {
+    log.warn({ reqId: requestId }, `Received ${outcome} for unknown/timed-out call.`)
+    return
   }
+  if (call.extensionId !== extensionId) {
+    log.warn(
+      { reqId: requestId, expectedExtId: call.extensionId, receivedExtId: extensionId },
+      `Ignored tool ${outcome} from the wrong extension.`
+    )
+    return
+  }
+  clearTimeout(call.timer)
+  return call
+}
+
+export function resolve(requestId: string, extensionId: string, payload: unknown): void {
+  const call = pendingResponse(requestId, extensionId, 'result')
+  if (!call) return
+  call.resolve(payload)
+  pendingCalls.delete(requestId)
 }
 
 export function reject(requestId: string, extensionId: string, error: Error): void {
-  const call = pendingCalls.get(requestId)
-  if (call) {
-    if (call.extensionId !== extensionId) {
-      log.warn(
-        { reqId: requestId, expectedExtId: call.extensionId, receivedExtId: extensionId },
-        'Ignored tool error from the wrong extension.'
-      )
-      return
-    }
-    const { timer, reject: fail } = call
-    clearTimeout(timer)
-    fail(error)
-    pendingCalls.delete(requestId)
-  } else {
-    log.warn({ reqId: requestId }, 'Received error for unknown/timed-out call.')
-  }
+  const call = pendingResponse(requestId, extensionId, 'error')
+  if (!call) return
+  call.reject(error)
+  pendingCalls.delete(requestId)
 }
 
 export function cleanupForExtension(extensionId: string): void {

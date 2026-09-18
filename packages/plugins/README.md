@@ -1,6 +1,6 @@
 # @tempad-dev/plugins
 
-<a href="./README.zh-Hans.md"><img src="https://img.shields.io/badge/%E4%B8%AD%E6%96%87%E7%89%88%20%C2%BB-000" alt="前往中文版"></a>
+<a href="./README.zh-Hans.md"><img src="https://img.shields.io/badge/Simplified%20Chinese%20%C2%BB-000" alt="Read in Simplified Chinese"></a>
 
 Developer tooling for creating custom code generators that run inside TemPad Dev. This package provides type-safe helpers, transform hooks, and traversal utilities so you can adapt the inspector output to your own design system or workflow.
 

@@ -14,7 +14,9 @@ const SCSS_VARS_RE = /(^|[^\w-])[$@]([a-zA-Z0-9_-]+)/g
 
 const PX_VALUE_RE = /\b(-?\d+(?:\.\d+)?)px\b/g
 export const QUOTES_RE = /['"]/g
-const NUMBER_RE = /^\d+(\.\d+)?$/
+const FLEX_FACTOR_RE = /^[+-]?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?$/i
+const FLEX_BASIS_RE =
+  /^([+]?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?)(%|px|em|rem|ex|ch|lh|rlh|vw|vh|vi|vb|vmin|vmax|cm|mm|q|in|pt|pc)$/i
 const LENGTH_LITERAL_RE = /^(-?(?:\d+\.?\d*|\.\d+))([a-z%]+)$/i
 const ZERO_BORDER_WIDTH_RE = /^0(?:\.0+)?(?:[a-z%]+)?$/i
 const JS_IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
@@ -257,44 +259,50 @@ export function parseBackgroundShorthand(value: string) {
   return result
 }
 
-function parseBoxValues(value: string): [string, string, string, string] {
+export function parseBoxValues(value: string): [string, string, string, string] {
   const parts = value.trim().split(WHITESPACE_RE)
   const [t, r = t, b = t, l = r] = parts
   return [t, r, b, l]
 }
 
-function parseFlexShorthand(value: string) {
-  const parts = value.trim().split(WHITESPACE_RE)
+function isFlexFactor(value: string): boolean {
+  return FLEX_FACTOR_RE.test(value) && Number.isFinite(Number(value)) && Number(value) >= 0
+}
 
-  if (parts.length === 1) {
-    const p = parts[0]
-    if (p === 'initial') {
+function isFlexBasis(value: string): boolean {
+  if (/^(auto|content|min-content|max-content|fit-content)$/i.test(value)) return true
+  if (isFlexFactor(value) && Number(value) === 0) return true
+  const length = value.match(FLEX_BASIS_RE)
+  return !!length && Number.isFinite(Number(length[1]))
+}
+
+function parseFlexShorthand(value: string): { grow: string; shrink: string; basis: string } | null {
+  switch (value.toLowerCase()) {
+    case 'initial':
       return { grow: '0', shrink: '1', basis: 'auto' }
-    }
-    if (p === 'auto') {
+    case 'auto':
       return { grow: '1', shrink: '1', basis: 'auto' }
-    }
-    if (p === 'none') {
+    case 'none':
       return { grow: '0', shrink: '0', basis: 'auto' }
-    }
-    if (NUMBER_RE.test(p)) {
-      return { grow: p, shrink: '1', basis: '0%' }
-    }
-    return { grow: '1', shrink: '1', basis: p }
-  }
-  if (parts.length === 2) {
-    const [grow, second] = parts
-    if (NUMBER_RE.test(second)) {
-      return { grow, shrink: second, basis: '0%' }
-    }
-    return { grow, shrink: '1', basis: second }
   }
 
-  return {
-    grow: parts[0],
-    shrink: parts[1],
-    basis: parts[2]
+  // Expand only known literals. Functions, variables and unsupported syntax stay intact.
+  const parts = value.split(WHITESPACE_RE)
+  if (parts.length > 3) return null
+  const [first, second, third] = parts
+  if (!isFlexFactor(first)) {
+    if (!isFlexBasis(first) || !parts.slice(1).every(isFlexFactor)) return null
+    return { grow: second ?? '1', shrink: third ?? '1', basis: first }
   }
+  if (parts.length === 1) return { grow: first, shrink: '1', basis: '0%' }
+  if (parts.length === 2) {
+    if (isFlexFactor(second)) return { grow: first, shrink: second, basis: '0%' }
+    if (isFlexBasis(second)) return { grow: first, shrink: '1', basis: second }
+    return null
+  }
+  return isFlexFactor(second) && isFlexBasis(third)
+    ? { grow: first, shrink: second, basis: third }
+    : null
 }
 
 function transformPxValue(value: string, transform: (value: number) => string) {
@@ -391,7 +399,7 @@ function parseHexColor(input: string): { r: number; g: number; b: number; a: num
   return { r, g, b, a }
 }
 
-function parseBorderShorthand(normalized: string): {
+export function parseBorderShorthand(normalized: string): {
   width?: string
   style?: string
   color?: string
@@ -410,7 +418,7 @@ function parseBorderShorthand(normalized: string): {
   }
 }
 
-function extractLeadingGradient(value: string): string | null {
+export function extractLeadingGradient(value: string): string | null {
   const input = value.trim()
   if (!input) return null
 
@@ -488,11 +496,11 @@ function getBorderWidth(style: Record<string, string>): string | null {
   return null
 }
 
-function isZeroBorderWidth(value: string): boolean {
+export function isZeroBorderWidth(value: string): boolean {
   return ZERO_BORDER_WIDTH_RE.test(normalizeStyleValue(value).toLowerCase())
 }
 
-function negateLengthLiteral(value: string): string | null {
+export function negateLengthLiteral(value: string): string | null {
   const normalized = normalizeStyleValue(value)
   const matched = normalized.match(LENGTH_LITERAL_RE)
   if (!matched) {
@@ -507,7 +515,7 @@ function negateLengthLiteral(value: string): string | null {
   return `-${amount}${unit}`
 }
 
-function hasOverflowClipping(style: Record<string, string>): boolean {
+export function hasOverflowClipping(style: Record<string, string>): boolean {
   const overflowValues = [style.overflow, style['overflow-x'], style['overflow-y']]
 
   return overflowValues.some((value) => {
@@ -638,13 +646,18 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
     delete expanded['gap']
   }
 
-  if (expanded['flex']) {
-    const val = normalizeStyleValue(expanded['flex'])
-    const { grow, shrink, basis } = parseFlexShorthand(val)
-    expanded['flex-grow'] = grow
-    expanded['flex-shrink'] = shrink
-    expanded['flex-basis'] = basis
-    delete expanded['flex']
+  if (expanded['flex'] !== undefined) {
+    // Keep basis units: `1 0%` and `1 0` have different meanings in this shorthand.
+    const val = expanded['flex'].trim()
+    const parsed = parseFlexShorthand(val)
+    if (!val) {
+      delete expanded['flex']
+    } else if (parsed) {
+      expanded['flex-grow'] = parsed.grow
+      expanded['flex-shrink'] = parsed.shrink
+      expanded['flex-basis'] = parsed.basis
+      delete expanded['flex']
+    }
   }
 
   if (expanded['background']) {

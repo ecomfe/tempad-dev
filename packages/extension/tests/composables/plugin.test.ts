@@ -20,6 +20,7 @@ import {
 } from '@/composables/plugin'
 
 type MockResponse = {
+  arrayBuffer?: () => Promise<ArrayBuffer>
   body?: ReadableStream<Uint8Array> | null
   headers?: { get: (name: string) => string | null }
   status?: number
@@ -29,11 +30,13 @@ type MockResponse = {
 }
 
 function response(input: MockResponse = {}): MockResponse {
+  const text = input.text ?? (async () => '')
   return {
+    arrayBuffer: async () => new TextEncoder().encode(await text()).buffer as ArrayBuffer,
     headers: { get: () => null },
     status: 200,
     statusText: '',
-    text: async () => '',
+    text,
     url: '',
     ...input
   }

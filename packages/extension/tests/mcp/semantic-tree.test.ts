@@ -7,6 +7,12 @@ import {
   type SemanticNode
 } from '@/mcp/semantic-tree'
 
+function first<T>(items: readonly T[]): T {
+  const [item] = items
+  if (item === undefined) throw new Error('Expected a non-empty array')
+  return item
+}
+
 function createNode(
   type: SceneNode['type'],
   id: string,
@@ -78,16 +84,17 @@ describe('mcp/semantic-tree', () => {
 
     expect(tree.stats.totalNodes).toBe(2)
     expect(tree.roots).toHaveLength(1)
-    expect(tree.roots[0].id).toBe('instance-1')
-    expect(tree.roots[0].depth).toBe(0)
-    expect(tree.roots[0].tag).toBe('div')
-    expect(tree.roots[0].dataHint).toBeDefined()
-    expect(tree.roots[0].dataHint?.['data-hint-design-component']).toContain('ButtonGroup')
-    expect(tree.roots[0].dataHint?.['data-hint-design-component']).toContain('[Size=Large]')
-    expect(tree.roots[0].dataHint?.['data-hint-design-component']).toContain('[disabled=off]')
-    expect(tree.roots[0].dataHint?.['data-hint-design-component']).toContain('[text=Submit]')
-    expect(tree.roots[0].dataHint?.['data-hint-auto-layout']).toBeUndefined()
-    expect(tree.roots[0].autoLayout).toEqual({
+    const treeRoot = first(tree.roots)
+    expect(treeRoot.id).toBe('instance-1')
+    expect(treeRoot.depth).toBe(0)
+    expect(treeRoot.tag).toBe('div')
+    expect(treeRoot.dataHint).toBeDefined()
+    expect(treeRoot.dataHint?.['data-hint-design-component']).toContain('ButtonGroup')
+    expect(treeRoot.dataHint?.['data-hint-design-component']).toContain('[Size=Large]')
+    expect(treeRoot.dataHint?.['data-hint-design-component']).toContain('[disabled=off]')
+    expect(treeRoot.dataHint?.['data-hint-design-component']).toContain('[text=Submit]')
+    expect(treeRoot.dataHint?.['data-hint-auto-layout']).toBeUndefined()
+    expect(treeRoot.autoLayout).toEqual({
       direction: 'row',
       gap: 8,
       alignPrimary: 'CENTER',
@@ -95,10 +102,11 @@ describe('mcp/semantic-tree', () => {
       padding: { top: 4, right: 6, bottom: 8, left: 10 }
     })
 
-    expect(tree.roots[0].children).toHaveLength(1)
-    expect(tree.roots[0].children[0].id).toBe('text-1')
-    expect(tree.roots[0].children[0].tag).toBe('p')
-    expect(tree.roots[0].children[0].layout).toBe('absolute')
+    expect(treeRoot.children).toHaveLength(1)
+    const treeChild = first(treeRoot.children)
+    expect(treeChild.id).toBe('text-1')
+    expect(treeChild.tag).toBe('p')
+    expect(treeChild.layout).toBe('absolute')
   })
 
   it('adds inferred auto-layout hint when inferred metadata exists without explicit layout mode', () => {
@@ -110,9 +118,22 @@ describe('mcp/semantic-tree', () => {
     })
 
     const tree = buildSemanticTree([root])
+    const treeRoot = first(tree.roots)
 
-    expect(tree.roots[0].dataHint?.['data-hint-auto-layout']).toBe('inferred')
-    expect(tree.roots[0].autoLayout).toBeUndefined()
+    expect(treeRoot.dataHint?.['data-hint-auto-layout']).toBe('inferred')
+    expect(treeRoot.autoLayout).toBeUndefined()
+  })
+
+  it('classifies a video-filled rectangle as a media asset', () => {
+    const video = createNode('RECTANGLE', 'video-1', {
+      fills: [{ type: 'VIDEO', videoHash: 'video-hash', visible: true }]
+    })
+
+    const node = first(buildSemanticTree([video]).roots)
+
+    expect(node.tag).toBe('img')
+    expect(node.isAsset).toBe(true)
+    expect(node.assetKind).toBe('image')
   })
 
   it('caps nodes at depth limit and reports capped ids', () => {
@@ -134,7 +155,7 @@ describe('mcp/semantic-tree', () => {
     expect(tree.stats.capped).toBe(true)
     expect(tree.cappedNodeIds).toContain('child-1')
 
-    const cappedChild = tree.roots[0].children[0]
+    const cappedChild = first(first(tree.roots).children)
     expect(cappedChild.id).toBe('child-1')
     expect(cappedChild.capped).toBe(true)
     expect(cappedChild.children).toEqual([])

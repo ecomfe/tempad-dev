@@ -1,12 +1,13 @@
 import type { ToolCallMessage } from '@tempad-dev/shared'
 
 import {
+  MCP_MAX_ASSET_BYTES,
   TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
   TEMPAD_MCP_BROWSER_SOURCE,
   TEMPAD_MCP_ERROR_CODES,
   TEMPAD_MCP_SESSION_PORT_NAME
 } from '@tempad-dev/shared'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { McpBrokerHubClient } from '@/mcp/broker/service-worker'
 import type { McpBrokerPort } from '@/mcp/broker/sessions'
@@ -18,10 +19,35 @@ import {
   MCP_LOCAL_HOST_ORIGIN
 } from '@/mcp/permissions'
 
+const ASSET_HASH = '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81'
+
+beforeEach(() => {
+  const values: Record<string, unknown> = {}
+  vi.stubGlobal('browser', {
+    storage: {
+      local: {
+        get: async (key: string) => ({ [key]: values[key] }),
+        set: async (next: Record<string, unknown>) => {
+          Object.assign(values, structuredClone(next))
+        },
+        remove: async (key: string) => {
+          delete values[key]
+        }
+      }
+    }
+  })
+})
+
 type Listener<T> = (payload: T) => void
 type BrokerInternals = {
+  handleDesignActionResult: (
+    sessionId: string,
+    result: import('@tempad-dev/shared').DesignActionResult
+  ) => Promise<void>
+  handleHubSnapshot: (snapshot: ReturnType<McpBrokerHubClient['getSnapshot']>) => void
   handlePermissionMessage: (type: McpPermissionMessageType) => Promise<{ granted: boolean }>
   routeToolCall: (message: ToolCallMessage) => void
+  routeDesignTask: (message: import('@tempad-dev/shared').DesignTaskStateMessage) => Promise<void>
 }
 
 function createHubClient(
@@ -37,6 +63,8 @@ function createHubClient(
     }),
     sendActivate: vi.fn(),
     sendToolResult: vi.fn(),
+    sendSessions: vi.fn(),
+    sendDesignAction: vi.fn(),
     start: vi.fn(),
     stop: vi.fn()
   }
@@ -78,6 +106,575 @@ function pageMessage(
   }
 }
 
+function designBroker() {
+  const client = createHubClient({
+    status: 'connected',
+    registeredId: 'gateway-a',
+    activeId: 'gateway-a'
+  })
+  const broker = new McpServiceWorkerBroker(client)
+  const internals = broker as unknown as BrokerInternals
+  internals.handleHubSnapshot(client.getSnapshot())
+  const a = createPort('https://www.figma.com/design/file-a/Design')
+  const b = createPort('https://www.figma.com/design/file-b/Design')
+  for (const [port, sessionId, fileKey] of [
+    [a, 'tab-a', 'file-a'],
+    [b, 'tab-b', 'file-b']
+  ] as const) {
+    port.port.sender!.documentId = `document-${sessionId}`
+    broker.handlePort(port.port)
+    port.message({
+      ...pageMessage('mcp.enable', sessionId),
+      document: { fileKey, fileName: 'Design', pageId: 'page-a', busy: false }
+    })
+  }
+  b.message(pageMessage('mcp.activateSession', 'tab-b'))
+  return { broker, internals, client, a, b }
+}
+
+describe('design task broker routing', () => {
+  it('closes a review offline, clears its drafts, and synchronizes Done before a stale page can reopen it', async () => {
+    const f = designBroker()
+    const task = {
+      taskId: 'task-a',
+      title: 'Design',
+      status: 'completed' as const,
+      operation: null,
+      target: { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a' },
+      client: { kind: 'codex-app' as const, name: 'Codex', sessionId: 'conversation-a' },
+      expiresAt: 1000,
+      revision: 4
+    }
+    await f.internals.routeDesignTask({ type: 'designTaskState', task })
+    const scope = {
+      taskId: task.taskId,
+      fileKey: 'file-a',
+      clientKind: 'codex-app',
+      conversationId: 'conversation-a'
+    }
+    const draft = (operation: unknown, requestId: string) =>
+      f.a.message({
+        ...pageMessage('mcp.enable', 'tab-a'),
+        type: 'mcp.feedbackDrafts',
+        requestId,
+        request: { scope, ...(operation as object) }
+      })
+    draft(
+      { operation: 'comment', comment: 'Keep the spacing' },
+      '00000000-0000-4000-8000-000000000001'
+    )
+    await vi.waitFor(() =>
+      expect(f.a.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mcp.feedbackDraftsResult',
+          payload: { items: [], comment: 'Keep the spacing' }
+        })
+      )
+    )
+    const offline = { ...f.client.getSnapshot(), status: 'connecting' as const, registeredId: null }
+    vi.spyOn(f.client, 'getSnapshot').mockReturnValue(offline)
+    f.internals.handleHubSnapshot(offline)
+    const action = {
+      requestId: '00000000-0000-4000-8000-000000000002',
+      taskId: task.taskId,
+      epoch: 0,
+      action: 'done'
+    }
+    f.a.message({ ...pageMessage('mcp.enable', 'tab-a'), type: 'mcp.designAction', action })
+    await vi.waitFor(() =>
+      expect(f.a.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mcp.designActionResult',
+          result: expect.objectContaining({ status: 'delivered', requestId: action.requestId })
+        })
+      )
+    )
+    draft({ operation: 'load' }, '00000000-0000-4000-8000-000000000003')
+    await vi.waitFor(() =>
+      expect(f.a.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mcp.feedbackDraftsResult',
+          requestId: '00000000-0000-4000-8000-000000000003',
+          payload: { items: [] }
+        })
+      )
+    )
+    const next = designBroker()
+    next.a.message({
+      ...pageMessage('mcp.enable', 'tab-a'),
+      reviewTask: task,
+      document: { fileKey: 'file-a', fileName: 'Design', pageId: 'page-a', busy: false }
+    })
+    await vi.waitFor(() =>
+      expect(next.client.sendSessions).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reviews: [{ sessionId: 'tab-a', task: { ...task, reviewClosed: true } }]
+        })
+      )
+    )
+    await next.internals.routeDesignTask({
+      type: 'designTaskState',
+      task: { ...task, revision: 10 }
+    })
+    expect(next.a.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'mcp.designTaskState',
+        task: expect.objectContaining({ reviewClosed: true })
+      })
+    )
+    expect(next.client.sendDesignAction).not.toHaveBeenCalled()
+  })
+
+  it('keeps the newest Hub revision when storage finishes asynchronously', async () => {
+    const f = designBroker()
+    const task = {
+      taskId: 'task-a',
+      title: 'Design',
+      status: 'completed' as const,
+      operation: null,
+      target: { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a' },
+      expiresAt: 1000,
+      revision: 10
+    }
+    await Promise.all([
+      f.internals.routeDesignTask({ type: 'designTaskState', task }),
+      f.internals.routeDesignTask({ type: 'designTaskState', task: { ...task, revision: 9 } })
+    ])
+    expect(f.a.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'mcp.designTaskState', task })
+    )
+  })
+
+  it('acknowledges local Stop when the host disconnects and routes an explicit new task', async () => {
+    const f = designBroker()
+    const task = {
+      taskId: 'task-a',
+      title: 'Settings',
+      status: 'active' as const,
+      operation: null,
+      target: { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a' },
+      expiresAt: 300000,
+      revision: 1
+    }
+    await f.internals.routeDesignTask({ type: 'designTaskState', task })
+    vi.mocked(f.client.sendDesignAction).mockImplementation(() => {
+      throw new Error('Host disconnected')
+    })
+    const action = {
+      requestId: '00000000-0000-4000-8000-000000000001',
+      taskId: task.taskId,
+      epoch: 0,
+      action: 'stop'
+    }
+    f.a.message({ ...pageMessage('mcp.enable', 'tab-a'), type: 'mcp.designAction', action })
+    await vi.waitFor(() =>
+      expect(f.a.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mcp.designActionResult',
+          result: expect.objectContaining({
+            status: 'delivered',
+            message: 'Design task stopped. Agent interruption is unavailable.'
+          })
+        })
+      )
+    )
+    const nextTask = { ...task, taskId: 'task-b', revision: 2 }
+    const call: ToolCallMessage = {
+      type: 'toolCall',
+      id: 'new-task',
+      route: { gatewayId: 'gateway-a', sessionId: 'tab-a', fileKey: 'file-a' },
+      payload: { name: '__begin_design', args: nextTask }
+    }
+    f.a.postMessage.mockClear()
+    await f.internals.routeDesignTask({ type: 'designTaskState', task: nextTask })
+    f.internals.routeToolCall(call)
+    expect(f.a.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'mcp.toolCall', callId: 'new-task' })
+    )
+    expect(f.a.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'mcp.designTaskState', task: nextTask })
+    )
+    f.client.sendDesignAction = vi.fn()
+    // A different port cannot stop this task by claiming its session id.
+    f.b.message({ ...pageMessage('mcp.enable', 'tab-a'), type: 'mcp.designAction', action })
+    expect(f.client.sendDesignAction).not.toHaveBeenCalled()
+  })
+
+  it('acknowledges local Stop without dispatching to an already disconnected host', async () => {
+    const f = designBroker()
+    vi.spyOn(f.client, 'getSnapshot').mockReturnValue({
+      ...f.client.getSnapshot(),
+      status: 'connecting'
+    })
+    const action = {
+      requestId: '00000000-0000-4000-8000-000000000001',
+      taskId: 'task-a',
+      epoch: 0,
+      action: 'stop'
+    }
+    f.a.message({ ...pageMessage('mcp.enable', 'tab-a'), type: 'mcp.designAction', action })
+    await vi.waitFor(() =>
+      expect(f.a.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mcp.designActionResult',
+          result: expect.objectContaining({
+            status: 'delivered',
+            message: 'Design task stopped. Agent interruption is unavailable.'
+          })
+        })
+      )
+    )
+    expect(f.client.sendDesignAction).not.toHaveBeenCalled()
+  })
+
+  it('persists per-element drafts for the bound conversation and clears a delivered batch after its tab closes', async () => {
+    const data: Record<string, unknown> = {}
+    const local = {
+      async get(key: string) {
+        return { [key]: structuredClone(data[key]) }
+      },
+      async set(values: Record<string, unknown>) {
+        Object.assign(data, structuredClone(values))
+      },
+      async remove(key: string) {
+        delete data[key]
+      }
+    }
+    vi.stubGlobal('browser', { storage: { local } })
+    const f = designBroker()
+    const task = {
+      taskId: 'task-a',
+      title: 'Settings',
+      status: 'active' as const,
+      operation: null,
+      target: { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a' },
+      client: { kind: 'codex-app' as const, name: 'Codex App', sessionId: 'thread-a' },
+      expiresAt: 300000,
+      revision: 1
+    }
+    await f.internals.routeDesignTask({ type: 'designTaskState', task })
+    const scope = {
+      taskId: 'task-a',
+      fileKey: 'file-a',
+      clientKind: 'codex-app',
+      conversationId: 'thread-a'
+    }
+    const item = {
+      nodeId: '1:2',
+      nodeName: 'Heading',
+      pageId: 'page-a',
+      text: 'More space',
+      createdAt: 1000
+    }
+    const requestId = '77bf50b5-d652-4b94-9970-a537b6a32e1f'
+    const request = {
+      ...pageMessage('mcp.enable', 'tab-a'),
+      type: 'mcp.feedbackDrafts',
+      requestId,
+      request: { operation: 'save', scope, item }
+    }
+    f.a.message(request)
+    await vi.waitFor(() =>
+      expect(f.a.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'mcp.feedbackDraftsResult', payload: { items: [item] } })
+      )
+    )
+    expect(f.client.sendDesignAction).not.toHaveBeenCalled()
+    f.b.message({ ...request, sessionId: 'tab-b' })
+    await vi.waitFor(() =>
+      expect(f.b.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mcp.feedbackDraftsResult',
+          error: expect.objectContaining({
+            message: 'Comments are unavailable in this file.'
+          })
+        })
+      )
+    )
+    const feedback = {
+      id: requestId,
+      fileKey: 'file-a',
+      mode: 'queue',
+      items: [item],
+      createdAt: 1001
+    }
+    f.a.message({
+      ...request,
+      request: { operation: 'load', scope: { ...scope, taskId: 'task-b' } }
+    })
+    await vi.waitFor(() =>
+      expect(f.a.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mcp.feedbackDraftsResult',
+          payload: { items: [] }
+        })
+      )
+    )
+    f.a.message({
+      ...pageMessage('mcp.enable', 'tab-a'),
+      type: 'mcp.designAction',
+      draftScope: scope,
+      action: { requestId, taskId: 'task-b', epoch: 0, action: 'feedback', feedback }
+    })
+    await vi.waitFor(() =>
+      expect(f.a.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mcp.designActionResult',
+          result: expect.objectContaining({
+            status: 'failed',
+            message: 'Comments are unavailable for this task.'
+          })
+        })
+      )
+    )
+    expect(f.client.sendDesignAction).not.toHaveBeenCalled()
+    f.a.message({
+      ...pageMessage('mcp.enable', 'tab-a'),
+      type: 'mcp.designAction',
+      draftScope: scope,
+      action: { requestId, taskId: 'task-a', epoch: 0, action: 'feedback', feedback }
+    })
+    await vi.waitFor(() => expect(f.client.sendDesignAction).toHaveBeenCalledOnce())
+    expect(JSON.stringify(data)).toContain('submission')
+    f.a.disconnect()
+    await f.internals.handleDesignActionResult('tab-a', {
+      requestId,
+      taskId: 'task-a',
+      status: 'delivered',
+      message: 'Sent'
+    })
+    expect(Object.keys(data)).toEqual(['tempad.design-reviews.v1'])
+  })
+
+  it('keeps local comments available after refresh and a worker restart without reopening host delivery', async () => {
+    const f = designBroker()
+    const task = {
+      taskId: 'task-a',
+      title: 'Settings',
+      status: 'completed' as const,
+      operation: null,
+      target: { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a' },
+      client: { kind: 'codex-app' as const, name: 'Codex', sessionId: 'thread-a' },
+      expiresAt: 300000,
+      revision: 1
+    }
+    await f.internals.routeDesignTask({ type: 'designTaskState', task })
+    const scope = {
+      taskId: 'task-a',
+      fileKey: 'file-a',
+      clientKind: 'codex-app',
+      conversationId: 'thread-a'
+    }
+    const item = {
+      nodeId: '1:2',
+      nodeName: 'Heading',
+      pageId: 'page-a',
+      text: 'More space',
+      createdAt: 1000
+    }
+    const request = {
+      ...pageMessage('mcp.enable', 'tab-a'),
+      type: 'mcp.feedbackDrafts',
+      requestId: '77bf50b5-d652-4b94-9970-a537b6a32e1f',
+      request: { operation: 'save', scope, item }
+    }
+    f.a.message(request)
+    await vi.waitFor(() =>
+      expect(f.a.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'mcp.feedbackDraftsResult', payload: { items: [item] } })
+      )
+    )
+    f.a.disconnect()
+    const client = createHubClient({ status: 'connecting' })
+    const broker = new McpServiceWorkerBroker(client)
+    const refreshed = createPort('https://www.figma.com/design/file-a/Design')
+    broker.handlePort(refreshed.port)
+    refreshed.message({
+      ...pageMessage('mcp.enable', 'after-refresh'),
+      document: { fileKey: 'file-a', fileName: 'Design', pageId: 'page-a', busy: false }
+    })
+    refreshed.message({
+      ...request,
+      sessionId: 'after-refresh',
+      request: { operation: 'load', scope }
+    })
+    await vi.waitFor(() =>
+      expect(refreshed.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'mcp.feedbackDraftsResult', payload: { items: [item] } })
+      )
+    )
+    for (const otherScope of [
+      { ...scope, taskId: 'other-task' },
+      { ...scope, conversationId: 'other-thread' }
+    ]) {
+      refreshed.postMessage.mockClear()
+      refreshed.message({
+        ...request,
+        sessionId: 'after-refresh',
+        request: { operation: 'load', scope: otherScope }
+      })
+      await vi.waitFor(() =>
+        expect(refreshed.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'mcp.feedbackDraftsResult', payload: { items: [] } })
+        )
+      )
+    }
+    refreshed.message({
+      ...request,
+      sessionId: 'after-refresh',
+      request: { operation: 'comment', scope, comment: 'One more change' }
+    })
+    await vi.waitFor(() =>
+      expect(refreshed.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ payload: { items: [item], comment: 'One more change' } })
+      )
+    )
+    refreshed.message({
+      ...pageMessage('mcp.enable', 'after-refresh'),
+      type: 'mcp.designAction',
+      draftScope: scope,
+      action: {
+        requestId: request.requestId,
+        taskId: 'task-a',
+        epoch: 0,
+        action: 'feedback',
+        feedback: {
+          id: request.requestId,
+          fileKey: 'file-a',
+          mode: 'queue',
+          items: [item],
+          createdAt: 1001
+        }
+      }
+    })
+    await vi.waitFor(() =>
+      expect(refreshed.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mcp.designActionResult',
+          result: expect.objectContaining({ status: 'failed' })
+        })
+      )
+    )
+    expect(client.sendDesignAction).not.toHaveBeenCalled()
+    refreshed.postMessage.mockClear()
+    refreshed.message({
+      ...request,
+      sessionId: 'after-refresh',
+      request: { operation: 'clear', scope }
+    })
+    await vi.waitFor(() =>
+      expect(refreshed.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'mcp.feedbackDraftsResult', payload: { items: [] } })
+      )
+    )
+  })
+
+  it('routes to a bound tab after a different tab is activated, and never falls back if it disappears', async () => {
+    const f = designBroker()
+    const call: ToolCallMessage = {
+      type: 'toolCall',
+      id: 'design-write',
+      route: { gatewayId: 'gateway-a', sessionId: 'tab-a', fileKey: 'file-a', taskId: 'task-a' },
+      payload: { name: 'apply_canvas', args: { mode: 'create', markup: '<div />' } }
+    }
+    f.a.postMessage.mockClear()
+    f.b.postMessage.mockClear()
+    f.internals.routeToolCall(call)
+    await vi.waitFor(() =>
+      expect(f.a.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'mcp.toolCall', route: call.route })
+      )
+    )
+    expect(f.b.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'mcp.toolCall' })
+    )
+    f.a.disconnect()
+    f.b.postMessage.mockClear()
+    f.internals.routeToolCall({ ...call, id: 'late-write' })
+    expect(f.client.sendToolResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'late-write',
+        error: expect.objectContaining({ code: 'DESIGN_TARGET_CHANGED' })
+      })
+    )
+    expect(f.b.postMessage).not.toHaveBeenCalled()
+  })
+
+  it('fences previous gateway requests and publishes actual session metadata', () => {
+    const f = designBroker()
+    expect(f.client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sessions: expect.arrayContaining([
+          expect.objectContaining({ sessionId: 'tab-a', tabId: 1, documentId: 'document-tab-a' })
+        ])
+      })
+    )
+    f.a.postMessage.mockClear()
+    f.internals.routeToolCall({
+      type: 'toolCall',
+      id: 'old-call',
+      route: { gatewayId: 'old-gateway', sessionId: 'tab-a', fileKey: 'file-a' },
+      payload: { name: 'get_structure', args: {} }
+    })
+    expect(f.a.postMessage).not.toHaveBeenCalled()
+    f.a.message({
+      ...pageMessage('mcp.enable', 'tab-a'),
+      type: 'mcp.sessionInfo',
+      document: { fileKey: 'file-a', fileName: 'Design', pageId: 'page-b', busy: true }
+    })
+    expect(f.client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeSessionId: 'tab-b',
+        sessions: expect.arrayContaining([
+          expect.objectContaining({
+            sessionId: 'tab-a',
+            pageId: 'page-b',
+            busy: true,
+            tabId: 1,
+            documentId: 'document-tab-a'
+          })
+        ])
+      })
+    )
+  })
+
+  it('only synchronizes task state to the matching file and validates the stop sender', async () => {
+    const f = designBroker()
+    const task = {
+      taskId: 'task-a',
+      title: 'Settings',
+      status: 'active' as const,
+      operation: null,
+      target: { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a' },
+      expiresAt: 300000,
+      revision: 1
+    }
+    f.a.postMessage.mockClear()
+    f.b.postMessage.mockClear()
+    await f.internals.routeDesignTask({ type: 'designTaskState', task })
+    expect(f.a.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'mcp.designTaskState', task })
+    )
+    expect(f.b.postMessage).not.toHaveBeenCalled()
+    const action = {
+      requestId: '00000000-0000-4000-8000-000000000001',
+      taskId: 'task-a',
+      epoch: 0,
+      action: 'stop'
+    }
+    f.b.message({ ...pageMessage('mcp.enable', 'tab-a'), type: 'mcp.designAction', action })
+    expect(f.client.sendDesignAction).not.toHaveBeenCalled()
+    f.a.message({ ...pageMessage('mcp.enable', 'tab-a'), type: 'mcp.designAction', action })
+    await vi.waitFor(() =>
+      expect(f.client.sendDesignAction).toHaveBeenCalledWith({
+        type: 'designAction',
+        sessionId: 'tab-a',
+        action
+      })
+    )
+  })
+})
+
 function toolResult(callId: string, sessionId = 'session-1') {
   return {
     callId,
@@ -93,7 +690,7 @@ function assetUpload(sessionId = 'session-1') {
   return {
     payload: {
       base64: 'AQID',
-      hash: 'abcdef12',
+      hash: ASSET_HASH,
       metadata: { height: 20, themeable: true, width: 10 },
       mimeType: 'image/png'
     },
@@ -101,6 +698,17 @@ function assetUpload(sessionId = 'session-1') {
     sessionId,
     source: TEMPAD_MCP_BROWSER_SOURCE,
     type: 'mcp.uploadAsset',
+    version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+  }
+}
+
+function assetDownload(sessionId = 'session-1') {
+  return {
+    payload: { hash: ASSET_HASH },
+    requestId: 'download-1',
+    sessionId,
+    source: TEMPAD_MCP_BROWSER_SOURCE,
+    type: 'mcp.downloadAsset',
     version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
   }
 }
@@ -269,6 +877,43 @@ describe('mcp/broker/service-worker', () => {
     expect(hubClient.sendActivate).toHaveBeenCalledTimes(1)
   })
 
+  it('requires a new explicit tab choice when a hub reconnects with multiple sessions', () => {
+    const snapshot: Partial<ReturnType<McpBrokerHubClient['getSnapshot']>> = {
+      activeId: 'gateway-1',
+      registeredId: 'gateway-1',
+      status: 'connected'
+    }
+    const hubClient = createHubClient(snapshot)
+    const broker = new McpServiceWorkerBroker(hubClient)
+    const internals = broker as unknown as BrokerInternals
+    const first = createPort('https://www.figma.com/design/abc/File')
+    const second = createPort('https://www.figma.com/design/def/File')
+
+    broker.handlePort(first.port)
+    first.message(pageMessage('mcp.enable', 'session-a'))
+    broker.handlePort(second.port)
+    second.message(pageMessage('mcp.enable', 'session-b'))
+    second.message(pageMessage('mcp.activateSession', 'session-b'))
+
+    snapshot.activeId = 'gateway-2'
+    snapshot.registeredId = 'gateway-2'
+    internals.handleHubSnapshot(hubClient.getSnapshot())
+    internals.routeToolCall({
+      id: 'call-after-reconnect',
+      payload: { args: undefined, name: 'get_code' },
+      type: 'toolCall'
+    })
+
+    expect(hubClient.sendToolResult).toHaveBeenLastCalledWith({
+      error: {
+        code: TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION,
+        message: 'No active TemPad Dev Figma session available.'
+      },
+      id: 'call-after-reconnect',
+      type: 'toolResult'
+    })
+  })
+
   it('ignores session control messages from ports that do not own the session', () => {
     const hubClient = createHubClient()
     const broker = new McpServiceWorkerBroker(hubClient)
@@ -389,7 +1034,7 @@ describe('mcp/broker/service-worker', () => {
     session.message(assetUpload())
     await flushMicrotasks()
 
-    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:9000/assets/abcdef12', {
+    expect(fetchMock).toHaveBeenCalledWith(`http://127.0.0.1:9000/assets/${ASSET_HASH}`, {
       body: expect.any(Blob),
       headers: {
         'Content-Type': 'image/png',
@@ -410,6 +1055,114 @@ describe('mcp/broker/service-worker', () => {
       type: 'mcp.assetUploadResult',
       version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
     })
+  })
+
+  it('downloads and verifies hash-addressed assets for the owning session', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3]), {
+        headers: { 'Content-Type': 'image/png' },
+        status: 200
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch)
+    const broker = new McpServiceWorkerBroker(
+      createHubClient({ assetServerUrl: 'http://127.0.0.1:9000' })
+    )
+    const session = createPort('https://www.figma.com/design/abc/File')
+
+    broker.handlePort(session.port)
+    session.message(pageMessage('mcp.enable'))
+    session.postMessage.mockClear()
+    session.message(assetDownload())
+    await flushMicrotasks()
+    await flushMicrotasks()
+    await vi.waitFor(() => expect(session.postMessage).toHaveBeenCalled())
+
+    expect(fetchMock).toHaveBeenCalledWith(`http://127.0.0.1:9000/assets/${ASSET_HASH}`, {
+      method: 'GET'
+    })
+    expect(session.postMessage).toHaveBeenLastCalledWith({
+      payload: {
+        base64: 'AQID',
+        mimeType: 'image/png',
+        size: 3
+      },
+      requestId: 'download-1',
+      sessionId: 'session-1',
+      source: TEMPAD_MCP_BROWSER_SOURCE,
+      type: 'mcp.assetDownloadResult',
+      version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+    })
+  })
+
+  it('returns a coded error when a downloaded asset is missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(null, { status: 404 })) as unknown as typeof fetch
+    )
+    const broker = new McpServiceWorkerBroker(
+      createHubClient({ assetServerUrl: 'http://127.0.0.1:9000' })
+    )
+    const session = createPort('https://www.figma.com/design/abc/File')
+
+    broker.handlePort(session.port)
+    session.message(pageMessage('mcp.enable'))
+    session.postMessage.mockClear()
+    session.message(assetDownload())
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(session.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        error: {
+          code: TEMPAD_MCP_ERROR_CODES.ASSET_NOT_FOUND,
+          message: expect.stringContaining('was not found')
+        },
+        requestId: 'download-1',
+        type: 'mcp.assetDownloadResult'
+      })
+    )
+  })
+
+  it('stops streaming assets once the bridge byte limit is exceeded', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(MCP_MAX_ASSET_BYTES))
+        controller.enqueue(new Uint8Array([1]))
+        controller.close()
+      }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(stream, {
+          headers: { 'Content-Type': 'image/png' },
+          status: 200
+        })
+      ) as unknown as typeof fetch
+    )
+    const broker = new McpServiceWorkerBroker(
+      createHubClient({ assetServerUrl: 'http://127.0.0.1:9000' })
+    )
+    const session = createPort('https://www.figma.com/design/abc/File')
+
+    broker.handlePort(session.port)
+    session.message(pageMessage('mcp.enable'))
+    session.postMessage.mockClear()
+    session.message(assetDownload())
+
+    await vi.waitFor(() =>
+      expect(session.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          error: {
+            code: TEMPAD_MCP_ERROR_CODES.ASSET_TOO_LARGE,
+            message: expect.stringContaining('bridge limit')
+          },
+          requestId: 'download-1',
+          type: 'mcp.assetDownloadResult'
+        })
+      )
+    )
   })
 
   it('returns an asset upload error when the hub has no asset server URL', async () => {

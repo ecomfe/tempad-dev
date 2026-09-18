@@ -1,3 +1,7 @@
+import {
+  TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+  TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS
+} from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket, WebSocketServer } from 'ws'
 
@@ -23,6 +27,9 @@ describe('extension socket lifecycle', () => {
     const onConnected = vi.fn()
     const onDisconnected = vi.fn()
     const onProtocolWarning = vi.fn()
+    const onRuntimeHello = vi.fn()
+    const onSessions = vi.fn()
+    const onDesignAction = vi.fn()
     const onToolError = vi.fn()
     const onToolResult = vi.fn()
     const started = await startExtensionWebSocketServer({
@@ -50,6 +57,9 @@ describe('extension socket lifecycle', () => {
         onConnected,
         onDisconnected,
         onProtocolWarning,
+        onRuntimeHello,
+        onSessions,
+        onDesignAction,
         onStateChange: broadcastState,
         onToolError,
         onToolResult
@@ -66,13 +76,52 @@ describe('extension socket lifecycle', () => {
 
     expect(onConnected).toHaveBeenCalledWith('ext-1')
     expect(received).toEqual([
-      { id: 'ext-1', type: 'registered' },
+      {
+        id: 'ext-1',
+        protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+        // Announced so an extension that predates this Hub can still recognize itself as served.
+        supportedProtocolVersions: [...TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS],
+        type: 'registered'
+      },
       {
         activeId: null,
         assetServerUrl: 'http://127.0.0.1:1234/capability',
         type: 'state'
       }
     ])
+
+    client.send(
+      JSON.stringify({
+        type: 'runtimeHello',
+        extensionVersion: '0.21.0',
+        extensionRuntimeFingerprint: 'a'.repeat(64)
+      })
+    )
+    await waitUntil(() => onRuntimeHello.mock.calls.length === 1)
+    expect(registry.list()[0]).toMatchObject({
+      runtime: { version: '0.21.0', fingerprint: 'a'.repeat(64) }
+    })
+
+    const sessions = {
+      type: 'sessions',
+      browserId: 'browser-a',
+      activeSessionId: 'tab-a',
+      sessions: [
+        { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a', busy: false }
+      ]
+    }
+    client.send(JSON.stringify(sessions))
+    await waitUntil(() => onSessions.mock.calls.length === 1)
+    expect(registry.list()[0]?.sessions).toEqual(sessions)
+    const action = {
+      requestId: '00000000-0000-4000-8000-000000000001',
+      taskId: 'task-a',
+      epoch: 0,
+      action: 'stop'
+    }
+    client.send(JSON.stringify({ type: 'designAction', sessionId: 'tab-a', action }))
+    await waitUntil(() => onDesignAction.mock.calls.length === 1)
+    expect(onDesignAction).toHaveBeenCalledWith(registry.list()[0], 'tab-a', action)
 
     client.send(JSON.stringify({ type: 'activate' }))
     await waitUntil(() => onActivated.mock.calls.length === 1 && received.length >= 3)

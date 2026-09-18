@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
 
+import { runtimeIdentity } from './agent-clients/identity'
 import {
   HUB_BUSY_EXIT_CODE,
   PACKAGE_VERSION,
@@ -77,6 +78,19 @@ function bridge(socket: Socket): Promise<void> {
     }
     socket.once('close', onSocketClose)
     socket.on('error', (err) => log.warn({ err }, 'Socket error occurred.'))
+
+    const binding = runtimeIdentity(process.env)
+    socket.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'notifications/tempad/client-event',
+        params: {
+          event: 'connect',
+          kind: binding.client.kind,
+          sessionId: binding.client.sessionId
+        }
+      }) + '\n'
+    )
 
     // The `{ end: false }` option prevents stdin from closing the socket.
     process.stdin.pipe(socket, { end: false }).pipe(process.stdout)
@@ -199,4 +213,4 @@ async function main() {
   }
 }
 
-main()
+void main()
