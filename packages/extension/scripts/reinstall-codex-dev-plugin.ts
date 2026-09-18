@@ -7,7 +7,11 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { chromium } from 'playwright'
 
-import { resolveCodexExecutable } from './agent-authoring-runtime-preflight'
+import {
+  parseProcessTable,
+  resolveCodexExecutable,
+  type RuntimeProcess
+} from './agent-authoring-runtime-preflight'
 import {
   assertCdpOwner,
   assertNoRestartJob,
@@ -45,8 +49,12 @@ async function cdpReady(url: string): Promise<boolean> {
   }
 }
 
-async function processes(): Promise<string> {
-  return (await exec('ps', ['-axo', 'pid=,command='], { maxBuffer: 16 * 1024 * 1024 })).stdout
+/** One table serves executable matching, checkout runtime matching, and CDP ownership. */
+async function processes(): Promise<RuntimeProcess[]> {
+  const { stdout } = await exec('ps', ['-axo', 'pid=,ppid=,lstart=,command='], {
+    maxBuffer: 16 * 1024 * 1024
+  })
+  return parseProcessTable(stdout)
 }
 
 async function appExecutable(appPath: string): Promise<string> {
@@ -60,15 +68,14 @@ async function appExecutable(appPath: string): Promise<string> {
   return executable
 }
 
-async function restartApp(args: ReinstallArguments, appPath: string) {
+async function restartApp(args: ReinstallArguments, appPath: string, appBinary: string) {
   if (await cdpReady(args.cdpUrl))
     throw new Error('CDP became available before restart; rerun without --restart-codex.')
-  const executable = await appExecutable(appPath)
-  const pids = matchingProcesses(await processes(), executable)
+  const pids = matchingProcesses(await processes(), appBinary)
   if (pids.length > 1) throw new Error('Multiple main processes match the configured Codex App.')
   const waitForExit = (label: string) =>
     waitUntil(
-      async () => matchingProcesses(await processes(), executable).length === 0,
+      async () => matchingProcesses(await processes(), appBinary).length === 0,
       label,
       10_000
     )
@@ -84,7 +91,7 @@ async function restartApp(args: ReinstallArguments, appPath: string) {
       )
       await waitForExit('Codex to quit')
     } catch {
-      const remaining = matchingProcesses(await processes(), executable)
+      const remaining = matchingProcesses(await processes(), appBinary)
       if (remaining.some((pid) => !pids.includes(pid)))
         throw new Error('Codex process changed during restart; refusing to stop its replacement.')
       for (const pid of remaining) process.kill(pid, 'SIGTERM')
@@ -247,14 +254,15 @@ async function main() {
     JSON.parse(await readFile(join(pluginRoot, '.codex-plugin/plugin.json'), 'utf8')),
     args.version
   )
-  const executable = resolveCodexExecutable(appPath)
+  const cliExecutable = resolveCodexExecutable(appPath)
+  const appBinary = await appExecutable(appPath)
   const runCodex = async (command: string[]) =>
     JSON.parse(
-      (await exec(executable, command, { timeout: args.timeoutMs, maxBuffer: 16 * 1024 * 1024 }))
+      (await exec(cliExecutable, command, { timeout: args.timeoutMs, maxBuffer: 16 * 1024 * 1024 }))
         .stdout
     ) as unknown
   await inspectDevPlugin(runCodex, pluginRoot)
-  if (args.resumeAfterRestart) await restartApp(args, appPath)
+  if (args.resumeAfterRestart) await restartApp(args, appPath, appBinary)
   else if (args.restartCodex) {
     if (await cdpReady(args.cdpUrl))
       throw new Error(
@@ -267,13 +275,11 @@ async function main() {
     throw new Error(
       `Codex CDP is unavailable at ${args.cdpUrl}. Use --restart-codex to authorize restarting the App and enabling CDP.`
     )
-  const [listeners, running, parents, mainExecutable] = await Promise.all([
+  const [listeners, running] = await Promise.all([
     exec('lsof', ['-nP', `-iTCP:${args.cdpPort}`, '-sTCP:LISTEN', '-Fp']),
-    processes(),
-    exec('ps', ['-axo', 'pid=,ppid=']),
-    appExecutable(appPath)
+    processes()
   ])
-  assertCdpOwner(listeners.stdout, matchingProcesses(running, mainExecutable), parents.stdout)
+  assertCdpOwner(listeners.stdout, matchingProcesses(running, appBinary), running)
   // Resolve via native fetch, then connect directly: the App's local endpoint must not
   // depend on Playwright's proxy-aware HTTP discovery.
   const discovery = await fetch(new URL('/json/version', args.cdpUrl), {

@@ -3,6 +3,8 @@ export const MCP_PORT_CANDIDATES = [6220, 7431, 8127]
 // Bump whenever the wire contract between Hub and extension changes, including shared
 // tool-contract changes. A bump no longer forces both sides to ship together: the Hub keeps
 // serving the versions below, and the extension accepts any Hub that still lists its own.
+// Listing a version is a promise about the bytes: unknown envelope fields are tolerated, but a
+// change inside a payload object means the Hub must still send what that version can read.
 export const TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION = 13
 // Extension protocol versions this Hub still serves, oldest first. The Hub upgrades itself on
 // every launch while the extension waits for store review, so the Hub carries the compatibility.

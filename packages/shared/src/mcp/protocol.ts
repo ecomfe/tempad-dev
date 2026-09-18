@@ -12,9 +12,11 @@ import {
 import { TempadMcpErrorPayloadSchema } from './errors'
 import { hasToolResultOutcome, TOOL_RESULT_OUTCOME_ERROR } from './tool-result'
 
-// Messages from hub to extension. These stay open to unknown keys: a newer Hub reaches an older
-// installed extension, and rejecting an added field would break that extension's whole session.
-// The extension decides compatibility from the announced versions, not from the message shape.
+// Messages from hub to extension. These envelopes stay open to unknown keys: a newer Hub reaches an
+// older installed extension, and rejecting an added envelope field would drop the whole message.
+// The extension decides compatibility from the announced versions, not from the envelope shape.
+// The payloads below stay strict, so a field added inside `task`, `route` or `result` is NOT
+// covered: announcing an older version obliges the Hub to keep sending a shape that version reads.
 export const RegisteredMessageSchema = z.object({
   type: z.literal('registered'),
   id: z.string().min(1),

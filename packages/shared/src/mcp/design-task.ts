@@ -311,6 +311,13 @@ export const DesignToolRouteSchema = z
 
 export type FigmaSession = z.infer<typeof FigmaSessionSchema>
 export type DesignTask = z.infer<typeof DesignTaskSchema>
+/** A task in one of these statuses can be resumed; the Hub and the canvas UI gate on the same set. */
+export const RESUMABLE_DESIGN_TASK_STATUSES: readonly DesignTask['status'][] = [
+  'paused',
+  'expired',
+  'interrupted',
+  'completed'
+]
 export type DesignTaskTarget = z.infer<typeof DesignTaskTargetSchema>
 export type DesignToolRoute = z.infer<typeof DesignToolRouteSchema>
 export type BeginDesignParameters = z.infer<typeof BeginDesignParametersSchema>

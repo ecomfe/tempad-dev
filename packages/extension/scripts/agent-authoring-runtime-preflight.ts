@@ -16,7 +16,7 @@ const monthIndexes = new Map(
   )
 )
 
-interface RuntimeProcess {
+export interface RuntimeProcess {
   command: string
   pid: number
   ppid: number
@@ -233,9 +233,14 @@ export function evaluateActiveExtensionRuntime(
   }
 }
 
-export function commandIncludesExactPath(command: string, path: string): boolean {
+/** Matches the path as a whole argument, so a longer path that merely starts with it cannot pass. */
+export function exactPathPattern(path: string): RegExp {
   const escapedPath = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`(?:^|[\\s'"])${escapedPath}(?=$|[\\s'"])`).test(command)
+  return new RegExp(`(?:^|[\\s'"])${escapedPath}(?=$|[\\s'"])`)
+}
+
+export function commandIncludesExactPath(command: string, path: string): boolean {
+  return exactPathPattern(path).test(command)
 }
 
 export function parseProcessTable(output: string): RuntimeProcess[] {

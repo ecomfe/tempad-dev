@@ -61,9 +61,13 @@ order:
 | Dropped the released extension's protocol         | Publish `latest` at store publication, before rollout |
 
 Keep the previous extension protocol in `TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS` for at
-least one store cycle so the first case stays the normal one. Extensions released before this rule
-existed (0.20.0 and earlier) reject any Hub that announces a protocol version at all; only the
-second ordering protects them.
+least one store cycle so the first case stays the normal one. Listing a version is a promise about
+the bytes, and the Hub has no per-connection shape downgrade: an added hub-to-extension _envelope_
+field is tolerated by the schemas, but a field added inside a payload object (`task`, `route`,
+`result`) is not, so such a change must either stay out of that direction or drop the older version
+from the list and take the second ordering. Extensions released before this rule existed (0.20.0
+and earlier) reject any Hub that announces a protocol version at all; only the second ordering
+protects them.
 
 ## Publish the coordinated release
 

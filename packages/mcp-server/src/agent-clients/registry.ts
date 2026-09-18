@@ -8,7 +8,12 @@ import { log } from '../shared'
 import { CODEX_APP_FEEDBACK, type CodexAppFeedback } from './codex-feedback'
 import { ClientHooks, type ClientHook } from './hooks'
 import { bindRequestMetadata, clientDescriptor, ClientEventSchema } from './identity'
-import { CANVAS_ONLY, CODEX_FEEDBACK_UNAVAILABLE, nativeFeedback } from './types'
+import {
+  CANVAS_ONLY,
+  CODEX_FEEDBACK_UNAVAILABLE,
+  nativeConversation,
+  nativeFeedback
+} from './types'
 
 /** A turn is a safe target only when the conversation has exactly one in progress. */
 function soleActiveTurn(state?: CodexLifecycleState): string | undefined {
@@ -43,7 +48,7 @@ export class AgentClients {
 
   private onNativeState(conversationId: string, state?: CodexLifecycleState): void {
     for (const [ownerId, binding] of this.bindings) {
-      if (binding.client.sessionId !== conversationId || !nativeFeedback(binding.client)) continue
+      if (nativeConversation(binding.client) !== conversationId) continue
       const previous = state?.turns.find((turn) => turn.turnId === binding.turnId)
       if (previous && ['completed', 'interrupted', 'failed'].includes(previous.status)) {
         for (const record of this.tasks.list()) {
@@ -180,8 +185,8 @@ export class AgentClients {
     this.bindings.set(ownerId, binding)
     // Reconnect only after runtime metadata has supplied an exact client conversation.
     this.tasks.attachClient(ownerId, binding.client)
-    if (binding.client.sessionId && nativeFeedback(binding.client))
-      this.lifecycle?.watch(binding.client.sessionId)
+    const conversationId = nativeConversation(binding.client)
+    if (conversationId) this.lifecycle?.watch(conversationId)
     return ownerId
   }
 
@@ -206,18 +211,17 @@ export class AgentClients {
   }
 
   private interruptionTarget(binding?: ClientBinding) {
-    const conversationId = binding?.client.sessionId
-    if (!this.lifecycle || !conversationId || !binding || !nativeFeedback(binding.client))
-      return undefined
+    const conversationId = nativeConversation(binding?.client)
+    if (!this.lifecycle || !conversationId) return undefined
     // An exact binding wins. The owner guards against interrupting a later turn.
-    const turnId = binding.turnId ?? soleActiveTurn(this.lifecycle.state(conversationId))
+    const turnId = binding?.turnId ?? soleActiveTurn(this.lifecycle.state(conversationId))
     return turnId ? { conversationId, turnId } : undefined
   }
 
   async describe(ownerId: string) {
     const binding = this.binding(ownerId)
-    const sessionId = binding?.client.sessionId
-    if (sessionId && binding && nativeFeedback(binding.client)) this.lifecycle?.watch(sessionId)
+    const conversationId = nativeConversation(binding?.client)
+    if (conversationId) this.lifecycle?.watch(conversationId)
     return {
       client: binding?.client ?? clientDescriptor('other'),
       capabilities:
@@ -428,8 +432,8 @@ export class AgentClients {
     this.lifecycle?.retain(
       new Set(
         reviews.flatMap((record) => {
-          const client = record.task.client
-          return client?.sessionId && nativeFeedback(client) ? [client.sessionId] : []
+          const conversationId = nativeConversation(record.task.client)
+          return conversationId ? [conversationId] : []
         })
       )
     )

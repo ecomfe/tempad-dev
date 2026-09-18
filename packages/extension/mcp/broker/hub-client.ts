@@ -224,17 +224,20 @@ export class McpHubClient {
         resolve({ registered, state, ws })
       }
       const handleMessage = (event: Event) => {
-        const registration = inspectHubRegistration(event)
-        if (registration && !servesThisExtension(registration)) {
-          fail(createProtocolMismatchError(registration))
-          return
-        }
         const message = parseHubMessage(event)
         if (!message) {
-          fail(new Error('Received malformed MCP server handshake'))
+          fail(
+            isRegistrationFrame(event)
+              ? createProtocolMismatchError()
+              : new Error('Received malformed MCP server handshake')
+          )
           return
         }
         if (message.type === 'registered') {
+          if (!servesThisExtension(message)) {
+            fail(createProtocolMismatchError(message))
+            return
+          }
           if (registered) {
             fail(new Error('Received duplicate MCP server registration'))
             return
@@ -280,18 +283,23 @@ export class McpHubClient {
 
   private handleMessage(ws: WebSocket, event: MessageEvent<string>): void {
     if (this.ws !== ws) return
-    const registration = inspectHubRegistration(event)
-    if (registration && !servesThisExtension(registration)) {
-      this.rejectConnectedMessage(ws, createProtocolMismatchError(registration).message)
-      return
-    }
     const message = parseHubMessage(event)
     if (!message) {
-      this.rejectConnectedMessage(ws, 'Received malformed message from MCP server')
+      this.rejectConnectedMessage(
+        ws,
+        isRegistrationFrame(event)
+          ? createProtocolMismatchError().message
+          : 'Received malformed message from MCP server'
+      )
       return
     }
     if (message.type === 'registered') {
-      this.rejectConnectedMessage(ws, 'Received duplicate registration from MCP server')
+      this.rejectConnectedMessage(
+        ws,
+        servesThisExtension(message)
+          ? 'Received duplicate registration from MCP server'
+          : createProtocolMismatchError(message).message
+      )
       return
     }
     if (message.type === 'state' && !isAllowedAssetServerUrl(message.assetServerUrl)) {
@@ -410,26 +418,20 @@ function parseHubMessage(event: Event): MessageToExtension | null {
   return parseMessageToExtension(typeof data === 'string' ? data : '')
 }
 
-type HubRegistration = { protocolVersion: number; supportedProtocolVersions: number[] }
-
-function inspectHubRegistration(event: Event): HubRegistration | null {
+/**
+ * Only reached when a frame fails validation: a Hub older than this negotiation announces no
+ * version at all, and that deserves the mismatch diagnostic rather than "malformed".
+ */
+function isRegistrationFrame(event: Event): boolean {
   const data = (event as MessageEvent<unknown>).data
-  if (typeof data !== 'string') return null
+  if (typeof data !== 'string') return false
   try {
     const value: unknown = JSON.parse(data)
-    if (typeof value !== 'object' || value === null || !('type' in value)) return null
-    if (value.type !== 'registered') return null
-    const protocolVersion = 'protocolVersion' in value ? value.protocolVersion : Number.NaN
-    const supported =
-      'supportedProtocolVersions' in value ? value.supportedProtocolVersions : undefined
-    return {
-      protocolVersion: typeof protocolVersion === 'number' ? protocolVersion : Number.NaN,
-      supportedProtocolVersions: Array.isArray(supported)
-        ? supported.filter((version): version is number => typeof version === 'number')
-        : []
-    }
+    return (
+      typeof value === 'object' && value !== null && 'type' in value && value.type === 'registered'
+    )
   } catch {
-    return null
+    return false
   }
 }
 
@@ -437,20 +439,22 @@ function inspectHubRegistration(event: Event): HubRegistration | null {
  * A newer Hub may still serve this extension's protocol. Accept that, so a Hub release never has to
  * wait for store review; refuse only when the Hub no longer speaks this version at all.
  */
-function servesThisExtension(registration: HubRegistration): boolean {
+function servesThisExtension({
+  protocolVersion,
+  supportedProtocolVersions = []
+}: RegisteredMessage): boolean {
   return (
-    registration.protocolVersion === TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION ||
-    registration.supportedProtocolVersions.includes(TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION)
+    protocolVersion === TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION ||
+    supportedProtocolVersions.includes(TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION)
   )
 }
 
 function createProtocolMismatchError(
-  registration: HubRegistration
+  registration?: RegisteredMessage
 ): McpBridgeProtocolMismatchError {
-  const { protocolVersion, supportedProtocolVersions } = registration
-  const received = Number.isFinite(protocolVersion) ? String(protocolVersion) : 'missing or invalid'
-  const serves = supportedProtocolVersions.length
-    ? ` It serves ${supportedProtocolVersions.join(', ')}.`
+  const received = registration ? String(registration.protocolVersion) : 'missing or invalid'
+  const serves = registration?.supportedProtocolVersions?.length
+    ? ` It serves ${registration.supportedProtocolVersions.join(', ')}.`
     : ''
   return new McpBridgeProtocolMismatchError(
     `TemPad Dev protocol mismatch: the extension requires ${TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION}, ` +
