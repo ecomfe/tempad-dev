@@ -2074,22 +2074,23 @@ describe('mcp/tools canvas authoring schemas', () => {
       ])
     }
 
-    expect(
-      acceptsCanvas({
+    // These scope rules live on the public schema; the resolved schema has no `native` field,
+    // so parsing them there would only ever report an unrecognized key.
+    for (const [extra, message] of [
+      [{ page: { pageKey: 'eval/fresh' } }, 'Native-only update cannot include page.'],
+      [{ removeKeys: ['old/child'] }, 'Native-only update cannot remove nodes.']
+    ] as const) {
+      const parsed = ApplyCanvasPublicParametersSchema.safeParse({
         mode: 'update',
         targetNodeId: '1:2',
         native: { root: { figma: { opacity: 0.5 } } },
-        page: { pageKey: 'eval/fresh' }
+        ...extra
       })
-    ).toBe(false)
-    expect(
-      acceptsCanvas({
-        mode: 'update',
-        targetNodeId: '1:2',
-        native: { root: { figma: { opacity: 0.5 } } },
-        removeKeys: ['old/child']
-      })
-    ).toBe(false)
+      expect(parsed.success).toBe(false)
+      if (!parsed.success) {
+        expect(parsed.error.issues.some((issue) => issue.message === message)).toBe(true)
+      }
+    }
   })
 
   it('uses explicit modes for page and root lifecycle operations', () => {

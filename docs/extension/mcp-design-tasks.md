@@ -16,7 +16,7 @@ turn ending pauses work; it does not complete the requested design or close its 
 | `packages/extension/components/DesignTaskStatus.vue`   | Task status and anchored controls                               |
 | `packages/extension/components/DesignTaskFeedback.vue` | Comment editing and submission                                  |
 | `packages/extension/mcp/broker/`                       | Registered page routing and durable drafts/reviews              |
-| `agent-plugins/tempad-dev/clients/`                    | Installed Claude lifecycle hooks and hook transport             |
+| `agent-plugin/src/clients/`                            | Authored Claude lifecycle hooks and hook transport              |
 
 The Hub owns task records; the page enforces the last write fence. The latest task
 owns a file's displayed state. An older task's update cannot replace its controls,
@@ -116,9 +116,10 @@ environment edits, helper processes, and agent-driven connection setup do not es
 host support. Protocol tests verify mechanics; live claims require the installed plugin
 against the actual host.
 
-`pnpm agent-plugin:dev` produces native release and development packages from the portable
-source. These omit the root portable manifests and use each host's native marketplace
-layout. Codex registers no hooks. Claude retains its lifecycle hook definitions.
+`pnpm agent-plugin:build` generates the portable, native, and local development packages from
+`agent-plugin/src/`. The native and development packages carry each host's marketplace layout
+and omit the portable manifests, so neither host can resolve a conflicting manifest. Codex
+registers no hooks. Claude retains its lifecycle hook definitions.
 
 ### Claude lifecycle hooks
 
@@ -140,9 +141,11 @@ interruption is not enabled for Claude.
 ### Native Codex lifecycle and Stop
 
 Codex binds each MCP request using host-supplied thread/turn metadata. Old installed
-Codex hook callbacks are ignored. The Hub follows the exact local conversation owner
-through `thread-stream-following-changed` and versioned `thread-stream-state-changed`
-broadcasts. It retains only turn IDs and statuses from legacy or canonical history.
+Codex hook callbacks are ignored. Conversation-only requests retain the existing turn
+binding; a reconnected binding without a turn ID can use the single active turn in the
+native lifecycle snapshot. Explicit request turn metadata takes precedence. The Hub
+follows the exact local conversation owner through `thread-stream-following-changed`
+and versioned `thread-stream-state-changed` broadcasts. It retains only turn IDs and statuses from legacy or canonical history.
 Content deltas are ignored after decoding. Lifecycle patches update a minimal projection
 of turn IDs and statuses, publishing only after the whole batch succeeds. The native API
 still sends a full initial snapshot; revision gaps, unsupported lifecycle patches, and
@@ -157,7 +160,13 @@ Figma Stop cancels the task and pending comments locally before requesting
 `thread-follower-interrupt-turn` with `expectedTurnId`. The owner checks that the exact
 turn is still active; it cannot stop a newer turn. The response must identify the same
 owner and interrupted turn, or confirm that the turn has ended. Failure to confirm host
-interruption does not undo the local write fence. There is no hook fallback.
+interruption does not undo the local write fence. Capability reporting and Stop use
+the same target resolver: an exact bound turn takes precedence; otherwise the single
+active native turn can recover a target after MCP disconnection or delayed state
+arrival. Missing or ambiguous targets disable the interruption capability and produce
+an explicit local-only Stop result. The target is captured before cancellation callbacks;
+an IPC no-op never retries against a newer turn. Hub logs distinguish missing targets,
+dispatched interruptions, acknowledgements, and failures. There is no hook fallback.
 
 ### Codex feedback: native Queue and Steer
 
@@ -169,7 +178,11 @@ and all their fields are preserved. This is best-effort read/merge/set: the host
 revision precondition, so a simultaneous composer edit can race the replacement.
 See [Codex desktop IPC research](../engineering/codex-desktop-ipc.md#native-queues)
 for the storage evidence and separate, feature-gated app-server queue. Ordering between
-those two queues has not been verified.
+those two queues is not supported: the current Codex coordinator selects its legacy queue
+when that queue is nonempty, hiding server-queue messages from the displayed queue. Live
+acceptance on 2026-09-17 exposed this conflict. A passing legacy admission check does not
+establish compatibility with Codex's server queue; coordinated release remains blocked
+until the integration preserves that queue's visibility and ordering.
 
 The adapter discovers existing current-user Unix sockets under Codex home or the host's
 temporary directory. On Windows it connects to the host's fixed local named pipe,

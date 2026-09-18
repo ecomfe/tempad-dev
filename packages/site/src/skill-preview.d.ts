@@ -3,7 +3,6 @@ declare module '*?skill-preview' {
     entry: string
     files: readonly {
       path: string
-      sourceUrl: string
       source: string
       metadataEntries: readonly {
         key: string

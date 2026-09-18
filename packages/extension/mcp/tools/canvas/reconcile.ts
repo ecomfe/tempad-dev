@@ -2565,12 +2565,6 @@ function applyIndividualValue(
   setValue(node, current, desired, apply, state)
 }
 
-function numbersEqual(current: readonly number[], desired: readonly number[]): boolean {
-  return (
-    current.length === desired.length && current.every((value, index) => value === desired[index])
-  )
-}
-
 function applyAppearance(node: SupportedCanvasNode, spec: CanvasNodeSpec, state: ApplyState): void {
   const appearance = spec.appearance
   if (!appearance) return
@@ -2677,7 +2671,10 @@ function applyAppearance(node: SupportedCanvasNode, spec: CanvasNodeSpec, state:
         state
       )
     }
-    if (stroke.dashPattern !== undefined && !numbersEqual(node.dashPattern, stroke.dashPattern)) {
+    if (
+      stroke.dashPattern !== undefined &&
+      !nativeValueEqual(node.dashPattern, stroke.dashPattern)
+    ) {
       node.dashPattern = stroke.dashPattern
       markMutation(state, node)
     }

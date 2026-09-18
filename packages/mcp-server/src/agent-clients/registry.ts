@@ -4,10 +4,17 @@ import type { DesignTasks } from '../design-tasks'
 import type { CodexAppLifecycle, CodexLifecycleState } from './codex-lifecycle'
 import type { ClientBinding } from './types'
 
+import { log } from '../shared'
 import { CODEX_APP_FEEDBACK, type CodexAppFeedback } from './codex-feedback'
 import { ClientHooks, type ClientHook } from './hooks'
 import { bindRequestMetadata, clientDescriptor, ClientEventSchema } from './identity'
-import { CANVAS_ONLY, CODEX_FEEDBACK_UNAVAILABLE } from './types'
+import { CANVAS_ONLY, CODEX_FEEDBACK_UNAVAILABLE, nativeFeedback } from './types'
+
+/** A turn is a safe target only when the conversation has exactly one in progress. */
+function soleActiveTurn(state?: CodexLifecycleState): string | undefined {
+  const active = state?.turns.filter((turn) => turn.status === 'inProgress')
+  return active?.length === 1 ? active[0]!.turnId : undefined
+}
 
 /** Conversation bindings and native delivery stay outside shared task lifecycle logic. */
 export class AgentClients {
@@ -31,18 +38,13 @@ export class AgentClients {
       changed: (conversationId: string, state: CodexLifecycleState | undefined) => void
     ) => NonNullable<AgentClients['lifecycle']>
   ) {
-    this.lifecycle = lifecycle?.((id, state) => this.nativeState(id, state))
+    this.lifecycle = lifecycle?.((id, state) => this.onNativeState(id, state))
   }
 
-  private nativeState(conversationId: string, state?: CodexLifecycleState): void {
+  private onNativeState(conversationId: string, state?: CodexLifecycleState): void {
     for (const [ownerId, binding] of this.bindings) {
-      if (
-        binding.client.sessionId !== conversationId ||
-        !['codex', 'codex-app'].includes(binding.client.kind)
-      )
-        continue
+      if (binding.client.sessionId !== conversationId || !nativeFeedback(binding.client)) continue
       const previous = state?.turns.find((turn) => turn.turnId === binding.turnId)
-      const active = state?.turns.filter((turn) => turn.status === 'inProgress')
       if (previous && ['completed', 'interrupted', 'failed'].includes(previous.status)) {
         for (const record of this.tasks.list()) {
           if (record.ownerId !== ownerId) continue
@@ -50,11 +52,10 @@ export class AgentClients {
           this.tasks.stop(record.task.taskId, 'paused')
         }
       }
-      if (
-        active?.length === 1 &&
-        (!binding.turnId || (previous && previous.status !== 'inProgress'))
-      )
-        binding.turnId = active[0]!.turnId
+      // This broadcast's own state is authoritative here, not the retained lifecycle snapshot.
+      const active = soleActiveTurn(state)
+      if (active && (!binding.turnId || (previous && previous.status !== 'inProgress')))
+        binding.turnId = active
       this.refresh(ownerId)
     }
   }
@@ -174,10 +175,12 @@ export class AgentClients {
     const ownerId = binding.client.sessionId
       ? `${connectionId}/${binding.client.kind}/${binding.client.sessionId}`
       : connectionId
+    // Requests may identify only the conversation. Keep its native turn binding across calls.
+    binding.turnId ??= this.bindings.get(ownerId)?.turnId
     this.bindings.set(ownerId, binding)
     // Reconnect only after runtime metadata has supplied an exact client conversation.
     this.tasks.attachClient(ownerId, binding.client)
-    if (binding.client.sessionId && ['codex', 'codex-app'].includes(binding.client.kind))
+    if (binding.client.sessionId && nativeFeedback(binding.client))
       this.lifecycle?.watch(binding.client.sessionId)
     return ownerId
   }
@@ -194,24 +197,32 @@ export class AgentClients {
     }
   }
 
-  private feedbackBinding(ownerId: string): ClientBinding | undefined {
+  private binding(ownerId: string): ClientBinding | undefined {
     const binding = this.bindings.get(ownerId)
     if (binding) return binding
     // Native App delivery belongs to the conversation, independently of an MCP connection.
     const client = this.tasks.list().find((record) => record.ownerId === ownerId)?.task.client
-    return client && ['codex', 'codex-app'].includes(client.kind) ? { client } : undefined
+    return client && nativeFeedback(client) ? { client } : undefined
+  }
+
+  private interruptionTarget(binding?: ClientBinding) {
+    const conversationId = binding?.client.sessionId
+    if (!this.lifecycle || !conversationId || !binding || !nativeFeedback(binding.client))
+      return undefined
+    // An exact binding wins. The owner guards against interrupting a later turn.
+    const turnId = binding.turnId ?? soleActiveTurn(this.lifecycle.state(conversationId))
+    return turnId ? { conversationId, turnId } : undefined
   }
 
   async describe(ownerId: string) {
-    const binding = this.feedbackBinding(ownerId)
+    const binding = this.binding(ownerId)
     const sessionId = binding?.client.sessionId
-    if (sessionId && binding && ['codex', 'codex-app'].includes(binding.client.kind))
-      this.lifecycle?.watch(sessionId)
+    if (sessionId && binding && nativeFeedback(binding.client)) this.lifecycle?.watch(sessionId)
     return {
       client: binding?.client ?? clientDescriptor('other'),
       capabilities:
         binding && (await this.codex?.available(binding))
-          ? { ...CODEX_APP_FEEDBACK, interrupt: !!(sessionId && this.lifecycle?.state(sessionId)) }
+          ? { ...CODEX_APP_FEEDBACK, interrupt: !!this.interruptionTarget(binding) }
           : binding
             ? this.unavailable(binding)
             : CANVAS_ONLY
@@ -219,9 +230,7 @@ export class AgentClients {
   }
 
   private unavailable(binding: ClientBinding) {
-    return ['codex', 'codex-app'].includes(binding.client.kind)
-      ? CODEX_FEEDBACK_UNAVAILABLE
-      : CANVAS_ONLY
+    return nativeFeedback(binding.client) ? CODEX_FEEDBACK_UNAVAILABLE : CANVAS_ONLY
   }
 
   async action(action: DesignAction, onAccepted?: () => void): Promise<DesignActionResult> {
@@ -304,40 +313,51 @@ export class AgentClients {
       }
       this.tasks.assertEpoch(action.taskId, record.ownerId, action.epoch)
       if (record.task.reviewClosed) throw new Error('This design review is closed.')
-      const binding = this.feedbackBinding(record.ownerId)
+      const binding = this.binding(record.ownerId)
       if (action.action === 'stop') {
         if (this.tasks.current(record.task.target.fileKey) !== record)
           throw new Error('This task has been replaced. Stop the current task instead.')
         if (['completed', 'cancelled'].includes(record.task.status))
           return result('delivered', 'This design task has already ended.')
+        // Capture the target before cancellation callbacks can advance native state.
+        const target = this.interruptionTarget(binding)
+        const diagnostic = {
+          taskId: action.taskId,
+          requestId: action.requestId,
+          conversationId: binding?.client.sessionId,
+          boundTurnId: binding?.turnId,
+          expectedTurnId: target?.turnId
+        }
         if (binding?.client.kind === 'claude') this.hooks.stop(binding, action.taskId)
         // Stop's local fence and host interruption must not wait for a pending queue write.
         void this.cancelFeedback(action.taskId, true).catch(() => {})
         this.tasks.stop(action.taskId, 'cancelled')
         onAccepted?.()
-        if (
-          this.lifecycle &&
-          binding?.client.sessionId &&
-          binding.turnId &&
-          ['codex', 'codex-app'].includes(binding.client.kind)
-        ) {
+        if (this.lifecycle && target) {
+          log.info(diagnostic, 'Requesting native Codex Stop interruption.')
           try {
-            const interrupted = await this.lifecycle.interrupt(
-              binding.client.sessionId,
-              binding.turnId
-            )
+            const interrupted = await this.lifecycle.interrupt(target.conversationId, target.turnId)
+            log.info({ ...diagnostic, interrupted }, 'Native Codex Stop interruption settled.')
             return result(
               'delivered',
               interrupted
                 ? 'Design task stopped and Codex turn interrupted.'
-                : 'Design task stopped; its Codex turn has already ended.'
+                : 'Design task stopped; Codex did not interrupt the expected turn because it is no longer active.'
             )
-          } catch {
+          } catch (error) {
+            log.warn({ ...diagnostic, err: error }, 'Native Codex Stop interruption failed.')
             return result(
               'delivered',
               'Design task stopped. Codex interruption could not be confirmed; further writes from this task remain blocked.'
             )
           }
+        }
+        if (binding && nativeFeedback(binding.client)) {
+          log.warn(diagnostic, 'Native Codex Stop skipped: no verified interruption target.')
+          return result(
+            'delivered',
+            'Design task stopped. Codex interruption was not sent because its current turn could not be identified; further writes from this task remain blocked.'
+          )
         }
         return result('delivered', 'Design task stopped.')
       }
@@ -350,11 +370,7 @@ export class AgentClients {
       const feedback = action.feedback
       if (feedback.fileKey !== record.task.target.fileKey)
         throw new Error('The feedback belongs to a different Figma file.')
-      if (
-        !['codex', 'codex-app'].includes(binding.client.kind) ||
-        !this.codex ||
-        !binding.client.sessionId
-      ) {
+      if (!nativeFeedback(binding.client) || !this.codex || !binding.client.sessionId) {
         const capabilities = this.unavailable(binding)
         this.tasks.attachClient(record.ownerId, binding.client, capabilities)
         throw new Error(capabilities.reason)
@@ -413,9 +429,7 @@ export class AgentClients {
       new Set(
         reviews.flatMap((record) => {
           const client = record.task.client
-          return client?.sessionId && ['codex', 'codex-app'].includes(client.kind)
-            ? [client.sessionId]
-            : []
+          return client?.sessionId && nativeFeedback(client) ? [client.sessionId] : []
         })
       )
     )

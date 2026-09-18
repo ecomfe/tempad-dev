@@ -20,7 +20,7 @@ export const SITE_LINKS = {
   discord: 'https://discord.gg/MXGXwtkEck',
   license: 'https://github.com/ecomfe/tempad-dev/blob/main/LICENSE',
   guide: 'https://github.com/ecomfe/tempad-dev#readme',
-  agentGuide: 'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugins/tempad-dev',
+  agentGuide: 'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src',
   inspectGuide: 'https://github.com/ecomfe/tempad-dev#inspect-css-code'
 } as const
 

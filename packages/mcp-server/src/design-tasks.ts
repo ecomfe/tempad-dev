@@ -14,6 +14,17 @@ import type { ExtensionConnection } from './types'
 type TerminalStatus = Exclude<DesignTask['status'], 'active' | 'stopping'>
 type BrowserIdentity = { browserId: string; origin: string }
 
+const RESUMABLE_STATUSES: DesignTask['status'][] = ['paused', 'expired', 'interrupted', 'completed']
+const ENDED_STATUSES: DesignTask['status'][] = ['completed', 'cancelled']
+const RUNNING_STATUSES: DesignTask['status'][] = ['active', 'stopping']
+
+/** Capabilities are rebuilt per describe(), so only a field compare can detect a real change. */
+function sameCapabilities(left: AgentCapabilities | undefined, right: AgentCapabilities): boolean {
+  if (!left) return false
+  const keys = Object.keys({ ...left, ...right }) as (keyof AgentCapabilities)[]
+  return keys.every((key) => left[key] === right[key])
+}
+
 export type DesignTaskRecord = {
   task: DesignTask
   ownerId: string
@@ -133,14 +144,14 @@ export class DesignTasks {
     this.assertFileIdle(session)
     const occupant = this.occupant(session.fileKey)
     if (occupant) this.busy(occupant)
-    const { busy: _busy, tabId: _tabId, documentId: _documentId, ...target } = session
+    const { busy: _busy, tabId, documentId, ...target } = session
     const record: DesignTaskRecord = {
       ownerId,
       extensionId,
       requestId,
       ready: false,
-      ...(browser && _tabId !== undefined && _documentId !== undefined
-        ? { browser: { ...browser, tabId: _tabId, documentId: _documentId } }
+      ...(browser && tabId !== undefined && documentId !== undefined
+        ? { browser: { ...browser, tabId, documentId } }
         : {}),
       task: {
         taskId: this.options.createId(),
@@ -213,13 +224,10 @@ export class DesignTasks {
         record.task.client.sessionId !== client.sessionId
       )
         continue
-      if (
-        !['paused', 'expired', 'interrupted', 'completed'].includes(record.task.status) &&
-        record.ownerId !== ownerId
-      )
-        continue
+      if (!RESUMABLE_STATUSES.includes(record.task.status) && record.ownerId !== ownerId) continue
       const changed =
-        record.ownerId !== ownerId || (capabilities && record.task.capabilities !== capabilities)
+        record.ownerId !== ownerId ||
+        (capabilities && !sameCapabilities(record.task.capabilities, capabilities))
       record.ownerId = ownerId
       record.task.client = client
       if (capabilities) record.task.capabilities = capabilities
@@ -242,7 +250,7 @@ export class DesignTasks {
     const record = this.assertEpoch(taskId, ownerId, epoch)
     if (record.task.reviewClosed) fail('DESIGN_TASK_INACTIVE', 'This review is closed.')
     if (record.task.status === 'active') return record
-    if (!['paused', 'expired', 'interrupted', 'completed'].includes(record.task.status)) {
+    if (!RESUMABLE_STATUSES.includes(record.task.status)) {
       fail(
         'DESIGN_TASK_INACTIVE',
         'This task cannot resume. Wait for any stopping operation to finish, then begin a new task with a fresh requestId.'
@@ -296,9 +304,7 @@ export class DesignTasks {
   private occupant(fileKey: string): DesignTaskRecord | undefined {
     // Begin, resume and recovery only activate the current task for this file.
     const record = this.current(fileKey)
-    return record && (record.task.status === 'active' || record.task.status === 'stopping')
-      ? record
-      : undefined
+    return record && RUNNING_STATUSES.includes(record.task.status) ? record : undefined
   }
 
   private busy(record: DesignTaskRecord): never {
@@ -429,7 +435,7 @@ export class DesignTasks {
         !browser ||
         task.reviewClosed ||
         this.current(task.target.fileKey) !== record ||
-        !['interrupted', 'paused', 'expired', 'completed'].includes(task.status) ||
+        !RESUMABLE_STATUSES.includes(task.status) ||
         extensions.some((extension) =>
           extension.sessions?.sessions.some(
             (session) => session.sessionId === task.target.sessionId
@@ -503,8 +509,8 @@ export class DesignTasks {
 
   stop(taskId: string, outcome: TerminalStatus): DesignTask | undefined {
     const record = this.records.get(taskId)
-    if (!record || ['completed', 'cancelled'].includes(record.task.status)) return record?.task
-    if (!['active', 'stopping'].includes(record.task.status)) {
+    if (!record || ENDED_STATUSES.includes(record.task.status)) return record?.task
+    if (!RUNNING_STATUSES.includes(record.task.status)) {
       if (outcome === 'completed' || outcome === 'cancelled') this.finish(record, outcome)
       return record.task
     }
@@ -678,7 +684,7 @@ export class DesignTasks {
       return
     if (record.task.target.sessionId === session.sessionId && record.extensionId === extension.id)
       return
-    if (['active', 'stopping'].includes(record.task.status)) return
+    if (RUNNING_STATUSES.includes(record.task.status)) return
     record.extensionId = extension.id
     record.ready = false
     record.task.target = {
@@ -700,7 +706,7 @@ export class DesignTasks {
     const record = this.records.get(taskId)
     if (!record || record.task.reviewClosed) return
     record.task.reviewClosed = true
-    if (!['completed', 'cancelled'].includes(record.task.status)) this.stop(taskId, 'cancelled')
+    if (!ENDED_STATUSES.includes(record.task.status)) this.stop(taskId, 'cancelled')
     else this.publish(record)
   }
 

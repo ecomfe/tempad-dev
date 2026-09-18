@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "tempad-dev",
-      "source": "./agent-plugins/tempad-dev-native",
+      "source": "./agent-plugin/targets/claude",
       "description": "Connect your coding agent to Figma. Create and edit native designs, inspect existing designs, and implement UI in your codebase.",
       "category": "Design"
     }
