@@ -74,7 +74,7 @@ describe('AgentSetupDialog', () => {
       height: 32
     })
     expect(host.textContent).toContain('Agent Plugin')
-    expect(host.textContent).toContain('Continue in Codex')
+    expect(host.textContent).toContain('Continue in Codex App')
     expect(getCode(host)).toContain(
       'codex plugin marketplace add ecomfe/tempad-dev --ref main && codex plugin add tempad-dev@tempad-dev'
     )
