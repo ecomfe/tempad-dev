@@ -1,6 +1,6 @@
 import { normalize, resolve } from 'node:path'
 
-import { commandIncludesExactPath } from './agent-authoring-runtime-preflight'
+import { exactPathPattern, type RuntimeProcess } from './agent-authoring-runtime-preflight'
 
 export const devPluginName = 'tempad-dev-dev'
 export const devPluginId = `${devPluginName}@${devPluginName}`
@@ -41,17 +41,21 @@ export function parseReinstallArguments(argv: string[]): ReinstallArguments | nu
       args[BOOLEAN_FLAGS[argument as keyof typeof BOOLEAN_FLAGS]] = true
       continue
     }
-    if (Object.hasOwn(VALUE_FLAGS, argument) || argument === '--timeout-ms') {
+    const takeValue = () => {
       const value = argv[++index]
       if (!value || value.startsWith('--')) throw new Error(`Missing value for ${argument}.`)
-      if (argument === '--timeout-ms') {
-        args.timeoutMs = Number(value)
-        if (!Number.isSafeInteger(args.timeoutMs) || args.timeoutMs <= 0) {
-          throw new Error(`Invalid --timeout-ms value: ${value}`)
-        }
-      } else {
-        args[VALUE_FLAGS[argument as keyof typeof VALUE_FLAGS]] = value
+      return value
+    }
+    if (argument === '--timeout-ms') {
+      const value = takeValue()
+      args.timeoutMs = Number(value)
+      if (!Number.isSafeInteger(args.timeoutMs) || args.timeoutMs <= 0) {
+        throw new Error(`Invalid --timeout-ms value: ${value}`)
       }
+      continue
+    }
+    if (Object.hasOwn(VALUE_FLAGS, argument)) {
+      args[VALUE_FLAGS[argument as keyof typeof VALUE_FLAGS]] = takeValue()
       continue
     }
     if (argument.startsWith('--')) throw new Error(`Unknown option: ${argument}`)
@@ -188,29 +192,26 @@ export function selectCodexPageUrl(urls: string[], requested?: string): string {
   return matches[0]!
 }
 
-/** Parses `ps -axo pid=,command=` output. */
-function processTable(output: string): { command: string; pid: number }[] {
-  return output.split('\n').flatMap((line) => {
-    const match = line.match(/^\s*(\d+)\s+(.+)$/)
-    return match ? [{ command: match[2]!, pid: Number(match[1]) }] : []
-  })
-}
-
-export function matchingProcesses(output: string, executable: string): number[] {
-  return processTable(output)
+export function matchingProcesses(processes: RuntimeProcess[], executable: string): number[] {
+  return processes
     .filter(({ command }) => command === executable || command.startsWith(`${executable} `))
     .map(({ pid }) => pid)
 }
 
-export function checkoutRuntimeProcesses(output: string, entries: string[]): number[] {
-  return processTable(output)
-    .filter(({ command }) => entries.some((entry) => commandIncludesExactPath(command, entry)))
+export function checkoutRuntimeProcesses(processes: RuntimeProcess[], entries: string[]): number[] {
+  const patterns = entries.map(exactPathPattern)
+  return processes
+    .filter(({ command }) => patterns.some((pattern) => pattern.test(command)))
     .map(({ pid }) => pid)
 }
 
 const ownerError = 'The CDP listener does not belong to the configured Codex App.'
 
-export function assertCdpOwner(output: string, appPids: number[], processParents = ''): void {
+export function assertCdpOwner(
+  output: string,
+  appPids: number[],
+  processes: RuntimeProcess[] = []
+): void {
   if (appPids.length !== 1) throw new Error(ownerError)
   const appPid = appPids[0]!
   const listeners = [
@@ -221,12 +222,7 @@ export function assertCdpOwner(output: string, appPids: number[], processParents
         .map((line) => Number(line.slice(1)))
     )
   ]
-  const parents = new Map(
-    processParents.split('\n').flatMap((line) => {
-      const match = line.match(/^\s*(\d+)\s+(\d+)\s*$/)
-      return match ? [[Number(match[1]), Number(match[2])] as const] : []
-    })
-  )
+  const parents = new Map(processes.map(({ pid, ppid }) => [pid, ppid] as const))
   // App child services can inherit the same listening descriptor.
   const belongsToApp = (listener: number): boolean => {
     const visited = new Set<number>()

@@ -6,7 +6,8 @@ import type {
   FigmaSession
 } from '@tempad-dev/shared'
 
-import { MCP_DESIGN_TASK_LEASE_MS } from '@tempad-dev/shared'
+import { MCP_DESIGN_TASK_LEASE_MS, RESUMABLE_DESIGN_TASK_STATUSES } from '@tempad-dev/shared'
+import { isDeepStrictEqual } from 'node:util'
 
 import type { DesignTaskSnapshot, DesignTaskStore } from './design-task-store'
 import type { ExtensionConnection } from './types'
@@ -14,16 +15,8 @@ import type { ExtensionConnection } from './types'
 type TerminalStatus = Exclude<DesignTask['status'], 'active' | 'stopping'>
 type BrowserIdentity = { browserId: string; origin: string }
 
-const RESUMABLE_STATUSES: DesignTask['status'][] = ['paused', 'expired', 'interrupted', 'completed']
 const ENDED_STATUSES: DesignTask['status'][] = ['completed', 'cancelled']
 const RUNNING_STATUSES: DesignTask['status'][] = ['active', 'stopping']
-
-/** Capabilities are rebuilt per describe(), so only a field compare can detect a real change. */
-function sameCapabilities(left: AgentCapabilities | undefined, right: AgentCapabilities): boolean {
-  if (!left) return false
-  const keys = Object.keys({ ...left, ...right }) as (keyof AgentCapabilities)[]
-  return keys.every((key) => left[key] === right[key])
-}
 
 export type DesignTaskRecord = {
   task: DesignTask
@@ -224,10 +217,14 @@ export class DesignTasks {
         record.task.client.sessionId !== client.sessionId
       )
         continue
-      if (!RESUMABLE_STATUSES.includes(record.task.status) && record.ownerId !== ownerId) continue
+      if (
+        !RESUMABLE_DESIGN_TASK_STATUSES.includes(record.task.status) &&
+        record.ownerId !== ownerId
+      )
+        continue
       const changed =
         record.ownerId !== ownerId ||
-        (capabilities && !sameCapabilities(record.task.capabilities, capabilities))
+        (capabilities && !isDeepStrictEqual(record.task.capabilities, capabilities))
       record.ownerId = ownerId
       record.task.client = client
       if (capabilities) record.task.capabilities = capabilities
@@ -250,7 +247,7 @@ export class DesignTasks {
     const record = this.assertEpoch(taskId, ownerId, epoch)
     if (record.task.reviewClosed) fail('DESIGN_TASK_INACTIVE', 'This review is closed.')
     if (record.task.status === 'active') return record
-    if (!RESUMABLE_STATUSES.includes(record.task.status)) {
+    if (!RESUMABLE_DESIGN_TASK_STATUSES.includes(record.task.status)) {
       fail(
         'DESIGN_TASK_INACTIVE',
         'This task cannot resume. Wait for any stopping operation to finish, then begin a new task with a fresh requestId.'
@@ -435,7 +432,7 @@ export class DesignTasks {
         !browser ||
         task.reviewClosed ||
         this.current(task.target.fileKey) !== record ||
-        !RESUMABLE_STATUSES.includes(task.status) ||
+        !RESUMABLE_DESIGN_TASK_STATUSES.includes(task.status) ||
         extensions.some((extension) =>
           extension.sessions?.sessions.some(
             (session) => session.sessionId === task.target.sessionId

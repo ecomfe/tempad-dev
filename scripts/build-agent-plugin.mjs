@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -24,10 +24,12 @@ if (portableMcp.$schema !== mcpSchema) {
 
 rmSync(targetRoot, { force: true, recursive: true })
 buildStandard()
-buildCodex(join(targetRoot, 'codex'), manifest, codexInterface)
-buildClaude(join(targetRoot, 'claude'), manifest)
-syncMarketplaces()
-buildDev()
+buildHost(join(targetRoot, 'codex'), (target) =>
+  writeCodexManifest(target, manifest, codexInterface)
+)
+buildHost(join(targetRoot, 'claude'), (target) => writeClaudeManifest(target, manifest))
+const marketplaces = syncMarketplaces()
+buildDev(marketplaces)
 
 console.log(
   [
@@ -50,21 +52,18 @@ function buildStandard() {
   writeJson(join(target, 'mcp.json'), portableMcp)
 }
 
-/** Codex marketplace package. Codex binds tasks over native IPC and registers no hooks. */
-function buildCodex(target, pluginManifest, interfaceMetadata) {
-  stageSharedContent(target)
+/** Codex marketplace manifest. Codex binds tasks over native IPC and registers no hooks. */
+function writeCodexManifest(target, pluginManifest, interfaceMetadata) {
   writeJson(join(target, '.codex-plugin/plugin.json'), {
     ...sharedManifestFields(pluginManifest),
     skills: './skills/',
     interface: interfaceMetadata,
     mcpServers: './.mcp.json'
   })
-  writeJson(join(target, '.mcp.json'), hostMcpConfig(portableMcp))
 }
 
-/** Claude marketplace package. Only Claude loads lifecycle hooks, so only it carries `clients/`. */
-function buildClaude(target, pluginManifest) {
-  stageSharedContent(target)
+/** Claude marketplace manifest. Only Claude loads lifecycle hooks, so only it carries `clients/`. */
+function writeClaudeManifest(target, pluginManifest) {
   cpSync(join(srcRoot, 'clients/claude'), join(target, 'clients/claude'), { recursive: true })
   cpSync(join(srcRoot, 'clients/shared'), join(target, 'clients/shared'), { recursive: true })
   writeJson(join(target, '.claude-plugin/plugin.json'), {
@@ -73,14 +72,20 @@ function buildClaude(target, pluginManifest) {
     hooks: './clients/claude/hooks.json',
     mcpServers: './.mcp.json'
   })
-  writeJson(join(target, '.mcp.json'), hostMcpConfig(portableMcp))
 }
 
 /**
  * Ignored local build pinned to this checkout's MCP runtime. Unlike a distribution it carries both
  * host layouts, so one installed package can be exercised from either host during development.
  */
-function buildDev() {
+/** A host package: shared content, the host's own manifest, and the MCP config it points at. */
+function buildHost(target, writeManifest, mcpConfig = hostMcpConfig(portableMcp)) {
+  stageSharedContent(target)
+  writeManifest(target)
+  writeJson(join(target, '.mcp.json'), mcpConfig)
+}
+
+function buildDev(marketplaces) {
   const devManifest = {
     ...manifest,
     name: devName,
@@ -88,29 +93,37 @@ function buildDev() {
     description: `Development build. ${manifest.description}`
   }
   rmSync(devRoot, { force: true, recursive: true })
-  buildCodex(devRoot, devManifest, { ...codexInterface, displayName: 'TemPad Dev (Dev)' })
-  buildClaude(devRoot, devManifest)
-  writeJson(join(devRoot, '.mcp.json'), {
-    mcpServers: {
-      [devName]: {
-        command: 'node',
-        args: [join(root, 'packages/mcp-server/dist/cli.mjs')],
-        env: {
-          TEMPAD_MCP_DEV_CHECKOUT: root,
-          TEMPAD_MCP_MAX_ASSET_STORE_BYTES: String(devMaxAssetStoreBytes)
+  buildHost(
+    devRoot,
+    (target) => {
+      writeCodexManifest(target, devManifest, {
+        ...codexInterface,
+        displayName: 'TemPad Dev (Dev)'
+      })
+      writeClaudeManifest(target, devManifest)
+    },
+    {
+      mcpServers: {
+        [devName]: {
+          command: 'node',
+          args: [join(root, 'packages/mcp-server/dist/cli.mjs')],
+          env: {
+            TEMPAD_MCP_DEV_CHECKOUT: root,
+            TEMPAD_MCP_MAX_ASSET_STORE_BYTES: String(devMaxAssetStoreBytes)
+          }
         }
       }
     }
-  })
+  )
 
-  const codexMarketplace = readJson(join(root, '.agents/plugins/marketplace.json'))
+  const codexMarketplace = structuredClone(marketplaces.codex)
   codexMarketplace.name = devName
   codexMarketplace.interface.displayName = 'TemPad Dev (Dev)'
   codexMarketplace.plugins[0].name = devName
   codexMarketplace.plugins[0].source.path = `./plugins/${devName}`
   writeJson(join(root, '.dev/.agents/plugins/marketplace.json'), codexMarketplace)
 
-  const claudeMarketplace = readJson(join(root, '.claude-plugin/marketplace.json'))
+  const claudeMarketplace = structuredClone(marketplaces.claude)
   claudeMarketplace.name = devName
   claudeMarketplace.description = `Development build. ${claudeMarketplace.description}`
   claudeMarketplace.plugins[0].name = devName
@@ -129,11 +142,13 @@ function stageSharedContent(target) {
   cpSync(join(srcRoot, 'assets'), join(target, 'assets'), { recursive: true })
   cpSync(join(root, 'packages/extension/public/icon-128.png'), join(target, 'assets/icon.png'))
   // Each skill shows the plugin mark in host skill pickers.
-  for (const skill of ['figma-canvas-authoring', 'figma-design-to-code']) {
-    cpSync(
-      join(srcRoot, 'assets/icon-padded.svg'),
-      join(target, 'skills', skill, 'assets/icon.svg')
-    )
+  for (const skill of readdirSync(join(srcRoot, 'skills'), { withFileTypes: true })) {
+    if (skill.isDirectory()) {
+      cpSync(
+        join(srcRoot, 'assets/icon-padded.svg'),
+        join(target, 'skills', skill.name, 'assets/icon.svg')
+      )
+    }
   }
 }
 
@@ -163,6 +178,8 @@ function syncMarketplaces() {
   claudeMarketplace.plugins[0].source = `./${relative(root, join(targetRoot, 'claude'))}`
   claudeMarketplace.plugins[0].description = manifest.description
   writeJson(claudeMarketplacePath, claudeMarketplace)
+
+  return { claude: claudeMarketplace, codex: codexMarketplace }
 }
 
 /** Host `.mcp.json` omits the portable `type` discriminator. */

@@ -17,6 +17,7 @@ import {
   MCP_TOOL_TIMEOUT_MS,
   DesignFeedbackSchema,
   DesignTaskSchema,
+  RESUMABLE_DESIGN_TASK_STATUSES,
   TEMPAD_MCP_ERROR_CODES,
   TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
   TEMPAD_MCP_BROWSER_SOURCE,
@@ -478,7 +479,7 @@ export const useMcp = createSharedComposable(() => {
       )
         return
       if (!ownsDesignTask(task)) {
-        if (!['paused', 'expired', 'interrupted', 'completed'].includes(task.status)) return
+        if (!RESUMABLE_DESIGN_TASK_STATUSES.includes(task.status)) return
         // An existing saved anchor also identifies this tab's task after upgrading.
         restoredTaskId.value = task.taskId
       }

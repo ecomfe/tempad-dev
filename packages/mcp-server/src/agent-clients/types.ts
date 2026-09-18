@@ -12,6 +12,11 @@ export function nativeFeedback(client: AgentClient): boolean {
   return AGENT_CLIENTS[client.kind].feedback
 }
 
+/** The conversation reachable over that native channel, which every native delivery path needs. */
+export function nativeConversation(client?: AgentClient): string | undefined {
+  return client && nativeFeedback(client) ? client.sessionId : undefined
+}
+
 export const CANVAS_ONLY: AgentCapabilities = {
   interrupt: false,
   queue: false,
