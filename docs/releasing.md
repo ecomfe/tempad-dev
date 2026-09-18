@@ -45,6 +45,23 @@ Plugin **0.2.0**. `@tempad-dev/plugins` is the separate code-output SDK; its ver
    An older branch revision's green checks do not validate the candidate. The rewrite check needs
    the repository's configured Figma credentials; keep them in CI secrets.
 
+## Bridge protocol and release order
+
+Every setup resolves `npx -y @tempad-dev/mcp@latest` on each launch, so moving the npm `latest`
+tag upgrades the MCP server of every existing installation, while the extension waits for Chrome
+Web Store review and staged rollout. `TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION` therefore decides the
+order:
+
+| Hub change                                        | Order                                                 |
+| ------------------------------------------------- | ----------------------------------------------------- |
+| Still announces the released extension's protocol | Publish `latest` any time; store release is unrelated |
+| Dropped the released extension's protocol         | Promote `latest` at store publication, before rollout |
+
+Keep the previous extension protocol in `TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS` for at
+least one store cycle so the first case stays the normal one. Extensions released before this rule
+existed (0.20.0 and earlier) reject any Hub that announces a protocol version at all; only the
+second ordering protects them.
+
 ## Publish the coordinated release
 
 The Agent Plugin follows `main` and launches the npm `latest` tag. Make the required stable MCP
@@ -52,16 +69,21 @@ version available before exposing the new plugin on `main`.
 
 1. Prepare the Chrome Web Store submission using the archive from the checked candidate. Retain
    its SHA-256 digest and the exact source revision.
-2. Dispatch `publish-mcp.yml` from that checked candidate ref with `tag=latest`. Its
-   `prepublishOnly` hook rebuilds the package before npm publication. Confirm that both
-   `npm view @tempad-dev/mcp@0.8.0 version` and `npm view @tempad-dev/mcp@latest version` return
-   `0.8.0`.
-3. Make extension 0.21.0 available through the Chrome Web Store, and merge the approved candidate
-   so the marketplace serves Agent Plugin 0.2.0. Verify that the portable, Codex, and Claude
-   manifests agree, and that each generated package carries only its own channel's manifests.
-   Do not publish the Agent Plugin through `publish-plugins.yml`; that workflow owns the
-   separate `@tempad-dev/plugins` SDK.
-4. Check the installed extension version, npm dist-tag, and installed plugin/skill versions before
+2. Dispatch `publish-mcp.yml` from that checked candidate ref with `tag=next`. Its
+   `prepublishOnly` hook rebuilds the package before npm publication. Confirm that
+   `npm view @tempad-dev/mcp@0.8.0 version` returns `0.8.0` and that `@latest` is unchanged.
+   Publishing without promoting keeps every existing installation on its working pair and gives
+   support an exact version to pin.
+3. When the Chrome Web Store publishes extension 0.21.0, promote the same version with
+   `npm dist-tag add @tempad-dev/mcp@0.8.0 latest`, before the store rollout reaches users.
+   Confirm `npm view @tempad-dev/mcp@latest version` returns `0.8.0`. MCP 0.8.0 stops serving the
+   protocol of extension 0.20.0 and earlier, so promoting it before the store publication breaks
+   every installation that has not updated yet.
+4. Merge the approved candidate so the marketplace serves Agent Plugin 0.2.0. Verify that the
+   portable, Codex, and Claude manifests agree, and that each generated package carries only its
+   own channel's manifests. Do not publish the Agent Plugin through `publish-plugins.yml`; that
+   workflow owns the separate `@tempad-dev/plugins` SDK.
+5. Check the installed extension version, npm dist-tag, and installed plugin/skill versions before
    announcing canvas-authoring availability. If a user-facing live authoring check is needed,
    follow [the authoring evolution runbook](testing/agent-authoring-evolution.md).
 

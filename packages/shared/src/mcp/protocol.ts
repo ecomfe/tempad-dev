@@ -2,7 +2,6 @@ import type { ZodType } from 'zod'
 
 import { z } from 'zod'
 
-import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION } from './constants'
 import {
   DesignTaskSchema,
   DesignToolRouteSchema,
@@ -13,50 +12,44 @@ import {
 import { TempadMcpErrorPayloadSchema } from './errors'
 import { hasToolResultOutcome, TOOL_RESULT_OUTCOME_ERROR } from './tool-result'
 
-// Messages from hub to extension
-export const RegisteredMessageSchema = z
-  .object({
-    type: z.literal('registered'),
-    id: z.string().min(1),
-    protocolVersion: z.literal(TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION)
-  })
-  .strict()
+// Messages from hub to extension. These stay open to unknown keys: a newer Hub reaches an older
+// installed extension, and rejecting an added field would break that extension's whole session.
+// The extension decides compatibility from the announced versions, not from the message shape.
+export const RegisteredMessageSchema = z.object({
+  type: z.literal('registered'),
+  id: z.string().min(1),
+  protocolVersion: z.number().int().positive(),
+  supportedProtocolVersions: z.array(z.number().int().positive()).min(1).optional()
+})
 
-export const StateMessageSchema = z
-  .object({
-    type: z.literal('state'),
-    activeId: z.string().nullable(),
-    assetServerUrl: z.string().url()
-  })
-  .strict()
+export const StateMessageSchema = z.object({
+  type: z.literal('state'),
+  activeId: z.string().nullable(),
+  assetServerUrl: z.string().url()
+})
 
-export const ToolCallPayloadSchema = z
-  .object({
-    name: z.string(),
-    args: z.unknown()
-  })
-  .strict()
+export const ToolCallPayloadSchema = z.object({
+  name: z.string(),
+  args: z.unknown()
+})
 
-export const ToolCallMessageSchema = z
-  .object({
-    type: z.literal('toolCall'),
-    id: z.string().min(1),
-    route: DesignToolRouteSchema.optional(),
-    payload: ToolCallPayloadSchema
-  })
-  .strict()
+export const ToolCallMessageSchema = z.object({
+  type: z.literal('toolCall'),
+  id: z.string().min(1),
+  route: DesignToolRouteSchema.optional(),
+  payload: ToolCallPayloadSchema
+})
 
-export const DesignTaskStateMessageSchema = z
-  .object({ type: z.literal('designTaskState'), task: DesignTaskSchema })
-  .strict()
+export const DesignTaskStateMessageSchema = z.object({
+  type: z.literal('designTaskState'),
+  task: DesignTaskSchema
+})
 
-export const DesignActionResultMessageSchema = z
-  .object({
-    type: z.literal('designActionResult'),
-    sessionId: z.string().min(1),
-    result: DesignActionResultSchema
-  })
-  .strict()
+export const DesignActionResultMessageSchema = z.object({
+  type: z.literal('designActionResult'),
+  sessionId: z.string().min(1),
+  result: DesignActionResultSchema
+})
 
 export const DesignActionMessageSchema = z
   .object({
@@ -74,7 +67,8 @@ export const MessageToExtensionSchema = z.discriminatedUnion('type', [
   ToolCallMessageSchema
 ])
 
-// Messages from extension to hub
+// Messages from extension to hub. These stay strict: the Hub updates on every launch, so an
+// unexpected field means a real mismatch rather than an older peer.
 export const ActivateMessageSchema = z
   .object({
     type: z.literal('activate')
