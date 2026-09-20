@@ -47,6 +47,9 @@ are therefore required even though the listeners bind only to `127.0.0.1`.
 
 - The listener binds to `127.0.0.1` and accepts only the root path without a query string.
 - The handshake requires a syntactically valid `chrome-extension://<32-character-id>` Origin.
+- The `tempad-mcp` WebSocket subprotocol selects versioned registration; an absent subprotocol
+  selects the released read-only wire. Legacy connections cannot publish runtime/session identity,
+  obtain a task lease, or receive task-bound calls. Unknown subprotocols are rejected.
 - `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS` can replace compatibility mode with an exact,
   comma-separated Origin allowlist.
 - Concurrent extension connections are capped (16 by default) before registration state is
@@ -63,7 +66,8 @@ are therefore required even though the listeners bind only to `127.0.0.1`.
 
 ### Asset HTTP server
 
-- Every hub process generates a 256-bit random capability path. The full capability-bearing URL is
+- Every hub process generates separate 256-bit random capability paths for current and legacy
+  connections. The full capability-bearing URL is
   delivered only in the extension handshake and is redacted from request logs.
 - Web Origins are rejected. Extension-origin requests must come from the currently active extension,
   and that exact Origin is echoed instead of emitting wildcard CORS. Origin-less local MCP clients
@@ -71,8 +75,12 @@ are therefore required even though the listeners bind only to `127.0.0.1`.
 - Uploads enforce per-asset size, reserve aggregate quota before concurrent bodies are accepted, and
   cap concurrent uploads. Server connections and concurrent downloads are capped; HTTP headers,
   header wait time, request/response time, and keep-alive time are bounded.
-- New uploads use full lowercase SHA-256 identifiers. Legacy 8-character identifiers remain
-  download-only until the asset TTL expires so upgrades do not strand cached assets.
+- Current uploads use full lowercase SHA-256 identifiers. The legacy capability alone permits
+  8-character SHA-256-prefix uploads for extension 0.20.0. It hashes every upload, including retries,
+  and rejects a collision with an existing asset's full content without overwriting it. This does
+  not eliminate short-hash collisions; such clients must update to export the colliding asset.
+  Both capabilities share origin policy, upload reservations, concurrency limits, and store quota.
+  Short-hash downloads remain available so upgrades do not strand cached assets.
 - Downloads use attachment disposition, `nosniff`, a restrictive CSP, no referrer, and private cache
   semantics.
 - Stdio tool results may expose an existing asset-store file as `asset.localPath`. The path creates

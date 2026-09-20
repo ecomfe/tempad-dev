@@ -12,6 +12,27 @@ afterEach(async () => {
 })
 
 describe('extension WebSocket server', () => {
+  it('rejects unknown subprotocols before registering a connection', async () => {
+    const started = await startExtensionWebSocketServer({
+      maxConnections: 2,
+      maxPayloadBytes: 1024,
+      originPolicy: createExtensionOriginPolicy(STORE_ORIGIN),
+      portCandidates: [0]
+    })
+    servers.push(started.server)
+    const connection = vi.fn()
+    started.server.on('connection', connection)
+    const socket = new WebSocket(`ws://127.0.0.1:${started.port}/`, 'unknown', {
+      origin: STORE_ORIGIN
+    })
+    await expect(
+      new Promise((resolve, reject) => {
+        socket.once('open', resolve)
+        socket.once('error', reject)
+      })
+    ).rejects.toThrow('401')
+    expect(connection).not.toHaveBeenCalled()
+  })
   it('accepts the configured extension Origin and rejects web Origins and query paths', async () => {
     const onRejectedHandshake = vi.fn()
     const started = await startExtensionWebSocketServer({

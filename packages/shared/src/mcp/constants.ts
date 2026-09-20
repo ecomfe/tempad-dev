@@ -1,5 +1,9 @@
 export const MCP_PORT_CANDIDATES = [6220, 7431, 8127]
 
+// Select versioned registration before the first frame. Extension 0.20.0 sends no
+// subprotocol and strictly rejects version fields; it uses the legacy read-only wire.
+export const TEMPAD_MCP_BRIDGE_SUBPROTOCOL = 'tempad-mcp'
+
 // Bump whenever the wire contract between Hub and extension changes, including shared
 // tool-contract changes. A bump no longer forces both sides to ship together: the Hub keeps
 // serving the versions below, and the extension accepts any Hub that still lists its own.

@@ -268,21 +268,22 @@ export class McpServiceWorkerBroker {
         const task = fileKey
           ? (this.designTasks.get(fileKey) ?? this.reviews().get(fileKey))
           : undefined
-        if (task?.taskId === message.action.taskId) {
+        if (task?.taskId === message.action.taskId)
           await this.reviews().save({ ...task, status: 'cancelled', operation: null })
-          this.publishSessions()
-        }
-        if (this.hubClient.getSnapshot().status === 'connected') {
-          try {
+        try {
+          if (this.hubClient.getSnapshot().status === 'connected') {
             this.hubClient.sendDesignAction({
               type: 'designAction',
               sessionId: message.sessionId,
               action: message.action
             })
             return
-          } catch {
-            // The page has already stopped the task even if host delivery fails.
           }
+        } catch {
+          // The page has already stopped the task even if host delivery fails.
+        } finally {
+          // Stop must reach the Hub before a cancelled snapshot makes it an already-ended no-op.
+          if (task?.taskId === message.action.taskId) this.publishSessions()
         }
         await this.handleDesignActionResult(message.sessionId, {
           requestId: message.action.requestId,

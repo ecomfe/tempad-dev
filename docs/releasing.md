@@ -18,8 +18,10 @@ Plugin **0.2.0**. `@tempad-dev/plugins` is the separate code-output SDK; its ver
    package changelogs and English/Chinese installation guidance. Obtain explicit authorization
    before creating commits, as required by the repository's agent guide.
 2. Run `pnpm agent-plugin:build` after changing anything under `agent-plugin/src/`. Inspect the
-   generated output under `agent-plugin/targets/`, `.agents/plugins/marketplace.json`, and
-   `.claude-plugin/marketplace.json`. Release MCP configuration must use `@tempad-dev/mcp@latest`.
+   generated output under `agent-plugin/targets/`, `.plugin/marketplace.json`,
+   `.agents/plugins/marketplace.json`, and `.claude-plugin/marketplace.json`. Run
+   `pnpm agent-plugin:check-installer` to verify marketplace routing and MCP discovery with
+   the actual installer. Release MCP configuration must use `@tempad-dev/mcp@latest`.
 3. Run the checks in [TESTING.md](../TESTING.md), then `pnpm format:check`, `pnpm build`, and
    `pnpm zip`. Ordinary build must not change tracked agent-plugin files. The extension archive is
    written to `packages/extension/.output/tempad-dev-0.21.0-chrome.zip` for this release.
@@ -52,22 +54,52 @@ Plugin **0.2.0**. `@tempad-dev/plugins` is the separate code-output SDK; its ver
 
 Every setup resolves `npx -y @tempad-dev/mcp@latest` on each launch, so moving the npm `latest`
 tag upgrades the MCP server of every existing installation, while the extension waits for Chrome
-Web Store review and staged rollout. `TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION` therefore decides the
-order:
+Web Store review and staged rollout. Store publication does not establish that existing users
+have installed the update or reloaded their running extension and Figma tab.
 
-| Hub change                                        | Order                                                 |
-| ------------------------------------------------- | ----------------------------------------------------- |
-| Still announces the released extension's protocol | Publish `latest` any time; store release is unrelated |
-| Dropped the released extension's protocol         | Publish `latest` at store publication, before rollout |
+| Hub change                                          | Release requirement                                                                                           |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Still serves the released extension's wire contract | Verify old-extension/new-Hub interoperability before publishing `latest`.                                     |
+| Drops the released extension's wire contract        | Block `latest` until a tested compatibility transition or an explicitly approved breaking migration is ready. |
 
 Keep the previous extension protocol in `TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS` for at
 least one store cycle so the first case stays the normal one. Listing a version is a promise about
-the bytes, and the Hub has no per-connection shape downgrade: an added hub-to-extension _envelope_
+the bytes. For versioned peers, an added hub-to-extension _envelope_
 field is tolerated by the schemas, but a field added inside a payload object (`task`, `route`,
-`result`) is not, so such a change must either stay out of that direction or drop the older version
-from the list and take the second ordering. Extensions released before this rule existed (0.20.0
-and earlier) reject any Hub that announces a protocol version at all; only the second ordering
-protects them.
+`result`) is not, so such a change must either preserve the older payload shape or follow a
+separate migration plan. An entry in the support list is not itself compatibility evidence.
+
+Extension 0.20.0 strictly rejects versioned registration. MCP 0.8.0 now selects a separate legacy
+wire path before the first frame: no WebSocket subprotocol selects the released read-only contract;
+`tempad-mcp` selects versioned registration. Do not add the unversioned client to the numeric version
+list. See the [gateway design](extension/mcp-browser-gateway-design.md#released-unversioned-extensions)
+for argument restrictions and collision-safe legacy asset uploads.
+
+### Compatible rollout
+
+| Extension | Hub                   | Behavior and recovery                                                                                                                                                                                                                                                                         |
+| --------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.20.0    | 0.8.0                 | Existing taskless code, structure, and screenshot reads and asset exports continue working. Authoring and new read options explain how to update the extension and reload Figma.                                                                                                              |
+| 0.21.0    | 0.8.0                 | Versioned session routing, runtime identity, and task fences apply.                                                                                                                                                                                                                           |
+| 0.21.0    | 0.7.1 already running | Registration is rejected with instructions to restart the agent's MCP connection using `@tempad-dev/mcp@latest`. Close other agents keeping the old shared Hub alive, then restart. Reloading Figma alone does not upgrade the Hub. The extension reconnects automatically after replacement. |
+
+1. Run `pnpm mcp:check-bridge` against the candidate. It builds and launches a real isolated Hub
+   and uses the frozen 0.20.0 receiving schema and released result fixtures to check reads, short-hash
+   uploads/downloads, reconnects, upgrade errors, and isolation of task-bound calls. Broker tests
+   cover rejection of an old Hub and automatic recovery after replacement. These are deterministic
+   protocol checks; they do not attest to a live store-installed Figma runtime or host controls.
+2. Complete the installed-host acceptance gates and record the exact candidate artifacts. Verify
+   the released 0.20.0 extension's read/export workflow against the candidate Hub in an isolated
+   browser profile before publication, and verify the new extension against that same Hub.
+3. Publish the backward-compatible MCP to `latest` first, then release the new extension and
+   expose the new Agent Plugin on `main`. Existing extension installations must continue working
+   throughout the store rollout. Keep the independent native-host acceptance requirement.
+4. Retain the legacy path for at least one store cycle. Removing it is a separate breaking
+   release decision with a documented recovery path, not an automatic consequence of store
+   publication or elapsed time.
+
+Publishing to the store alone does not retire old installations. Keep the adapter and its fixture
+checks throughout the rollout; never treat store availability as evidence that every user updated.
 
 ## Publish the coordinated release
 
@@ -76,18 +108,20 @@ version available before exposing the new plugin on `main`.
 
 1. Prepare the Chrome Web Store submission using the archive from the checked candidate. Retain
    its SHA-256 digest and the exact source revision.
-2. Wait for the Chrome Web Store to publish extension 0.21.0. Do not publish MCP before that:
-   0.8.0 stops serving the protocol of extension 0.20.0 and earlier, so an earlier `latest` breaks
-   every installation that has not updated yet.
-3. Once the store has published, dispatch `publish-mcp.yml` from that checked candidate ref with
-   `tag=latest`, before the store rollout reaches users. Its `prepublishOnly` hook rebuilds the
+2. Resolve the bridge migration requirement above and the installed-host feedback acceptance
+   findings before scheduling publication. Record the compatible version combinations and
+   rollout/recovery procedure against the checked candidate. Store availability alone is not
+   sufficient. The current Codex findings are tracked in the
+   [IPC report](engineering/codex-desktop-ipc.md#release-blocking-installed-host-findings).
+3. Follow that verified transition when dispatching `publish-mcp.yml` from the checked candidate
+   ref with `tag=latest`. Its `prepublishOnly` hook rebuilds the
    package before npm publication. Confirm that both `npm view @tempad-dev/mcp@0.8.0 version` and
-   `npm view @tempad-dev/mcp@latest version` return `0.8.0`. If the dispatch cannot follow the
-   publication promptly, publish `tag=next` first so support can pin an exact version, then
-   dispatch `tag=latest`.
+   `npm view @tempad-dev/mcp@latest version` return `0.8.0`. A `next` publication may be used for
+   isolated candidate testing; it neither completes the migration nor changes release plugin
+   configurations away from `latest`.
 4. Merge the approved candidate so the marketplace serves Agent Plugin 0.2.0. Verify that the
-   portable, Codex, and Claude manifests agree, and that each generated package carries only its
-   own channel's manifests. Do not publish the Agent Plugin through `publish-plugins.yml`; that
+   standard, plugins-CLI, Codex, and Claude manifests agree, and that each generated package
+   carries only its own channel's manifests. Do not publish the Agent Plugin through `publish-plugins.yml`; that
    workflow owns the separate `@tempad-dev/plugins` SDK.
 5. Check the installed extension version, npm dist-tag, and installed plugin/skill versions before
    announcing canvas-authoring availability. If a user-facing live authoring check is needed,

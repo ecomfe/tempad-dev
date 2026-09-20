@@ -11,6 +11,151 @@ remain in [Design tasks, client integration, and feedback](../extension/mcp-desi
 
 ## Release-blocking installed-host findings
 
+### 2026-09-20 implementation follow-up
+
+Rechecked installed Codex App **26.915.31945, build 9922**, with bundled CLI
+**0.155.0-alpha.9.2**. The current renderer still selects its server queue only when
+enabled and the legacy queue is empty. Its `thread-follower-set-queued-follow-ups-state`
+handler still calls the legacy replacement writer. A fresh targeted, read-only
+`thread/queue/list` request found the conversation owner but returned `no-client-found`.
+The input-box server requests use the internal renderer/app-server transport; the
+native send-message tool exposes neither Queue mode nor targeted queue removal.
+
+The live app-server also opens `CODEX_HOME/queue_1.sqlite`. Read-only SQLite access
+can observe committed `queued_items` rows by `thread_id`, including WAL changes.
+This corrects the earlier implication that the server queue cannot be read at all:
+its persisted local state is accessible, although the existing follower IPC does
+not expose it. Both stores were empty for the inspected task, so that probe alone
+does not validate nonempty payload decoding or establish its feature-gate value.
+
+The adapter now retains a populated legacy queue and uses native server admission
+when a server database exists and the legacy queue is empty. It lazily discovers
+the running desktop's unique bundled executable and manages a queue-only companion
+process using the Hub's Codex home/configuration. Native list/add/delete operations
+own all server writes; no queue items are copied between stores or written with SQL.
+Unknown database/schema/read state fails with drafts retained. A missing database
+retains the older-host path. The existing bounded Start fallback still checks both
+stores before submitting. Stop follows each receipt's recorded backend, independently
+of the current backend selection.
+
+The source adapter has passed the isolated native-owner experiment described below,
+including duplicate-delivery suppression, cancellation, ordering, and idle execution.
+That experiment did not establish the renderer feature gate or desktop presentation;
+the installed-host observations below provide separate evidence. Single-user legacy
+read/merge/set has a residual race; atomicity alone is not a release gate.
+
+The subsequent interactive check confirmed visible native A / Figma B / native C
+coexistence, draft clearing, and execution in that order. Stop removed the Figma
+submission and preserved the independent native submission, but did not interrupt
+the running response. A broker regression reproduced cancellation snapshots being
+sent before the explicit Stop action. The Hub consequently treats Stop as an
+already-ended task and skips interruption. The broker now dispatches Stop before
+publishing that snapshot, while retaining durable local cancellation. After the
+extension refresh, Figma Stop interrupted the running Codex response, the user
+confirmed the interruption, and the Hub logged `interrupted: true` for the exact
+target turn at 2026-09-20 10:28:07 +08:00. The task remained cancelled on read-back.
+A fresh task then delivered Figma Steer into the already-running response, which
+acknowledged it without ending the turn first. Stopping that fresh task interrupted
+the response again; after refreshing Figma, the user still saw cancellation and
+native task read-back confirmed `status: cancelled`. This checks page-refresh
+persistence, not every transport-failure or host-restart scenario.
+
+Current archive evidence: `webview/assets/app-initial-a498f911edeb.js`, SHA-256
+`34a75db63c7137eb4caecdba1f36d631c10c7912487e532fd5e9dafb175bb9be`;
+`.vite/build/src-C3YaUE83.js`, SHA-256
+`14c8c23e8b8dfa874d3fb5a50d54fb28eccf55fb83232c3ab29cb7c0ef0a0472`.
+
+#### Read/append/set verification
+
+A further 2026-09-20 check regenerated the complete app-server JSON Schema with
+`generate-json-schema --experimental` from the installed executable. Its
+`ClientRequest` union contains exactly six `thread/queue/*` methods: `add`, `list`,
+`update`, `delete`, `reorder`, and `start`. There is no server-queue `set` or
+whole-list replacement request. `update` accepts a single `queuedSubmissionId`
+and `input`; `reorder` accepts only submission IDs, not new message content.
+Scanning all 11,164 packed JavaScript files found the same six request names and
+the `changed` notification, with no additional `thread/queue/*` operation.
+
+The replacement call chain was traced again in the installed renderer and main
+process: `thread-follower-set-queued-follow-ups-state` calls `acceptFromFollower`,
+which applies a replacement through `storage.update`; `updateQueuedFollowUps`
+commits `QUEUED_FOLLOW_UPS` through the global-state store. This path does not
+forward a server-queue request. The complete follower handler registration also
+contains no server-queue operation. A fresh connection discovered the current
+conversation owner, but a targeted read-only `thread/queue/list` v0 request again
+returned `no-client-found`.
+
+For this installed build, reading the database, appending locally, and calling
+the existing follower `set` therefore cannot implement a server-queue addition:
+it writes a second list to the legacy store while leaving the server submissions
+intact. This limitation is independent of concurrent user input or atomicity.
+The verification did not submit, replace, or delete any live queue entries.
+
+#### Queue-only companion process: verified feasibility
+
+The absence of a direct owner RPC route does not prevent every native queue
+integration. A subsequent experiment used two instances of the installed bundled
+CLI, a shared temporary `CODEX_HOME`, and a local mock Responses server. No real
+account, desktop task, or Figma document was changed. The original process created
+and executed the fixture task. The companion process only initialized and called
+queue APIs plus `thread/loaded/list`; it never resumed or executed that task.
+
+Observed behavior in this build:
+
+- The companion can call `thread/queue/add` for a persisted task owned by the
+  original process. Its loaded-thread list remains empty.
+- Both processes read the same native queue through `thread/queue/list`.
+- Cross-process changes are not immediately pushed to the original process.
+  Observed periodic notifications were approximately ten seconds apart. An
+  eleven-second observation window caught both admission and deletion changes.
+  The renderer's existing `thread/queue/changed` handler refetches its queue.
+- After an active turn completes, the original process consumes the companion's
+  queued message and emits the subsequent turn lifecycle. With the original
+  task already idle, it also discovers and executes companion admissions without
+  a new `thread/resume` or an externally requested `thread/queue/start`.
+- A held-turn test enqueued native A, companion B, then native C. Deleting B by
+  its returned submission ID preserved A and C. Releasing the held turn caused
+  only the original process to execute A followed by C. The companion still had
+  no loaded threads.
+- `clientUserMessageId` is not an idempotency key: adding twice with the same
+  value created two different submission IDs. Durable receipts and uncertain
+  delivery reconciliation remain necessary.
+- A newly created task without a persisted rollout could not be addressed from
+  the companion. It became addressable after a fixture turn completed. This is
+  a pre-admission error, not permission to resume the task in the companion.
+
+This corrects the earlier blanket rejection of another app-server process.
+A queue-only native writer is materially different from resuming or executing the
+same task in a second process. The prototype establishes queue persistence,
+cross-process observation, original-owner execution, and targeted cancellation.
+It does not establish installed-desktop presentation or complete TemPad support.
+
+The adapter discovers the unique running bundled executable, automatically manages
+one companion connection, and restricts it to queue list/add/delete operations.
+The companion inherits Codex home/configuration from the Hub. It must never
+resume a task, start a turn, or execute a queued item in the companion. Keep native
+owner IPC for lifecycle, direct idle submissions, Steer, and guarded interruption.
+Do not copy messages between stores or issue direct SQL writes.
+
+Receipts retain the stable TemPad feedback identity and an explicit backend
+discriminator. Cancellation lists that backend, matches `clientUserMessageId`,
+and deletes the matching native `queuedSubmission.id` values. Native IDs need not
+be duplicated in the receipts, including when the admission response was lost.
+Cancellation uses the admitting backend even after queue selection changes. Reserve before
+dispatch and acknowledge native admission only after the RPC succeeds. On an
+uncertain response, reconcile by client identity; absence alone does not prove
+non-admission because the owner may already have consumed the item. Do not retry
+an uncertain add automatically. Stop fences further admissions first, then deletes
+only this task's admitted IDs and interrupts the captured owner turn independently.
+
+The interactive checks above establish queue visibility/coexistence, ordered
+execution, targeted removal, and interruption for the tested desktop configuration.
+They do not expose the renderer gate value or measure a refresh-delay bound.
+Restart and uncertain-response behavior also have deterministic regression coverage.
+Figma shows native admission without waiting for the desktop's periodic refresh.
+
+### Original installed-host findings
+
 The 2026-09-17 installed-plugin acceptance exposed a queue-backend conflict. After
 the user queued an independent message in Codex, admitting a Figma comment through
 the legacy follower endpoint made that independent message disappear from the
@@ -24,7 +169,8 @@ that TemPad deleted the server-side submission. The adapter does not call
 Basic Queue admission, consecutive submission, draft clearing, queued execution,
 and Steer had passed immediately before this test. Those observations remain valid
 for their exercised paths; they do not establish safe coexistence with independent
-server-queue input. Release remains blocked on that coexistence requirement.
+server-queue input. That finding blocked release until the later server-admission
+implementation and interactive coexistence check described above.
 
 Further inspection of the same installed build found these transport boundaries:
 
@@ -36,13 +182,13 @@ Further inspection of the same installed build found these transport boundaries:
 | Existing local app-server transport    | The running bundled process uses stdio; inspection found no named Unix or TCP listener for that process                          | There is no discovered local endpoint for a second plugin client.                             |
 | SSH app-server control transport       | S2 `Tk` selects it only for SSH hosts; `Ck` owns the remote connection                                                           | It does not provide access to this existing local conversation.                               |
 
-No server-queue mutation was used for this investigation. These results apply to
+No server-queue mutation was used for that investigation. These results apply to
 the inspected build and running host; they do not prove that every future host will
-lack an endpoint. Completing the requested integration requires an externally
-reachable owner route for atomic queue addition and targeted removal, with native
-queue change observation or reads. Starting a second server, changing host state,
-or injecting calls into the renderer would not establish the normal plugin
-installation path.
+lack an endpoint. A direct owner route would provide immediate native queue
+notifications. The later isolated companion-process experiment above establishes
+another route with periodic observation, without taking ownership of the task.
+That process must be managed automatically by the plugin/runtime; a manually
+launched helper or a changed host configuration is not the normal installation path.
 
 Figma Stop also failed to interrupt the active Codex response in this test, although
 the design task became permanently cancelled. A deterministic regression showed
@@ -57,7 +203,8 @@ active turn. Capability reporting and Stop now share target resolution, capture 
 target before cancellation callbacks, and record skipped, dispatched, acknowledged,
 and failed interruptions. These are reproduced failure paths; the live request
 metadata and interruption result were not retained, so neither is conclusive
-attribution of the observed interruption failure. Live acceptance remains pending.
+attribution of the observed interruption failure. The subsequent broker-ordering
+regression and successful refreshed-host acceptance are recorded above.
 
 ## Findings
 
@@ -722,7 +869,7 @@ It is not a claim about a published release.
 | ------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | Identity     | Host-supplied MCP metadata, then exact owner discovery                          | Focused windows never establish identity                                         |
 | Lifecycle    | Follows v11 snapshots/patches with a minimal turn projection                    | Full initial snapshot still transfers                                            |
-| Queue        | Fresh committed local snapshot, merge, native replacement acknowledgement       | Composer races remain possible; installed-host server-queue coexistence failed   |
+| Queue        | Native server add, or legacy snapshot/merge/replacement when selected           | Tested desktop coexistence passes; legacy composer races remain possible         |
 | Steer        | Idle Start path; busy owner uses native Steer                                   | Promotion of an already admitted batch is unavailable                            |
 | Stop         | Permanent task fence, expected-turn interruption, targeted native queue removal | A consumed message cannot be recalled; failed removal retries after reconnection |
 | Windows      | Fixed local pipe, OS URL handler, deterministic tests                           | Native Windows host verification is outstanding                                  |
@@ -734,14 +881,16 @@ revisions and permits the next batch after native admission. A final receipt arr
 before the initial Hub response unlocks the editor immediately; the late response cannot
 reset a newer batch's submission state. Initial Hub acceptance alone keeps the batch pending.
 
-The adapter keeps user-authored comments in `context.prompt` and the original task ID
-in untrusted `writingBlockAdditionalContext`. It does not remove provenance flags from
-existing queued messages, alter their fields, or change the owner's permission settings.
+Legacy admission keeps comments in `context.prompt` and the task ID in untrusted
+`writingBlockAdditionalContext`. Server admission sends formatted feedback only and
+retains task attribution in durable receipts. Neither path strips provenance flags
+from existing messages or changes the owner's permission settings.
 
 Native admission, automatic execution, and removal have been exercised against the
-inspected macOS host. The subsequent installed-plugin acceptance exposed a server-queue
-coexistence failure and an interruption failure, described above. A successful admission
-does not establish queue isolation or make the replacement endpoint atomic.
+inspected macOS host. Installed-plugin acceptance exposed server-queue coexistence
+and interruption failures; the fixes and successful interactive rechecks are recorded
+above. These observations do not make the legacy replacement endpoint atomic or
+establish support for every host version and platform.
 
 ## Reproducing and extending the research
 

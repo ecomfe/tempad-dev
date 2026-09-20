@@ -1,4 +1,8 @@
-import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION, type RuntimeHelloMessage } from '@tempad-dev/shared'
+import {
+  TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+  TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+  type RuntimeHelloMessage
+} from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { McpHubClient } from '@/mcp/broker/hub-client'
@@ -84,7 +88,8 @@ function createClient(
 ): McpHubClient {
   return new McpHubClient(
     events,
-    (url) => {
+    (url, protocol) => {
+      expect(protocol).toBe(TEMPAD_MCP_BRIDGE_SUBPROTOCOL)
       const socket = new FakeWebSocket(url)
       sockets.push(socket)
       return socket as unknown as WebSocket
@@ -424,8 +429,39 @@ describe('mcp/broker/hub-client', () => {
       status: 'error'
     })
     expect(client.getSnapshot().errorMessage).toContain(
-      'Update the extension and MCP server together'
+      'Restart the agent and its TemPad Dev MCP connection using @tempad-dev/mcp@latest'
     )
+    expect(sockets.every((socket) => socket.sent.length === 0)).toBe(true)
+    client.stop()
+  })
+
+  it('recovers after an old Hub is replaced without sending new frames to it', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const identity: RuntimeHelloMessage = {
+      type: 'runtimeHello',
+      extensionVersion: '0.21.0',
+      extensionRuntimeFingerprint: 'a'.repeat(64)
+    }
+    const client = createClient(sockets, {}, identity)
+    client.start()
+    await flushMicrotasks()
+    for (let index = 0; index < 3; index++) {
+      sockets[index]!.open()
+      sockets[index]!.receive({ type: 'registered', id: 'old-hub' })
+      await flushMicrotasks()
+    }
+    expect(client.getSnapshot().errorMessage).toContain('Reloading Figma alone does not update')
+    expect(sockets.every((socket) => socket.readyState === 3 && socket.sent.length === 0)).toBe(
+      true
+    )
+    await vi.advanceTimersByTimeAsync(3000)
+    completeHandshake(sockets[3]!)
+    await flushMicrotasks()
+    expect(client.getSnapshot()).toMatchObject({ status: 'connected', errorMessage: null })
+    expect(sockets[3]!.sent.map((message) => JSON.parse(message))).toEqual([identity])
     client.stop()
   })
 

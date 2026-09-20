@@ -124,6 +124,13 @@ export const MessageFromExtensionSchema = z.union([
   PingMessageSchema
 ])
 
+// Unversioned clients cannot publish sessions, runtime identity, or design actions.
+export const LegacyMessageFromExtensionSchema = z.union([
+  ActivateMessageSchema,
+  ToolResultMessageSchema,
+  PingMessageSchema
+])
+
 export type RegisteredMessage = z.infer<typeof RegisteredMessageSchema>
 export type StateMessage = z.infer<typeof StateMessageSchema>
 export type ToolCallPayload = z.infer<typeof ToolCallPayloadSchema>

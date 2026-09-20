@@ -45,18 +45,23 @@ default authority unless a routed document says otherwise.
 - Every channel resolves directly from a Git ref, so each target is committed, and
   each carries only what its own installer reads:
 
-  | Channel                                    | Target                                 | Carries                                       |
-  | ------------------------------------------ | -------------------------------------- | --------------------------------------------- |
-  | `npx plugins add` (Cursor, VS Code, …)     | `agent-plugin/targets/standard`        | `plugin.json`, `mcp.json` (Agent Plugins 1.0) |
-  | `codex plugin marketplace add`             | `agent-plugin/targets/codex`           | `.codex-plugin/`, `.mcp.json`                 |
-  | `claude plugin marketplace add`            | `agent-plugin/targets/claude`          | `.claude-plugin/`, `.mcp.json`, `clients/`    |
-  | `npx skills add` / `gemini skills install` | `agent-plugin/targets/standard/skills` | skills only                                   |
+  | Channel                                    | Target                                 | Carries                                    |
+  | ------------------------------------------ | -------------------------------------- | ------------------------------------------ |
+  | Agent Plugins 1.0 consumers                | `agent-plugin/targets/standard`        | `plugin.json`, `mcp.json`                  |
+  | `npx plugins add` (Cursor, VS Code, …)     | `agent-plugin/targets/plugins-cli`     | `.plugin/plugin.json`, `.mcp.json`         |
+  | `codex plugin marketplace add`             | `agent-plugin/targets/codex`           | `.codex-plugin/`, `.mcp.json`              |
+  | `claude plugin marketplace add`            | `agent-plugin/targets/claude`          | `.claude-plugin/`, `.mcp.json`, `clients/` |
+  | `npx skills add` / `gemini skills install` | `agent-plugin/targets/standard/skills` | skills only                                |
 
 - A target must not carry another channel's layout. A standard consumer projects
   `plugin.json` onto the host itself, so a host layout beside it would be a second
   source of truth for the same package; each host target likewise omits the standard
   manifests and the other host's directory. Only Claude loads lifecycle hooks, so
   only `targets/claude` carries `clients/`.
+- The current `plugins` CLI reads `.plugin/marketplace.json` before the Claude
+  marketplace and does not read Agent Plugins 1.0 manifests. Generate that entry
+  to point at `targets/plugins-cli`; keep the compatibility layout separate from
+  `targets/standard`. Run `pnpm agent-plugin:check-installer` after packaging changes.
 - `agent-plugin/src/plugin.json` and `mcp.json` own every shared manifest and MCP
   field. Host-specific authored extras live under `agent-plugin/src/clients/`:
   `claude/hooks.json`, `codex/interface.json` (Codex directory presentation), and

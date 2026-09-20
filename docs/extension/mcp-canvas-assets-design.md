@@ -311,9 +311,12 @@ an SSRF surface.
 ### Content identity
 
 New asset descriptors and store paths use the complete lowercase SHA-256 digest. The extension and
-Hub validate the digest again after every upload and download. The Hub retains download-only
-support for legacy 8-character identifiers until cached assets expire; new model-facing asset IDs
-always use the full digest.
+Hub validate the digest again after every upload and download. The current asset capability retains
+download-only support for legacy 8-character identifiers. Unversioned extensions receive a separate
+compatibility capability that also accepts their short-hash uploads, validates the SHA-256 prefix,
+and compares complete contents before reusing an existing short hash. Collisions fail without
+overwriting bytes. Both capabilities share quotas and concurrency limits. Modern exports and
+`upload_asset` always return full digests; see the [legacy gateway](mcp-browser-gateway-design.md#released-unversioned-extensions).
 
 The additional characters are negligible beside the bytes they replace.
 

@@ -6,9 +6,12 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { CodexIpc, CodexIpcError } from './codex-ipc'
+import { CodexQueueRpc } from './codex-queue-rpc'
+import { readCodexServerQueue } from './codex-server-queue'
 
 type Value = Record<string, unknown>
 export type CodexQueuedMessage = Value & { id: string }
+export type CodexQueueBackend = 'legacy' | 'server'
 export type CodexQueueConnection = Pick<
   CodexIpc,
   'request' | 'broadcast' | 'onBroadcast' | 'onDisconnect'
@@ -136,7 +139,35 @@ async function conversationCwd(
 }
 
 export class CodexNativeQueue {
-  constructor(readonly read: typeof readCodexQueue = readCodexQueue) {}
+  constructor(
+    private readonly readLegacy: typeof readCodexQueue = readCodexQueue,
+    private readonly readServer: typeof readCodexServerQueue = readCodexServerQueue,
+    private readonly server: Pick<
+      CodexQueueRpc,
+      'list' | 'add' | 'remove' | 'close'
+    > = new CodexQueueRpc()
+  ) {}
+
+  async read(
+    conversationId: string,
+    backend: CodexQueueBackend = 'legacy'
+  ): Promise<CodexQueuedMessage[]> {
+    if (backend === 'legacy') return this.readLegacy(conversationId)
+    return (await this.server.list(conversationId)).map((message) => ({
+      id: message.clientUserMessageId ?? message.id,
+      text: message.input
+        .filter((input) => input.type === 'text')
+        .map((input) => input.text)
+        .join('\n')
+    }))
+  }
+
+  /** Direct Start must not overtake either native queue while native admission is unavailable. */
+  async areQueuesEmpty(conversationId: string): Promise<boolean> {
+    const server = await this.readServer(conversationId)
+    const messages = await this.read(conversationId)
+    return !server?.hasMessages && messages.length === 0
+  }
 
   async admit(
     ipc: CodexQueueConnection,
@@ -145,14 +176,30 @@ export class CodexNativeQueue {
     taskId: string,
     feedback: DesignFeedback,
     signal: AbortSignal,
-    beforeWrite: () => Promise<void>,
+    beforeWrite: (backend: CodexQueueBackend) => Promise<void>,
     onDispatch: () => void
   ): Promise<void> {
     const cwd = await conversationCwd(ipc, owner, conversationId, signal)
-    // Reserve durably before the final read to keep its age at dispatch small.
-    await beforeWrite()
-    const messages = await this.read(conversationId)
+    const server = await this.readServer(conversationId)
+    // A populated legacy queue wins in the native composer as well.
+    const backend =
+      server && (await this.readLegacy(conversationId)).length === 0 ? 'server' : 'legacy'
+    // Reserve the backend before any admission, including an uncertain server response.
+    await beforeWrite(backend)
+    const messages = await this.read(conversationId, backend)
     signal.throwIfAborted()
+    if (backend === 'server') {
+      const text = formatDesignFeedback(feedback)
+      const existing = messages.find((message) => message.id === feedback.id)
+      if (existing) {
+        if (existing.text !== text)
+          throw new Error('This Codex queue identity belongs to different content.')
+        return
+      }
+      onDispatch()
+      await this.server.add(conversationId, feedback.id, text, signal)
+      return
+    }
     const existing = messages.find((message) => message.id === feedback.id)
     if (existing) {
       if (
@@ -176,16 +223,30 @@ export class CodexNativeQueue {
   }
 
   async remove(
-    ipc: CodexQueueConnection,
-    owner: string,
+    ipc: CodexQueueConnection | undefined,
+    owner: string | undefined,
     conversationId: string,
     ids: Set<string>,
-    signal: AbortSignal
+    signal: AbortSignal,
+    backend: CodexQueueBackend = 'legacy'
   ): Promise<void> {
+    if (backend === 'server') {
+      for (const message of await this.server.list(conversationId, signal)) {
+        if (message.clientUserMessageId && ids.has(message.clientUserMessageId))
+          await this.server.remove(conversationId, message.id, signal)
+      }
+      return
+    }
     const messages = await this.read(conversationId)
     const remaining = messages.filter((message) => !ids.has(message.id))
-    if (remaining.length !== messages.length)
+    if (remaining.length !== messages.length) {
+      if (!ipc || !owner) throw new Error('The Codex queue owner is unavailable.')
       await this.replace(ipc, owner, conversationId, remaining, signal)
+    }
+  }
+
+  close(): void {
+    this.server.close()
   }
 
   private async replace(

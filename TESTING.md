@@ -36,6 +36,10 @@ Root:
 - `pnpm test` (watch package-owned tests in parallel)
 - `pnpm test:run` (single run via package-owned `test:run` scripts)
 - `pnpm test:coverage` (workspace coverage)
+- `pnpm mcp:check-bridge` (build the Hub and exercise legacy/current WebSocket peers through
+  actual MCP calls, including assets, reconnects, upgrade errors, and task routing)
+- `pnpm agent-plugin:check-installer` (networked discovery smoke test with `plugins@1.3.4`;
+  run after `pnpm agent-plugin:build`, without installing into a host)
 - `pnpm --filter @tempad-dev/extension test:setup` (install extension browser runtime)
 - `pnpm --filter @tempad-dev/extension test:node` (extension node tests only)
 - `pnpm --filter @tempad-dev/extension test:browser` (extension browser tests only)
@@ -85,6 +89,22 @@ When changing extension build/runtime behavior:
 
 - `pnpm build:ext`
 - If packaging impacted: `pnpm zip`
+
+When changing the Hub/extension compatibility path or legacy assets:
+
+- `pnpm mcp:check-bridge` runs an isolated Hub with temporary runtime, log, and asset directories
+  and a dedicated extension Origin. It does not connect to the user's Hub or Figma sessions.
+  One of the normal loopback candidate ports must be available. The old receiving schema is
+  frozen from extension 0.20.0 / MCP 0.7.1; do not derive it from current shared schemas.
+- Keep the broker regression for new-extension/old-Hub rejection and recovery. This deterministic
+  transport check does not replace installed-host Queue/Steer/Stop acceptance.
+
+When changing agent-plugin packaging or marketplace routing:
+
+- `pnpm agent-plugin:build` and inspect the generated targets and all three marketplace manifests.
+- `pnpm agent-plugin:check-installer` verifies both the marketplace entry and compatibility
+  package with the real CLI. It downloads a pinned installer outside the unit-test suite and
+  discovers only a temporary fixture; it does not change any installed plugins.
 
 When changing DOM/browser runtime behavior in extension:
 

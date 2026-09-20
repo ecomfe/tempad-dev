@@ -25,6 +25,7 @@
     "test": "vitest --config vitest.config.ts",
     "test:run": "vitest run --config vitest.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage",
+    "check:bridge-compatibility": "pnpm build && node scripts/check-bridge-compatibility.mjs",
     "lint": "eslint . --ext .ts,.mts,.cts,.js,.mjs,.cjs",
     "lint:fix": "eslint . --fix --ext .ts,.mts,.cts,.js,.mjs,.cjs",
     "format": "oxfmt -c ../../.oxfmtrc.json --ignore-path ../../.gitignore",

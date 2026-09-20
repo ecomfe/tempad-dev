@@ -16,6 +16,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest'
 const repository = fileURLToPath(new URL('../../../../', import.meta.url))
 const SKILLS = ['figma-canvas-authoring', 'figma-design-to-code']
 const STANDARD = 'agent-plugin/targets/standard'
+const PLUGINS_CLI = 'agent-plugin/targets/plugins-cli'
 const CODEX = 'agent-plugin/targets/codex'
 const CLAUDE = 'agent-plugin/targets/claude'
 const DEV = '.dev/plugins/tempad-dev-dev'
@@ -53,6 +54,7 @@ beforeAll(() => {
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 it('points each host marketplace at its own distribution', () => {
+  expect(read('.plugin/marketplace.json').plugins[0].source).toBe(`./${PLUGINS_CLI}`)
   expect(read('.agents/plugins/marketplace.json').plugins[0].source.path).toBe(`./${CODEX}`)
   expect(read('.claude-plugin/marketplace.json').plugins[0].source).toBe(`./${CLAUDE}`)
   expect(read('.dev/.agents/plugins/marketplace.json').plugins[0].source.path).toBe(
@@ -68,16 +70,26 @@ it('gives the standard distribution only the Agent Plugins layout', () => {
   expect(read(join(STANDARD, 'mcp.json'))).toEqual(JSON.parse(sourceFile('mcp.json')))
   // A standard consumer projects this manifest onto the host itself, so a host layout beside it
   // would be a second source of truth for the same package.
-  for (const path of ['.claude-plugin', '.codex-plugin', '.mcp.json', 'clients']) {
+  for (const path of ['.plugin', '.claude-plugin', '.codex-plugin', '.mcp.json', 'clients']) {
     expect(has(STANDARD, path)).toBe(false)
   }
 })
 
-it.each([CODEX, CLAUDE, DEV])('omits the standard manifests from %s', (target) => {
+it.each([PLUGINS_CLI, CODEX, CLAUDE, DEV])('omits the standard manifests from %s', (target) => {
   for (const portable of ['plugin.json', 'mcp.json']) {
     expect(has(target, portable)).toBe(false)
   }
   expect(read(join(target, '.mcp.json')).mcpServers).toBeTypeOf('object')
+})
+
+it('gives the plugins CLI its supported format without native host hooks', () => {
+  const manifest = read(join(PLUGINS_CLI, '.plugin/plugin.json'))
+  expect(manifest.name).toBe('tempad-dev')
+  expect(manifest).not.toHaveProperty('hooks')
+  for (const path of ['.claude-plugin', '.codex-plugin', 'clients']) {
+    expect(has(PLUGINS_CLI, path)).toBe(false)
+  }
+  for (const target of [CODEX, CLAUDE, DEV]) expect(has(target, '.plugin')).toBe(false)
 })
 
 it('gives the Codex distribution its interface and no hook payload', () => {
@@ -111,22 +123,26 @@ it('keeps one shared identity across every distribution', () => {
   })
   const source = read('agent-plugin/src/plugin.json')
   expect(identity(read(join(STANDARD, 'plugin.json')))).toEqual(identity(source))
+  expect(identity(read(join(PLUGINS_CLI, '.plugin/plugin.json')))).toEqual(identity(source))
   expect(identity(read(join(CODEX, '.codex-plugin/plugin.json')))).toEqual(identity(source))
   expect(identity(read(join(CLAUDE, '.claude-plugin/plugin.json')))).toEqual(identity(source))
 })
 
-it.each([STANDARD, CODEX, CLAUDE, DEV])('copies every shared skill verbatim into %s', (target) => {
-  for (const skill of SKILLS) {
-    expect(readFileSync(join(root, target, 'skills', skill, 'SKILL.md'), 'utf8')).toBe(
-      sourceFile(join('skills', skill, 'SKILL.md'))
-    )
-    expect(has(target, 'skills', skill, 'assets/icon.svg')).toBe(true)
+it.each([STANDARD, PLUGINS_CLI, CODEX, CLAUDE, DEV])(
+  'copies every shared skill verbatim into %s',
+  (target) => {
+    for (const skill of SKILLS) {
+      expect(readFileSync(join(root, target, 'skills', skill, 'SKILL.md'), 'utf8')).toBe(
+        sourceFile(join('skills', skill, 'SKILL.md'))
+      )
+      expect(has(target, 'skills', skill, 'assets/icon.svg')).toBe(true)
+    }
+    expect(has(target, 'assets/icon.png')).toBe(true)
   }
-  expect(has(target, 'assets/icon.png')).toBe(true)
-})
+)
 
 it('pins releases to npm and the development build to this checkout', () => {
-  for (const target of [CODEX, CLAUDE]) {
+  for (const target of [PLUGINS_CLI, CODEX, CLAUDE]) {
     expect(read(join(target, '.mcp.json')).mcpServers['tempad-dev'].args).toEqual([
       '-y',
       '@tempad-dev/mcp@latest'
