@@ -1,4 +1,4 @@
-import { parse } from 'es-module-lexer/js'
+import { parse } from 'es-module-lexer/minimal/js'
 
 const EXTERNAL_MODULE_ERROR = 'External module loading is not allowed in plugins.'
 const INVALID_MODULE_ERROR = 'Plugin module syntax could not be validated.'

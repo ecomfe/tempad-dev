@@ -521,7 +521,7 @@ describe('element feedback drafts', () => {
     const innerStroke = add.querySelectorAll('path')[1]!
     expect(getComputedStyle(innerStroke).stroke).toBe('rgb(255, 255, 255)')
     expect(innerStroke.getAttribute('clip-path')).toBe(`url(#${add.querySelector('clipPath')!.id})`)
-    expect(getComputedStyle(add).getPropertyValue('corner-shape')).toBe('squircle')
+    expect(getComputedStyle(add).getPropertyValue('corner-shape')).toBe('superellipse(2)')
     await page.getByRole('button', { name: 'Add comment to Heading', exact: true }).click()
     const editor = document.querySelector<HTMLElement>('.tp-feedback-editor')!
     expect(getComputedStyle(editor).boxShadow).toBe('rgba(0, 0, 0, 0.2) 0px 2px 6px 0px')

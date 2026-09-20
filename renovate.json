@@ -28,6 +28,17 @@
       "matchUpdateTypes": ["major"],
       "groupName": null,
       "automerge": false
+    },
+    {
+      "description": "Keep the TS 6 API declarations aligned with typescript-native-bridge.",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<7"
+    },
+    {
+      "description": "Vitest and its providers must use the same version.",
+      "matchPackageNames": ["vitest", "@vitest/*"],
+      "groupName": "vitest",
+      "separateMajorMinor": true
     }
   ]
 }
