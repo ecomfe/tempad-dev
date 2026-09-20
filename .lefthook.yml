@@ -7,14 +7,14 @@ pre-commit:
         jobs:
           - name: lint
             glob: '*.{ts,js,mjs,cjs,mts,cts,vue}'
-            exclude: 'agent-plugin/targets/.*'
+            exclude: 'agent-plugin/targets/**'
             run: pnpm exec eslint --fix {staged_files}
             stage_fixed: true
           - name: format
             glob: '*.{ts,js,mjs,cjs,mts,cts,vue,json,md,yml,yaml,css}'
             # Generated targets are excluded here rather than through .oxfmtignore, which also
             # excludes packages/ and would leave this job with no files to format at all.
-            exclude: 'agent-plugin/targets/.*'
+            exclude: 'agent-plugin/targets/**'
             run: pnpm exec oxfmt -c ./.oxfmtrc.json --ignore-path ./.gitignore {staged_files}
             stage_fixed: true
     - name: typecheck
