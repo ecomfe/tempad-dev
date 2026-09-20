@@ -6,7 +6,7 @@ overrides:
   esbuild: 0.28.2
   'node-notifier>uuid': 14.0.2
   # vue-tsc still needs the TS 6 API; the bridge runs the TS 7 checker behind it.
-  typescript: npm:typescript-native-bridge@6.0.3-bridge.16.tsgo.7.0.2
+  typescript: npm:typescript-native-bridge@6.0.3-bridge.17.tsgo.7.0.2
   'web-ext-run>tmp': 0.2.7
   vite: 8.3.0
 
