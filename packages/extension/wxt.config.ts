@@ -45,7 +45,8 @@ export default defineConfig({
       include: []
     },
     define: {
-      __DEV__: env.mode === 'development'
+      __DEV__: env.mode === 'development',
+      __TEMPAD_RUNTIME_FINGERPRINT__: JSON.stringify(extensionRuntimeFingerprint)
     }
   }),
   webExt: {
@@ -55,7 +56,6 @@ export default defineConfig({
     minimum_chrome_version: '116',
     name: 'TemPad Dev',
     version: packageJson.version,
-    version_name: extensionRuntimeFingerprint,
     content_security_policy: {
       sandbox: getPluginSandboxCsp(env.command === 'serve')
     },

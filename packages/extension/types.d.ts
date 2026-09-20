@@ -8,3 +8,4 @@ interface Window {
 }
 
 declare const __DEV__: boolean
+declare const __TEMPAD_RUNTIME_FINGERPRINT__: string

@@ -803,7 +803,7 @@ export class McpServiceWorkerBroker {
 
 function extensionRuntimeIdentity(): RuntimeHelloMessage | null {
   const manifest = browser.runtime.getManifest()
-  const runtimeFingerprint = manifest.version_name
+  const runtimeFingerprint = __TEMPAD_RUNTIME_FINGERPRINT__
   if (typeof runtimeFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(runtimeFingerprint)) {
     return null
   }
