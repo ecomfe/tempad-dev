@@ -11,7 +11,12 @@ import { promisify } from 'node:util'
 import type { ClientBinding } from './types'
 
 import { CodexDiscoveryError, CodexIpc, CodexIpcError } from './codex-ipc'
-import { CodexNativeQueue, CodexQueueUnavailable, type CodexQueueConnection } from './codex-queue'
+import {
+  CodexNativeQueue,
+  CodexQueueUnavailable,
+  type CodexQueueBackend,
+  type CodexQueueConnection
+} from './codex-queue'
 import { nativeFeedback } from './types'
 
 export const CODEX_APP_FEEDBACK: AgentCapabilities = {
@@ -88,8 +93,9 @@ type Receipt = {
   conversationId?: string
   taskId?: string
   messageId?: string
+  backend?: CodexQueueBackend
 }
-type QueueReceipt = Required<Receipt>
+type QueueReceipt = Required<Omit<Receipt, 'backend'>> & Pick<Receipt, 'backend'>
 type StoredQueueReceipt = { path: string; receipt: QueueReceipt }
 
 async function loadConversation(conversationId: string, signal: AbortSignal): Promise<void> {
@@ -224,7 +230,7 @@ export class CodexAppFeedback {
           throw new Error('These queued comments were cancelled.')
         if (
           existing.delivery === 'queue' &&
-          (await this.nativeQueue.read(conversationId)).some(
+          (await this.nativeQueue.read(conversationId, existing.backend)).some(
             (message) => message.id === feedback.id
           )
         ) {
@@ -234,6 +240,16 @@ export class CodexAppFeedback {
         throw new Error(
           'Earlier Codex delivery is uncertain. Check the original conversation; these comments will not be resent automatically.'
         )
+      }
+      if (
+        feedback.mode === 'queue' &&
+        nativeQueueUnavailable &&
+        !(await this.nativeQueue.areQueuesEmpty(conversationId))
+      ) {
+        if (Date.now() >= deadline)
+          throw new Error('Codex still has queued messages. Comments are saved; retry later.')
+        await delay(this.retryMs, undefined, { signal })
+        continue
       }
       const connection = await this.open()
       try {
@@ -280,7 +296,8 @@ export class CodexAppFeedback {
               taskId,
               feedback,
               signal,
-              async () => {
+              async (backend) => {
+                receipt.backend = backend
                 await this.saveReceipt(path, receipt)
                 signal.throwIfAborted()
                 beforeSend()
@@ -299,7 +316,9 @@ export class CodexAppFeedback {
               if (!(error instanceof CodexQueueUnavailable)) throw error
               // Avoid repeating full conversation snapshots on every busy-turn retry.
               nativeQueueUnavailable = true
-              // Older/unavailable local stores retain the bounded Hub waiting path.
+              // Recheck both queues before the bounded idle-turn fallback. A pending
+              // native queue must not be bypassed, and waiting reserves no receipt.
+              if (!(await this.nativeQueue.areQueuesEmpty(conversationId))) continue
               await writeFile(path, JSON.stringify({ signature, status: 'pending' }), {
                 flag: 'wx',
                 mode: 0o600
@@ -307,7 +326,7 @@ export class CodexAppFeedback {
             } else {
               onDispatch()
               const admitted = await this.nativeQueue
-                .read(conversationId)
+                .read(conversationId, receipt.backend)
                 .then((messages) => messages.some((message) => message.id === feedback.id))
                 .catch(() => false)
               if (admitted) {
@@ -431,16 +450,18 @@ export class CodexAppFeedback {
     this.cancelledTasks.add(taskId)
     const pendingConversation = this.taskConversations.get(taskId)
     if (pendingConversation) await this.queues.get(pendingConversation)?.catch(() => {})
-    const conversations = new Set<string>()
+    const queues = new Map<string, QueueReceipt>()
     for (const { receipt } of await this.queueReceipts()) {
-      if (receipt.taskId === taskId) conversations.add(receipt.conversationId)
+      if (receipt.taskId === taskId)
+        queues.set(JSON.stringify([receipt.conversationId, receipt.backend ?? 'legacy']), receipt)
     }
-    for (const conversationId of conversations) {
+    for (const { conversationId, backend = 'legacy' } of queues.values()) {
       await this.schedule(conversationId, async () => {
         const receipts = (await this.queueReceipts()).filter(
           ({ receipt }) =>
             receipt.taskId === taskId &&
             receipt.conversationId === conversationId &&
+            (receipt.backend ?? 'legacy') === backend &&
             receipt.messageId
         )
         if (!receipts.length) return
@@ -449,20 +470,24 @@ export class CodexAppFeedback {
           if (receipt.status !== 'removed')
             await this.saveReceipt(path, { ...receipt, status: 'cancelled' })
         }
-        const hasMessages = (await this.nativeQueue.read(conversationId)).some((message) =>
+        const hasMessages = (await this.nativeQueue.read(conversationId, backend)).some((message) =>
           ids.has(message.id)
         )
         let connection: Connection | undefined
         try {
           if (hasMessages) {
-            connection = await this.open()
-            const owner = await connection.owner(conversationId, this.shutdown.signal)
+            let owner: string | undefined
+            if (backend === 'legacy') {
+              connection = await this.open()
+              owner = await connection.owner(conversationId, this.shutdown.signal)
+            }
             await this.nativeQueue.remove(
               connection,
               owner,
               conversationId,
               ids,
-              this.shutdown.signal
+              this.shutdown.signal,
+              backend
             )
           }
           for (const { path, receipt } of receipts) {
@@ -487,12 +512,15 @@ export class CodexAppFeedback {
         continue
       }
       // Keep cancellation tombstones: a disconnected writer can commit after the first removal check.
-      let ids = snapshots.get(receipt.conversationId)
+      const key = JSON.stringify([receipt.conversationId, receipt.backend ?? 'legacy'])
+      let ids = snapshots.get(key)
       if (!ids) {
-        const messages = await this.nativeQueue.read(receipt.conversationId).catch(() => undefined)
+        const messages = await this.nativeQueue
+          .read(receipt.conversationId, receipt.backend)
+          .catch(() => undefined)
         if (!messages) continue
         ids = new Set(messages.map((message) => message.id))
-        snapshots.set(receipt.conversationId, ids)
+        snapshots.set(key, ids)
       }
       if (ids.has(receipt.messageId)) tasks.add(receipt.taskId)
     }
@@ -516,6 +544,9 @@ export class CodexAppFeedback {
           typeof receipt.status === 'string' &&
           typeof receipt.conversationId === 'string' &&
           typeof receipt.taskId === 'string' &&
+          (receipt.backend === undefined ||
+            receipt.backend === 'legacy' ||
+            receipt.backend === 'server') &&
           typeof receipt.messageId === 'string'
         )
           entries.push({ path, receipt: receipt as QueueReceipt })
@@ -567,5 +598,6 @@ export class CodexAppFeedback {
 
   close(): void {
     this.shutdown.abort()
+    this.nativeQueue.close()
   }
 }

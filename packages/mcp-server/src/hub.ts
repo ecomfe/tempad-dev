@@ -57,6 +57,7 @@ import { DesignTasks, resolveDesignTarget, type DesignTaskRecord } from './desig
 import { ExtensionRegistry } from './extension-registry'
 import { attachExtensionSocket } from './extension-socket'
 import MCP_INSTRUCTIONS from './instructions.md?raw'
+import { extensionUpgradeRequired, legacyToolPayload } from './legacy-extension'
 import { register, resolve, reject, cleanupForExtension, cleanupAll } from './request'
 import {
   getExtensionRuntimeIssues,
@@ -280,6 +281,9 @@ function enrichToolDefinition(tool: ToolMetadataEntry): RegisteredToolDefinition
         handler: async () => {
           const result = {
             sessions: extensionRegistry.list().flatMap((value) => value.sessions?.sessions ?? [])
+          }
+          if (!result.sessions.length && extensionRegistry.list().some((value) => value.legacy)) {
+            throw extensionUpgradeRequired()
           }
           return {
             content: [{ type: 'text' as const, text: JSON.stringify(result) }],
@@ -611,8 +615,29 @@ function registerProxiedTool<T extends ExtensionTool>(
     )
     let requestId: string | undefined
     try {
-      const { taskId, taskEpoch, ...parsedArgs } = schema.parse(args)
+      const parsed = schema.parse(args)
+      const { taskId, taskEpoch, ...parsedArgs } = parsed
       if (taskId) designTasks.assertEpoch(taskId, ownerId, taskEpoch)
+      const timeoutMs =
+        tool.name === 'get_code'
+          ? getCodeTimeoutMs
+          : tool.name === 'apply_canvas'
+            ? applyCanvasTimeoutMs
+            : toolTimeoutMs
+      // Task-bound calls must always resolve their original target. Legacy reads are
+      // available only when that unversioned connection is explicitly the active route.
+      const legacy = !taskId ? extensionRegistry.getActive() : undefined
+      if (legacy?.legacy) {
+        const payload = legacyToolPayload(tool.name, parsed)
+        const registration = register<Result>(legacy.id, timeoutMs)
+        requestId = registration.requestId
+        try {
+          legacy.ws.send(JSON.stringify({ type: 'toolCall', id: requestId, payload }))
+        } catch (error) {
+          reject(requestId, legacy.id, coerceToolError(error))
+        }
+        return createToolResponse(tool.name, await registration.promise)
+      }
       const { extension: activeExt, session } = resolveDesignRoute(ownerId, taskId)
       const runtimeIssues = getExtensionRuntimeIssues(activeExt.runtime)
       if (runtimeIssues.length) {
@@ -631,12 +656,6 @@ function registerProxiedTool<T extends ExtensionTool>(
         )
       }
 
-      const timeoutMs =
-        tool.name === 'get_code'
-          ? getCodeTimeoutMs
-          : tool.name === 'apply_canvas'
-            ? applyCanvasTimeoutMs
-            : toolTimeoutMs
       designTasks.checkOperation(ownerId, session, taskId, tool.name === 'apply_canvas')
       const registration = register<Result>(activeExt.id, timeoutMs, {
         waitForDefinitiveResult: tool.name === 'apply_canvas'
@@ -904,12 +923,14 @@ function unrefTimer(timer: TimeoutHandle): void {
 function broadcastState(): void {
   publishHubRuntimeIdentity()
   const activeId = extensionRegistry.getActiveId()
-  const message: StateMessage = {
-    type: 'state',
-    activeId,
-    assetServerUrl: assetHttpServer.getBaseUrl()
+  for (const extension of extensionRegistry.list()) {
+    const message: StateMessage = {
+      type: 'state',
+      activeId,
+      assetServerUrl: assetHttpServer.getBaseUrl(extension.legacy)
+    }
+    extension.ws.send(JSON.stringify(message))
   }
-  extensionRegistry.list().forEach((ext) => ext.ws.send(JSON.stringify(message)))
   log.debug({ activeId, count: extensionRegistry.size }, 'Broadcasted state.')
 }
 

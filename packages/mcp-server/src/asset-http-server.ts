@@ -7,6 +7,7 @@ import {
   createReadStream,
   createWriteStream,
   existsSync,
+  readFileSync,
   renameSync,
   statSync,
   unlinkSync
@@ -48,7 +49,7 @@ export interface AssetHttpServerOptions {
 export interface AssetHttpServer {
   start(): Promise<void>
   stop(): void
-  getBaseUrl(): string
+  getBaseUrl(legacy?: boolean): string
 }
 
 export function createAssetHttpServer(
@@ -57,6 +58,9 @@ export function createAssetHttpServer(
 ): AssetHttpServer {
   const config = getMcpServerConfig()
   const accessToken = options.accessToken ?? createCapabilityToken()
+  // Only unversioned connections receive this separate capability. Both endpoints
+  // share origin checks, concurrency reservations, quotas, and the asset store.
+  const legacyAccessToken = createCapabilityToken()
   const maxAssetSizeBytes = options.maxAssetSizeBytes ?? config.maxAssetSizeBytes
   const maxAssetStoreBytes = options.maxAssetStoreBytes ?? config.maxAssetStoreBytes
   const maxConcurrentUploads = options.maxConcurrentUploads ?? config.maxConcurrentAssetUploads
@@ -102,9 +106,9 @@ export function createAssetHttpServer(
     port = null
   }
 
-  function getBaseUrl(): string {
+  function getBaseUrl(legacy = false): string {
     if (port === null) throw new Error('Asset HTTP server is not running.')
-    return `http://${LOOPBACK_HOST}:${port}/${accessToken}`
+    return `http://${LOOPBACK_HOST}:${port}/${legacy ? legacyAccessToken : accessToken}`
   }
 
   function handleRequest(req: IncomingMessage, res: ServerResponse): void {
@@ -128,9 +132,10 @@ export function createAssetHttpServer(
 
     const url = new URL(req.url, getBaseUrl())
     const segments = url.pathname.split('/').filter(Boolean)
+    const legacy = secretsEqual(segments[0] ?? '', legacyAccessToken)
     if (
       segments.length !== 3 ||
-      !secretsEqual(segments[0] ?? '', accessToken) ||
+      (!legacy && !secretsEqual(segments[0] ?? '', accessToken)) ||
       segments[1] !== 'assets'
     ) {
       sendError(res, 404, 'Not Found')
@@ -171,7 +176,7 @@ export function createAssetHttpServer(
     }
 
     if (req.method === 'POST') {
-      if (hash.length !== MCP_HASH_HEX_LENGTH) {
+      if (!legacy && hash.length !== MCP_HASH_HEX_LENGTH) {
         sendError(res, 400, 'Legacy Asset Hashes Are Read-Only')
         return
       }
@@ -278,7 +283,9 @@ export function createAssetHttpServer(
     const assetMetadata = Object.keys(metadata).length ? metadata : undefined
 
     const existing = store.get(hash)
-    if (existing) {
+    // A short hash is not sufficient evidence of identical contents. Always read
+    // and verify legacy uploads, including retries and concurrent collisions.
+    if (existing && hash.length === MCP_HASH_HEX_LENGTH) {
       let existingPath = existing.filePath
       if (!existsSync(existingPath) && existsSync(filePath)) {
         existing.filePath = filePath
@@ -378,7 +385,7 @@ export function createAssetHttpServer(
       }
 
       const computedHash = hasher.digest('hex')
-      if (computedHash !== hash) {
+      if (computedHash.slice(0, hash.length) !== hash) {
         cleanup()
         sendError(res, 400, 'Hash Mismatch')
         return
@@ -391,6 +398,26 @@ export function createAssetHttpServer(
       }
 
       try {
+        if (hash.length !== MCP_HASH_HEX_LENGTH) {
+          const previous = store.get(hash)
+          if (previous && existsSync(previous.filePath)) {
+            const previousHash = createHash('sha256')
+              .update(readFileSync(previous.filePath))
+              .digest('hex')
+            cleanup()
+            if (previousHash !== computedHash) {
+              sendError(res, 409, 'Legacy Asset Hash Collision; update the TemPad Dev extension')
+              return
+            }
+            store.upsert({
+              ...previous,
+              metadata: { ...previous.metadata, ...assetMetadata },
+              lastAccess: Date.now()
+            })
+            sendJson(res, 200, { message: 'Asset Already Exists' })
+            return
+          }
+        }
         renameSync(tmpPath, filePath)
       } catch (error) {
         log.error({ error, hash }, 'Failed to rename temp file to asset.')
@@ -416,7 +443,11 @@ export function createAssetHttpServer(
     try {
       const url = new URL(requestUrl, `http://${LOOPBACK_HOST}`)
       const segments = url.pathname.split('/').filter(Boolean)
-      if (segments.length >= 1 && secretsEqual(segments[0] ?? '', accessToken)) {
+      if (
+        segments.length >= 1 &&
+        (secretsEqual(segments[0] ?? '', accessToken) ||
+          secretsEqual(segments[0] ?? '', legacyAccessToken))
+      ) {
         segments[0] = '<capability>'
       }
       return `/${segments.join('/')}`

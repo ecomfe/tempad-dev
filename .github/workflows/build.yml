@@ -38,8 +38,12 @@ jobs:
           pnpm agent-plugin:build &&
           test -z "$(git status --porcelain --untracked-files=all --
           agent-plugin
+          .plugin/marketplace.json
           .agents/plugins/marketplace.json
           .claude-plugin/marketplace.json)"
+
+      - name: Check plugin installer compatibility
+        run: pnpm agent-plugin:check-installer
 
       - name: Type check
         run: pnpm typecheck
@@ -55,3 +59,6 @@ jobs:
 
       - name: Build project
         run: pnpm build
+
+      - name: Check bridge compatibility
+        run: pnpm mcp:check-bridge

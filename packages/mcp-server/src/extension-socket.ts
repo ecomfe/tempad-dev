@@ -3,6 +3,8 @@ import type { RawData, WebSocket } from 'ws'
 
 import {
   MessageFromExtensionSchema,
+  LegacyMessageFromExtensionSchema,
+  TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS,
   type RegisteredMessage
@@ -42,6 +44,7 @@ export function attachExtensionSocket(
     id: options.createId(),
     origin: options.origin.toLowerCase(),
     connectedAt: new Date().toISOString(),
+    legacy: ws.protocol !== TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
     ws
   }
   options.registry.add(extension)
@@ -53,7 +56,7 @@ export function attachExtensionSocket(
     supportedProtocolVersions: [...TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS],
     type: 'registered'
   }
-  ws.send(JSON.stringify(registered))
+  ws.send(JSON.stringify(extension.legacy ? { type: 'registered', id: extension.id } : registered))
   options.onStateChange()
   scheduleAutoActivation(options)
 
@@ -71,7 +74,9 @@ export function attachExtensionSocket(
       return
     }
 
-    const parseResult = MessageFromExtensionSchema.safeParse(parsedJson)
+    const parseResult = (
+      extension.legacy ? LegacyMessageFromExtensionSchema : MessageFromExtensionSchema
+    ).safeParse(parsedJson)
     if (!parseResult.success) {
       options.onProtocolWarning?.({
         error: parseResult.error.flatten(),

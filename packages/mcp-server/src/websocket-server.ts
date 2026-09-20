@@ -1,3 +1,6 @@
+import type { IncomingMessage } from 'node:http'
+
+import { TEMPAD_MCP_BRIDGE_SUBPROTOCOL } from '@tempad-dev/shared'
 import { WebSocketServer } from 'ws'
 
 import type { ExtensionOriginPolicy } from './security'
@@ -31,12 +34,18 @@ export async function startExtensionWebSocketServer({
       host: '127.0.0.1',
       port: candidate,
       maxPayload: maxPayloadBytes,
-      verifyClient: (info: { origin: string; req: { url?: string } }) => {
+      handleProtocols: (protocols) =>
+        protocols.has(TEMPAD_MCP_BRIDGE_SUBPROTOCOL) ? TEMPAD_MCP_BRIDGE_SUBPROTOCOL : false,
+      verifyClient: (info: { origin: string; req: IncomingMessage }) => {
         if (server.clients.size >= maxConnections) {
           onConnectionLimit?.(maxConnections)
           return false
         }
-        const allowed = isAllowedWebSocketRequest(info.origin, info.req.url, originPolicy)
+        const protocol = info.req.headers['sec-websocket-protocol']
+        const allowed =
+          isAllowedWebSocketRequest(info.origin, info.req.url, originPolicy) &&
+          (!protocol ||
+            protocol.split(',').some((value) => value.trim() === TEMPAD_MCP_BRIDGE_SUBPROTOCOL))
         if (!allowed) onRejectedHandshake?.(info.origin, info.req.url)
         return allowed
       }

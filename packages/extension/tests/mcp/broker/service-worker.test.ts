@@ -245,6 +245,44 @@ describe('design task broker routing', () => {
     )
   })
 
+  it('sends Stop before synchronizing cancellation so the Hub can interrupt the active turn', async () => {
+    const f = designBroker()
+    const task = {
+      taskId: 'task-a',
+      title: 'Settings',
+      status: 'active' as const,
+      operation: null,
+      target: { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a' },
+      expiresAt: 300000,
+      revision: 1
+    }
+    await f.internals.routeDesignTask({ type: 'designTaskState', task })
+    const received: string[] = []
+    vi.mocked(f.client.sendDesignAction).mockImplementation(() => {
+      received.push('stop')
+    })
+    vi.mocked(f.client.sendSessions).mockImplementation((snapshot) => {
+      if (
+        snapshot.reviews?.some(
+          ({ task }) => task.taskId === 'task-a' && task.status === 'cancelled'
+        )
+      )
+        received.push('cancelled')
+    })
+    f.a.message({
+      ...pageMessage('mcp.enable', 'tab-a'),
+      type: 'mcp.designAction',
+      action: {
+        requestId: '00000000-0000-4000-8000-000000000001',
+        taskId: task.taskId,
+        epoch: 0,
+        action: 'stop'
+      }
+    })
+    await vi.waitFor(() => expect(received).toHaveLength(2))
+    expect(received).toEqual(['stop', 'cancelled'])
+  })
+
   it('acknowledges local Stop when the host disconnects and routes an explicit new task', async () => {
     const f = designBroker()
     const task = {
@@ -277,6 +315,15 @@ describe('design task broker routing', () => {
           })
         })
       )
+    )
+    expect(f.client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        reviews: expect.arrayContaining([
+          expect.objectContaining({
+            task: expect.objectContaining({ taskId: 'task-a', status: 'cancelled' })
+          })
+        ])
+      })
     )
     const nextTask = { ...task, taskId: 'task-b', revision: 2 }
     const call: ToolCallMessage = {

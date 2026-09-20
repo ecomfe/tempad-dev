@@ -2,6 +2,14 @@
 
 ## 0.8.0
 
+- Added native Codex server-queue admission and targeted cancellation through an
+  automatically managed queue-only companion. Receipts retain the admitting backend
+  across restarts, and uncertain writes are reconciled without duplicate submissions.
+
+- Preserved extension 0.20.0 read/export compatibility through an unversioned wire adapter,
+  separate legacy asset capability, full-content collision checks, and actionable upgrade
+  errors for authoring and new read options. Task-bound calls never fall back to legacy tabs.
+
 - Announced the extension bridge protocol versions the Hub serves, so a Hub upgrade can reach
   an extension that predates it instead of forcing both sides to ship together.
 - Added design-task leases, pause/resume, anchored status, and permanent Stop cancellation.
@@ -13,8 +21,8 @@
   record dispatch and outcome while exact-turn guards prevent stopping a later response.
 - Added native Codex App Queue and Steer feedback with stable delivery identities, durable
   receipts, uncertain-admission reconciliation, and targeted removal of a task's queued comments.
-  Queue confirms host admission independently of execution; unavailable local queue snapshots
-  retain the bounded Hub waiting path. Comments never fall back to hooks.
+  Queue confirms host admission independently of execution; unavailable native admission
+  retains the bounded Hub waiting path when queue state is readable. Comments never fall back to hooks.
 
 - BREAKING: supported Node.js versions are now 22.x, 24.x, or 26+, matching the upgraded runtime
   dependencies. Node.js 18 and 20 are no longer supported.

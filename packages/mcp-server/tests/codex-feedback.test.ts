@@ -55,7 +55,10 @@ async function fixture() {
     onBroadcast: vi.fn(() => () => {}),
     onDisconnect: vi.fn(() => () => {})
   }))
-  const queue = new CodexNativeQueue()
+  const queue = new CodexNativeQueue(
+    async () => [],
+    async () => null
+  )
   vi.spyOn(queue, 'admit').mockRejectedValue(new CodexQueueUnavailable('Queue unavailable'))
   const load = vi.fn<(id: string, signal: AbortSignal) => Promise<void>>().mockResolvedValue()
   const native = new CodexAppFeedback(dir, open, 1, load, queue)

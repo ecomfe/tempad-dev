@@ -1,0 +1,13 @@
+{
+  "name": "tempad-dev",
+  "owner": {
+    "name": "TemPad Dev"
+  },
+  "plugins": [
+    {
+      "name": "tempad-dev",
+      "source": "./agent-plugin/targets/plugins-cli",
+      "description": "Connect your coding agent to Figma. Create and edit native designs, inspect existing designs, and implement UI in your codebase."
+    }
+  ]
+}

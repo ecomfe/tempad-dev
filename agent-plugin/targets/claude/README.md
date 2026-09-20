@@ -11,11 +11,11 @@ Read, edit, and implement Figma designs through your coding agent or IDE. This p
 Requires the TemPad Dev browser extension. Canvas editing also requires edit access to the Figma Design file. For manual inspection and output plugins, see the full [user guide](https://github.com/ecomfe/tempad-dev/blob/main/README.md).
 
 This plugin follows [Agent Plugins 1.0](https://agent-plugins.org/) and is published from one
-source as a standard package, for clients that project the standard themselves, plus a package per
+source as a standard package, a compatibility package for the `plugins` CLI, and a package per
 native host. Prefer native installation on Codex and Claude. Codex App binds tasks over MCP
 metadata and native IPC, so its plugin registers no lifecycle hooks.
 
-## Install the standard plugin
+## Cursor and VS Code installation
 
 For Cursor and VS Code, select the corresponding target:
 
@@ -24,17 +24,23 @@ npx plugins add ecomfe/tempad-dev --target cursor
 npx plugins add ecomfe/tempad-dev --target vscode
 ```
 
-The installer reads the standard package and adapts it to the selected client itself.
+The installer reads `.plugin/marketplace.json` and installs the generated `plugins-cli`
+compatibility package, which contains both skills and MCP configuration without lifecycle hooks.
+This path is verified with `plugins@1.3.4`. Agent Plugins 1.0 consumers can use the separate
+`agent-plugin/targets/standard` package; the current `plugins` CLI does not read that format.
 
 ## Codex and Claude installation
 
 Use these native marketplace flows for Codex and Claude. Claude's lifecycle hooks require
 the host's normal trust review; Codex does not register hooks.
+The `--sparse` paths limit checkout to the host's marketplace and generated package, including
+its skills and any required hooks. Codex repeats `--sparse` for each path; Claude accepts multiple
+paths after one `--sparse`. The `plugins` CLI used for Cursor and VS Code has no equivalent flag.
 
 ### Codex
 
 ```bash
-codex plugin marketplace add ecomfe/tempad-dev --ref main
+codex plugin marketplace add ecomfe/tempad-dev --ref main --sparse .agents --sparse agent-plugin/targets/codex
 codex plugin add tempad-dev@tempad-dev
 ```
 
@@ -44,7 +50,7 @@ marketplace.
 ### Claude Code and Claude Desktop
 
 ```bash
-claude plugin marketplace add ecomfe/tempad-dev
+claude plugin marketplace add ecomfe/tempad-dev --sparse .claude-plugin agent-plugin/targets/claude
 claude plugin install tempad-dev@tempad-dev
 ```
 
@@ -79,22 +85,26 @@ MCP server **0.8.0**. Node.js **22.x, 24.x, or 26+** is required for the MCP ser
 Everything is authored once under `agent-plugin/src/` and published by
 `pnpm agent-plugin:build`. Every target is generated; never edit one.
 
-| Path                               | Role                                            |
-| ---------------------------------- | ----------------------------------------------- |
-| `agent-plugin/src/plugin.json`     | Standard manifest; owns all shared metadata     |
-| `agent-plugin/src/mcp.json`        | Standard MCP configuration                      |
-| `agent-plugin/src/skills/`         | Both skills                                     |
-| `agent-plugin/src/clients/claude/` | Claude lifecycle hooks                          |
-| `agent-plugin/src/clients/codex/`  | Codex directory presentation (`interface.json`) |
-| `agent-plugin/src/clients/shared/` | Hook transport shared by hosts                  |
-| `agent-plugin/targets/standard`    | Generated; also the standalone skills URL       |
-| `agent-plugin/targets/codex`       | Generated Codex marketplace package             |
-| `agent-plugin/targets/claude`      | Generated Claude marketplace package            |
+| Path                               | Role                                              |
+| ---------------------------------- | ------------------------------------------------- |
+| `agent-plugin/src/plugin.json`     | Standard manifest; owns all shared metadata       |
+| `agent-plugin/src/mcp.json`        | Standard MCP configuration                        |
+| `agent-plugin/src/skills/`         | Both skills                                       |
+| `agent-plugin/src/clients/claude/` | Claude lifecycle hooks                            |
+| `agent-plugin/src/clients/codex/`  | Codex directory presentation (`interface.json`)   |
+| `agent-plugin/src/clients/shared/` | Hook transport shared by hosts                    |
+| `agent-plugin/targets/standard`    | Generated; also the standalone skills URL         |
+| `agent-plugin/targets/plugins-cli` | Generated compatibility package for `plugins` CLI |
+| `agent-plugin/targets/codex`       | Generated Codex marketplace package               |
+| `agent-plugin/targets/claude`      | Generated Claude marketplace package              |
 
 Each target carries only what its own installer reads. A standard consumer projects `plugin.json`
 onto the host itself, so shipping a host layout beside it would create a second source of truth for
 the same package; each host target likewise omits the standard manifests and the other host's
 directory. Only Claude loads lifecycle hooks, so only `targets/claude` carries `clients/`.
+The `plugins-cli` package carries `.plugin/plugin.json` and `.mcp.json`; its marketplace is
+generated separately so the CLI does not select the Claude package. Verify discovery through
+the actual CLI with `pnpm agent-plugin:check-installer` after changing packaging.
 
 ## Task controls and client enhancements
 
@@ -112,12 +122,15 @@ Codex App binds tasks from host-supplied MCP metadata and follows native convers
 state through the existing IPC connection. Claude retains lifecycle and Stop hooks.
 Comments are delivered only through native conversation messages on compatible Codex App
 hosts. TemPad Dev discovers the original conversation through the App's existing local
-connection. Queue submits the batch to the host's native queue, where it waits until the
+connection. Where supported, Queue submits the batch to the host's native queue, where it waits until the
 conversation is ready. As soon as the host confirms admission, TemPad Dev clears the submitted
 comments and markers, stops the sending indicator, and allows another batch. This confirmation
 means the host received the comments, not that the agent finished the requested changes.
-If the native queue snapshot is unavailable, Queue waits in the Hub until the conversation can
-accept a new response. The sending indicator remains until that admission is confirmed.
+When native queue admission is unavailable, Queue waits in the Hub for existing queued
+messages to clear and the conversation to accept a new response. The sending indicator
+remains until that admission is confirmed. If queue state cannot be checked, comments
+remain saved and delivery reports an error. Compatible hosts also support native server-queue
+admission; these messages may appear in Codex after its next queue refresh.
 Steer adds comments to an active response or starts a response when the conversation is idle.
 Failed or uncertain delivery retains drafts; uncertain delivery is not automatically resent.
 Comments never fall back to hooks.

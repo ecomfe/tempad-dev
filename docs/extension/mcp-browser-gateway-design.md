@@ -24,9 +24,12 @@ expiry, and recovery semantics. Taskless reads still use the active route.
    user action.
 2. The content bridge opens a named runtime port and registers the page session with the broker.
 3. The broker starts one WebSocket client for all Figma tabs in the extension context.
-4. The client probes the known ports, then accepts a candidate only after receiving both
-   `registered` and `state` messages from the hub. Registration carries an exact `protocolVersion`;
-   a mismatched server is rejected with an upgrade-together error. The advertised asset URL must use
+4. The client probes the known ports and requests the `tempad-mcp` WebSocket subprotocol before
+   receiving any frames. It accepts a candidate only after receiving both `registered` and `state`.
+   Registration announces `protocolVersion` and the versions the Hub still serves. A Hub that does
+   not serve this extension is rejected with instructions to restart the agent's MCP connection
+   using `@tempad-dev/mcp@latest`, including other agents keeping an old Hub alive. Reloading Figma
+   alone does not update that Hub. The advertised asset URL must use
    an explicit loopback IPv4 port and cannot contain credentials, a query, or a fragment.
 5. Every later `state` message is validated by the same rule and must keep the handshake's exact
    asset endpoint. Malformed traffic, a second registration, or an endpoint change closes that
@@ -49,6 +52,31 @@ Compatible extension updates can reconnect to the same Hub. Runtime handshakes,
 protocol validation, connection ownership, and stale-request checks remain enforced.
 Exact checkout matching belongs to preflight and the frozen run record.
 
+### Released unversioned extensions
+
+Extension 0.20.0 sends no WebSocket subprotocol and strictly rejects extra registration fields.
+For these connections the Hub sends only `{type: "registered", id}` and the old state/tool-call
+envelopes. It accepts only activation, ping, and tool-result frames. Session inventories, runtime
+identity, design actions, and design-task messages are unavailable on this path. Unknown
+subprotocols are rejected during the HTTP upgrade.
+
+The active legacy connection can serve taskless `get_code`, `get_screenshot`, and node-based
+`get_structure` with their released arguments and result shapes. The internal token tool contract
+is retained without changing its public exposure. New arguments such as page identity or native
+read-back, and canvas authoring operations, return `EXTENSION_UPGRADE_REQUIRED` before dispatch.
+The Hub never fabricates a session or task lease for an old tab. Calls carrying a task id always
+resolve their original bound session, even when a legacy connection becomes active or replaces
+a disconnected current connection. Current peers still require their runtime identity handshake.
+
+Legacy connections receive a separate random asset capability from the same HTTP server.
+That capability permits their 8-character SHA-256-prefix uploads; the current capability continues
+to require full SHA-256 uploads. Both use the same Origin checks, quota, concurrent-upload limit,
+and store. Legacy retries are fully hashed, and an existing short hash with different full content
+returns a collision error without changing its bytes. Existing short-hash downloads remain valid.
+
+Keep this adapter for at least one store cycle. Its removal requires an explicit breaking migration;
+see [release coordination](../releasing.md#bridge-protocol-and-release-order).
+
 The hub chooses the active browser connection. Inside that connection, the broker chooses the
 active Figma session. A sole session is selected automatically. More than one session requires an
 explicit choice: registering another Figma tab clears the previous choice, and a newly connected
@@ -69,6 +97,11 @@ not cached capabilities or transport IDs, remain authoritative for sending comme
 before acknowledging Done, then synchronizes it on reconnect. `mcp.designReviewClosed`
 notifies other registered tabs locally; it never grants a canvas lease. Both browser and
 Hub protocol versions advance for this contract.
+
+Stop persists cancellation locally before dispatch. On a connected socket, the broker sends
+the explicit Stop action before publishing the cancelled review snapshot. Otherwise the Hub
+restores cancellation first and treats Stop as an already-ended task, skipping native host
+interruption. The cancelled snapshot still synchronizes when dispatch fails or on reconnect.
 
 ## Assets
 

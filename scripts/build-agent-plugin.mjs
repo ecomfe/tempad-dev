@@ -24,6 +24,9 @@ if (portableMcp.$schema !== mcpSchema) {
 
 rmSync(targetRoot, { force: true, recursive: true })
 buildStandard()
+buildHost(join(targetRoot, 'plugins-cli'), (target) =>
+  writeJson(join(target, '.plugin/plugin.json'), sharedManifestFields(manifest))
+)
 buildHost(join(targetRoot, 'codex'), (target) =>
   writeCodexManifest(target, manifest, codexInterface)
 )
@@ -34,7 +37,7 @@ buildDev(marketplaces)
 console.log(
   [
     `Built agent plugin from ${relative(root, srcRoot)}:`,
-    ...['standard', 'codex', 'claude'].map(
+    ...['standard', 'plugins-cli', 'codex', 'claude'].map(
       (target) => `  ${target.padEnd(9)} ${relative(root, join(targetRoot, target))}`
     ),
     `  dev       ${relative(root, devRoot)}`
@@ -42,8 +45,8 @@ console.log(
 )
 
 /**
- * Agent Plugins 1.0 package. Serves `npx plugins add`, which projects this manifest onto each
- * client itself, and the standalone `skills/` install URL.
+ * Agent Plugins 1.0 package and standalone skills URL. The current `plugins` CLI reads the
+ * separate compatibility target's `.plugin/plugin.json` and `.mcp.json` instead.
  */
 function buildStandard() {
   const target = join(targetRoot, 'standard')
@@ -74,10 +77,6 @@ function writeClaudeManifest(target, pluginManifest) {
   })
 }
 
-/**
- * Ignored local build pinned to this checkout's MCP runtime. Unlike a distribution it carries both
- * host layouts, so one installed package can be exercised from either host during development.
- */
 /** A host package: shared content, the host's own manifest, and the MCP config it points at. */
 function buildHost(target, writeManifest, mcpConfig = hostMcpConfig(portableMcp)) {
   stageSharedContent(target)
@@ -85,6 +84,7 @@ function buildHost(target, writeManifest, mcpConfig = hostMcpConfig(portableMcp)
   writeJson(join(target, '.mcp.json'), mcpConfig)
 }
 
+/** Ignored checkout runtime package, installable from either native host during development. */
 function buildDev(marketplaces) {
   const devManifest = {
     ...manifest,
@@ -166,6 +166,19 @@ function sharedManifestFields({
 }
 
 function syncMarketplaces() {
+  // The plugins CLI checks this before the Claude marketplace. Keep its consumers on a
+  // hook-free compatibility package without changing either native host's source.
+  writeJson(join(root, '.plugin/marketplace.json'), {
+    name: manifest.name,
+    owner: manifest.author,
+    plugins: [
+      {
+        name: manifest.name,
+        source: `./${relative(root, join(targetRoot, 'plugins-cli'))}`,
+        description: manifest.description
+      }
+    ]
+  })
   const codexMarketplacePath = join(root, '.agents/plugins/marketplace.json')
   const codexMarketplace = readJson(codexMarketplacePath)
   codexMarketplace.plugins[0].name = manifest.name

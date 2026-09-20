@@ -182,11 +182,16 @@ function buildCliCommand(prefix: 'claude' | 'codex' | 'gemini'): string {
   return `codex mcp add "${SERVER_NAME}" -- ${args}`
 }
 
+// This is a monorepo, so both native hosts check out only the marketplace manifest and the one
+// target they install. The portable installer has no equivalent option.
+const CODEX_SPARSE = '--sparse .agents --sparse agent-plugin/targets/codex'
+const CLAUDE_SPARSE = '--sparse .claude-plugin agent-plugin/targets/claude'
+
 function buildPluginSetupCommand(agent: PluginAgentId): string {
   if (agent === 'codex')
-    return `codex plugin marketplace add ${REPOSITORY} --ref main && codex plugin add tempad-dev@tempad-dev`
+    return `codex plugin marketplace add ${REPOSITORY} --ref main ${CODEX_SPARSE} && codex plugin add tempad-dev@tempad-dev`
   if (agent === 'claude-code')
-    return `claude plugin marketplace add ${REPOSITORY} && claude plugin install tempad-dev@tempad-dev`
+    return `claude plugin marketplace add ${REPOSITORY} ${CLAUDE_SPARSE} && claude plugin install tempad-dev@tempad-dev`
   return `${PLUGIN_INSTALL_COMMAND} --target ${agent}`
 }
 

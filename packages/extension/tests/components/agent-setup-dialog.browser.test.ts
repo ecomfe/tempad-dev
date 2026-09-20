@@ -76,7 +76,7 @@ describe('AgentSetupDialog', () => {
     expect(host.textContent).toContain('Agent Plugin')
     expect(host.textContent).toContain('Continue in Codex App')
     expect(getCode(host)).toContain(
-      'codex plugin marketplace add ecomfe/tempad-dev --ref main && codex plugin add tempad-dev@tempad-dev'
+      'codex plugin marketplace add ecomfe/tempad-dev --ref main --sparse .agents --sparse agent-plugin/targets/codex && codex plugin add tempad-dev@tempad-dev'
     )
     expect(host.querySelector('[aria-label="Copy command"]')).not.toBeNull()
 
@@ -137,6 +137,17 @@ describe('AgentSetupDialog', () => {
     await page.getByRole('tab', { name: 'VS Code' }).click()
 
     expect(getCode(host)).toEqual([`${PLUGIN_INSTALL_COMMAND} --target vscode`])
+  })
+
+  it('offers Claude a sparse marketplace command containing its hooks and skills', async () => {
+    const host = mountDialog()
+
+    await page.getByRole('tab', { name: 'Claude Code' }).click()
+
+    expect(getCode(host)).toEqual([
+      'claude plugin marketplace add ecomfe/tempad-dev --sparse .claude-plugin agent-plugin/targets/claude && claude plugin install tempad-dev@tempad-dev'
+    ])
+    expect(host.querySelectorAll('[aria-label="Copy command"]')).toHaveLength(1)
   })
 
   it('uses Gemini native commands for both setup steps', async () => {

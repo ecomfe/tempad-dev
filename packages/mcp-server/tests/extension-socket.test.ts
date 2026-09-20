@@ -1,5 +1,6 @@
 import {
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+  TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
   TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS
 } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -20,6 +21,79 @@ afterEach(async () => {
 })
 
 describe('extension socket lifecycle', () => {
+  it('keeps unversioned peers read-only and does not send version fields', async () => {
+    const registry = new ExtensionRegistry(10_000)
+    registries.push(registry)
+    const onSessions = vi.fn()
+    const onRuntimeHello = vi.fn()
+    const onDesignAction = vi.fn()
+    const onProtocolWarning = vi.fn()
+    const onToolResult = vi.fn()
+    const started = await startExtensionWebSocketServer({
+      maxConnections: 2,
+      maxPayloadBytes: 4096,
+      originPolicy: createExtensionOriginPolicy(STORE_ORIGIN),
+      portCandidates: [0]
+    })
+    servers.push(started.server)
+    started.server.on('connection', (socket) =>
+      attachExtensionSocket(socket, {
+        createId: () => 'legacy',
+        origin: STORE_ORIGIN,
+        registry,
+        onSessions,
+        onRuntimeHello,
+        onDesignAction,
+        onProtocolWarning,
+        onToolResult,
+        onStateChange: () => {},
+        onToolError: () => {}
+      })
+    )
+    const received: unknown[] = []
+    const client = new WebSocket(`ws://127.0.0.1:${started.port}/`, { origin: STORE_ORIGIN })
+    client.on('message', (data) => received.push(JSON.parse(data.toString())))
+    await waitForOpen(client)
+    await waitUntil(() => received.length === 1)
+    expect(received).toEqual([{ type: 'registered', id: 'legacy' }])
+    client.send(JSON.stringify({ type: 'activate' }))
+    client.send(
+      JSON.stringify({
+        type: 'runtimeHello',
+        extensionVersion: '0.21.0',
+        extensionRuntimeFingerprint: 'a'.repeat(64)
+      })
+    )
+    client.send(
+      JSON.stringify({
+        type: 'sessions',
+        browserId: 'browser',
+        activeSessionId: null,
+        sessions: []
+      })
+    )
+    client.send(
+      JSON.stringify({
+        type: 'designAction',
+        sessionId: 'tab',
+        action: {
+          requestId: '00000000-0000-4000-8000-000000000001',
+          taskId: 'task',
+          epoch: 0,
+          action: 'stop'
+        }
+      })
+    )
+    client.send(JSON.stringify({ type: 'toolResult', id: 'req', payload: { roots: [] } }))
+    await waitUntil(() => onToolResult.mock.calls.length === 1)
+    expect(registry.getActive()).toMatchObject({ id: 'legacy', legacy: true })
+    expect(onProtocolWarning).toHaveBeenCalledTimes(3)
+    expect(onRuntimeHello).not.toHaveBeenCalled()
+    expect(onSessions).not.toHaveBeenCalled()
+    expect(onDesignAction).not.toHaveBeenCalled()
+    expect(registry.getActive()?.runtime).toBeUndefined()
+    expect(registry.getActive()?.sessions).toBeUndefined()
+  })
   it('registers, activates, routes results, rejects invalid messages, and disconnects', async () => {
     const registry = new ExtensionRegistry(10_000)
     registries.push(registry)
@@ -67,7 +141,7 @@ describe('extension socket lifecycle', () => {
     })
 
     const received: unknown[] = []
-    const client = new WebSocket(`ws://127.0.0.1:${started.port}/`, {
+    const client = new WebSocket(`ws://127.0.0.1:${started.port}/`, TEMPAD_MCP_BRIDGE_SUBPROTOCOL, {
       origin: STORE_ORIGIN
     })
     client.on('message', (raw) => received.push(JSON.parse(raw.toString('utf-8'))))

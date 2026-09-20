@@ -2,6 +2,8 @@
 
 ## 0.2.0
 
+- Routed the `plugins` CLI through its own hook-free compatibility package and marketplace,
+  with installer discovery checks for both skills and MCP configuration.
 - Added design-task lifecycle guidance and Stop/Done controls. Codex App uses MCP metadata and
   native IPC without hooks; Claude uses installed lifecycle and Stop hooks.
 - Documented native Codex App comments, Queue/Steer timing, and element-editor Save & Queue

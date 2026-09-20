@@ -108,7 +108,10 @@ describe('Codex Windows integration', () => {
       handledByClientId: 'owner',
       result: { result: { turn: { id: 'turn-a' } } }
     })
-    const queue = new CodexNativeQueue()
+    const queue = new CodexNativeQueue(
+      async () => [],
+      async () => null
+    )
     vi.spyOn(queue, 'admit').mockRejectedValue(new CodexQueueUnavailable('Queue unavailable'))
     const native = new CodexAppFeedback(
       directory,

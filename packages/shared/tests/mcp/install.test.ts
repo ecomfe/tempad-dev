@@ -132,12 +132,12 @@ describe('shared/mcp/install', () => {
         label: 'Plugin CLI',
         kind: 'command',
         value:
-          'codex plugin marketplace add ecomfe/tempad-dev --ref main && codex plugin add tempad-dev@tempad-dev'
+          'codex plugin marketplace add ecomfe/tempad-dev --ref main --sparse .agents --sparse agent-plugin/targets/codex && codex plugin add tempad-dev@tempad-dev'
       })
     ])
     const codexPluginPrompt = decodeURIComponent(codex.actions[0]?.value ?? '')
     expect(codexPluginPrompt).toContain(
-      'codex plugin marketplace add ecomfe/tempad-dev --ref main && codex plugin add tempad-dev@tempad-dev'
+      'codex plugin marketplace add ecomfe/tempad-dev --ref main --sparse .agents --sparse agent-plugin/targets/codex && codex plugin add tempad-dev@tempad-dev'
     )
     expect(codexPluginPrompt).toContain('figma-design-to-code')
     expect(codexPluginPrompt).toContain('figma-canvas-authoring')
@@ -149,7 +149,7 @@ describe('shared/mcp/install', () => {
         id: 'plugin-cli',
         kind: 'command',
         value:
-          'claude plugin marketplace add ecomfe/tempad-dev && claude plugin install tempad-dev@tempad-dev'
+          'claude plugin marketplace add ecomfe/tempad-dev --sparse .claude-plugin agent-plugin/targets/claude && claude plugin install tempad-dev@tempad-dev'
       })
     ])
     expect(

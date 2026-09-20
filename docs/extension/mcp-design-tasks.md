@@ -170,8 +170,8 @@ dispatched interruptions, acknowledgements, and failures. There is no hook fallb
 
 ### Codex feedback: native Queue and Steer
 
-Queue admits comments into Codex's local native queue and settles after the host
-acknowledges storage. The Hub serializes submissions per conversation, reads the
+Where legacy admission is available, Queue admits comments into Codex's local native
+queue and settles after the host acknowledges storage. The Hub serializes submissions per conversation, reads the
 latest committed `queued-follow-ups` snapshot from Codex home without modifying
 that file, and submits the complete merged list through native IPC. Existing messages
 and all their fields are preserved. This is best-effort read/merge/set: the host has no
@@ -181,8 +181,9 @@ for the storage evidence and separate, feature-gated app-server queue. Ordering 
 those two queues is not supported: the current Codex coordinator selects its legacy queue
 when that queue is nonempty, hiding server-queue messages from the displayed queue. Live
 acceptance on 2026-09-17 exposed this conflict. A passing legacy admission check does not
-establish compatibility with Codex's server queue; coordinated release remains blocked
-until the integration preserves that queue's visibility and ordering.
+establish compatibility with Codex's server queue. The subsequent server-admission
+path below passed interactive visibility and ordering checks on the inspected macOS
+host on 2026-09-20; see the research report for the tested scope.
 
 The adapter discovers existing current-user Unix sockets under Codex home or the host's
 temporary directory. On Windows it connects to the host's fixed local named pipe,
@@ -209,10 +210,33 @@ untrusted `writingBlockAdditionalContext`; the owner derives workspace roots, mo
 permissions. Its selected-owner `{ ok: true }` receipt confirms native admission without
 waiting for a turn to end. No legacy untrusted-App-input flags are stripped to bypass validation.
 
-When the local store or native snapshot is unavailable, Queue retains the bounded Hub
-waiting path: `thread-follower-start-turn` with the review as user input and the original
+Before admission, the Hub checks `queue_1.sqlite` read-only for this conversation.
+A missing database retains older-host behavior. A populated legacy queue retains
+legacy admission. With an empty legacy queue and a present server database, the Hub
+uses a lazily started instance of the running desktop's bundled executable for
+native `thread/queue/list`, `add`, and `delete` requests. This process never loads
+or executes a task; the original owner discovers the shared queue and executes it.
+The desktop can take approximately ten seconds to refresh cross-process changes.
+Database read or schema failures retain drafts and report failure. Server messages
+are never copied into legacy storage. This routing does not independently establish
+the renderer feature gate; visibility must be verified for the host configuration.
+
+Receipts record the task ID, admitting backend, and stable feedback ID. The visible
+server message contains only the formatted feedback, without an internal task-ID
+prefix. Server cancellation
+lists that backend and deletes only the native IDs whose `clientUserMessageId`
+matches this task's receipts. Cancellation and restart reconciliation never choose
+a different backend based on the current queue contents. Native addition is not
+idempotent, so uncertain requests are reconciled rather than automatically retried.
+
+When native admission is unavailable, Queue retains the bounded Hub waiting path,
+but only attempts delivery after both queue stores can be checked and are empty:
+`thread-follower-start-turn` with the review as user input and the original
 task ID in paired tool-response items. Nonempty app context preserves the pre-creation busy
-check. A known busy rejection retries with cancellation checks for at most five minutes.
+check. Pending queues and known busy rejections retry with cancellation checks for at
+most five minutes. Waiting creates no delivery receipt and never clears the drafts.
+Stop cancels that wait; cleanup of previously admitted legacy comments does not depend
+on server database availability.
 An explicit Steer submission uses this Start path for an idle conversation.
 The host's pre-creation guard decides whether it is idle;
 the design task's status is not a substitute for conversation state. After a known busy

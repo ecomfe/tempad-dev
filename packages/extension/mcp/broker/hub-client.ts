@@ -14,6 +14,7 @@ import type {
 import {
   MCP_PORT_CANDIDATES,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+  TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
   parseMessageToExtension
 } from '@tempad-dev/shared'
 
@@ -41,7 +42,7 @@ type McpHubClientEvents = {
   onDesignTask?: (message: DesignTaskStateMessage) => void
 }
 
-type WebSocketFactory = (url: string) => WebSocket
+type WebSocketFactory = (url: string, protocol: string) => WebSocket
 
 type HubConnection = {
   registered: RegisteredMessage
@@ -68,7 +69,8 @@ export class McpHubClient {
 
   constructor(
     private readonly events: McpHubClientEvents = {},
-    private readonly createWebSocket: WebSocketFactory = (url) => new WebSocket(url),
+    private readonly createWebSocket: WebSocketFactory = (url, protocol) =>
+      new WebSocket(url, protocol),
     private readonly runtimeIdentity: RuntimeHelloMessage | null = null
   ) {}
 
@@ -191,7 +193,7 @@ export class McpHubClient {
 
   private openHubConnection(port: number): Promise<HubConnection> {
     return new Promise((resolve, reject) => {
-      const ws = this.createWebSocket(`ws://127.0.0.1:${port}`)
+      const ws = this.createWebSocket(`ws://127.0.0.1:${port}`, TEMPAD_MCP_BRIDGE_SUBPROTOCOL)
       this.candidateSocket = ws
       let registered: RegisteredMessage | null = null
       let state: StateMessage | null = null
@@ -459,7 +461,9 @@ function createProtocolMismatchError(
   return new McpBridgeProtocolMismatchError(
     `TemPad Dev protocol mismatch: the extension requires ${TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION}, ` +
       `but the MCP server reported ${received}.${serves} ` +
-      'Update the extension and MCP server together.'
+      'Restart the agent and its TemPad Dev MCP connection using @tempad-dev/mcp@latest. ' +
+      'If an older agent is still keeping the MCP server running, close that agent too before restarting. ' +
+      'If the mismatch persists, update the extension and reload Figma. Reloading Figma alone does not update the MCP server.'
   )
 }
 

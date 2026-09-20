@@ -5,6 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { ServerQueuedMessage } from '../src/agent-clients/codex-queue-rpc'
+import type { CodexServerQueueState } from '../src/agent-clients/codex-server-queue'
+
 import { CodexAppFeedback } from '../src/agent-clients/codex-feedback'
 import { CodexIpcError } from '../src/agent-clients/codex-ipc'
 import {
@@ -38,6 +41,22 @@ async function fixture(existing?: string) {
   let messages: CodexQueuedMessage[] = []
   const listeners = new Set<(message: Record<string, unknown>) => void>()
   const read = vi.fn(async () => structuredClone(messages))
+  const readServer = vi.fn(async (): Promise<CodexServerQueueState> => null)
+  let serverMessages: ServerQueuedMessage[] = []
+  const server = {
+    list: vi.fn(async () => structuredClone(serverMessages)),
+    add: vi.fn(async (_threadId: string, clientUserMessageId: string, text: string) => {
+      serverMessages.push({
+        id: `server-${clientUserMessageId}`,
+        clientUserMessageId,
+        input: [{ type: 'text', text }]
+      })
+    }),
+    remove: vi.fn(async (_threadId: string, id: string) => {
+      serverMessages = serverMessages.filter((message) => message.id !== id)
+    }),
+    close: vi.fn()
+  }
   const request = vi.fn<CodexQueueConnection['request']>(async (_method, _version, params) => {
     messages = structuredClone((params.state as Record<string, CodexQueuedMessage[]>)['thread-a']!)
     return { resultType: 'success', handledByClientId: 'owner-a', result: { ok: true } }
@@ -76,7 +95,7 @@ async function fixture(existing?: string) {
     async () => connection,
     1,
     vi.fn(),
-    new CodexNativeQueue(read)
+    new CodexNativeQueue(read, readServer, server)
   )
   cleanups.push(() => native.close())
   const controller = new AbortController()
@@ -91,6 +110,12 @@ async function fixture(existing?: string) {
       messages = value
     },
     read,
+    readServer,
+    server,
+    serverMessages: () => serverMessages,
+    setServerMessages: (value: ServerQueuedMessage[]) => {
+      serverMessages = value
+    },
     request,
     connection,
     native,
@@ -102,6 +127,185 @@ async function fixture(existing?: string) {
 }
 
 describe('native Codex queue admission', () => {
+  it('appends to the server queue without replacing existing native messages', async () => {
+    const f = await fixture()
+    f.readServer.mockResolvedValue({ hasMessages: true })
+    const existing = {
+      id: 'native-a',
+      clientUserMessageId: 'user-a',
+      input: [{ type: 'text', text: 'Keep me' }]
+    }
+    f.setServerMessages([existing])
+    await f.send()
+    expect(f.request).not.toHaveBeenCalled()
+    expect(f.serverMessages()[0]).toEqual(existing)
+    expect(f.serverMessages()[1]?.clientUserMessageId).toBe(feedback.id)
+    expect(f.serverMessages()[1]?.input).toEqual([{ type: 'text', text: feedback.comment }])
+    expect(f.dispatched).toHaveBeenCalledOnce()
+    await f.native.cancelQueued('task-a')
+    expect(f.serverMessages()).toEqual([existing])
+    expect(f.request).not.toHaveBeenCalled()
+  })
+
+  it('preserves the composer selection when the legacy queue is populated', async () => {
+    const f = await fixture()
+    f.readServer.mockResolvedValue({ hasMessages: true })
+    f.setMessages([{ id: 'legacy-user-message' }])
+    await f.send()
+    expect(f.request).toHaveBeenCalledOnce()
+    expect(f.messages().map(({ id }) => id)).toEqual(['legacy-user-message', feedback.id])
+    expect(f.server.add).not.toHaveBeenCalled()
+  })
+
+  it('uses native server admission for an empty modern queue', async () => {
+    const f = await fixture()
+    f.readServer.mockResolvedValue({ hasMessages: false })
+    await f.send()
+    expect(f.server.add).toHaveBeenCalledOnce()
+    expect(f.request).not.toHaveBeenCalled()
+    expect(f.messages()).toEqual([])
+  })
+
+  it('rechecks native queues after a busy Start rejection before trying again', async () => {
+    const f = await fixture()
+    f.readServer.mockResolvedValue({ hasMessages: false })
+    f.read.mockRejectedValueOnce(new CodexQueueUnavailable('Store temporarily unavailable'))
+    f.request.mockImplementationOnce(async () => {
+      f.readServer.mockResolvedValue({ hasMessages: true })
+      throw new CodexIpcError('App context must wait until the current turn finishes')
+    })
+    f.request.mockResolvedValue({
+      resultType: 'success',
+      handledByClientId: 'owner-a',
+      result: { result: { turn: { id: 'next-turn' } } }
+    })
+    const sending = f.send()
+    await vi.waitFor(() => expect(f.readServer.mock.calls.length).toBeGreaterThan(3))
+    expect(f.request).toHaveBeenCalledOnce()
+    expect(f.dispatched).not.toHaveBeenCalled()
+    f.readServer.mockResolvedValue({ hasMessages: false })
+    await sending
+    expect(f.request).toHaveBeenCalledTimes(2)
+    expect(f.dispatched).toHaveBeenCalledOnce()
+  })
+
+  it('bounds waiting for existing messages without leaving an uncertain receipt', async () => {
+    const f = await fixture()
+    f.readServer.mockResolvedValue({ hasMessages: true })
+    f.read.mockRejectedValueOnce(new CodexQueueUnavailable('Store temporarily unavailable'))
+    const now = vi.spyOn(Date, 'now').mockReturnValue(400000).mockReturnValueOnce(1000)
+    cleanups.push(() => now.mockRestore())
+    await expect(f.send()).rejects.toThrow('still has queued messages')
+    expect(f.request).not.toHaveBeenCalled()
+    expect(await readdir(f.directory)).toEqual([])
+  })
+
+  it('retains legacy admission when the host has an existing legacy queue and no server items', async () => {
+    const f = await fixture()
+    f.readServer.mockResolvedValue({ hasMessages: false })
+    f.setMessages([{ id: 'legacy-user-message' }])
+    await f.send()
+    expect(f.messages().map(({ id }) => id)).toEqual(['legacy-user-message', feedback.id])
+  })
+
+  it('keeps unknown database state from falling through to either native write path', async () => {
+    const f = await fixture()
+    f.readServer.mockRejectedValue(new Error('Database unreadable'))
+    await expect(f.send()).rejects.toThrow('Database unreadable')
+    expect(f.request).not.toHaveBeenCalled()
+    expect(f.dispatched).not.toHaveBeenCalled()
+    expect(await readdir(f.directory)).toEqual([])
+  })
+
+  it('removes only this task’s legacy comments even if server state becomes unavailable', async () => {
+    const f = await fixture()
+    await f.send()
+    f.readServer.mockRejectedValue(new Error('Database unreadable'))
+    f.setMessages([...f.messages(), { id: 'user-message' }])
+    await f.native.cancelQueued('task-a')
+    expect(f.messages()).toEqual([{ id: 'user-message' }])
+  })
+
+  it('reconciles a server acknowledgement lost after commit without adding twice', async () => {
+    const f = await fixture()
+    f.readServer.mockResolvedValue({ hasMessages: false })
+    f.server.add.mockImplementationOnce(async (_threadId, clientUserMessageId, text) => {
+      f.setServerMessages([
+        { id: 'native-b', clientUserMessageId, input: [{ type: 'text', text }] }
+      ])
+      throw new CodexIpcError('Disconnected', true)
+    })
+    await f.send()
+    await f.send()
+    expect(f.server.add).toHaveBeenCalledOnce()
+    await f.native.cancelQueued('task-a')
+    expect(f.server.remove).toHaveBeenCalledWith('thread-a', 'native-b', expect.any(AbortSignal))
+  })
+
+  it('does not retry an uncertain server add when the message is already absent', async () => {
+    const f = await fixture()
+    f.readServer.mockResolvedValue({ hasMessages: false })
+    f.server.add.mockRejectedValueOnce(new CodexIpcError('Disconnected', true))
+    await expect(f.send()).rejects.toThrow('uncertain')
+    const restarted = await fixture(f.directory)
+    await expect(restarted.send()).rejects.toThrow('uncertain')
+    expect(f.server.add).toHaveBeenCalledOnce()
+    expect(restarted.server.add).not.toHaveBeenCalled()
+  })
+
+  it('retains the admitting backend across restart and legacy queue changes', async () => {
+    const f = await fixture()
+    f.readServer.mockResolvedValue({ hasMessages: false })
+    await f.send()
+    const restarted = await fixture(f.directory)
+    restarted.setServerMessages(f.serverMessages())
+    restarted.setMessages([{ id: 'native-legacy-message' }])
+    restarted.connection.owner.mockRejectedValue(new CodexIpcError('Owner unavailable'))
+    await restarted.native.cancelQueued('task-a')
+    expect(restarted.serverMessages()).toEqual([])
+    expect(restarted.messages()).toEqual([{ id: 'native-legacy-message' }])
+    expect(restarted.connection.owner).not.toHaveBeenCalled()
+  })
+
+  it('reconciles a server admission committed after its cancellation tombstone', async () => {
+    const f = await fixture()
+    f.readServer.mockResolvedValue({ hasMessages: false })
+    f.server.add.mockRejectedValueOnce(new CodexIpcError('Disconnected', true))
+    await expect(f.send()).rejects.toThrow('uncertain')
+    await f.native.cancelQueued('task-a')
+    f.setServerMessages([{ id: 'late', clientUserMessageId: feedback.id, input: [] }])
+    await f.native.reconcileQueued(() => false)
+    expect(f.serverMessages()).toEqual([])
+  })
+
+  it('cancels receipts from both backends without removing other messages', async () => {
+    const f = await fixture()
+    await f.send()
+    f.setMessages([])
+    f.readServer.mockResolvedValue({ hasMessages: false })
+    const next = { ...feedback, id: '00000000-0000-4000-8000-000000000002' }
+    await f.send(next)
+    f.setMessages([
+      codexFeedbackQueuedMessage('task-a', feedback, '/original/project'),
+      { id: 'user-legacy' }
+    ])
+    const other = { id: 'native-user', clientUserMessageId: 'user-server', input: [] }
+    f.setServerMessages([...f.serverMessages(), other])
+    await f.native.cancelQueued('task-a')
+    expect(f.messages()).toEqual([{ id: 'user-legacy' }])
+    expect(f.serverMessages()).toEqual([other])
+  })
+
+  it('does not turn a server read failure into a legacy replacement', async () => {
+    const f = await fixture()
+    f.readServer.mockResolvedValue({ hasMessages: false })
+    f.server.list.mockRejectedValueOnce(new CodexIpcError('Thread unavailable'))
+    await expect(f.send()).rejects.toThrow('Thread unavailable')
+    expect(f.request).not.toHaveBeenCalled()
+    expect(f.server.add).not.toHaveBeenCalled()
+    expect(await readdir(f.directory)).toEqual([])
+  })
+
   it('preserves the complete composer queue and acknowledges storage without starting a turn', async () => {
     const f = await fixture()
     const other = {
