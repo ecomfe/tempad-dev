@@ -49,7 +49,7 @@
     "tsdown": "^0.22.14",
     "typescript": "^6.0.3",
     "unplugin-raw": "^0.8.0",
-    "vitest": "4.1.11"
+    "vitest": "5.0.0"
   },
   "engines": {
     "node": "^22 || ^24 || >=26"
