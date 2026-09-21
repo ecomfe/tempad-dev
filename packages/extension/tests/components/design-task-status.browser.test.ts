@@ -404,6 +404,66 @@ describe('design task status and canvas overlay', () => {
     expect(document.querySelector<HTMLElement>('.tp-design-feedback')?.style.top).toBe('116px')
   })
 
+  it.each(['capture transferred', 'release intercepted', 'Escape', 'pointercancel'] as const)(
+    'finishes the drag correctly after %s',
+    async (interruption) => {
+      await page.viewport(900, 700)
+      const f = fixture()
+      f.anchor.value = f.node as unknown as SceneNode
+      f.task.value = f.initial
+      await expect.poll(toolbarVisible).toBe(true)
+      const bar = document.querySelector<HTMLElement>('.tp-design-feedback')!
+      bar.getAnimations().forEach((animation) => animation.finish())
+      const label = bar.querySelector<HTMLElement>('.tp-design-anchor-label')!
+      const original = bar.getBoundingClientRect()
+      const handle = label.getBoundingClientRect()
+      const target = document.createElement('div')
+      Object.assign(target.style, {
+        position: 'fixed',
+        width: '2px',
+        height: '2px',
+        left: `${handle.left + handle.width / 2 - 81}px`,
+        top: `${handle.top + handle.height / 2 + 99}px`
+      })
+      document.body.append(target)
+      let interrupted = false
+      const interrupt = (event: PointerEvent) => {
+        if (interrupted || (event.type === 'pointermove' && !event.buttons)) return
+        if (interruption === 'capture transferred') {
+          target.setPointerCapture(event.pointerId)
+        } else if (interruption === 'release intercepted') event.stopPropagation()
+        else if (interruption === 'Escape')
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        else window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: event.pointerId }))
+        interrupted = true
+      }
+      const cancelled = interruption === 'Escape' || interruption === 'pointercancel'
+      const eventType = interruption === 'release intercepted' ? 'pointerup' : 'pointermove'
+      const eventTarget = interruption === 'release intercepted' ? document : window
+      eventTarget.addEventListener(eventType, interrupt as EventListener, true)
+      try {
+        await userEvent.dragAndDrop(label, target)
+        expect(interrupted).toBe(true)
+        expect(bar.getBoundingClientRect().left - original.left).toBeCloseTo(cancelled ? 0 : -80, 0)
+        expect(bar.getBoundingClientRect().top - original.top).toBeCloseTo(cancelled ? 0 : 100, 0)
+        const saved = JSON.parse(
+          window.sessionStorage.getItem('tempad-dev:design-status-position')!
+        )
+        if (cancelled) expect(saved).toBeNull()
+        else {
+          expect(saved.x).toBeCloseTo(-40, 1)
+          expect(saved.y).toBeCloseTo(50, 1)
+        }
+        // A later cancellation must not undo an already completed drop.
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        expect(bar.getBoundingClientRect().top - original.top).toBeCloseTo(cancelled ? 0 : 100, 0)
+      } finally {
+        eventTarget.removeEventListener(eventType, interrupt as EventListener, true)
+        target.remove()
+      }
+    }
+  )
+
   it('resets with a double click without focusing the bar or stealing button actions', async () => {
     await page.viewport(900, 700)
     window.sessionStorage.setItem(

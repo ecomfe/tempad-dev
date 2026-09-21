@@ -56,7 +56,6 @@ export type McpClientConfig = {
 
 export type AgentIntegrationAction = {
   id:
-    | 'plugin-app'
     | 'plugin-cli'
     | 'mcp-deep-link'
     | 'mcp-cli'
@@ -204,15 +203,6 @@ function pluginCliAction(agent: PluginAgentId): AgentIntegrationAction {
   }
 }
 
-/**
- * Only the desktop app gets a deep link: it can run the install itself. Terminal clients read the
- * command directly instead of having an agent relay it.
- */
-function buildCodexAppDeepLink(): string {
-  const prompt = `Install the TemPad Dev plugin using the native marketplace command below, then confirm that its MCP server and figma-design-to-code and figma-canvas-authoring skills are available.\n\n${buildPluginSetupCommand('codex')}`
-  return `codex://new?prompt=${encodeURIComponent(prompt)}`
-}
-
 function buildSkillsInstallCommand(agent: SkillAgentId): string {
   return `${SKILLS_INSTALL_COMMAND} --global --agent ${agent}`
 }
@@ -339,25 +329,17 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
   codex: {
     id: 'codex',
     name: 'Codex',
-    actions: [
-      {
-        id: 'plugin-app',
-        label: 'App install',
-        kind: 'deep-link',
-        value: buildCodexAppDeepLink()
-      },
-      pluginCliAction('codex')
-    ]
-  },
-  cursor: {
-    id: 'cursor',
-    name: 'Cursor',
-    actions: [pluginCliAction('cursor')]
+    actions: [pluginCliAction('codex')]
   },
   claude: {
     id: 'claude',
     name: 'Claude Code',
     actions: [pluginCliAction('claude-code')]
+  },
+  cursor: {
+    id: 'cursor',
+    name: 'Cursor',
+    actions: [pluginCliAction('cursor')]
   },
   gemini: {
     id: 'gemini',

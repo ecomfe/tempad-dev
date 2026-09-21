@@ -56,7 +56,7 @@ function getCode(host: HTMLElement): string[] {
 afterEach(unmountAll)
 
 describe('AgentSetupDialog', () => {
-  it('offers the Codex plugin with a reviewable CLI fallback', async () => {
+  it('offers the Codex plugin through its native CLI command', async () => {
     const host = mountDialog()
     await nextTick()
 
@@ -74,7 +74,8 @@ describe('AgentSetupDialog', () => {
       height: 32
     })
     expect(host.textContent).toContain('Agent Plugin')
-    expect(host.textContent).toContain('Continue in Codex App')
+    expect(host.querySelector('.tp-agent-dialog-action')).toBeNull()
+    expect(host.textContent).toContain('Run in your terminal:')
     expect(getCode(host)).toContain(
       'codex plugin marketplace add ecomfe/tempad-dev --ref main --sparse .agents --sparse agent-plugin/targets/codex && codex plugin add tempad-dev@tempad-dev'
     )

@@ -40,7 +40,6 @@ useScrollbar(nav, VERTICAL_SCROLLBAR_OPTIONS)
 useScrollbar(content, VERTICAL_SCROLLBAR_OPTIONS)
 
 const actionGroups: Record<AgentIntegrationAction['id'], ActionGroupId> = {
-  'plugin-app': 'plugin',
   'plugin-cli': 'plugin',
   'mcp-deep-link': 'mcp',
   'mcp-cli': 'mcp',
@@ -143,11 +142,6 @@ function handleSetupAction(action: AgentIntegrationAction): void {
   copy(action.value, message)
 }
 
-function getActionLabel(action: AgentIntegrationAction): string {
-  if (action.id === 'plugin-app') return `Continue in ${selectedSetup.value.name} App`
-  return `Install in ${selectedSetup.value.name}`
-}
-
 function getCopyHint(action: AgentIntegrationAction, index: number): string {
   if (index > 0) {
     if (action.id === 'skill-canvas-authoring-cli') return 'Then run in your terminal:'
@@ -245,7 +239,7 @@ function getCopyTitle(action: AgentIntegrationAction): string {
                     @click="handleSetupAction(action)"
                   >
                     <ExternalLink />
-                    <span>{{ getActionLabel(action) }}</span>
+                    <span>Install in {{ selectedSetup.name }}</span>
                   </Button>
                   <div v-else class="tp-agent-dialog-copy-action">
                     <p class="tp-agent-dialog-action-hint">

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.1
+
+- Fixed the extension version display.
+- Fixed the design-task status bar jumping back after dragging.
+- Simplified Codex installation and aligned agent setup instructions across the extension and website.
+
 ## 0.21.0
 
 - Fixed Stop dispatch ordering so cancellation-state synchronization does not skip native host

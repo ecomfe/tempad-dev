@@ -1113,11 +1113,19 @@ button.site-text-link {
   border: 1px solid transparent;
   border-radius: 9px;
   background: transparent;
+  color: var(--site-ink);
   cursor: pointer;
   transition:
     border-color 160ms ease,
     background 160ms ease,
     box-shadow 160ms ease;
+}
+.site-agent-other-button {
+  width: auto;
+  padding-inline: 12px;
+  font: inherit;
+  font-size: 0.8125rem;
+  white-space: nowrap;
 }
 .site-agent-logo-button .site-brand-icon {
   width: 24px;

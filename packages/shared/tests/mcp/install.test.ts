@@ -105,14 +105,14 @@ describe('shared/mcp/install', () => {
     expect(mcp.MCP_CLIENTS).toHaveLength(7)
   })
 
-  it('describes the supported app and CLI setup paths', async () => {
+  it('describes the supported plugin and MCP setup paths', async () => {
     globalThis.btoa = (input: string) => Buffer.from(input, 'utf8').toString('base64')
     const mcp = await importInstall()
 
     expect(mcp.AGENT_INTEGRATIONS.map(({ id }) => id)).toEqual([
       'codex',
-      'cursor',
       'claude',
+      'cursor',
       'gemini',
       'vscode',
       'opencode',
@@ -122,12 +122,6 @@ describe('shared/mcp/install', () => {
     const codex = mcp.AGENT_INTEGRATIONS_BY_ID.codex
     expect(codex.actions).toEqual([
       expect.objectContaining({
-        id: 'plugin-app',
-        label: 'App install',
-        kind: 'deep-link',
-        value: expect.stringMatching(/^codex:\/\/new\?prompt=/)
-      }),
-      expect.objectContaining({
         id: 'plugin-cli',
         label: 'Plugin CLI',
         kind: 'command',
@@ -135,14 +129,6 @@ describe('shared/mcp/install', () => {
           'codex plugin marketplace add ecomfe/tempad-dev --ref main --sparse .agents --sparse agent-plugin/targets/codex && codex plugin add tempad-dev@tempad-dev'
       })
     ])
-    const codexPluginPrompt = decodeURIComponent(codex.actions[0]?.value ?? '')
-    expect(codexPluginPrompt).toContain(
-      'codex plugin marketplace add ecomfe/tempad-dev --ref main --sparse .agents --sparse agent-plugin/targets/codex && codex plugin add tempad-dev@tempad-dev'
-    )
-    expect(codexPluginPrompt).toContain('figma-design-to-code')
-    expect(codexPluginPrompt).toContain('figma-canvas-authoring')
-
-    // Terminal clients read the command directly, so only the desktop app carries a deep link.
     const claude = mcp.AGENT_INTEGRATIONS_BY_ID.claude
     expect(claude.actions).toEqual([
       expect.objectContaining({

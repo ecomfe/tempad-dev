@@ -8,7 +8,7 @@ import type {
 } from '@tempad-dev/shared'
 
 import { AGENT_CLIENTS } from '@tempad-dev/shared'
-import { useEventListener } from '@vueuse/core'
+import { useDraggable, useEventListener } from '@vueuse/core'
 import { computed, nextTick, onMounted, onScopeDispose, shallowRef, watch } from 'vue'
 
 import Button from '@/components/Button.vue'
@@ -211,11 +211,16 @@ const positionKey = computed(() =>
 let offset = { x: 0, y: 0 }
 let drag: {
   pointerId: number
-  element: HTMLElement
-  grabX: number
-  grabY: number
   initial: { x: number; y: number }
 } | null = null
+
+useDraggable(toolbar, {
+  preventDefault: true,
+  stopPropagation: () => !!drag,
+  onStart: (_, event) => startDrag(event),
+  onMove: moveDrag,
+  onEnd: (_, event) => endDrag(event)
+})
 
 function savePosition() {
   if (!positionKey.value) return
@@ -233,8 +238,6 @@ function finishDrag(commit: boolean) {
   const current = drag
   if (!current) return
   drag = null
-  if (current.element.hasPointerCapture(current.pointerId))
-    current.element.releasePointerCapture(current.pointerId)
   if (commit) savePosition()
   else offset = current.initial
   updateProjection(lastFrame)
@@ -249,53 +252,33 @@ function isBarSurface(event: Event): boolean {
 }
 
 function startDrag(event: PointerEvent) {
-  if (
-    !projection.value ||
-    exitPhase.value ||
-    event.button !== 0 ||
-    !event.isPrimary ||
-    !isBarSurface(event) ||
-    drag
-  )
-    return
-  const element = event.currentTarget as HTMLElement
-  const rect = element.getBoundingClientRect()
-  event.preventDefault()
-  event.stopPropagation()
-  element.setPointerCapture(event.pointerId)
+  if (!projection.value || exitPhase.value || !event.isPrimary || !isBarSurface(event) || drag)
+    return false
   drag = {
     pointerId: event.pointerId,
-    element,
-    grabX: event.clientX - rect.left,
-    grabY: event.clientY - rect.top,
     initial: offset
   }
 }
 
-function moveDrag(event: PointerEvent) {
+function moveDrag(position: { x: number; y: number }, event: PointerEvent) {
   const current = drag
   const frame = lastFrame
   const projected = projection.value
-  if (!current || event.pointerId !== current.pointerId || !frame || !projected) return
-  event.preventDefault()
-  event.stopPropagation()
+  const element = toolbar.value
+  if (!current || event.pointerId !== current.pointerId || !frame || !projected || !element) return
   if (event.buttons === 0) return finishDrag(true)
-  const element = current.element
   const originX = parseFloat(projected.feedback.left) - offset.x * frame.zoom
   const originY = parseFloat(projected.feedback.top) - offset.y * frame.zoom
   // Clamp only the drag gesture; normal pan/zoom still follows the design anchor.
   const width = parseFloat(getComputedStyle(element).getPropertyValue('--tp-toolbar-width'))
   const left = Math.max(
     8,
-    Math.min(
-      event.clientX - frame.canvas.left - current.grabX,
-      Math.max(8, frame.canvas.width - width - 8)
-    )
+    Math.min(position.x - frame.canvas.left, Math.max(8, frame.canvas.width - width - 8))
   )
   const top = Math.max(
     8,
     Math.min(
-      event.clientY - frame.canvas.top - current.grabY,
+      position.y - frame.canvas.top,
       Math.max(8, frame.canvas.height - element.offsetHeight - 8)
     )
   )
@@ -452,11 +435,6 @@ onScopeDispose(() => {
         :style="projection?.feedback"
         role="status"
         aria-live="polite"
-        @pointerdown="startDrag"
-        @pointermove="moveDrag"
-        @pointerup="endDrag"
-        @pointercancel="endDrag"
-        @lostpointercapture="endDrag"
         @dblclick="resetPosition"
       >
         <TemPadLogo

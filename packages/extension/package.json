@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/extension",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "private": true,
   "description": "Inspect Figma designs, customize code output, and connect your coding agent to read and edit the canvas.",
   "type": "module",

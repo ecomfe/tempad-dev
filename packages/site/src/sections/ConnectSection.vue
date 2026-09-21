@@ -5,7 +5,11 @@ import type {
   AgentIntegrationId
 } from '@tempad-dev/shared'
 
-import { AGENT_INTEGRATIONS } from '@tempad-dev/shared'
+import {
+  AGENT_INTEGRATIONS,
+  AGENT_SKILLS_INSTALL_COMMAND,
+  MCP_SERVERS_CONFIG_SNIPPET
+} from '@tempad-dev/shared'
 import { ArrowUpRight, Check, Copy, ExternalLink } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 
@@ -17,25 +21,42 @@ import { useSiteColorMode } from '@/composables/useSiteColorMode'
 import { AGENT_SETUP_SHOT, SITE_LINKS, type SiteSkill } from '@/content/landing'
 
 type FeedbackKind = 'success' | 'info' | 'error'
-const agents = AGENT_INTEGRATIONS
+type SetupTarget = Pick<AgentIntegrationConfig, 'name' | 'actions'> & {
+  id: AgentIntegrationId | 'other'
+}
+const agents: SetupTarget[] = [
+  ...AGENT_INTEGRATIONS,
+  {
+    id: 'other',
+    name: 'Manual setup',
+    actions: [
+      { id: 'mcp-config', label: 'MCP config', kind: 'config', value: MCP_SERVERS_CONFIG_SNIPPET },
+      {
+        id: 'skill-cli',
+        label: 'Agent skills',
+        kind: 'command',
+        value: AGENT_SKILLS_INSTALL_COMMAND
+      }
+    ]
+  }
+]
 const emit = defineEmits<{ 'open-skill': [skill: SiteSkill] }>()
 const feedback = ref<{ kind: FeedbackKind; text: string } | null>(null)
 const copiedText = ref<string | null>(null)
-const selectedAgentId = ref<AgentIntegrationId>('codex')
+const selectedAgentId = ref<SetupTarget['id']>('codex')
 const selectedAgent = computed(() => agents.find(({ id }) => id === selectedAgentId.value)!)
-const pluginInstallLink = computed(() =>
-  selectedAgent.value.actions.find(({ id }) => id === 'plugin-app')
+const hasPlugin = computed(() =>
+  selectedAgent.value.actions.some(({ id }) => id.startsWith('plugin-'))
 )
 const setupGroups = computed(() => {
   const { actions } = selectedAgent.value
-  const pluginCommand = actions.find(({ id }) => id === 'plugin-cli')
-  if (pluginCommand) {
+  if (hasPlugin.value) {
     return [
       {
         id: 'plugin',
-        title: 'Install the Agent Plugin',
-        copy: 'Run in your terminal. Includes MCP and both skills.',
-        actions: [pluginCommand]
+        title: 'Agent Plugin',
+        copy: 'Connects your agent to Figma for native design editing and code implementation.',
+        actions: actions.filter(({ id }) => id.startsWith('plugin-'))
       }
     ]
   }
@@ -43,18 +64,14 @@ const setupGroups = computed(() => {
   return [
     {
       id: 'mcp',
-      title: 'Connect MCP',
-      copy: actions.some(({ kind }) => kind === 'config')
-        ? 'Add this to your OpenCode configuration.'
-        : actions.some(({ id }) => id === 'mcp-deep-link')
-          ? 'Add TemPad Dev in your agent.'
-          : 'Run in your terminal.',
+      title: 'MCP server',
+      copy: `Lets ${selectedAgentId.value === 'other' ? 'your agent' : selectedAgent.value.name} read the open Figma file and edit its canvas when you have edit access.`,
       actions: actions.filter(({ id }) => id.startsWith('mcp-'))
     },
     {
       id: 'skills',
-      title: 'Install both skills',
-      copy: 'Run in your terminal for canvas authoring and design-to-code.',
+      title: 'Agent skills',
+      copy: 'Adds guidance for editing native Figma designs and implementing UI in your project.',
       actions: actions.filter(({ id }) => id.startsWith('skill-'))
     }
   ]
@@ -97,7 +114,7 @@ async function writeClipboard(text: string, successMessage: string): Promise<voi
   }
 }
 
-function openDeepLink(action: AgentIntegrationAction, agent: AgentIntegrationConfig): void {
+function openDeepLink(action: AgentIntegrationAction, agent: SetupTarget): void {
   let cleaned = false
 
   const cleanup = (): void => {
@@ -134,7 +151,7 @@ function openDeepLink(action: AgentIntegrationAction, agent: AgentIntegrationCon
   window.location.href = action.value
 }
 
-function handleAgentAction(action: AgentIntegrationAction, agent: AgentIntegrationConfig): void {
+function handleAgentAction(action: AgentIntegrationAction, agent: SetupTarget): void {
   if (action.kind === 'deep-link') {
     openDeepLink(action, agent)
     return
@@ -148,6 +165,19 @@ function selectAdjacentAgent(direction: -1 | 1): void {
   const index = agents.findIndex(({ id }) => id === selectedAgentId.value)
   selectedAgentId.value = agents[(index + direction + agents.length) % agents.length]!.id
   void nextTick(() => document.getElementById(`site-agent-${selectedAgentId.value}`)?.focus())
+}
+
+function selectManualSetup(): void {
+  selectedAgentId.value = 'other'
+  void nextTick(() => document.getElementById('site-agent-other')?.focus())
+}
+
+function getCopyHint(action: AgentIntegrationAction, index: number): string {
+  if (index > 0) {
+    if (action.id === 'skill-canvas-authoring-cli') return 'Then run in your terminal:'
+    return action.kind === 'config' ? 'Or configure manually:' : 'Or run in your terminal:'
+  }
+  return action.kind === 'config' ? "Copy into your agent's MCP settings:" : 'Run in your terminal:'
 }
 
 onBeforeUnmount(() => {
@@ -193,8 +223,9 @@ onBeforeUnmount(() => {
             type="button"
             role="tab"
             class="site-agent-logo-button"
-            :aria-label="agent.name"
-            :title="agent.name"
+            :class="{ 'site-agent-other-button': agent.id === 'other' }"
+            :aria-label="agent.id === 'other' ? 'Other agents' : agent.name"
+            :title="agent.id === 'other' ? 'Other agents' : agent.name"
             :aria-selected="selectedAgentId === agent.id"
             aria-controls="site-agent-configuration"
             :tabindex="selectedAgentId === agent.id ? 0 : -1"
@@ -202,7 +233,8 @@ onBeforeUnmount(() => {
             @keydown.left.prevent="selectAdjacentAgent(-1)"
             @keydown.right.prevent="selectAdjacentAgent(1)"
           >
-            <BrandIcon :client-id="agent.id" />
+            <span v-if="agent.id === 'other'">Other agents</span>
+            <BrandIcon v-else :client-id="agent.id" />
           </button>
         </div>
         <p class="site-connect-requirement">Node.js 22.x, 24.x, or 26+ required.</p>
@@ -213,13 +245,35 @@ onBeforeUnmount(() => {
           :aria-labelledby="`site-agent-${selectedAgentId}`"
           tabindex="0"
         >
-          <section v-for="group in setupGroups" :key="group.id" class="site-setup-group">
+          <div class="site-setup-group-heading">
+            <p v-if="hasPlugin" class="site-connect-row-copy">
+              Install the TemPad Dev plugin to work with Figma from your coding agent.
+            </p>
+            <p v-else-if="selectedAgentId === 'other'" class="site-connect-row-copy">
+              Connect a compatible coding agent to Figma, then install the two skills.
+            </p>
+            <p v-else class="site-connect-row-copy">
+              Connect the MCP server, then add both agent skills.
+            </p>
+            <h4>{{ hasPlugin ? 'Recommended' : 'Setup steps' }}</h4>
+          </div>
+          <section
+            v-for="(group, stepIndex) in setupGroups"
+            :key="group.id"
+            class="site-setup-group"
+          >
             <div class="site-setup-group-heading">
-              <h4>{{ group.title }}</h4>
+              <h4>
+                <span v-if="!hasPlugin">{{ stepIndex + 1 }}. </span>{{ group.title }}
+              </h4>
               <p class="site-connect-row-copy">{{ group.copy }}</p>
             </div>
             <div class="site-setup-group-actions">
-              <div v-for="action in group.actions" :key="action.id" class="site-setup-action">
+              <div
+                v-for="(action, actionIndex) in group.actions"
+                :key="action.id"
+                class="site-setup-action"
+              >
                 <ActionButton
                   v-if="action.kind === 'deep-link'"
                   type="button"
@@ -228,34 +282,33 @@ onBeforeUnmount(() => {
                   @click="handleAgentAction(action, selectedAgent)"
                 >
                   <ExternalLink aria-hidden="true" />
-                  <span>Install MCP in {{ selectedAgent.name }}</span>
+                  <span>Install in {{ selectedAgent.name }}</span>
                 </ActionButton>
-                <div v-else class="site-setup-command">
-                  <pre :aria-label="action.label"><code>{{ action.value }}</code></pre>
-                  <button
-                    type="button"
-                    class="site-command-copy"
-                    :aria-label="`Copy ${action.label}`"
-                    :title="copiedText === action.value ? 'Copied' : `Copy ${action.label}`"
-                    @click="handleAgentAction(action, selectedAgent)"
-                  >
-                    <Check v-if="copiedText === action.value" aria-hidden="true" />
-                    <Copy v-else aria-hidden="true" />
-                  </button>
-                </div>
+                <template v-else>
+                  <p class="site-connect-row-copy">{{ getCopyHint(action, actionIndex) }}</p>
+                  <div class="site-setup-command">
+                    <pre :aria-label="action.label"><code>{{ action.value }}</code></pre>
+                    <button
+                      type="button"
+                      class="site-command-copy"
+                      :aria-label="`Copy ${action.label}`"
+                      :title="copiedText === action.value ? 'Copied' : `Copy ${action.label}`"
+                      @click="handleAgentAction(action, selectedAgent)"
+                    >
+                      <Check v-if="copiedText === action.value" aria-hidden="true" />
+                      <Copy v-else aria-hidden="true" />
+                    </button>
+                  </div>
+                </template>
               </div>
-              <p v-if="group.id === 'plugin' && pluginInstallLink" class="site-setup-alternative">
-                Or
-                <button
-                  type="button"
-                  class="site-text-link"
-                  @click="handleAgentAction(pluginInstallLink, selectedAgent)"
-                >
-                  open {{ selectedAgent.name }} to install it →
-                </button>
-              </p>
             </div>
           </section>
+          <p v-if="hasPlugin" class="site-setup-alternative">
+            Setting up an agent without plugin support? Use
+            <button type="button" class="site-text-link" @click="selectManualSetup">
+              Manual setup</button
+            >.
+          </p>
         </div>
       </div>
     </div>
