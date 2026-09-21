@@ -1408,14 +1408,16 @@ button.site-text-link {
   stroke-width: 1;
 }
 .site-workflow-connections .site-workflow-flow {
-  stroke: #a27bea;
-  stroke-width: 1.5;
+  stroke: #a58bd4;
+  stroke-width: 1.25;
   stroke-linecap: round;
-  stroke-dasharray: 4 96;
-  animation: site-workflow-transfer 3s ease-in-out infinite alternate;
+  /* Keep the next dash outside the path while the highlight leaves either end. */
+  stroke-dasharray: 12 200;
+  filter: blur(0.35px) drop-shadow(0 0 2px rgb(162 123 234 / 30%));
+  animation: site-workflow-transfer 3.6s ease-in-out infinite alternate;
 }
 .site-workflow-connections .site-workflow-flow.is-project {
-  animation-delay: -1.5s;
+  animation-delay: -1.8s;
 }
 .site-workflow-bridge,
 .site-workflow-project {
@@ -1464,11 +1466,19 @@ button.site-text-link {
 }
 
 @keyframes site-workflow-transfer {
-  from {
-    stroke-dashoffset: 100;
+  0%,
+  8% {
+    stroke-dashoffset: 14;
+    opacity: 0;
   }
-  to {
-    stroke-dashoffset: 0;
+  20%,
+  80% {
+    opacity: 0.85;
+  }
+  92%,
+  100% {
+    stroke-dashoffset: -102;
+    opacity: 0;
   }
 }
 @media (max-width: 900px) {
