@@ -37,6 +37,28 @@ default authority unless a routed document says otherwise.
 - Write repository documentation in English. Public Chinese documentation uses
   the `.zh-Hans.md` suffix.
 
+## Documentation admission
+
+- Treat repository documentation as maintained product or engineering material,
+  not as a default destination for task output. This applies to new files and
+  additions to existing documents, including files outside `docs/`.
+- Before persisting content, identify its future reader, the recurring task or
+  durable decision it supports, and why the existing source of truth is
+  insufficient. If these are unclear, keep the content in the conversation.
+- Task summaries, progress tables, proposed copy, publication status, and
+  one-off checklists belong in the conversation by default. Persist them only
+  when the user requests a repository artifact or an established repository
+  workflow requires one; an existing loosely related document is not enough.
+- Update the owning source directly. Do not copy package metadata, README copy,
+  configuration, or code behavior into a second inventory merely to summarize
+  changes. Link to the source when a maintained guide needs that information.
+- Keep necessary documentation updates within the document's established scope.
+  Add a new document only for a distinct, lasting need that no existing owner
+  covers. Prefer a small correction over a new section or companion document.
+- Apply these criteria autonomously; they are not a blanket approval gate.
+  An explicit user request to create or update documentation authorizes that
+  scope, not unrelated documentation expansion.
+
 ## Agent plugin invariants
 
 - `agent-plugin/src/` is the only authored copy. Everything under
