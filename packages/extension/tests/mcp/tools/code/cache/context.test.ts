@@ -13,6 +13,9 @@ vi.mock('@/mcp/tools/token/raw-name', () => ({
 import { analyzeVectorColorModel } from '@/mcp/tools/code/assets/vector-semantics'
 import { createGetCodeCacheContext, getNodeSemanticsCached } from '@/mcp/tools/code/cache'
 import { cleanFigmaSpecificStyles } from '@/mcp/tools/code/styles/background'
+import { collectCandidateVariableIds } from '@/mcp/tools/token/candidates'
+import { TEXT_VARIABLE_FIELDS } from '@/utils/figma-variables'
+import { formatNodeStyleForMcp } from '@/utils/variable-output'
 
 describe('code cache context', () => {
   beforeEach(() => {
@@ -62,6 +65,92 @@ describe('code cache context', () => {
       nodeSemanticHits: nodes.length,
       nodeSemanticMisses: nodes.length
     })
+  })
+
+  it('reuses text range bindings between candidate scanning and style formatting within one call', () => {
+    vi.stubGlobal('__DEV__', false)
+    const getRangeBoundVariable = vi.fn(
+      (_start: number, _end: number, field: VariableBindableTextField) =>
+        field === 'fontSize' ? { id: 'size' } : null
+    )
+    const getVariableById = vi.fn((id: string) =>
+      id === 'size' ? ({ id, name: 'Font Size' } as Variable) : null
+    )
+    vi.stubGlobal('figma', {
+      mixed: Symbol('mixed'),
+      getStyleById: vi.fn(() => null),
+      variables: { getVariableById }
+    })
+    const node = {
+      id: 'text',
+      type: 'TEXT',
+      visible: true,
+      characters: 'Text',
+      fills: [],
+      strokes: [],
+      effects: [],
+      getRangeBoundVariable
+    } as unknown as TextNode
+    const ctx = createGetCodeCacheContext(new Map(), { metrics: true })
+
+    let nodeVariableIds: ReadonlySet<string> | undefined
+    const mappings = collectCandidateVariableIds([node], ctx.variables, ctx.readers, {
+      onNodeVariableIds: (_id, ids) => {
+        nodeVariableIds = ids
+      }
+    })
+    const style = formatNodeStyleForMcp({ 'font-size': '12px' }, node, ctx.readers, nodeVariableIds)
+
+    expect(mappings.variableIds).toEqual(new Set(['size']))
+    expect(style['font-size']).toBe('var(--Font-Size)')
+    expect(getRangeBoundVariable).toHaveBeenCalledTimes(TEXT_VARIABLE_FIELDS.length)
+    expect(ctx.metrics).toMatchObject({
+      textRangeHits: 1,
+      textRangeMisses: TEXT_VARIABLE_FIELDS.length
+    })
+
+    const nextCtx = createGetCodeCacheContext()
+    collectCandidateVariableIds([node], nextCtx.variables, nextCtx.readers)
+    expect(getRangeBoundVariable).toHaveBeenCalledTimes(TEXT_VARIABLE_FIELDS.length * 2)
+  })
+
+  it('keeps null and mixed bindings distinct across text nodes, ranges, and fields', () => {
+    const mixed = Symbol('mixed') as typeof figma.mixed
+    const alias = { type: 'VARIABLE_ALIAS' as const, id: 'size' }
+    const getRangeBoundVariable = vi.fn(
+      (_start: number, end: number, field: VariableBindableTextField) =>
+        field === 'fontFamily' ? null : end === 5 ? mixed : alias
+    )
+    const first = { getRangeBoundVariable } as unknown as TextNode
+    const second = { getRangeBoundVariable } as unknown as TextNode
+    const read = createGetCodeCacheContext().readers.getRangeBoundVariable!
+
+    for (let repeat = 0; repeat < 2; repeat += 1) {
+      expect(read(first, 0, 5, 'fontSize')).toBe(mixed)
+      expect(read(first, 0, 5, 'fontFamily')).toBeNull()
+      expect(read(first, 0, 2, 'fontSize')).toBe(alias)
+      expect(read(first, 1, 2, 'fontSize')).toBe(alias)
+      expect(read(second, 0, 5, 'fontSize')).toBe(mixed)
+    }
+    expect(getRangeBoundVariable).toHaveBeenCalledTimes(5)
+  })
+
+  it('does not cache a failed text binding read', () => {
+    const error = new Error('Binding temporarily unavailable')
+    const alias = { type: 'VARIABLE_ALIAS' as const, id: 'size' }
+    const getRangeBoundVariable = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw error
+      })
+      .mockReturnValue(alias)
+    const node = { getRangeBoundVariable } as unknown as TextNode
+    const read = createGetCodeCacheContext().readers.getRangeBoundVariable!
+
+    expect(() => read(node, 0, 5, 'fontSize')).toThrow(error)
+    expect(read(node, 0, 5, 'fontSize')).toBe(alias)
+    expect(read(node, 0, 5, 'fontSize')).toBe(alias)
+    expect(getRangeBoundVariable).toHaveBeenCalledTimes(2)
   })
 
   it('dedupes style and variable lookups across style cleanup and vector analysis', () => {
@@ -114,7 +203,7 @@ describe('code cache context', () => {
     const tree = {
       rootIds: ['root'],
       order: ['root'],
-      stats: { totalNodes: 1, maxDepth: 0, capped: false, cappedNodeIds: [] },
+      stats: { totalNodes: 1, maxDepth: 0, capped: false },
       nodes: new Map([
         [
           'root',

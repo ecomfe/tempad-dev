@@ -25,7 +25,7 @@ export function assertToolResponseWithinBudget(
 export function buildGetCodeWarnings(
   code: string,
   options?: {
-    cappedNodeIds?: string[]
+    depthCapped?: boolean
     literalClusters?: GetCodeLiteralCluster[]
     shell?: boolean
   }
@@ -40,7 +40,7 @@ export function buildGetCodeWarnings(
     })
   }
 
-  if (options?.cappedNodeIds?.length) {
+  if (options?.depthCapped) {
     warnings.push({
       type: 'depth-cap',
       message:

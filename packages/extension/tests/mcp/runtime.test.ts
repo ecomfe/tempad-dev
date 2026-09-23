@@ -324,7 +324,10 @@ describe('mcp/runtime', () => {
       currentPage,
       getNodeById: vi.fn()
     } as unknown as PluginAPI)
-    mocks.runGetStructure.mockReturnValue({ roots: [{ id: root.id }] })
+    mocks.runGetStructure.mockImplementation((_roots, _depth, _native, page) => ({
+      roots: [{ id: root.id }],
+      page
+    }))
 
     const runtime = await importRuntime()
     const result = await runtime.MCP_TOOL_HANDLERS.get_structure({
@@ -333,7 +336,15 @@ describe('mcp/runtime', () => {
     })
 
     expect(page.loadAsync).toHaveBeenCalledOnce()
-    expect(mocks.runGetStructure).toHaveBeenCalledWith([root], 2, undefined)
+    expect(mocks.runGetStructure).toHaveBeenCalledWith([root], 2, undefined, {
+      id: page.id,
+      pageKey: 'eval/fresh',
+      name: 'Evaluation',
+      index: 1,
+      active: false,
+      childCount: 1,
+      selectionCount: 0
+    })
     expect(result).toMatchObject({
       page: {
         id: page.id,

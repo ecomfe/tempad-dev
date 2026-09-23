@@ -1,22 +1,10 @@
-import type { FigmaLookupReaders } from '@/utils/figma-style/types'
-
 import { normalizeFigmaVarName, replaceVarFunctions } from '@/utils/css'
 
 import type { CandidateResult } from './candidates'
 
 import { getVariableByIdCached } from './cache'
-import { collectCandidateVariableIds } from './candidates'
 
 export type VariableMappings = CandidateResult
-
-export function buildVariableMappings(
-  roots: SceneNode[],
-  cache?: Map<string, Variable | null>,
-  readers?: FigmaLookupReaders,
-  options: { traverseChildren?: boolean } = {}
-): VariableMappings {
-  return collectCandidateVariableIds(roots, cache, readers, options)
-}
 
 export function normalizeStyleVars(
   styles: Map<string, Record<string, string>>,

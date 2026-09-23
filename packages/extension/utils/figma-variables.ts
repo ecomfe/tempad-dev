@@ -170,7 +170,7 @@ export function resolveTextNodeVariableId(
   readers: FigmaLookupReaders = DEFAULT_READERS
 ): string | null {
   return (
-    resolveRangeVariableId(node, 0, node.characters.length, field) ??
+    resolveRangeVariableId(node, 0, node.characters.length, field, readers) ??
     resolveTextStyleVariableId((node as { textStyleId?: unknown }).textStyleId, field, readers) ??
     getSingleVariableId(
       (node as { boundVariables?: Record<string, unknown> }).boundVariables?.[field]
@@ -187,7 +187,7 @@ export function resolveTextSegmentVariable(
   const id =
     getSingleVariableId(segment.boundVariables?.[field]) ??
     resolveTextStyleVariableId(segment.textStyleId, field, readers) ??
-    resolveRangeVariableId(node, segment.start, segment.end, field)
+    resolveRangeVariableId(node, segment.start, segment.end, field, readers)
 
   return id ? resolveVariableById(id, readers) : null
 }
@@ -215,12 +215,15 @@ function resolveRangeVariableId(
   node: TextNode,
   start: number,
   end: number,
-  field: VariableBindableTextField
+  field: VariableBindableTextField,
+  readers: FigmaLookupReaders
 ): string | null {
   if (typeof node.getRangeBoundVariable !== 'function') return null
 
   try {
-    const alias = node.getRangeBoundVariable(start, end, field)
+    const alias = readers.getRangeBoundVariable
+      ? readers.getRangeBoundVariable(node, start, end, field)
+      : node.getRangeBoundVariable(start, end, field)
     return alias !== figma.mixed ? getSingleVariableId(alias) : null
   } catch {
     return null

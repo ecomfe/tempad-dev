@@ -42,7 +42,7 @@ export async function renderTextSegments(
     }
   }
 
-  const blocks = buildTextBlocks(node, rawSegments)
+  const blocks = buildTextBlocks(node, rawSegments, ctx.readers)
 
   const segmentCount = rawSegments.length
   const allRunStyles: Array<{ style: Record<string, string>; weight: number }> = []

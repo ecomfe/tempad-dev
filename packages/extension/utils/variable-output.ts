@@ -25,6 +25,7 @@ type VariableProjectionContext = {
   variablesByCodeSyntax: Map<string, Variable>
   variableSyntax?: Record<string, string>
 }
+type CodeSyntaxReplacement = { syntax: string; value: string; pattern: RegExp | null }
 
 export type FormattedStyle = {
   style: Record<string, string>
@@ -47,9 +48,10 @@ export function formatNodeStyleForUi(
 export function formatNodeStyleForMcp(
   style: Record<string, string>,
   node: SceneNode,
-  readers: FigmaLookupReaders = DEFAULT_READERS
+  readers: FigmaLookupReaders = DEFAULT_READERS,
+  nodeVariableIds?: ReadonlySet<string>
 ): Record<string, string> {
-  const context = buildVariableProjectionContext(node, readers)
+  const context = buildVariableProjectionContext(node, readers, nodeVariableIds)
   return applyVariableStyle(style, node, context, getVariableCssExpr, readers)
 }
 
@@ -92,13 +94,14 @@ function getCssExprForCodeSyntaxVariable(variable: Variable): string | null {
 
 function buildVariableProjectionContext(
   node: SceneNode,
-  readers: FigmaLookupReaders
+  readers: FigmaLookupReaders,
+  nodeVariableIds?: ReadonlySet<string>
 ): VariableProjectionContext {
   const variablesById = new Map<string, Variable>()
   const variablesByCodeSyntax = new Map<string, Variable>()
   const variableSyntax: Record<string, string> = {}
 
-  for (const id of collectNodeVariableIds(node, readers)) {
+  for (const id of nodeVariableIds ?? collectNodeVariableIds(node, readers)) {
     const variable = resolveVariableById(id, readers)
     if (!variable) continue
     variablesById.set(id, variable)
@@ -153,6 +156,7 @@ function rewriteKnownCodeSyntaxValues(
 
   if (!replacements.length) return
 
+  let tokenReplacements: CodeSyntaxReplacement[] | undefined
   for (const [key, value] of Object.entries(style)) {
     if (!value) continue
     const exact = replacements.find((entry) => value.trim() === entry.syntax)
@@ -161,13 +165,23 @@ function rewriteKnownCodeSyntaxValues(
       continue
     }
 
-    style[key] = replaceKnownCodeSyntaxTokens(value, replacements)
+    tokenReplacements ??= replacements.map(({ syntax, value }) => ({
+      syntax,
+      value,
+      pattern: /\s/.test(syntax)
+        ? null
+        : new RegExp(
+            `(^|[^A-Za-z0-9_-])(${syntax.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?=[^A-Za-z0-9_-]|$)`,
+            'g'
+          )
+    }))
+    style[key] = replaceKnownCodeSyntaxTokens(value, tokenReplacements)
   }
 }
 
 function replaceKnownCodeSyntaxTokens(
   value: string,
-  replacements: Array<{ syntax: string; value: string }>
+  replacements: CodeSyntaxReplacement[]
 ): string {
   const placeholders: string[] = []
   let out = replaceVarFunctions(value, ({ full }) => {
@@ -176,11 +190,9 @@ function replaceKnownCodeSyntaxTokens(
     return token
   })
 
-  for (const { syntax, value: replacement } of replacements) {
-    if (/\s/.test(syntax)) continue
-    const escaped = syntax.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const re = new RegExp(`(^|[^A-Za-z0-9_-])(${escaped})(?=[^A-Za-z0-9_-]|$)`, 'g')
-    out = out.replace(re, (_match, prefix: string) => `${prefix}${replacement}`)
+  for (const { pattern, value: replacement } of replacements) {
+    if (!pattern) continue
+    out = out.replace(pattern, (_match, prefix: string) => `${prefix}${replacement}`)
   }
 
   return placeholders.reduce(
@@ -237,6 +249,7 @@ function applyTextFields(
   readers: FigmaLookupReaders
 ): void {
   for (const [field, props] of Object.entries(TEXT_VARIABLE_STYLE_PROPS)) {
+    if (!props.some((prop) => prop in style)) continue
     const id = resolveTextNodeVariableId(node, field as VariableBindableTextField, readers)
     if (!id) continue
     applyVariableToProps(style, props, id, context, format, readers)

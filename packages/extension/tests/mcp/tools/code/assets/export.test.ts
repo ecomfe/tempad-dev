@@ -48,7 +48,7 @@ describe('assets/export exportVectorAssets', () => {
     const tree = {
       rootIds: ['root'],
       order: [],
-      stats: { totalNodes: 0, maxDepth: 0, capped: false, cappedNodeIds: [] },
+      stats: { totalNodes: 0, maxDepth: 0, capped: false },
       nodes: new Map([
         ['vector-ok', makeSnapshot('vector-ok', { width: 10, height: 20 })],
         ['zero-no-render', makeSnapshot('zero-no-render', { width: 0, height: 0 }, null)],
@@ -84,7 +84,7 @@ describe('assets/export exportVectorAssets', () => {
     const tree = {
       rootIds: ['root'],
       order: [],
-      stats: { totalNodes: 0, maxDepth: 0, capped: false, cappedNodeIds: [] },
+      stats: { totalNodes: 0, maxDepth: 0, capped: false },
       nodes: new Map([['vector-null', makeSnapshot('vector-null', { width: 2, height: 3 })]])
     } as unknown as VisibleTree
 
@@ -109,7 +109,7 @@ describe('assets/export exportVectorAssets', () => {
     const tree = {
       rootIds: ['root'],
       order: [],
-      stats: { totalNodes: 0, maxDepth: 0, capped: false, cappedNodeIds: [] },
+      stats: { totalNodes: 0, maxDepth: 0, capped: false },
       nodes: new Map([['vector-ok', makeSnapshot('vector-ok', { width: 10, height: 20 })]])
     } as unknown as VisibleTree
     const cache = createGetCodeCacheContext()
@@ -135,7 +135,7 @@ describe('assets/export exportVectorAssets', () => {
     const tree = {
       rootIds: ['root'],
       order: [],
-      stats: { totalNodes: 0, maxDepth: 0, capped: false, cappedNodeIds: [] },
+      stats: { totalNodes: 0, maxDepth: 0, capped: false },
       nodes: new Map([
         ['vector-ok', makeSnapshot('vector-ok', { width: 10, height: 20 })],
         ['zero-no-render', makeSnapshot('zero-no-render', { width: 0, height: 0 }, null)]
@@ -175,7 +175,7 @@ describe('assets/export exportVectorAssets', () => {
     const tree = {
       rootIds: ['root'],
       order: [],
-      stats: { totalNodes: 0, maxDepth: 0, capped: false, cappedNodeIds: [] },
+      stats: { totalNodes: 0, maxDepth: 0, capped: false },
       nodes: new Map(ids.map((id) => [id, makeSnapshot(id, { width: 10, height: 10 })]))
     } as unknown as VisibleTree
     const started: string[] = []

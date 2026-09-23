@@ -180,6 +180,53 @@ describe('token/candidates collectCandidateVariableIds', () => {
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('ids=12 rewrites='))
   })
 
+  it('reports each visible node’s ids while preserving the ordered union', () => {
+    const onNodeVariableIds = vi.fn()
+    const root = createNode({
+      id: 'root',
+      type: 'FRAME',
+      visible: true,
+      boundVariables: { width: { id: 'shared' } },
+      children: [
+        createNode({
+          id: 'child',
+          type: 'RECTANGLE',
+          visible: true,
+          boundVariables: { height: { id: 'shared' }, width: { id: 'child-only' } }
+        }),
+        createNode({ id: 'empty', type: 'RECTANGLE', visible: true }),
+        createNode({
+          id: 'hidden',
+          type: 'RECTANGLE',
+          visible: false,
+          boundVariables: { width: { id: 'hidden-only' } }
+        })
+      ]
+    })
+
+    const result = collectCandidateVariableIds([root], undefined, undefined, {
+      onNodeVariableIds
+    })
+
+    expect([...result.variableIds]).toEqual(['shared', 'child-only'])
+    expect(onNodeVariableIds.mock.calls).toEqual([
+      ['root', new Set(['shared'])],
+      ['child', new Set(['shared', 'child-only'])],
+      ['empty', new Set()]
+    ])
+
+    onNodeVariableIds.mockClear()
+    const capped = collectCandidateVariableIds([root], undefined, undefined, {
+      captureNodeId: (id) => id !== 'child',
+      onNodeVariableIds
+    })
+    expect(capped.variableIds).toEqual(result.variableIds)
+    expect(onNodeVariableIds.mock.calls).toEqual([
+      ['root', new Set(['shared'])],
+      ['empty', new Set()]
+    ])
+  })
+
   it('skips invisible roots and tolerates style lookup failures', () => {
     const hiddenRoot = createNode({
       id: 'hidden-root',

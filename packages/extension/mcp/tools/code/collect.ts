@@ -22,7 +22,8 @@ export async function collectNodeData(
   config: CodegenConfig,
   assetRegistry: Map<string, AssetDescriptor>,
   cache: GetCodeCacheContext,
-  skipIds?: Set<string>
+  skipIds?: Set<string>,
+  nodeVariableIds?: ReadonlyMap<string, ReadonlySet<string>>
 ): Promise<CollectedData> {
   const styles = new Map<string, Record<string, string>>()
   const textSegments = new Map<string, StyledTextSegment[] | null>()
@@ -37,8 +38,7 @@ export async function collectNodeData(
     const node = snapshot.node
 
     if (node.type === 'TEXT') {
-      const segments = collectTextSegments(node)
-      textSegments.set(id, segments)
+      textSegments.set(id, collectTextSegments(node))
     }
 
     try {
@@ -48,7 +48,7 @@ export async function collectNodeData(
         createNodePaintStyleInput(snapshot, cache),
         cache.readers
       )
-      css = formatNodeStyleForMcp(css, node, cache.readers)
+      css = formatNodeStyleForMcp(css, node, cache.readers, nodeVariableIds?.get(id))
       const parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
 
       let processed = preprocessStyles(preprocessRawStyle(css), node, parent?.node, cache)

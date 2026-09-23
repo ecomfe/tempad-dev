@@ -20,7 +20,7 @@ describe('mcp/code messages', () => {
 
   it('builds warning list for auto-layout and depth cap', () => {
     const warnings = buildGetCodeWarnings('<div data-hint-auto-layout="inferred"></div>', {
-      cappedNodeIds: ['n-0']
+      depthCapped: true
     })
 
     expect(warnings).toBeDefined()
@@ -48,9 +48,9 @@ describe('mcp/code messages', () => {
     expect(warnings?.[0]).not.toHaveProperty('data')
   })
 
-  it('emits depth-cap warning when capped node ids exist', () => {
+  it('emits depth-cap warning when depth is capped', () => {
     const warnings = buildGetCodeWarnings('<div />', {
-      cappedNodeIds: ['id-0']
+      depthCapped: true
     })
     const depthCap = warnings?.find((item) => item.type === 'depth-cap')
 

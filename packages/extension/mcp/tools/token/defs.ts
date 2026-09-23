@@ -212,8 +212,8 @@ async function buildTokensFromVariables({
   const pending: Variable[] = [...seedVariables]
   const seenIds = new Set<string>()
 
-  while (pending.length) {
-    const variable = pending.shift()!
+  for (let pendingIndex = 0; pendingIndex < pending.length; pendingIndex += 1) {
+    const variable = pending[pendingIndex]!
     if (seenIds.has(variable.id)) continue
     seenIds.add(variable.id)
 

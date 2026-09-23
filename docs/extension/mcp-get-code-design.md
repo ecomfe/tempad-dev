@@ -23,6 +23,8 @@ and asset work can legitimately exceed the 15-second general tool deadline on la
 3. **Create request-scoped lookup context**
    - Create a `GetCodeCacheContext` near the existing variable cache.
    - Build variable mappings from the raw selected roots, using shared lookup readers backed by that request context.
+   - Pass the same readers through text-segment rendering so bound-variable and style lookups
+     discovered during scanning are reused rather than read again.
 
 4. **Plan assets and plugin overrides**
    - Plan vector roots (vector-only containers) and mark their descendants for skipping.
@@ -203,7 +205,7 @@ token collection, renaming, and resolution use the same variable identities.
 ### Boundary
 
 - The cache context lives only in `packages/extension`.
-- Shared helpers in `packages/shared` only receive a narrow `FigmaLookupReaders` interface.
+- Shared style helpers in `packages/extension/utils` receive a narrow `FigmaLookupReaders` interface.
 - Shared style and gradient resolution stay reusable outside MCP because they do not depend on an extension-local cache type.
 
 ### Cached data
@@ -211,6 +213,10 @@ token collection, renaming, and resolution use the same variable identities.
 - `variables`: request-scoped `Variable | null` lookup map.
 - `styles`: request-scoped `BaseStyle | null` lookup map.
 - `paintStyles`: `PaintStyleSummary` values containing raw paints plus size-independent facts, such as visible paint count and single-solid-channel analysis.
+- Text range variable bindings: request-scoped results keyed by text node, character range, and
+  field; the scan and formatter reuse the same binding, including null and mixed results.
+- Text style formatting resolves a field's full-range binding only when the corresponding CSS
+  property is present. Variable discovery still scans every supported field for token candidates.
 - `nodeSemantics`: lazy `NodeSemanticSnapshot` values keyed by `node.id`.
 - `vectorAnalysis`: per-root vector color model results.
 - `metrics`: optional counters used only for dev tracing.
@@ -305,7 +311,10 @@ The request context is threaded through:
 ## Performance notes
 
 - Single-pass CSS collection per node.
-- Request-scoped cache reuse for node semantics, style lookups, paint-style summaries, variable lookups, and vector analysis.
+- Request-scoped cache reuse for node semantics, style lookups, paint-style summaries, variable
+  lookups, full-range text bindings, and vector analysis across scanning, collection, and render.
+- Text-run token resolution reads only typography fields consumed by the rendered run; list and
+  paragraph geometry continue to use the segment's native values.
 - Asset export is planned and executed once.
 - A descendant-text preflight can bypass descendant collection and all asset work when UTF-8 text
   alone proves the response cannot fit. Tests assert that it short-circuits before scanning the rest

@@ -118,8 +118,7 @@ describe('mcp/tools/code/tree', () => {
       totalNodes: 5,
       maxDepth: 1,
       depthLimit: undefined,
-      capped: false,
-      cappedNodeIds: []
+      capped: false
     })
 
     const root = tree.nodes.get('instance-1')
@@ -149,7 +148,7 @@ describe('mcp/tools/code/tree', () => {
     expect(logger.warn).toHaveBeenCalledWith('Duplicate variable collection name "Theme" detected.')
   })
 
-  it('caps traversal at depth limit and keeps capped node ids', () => {
+  it('caps traversal at depth limit', () => {
     vi.mocked(suggestDepthLimit).mockReturnValue(1)
     ;(globalThis as unknown as { figma: PluginAPI }).figma = {
       variables: {
@@ -165,7 +164,6 @@ describe('mcp/tools/code/tree', () => {
 
     expect(tree.order).toEqual(['root-1', 'child-1'])
     expect(tree.stats.capped).toBe(true)
-    expect(tree.stats.cappedNodeIds).toEqual(['child-1'])
     expect(tree.nodes.get('child-1')?.children).toEqual([])
   })
 })

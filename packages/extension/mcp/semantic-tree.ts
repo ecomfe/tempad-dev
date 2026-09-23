@@ -6,78 +6,6 @@ import { toPascalCase } from '@/utils/string'
 const NODE_CAP = 2048
 const NODE_TARGET = 1536
 
-export type Bounds = {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-/**
- * Lightweight metadata extracted from a SceneNode to help downstream renderers
- * preserve authoring intent without duplicating entire properties.
- *
- * Hints are carried as data attributes (e.g. data-hint-design-component).
- */
-export type DataHint = Record<string, string>
-type AutoLayoutSummary = {
-  direction: 'row' | 'column'
-  gap?: number
-  alignPrimary?: string
-  alignCounter?: string
-  padding?: { top: number; right: number; bottom: number; left: number }
-}
-
-export type SemanticNode = {
-  id: string
-  name: string
-  type: SceneNode['type']
-  tag: string
-  depth: number
-  index: number
-  layout: 'auto' | 'absolute'
-  bounds: Bounds
-  isComponentInstance: boolean
-  isAsset: boolean
-  assetKind?: 'vector' | 'image'
-  dataHint?: DataHint
-  autoLayout?: AutoLayoutSummary
-  capped?: boolean
-  children: SemanticNode[]
-}
-
-export type SemanticTreeStats = {
-  totalNodes: number
-  maxDepth: number
-  suggestedDepth?: number
-  depthLimit?: number
-  capped: boolean
-}
-
-export type SemanticTree = {
-  roots: SemanticNode[]
-  stats: SemanticTreeStats
-  depthLimit?: number
-  cappedNodeIds: string[]
-}
-
-export type SemanticTreeOptions = {
-  depthLimit?: number
-}
-
-type TraversalContext = {
-  depthLimit?: number
-  stats: SemanticTreeStats
-  cappedNodeIds: string[]
-}
-
-function assignIndexes(nodes: SemanticNode[]): void {
-  nodes.forEach((node, idx) => {
-    node.index = idx
-    if (node.children.length) assignIndexes(node.children)
-  })
-}
-
 const VECTOR_LIKE_TYPES = new Set<SceneNode['type']>([
   'VECTOR',
   'BOOLEAN_OPERATION',
@@ -91,26 +19,38 @@ export function isVectorLikeNode(node: SceneNode): boolean {
   return VECTOR_LIKE_TYPES.has(node.type)
 }
 
-function getBounds(node: SceneNode): Bounds {
-  return { x: node.x, y: node.y, width: node.width, height: node.height }
+function* getVisibleChildren(node: SceneNode): Generator<SceneNode> {
+  if (!('children' in node)) return
+  for (const child of node.children) {
+    if (child.visible) yield child
+  }
 }
 
-function getVisibleChildren(node: SceneNode): SceneNode[] {
-  if (!('children' in node)) return []
-  return node.children.filter((child) => child.visible)
+function getSingleVisibleChild(node: SceneNode): SceneNode | undefined {
+  if (!('children' in node)) return undefined
+  let found: SceneNode | undefined
+  for (const child of node.children) {
+    if (!child.visible) continue
+    if (found) return undefined
+    found = child
+  }
+  return found
 }
 
-function isWrapper(node: SceneNode): boolean {
-  return (
-    'children' in node &&
-    getVisibleChildren(node).length === 1 &&
-    node.type !== 'SECTION' &&
-    !('isMask' in node && node.isMask) &&
-    !hasExplicitOverflow(node) &&
-    !hasExplicitAutoLayout(node) &&
-    !hasVisibleSurface(node) &&
-    !hasPadding(node)
-  )
+function getWrapperChild(node: SceneNode): SceneNode | undefined {
+  const child = getSingleVisibleChild(node)
+  if (
+    !child ||
+    node.type === 'SECTION' ||
+    ('isMask' in node && node.isMask) ||
+    hasExplicitOverflow(node) ||
+    hasExplicitAutoLayout(node) ||
+    hasVisibleSurface(node) ||
+    hasPadding(node)
+  ) {
+    return undefined
+  }
+  return child
 }
 
 export function resolveSemanticTag(node: SceneNode): string {
@@ -133,11 +73,6 @@ export function classifySemanticAsset(node: SceneNode): 'vector' | 'image' | und
   }
 
   return undefined
-}
-
-function describeAsset(node: SceneNode): Pick<SemanticNode, 'isAsset' | 'assetKind'> {
-  const assetKind = classifySemanticAsset(node)
-  return assetKind ? { isAsset: true, assetKind } : { isAsset: false }
 }
 
 function hasExplicitOverflow(node: SceneNode): boolean {
@@ -174,22 +109,6 @@ function hasPadding(node: SceneNode): boolean {
     'paddingLeft'
   ]
   return paddingKeys.some((key) => typeof (node as Partial<BaseFrameMixin>)[key] === 'number')
-}
-
-function composeDataHint(node: SceneNode): DataHint | undefined {
-  const hints: DataHint = {}
-
-  if (node.type === 'INSTANCE') {
-    const componentHint = summarizeComponentHint(node)
-    if (componentHint) hints['data-hint-design-component'] = componentHint
-  }
-
-  const layoutHint = summarizeLayoutHint(node)
-  if (layoutHint) {
-    hints['data-hint-auto-layout'] = layoutHint
-  }
-
-  return Object.keys(hints).length ? hints : undefined
 }
 
 type ComponentPropertyValueLike =
@@ -261,211 +180,76 @@ export function summarizeComponentHint(node: InstanceNode): string | undefined {
   return name ? `${toPascalCase(name)}${summarizeComponentProperties(node) ?? ''}` : undefined
 }
 
-function summarizeLayoutHint(node: SceneNode): string | undefined {
-  const layoutSource = resolveAutoLayoutSource(node)
-  // Explicit auto layout is obvious; only hint when not explicitly set.
-  if (layoutSource?.layoutMode && layoutSource.layoutMode !== 'NONE') return undefined
-  if (hasInferredAutoLayout(node)) {
-    return 'inferred'
-  }
-  return 'none'
-}
-
-function hasInferredAutoLayout(node: SceneNode): boolean {
-  if (!('inferredAutoLayout' in node)) return false
-  return Boolean(node.inferredAutoLayout)
-}
-
-function getLayoutKind(node: SceneNode): 'auto' | 'absolute' {
-  if ('layoutMode' in node && node.layoutMode !== 'NONE') {
-    return 'auto'
-  }
-  return 'absolute'
-}
-
-function createSemanticNode(
-  node: SceneNode,
-  depth: number,
-  index: number,
-  children: SemanticNode[],
-  capped = false
-): SemanticNode {
-  const dataHint = composeDataHint(node)
-  return {
-    id: node.id,
-    name: node.name,
-    type: node.type,
-    tag: resolveSemanticTag(node),
-    depth,
-    index,
-    layout: getLayoutKind(node),
-    bounds: getBounds(node),
-    isComponentInstance: node.type === 'INSTANCE',
-    ...describeAsset(node),
-    ...(dataHint ? { dataHint } : {}),
-    autoLayout: extractAutoLayout(node),
-    ...(capped ? { capped: true } : {}),
-    children
-  }
-}
-
-function visit(
-  node: SceneNode,
-  depth: number,
-  index: number,
-  ctx: TraversalContext
-): SemanticNode[] {
-  if (!node.visible) return []
-
-  if (ctx.depthLimit !== undefined && depth >= ctx.depthLimit) {
-    ctx.stats.totalNodes += 1
-    ctx.stats.maxDepth = Math.max(ctx.stats.maxDepth, depth)
-    ctx.stats.capped = true
-    ctx.cappedNodeIds.push(node.id)
-
-    return [createSemanticNode(node, depth, index, [], true)]
-  }
-
-  if (isWrapper(node)) {
-    const children = getVisibleChildren(node)
-    return children.flatMap((child, childIndex) => visit(child, depth, childIndex, ctx))
-  }
-
-  const children = getVisibleChildren(node).flatMap((child, childIndex) =>
-    visit(child, depth + 1, childIndex, ctx)
-  )
-  assignIndexes(children)
-
-  ctx.stats.totalNodes += 1
-  ctx.stats.maxDepth = Math.max(ctx.stats.maxDepth, depth)
-
-  return [createSemanticNode(node, depth, index, children)]
-}
-
-function collectDepthCounts(nodes: SceneNode[], depth = 0, counts: number[] = []): number[] {
-  if (!counts[depth]) counts[depth] = 0
-  for (const node of nodes) {
-    if (!node.visible) continue
-    counts[depth] += 1
-    if ('children' in node) {
-      collectDepthCounts(Array.from(node.children), depth + 1, counts)
-    }
-  }
-  return counts
-}
-
 export function suggestDepthLimit(roots: SceneNode[]): number | undefined {
-  const counts = collectDepthCounts(roots)
-  const total = counts.reduce((sum, value) => sum + value, 0)
-  if (total <= NODE_CAP) {
-    return undefined
-  }
+  let visibleCount = 0
+  let targetDepth: number | undefined
+  // Level order identifies the target depth before the full physical tree is needed.
+  let level: Array<Iterator<SceneNode>> = [roots[Symbol.iterator]()]
 
-  let cumulative = 0
-  for (const [i, count] of counts.entries()) {
-    cumulative += count
-    if (cumulative > NODE_TARGET) {
-      return i
+  for (let depth = 0; level.length; depth += 1) {
+    const nextLevel: Array<Iterator<SceneNode>> = []
+    for (const siblings of level) {
+      for (let item = siblings.next(); !item.done; item = siblings.next()) {
+        const node = item.value
+        if (!node.visible) continue
+        visibleCount += 1
+        if (visibleCount === NODE_TARGET + 1) targetDepth = depth
+        if (visibleCount === NODE_CAP + 1) return targetDepth
+        if ('children' in node) nextLevel.push(node.children[Symbol.iterator]())
+      }
     }
-  }
-
-  return counts.length
-}
-
-export function buildSemanticTree(
-  roots: SceneNode[],
-  options: SemanticTreeOptions = {}
-): SemanticTree {
-  const depthLimit = options.depthLimit ?? suggestDepthLimit(roots)
-  const suggestedDepth = options.depthLimit === undefined ? depthLimit : undefined
-  const stats: SemanticTreeStats = {
-    totalNodes: 0,
-    maxDepth: 0,
-    suggestedDepth,
-    depthLimit,
-    capped: false
-  }
-  const cappedNodeIds: string[] = []
-
-  const semanticRoots = roots.flatMap((node, index) =>
-    visit(node, 0, index, { depthLimit, stats, cappedNodeIds })
-  )
-  assignIndexes(semanticRoots)
-
-  return {
-    roots: semanticRoots,
-    stats,
-    depthLimit,
-    cappedNodeIds
-  }
-}
-
-type AutoLayoutLike = {
-  layoutMode: 'NONE' | 'HORIZONTAL' | 'VERTICAL'
-  itemSpacing?: number
-  primaryAxisAlignItems?: string
-  counterAxisAlignItems?: string
-  paddingTop?: number
-  paddingRight?: number
-  paddingBottom?: number
-  paddingLeft?: number
-}
-
-function extractAutoLayout(node: SceneNode): AutoLayoutSummary | undefined {
-  const source = resolveAutoLayoutSource(node)
-  if (!source || source.layoutMode === 'NONE') {
-    return undefined
-  }
-
-  const summary: AutoLayoutSummary = {
-    direction: source.layoutMode === 'HORIZONTAL' ? 'row' : 'column'
-  }
-
-  if (typeof source.itemSpacing === 'number') {
-    summary.gap = source.itemSpacing
-  }
-  if (source.primaryAxisAlignItems) {
-    summary.alignPrimary = source.primaryAxisAlignItems
-  }
-  if (source.counterAxisAlignItems) {
-    summary.alignCounter = source.counterAxisAlignItems
-  }
-  if (
-    typeof source.paddingTop === 'number' ||
-    typeof source.paddingRight === 'number' ||
-    typeof source.paddingBottom === 'number' ||
-    typeof source.paddingLeft === 'number'
-  ) {
-    summary.padding = {
-      top: source.paddingTop ?? 0,
-      right: source.paddingRight ?? 0,
-      bottom: source.paddingBottom ?? 0,
-      left: source.paddingLeft ?? 0
-    }
-  }
-
-  return summary
-}
-
-function resolveAutoLayoutSource(node: SceneNode): AutoLayoutLike | undefined {
-  if ('layoutMode' in node && node.layoutMode !== undefined) {
-    return node as AutoLayoutLike
-  }
-  if ('inferredAutoLayout' in node) {
-    return (node as { inferredAutoLayout?: AutoLayoutLike | null }).inferredAutoLayout ?? undefined
+    level = nextLevel
   }
   return undefined
 }
 
-export function semanticTreeToOutline(nodes: SemanticNode[]): OutlineNode[] {
-  return nodes.map((node) => ({
-    id: node.id,
-    name: node.name,
-    type: node.type,
-    x: node.bounds.x,
-    y: node.bounds.y,
-    width: node.bounds.width,
-    height: node.bounds.height,
-    ...(node.children.length ? { children: semanticTreeToOutline(node.children) } : {})
-  }))
+export function buildBoundedStructureOutline(
+  roots: SceneNode[],
+  depthLimit: number | undefined,
+  nodeLimit: number
+): { roots: OutlineNode[]; physicalNodes: SceneNode[]; observedNodes: number } {
+  const effectiveDepthLimit = depthLimit || suggestDepthLimit(roots)
+  let observedNodes = 0
+  const outlineRoots: OutlineNode[] = []
+  const physicalNodes: SceneNode[] = []
+
+  const visitNode = (node: SceneNode, depth: number, siblings: OutlineNode[]): void => {
+    if (observedNodes > nodeLimit) return
+    if (!node.visible) return
+
+    const capped = effectiveDepthLimit !== undefined && depth >= effectiveDepthLimit
+    const wrapperChild = capped ? undefined : getWrapperChild(node)
+    if (wrapperChild) {
+      visitNode(wrapperChild, depth, siblings)
+      return
+    }
+
+    observedNodes += 1
+    if (observedNodes > nodeLimit) return
+    physicalNodes.push(node)
+    const outline: OutlineNode = {
+      id: node.id,
+      name: node.name,
+      type: node.type,
+      x: node.x,
+      y: node.y,
+      width: node.width,
+      height: node.height
+    }
+    siblings.push(outline)
+    if (capped) return
+
+    const children: OutlineNode[] = []
+    for (const child of getVisibleChildren(node)) {
+      visitNode(child, depth + 1, children)
+      if (observedNodes > nodeLimit) break
+    }
+    if (children.length) outline.children = children
+  }
+
+  for (const root of roots) {
+    visitNode(root, 0, outlineRoots)
+    if (observedNodes > nodeLimit) break
+  }
+  return { roots: outlineRoots, physicalNodes, observedNodes }
 }

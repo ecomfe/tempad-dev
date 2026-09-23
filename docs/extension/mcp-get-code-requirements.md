@@ -219,7 +219,9 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 - `getCSSAsync` must be called at most once per node.
 - `getStyledTextSegments` only for text nodes.
-- Repeated node/style/variable/vector-analysis reads should go through one request-scoped cache context instead of pass-local ad hoc caches.
+- Repeated node/style/variable/text-range/vector-analysis reads should go through one request-scoped cache context instead of pass-local ad hoc caches.
+- Text-segment rendering should use that same lookup context and resolve only variable fields
+  that contribute to the emitted text run.
 - Shared style helpers must depend only on injected lookup readers or pure paint inputs; they must not depend on an extension-local cache type.
 - Paint-style cache entries must store raw paints and size-independent facts only. Any gradient string still has to be resolved with the current node size.
 - Avoid repeated vector export calls; plan and export once per tree.

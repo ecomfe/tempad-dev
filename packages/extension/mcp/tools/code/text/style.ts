@@ -1,3 +1,5 @@
+import type { FigmaLookupReaders } from '@/utils/figma-style/types'
+
 import { canonicalizeValue, formatHexAlpha, toFigmaVarExpr } from '@/utils/css'
 import { isRenderablePaint } from '@/utils/figma-paint'
 import { resolveTextSegmentVariable, resolveVariableAlias } from '@/utils/figma-variables'
@@ -5,12 +7,19 @@ import { toDecimalPlace } from '@/utils/number'
 
 import {
   CODE_FONT_KEYWORDS,
-  TYPO_FIELDS,
   type ResolvedFill,
   type RunStyleEntry,
   type StyledTextSegmentSubset,
   type TokenRef
 } from './types'
+
+const RENDERED_TYPO_FIELDS = [
+  'fontFamily',
+  'fontSize',
+  'fontWeight',
+  'lineHeight',
+  'letterSpacing'
+] as const
 
 export function resolveRunAttrs(
   seg: StyledTextSegmentSubset,
@@ -74,14 +83,19 @@ export function resolveRunAttrs(
   return style
 }
 
-export function resolveTokens(textNode: TextNode, seg: StyledTextSegmentSubset) {
+export function resolveTokens(
+  textNode: TextNode,
+  seg: StyledTextSegmentSubset,
+  readers?: FigmaLookupReaders
+) {
   const typography: Record<string, TokenRef> = {}
 
-  TYPO_FIELDS.forEach((field) => {
+  RENDERED_TYPO_FIELDS.forEach((field) => {
     const variable = resolveTextSegmentVariable(
       textNode,
       seg as StyledTextSegmentSubset & { boundVariables?: Record<string, unknown> },
-      field as VariableBindableTextField
+      field,
+      readers
     )
     const token = variableToTokenRef(variable)
     if (token) typography[field] = token
@@ -90,7 +104,9 @@ export function resolveTokens(textNode: TextNode, seg: StyledTextSegmentSubset) 
   const fillRaw = Array.isArray(seg.fills) ? seg.fills : []
   const fills: ResolvedFill[] = fillRaw.map((paint) => {
     if (paint.type === 'SOLID') {
-      const colorToken = variableToTokenRef(resolveVariableAlias(paint.boundVariables?.color))
+      const colorToken = variableToTokenRef(
+        resolveVariableAlias(paint.boundVariables?.color, readers)
+      )
       return { type: 'SOLID', token: colorToken, raw: paint }
     }
     return { type: paint.type, raw: paint }

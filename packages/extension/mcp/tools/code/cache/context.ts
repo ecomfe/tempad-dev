@@ -12,6 +12,8 @@ function createDefaultMetrics(): CacheMetrics {
     paintStyleMisses: 0,
     variableHits: 0,
     variableMisses: 0,
+    textRangeHits: 0,
+    textRangeMisses: 0,
     vectorAnalysisHits: 0,
     vectorAnalysisMisses: 0,
     vectorExportCandidates: 0,
@@ -28,6 +30,10 @@ export function createGetCodeCacheContext(
   variableCache = new Map<string, Variable | null>(),
   options?: { metrics?: boolean }
 ): GetCodeCacheContext {
+  const textRangeBindings = new WeakMap<
+    TextNode,
+    Map<string, ReturnType<TextNode['getRangeBoundVariable']>>
+  >()
   const ctx = {
     variables: variableCache,
     styles: new Map<string, BaseStyle | null>(),
@@ -39,7 +45,28 @@ export function createGetCodeCacheContext(
 
   ctx.readers = {
     getStyleById: (id: string) => getStyleByIdFromContext(id, ctx),
-    getVariableById: (id: string) => getVariableByIdFromContext(id, ctx)
+    getVariableById: (id: string) => getVariableByIdFromContext(id, ctx),
+    getRangeBoundVariable: (
+      node: TextNode,
+      start: number,
+      end: number,
+      field: VariableBindableTextField
+    ) => {
+      let bindings = textRangeBindings.get(node)
+      if (!bindings) {
+        bindings = new Map()
+        textRangeBindings.set(node, bindings)
+      }
+      const key = `${start}:${end}:${field}`
+      if (bindings.has(key)) {
+        incrementMetric(ctx.metrics, 'textRangeHits')
+        return bindings.get(key)!
+      }
+      incrementMetric(ctx.metrics, 'textRangeMisses')
+      const binding = node.getRangeBoundVariable(start, end, field)
+      bindings.set(key, binding)
+      return binding
+    }
   }
 
   return ctx

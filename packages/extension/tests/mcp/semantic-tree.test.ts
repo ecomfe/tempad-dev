@@ -1,17 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  buildSemanticTree,
-  semanticTreeToOutline,
+  buildBoundedStructureOutline,
+  classifySemanticAsset,
+  resolveSemanticTag,
   suggestDepthLimit,
-  type SemanticNode
+  summarizeComponentHint
 } from '@/mcp/semantic-tree'
-
-function first<T>(items: readonly T[]): T {
-  const [item] = items
-  if (item === undefined) throw new Error('Expected a non-empty array')
-  return item
-}
 
 function createNode(
   type: SceneNode['type'],
@@ -19,7 +14,7 @@ function createNode(
   overrides: Record<string, unknown> = {},
   children?: SceneNode[]
 ): SceneNode {
-  const base: Record<string, unknown> = {
+  return {
     id,
     name: id,
     type,
@@ -28,191 +23,276 @@ function createNode(
     y: 0,
     width: 100,
     height: 100,
-    ...overrides
-  }
+    ...overrides,
+    ...(children ? { children } : {})
+  } as unknown as SceneNode
+}
 
-  if (children) {
-    base.children = children
-  }
-
-  return base as unknown as SceneNode
+function ids(nodes: ReturnType<typeof buildBoundedStructureOutline>['roots']): unknown[] {
+  return nodes.map((node) => [node.id, ids(node.children ?? [])])
 }
 
 describe('mcp/semantic-tree', () => {
-  it('suggestDepthLimit returns undefined for small trees and a depth for oversized trees', () => {
-    const smallRoots = [createNode('FRAME', 'r1')]
-    expect(suggestDepthLimit(smallRoots)).toBeUndefined()
-
-    const oversizedRoots = Array.from({ length: 2050 }, (_, idx) => createNode('FRAME', `n-${idx}`))
-    expect(suggestDepthLimit(oversizedRoots)).toBe(0)
+  it('suggests the same physical depth cap for oversized trees', () => {
+    expect(suggestDepthLimit([createNode('FRAME', 'small')])).toBeUndefined()
+    expect(
+      suggestDepthLimit(Array.from({ length: 2050 }, (_, index) => createNode('FRAME', `${index}`)))
+    ).toBe(0)
+    expect(
+      suggestDepthLimit([
+        createNode(
+          'FRAME',
+          'root',
+          {},
+          Array.from({ length: 2047 }, (_, index) => createNode('RECTANGLE', `${index}`))
+        )
+      ])
+    ).toBeUndefined()
+    expect(
+      suggestDepthLimit([
+        createNode(
+          'FRAME',
+          'root',
+          {},
+          Array.from({ length: 2048 }, (_, index) => createNode('RECTANGLE', `${index}`))
+        )
+      ])
+    ).toBe(1)
+    expect(
+      suggestDepthLimit([
+        createNode(
+          'FRAME',
+          'root',
+          {},
+          Array.from({ length: 1000 }, (_, index) =>
+            createNode(
+              'FRAME',
+              `parent-${index}`,
+              {},
+              Array.from({ length: 3 }, (_, childIndex) =>
+                createNode('RECTANGLE', `child-${index}-${childIndex}`)
+              )
+            )
+          )
+        )
+      ])
+    ).toBe(2)
   })
 
-  it('buildSemanticTree flattens wrappers and keeps semantic hints', () => {
-    const text = createNode('TEXT', 'text-1', { characters: 'line1\nline2' })
-
-    const instance = createNode(
-      'INSTANCE',
-      'instance-1',
-      {
-        layoutMode: 'HORIZONTAL',
-        itemSpacing: 8,
-        primaryAxisAlignItems: 'CENTER',
-        counterAxisAlignItems: 'MIN',
-        paddingTop: 4,
-        paddingRight: 6,
-        paddingBottom: 8,
-        paddingLeft: 10,
-        mainComponent: {
-          name: 'Button',
-          parent: {
-            type: 'COMPONENT_SET',
-            name: 'Button Group'
-          }
-        },
-        componentProperties: {
-          Size: { type: 'VARIANT', value: 'Large' },
-          disabled: { type: 'BOOLEAN', value: false },
-          text: { type: 'TEXT', value: 'Submit' },
-          swap: { type: 'INSTANCE_SWAP', value: 'ignored' }
+  it('stops depth counting after the threshold without reading a wide suffix', () => {
+    let visibilityReads = 0
+    const roots = Array.from({ length: 10_000 }, (_, index) => {
+      const node = createNode('RECTANGLE', `${index}`)
+      Object.defineProperty(node, 'visible', {
+        get() {
+          visibilityReads += 1
+          return true
         }
-      },
-      [text]
+      })
+      return node
+    })
+
+    expect(suggestDepthLimit(roots)).toBe(0)
+    expect(visibilityReads).toBe(2049)
+  })
+
+  it('matches the complete depth count for mixed visible and hidden trees', () => {
+    const completeDepthLimit = (roots: SceneNode[]): number | undefined => {
+      const counts: number[] = []
+      const count = (nodes: SceneNode[], depth: number): void => {
+        for (const node of nodes) {
+          if (!node.visible) continue
+          counts[depth] = (counts[depth] ?? 0) + 1
+          if ('children' in node) count([...node.children], depth + 1)
+        }
+      }
+      count(roots, 0)
+      if (counts.reduce((sum, value) => sum + value, 0) <= 2048) return undefined
+      let cumulative = 0
+      for (const [depth, value] of counts.entries()) {
+        cumulative += value
+        if (cumulative > 1536) return depth
+      }
+      throw new Error('Expected a depth after the physical node cap')
+    }
+
+    for (let seed = 0; seed < 13; seed += 1) {
+      const roots = Array.from({ length: 80 + seed * 3 }, (_, rootIndex) =>
+        createNode(
+          'FRAME',
+          `root-${seed}-${rootIndex}`,
+          { visible: (rootIndex + seed) % 17 !== 0 },
+          Array.from({ length: (rootIndex * 7 + seed * 13) % 35 }, (_, childIndex) =>
+            createNode(
+              'FRAME',
+              `child-${rootIndex}-${childIndex}`,
+              { visible: (rootIndex + childIndex + seed) % 9 !== 0 },
+              Array.from({ length: (rootIndex + childIndex + seed) % 5 }, (_, leafIndex) =>
+                createNode('RECTANGLE', `leaf-${rootIndex}-${childIndex}-${leafIndex}`)
+              )
+            )
+          )
+        )
+      )
+      expect(suggestDepthLimit(roots)).toBe(completeDepthLimit(roots))
+    }
+  })
+
+  it('classifies tags, media, and component hints used by get_code', () => {
+    expect(resolveSemanticTag(createNode('TEXT', 'text', { characters: 'A\nB' }))).toBe('p')
+    const video = createNode('RECTANGLE', 'video', {
+      fills: [{ type: 'VIDEO', videoHash: 'hash', visible: true }]
+    })
+    expect(classifySemanticAsset(video)).toBe('image')
+    expect(resolveSemanticTag(video)).toBe('img')
+    const instance = createNode('INSTANCE', 'button', {
+      mainComponent: { name: 'Button', parent: { type: 'COMPONENT_SET', name: 'Button Group' } },
+      componentProperties: {
+        Size: { type: 'VARIANT', value: 'Large' },
+        disabled: { type: 'BOOLEAN', value: false },
+        swap: { type: 'INSTANCE_SWAP', value: 'ignored' }
+      }
+    }) as InstanceNode
+    expect(summarizeComponentHint(instance)).toBe('ButtonGroup[Size=Large][disabled=off]')
+  })
+
+  it.each([undefined, 0, 1, 2])(
+    'keeps wrapper, hidden, mask, sibling, and depth behavior at depth %s',
+    (depthLimit) => {
+      const branch = createNode('FRAME', 'branch', { layoutMode: 'VERTICAL' }, [
+        createNode('RECTANGLE', 'first', { x: 12 }),
+        createNode('RECTANGLE', 'hidden', { visible: false }),
+        createNode('FRAME', 'inner', {}, [
+          createNode('FRAME', 'nested-wrapper', {}, [createNode('TEXT', 'second', { y: 18 })])
+        ]),
+        createNode('FRAME', 'mask', { isMask: true }, [createNode('RECTANGLE', 'masked')])
+      ])
+      const roots = [
+        createNode('FRAME', 'hidden-root', { visible: false }),
+        createNode('FRAME', 'outer', {}, [branch]),
+        createNode('FRAME', 'sibling-wrapper', {}, [createNode('RECTANGLE', 'sibling')])
+      ]
+      const outline = buildBoundedStructureOutline(roots, depthLimit, 240)
+
+      expect(ids(outline.roots)).toEqual([
+        [
+          'branch',
+          [
+            ['first', []],
+            [depthLimit === 1 ? 'inner' : 'second', []],
+            ['mask', depthLimit === 1 ? [] : [['masked', []]]]
+          ]
+        ],
+        ['sibling', []]
+      ])
+      expect(outline.observedNodes).toBe(depthLimit === 1 ? 5 : 6)
+      expect(outline.physicalNodes.map((node) => node.id)).toEqual(
+        depthLimit === 1
+          ? ['branch', 'first', 'inner', 'mask', 'sibling']
+          : ['branch', 'first', 'second', 'mask', 'masked', 'sibling']
+      )
+      expect(outline.roots[0]?.children?.[0]?.x).toBe(12)
+      if (depthLimit !== 1) expect(outline.roots[0]?.children?.[1]?.y).toBe(18)
+    }
+  )
+
+  it('observes one node beyond the bounded prefix to prove truncation', () => {
+    const roots = Array.from({ length: 260 }, (_, index) =>
+      createNode('RECTANGLE', `sibling-${index}`)
     )
+    const outline = buildBoundedStructureOutline(roots, undefined, 240)
 
-    const wrapper = createNode('FRAME', 'wrapper-1', {}, [instance])
-    const tree = buildSemanticTree([wrapper])
-
-    expect(tree.stats.totalNodes).toBe(2)
-    expect(tree.roots).toHaveLength(1)
-    const treeRoot = first(tree.roots)
-    expect(treeRoot.id).toBe('instance-1')
-    expect(treeRoot.depth).toBe(0)
-    expect(treeRoot.tag).toBe('div')
-    expect(treeRoot.dataHint).toBeDefined()
-    expect(treeRoot.dataHint?.['data-hint-design-component']).toContain('ButtonGroup')
-    expect(treeRoot.dataHint?.['data-hint-design-component']).toContain('[Size=Large]')
-    expect(treeRoot.dataHint?.['data-hint-design-component']).toContain('[disabled=off]')
-    expect(treeRoot.dataHint?.['data-hint-design-component']).toContain('[text=Submit]')
-    expect(treeRoot.dataHint?.['data-hint-auto-layout']).toBeUndefined()
-    expect(treeRoot.autoLayout).toEqual({
-      direction: 'row',
-      gap: 8,
-      alignPrimary: 'CENTER',
-      alignCounter: 'MIN',
-      padding: { top: 4, right: 6, bottom: 8, left: 10 }
-    })
-
-    expect(treeRoot.children).toHaveLength(1)
-    const treeChild = first(treeRoot.children)
-    expect(treeChild.id).toBe('text-1')
-    expect(treeChild.tag).toBe('p')
-    expect(treeChild.layout).toBe('absolute')
+    expect(outline.observedNodes).toBe(241)
+    expect(outline.roots).toHaveLength(240)
+    expect(outline.physicalNodes).toEqual(roots.slice(0, 240))
+    expect(outline.roots.at(-1)?.id).toBe('sibling-239')
   })
 
-  it('adds inferred auto-layout hint when inferred metadata exists without explicit layout mode', () => {
-    const root = createNode('FRAME', 'root-inferred', {
-      layoutMode: 'NONE',
-      inferredAutoLayout: {
-        layoutMode: 'NONE'
+  it('retains the automatic depth cap when physical width exceeds the threshold', () => {
+    const roots = Array.from({ length: 2050 }, (_, index) =>
+      createNode('FRAME', `wrapper-${index}`, {}, [createNode('RECTANGLE', `child-${index}`)])
+    )
+    const outline = buildBoundedStructureOutline(roots, undefined, 240)
+
+    expect(outline.observedNodes).toBe(241)
+    expect(outline.roots).toHaveLength(240)
+    expect(outline.roots[0]?.id).toBe('wrapper-0')
+    expect(outline.roots[0]?.children).toBeUndefined()
+  })
+
+  it('does not read metadata that the structure outline discards', () => {
+    const node = createNode('TEXT', 'text')
+    Object.defineProperty(node, 'characters', {
+      get() {
+        throw new Error('text content should not be read for structure')
       }
     })
 
-    const tree = buildSemanticTree([root])
-    const treeRoot = first(tree.roots)
-
-    expect(treeRoot.dataHint?.['data-hint-auto-layout']).toBe('inferred')
-    expect(treeRoot.autoLayout).toBeUndefined()
-  })
-
-  it('classifies a video-filled rectangle as a media asset', () => {
-    const video = createNode('RECTANGLE', 'video-1', {
-      fills: [{ type: 'VIDEO', videoHash: 'video-hash', visible: true }]
-    })
-
-    const node = first(buildSemanticTree([video]).roots)
-
-    expect(node.tag).toBe('img')
-    expect(node.isAsset).toBe(true)
-    expect(node.assetKind).toBe('image')
-  })
-
-  it('caps nodes at depth limit and reports capped ids', () => {
-    const visibleFill = [
-      {
-        type: 'SOLID',
-        visible: true,
-        color: { r: 1, g: 0, b: 0 },
-        opacity: 1
-      }
-    ] as unknown as Paint[]
-
-    const leaf = createNode('FRAME', 'leaf-1', { fills: visibleFill })
-    const child = createNode('FRAME', 'child-1', { fills: visibleFill }, [leaf])
-    const root = createNode('FRAME', 'root-1', { fills: visibleFill }, [child])
-
-    const tree = buildSemanticTree([root], { depthLimit: 1 })
-
-    expect(tree.stats.capped).toBe(true)
-    expect(tree.cappedNodeIds).toContain('child-1')
-
-    const cappedChild = first(first(tree.roots).children)
-    expect(cappedChild.id).toBe('child-1')
-    expect(cappedChild.capped).toBe(true)
-    expect(cappedChild.children).toEqual([])
-  })
-
-  it('converts semantic tree nodes into outline nodes recursively', () => {
-    const semanticNodes: SemanticNode[] = [
-      {
-        id: 'a',
-        name: 'A',
-        type: 'FRAME',
-        tag: 'div',
-        depth: 0,
-        index: 0,
-        layout: 'absolute',
-        bounds: { x: 1, y: 2, width: 3, height: 4 },
-        isComponentInstance: false,
-        isAsset: false,
-        children: [
-          {
-            id: 'b',
-            name: 'B',
-            type: 'TEXT',
-            tag: 'span',
-            depth: 1,
-            index: 0,
-            layout: 'absolute',
-            bounds: { x: 10, y: 20, width: 30, height: 40 },
-            isComponentInstance: false,
-            isAsset: false,
-            children: []
-          }
-        ]
-      }
-    ]
-
-    expect(semanticTreeToOutline(semanticNodes)).toEqual([
-      {
-        id: 'a',
-        name: 'A',
-        type: 'FRAME',
-        x: 1,
-        y: 2,
-        width: 3,
-        height: 4,
-        children: [
-          {
-            id: 'b',
-            name: 'B',
-            type: 'TEXT',
-            x: 10,
-            y: 20,
-            width: 30,
-            height: 40
-          }
-        ]
-      }
+    expect(buildBoundedStructureOutline([node], undefined, 240).roots).toEqual([
+      { id: 'text', name: 'text', type: 'TEXT', x: 0, y: 0, width: 100, height: 100 }
     ])
+  })
+
+  it('stops after proving truncation when an explicit depth avoids the depth-count pass', () => {
+    let visibilityReads = 0
+    const roots = Array.from({ length: 1000 }, (_, index) => {
+      const node = createNode('RECTANGLE', `${index}`)
+      Object.defineProperty(node, 'visible', {
+        get() {
+          visibilityReads += 1
+          return true
+        }
+      })
+      return node
+    })
+
+    const outline = buildBoundedStructureOutline(roots, 1, 240)
+
+    expect(outline.roots).toHaveLength(240)
+    expect(outline.observedNodes).toBe(241)
+    expect(visibilityReads).toBe(241)
+  })
+
+  it('does not scan a wide child suffix after proving the outline is truncated', () => {
+    let visibilityReads = 0
+    const children = Array.from({ length: 10_000 }, (_, index) => {
+      const child = createNode('RECTANGLE', `${index}`)
+      Object.defineProperty(child, 'visible', {
+        get() {
+          visibilityReads += 1
+          return true
+        }
+      })
+      return child
+    })
+    const root = createNode('FRAME', 'root', {}, children)
+
+    const outline = buildBoundedStructureOutline([root], 2, 240)
+
+    expect(outline.observedNodes).toBe(241)
+    expect(outline.roots[0]?.children).toHaveLength(239)
+    expect(outline.roots[0]?.children?.at(-1)?.id).toBe('238')
+    expect(visibilityReads).toBeLessThan(500)
+  })
+
+  it('reuses the only visible child when flattening a sparse wide wrapper', () => {
+    let visibilityReads = 0
+    const children = Array.from({ length: 10_000 }, (_, index) => {
+      const child = createNode('RECTANGLE', `${index}`)
+      Object.defineProperty(child, 'visible', {
+        get() {
+          visibilityReads += 1
+          return index === 9_999
+        }
+      })
+      return child
+    })
+    const root = createNode('FRAME', 'wrapper', {}, children)
+
+    const outline = buildBoundedStructureOutline([root], 2, 240)
+
+    expect(outline.roots.map((node) => node.id)).toEqual(['9999'])
+    expect(outline.observedNodes).toBe(1)
+    expect(visibilityReads).toBe(10_001)
   })
 })

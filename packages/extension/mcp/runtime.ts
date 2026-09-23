@@ -128,8 +128,7 @@ async function handleGetStructure(args?: GetStructureParametersInput): Promise<G
     )
   }
   if (page.id !== figma.currentPage.id) await page.loadAsync()
-  const result = runGetStructure([...page.children], depth, options?.native)
-  return { ...result, page: pageSnapshot(page) }
+  return runGetStructure([...page.children], depth, options?.native, pageSnapshot(page))
 }
 
 export const MCP_TOOL_HANDLERS = {

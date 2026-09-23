@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createGetCodeCacheContext } from '@/mcp/tools/code/cache'
 import { collectNodeData } from '@/mcp/tools/code/collect'
 import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
+import { formatNodeStyleForMcp } from '@/utils/variable-output'
 
 vi.mock('@/utils/figma-style/style-resolver', () => ({
   resolveStylesFromNodeData: vi.fn((style) => style)
@@ -42,18 +43,30 @@ describe('mcp/code collectNodeData operation counts', () => {
     })
     const tree = createTree(snapshots)
     const cache = createGetCodeCacheContext(new Map(), { metrics: true })
+    const nodeVariableIds = new Map(
+      snapshots.map((snapshot, index) => [snapshot.id, new Set([`var-${index}`])])
+    )
 
     const result = await collectNodeData(
       tree,
       { cssUnit: 'px', rootFontSize: 16, scale: 1 },
       new Map(),
       cache,
-      new Set(['node-1', 'node-4'])
+      new Set(['node-1', 'node-4']),
+      nodeVariableIds
     )
 
     expect(cssReaders.map((read) => read.mock.calls.length)).toEqual([1, 0, 1, 1, 0, 1])
     expect(result.styles.size).toBe(4)
     expect(result.textSegments.get('node-2')).toEqual([{ characters: 'copy' }])
+    expect(
+      vi.mocked(formatNodeStyleForMcp).mock.calls.map(([, node, , ids]) => [node.id, ids])
+    ).toEqual([
+      ['node-0', new Set(['var-0'])],
+      ['node-2', new Set(['var-2'])],
+      ['node-3', new Set(['var-3'])],
+      ['node-5', new Set(['var-5'])]
+    ])
     expect(cache.metrics).toMatchObject({
       nodeSemanticHits: 0,
       nodeSemanticMisses: 4

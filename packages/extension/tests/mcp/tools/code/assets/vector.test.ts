@@ -516,7 +516,7 @@ function makeTree(nodes: Snapshot[]): VisibleTree {
   return {
     rootIds: [nodes[0]?.id ?? 'root'],
     order: nodes.map((node) => node.id),
-    stats: { totalNodes: nodes.length, maxDepth: 1, capped: false, cappedNodeIds: [] },
+    stats: { totalNodes: nodes.length, maxDepth: 1, capped: false },
     nodes: new Map(nodes.map((node) => [node.id, node]))
   }
 }

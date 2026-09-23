@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { StyledTextSegmentSubset } from '@/mcp/tools/code/text/types'
 
+import { createGetCodeCacheContext } from '@/mcp/tools/code/cache'
 import {
   computeDominantStyle,
   inferFontWeight,
@@ -10,6 +11,7 @@ import {
   resolveRunAttrs,
   resolveTokens
 } from '@/mcp/tools/code/text/style'
+import { collectCandidateVariableIds } from '@/mcp/tools/token/candidates'
 
 type FigmaMock = {
   mixed: symbol
@@ -71,6 +73,9 @@ function setupFigmaMock({
 describe('mcp/code text style', () => {
   beforeEach(() => {
     delete (globalThis as { figma?: unknown }).figma
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('builds run attrs from tokens and text decorations', () => {
@@ -349,6 +354,35 @@ describe('mcp/code text style', () => {
         raw: segment.fills[1]
       }
     ])
+  })
+
+  it('reuses full-range text bindings and variable lookups from candidate scanning', () => {
+    vi.stubGlobal('__DEV__', false)
+    const figmaMock = setupFigmaMock({
+      variableById: { size: { id: 'size', name: 'Size/Body' } }
+    })
+    const getRangeBoundVariable = vi.fn((_start: number, _end: number, field: string) =>
+      field === 'fontSize' ? { id: 'size' } : null
+    )
+    const node = {
+      id: 'text',
+      type: 'TEXT',
+      visible: true,
+      characters: 'Hello',
+      fills: [],
+      strokes: [],
+      effects: [],
+      getRangeBoundVariable
+    } as unknown as TextNode
+    const ctx = createGetCodeCacheContext()
+
+    collectCandidateVariableIds([node], ctx.variables, ctx.readers)
+    const readsAfterScan = getRangeBoundVariable.mock.calls.length
+    const result = resolveTokens(node, createSegment(), ctx.readers)
+
+    expect(result.typography.fontSize).toEqual({ id: 'size', name: 'Size/Body' })
+    expect(getRangeBoundVariable).toHaveBeenCalledTimes(readsAfterScan)
+    expect(figmaMock.variables.getVariableById).toHaveBeenCalledTimes(1)
   })
 
   it('handles style/range/variable lookup failures in token resolution', () => {

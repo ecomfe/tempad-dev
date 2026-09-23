@@ -1,3 +1,5 @@
+import type { FigmaLookupReaders } from '@/utils/figma-style/types'
+
 import { canonicalizeValue } from '@/utils/css'
 
 import { inferFontWeight, isCodeFont, resolveRunAttrs, resolveTokens } from './style'
@@ -11,8 +13,12 @@ import {
   type TextRun
 } from './types'
 
-export function buildTextBlocks(node: TextNode, segments: StyledTextSegmentSubset[]): TextBlock[] {
-  const lines = splitIntoLines(node, segments)
+export function buildTextBlocks(
+  node: TextNode,
+  segments: StyledTextSegmentSubset[],
+  readers?: FigmaLookupReaders
+): TextBlock[] {
+  const lines = splitIntoLines(node, segments, readers)
   return groupLinesIntoBlocks(lines)
 }
 
@@ -30,7 +36,11 @@ export function formatTextLiteral(value: string): string | null {
   return value.trim() ? value : null
 }
 
-function splitIntoLines(node: TextNode, segments: StyledTextSegmentSubset[]): TextLine[] {
+function splitIntoLines(
+  node: TextNode,
+  segments: StyledTextSegmentSubset[],
+  readers?: FigmaLookupReaders
+): TextLine[] {
   const lines: TextLine[] = []
 
   let currentRuns: TextRun[] = []
@@ -42,7 +52,7 @@ function splitIntoLines(node: TextNode, segments: StyledTextSegmentSubset[]): Te
 
     for (const [i, partText] of parts.entries()) {
       if (partText.length > 0) {
-        const run = createRun(node, seg, partText)
+        const run = createRun(node, seg, partText, readers)
         currentRuns.push(run)
       }
 
@@ -170,9 +180,14 @@ function optimizeRuns(runs: TextRun[]): TextRun[] {
   return result
 }
 
-function createRun(node: TextNode, seg: StyledTextSegmentSubset, text: string): TextRun {
+function createRun(
+  node: TextNode,
+  seg: StyledTextSegmentSubset,
+  text: string,
+  readers?: FigmaLookupReaders
+): TextRun {
   const marks = new Set<TextMark>()
-  const { typography, fills } = resolveTokens(node, seg)
+  const { typography, fills } = resolveTokens(node, seg, readers)
   const attrs = resolveRunAttrs(seg, typography, fills)
 
   const weight = inferFontWeight(seg.fontName?.style, seg.fontWeight) ?? 400

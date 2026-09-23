@@ -16,6 +16,12 @@ export type CandidateResult = {
   rewrites: Map<string, { canonical: string; id: string }>
 }
 
+type CandidateOptions = {
+  traverseChildren?: boolean
+  captureNodeId?: (nodeId: string) => boolean
+  onNodeVariableIds?: (nodeId: string, ids: ReadonlySet<string>) => void
+}
+
 function hasChildren(node: SceneNode): node is SceneNode & ChildrenMixin {
   return 'children' in node
 }
@@ -24,7 +30,7 @@ export function collectCandidateVariableIds(
   roots: SceneNode[],
   cache?: Map<string, Variable | null>,
   readers: FigmaLookupReaders = DEFAULT_READERS,
-  options: { traverseChildren?: boolean } = {}
+  options: CandidateOptions = {}
 ): CandidateResult {
   const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
   const startedAt = now()
@@ -32,7 +38,14 @@ export function collectCandidateVariableIds(
   const rewrites = new Map<string, { canonical: string; id: string }>()
 
   const visit = (node: SceneNode) => {
-    collectNodeVariableIdsInto(node, variableIds, readers)
+    if (options.onNodeVariableIds && (options.captureNodeId?.(node.id) ?? true)) {
+      const nodeIds = new Set<string>()
+      collectNodeVariableIdsInto(node, nodeIds, readers)
+      for (const id of nodeIds) variableIds.add(id)
+      options.onNodeVariableIds(node.id, nodeIds)
+    } else {
+      collectNodeVariableIdsInto(node, variableIds, readers)
+    }
 
     if (options.traverseChildren !== false && hasChildren(node)) {
       node.children.forEach((child) => {

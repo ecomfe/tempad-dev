@@ -1,4 +1,5 @@
 import type { CodegenConfig } from '@/utils/codegen'
+import type { FigmaLookupReaders } from '@/utils/figma-style/types'
 
 import type { SvgEntry } from '../assets'
 
@@ -13,6 +14,7 @@ export type RenderContext = {
   pluginComponents?: Map<string, import('./plugin').PluginComponent | null>
   pluginCode?: string
   config: CodegenConfig
+  readers?: FigmaLookupReaders
   preferredLang?: CodeLanguage
   detectedLang?: CodeLanguage
   resolveStyleVars?: (style: Record<string, string>, node?: SceneNode) => Record<string, string>

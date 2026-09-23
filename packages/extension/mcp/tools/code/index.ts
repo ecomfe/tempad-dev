@@ -21,7 +21,7 @@ import type { CodeLanguage, RenderContext } from './render'
 import type { PluginComponent } from './render/plugin'
 
 import { currentCodegenConfig } from '../config'
-import { buildVariableMappings } from '../token/mapping'
+import { collectCandidateVariableIds } from '../token/candidates'
 import { exportVectorAssets } from './assets/export'
 import { planAssets } from './assets/plan'
 import { preflightGetCodeBudget } from './budget-preflight'
@@ -129,9 +129,11 @@ export async function handleGetCode(
   vectorMode: GetCodeParametersInput['vectorMode'] = 'smart',
   runtimeOptions: GetCodeRuntimeOptions = {}
 ): Promise<GetCodeResult> {
-  const trace = createTrace()
-  const { now, stamp } = trace
-  const traceInfo: TraceInfo = { now, stamp }
+  const measure = typeof __DEV__ !== 'undefined' && __DEV__
+  const trace = measure ? createTrace() : undefined
+  const now = trace?.now ?? (() => 0)
+  const stamp = trace?.stamp ?? (() => {})
+  const traceInfo: TraceInfo | undefined = trace ? { now, stamp } : undefined
 
   const [node] = nodes
   if (nodes.length !== 1 || !node) {
@@ -168,9 +170,12 @@ export async function handleGetCode(
 
   t = now()
   const variableCache = new Map<string, Variable | null>()
-  const cache = createGetCodeCacheContext(variableCache, { metrics: true })
-  const mappings = buildVariableMappings(nodes, variableCache, cache.readers, {
-    traverseChildren: !earlyShell
+  const cache = createGetCodeCacheContext(variableCache, { metrics: measure })
+  const nodeVariableIds = new Map<string, ReadonlySet<string>>()
+  const mappings = collectCandidateVariableIds(nodes, variableCache, cache.readers, {
+    traverseChildren: !earlyShell,
+    captureNodeId: (id) => tree.nodes.has(id),
+    onNodeVariableIds: (id, ids) => nodeVariableIds.set(id, ids)
   })
   stamp('vars', t)
 
@@ -190,7 +195,14 @@ export async function handleGetCode(
     ? new Set(tree.order.filter((id) => id !== rootId))
     : buildSkipIds(plan.skippedIds, pluginSkipped)
   t = now()
-  const collected = await collectNodeData(tree, config, assetRegistry, cache, skipIds)
+  const collected = await collectNodeData(
+    tree,
+    config,
+    assetRegistry,
+    cache,
+    skipIds,
+    nodeVariableIds
+  )
   stamp('collect', t)
 
   if (earlyShell) {
@@ -223,6 +235,7 @@ export async function handleGetCode(
     pluginComponents,
     pluginCode,
     config,
+    readers: cache.readers,
     preferredLang
   }
 
@@ -261,16 +274,18 @@ export async function handleGetCode(
     }
 
     const warnings = buildGetCodeWarnings(shell.code, {
-      cappedNodeIds: tree.stats.cappedNodeIds,
+      depthCapped: tree.stats.capped,
       shell: true
     })
     const assets = selectAssetsForCode(allAssets, shell.code, videoPreviewAssetHashes)
     const result = buildCodeResult(shell, codegen, assets, undefined, warnings)
     assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
-    logTrace(
-      trace,
-      `nodes=${tree.order.length} collected=1 assets=${assets.length} shell=early preflightNodes=${budgetPreflight.scannedDescendants}${formatCacheMetrics(cache)}`
-    )
+    if (trace) {
+      logTrace(
+        trace,
+        `nodes=${tree.order.length} collected=1 assets=${assets.length} shell=early preflightNodes=${budgetPreflight.scannedDescendants}${formatCacheMetrics(cache)}`
+      )
+    }
     return result
   }
 
@@ -283,17 +298,19 @@ export async function handleGetCode(
       ? undefined
       : collectUnboundColorLiteralClusters(collected.styles, tree)
     const warnings = buildGetCodeWarnings(output.code, {
-      cappedNodeIds: tree.stats.cappedNodeIds,
+      depthCapped: tree.stats.capped,
       literalClusters
     })
     const assets = selectAssetsForCode(allAssets, output.code, videoPreviewAssetHashes)
     const result = buildCodeResult(output, codegen, assets, literalClusters, warnings)
     assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
 
-    logTrace(
-      trace,
-      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assets.length}${runtimeOptions.unbounded ? ' budget=unbounded' : ''}${formatCacheMetrics(cache)}`
-    )
+    if (trace) {
+      logTrace(
+        trace,
+        `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assets.length}${runtimeOptions.unbounded ? ' budget=unbounded' : ''}${formatCacheMetrics(cache)}`
+      )
+    }
 
     return result
   } catch (error) {
@@ -315,7 +332,7 @@ export async function handleGetCode(
     }
 
     const warnings = buildGetCodeWarnings(shell.code, {
-      cappedNodeIds: tree.stats.cappedNodeIds,
+      depthCapped: tree.stats.capped,
       shell: true
     })
     const assets = selectAssetsForCode(allAssets, shell.code, rootVideoPreviewAssetHashes)
@@ -330,10 +347,12 @@ export async function handleGetCode(
       throw shellError
     }
 
-    logTrace(
-      trace,
-      `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assets.length} shell${formatCacheMetrics(cache)}`
-    )
+    if (trace) {
+      logTrace(
+        trace,
+        `nodes=${tree.order.length} text=${collected.textSegments.size} vectors=${plan.vectorRoots.size} assets=${assets.length} shell${formatCacheMetrics(cache)}`
+      )
+    }
 
     return result
   }
@@ -763,6 +782,8 @@ function formatCacheMetrics(cache: { metrics?: { [key: string]: number } }): str
     paintStyleMisses,
     variableHits,
     variableMisses,
+    textRangeHits,
+    textRangeMisses,
     vectorAnalysisHits,
     vectorAnalysisMisses,
     vectorExportCandidates,
@@ -778,6 +799,7 @@ function formatCacheMetrics(cache: { metrics?: { [key: string]: number } }): str
     `style(${styleHits}/${styleMisses})`,
     `paint-style(${paintStyleHits}/${paintStyleMisses})`,
     `var(${variableHits}/${variableMisses})`,
+    `text-range(${textRangeHits}/${textRangeMisses})`,
     `vector-analysis(${vectorAnalysisHits}/${vectorAnalysisMisses})`,
     `vector-export(candidates=${vectorExportCandidates} missing=${vectorExportSkippedMissing} zero=${vectorExportSkippedZeroBounds} null=${vectorExportNull} uploaded=${vectorExportUploaded} themeable-inline=${vectorExportThemeableInline} raw-inline=${vectorExportRawInline})`
   ].join(' ')

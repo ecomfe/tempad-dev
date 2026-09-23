@@ -126,6 +126,19 @@ describe('mcp/code text segments', () => {
     })
   })
 
+  it('passes request-scoped readers into text run token resolution', () => {
+    const node = { getRangeBoundVariable: vi.fn() } as unknown as TextNode
+    const readers = {
+      getStyleById: vi.fn(),
+      getVariableById: vi.fn()
+    }
+    const segment = createSegment()
+
+    buildTextBlocks(node, [segment], readers as never)
+
+    expect(mocks.resolveTokens).toHaveBeenCalledWith(node, segment, readers)
+  })
+
   it('merges compatible runs with sticky whitespace and preserves link/url', () => {
     const node = { getRangeBoundVariable: vi.fn() } as unknown as TextNode
     const link = { type: 'URL', value: 'https://example.com' } as SegmentHyperlink

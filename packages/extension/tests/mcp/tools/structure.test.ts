@@ -1,32 +1,37 @@
+import {
+  MCP_TOOL_INLINE_BUDGET_BYTES,
+  buildGetStructureToolResult,
+  measureCallToolResultBytes,
+  type CanvasPageSnapshot
+} from '@tempad-dev/shared'
 import { describe, expect, it, vi } from 'vitest'
 
-import { buildSemanticTree, semanticTreeToOutline } from '@/mcp/semantic-tree'
+import { buildBoundedStructureOutline } from '@/mcp/semantic-tree'
 import { handleGetStructure } from '@/mcp/tools/structure'
 
 vi.mock('@/mcp/semantic-tree', () => ({
-  buildSemanticTree: vi.fn(),
-  semanticTreeToOutline: vi.fn()
+  buildBoundedStructureOutline: vi.fn()
 }))
 
-function mockOutline(roots: unknown[]): void {
-  vi.mocked(buildSemanticTree).mockReturnValue({ roots: [] } as unknown as ReturnType<
-    typeof buildSemanticTree
-  >)
-  vi.mocked(semanticTreeToOutline).mockReturnValue(roots as never)
+function mockOutline(roots: unknown[], physicalNodes: SceneNode[] = []): void {
+  vi.mocked(buildBoundedStructureOutline).mockReturnValue({
+    roots: roots as never,
+    physicalNodes,
+    observedNodes: countNodes(roots as Array<{ children?: unknown[] }>)
+  })
 }
 
 describe('mcp/tools/structure', () => {
   it('uses undefined depth when input depth is falsy and returns outline payload', () => {
-    vi.mocked(buildSemanticTree).mockReturnValue({
-      roots: [{ id: 'root-1' }]
-    } as unknown as ReturnType<typeof buildSemanticTree>)
-    vi.mocked(semanticTreeToOutline).mockReturnValue([{ id: 'outline-1' }] as never)
+    mockOutline([{ id: 'outline-1' }])
 
     const result = handleGetStructure([{ id: 'node-1', visible: true } as unknown as SceneNode], 0)
 
-    expect(buildSemanticTree).toHaveBeenCalledWith([{ id: 'node-1', visible: true }], {
-      depthLimit: undefined
-    })
+    expect(buildBoundedStructureOutline).toHaveBeenCalledWith(
+      [{ id: 'node-1', visible: true }],
+      0,
+      240
+    )
     expect(result).toEqual({
       roots: [
         {
@@ -42,12 +47,12 @@ describe('mcp/tools/structure', () => {
     })
   })
 
-  it('passes explicit depth limit through to semantic tree builder', () => {
+  it('passes explicit depth limit through to bounded outline builder', () => {
     mockOutline([])
 
     handleGetStructure([], 3)
 
-    expect(buildSemanticTree).toHaveBeenCalledWith([], { depthLimit: 3 })
+    expect(buildBoundedStructureOutline).toHaveBeenCalledWith([], 3, 240)
   })
 
   it('returns stable authoring keys only for managed nodes', () => {
@@ -61,28 +66,31 @@ describe('mcp/tools/structure', () => {
       children: [child],
       getSharedPluginData: vi.fn(() => '')
     }
-    mockOutline([
-      {
-        id: 'root-1',
-        name: 'Root',
-        type: 'FRAME',
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100,
-        children: [
-          {
-            id: 'child-1',
-            name: 'Child',
-            type: 'TEXT',
-            x: 0,
-            y: 0,
-            width: 20,
-            height: 10
-          }
-        ]
-      }
-    ])
+    mockOutline(
+      [
+        {
+          id: 'root-1',
+          name: 'Root',
+          type: 'FRAME',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          children: [
+            {
+              id: 'child-1',
+              name: 'Child',
+              type: 'TEXT',
+              x: 0,
+              y: 0,
+              width: 20,
+              height: 10
+            }
+          ]
+        }
+      ],
+      [root as unknown as SceneNode, child as unknown as SceneNode]
+    )
 
     const result = handleGetStructure([root as unknown as SceneNode])
 
@@ -124,7 +132,10 @@ describe('mcp/tools/structure', () => {
       visible: true,
       getSharedPluginData: vi.fn(() => '')
     }
-    mockOutline([{ id: 'instance-1', children: [{ id: 'instance-child-1' }] }])
+    mockOutline(
+      [{ id: 'instance-1', children: [{ id: 'instance-child-1' }] }],
+      [instance as unknown as SceneNode, child as unknown as SceneNode]
+    )
 
     const result = handleGetStructure([
       trailing as unknown as SceneNode,
@@ -150,7 +161,7 @@ describe('mcp/tools/structure', () => {
       parent: instance,
       getSharedPluginData: vi.fn(() => 'component/card/label')
     }
-    mockOutline([{ id: 'instance-child-1' }])
+    mockOutline([{ id: 'instance-child-1' }], [child as unknown as SceneNode])
 
     const result = handleGetStructure([child as unknown as SceneNode])
 
@@ -208,37 +219,40 @@ describe('mcp/tools/structure', () => {
       ],
       getSharedPluginData: vi.fn(() => '')
     }
-    mockOutline([
-      {
-        id: 'root-1',
-        name: 'Poster',
-        type: 'FRAME',
-        x: 0,
-        y: 0,
-        width: 700,
-        height: 1000,
-        children: [
-          {
-            id: 'mask-1',
-            name: 'Mask',
-            type: 'RECTANGLE',
-            x: 44,
-            y: 244,
-            width: 612,
-            height: 458
-          },
-          {
-            id: 'image-1',
-            name: 'Image',
-            type: 'RECTANGLE',
-            x: -30,
-            y: 201,
-            width: 760,
-            height: 544
-          }
-        ]
-      }
-    ])
+    mockOutline(
+      [
+        {
+          id: 'root-1',
+          name: 'Poster',
+          type: 'FRAME',
+          x: 0,
+          y: 0,
+          width: 700,
+          height: 1000,
+          children: [
+            {
+              id: 'mask-1',
+              name: 'Mask',
+              type: 'RECTANGLE',
+              x: 44,
+              y: 244,
+              width: 612,
+              height: 458
+            },
+            {
+              id: 'image-1',
+              name: 'Image',
+              type: 'RECTANGLE',
+              x: -30,
+              y: 201,
+              width: 760,
+              height: 544
+            }
+          ]
+        }
+      ],
+      [root as unknown as SceneNode, mask as unknown as SceneNode, image as unknown as SceneNode]
+    )
 
     const result = handleGetStructure([root as unknown as SceneNode], undefined, true)
 
@@ -294,6 +308,73 @@ describe('mcp/tools/structure', () => {
     expect(result.truncated).toBe(true)
     expect(result.roots[0]?.name.length).toBeLessThanOrEqual(48)
     expect(result.roots[0]?.x).toBe(0.1)
+  })
+
+  it('includes page metadata in the inline budget before choosing a node limit', () => {
+    mockOutline(
+      Array.from({ length: 240 }, (_, i) => ({
+        id: `node-${i}-${'a'.repeat(165)}`,
+        name: 'Layer',
+        type: 'FRAME',
+        x: i,
+        y: 0,
+        width: 100,
+        height: 100
+      }))
+    )
+    const page: CanvasPageSnapshot = {
+      id: '0:1',
+      name: 'Page '.repeat(1500),
+      index: 0,
+      active: true,
+      childCount: 240,
+      selectionCount: 0
+    }
+
+    expect(countNodes(handleGetStructure([]).roots)).toBe(240)
+    const result = handleGetStructure([], undefined, false, page)
+
+    expect(result.page).toEqual(page)
+    expect(result.truncated).toBe(true)
+    expect(countNodes(result.roots)).toBeLessThan(240)
+    expect(measureCallToolResultBytes(buildGetStructureToolResult(result))).toBeLessThanOrEqual(
+      MCP_TOOL_INLINE_BUDGET_BYTES
+    )
+  })
+
+  it('preserves an empty page and rejects oversized page metadata even without nodes', () => {
+    mockOutline([])
+    const page: CanvasPageSnapshot = {
+      id: '0:1',
+      name: 'Empty page',
+      index: 0,
+      active: true,
+      childCount: 0,
+      selectionCount: 0
+    }
+
+    expect(handleGetStructure([], undefined, false, page)).toEqual({ roots: [], page })
+    expect(() =>
+      handleGetStructure([], undefined, false, { ...page, name: '界'.repeat(24_000) })
+    ).toThrow('Structure tool result exceeded the 64 KiB inline budget.')
+  })
+
+  it('rejects an outline when even the smallest prefix exceeds the UTF-8 budget', () => {
+    mockOutline(
+      Array.from({ length: 240 }, (_, i) => ({
+        id: `${i}-${'界'.repeat(500)}`,
+        name: 'Layer',
+        type: 'FRAME',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100
+      }))
+    )
+
+    expect(() => handleGetStructure([])).toThrow(
+      'Structure tool result exceeded the 64 KiB inline budget.'
+    )
   })
 })
 

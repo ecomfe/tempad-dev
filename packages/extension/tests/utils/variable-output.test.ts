@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { serializeCSS } from '@/utils/css'
+import { collectNodeVariableIds, TEXT_VARIABLE_FIELDS } from '@/utils/figma-variables'
 import {
   formatNodeStyleForPluginVariables,
   formatNodeStyleForMcp,
@@ -189,6 +190,38 @@ describe('utils/variable-output', () => {
     })
   })
 
+  it('reuses previously collected ids without repeating text binding discovery', () => {
+    setupFigma({
+      variableById: {
+        'font-body': createVariable('font-body', '--font-body', 'theme.fonts.body'),
+        'size-card': createVariable('size-card', '--size-card', 'theme.sizes.card'),
+        'size-tall': createVariable('size-tall', '--size-tall')
+      }
+    })
+    const node = createTextNode({ fills: [] })
+    const ids = collectNodeVariableIds(node)
+    const readRangeBinding = vi.mocked(node.getRangeBoundVariable)
+    readRangeBinding.mockClear()
+    const input = { 'font-family': 'Inter', width: '320px', height: '240px' }
+
+    const uncached = formatNodeStyleForMcp(input, node)
+    expect(readRangeBinding).toHaveBeenCalledTimes(TEXT_VARIABLE_FIELDS.length + 1)
+    readRangeBinding.mockClear()
+
+    const cached = formatNodeStyleForMcp(input, node, undefined, ids)
+    expect(cached).toEqual(uncached)
+    expect(readRangeBinding).toHaveBeenCalledTimes(1)
+
+    readRangeBinding.mockClear()
+    expect(
+      formatNodeStyleForMcp({ width: '320px', height: '240px' }, node, undefined, ids)
+    ).toEqual({
+      width: 'var(--size-card)',
+      height: 'var(--size-tall)'
+    })
+    expect(readRangeBinding).not.toHaveBeenCalled()
+  })
+
   it('keeps CSS variable fallbacks for plugin variable transforms', () => {
     setupFigma({
       variableById: {
@@ -270,6 +303,38 @@ describe('utils/variable-output', () => {
 
     expect(formatNodeStyleForPluginVariables({ padding: '0px $spacing-1' }, node)).toEqual({
       padding: '0px var(--Spacing-1)'
+    })
+  })
+
+  it('rewrites the same WEB syntax across CSS properties without changing var() contents', () => {
+    setupFigma({
+      variableById: {
+        accent: createVariable('accent', 'Accent', 'theme.color.accent')
+      }
+    })
+
+    const node = {
+      id: 'frame-node',
+      type: 'FRAME',
+      visible: true,
+      boundVariables: {
+        fills: [{ id: 'accent' }]
+      }
+    } as unknown as SceneNode
+
+    expect(
+      formatNodeStyleForMcp(
+        {
+          color: 'theme.color.accent',
+          border: '1px solid theme.color.accent',
+          background: 'linear-gradient(var(--theme.color.accent, red), theme.color.accent)'
+        },
+        node
+      )
+    ).toEqual({
+      color: 'var(--Accent)',
+      border: '1px solid var(--Accent)',
+      background: 'linear-gradient(var(--theme.color.accent, red), var(--Accent))'
     })
   })
 

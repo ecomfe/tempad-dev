@@ -33,8 +33,7 @@ export function createTree(snapshots: NodeSnapshot[]): VisibleTree {
     stats: {
       totalNodes: snapshots.length,
       maxDepth: 1,
-      capped: false,
-      cappedNodeIds: []
+      capped: false
     },
     nodes: new Map(snapshots.map((item) => [item.id, item]))
   }

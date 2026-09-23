@@ -13,7 +13,10 @@ import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 
 const mocks = vi.hoisted(() => ({
   currentCodegenConfig: vi.fn(() => ({ cssUnit: 'px', rootFontSize: 16, scale: 1 })),
-  buildVariableMappings: vi.fn(() => ({ variableIds: new Set<string>(), rewrites: new Map() })),
+  collectCandidateVariableIds: vi.fn(() => ({
+    variableIds: new Set<string>(),
+    rewrites: new Map()
+  })),
   planAssets: vi.fn(() => ({ vectorRoots: new Set<string>(), skippedIds: new Set<string>() })),
   collectNodeData: vi.fn(),
   prepareStyles: vi.fn(),
@@ -38,8 +41,8 @@ vi.mock('@/mcp/tools/config', () => ({
   currentCodegenConfig: mocks.currentCodegenConfig
 }))
 
-vi.mock('@/mcp/tools/token/mapping', () => ({
-  buildVariableMappings: mocks.buildVariableMappings
+vi.mock('@/mcp/tools/token/candidates', () => ({
+  collectCandidateVariableIds: mocks.collectCandidateVariableIds
 }))
 
 vi.mock('@/mcp/tools/code/assets/plan', () => ({
@@ -417,18 +420,23 @@ describe('mcp/code handleGetCode', () => {
     const result = await handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
 
     expect(result.warnings?.map((warning) => warning.type)).toEqual(['shell'])
-    expect(mocks.buildVariableMappings).toHaveBeenCalledWith(
+    expect(mocks.collectCandidateVariableIds).toHaveBeenCalledWith(
       expect.any(Array),
       expect.any(Map),
       expect.any(Object),
-      { traverseChildren: false }
+      {
+        traverseChildren: false,
+        captureNodeId: expect.any(Function),
+        onNodeVariableIds: expect.any(Function)
+      }
     )
     expect(mocks.collectNodeData).toHaveBeenCalledWith(
       tree,
       expect.any(Object),
       expect.any(Map),
       expect.any(Object),
-      new Set(['copy'])
+      new Set(['copy']),
+      expect.any(Map)
     )
     expect(mocks.prepareStyles).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -478,7 +486,6 @@ describe('mcp/code handleGetCode', () => {
     const tree = createTree([root])
     tree.stats.capped = true
     tree.stats.depthLimit = 3
-    tree.stats.cappedNodeIds = ['root']
 
     mocks.buildVisibleTree.mockReturnValue(tree)
     mocks.collectNodeData.mockResolvedValue({

@@ -12,26 +12,28 @@ export async function queryAvailableFonts(
   args: GetDesignSystemParametersInput
 ): Promise<DesignSystemFontsResult> {
   const available = await figma.listAvailableFontsAsync()
-  const families = [...new Set(available.map(({ fontName }) => fontName.family))].sort(compareText)
+  const familySet = new Set(available.map(({ fontName }) => fontName.family))
+  const requestedFamilies = args.families ? new Set(args.families) : undefined
+  const query = requestedFamilies ? undefined : args.query?.toLowerCase()
   const cursor = args.cursor ?? 0
   const result: DesignSystemFontsResult = { scope: 'fonts' }
-  const rows = args.families
+  const rows = requestedFamilies
     ? [
         ...new Map(
           available
-            .filter(({ fontName }) => args.families!.includes(fontName.family))
+            .filter(({ fontName }) => requestedFamilies.has(fontName.family))
             .map(({ fontName }) => [JSON.stringify(fontName), fontName])
         ).values()
       ].sort((a, b) => compareText(a.family, b.family) || compareText(a.style, b.style))
-    : families.filter(
-        (family) => !args.query || family.toLowerCase().includes(args.query.toLowerCase())
-      )
+    : [...familySet]
+        .sort(compareText)
+        .filter((family) => !query || family.toLowerCase().includes(query))
   if (cursor > 0 && cursor >= rows.length) {
     throw new Error('Font cursor is outside the current query. Restart the font query.')
   }
-  if (args.families) {
+  if (requestedFamilies) {
     result.fonts = []
-    const missing = [...new Set(args.families)].filter((family) => !families.includes(family))
+    const missing = [...requestedFamilies].filter((family) => !familySet.has(family))
     if (missing.length) result.missingFamilies = missing
   } else result.families = []
   if (utf8Bytes(result) > TARGET_BYTES) {

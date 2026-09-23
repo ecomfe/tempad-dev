@@ -4,7 +4,7 @@ import { retryAfterFigmaConnectionTimeout } from '../../figma-readiness'
 import { specError } from './errors'
 
 export type CanvasFontState = {
-  availableFonts?: Promise<Font[]>
+  fontFamilies?: Promise<Map<string, Font[]>>
   fontLoads: Map<string, Promise<void>>
 }
 
@@ -77,14 +77,26 @@ function closestFontStyle(fonts: Font[], desiredStyle: string, weight?: number):
   return closest.fontName
 }
 
+function availableFontFamilies(state: CanvasFontState): Promise<Map<string, Font[]>> {
+  return (state.fontFamilies ??= figma.listAvailableFontsAsync().then((fonts) => {
+    const families = new Map<string, Font[]>()
+    for (const font of fonts) {
+      const family = font.fontName.family
+      const faces = families.get(family)
+      if (faces) faces.push(font)
+      else families.set(family, [font])
+    }
+    return families
+  }))
+}
+
 export async function resolveFamilyFont(
   family: string,
   desiredStyle: string,
   state: CanvasFontState,
   weight?: number
 ): Promise<FontName> {
-  state.availableFonts ??= figma.listAvailableFontsAsync()
-  const fonts = (await state.availableFonts).filter(({ fontName }) => fontName.family === family)
+  const fonts = (await availableFontFamilies(state)).get(family) ?? []
   if (!fonts.length)
     specError(
       `Font family "${family}" is unavailable. Query get_design_system with scope: "fonts" for available families and styles.`
@@ -97,17 +109,17 @@ export async function resolvePortableFont(
   desiredStyle: string,
   state: CanvasFontState
 ): Promise<FontName> {
-  state.availableFonts ??= figma.listAvailableFontsAsync()
-  let available: Font[]
+  const pending = availableFontFamilies(state)
+  let available: Map<string, Font[]>
   try {
-    available = await state.availableFonts
+    available = await pending
   } catch {
     specError('Available Figma fonts could not be listed for a portable font utility.')
   }
 
   for (const candidate of PORTABLE_FONT_CANDIDATES[family]) {
-    const matching = available.filter(({ fontName }) => fontName.family === candidate)
-    if (matching.length) return closestFontStyle(matching, desiredStyle)
+    const matching = available.get(candidate)
+    if (matching?.length) return closestFontStyle(matching, desiredStyle)
   }
   specError(
     `No portable ${family} font is available in the current Figma context; use an exact available font.`

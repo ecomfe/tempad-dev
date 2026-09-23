@@ -1,5 +1,6 @@
 import type {
   CanvasFigmaLayoutGrid,
+  CanvasPageSnapshot,
   GetStructureResult,
   OutlineNativeProperties
 } from '@tempad-dev/shared'
@@ -10,10 +11,9 @@ import {
   measureCallToolResultBytes
 } from '@tempad-dev/shared'
 
-import { buildSemanticTree, semanticTreeToOutline } from '@/mcp/semantic-tree'
+import { buildBoundedStructureOutline } from '@/mcp/semantic-tree'
 
 import { readOwnedNodeKey } from './canvas/identity'
-import { walkPhysicalNodes } from './canvas/traversal'
 
 const STRUCTURE_NODE_LIMIT_STEPS = [240, 180, 140, 100, 70, 50] as const
 const STRUCTURE_MAX_NAME_CHARS = 48
@@ -24,57 +24,31 @@ type StructureNode = GetStructureResult['roots'][number]
 export function handleGetStructure(
   roots: SceneNode[],
   depthLimit?: number,
-  includeNative = false
+  includeNative = false,
+  page?: CanvasPageSnapshot
 ): GetStructureResult {
-  const tree = buildSemanticTree(roots, { depthLimit: depthLimit || undefined })
-  const outline = semanticTreeToOutline(tree.roots)
-  const { authoringKeys, nativeById } = collectStructureMetadata(
-    roots,
-    outline,
-    STRUCTURE_NODE_LIMIT_STEPS[0],
-    includeNative
-  )
-  const compact = compactStructure(outline, authoringKeys, nativeById)
-  if (!compact.roots.length && outline.length) {
-    throw new Error(
-      'Structure tool result exceeded the 64 KiB inline budget. Reduce selection or depth and retry.'
-    )
-  }
-
-  return compact
-}
-
-function compactStructure(
-  roots: StructureNode[],
-  authoringKeys: ReadonlyMap<string, string>,
-  nativeById: ReadonlyMap<string, OutlineNativeProperties>
-): GetStructureResult {
-  if (!roots.length) return { roots }
-
-  const totalNodes = countStructureNodes(roots)
+  const {
+    roots: outline,
+    physicalNodes,
+    observedNodes
+  } = buildBoundedStructureOutline(roots, depthLimit, STRUCTURE_NODE_LIMIT_STEPS[0])
+  const { authoringKeys, nativeById } = collectStructureMetadata(physicalNodes, includeNative)
 
   for (const nodeLimit of STRUCTURE_NODE_LIMIT_STEPS) {
     const candidate: GetStructureResult = {
-      roots: compactByNodeLimit(roots, nodeLimit, authoringKeys, nativeById),
-      ...(totalNodes > nodeLimit ? { truncated: true } : {})
+      roots: compactByNodeLimit(outline, nodeLimit, authoringKeys, nativeById),
+      ...(page ? { page } : {}),
+      ...(observedNodes > nodeLimit ? { truncated: true } : {})
     }
     if (estimateToolResultBytes(candidate) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
       return candidate
     }
+    if (!outline.length) break
   }
 
-  return { roots: [], truncated: true }
-}
-
-function countStructureNodes(roots: StructureNode[]): number {
-  let count = 0
-  const pending = [...roots]
-  while (pending.length) {
-    const node = pending.pop()!
-    count += 1
-    if (node.children) pending.push(...node.children)
-  }
-  return count
+  throw new Error(
+    'Structure tool result exceeded the 64 KiB inline budget. Reduce selection or depth and retry.'
+  )
 }
 
 function compactByNodeLimit(
@@ -126,9 +100,7 @@ function compactByNodeLimit(
 }
 
 function collectStructureMetadata(
-  roots: SceneNode[],
-  outline: StructureNode[],
-  nodeLimit: number,
+  physicalNodes: SceneNode[],
   includeNative: boolean
 ): {
   authoringKeys: Map<string, string>
@@ -136,12 +108,7 @@ function collectStructureMetadata(
 } {
   const authoringKeys = new Map<string, string>()
   const nativeById = new Map<string, OutlineNativeProperties>()
-  const remaining = collectOutlineIds(outline, nodeLimit)
-  if (!remaining.size) return { authoringKeys, nativeById }
-
-  for (const node of walkPhysicalNodes(roots)) {
-    if (!remaining.delete(node.id)) continue
-
+  for (const node of physicalNodes) {
     const key = readOwnedNodeKey(node)
     if (key) authoringKeys.set(node.id, key)
 
@@ -149,7 +116,6 @@ function collectStructureMetadata(
       const native = describeNativeProperties(node)
       if (native) nativeById.set(node.id, native)
     }
-    if (!remaining.size) break
   }
 
   return { authoringKeys, nativeById }
@@ -201,21 +167,6 @@ function describeLayoutGrid(grid: LayoutGrid): CanvasFigmaLayoutGrid {
         }),
     ...(variables ? { variables } : {})
   } as CanvasFigmaLayoutGrid
-}
-
-function collectOutlineIds(outline: StructureNode[], nodeLimit: number): Set<string> {
-  const ids = new Set<string>()
-
-  const addIds = (nodes: StructureNode[]): boolean => {
-    for (const node of nodes) {
-      ids.add(node.id)
-      if (ids.size >= nodeLimit || (node.children && addIds(node.children))) return true
-    }
-    return false
-  }
-
-  addIds(outline)
-  return ids
 }
 
 function sanitizeName(value: unknown): string {

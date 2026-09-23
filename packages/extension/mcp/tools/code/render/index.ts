@@ -130,13 +130,11 @@ async function renderNode(
         })
       : undefined
 
-  const renderBounds = snapshot.renderBounds
-  const hasClipAncestor = hasClippingAncestor(snapshot, tree, ctx.styles)
   const invisibleText =
     node.type === 'TEXT' &&
     textSegments?.segmentCount === 1 &&
-    renderBounds == null &&
-    !hasClipAncestor
+    snapshot.renderBounds == null &&
+    !hasClippingAncestor(snapshot, tree, ctx.styles)
 
   if (invisibleText) {
     cleanedTextStyle = { ...cleanedTextStyle, color: 'transparent' }
@@ -183,11 +181,16 @@ async function renderNode(
       ? undefined
       : { ...snapshot.dataHint, 'data-hint-id': snapshot.id }
 
-  const styleForClass = pluginComponent ? (ctx.layout.get(snapshot.id) ?? {}) : baseStyleForClass
-
-  const { props } = classProps(styleForClass, ctx.config, classAttr, dataHint, { isFallback })
-
   if (pluginComponent) {
+    const { props } = classProps(
+      ctx.layout.get(snapshot.id) ?? {},
+      ctx.config,
+      classAttr,
+      dataHint,
+      {
+        isFallback
+      }
+    )
     const pluginProps = Object.keys(props).length ? props : undefined
 
     if (pluginComponent.component) {
@@ -200,18 +203,16 @@ async function renderNode(
     return null
   }
 
+  const { props } = classProps(baseStyleForClass, ctx.config, classAttr, dataHint, { isFallback })
   if (node.type === 'TEXT') {
     const segments = textSegments?.segments ?? []
-    const { props: textProps } = classProps(baseStyleForClass, ctx.config, classAttr, dataHint, {
-      isFallback
-    })
     if (segments.length === 1) {
       const single = segments[0]
-      if (single && typeof single !== 'string') return mergeDevComponentProps(single, textProps)
+      if (single && typeof single !== 'string') return mergeDevComponentProps(single, props)
     }
     return {
       name: snapshot.tag || 'span',
-      props: textProps,
+      props,
       children: segments.filter(Boolean)
     }
   }

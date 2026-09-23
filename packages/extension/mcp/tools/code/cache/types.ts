@@ -72,6 +72,8 @@ export type CacheMetrics = {
   paintStyleMisses: number
   variableHits: number
   variableMisses: number
+  textRangeHits: number
+  textRangeMisses: number
   vectorAnalysisHits: number
   vectorAnalysisMisses: number
   vectorExportCandidates: number
