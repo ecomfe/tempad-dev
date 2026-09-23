@@ -341,6 +341,33 @@ describe('design task leases', () => {
     })
   })
 
+  it('keeps a task on its bound connection when another connection reports the same session id', () => {
+    const f = fixture()
+    const task = f.begin()
+    const extension = {
+      id: 'extension-a',
+      sessions: { browserId: 'browser-a', activeSessionId: null, sessions: [session] }
+    } as ExtensionConnection
+    const other = {
+      id: 'extension-b',
+      sessions: { browserId: 'browser-b', activeSessionId: null, sessions: [session] }
+    } as ExtensionConnection
+
+    const resolve = (connections: ExtensionConnection[]) =>
+      resolveDesignTarget(
+        f.tasks,
+        connections,
+        'extension-b',
+        'caller-a',
+        task.taskId,
+        true,
+        session.sessionId
+      )
+
+    expect(resolve([other, extension]).extension.id).toBe('extension-a')
+    expect(() => resolve([other])).toThrow('no other tab was selected')
+  })
+
   it('routes to the acknowledged tab even after both active extension and active tab change', () => {
     const f = fixture()
     const task = f.begin()
@@ -369,12 +396,41 @@ describe('design task leases', () => {
     expect(
       resolveDesignTarget(f.tasks, [extension, other], 'extension-b', 'caller-a').session.sessionId
     ).toBe('tab-c')
+    expect(
+      resolveDesignTarget(f.tasks, [extension, other], null, 'caller-a', undefined, true, 'tab-b')
+        .session.sessionId
+    ).toBe('tab-b')
+    expect(
+      resolveDesignTarget(
+        f.tasks,
+        [extension, other],
+        'extension-b',
+        'caller-a',
+        task.taskId,
+        true,
+        'tab-a'
+      ).session.sessionId
+    ).toBe('tab-a')
+    expect(() =>
+      resolveDesignTarget(
+        f.tasks,
+        [extension, other],
+        'extension-b',
+        'caller-a',
+        task.taskId,
+        true,
+        'tab-b'
+      )
+    ).toThrow('does not match this task')
     expect(() =>
       resolveDesignTarget(f.tasks, [other], 'extension-b', 'caller-a', task.taskId)
     ).toThrow('no other tab was selected')
     expect(() => resolveDesignTarget(f.tasks, [], null, 'caller-a')).toThrow(
       'Activate the intended file'
     )
+    expect(() =>
+      resolveDesignTarget(f.tasks, [extension], null, 'caller-a', undefined, true, 'missing')
+    ).toThrow('Call list_design_sessions for a current sessionId')
     extension.sessions!.sessions[0] = { ...session, fileKey: 'changed' }
     expect(() =>
       resolveDesignTarget(f.tasks, [extension], 'extension-a', 'caller-a', task.taskId)

@@ -131,21 +131,28 @@ function stubFigma({
     name: string
     components?: ComponentNode[]
     loaded?: boolean
+    visibleBeforeLoad?: number
   }>
   shaders?: Shader[]
 } = {}): void {
-  const pageNodes = (pages ?? [{ id: 'page:current', name: 'Current', components }]).map(
-    (page) =>
-      ({
-        id: page.id,
-        type: 'PAGE',
-        name: page.name,
-        findAllWithCriteria: vi.fn(() => {
-          if (page.loaded === false) throw new Error('Page is not loaded')
-          return page.components ?? []
-        })
-      }) as unknown as PageNode
-  )
+  const pageNodes = (pages ?? [{ id: 'page:current', name: 'Current', components }]).map((page) => {
+    let loaded = page.loaded !== false
+    return {
+      id: page.id,
+      type: 'PAGE',
+      name: page.name,
+      loadAsync: vi.fn(async () => {
+        loaded = true
+      }),
+      findAllWithCriteria: vi.fn(() => {
+        if (!loaded) {
+          if (page.visibleBeforeLoad === undefined) throw new Error('Page is not loaded')
+          return (page.components ?? []).slice(0, page.visibleBeforeLoad)
+        }
+        return page.components ?? []
+      })
+    } as unknown as PageNode
+  })
   const nodes = new Map<string, BaseNode>()
   for (const page of pageNodes) nodes.set(page.id, page)
   for (const component of (pages ?? [{ components }]).flatMap((page) => page.components ?? [])) {
@@ -631,7 +638,8 @@ describe('mcp/tools/design-system', () => {
     expect(result.components.map(({ name }) => name)).toEqual(['Button', 'Text field'])
     expect(result.components.map(({ page }) => page)).toEqual(['Screens', 'Components'])
     expect(result.warnings).toEqual([
-      'Component definitions were read from 2 accessible pages; 1 page was skipped rather than loaded.'
+      'Component definitions were read from 2 accessible pages; 1 page was skipped rather than loaded.',
+      'Component discovery on other pages may be incomplete; pass pageId to load and scan a page exactly.'
     ])
     expect(figma.root.children[0]!.findAllWithCriteria).toHaveBeenCalledWith({
       types: ['COMPONENT']
@@ -640,6 +648,127 @@ describe('mcp/tools/design-system', () => {
       types: ['COMPONENT']
     })
     expect(figma.loadAllPagesAsync).not.toHaveBeenCalled()
+  })
+
+  it('warns when an off-current page silently returns only some component definitions', async () => {
+    stubFigma({
+      pages: [
+        { id: 'page:current', name: 'Screens' },
+        {
+          id: 'page:system',
+          name: 'System',
+          components: [component('c:button', 'Button'), component('c:field', 'Field')],
+          loaded: false,
+          visibleBeforeLoad: 1
+        }
+      ]
+    })
+
+    const quick = await handleGetDesignSystem({})
+    expect(quick.components.map(({ name }) => name)).toEqual(['Button'])
+    expect(quick.warnings).toEqual([
+      'Component discovery on other pages may be incomplete; pass pageId to load and scan a page exactly.'
+    ])
+    expect(figma.root.children[1]!.loadAsync).not.toHaveBeenCalled()
+
+    const exact = await handleGetDesignSystem({ pageId: 'page:system' })
+    expect(exact.components.map(({ name }) => name)).toEqual(['Button', 'Field'])
+    expect(exact.warnings).toEqual([
+      'Component discovery was limited to page "page:system"; other pages were not scanned.'
+    ])
+    expect(figma.root.children[1]!.loadAsync).toHaveBeenCalledOnce()
+  })
+
+  it('does not present a current-page fallback as a complete page index', async () => {
+    stubFigma({ components: [component('c:button', 'Button')] })
+    Object.defineProperty(figma.root, 'children', {
+      get() {
+        throw new Error('Page list unavailable')
+      }
+    })
+
+    const quick = await handleGetDesignSystem({})
+    expect(quick.components.map(({ name }) => name)).toEqual(['Button'])
+    expect(quick.warnings).toEqual([
+      'Page list could not be read; component discovery was limited to the current page.'
+    ])
+    await expect(handleGetDesignSystem({ scope: 'pages' })).rejects.toThrow(
+      'Figma page list could not be read'
+    )
+    await expect(handleGetDesignSystem({ pageId: 'page:other' })).rejects.toThrow(
+      'Figma page list could not be read'
+    )
+    const current = await handleGetDesignSystem({ pageId: 'page:current' })
+    expect(current.components.map(({ name }) => name)).toEqual(['Button'])
+  })
+
+  it('lists page identities without scanning components or file resources', async () => {
+    stubFigma({
+      pages: Array.from({ length: 35 }, (_, index) => ({
+        id: `page:${index}`,
+        name: `Page ${index}`,
+        components: [component(`component:${index}`, `Component ${index}`)]
+      }))
+    })
+
+    const first = await handleGetDesignSystem({ scope: 'pages' })
+    const second = await handleGetDesignSystem({ scope: 'pages', cursor: first.nextCursor })
+
+    expect(first.pages).toHaveLength(32)
+    expect(first.pages[0]).toEqual({ id: 'page:0', name: 'Page 0', index: 0, active: true })
+    expect(first.nextCursor).toBe(32)
+    expect(second.pages.map((page) => page.id)).toEqual(['page:32', 'page:33', 'page:34'])
+    expect(second.nextCursor).toBeUndefined()
+    for (const page of figma.root.children) {
+      expect(page.findAllWithCriteria).not.toHaveBeenCalled()
+    }
+    expect(figma.getLocalPaintStylesAsync).not.toHaveBeenCalled()
+  })
+
+  it('scans only the explicitly requested component page while retaining file-wide resources', async () => {
+    stubFigma({
+      pages: [
+        { id: 'page:current', name: 'Screens', components: [component('c:screen', 'Screen')] },
+        { id: 'page:system', name: 'System', components: [component('c:button', 'Button')] }
+      ],
+      localStyles: [style('style:heading', 'Heading', 'TEXT')]
+    })
+
+    const result = await handleGetDesignSystem({ pageId: 'page:system' })
+
+    expect(result.components.map(({ name }) => name)).toEqual(['Button'])
+    expect(result.styles.map(({ name }) => name)).toEqual(['Heading'])
+    expect(result.warnings).toEqual([
+      'Component discovery was limited to page "page:system"; other pages were not scanned.'
+    ])
+    expect(figma.root.children[0]!.findAllWithCriteria).not.toHaveBeenCalled()
+    expect(figma.root.children[1]!.loadAsync).toHaveBeenCalledOnce()
+    expect(figma.root.children[1]!.findAllWithCriteria).toHaveBeenCalledWith({
+      types: ['COMPONENT']
+    })
+    await expect(handleGetDesignSystem({ pageId: 'page:missing' })).rejects.toThrow(
+      'Page "page:missing" does not exist'
+    )
+  })
+
+  it('loads an explicitly requested component page even when it was unavailable', async () => {
+    stubFigma({
+      pages: [
+        { id: 'page:current', name: 'Screens' },
+        {
+          id: 'page:system',
+          name: 'System',
+          components: [component('c:button', 'Button')],
+          loaded: false
+        }
+      ]
+    })
+
+    const result = await handleGetDesignSystem({ pageId: 'page:system' })
+
+    expect(result.components.map(({ name }) => name)).toEqual(['Button'])
+    expect(figma.root.children[1]!.loadAsync).toHaveBeenCalledOnce()
+    expect(figma.root.children[0]!.findAllWithCriteria).not.toHaveBeenCalled()
   })
 
   it('reports truncated component props and options', async () => {
@@ -689,6 +818,24 @@ describe('mcp/tools/design-system', () => {
     expect(figma.currentPage.findAllWithCriteria).toHaveBeenCalledOnce()
   })
 
+  it('keeps concurrent full and page-scoped catalogs separate', async () => {
+    stubFigma({
+      pages: [
+        { id: 'page:current', name: 'Screens', components: [component('c:screen', 'Screen')] },
+        { id: 'page:system', name: 'System', components: [component('c:button', 'Button')] }
+      ]
+    })
+
+    const [full, scoped] = await Promise.all([
+      handleGetDesignSystem({}),
+      handleGetDesignSystem({ pageId: 'page:system' })
+    ])
+
+    expect(full.components.map(({ name }) => name)).toEqual(['Button', 'Screen'])
+    expect(scoped.components.map(({ name }) => name)).toEqual(['Button'])
+    expect(scoped.catalogId).not.toBe(full.catalogId)
+  })
+
   it('paginates a balanced catalog within the byte budget', async () => {
     const components = Array.from({ length: 200 }, (_, index) =>
       component(`component:${index}`, `Card ${index}`, {
@@ -725,7 +872,8 @@ describe('mcp/tools/design-system', () => {
     expect(result.omitted?.components).toBeGreaterThan(0)
     expect(result.nextCursor).toBeGreaterThan(0)
     const warnings = [
-      'Component definitions were read from 1 accessible page; 1 page was skipped rather than loaded.'
+      'Component definitions were read from 1 accessible page; 1 page was skipped rather than loaded.',
+      'Component discovery on other pages may be incomplete; pass pageId to load and scan a page exactly.'
     ]
     expect(result.warnings).toEqual(warnings)
 
@@ -753,6 +901,86 @@ describe('mcp/tools/design-system', () => {
     expect(result.variables).toEqual([])
     expect(result.collections).toEqual([])
     expect(result.styles).toEqual([])
+  })
+
+  it('keeps Unicode page boundaries, omitted counts, and warnings across cursors', async () => {
+    stubFigma()
+    const entries = Array.from({ length: 12 }, (_, index) => ({
+      kind: 'shader' as const,
+      ref: `h${index}`,
+      id: `shader:${index}`,
+      name: `${index}:${'界🙂"\\\n'.repeat(300)}`,
+      shaderType: 'fill' as const,
+      definition: {}
+    }))
+    const warnings = ['资源来自可访问的页面。']
+    const catalog = registerDesignSystemCatalog(entries, undefined, undefined, warnings)
+    for (const cursor of [0, 4, 8]) {
+      const result = await handleGetDesignSystem({ catalogId: catalog.id, cursor })
+      expect(result).toEqual({
+        catalogId: catalog.id,
+        components: [],
+        variables: [],
+        collections: [],
+        styles: [],
+        shaders: entries.slice(cursor, cursor + 4).map(({ ref, name, shaderType }) => ({
+          ref,
+          name,
+          type: shaderType
+        })),
+        ...(cursor === 8 ? {} : { nextCursor: cursor + 4, omitted: { shaders: 8 - cursor } }),
+        warnings
+      })
+      expect(new TextEncoder().encode(JSON.stringify(result)).length).toBeLessThanOrEqual(16 * 1024)
+    }
+  })
+
+  it('keeps an oversized first catalog entry reachable and continues after it', async () => {
+    stubFigma()
+    const catalog = registerDesignSystemCatalog([
+      {
+        kind: 'shader',
+        ref: 'h1',
+        id: 's1',
+        name: '界'.repeat(6000),
+        shaderType: 'fill',
+        definition: {}
+      },
+      { kind: 'shader', ref: 'h2', id: 's2', name: 'Small', shaderType: 'effect', definition: {} }
+    ])
+    const first = await handleGetDesignSystem({ catalogId: catalog.id, cursor: 0 })
+    expect(first.shaders?.map(({ ref }) => ref)).toEqual(['h1'])
+    expect(first.nextCursor).toBe(1)
+    expect(first.omitted).toEqual({ shaders: 1 })
+    const last = await handleGetDesignSystem({ catalogId: catalog.id, cursor: 1 })
+    expect(last.shaders).toEqual([{ ref: 'h2', name: 'Small', type: 'effect' }])
+    expect(last.nextCursor).toBeUndefined()
+    expect(last.omitted).toBeUndefined()
+  })
+
+  it('compacts each considered definition once without reading omitted definition names', async () => {
+    stubFigma()
+    const catalog = registerDesignSystemCatalog(
+      Array.from({ length: 1000 }, (_, index) => ({
+        kind: 'shader' as const,
+        ref: `h${index}`,
+        id: `shader:${index}`,
+        name: `${index}:${'x'.repeat(1000)}`,
+        shaderType: 'fill' as const,
+        definition: {}
+      }))
+    )
+    const reads = [...catalog.entries.values()].map((entry) => {
+      const name = entry.name
+      const read = vi.fn(() => name)
+      Object.defineProperty(entry, 'name', { get: read })
+      return read
+    })
+    const result = await handleGetDesignSystem({ catalogId: catalog.id, cursor: 0 })
+    const selected = result.shaders!.length
+    expect(result.omitted).toEqual({ shaders: 1000 - selected })
+    for (const read of reads.slice(0, selected + 1)) expect(read).toHaveBeenCalledOnce()
+    for (const read of reads.slice(selected + 1)) expect(read).not.toHaveBeenCalled()
   })
 
   it('tolerates missing optional descriptions from the Figma runtime', async () => {

@@ -93,10 +93,19 @@ import { startExtensionWebSocketServer } from './websocket-server'
 
 const SHUTDOWN_TIMEOUT = 2000
 const SOCKET_PROBE_TIMEOUT_MS = 300
+const EXACT_SESSION_READ_TOOLS = new Set<ToolName>([
+  'get_code',
+  'get_structure',
+  'get_screenshot',
+  'get_design_system',
+  'get_token_defs'
+])
 const {
   wsPortCandidates,
   toolTimeoutMs,
   getCodeTimeoutMs,
+  getDesignSystemTimeoutMs,
+  pageStructureTimeoutMs,
   applyCanvasTimeoutMs,
   maxPayloadBytes,
   maxAssetSizeBytes,
@@ -617,16 +626,33 @@ function registerProxiedTool<T extends ExtensionTool>(
     try {
       const parsed = schema.parse(args)
       const { taskId, taskEpoch, ...parsedArgs } = parsed
+      const readSessionId = EXACT_SESSION_READ_TOOLS.has(tool.name)
+        ? getRecordProperty(parsedArgs, 'sessionId')
+        : undefined
+      const explicitSessionId = typeof readSessionId === 'string' ? readSessionId : undefined
+      if (explicitSessionId) delete (parsedArgs as Record<string, unknown>).sessionId
       if (taskId) designTasks.assertEpoch(taskId, ownerId, taskEpoch)
-      const timeoutMs =
-        tool.name === 'get_code'
-          ? getCodeTimeoutMs
-          : tool.name === 'apply_canvas'
-            ? applyCanvasTimeoutMs
-            : toolTimeoutMs
+      let timeoutMs = toolTimeoutMs
+      if (tool.name === 'get_code') {
+        timeoutMs = getCodeTimeoutMs
+      } else if (
+        tool.name === 'get_design_system' &&
+        getRecordProperty(parsedArgs, 'scope') !== 'fonts' &&
+        getRecordProperty(parsedArgs, 'scope') !== 'pages' &&
+        !getRecordProperty(parsedArgs, 'catalogId')
+      ) {
+        timeoutMs = getDesignSystemTimeoutMs
+      } else if (
+        tool.name === 'get_structure' &&
+        (getRecordProperty(parsedArgs, 'pageId') || getRecordProperty(parsedArgs, 'pageKey'))
+      ) {
+        timeoutMs = pageStructureTimeoutMs
+      } else if (tool.name === 'apply_canvas') {
+        timeoutMs = applyCanvasTimeoutMs
+      }
       // Task-bound calls must always resolve their original target. Legacy reads are
       // available only when that unversioned connection is explicitly the active route.
-      const legacy = !taskId ? extensionRegistry.getActive() : undefined
+      const legacy = !taskId && !explicitSessionId ? extensionRegistry.getActive() : undefined
       if (legacy?.legacy) {
         const payload = legacyToolPayload(tool.name, parsed)
         const registration = register<Result>(legacy.id, timeoutMs)
@@ -638,7 +664,12 @@ function registerProxiedTool<T extends ExtensionTool>(
         }
         return createToolResponse(tool.name, await registration.promise)
       }
-      const { extension: activeExt, session } = resolveDesignRoute(ownerId, taskId)
+      const { extension: activeExt, session } = resolveDesignRoute(
+        ownerId,
+        taskId,
+        true,
+        explicitSessionId
+      )
       const runtimeIssues = getExtensionRuntimeIssues(activeExt.runtime)
       if (runtimeIssues.length) {
         throw createCodedError(
@@ -794,14 +825,15 @@ function registerLocalTool(mcp: McpServer, tool: HubOnlyTool, ownerId: string): 
 function createToolResponse<Name extends ToolName>(
   toolName: Name,
   payload: ToolResultMap[Name],
-  runtime?: AuthoringRuntimeEvidence
+  runtime?: AuthoringRuntimeEvidence,
+  includeLocalAssetPaths = true
 ): ToolResponse {
   const enrichedPayload = (() => {
-    if (toolName === 'get_screenshot') {
+    if (toolName === 'get_screenshot' && includeLocalAssetPaths) {
       const screenshot = payload as ToolResultMap['get_screenshot']
       return { ...screenshot, asset: addLocalAssetPath(screenshot.asset) }
     }
-    if (toolName === 'get_code') {
+    if (toolName === 'get_code' && includeLocalAssetPaths) {
       const code = payload as ToolResultMap['get_code']
       return code.assets
         ? { ...code, assets: code.assets.map((asset) => addLocalAssetPath(asset)) }
@@ -830,6 +862,9 @@ function createToolResponse<Name extends ToolName>(
 
   const resultBytes = measureCallToolResultBytes(rawResult)
   if (resultBytes > MCP_TOOL_INLINE_BUDGET_BYTES) {
+    if (includeLocalAssetPaths && (toolName === 'get_code' || toolName === 'get_screenshot')) {
+      return createToolResponse(toolName, payload, runtime, false)
+    }
     log.warn(
       { tool: toolName, resultBytes, inlineBudgetBytes: MCP_TOOL_INLINE_BUDGET_BYTES },
       'Tool result exceeded inline budget; returning compact error response.'

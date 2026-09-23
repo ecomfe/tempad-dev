@@ -462,7 +462,8 @@ describe('tools response helpers', () => {
     expect(textContent(connectivityError.content[0])).toContain(
       'Enabled permits connection; it does not prove that an extension is active'
     )
-    expect(textContent(connectivityError.content[0])).toContain('panel header MCP badge is active')
+    expect(textContent(connectivityError.content[0])).toContain('Badge-default reads')
+    expect(textContent(connectivityError.content[0])).toContain('Exact sessionId reads')
     expect(textContent(connectivityError.content[0])).toContain('reports a protocol mismatch')
     expect(textContent(connectivityError.content[0])).toContain(
       'reload the installed TemPad Dev browser extension'

@@ -110,7 +110,7 @@ For the canvas-authoring release, use extension **0.21.0**, MCP server **0.8.0**
 Plugin **0.2.0** together. See the [upgrade guide](./agent-plugin/src/README.md#upgrading)
 when updating an existing installation.
 
-Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context.
+Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context. An agent can also list connected sessions and pass an exact `sessionId` to an independent read without changing the active badge.
 
 ### MCP connection status
 

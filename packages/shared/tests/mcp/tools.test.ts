@@ -2428,6 +2428,7 @@ describe('mcp/tools parameter schemas', () => {
     expect(GetCodeParametersSchema.safeParse({}).success).toBe(true)
     expect(
       GetCodeParametersSchema.safeParse({
+        sessionId: 'tab-a',
         nodeId: '123:456',
         preferredLang: 'vue',
         resolveTokens: true,
@@ -2444,11 +2445,13 @@ describe('mcp/tools parameter schemas', () => {
         vectorMode: 'fidelity'
       }).success
     ).toBe(false)
+    expect(GetCodeParametersSchema.safeParse({ sessionId: '' }).success).toBe(false)
   })
 
   it('enforces token name canonical format and non-empty names list', () => {
     expect(
       GetTokenDefsParametersSchema.safeParse({
+        sessionId: 'tab-a',
         names: ['--color-primary', '--spacing-2'],
         includeAllModes: false
       }).success
@@ -2470,10 +2473,13 @@ describe('mcp/tools parameter schemas', () => {
 
   it('accepts empty screenshot params and optional structure depth', () => {
     expect(GetScreenshotParametersSchema.safeParse({}).success).toBe(true)
-    expect(GetScreenshotParametersSchema.safeParse({ nodeId: '9:99' }).success).toBe(true)
+    expect(
+      GetScreenshotParametersSchema.safeParse({ sessionId: 'tab-a', nodeId: '9:99' }).success
+    ).toBe(true)
 
     expect(
       GetStructureParametersSchema.safeParse({
+        sessionId: 'tab-a',
         nodeId: '1:2',
         options: { depth: 2, native: true }
       }).success

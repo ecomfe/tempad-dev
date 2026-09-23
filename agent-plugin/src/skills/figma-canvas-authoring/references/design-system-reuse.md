@@ -5,8 +5,11 @@ a design system, use Direct.
 
 ## Discover definitions
 
-Call `get_design_system` without arguments. Its immutable deterministic catalog
-contains:
+For a small file, call `get_design_system` without arguments. For a large file
+or a known component library on another page, call it with `scope: "pages"` to
+find the relevant component page, then with that `pageId` for an exact scan.
+Variables, styles, and shaders remain file-wide. The resulting immutable
+deterministic catalog contains:
 
 - a `catalogId` scoping all short refs;
 - component tags, props, source pages, and native sizes;
@@ -15,9 +18,11 @@ contains:
 - `cssName` on variables and `className` on text styles for direct use in markup;
 - `omitted` and `nextCursor` when more definitions remain.
 
-The catalog neither scans usage nor loads pages or ranks resources. Select from
-returned names, pages, summaries, props, types, scopes, and defaults. Continue a
-cursor or inspect an exact ref only until evidence is sufficient.
+The catalog neither scans usage nor ranks resources. Unscoped discovery does
+not load other pages, so a missing component there is inconclusive even if the
+query succeeds. A `pageId` call loads that page. Select from returned names,
+pages, summaries, props, types, scopes, and defaults. Continue a cursor or
+inspect an exact ref only until evidence is sufficient.
 
 Prefer, in order: catalog component, supported component prop, matching native
 style, semantic variable, then primitive or literal for a real gap.
@@ -53,7 +58,8 @@ catalog:
 }
 ```
 
-If a mandatory component is absent, ask the user to open its definition page;
-otherwise use the normal primitive fallback. An empty canvas does not block
-catalog reuse. When reuse is unavailable, create a small coherent primitive
-draft—never a token or component library solely for one screen.
+If a mandatory component is absent from unscoped discovery, use `scope: "pages"`
+and scan its likely definition page by `pageId` before choosing a primitive
+fallback. An empty canvas does not block catalog reuse. When reuse is
+unavailable, create a small coherent primitive draft—never a token or
+component library solely for one screen.

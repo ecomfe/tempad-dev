@@ -26,6 +26,8 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
   组件定义，以及本地或被定义直接引用的变量、集合/模式、样式和 shader 定义，不扫描画布
   中的使用情况。游标可继续读取遗漏定义；使用同一目录精确查询某个引用时，返回该资源的
   有界定义。使用 `scope: "fonts"` 可查询当前可用字体家族和精确原生样式，不读取文件资源。
+  `scope: "pages"` 无需扫描组件即可列出页面 ID；资源读取传入 `pageId` 时只扫描该页组件，
+  变量、样式和 shader 定义仍按文件范围读取。
 - `begin_design`、`resume_design`、`set_design_anchor`、`end_design`：将画布写入绑定到设计任务，
   恢复暂停的任务、设置状态栏锚点，以及结束或取消任务。Stop 会永久禁止旧任务写入，重新连接也不会恢复。
   兼容 Codex App 的原生评论支持 Queue 和 Steer；确认接收后清空已提交草稿，无需等待执行完成。
@@ -62,6 +64,8 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 
 - `TEMPAD_MCP_TOOL_TIMEOUT`：常规工具调用超时时间（毫秒，默认 `15000`）。
 - `TEMPAD_MCP_GET_CODE_TIMEOUT`：`get_code` 超时时间（毫秒，默认 `30000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。
+- `TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT`：`get_design_system` 首次资源目录发现的超时时间（毫秒，默认 `45000`；续页、精确引用、字体和页面列表读取仍使用常规超时）。设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值。
+- `TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT`：指定页面 ID 或 key 的 `get_structure` 超时时间（毫秒，默认 `45000`；冷页面可能需要先加载，节点和当前选择的读取仍使用常规超时）。设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值。
 - `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`：`apply_canvas` 慢调用告警阈值（毫秒，默认 `120000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。超过阈值后，Hub 会继续等待明确结果或扩展断开，避免把已经完成的画布变更误报为超时。
 - `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`：仅一个扩展连接时自动激活前的延迟（默认 `1500`）。
 - `TEMPAD_MCP_MAX_ASSET_BYTES`：截图/资源捕获的最大上传体积（字节，默认 `8388608`）。

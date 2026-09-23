@@ -27,6 +27,8 @@ export const MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES = 2 * 1024
 export const MCP_TOOL_TIMEOUT_MS = 15000
 // Default timeout for get_code, whose bounded asset and codegen work can exceed the general limit.
 export const MCP_GET_CODE_TIMEOUT_MS = 30000
+// Default timeout for initial design-system discovery, which may scan cold Figma pages.
+export const MCP_GET_DESIGN_SYSTEM_TIMEOUT_MS = 45000
 // Default timeout for apply_canvas, which may import remote media before mutating the document.
 export const MCP_APPLY_CANVAS_TIMEOUT_MS = 120000
 

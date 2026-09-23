@@ -64,6 +64,12 @@ export function buildGetCodeToolResult(payload: GetCodeResult): ToolResponseLike
 }
 
 export function buildGetDesignSystemToolResult(payload: GetDesignSystemResult): ToolResponseLike {
+  if ('scope' in payload && payload.scope === 'pages') {
+    return buildTextToolResult(
+      `Returned ${formatCount(payload.pages.length, 'Figma page')}.${payload.nextCursor === undefined ? '' : ` Continue the page list with cursor ${payload.nextCursor}.`} Use an exact pageId to limit component discovery when only that page is relevant.`,
+      payload
+    )
+  }
   if ('scope' in payload) {
     return buildTextToolResult(
       `Returned ${payload.fonts?.length ?? payload.families?.length ?? 0} available font ${payload.fonts ? 'faces' : 'families'}.${payload.nextCursor === undefined ? '' : ` Continue with the same font filters and cursor ${payload.nextCursor}.`} Availability does not establish glyph coverage; verify rendered text.`,

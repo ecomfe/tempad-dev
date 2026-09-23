@@ -22,6 +22,9 @@ This document records the current context-control strategy for TemPad Dev MCP ou
    - Unscoped read tools resolve `figma.currentPage.selection` at invocation time rather than a
      reactive UI cache, so navigating to another page cannot silently reuse the previous page's
      selection.
+   - Independent read tools may pass an exact `sessionId` returned by `list_design_sessions` to
+     target a connected Figma tab without changing the active badge. Omitting it preserves the
+     existing badge-selected default; a task-bound read cannot override its task's session.
 2. `get_code` keeps existing API but uses a shared inline budget guard.
    - Budget is computed on the final `CallToolResult` UTF-8 bytes (`64 KiB` default).
    - If over budget, prefer a shell response that preserves the current node wrapper and omits direct children.
@@ -34,13 +37,20 @@ This document records the current context-control strategy for TemPad Dev MCP ou
      the response cannot fit, avoiding descendant variables, plugins, collection, assets, and full
      rendering. Other overflow causes still reuse full-tree context for correctness.
    - Only fail fast when a usable shell cannot be generated.
+   - Hub-added local asset paths are optional; if they alone would exceed the final inline budget,
+     the Hub returns the code and its asset URLs without those paths.
 3. `get_structure` keeps the same call shape and compacts output by default.
-   - Limit total nodes.
+   - Bound outline construction to the prefix needed for the node limit and truncation signal;
+     automatic depth selection also stops counting once it can determine the cap.
    - Normalize/trim long names.
    - Round geometry values.
    - Include `authoringKey` only on TemPad-managed nodes, allowing later sessions to resume updates
      without retaining an earlier apply response.
-   - Iteratively reduce node cap until the formatted result enters the shared inline budget.
+   - Iteratively reduce node cap until the formatted result, including exact page context when
+     supplied, enters the shared inline budget.
+   - The byte check can select fewer nodes than the initial bounded candidate. Construction is
+     bounded, but may include nodes omitted by byte-budget fallback. Preserve the existing cap
+     steps and exact formatted-byte check when changing this path.
 4. `get_screenshot` is visible but selective.
    - It returns one bounded PNG through an MCP `resource_link` to the existing capability URL.
    - When the local Hub owns the bytes, the descriptor also exposes the same ephemeral file through
@@ -60,7 +70,11 @@ This document records the current context-control strategy for TemPad Dev MCP ou
    - It reads definitions only and performs no canvas-usage, text, semantic, or relevance retrieval.
    - Components, variables, and styles are interleaved before advanced collections and shaders.
    - Component discovery uses optimized type-filtered queries on already-accessible pages and never
-     loads a page; variables, styles, and shaders use their file-level definition APIs.
+     loads a page by default; variables, styles, and shaders use their file-level definition APIs.
+     Optional `scope: "pages"` lists page IDs without a component scan, and a `pageId` discovery
+     loads and scans only that explicitly selected page. Page listing fails explicitly if the page
+     index is unavailable. Default discovery warns when it can inspect only the current page, or
+     when other-page component scans may be incomplete even if a query succeeds without loading.
    - Omitted counts and a cursor expose the remaining immutable catalog without another read.
    - Variable `cssName` and TEXT-style `className` aliases refer to exact catalog identities;
      collisions are disambiguated, never matched by equal values or first occurrence.

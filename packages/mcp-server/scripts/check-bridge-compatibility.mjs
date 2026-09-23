@@ -2,8 +2,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import {
   MessageToExtensionSchema,
+  MCP_TOOL_INLINE_BUDGET_BYTES,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
-  TEMPAD_MCP_BRIDGE_SUBPROTOCOL
+  TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+  buildGetCodeToolResult,
+  measureCallToolResultBytes
 } from '@tempad-dev/shared'
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
@@ -31,6 +34,7 @@ const origin = 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const directory = await mkdtemp(join(tmpdir(), 'tempad-bridge-'))
 const peers = []
 const failures = []
+const metricSamples = []
 const environment = {
   PATH: process.env.PATH,
   HOME: process.env.HOME,
@@ -39,6 +43,8 @@ const environment = {
   TEMPAD_MCP_ASSET_DIR: join(directory, 'assets'),
   TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS: origin,
   TEMPAD_MCP_TOOL_TIMEOUT: '1000',
+  TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT: '2000',
+  TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT: '2000',
   TEMPAD_MCP_AUTO_ACTIVATE_GRACE: '10'
 }
 const hub = spawn(process.execPath, [fileURLToPath(new URL('../dist/hub.mjs', import.meta.url))], {
@@ -121,6 +127,18 @@ async function activate(peer) {
 }
 const call = (name, args = {}) =>
   client.callTool({ name, arguments: args }, undefined, { timeout: 5000 })
+function recordBridgeMetric(label, peer, payload, result) {
+  if (process.env.TEMPAD_MCP_BRIDGE_METRICS !== '1') return
+  const request = peer.calls.at(-1)
+  metricSamples.push({
+    label,
+    hubToExtensionBytes: Buffer.byteLength(JSON.stringify(request)),
+    extensionToHubBytes: Buffer.byteLength(
+      JSON.stringify({ type: 'toolResult', id: request.id, payload })
+    ),
+    mcpResultBytes: measureCallToolResultBytes(result)
+  })
+}
 function upgrade(result) {
   assert.equal(result.isError, true)
   assert.match(JSON.stringify(result), /EXTENSION_UPGRADE_REQUIRED/)
@@ -180,11 +198,50 @@ try {
   assert.deepEqual(old.calls.at(-1).payload.args, codeArgs)
   assert.deepEqual(await readFile(code.structuredContent.assets[0].localPath), bytes)
   assert.deepEqual(Buffer.from(await (await globalThis.fetch(asset.url)).arrayBuffer()), bytes)
-  assert.deepEqual(
-    (await call('get_structure', { options: { depth: 2 } })).structuredContent,
-    structure
+  recordBridgeMetric('legacy_get_code', old, codeResult(asset), code)
+  const nearBudgetCode = codeResult(asset)
+  let low = 0
+  let high = MCP_TOOL_INLINE_BUDGET_BYTES
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2)
+    const size = measureCallToolResultBytes(
+      buildGetCodeToolResult({ ...nearBudgetCode, code: 'x'.repeat(middle) })
+    )
+    if (size <= MCP_TOOL_INLINE_BUDGET_BYTES) low = middle
+    else high = middle - 1
+  }
+  nearBudgetCode.code = 'x'.repeat(low)
+  assert.ok(
+    measureCallToolResultBytes(
+      buildGetCodeToolResult({
+        ...nearBudgetCode,
+        assets: [{ ...asset, localPath: code.structuredContent.assets[0].localPath }]
+      })
+    ) > MCP_TOOL_INLINE_BUDGET_BYTES
   )
-  assert.equal((await call('get_screenshot')).structuredContent.asset.hash, hash)
+  old.respond = (message) => (message.payload.name === 'get_code' ? nearBudgetCode : structure)
+  const nearBudgetResult = await call('get_code', codeArgs)
+  assert.equal(nearBudgetResult.isError, undefined)
+  assert.equal(nearBudgetResult.structuredContent.code, nearBudgetCode.code)
+  assert.equal(nearBudgetResult.structuredContent.assets[0].localPath, undefined)
+  recordBridgeMetric('legacy_get_code_budget_fallback', old, nearBudgetCode, nearBudgetResult)
+  old.respond = (message) => {
+    if (message.payload.name === 'get_code') return codeResult(asset)
+    if (message.payload.name === 'get_screenshot')
+      return { format: 'png', width: 1, height: 1, scale: 1, bytes: bytes.length, asset }
+    return structure
+  }
+  const legacyStructure = await call('get_structure', { options: { depth: 2 } })
+  assert.deepEqual(legacyStructure.structuredContent, structure)
+  recordBridgeMetric('legacy_get_structure', old, structure, legacyStructure)
+  const legacyScreenshot = await call('get_screenshot')
+  assert.equal(legacyScreenshot.structuredContent.asset.hash, hash)
+  recordBridgeMetric(
+    'legacy_get_screenshot',
+    old,
+    { format: 'png', width: 1, height: 1, scale: 1, bytes: bytes.length, asset },
+    legacyScreenshot
+  )
   const count = old.calls.length
   for (const [name, args] of [
     ['get_structure', { pageId: 'page-a' }],
@@ -224,22 +281,131 @@ try {
   // Wait on an echoed state so all preceding frames have been processed.
   modern.activeId = null
   await activate(modern)
+  const modernCodePayload = codeResult({
+    ...asset,
+    url: `${modern.assetServerUrl}/assets/${hash}`
+  })
   modern.respond = (message) => {
     assert.equal(message.route.gatewayId, modern.id)
     assert.equal(message.route.sessionId, session.sessionId)
     assert.equal(message.route.fileKey, session.fileKey)
-    return message.payload.name === '__begin_design' ? message.payload.args : structure
+    if (message.payload.name === '__begin_design') return message.payload.args
+    return message.payload.name === 'get_code' ? modernCodePayload : structure
   }
-  assert.deepEqual((await call('get_structure')).structuredContent, structure)
-  const begin = await call('begin_design', { title: 'Current task', requestId: randomUUID() })
+  const currentStructure = await call('get_structure')
+  assert.deepEqual(currentStructure.structuredContent, structure)
+  recordBridgeMetric('current_get_structure', modern, structure, currentStructure)
+  const immediateResponse = modern.respond
+  let delayedStructureResponse = Promise.resolve()
+  modern.respond = (message) => {
+    if (message.payload.name !== 'get_structure') return immediateResponse(message)
+    delayedStructureResponse = delay(1500).then(() => {
+      send(modern, { type: 'toolResult', id: message.id, payload: structure })
+    })
+    return undefined
+  }
+  for (const args of [{ pageId: 'page-a' }, { pageKey: 'page-a' }]) {
+    const coldPageStructure = await call('get_structure', args)
+    assert.deepEqual(coldPageStructure.structuredContent, structure)
+  }
+  const slowSelectionStructure = await call('get_structure')
+  assert.equal(slowSelectionStructure.isError, true)
+  assert.match(JSON.stringify(slowSelectionStructure), /EXTENSION_TIMEOUT/)
+  await delayedStructureResponse
+  // The late result releases the operation fence before another call can use the file.
+  modern.activeId = null
+  await activate(modern)
+  modern.respond = immediateResponse
+  const currentCode = await call('get_code', codeArgs)
+  assert.equal(currentCode.isError, undefined, JSON.stringify(currentCode))
+  assert.equal(currentCode.structuredContent.code, modernCodePayload.code)
+  recordBridgeMetric('current_get_code', modern, modernCodePayload, currentCode)
+  send(modern, {
+    type: 'sessions',
+    browserId: 'browser-a',
+    activeSessionId: null,
+    sessions: [session]
+  })
+  await until(async () => {
+    const inactive = await call('get_code')
+    return inactive.isError && JSON.stringify(inactive).includes('NO_ACTIVE_EXTENSION')
+  }, 'inactive default Figma session')
+  await activate(old)
+  const exactCode = await call('get_code', { ...codeArgs, sessionId: session.sessionId })
+  assert.equal(exactCode.structuredContent.code, modernCodePayload.code)
+  assert.deepEqual(modern.calls.at(-1).payload.args, codeArgs)
+  recordBridgeMetric('exact_session_get_code', modern, modernCodePayload, exactCode)
+  assert.equal(old.calls.length, count, 'exact session reads must bypass the active legacy peer')
+  const exactStructure = await call('get_structure', { sessionId: session.sessionId })
+  assert.deepEqual(exactStructure.structuredContent, structure)
+  assert.deepEqual(modern.calls.at(-1).payload.args, {})
+  recordBridgeMetric('exact_session_get_structure', modern, structure, exactStructure)
+  const designSystem = {
+    catalogId: 'ds_slow-discovery',
+    components: [],
+    variables: [],
+    collections: [],
+    styles: []
+  }
+  const regularResponse = modern.respond
+  const pageIndex = {
+    scope: 'pages',
+    pages: [{ id: '4:216', name: 'Local components', index: 0, active: false }]
+  }
+  modern.respond = (message) => {
+    if (message.payload.name !== 'get_design_system') return regularResponse(message)
+    return message.payload.args.scope === 'pages' ? pageIndex : designSystem
+  }
+  const pages = await call('get_design_system', {
+    scope: 'pages',
+    sessionId: session.sessionId
+  })
+  assert.deepEqual(pages.structuredContent, pageIndex)
+  assert.deepEqual(modern.calls.at(-1).payload.args, { scope: 'pages' })
+  recordBridgeMetric('exact_session_page_index', modern, pageIndex, pages)
+  const scopedResources = await call('get_design_system', {
+    pageId: '4:216',
+    sessionId: session.sessionId
+  })
+  assert.deepEqual(scopedResources.structuredContent, designSystem)
+  assert.deepEqual(modern.calls.at(-1).payload.args, { pageId: '4:216' })
+  recordBridgeMetric('exact_session_scoped_resources', modern, designSystem, scopedResources)
+  modern.respond = (message) => {
+    if (message.payload.name !== 'get_design_system') return regularResponse(message)
+    setTimeout(() => {
+      send(modern, { type: 'toolResult', id: message.id, payload: designSystem })
+    }, 1500)
+    return undefined
+  }
+  const slowDesignSystem = await call('get_design_system', { sessionId: session.sessionId })
+  assert.deepEqual(slowDesignSystem.structuredContent, designSystem)
+  modern.respond = regularResponse
+  assert.match(
+    JSON.stringify(await call('get_code', { sessionId: 'missing-session' })),
+    /NO_ACTIVE_EXTENSION/
+  )
+  const begin = await call('begin_design', {
+    title: 'Current task',
+    requestId: randomUUID(),
+    sessionId: session.sessionId
+  })
   const task = begin.structuredContent
   assert.ok(task.taskId, JSON.stringify(begin))
-  await activate(old)
-  assert.deepEqual(
-    (await call('get_structure', { taskId: task.taskId })).structuredContent,
-    structure
-  )
+  const taskStructure = await call('get_structure', { taskId: task.taskId })
+  assert.deepEqual(taskStructure.structuredContent, structure)
+  recordBridgeMetric('task_get_structure', modern, structure, taskStructure)
+  const taskCode = await call('get_code', { ...codeArgs, taskId: task.taskId })
+  assert.equal(taskCode.structuredContent.code, modernCodePayload.code)
+  recordBridgeMetric('task_get_code', modern, modernCodePayload, taskCode)
   assert.equal(modern.calls.at(-1).route.taskId, task.taskId)
+  const routedCount = modern.calls.length
+  assert.match(
+    JSON.stringify(
+      await call('get_code', { ...codeArgs, taskId: task.taskId, sessionId: 'missing-session' })
+    ),
+    /DESIGN_TARGET_CHANGED/
+  )
+  assert.equal(modern.calls.length, routedCount, 'conflicting task/session must not dispatch')
   assert.equal(old.calls.length, count, 'task-bound reads must not follow legacy activation')
 
   // A disconnect fails in-flight old reads, and a replacement gets a new identity.
@@ -264,6 +430,9 @@ try {
     'disconnected tasks cannot fall back to legacy'
   )
   assert.deepEqual(failures, [])
+  if (metricSamples.length) {
+    process.stdout.write(`Bridge byte samples: ${JSON.stringify(metricSamples)}\n`)
+  }
   process.stdout.write(
     'Bridge compatibility passed: legacy reads/assets/reconnect, upgrade errors, current routing and task fences.\n'
   )

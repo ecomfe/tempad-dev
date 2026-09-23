@@ -9,10 +9,12 @@ import {
 
 describe('design-resource and environment-font contracts', () => {
   it.each([
-    { scope: 'fonts' },
+    { scope: 'fonts', sessionId: 'tab-a' },
     { scope: 'fonts', query: 'Noto', cursor: 32 },
     { scope: 'fonts', families: ['Noto Sans SC', 'Inter'] },
+    { scope: 'pages', cursor: 32 },
     { scope: 'resources' },
+    { scope: 'resources', pageId: '4:216' },
     { catalogId: 'ds_1', cursor: 0 }
   ])('accepts scoped resource/font requests: %j', (input) => {
     expect(GetDesignSystemParametersSchema.safeParse(input).success).toBe(true)
@@ -27,7 +29,12 @@ describe('design-resource and environment-font contracts', () => {
     { cursor: 0 },
     { families: ['Inter'] },
     { scope: 'fonts', families: [] },
-    { scope: 'fonts', families: Array.from({ length: 9 }, () => 'Inter') }
+    { scope: 'fonts', sessionId: '' },
+    { scope: 'fonts', families: Array.from({ length: 9 }, () => 'Inter') },
+    { scope: 'pages', pageId: '4:216' },
+    { scope: 'pages', catalogId: 'ds_1', cursor: 0 },
+    { scope: 'fonts', pageId: '4:216' },
+    { catalogId: 'ds_1', cursor: 0, pageId: '4:216' }
   ])('rejects mixed query domains: %j', (input) => {
     expect(GetDesignSystemParametersSchema.safeParse(input).success).toBe(false)
   })
@@ -84,5 +91,17 @@ describe('design-resource and environment-font contracts', () => {
         fonts: [{ family: 'Inter', style: 'Regular' }]
       }).content?.[0]?.text
     ).toContain('1 available font faces')
+  })
+
+  it('formats a lightweight page index without treating it as a resource catalog', () => {
+    const pages = {
+      scope: 'pages' as const,
+      pages: [{ id: '4:216', name: 'Local components', index: 2, active: false }],
+      nextCursor: 32
+    }
+    expect(GetDesignSystemResultSchema.safeParse(pages).success).toBe(true)
+    expect(buildGetDesignSystemToolResult(pages).content?.[0]?.text).toContain(
+      'Continue the page list with cursor 32'
+    )
   })
 })

@@ -129,8 +129,8 @@ const KNOWN_ERROR_CODES = new Set<string>(Object.values(TEMPAD_MCP_ERROR_CODES))
 const CONNECTIVITY_TROUBLESHOOTING_LINES = [
   'Troubleshooting:',
   '- In Figma, open TemPad Dev panel and enable the MCP server in Preferences → Agent integration. Enabled permits connection; it does not prove that an extension is active.',
-  "- Confirm that the panel header MCP badge is active. If multiple Figma tabs are open, click the intended tab's badge; foregrounding it alone does not activate it.",
-  '- If the badge is missing, shows an error, or reports a protocol mismatch, rebuild the affected runtime layers, reload the installed TemPad Dev browser extension, reload the same Figma tab, and start a fresh task.'
+  "- Badge-default reads require the intended tab's active MCP badge. Exact sessionId reads require that session in list_design_sessions; browser focus does not select a default.",
+  '- If the connection is missing or reports a protocol mismatch, rebuild the affected runtime layers, reload the installed TemPad Dev browser extension, reload the same Figma tab, and start a fresh task.'
 ]
 
 const SELECTION_TROUBLESHOOTING_LINE = 'Tip: Select exactly one visible node, or pass nodeId.'
@@ -166,7 +166,7 @@ export const TOOL_DEFS = [
   hubTool({
     name: 'list_design_sessions',
     description:
-      'List connected Figma targets before beginning a design. Select an exact sessionId when more than one file is connected.',
+      'List connected Figma targets before beginning a design or an exact-session read. Select an exact sessionId when more than one file is connected.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: z.object({}).strict(),
     target: 'hub',
@@ -221,7 +221,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_design_system',
     description:
-      'Discover resources or available fonts. For fonts, use scope: "fonts" with query to find families or families to read exact native styles; this reads the environment without scanning file resources and is allowed for independent designs. Resource discovery returns a bounded catalog with component tags, variable cssName and text-style className aliases. Use resource discovery only when existing-resource reuse is permitted and relevant; skip it when the user limits design evidence to the current page or requests an independent system. Start without arguments; continue by catalogId/cursor or inspect catalogId/ref.',
+      'Discover resources, file pages, or available fonts. For fonts, use scope: "fonts" with query to find families or families to read exact native styles; this reads the environment without scanning file resources and is allowed for independent designs. Resource discovery returns a bounded catalog with component tags, variable cssName and text-style className aliases. When existing-resource reuse is permitted and relevant, scope: "pages" lists page IDs cheaply; pageId loads that page and limits component discovery to it while local variables, styles, and shaders remain file-wide. Omit pageId for a quick scan; off-current pages may omit components even if queried successfully. Skip resource and page discovery when the user limits design evidence to the current page or requests an independent system. Continue catalogs by catalogId/cursor or inspect catalogId/ref.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetDesignSystemParametersSchema,
     target: 'extension',

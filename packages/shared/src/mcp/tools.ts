@@ -21,6 +21,12 @@ import {
   type FigmaSession
 } from './design-task'
 
+const ExactReadSessionParameterSchema = z
+  .string()
+  .min(1)
+  .describe('Exact sessionId from list_design_sessions; omit for the active badge target.')
+  .optional()
+
 export const AssetDescriptorSchema = z.object({
   hash: z.string().regex(MCP_HASH_PATTERN),
   url: z.string().url(),
@@ -39,6 +45,7 @@ export const AssetDescriptorSchema = z.object({
 export const GetCodeParametersSchema = z.object({
   taskId: DesignTaskParameterSchema,
   taskEpoch: DesignTaskEpochSchema,
+  sessionId: ExactReadSessionParameterSchema,
   nodeId: z
     .string()
     .describe('Optional exact target node id; omit to use the current single selection.')
@@ -101,6 +108,7 @@ export type GetCodeResult = {
 export const GetTokenDefsParametersSchema = z.object({
   taskId: DesignTaskParameterSchema,
   taskEpoch: DesignTaskEpochSchema,
+  sessionId: ExactReadSessionParameterSchema,
   names: z
     .array(z.string().regex(/^--[a-zA-Z0-9-_]+$/))
     .min(1)
@@ -129,6 +137,7 @@ export type GetTokenDefsResult = {
 export const GetScreenshotParametersSchema = z.object({
   taskId: DesignTaskParameterSchema,
   taskEpoch: DesignTaskEpochSchema,
+  sessionId: ExactReadSessionParameterSchema,
   nodeId: z
     .string()
     .describe('Optional exact node id to render; omit to use the current single selection.')
@@ -150,6 +159,7 @@ export const GetStructureParametersSchema = z
   .object({
     taskId: DesignTaskParameterSchema,
     taskEpoch: DesignTaskEpochSchema,
+    sessionId: ExactReadSessionParameterSchema,
     nodeId: z
       .string()
       .describe(
@@ -228,7 +238,15 @@ export const GetDesignSystemParametersSchema = z
   .object({
     taskId: DesignTaskParameterSchema,
     taskEpoch: DesignTaskEpochSchema,
-    scope: z.enum(['resources', 'fonts']).optional(),
+    sessionId: ExactReadSessionParameterSchema,
+    scope: z.enum(['resources', 'fonts', 'pages']).optional(),
+    pageId: z
+      .string()
+      .min(1)
+      .describe(
+        'Load this exact page and limit component discovery to it; local file-wide resources remain included.'
+      )
+      .optional(),
     query: z
       .string()
       .trim()
@@ -251,7 +269,7 @@ export const GetDesignSystemParametersSchema = z
       .number()
       .int()
       .nonnegative()
-      .describe('Continuation cursor from the same catalog, or font query with the same filters.')
+      .describe('Continuation cursor for a catalog, font query, or page list.')
       .optional(),
     ref: z.string().min(1).describe('Exact resource ref from the same catalog.').optional()
   })
@@ -259,11 +277,17 @@ export const GetDesignSystemParametersSchema = z
   .superRefine((value, context) => {
     const issue = (
       message: string,
-      path: 'catalogId' | 'cursor' | 'ref' | 'query' | 'families'
+      path: 'catalogId' | 'cursor' | 'ref' | 'query' | 'families' | 'pageId'
     ): void => context.addIssue({ code: 'custom', message, path: [path] })
+    if (value.scope === 'pages') {
+      if (value.catalogId || value.ref || value.pageId || value.query || value.families)
+        issue('Page listing accepts only scope and cursor.', 'pageId')
+      return
+    }
     if (value.scope === 'fonts') {
       if (value.catalogId || value.ref)
         issue('Font queries cannot use resource catalog refs.', 'catalogId')
+      if (value.pageId) issue('Font queries cannot use a component page.', 'pageId')
       if (value.query && value.families) issue('Use query or families, not both.', 'query')
       return
     }
@@ -276,6 +300,7 @@ export const GetDesignSystemParametersSchema = z
     if ((value.cursor === undefined) === (value.ref === undefined)) {
       issue('Catalog reuse requires exactly one of cursor or ref.', 'catalogId')
     }
+    if (value.pageId) issue('A component page cannot be changed within a catalog.', 'pageId')
   })
 
 export type GetDesignSystemParametersInput = z.input<typeof GetDesignSystemParametersSchema>
@@ -401,12 +426,32 @@ export const DesignSystemFontsResultSchema = z
     'A font result requires either families or fonts.'
   )
 
+export const DesignSystemPagesResultSchema = z
+  .object({
+    scope: z.literal('pages'),
+    pages: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          name: z.string(),
+          index: z.number().int().nonnegative(),
+          active: z.boolean(),
+          isPageDivider: z.boolean().optional()
+        })
+        .strict()
+    ),
+    nextCursor: z.number().int().nonnegative().optional()
+  })
+  .strict()
+
 export const GetDesignSystemResultSchema = z.union([
   DesignSystemResourcesResultSchema,
-  DesignSystemFontsResultSchema
+  DesignSystemFontsResultSchema,
+  DesignSystemPagesResultSchema
 ])
 export type DesignSystemResourcesResult = z.output<typeof DesignSystemResourcesResultSchema>
 export type DesignSystemFontsResult = z.output<typeof DesignSystemFontsResultSchema>
+export type DesignSystemPagesResult = z.output<typeof DesignSystemPagesResultSchema>
 export type GetDesignSystemResult = z.output<typeof GetDesignSystemResultSchema>
 
 // get_assets (hub only)

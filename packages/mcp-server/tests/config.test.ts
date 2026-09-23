@@ -9,6 +9,7 @@ import {
   MCP_MAX_PAYLOAD_BYTES,
   MCP_PORT_CANDIDATES,
   MCP_GET_CODE_TIMEOUT_MS,
+  MCP_GET_DESIGN_SYSTEM_TIMEOUT_MS,
   MCP_TOOL_TIMEOUT_MS
 } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -18,6 +19,8 @@ import { getMcpServerConfig } from '../src/config'
 const ENV_KEYS = [
   'TEMPAD_MCP_TOOL_TIMEOUT',
   'TEMPAD_MCP_GET_CODE_TIMEOUT',
+  'TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT',
+  'TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT',
   'TEMPAD_MCP_APPLY_CANVAS_TIMEOUT',
   'TEMPAD_MCP_AUTO_ACTIVATE_GRACE',
   'TEMPAD_MCP_MAX_ASSET_BYTES',
@@ -45,7 +48,7 @@ afterEach(() => {
 })
 
 describe('mcp-server/config getMcpServerConfig', () => {
-  it('uses shared defaults when env overrides are missing', () => {
+  it('uses defaults when env overrides are missing', () => {
     for (const key of ENV_KEYS) {
       delete process.env[key]
     }
@@ -54,6 +57,8 @@ describe('mcp-server/config getMcpServerConfig', () => {
       wsPortCandidates: [...MCP_PORT_CANDIDATES],
       toolTimeoutMs: MCP_TOOL_TIMEOUT_MS,
       getCodeTimeoutMs: MCP_GET_CODE_TIMEOUT_MS,
+      getDesignSystemTimeoutMs: MCP_GET_DESIGN_SYSTEM_TIMEOUT_MS,
+      pageStructureTimeoutMs: 45000,
       applyCanvasTimeoutMs: MCP_APPLY_CANVAS_TIMEOUT_MS,
       maxPayloadBytes: MCP_MAX_PAYLOAD_BYTES,
       autoActivateGraceMs: MCP_AUTO_ACTIVATE_GRACE_MS,
@@ -69,6 +74,8 @@ describe('mcp-server/config getMcpServerConfig', () => {
   it('parses valid positive and non-negative integer overrides', () => {
     process.env.TEMPAD_MCP_TOOL_TIMEOUT = '22000'
     process.env.TEMPAD_MCP_GET_CODE_TIMEOUT = '45000'
+    process.env.TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT = '48000'
+    process.env.TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT = '50000'
     process.env.TEMPAD_MCP_APPLY_CANVAS_TIMEOUT = '90000'
     process.env.TEMPAD_MCP_AUTO_ACTIVATE_GRACE = '3333'
     process.env.TEMPAD_MCP_MAX_ASSET_BYTES = '9999'
@@ -83,6 +90,8 @@ describe('mcp-server/config getMcpServerConfig', () => {
       wsPortCandidates: [...MCP_PORT_CANDIDATES],
       toolTimeoutMs: 22000,
       getCodeTimeoutMs: 45000,
+      getDesignSystemTimeoutMs: 48000,
+      pageStructureTimeoutMs: 50000,
       applyCanvasTimeoutMs: 90000,
       maxPayloadBytes: MCP_MAX_PAYLOAD_BYTES,
       autoActivateGraceMs: 3333,
@@ -98,6 +107,8 @@ describe('mcp-server/config getMcpServerConfig', () => {
   it('falls back for invalid env values', () => {
     process.env.TEMPAD_MCP_TOOL_TIMEOUT = '-1'
     process.env.TEMPAD_MCP_GET_CODE_TIMEOUT = '0'
+    process.env.TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT = '-2'
+    process.env.TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT = 'invalid'
     process.env.TEMPAD_MCP_APPLY_CANVAS_TIMEOUT = 'nope'
     process.env.TEMPAD_MCP_AUTO_ACTIVATE_GRACE = 'abc'
     process.env.TEMPAD_MCP_MAX_ASSET_BYTES = '0'
@@ -110,6 +121,8 @@ describe('mcp-server/config getMcpServerConfig', () => {
       wsPortCandidates: [...MCP_PORT_CANDIDATES],
       toolTimeoutMs: MCP_TOOL_TIMEOUT_MS,
       getCodeTimeoutMs: MCP_GET_CODE_TIMEOUT_MS,
+      getDesignSystemTimeoutMs: MCP_GET_DESIGN_SYSTEM_TIMEOUT_MS,
+      pageStructureTimeoutMs: 45000,
       applyCanvasTimeoutMs: MCP_APPLY_CANVAS_TIMEOUT_MS,
       maxPayloadBytes: MCP_MAX_PAYLOAD_BYTES,
       autoActivateGraceMs: MCP_AUTO_ACTIVATE_GRACE_MS,
@@ -126,6 +139,8 @@ describe('mcp-server/config getMcpServerConfig', () => {
     process.env.TEMPAD_MCP_TOOL_TIMEOUT = '22000'
 
     expect(getMcpServerConfig().getCodeTimeoutMs).toBe(22000)
+    expect(getMcpServerConfig().getDesignSystemTimeoutMs).toBe(22000)
+    expect(getMcpServerConfig().pageStructureTimeoutMs).toBe(22000)
     expect(getMcpServerConfig().applyCanvasTimeoutMs).toBe(22000)
   })
 })

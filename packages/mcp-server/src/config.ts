@@ -9,8 +9,12 @@ import {
   MCP_MAX_PAYLOAD_BYTES,
   MCP_PORT_CANDIDATES,
   MCP_GET_CODE_TIMEOUT_MS,
+  MCP_GET_DESIGN_SYSTEM_TIMEOUT_MS,
   MCP_TOOL_TIMEOUT_MS
 } from '@tempad-dev/shared'
+
+// An explicit get_structure page read may have to load a cold Figma page first.
+const PAGE_STRUCTURE_TIMEOUT_MS = 45000
 
 function parsePositiveInt(envValue: string | undefined, fallback: number): number {
   const parsed = envValue ? Number.parseInt(envValue, 10) : Number.NaN
@@ -64,6 +68,14 @@ export function getMcpServerConfig() {
     getCodeTimeoutMs: resolveToolTimeoutMs(
       process.env.TEMPAD_MCP_GET_CODE_TIMEOUT,
       MCP_GET_CODE_TIMEOUT_MS
+    ),
+    getDesignSystemTimeoutMs: resolveToolTimeoutMs(
+      process.env.TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT,
+      MCP_GET_DESIGN_SYSTEM_TIMEOUT_MS
+    ),
+    pageStructureTimeoutMs: resolveToolTimeoutMs(
+      process.env.TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT,
+      PAGE_STRUCTURE_TIMEOUT_MS
     ),
     applyCanvasTimeoutMs: resolveToolTimeoutMs(
       process.env.TEMPAD_MCP_APPLY_CANVAS_TIMEOUT,

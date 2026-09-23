@@ -8,12 +8,12 @@ or fails, or the requested selection cannot fit in one trustworthy response.
 For a transient transport failure, retry once. Do not blind-retry invalid
 selection, hidden node, wrong file, deterministic budget, or depth errors.
 
-If TemPad is unavailable or active on the wrong file, stop and ask the user to:
-
-1. enable MCP access in TemPad Dev **Preferences > Agent integration**;
-2. keep the intended TemPad Dev and Figma tab active;
-3. use the MCP badge in the panel to activate the intended file when multiple
-   Figma tabs are open.
+If TemPad is active on the wrong file, call `list_design_sessions` and pass the intended
+file's exact `sessionId` to `get_code` or another independent read. This does not change
+the active MCP badge. If the intended file is not connected or TemPad is unavailable,
+ask the user to enable MCP access in TemPad Dev **Preferences > Agent integration**
+and keep the intended Figma tab open. The badge still chooses the default for reads
+that omit `sessionId`.
 
 Do not edit code while design evidence is untrustworthy.
 

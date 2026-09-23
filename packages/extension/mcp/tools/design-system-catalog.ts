@@ -89,7 +89,7 @@ export type DesignSystemCatalog = {
   id: string
   fileKey?: string
   entries: Map<string, CatalogEntry>
-  orderedRefs: string[]
+  orderedEntries: CatalogEntry[]
   tags: Map<string, CatalogComponent>
   warnings: string[]
 }
@@ -144,6 +144,7 @@ export function registerDesignSystemCatalog(
   entries = withResourceAliases(entries)
   const id = `ds_${crypto.randomUUID()}`
   const components = entries.filter((entry) => entry.kind === 'component')
+  const entriesByRef = new Map(entries.map((entry) => [entry.ref, entry]))
   const catalog = {
     componentReferences: new Map(
       components
@@ -156,8 +157,8 @@ export function registerDesignSystemCatalog(
     ),
     id,
     ...(fileKey ? { fileKey } : {}),
-    entries: new Map(entries.map((entry) => [entry.ref, entry])),
-    orderedRefs,
+    entries: entriesByRef,
+    orderedEntries: orderedRefs.map((ref) => entriesByRef.get(ref)!),
     tags: new Map(components.map((entry) => [entry.tag, entry])),
     warnings: [...warnings]
   }

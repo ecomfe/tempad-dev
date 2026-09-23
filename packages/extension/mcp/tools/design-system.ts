@@ -12,6 +12,7 @@ import type {
   GetDesignSystemParametersInput,
   DesignSystemResourcesResult,
   DesignSystemFontsResult,
+  DesignSystemPagesResult,
   GetDesignSystemResult
 } from '@tempad-dev/shared'
 
@@ -205,14 +206,30 @@ function describeComponent(component: ComponentNode, page: Pick<PageNode, 'id' |
   }
 }
 
-function collectComponents(warnings: string[]) {
+async function collectComponents(warnings: string[], pageId?: string) {
   const components: ReturnType<typeof describeComponent>[] = []
   let unreadablePages = 0
   let pages: readonly PageNode[]
   try {
     pages = figma.root.children
   } catch {
+    if (pageId && pageId !== figma.currentPage.id) {
+      throw new Error('Figma page list could not be read in the current context.')
+    }
     pages = [figma.currentPage]
+    if (!pageId) {
+      warnings.push(
+        'Page list could not be read; component discovery was limited to the current page.'
+      )
+    }
+  }
+  if (pageId) {
+    const page = pages.find((candidate) => candidate.id === pageId)
+    if (!page) throw new Error(`Page "${pageId}" does not exist in this file.`)
+    if (page.id !== figma.currentPage.id) await page.loadAsync()
+    return page
+      .findAllWithCriteria({ types: ['COMPONENT'] })
+      .map((component) => describeComponent(component, page))
   }
   for (const page of pages) {
     try {
@@ -231,7 +248,33 @@ function collectComponents(warnings: string[]) {
       `Component definitions were read from ${loadedPages} accessible ${loadedPages === 1 ? 'page' : 'pages'}; ${unreadablePages} ${unreadablePages === 1 ? 'page was' : 'pages were'} skipped rather than loaded.`
     )
   }
+  if (pages.some((page) => page.id !== figma.currentPage.id)) {
+    warnings.push(
+      'Component discovery on other pages may be incomplete; pass pageId to load and scan a page exactly.'
+    )
+  }
   return components
+}
+
+function queryPages(cursor = 0): DesignSystemPagesResult {
+  let pages: readonly PageNode[]
+  try {
+    pages = figma.root.children
+  } catch {
+    throw new Error('Figma page list could not be read in the current context.')
+  }
+  if (cursor && cursor >= pages.length) throw new Error(`Unknown page cursor ${cursor}.`)
+  const nextCursor = cursor + 32
+  return {
+    scope: 'pages',
+    pages: pages.slice(cursor, nextCursor).map((page, index) => ({
+      id: page.id,
+      name: boundedText(page.name, 120) ?? '',
+      index: cursor + index,
+      active: page.id === figma.currentPage.id
+    })),
+    ...(nextCursor < pages.length ? { nextCursor } : {})
+  }
 }
 
 async function collectVariables(referencedDefinitionIds: Set<string>, warnings: string[]) {
@@ -654,7 +697,7 @@ function collectStyleVariableIds(styles: BaseStyle[], ids: Set<string>): void {
   }
 }
 
-type DescribedComponent = ReturnType<typeof collectComponents>[number]
+type DescribedComponent = Awaited<ReturnType<typeof collectComponents>>[number]
 type DescribedVariable = Awaited<ReturnType<typeof collectVariables>>['variables'][number]
 type DescribedStyle = ReturnType<typeof describeStyle>
 
@@ -1230,7 +1273,13 @@ function buildCompactResult(
   warnings: string[],
   cursor = 0
 ): DesignSystemResourcesResult {
-  const selected: CatalogEntry[] = []
+  const selected: Array<{ kind: CatalogEntry['kind']; compact: ReturnType<typeof compactEntry> }> =
+    []
+  const remainingCounts = new Map<CatalogEntry['kind'], number>()
+  for (let index = cursor; index < entries.length; index += 1) {
+    const kind = entries[index]!.kind
+    remainingCounts.set(kind, (remainingCounts.get(kind) ?? 0) + 1)
+  }
   const build = (): DesignSystemResourcesResult => {
     const result: DesignSystemResourcesResult = {
       catalogId,
@@ -1240,24 +1289,22 @@ function buildCompactResult(
       styles: []
     }
     const shaders: DesignSystemCatalogShader[] = []
-    for (const entry of selected) {
-      const compact = compactEntry(entry)
+    for (const { kind, compact } of selected) {
       if (!compact) continue
-      if (entry.kind === 'component') {
+      if (kind === 'component') {
         result.components.push(compact as DesignSystemCatalogComponent)
-      } else if (entry.kind === 'variable') {
+      } else if (kind === 'variable') {
         result.variables.push(compact as DesignSystemCatalogVariable)
-      } else if (entry.kind === 'collection') {
+      } else if (kind === 'collection') {
         result.collections.push(compact as DesignSystemCatalogCollection)
-      } else if (entry.kind === 'style') {
+      } else if (kind === 'style') {
         result.styles.push(compact as DesignSystemCatalogStyle)
-      } else if (entry.kind === 'shader') {
+      } else if (kind === 'shader') {
         shaders.push(compact as DesignSystemCatalogShader)
       }
     }
     if (shaders.length) result.shaders = shaders
     const nextCursor = cursor + selected.length
-    const remaining = entries.slice(nextCursor)
     const counts: Record<string, number> = Object.fromEntries(
       (
         [
@@ -1268,19 +1315,24 @@ function buildCompactResult(
           ['shaders', 'shader']
         ] as const
       )
-        .map(([label, kind]) => [label, remaining.filter((entry) => entry.kind === kind).length])
+        .map(([label, kind]) => [label, remainingCounts.get(kind) ?? 0])
         .filter(([, count]) => count)
     )
-    if (remaining.length) result.nextCursor = nextCursor
+    if (nextCursor < entries.length) result.nextCursor = nextCursor
     if (Object.keys(counts).length) result.omitted = counts
     if (warnings.length) result.warnings = warnings
     return result
   }
 
-  for (const candidate of entries.slice(cursor)) {
-    selected.push(candidate)
+  for (let index = cursor; index < entries.length; index += 1) {
+    const candidate = entries[index]!
+    selected.push({ kind: candidate.kind, compact: compactEntry(candidate) })
+    remainingCounts.set(candidate.kind, remainingCounts.get(candidate.kind)! - 1)
     if (utf8Bytes(build()) <= TARGET_BYTES) continue
-    if (selected.length > 1) selected.pop()
+    if (selected.length > 1) {
+      selected.pop()
+      remainingCounts.set(candidate.kind, remainingCounts.get(candidate.kind)! + 1)
+    }
     break
   }
   return build()
@@ -1288,20 +1340,21 @@ function buildCompactResult(
 
 function continueCatalog(catalogId: string, cursor: number): DesignSystemResourcesResult {
   const catalog = requireDesignSystemCatalog(catalogId, figma.fileKey)
-  if (cursor >= catalog.orderedRefs.length) {
+  if (cursor >= catalog.orderedEntries.length) {
     throw new Error(`Unknown design-system cursor ${cursor} in catalog ${catalogId}`)
   }
-  const entries = catalog.orderedRefs.map((ref) => catalog.entries.get(ref)!)
-  return buildCompactResult(catalogId, entries, catalog.warnings, cursor)
+  return buildCompactResult(catalogId, catalog.orderedEntries, catalog.warnings, cursor)
 }
 
-async function createCatalog(): Promise<DesignSystemResourcesResult> {
-  const componentWarnings: string[] = []
+async function createCatalog(pageId?: string): Promise<DesignSystemResourcesResult> {
+  const componentWarnings: string[] = pageId
+    ? [`Component discovery was limited to page "${pageId}"; other pages were not scanned.`]
+    : []
   const variableWarnings: string[] = []
   const styleWarnings: string[] = []
   const shaderWarnings: string[] = []
   const [components, styles, availableShaders] = await Promise.all([
-    collectComponents(componentWarnings),
+    collectComponents(componentWarnings, pageId),
     collectStyles(styleWarnings),
     collectShaders(shaderWarnings)
   ])
@@ -1422,18 +1475,17 @@ async function createCatalog(): Promise<DesignSystemResourcesResult> {
     orderedEntries.map((entry) => entry.ref),
     warnings
   )
-  return buildCompactResult(
-    catalog.id,
-    catalog.orderedRefs.map((ref) => catalog.entries.get(ref)!),
-    warnings
-  )
+  return buildCompactResult(catalog.id, catalog.orderedEntries, warnings)
 }
 
-let pendingCatalog: Promise<DesignSystemResourcesResult> | undefined
+const pendingCatalogs = new Map<string, Promise<DesignSystemResourcesResult>>()
 
 export function handleGetDesignSystem(
   args: GetDesignSystemParametersInput & { scope: 'fonts' }
 ): Promise<DesignSystemFontsResult>
+export function handleGetDesignSystem(
+  args: GetDesignSystemParametersInput & { scope: 'pages' }
+): Promise<DesignSystemPagesResult>
 export function handleGetDesignSystem(
   args?: GetDesignSystemParametersInput & { scope?: 'resources' }
 ): Promise<DesignSystemResourcesResult>
@@ -1444,13 +1496,19 @@ export async function handleGetDesignSystem(
   args: GetDesignSystemParametersInput = {}
 ): Promise<GetDesignSystemResult> {
   if (args.scope === 'fonts') return queryAvailableFonts(args)
+  if (args.scope === 'pages') return queryPages(args.cursor)
   if (args.catalogId) {
     return args.ref
       ? exactCatalogResult(args.catalogId, args.ref)
       : continueCatalog(args.catalogId, args.cursor!)
   }
-  pendingCatalog ??= createCatalog().finally(() => {
-    pendingCatalog = undefined
-  })
+  const key = args.pageId ?? ''
+  let pendingCatalog = pendingCatalogs.get(key)
+  if (!pendingCatalog) {
+    pendingCatalog = createCatalog(args.pageId).finally(() => {
+      pendingCatalogs.delete(key)
+    })
+    pendingCatalogs.set(key, pendingCatalog)
+  }
   return pendingCatalog
 }

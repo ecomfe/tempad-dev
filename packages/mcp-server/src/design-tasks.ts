@@ -63,9 +63,12 @@ export function resolveDesignTarget(
   explicitSessionId?: string
 ): { extension: ExtensionConnection; session: FigmaSession } {
   const record = taskId ? tasks.owned(taskId, ownerId, active) : undefined
+  if (record && explicitSessionId && explicitSessionId !== record.task.target.sessionId) {
+    fail('DESIGN_TARGET_CHANGED', 'The requested Figma session does not match this task.')
+  }
   const extension =
     extensions.find((value) =>
-      explicitSessionId
+      explicitSessionId && !record
         ? value.sessions?.sessions.some((session) => session.sessionId === explicitSessionId)
         : value.id === (record?.extensionId ?? activeExtensionId)
     ) ??
@@ -87,7 +90,9 @@ export function resolveDesignTarget(
       'NO_ACTIVE_EXTENSION',
       record
         ? 'The bound Figma session is unavailable. Begin a new task after reconnecting; no other tab was selected.'
-        : 'No active Figma session. Activate the intended file with its TemPad Dev MCP badge.'
+        : explicitSessionId
+          ? `Figma session ${explicitSessionId} is unavailable. Call list_design_sessions for a current sessionId.`
+          : 'No active Figma session. Activate the intended file with its TemPad Dev MCP badge.'
     )
   }
   if (record && record.task.target.fileKey !== session.fileKey) {

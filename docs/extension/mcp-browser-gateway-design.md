@@ -81,8 +81,11 @@ The hub chooses the active browser connection. Inside that connection, the broke
 active Figma session. A sole session is selected automatically. More than one session requires an
 explicit choice: registering another Figma tab clears the previous choice, and a newly connected
 Hub clears an ambiguous choice inherited from its predecessor. Foregrounding a tab does not route
-MCP calls; clicking its badge does. Broker activation is sent to the hub only from that explicit
-user action. Pending tool results are
+unscoped MCP calls; clicking its badge does. Independent read tools can instead pass an exact
+`sessionId` returned by `list_design_sessions`; the Hub routes that read to the matching connected
+session without changing the active badge. A task-bound read rejects a different explicit session
+rather than rebinding the task. Broker activation is sent to the hub only from an explicit user
+action. Pending tool results are
 bound to the extension connection that received the request, so a second connection cannot satisfy
 or reject another connection's request by guessing its id. While an extension connection is active,
 the hub accepts replacement activation only from the same extension Origin. Normal reconnects and
