@@ -32,6 +32,9 @@ function preflight(overrides: Partial<AuthoringPreflightResult> = {}): Authoring
       hub: {
         bundle: '/repo/packages/mcp-server/dist/hub.mjs',
         bundleModifiedAt: '2026-08-28T23:59:00.000Z',
+        bundleFingerprint: hubFingerprint,
+        processFingerprint: hubFingerprint,
+        matchesBundle: true,
         processes: [{ pid: 2, startedAt: '2026-08-29T00:00:00.000Z' }]
       },
       extension: {

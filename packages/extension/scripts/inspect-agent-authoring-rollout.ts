@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -27,6 +28,26 @@ interface AuthoringRolloutInspection {
   skillContext: {
     readCalls: number
     uniqueResources: string[]
+  }
+  modelUsage: {
+    observations: number
+    contextWindow: number | null
+    latestReportedTotal: ModelUsageCounts | null
+    lastTurn: ModelUsageCounts | null
+  }
+  recordedToolOutputTraffic: {
+    observations: number
+    textBytes: number
+    largestTextOutputBytes: number
+    textOutputsOver10KiB: number
+    largestTextOutputs: Array<{ callId: string | null; toolName: string | null; textBytes: number }>
+    textByTool: Record<string, { textBytes: number; observations: number }>
+    largestTextTools: Array<{ toolName: string | null; textBytes: number; observations: number }>
+    imageItems: number
+    imageDataUrlBytes: number
+    imageDataUrlBytesByTool: Record<string, number>
+    largestImageDataUrls: Array<{ callId: string | null; toolName: string | null; bytes: number }>
+    unrecognizedOutputs: number
   }
   applyCanvas: {
     calls: number
@@ -84,6 +105,15 @@ interface AuthoringRolloutInspection {
     issues: string[]
   }
   limitations: string[]
+}
+
+interface ModelUsageCounts {
+  inputTokens: number | null
+  cachedInputTokens: number | null
+  cacheWriteInputTokens: number | null
+  outputTokens: number | null
+  reasoningOutputTokens: number | null
+  totalTokens: number | null
 }
 
 interface ApplyEvent {
@@ -148,6 +178,134 @@ function timestampMs(value: unknown): number | null {
 function elapsedMs(startMs: number | null, endMs: number | null): number | null {
   if (startMs === null || endMs === null || endMs < startMs) return null
   return endMs - startMs
+}
+
+function reportedCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+}
+
+function modelUsageCounts(value: unknown): ModelUsageCounts | null {
+  if (!value || typeof value !== 'object') return null
+  const counts = {
+    inputTokens: reportedCount(get(value, 'input_tokens')),
+    cachedInputTokens: reportedCount(get(value, 'cached_input_tokens')),
+    cacheWriteInputTokens: reportedCount(get(value, 'cache_write_input_tokens')),
+    outputTokens: reportedCount(get(value, 'output_tokens')),
+    reasoningOutputTokens: reportedCount(get(value, 'reasoning_output_tokens')),
+    totalTokens: reportedCount(get(value, 'total_tokens'))
+  }
+  return Object.values(counts).some((count) => count !== null) ? counts : null
+}
+
+function recordedToolOutputTraffic(
+  parsedRows: unknown[]
+): AuthoringRolloutInspection['recordedToolOutputTraffic'] {
+  const toolNamesByCallId = new Map<string, string>()
+  const textByTool = new Map<string | null, { textBytes: number; observations: number }>()
+  const imageBytesByTool = new Map<string | null, number>()
+  for (const row of parsedRows) {
+    if (get(row, 'type') !== 'response_item') continue
+    const payload = get(row, 'payload')
+    const type = get(payload, 'type')
+    if (type !== 'custom_tool_call' && type !== 'function_call') continue
+    const callId = get(payload, 'call_id')
+    const name = get(payload, 'name')
+    if (typeof callId === 'string' && typeof name === 'string') {
+      toolNamesByCallId.set(callId, name)
+    }
+  }
+
+  const traffic: AuthoringRolloutInspection['recordedToolOutputTraffic'] = {
+    observations: 0,
+    textBytes: 0,
+    largestTextOutputBytes: 0,
+    textOutputsOver10KiB: 0,
+    largestTextOutputs: [],
+    textByTool: {},
+    largestTextTools: [],
+    imageItems: 0,
+    imageDataUrlBytes: 0,
+    imageDataUrlBytesByTool: {},
+    largestImageDataUrls: [],
+    unrecognizedOutputs: 0
+  }
+
+  for (const row of parsedRows) {
+    if (get(row, 'type') !== 'response_item') continue
+    const payload = get(row, 'payload')
+    const type = get(payload, 'type')
+    if (type !== 'custom_tool_call_output' && type !== 'function_call_output') continue
+    traffic.observations += 1
+    const outputCallId = get(payload, 'call_id')
+    const callId = typeof outputCallId === 'string' ? outputCallId : null
+    const toolName = callId ? (toolNamesByCallId.get(callId) ?? null) : null
+    const output = get(payload, 'output')
+    let textBytes = 0
+    let unrecognized = false
+    if (typeof output === 'string') {
+      textBytes = Buffer.byteLength(output, 'utf8')
+    } else if (Array.isArray(output)) {
+      for (const item of output) {
+        if (typeof item === 'string') {
+          textBytes += Buffer.byteLength(item, 'utf8')
+          continue
+        }
+        if (!item || typeof item !== 'object') {
+          unrecognized = true
+          continue
+        }
+        const text = get(item, 'text')
+        if (typeof text === 'string') textBytes += Buffer.byteLength(text, 'utf8')
+        const imageUrl = get(item, 'image_url')
+        if (typeof imageUrl === 'string') {
+          traffic.imageItems += 1
+          if (imageUrl.startsWith('data:')) {
+            const bytes = Buffer.byteLength(imageUrl, 'utf8')
+            traffic.imageDataUrlBytes += bytes
+            imageBytesByTool.set(toolName, (imageBytesByTool.get(toolName) ?? 0) + bytes)
+            const top = traffic.largestImageDataUrls
+            const entry = { callId, toolName, bytes }
+            const index = top.findIndex((previous) => previous.bytes < bytes)
+            if (index >= 0) top.splice(index, 0, entry)
+            else if (top.length < 5) top.push(entry)
+            if (top.length > 5) top.pop()
+          }
+        }
+        if (typeof text !== 'string' && typeof imageUrl !== 'string') unrecognized = true
+      }
+    } else {
+      unrecognized = true
+    }
+    if (unrecognized) traffic.unrecognizedOutputs += 1
+    traffic.textBytes += textBytes
+    traffic.largestTextOutputBytes = Math.max(traffic.largestTextOutputBytes, textBytes)
+    if (textBytes >= 10 * 1024) traffic.textOutputsOver10KiB += 1
+    if (textBytes > 0) {
+      const entry = { callId, toolName, textBytes }
+      const toolTraffic = textByTool.get(toolName) ?? { textBytes: 0, observations: 0 }
+      toolTraffic.textBytes += textBytes
+      toolTraffic.observations += 1
+      textByTool.set(toolName, toolTraffic)
+      const top = traffic.largestTextOutputs
+      const index = top.findIndex((previous) => previous.textBytes < textBytes)
+      if (index >= 0) top.splice(index, 0, entry)
+      else if (top.length < 5) top.push(entry)
+      if (top.length > 5) top.pop()
+    }
+  }
+
+  traffic.textByTool = Object.fromEntries(
+    [...textByTool].map(([toolName, counts]) => [toolName ?? '<unattributed>', counts])
+  )
+  traffic.imageDataUrlBytesByTool = Object.fromEntries(
+    [...imageBytesByTool].map(([toolName, bytes]) => [toolName ?? '<unattributed>', bytes])
+  )
+  traffic.largestTextTools = [...textByTool]
+    .map(([toolName, counts]) => ({ toolName, ...counts }))
+    .sort((a, b) => b.textBytes - a.textBytes || (a.toolName ?? '').localeCompare(b.toolName ?? ''))
+    .slice(0, 5)
+
+  return traffic
 }
 
 function toolBusyMs(intervals: TimedInterval[], startMs: number, endMs: number): number {
@@ -558,6 +716,22 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
   const requestedSkillReads = callInputs.map(skillResources).filter((resources) => resources.length)
   const skillReads = executedSkillReads.length ? executedSkillReads : requestedSkillReads
   const uniqueResources = new Set(skillReads.flat())
+  const usageObservations = parsedRows.flatMap((row) => {
+    const payload = get(row, 'payload')
+    if (get(row, 'type') !== 'event_msg' || get(payload, 'type') !== 'token_count') return []
+    const info = get(payload, 'info')
+    const total = modelUsageCounts(get(info, 'total_token_usage'))
+    return total
+      ? [
+          {
+            total,
+            lastTurn: modelUsageCounts(get(info, 'last_token_usage')),
+            contextWindow: reportedCount(get(info, 'model_context_window'))
+          }
+        ]
+      : []
+  })
+  const latestUsage = usageObservations.at(-1)
   let missingRuntimeEvidence = false
   const runtimeObservations = applies.flatMap((event) => {
     const observation = runtimeObservation(event.result)
@@ -590,6 +764,13 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
       readCalls: skillReads.length,
       uniqueResources: [...uniqueResources].sort()
     },
+    modelUsage: {
+      observations: usageObservations.length,
+      contextWindow: latestUsage?.contextWindow ?? null,
+      latestReportedTotal: latestUsage?.total ?? null,
+      lastTurn: latestUsage?.lastTurn ?? null
+    },
+    recordedToolOutputTraffic: recordedToolOutputTraffic(parsedRows),
     applyCanvas: {
       calls: applies.length,
       failures,
@@ -688,6 +869,8 @@ export function inspectAuthoringRollout(rolloutJsonl: string): AuthoringRolloutI
       'Image-view categories use path heuristics; final-write timing does not prove screenshot capture freshness, target identity, or full-screen coverage.',
       'Trace signals do not prove that researched evidence or acquired assets were retained in the final artifact.',
       'Component counters identify authoring mechanics, not whether the chosen component boundary was semantically correct.',
+      'Token usage is reported by the host; the latest cumulative reading may reset across resumed sessions, and cached input is a subset of input rather than an additional charge.',
+      'Recorded tool-output text bytes exclude image data URLs and are not model token counts; unrecognized output shapes are omitted from the byte totals.',
       'Timing milestones identify trace events, not the first usable design: an apply may be scaffolding and a screenshot may show a component or partial screen. Inspect the opened pixels and record usability separately.',
       'Trace counts do not substitute for evaluator inspection of screenshot pixels and live native structure.'
     ]

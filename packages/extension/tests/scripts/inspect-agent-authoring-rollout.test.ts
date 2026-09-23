@@ -45,6 +45,10 @@ function createThreadOutput(text: string): string {
   })
 }
 
+function toolOutput(output: unknown): string {
+  return row({ type: 'response_item', payload: { type: 'custom_tool_call_output', output } })
+}
+
 function applyCall(
   argumentsValue: unknown,
   result: unknown,
@@ -109,6 +113,147 @@ function commandExecution(command: string): string {
 }
 
 describe('agent authoring rollout inspection', () => {
+  it('separates recorded text and inline-image traffic from host token usage', () => {
+    const imageDataUrl = 'data:image/png;base64,AAAA'
+    const inspection = inspectAuthoringRollout(
+      [
+        toolOutput('hello🚀'),
+        toolOutput([
+          { type: 'input_text', text: '中' },
+          { type: 'input_image', image_url: imageDataUrl },
+          { type: 'input_image', image_url: 'https://example.test/image.png' },
+          { type: 'resource_link', uri: 'mcp://artifact' }
+        ]),
+        toolOutput('x'.repeat(10 * 1024)),
+        toolOutput({ unsupported: true })
+      ].join('')
+    )
+
+    expect(inspection.recordedToolOutputTraffic).toEqual({
+      observations: 4,
+      textBytes: 10 * 1024 + 12,
+      largestTextOutputBytes: 10 * 1024,
+      textOutputsOver10KiB: 1,
+      largestTextOutputs: [
+        { callId: null, toolName: null, textBytes: 10 * 1024 },
+        { callId: null, toolName: null, textBytes: 9 },
+        { callId: null, toolName: null, textBytes: 3 }
+      ],
+      textByTool: { '<unattributed>': { textBytes: 10 * 1024 + 12, observations: 3 } },
+      largestTextTools: [{ toolName: null, textBytes: 10 * 1024 + 12, observations: 3 }],
+      imageItems: 2,
+      imageDataUrlBytes: new TextEncoder().encode(imageDataUrl).length,
+      imageDataUrlBytesByTool: {
+        '<unattributed>': new TextEncoder().encode(imageDataUrl).length
+      },
+      largestImageDataUrls: [
+        { callId: null, toolName: null, bytes: new TextEncoder().encode(imageDataUrl).length }
+      ],
+      unrecognizedOutputs: 2
+    })
+    expect(inspection.modelUsage.latestReportedTotal).toBeNull()
+  })
+
+  it('identifies the call that produced an unusually large recorded text output', () => {
+    const inspection = inspectAuthoringRollout(
+      [
+        row({
+          type: 'response_item',
+          payload: {
+            type: 'custom_tool_call',
+            name: 'js',
+            call_id: 'call-large',
+            input: 'await cua.getState()'
+          }
+        }),
+        row({
+          type: 'response_item',
+          payload: {
+            type: 'custom_tool_call_output',
+            call_id: 'call-large',
+            output: [
+              { type: 'text', text: 'x'.repeat(12 * 1024) },
+              { type: 'image', image_url: 'data:image/png;base64,AAAA' }
+            ]
+          }
+        })
+      ].join('')
+    )
+
+    expect(inspection.recordedToolOutputTraffic.largestTextOutputs).toEqual([
+      { callId: 'call-large', toolName: 'js', textBytes: 12 * 1024 }
+    ])
+    expect(inspection.recordedToolOutputTraffic.largestTextTools).toEqual([
+      { toolName: 'js', textBytes: 12 * 1024, observations: 1 }
+    ])
+    expect(inspection.recordedToolOutputTraffic.textByTool).toEqual({
+      js: { textBytes: 12 * 1024, observations: 1 }
+    })
+    expect(inspection.recordedToolOutputTraffic.imageDataUrlBytesByTool).toEqual({ js: 26 })
+    expect(inspection.recordedToolOutputTraffic.largestImageDataUrls).toEqual([
+      { callId: 'call-large', toolName: 'js', bytes: 26 }
+    ])
+  })
+
+  it('reports host usage without treating cumulative and last-turn counters as additive', () => {
+    const counts = (input: number, cached: number, output: number) => ({
+      input_tokens: input,
+      cached_input_tokens: cached,
+      cache_write_input_tokens: 0,
+      output_tokens: output,
+      reasoning_output_tokens: 4,
+      total_tokens: input + output
+    })
+    const usageRow = (total: unknown, last: unknown) =>
+      row({
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: {
+            total_token_usage: total,
+            last_token_usage: last,
+            model_context_window: 258_400
+          }
+        }
+      })
+    const inspection = inspectAuthoringRollout(
+      [
+        usageRow(counts(100, 80, 5), counts(100, 80, 5)),
+        usageRow(counts(250, 200, 12), {
+          ...counts(150, 120, 7),
+          cache_write_input_tokens: 'unavailable'
+        })
+      ].join('')
+    )
+
+    expect(inspection.modelUsage).toEqual({
+      observations: 2,
+      contextWindow: 258_400,
+      latestReportedTotal: {
+        inputTokens: 250,
+        cachedInputTokens: 200,
+        cacheWriteInputTokens: 0,
+        outputTokens: 12,
+        reasoningOutputTokens: 4,
+        totalTokens: 262
+      },
+      lastTurn: {
+        inputTokens: 150,
+        cachedInputTokens: 120,
+        cacheWriteInputTokens: null,
+        outputTokens: 7,
+        reasoningOutputTokens: 4,
+        totalTokens: 157
+      }
+    })
+    expect(inspectAuthoringRollout('').modelUsage).toEqual({
+      observations: 0,
+      contextWindow: null,
+      latestReportedTotal: null,
+      lastTurn: null
+    })
+  })
+
   it('summarizes research, acquisition, icon, component, and apply evidence', () => {
     const rollout = [
       customCall('await tools.web__run({ image_query: [{ q: "editorial travel" }] })'),

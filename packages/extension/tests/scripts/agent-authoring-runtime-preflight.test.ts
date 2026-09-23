@@ -5,6 +5,7 @@ import {
   evaluateActiveExtensionRuntime,
   evaluateRuntimeProcesses,
   evaluateTempadPluginIdentity,
+  extractDevelopmentBundleFingerprint,
   parseEnabledPlugins,
   parseProcessTable,
   resolveCodexExecutable
@@ -24,6 +25,19 @@ function runtimeProcess(
 }
 
 describe('agent authoring runtime preflight', () => {
+  it('reads one unambiguous development bundle fingerprint', () => {
+    const fingerprint = 'a'.repeat(64)
+    expect(
+      extractDevelopmentBundleFingerprint(`const runtimeFingerprint = "${fingerprint}";`)
+    ).toBe(fingerprint)
+    expect(extractDevelopmentBundleFingerprint('const runtimeFingerprint = "invalid";')).toBeNull()
+    expect(
+      extractDevelopmentBundleFingerprint(
+        `const runtimeFingerprint = "${fingerprint}"; let runtimeFingerprint = '${'b'.repeat(64)}';`
+      )
+    ).toBeNull()
+  })
+
   it('queries plugins with the evaluated desktop host instead of an arbitrary PATH CLI', () => {
     expect(resolveCodexExecutable('/Applications/ChatGPT.app', 'darwin')).toBe(
       '/Applications/ChatGPT.app/Contents/Resources/codex'
@@ -105,6 +119,31 @@ describe('agent authoring runtime preflight', () => {
       }).issues.map(({ code }) => code)
     ).toEqual(['RUNTIME_EXTENSION_FINGERPRINT_MISMATCH'])
     expect(
+      evaluateActiveExtensionRuntime(
+        expectedFingerprint,
+        [hub],
+        {
+          ...matching,
+          activeExtension: { ...matching.activeExtension, fingerprint: 'b'.repeat(64) }
+        },
+        'b'.repeat(64)
+      ).issues.map(({ code }) => code)
+    ).toEqual(['RUNTIME_DEVELOPMENT_BUNDLE_STALE'])
+    expect(
+      evaluateActiveExtensionRuntime(expectedFingerprint, [hub], matching, 'b'.repeat(64)).issues
+    ).toEqual([])
+    expect(
+      evaluateActiveExtensionRuntime(
+        expectedFingerprint,
+        [hub],
+        {
+          ...matching,
+          activeExtension: { ...matching.activeExtension, fingerprint: 'b'.repeat(64) }
+        },
+        expectedFingerprint
+      ).issues[0]?.message
+    ).toContain('the development bundle is current')
+    expect(
       evaluateActiveExtensionRuntime(expectedFingerprint, [hub], {
         ...matching,
         activeExtension: null
@@ -127,6 +166,40 @@ describe('agent authoring runtime preflight', () => {
         ({ code }) => code
       )
     ).toEqual(['RUNTIME_IDENTITY_RECORD_MISSING'])
+  })
+
+  it('reports the owned Hub startup fingerprint without treating it as a compatibility gate', () => {
+    const extensionFingerprint = 'a'.repeat(64)
+    const hubFingerprint = 'b'.repeat(64)
+    const hub = runtimeProcess(paths.hub, 3, 20_000)
+    const identity = {
+      activeExtension: {
+        connectedAt: '2026-08-28T00:00:00.000Z',
+        fingerprint: extensionFingerprint,
+        id: 'extension-1',
+        version: '0.21.0'
+      },
+      processId: hub.pid,
+      runtimeFingerprint: hubFingerprint
+    }
+    const evaluate = (value: unknown) =>
+      evaluateActiveExtensionRuntime(extensionFingerprint, [hub], value)
+
+    expect(evaluate(identity)).toMatchObject({ hubRuntimeFingerprint: hubFingerprint, issues: [] })
+    for (const runtimeFingerprint of [undefined, null, 'invalid']) {
+      expect(evaluate({ ...identity, runtimeFingerprint })).toMatchObject({
+        hubRuntimeFingerprint: null,
+        issues: []
+      })
+    }
+    expect(evaluate({ ...identity, activeExtension: null }).hubRuntimeFingerprint).toBe(
+      hubFingerprint
+    )
+    expect(evaluate({ ...identity, processId: 4 })).toMatchObject({
+      hubRuntimeFingerprint: null,
+      issues: [{ code: 'RUNTIME_IDENTITY_RECORD_STALE' }]
+    })
+    expect(evaluate(null).hubRuntimeFingerprint).toBeNull()
   })
 
   it('parses enabled Codex plugins and requires the generated TemPad cachebuster', () => {

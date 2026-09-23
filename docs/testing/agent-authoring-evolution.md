@@ -267,7 +267,15 @@ fix or feature must use a Hub that contains that change, even when it is backwar
 
 Runtime records retain the actual process and fingerprint evidence. Preflight checks
 process presence, ownership of the identity record, the active extension checkout, and
-plugin identity; process/build timestamps are observations, not restart requirements.
+plugin identity. It also reports the running Hub's entry-bundle fingerprint, the current
+bundle fingerprint, and whether they match (`null` when the process fingerprint is
+unavailable). Use this evidence for the reuse or refresh decision above; a mismatch does
+not make a compatible connection invalid. When an active extension matches an out-of-date
+development bundle, preflight identifies that bundle as the source of the mismatch so the
+agent rebuilds it before asking for another browser reload. Duplicate `pnpm dev` watchers can write to the
+same generated extension directory; stop those watchers, clean the generated WXT output,
+then restart one watcher and confirm the bundle fingerprint. Process/build timestamps are
+observations, not restart requirements.
 Run validation compares the observed extension fingerprint with the frozen preflight
 value and requires consistent Hub evidence. Existing protocol, message-schema, connection
 ownership, and stale-request checks remain enforced. The legacy `runtime.locked` field

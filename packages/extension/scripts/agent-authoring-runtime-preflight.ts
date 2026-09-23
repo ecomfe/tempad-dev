@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { access, readFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, normalize, resolve } from 'node:path'
@@ -60,6 +61,7 @@ interface ActiveExtensionRuntimeIdentity {
 interface HubRuntimeIdentitySnapshot {
   activeExtension: ActiveExtensionRuntimeIdentity | null
   processId: number
+  runtimeFingerprint: string | null
 }
 
 export interface AuthoringPreflightResult {
@@ -75,6 +77,9 @@ export interface AuthoringPreflightResult {
     hub: {
       bundle: string
       bundleModifiedAt: string
+      bundleFingerprint: string
+      processFingerprint: string | null
+      matchesBundle: boolean | null
       processes: Array<{ pid: number; startedAt: string }>
     }
     extension: {
@@ -150,8 +155,25 @@ async function readOptionalJson(path: string): Promise<unknown> {
   }
 }
 
+async function readOptionalText(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, 'utf8')
+  } catch {
+    return null
+  }
+}
+
 function isSha256(value: unknown): value is string {
   return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
+}
+
+export function extractDevelopmentBundleFingerprint(source: string): string | null {
+  const fingerprints = new Set(
+    [...source.matchAll(/\b(?:const|let|var)\s+runtimeFingerprint\s*=\s*['"]([a-f0-9]{64})['"]/g)]
+      .map((match) => match[1])
+      .filter((value): value is string => value !== undefined)
+  )
+  return fingerprints.size === 1 ? ([...fingerprints][0] ?? null) : null
 }
 
 function parseHubRuntimeIdentitySnapshot(value: unknown): HubRuntimeIdentitySnapshot | null {
@@ -160,10 +182,14 @@ function parseHubRuntimeIdentitySnapshot(value: unknown): HubRuntimeIdentitySnap
   if (!Number.isInteger(candidate.processId) || !Object.hasOwn(candidate, 'activeExtension')) {
     return null
   }
+  const runtimeFingerprint = isSha256(candidate.runtimeFingerprint)
+    ? candidate.runtimeFingerprint
+    : null
   if (candidate.activeExtension === null) {
     return {
       activeExtension: null,
-      processId: candidate.processId as number
+      processId: candidate.processId as number,
+      runtimeFingerprint
     }
   }
   if (!candidate.activeExtension || typeof candidate.activeExtension !== 'object') return null
@@ -179,17 +205,20 @@ function parseHubRuntimeIdentitySnapshot(value: unknown): HubRuntimeIdentitySnap
   }
   return {
     activeExtension: active as unknown as ActiveExtensionRuntimeIdentity,
-    processId: candidate.processId as number
+    processId: candidate.processId as number,
+    runtimeFingerprint
   }
 }
 
 export function evaluateActiveExtensionRuntime(
   expectedFingerprint: string,
   hubProcesses: RuntimeProcess[],
-  identityInput: unknown
+  identityInput: unknown,
+  developmentBundleFingerprint: string | null = null
 ): {
   activeExtension: ActiveExtensionRuntimeIdentity | null
   hubProcessId: number | null
+  hubRuntimeFingerprint: string | null
   issues: PreflightIssue[]
 } {
   const issues: PreflightIssue[] = []
@@ -200,9 +229,10 @@ export function evaluateActiveExtensionRuntime(
       message:
         'The active Hub did not publish a readable active-extension runtime record. Refresh the MCP runtime before dispatch.'
     })
-    return { activeExtension: null, hubProcessId: null, issues }
+    return { activeExtension: null, hubProcessId: null, hubRuntimeFingerprint: null, issues }
   }
-  if (!hubProcesses.some(({ pid }) => pid === identity.processId)) {
+  const identityMatchesProcess = hubProcesses.some(({ pid }) => pid === identity.processId)
+  if (!identityMatchesProcess) {
     issues.push({
       code: 'RUNTIME_IDENTITY_RECORD_STALE',
       message: `The runtime identity record belongs to Hub PID ${String(identity.processId)}, not the exact-checkout Hub selected by preflight.`
@@ -221,14 +251,25 @@ export function evaluateActiveExtensionRuntime(
         'The active extension has not published a runtime fingerprint. Reload the browser extension and Figma tab before dispatch.'
     })
   } else if (identity.activeExtension.fingerprint !== expectedFingerprint) {
-    issues.push({
-      code: 'RUNTIME_EXTENSION_FINGERPRINT_MISMATCH',
-      message: `The active extension fingerprint ${identity.activeExtension.fingerprint} differs from the current checkout fingerprint ${expectedFingerprint}. Rebuild/reload the browser extension and Figma tab before dispatch.`
-    })
+    if (identity.activeExtension.fingerprint === developmentBundleFingerprint) {
+      issues.push({
+        code: 'RUNTIME_DEVELOPMENT_BUNDLE_STALE',
+        message: `The active extension matches the stale development bundle fingerprint ${developmentBundleFingerprint}, while the current checkout fingerprint is ${expectedFingerprint}. Stop duplicate development watchers, clean and rebuild the development extension, and confirm its bundle fingerprint before reloading the browser extension and Figma tab.`
+      })
+    } else {
+      issues.push({
+        code: 'RUNTIME_EXTENSION_FINGERPRINT_MISMATCH',
+        message:
+          developmentBundleFingerprint === expectedFingerprint
+            ? `The active extension fingerprint ${identity.activeExtension.fingerprint} differs from the current checkout fingerprint ${expectedFingerprint}; the development bundle is current. Reload the browser extension and Figma tab before dispatch.`
+            : `The active extension fingerprint ${identity.activeExtension.fingerprint} differs from the current checkout fingerprint ${expectedFingerprint}. Rebuild/reload the browser extension and Figma tab before dispatch.`
+      })
+    }
   }
   return {
     activeExtension: identity.activeExtension,
     hubProcessId: identity.processId,
+    hubRuntimeFingerprint: identityMatchesProcess ? identity.runtimeFingerprint : null,
     issues
   }
 }
@@ -445,21 +486,40 @@ export async function runPreflight(
 ): Promise<AuthoringPreflightResult> {
   const runtime = await resolveRuntimeConfiguration(args.checkout)
   const codexExecutable = resolveCodexExecutable(args.appPath)
-  const [cliStat, hubStat, processes, plugins, checkoutExtensionFingerprint, hubRuntimeIdentity] =
-    await Promise.all([
-      stat(runtime.paths.cli),
-      stat(runtime.paths.hub),
-      listProcesses(),
-      listEnabledPlugins(codexExecutable),
-      resolveCheckoutExtensionFingerprint(args.checkout),
-      readOptionalJson(runtime.hubRuntimeIdentityPath)
-    ])
+  const developmentBundlePath = join(
+    args.checkout,
+    'packages/extension/.output/chrome-mv3-dev/background.js'
+  )
+  const [
+    cliStat,
+    hubStat,
+    hubBundle,
+    processes,
+    plugins,
+    checkoutExtensionFingerprint,
+    hubRuntimeIdentity,
+    developmentBundleSource
+  ] = await Promise.all([
+    stat(runtime.paths.cli),
+    stat(runtime.paths.hub),
+    readFile(runtime.paths.hub),
+    listProcesses(),
+    listEnabledPlugins(codexExecutable),
+    resolveCheckoutExtensionFingerprint(args.checkout),
+    readOptionalJson(runtime.hubRuntimeIdentityPath),
+    readOptionalText(developmentBundlePath)
+  ])
+  const developmentBundleFingerprint = developmentBundleSource
+    ? extractDevelopmentBundleFingerprint(developmentBundleSource)
+    : null
   const runtimeProcesses = evaluateRuntimeProcesses(runtime.paths, processes)
+  const hubBundleFingerprint = createHash('sha256').update(hubBundle).digest('hex')
   const pluginIdentity = evaluateTempadPluginIdentity(runtime.generatedVersion, plugins)
   const activeExtension = evaluateActiveExtensionRuntime(
     checkoutExtensionFingerprint,
     runtimeProcesses.hub,
-    hubRuntimeIdentity
+    hubRuntimeIdentity,
+    developmentBundleFingerprint
   )
   const issues = [...runtimeProcesses.issues, ...pluginIdentity.issues, ...activeExtension.issues]
 
@@ -476,6 +536,11 @@ export async function runPreflight(
       hub: {
         bundle: runtime.paths.hub,
         bundleModifiedAt: hubStat.mtime.toISOString(),
+        bundleFingerprint: hubBundleFingerprint,
+        processFingerprint: activeExtension.hubRuntimeFingerprint,
+        matchesBundle: activeExtension.hubRuntimeFingerprint
+          ? activeExtension.hubRuntimeFingerprint === hubBundleFingerprint
+          : null,
         processes: processEvidence(runtimeProcesses.hub)
       },
       extension: {

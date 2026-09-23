@@ -38,15 +38,18 @@ Root:
 - `pnpm test:coverage` (workspace coverage)
 - `pnpm mcp:check-bridge` (build the Hub and exercise legacy/current WebSocket peers through
   actual MCP calls, including assets, reconnects, upgrade errors, and task routing)
+  - Set `TEMPAD_MCP_BRIDGE_METRICS=1` to print UTF-8 sizes of the deterministic
+    Hub-to-extension, extension-to-Hub, and formatted MCP fixture responses.
 - `pnpm agent-plugin:check-installer` (networked discovery smoke test with `plugins@1.3.4`;
   run after `pnpm agent-plugin:build`, without installing into a host)
 - `pnpm --filter @tempad-dev/extension test:setup` (install extension browser runtime)
 - `pnpm --filter @tempad-dev/extension test:node` (extension node tests only)
 - `pnpm --filter @tempad-dev/extension test:browser` (extension browser tests only)
-- `pnpm agent-eval:authoring <rollout.jsonl> [...]` (inspect comparable rollout evidence)
+- `pnpm agent-eval:authoring <rollout.jsonl> [...]` (inspect comparable rollout evidence, including separate recorded tool-output text/image traffic and host token usage)
 - `pnpm agent-eval:preflight [--checkout <path>] [--app-path <path>]` (reject an absent or partial
   checkout runtime, inactive extension, or development plugin that does not match
-  the configured Codex desktop host before page creation)
+  the configured Codex desktop host before page creation; distinguish an active extension that
+  matches a stale development bundle from a browser reload that has not picked up a current bundle)
 - `pnpm agent-eval:skills <rollout.jsonl>` (fingerprint the presented skill catalog)
 - `pnpm agent-eval:log <start|finish|abandon|check|summary>` (retain the small amount
   of provenance needed to trust a live authoring run)
