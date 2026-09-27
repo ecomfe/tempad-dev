@@ -67,8 +67,8 @@ Design file is editable.
 
 ## Upgrading
 
-The canvas-authoring release pairs Agent Plugin **0.2.0**, TemPad Dev extension **0.21.0**, and
-MCP server **0.8.0**. Node.js **22.x, 24.x, or 26+** is required for the MCP server.
+The current release pairs Agent Plugin **0.2.1**, TemPad Dev extension **0.22.0**, and
+MCP server **0.9.0**. Node.js **22.x, 24.x, or 26+** is required for the MCP server.
 
 1. Update the browser extension and reload the Figma tab.
 2. Update the installed plugin through the client or installer used originally. With standalone
@@ -78,7 +78,8 @@ MCP server **0.8.0**. Node.js **22.x, 24.x, or 26+** is required for the MCP ser
    updated tools and skills. If a stale Hub is reported, close tasks using the old MCP server
    before reconnecting.
 4. Open TemPad Dev, enable **MCP access**, and click the MCP badge in the intended Figma tab when
-   a session choice is needed. The badge selects the file receiving tool calls.
+   a session choice is needed. The badge selects the default file; agents can also discover
+   connected sessions and target independent reads by exact session ID.
 
 ## Packaging source of truth
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.22.0
+
+- Improved code generation by reusing request-scoped text bindings, variable IDs, and style
+  lookups across scanning, formatting, and rendering, while removing duplicate text rendering work.
+- Bounded structure construction and automatic depth analysis instead of building a full tree
+  before truncation. Page context now participates in the final response budget.
+- Added lightweight page discovery and exact page-scoped component scans to `get_design_system`,
+  with explicit warnings when unscoped discovery may miss components on unloaded pages.
+- Reduced repeated work in design-system pagination, font selection, and token formatting.
+- Paired this release with MCP 0.9.0 and Agent Plugin 0.2.1 for exact-session reads and updated
+  discovery guidance.
+
 ## 0.21.1
 
 - Fixed the extension version display.

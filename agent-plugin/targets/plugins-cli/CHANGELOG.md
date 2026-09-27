@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+- Updated design-to-code recovery to select a connected Figma file by exact session ID instead
+  of requiring a manual MCP badge switch.
+- Updated design-system reuse guidance to discover page IDs and load a specific component page
+  when an unscoped catalog is incomplete.
+- Paired this release with extension 0.22.0 and MCP 0.9.0, retaining `@tempad-dev/mcp@latest`
+  in every release installation channel.
+
 ## 0.2.0
 
 - Routed the `plugins` CLI through its own hook-free compatibility package and marketplace,

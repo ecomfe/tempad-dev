@@ -1,6 +1,6 @@
 {
   "name": "@tempad-dev/extension",
-  "version": "0.21.1",
+  "version": "0.22.0",
   "private": true,
   "description": "Create, edit, and implement Figma designs with your coding agent.",
   "type": "module",

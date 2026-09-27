@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0
+
+- Added optional exact `sessionId` targeting to independent code, structure, screenshot,
+  and design-system reads without changing the active MCP badge.
+- Kept task-bound reads on their original extension connection, including when another connection
+  reports the same session ID, and rejected attempts to override the task's target session.
+- Exposed lightweight page listing and exact page-scoped component discovery with extension 0.22.0.
+- Allowed initial design-system discovery and explicit page structure reads up to 45 seconds for
+  cold-page loading, while preserving the shorter deadlines for ordinary reads and continuation.
+- Preserved valid code and screenshot responses when optional local asset paths alone would
+  exceed the inline budget, falling back to the existing asset URLs.
+- Simplified always-on agent instructions and retained compatibility with released extension
+  read/export paths. Use Agent Plugin 0.2.1 for the updated discovery and recovery guidance.
+
 ## 0.8.0
 
 - Added native Codex server-queue admission and targeted cancellation through an

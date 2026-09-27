@@ -52,7 +52,7 @@ Notes:
 - Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
 - `apply_canvas` is available whenever MCP access is enabled and the current Figma Design file is
   editable. Dev Mode and view-only files remain read-only.
-- MCP **0.8.0** pairs with extension **0.21.0** and Agent Plugin **0.2.0**. Update the extension
+- MCP **0.9.0** pairs with extension **0.22.0** and Agent Plugin **0.2.1**. Update the extension
   and installed skills, replace any alpha-pinned MCP configuration with `@tempad-dev/mcp@latest`,
   then reconnect the MCP client and start a new task. See the
   [upgrade guide](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src#upgrading).

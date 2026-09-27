@@ -93,8 +93,8 @@ Codex App 的任务绑定和状态同步使用 MCP 元数据及原生 IPC，不�
 
 ## 升级
 
-本次画布创作版本应配套使用 Agent Plugin **0.2.0**、TemPad Dev 扩展 **0.21.0** 和 MCP
-server **0.8.0**。MCP server 要求 Node.js **22.x、24.x 或 26+**。
+当前版本应配套使用 Agent Plugin **0.2.1**、TemPad Dev 扩展 **0.22.0** 和 MCP
+server **0.9.0**。MCP server 要求 Node.js **22.x、24.x 或 26+**。
 
 1. 更新浏览器扩展，并重新加载 Figma 标签页。
 2. 通过原先使用的客户端或安装器更新 plugin。独立配置时，请同时更新
@@ -103,7 +103,8 @@ server **0.8.0**。MCP server 要求 Node.js **22.x、24.x 或 26+**。
    重新连接 MCP client 并新建任务，以加载更新后的工具和 skill。若提示 Hub 过期，请先关闭
    使用旧 MCP server 的任务，再重新连接。
 4. 打开 TemPad Dev 并启用 **MCP access**；需要选择会话时，点击目标 Figma 标签页内的 MCP
-   badge。实际接收工具调用的文件由该 badge 选择。
+   badge。该 badge 选择默认文件；agent 也可以发现已连接会话，并通过精确 session ID
+   指定独立读取的目标。
 
 ## 封装内容源
 
