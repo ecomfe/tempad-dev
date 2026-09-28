@@ -63,18 +63,12 @@ implementation.
 
 ### 2. Read the design at the requested scope
 
-If multiple top-level designs are selected, call `get_structure` with
-`options.depth: 1` to discover their root IDs, then call `get_code` separately
-for each requested root. Use this outline only for selection discovery and
-hierarchy. If `truncated` is true, narrow the selection before treating the
-root list as complete.
-
-For each single design root, call TemPad Dev's `get_code` before implementing:
+Call TemPad Dev's `get_code` directly for the requested selection before implementing:
 
 - use `resolveTokens: false` by default;
-- omit `nodeId` for the current single selection; pass one only when the user
-  supplied it or TemPad returned the exact ID for a targeted read inside the
-  user's established scope;
+- omit `nodeId` and `nodeIds` for the current selection, including multiple nodes;
+  pass exact IDs only when the user supplied them or TemPad returned them inside
+  the user's established scope;
 - set `preferredLang` from the established project target;
 - keep TemPad's default vector behavior unless the user explicitly requests
   asset-preserving vector fidelity and the active MCP version supports it.
@@ -86,6 +80,12 @@ configuration may override `preferredLang`.
 Retain the returned `code`, `lang`, `warnings`, `assets`, `tokens`, and
 `codegen` facts that bear on the implementation. Use
 `codegen.config.{cssUnit,rootFontSize,scale}` for exact unit conversion.
+
+For a multi-node response, read each `results` entry by `nodeId` and retain that
+root's own metadata. Continue `remainingNodeIds` with `nodeIds` and the same
+options until the requested roots are covered. Handle per-node errors through
+[recovery.md](references/recovery.md); successful peers remain usable. No
+`get_structure` discovery call is needed just because the selection is plural.
 
 Prefer one top-level read that preserves the requested composition. If the
 tool is unavailable, points at the wrong file, or returns incomplete evidence,

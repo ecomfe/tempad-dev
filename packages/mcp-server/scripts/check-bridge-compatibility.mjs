@@ -246,6 +246,10 @@ try {
   for (const [name, args] of [
     ['get_structure', { pageId: 'page-a' }],
     ['get_structure', { options: { native: true } }],
+    ['get_structure', { options: { depth: 0 } }],
+    ['get_structure', { nodeIds: ['1:2', '1:3'] }],
+    ['get_code', { nodeIds: ['1:2', '1:3'] }],
+    ['get_screenshot', { nodeIds: ['1:2'] }],
     ['get_design_system', {}],
     ['manage_design_task', { action: 'begin', title: 'Unavailable', requestId: randomUUID() }],
     ['list_design_sessions', {}],
@@ -320,6 +324,66 @@ try {
   assert.equal(currentCode.isError, undefined, JSON.stringify(currentCode))
   assert.equal(currentCode.structuredContent.code, modernCodePayload.code)
   recordBridgeMetric('current_get_code', modern, modernCodePayload, currentCode)
+  const batchCode = {
+    results: [
+      { nodeId: '1:2', result: modernCodePayload },
+      { nodeId: '1:3', error: { code: 'NODE_NOT_VISIBLE', message: 'Hidden node' } }
+    ],
+    remainingNodeIds: ['1:4']
+  }
+  modern.respond = () => batchCode
+  const batchArgs = { nodeIds: ['1:2', '1:3', '1:4'], preferredLang: 'jsx' }
+  const batchResponse = await call('get_code', batchArgs)
+  assert.equal(batchResponse.isError, undefined)
+  assert.deepEqual(modern.calls.at(-1).payload.args, batchArgs)
+  assert.deepEqual(batchResponse.structuredContent.remainingNodeIds, ['1:4'])
+  assert.deepEqual(batchResponse.structuredContent.results[1], batchCode.results[1])
+  assert.deepEqual(
+    await readFile(batchResponse.structuredContent.results[0].result.assets[0].localPath),
+    bytes
+  )
+  const batchScreenshot = {
+    results: [
+      {
+        nodeId: '1:2',
+        result: {
+          format: 'png',
+          width: 1,
+          height: 1,
+          scale: 1,
+          bytes: bytes.length,
+          asset: modernCodePayload.assets[0]
+        }
+      }
+    ]
+  }
+  modern.respond = () => batchScreenshot
+  const screenshots = await call('get_screenshot', { nodeIds: ['1:2'] })
+  assert.equal(screenshots.content.filter(({ type }) => type === 'resource_link').length, 1)
+  assert.deepEqual(
+    await readFile(screenshots.structuredContent.results[0].result.asset.localPath),
+    bytes
+  )
+  const nearBudgetBatch = { results: [{ nodeId: '1:2', result: { ...modernCodePayload } }] }
+  low = 0
+  high = MCP_TOOL_INLINE_BUDGET_BYTES
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2)
+    nearBudgetBatch.results[0].result.code = 'x'.repeat(middle)
+    if (
+      measureCallToolResultBytes(buildGetCodeToolResult(nearBudgetBatch)) <=
+      MCP_TOOL_INLINE_BUDGET_BYTES
+    )
+      low = middle
+    else high = middle - 1
+  }
+  nearBudgetBatch.results[0].result.code = 'x'.repeat(low)
+  modern.respond = () => nearBudgetBatch
+  const boundedBatch = await call('get_code', { nodeIds: ['1:2'] })
+  assert.equal(boundedBatch.isError, undefined)
+  assert.equal(boundedBatch.structuredContent.results[0].result.assets[0].localPath, undefined)
+  assert.ok(measureCallToolResultBytes(boundedBatch) <= MCP_TOOL_INLINE_BUDGET_BYTES)
+  modern.respond = immediateResponse
   send(modern, {
     type: 'sessions',
     browserId: 'browser-a',

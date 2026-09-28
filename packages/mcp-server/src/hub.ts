@@ -25,6 +25,7 @@ import {
   DesignTaskSchema,
   GetAssetsResultSchema,
   MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES,
+  MCP_NODE_READ_BATCH_WORK_BUDGET_MS,
   MCP_TOOL_INLINE_BUDGET_BYTES,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_ERROR_CODES,
@@ -674,6 +675,12 @@ function registerProxiedTool<T extends ExtensionTool>(
       } else if (tool.name === 'apply_canvas') {
         timeoutMs = applyCanvasTimeoutMs
       }
+      if (
+        (tool.name === 'get_code' || tool.name === 'get_screenshot') &&
+        !getRecordProperty(parsedArgs, 'nodeId')
+      ) {
+        timeoutMs += MCP_NODE_READ_BATCH_WORK_BUDGET_MS
+      }
       // Task-bound calls must always resolve their original target. Legacy reads are
       // available only when that unversioned connection is explicitly the active route.
       const legacy = !taskId && !explicitSessionId ? extensionRegistry.getActive() : undefined
@@ -855,10 +862,39 @@ function createToolResponse<Name extends ToolName>(
   const enrichedPayload = (() => {
     if (toolName === 'get_screenshot' && includeLocalAssetPaths) {
       const screenshot = payload as ToolResultMap['get_screenshot']
+      if ('results' in screenshot) {
+        return {
+          ...screenshot,
+          results: screenshot.results.map((entry) =>
+            entry.result
+              ? {
+                  ...entry,
+                  result: { ...entry.result, asset: addLocalAssetPath(entry.result.asset) }
+                }
+              : entry
+          )
+        }
+      }
       return { ...screenshot, asset: addLocalAssetPath(screenshot.asset) }
     }
     if (toolName === 'get_code' && includeLocalAssetPaths) {
       const code = payload as ToolResultMap['get_code']
+      if ('results' in code) {
+        return {
+          ...code,
+          results: code.results.map((entry) =>
+            entry.result?.assets
+              ? {
+                  ...entry,
+                  result: {
+                    ...entry.result,
+                    assets: entry.result.assets.map((asset) => addLocalAssetPath(asset))
+                  }
+                }
+              : entry
+          )
+        }
+      }
       return code.assets
         ? { ...code, assets: code.assets.map((asset) => addLocalAssetPath(asset)) }
         : code

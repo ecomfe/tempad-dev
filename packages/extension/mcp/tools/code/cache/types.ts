@@ -86,6 +86,7 @@ export type CacheMetrics = {
 }
 
 export type GetCodeCacheContext = {
+  rawCss: Map<string, Promise<Record<string, string>>>
   readers: FigmaLookupReaders
   variables: Map<string, Variable | null>
   styles: Map<string, BaseStyle | null>

@@ -22,8 +22,8 @@ function mockOutline(roots: unknown[], physicalNodes: SceneNode[] = []): void {
 }
 
 describe('mcp/tools/structure', () => {
-  it('uses undefined depth when input depth is falsy and returns outline payload', () => {
-    mockOutline([{ id: 'outline-1' }])
+  it('passes root-only depth through and returns the exact root outline', () => {
+    mockOutline([{ id: 'node-1' }])
 
     const result = handleGetStructure([{ id: 'node-1', visible: true } as unknown as SceneNode], 0)
 
@@ -35,7 +35,7 @@ describe('mcp/tools/structure', () => {
     expect(result).toEqual({
       roots: [
         {
-          id: 'outline-1',
+          id: 'node-1',
           name: '',
           type: 'UNKNOWN',
           x: 0,
@@ -166,7 +166,54 @@ describe('mcp/tools/structure', () => {
     expect(result.roots[0]).not.toHaveProperty('authoringKey')
     expect(result.roots[0]?.children?.[0]).not.toHaveProperty('authoringKey')
     expect(child.getSharedPluginData).not.toHaveBeenCalled()
-    expect(trailingIdRead).not.toHaveBeenCalled()
+    expect(result.remainingNodeIds).toEqual(['trailing-1'])
+    expect(trailing.getSharedPluginData).not.toHaveBeenCalled()
+  })
+
+  it('keeps exact roots through node and byte compaction, reporting omitted roots', async () => {
+    const { buildBoundedStructureOutline: buildActualOutline } =
+      await vi.importActual<typeof import('@/mcp/semantic-tree')>('@/mcp/semantic-tree')
+    vi.mocked(buildBoundedStructureOutline).mockImplementationOnce(buildActualOutline)
+    const node = (id: string, children?: SceneNode[]): SceneNode =>
+      ({
+        id,
+        name: id,
+        type: 'GROUP',
+        visible: true,
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        ...(children ? { children } : {})
+      }) as unknown as SceneNode
+    const result = handleGetStructure(
+      [
+        node(
+          'large',
+          Array.from({ length: 300 }, (_, i) => node(`child-${i}`))
+        ),
+        node('selected-wrapper', [node('not-the-selected-root')])
+      ],
+      1
+    )
+    expect(result.roots.map(({ id }) => id)).toEqual(['large', 'selected-wrapper'])
+    expect(result.truncated).toBe(true)
+    expect(result.remainingNodeIds).toBeUndefined()
+
+    vi.mocked(buildBoundedStructureOutline).mockImplementationOnce(buildActualOutline)
+    const manyRoots = Array.from({ length: 245 }, (_, i) => node(`root-${i}`))
+    const bounded = handleGetStructure(manyRoots, 0)
+    expect(bounded.roots).toHaveLength(240)
+    expect(bounded.remainingNodeIds).toEqual([
+      'root-240',
+      'root-241',
+      'root-242',
+      'root-243',
+      'root-244'
+    ])
+    expect(measureCallToolResultBytes(buildGetStructureToolResult(bounded))).toBeLessThanOrEqual(
+      MCP_TOOL_INLINE_BUDGET_BYTES
+    )
   })
 
   it('does not expose an inherited key when an instance descendant is the root', () => {
@@ -329,6 +376,23 @@ describe('mcp/tools/structure', () => {
     expect(result.truncated).toBe(true)
     expect(result.roots[0]?.name.length).toBeLessThanOrEqual(48)
     expect(result.roots[0]?.x).toBe(0.1)
+  })
+
+  it('keeps later roots when byte compaction discards a first root’s descendants', () => {
+    mockOutline([
+      {
+        id: 'first',
+        children: Array.from({ length: 235 }, (_, i) => ({ id: `child-${i}-${'x'.repeat(300)}` }))
+      },
+      { id: 'second' }
+    ])
+    const result = handleGetStructure([])
+    expect(result.roots.map(({ id }) => id)).toEqual(['first', 'second'])
+    expect(result.truncated).toBe(true)
+    expect(countNodes(result.roots)).toBeLessThan(237)
+    expect(measureCallToolResultBytes(buildGetStructureToolResult(result))).toBeLessThanOrEqual(
+      MCP_TOOL_INLINE_BUDGET_BYTES
+    )
   })
 
   it('includes page metadata in the inline budget before choosing a node limit', () => {

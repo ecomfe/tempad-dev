@@ -1,82 +1,32 @@
 import type {
   GetCodeParametersInput,
-  GetCodeResult,
+  GetCodeReadResult,
   GetScreenshotParametersInput,
-  GetScreenshotResult,
+  GetScreenshotReadResult,
   GetStructureParametersInput,
   GetStructureResult,
   GetTokenDefsParametersInput,
   GetTokenDefsResult
 } from '@tempad-dev/shared'
 
-import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
+import {
+  TEMPAD_MCP_ERROR_CODES,
+  buildGetCodeToolResult,
+  buildGetScreenshotToolResult
+} from '@tempad-dev/shared'
 
 import type { GetCodeRuntimeOptions } from './tools/code'
 
-import { createCodedError } from './errors'
+import { coerceToolErrorPayload, createCodedError } from './errors'
+import { readNodeBatch, resolveReadTargets, singleReadTarget } from './node-reads'
 import { handleApplyCanvas } from './tools/canvas'
 import { pageById, pageSnapshot, pagesByKey } from './tools/canvas/identity'
 import { handleGetCode as runGetCode } from './tools/code'
+import { createGetCodeCacheContext } from './tools/code/cache'
 import { handleGetDesignSystem } from './tools/design-system'
 import { handleGetScreenshot as runGetScreenshot } from './tools/screenshot'
 import { handleGetStructure as runGetStructure } from './tools/structure'
 import { handleGetTokenDefs as runGetTokenDefs } from './tools/token'
-
-function isSceneNode(node: BaseNode | null): node is SceneNode {
-  return !!node && 'visible' in node && 'type' in node
-}
-
-function resolveSingleNode(nodeId?: string): SceneNode {
-  if (nodeId) {
-    const node = figma.getNodeById(nodeId)
-    if (!node) {
-      throw createCodedError(
-        TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
-        `Node "${nodeId}" does not exist in the current document.`
-      )
-    }
-    if (!isSceneNode(node)) {
-      throw createCodedError(
-        TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
-        `Node "${nodeId}" exists but is not a supported scene node.`
-      )
-    }
-    if (!node.visible) {
-      throw createCodedError(
-        TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
-        `Node "${nodeId}" exists but is hidden.`
-      )
-    }
-    return node
-  }
-
-  const currentSelection = figma.currentPage.selection
-  const [selectedNode] = currentSelection
-  if (currentSelection.length !== 1 || !selectedNode?.visible) {
-    throw createCodedError(
-      TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION,
-      'Select exactly one visible node (or provide nodeId) to proceed.'
-    )
-  }
-
-  return selectedNode
-}
-
-function resolveVisibleNodes(nodeId?: string): SceneNode[] {
-  if (nodeId) {
-    return [resolveSingleNode(nodeId)]
-  }
-
-  const currentSelection = figma.currentPage.selection
-  if (!currentSelection.length || currentSelection.some((node) => !node.visible)) {
-    throw createCodedError(
-      TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION,
-      'Select one or more visible nodes (or provide nodeId) to proceed.'
-    )
-  }
-
-  return [...currentSelection]
-}
 
 export type WindowGetCodeParametersInput = GetCodeParametersInput & {
   _unbounded?: boolean
@@ -85,13 +35,33 @@ export type WindowGetCodeParametersInput = GetCodeParametersInput & {
 async function handleGetCode(
   args?: GetCodeParametersInput,
   runtimeOptions?: GetCodeRuntimeOptions
-): Promise<GetCodeResult> {
-  const node = resolveSingleNode(args?.nodeId)
+): Promise<GetCodeReadResult> {
+  const { targets, batch } = resolveReadTargets(args)
   const { preferredLang, resolveTokens, vectorMode } = args ?? {}
-  return runGetCode([node], preferredLang, resolveTokens, vectorMode, runtimeOptions)
+  if (!batch)
+    return runGetCode(
+      [singleReadTarget(targets)],
+      preferredLang,
+      resolveTokens,
+      vectorMode,
+      runtimeOptions
+    )
+  const cache = createGetCodeCacheContext()
+  return readNodeBatch(
+    targets,
+    (node, formatResult) =>
+      runGetCode([node], preferredLang, resolveTokens, vectorMode, {
+        ...runtimeOptions,
+        cache,
+        formatResult
+      }),
+    buildGetCodeToolResult
+  )
 }
 
-async function handleWindowGetCode(args?: WindowGetCodeParametersInput): Promise<GetCodeResult> {
+async function handleWindowGetCode(
+  args?: WindowGetCodeParametersInput
+): Promise<GetCodeReadResult> {
   const { _unbounded, ...rest } = args ?? {}
   return handleGetCode(rest, {
     unbounded: _unbounded
@@ -108,17 +78,23 @@ async function handleGetTokenDefs(args?: GetTokenDefsParametersInput): Promise<G
 
 async function handleGetScreenshot(
   args?: GetScreenshotParametersInput
-): Promise<GetScreenshotResult> {
-  const node = resolveSingleNode(args?.nodeId)
-  return runGetScreenshot(node)
+): Promise<GetScreenshotReadResult> {
+  const { targets, batch } = resolveReadTargets(args)
+  if (!batch) return runGetScreenshot(singleReadTarget(targets))
+  return readNodeBatch(targets, (node) => runGetScreenshot(node), buildGetScreenshotToolResult)
 }
 
 async function handleGetStructure(args?: GetStructureParametersInput): Promise<GetStructureResult> {
-  const { nodeId, pageId, pageKey, options } = args ?? {}
+  const { pageId, pageKey, options } = args ?? {}
   const depth = options?.depth
   if (!pageId && !pageKey) {
-    const roots = resolveVisibleNodes(nodeId)
-    return runGetStructure(roots, depth, options?.native)
+    const { targets, batch } = resolveReadTargets(args)
+    if (!batch) return runGetStructure([singleReadTarget(targets)], depth, options?.native)
+    const roots = targets.flatMap((target) => (target.node ? [target.node] : []))
+    const errors = targets.flatMap((target) =>
+      target.error ? [{ nodeId: target.nodeId, error: coerceToolErrorPayload(target.error) }] : []
+    )
+    return runGetStructure(roots, depth, options?.native, undefined, errors)
   }
 
   const idMatch = pageId ? pageById(pageId) : undefined
@@ -159,7 +135,7 @@ export const MCP_TOOL_HANDLERS = {
 export type MCPHandlers = typeof MCP_TOOL_HANDLERS
 
 export type TempadWindowHandlers = Omit<MCPHandlers, 'get_code'> & {
-  get_code: (args?: WindowGetCodeParametersInput) => Promise<GetCodeResult>
+  get_code: (args?: WindowGetCodeParametersInput) => Promise<GetCodeReadResult>
 }
 
 declare global {

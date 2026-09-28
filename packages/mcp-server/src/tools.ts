@@ -2,6 +2,9 @@ import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/
 import type {
   DesignTask,
   GetAssetsResult,
+  GetCodeResult,
+  GetScreenshotResult,
+  NodeReadBatchResult,
   TempadMcpErrorCode,
   ToolName,
   ToolResponseLike,
@@ -131,10 +134,8 @@ const CONNECTIVITY_TROUBLESHOOTING_LINES = [
   '- If the connection is missing or reports a protocol mismatch, rebuild the affected runtime layers, reload the installed TemPad Dev browser extension, reload the same Figma tab, and start a fresh task.'
 ]
 
-const SINGLE_SELECTION_TROUBLESHOOTING_LINE =
-  'Tip: Select exactly one visible node, or pass nodeId.'
 const MULTI_SELECTION_TROUBLESHOOTING_LINE =
-  'Tip: Select one or more visible nodes, or pass nodeId.'
+  'Tip: Select one or more visible nodes, or pass nodeIds (nodeId for a single node).'
 const VERIFICATION_TROUBLESHOOTING_LINE =
   'Tip: TemPad rolls verification failures back. Correct the reported desired-state mismatch and retry the affected root while preserving unrelated design intent.'
 
@@ -195,7 +196,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_code',
     description:
-      'Read implementation evidence for an existing Figma node or the current single selection as JSX/Vue markup, classes, tokens, assets, codegen facts, and bounded warnings.',
+      'Read implementation evidence for exact nodeId/nodeIds or the current selection as JSX/Vue markup, classes, tokens, assets, codegen facts, and bounded warnings. Multi-selection and explicit nodeIds return independent results keyed by nodeId, including per-node errors. Continue remainingNodeIds with nodeIds and the same options. Single-node calls retain the flat result.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetCodeParametersSchema,
     target: 'extension',
@@ -232,7 +233,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_screenshot',
     description:
-      'Capture one bounded rendered PNG asset for an exact node or the current single selection.',
+      'Capture a bounded rendered PNG per exact nodeId/nodeIds or selected node. Multi-selection and explicit nodeIds return independent results keyed by nodeId, including per-node errors. Continue remainingNodeIds with nodeIds. Single-node calls retain the flat result. Open each returned PNG to visually verify it.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetScreenshotParametersSchema,
     target: 'extension',
@@ -241,7 +242,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_structure',
     description:
-      "Read a compact hierarchy and geometry outline for an exact node, exact page id/key, or the current selection of one or more visible nodes. Every x/y is relative to the node's actual Figma parent; page-query roots are page-relative. The outline includes stable keys on TemPad-managed nodes and exact page context when page identity is supplied. Set options.native for selected native read-back; it does not provide rendered pixels or general appearance.",
+      "Read a compact hierarchy and geometry outline for exact nodeId/nodeIds, exact page id/key, or the current selection. Exact roots are preserved before descendants consume the budget; options.depth: 0 returns roots only. Inspect errors and continue remainingNodeIds with nodeIds. Every x/y is relative to the node's actual Figma parent; page-query roots are page-relative. Includes stable keys on TemPad-managed nodes and exact page context for page queries. Set options.native for selected native read-back; this does not provide rendered pixels or general appearance.",
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetStructureParametersSchema,
     target: 'extension',
@@ -294,7 +295,7 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
   const message = extractToolErrorMessage(error)
   const code = extractToolErrorCode(error)
   const codeLabel = code ? ` [${code}]` : ''
-  const troubleshooting = buildTroubleshootingText(toolName, code, message)
+  const troubleshooting = buildTroubleshootingText(code, message)
 
   return {
     isError: true,
@@ -307,11 +308,7 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
   }
 }
 
-function buildTroubleshootingText(
-  toolName: string,
-  code: TempadMcpErrorCode | undefined,
-  message: string
-): string {
+function buildTroubleshootingText(code: TempadMcpErrorCode | undefined, message: string): string {
   const help: string[] = []
 
   if (isConnectivityToolError(code, message)) {
@@ -319,11 +316,7 @@ function buildTroubleshootingText(
   }
 
   if (isSelectionToolError(code, message)) {
-    help.push(
-      toolName === 'get_structure'
-        ? MULTI_SELECTION_TROUBLESHOOTING_LINE
-        : SINGLE_SELECTION_TROUBLESHOOTING_LINE
-    )
+    help.push(MULTI_SELECTION_TROUBLESHOOTING_LINE)
   }
 
   if (code === TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC && /verification failed/i.test(message)) {
@@ -352,7 +345,13 @@ function isSelectionToolError(code: TempadMcpErrorCode | undefined, message: str
 }
 
 export function createCodeToolResponse(payload: ToolResultMap['get_code']): CallToolResult {
-  return formatToolResult('get_code', payload, isCodeResult, buildGetCodeToolResult)
+  return formatToolResult(
+    'get_code',
+    payload,
+    (value): value is ToolResultMap['get_code'] =>
+      isCodeResult(value) || isNodeReadBatchResult(value, isCodeResult),
+    buildGetCodeToolResult
+  )
 }
 
 export function createDesignSystemToolResponse(
@@ -390,7 +389,8 @@ export function createScreenshotToolResponse(
   return formatToolResult(
     'get_screenshot',
     payload,
-    isScreenshotResult,
+    (value): value is ToolResultMap['get_screenshot'] =>
+      isScreenshotResult(value) || isNodeReadBatchResult(value, isScreenshotResult),
     buildGetScreenshotToolResult
   )
 }
@@ -405,7 +405,7 @@ function formatToolResult<Result>(
   return toCallToolResult(build(payload))
 }
 
-function isScreenshotResult(payload: unknown): payload is ToolResultMap['get_screenshot'] {
+function isScreenshotResult(payload: unknown): payload is GetScreenshotResult {
   return (
     isRecord(payload) &&
     isRecord(payload.asset) &&
@@ -425,12 +425,37 @@ function isApplyCanvasResult(payload: unknown): payload is ToolResultMap['apply_
   return ApplyCanvasResultSchema.safeParse(payload).success
 }
 
-function isCodeResult(payload: unknown): payload is ToolResultMap['get_code'] {
+function isCodeResult(payload: unknown): payload is GetCodeResult {
   return (
     isRecord(payload) &&
     typeof payload.code === 'string' &&
     typeof payload.lang === 'string' &&
     (payload.assets === undefined || Array.isArray(payload.assets))
+  )
+}
+
+function isNodeReadBatchResult<T>(
+  payload: unknown,
+  isResult: (value: unknown) => value is T
+): payload is NodeReadBatchResult<T> {
+  return (
+    isRecord(payload) &&
+    Array.isArray(payload.results) &&
+    (payload.remainingNodeIds === undefined ||
+      (Array.isArray(payload.remainingNodeIds) &&
+        payload.remainingNodeIds.every((id) => typeof id === 'string' && id.length > 0))) &&
+    payload.results.every(
+      (entry) =>
+        isRecord(entry) &&
+        typeof entry.nodeId === 'string' &&
+        entry.nodeId.length > 0 &&
+        (entry.error === undefined
+          ? isResult(entry.result)
+          : entry.result === undefined &&
+            isRecord(entry.error) &&
+            typeof entry.error.message === 'string' &&
+            (entry.error.code === undefined || isTempadMcpErrorCode(entry.error.code)))
+    )
   )
 }
 

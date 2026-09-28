@@ -174,25 +174,27 @@ describe('mcp/semantic-tree', () => {
       ]
       const outline = buildBoundedStructureOutline(roots, depthLimit, 240)
 
-      expect(ids(outline.roots)).toEqual([
-        [
-          'branch',
-          [
-            ['first', []],
-            [depthLimit === 1 ? 'inner' : 'second', []],
-            ['mask', depthLimit === 1 ? [] : [['masked', []]]]
-          ]
-        ],
-        ['sibling', []]
-      ])
-      expect(outline.observedNodes).toBe(depthLimit === 1 ? 5 : 6)
-      expect(outline.physicalNodes.map((node) => node.id)).toEqual(
+      const branchChildren =
         depthLimit === 1
-          ? ['branch', 'first', 'inner', 'mask', 'sibling']
-          : ['branch', 'first', 'second', 'mask', 'masked', 'sibling']
+          ? []
+          : [
+              ['first', []],
+              [depthLimit === 2 ? 'inner' : 'second', []],
+              ['mask', depthLimit === 2 ? [] : [['masked', []]]]
+            ]
+      expect(ids(outline.roots)).toEqual([
+        ['outer', depthLimit === 0 ? [] : [['branch', branchChildren]]],
+        ['sibling-wrapper', depthLimit === 0 ? [] : [['sibling', []]]]
+      ])
+      expect(outline.observedNodes).toBe(
+        depthLimit === 0 ? 2 : depthLimit === 1 ? 4 : depthLimit === 2 ? 7 : 8
       )
-      expect(outline.roots[0]?.children?.[0]?.x).toBe(12)
-      if (depthLimit !== 1) expect(outline.roots[0]?.children?.[1]?.y).toBe(18)
+      expect(outline.physicalNodes.slice(0, 2).map((node) => node.id)).toEqual([
+        'outer',
+        'sibling-wrapper'
+      ])
+      if (depthLimit === undefined)
+        expect(outline.roots[0]?.children?.[0]?.children?.[1]?.y).toBe(18)
     }
   )
 
@@ -275,7 +277,7 @@ describe('mcp/semantic-tree', () => {
     expect(visibilityReads).toBeLessThan(500)
   })
 
-  it('reuses the only visible child when flattening a sparse wide wrapper', () => {
+  it('preserves an exact root even when it is a sparse wrapper', () => {
     let visibilityReads = 0
     const children = Array.from({ length: 10_000 }, (_, index) => {
       const child = createNode('RECTANGLE', `${index}`)
@@ -291,8 +293,33 @@ describe('mcp/semantic-tree', () => {
 
     const outline = buildBoundedStructureOutline([root], 2, 240)
 
-    expect(outline.roots.map((node) => node.id)).toEqual(['9999'])
-    expect(outline.observedNodes).toBe(1)
+    expect(ids(outline.roots)).toEqual([['wrapper', [['9999', []]]]])
+    expect(outline.observedNodes).toBe(2)
     expect(visibilityReads).toBe(10_001)
+  })
+
+  it('reserves all selected roots before a wide first subtree consumes the node cap', () => {
+    const roots = [
+      createNode(
+        'FRAME',
+        'large',
+        {},
+        Array.from({ length: 300 }, (_, i) => createNode('RECTANGLE', `child-${i}`))
+      ),
+      createNode('GROUP', 'group', {}, [createNode('RECTANGLE', 'only-child')])
+    ]
+    const outline = buildBoundedStructureOutline(roots, 1, 240)
+    expect(outline.roots.map(({ id }) => id)).toEqual(['large', 'group'])
+    expect(outline.observedNodes).toBe(241)
+    expect(outline.physicalNodes).toHaveLength(240)
+    expect(
+      buildBoundedStructureOutline(roots, 0, 240).roots.map(({ id, children }) => ({
+        id,
+        children
+      }))
+    ).toEqual([
+      { id: 'large', children: undefined },
+      { id: 'group', children: undefined }
+    ])
   })
 })

@@ -2,7 +2,8 @@ import type {
   AssetDescriptor,
   GetCodeParametersInput,
   GetCodeResult,
-  GetTokenDefsResult
+  GetTokenDefsResult,
+  ToolResponseLike
 } from '@tempad-dev/shared'
 
 import { MCP_TOOL_INLINE_BUDGET_BYTES, buildGetCodeToolResult } from '@tempad-dev/shared'
@@ -16,6 +17,7 @@ import { simplifyColorMixToRgba } from '@/utils/css'
 import { logger } from '@/utils/log'
 
 import type { SvgEntry } from './assets'
+import type { GetCodeCacheContext } from './cache'
 import type { VisibleTree } from './model'
 import type { CodeLanguage, RenderContext } from './render'
 import type { PluginComponent } from './render/plugin'
@@ -118,6 +120,8 @@ type PipelineOutput = {
 
 export type GetCodeRuntimeOptions = {
   unbounded?: boolean
+  formatResult?: (result: GetCodeResult) => ToolResponseLike
+  cache?: GetCodeCacheContext
 }
 
 type RenderStep = 'render' | 'stringify' | 'transform'
@@ -161,6 +165,7 @@ export async function handleGetCode(
   const maxResultBytes = runtimeOptions.unbounded
     ? Number.MAX_SAFE_INTEGER
     : MCP_TOOL_INLINE_BUDGET_BYTES
+  const formatResult = runtimeOptions.formatResult ?? buildGetCodeToolResult
   const budgetPreflight = preflightGetCodeBudget(tree, rootId, {
     maxResultBytes,
     pluginEnabled: !!pluginCode,
@@ -169,8 +174,8 @@ export async function handleGetCode(
   const earlyShell = budgetPreflight.kind === 'shell'
 
   t = now()
-  const variableCache = new Map<string, Variable | null>()
-  const cache = createGetCodeCacheContext(variableCache, { metrics: measure })
+  const cache = runtimeOptions.cache ?? createGetCodeCacheContext(undefined, { metrics: measure })
+  const variableCache = cache.variables
   const nodeVariableIds = new Map<string, ReadonlySet<string>>()
   const mappings = collectCandidateVariableIds(nodes, variableCache, cache.readers, {
     traverseChildren: !earlyShell,
@@ -279,7 +284,7 @@ export async function handleGetCode(
     })
     const assets = selectAssetsForCode(allAssets, shell.code, videoPreviewAssetHashes)
     const result = buildCodeResult(shell, codegen, assets, undefined, warnings)
-    assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
+    assertToolResponseWithinBudget(formatResult(result), maxResultBytes)
     if (trace) {
       logTrace(
         trace,
@@ -303,7 +308,7 @@ export async function handleGetCode(
     })
     const assets = selectAssetsForCode(allAssets, output.code, videoPreviewAssetHashes)
     const result = buildCodeResult(output, codegen, assets, literalClusters, warnings)
-    assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
+    assertToolResponseWithinBudget(formatResult(result), maxResultBytes)
 
     if (trace) {
       logTrace(
@@ -339,7 +344,7 @@ export async function handleGetCode(
     const result = buildCodeResult(shell, codegen, assets, undefined, warnings)
 
     try {
-      assertToolResponseWithinBudget(buildGetCodeToolResult(result), maxResultBytes)
+      assertToolResponseWithinBudget(formatResult(result), maxResultBytes)
     } catch (shellError) {
       if (shellError instanceof CodeBudgetExceededError) {
         throw error

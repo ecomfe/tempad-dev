@@ -8,6 +8,7 @@ import {
 } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { readNodeBatch } from '@/mcp/node-reads'
 import { handleGetCode } from '@/mcp/tools/code'
 import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 
@@ -208,7 +209,7 @@ describe('mcp/code handleGetCode', () => {
       }
     ])
     expect(unresolved.warnings?.map((warning) => warning.type)).toEqual(['literal-cluster'])
-    expect(unresolved.warnings?.[0]?.message).toContain('structuredContent.literalClusters')
+    expect(unresolved.warnings?.[0]?.message).toContain('literalClusters')
     expect(resolved.literalClusters).toBeUndefined()
     expect(resolved.warnings).toBeUndefined()
   })
@@ -479,6 +480,28 @@ describe('mcp/code handleGetCode', () => {
     await expect(
       handleGetCode([{ id: 'root', visible: true } as SceneNode], 'jsx', false)
     ).rejects.toThrow('Tool result exceeds inline budget')
+  })
+
+  it('defers a later root without shell degradation when the batch is full', async () => {
+    const root = createSnapshot({ id: 'root', children: ['child'] })
+    const tree = createTree([root, createSnapshot({ id: 'child', parentId: 'root' })])
+    mockAssetCollection(tree, [], new Set())
+    mocks.renderTree.mockResolvedValue(raw('X'.repeat(40_000)))
+    const targets = ['first', 'second'].map((nodeId) => ({
+      nodeId,
+      node: { id: nodeId, visible: true } as SceneNode
+    }))
+    const result = await readNodeBatch(
+      targets,
+      (node, formatResult) => handleGetCode([node], 'jsx', false, 'smart', { formatResult }),
+      buildGetCodeToolResult
+    )
+    expect(result.results[0]?.result?.code).toHaveLength(40_000)
+    expect(result.remainingNodeIds).toEqual(['second'])
+    expect(mocks.renderShellTree).not.toHaveBeenCalled()
+    expect(measureCallToolResultBytes(buildGetCodeToolResult(result))).toBeLessThanOrEqual(
+      MCP_TOOL_INLINE_BUDGET_BYTES
+    )
   })
 
   it('returns full output without shell when unbounded mode is enabled', async () => {

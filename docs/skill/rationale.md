@@ -148,9 +148,10 @@ trustworthy top-level design snapshot, separate facts from adaptations and
 gaps, implement the smallest coherent change, then use the project's real
 verification path.
 
-For a current multi-selection, `get_structure` discovers the design roots before
-separate `get_code` reads. Its outline remains hierarchy and geometry evidence,
-not a substitute for each design's style facts.
+For a current multi-selection, `get_code` reads the requested roots directly and
+returns independent evidence by node ID. Explicit continuation covers deferred
+roots without another selection-discovery call. `get_structure` remains focused
+on hierarchy and geometry questions.
 
 Rare large-selection and connection recovery lives in
 `references/recovery.md`. Asset and token translation lives in

@@ -41,6 +41,67 @@ function textContent(block: unknown): string {
 }
 
 describe('tools response helpers', () => {
+  it('formats independent code results, failures, and exact continuation', () => {
+    const payload: ToolResultMap['get_code'] = {
+      results: [
+        { nodeId: 'a', result: codePayload },
+        { nodeId: 'b', error: { code: 'NODE_NOT_VISIBLE', message: 'Hidden node' } }
+      ],
+      remainingNodeIds: ['c']
+    }
+    const result = createCodeToolResponse(payload)
+    expect(result.structuredContent).toEqual(payload)
+    expect(result.isError).toBeUndefined()
+    expect(textContent(result.content[0])).toContain('remainingNodeIds')
+    expect(JSON.stringify(result.content)).toContain('NODE_NOT_VISIBLE')
+    const failed = createCodeToolResponse({
+      results: [{ nodeId: 'a', error: { message: 'Failed' } }]
+    })
+    expect(failed.isError).toBe(true)
+  })
+
+  it('links each batch screenshot to its own exact root', () => {
+    const screenshot = {
+      format: 'png' as const,
+      width: 10,
+      height: 20,
+      scale: 1,
+      bytes: 8,
+      asset: {
+        hash: ASSET_HASH,
+        url: 'http://localhost/image.png',
+        localPath: '/tmp/image.png',
+        mimeType: 'image/png',
+        size: 8
+      }
+    }
+    const payload = {
+      results: [
+        { nodeId: 'a', result: screenshot },
+        { nodeId: 'b', result: { ...screenshot, width: 30 } }
+      ]
+    }
+    const result = createScreenshotToolResponse(payload)
+    expect(result.structuredContent).toEqual(payload)
+    expect(result.content.filter(({ type }) => type === 'resource_link')).toHaveLength(2)
+    expect(JSON.stringify(result.content)).toContain('Node b')
+    expect(JSON.stringify(result.content)).toContain('/tmp/image.png')
+  })
+
+  it.each([
+    { results: null },
+    { results: [{}] },
+    { results: [{ nodeId: 'a', result: {}, error: { message: 'Both' } }] },
+    { results: [{ nodeId: 'a', error: {} }] },
+    { results: [{ nodeId: 'a', error: { message: 'Bad', code: 'INVALID' } }] },
+    { results: [{ nodeId: 'a', result: {} }] },
+    { results: [], remainingNodeIds: 'a' },
+    { results: [], remainingNodeIds: [''] }
+  ])('rejects malformed batch results %#', (payload) => {
+    expect(() => createCodeToolResponse(payload as ToolResultMap['get_code'])).toThrow(
+      'Invalid get_code'
+    )
+  })
   it('returns structured lifecycle results matching the advertised output schema', () => {
     const task = {
       taskId: 'task-a',
@@ -469,7 +530,9 @@ describe('tools response helpers', () => {
     })
     expect(selectionError.isError).toBe(true)
     expect(textContent(selectionError.content[0])).toContain('[INVALID_SELECTION]')
-    expect(textContent(selectionError.content[0])).toContain('Tip: Select exactly one visible node')
+    expect(textContent(selectionError.content[0])).toContain(
+      'Tip: Select one or more visible nodes'
+    )
 
     const structureSelectionError = createToolErrorResponse('get_structure', {
       code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION,

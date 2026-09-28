@@ -15,6 +15,10 @@ describe('legacy extension routing', () => {
       ['apply_canvas', {}],
       ['get_design_system', {}],
       ['get_structure', { pageId: 'page' }],
+      ['get_structure', { options: { depth: 0 } }],
+      ['get_structure', { nodeIds: ['1:2'] }],
+      ['get_code', { nodeIds: ['1:2', '1:3'] }],
+      ['get_screenshot', { nodeIds: ['1:2'] }],
       ['get_code', { taskId: 'task' }]
     ] as const) {
       expect(() => legacyToolPayload(name, args)).toThrow(

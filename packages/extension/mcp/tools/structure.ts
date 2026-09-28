@@ -25,7 +25,8 @@ export function handleGetStructure(
   roots: SceneNode[],
   depthLimit?: number,
   includeNative = false,
-  page?: CanvasPageSnapshot
+  page?: CanvasPageSnapshot,
+  errors?: GetStructureResult['errors']
 ): GetStructureResult {
   const {
     roots: outline,
@@ -35,9 +36,16 @@ export function handleGetStructure(
   const { authoringKeys, nativeById } = collectStructureMetadata(physicalNodes, includeNative)
 
   for (const nodeLimit of STRUCTURE_NODE_LIMIT_STEPS) {
+    const compactRoots = compactByNodeLimit(outline, nodeLimit, authoringKeys, nativeById)
+    const included = new Set(compactRoots.map(({ id }) => id))
+    const remainingNodeIds = roots
+      .filter((node) => node.visible && !included.has(node.id))
+      .map((node) => node.id)
     const candidate: GetStructureResult = {
-      roots: compactByNodeLimit(outline, nodeLimit, authoringKeys, nativeById),
+      roots: compactRoots,
       ...(page ? { page } : {}),
+      ...(errors?.length ? { errors } : {}),
+      ...(remainingNodeIds.length ? { remainingNodeIds } : {}),
       ...(observedNodes > nodeLimit ? { truncated: true } : {})
     }
     if (estimateToolResultBytes(candidate) <= MCP_TOOL_INLINE_BUDGET_BYTES) {
@@ -59,8 +67,7 @@ function compactByNodeLimit(
 ): StructureNode[] {
   let seen = 0
 
-  const visit = (node: StructureNode): StructureNode | undefined => {
-    if (seen >= nodeLimit) return undefined
+  const compactNode = (node: StructureNode): StructureNode => {
     seen += 1
     const authoringKey = authoringKeys.get(node.id)
     const native = nativeById.get(node.id)
@@ -77,24 +84,20 @@ function compactByNodeLimit(
       ...(native ? { native } : {})
     }
 
-    if (Array.isArray(node.children) && node.children.length && seen < nodeLimit) {
-      const children: StructureNode[] = []
-      for (const child of node.children) {
-        const compactChild = visit(child)
-        if (!compactChild) break
-        children.push(compactChild)
-      }
-      if (children.length) compact.children = children
-    }
-
     return compact
   }
 
   const compactRoots: StructureNode[] = []
-  for (const root of roots) {
-    const compactRoot = visit(root)
-    if (!compactRoot) break
-    compactRoots.push(compactRoot)
+  const queue: Array<{ nodes: StructureNode[]; parent?: StructureNode }> = [{ nodes: roots }]
+  for (let index = 0; index < queue.length && seen < nodeLimit; index += 1) {
+    const { nodes, parent } = queue[index]!
+    for (const node of nodes) {
+      if (seen >= nodeLimit) break
+      const compact = compactNode(node)
+      if (parent) (parent.children ??= []).push(compact)
+      else compactRoots.push(compact)
+      if (node.children?.length) queue.push({ nodes: node.children, parent: compact })
+    }
   }
   return compactRoots
 }

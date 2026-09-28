@@ -12,6 +12,8 @@ import {
 
 export * from './canvas'
 
+import type { TempadMcpErrorPayload } from './errors'
+
 import { MCP_HASH_PATTERN, MCP_MAX_ASSET_BYTES } from './constants'
 import {
   DesignTaskParameterSchema,
@@ -20,6 +22,37 @@ import {
   type DesignTask,
   type FigmaSession
 } from './design-task'
+
+const NodeIdParameterSchema = z
+  .string()
+  .min(1)
+  .describe('Exact single node id. Mutually exclusive with nodeIds.')
+  .optional()
+const NodeIdsParameterSchema = z
+  .array(z.string().min(1))
+  .min(1)
+  .describe(
+    'Exact node ids in result order; duplicates are read once. Omit both nodeId and nodeIds to snapshot the current selection. Explicit nodeIds always returns per-node results for code and screenshots. Continue remainingNodeIds with another nodeIds call.'
+  )
+  .optional()
+
+function validateNodeTargets(
+  value: { nodeId?: string; nodeIds?: string[] },
+  context: z.RefinementCtx
+): void {
+  if (value.nodeId !== undefined && value.nodeIds !== undefined) {
+    context.addIssue({ code: 'custom', message: 'Use only one of nodeId or nodeIds.' })
+  }
+}
+
+export type NodeReadResult<T> =
+  | { nodeId: string; result: T; error?: never }
+  | { nodeId: string; error: TempadMcpErrorPayload; result?: never }
+
+export type NodeReadBatchResult<T> = {
+  results: NodeReadResult<T>[]
+  remainingNodeIds?: string[]
+}
 
 const ExactReadSessionParameterSchema = z
   .string()
@@ -42,33 +75,33 @@ export const AssetDescriptorSchema = z.object({
 })
 
 // get_code
-export const GetCodeParametersSchema = z.object({
-  taskId: DesignTaskParameterSchema,
-  taskEpoch: DesignTaskEpochSchema,
-  sessionId: ExactReadSessionParameterSchema,
-  nodeId: z
-    .string()
-    .describe('Optional exact target node id; omit to use the current single selection.')
-    .optional(),
-  preferredLang: z
-    .enum(['jsx', 'vue'])
-    .describe(
-      'Preferred output language to bias the snapshot; otherwise uses the design’s hint/detected language, then falls back to JSX.'
-    )
-    .optional(),
-  resolveTokens: z
-    .boolean()
-    .describe(
-      'Inline token values instead of references for quick renders; default false returns token metadata plus bounded repeated-unbound-color diagnostics so you can reconcile the theming system. When true, values are resolved per-node (mode-aware) and literal diagnostics are omitted.'
-    )
-    .optional(),
-  vectorMode: z
-    .enum(['smart', 'snapshot'])
-    .describe(
-      'Vector output mode. `smart` (default) emits `<svg data-src="...">` placeholders in code and preserves themeable instance color on the emitted SVG root markup for downstream adaptation; if asset upload fails after export, the tool may inline the SVG as a fallback to preserve source of truth. `snapshot` preserves vector assets for fidelity. Final vector delivery may still be adapted to the Host app’s SVG policy.'
-    )
-    .optional()
-})
+export const GetCodeParametersSchema = z
+  .object({
+    taskId: DesignTaskParameterSchema,
+    taskEpoch: DesignTaskEpochSchema,
+    sessionId: ExactReadSessionParameterSchema,
+    nodeId: NodeIdParameterSchema,
+    nodeIds: NodeIdsParameterSchema,
+    preferredLang: z
+      .enum(['jsx', 'vue'])
+      .describe(
+        'Preferred output language to bias the snapshot; otherwise uses the design’s hint/detected language, then falls back to JSX.'
+      )
+      .optional(),
+    resolveTokens: z
+      .boolean()
+      .describe(
+        'Inline token values instead of references for quick renders; default false returns token metadata plus bounded repeated-unbound-color diagnostics so you can reconcile the theming system. When true, values are resolved per-node (mode-aware) and literal diagnostics are omitted.'
+      )
+      .optional(),
+    vectorMode: z
+      .enum(['smart', 'snapshot'])
+      .describe(
+        'Vector output mode. `smart` (default) emits `<svg data-src="...">` placeholders in code and preserves themeable instance color on the emitted SVG root markup for downstream adaptation; if asset upload fails after export, the tool may inline the SVG as a fallback to preserve source of truth. `snapshot` preserves vector assets for fidelity. Final vector delivery may still be adapted to the Host app’s SVG policy.'
+      )
+      .optional()
+  })
+  .superRefine(validateNodeTargets)
 
 export type GetCodeParametersInput = z.input<typeof GetCodeParametersSchema>
 export type GetCodeLiteralConsumer = {
@@ -103,6 +136,7 @@ export type GetCodeResult = {
   }
   warnings?: GetCodeWarning[]
 }
+export type GetCodeReadResult = GetCodeResult | NodeReadBatchResult<GetCodeResult>
 
 // get_token_defs
 export const GetTokenDefsParametersSchema = z.object({
@@ -134,15 +168,15 @@ export type GetTokenDefsResult = {
 }
 
 // get_screenshot
-export const GetScreenshotParametersSchema = z.object({
-  taskId: DesignTaskParameterSchema,
-  taskEpoch: DesignTaskEpochSchema,
-  sessionId: ExactReadSessionParameterSchema,
-  nodeId: z
-    .string()
-    .describe('Optional exact node id to render; omit to use the current single selection.')
-    .optional()
-})
+export const GetScreenshotParametersSchema = z
+  .object({
+    taskId: DesignTaskParameterSchema,
+    taskEpoch: DesignTaskEpochSchema,
+    sessionId: ExactReadSessionParameterSchema,
+    nodeId: NodeIdParameterSchema,
+    nodeIds: NodeIdsParameterSchema
+  })
+  .superRefine(validateNodeTargets)
 
 export type GetScreenshotParametersInput = z.input<typeof GetScreenshotParametersSchema>
 export type GetScreenshotResult = {
@@ -153,6 +187,7 @@ export type GetScreenshotResult = {
   bytes: number
   asset: AssetDescriptor
 }
+export type GetScreenshotReadResult = GetScreenshotResult | NodeReadBatchResult<GetScreenshotResult>
 
 // get_structure
 export const GetStructureParametersSchema = z
@@ -160,12 +195,8 @@ export const GetStructureParametersSchema = z
     taskId: DesignTaskParameterSchema,
     taskEpoch: DesignTaskEpochSchema,
     sessionId: ExactReadSessionParameterSchema,
-    nodeId: z
-      .string()
-      .describe(
-        'Optional node id to outline; defaults to the current selection of one or more visible nodes when no page identity is supplied.'
-      )
-      .optional(),
+    nodeId: NodeIdParameterSchema,
+    nodeIds: NodeIdsParameterSchema,
     pageId: z.string().min(1).describe('Exact local page id to outline.').optional(),
     pageKey: CanvasStableKeySchema.describe(
       'Exact stable key of a local page authored through apply_canvas.'
@@ -175,9 +206,9 @@ export const GetStructureParametersSchema = z
         depth: z
           .number()
           .int()
-          .positive()
+          .nonnegative()
           .describe(
-            'Positive integer; 1 is the shallowest traversal (root plus direct children). Omit for the full tree, subject to safety caps.'
+            'Nonnegative integer; 0 returns exact roots only, 1 includes direct children. Omit for automatic depth, subject to safety caps.'
           )
           .optional(),
         native: z
@@ -192,13 +223,13 @@ export const GetStructureParametersSchema = z
   })
   .strict()
   .superRefine((value, context) => {
-    const identities = [value.nodeId, value.pageId, value.pageKey].filter(
+    const identities = [value.nodeId, value.nodeIds, value.pageId, value.pageKey].filter(
       (identity) => identity !== undefined
     )
     if (identities.length <= 1) return
     context.addIssue({
       code: 'custom',
-      message: 'Use only one of nodeId, pageId, or pageKey.'
+      message: 'Use only one of nodeId, nodeIds, pageId, or pageKey.'
     })
   })
 
@@ -231,6 +262,8 @@ export type GetStructureResult = {
   roots: OutlineNode[]
   page?: CanvasPageSnapshot
   truncated?: true
+  errors?: Array<{ nodeId: string; error: TempadMcpErrorPayload }>
+  remainingNodeIds?: string[]
 }
 
 // get_design_system
@@ -510,11 +543,11 @@ export type ToolResultMap = {
   get_design_task: DesignTask
   list_design_sessions: { sessions: FigmaSession[] }
   manage_design_task: DesignTask
-  get_code: GetCodeResult
+  get_code: GetCodeReadResult
   get_design_system: GetDesignSystemResult
   apply_canvas: ApplyCanvasResult
   get_token_defs: GetTokenDefsResult
-  get_screenshot: GetScreenshotResult
+  get_screenshot: GetScreenshotReadResult
   get_structure: GetStructureResult
   get_assets: GetAssetsResult
   upload_asset: UploadAssetResult

@@ -198,15 +198,10 @@ describe('mcp/runtime', () => {
     })
   })
 
-  it('throws coded error for invalid get_code selection (empty, invisible or multiple)', async () => {
+  it('throws coded error for an empty or invisible single get_code selection', async () => {
     setFigmaGetNodeById(null)
     const runtime = await importRuntime()
 
-    await expect(runtime.MCP_TOOL_HANDLERS.get_code()).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
-    })
-
-    setFigmaGetNodeById(null, [createSceneNode('first'), createSceneNode('second')])
     await expect(runtime.MCP_TOOL_HANDLERS.get_code()).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
     })
@@ -315,10 +310,7 @@ describe('mcp/runtime', () => {
     setFigmaGetNodeById(null, [first, second])
     await runtime.MCP_TOOL_HANDLERS.get_structure({ options: { depth: 1, native: true } })
 
-    expect(mocks.runGetStructure).toHaveBeenCalledWith([first, second], 1, true)
-    await expect(runtime.MCP_TOOL_HANDLERS.get_screenshot()).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
-    })
+    expect(mocks.runGetStructure).toHaveBeenCalledWith([first, second], 1, true, undefined, [])
   })
 
   it('uses an explicit structure node id instead of the current multi-selection', async () => {
@@ -332,7 +324,7 @@ describe('mcp/runtime', () => {
     expect(mocks.runGetStructure).toHaveBeenCalledWith([target], undefined, undefined)
   })
 
-  it('rejects an empty or partly hidden structure selection', async () => {
+  it('rejects empty structure selection and reports hidden peers without dropping visible roots', async () => {
     setFigmaGetNodeById(null)
     const runtime = await importRuntime()
 
@@ -341,10 +333,78 @@ describe('mcp/runtime', () => {
     })
 
     setFigmaGetNodeById(null, [createSceneNode('visible'), createSceneNode('hidden', false)])
-    await expect(runtime.MCP_TOOL_HANDLERS.get_structure()).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION
+    await runtime.MCP_TOOL_HANDLERS.get_structure()
+    expect(mocks.runGetStructure).toHaveBeenCalledWith(
+      [createSceneNode('visible')],
+      undefined,
+      undefined,
+      undefined,
+      [
+        {
+          nodeId: 'hidden',
+          error: {
+            code: TEMPAD_MCP_ERROR_CODES.NODE_NOT_VISIBLE,
+            message: expect.stringContaining('hidden')
+          }
+        }
+      ]
+    )
+  })
+
+  it('reads code for multiple roots independently with shared lookup cache and forwarded options', async () => {
+    const roots = [createSceneNode('first'), createSceneNode('second')]
+    setFigmaGetNodeById(null, roots)
+    mocks.runGetCode.mockImplementation(async ([node]) => ({
+      code: node.id,
+      lang: node.id === 'first' ? 'jsx' : 'vue'
+    }))
+    const runtime = await importRuntime()
+    const result = await runtime.MCP_TOOL_HANDLERS.get_code({
+      resolveTokens: true,
+      vectorMode: 'snapshot'
     })
-    expect(mocks.runGetStructure).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      results: [
+        { nodeId: 'first', result: { code: 'first', lang: 'jsx' } },
+        { nodeId: 'second', result: { code: 'second', lang: 'vue' } }
+      ]
+    })
+    expect(mocks.runGetCode).toHaveBeenNthCalledWith(
+      1,
+      [roots[0]],
+      undefined,
+      true,
+      'snapshot',
+      expect.objectContaining({ formatResult: expect.any(Function) })
+    )
+    expect(mocks.runGetCode.mock.calls[0]![4].cache).toBe(mocks.runGetCode.mock.calls[1]![4].cache)
+  })
+
+  it('captures separate screenshots for selected nodes and supports explicit one-item batches', async () => {
+    const roots = [createSceneNode('first'), createSceneNode('second')]
+    setFigmaGetNodeById(roots[0]!, roots)
+    const screenshot = {
+      format: 'png',
+      width: 1,
+      height: 1,
+      scale: 1,
+      bytes: 1,
+      asset: {
+        hash: 'a'.repeat(64),
+        url: 'http://localhost/image.png',
+        mimeType: 'image/png',
+        size: 1
+      }
+    }
+    mocks.runGetScreenshot.mockResolvedValue(screenshot)
+    const runtime = await importRuntime()
+    expect(await runtime.MCP_TOOL_HANDLERS.get_screenshot()).toEqual({
+      results: roots.map(({ id }) => ({ nodeId: id, result: screenshot }))
+    })
+    expect(await runtime.MCP_TOOL_HANDLERS.get_screenshot({ nodeIds: ['first'] })).toEqual({
+      results: [{ nodeId: 'first', result: screenshot }]
+    })
+    expect(mocks.runGetScreenshot).toHaveBeenNthCalledWith(2, roots[1])
   })
 
   it('reads an exact page by managed key without changing the active page', async () => {

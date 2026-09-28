@@ -24,6 +24,26 @@ vi.mock('@/mcp/tools/code/styles', () => ({
 }))
 
 describe('mcp/code collectNodeData operation counts', () => {
+  it('reuses raw CSS across overlapping root reads without sharing processed styles or later requests', async () => {
+    const snapshot = createSnapshot({ id: 'shared', type: 'FRAME' })
+    const getCSSAsync = vi.fn().mockResolvedValue({ color: 'red' })
+    snapshot.node = {
+      id: 'shared',
+      type: 'FRAME',
+      visible: true,
+      getCSSAsync
+    } as unknown as SceneNode
+    const tree = createTree([snapshot])
+    const config = { cssUnit: 'px', rootFontSize: 16, scale: 1 } as const
+    const cache = createGetCodeCacheContext()
+    const first = await collectNodeData(tree, config, new Map(), cache)
+    first.styles.get('shared')!.color = 'blue'
+    const second = await collectNodeData(tree, config, new Map(), cache)
+    expect(getCSSAsync).toHaveBeenCalledOnce()
+    expect(second.styles.get('shared')?.color).toBe('red')
+    await collectNodeData(tree, config, new Map(), createGetCodeCacheContext())
+    expect(getCSSAsync).toHaveBeenCalledTimes(2)
+  })
   it('reads CSS exactly once for every collected node and skips omitted descendants', async () => {
     const snapshots = Array.from({ length: 6 }, (_, index) =>
       createSnapshot({ id: `node-${index}`, type: index === 2 ? 'TEXT' : 'FRAME' })

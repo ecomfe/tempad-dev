@@ -2424,6 +2424,26 @@ describe('mcp/tools canvas authoring result schemas', () => {
 })
 
 describe('mcp/tools parameter schemas', () => {
+  it.each([GetCodeParametersSchema, GetScreenshotParametersSchema, GetStructureParametersSchema])(
+    'accepts exact node sets and rejects ambiguous or empty targets',
+    (schema) => {
+      expect(schema.safeParse({ nodeIds: ['1:2', '1:3'] }).success).toBe(true)
+      expect(schema.safeParse({ nodeIds: ['1:2'] }).success).toBe(true)
+      expect(schema.safeParse({ nodeId: '1:2', nodeIds: ['1:3'] }).success).toBe(false)
+      expect(schema.safeParse({ nodeIds: [] }).success).toBe(false)
+      expect(schema.safeParse({ nodeIds: [''] }).success).toBe(false)
+    }
+  )
+
+  it('keeps page and node-set structure scopes mutually exclusive', () => {
+    expect(
+      GetStructureParametersSchema.safeParse({ nodeIds: ['1:2'], pageId: '0:1' }).success
+    ).toBe(false)
+    expect(
+      GetStructureParametersSchema.safeParse({ nodeIds: ['1:2'], pageKey: 'page' }).success
+    ).toBe(false)
+    expect(GetStructureParametersSchema.safeParse({ options: { depth: -1 } }).success).toBe(false)
+  })
   it('accepts optional get_code params and validates preferred language enum', () => {
     expect(GetCodeParametersSchema.safeParse({}).success).toBe(true)
     expect(
@@ -2494,7 +2514,7 @@ describe('mcp/tools parameter schemas', () => {
       GetStructureParametersSchema.safeParse({
         options: { depth: 0 }
       }).success
-    ).toBe(false)
+    ).toBe(true)
 
     expect(z.toJSONSchema(GetStructureParametersSchema)).toMatchObject({
       properties: {
@@ -2502,7 +2522,7 @@ describe('mcp/tools parameter schemas', () => {
           properties: {
             depth: {
               description:
-                'Positive integer; 1 is the shallowest traversal (root plus direct children). Omit for the full tree, subject to safety caps.'
+                'Nonnegative integer; 0 returns exact roots only, 1 includes direct children. Omit for automatic depth, subject to safety caps.'
             }
           }
         }
