@@ -47,6 +47,9 @@ This document records the current context-control strategy for TemPad Dev MCP ou
    - Only fail fast when a usable shell cannot be generated.
    - Hub-added local asset paths are optional; if they alone would exceed the final inline budget,
      the Hub returns the code and its asset URLs without those paths.
+   - `tokens` always carries definitions, modes, and aliases. `resolveTokens` only
+     inlines code values for each consumer. Root-local token warnings preserve unresolved
+     references and report missing/ambiguous metadata within the same response budget.
 3. `get_structure` returns exact roots and compacts output by default.
    - When node and page identity are omitted, accept one or more visible roots from the current selection.
    - Preserve actual root identity, including wrappers. Both construction and byte compaction visit

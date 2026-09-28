@@ -181,10 +181,13 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
     - string for single-mode value or alias.
     - map for multi-mode, keyed by `${collectionName}:${modeName}`.
 - `tokens` includes both directly used tokens and any alias-chain tokens.
-- When `resolveTokens` is `true`, code is resolved per-node (mode-aware); token values are literals.
-- This resolve step must also update themeable vector-placeholder root presentation color when that color is token-backed, so vector markup and token payload stay aligned.
-- When `resolveTokens` is `false`, token values remain aliases/literals as emitted by Figma/variables.
-- Collection names are assumed unique; duplicates are unsupported and should emit a warning.
+- `resolveTokens` controls code only. `tokens` always preserves definitions, every mode, and alias dependencies; it does not describe a particular consumer's resolved value.
+- When `resolveTokens` is `true`, use Figma's native `Variable.resolveForConsumer(node)` for each actual consuming node, including text runs and themeable vector-placeholder presentation styles.
+- A themeable SVG may carry a descendant token on its root only when their effective mode maps match. Different variable identities or differing modes must retain native vector colors instead of collapsing into one color channel.
+- Cache raw native values by consumer node ID and variable ID within the current call. CSS serialization remains separate and follows the request's fixed codegen configuration.
+- Failed consumer resolution preserves the reference and emits a bounded `token-resolution` warning. Never choose a collection default as a substitute for failed native resolution.
+- Missing definitions, ambiguous names, and unavailable mode labels emit bounded `token-definition` warnings. Do not fabricate empty values or pick one variable from a name collision.
+- Collection and mode IDs carry identity. Duplicate collection names make definition labels ambiguous and emit a warning; mode hints use collection IDs in that case.
 - Omit `tokens` when empty.
 
 ### Repeated unbound color diagnostics
@@ -208,7 +211,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 ### Variable mode overrides
 
-- Nodes with explicit variable mode overrides emit:
+- Export roots include effective modes inherited from outside the exported subtree; descendants include explicit overrides. Limit hints to collections reachable from the root's variable candidates, including aliases:
   - `data-hint-variable-mode="Collection=Mode;Collection=Mode"`.
 - This hint is for agents only and must be stripped from final output.
 
@@ -219,7 +222,8 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 ## Logging
 
-- Emit `warnings` for inferred auto layout, depth-cap, repeated unbound color evidence, and shell guidance.
+- Emit `warnings` for inferred auto layout, depth-cap, repeated unbound color evidence, shell guidance, and token definition/resolution failures.
+- Token warnings are deduplicated per node result, with at most three bounded samples per warning type. Include warnings in the final byte-budget check.
 - Emit `depth-cap` warnings when tree depth is capped.
 - Other degradations should be logged via the shared `logger` (prefix is automatic).
 - The tool may log high-level timing info via `logger.debug` for performance diagnostics.

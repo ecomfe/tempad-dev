@@ -138,8 +138,9 @@ describe('mcp/tools/token/defs', () => {
     )
   })
 
-  it('resolves candidates directly when candidateNameById is provided', async () => {
+  it('resolves exact candidate IDs without building a full index', async () => {
     const mod = await import('@/mcp/tools/token/defs')
+    const { createTokenReadContext } = await import('@/mcp/tools/token/context')
     const variable = createVariable('id-1', 'Spacing/Small', {
       valuesByMode: { modeA: 12 }
     })
@@ -161,23 +162,18 @@ describe('mcp/tools/token/defs', () => {
       }
     } as unknown as PluginAPI
 
-    const result = await mod.resolveTokenDefsByNames(
-      new Set(['--spacing-small']),
-      TEST_CONFIG,
-      undefined,
-      {
-        candidateIds: new Set(['id-1']),
-        candidateNameById: new Map([['id-1', '--spacing-small']])
-      }
+    const result = await mod.resolveTokenDefsByIds(
+      new Map([['--spacing-small', 'id-1']]),
+      createTokenReadContext(TEST_CONFIG)
     )
 
     expect(result).toEqual({
       '--spacing-small': { kind: 'number', value: 'norm(12px)' }
     })
-    expect(mocks.getTokenIndex).toHaveBeenCalledTimes(1)
+    expect(mocks.getTokenIndex).not.toHaveBeenCalled()
   })
 
-  it('returns alias names when resolveValues is false and includes alias dependencies', async () => {
+  it('preserves alias definitions and includes alias dependencies', async () => {
     const mod = await import('@/mcp/tools/token/defs')
 
     const aliasVar = createVariable('id-a', 'Alias/A', {
@@ -209,9 +205,7 @@ describe('mcp/tools/token/defs', () => {
       }
     } as unknown as PluginAPI
 
-    const result = await mod.resolveTokenDefsByNames(new Set(['--a']), TEST_CONFIG, undefined, {
-      resolveValues: false
-    })
+    const result = await mod.resolveTokenDefsByNames(new Set(['--a']), TEST_CONFIG)
 
     expect(result).toEqual({
       '--a': { kind: 'number', value: '--b' },
@@ -249,7 +243,7 @@ describe('mcp/tools/token/defs', () => {
       new Set(['--space-base']),
       TEST_CONFIG,
       undefined,
-      { includeAllModes: true, resolveValues: true }
+      { includeAllModes: true }
     )
 
     expect(result).toEqual({

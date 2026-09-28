@@ -77,7 +77,7 @@ describe('token/indexer', () => {
     const rawNames = Array.from({ length: 301 }, (_, i) => `name-${i}`)
     vi.mocked(runTransformVariableBatch)
       .mockResolvedValueOnce(Array.from({ length: 300 }, () => 'var(--batch-canonical)'))
-      .mockResolvedValueOnce(['invalid-expression'])
+      .mockResolvedValueOnce(['calc(1px)'])
 
     const result = await canonicalizeNames(rawNames, config, 'plugin-chunk')
 
@@ -158,7 +158,7 @@ describe('token/indexer', () => {
     expect(result.byCanonicalName.get(normalizeFigmaVarName('Third Token'))).toEqual(['v-3'])
   })
 
-  it('reuses cached token index when cache key is unchanged', async () => {
+  it('rebuilds the index between calls even when config and plugin are unchanged', async () => {
     const getLocalVariablesAsync = setLocalVariables([
       { id: 'cached-1', name: 'Cached Token' } as unknown as Variable
     ])
@@ -168,8 +168,8 @@ describe('token/indexer', () => {
     const second = getTokenIndex({ ...config, scale: 21 }, 'plugin-cache')
 
     expect(await first).toEqual(await second)
-    expect(getLocalVariablesAsync).toHaveBeenCalledTimes(1)
-    expect(runTransformVariableBatch).toHaveBeenCalledTimes(1)
+    expect(getLocalVariablesAsync).toHaveBeenCalledTimes(2)
+    expect(runTransformVariableBatch).toHaveBeenCalledTimes(2)
   })
 
   it('rebuilds token index when cache key changes', async () => {
@@ -183,7 +183,7 @@ describe('token/indexer', () => {
     await getTokenIndex({ ...config, scale: 32 }, undefined)
     await getTokenIndex({ ...config, scale: 32 }, 'plugin-key')
 
-    expect(getLocalVariablesAsync).toHaveBeenCalledTimes(3)
-    expect(runTransformVariableBatch).toHaveBeenCalledTimes(3)
+    expect(getLocalVariablesAsync).toHaveBeenCalledTimes(4)
+    expect(runTransformVariableBatch).toHaveBeenCalledTimes(4)
   })
 })

@@ -30,6 +30,7 @@ export function analyzeVectorColorModel(
   const channels = new Set<string>()
   const colors = new Set<string>()
   const stack = [rootId]
+  const rootModes = tree.nodes.get(rootId)?.node.resolvedVariableModes ?? {}
 
   while (stack.length) {
     const id = stack.pop()
@@ -47,6 +48,14 @@ export function analyzeVectorColorModel(
         return cacheColorModel(ctx, rootId, { kind: 'fixed' })
       }
       if (!nextChannels.length) continue
+      // Promoting a descendant's token to the SVG root is only sound in the same
+      // mode context. Alias targets can depend on any collection, so compare all modes.
+      if (
+        nextChannels.some((channel) => channel.key.startsWith('var:')) &&
+        !sameVariableModes(rootModes, snapshot.node.resolvedVariableModes ?? {})
+      ) {
+        return cacheColorModel(ctx, rootId, { kind: 'fixed' })
+      }
       nextChannels.forEach((channel) => {
         channels.add(channel.key)
         colors.add(channel.color)
@@ -64,6 +73,13 @@ export function analyzeVectorColorModel(
     kind: 'single-channel',
     color: Array.from(colors)[0]!
   })
+}
+
+function sameVariableModes(a: Record<string, string>, b: Record<string, string>): boolean {
+  return (
+    Object.keys(a).length === Object.keys(b).length &&
+    Object.entries(a).every(([id, mode]) => b[id] === mode)
+  )
 }
 
 function breaksThemeable(snapshot: NodeSnapshot, ctx?: GetCodeCacheContext): boolean {

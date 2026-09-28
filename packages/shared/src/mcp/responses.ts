@@ -58,7 +58,7 @@ export function buildGetCodeToolResult(payload: GetCodeReadResult): ToolResponse
 
   const tokenCount = payload.tokens ? Object.keys(payload.tokens).length : 0
   if (tokenCount) {
-    summary.push(`Token references included: ${tokenCount}.`)
+    summary.push(`Token definitions included: ${tokenCount}.`)
   }
 
   summary.push('Read structuredContent for the full code string and metadata.')

@@ -267,7 +267,7 @@ describe('tools response helpers', () => {
     expect(summaryText).toContain('Depth capped.')
     expect(summaryText).toContain('Repeated unbound color literals')
     expect(summaryText).toContain('Assets attached: 1')
-    expect(summaryText).toContain('Token references included: 1')
+    expect(summaryText).toContain('Token definitions included: 1')
     expect(result.content).toHaveLength(1)
   })
 

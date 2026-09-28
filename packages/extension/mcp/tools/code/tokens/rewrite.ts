@@ -12,15 +12,3 @@ export function rewriteTokenNamesInCode(code: string, rewriteMap: Map<string, st
     return `${prefix}${next}`
   })
 }
-
-export function filterBridge(
-  bridge: Map<string, string>,
-  usedNames: Set<string>
-): Map<string, string> {
-  const out = new Map<string, string>()
-  usedNames.forEach((name) => {
-    const id = bridge.get(name)
-    if (id) out.set(name, id)
-  })
-  return out
-}

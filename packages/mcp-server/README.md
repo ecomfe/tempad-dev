@@ -54,12 +54,19 @@ Notes:
   `{ nodeId, result }` or `{ nodeId, error }` entries for batches; continue `remainingNodeIds` with
   exact `nodeIds` and unchanged options. Structure retains exact roots, reports failed roots in
   `errors`, and supports `options.depth: 0` for roots only. Node-set reads require matching Hub and
-  extension builds using bridge protocol 14; older peers cannot silently ignore the new selectors.
+  extension builds using bridge protocol 15; older peers cannot silently ignore the new selectors.
+- `get_code.resolveTokens` controls code only. Both settings return token definitions with all
+  modes and aliases. Enabled resolution uses each actual consumer's effective Figma modes;
+  unresolved references remain in code with `token-resolution` warnings. Missing or ambiguous
+  definitions produce `token-definition` warnings. Warnings are bounded per node result.
+  This replaces older responses that flattened `tokens` when resolution was enabled; legacy
+  extensions must upgrade to use `resolveTokens: true`.
 - Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
 - `apply_canvas` is available whenever MCP access is enabled and the current Figma Design file is
   editable. Dev Mode and view-only files remain read-only.
-- MCP **0.10.0** pairs with extension **0.22.0** and Agent Plugin **0.3.0**. Extension 0.22.0
-  needs no update for this release. Update the plugin or installed skills, replace any alpha-pinned MCP configuration with `@tempad-dev/mcp@latest`,
+- The published MCP **0.10.0** release pairs with extension **0.22.0** and Agent Plugin **0.3.0**.
+  The node-set and token-definition semantics above require matching protocol 15 Hub and extension
+  builds. Update the plugin or installed skills, replace any alpha-pinned MCP configuration with `@tempad-dev/mcp@latest`,
   then reconnect the MCP client and start a new task. See the
   [upgrade guide](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src#upgrading).
 - Assets are ephemeral and tool-linked. Local stdio clients receive `asset.localPath` when the Hub

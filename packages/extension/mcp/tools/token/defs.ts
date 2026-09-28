@@ -11,53 +11,35 @@ import type { CodegenConfig } from '@/utils/codegen'
 import { activePlugin } from '@/ui/state'
 import { logger } from '@/utils/log'
 
+import type { TokenReadContext } from './context'
+
 import { currentCodegenConfig } from '../config'
-import { canonicalizeName, canonicalizeNames, getTokenIndex, getVariableRawName } from './indexer'
+import { createTokenReadContext } from './context'
 import {
   isVariableAlias,
   pickPreferredModeId,
   readActiveModeId,
-  resolveFallbackValue,
   serializeVariableValue
 } from './value'
-
-type TokenModeValue = {
-  modeId: string
-  value?: string | Record<string, unknown>
-  resolved: string | Record<string, unknown> | null
-  aliasTo?: string
-  aliasChain?: string[]
-}
-
-type VariableWithCollection = Variable & { variableCollectionId?: string; resolvedType?: string }
-type VariableCollectionInfo = {
-  id?: string
-  name?: string
-  defaultModeId?: string
-  activeModeId?: string
-  modes?: Array<{ id: string; name?: string }>
-}
-
-const collectionIdByName = new Map<string, string>()
-const warnedDuplicateCollections = new Set<string>()
 
 export async function handleGetTokenDefs(
   names: string[],
   includeAllModes = false
 ): Promise<GetTokenDefsResult> {
-  const config = currentCodegenConfig()
-  const pluginCode = activePlugin.value?.code
-
-  const requested = new Set(names.map((n) => (n.startsWith('--') ? n : `--${n}`)))
-  const tokens = await resolveTokenDefsByNames(requested, config, pluginCode, { includeAllModes })
-
-  const resultBytes = measureCallToolResultBytes(buildGetTokenDefsToolResult(tokens))
-  if (resultBytes > MCP_TOOL_INLINE_BUDGET_BYTES) {
+  const requested = new Set(names.map((name) => (name.startsWith('--') ? name : `--${name}`)))
+  const tokens = await resolveTokenDefsByNames(
+    requested,
+    currentCodegenConfig(),
+    activePlugin.value?.code,
+    { includeAllModes }
+  )
+  if (
+    measureCallToolResultBytes(buildGetTokenDefsToolResult(tokens)) > MCP_TOOL_INLINE_BUDGET_BYTES
+  ) {
     throw new Error(
       'Token tool result exceeded the 64 KiB inline budget. Reduce requested names or split into smaller batches and retry.'
     )
   }
-
   return tokens
 }
 
@@ -65,385 +47,135 @@ export async function resolveTokenDefsByNames(
   names: Set<string>,
   config: CodegenConfig,
   pluginCode?: string,
-  options: {
-    includeAllModes?: boolean
-    resolveValues?: boolean
-    candidateIds?: Set<string> | (() => Set<string>)
-    candidateNameById?: Map<string, string>
-  } = {}
+  options: { includeAllModes?: boolean } = {}
 ): Promise<GetTokenDefsResult> {
-  return resolveTokens({
-    names,
-    includeAllModes: !!options.includeAllModes,
-    resolveValues: !!options.resolveValues,
-    config,
-    pluginCode,
-    candidateIds: options.candidateIds,
-    candidateNameById: options.candidateNameById
-  })
-}
-
-type ResolveTokensOptions = {
-  names: Set<string>
-  includeAllModes: boolean
-  resolveValues: boolean
-  config: CodegenConfig
-  pluginCode?: string
-  candidateIds?: Set<string> | (() => Set<string>)
-  candidateNameById?: Map<string, string>
-}
-
-async function resolveTokens({
-  names,
-  includeAllModes,
-  resolveValues,
-  config,
-  pluginCode,
-  candidateIds,
-  candidateNameById
-}: ResolveTokensOptions): Promise<GetTokenDefsResult> {
   if (!names.size) return {}
-
-  const seeds: Variable[] = []
-  const remaining = new Set(names)
-  let index: Awaited<ReturnType<typeof getTokenIndex>> | null = null
-
-  const ensureIndex = async () => {
-    if (!index) index = await getTokenIndex(config, pluginCode)
-    return index
-  }
-
-  // Try to satisfy via candidate ids first (narrow scope).
-  if (remaining.size && candidateIds) {
-    const realized = typeof candidateIds === 'function' ? candidateIds() : candidateIds
-    if (realized?.size) {
-      const candidateVariables: Variable[] = []
-      const useNameById = !!candidateNameById && candidateNameById.size > 0
-      for (const id of realized) {
-        const v = figma.variables.getVariableById(id)
-        if (!v) continue
-        if (useNameById) {
-          const canonicalName = candidateNameById!.get(id)
-          if (canonicalName && remaining.has(canonicalName)) {
-            seeds.push(v)
-            remaining.delete(canonicalName)
-          }
-          continue
-        }
-        candidateVariables.push(v)
-      }
-
-      if (!useNameById && candidateVariables.length) {
-        const canonicals = await canonicalizeNames(
-          candidateVariables.map((v) => getVariableRawName(v)),
-          config,
-          pluginCode
-        )
-
-        for (const [i, v] of candidateVariables.entries()) {
-          const canonical = canonicals[i]
-          if (canonical && remaining.has(canonical)) {
-            seeds.push(v)
-            remaining.delete(canonical)
-          }
-        }
-      }
+  const context = createTokenReadContext(config, pluginCode)
+  const index = await context.getIndex()
+  const seeds = new Map<string, string>()
+  for (const name of names) {
+    const ids = index.byCanonicalName.get(name)
+    if (!ids?.length) continue
+    if (ids.length > 1) {
+      throw new Error(
+        `Token name "${name}" matches multiple variables. Use unique variable or transformed names.`
+      )
     }
+    const id = ids[0]!
+    seeds.set(index.canonicalNameById.get(id) ?? name, id)
   }
-
-  // Use full index only for remaining names.
-  if (remaining.size) {
-    const fullIndex = await ensureIndex()
-    for (const name of remaining) {
-      const idsForName = fullIndex.byCanonicalName.get(name)
-      if (!idsForName?.length) continue
-      for (const id of idsForName) {
-        const variable = figma.variables.getVariableById(id)
-        if (variable) seeds.push(variable)
-      }
-    }
-    remaining.clear()
-  }
-
-  const { tokens, aliasDeps } = await buildTokensFromVariables({
-    seedVariables: seeds,
-    includeAllModes,
-    resolveValues,
-    config,
-    pluginCode,
-    index: index ?? undefined
-  })
-
-  const needed = new Set<string>([...names, ...aliasDeps])
-  return filterTokensByNames(tokens, needed)
+  return resolveTokenDefsByIds(seeds, context, !!options.includeAllModes)
 }
 
-function filterTokensByNames(input: GetTokenDefsResult, names: Set<string>): GetTokenDefsResult {
+// Code reads already know exact variable IDs. Resolve only those definitions and alias
+// dependencies; a file-wide name index would both lose identity and do unnecessary work.
+export async function resolveTokenDefsByIds(
+  seeds: Map<string, string>,
+  context: TokenReadContext,
+  includeAllModes = true,
+  report: (message: string) => void = (message) => logger.warn(message)
+): Promise<GetTokenDefsResult> {
   const tokens: GetTokenDefsResult = {}
-  Object.entries(input).forEach(([name, entry]) => {
-    if (names.has(name)) tokens[name] = entry
-  })
+  const namesById = new Map(Array.from(seeds, ([name, id]) => [id, name]))
+  const idsByName = new Map<string, string | null>()
+  const collectionIdsByName = new Map<string, string>()
+  const pending = [...seeds.values()]
+  const seen = new Set<string>()
+  const nameOf = async (variable: Variable) => {
+    let name = namesById.get(variable.id)
+    if (!name) {
+      name = await context.getName(variable)
+      namesById.set(variable.id, name)
+    }
+    const previous = idsByName.get(name)
+    if (previous !== undefined && previous !== variable.id) {
+      idsByName.set(name, null)
+      delete tokens[name]
+      report(`Token name "${name}" matches multiple variables.`)
+    } else {
+      idsByName.set(name, variable.id)
+    }
+    return name
+  }
+
+  for (let i = 0; i < pending.length; i += 1) {
+    const id = pending[i]!
+    if (seen.has(id)) continue
+    seen.add(id)
+    const variable = context.getVariable(id)
+    if (!variable) {
+      report(`Variable ${id} is unavailable.`)
+      continue
+    }
+    const name = await nameOf(variable)
+    const collection = context.getCollection(variable.variableCollectionId)
+    if (!collection) {
+      report(`Collection ${variable.variableCollectionId} for variable ${id} is unavailable.`)
+    } else {
+      const previous = collectionIdsByName.get(collection.name)
+      if (previous && previous !== collection.id) {
+        report(`Duplicate collection name "${collection.name}"; mode labels are ambiguous.`)
+      }
+      collectionIdsByName.set(collection.name, collection.id)
+    }
+    const preferred = pickPreferredModeId(variable, {
+      defaultModeId: collection?.defaultModeId,
+      activeModeId: includeAllModes ? undefined : readActiveModeId(collection?.id)
+    })
+    const modeIds = includeAllModes
+      ? Object.keys(variable.valuesByMode)
+      : preferred
+        ? [preferred]
+        : []
+    const values: Record<string, string> = {}
+    for (const modeId of modeIds) {
+      const raw = variable.valuesByMode[modeId]
+      let value: string | null = null
+      if (isVariableAlias(raw)) {
+        const target = context.getVariable(raw.id)
+        if (target) {
+          value = await nameOf(target)
+          pending.push(target.id)
+        } else {
+          report(`Alias target ${raw.id} for variable ${id} is unavailable.`)
+        }
+      } else {
+        const serialized = serializeVariableValue(raw, variable.resolvedType, context.config, name)
+        if (typeof serialized === 'string') value = serialized
+      }
+      if (value === null) {
+        report(`Variable ${id}, mode ${modeId} has no usable definition.`)
+        continue
+      }
+      const modeName = collection?.modes.find((mode) => mode.modeId === modeId)?.name ?? modeId
+      const key = collection?.name ? `${collection.name}:${modeName}` : modeName
+      if (key in values) {
+        report(`Variable ${id} has duplicate mode label "${key}".`)
+        continue
+      }
+      values[key] = value
+    }
+    if (Object.keys(values).length && idsByName.get(name) === id) {
+      tokens[name] = {
+        kind: mapResolvedType(variable.resolvedType),
+        value: modeIds.length > 1 ? values : Object.values(values)[0]!
+      }
+    }
+  }
   return tokens
 }
 
-type BuildTokensOptions = {
-  seedVariables: Variable[]
-  includeAllModes: boolean
-  resolveValues: boolean
-  config: CodegenConfig
-  pluginCode?: string
-  index?: Awaited<ReturnType<typeof getTokenIndex>>
-}
-
-async function buildTokensFromVariables({
-  seedVariables,
-  includeAllModes,
-  resolveValues,
-  config,
-  pluginCode,
-  index: providedIndex
-}: BuildTokensOptions): Promise<{ tokens: GetTokenDefsResult; aliasDeps: Set<string> }> {
-  if (!seedVariables.length) return { tokens: {}, aliasDeps: new Set() }
-
-  const index = providedIndex ?? (await getTokenIndex(config, pluginCode))
-
-  const tokens: GetTokenDefsResult = {}
-  const aliasDeps = new Set<string>()
-  const pending: Variable[] = [...seedVariables]
-  const seenIds = new Set<string>()
-
-  for (let pendingIndex = 0; pendingIndex < pending.length; pendingIndex += 1) {
-    const variable = pending[pendingIndex]!
-    if (seenIds.has(variable.id)) continue
-    seenIds.add(variable.id)
-
-    const canonicalName =
-      index.canonicalNameById.get(variable.id) ??
-      (await canonicalizeName(getVariableRawName(variable), config, pluginCode))
-    const collection = resolveVariableCollection(variable)
-    const preferredModeId = pickPreferredModeId(variable, collection)
-    const modeIds = includeAllModes
-      ? Object.keys(variable.valuesByMode ?? {})
-      : preferredModeId
-        ? [preferredModeId]
-        : []
-
-    const valueMap: Record<string, string> = {}
-    for (const modeId of modeIds) {
-      const mv = await resolveModeValue(
-        variable,
-        modeId,
-        collection,
-        config,
-        pluginCode,
-        new Set(),
-        pending,
-        { canonicalName, index }
-      )
-      const modeKey = modeKeyForCollection(collection, modeId)
-      const resolvedLiteral = toLiteralString(mv.resolved)
-      const aliasName = mv.aliasTo
-        ? await resolveAliasName(mv.aliasTo, index, config, pluginCode)
-        : undefined
-      if (aliasName) {
-        aliasDeps.add(aliasName)
-      }
-      if (mv.aliasChain?.length) {
-        for (const aliasId of mv.aliasChain) {
-          const chainName = await resolveAliasName(aliasId, index, config, pluginCode)
-          if (chainName) aliasDeps.add(chainName)
-        }
-      }
-      valueMap[modeKey] = resolveValues ? resolvedLiteral : (aliasName ?? resolvedLiteral)
-    }
-
-    const primaryModeId = collection?.activeModeId ?? preferredModeId ?? modeIds[0]
-    const primaryModeKey = primaryModeId
-      ? modeKeyForCollection(collection, primaryModeId)
-      : undefined
-    const fallbackModeId = modeIds[0]
-    const resolvedValue =
-      (primaryModeKey ? valueMap[primaryModeKey] : undefined) ||
-      (fallbackModeId ? valueMap[modeKeyForCollection(collection, fallbackModeId)] : '') ||
-      ''
-
-    const value: string | Record<string, string> = modeIds.length <= 1 ? resolvedValue : valueMap
-
-    const entry: TokenEntry = {
-      kind: mapResolvedType(variable.resolvedType),
-      value
-    }
-
-    tokens[canonicalName] = entry
-  }
-
-  return { tokens, aliasDeps }
-}
-
-function resolveVariableCollection(variable: Variable): VariableCollectionInfo | null {
-  const collectionId = (variable as VariableWithCollection).variableCollectionId
-  if (!collectionId) return null
-
-  try {
-    const collection = figma.variables.getVariableCollectionById(collectionId)
-    if (!collection) return null
-    trackCollectionName(collection)
-    return {
-      id: collection.id,
-      name: collection.name,
-      defaultModeId: collection.defaultModeId,
-      activeModeId: readActiveModeId(collection.id, (error) =>
-        logger.warn('Failed to read active mode id:', error)
-      ),
-      modes: Array.isArray(collection.modes)
-        ? collection.modes.map((m) => ({ id: m.modeId, name: m.name }))
-        : undefined
-    }
-  } catch (error) {
-    logger.warn('Failed to resolve variable collection:', error)
-    return null
-  }
-}
-
-function trackCollectionName(collection: VariableCollection): void {
-  if (!collection?.name) return
-  const existing = collectionIdByName.get(collection.name)
-  if (!existing) {
-    collectionIdByName.set(collection.name, collection.id)
-    return
-  }
-  if (existing !== collection.id && !warnedDuplicateCollections.has(collection.name)) {
-    warnedDuplicateCollections.add(collection.name)
-    logger.warn(`Duplicate variable collection name "${collection.name}" detected.`)
-  }
-}
-
-async function resolveModeValue(
-  variable: Variable,
-  modeId: string,
-  collection: VariableCollectionInfo | null,
-  config: CodegenConfig,
-  pluginCode?: string,
-  aliasSeen: Set<string> = new Set(),
-  pending?: Variable[],
-  ctx?: {
-    canonicalName?: string
-    index?: Awaited<ReturnType<typeof getTokenIndex>>
-  }
-): Promise<TokenModeValue> {
-  const { valuesByMode = {} } = variable
-  if (aliasSeen.has(variable.id)) {
-    return { modeId, resolved: null, aliasChain: [] }
-  }
-  aliasSeen.add(variable.id)
-
-  const rawValue = resolveFallbackValue(valuesByMode, modeId, collection)
-
-  if (isVariableAlias(rawValue)) {
-    const target = figma.variables.getVariableById(rawValue.id)
-    if (!target) {
-      logger.error('Missing alias target variable', {
-        source: variable.id,
-        target: rawValue.id
-      })
-      return { modeId, aliasTo: rawValue.id, resolved: null, aliasChain: [rawValue.id] }
-    }
-    pending?.push(target)
-    const targetCollection = resolveVariableCollection(target)
-    const targetModeId = pickPreferredModeId(target, targetCollection, modeId) ?? modeId
-
-    let targetCanonicalName: string | undefined
-    if (ctx?.index) {
-      targetCanonicalName =
-        ctx.index.canonicalNameById.get(target.id) ??
-        (await canonicalizeName(getVariableRawName(target), config, pluginCode))
-    }
-
-    const resolvedTarget = await resolveModeValue(
-      target,
-      targetModeId,
-      targetCollection,
-      config,
-      pluginCode,
-      aliasSeen,
-      pending,
-      { canonicalName: targetCanonicalName, index: ctx?.index }
-    )
-    const chain = [rawValue.id, ...(resolvedTarget.aliasChain ?? [])]
-    return {
-      modeId,
-      aliasTo: rawValue.id,
-      resolved: resolvedTarget.resolved,
-      aliasChain: chain.length ? chain : undefined
-    }
-  }
-
-  const serialized = serializeVariableValue(
-    rawValue,
-    variable.resolvedType,
-    config,
-    ctx?.canonicalName
-  )
-  return {
-    modeId,
-    value: serialized ?? undefined,
-    resolved: serialized,
-    aliasChain: undefined
-  }
-}
-
-async function resolveAliasName(
-  id: string,
-  index: Awaited<ReturnType<typeof getTokenIndex>>,
-  config: CodegenConfig,
-  pluginCode?: string
-): Promise<string | undefined> {
-  const fromIndex = index.canonicalNameById.get(id)
-  if (fromIndex) return fromIndex
-
-  // Fallback for non-local variables.
-  try {
-    const v = figma.variables.getVariableById(id)
-    if (!v) return undefined
-    // Ensure it still matches the plugin canonicalization semantics.
-    return await canonicalizeName(getVariableRawName(v), config, pluginCode)
-  } catch {
-    return undefined
-  }
-}
-
-function modeKeyForCollection(collection: VariableCollectionInfo | null, modeId: string): string {
-  const found = collection?.modes?.find((m) => m.id === modeId)
-  const modeName = found?.name || modeId
-  const collectionName = collection?.name
-  return collectionName ? `${collectionName}:${modeName}` : modeName
-}
-
-function mapResolvedType(resolvedType?: string): TokenEntry['kind'] {
-  switch (resolvedType) {
+function mapResolvedType(type: Variable['resolvedType']): TokenEntry['kind'] {
+  switch (type) {
     case 'COLOR':
       return 'color'
     case 'FLOAT':
       return 'number'
-    case 'STRING':
-      return 'string'
     case 'BOOLEAN':
       return 'boolean'
+    case 'STRING':
+      return 'string'
     default:
       return 'string'
   }
-}
-
-function toLiteralString(value: unknown): string {
-  if (value == null) return ''
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (typeof value === 'object') {
-    try {
-      return JSON.stringify(value)
-    } catch {
-      return String(value)
-    }
-  }
-  return String(value ?? '')
 }

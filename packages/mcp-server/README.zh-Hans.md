@@ -48,11 +48,17 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
   调用保留原有返回格式。代码和截图批量返回 `{ nodeId, result }` 或 `{ nodeId, error }`，
   使用返回的 `remainingNodeIds` 作为 `nodeIds`，并保留原参数，即可继续读取。结构读取保留
   真实根节点，在 `errors` 中报告失败节点；`options.depth: 0` 只读取根节点。多节点读取要求
-  Hub 和扩展使用匹配的 bridge protocol 14 构建，旧版不会静默忽略新的节点选择参数。
+  Hub 和扩展使用匹配的 bridge protocol 15 构建，旧版不会静默忽略新的节点选择参数。
+- `get_code.resolveTokens` 只控制代码；无论是否启用，`tokens` 都保留定义、全部模式和 alias。
+  启用后按每个实际消费节点的 Figma 有效模式解析；无法解析的引用保留在代码中，并返回
+  `token-resolution` warning。定义缺失或名称有歧义时返回 `token-definition` warning；
+  warning 按节点独立去重并限制大小。旧版启用该选项时会把 `tokens` 展开为字面量，
+  旧扩展需要升级才能使用 `resolveTokens: true`。
 - 工具响应共用 `64 KiB` 的 inline budget，按 `CallToolResult` 整体响应体积计算。若选区过大而超出 `get_code` 的预算，TemPad Dev 可能返回 shell response 而不是直接失败。shell 会保留当前节点的包裹结构，并在内联代码注释中列出被省略的直接子节点 id，方便 agent 逐个继续拉取；配套 warning 只保留最小化的提示信息，用来指向这条注释。
 - 启用 MCP access 且当前 Figma Design 文件可编辑时，`apply_canvas` 即可使用；Dev Mode 和
   只读文件仍不可写。
-- MCP **0.10.0** 应配套使用扩展 **0.22.0** 和 Agent Plugin **0.3.0**。扩展 0.22.0 无需为本次发布更新。请更新 plugin 或已安装的 skill，
+- 已发布的 MCP **0.10.0** 配套扩展 **0.22.0** 和 Agent Plugin **0.3.0**。
+  上述多节点读取与 token 定义语义要求 Hub 和扩展均使用匹配的 protocol 15 构建。请更新 plugin 或已安装的 skill，
   将固定 alpha 版本的 MCP 配置改为 `@tempad-dev/mcp@latest`，然后重新连接 MCP client 并新建任务。
   详见[升级指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#升级)。
 - 资源是临时且与工具调用关联的。本地 stdio client 在 Hub 持有字节时会收到

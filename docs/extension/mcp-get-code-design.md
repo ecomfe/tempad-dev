@@ -15,9 +15,9 @@ deferred roots are returned as `remainingNodeIds`. A later root that cannot fit 
 triggering shell degradation from earlier roots' output. Each call starts at most eight roots and
 stops starting roots after ten seconds. Screenshots use the same target and continuation handling.
 
-One call shares raw CSS, variable, style, and semantic lookup caches across overlapping roots.
+One call shares raw CSS, variable, collection, consumer-value, style, and semantic lookup caches across overlapping roots.
 Each root keeps its own processed styles, render context, asset registry, token map, and language.
-Raw CSS is copied before preprocessing, and the shared cache is discarded after the call.
+Raw CSS is copied before preprocessing. Codegen configuration and plugin identity are fixed on the first root; all caches are discarded after the call, including before a continuation request.
 
 ## High-level pipeline
 
@@ -78,8 +78,8 @@ Raw CSS is copied before preprocessing, and the shared cache is discarded after 
 - Detect token references in output code.
 - Apply plugin transforms to token names.
 - Rewrite code with transformed token names.
-- Build a single `tokens` map (direct + alias-chain tokens).
-- When `resolveTokens` is true, resolve per-node (mode-aware) before final render.
+- Build a single `tokens` definition map from exact used variable IDs and alias dependencies, preserving all modes and aliases regardless of `resolveTokens`.
+- When `resolveTokens` is true, resolve code through native `Variable.resolveForConsumer(node)` before final render. Pass the actual node for styles, text runs, and SVG presentation.
 - The resolve rerender applies to both collected node styles and themeable vector-placeholder root presentation styles so emitted vector color evidence stays in sync with token resolution.
 
 11. **Build unresolved-literal diagnostics**
@@ -223,6 +223,7 @@ token collection, renaming, and resolution use the same variable identities.
 ### Cached data
 
 - `variables`: request-scoped `Variable | null` lookup map.
+- `tokens`: request-scoped collection/name lookups and raw native values keyed by consumer node ID and variable ID. Code reads traverse exact IDs and aliases without indexing all local variables. The names-only `get_token_defs` request creates its own fresh context and lazy full index.
 - `styles`: request-scoped `BaseStyle | null` lookup map.
 - `paintStyles`: `PaintStyleSummary` values containing raw paints plus size-independent facts, such as visible paint count and single-solid-channel analysis.
 - Text range variable bindings: request-scoped results keyed by text node, character range, and
@@ -285,6 +286,7 @@ The request context is threaded through:
 - Plugin/component output short-circuits vector export for that subtree.
 - Placeholder SVG nodes receive external layout styles plus presentation color on the root markup when the vector is single-channel.
 - Themeable-vector eligibility and single-channel color detection reuse shared paint/effect semantics instead of maintaining separate vector-only interpretations.
+- Token paint channels compare variable IDs. A descendant token is promoted to the SVG root only when their effective mode maps match; otherwise preserve the native fixed-color asset, since cross-collection aliases can depend on any differing mode.
 - The tool emits `<svg data-src="...">` placeholders by default for the current response. If asset upload fails after export, it falls back to inline SVG so the response still carries vector structure. Host apps may refactor to their own SVG policy, such as repo icon primitives, bundler/dev-server SVG transforms, inline SVG, or asset-backed SVG usage, as long as themeable vectors remain single-channel and fixed-color vectors keep their palette.
 - Placeholder SVG is emitted when export fails or is unavailable, using node width/height.
 - Vector-root descendants are not rendered; their CSS is not collected.
@@ -295,9 +297,8 @@ The request context is threaded through:
 2. Strip fallbacks, then extract raw token names from code (boundary-aware).
 3. Apply plugin transforms to names.
 4. Rewrite code with transformed names (only if any rename occurs).
-5. Derive final used names from the rewrite map (no second scan).
-6. Build a single token map (direct + alias-chain tokens).
-7. Per-node resolve (only when `resolveTokens` is true).
+5. Build a single definition map from the transform's final name-to-ID mapping (direct + alias-chain tokens), always preserving modes and aliases.
+6. Resolve code for each consuming node (only when `resolveTokens` is true). Native Figma resolution owns inherited modes and cross-collection alias traversal; serialized literals are renderer-local.
 
 ### Pipeline guards
 
@@ -309,7 +310,8 @@ The request context is threaded through:
 
 - Fatal: invalid selection, no renderable root, failure to build markup.
 - Non-fatal: CSS collection failure, text segment failures, export failure.
-- Warnings (output field): lightweight `type + message` guidance for inferred auto layout, depth-cap, and shell fallback.
+- Warnings (output field): lightweight `type + message` guidance for inferred auto layout, depth-cap, literal clusters, shell fallback, `token-definition`, and `token-resolution`.
+- A failed native resolution leaves its code reference intact. Missing definitions or ambiguous names never produce guessed values. Token warnings are root-local, deduplicated, and limited to three samples of at most 180 characters per type; the final formatter budget includes them.
 
 ## Output budget strategy
 
@@ -349,6 +351,6 @@ The request context is threaded through:
 
 ## Variable modes and overrides
 
-- Mode overrides are emitted as `data-hint-variable-mode="Collection=Mode;Collection=Mode"`.
+- Effective root modes (including inheritance outside the export) and explicit descendant overrides are emitted as `data-hint-variable-mode="Collection=Mode;Collection=Mode"`. Only collections reachable through that root's variable candidates and aliases participate.
 - `tokens` values for multi-mode variables use keys `${collectionName}:${modeName}`.
-- Collection names are assumed unique; duplicates are unsupported and should be warned.
+- Internal identity uses collection/mode IDs. Duplicate collection names produce a definition warning and use IDs in hints; token definitions retain the existing display-label format.

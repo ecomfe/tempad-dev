@@ -10,6 +10,8 @@ import type {
   FigmaSession,
   GetAssetsParametersInput,
   GetAssetsResult,
+  GetCodeResult,
+  GetScreenshotResult,
   StateMessage,
   ToolCallMessage,
   ToolName,
@@ -860,44 +862,17 @@ function createToolResponse<Name extends ToolName>(
   includeLocalAssetPaths = true
 ): ToolResponse {
   const enrichedPayload = (() => {
-    if (toolName === 'get_screenshot' && includeLocalAssetPaths) {
-      const screenshot = payload as ToolResultMap['get_screenshot']
-      if ('results' in screenshot) {
+    if (includeLocalAssetPaths && (toolName === 'get_code' || toolName === 'get_screenshot')) {
+      const read = payload as ToolResultMap['get_code' | 'get_screenshot']
+      if ('results' in read) {
         return {
-          ...screenshot,
-          results: screenshot.results.map((entry) =>
-            entry.result
-              ? {
-                  ...entry,
-                  result: { ...entry.result, asset: addLocalAssetPath(entry.result.asset) }
-                }
-              : entry
+          ...read,
+          results: read.results.map((entry) =>
+            entry.result ? { ...entry, result: addReadLocalAssetPaths(entry.result) } : entry
           )
         }
       }
-      return { ...screenshot, asset: addLocalAssetPath(screenshot.asset) }
-    }
-    if (toolName === 'get_code' && includeLocalAssetPaths) {
-      const code = payload as ToolResultMap['get_code']
-      if ('results' in code) {
-        return {
-          ...code,
-          results: code.results.map((entry) =>
-            entry.result?.assets
-              ? {
-                  ...entry,
-                  result: {
-                    ...entry.result,
-                    assets: entry.result.assets.map((asset) => addLocalAssetPath(asset))
-                  }
-                }
-              : entry
-          )
-        }
-      }
-      return code.assets
-        ? { ...code, assets: code.assets.map((asset) => addLocalAssetPath(asset)) }
-        : code
+      return addReadLocalAssetPaths(read)
     }
     if (toolName === 'apply_canvas' && runtime) {
       const apply = payload as ToolResultMap['apply_canvas']
@@ -955,6 +930,11 @@ function buildAuthoringRuntimeEvidence(extension: ExtensionConnection): Authorin
       connectedAt: extension.connectedAt
     }
   }
+}
+
+function addReadLocalAssetPaths(result: GetCodeResult | GetScreenshotResult) {
+  if ('asset' in result) return { ...result, asset: addLocalAssetPath(result.asset) }
+  return result.assets ? { ...result, assets: result.assets.map(addLocalAssetPath) } : result
 }
 
 function addLocalAssetPath(asset: AssetDescriptor): AssetDescriptor {

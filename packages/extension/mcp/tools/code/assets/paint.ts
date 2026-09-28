@@ -23,7 +23,7 @@ export function resolveSolidPaintChannel(
   const token = resolveVariableColor(paint.boundVariables?.color, ctx)
   if (token) {
     return {
-      key: `var:${token}`,
+      key: `var:${paint.boundVariables?.color?.id}`,
       color: token
     }
   }

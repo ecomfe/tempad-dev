@@ -28,9 +28,10 @@ export function buildGetCodeWarnings(
     depthCapped?: boolean
     literalClusters?: GetCodeLiteralCluster[]
     shell?: boolean
+    tokenWarnings?: GetCodeWarning[]
   }
 ): GetCodeWarning[] | undefined {
-  const warnings: GetCodeWarning[] = []
+  const warnings: GetCodeWarning[] = [...(options?.tokenWarnings ?? [])]
 
   if (AUTO_LAYOUT_REGEX.test(code)) {
     warnings.push({

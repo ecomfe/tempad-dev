@@ -18,6 +18,7 @@ describe('legacy extension routing', () => {
       ['get_structure', { options: { depth: 0 } }],
       ['get_structure', { nodeIds: ['1:2'] }],
       ['get_code', { nodeIds: ['1:2', '1:3'] }],
+      ['get_code', { resolveTokens: true }],
       ['get_screenshot', { nodeIds: ['1:2'] }],
       ['get_code', { taskId: 'task' }]
     ] as const) {

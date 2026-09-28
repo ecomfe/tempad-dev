@@ -249,6 +249,7 @@ try {
     ['get_structure', { options: { depth: 0 } }],
     ['get_structure', { nodeIds: ['1:2', '1:3'] }],
     ['get_code', { nodeIds: ['1:2', '1:3'] }],
+    ['get_code', { resolveTokens: true }],
     ['get_screenshot', { nodeIds: ['1:2'] }],
     ['get_design_system', {}],
     ['manage_design_task', { action: 'begin', title: 'Unavailable', requestId: randomUUID() }],
@@ -289,6 +290,13 @@ try {
     ...asset,
     url: `${modern.assetServerUrl}/assets/${hash}`
   })
+  modernCodePayload.tokens = {
+    '--semantic': { kind: 'color', value: '--palette' },
+    '--palette': { kind: 'color', value: { 'Palette:Light': '#FFF', 'Palette:Dark': '#000' } }
+  }
+  modernCodePayload.warnings = [
+    { type: 'token-resolution', message: 'An unresolved consumer reference was preserved.' }
+  ]
   modern.respond = (message) => {
     assert.equal(message.route.gatewayId, modern.id)
     assert.equal(message.route.sessionId, session.sessionId)
@@ -320,24 +328,29 @@ try {
   modern.activeId = null
   await activate(modern)
   modern.respond = immediateResponse
-  const currentCode = await call('get_code', codeArgs)
+  const currentCode = await call('get_code', { ...codeArgs, resolveTokens: true })
   assert.equal(currentCode.isError, undefined, JSON.stringify(currentCode))
   assert.equal(currentCode.structuredContent.code, modernCodePayload.code)
+  assert.deepEqual(currentCode.structuredContent.tokens, modernCodePayload.tokens)
+  assert.deepEqual(currentCode.structuredContent.warnings, modernCodePayload.warnings)
   recordBridgeMetric('current_get_code', modern, modernCodePayload, currentCode)
+  const codeWithoutAssets = { ...modernCodePayload }
+  delete codeWithoutAssets.assets
   const batchCode = {
     results: [
       { nodeId: '1:2', result: modernCodePayload },
-      { nodeId: '1:3', error: { code: 'NODE_NOT_VISIBLE', message: 'Hidden node' } }
+      { nodeId: '1:3', error: { code: 'NODE_NOT_VISIBLE', message: 'Hidden node' } },
+      { nodeId: '1:4', result: codeWithoutAssets }
     ],
-    remainingNodeIds: ['1:4']
+    remainingNodeIds: ['1:5']
   }
   modern.respond = () => batchCode
-  const batchArgs = { nodeIds: ['1:2', '1:3', '1:4'], preferredLang: 'jsx' }
+  const batchArgs = { nodeIds: ['1:2', '1:3', '1:4', '1:5'], preferredLang: 'jsx' }
   const batchResponse = await call('get_code', batchArgs)
   assert.equal(batchResponse.isError, undefined)
   assert.deepEqual(modern.calls.at(-1).payload.args, batchArgs)
-  assert.deepEqual(batchResponse.structuredContent.remainingNodeIds, ['1:4'])
-  assert.deepEqual(batchResponse.structuredContent.results[1], batchCode.results[1])
+  assert.deepEqual(batchResponse.structuredContent.remainingNodeIds, ['1:5'])
+  assert.deepEqual(batchResponse.structuredContent.results.slice(1), batchCode.results.slice(1))
   assert.deepEqual(
     await readFile(batchResponse.structuredContent.results[0].result.assets[0].localPath),
     bytes
@@ -354,12 +367,14 @@ try {
           bytes: bytes.length,
           asset: modernCodePayload.assets[0]
         }
-      }
+      },
+      { nodeId: '1:3', error: { code: 'NODE_NOT_VISIBLE', message: 'Hidden node' } }
     ]
   }
   modern.respond = () => batchScreenshot
-  const screenshots = await call('get_screenshot', { nodeIds: ['1:2'] })
+  const screenshots = await call('get_screenshot', { nodeIds: ['1:2', '1:3'] })
   assert.equal(screenshots.content.filter(({ type }) => type === 'resource_link').length, 1)
+  assert.deepEqual(screenshots.structuredContent.results[1], batchScreenshot.results[1])
   assert.deepEqual(
     await readFile(screenshots.structuredContent.results[0].result.asset.localPath),
     bytes

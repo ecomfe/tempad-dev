@@ -5,7 +5,6 @@ const mocks = vi.hoisted(() => ({
   buildSourceNameIndex: vi.fn(),
   applyPluginTransformToNames: vi.fn(),
   rewriteTokenNamesInCode: vi.fn(),
-  buildUsedTokens: vi.fn(),
   createStyleVarResolver: vi.fn(),
   processTokens: vi.fn()
 }))
@@ -26,10 +25,6 @@ vi.mock('@/mcp/tools/code/tokens/rewrite', () => ({
   rewriteTokenNamesInCode: mocks.rewriteTokenNamesInCode
 }))
 
-vi.mock('@/mcp/tools/code/tokens/used', () => ({
-  buildUsedTokens: mocks.buildUsedTokens
-}))
-
 vi.mock('@/mcp/tools/code/tokens/resolve', () => ({
   createStyleVarResolver: mocks.createStyleVarResolver
 }))
@@ -46,7 +41,6 @@ describe('tokens/index exports', () => {
     expect(tokensIndex.buildSourceNameIndex).toBe(mocks.buildSourceNameIndex)
     expect(tokensIndex.applyPluginTransformToNames).toBe(mocks.applyPluginTransformToNames)
     expect(tokensIndex.rewriteTokenNamesInCode).toBe(mocks.rewriteTokenNamesInCode)
-    expect(tokensIndex.buildUsedTokens).toBe(mocks.buildUsedTokens)
     expect(tokensIndex.createStyleVarResolver).toBe(mocks.createStyleVarResolver)
     expect(tokensIndex.processTokens).toBe(mocks.processTokens)
   })

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { buildSourceNameIndex } from '@/mcp/tools/code/tokens/source-index'
 
@@ -55,21 +55,25 @@ describe('mcp/code tokens source-index', () => {
       ['id-6', null]
     ])
 
+    const ambiguous = vi.fn()
     const index = buildSourceNameIndex(
       new Set(['id-1', 'id-2', 'id-3', 'id-4', 'id-5', 'id-6', 'id-7', 'id-8']),
-      cache
+      cache,
+      ambiguous
     )
 
-    expect(index.get('--brand-color')).toBe('id-1')
-    expect(index.get('var(--brand-color)')).toBe('id-1')
-    expect(index.get('--spacing-lg')).toBe('id-3')
+    expect(index.has('--brand-color')).toBe(false)
+    expect(index.has('var(--brand-color)')).toBe(false)
+    expect(index.has('--spacing-lg')).toBe(false)
     expect(index.get('$spacing lg')).toBe('id-3')
     expect(index.get('--No-Syntax')).toBe('id-4')
     expect(index.get('--Invalid-Syntax')).toBe('id-5')
     expect(index.get('$$??')).toBe('id-5')
-    expect(index.get('--spacing-lg')).toBe('id-3')
+    expect(index.get('--Brand-Primary')).toBe('id-1')
+    expect(index.get('--Brand-Secondary')).toBe('id-2')
     expect(index.get('@--spacing lg')).toBe('id-7')
-    expect(index.get('--unnamed')).toBe('id-5')
+    expect(index.has('--unnamed')).toBe(false)
+    expect(ambiguous).toHaveBeenCalledWith('--brand-color')
     expect(index.get('--Spacing-LG')).toBe('id-3')
   })
 })

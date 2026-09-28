@@ -28,15 +28,16 @@ export function resolveReadTargets(args?: { nodeId?: string; nodeIds?: string[] 
     throw new Error('Use only one of nodeId or nodeIds.')
   }
   const explicitIds = args?.nodeIds ?? (args?.nodeId === undefined ? undefined : [args.nodeId])
-  const selection = explicitIds ? undefined : [...figma.currentPage.selection]
-  const ids = [...new Set(explicitIds ?? selection!.map((node) => node.id))]
+  const selectedById = new Map(
+    explicitIds ? [] : figma.currentPage.selection.map((node) => [node.id, node])
+  )
+  const ids = explicitIds ? [...new Set(explicitIds)] : [...selectedById.keys()]
   if (!ids.length) {
     throw createCodedError(
       TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION,
       'Select one or more visible nodes, or provide nodeIds.'
     )
   }
-  const selectedById = new Map(selection?.map((node) => [node.id, node]))
   const targets: ReadTarget[] = ids.map((nodeId) => {
     try {
       const node = explicitIds ? figma.getNodeById(nodeId) : selectedById.get(nodeId)
@@ -80,16 +81,16 @@ export async function readNodeBatch<T>(
 ): Promise<NodeReadBatchResult<T>> {
   const results: NodeReadResult<T>[] = []
   const startedAt = Date.now()
-  const envelope = (entries: NodeReadResult<T>[], next: number): NodeReadBatchResult<T> => ({
+  const envelope = (entries: NodeReadResult<T>[]): NodeReadBatchResult<T> => ({
     results: entries,
-    ...(next < targets.length
-      ? { remainingNodeIds: targets.slice(next).map(({ nodeId }) => nodeId) }
+    ...(entries.length < targets.length
+      ? { remainingNodeIds: targets.slice(entries.length).map(({ nodeId }) => nodeId) }
       : {})
   })
   const fits = (payload: NodeReadBatchResult<T>) =>
     measureCallToolResultBytes(format(payload)) <= MCP_TOOL_INLINE_BUDGET_BYTES
   // Reserve enough room for a bounded error so an otherwise valid call can always progress.
-  if (measureCallToolResultBytes(format(envelope([], 0))) > MCP_TOOL_INLINE_BUDGET_BYTES - 4096) {
+  if (measureCallToolResultBytes(format(envelope([]))) > MCP_TOOL_INLINE_BUDGET_BYTES - 4096) {
     throw new Error('Node selection exceeds the inline budget. Request fewer nodeIds.')
   }
   for (const target of targets) {
@@ -104,7 +105,7 @@ export async function readNodeBatch<T>(
     try {
       if (target.error) throw target.error
       const result = await read(target.node, (result) => {
-        const response = format(envelope([...results, { nodeId, result }], index + 1))
+        const response = format(envelope([...results, { nodeId, result }]))
         // Defer later roots intact instead of degrading them to shells just because
         // earlier roots used the shared budget. A root alone still has shell fallback.
         if (index > 0 && measureCallToolResultBytes(response) > MCP_TOOL_INLINE_BUDGET_BYTES)
@@ -122,7 +123,7 @@ export async function readNodeBatch<T>(
       const normalized = coerceToolErrorPayload(error)
       entry = { nodeId, error: { ...normalized, message: normalized.message.slice(0, 1024) } }
     }
-    if (!fits(envelope([...results, entry], index + 1))) {
+    if (!fits(envelope([...results, entry]))) {
       if (index > 0) break
       entry = {
         nodeId,
@@ -130,10 +131,10 @@ export async function readNodeBatch<T>(
           message: 'This node result exceeds the inline budget. Request a smaller nodeId subtree.'
         }
       }
-      if (!fits(envelope([entry], 1)))
+      if (!fits(envelope([entry])))
         throw new Error('Node selection exceeds the inline budget. Request fewer nodeIds.')
     }
     results.push(entry)
   }
-  return envelope(results, results.length)
+  return envelope(results)
 }

@@ -14,6 +14,7 @@ import {
   transformSvgAttributes
 } from '@/mcp/tools/code/assets/vector'
 import { analyzeVectorColorModel } from '@/mcp/tools/code/assets/vector-semantics'
+import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
 
@@ -378,6 +379,50 @@ describe('assets/vector', () => {
     expect(analyzeVectorColorModel(tree, 'root')).toEqual({
       kind: 'single-channel',
       color: 'var(--Color---Icon)'
+    })
+  })
+
+  it('keeps native vector colors when a token consumer has a different mode from its SVG root', () => {
+    const root = createSnapshot({ id: 'root', children: ['light', 'dark'] })
+    const light = createSnapshot({ id: 'light', type: 'VECTOR', parentId: 'root' })
+    const dark = createSnapshot({ id: 'dark', type: 'VECTOR', parentId: 'root' })
+    const variable = { id: 'v', name: 'icon' } as Variable
+    vi.stubGlobal('figma', {
+      variables: { getVariableById: (id: string) => ({ ...variable, id }) }
+    })
+    for (const snapshot of [light, dark]) {
+      Object.assign(snapshot.node, {
+        fills: [
+          {
+            type: 'SOLID',
+            color: { r: 1, g: 0, b: 0 },
+            boundVariables: { color: { id: 'v', type: 'VARIABLE_ALIAS' } }
+          }
+        ],
+        resolvedVariableModes: { palette: 'light' }
+      })
+    }
+    Object.assign(root.node, { resolvedVariableModes: { palette: 'light' } })
+    Object.assign(dark.node, { resolvedVariableModes: { palette: 'dark' } })
+    expect(analyzeVectorColorModel(createTree([root, light, dark]), 'root')).toEqual({
+      kind: 'fixed'
+    })
+    Object.assign(dark.node, { resolvedVariableModes: { palette: 'light' } })
+    expect(analyzeVectorColorModel(createTree([root, light, dark]), 'root')).toMatchObject({
+      kind: 'single-channel'
+    })
+    Object.assign(dark.node, {
+      fills: [
+        {
+          type: 'SOLID',
+          color: { r: 0, g: 1, b: 0 },
+          boundVariables: { color: { id: 'different', type: 'VARIABLE_ALIAS' } }
+        }
+      ]
+    })
+    // Identical CSS names do not establish identical variable identity.
+    expect(analyzeVectorColorModel(createTree([root, light, dark]), 'root')).toEqual({
+      kind: 'fixed'
     })
   })
 
