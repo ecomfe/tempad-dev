@@ -35,6 +35,7 @@ export function createGetCodeCacheContext(
     Map<string, ReturnType<TextNode['getRangeBoundVariable']>>
   >()
   const ctx = {
+    rawCss: new Map(),
     variables: variableCache,
     styles: new Map<string, BaseStyle | null>(),
     paintStyles: new Map<string, PaintStyleSummary | null>(),

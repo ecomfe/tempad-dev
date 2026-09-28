@@ -92,6 +92,7 @@ describe('mcp/code styles prepare', () => {
 
 function createCache(): GetCodeCacheContext {
   return {
+    rawCss: new Map(),
     readers: {
       getStyleById: () => null,
       getVariableById: () => null

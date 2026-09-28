@@ -4,7 +4,7 @@ This document records the requirements and hard constraints for the MCP `get_cod
 
 ## Non-negotiables
 
-- Accept exactly one visible node; otherwise throw a user-facing error.
+- Accept one or more visible roots, keeping each root's code, language, tokens, assets, and warnings independent.
 - Never emit empty optional fields (`assets`, `tokens`, `literalClusters`, `warnings`).
 - Do not use `renderBounds` diffs for positioning.
 - Do not inject positioning containers on GROUP/BOOLEAN nodes.
@@ -20,8 +20,9 @@ This document records the requirements and hard constraints for the MCP `get_cod
 
 ## Input constraints
 
-- Exactly one node is required.
-- The node must be visible.
+- Accept `nodeId` or a nonempty `nodeIds` array, never both; omit both to snapshot the current live selection once.
+- Preserve input order and remove duplicate IDs only. An explicitly selected ancestor and descendant remain separate targets.
+- Each root must be a visible scene node. Empty selection is a call error; invalid roots in a batch return per-node errors without discarding successful peers.
 - `vectorMode` is optional:
   - `smart` (default): emit `<svg data-src="...">` placeholders in code and preserve themeable instance color on the emitted `svg` root markup for downstream adaptation. If asset upload fails after export, inline the SVG as a fallback to preserve source of truth.
   - `snapshot`: preserve vector assets for fidelity, even if a vector would otherwise be themeable.
@@ -30,6 +31,11 @@ This document records the requirements and hard constraints for the MCP `get_cod
 
 ## Output contract (GetCodeResult)
 
+- `nodeId` and a single implicit selection preserve the existing flat `GetCodeResult`.
+- Explicit `nodeIds` (including one ID) and implicit multi-selection return
+  `{ results: [{ nodeId, result } | { nodeId, error }], remainingNodeIds? }`.
+  Each success contains a complete `GetCodeResult`; never concatenate root markup or merge token maps across roots.
+- `remainingNodeIds` identifies deferred roots. Continue with those exact `nodeIds` and the same options; do not reread the live selection to rediscover pending work.
 - Required fields:
   - `lang`: resolved language for output markup.
   - `code`: string markup.
@@ -52,6 +58,10 @@ This document records the requirements and hard constraints for the MCP `get_cod
 
 - Tool transport is still constrained by `MCP_MAX_PAYLOAD_BYTES`, but inline response budgeting is separate.
 - The default inline budget for `get_code` is `64 KiB`, measured on the final `CallToolResult` UTF-8 bytes.
+- The entire batch shares that budget, including summaries, failures, asset metadata, and continuation IDs.
+- Read roots sequentially, up to eight per call; stop starting new roots after ten seconds.
+  The Hub allows the batch work window plus the normal per-root deadline for calls that may read multiple roots.
+- Defer later roots intact when they cannot fit after earlier results. Only a root with its own full response budget uses shell fallback; batching alone must not force a later root into a shell.
 - If output exceeds the inline budget, prefer returning a shell response for the current node.
 - A shell response:
   - preserves the current node wrapper/layout markup,

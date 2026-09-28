@@ -208,48 +208,43 @@ export function buildBoundedStructureOutline(
   depthLimit: number | undefined,
   nodeLimit: number
 ): { roots: OutlineNode[]; physicalNodes: SceneNode[]; observedNodes: number } {
-  const effectiveDepthLimit = depthLimit || suggestDepthLimit(roots)
+  const effectiveDepthLimit = depthLimit ?? suggestDepthLimit(roots)
   let observedNodes = 0
   const outlineRoots: OutlineNode[] = []
   const physicalNodes: SceneNode[] = []
 
-  const visitNode = (node: SceneNode, depth: number, siblings: OutlineNode[]): void => {
-    if (observedNodes > nodeLimit) return
-    if (!node.visible) return
-
+  // Visit exact roots first, then descendants by level. Lazy sibling iterators keep
+  // wide trees bounded without letting the first subtree displace later roots.
+  let level: Array<{ nodes: Iterable<SceneNode>; parent?: OutlineNode }> = [{ nodes: roots }]
+  for (let depth = 0; level.length && observedNodes <= nodeLimit; depth += 1) {
+    const nextLevel: typeof level = []
     const capped = effectiveDepthLimit !== undefined && depth >= effectiveDepthLimit
-    const wrapperChild = capped ? undefined : getWrapperChild(node)
-    if (wrapperChild) {
-      visitNode(wrapperChild, depth, siblings)
-      return
-    }
-
-    observedNodes += 1
-    if (observedNodes > nodeLimit) return
-    physicalNodes.push(node)
-    const outline: OutlineNode = {
-      id: node.id,
-      name: node.name,
-      type: node.type,
-      x: node.x,
-      y: node.y,
-      width: node.width,
-      height: node.height
-    }
-    siblings.push(outline)
-    if (capped) return
-
-    const children: OutlineNode[] = []
-    for (const child of getVisibleChildren(node)) {
-      visitNode(child, depth + 1, children)
+    for (const { nodes, parent } of level) {
+      for (let node of nodes) {
+        if (!node.visible) continue
+        if (depth > 0 && !capped) {
+          let child: SceneNode | undefined
+          while ((child = getWrapperChild(node))) node = child
+        }
+        observedNodes += 1
+        if (observedNodes > nodeLimit) break
+        physicalNodes.push(node)
+        const outline: OutlineNode = {
+          id: node.id,
+          name: node.name,
+          type: node.type,
+          x: node.x,
+          y: node.y,
+          width: node.width,
+          height: node.height
+        }
+        if (parent) (parent.children ??= []).push(outline)
+        else outlineRoots.push(outline)
+        if (!capped) nextLevel.push({ nodes: getVisibleChildren(node), parent: outline })
+      }
       if (observedNodes > nodeLimit) break
     }
-    if (children.length) outline.children = children
-  }
-
-  for (const root of roots) {
-    visitNode(root, 0, outlineRoots)
-    if (observedNodes > nodeLimit) break
+    level = nextLevel
   }
   return { roots: outlineRoots, physicalNodes, observedNodes }
 }

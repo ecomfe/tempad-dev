@@ -38,12 +38,17 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
   扩展会在本地解析、验证、计算与实时画布的差异、应用修改并校验结构。
 - `upload_asset`：Hub 内的受限桥梁，把程序化串联生成的 PNG/JPEG/GIF data URL 存成供
   `apply_canvas` 使用的 content-addressed `assetHash`，且不会返回编码后的图片字节。
-- `get_screenshot`：返回一张有大小限制的渲染 PNG，用于按需视觉验证。
+- `get_screenshot`：为每个请求的节点返回有大小限制的渲染 PNG，用于按需视觉验证。
 - `get_structure`：精确节点、页面或当前选中的一个或多个可见节点的层级/几何结构信息，并返回 TemPad 已管理节点的稳定 authoring key；
   还可按需读回原生遮罩、IMAGE paint、布局网格与画框参考线。
 
 说明：
 
+- `get_code`、`get_structure` 和 `get_screenshot` 接受 `nodeIds` 或当前多选，单个 `nodeId`
+  调用保留原有返回格式。代码和截图批量返回 `{ nodeId, result }` 或 `{ nodeId, error }`，
+  使用返回的 `remainingNodeIds` 作为 `nodeIds`，并保留原参数，即可继续读取。结构读取保留
+  真实根节点，在 `errors` 中报告失败节点；`options.depth: 0` 只读取根节点。多节点读取要求
+  Hub 和扩展使用匹配的 bridge protocol 14 构建，旧版不会静默忽略新的节点选择参数。
 - 工具响应共用 `64 KiB` 的 inline budget，按 `CallToolResult` 整体响应体积计算。若选区过大而超出 `get_code` 的预算，TemPad Dev 可能返回 shell response 而不是直接失败。shell 会保留当前节点的包裹结构，并在内联代码注释中列出被省略的直接子节点 id，方便 agent 逐个继续拉取；配套 warning 只保留最小化的提示信息，用来指向这条注释。
 - 启用 MCP access 且当前 Figma Design 文件可编辑时，`apply_canvas` 即可使用；Dev Mode 和
   只读文件仍不可写。

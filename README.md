@@ -148,6 +148,10 @@ For optional environment variables, see [`packages/mcp-server/README.md`](./pack
 
 These tools are called by the agent. For everyday use, describe the task in your own words.
 
+`get_code`, `get_screenshot`, and `get_structure` support the current multi-selection or explicit
+`nodeIds`. Results preserve each root's identity; deferred nodes are returned as `remainingNodeIds`
+for exact continuation. A single `nodeId` remains supported.
+
 - `get_code`: High-fidelity JSX/Vue + TailwindCSS code output by default, plus attached assets and the codegen preset/config used.
 - `get_design_system`: An immutable, deterministic catalog. It returns compact pages of component
   definitions on accessible pages plus local or directly referenced variable, collection/mode,
@@ -161,7 +165,7 @@ These tools are called by the agent. For everyday use, describe the task in your
   editor context. The extension resolves, validates, diffs, applies, and
   structurally verifies each requested result. Authoring requires edit access to the current Figma
   Design file.
-- `get_screenshot`: A bounded rendered PNG for selective visual validation.
+- `get_screenshot`: A bounded rendered PNG per requested node for selective visual validation.
 - `get_structure`: A structural outline (ids, types, geometry) for an exact node, exact managed
   page, or one or more visible nodes in the current selection.
 - `upload_asset`: Stores a generated PNG/JPEG/GIF in the local Hub and returns an `assetHash`

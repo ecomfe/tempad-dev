@@ -111,6 +111,21 @@ describe('mcp/responses helpers', () => {
     expect(tokens.content?.[0]?.text).toContain('Resolved 1 token definition')
   })
 
+  it('distinguishes failed structure roots from roots deferred by the safety cap', () => {
+    const errors = [{ nodeId: 'missing', error: { message: 'Missing node' } }]
+    const failed = buildGetStructureToolResult({ roots: [], errors })
+    expect(failed.isError).toBe(true)
+    const partial = buildGetStructureToolResult({
+      roots: [],
+      errors,
+      truncated: true,
+      remainingNodeIds: ['next']
+    })
+    expect(partial.isError).toBeUndefined()
+    expect(partial.content?.[0]?.text).toContain('remainingNodeIds as nodeIds')
+    expect(partial.structuredContent).toMatchObject({ errors, remainingNodeIds: ['next'] })
+  })
+
   it('builds design-system and canvas-apply summaries', () => {
     const designSystem = buildGetDesignSystemToolResult({
       catalogId: 'ds_1',

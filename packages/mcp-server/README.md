@@ -43,12 +43,18 @@ Supported tools/resources:
   resolves, validates, diffs, applies, and structurally verifies the result.
 - `upload_asset`: A bounded Hub-only bridge from a programmatically composed generated PNG/JPEG/GIF
   data URL to a content-addressed `assetHash` for `apply_canvas`; encoded bytes are never returned.
-- `get_screenshot`: A bounded rendered PNG for selective visual validation.
+- `get_screenshot`: A bounded rendered PNG per requested node for selective visual validation.
 - `get_structure`: Hierarchy/geometry outline for an exact node, page, or one or more visible selected nodes, including stable authoring keys on
   TemPad-managed nodes and optional native mask, IMAGE paint, layout-grid, and frame-guide read-back.
 
 Notes:
 
+- `get_code`, `get_structure`, and `get_screenshot` accept `nodeIds` or the current multi-selection.
+  Single `nodeId` calls retain their existing result shape. Code and screenshots return independent
+  `{ nodeId, result }` or `{ nodeId, error }` entries for batches; continue `remainingNodeIds` with
+  exact `nodeIds` and unchanged options. Structure retains exact roots, reports failed roots in
+  `errors`, and supports `options.depth: 0` for roots only. Node-set reads require matching Hub and
+  extension builds using bridge protocol 14; older peers cannot silently ignore the new selectors.
 - Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
 - `apply_canvas` is available whenever MCP access is enabled and the current Figma Design file is
   editable. Dev Mode and view-only files remain read-only.

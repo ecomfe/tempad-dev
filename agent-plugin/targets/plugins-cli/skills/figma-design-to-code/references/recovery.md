@@ -22,6 +22,12 @@ Do not edit code while design evidence is untrustworthy.
 Preserve the largest trustworthy parent composition and narrow only the
 missing evidence:
 
+- **`remainingNodeIds`**: call `get_code` with those exact `nodeIds` and unchanged
+  options. They are deferred roots, not failed or omitted children. Keep completed
+  results and do not rediscover the live selection.
+- **per-node `error`**: recover only that root using its exact `nodeId`; successful
+  peers remain valid. Hidden, missing, and deterministic failures require correcting
+  the reported condition before retrying.
 - **`depth-cap`**: keep the returned top-level composition, then use returned
   `data-hint-id` values for targeted child `get_code` calls.
 - **budget overflow or shell response**: keep the returned parent shell, then

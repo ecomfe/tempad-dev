@@ -47,6 +47,7 @@ export const EXTENSION_COVERAGE_FILES = [
   'mcp/bounded-response.ts',
   'mcp/local-resources.ts',
   'mcp/runtime.ts',
+  'mcp/node-reads.ts',
   'mcp/design-task.ts',
   'mcp/figma-session.ts',
   'mcp/design-feedback.ts',

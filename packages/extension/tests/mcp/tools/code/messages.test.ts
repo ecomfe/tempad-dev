@@ -75,7 +75,7 @@ describe('mcp/code messages', () => {
     expect(warnings).toEqual([
       {
         type: 'literal-cluster',
-        message: expect.stringContaining('structuredContent.literalClusters')
+        message: expect.stringContaining('literalClusters')
       }
     ])
   })

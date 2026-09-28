@@ -52,7 +52,7 @@ export function buildGetCodeWarnings(
     warnings.push({
       type: 'literal-cluster',
       message:
-        'Repeated unbound color literals are listed in structuredContent.literalClusters with concrete consumer nodes. Classify each cluster before propagating a system: bind consumers that should change together, or keep them literal only when independently owned.'
+        'Repeated unbound color literals are listed in this node result’s literalClusters with concrete consumer nodes. Classify each cluster before propagating a system: bind consumers that should change together, or keep them literal only when independently owned.'
     })
   }
 

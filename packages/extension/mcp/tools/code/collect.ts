@@ -42,7 +42,13 @@ export async function collectNodeData(
     }
 
     try {
-      let css = await node.getCSSAsync()
+      let rawCss = cache.rawCss.get(id)
+      if (!rawCss) {
+        rawCss = node.getCSSAsync()
+        cache.rawCss.set(id, rawCss)
+      }
+      // Root-specific preprocessing must never mutate the shared raw read.
+      let css = { ...(await rawCss) }
       css = await resolveStylesFromNodeData(
         css,
         createNodePaintStyleInput(snapshot, cache),

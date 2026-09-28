@@ -6,11 +6,23 @@ The Hub gives `get_code` a bounded 30-second default deadline because its codege
 and asset work can legitimately exceed the 15-second general tool deadline on larger selections.
 `TEMPAD_MCP_GET_CODE_TIMEOUT` overrides this deadline; the existing
 `TEMPAD_MCP_TOOL_TIMEOUT` remains the fallback when operators set a general override.
+Calls without a singular `nodeId` add the ten-second batch work window to that deadline.
+
+`runtime.ts` snapshots exact targets through `node-reads.ts` and runs the existing single-root
+pipeline sequentially. Explicit `nodeIds` and multi-selection return keyed success/error entries;
+single-node calls keep their flat result. The batch formatter participates in byte checks, and
+deferred roots are returned as `remainingNodeIds`. A later root that cannot fit is deferred without
+triggering shell degradation from earlier roots' output. Each call starts at most eight roots and
+stops starting roots after ten seconds. Screenshots use the same target and continuation handling.
+
+One call shares raw CSS, variable, style, and semantic lookup caches across overlapping roots.
+Each root keeps its own processed styles, render context, asset registry, token map, and language.
+Raw CSS is copied before preprocessing, and the shared cache is discarded after the call.
 
 ## High-level pipeline
 
-1. **Validate selection**
-   - Exactly one visible root node required.
+1. **Validate each root**
+   - The inner pipeline receives exactly one visible root; the runtime owns node-set orchestration.
    - Build a visible tree with depth capping.
 
 2. **Preflight the response budget**

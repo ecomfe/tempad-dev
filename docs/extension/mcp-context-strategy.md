@@ -25,7 +25,15 @@ This document records the current context-control strategy for TemPad Dev MCP ou
    - Independent read tools may pass an exact `sessionId` returned by `list_design_sessions` to
      target a connected Figma tab without changing the active badge. Omitting it preserves the
      existing badge-selected default; a task-bound read cannot override its task's session.
-2. `get_code` keeps existing API but uses a shared inline budget guard.
+2. `get_code` supports independent node-set reads with a shared inline budget guard.
+   - `get_code`, `get_structure`, and `get_screenshot` accept mutually exclusive `nodeId`/`nodeIds`;
+     omitting both snapshots the current selection. Exact duplicate IDs are read once in input order;
+     overlapping ancestor/descendant targets are preserved.
+   - Code and screenshots retain flat single-node results; explicit `nodeIds` and multi-selection
+     return keyed per-node success/error entries. Continue `remainingNodeIds` with exact `nodeIds`
+     and unchanged options. No combined parent, cross-root token map, or composite image is invented.
+   - Code/screenshot batches run sequentially for at most eight roots and stop starting roots after
+     ten seconds. Pending IDs remain explicit when the byte or work budget ends a batch.
    - Budget is computed on the final `CallToolResult` UTF-8 bytes (`64 KiB` default).
    - If over budget, prefer a shell response that preserves the current node wrapper and omits direct children.
    - Warnings stay lightweight (`type + message` only); shell continuation lives in the inline omitted-child comment, and depth-cap recovery relies on returned `data-hint-id` values.
@@ -39,9 +47,13 @@ This document records the current context-control strategy for TemPad Dev MCP ou
    - Only fail fast when a usable shell cannot be generated.
    - Hub-added local asset paths are optional; if they alone would exceed the final inline budget,
      the Hub returns the code and its asset URLs without those paths.
-3. `get_structure` keeps the same call shape and compacts output by default.
+3. `get_structure` returns exact roots and compacts output by default.
    - When node and page identity are omitted, accept one or more visible roots from the current selection.
-   - Bound outline construction to the prefix needed for the node limit and truncation signal;
+   - Preserve actual root identity, including wrappers. Both construction and byte compaction visit
+     roots before descendants, then proceed by level; the first subtree cannot displace later roots.
+     `options.depth: 0` reads roots only. Invalid explicit/selected peers appear in `errors`, and
+     omitted roots appear in `remainingNodeIds`; `truncated` also covers omitted descendants.
+   - Bound outline construction to the nodes needed for the node limit and truncation signal;
      automatic depth selection also stops counting once it can determine the cap.
    - Normalize/trim long names.
    - Round geometry values.
@@ -53,7 +65,7 @@ This document records the current context-control strategy for TemPad Dev MCP ou
      bounded, but may include nodes omitted by byte-budget fallback. Preserve the existing cap
      steps and exact formatted-byte check when changing this path.
 4. `get_screenshot` is visible but selective.
-   - It returns one bounded PNG through an MCP `resource_link` to the existing capability URL.
+   - It returns one bounded PNG per root through MCP `resource_link` blocks to existing capability URLs.
    - When the local Hub owns the bytes, the descriptor also exposes the same ephemeral file through
      `asset.localPath`, avoiding a loopback download from sandboxed local clients.
    - Normally use one final check for a new composition or material visual change; skip mechanical

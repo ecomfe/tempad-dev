@@ -1,12 +1,14 @@
 import type {
   ApplyCanvasResult,
   GetAssetsResult,
-  GetCodeResult,
+  GetCodeReadResult,
   GetDesignSystemResult,
   GetScreenshotResult,
+  GetScreenshotReadResult,
   GetStructureResult,
   GetTokenDefsResult,
-  UploadAssetResult
+  UploadAssetResult,
+  NodeReadBatchResult
 } from './tools'
 
 const ENCODER = new TextEncoder()
@@ -38,7 +40,8 @@ export function measureCallToolResultBytes(result: ToolResponseLike): number {
   return utf8Bytes(result)
 }
 
-export function buildGetCodeToolResult(payload: GetCodeResult): ToolResponseLike {
+export function buildGetCodeToolResult(payload: GetCodeReadResult): ToolResponseLike {
+  if ('results' in payload) return buildNodeReadBatchToolResult(payload, buildGetCodeToolResult)
   const summary: string[] = []
   const codeSize = utf8Bytes(payload.code)
   summary.push(`Generated \`${payload.lang}\` snippet (${formatBytes(codeSize)}).`)
@@ -153,7 +156,18 @@ export function buildGetStructureToolResult(payload: GetStructureResult): ToolRe
   const page = payload.page
     ? ` Page "${payload.page.name}" (${payload.page.id}) is ${payload.page.active ? 'active' : 'not active'} with ${formatCount(payload.page.childCount, 'child', 'children')}.`
     : ''
-  return buildTextToolResult(`${summary}${page}\n${guidance}`, payload)
+  const errors = payload.errors?.length
+    ? ` ${payload.errors.length} root(s) failed; inspect errors.`
+    : ''
+  const remaining = payload.remainingNodeIds?.length
+    ? ' Read omitted roots by passing remainingNodeIds as nodeIds.'
+    : ''
+  return {
+    ...buildTextToolResult(`${summary}${page}${errors}\n${guidance}${remaining}`, payload),
+    ...(!roots && payload.errors?.length && !payload.remainingNodeIds?.length
+      ? { isError: true }
+      : {})
+  }
 }
 
 export function buildGetTokenDefsToolResult(payload: GetTokenDefsResult): ToolResponseLike {
@@ -169,7 +183,9 @@ export function buildGetTokenDefsToolResult(payload: GetTokenDefsResult): ToolRe
   )
 }
 
-export function buildGetScreenshotToolResult(payload: GetScreenshotResult): ToolResponseLike {
+export function buildGetScreenshotToolResult(payload: GetScreenshotReadResult): ToolResponseLike {
+  if ('results' in payload)
+    return buildNodeReadBatchToolResult(payload, buildGetScreenshotToolResult)
   const access = payload.asset.localPath
     ? `Open the local PNG directly with an image viewer: ${payload.asset.localPath}.`
     : 'Download and open the linked PNG with an image viewer.'
@@ -189,6 +205,34 @@ export function buildGetScreenshotToolResult(payload: GetScreenshotResult): Tool
       }
     ],
     structuredContent: payload
+  }
+}
+
+function buildNodeReadBatchToolResult<T>(
+  payload: NodeReadBatchResult<T>,
+  build: (result: T) => ToolResponseLike
+): ToolResponseLike {
+  const failures = payload.results.filter((entry) => entry.error).length
+  const remaining = payload.remainingNodeIds?.length ?? 0
+  const content: ToolResponseContentBlock[] = [
+    {
+      type: 'text',
+      text: `Returned ${payload.results.length - failures} node result(s), ${failures} failure(s). Each results entry identifies its exact nodeId.${remaining ? ` ${remaining} node(s) remain; pass remainingNodeIds as nodeIds with the same options to continue.` : ''}`
+    }
+  ]
+  for (const entry of payload.results) {
+    content.push({
+      type: 'text',
+      text: `Node ${entry.nodeId}:${entry.error ? ` ${entry.error.code ? `[${entry.error.code}] ` : ''}${entry.error.message}` : ''}`
+    })
+    if (entry.result !== undefined) {
+      content.push(...(build(entry.result).content ?? []))
+    }
+  }
+  return {
+    content,
+    structuredContent: payload,
+    ...(failures && failures === payload.results.length && !remaining ? { isError: true } : {})
   }
 }
 

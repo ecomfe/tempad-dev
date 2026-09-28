@@ -9,7 +9,7 @@ export const TEMPAD_MCP_BRIDGE_SUBPROTOCOL = 'tempad-mcp'
 // serving the versions below, and the extension accepts any Hub that still lists its own.
 // Listing a version is a promise about the bytes: unknown envelope fields are tolerated, but a
 // change inside a payload object means the Hub must still send what that version can read.
-export const TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION = 13
+export const TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION = 14
 // Extension protocol versions this Hub still serves, oldest first. The Hub upgrades itself on
 // every launch while the extension waits for store review, so the Hub carries the compatibility.
 export const TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [
@@ -27,6 +27,9 @@ export const MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES = 2 * 1024
 export const MCP_TOOL_TIMEOUT_MS = 15000
 // Default timeout for get_code, whose bounded asset and codegen work can exceed the general limit.
 export const MCP_GET_CODE_TIMEOUT_MS = 30000
+// A node batch stops starting roots after this work window; the Hub additionally
+// allows the final root its normal tool deadline.
+export const MCP_NODE_READ_BATCH_WORK_BUDGET_MS = 10000
 // Default timeout for initial design-system discovery, which may scan cold Figma pages.
 export const MCP_GET_DESIGN_SYSTEM_TIMEOUT_MS = 45000
 // Default timeout for apply_canvas, which may import remote media before mutating the document.
