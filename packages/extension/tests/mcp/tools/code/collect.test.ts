@@ -44,6 +44,40 @@ describe('mcp/code collectNodeData operation counts', () => {
     await collectNodeData(tree, config, new Map(), createGetCodeCacheContext())
     expect(getCSSAsync).toHaveBeenCalledTimes(2)
   })
+
+  it('reuses root CSS for a shell and stops collection when a timed-out child settles', async () => {
+    const snapshots = ['root', 'slow', 'unread'].map((id) => createSnapshot({ id }))
+    let finish!: (css: Record<string, string>) => void
+    const slow = new Promise<Record<string, string>>((resolve) => {
+      finish = resolve
+    })
+    const reads = snapshots.map((snapshot, index) => {
+      const read = vi.fn(() => (index === 1 ? slow : Promise.resolve({ display: 'flex' })))
+      snapshot.node = {
+        id: snapshot.id,
+        type: 'FRAME',
+        visible: true,
+        getCSSAsync: read
+      } as unknown as SceneNode
+      return read
+    })
+    const tree = createTree(snapshots)
+    const cache = createGetCodeCacheContext()
+    const controller = new AbortController()
+    const config = { cssUnit: 'px', rootFontSize: 16, scale: 1 } as const
+    const full = collectNodeData(tree, config, new Map(), { ...cache, signal: controller.signal })
+    await vi.waitFor(() => expect(reads[1]).toHaveBeenCalledOnce())
+    const reason = new Error('deadline')
+    controller.abort(reason)
+    const shell = await collectNodeData(tree, config, new Map(), cache, new Set(['slow', 'unread']))
+    expect(shell.styles.get('root')).toEqual({ display: 'flex' })
+    expect(reads[0]).toHaveBeenCalledOnce()
+    const rejected = expect(full).rejects.toBe(reason)
+    finish({ color: 'red' })
+    await rejected
+    expect(reads[2]).not.toHaveBeenCalled()
+  })
+
   it('reads CSS exactly once for every collected node and skips omitted descendants', async () => {
     const snapshots = Array.from({ length: 6 }, (_, index) =>
       createSnapshot({ id: `node-${index}`, type: index === 2 ? 'TEXT' : 'FRAME' })

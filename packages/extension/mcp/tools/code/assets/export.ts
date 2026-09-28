@@ -43,6 +43,7 @@ export async function exportVectorAssets(
   }
 
   for (let index = 0; index < candidates.length; index += VECTOR_EXPORT_CONCURRENCY) {
+    cache?.signal?.throwIfAborted()
     const batch = candidates.slice(index, index + VECTOR_EXPORT_CONCURRENCY)
     const results = await Promise.all(
       batch.map(async ({ id, node }) => {
@@ -55,6 +56,7 @@ export async function exportVectorAssets(
       })
     )
 
+    cache?.signal?.throwIfAborted()
     results.forEach(({ entry, exportedAssets, id }) => {
       exportedAssets.forEach((asset, hash) => assetRegistry.set(hash, asset))
       if (!entry) {

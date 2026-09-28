@@ -44,6 +44,34 @@ describe('assets/export exportVectorAssets', () => {
     vi.clearAllMocks()
   })
 
+  it('stops scheduling export batches after the full read times out', async () => {
+    const ids = ['a', 'b', 'c']
+    const tree = {
+      nodes: new Map(ids.map((id) => [id, makeSnapshot(id, { width: 10, height: 10 })]))
+    } as VisibleTree
+    let finish!: () => void
+    const stalled = new Promise<null>((resolve) => {
+      finish = () => resolve(null)
+    })
+    vi.mocked(exportSvgEntry).mockReturnValue(stalled)
+    const controller = new AbortController()
+    const pending = exportVectorAssets(
+      tree,
+      { vectorRoots: new Set(ids), skippedIds: new Set() },
+      config,
+      new Map(),
+      'smart',
+      { ...createGetCodeCacheContext(), signal: controller.signal }
+    )
+    expect(exportSvgEntry).toHaveBeenCalledTimes(2)
+    const reason = new Error('deadline')
+    controller.abort(reason)
+    const rejected = expect(pending).rejects.toBe(reason)
+    finish()
+    await rejected
+    expect(exportSvgEntry).toHaveBeenCalledTimes(2)
+  })
+
   it('exports vector roots and skips missing or zero-sized snapshots without render bounds', async () => {
     const tree = {
       rootIds: ['root'],

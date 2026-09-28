@@ -90,6 +90,7 @@ export type GetCodeCacheContext = {
   tokens?: TokenReadContext
   pluginName?: string
   rawCss: Map<string, Promise<Record<string, string>>>
+  signal?: AbortSignal
   readers: FigmaLookupReaders
   variables: Map<string, Variable | null>
   styles: Map<string, BaseStyle | null>

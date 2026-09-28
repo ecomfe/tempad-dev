@@ -19,6 +19,12 @@ One call shares raw CSS, variable, collection, consumer-value, style, and semant
 Each root keeps its own processed styles, render context, asset registry, token map, and language.
 Raw CSS is copied before preprocessing. Codegen configuration and plugin identity are fixed on the first root; all caches are discarded after the call, including before a continuation request.
 
+For splittable roots, the extension limits full generation to 20 seconds, then attempts a root-only
+shell with a separate 5-second limit. These extension limits are fixed; a shorter Hub override can
+still expire first. The fallback shares lookup and CSS-promise caches with the original attempt,
+and abort checks fence late results and prevent subsequent collection, export, and plugin batches.
+In-flight Figma API calls cannot be cancelled. A stalled root or unusable shell still fails.
+
 ## High-level pipeline
 
 1. **Validate each root**

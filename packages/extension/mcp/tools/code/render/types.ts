@@ -6,6 +6,7 @@ import type { SvgEntry } from '../assets'
 export type CodeLanguage = 'jsx' | 'vue'
 
 export type RenderContext = {
+  signal?: AbortSignal
   styles: Map<string, Record<string, string>>
   layout: Map<string, Record<string, string>>
   nodes: Map<string, SceneNode>

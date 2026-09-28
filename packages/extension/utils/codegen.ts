@@ -106,12 +106,17 @@ export async function generateCodeBlocksForNodes(
   nodes: SceneNode[],
   config: CodegenConfig,
   pluginCode: string,
-  opts?: { returnDevComponent?: boolean; variableDisplay?: VariableDisplayMode }
+  opts?: {
+    returnDevComponent?: boolean
+    variableDisplay?: VariableDisplayMode
+    signal?: AbortSignal
+  }
 ): Promise<ResponsePayload[]> {
   const results: ResponsePayload[] = []
   for (const window of chunk(nodes, CODEGEN_JOB_WINDOW)) {
     const jobs: CodegenJobPayload[] = []
     for (const batch of chunk(window, CODEGEN_PREPARE_CONCURRENCY)) {
+      opts?.signal?.throwIfAborted()
       jobs.push(
         ...(await Promise.all(
           batch.map((node) => prepareCodegenJobForNode(node, config, pluginCode, opts))
@@ -121,9 +126,11 @@ export async function generateCodeBlocksForNodes(
 
     const batches = chunk(jobs, CODEGEN_BATCH_MAX_JOBS)
     for (const group of chunk(batches, CODEGEN_BATCH_CONCURRENCY)) {
+      opts?.signal?.throwIfAborted()
       const settled = await Promise.allSettled(
-        group.map((batch) => codegenBatchWithRecovery(batch, pluginCode))
+        group.map((batch) => codegenBatchWithRecovery(batch, pluginCode, opts?.signal))
       )
+      opts?.signal?.throwIfAborted()
       for (const result of settled) {
         if (result.status === 'rejected') throw result.reason
         results.push(...result.value)
@@ -135,11 +142,14 @@ export async function generateCodeBlocksForNodes(
 
 async function codegenBatchWithRecovery(
   jobs: CodegenJobPayload[],
-  pluginCode: string
+  pluginCode: string,
+  signal?: AbortSignal
 ): Promise<ResponsePayload[]> {
+  signal?.throwIfAborted()
   try {
     return await codegenBatch(jobs, pluginCode)
   } catch (error) {
+    signal?.throwIfAborted()
     if (
       jobs.length <= 1 ||
       !(error instanceof PluginSandboxError) ||
@@ -149,8 +159,8 @@ async function codegenBatchWithRecovery(
     }
     const midpoint = Math.ceil(jobs.length / 2)
     return [
-      ...(await codegenBatchWithRecovery(jobs.slice(0, midpoint), pluginCode)),
-      ...(await codegenBatchWithRecovery(jobs.slice(midpoint), pluginCode))
+      ...(await codegenBatchWithRecovery(jobs.slice(0, midpoint), pluginCode, signal)),
+      ...(await codegenBatchWithRecovery(jobs.slice(midpoint), pluginCode, signal))
     ]
   }
 }

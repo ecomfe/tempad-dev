@@ -76,6 +76,11 @@ This document records the requirements and hard constraints for the MCP `get_cod
   preflight is deliberately a proof, not an output-size guess, so it must not discard work for trees
   that may still fit.
 - Only throw a user-facing budget error when a usable shell cannot be generated.
+- For splittable roots, a full read that takes 20 seconds falls back to the same shell contract.
+  Allow up to 5 seconds for the shell so it can return before the Hub's default 30-second timeout.
+  Reuse request-scoped CSS reads and stop scheduling descendant work after the deadline. Leaf and
+  vector roots and unbounded debug reads retain full reads. Containers planned as a single vector
+  asset must not fall back to a shell, which could break masks or compositing across children.
 
 ## Layout and positioning
 

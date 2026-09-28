@@ -7,11 +7,16 @@ import type {
   ToolResponseLike
 } from '@tempad-dev/shared'
 
-import { MCP_TOOL_INLINE_BUDGET_BYTES, buildGetCodeToolResult } from '@tempad-dev/shared'
+import {
+  MCP_GET_CODE_TIMEOUT_MS,
+  MCP_TOOL_INLINE_BUDGET_BYTES,
+  buildGetCodeToolResult
+} from '@tempad-dev/shared'
 
 import type { DevComponent } from '@/types/plugin'
 import type { CodegenConfig } from '@/utils/codegen'
 
+import { PluginSandboxError } from '@/plugin-sandbox/client'
 import { activePlugin } from '@/ui/state'
 import { stringifyComponent } from '@/utils/component'
 import { simplifyColorMixToRgba, stripFallback } from '@/utils/css'
@@ -19,6 +24,7 @@ import { logger } from '@/utils/log'
 
 import type { TokenReadContext } from '../token/context'
 import type { SvgEntry } from './assets'
+import type { AssetPlan } from './assets/plan'
 import type { GetCodeCacheContext } from './cache'
 import type { VisibleTree } from './model'
 import type { CodeLanguage, RenderContext } from './render'
@@ -32,6 +38,7 @@ import { planAssets } from './assets/plan'
 import { preflightGetCodeBudget } from './budget-preflight'
 import { createGetCodeCacheContext } from './cache'
 import { collectNodeData } from './collect'
+import { CodeDeadlineExceededError, withCodeDeadline } from './deadline'
 import { collectUnboundColorLiteralClusters } from './literal-clusters'
 import {
   CodeBudgetExceededError,
@@ -149,7 +156,6 @@ export async function handleGetCode(
   const trace = measure ? createTrace() : undefined
   const now = trace?.now ?? (() => 0)
   const stamp = trace?.stamp ?? (() => {})
-  const traceInfo: TraceInfo | undefined = trace ? { now, stamp } : undefined
 
   const [node] = nodes
   if (nodes.length !== 1 || !node) {
@@ -160,7 +166,7 @@ export async function handleGetCode(
     throw new Error('The selected node is not visible.')
   }
 
-  let t = now()
+  const t = now()
   const tree = buildVisibleTree(nodes)
   stamp('tree', t)
   const rootId = tree.rootIds[0]
@@ -178,20 +184,93 @@ export async function handleGetCode(
     activePlugin.value?.code,
     cache.variables
   ))
-  cache.pluginName ??= activePlugin.value?.name ?? 'none'
+  const pluginName = (cache.pluginName ??= activePlugin.value?.name ?? 'none')
+  const assetPlan: { current?: AssetPlan } = {}
+  const generate = (signal?: AbortSignal, forceShell = false) =>
+    generateCode({
+      nodes,
+      preferredLang,
+      resolveTokens,
+      vectorMode,
+      runtimeOptions,
+      tree,
+      rootId,
+      trace,
+      tokenContext,
+      assetPlan,
+      cache: { ...cache, pluginName, signal },
+      forceShell
+    })
+  const root = tree.nodes.get(rootId)
+  if (runtimeOptions.unbounded || !root?.children.length || root.assetKind === 'vector') {
+    return generate()
+  }
+
+  // Leave time to return the parent shell before the Hub's default hard timeout.
+  const fullTimeoutMs = (MCP_GET_CODE_TIMEOUT_MS * 2) / 3
+  try {
+    return await withCodeDeadline(fullTimeoutMs, (signal) => generate(signal))
+  } catch (error) {
+    if (
+      !(error instanceof CodeDeadlineExceededError) &&
+      !(error instanceof PluginSandboxError && error.code === 'timeout')
+    )
+      throw error
+    return withCodeDeadline(MCP_GET_CODE_TIMEOUT_MS / 6, (signal) => generate(signal, true))
+  }
+}
+
+async function generateCode({
+  nodes,
+  preferredLang,
+  resolveTokens,
+  vectorMode,
+  runtimeOptions,
+  tree,
+  rootId,
+  trace,
+  tokenContext,
+  assetPlan,
+  cache,
+  forceShell
+}: {
+  nodes: SceneNode[]
+  preferredLang?: CodeLanguage
+  resolveTokens?: boolean
+  vectorMode: GetCodeParametersInput['vectorMode']
+  runtimeOptions: GetCodeRuntimeOptions
+  tree: VisibleTree
+  rootId: string
+  trace?: ReturnType<typeof createTrace>
+  tokenContext: TokenReadContext
+  assetPlan: { current?: AssetPlan }
+  cache: GetCodeCacheContext & { pluginName: string }
+  forceShell: boolean
+}): Promise<GetCodeResult> {
+  const now = trace?.now ?? (() => 0)
+  const stamp = trace?.stamp ?? (() => {})
+  const traceInfo: TraceInfo | undefined = trace ? { now, stamp } : undefined
   const { config, pluginCode } = tokenContext
+  if (forceShell) {
+    // A vector container may depend on masks or compositing across its children.
+    // Reuse the full read's plan, including plugin overrides, whenever available.
+    assetPlan.current ??= planAssets(tree, undefined, cache)
+    if (assetPlan.current.vectorRoots.has(rootId)) throw new CodeDeadlineExceededError()
+  }
   const maxResultBytes = runtimeOptions.unbounded
     ? Number.MAX_SAFE_INTEGER
     : MCP_TOOL_INLINE_BUDGET_BYTES
   const formatResult = runtimeOptions.formatResult ?? buildGetCodeToolResult
-  const budgetPreflight = preflightGetCodeBudget(tree, rootId, {
-    maxResultBytes,
-    pluginEnabled: !!pluginCode,
-    unbounded: !!runtimeOptions.unbounded
-  })
-  const earlyShell = budgetPreflight.kind === 'shell'
+  const budgetPreflight = forceShell
+    ? undefined
+    : preflightGetCodeBudget(tree, rootId, {
+        maxResultBytes,
+        pluginEnabled: !!pluginCode,
+        unbounded: !!runtimeOptions.unbounded
+      })
+  const earlyShell = forceShell || budgetPreflight?.kind === 'shell'
 
-  t = now()
+  let t = now()
   const variableCache = cache.variables
   const nodeVariableIds = new Map<string, ReadonlySet<string>>()
   const mappings = collectCandidateVariableIds(nodes, variableCache, cache.readers, {
@@ -203,13 +282,15 @@ export async function handleGetCode(
 
   const { pluginComponents, pluginSkipped } =
     pluginCode && !earlyShell
-      ? await collectPluginOutput(tree, config, pluginCode, preferredLang)
+      ? await collectPluginOutput(tree, config, pluginCode, preferredLang, cache.signal)
       : { pluginComponents: undefined, pluginSkipped: new Set<string>() }
+  cache.signal?.throwIfAborted()
 
   t = now()
   const plan = earlyShell
     ? { vectorRoots: new Set<string>(), skippedIds: new Set<string>() }
     : planAssets(tree, pluginSkipped, cache)
+  if (!earlyShell) assetPlan.current = plan
   stamp('plan-assets', t)
 
   const assetRegistry = new Map<string, AssetDescriptor>()
@@ -225,6 +306,7 @@ export async function handleGetCode(
     skipIds,
     nodeVariableIds
   )
+  cache.signal?.throwIfAborted()
   stamp('collect', t)
 
   if (earlyShell) {
@@ -245,10 +327,12 @@ export async function handleGetCode(
   const svgs = earlyShell
     ? new Map<string, SvgEntry>()
     : await exportVectorAssets(tree, plan, config, assetRegistry, vectorMode, cache)
+  cache.signal?.throwIfAborted()
   stamp('export-assets', t)
 
   const nodeMap = buildNodeMap(collected.nodes)
   const ctx: RenderContext = {
+    signal: cache.signal,
     styles: collected.styles,
     layout: layoutStyles,
     nodes: nodeMap,
@@ -293,7 +377,9 @@ export async function handleGetCode(
         })
       : null
     if (!shell) {
-      throw new Error('Unable to build an early shell for the oversized selection.')
+      throw new Error(
+        'Unable to build a shell for the selection. Retry with a smaller nodeId subtree.'
+      )
     }
 
     const warnings = buildGetCodeWarnings(shell.code, {
@@ -307,7 +393,7 @@ export async function handleGetCode(
     if (trace) {
       logTrace(
         trace,
-        `nodes=${tree.order.length} collected=1 assets=${assets.length} shell=early preflightNodes=${budgetPreflight.scannedDescendants}${formatCacheMetrics(cache)}`
+        `nodes=${tree.order.length} collected=1 assets=${assets.length} shell=${forceShell ? 'timeout' : 'early'} preflightNodes=${budgetPreflight?.kind === 'shell' ? budgetPreflight.scannedDescendants : 0}${formatCacheMetrics(cache)}`
       )
     }
     return result
@@ -440,6 +526,7 @@ async function finalizeRenderedOutput(
   diagnostics: ReturnType<typeof createTokenDiagnostics>
 ): Promise<PipelineOutput> {
   const collected = getTokenCollectedContext(input)
+  input.ctx.signal?.throwIfAborted()
   const {
     code: rewrittenCode,
     tokensByCanonical,
@@ -463,6 +550,7 @@ async function finalizeRenderedOutput(
     stamp: input.trace?.stamp,
     now: input.trace?.now
   })
+  input.ctx.signal?.throwIfAborted()
 
   let outputCode = rewrittenCode
 
@@ -611,7 +699,8 @@ async function collectPluginOutput(
   tree: VisibleTree,
   config: CodegenConfig,
   pluginCode: string,
-  preferredLang?: CodeLanguage
+  preferredLang?: CodeLanguage,
+  signal?: AbortSignal
 ): Promise<{
   pluginComponents: Map<string, PluginComponent | null>
   pluginSkipped: Set<string>
@@ -629,7 +718,8 @@ async function collectPluginOutput(
     instances.map(({ node }) => node),
     config,
     pluginCode,
-    preferredLang
+    preferredLang,
+    signal
   )
   instances.forEach(({ id }, resultIndex) => {
     pluginComponents.set(id, components[resultIndex] ?? null)

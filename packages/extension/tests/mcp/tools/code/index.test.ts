@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readNodeBatch } from '@/mcp/node-reads'
 import { handleGetCode } from '@/mcp/tools/code'
 import { createGetCodeCacheContext } from '@/mcp/tools/code/cache'
+import { PluginSandboxError } from '@/plugin-sandbox/client'
 import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 
 const mocks = vi.hoisted(() => ({
@@ -131,10 +132,163 @@ function mockAssetCollection(
 
 describe('mcp/code handleGetCode', () => {
   afterEach(() => {
+    vi.useRealTimers()
     vi.clearAllMocks()
     mocks.activePlugin.value = undefined
     mocks.currentCodegenConfig.mockReturnValue({ cssUnit: 'px', rootFontSize: 16, scale: 1 })
     vi.unstubAllGlobals()
+  })
+
+  it.each(['collect', 'export', 'render', 'tokens', 'plugin'])(
+    'returns an ordered shell when %s stalls, and fences late full results',
+    async (phase) => {
+      vi.useFakeTimers()
+      const root = createSnapshot({ id: 'root', children: ['a', 'b'] })
+      const tree = createTree([
+        root,
+        createSnapshot({ id: 'a', parentId: 'root' }),
+        createSnapshot({ id: 'b', parentId: 'root' })
+      ])
+      mockAssetCollection(tree, [], new Set())
+      mocks.renderTree.mockResolvedValue(raw('<div>full</div>'))
+      mocks.getOrderedChildIds.mockReturnValue(['b', 'a'])
+      mocks.renderShellTree.mockResolvedValue(
+        raw('<div className="flex">{/* omitted direct children: b,a */}</div>')
+      )
+      let finish!: (value: never) => void
+      const stalled = new Promise<never>((resolve) => {
+        finish = resolve
+      })
+      const stage = {
+        collect: mocks.collectNodeData,
+        export: mocks.exportVectorAssets,
+        render: mocks.renderTree,
+        tokens: mocks.processTokens,
+        plugin: mocks.resolvePluginComponents
+      }[phase]!
+      stage.mockReturnValueOnce(stalled)
+      if (phase === 'plugin') mocks.activePlugin.value = { name: 'test', code: 'plugin' }
+
+      const pending = handleGetCode([root.node], 'vue', true)
+      await vi.advanceTimersByTimeAsync(20_000)
+      const result = await pending
+
+      expect(result.code).toContain('omitted direct children: b,a')
+      expect(result.lang).toBe('vue')
+      expect(result.warnings?.map(({ type }) => type)).toEqual(['shell'])
+      expect(result.literalClusters).toBeUndefined()
+      expect(mocks.collectNodeData).toHaveBeenLastCalledWith(
+        tree,
+        expect.any(Object),
+        expect.any(Map),
+        expect.any(Object),
+        new Set(['a', 'b']),
+        expect.any(Map)
+      )
+      const calls = mocks.renderTree.mock.calls.length
+      const lateValues = {
+        collect: { nodes: tree.nodes, styles: new Map(), textSegments: new Map() },
+        export: new Map(),
+        render: raw('<div>late full result</div>'),
+        tokens: { code: 'late', tokensByCanonical: {}, sourceIndex: new Map() },
+        plugin: []
+      }
+      finish(lateValues[phase as keyof typeof lateValues] as never)
+      await vi.runAllTimersAsync()
+      expect(mocks.renderTree).toHaveBeenCalledTimes(calls)
+      expect(vi.getTimerCount()).toBe(0)
+    }
+  )
+
+  it('bounds a stalled shell attempt too', async () => {
+    vi.useFakeTimers()
+    const root = createSnapshot({ id: 'root', children: ['child'] })
+    mockAssetCollection(createTree([root]), [], new Set())
+    mocks.collectNodeData.mockImplementation(() => new Promise(() => {}))
+    const pending = handleGetCode([root.node])
+    const rejected = expect(pending).rejects.toThrow('Code generation timed out')
+    await vi.advanceTimersByTimeAsync(25_000)
+    await rejected
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('does not split a container exported as a single vector asset after a timeout', async () => {
+    vi.useFakeTimers()
+    const root = createSnapshot({ id: 'root', children: ['mask', 'artwork'] })
+    const tree = createTree([root])
+    mockAssetCollection(tree, [], new Set())
+    mocks.planAssets.mockReturnValueOnce({
+      vectorRoots: new Set(['root']),
+      skippedIds: new Set(['mask', 'artwork'])
+    })
+    mocks.exportVectorAssets.mockReturnValueOnce(new Promise(() => {}))
+    const rejected = expect(handleGetCode([root.node])).rejects.toThrow('Code generation timed out')
+    await vi.advanceTimersByTimeAsync(20_000)
+    await rejected
+    expect(mocks.planAssets).toHaveBeenCalledOnce()
+    expect(mocks.renderShellTree).not.toHaveBeenCalled()
+  })
+
+  it('checks vector-container eligibility when a plugin times out before asset planning', async () => {
+    const root = createSnapshot({ id: 'root', children: ['mask', 'artwork'] })
+    mockAssetCollection(createTree([root]), [], new Set())
+    mocks.activePlugin.value = { name: 'test', code: 'plugin' }
+    mocks.resolvePluginComponents.mockRejectedValueOnce(
+      new PluginSandboxError('timeout', 'Plugin timed out')
+    )
+    mocks.planAssets.mockReturnValueOnce({
+      vectorRoots: new Set(['root']),
+      skippedIds: new Set(['mask', 'artwork'])
+    })
+    await expect(handleGetCode([root.node])).rejects.toThrow('Code generation timed out')
+    expect(mocks.collectNodeData).not.toHaveBeenCalled()
+    expect(mocks.renderShellTree).not.toHaveBeenCalled()
+  })
+
+  it('does not turn unrelated failures into shell responses', async () => {
+    const root = createSnapshot({ id: 'root', children: ['child'] })
+    mockAssetCollection(createTree([root]), [], new Set())
+    mocks.collectNodeData.mockRejectedValueOnce(new Error('unrelated failure'))
+    await expect(handleGetCode([root.node])).rejects.toThrow('unrelated failure')
+    expect(mocks.renderShellTree).not.toHaveBeenCalled()
+  })
+
+  it('falls back immediately when a plugin reports a timeout', async () => {
+    const root = createSnapshot({ id: 'root', children: ['child'] })
+    mockAssetCollection(createTree([root]), [], new Set())
+    mocks.activePlugin.value = { name: 'test', code: 'plugin' }
+    mocks.resolvePluginComponents.mockRejectedValueOnce(
+      new PluginSandboxError('timeout', 'Plugin timed out')
+    )
+    mocks.getOrderedChildIds.mockReturnValue(['child'])
+    mocks.renderShellTree.mockResolvedValue(
+      raw('<div>{/* omitted direct children: child */}</div>')
+    )
+    const result = await handleGetCode([root.node])
+    expect(result.warnings?.map(({ type }) => type)).toEqual(['shell'])
+    expect(mocks.renderTree).not.toHaveBeenCalled()
+  })
+
+  it.each(['leaf', 'vector', 'unbounded'])('keeps %s reads on the full path', async (kind) => {
+    vi.useFakeTimers()
+    const root = createSnapshot({ id: 'root', children: kind === 'leaf' ? [] : ['child'] })
+    if (kind === 'vector') root.assetKind = 'vector'
+    const tree = createTree([root])
+    mockAssetCollection(tree, [], new Set())
+    let finish!: (value: Map<string, never>) => void
+    mocks.exportVectorAssets.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    )
+    mocks.renderTree.mockResolvedValue(raw('<div>full</div>'))
+    const pending = handleGetCode([root.node], 'jsx', false, 'smart', {
+      unbounded: kind === 'unbounded'
+    })
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(mocks.renderShellTree).not.toHaveBeenCalled()
+    finish(new Map<string, never>())
+    expect((await pending).code).toContain('full')
   })
 
   it('preserves a mixed-fill video preview that supplements a rendered image asset', async () => {
@@ -728,7 +882,8 @@ describe('mcp/code handleGetCode', () => {
       instances.map((snapshot) => snapshot.node),
       { cssUnit: 'px', rootFontSize: 16, scale: 1 },
       'plugin-code',
-      'jsx'
+      'jsx',
+      undefined
     )
   })
 })

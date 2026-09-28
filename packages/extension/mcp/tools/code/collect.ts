@@ -32,6 +32,7 @@ export async function collectNodeData(
   const rootIds = new Set(tree.rootIds)
 
   for (const id of tree.order) {
+    cache.signal?.throwIfAborted()
     if (skipIds?.has(id)) continue
     const snapshot = tree.nodes.get(id)
     if (!snapshot) continue
@@ -49,11 +50,13 @@ export async function collectNodeData(
       }
       // Root-specific preprocessing must never mutate the shared raw read.
       let css = { ...(await rawCss) }
+      cache.signal?.throwIfAborted()
       css = await resolveStylesFromNodeData(
         css,
         createNodePaintStyleInput(snapshot, cache),
         cache.readers
       )
+      cache.signal?.throwIfAborted()
       css = formatNodeStyleForMcp(css, node, cache.readers, nodeVariableIds?.get(id))
       const parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
 
@@ -72,6 +75,7 @@ export async function collectNodeData(
           assetRegistry,
           nodeVideoPreviewAssetHashes
         )
+        cache.signal?.throwIfAborted()
         for (const hash of nodeVideoPreviewAssetHashes) {
           videoPreviewAssetHashes.add(hash)
           if (rootIds.has(id)) rootVideoPreviewAssetHashes.add(hash)
@@ -81,6 +85,7 @@ export async function collectNodeData(
       stripInertShadows(processed, node, cache)
       styles.set(id, processed)
     } catch (error) {
+      cache.signal?.throwIfAborted()
       logger.warn('Failed to process node styles:', error)
     }
   }

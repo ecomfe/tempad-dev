@@ -31,10 +31,12 @@ export async function resolvePluginComponents(
   nodes: InstanceNode[],
   config: RenderContext['config'],
   pluginCode: string,
-  preferredLang?: CodeLanguage
+  preferredLang?: CodeLanguage,
+  signal?: AbortSignal
 ): Promise<Array<PluginComponent | null>> {
   const responses = await generateCodeBlocksForNodes(nodes, config, pluginCode, {
-    returnDevComponent: true
+    returnDevComponent: true,
+    ...(signal ? { signal } : {})
   })
   return responses.map((response) => resolvePluginComponentResponse(response, preferredLang))
 }

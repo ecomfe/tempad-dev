@@ -240,4 +240,37 @@ describe('utils/codegen', () => {
       )
     ).toEqual([2, 1, 1])
   })
+
+  it.each(['preparation', 'sandbox'])(
+    'stops plugin work after cancellation during %s',
+    async (phase) => {
+      const controller = new AbortController()
+      const reason = new Error('get_code deadline')
+      const nodes = Array.from({ length: 5 }, () => ({
+        getCSSAsync: vi.fn(async () => ({ color: 'red' }))
+      })) as unknown as SceneNode[]
+      mocked.resolveStylesFromNode.mockImplementation(async (style) => {
+        if (phase === 'preparation') controller.abort(reason)
+        return style
+      })
+      mocked.requestPluginSandbox.mockImplementation(async () => {
+        controller.abort(reason)
+        throw new PluginSandboxError('timeout', 'batch timeout')
+      })
+      await expect(
+        generateCodeBlocksForNodes(
+          nodes,
+          { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+          'plugin-code',
+          { signal: controller.signal }
+        )
+      ).rejects.toBe(reason)
+      if (phase === 'preparation') {
+        expect(nodes[4]!.getCSSAsync).not.toHaveBeenCalled()
+        expect(mocked.requestPluginSandbox).not.toHaveBeenCalled()
+      } else {
+        expect(mocked.requestPluginSandbox).toHaveBeenCalledOnce()
+      }
+    }
+  )
 })

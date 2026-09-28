@@ -62,6 +62,7 @@ async function renderNode(
   inheritedTextStyle?: Record<string, string>,
   parentIsGrid = false
 ): Promise<DevComponent | string | null> {
+  ctx.signal?.throwIfAborted()
   const snapshot = tree.nodes.get(nodeId)
   if (!snapshot) return null
   const node = snapshot.node
