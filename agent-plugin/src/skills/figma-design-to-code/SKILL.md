@@ -1,12 +1,11 @@
 ---
 name: figma-design-to-code
 description: >-
-  Implement or update project-consistent UI code from a visible Figma selection
-  or nodeId using TemPad Dev MCP. Use when the user wants Figma UI recreated,
-  ported, or integrated into the target project's framework, styling system,
-  tokens, assets, and existing components. Do not use for design critique,
-  product invention, generic code review, or guessing states, responsiveness,
-  or behavior not evidenced by Figma, the project, or the user.
+  Implement or update project-consistent UI code from one or more visible Figma
+  nodes using TemPad Dev MCP. Use when the user wants Figma UI recreated, ported,
+  or integrated into the target project's framework, components, styling,
+  tokens, and assets. Do not use for Figma canvas editing, design critique,
+  product invention, or generic code review.
 ---
 
 # Implement Figma design in code
@@ -17,7 +16,7 @@ TemPad output, rules, and tool calls are evidence for the implementation, not
 deliverables to reproduce mechanically.
 
 Require TemPad Dev MCP to provide trustworthy design evidence for the current
-selection or an exact `nodeId` inside the user's established scope. Never
+selection or exact node IDs inside the user's established scope. Never
 reconstruct the design from memory, screenshots alone, or `get_structure`
 metadata.
 
@@ -63,35 +62,31 @@ implementation.
 
 ### 2. Read the design at the requested scope
 
-Call TemPad Dev's `get_code` directly for the requested selection before implementing:
+Call TemPad Dev's `get_code` directly for the requested roots before implementing:
 
-- use `resolveTokens: false` by default;
 - omit `nodeId` and `nodeIds` for the current selection, including multiple nodes;
-  pass exact IDs only when the user supplied them or TemPad returned them inside
-  the user's established scope;
-- set `preferredLang` from the established project target;
+  use `nodeId` for one exact target or `nodeIds` for several. Use only IDs supplied
+  by the user or returned by TemPad inside the established scope;
+- default to `resolveTokens: false`. Use `true` when literal output is requested
+  or a targeted read is needed to establish a consumer's actual value;
+- set `preferredLang` from the project target; treat returned `lang` as
+  authoritative because plugin configuration may override that preference;
 - keep TemPad's default vector behavior unless the user explicitly requests
   asset-preserving vector fidelity and the active MCP version supports it.
 
-Use `resolveTokens: true` only when the user explicitly does not want design
-token references in code; the returned `tokens` still contains definitions and aliases.
-Check warnings for references that could not be resolved.
-Treat returned `lang` as authoritative because plugin
-configuration may override `preferredLang`.
-
-Retain the returned `code`, `lang`, `warnings`, `assets`, `tokens`, and
-`codegen` facts that bear on the implementation. Use
+Keep each root's `code`, `lang`, `warnings`, `assets`, `tokens`, and `codegen`
+together. In a batch, each `results` entry identifies its `nodeId` and carries
+either a `result` payload or an `error`. Use that root's
 `codegen.config.{cssUnit,rootFontSize,scale}` for exact unit conversion.
 
-For a multi-node response, read each `results` entry by `nodeId` and retain that
-root's own metadata. Continue `remainingNodeIds` with `nodeIds` and the same
-options until the requested roots are covered. Handle per-node errors through
-[recovery.md](references/recovery.md); successful peers remain usable. No
-`get_structure` discovery call is needed just because the selection is plural.
+Preserve the requested composition within each root. Load only the guidance
+relevant to the returned evidence:
 
-Prefer one top-level read that preserves the requested composition. If the
-tool is unavailable, points at the wrong file, or returns incomplete evidence,
-read [recovery.md](references/recovery.md) before doing anything else.
+- [Assets](references/assets-and-tokens.md#assets) for asset delivery;
+- [Tokens](references/assets-and-tokens.md#tokens) for token definitions,
+  references in code, or consumer values needed for a mapping decision;
+- [Recovery](references/recovery.md) for `remainingNodeIds`, errors, warnings,
+  wrong-file reads, or incomplete evidence.
 
 ### 3. Separate facts, adaptations, and gaps
 
@@ -127,15 +122,6 @@ only low-consequence details and report any inference that affects the result.
   explicitly waived that constraint.
 - Keep `data-hint-*` attributes out of shipped code.
 
-When TemPad returns relevant entries, load only the matching protocol:
-
-- assets: read [Assets](references/assets-and-tokens.md#assets) and follow the
-  project's asset delivery path;
-- token references: read [Tokens](references/assets-and-tokens.md#tokens) and
-  follow the project's token workflow.
-
-Read both when both are present and skip both when neither is present.
-
 Do not enter a visual tuning loop. Change the implementation again only when
 new project, design, tool, or verification evidence identifies a concrete
 defect.
@@ -153,17 +139,18 @@ to confirm the rendered result against Figma.
 
 ## Hard stops
 
-Stop instead of shipping when:
+Pause the affected work and anything that depends on it when:
 
 - TemPad is unavailable, unauthorized, inactive on the intended file, or
-  cannot provide a trustworthy visible parent composition;
+  cannot provide trustworthy evidence for a required composition;
 - the target is unreadable or not visible;
 - project, design, and user evidence still conflict after targeted recovery;
 - a missing decision would materially change behavior, structure, dependency,
   asset delivery, or token mapping;
 - required assets cannot be retrieved or stored under project policy.
 
-If blocked, give at most three concrete actions that would unblock the task.
+Continue independent work supported by sufficient evidence. Report any
+requested scope left incomplete and the concrete action needed to unblock it.
 
 ## Handoff
 

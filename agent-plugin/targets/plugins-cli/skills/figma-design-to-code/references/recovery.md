@@ -1,7 +1,7 @@
 # Recover trustworthy design evidence
 
-Read this reference only when TemPad is unavailable, a `get_code` call warns
-or fails, or the requested selection cannot fit in one trustworthy response.
+Read this reference when a `get_code` read is unavailable, targets the wrong
+file, reports warnings or errors, or leaves requested evidence incomplete.
 
 ## Connection and target failures
 
@@ -15,16 +15,15 @@ ask the user to enable MCP access in TemPad Dev **Preferences > Agent integratio
 and keep the intended Figma tab open. The badge still chooses the default for reads
 that omit `sessionId`.
 
-Do not edit code while design evidence is untrustworthy.
-
 ## Incomplete `get_code` results
 
-Preserve the largest trustworthy parent composition and narrow only the
-missing evidence:
+Keep completed root results and recover only the missing evidence. Within an
+affected root, preserve any trustworthy parent composition:
 
-- **`remainingNodeIds`**: call `get_code` with those exact `nodeIds` and unchanged
-  options. They are deferred roots, not failed or omitted children. Keep completed
-  results and do not rediscover the live selection.
+- **`remainingNodeIds`**: pass these exact IDs as `nodeIds` to `get_code`,
+  preserving the session/task scope and read options. Continue until all requested
+  roots are read or a concrete blocker is identified. These are deferred roots,
+  distinct from omitted children in a shell; do not rediscover the live selection.
 - **per-node `error`**: recover only that root using its exact `nodeId`; successful
   peers remain valid. Hidden, missing, and deterministic failures require correcting
   the reported condition before retrying.
@@ -34,9 +33,11 @@ missing evidence:
   `resolveTokens: true`. Treat those consumer values as unresolved; do not
   replace them with a collection default or claim all values were inlined.
 - **`token-definition`**: definitions or mode labels are missing or ambiguous.
-  Use the reported variable/node identity to narrow the affected evidence.
-  Do not choose a variable by equal value or infer a missing alias target.
-  Retry after the missing resource or naming ambiguity is corrected.
+  Pause decisions that depend on those facts; successfully resolved consumer
+  literals remain usable under the [token fallback guidance](assets-and-tokens.md#tokens).
+  Use the reported names or IDs to narrow the affected evidence. Do not choose a
+  variable by equal value or infer a missing alias target. Retry after the missing
+  resource or naming ambiguity is corrected.
 - **budget overflow or shell response**: keep the returned parent shell, then
   fetch omitted children separately. Use the smallest parent that still proves
   their shared layout. Plain string truncation is not evidence.
@@ -44,19 +45,20 @@ missing evidence:
   `get_structure` only to resolve that uncertainty or select a narrower retry
   target.
 
-Never rebuild a missing parent from child metadata. If no trustworthy parent
-shell can be recovered, stop the full implementation and ask the user to
-narrow the selection or choose the highest-priority subtree.
+If a required parent composition cannot be recovered, pause that composition
+and dependent work; do not reconstruct it from child metadata. Ask for the
+missing evidence or a scope decision while retaining independently usable roots.
 
-If a budget error requires user action, report its consumption, limit, and
-overage from the tool response.
+If a budget error requires user action, use the tool's reported limit and
+available size details to explain how to narrow the read.
 
 ## Resolve contradictions
 
 Prefer the evidence source with authority over the disputed fact: project
 evidence for implementation conventions, `get_code` for visible design, and
 the user for product intent. Narrow the read once when the conflict may be a
-scope problem. If the sources still disagree, stop rather than choose silently.
+scope problem. If the sources still disagree, pause the affected work and ask
+for the unresolved decision.
 
 ## Worked example
 

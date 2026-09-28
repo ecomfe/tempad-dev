@@ -143,8 +143,8 @@ Treat these as tests, not headings that every runtime skill must repeat.
 
 ### `figma-design-to-code`
 
-The universal path is: establish the minimal project envelope, read one
-trustworthy top-level design snapshot, separate facts from adaptations and
+The universal path is: establish the minimal project envelope, read trustworthy
+design evidence for the requested roots, separate facts from adaptations and
 gaps, implement the smallest coherent change, then use the project's real
 verification path.
 

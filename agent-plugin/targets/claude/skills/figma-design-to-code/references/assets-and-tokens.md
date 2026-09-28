@@ -1,6 +1,7 @@
 # Translate assets and tokens
 
-Read this reference only when `get_code` returns `assets` or `tokens`.
+Read the relevant section when implementing returned assets or token-dependent
+code, including references whose token metadata is missing.
 
 ## Assets
 
@@ -23,16 +24,17 @@ details.
 - Do not invent a new SVG pipeline, multi-color props, or custom variables.
 
 If a required asset cannot be retrieved or represented under project policy,
-stop rather than draw or substitute it from memory.
+pause the work that depends on it; do not draw or substitute it from memory.
 
 ## Tokens
 
 Preserve token usage when the target project can carry or map it safely.
-`tokens` always describes definitions, including when `resolveTokens: true`
-inlines consumer-specific values in code. Values may be literals, aliases, or
-mode maps keyed by `Collection:Mode`; preserve alias relationships.
+`resolveTokens` controls code output; `tokens` always describes definitions,
+including literals, aliases, and mode maps keyed by `Collection:Mode`. Reading
+consumer literals does not decide whether the implementation should use tokens.
 An alias target can belong to a different collection with independently selected
-modes. Do not pick its default or assume it shares the source collection's mode.
+modes. Preserve alias relationships; do not substitute the target's default mode
+or assume it shares the source collection's mode.
 
 - Map to an existing project token only when value, reference behavior,
   semantics, and relevant mode agree. A similar name is insufficient.
@@ -40,11 +42,20 @@ modes. Do not pick its default or assume it shares the source collection's mode.
   when that workflow can accept them.
 - Add a token only when the project already defines how and this task calls for
   it.
-- If landing location, mode, or mapping remains ambiguous, use the exact
-  rendered value and report the fallback.
+- If no project-token mapping is justified, use a verified consumer literal
+  when compatible with the user's requirements and project policy, and report
+  the fallback. If token representation is required, resolve the mapping
+  decision before implementing the affected part.
 - Root mode hints include inheritance from outside the exported subtree;
   descendant hints describe explicit overrides. Use them to interpret the
   relevant consumer, and never ship hint attributes.
+
+If a needed consumer value is unknown, make a targeted `get_code` read with
+`resolveTokens: true` for its exact node or a subtree containing it, preserving
+the session/task scope and other read options. Retain the original composition;
+use the extra read for the missing value. Verify that the value actually became
+a literal and inspect warnings. `get_token_defs` supplies definitions without a
+consuming node and cannot establish that node's actual value.
 
 Definitions and a consumer's rendered value need not have the same literal
 representation. If they still contradict after accounting for aliases and
