@@ -247,7 +247,7 @@ try {
     ['get_structure', { pageId: 'page-a' }],
     ['get_structure', { options: { native: true } }],
     ['get_design_system', {}],
-    ['begin_design', { title: 'Unavailable', requestId: randomUUID() }],
+    ['manage_design_task', { action: 'begin', title: 'Unavailable', requestId: randomUUID() }],
     ['list_design_sessions', {}],
     ['apply_canvas', { mode: 'create', markup: '<frame key="root" />' }]
   ])
@@ -384,13 +384,36 @@ try {
     JSON.stringify(await call('get_code', { sessionId: 'missing-session' })),
     /NO_ACTIVE_EXTENSION/
   )
-  const begin = await call('begin_design', {
+  const lifecycle = (args) => call('manage_design_task', args)
+  const advertisedTools = (await client.listTools()).tools
+  assert.equal(advertisedTools.length, 10)
+  assert.ok(
+    !advertisedTools.some(({ name }) =>
+      ['begin_design', 'resume_design', 'end_design'].includes(name)
+    )
+  )
+  const lifecycleSchema = advertisedTools.find(
+    ({ name }) => name === 'manage_design_task'
+  ).inputSchema
+  assert.equal(lifecycleSchema.type, 'object')
+  assert.deepEqual(lifecycleSchema.properties.action.enum, [
+    'begin',
+    'resume',
+    'complete',
+    'cancel'
+  ])
+  assert.ok(lifecycleSchema.properties.requestId)
+  assert.ok(lifecycleSchema.properties.epoch)
+  const beginArgs = {
+    action: 'begin',
     title: 'Current task',
     requestId: randomUUID(),
     sessionId: session.sessionId
-  })
-  const task = begin.structuredContent
+  }
+  const begin = await lifecycle(beginArgs)
+  let task = begin.structuredContent
   assert.ok(task.taskId, JSON.stringify(begin))
+  assert.equal((await lifecycle(beginArgs)).structuredContent.taskId, task.taskId)
   const taskStructure = await call('get_structure', { taskId: task.taskId })
   assert.deepEqual(taskStructure.structuredContent, structure)
   recordBridgeMetric('task_get_structure', modern, structure, taskStructure)
@@ -407,6 +430,54 @@ try {
   )
   assert.equal(modern.calls.length, routedCount, 'conflicting task/session must not dispatch')
   assert.equal(old.calls.length, count, 'task-bound reads must not follow legacy activation')
+
+  const completed = await lifecycle({
+    action: 'complete',
+    taskId: task.taskId,
+    epoch: 0,
+    summary: 'Verified'
+  })
+  assert.equal(completed.structuredContent.status, 'completed')
+  assert.ok(!completed.structuredContent.reviewClosed)
+  assert.equal(
+    (await lifecycle({ action: 'complete', taskId: task.taskId, epoch: 0 })).structuredContent
+      .status,
+    'completed'
+  )
+  const resumed = await lifecycle({ action: 'resume', taskId: task.taskId, epoch: 0 })
+  assert.equal(resumed.structuredContent.status, 'active')
+  assert.equal(resumed.structuredContent.epoch, 1)
+  assert.equal(resumed.structuredContent.needsRead, true)
+  assert.equal(
+    (await lifecycle({ action: 'resume', taskId: task.taskId, epoch: 1 })).structuredContent.epoch,
+    1
+  )
+  assert.equal(
+    (await lifecycle({ action: 'complete', taskId: task.taskId, epoch: 0 })).isError,
+    true
+  )
+  assert.equal((await lifecycle({ action: 'cancel', taskId: task.taskId })).isError, true)
+  assert.equal(
+    (await call('get_design_task', { taskId: task.taskId })).structuredContent.status,
+    'active'
+  )
+  assert.equal(
+    (await call('get_structure', { taskId: task.taskId, taskEpoch: 1 })).isError,
+    undefined
+  )
+  assert.equal(
+    (await call('get_design_task', { taskId: task.taskId })).structuredContent.needsRead,
+    false
+  )
+  const cancelled = await lifecycle({ action: 'cancel', taskId: task.taskId, epoch: 1 })
+  assert.equal(cancelled.structuredContent.status, 'cancelled')
+  assert.equal((await lifecycle({ action: 'resume', taskId: task.taskId, epoch: 1 })).isError, true)
+  assert.equal(
+    (await lifecycle({ action: 'cancel', taskId: task.taskId, epoch: 1 })).structuredContent.status,
+    'cancelled'
+  )
+  task = (await lifecycle({ ...beginArgs, requestId: randomUUID() })).structuredContent
+  assert.ok(task.taskId)
 
   // A disconnect fails in-flight old reads, and a replacement gets a new identity.
   old.respond = null

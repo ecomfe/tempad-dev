@@ -712,7 +712,7 @@ describe('Codex feedback delivery', () => {
       `1. [${hostile}](https://www.figma.com/design/file-a?node-id=1%3A2&page-id=page-a)`
     )
     expect(body).toContain('   Keep this local.')
-    expect(body).not.toContain('resume_design')
+    expect(body).not.toContain('manage_design_task')
     expect(body).not.toContain('task-a')
     expect(body).not.toContain('attached tool output')
     const steer = codexFeedbackSteer('thread-a', 'task-a', {

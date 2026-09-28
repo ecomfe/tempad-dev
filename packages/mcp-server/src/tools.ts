@@ -13,11 +13,9 @@ import type {
 import {
   ApplyCanvasParametersSchema,
   ApplyCanvasResultSchema,
-  BeginDesignParametersSchema,
+  ManageDesignTaskParametersSchema,
   DesignAnchorSchema,
   SetDesignAnchorParametersSchema,
-  EndDesignParametersSchema,
-  ResumeDesignParametersSchema,
   FigmaSessionSchema,
   DesignTaskSchema,
   DesignTaskIdSchema,
@@ -173,29 +171,11 @@ export const TOOL_DEFS = [
     outputSchema: z.object({ sessions: z.array(FigmaSessionSchema) })
   }),
   hubTool({
-    name: 'resume_design',
+    name: 'manage_design_task',
     description:
-      'Continue the current design task after pause, expiry, interruption, or completion awaiting review. Keep the same taskId and design region for follow-up comments until the user clicks Done. Cancelled, closed, or replaced tasks cannot resume. The original browser tab automatically rebinds after a page refresh; get_design_task returns its current epoch. Pass that epoch to resume. Pass the returned epoch as taskEpoch on subsequent calls, and read the bound canvas with get_structure or get_code before writing. Never replay an old write.',
+      'Manage one design task. begin requires title and a fresh UUID requestId, optionally sessionId; reserve the file before research or writing, and reuse requestId only for the same begin retry. Beginning replaces the previous task for that file; idle ownership expires after five minutes. Other actions require taskId and current epoch. resume continues the same open review after pause, expiry, interruption, or completion; pass its returned epoch as taskEpoch on subsequent work and reread the bound canvas before writing. Cancelled, closed, or replaced tasks cannot resume. complete releases ownership after the outcome and verification, keeping the review open until the user clicks Done. cancel permanently abandons the task after any running operation settles; applied changes remain. summary is optional for complete/cancel. Waiting for input is a pause, not completion. No progress or heartbeat calls are needed.',
     annotations: ASSET_WRITE_ANNOTATIONS,
-    parameters: ResumeDesignParametersSchema,
-    target: 'hub',
-    outputSchema: DesignTaskSchema
-  }),
-  hubTool({
-    name: 'begin_design',
-    description:
-      'Begin a new design task in the active Figma session before design research or writing. Returns a taskId bound to that file and session; pass it on subsequent task calls. No coordinates or progress reports are needed. Idle ownership expires after five minutes. Reuse requestId only when retrying this same begin. Stop a busy task in TemPad Dev before another task takes over. For follow-up comments on an open review, use resume_design on the same task, including after completion. Beginning a new task replaces the previous task for that file.',
-    annotations: ASSET_WRITE_ANNOTATIONS,
-    parameters: BeginDesignParametersSchema,
-    target: 'hub',
-    outputSchema: DesignTaskSchema
-  }),
-  hubTool({
-    name: 'end_design',
-    description:
-      'Mark this design pass complete after the requested outcome and its verification. Releases file ownership and keeps the same task, design region, and review open for comments. Follow-up comments resume this task; only the user’s Done closes the review. Waiting for input before the outcome is ready or stopping a turn is a pause. Cancel when abandoning a task; already completed writes remain. Retrying within the same epoch is safe. Cancellation waits for a running operation to finish before handing over the file.',
-    annotations: ASSET_WRITE_ANNOTATIONS,
-    parameters: EndDesignParametersSchema,
+    parameters: ManageDesignTaskParametersSchema,
     target: 'hub',
     outputSchema: DesignTaskSchema
   }),
@@ -514,9 +494,7 @@ function getBudgetRetryGuidance(toolName: ToolName): string {
   switch (toolName) {
     case 'get_design_task':
     case 'list_design_sessions':
-    case 'begin_design':
-    case 'resume_design':
-    case 'end_design':
+    case 'manage_design_task':
     case 'set_design_anchor':
       return 'Retry the same task lifecycle request without changing its identity.'
     case 'apply_canvas':

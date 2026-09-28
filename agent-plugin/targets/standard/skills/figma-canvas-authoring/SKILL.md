@@ -32,20 +32,20 @@ Plugin API operations. Research and asset acquisition use the host's appropriate
 tools; website research uses the in-app browser when available unless the user
 selected another browser.
 
-For new design work, call `begin_design` before research or canvas work with a short task title
+For new design work, call `manage_design_task` with `action: "begin"` before research or canvas work with a short task title
 and a fresh UUID `requestId`; reuse that UUID only to retry the same begin. Carry
 the returned `taskId` on related TemPad tool calls. The runtime handles status and
 placement feedback: do not report progress, send heartbeats, or choose coordinates
 for a placeholder. Use `list_design_sessions` when the intended Figma target is
-unclear, then pass its exact `sessionId` to `begin_design`. Pausing a turn preserves
+unclear, then pass its exact `sessionId` when beginning. Pausing a turn preserves
 the design task. Follow-up comments continue the same task, including after a completed
-pass while its review remains open. After completion, pause, or lease expiry, use `resume_design` with its latest
+pass while its review remains open. After completion, pause, or lease expiry, use `action: "resume"` with its latest
 `epoch`, carry the returned epoch as `taskEpoch`, and reread the affected canvas
 with `get_structure` or `get_code` before writing. Use `get_design_task` only when
 recovery needs the current state or epoch. Never replay a stale write. Stop in TemPad Dev
 permanently cancels the current task after any running operation settles. Never resume
 that cancelled task or automatically replace it. If further design work is necessary or
-the user requests it, explicitly call `begin_design` with a fresh requestId. No separate
+the user requests it, explicitly use `action: "begin"` with a fresh requestId. No separate
 Figma unlock or new user turn is required. Done closes the review; a closed or replaced
 task cannot resume. Do not automatically begin a replacement for comments on such a task.
 Element feedback arrives as a numbered batch. Each item retains its file, page,
@@ -145,9 +145,10 @@ repaired, accepted with reason, or disclosed. Report the delivered result and
 material limitations, with a Figma link to the delivered nodes. A verified Direct
 result is complete without an unsolicited component pass.
 
-Call `end_design` after the design outcome and its final verification are complete.
+Call `manage_design_task` with `action: "complete"`, `taskId`, and the current `epoch`
+after the design outcome and its final verification are complete.
 An optional short `summary` records the applied result in task history.
-Use `outcome: "cancelled"` only when abandoning the design. Waiting for user input
+Use `action: "cancel"` with `taskId` and the current `epoch` only when abandoning the design. Waiting for user input
 or stopping a turn is a pause, not completion or cancellation. Host lifecycle hooks
 handle pauses when available; do not create progress or heartbeat calls.
 

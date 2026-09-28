@@ -118,7 +118,8 @@ describe('plugin hook transport', () => {
           directory,
           'PostToolUse',
           {
-            tool_name: 'mcp__tempad-dev__begin_design',
+            tool_name: 'mcp__tempad-dev__manage_design_task',
+            tool_input: { action: 'begin' },
             tool_response: { structuredContent: { taskId: 'task-a' } }
           },
           kind
@@ -141,6 +142,53 @@ describe('plugin hook transport', () => {
       })
     }
   )
+
+  it.each(['begin', 'resume', 'complete', 'cancel'])(
+    'binds unified %s hook results only when work begins or resumes',
+    async (action) => {
+      await withHookHub(async (directory, _hooks, received) => {
+        await runHook(
+          directory,
+          'PostToolUse',
+          {
+            tool_name: 'mcp__tempad-dev__manage_design_task',
+            tool_input: { action },
+            tool_response: { structuredContent: { taskId: 'task-a' } }
+          },
+          'claude'
+        )
+        expect(received.at(-1)?.taskId).toBe(
+          ['begin', 'resume'].includes(action) ? 'task-a' : undefined
+        )
+      })
+    }
+  )
+
+  it('does not bind failed unified actions and still accepts older installed tool names', async () => {
+    await withHookHub(async (directory, _hooks, received) => {
+      await runHook(
+        directory,
+        'PostToolUse',
+        {
+          tool_name: 'mcp__tempad-dev__manage_design_task',
+          tool_input: { action: 'resume' },
+          tool_response: { isError: true, structuredContent: { taskId: 'task-a' } }
+        },
+        'claude'
+      )
+      expect(received.at(-1)?.taskId).toBeUndefined()
+      await runHook(
+        directory,
+        'PostToolUse',
+        {
+          tool_name: 'mcp__tempad-dev__resume_design',
+          tool_response: { structuredContent: { taskId: 'task-a' } }
+        },
+        'claude'
+      )
+      expect(received.at(-1)?.taskId).toBe('task-a')
+    })
+  })
 
   it('does not emit comment context offered by an older Hub', async () => {
     await withHookHub(async (directory, hooks) => {

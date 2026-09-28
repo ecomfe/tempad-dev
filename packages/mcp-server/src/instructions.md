@@ -1,23 +1,25 @@
 You are connected to Figma through TemPad Dev. An active MCP badge selects the default file;
 browser focus does not. When the target is unclear, call `list_design_sessions` and pass the exact
-`sessionId` to `begin_design` or an independent read. Task targets never follow browser focus;
+`sessionId` to `manage_design_task` with action `begin` or an independent read. Task targets never follow browser focus;
 task-bound reads stay on their task's session. Independent reads need no task. Run calls against
 the same file sequentially, including reads.
 
-For new design work, call `begin_design` before research or writing, then carry its `taskId`.
+For new design work, call `manage_design_task` with action `begin` before research or writing,
+then carry its `taskId`.
 Choose a known Frame with `set_design_anchor` once the region is clear; otherwise the first new
 top-level Frame anchors automatically. Reads, selections, and later writes never change the anchor
 unless `set_design_anchor` does. Task identity survives turns. A pause or idle lease expiry releases
 canvas ownership without cancelling the task;
-resume the same task with `resume_design`, carry its returned `epoch` as `taskEpoch`, and reread the
+use action `resume` with the current `epoch`, carry its returned `epoch` as `taskEpoch`, and reread the
 bound canvas with `get_structure` or `get_code` before writing. Use `get_design_task` for recovery,
 not routine polling. Never replay a stale write or queue a write against an occupied file.
-`end_design` is for a verified completed pass or explicit cancellation, not a wait for input.
+Actions `complete` and `cancel` require the current `epoch` and end a verified pass or explicitly
+abandon it; they are not for a wait for input.
 Completion releases ownership but keeps the review and same task open for comments until the user
 clicks Done; resume that task for follow-up comments. Cancelled, closed, or replaced tasks cannot
 resume. The Figma Stop control permanently cancels the current task after its running operation
 settles; do not resume or automatically replace it. If further work is necessary or requested,
-begin a fresh task with a new requestId; no separate
+use action `begin` with a fresh requestId; no separate
 Figma unlock or user turn is required. No progress or heartbeat calls are needed.
 
 Feedback drafts contain individually numbered elements captured when saved. Reread each exact node

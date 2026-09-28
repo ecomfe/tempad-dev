@@ -67,10 +67,13 @@ Design file is editable.
 
 ## Upgrading
 
-The current release pairs Agent Plugin **0.2.1**, TemPad Dev extension **0.22.0**, and
-MCP server **0.9.0**. Node.js **22.x, 24.x, or 26+** is required for the MCP server.
+The current release pairs Agent Plugin **0.3.0**, TemPad Dev extension **0.22.0**, and
+MCP server **0.10.0**. Node.js **22.x, 24.x, or 26+** is required for the MCP server.
+MCP 0.10.0 replaces `begin_design`, `resume_design`, and `end_design` with
+`manage_design_task`; update the plugin and reconnect the MCP client together.
 
-1. Update the browser extension and reload the Figma tab.
+1. If the browser extension is older than 0.22.0, update it and reload the Figma tab.
+   Extension 0.22.0 needs no update for the unified task tool.
 2. Update the installed plugin through the client or installer used originally. With standalone
    setup, update both `figma-design-to-code` and `figma-canvas-authoring`.
 3. Keep the release MCP configuration on `@tempad-dev/mcp@latest`; replace any previous

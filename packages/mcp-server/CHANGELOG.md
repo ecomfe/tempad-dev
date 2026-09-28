@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0
+
+- Replaced `begin_design`, `resume_design`, and `end_design` with `manage_design_task`
+  actions `begin`, `resume`, `complete`, and `cancel`, reducing the public tool count from 12 to 10.
+  Existing-task actions require the current `epoch`. Refresh the client's tool list and update
+  the agent plugin together; existing extension task messages and bridge compatibility are unchanged.
+- Use Agent Plugin 0.3.0 for the updated lifecycle guidance. Extension 0.22.0 remains compatible
+  without an extension update.
+
 ## 0.9.0
 
 - Added optional exact `sessionId` targeting to independent code, structure, screenshot,

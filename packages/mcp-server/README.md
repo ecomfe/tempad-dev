@@ -31,7 +31,7 @@ Supported tools/resources:
   available font families and exact native styles without reading file resources. `scope: "pages"`
   lists page IDs without scanning components; a resource call with `pageId` scans only that page's
   components while retaining file-wide variable, style, and shader definitions.
-- `begin_design`, `resume_design`, `set_design_anchor`, and `end_design`: Bind canvas writes to
+- `manage_design_task` (`begin`, `resume`, `complete`, `cancel`) and `set_design_anchor`: Bind canvas writes to
   a design task, resume a paused task, place its status controls, and finish or cancel the task.
   Stop permanently fences the old task across reconnects. Native Codex App comments support Queue
   and Steer; confirmed admission clears submitted drafts before execution finishes. See the
@@ -52,8 +52,8 @@ Notes:
 - Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
 - `apply_canvas` is available whenever MCP access is enabled and the current Figma Design file is
   editable. Dev Mode and view-only files remain read-only.
-- MCP **0.9.0** pairs with extension **0.22.0** and Agent Plugin **0.2.1**. Update the extension
-  and installed skills, replace any alpha-pinned MCP configuration with `@tempad-dev/mcp@latest`,
+- MCP **0.10.0** pairs with extension **0.22.0** and Agent Plugin **0.3.0**. Extension 0.22.0
+  needs no update for this release. Update the plugin or installed skills, replace any alpha-pinned MCP configuration with `@tempad-dev/mcp@latest`,
   then reconnect the MCP client and start a new task. See the
   [upgrade guide](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src#upgrading).
 - Assets are ephemeral and tool-linked. Local stdio clients receive `asset.localPath` when the Hub

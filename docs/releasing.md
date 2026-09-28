@@ -8,8 +8,9 @@ TemPad Dev has three independently distributed integration parts:
 | MCP server        | `packages/mcp-server/package.json` | npm through `publish-mcp.yml`           |
 | Agent Plugin      | `agent-plugin/src/plugin.json`     | Git marketplace on `main`               |
 
-The current release candidate pairs extension **0.22.0**, MCP **0.9.0**, and Agent
-Plugin **0.2.1**. `@tempad-dev/plugins` is the separate code-output SDK; its version remains
+The current release candidate pairs extension **0.22.0**, MCP **0.10.0**, and Agent
+Plugin **0.3.0**. This release updates only the MCP and Agent Plugin; extension 0.22.0 remains
+compatible and does not need a new store submission. `@tempad-dev/plugins` is the separate code-output SDK; its version remains
 **0.6.2** and it does not need publication for this release.
 
 ## Prepare the candidate
@@ -35,7 +36,7 @@ Plugin **0.2.1**. `@tempad-dev/plugins` is the separate code-output SDK; its ver
    unaffected. Restrict the smoke Hub's allowed extension origin to a dedicated test origin,
    remove inherited host task-identity variables from its child environment, and verify its
    runtime identity points at the installed tarball. Close the smoke client and confirm that
-   only its isolated Hub exits. MCP 0.9.0 supports Node.js 22.x, 24.x, or 26+.
+   only its isolated Hub exits. MCP 0.10.0 supports Node.js 22.x, 24.x, or 26+.
    Retain the package and extension archive hashes with the candidate revision; rebuild them
    if packaged source or documentation changes.
 5. Before claiming full native host support, follow the
@@ -82,9 +83,10 @@ for argument restrictions and collision-safe legacy asset uploads.
 | 0.20.0    | 0.8.0                 | Existing taskless code, structure, and screenshot reads and asset exports continue working. Authoring and new read options explain how to update the extension and reload Figma.                                                                                                              |
 | 0.21.0    | 0.8.0                 | Versioned session routing, runtime identity, and task fences apply.                                                                                                                                                                                                                           |
 | 0.22.0    | 0.9.0                 | Adds exact-session independent reads and page-scoped design-system discovery, with bounded structure construction and request-scoped codegen reuse.                                                                                                                                           |
+| 0.22.0    | 0.10.0                | Consolidates public lifecycle tools into `manage_design_task` without changing the extension wire contract. Update to Agent Plugin 0.3.0 and reconnect the MCP client to refresh tools and skills.                                                                                            |
 | 0.21.0    | 0.7.1 already running | Registration is rejected with instructions to restart the agent's MCP connection using `@tempad-dev/mcp@latest`. Close other agents keeping the old shared Hub alive, then restart. Reloading Figma alone does not upgrade the Hub. The extension reconnects automatically after replacement. |
 
-MCP 0.9.0 retains the existing bridge protocol and legacy adapter. The new design-system
+MCP 0.10.0 retains the existing bridge protocol and legacy adapter. The design-system
 `scope: "pages"` and `pageId` options require extension 0.22.0; do not treat an older
 extension's argument rejection as an empty catalog. Exact independent-read `sessionId` is
 resolved by the Hub and is not forwarded as an extension tool argument. Task-bound reads
@@ -123,11 +125,11 @@ version available before exposing the new plugin on `main`.
    the later acceptance evidence preceding the original findings.
 3. Follow that verified transition when dispatching `publish-mcp.yml` from the checked candidate
    ref with `tag=latest`. Its `prepublishOnly` hook rebuilds the
-   package before npm publication. Confirm that both `npm view @tempad-dev/mcp@0.9.0 version` and
-   `npm view @tempad-dev/mcp@latest version` return `0.9.0`. A `next` publication may be used for
+   package before npm publication. Confirm that both `npm view @tempad-dev/mcp@0.10.0 version` and
+   `npm view @tempad-dev/mcp@latest version` return `0.10.0`. A `next` publication may be used for
    isolated candidate testing; it neither completes the migration nor changes release plugin
    configurations away from `latest`.
-4. Merge the approved candidate so the marketplace serves Agent Plugin 0.2.1. Verify that the
+4. Merge the approved candidate so the marketplace serves Agent Plugin 0.3.0. Verify that the
    standard, plugins-CLI, Codex, and Claude manifests agree, and that each generated package
    carries only its own channel's manifests. Do not publish the Agent Plugin through `publish-plugins.yml`; that
    workflow owns the separate `@tempad-dev/plugins` SDK.
