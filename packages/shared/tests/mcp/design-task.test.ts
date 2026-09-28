@@ -11,6 +11,7 @@ import {
   AgentClientKindSchema,
   AgentClientSchema,
   BeginDesignParametersSchema,
+  ManageDesignTaskParametersSchema,
   DesignActionSchema,
   DesignFeedbackSchema,
   DesignTaskSchema,
@@ -456,6 +457,58 @@ describe('design task contracts', () => {
     expect(
       parseBridgeToPageMessage({ ...base, type: 'mcp.designActionResult', result })
     ).not.toBeNull()
+  })
+
+  it('validates each unified lifecycle action without accepting unrelated fields', () => {
+    const begin = {
+      action: 'begin',
+      title: 'Settings',
+      requestId: '00000000-0000-4000-8000-000000000001'
+    }
+    expect(ManageDesignTaskParametersSchema.parse(begin)).toEqual(begin)
+    expect(ManageDesignTaskParametersSchema.parse({ ...begin, title: ' Settings ' }).title).toBe(
+      'Settings'
+    )
+    for (const action of ['resume', 'complete', 'cancel']) {
+      const input = { action, taskId: 'task-1', epoch: 2 }
+      expect(ManageDesignTaskParametersSchema.parse(input)).toEqual(input)
+      for (const invalid of [
+        { action, taskId: 'task-1' },
+        { action, epoch: 2 },
+        { ...input, epoch: -1 },
+        { ...input, epoch: 1.5 },
+        { ...input, title: 'Another task' },
+        { ...input, sessionId: 'another-session' },
+        { ...input, requestId: begin.requestId },
+        { ...input, taskEpoch: 2 },
+        { ...input, progress: 'Working' }
+      ]) {
+        expect(ManageDesignTaskParametersSchema.safeParse(invalid).success).toBe(false)
+      }
+    }
+    for (const action of ['complete', 'cancel']) {
+      const input = { action, taskId: 'task-1', epoch: 0, summary: 'Applied changes' }
+      expect(ManageDesignTaskParametersSchema.parse(input)).toEqual(input)
+      expect(
+        ManageDesignTaskParametersSchema.safeParse({ ...input, summary: 'x'.repeat(401) }).success
+      ).toBe(false)
+    }
+    for (const invalid of [
+      { ...begin, requestId: undefined },
+      { ...begin, requestId: 'not-a-uuid' },
+      { ...begin, title: ' ' },
+      { ...begin, title: 'x'.repeat(121) },
+      { ...begin, taskId: 'task-1' },
+      { ...begin, epoch: 0 },
+      { ...begin, summary: 'Not a result' },
+      { action: 'resume', taskId: 'task-1', epoch: 0, summary: 'Not a result' },
+      { action: 'complete', taskId: 'task-1', epoch: 0, outcome: 'cancelled' },
+      { action: 'update', taskId: 'task-1', epoch: 0 },
+      { action: 'pause', taskId: 'task-1', epoch: 0 },
+      { action: 'cancel', taskId: 'task-1', epoch: 0, status: 'active' }
+    ]) {
+      expect(ManageDesignTaskParametersSchema.safeParse(invalid).success).toBe(false)
+    }
   })
 
   it('requires bounded titles and a retry identity without coordinates or progress fields', () => {

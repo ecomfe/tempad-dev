@@ -257,7 +257,7 @@ describe('design task leases', () => {
       const task = f.begin()
       f.tasks.stop(task.taskId, status)
       expect(task.status).toBe(status)
-      expect(() => f.tasks.owned(task.taskId, 'caller-a', true)).toThrow('resume_design')
+      expect(() => f.tasks.owned(task.taskId, 'caller-a', true)).toThrow('manage_design_task')
       const record = f.tasks.resume(task.taskId, 'caller-a', 0, session)
       expect(record.task.taskId).toBe(task.taskId)
       expect(record.task.epoch).toBe(1)

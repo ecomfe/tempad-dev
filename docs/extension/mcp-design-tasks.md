@@ -39,7 +39,7 @@ readable to preserve drafts; current delivery uses Queue or Steer.
 ## Task lifecycle
 
 - Badge activation chooses the default Figma session. `list_design_sessions` exposes
-  exact choices; `begin_design({ title, requestId, sessionId? })` reserves the file
+  exact choices; `manage_design_task({ action: "begin", title, requestId, sessionId? })` reserves the file
   and requires its page to acknowledge the session, file, page, and epoch. Reuse a
   request ID only for the same begin request.
 - Carry `taskId` and the returned lease epoch as `taskEpoch` on task work. Hub,
@@ -49,14 +49,17 @@ readable to preserve drafts; current delivery uses Queue or Steer.
 - Only task work renews the five-minute idle lease. Pings, status reads, capability
   checks, and UI activity do not. `get_design_task` supplies recovery state without
   renewing ownership.
-- `resume_design({ taskId, epoch })` resumes a paused, expired, interrupted, or
+- `manage_design_task({ action: "resume", taskId, epoch })` resumes a paused, expired, interrupted, or
   completed task only while it is the current task and its review is open. It
   repeats the page acknowledgement, increments the epoch, and requires a successful
   `get_structure` or `get_code` read before writing. Preserve the anchor and page
   binding; reconstruct changes from current native state instead of replaying writes.
-- `end_design({ taskId, taskEpoch?, outcome, summary? })` completes or abandons the
-  design pass. Completion waits for the current operation, releases ownership, and
+- `manage_design_task({ action: "complete" | "cancel", taskId, epoch, summary? })` completes or abandons the
+  design pass. Completion rejects while an operation is running, releases ownership, and
   leaves the same review open for comments. It does not act as the user's Done.
+- This single public lifecycle tool replaces `begin_design`, `resume_design`, and `end_design`.
+  All actions except `begin` require the current epoch. Reload client tools and update the agent
+  plugin together; the extension bridge task messages and state machine are unchanged.
 - Figma **Stop** immediately fences subsequent page operations and cancels pending
   feedback. A running transaction drains consistently through `stopping`, then the
   task becomes permanently `cancelled`. A delayed lifecycle event, reconnect,

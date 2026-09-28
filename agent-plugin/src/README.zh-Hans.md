@@ -93,10 +93,13 @@ Codex App 的任务绑定和状态同步使用 MCP 元数据及原生 IPC，不�
 
 ## 升级
 
-当前版本应配套使用 Agent Plugin **0.2.1**、TemPad Dev 扩展 **0.22.0** 和 MCP
-server **0.9.0**。MCP server 要求 Node.js **22.x、24.x 或 26+**。
+当前版本应配套使用 Agent Plugin **0.3.0**、TemPad Dev 扩展 **0.22.0** 和 MCP
+server **0.10.0**。MCP server 要求 Node.js **22.x、24.x 或 26+**。
+MCP 0.10.0 将 `begin_design`、`resume_design` 和 `end_design` 合并为
+`manage_design_task`；请同时更新 plugin 并重新连接 MCP client。
 
-1. 更新浏览器扩展，并重新加载 Figma 标签页。
+1. 若浏览器扩展低于 0.22.0，请更新并重新加载 Figma 标签页。
+   扩展 0.22.0 无需为统一任务工具更新。
 2. 通过原先使用的客户端或安装器更新 plugin。独立配置时，请同时更新
    `figma-design-to-code` 和 `figma-canvas-authoring`。
 3. 正式版 MCP 配置使用 `@tempad-dev/mcp@latest`；请替换旧的 `@alpha` 或固定 alpha 版本。

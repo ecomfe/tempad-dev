@@ -5,7 +5,7 @@ export const MCP_DESIGN_TASK_LEASE_MS = 5 * 60_000
 
 export const DesignTaskIdSchema = z.string().min(1).max(128)
 export const DesignTaskParameterSchema = DesignTaskIdSchema.describe(
-  'Task id returned by begin_design. Pass it on every call belonging to that design task; omit for independent reads.'
+  'Task id returned by manage_design_task. Pass it on every call belonging to that design task; omit for independent reads.'
 ).optional()
 
 export const FigmaSessionSchema = z
@@ -74,7 +74,7 @@ export const DesignTaskEpochSchema = z
   .nonnegative()
   .optional()
   .describe(
-    'Lease epoch returned by begin_design or resume_design. Required after resuming; stale epochs cannot write.'
+    'Lease epoch returned by manage_design_task. Required after resuming; stale epochs cannot write.'
   )
 
 export const MCP_DESIGN_FEEDBACK_MAX_ITEMS = 20
@@ -296,6 +296,46 @@ export const EndDesignParametersSchema = z
       )
   })
   .strict()
+
+const FinishDesignParametersSchema = EndDesignParametersSchema.omit({
+  taskEpoch: true,
+  outcome: true
+}).extend({ epoch: ResumeDesignParametersSchema.shape.epoch })
+
+const DesignTaskActionSchemas = {
+  begin: BeginDesignParametersSchema,
+  resume: ResumeDesignParametersSchema,
+  complete: FinishDesignParametersSchema,
+  cancel: FinishDesignParametersSchema
+}
+
+// MCP publishes an object schema. Validate action-specific fields without a root union,
+// which the SDK would advertise as an empty object instead of usable tool parameters.
+export const ManageDesignTaskParametersSchema = z
+  .object({
+    action: z.enum(['begin', 'resume', 'complete', 'cancel']),
+    title: BeginDesignParametersSchema.shape.title.optional().describe('Required for begin.'),
+    sessionId: BeginDesignParametersSchema.shape.sessionId,
+    requestId: BeginDesignParametersSchema.shape.requestId.optional(),
+    taskId: DesignTaskIdSchema.optional().describe('Required except for begin.'),
+    epoch: ResumeDesignParametersSchema.shape.epoch
+      .optional()
+      .describe(
+        'Required except for begin. Current epoch from the task result or get_design_task.'
+      ),
+    summary: EndDesignParametersSchema.shape.summary
+  })
+  .strict()
+  .superRefine(({ action, ...args }, context) => {
+    const result = DesignTaskActionSchemas[action].safeParse(args)
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        context.addIssue({ code: 'custom', path: issue.path, message: issue.message })
+      }
+    }
+  })
+
+export type ManageDesignTaskParameters = z.infer<typeof ManageDesignTaskParametersSchema>
 
 // The broker and page both check this route. A new Hub connection or page runtime
 // cannot inherit delayed requests from an earlier connection.

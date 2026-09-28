@@ -509,9 +509,7 @@ export type ToolResultMap = {
   set_design_anchor: DesignAnchor
   get_design_task: DesignTask
   list_design_sessions: { sessions: FigmaSession[] }
-  resume_design: DesignTask
-  begin_design: DesignTask
-  end_design: DesignTask
+  manage_design_task: DesignTask
   get_code: GetCodeResult
   get_design_system: GetDesignSystemResult
   apply_canvas: ApplyCanvasResult

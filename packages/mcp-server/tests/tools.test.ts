@@ -54,7 +54,7 @@ describe('tools response helpers', () => {
     const response = createDesignTaskToolResponse(task)
     expect(response.structuredContent).toEqual(task)
     expect(JSON.parse(textContent(response.content[0]))).toEqual(task)
-    for (const name of ['begin_design', 'end_design']) {
+    for (const name of ['manage_design_task', 'get_design_task']) {
       const definition = TOOL_DEFS.find((tool) => tool.name === name)!
       expect(definition.outputSchema?.safeParse(response.structuredContent).success).toBe(true)
     }
@@ -66,9 +66,7 @@ describe('tools response helpers', () => {
       new Set([
         'get_design_task',
         'list_design_sessions',
-        'resume_design',
-        'begin_design',
-        'end_design',
+        'manage_design_task',
         'set_design_anchor',
         'get_code',
         'get_design_system',
@@ -136,14 +134,9 @@ describe('tools response helpers', () => {
 
     for (const tool of TOOL_DEFS.filter(
       (definition) =>
-        ![
-          'apply_canvas',
-          'upload_asset',
-          'begin_design',
-          'end_design',
-          'resume_design',
-          'set_design_anchor'
-        ].includes(definition.name)
+        !['apply_canvas', 'upload_asset', 'manage_design_task', 'set_design_anchor'].includes(
+          definition.name
+        )
     )) {
       expect(tool.annotations).toEqual({
         readOnlyHint: true,

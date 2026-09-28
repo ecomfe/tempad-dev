@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- Updated canvas-authoring guidance and Claude lifecycle binding for the unified
+  `manage_design_task` tool. Requires MCP 0.10.0 or later; reconnect the client
+  to refresh its tool list when updating the plugin.
+- Retained compatibility with extension 0.22.0 and `@tempad-dev/mcp@latest` in every release
+  installation channel. No extension update is needed for this lifecycle consolidation.
+
 ## 0.2.1
 
 - Updated design-to-code recovery to select a connected Figma file by exact session ID instead

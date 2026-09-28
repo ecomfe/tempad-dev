@@ -28,7 +28,7 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
   有界定义。使用 `scope: "fonts"` 可查询当前可用字体家族和精确原生样式，不读取文件资源。
   `scope: "pages"` 无需扫描组件即可列出页面 ID；资源读取传入 `pageId` 时只扫描该页组件，
   变量、样式和 shader 定义仍按文件范围读取。
-- `begin_design`、`resume_design`、`set_design_anchor`、`end_design`：将画布写入绑定到设计任务，
+- `manage_design_task`（`begin`、`resume`、`complete`、`cancel`）和 `set_design_anchor`：将画布写入绑定到设计任务，
   恢复暂停的任务、设置状态栏锚点，以及结束或取消任务。Stop 会永久禁止旧任务写入，重新连接也不会恢复。
   兼容 Codex App 的原生评论支持 Queue 和 Steer；确认接收后清空已提交草稿，无需等待执行完成。
   详细行为与宿主验证范围见[评论指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#使用)。
@@ -47,7 +47,7 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 - 工具响应共用 `64 KiB` 的 inline budget，按 `CallToolResult` 整体响应体积计算。若选区过大而超出 `get_code` 的预算，TemPad Dev 可能返回 shell response 而不是直接失败。shell 会保留当前节点的包裹结构，并在内联代码注释中列出被省略的直接子节点 id，方便 agent 逐个继续拉取；配套 warning 只保留最小化的提示信息，用来指向这条注释。
 - 启用 MCP access 且当前 Figma Design 文件可编辑时，`apply_canvas` 即可使用；Dev Mode 和
   只读文件仍不可写。
-- MCP **0.9.0** 应配套使用扩展 **0.22.0** 和 Agent Plugin **0.2.1**。请更新扩展和已安装的 skill，
+- MCP **0.10.0** 应配套使用扩展 **0.22.0** 和 Agent Plugin **0.3.0**。扩展 0.22.0 无需为本次发布更新。请更新 plugin 或已安装的 skill，
   将固定 alpha 版本的 MCP 配置改为 `@tempad-dev/mcp@latest`，然后重新连接 MCP client 并新建任务。
   详见[升级指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#升级)。
 - 资源是临时且与工具调用关联的。本地 stdio client 在 Hub 持有字节时会收到

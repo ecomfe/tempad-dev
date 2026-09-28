@@ -5,6 +5,7 @@ import type {
   BeginDesignParameters,
   EndDesignParameters,
   ResumeDesignParameters,
+  ManageDesignTaskParameters,
   DesignTask,
   FigmaSession,
   GetAssetsParametersInput,
@@ -300,12 +301,8 @@ function enrichToolDefinition(tool: ToolMetadataEntry): RegisteredToolDefinition
           }
         }
       }
-    case 'resume_design':
-      return { ...tool, handler: handleResumeDesign }
-    case 'begin_design':
-      return { ...tool, handler: handleBeginDesign }
-    case 'end_design':
-      return { ...tool, handler: handleEndDesign }
+    case 'manage_design_task':
+      return { ...tool, handler: handleManageDesignTask }
     case 'get_assets':
       return { ...tool, handler: handleGetAssets }
     case 'upload_asset':
@@ -450,6 +447,33 @@ function resolveDesignRoute(
     active,
     explicitSessionId
   )
+}
+
+async function handleManageDesignTask(
+  args: ManageDesignTaskParameters,
+  ownerId: string
+): Promise<ToolResponse> {
+  // The shared schema validates required and forbidden fields for each action.
+  switch (args.action) {
+    case 'begin':
+      return handleBeginDesign(
+        { title: args.title!, requestId: args.requestId!, sessionId: args.sessionId },
+        ownerId
+      )
+    case 'resume':
+      return handleResumeDesign({ taskId: args.taskId!, epoch: args.epoch! }, ownerId)
+    case 'complete':
+    case 'cancel':
+      return handleEndDesign(
+        {
+          taskId: args.taskId!,
+          taskEpoch: args.epoch!,
+          outcome: args.action === 'complete' ? 'completed' : 'cancelled',
+          summary: args.summary
+        },
+        ownerId
+      )
+  }
 }
 
 async function handleBeginDesign(
@@ -802,7 +826,7 @@ function registerLocalTool(mcp: McpServer, tool: HubOnlyTool, ownerId: string): 
       const parsed = schema.parse(args)
       const taskId = getRecordProperty(parsed, 'taskId')
       if (
-        !['end_design', 'resume_design', 'get_design_task'].includes(tool.name) &&
+        !['manage_design_task', 'get_design_task'].includes(tool.name) &&
         typeof taskId === 'string'
       ) {
         designTasks.assertEpoch(

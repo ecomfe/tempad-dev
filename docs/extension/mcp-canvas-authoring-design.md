@@ -46,8 +46,8 @@ The model-visible surface includes these tools:
 - `set_design_anchor` binds an active task to an exact existing Frame without moving
   the viewport; the first created top-level Frame otherwise anchors automatically.
   The region stays stable until explicitly changed; beginning a task needs no anchor.
-- `begin_design` binds one design task to the selected file/session with an idle lease;
-- `end_design` releases the task after delivery or cancellation;
+- `manage_design_task` begins, resumes, completes, or cancels a design task bound to
+  the selected file/session, preserving its idle lease and review lifecycle;
 
 - `get_code` reads visible design as implementation evidence;
 - `get_structure` reads hierarchy and geometry when composition is ambiguous, exposes stable

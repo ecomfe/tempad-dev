@@ -27,7 +27,9 @@ try {
   let taskId
   if (
     event === 'PostToolUse' &&
-    /tempad[-_]dev.*__(?:begin_design|resume_design)$/.test(input.tool_name || '')
+    ((/tempad[-_]dev.*__manage_design_task$/.test(input.tool_name || '') &&
+      ['begin', 'resume'].includes(input.tool_input?.action)) ||
+      /tempad[-_]dev.*__(?:begin_design|resume_design)$/.test(input.tool_name || ''))
   ) {
     const response = input.tool_response
     if (!response?.isError) {

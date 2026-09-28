@@ -209,7 +209,7 @@ export class DesignTasks {
         `Design task is ${record.task.status}. ${
           record.task.status === 'cancelled'
             ? 'Begin a new task with a fresh requestId before writing.'
-            : 'Resume this task with resume_design and reread the target before writing; do not replay an old write.'
+            : 'Use manage_design_task with action "resume" and reread the target before writing; do not replay an old write.'
         }`
       )
     }
@@ -245,7 +245,7 @@ export class DesignTasks {
     if ((epoch ?? 0) !== (record.task.epoch ?? 0)) {
       fail(
         'DESIGN_TASK_INACTIVE',
-        'Stale task lease. Read get_design_task for the current epoch, resume_design if inactive, and reread the canvas before writing.'
+        'Stale task lease. Read get_design_task for the current epoch, use manage_design_task with action "resume" if inactive, and reread the canvas before writing.'
       )
     }
     return record
