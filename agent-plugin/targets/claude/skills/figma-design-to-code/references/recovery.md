@@ -30,6 +30,13 @@ missing evidence:
   the reported condition before retrying.
 - **`depth-cap`**: keep the returned top-level composition, then use returned
   `data-hint-id` values for targeted child `get_code` calls.
+- **`token-resolution`**: some references remain in code even with
+  `resolveTokens: true`. Treat those consumer values as unresolved; do not
+  replace them with a collection default or claim all values were inlined.
+- **`token-definition`**: definitions or mode labels are missing or ambiguous.
+  Use the reported variable/node identity to narrow the affected evidence.
+  Do not choose a variable by equal value or infer a missing alias target.
+  Retry after the missing resource or naming ambiguity is corrected.
 - **budget overflow or shell response**: keep the returned parent shell, then
   fetch omitted children separately. Use the smallest parent that still proves
   their shared layout. Plain string truncation is not evidence.

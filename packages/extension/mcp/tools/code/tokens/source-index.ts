@@ -4,12 +4,21 @@ import { getVariableByIdCached } from '../../token/cache'
 
 export function buildSourceNameIndex(
   candidateIds: Set<string>,
-  cache: Map<string, Variable | null>
+  cache: Map<string, Variable | null>,
+  onAmbiguous?: (name: string) => void
 ): Map<string, string> {
   const index = new Map<string, string>()
+  const ambiguous = new Set<string>()
 
-  const setIfEmpty = (name: string, id: string) => {
-    if (index.has(name)) return
+  const addName = (name: string, id: string) => {
+    if (ambiguous.has(name)) return
+    const previous = index.get(name)
+    if (previous && previous !== id) {
+      index.delete(name)
+      ambiguous.add(name)
+      onAmbiguous?.(name)
+      return
+    }
     index.set(name, id)
   }
 
@@ -27,15 +36,15 @@ export function buildSourceNameIndex(
           canonical = normalizeFigmaVarName(raw)
         }
       }
-      if (canonical) setIfEmpty(canonical, id)
+      if (canonical) addName(canonical, id)
       // Match the normalized name that may appear in var(--...) outputs.
-      setIfEmpty(normalizeFigmaVarName(cs), id)
+      addName(normalizeFigmaVarName(cs), id)
       // Non-var codeSyntax should also be matched (for example, rounded-2xl).
-      setIfEmpty(cs, id)
+      addName(cs, id)
     }
 
     const figmaName = normalizeFigmaVarName(v.name ?? '')
-    setIfEmpty(figmaName, id)
+    addName(figmaName, id)
   }
 
   return index

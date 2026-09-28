@@ -2,6 +2,7 @@ import type {
   AssetDescriptor,
   GetCodeParametersInput,
   GetCodeResult,
+  GetCodeWarning,
   GetTokenDefsResult,
   ToolResponseLike
 } from '@tempad-dev/shared'
@@ -13,9 +14,10 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { activePlugin } from '@/ui/state'
 import { stringifyComponent } from '@/utils/component'
-import { simplifyColorMixToRgba } from '@/utils/css'
+import { simplifyColorMixToRgba, stripFallback } from '@/utils/css'
 import { logger } from '@/utils/log'
 
+import type { TokenReadContext } from '../token/context'
 import type { SvgEntry } from './assets'
 import type { GetCodeCacheContext } from './cache'
 import type { VisibleTree } from './model'
@@ -24,6 +26,7 @@ import type { PluginComponent } from './render/plugin'
 
 import { currentCodegenConfig } from '../config'
 import { collectCandidateVariableIds } from '../token/candidates'
+import { createTokenReadContext } from '../token/context'
 import { exportVectorAssets } from './assets/export'
 import { planAssets } from './assets/plan'
 import { preflightGetCodeBudget } from './budget-preflight'
@@ -38,7 +41,14 @@ import {
 import { getOrderedChildIds, renderShellTree, renderTree } from './render'
 import { resolvePluginComponents } from './render/plugin'
 import { buildLayoutStyles, prepareStyles } from './styles'
-import { createStyleVarResolver, processTokens, resolveStyleMap } from './tokens'
+import {
+  createStyleVarResolver,
+  processTokens,
+  resolveStyleMap,
+  rewriteTokenNamesInCode
+} from './tokens'
+import { createTokenDiagnostics } from './tokens/diagnostics'
+import { addVariableModeHints } from './tokens/modes'
 import { addSubtreeIds, buildVisibleTree } from './tree'
 
 // Tags that should render children without extra whitespace/newlines.
@@ -108,6 +118,7 @@ type PipelineInput = {
   variableIds: Set<string>
   usedCandidateIds: Set<string>
   variableCache: Map<string, Variable | null>
+  tokenContext: TokenReadContext
   resolveTokens?: boolean
   trace?: TraceInfo
 }
@@ -116,6 +127,7 @@ type PipelineOutput = {
   code: string
   lang: CodeLanguage
   tokens?: GetTokenDefsResult
+  tokenWarnings?: GetCodeWarning[]
 }
 
 export type GetCodeRuntimeOptions = {
@@ -160,8 +172,14 @@ export async function handleGetCode(
     logger.warn(`[get_code] Tree depth capped at ${depth}; output may be incomplete.`)
   }
 
-  const config = currentCodegenConfig()
-  const pluginCode = activePlugin.value?.code
+  const cache = runtimeOptions.cache ?? createGetCodeCacheContext(undefined, { metrics: measure })
+  const tokenContext = (cache.tokens ??= createTokenReadContext(
+    currentCodegenConfig(),
+    activePlugin.value?.code,
+    cache.variables
+  ))
+  cache.pluginName ??= activePlugin.value?.name ?? 'none'
+  const { config, pluginCode } = tokenContext
   const maxResultBytes = runtimeOptions.unbounded
     ? Number.MAX_SAFE_INTEGER
     : MCP_TOOL_INLINE_BUDGET_BYTES
@@ -174,7 +192,6 @@ export async function handleGetCode(
   const earlyShell = budgetPreflight.kind === 'shell'
 
   t = now()
-  const cache = runtimeOptions.cache ?? createGetCodeCacheContext(undefined, { metrics: measure })
   const variableCache = cache.variables
   const nodeVariableIds = new Map<string, ReadonlySet<string>>()
   const mappings = collectCandidateVariableIds(nodes, variableCache, cache.readers, {
@@ -246,7 +263,7 @@ export async function handleGetCode(
 
   const rootTag = collected.nodes.get(rootId)?.tag
   const codegen = {
-    plugin: activePlugin.value?.name ?? 'none',
+    plugin: cache.pluginName,
     config
   }
   const baseInput: Omit<PipelineInput, 'mode'> = {
@@ -260,6 +277,7 @@ export async function handleGetCode(
     variableIds: mappings.variableIds,
     usedCandidateIds,
     variableCache,
+    tokenContext,
     resolveTokens,
     trace: traceInfo
   }
@@ -269,7 +287,7 @@ export async function handleGetCode(
   if (earlyShell) {
     const shellMode = createShellMode(rootId, tree, ctx)
     const shell = shellMode
-      ? await tryRenderShell({
+      ? await tryRenderPipeline({
           ...baseInput,
           mode: shellMode
         })
@@ -280,7 +298,8 @@ export async function handleGetCode(
 
     const warnings = buildGetCodeWarnings(shell.code, {
       depthCapped: tree.stats.capped,
-      shell: true
+      shell: true,
+      tokenWarnings: shell.tokenWarnings
     })
     const assets = selectAssetsForCode(allAssets, shell.code, videoPreviewAssetHashes)
     const result = buildCodeResult(shell, codegen, assets, undefined, warnings)
@@ -304,7 +323,8 @@ export async function handleGetCode(
       : collectUnboundColorLiteralClusters(collected.styles, tree)
     const warnings = buildGetCodeWarnings(output.code, {
       depthCapped: tree.stats.capped,
-      literalClusters
+      literalClusters,
+      tokenWarnings: output.tokenWarnings
     })
     const assets = selectAssetsForCode(allAssets, output.code, videoPreviewAssetHashes)
     const result = buildCodeResult(output, codegen, assets, literalClusters, warnings)
@@ -328,7 +348,7 @@ export async function handleGetCode(
       throw error
     }
 
-    const shell = await tryRenderShell({
+    const shell = await tryRenderPipeline({
       ...baseInput,
       mode: shellMode
     })
@@ -338,7 +358,8 @@ export async function handleGetCode(
 
     const warnings = buildGetCodeWarnings(shell.code, {
       depthCapped: tree.stats.capped,
-      shell: true
+      shell: true,
+      tokenWarnings: shell.tokenWarnings
     })
     const assets = selectAssetsForCode(allAssets, shell.code, rootVideoPreviewAssetHashes)
     const result = buildCodeResult(shell, codegen, assets, undefined, warnings)
@@ -376,12 +397,19 @@ function ensureEarlyShellRootPositioning(
   styles.set(rootId, { ...style, position: 'relative' })
 }
 
-async function tryRenderShell(input: PipelineInput): Promise<PipelineOutput | null> {
+async function tryRenderPipeline(input: PipelineInput): Promise<PipelineOutput | null> {
+  const diagnostics = createTokenDiagnostics()
+  addVariableModeHints(
+    input.tree,
+    new Set([...input.variableIds, ...input.usedCandidateIds]),
+    input.tokenContext,
+    diagnostics.report
+  )
   const rendered = await renderMarkup(input)
   if (!rendered) {
     return null
   }
-  return finalizeRenderedOutput(input, rendered)
+  return finalizeRenderedOutput(input, rendered, diagnostics)
 }
 
 function createShellMode(rootId: string, tree: VisibleTree, ctx: RenderContext): ShellMode | null {
@@ -398,17 +426,18 @@ function createShellMode(rootId: string, tree: VisibleTree, ctx: RenderContext):
 }
 
 async function renderPipeline(input: PipelineInput): Promise<PipelineOutput> {
-  const rendered = await renderMarkup(input)
-  if (!rendered) {
+  const output = await tryRenderPipeline(input)
+  if (!output) {
     throw new Error('Unable to build markup for the current selection.')
   }
 
-  return finalizeRenderedOutput(input, rendered)
+  return output
 }
 
 async function finalizeRenderedOutput(
   input: PipelineInput,
-  rendered: { code: string; lang: CodeLanguage }
+  rendered: { code: string; lang: CodeLanguage },
+  diagnostics: ReturnType<typeof createTokenDiagnostics>
 ): Promise<PipelineOutput> {
   const collected = getTokenCollectedContext(input)
   const {
@@ -416,7 +445,8 @@ async function finalizeRenderedOutput(
     tokensByCanonical,
     sourceIndex,
     tokenMatcher,
-    resolveNodeIds
+    resolveNodeIds,
+    rewriteMap
   } = await processTokens({
     code: rendered.code,
     variableIds: input.variableIds,
@@ -428,13 +458,15 @@ async function finalizeRenderedOutput(
     config: input.ctx.config,
     pluginCode: input.ctx.pluginCode,
     resolveTokens: input.resolveTokens,
+    tokenContext: input.tokenContext,
+    report: diagnostics.report,
     stamp: input.trace?.stamp,
     now: input.trace?.now
   })
 
   let outputCode = rewrittenCode
 
-  if (input.resolveTokens && Object.keys(tokensByCanonical).length) {
+  if (input.resolveTokens && sourceIndex.size) {
     const now = input.trace?.now
     const stamp = input.trace?.stamp
     const t = now ? now() : 0
@@ -446,10 +478,11 @@ async function finalizeRenderedOutput(
         lang: rendered.lang,
         sourceIndex,
         resolveNodeIds,
-        tokenMatcher
+        tokenMatcher,
+        report: diagnostics.report
       })
       if (resolved) {
-        outputCode = resolved.code
+        outputCode = rewriteTokenNamesInCode(stripFallback(resolved.code), rewriteMap ?? new Map())
       }
     }
     if (stamp && now) {
@@ -461,6 +494,7 @@ async function finalizeRenderedOutput(
   return {
     lang: rendered.lang,
     code: outputCode,
+    tokenWarnings: diagnostics.warnings(),
     ...(tokensPayload ? { tokens: tokensPayload } : {})
   }
 }
@@ -489,11 +523,13 @@ async function rerenderResolvedOutput({
   sourceIndex,
   resolveNodeIds,
   tokenMatcher,
+  report,
   ...input
 }: {
   sourceIndex: Map<string, string>
   resolveNodeIds?: Set<string>
   tokenMatcher?: (value: string) => boolean
+  report: ReturnType<typeof createTokenDiagnostics>['report']
 } & PipelineInput & {
     lang: CodeLanguage
   }): Promise<{ code: string } | null> {
@@ -502,13 +538,16 @@ async function rerenderResolvedOutput({
     input.variableCache,
     input.ctx.config,
     resolveNodeIds,
-    tokenMatcher
+    tokenMatcher,
+    input.tokenContext,
+    report
   )
   const resolvedStyles = resolveStyleMap(input.collected.styles, input.ctx.nodes, resolveStyleVars)
   const resolvedSvgs = resolveSvgEntries(input.ctx.svgs, input.ctx.nodes, resolveStyleVars)
   if (
     !resolvedEntriesChanged(input.collected.styles, resolvedStyles) &&
-    !resolvedEntriesChanged(input.ctx.svgs, resolvedSvgs)
+    !resolvedEntriesChanged(input.ctx.svgs, resolvedSvgs) &&
+    !input.collected.textSegments.size
   ) {
     return null
   }

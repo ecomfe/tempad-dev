@@ -28,8 +28,11 @@ stop rather than draw or substitute it from memory.
 ## Tokens
 
 Preserve token usage when the target project can carry or map it safely.
-Token facts may be direct values or mode-specific values keyed by
-`Collection:Mode`; preserve aliases between variables when present.
+`tokens` always describes definitions, including when `resolveTokens: true`
+inlines consumer-specific values in code. Values may be literals, aliases, or
+mode maps keyed by `Collection:Mode`; preserve alias relationships.
+An alias target can belong to a different collection with independently selected
+modes. Do not pick its default or assume it shares the source collection's mode.
 
 - Map to an existing project token only when value, reference behavior,
   semantics, and relevant mode agree. A similar name is insufficient.
@@ -39,9 +42,12 @@ Token facts may be direct values or mode-specific values keyed by
   it.
 - If landing location, mode, or mapping remains ambiguous, use the exact
   rendered value and report the fallback.
-- Use hint metadata only while reasoning about a mode; never ship hint
-  attributes.
+- Root mode hints include inheritance from outside the exported subtree;
+  descendant hints describe explicit overrides. Use them to interpret the
+  relevant consumer, and never ship hint attributes.
 
-When tokens and explicit rendered values disagree, do not silently choose.
-Narrow the design evidence or ask the user which source expresses the intended
-state.
+Definitions and a consumer's rendered value need not have the same literal
+representation. If they still contradict after accounting for aliases and
+effective modes, narrow the design evidence or ask which state is intended.
+For unavailable or ambiguous facts, follow the token warnings in
+[recovery.md](recovery.md#incomplete-get_code-results).

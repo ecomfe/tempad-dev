@@ -223,7 +223,7 @@ export const TOOL_DEFS = [
   extTool({
     name: 'get_token_defs',
     description:
-      'Resolve canonical token names to literal values (optionally including all modes) for tokens referenced by get_code.',
+      'Read definitions for canonical token names referenced by get_code, preserving aliases and optionally all modes. Consumer-specific literal values belong to get_code with resolveTokens enabled.',
     annotations: READ_ONLY_ANNOTATIONS,
     parameters: GetTokenDefsParametersSchema,
     target: 'extension',

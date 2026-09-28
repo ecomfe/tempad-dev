@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { readNodeBatch } from '@/mcp/node-reads'
 import { handleGetCode } from '@/mcp/tools/code'
+import { createGetCodeCacheContext } from '@/mcp/tools/code/cache'
 import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 
 const mocks = vi.hoisted(() => ({
@@ -63,10 +64,11 @@ vi.mock('@/mcp/tools/code/assets/export', () => ({
   exportVectorAssets: mocks.exportVectorAssets
 }))
 
-vi.mock('@/mcp/tools/code/tokens', () => ({
+vi.mock('@/mcp/tools/code/tokens', async () => ({
   processTokens: mocks.processTokens,
   createStyleVarResolver: mocks.createStyleVarResolver,
-  resolveStyleMap: mocks.resolveStyleMap
+  resolveStyleMap: mocks.resolveStyleMap,
+  rewriteTokenNamesInCode: (await import('@/mcp/tools/code/tokens/rewrite')).rewriteTokenNamesInCode
 }))
 
 vi.mock('@/mcp/tools/code/render', () => ({
@@ -131,6 +133,7 @@ describe('mcp/code handleGetCode', () => {
   afterEach(() => {
     vi.clearAllMocks()
     mocks.activePlugin.value = undefined
+    mocks.currentCodegenConfig.mockReturnValue({ cssUnit: 'px', rootFontSize: 16, scale: 1 })
     vi.unstubAllGlobals()
   })
 
@@ -616,6 +619,79 @@ describe('mcp/code handleGetCode', () => {
 
     expect(result.code).toContain('data-color="#fff"')
     expect(mocks.renderTree).toHaveBeenCalledTimes(2)
+  })
+
+  it('rerenders tokens present only in text runs and preserves names for failed resolutions', async () => {
+    const text = createSnapshot({ id: 'text', type: 'TEXT' })
+    const tree = createTree([text])
+    mockAssetCollection(tree, [], new Set())
+    mocks.collectNodeData.mockResolvedValue({
+      nodes: tree.nodes,
+      styles: new Map(),
+      textSegments: new Map([['text', []]])
+    })
+    mocks.processTokens.mockImplementation(async ({ report }) => {
+      report('token-definition', 'Alias definition unavailable.')
+      return {
+        code: '<span>var(--renamed)</span>',
+        tokensByCanonical: {},
+        sourceIndex: new Map([['--source', 'v']]),
+        resolveNodeIds: new Set(['text']),
+        rewriteMap: new Map([['--source', '--renamed']])
+      }
+    })
+    mocks.createStyleVarResolver.mockImplementation(
+      (_source, _cache, _config, _ids, _matcher, _context, report) =>
+        (style: Record<string, string>) => {
+          report('token-resolution', 'Variable v, node text.')
+          return style
+        }
+    )
+    mocks.resolveStyleMap.mockImplementation((styles) => styles)
+    mocks.renderTree.mockImplementation(async (_id, _tree, ctx) => {
+      const style = { fontSize: 'var(--source, 12px)' }
+      return raw(
+        `<span>${ctx.resolveStyleVars?.(style, text.node).fontSize ?? style.fontSize}</span>`
+      )
+    })
+    const result = await handleGetCode([text.node], 'jsx', true)
+    expect(mocks.renderTree).toHaveBeenCalledTimes(2)
+    expect(result.code).toContain('var(--renamed)')
+    expect(result.code).not.toContain('12px')
+    expect(result.warnings?.map((warning) => warning.type)).toEqual([
+      'token-definition',
+      'token-resolution'
+    ])
+    expect(measureCallToolResultBytes(buildGetCodeToolResult(result))).toBeLessThan(
+      MCP_TOOL_INLINE_BUDGET_BYTES
+    )
+  })
+
+  it('shares one config/plugin snapshot per call and isolates warnings between roots', async () => {
+    const root = createSnapshot({ id: 'root' })
+    mockAssetCollection(createTree([root]), [], new Set())
+    mocks.renderTree.mockResolvedValue(raw('<div />'))
+    let fail = true
+    mocks.processTokens.mockImplementation(async ({ code, report }) => {
+      if (fail) report('token-definition', 'First root only.')
+      return { code, tokensByCanonical: {}, sourceIndex: new Map() }
+    })
+    mocks.activePlugin.value = { name: 'first', code: 'first-code' }
+    const cache = createGetCodeCacheContext()
+    const first = await handleGetCode([root.node], 'jsx', false, 'smart', { cache })
+    mocks.activePlugin.value = { name: 'changed', code: 'changed-code' }
+    mocks.currentCodegenConfig.mockReturnValue({ cssUnit: 'px', rootFontSize: 20, scale: 2 })
+    fail = false
+    const second = await handleGetCode([root.node], 'jsx', false, 'smart', { cache })
+    expect(second.codegen).toEqual(first.codegen)
+    expect(second.codegen.plugin).toBe('first')
+    expect(first.warnings?.[0]?.type).toBe('token-definition')
+    expect(second.warnings).toBeUndefined()
+    const next = await handleGetCode([root.node], 'jsx', false)
+    expect(next.codegen).toMatchObject({
+      plugin: 'changed',
+      config: { scale: 2, rootFontSize: 20 }
+    })
   })
 
   it('resolves all plugin instances through one batched collection call', async () => {

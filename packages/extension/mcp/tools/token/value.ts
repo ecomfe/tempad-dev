@@ -32,11 +32,9 @@ export function readActiveModeId(
 
 export function pickPreferredModeId(
   variable: Variable,
-  collection?: VariableModeContext | null,
-  desiredModeId?: string
+  collection?: VariableModeContext | null
 ): string | undefined {
   const valuesByMode = variable.valuesByMode ?? {}
-  if (desiredModeId && desiredModeId in valuesByMode) return desiredModeId
   if (collection?.activeModeId && collection.activeModeId in valuesByMode) {
     return collection.activeModeId
   }
@@ -46,25 +44,12 @@ export function pickPreferredModeId(
   return Object.keys(valuesByMode)[0]
 }
 
-export function resolveFallbackValue(
-  valuesByMode: Variable['valuesByMode'],
-  modeId: string,
-  collection: VariableModeContext | null
-): unknown {
-  if (valuesByMode[modeId] !== undefined) return valuesByMode[modeId]
-  if (collection?.defaultModeId && collection.defaultModeId !== modeId) {
-    const fallback = valuesByMode[collection.defaultModeId]
-    if (fallback !== undefined) return fallback
-  }
-  return valuesByMode[modeId]
-}
-
 export function serializeVariableValue(
   value: unknown,
   resolvedType: Variable['resolvedType'],
   config: CodegenConfig,
   canonicalName?: string
-): string | Record<string, unknown> | null {
+): string | null {
   if (value == null) return null
 
   switch (resolvedType) {
@@ -79,7 +64,7 @@ export function serializeVariableValue(
     case 'STRING':
       return String(value)
     default:
-      return typeof value === 'object' ? (value as Record<string, unknown>) : null
+      return null
   }
 }
 

@@ -9,7 +9,7 @@ export const TEMPAD_MCP_BRIDGE_SUBPROTOCOL = 'tempad-mcp'
 // serving the versions below, and the extension accepts any Hub that still lists its own.
 // Listing a version is a promise about the bytes: unknown envelope fields are tolerated, but a
 // change inside a payload object means the Hub must still send what that version can read.
-export const TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION = 14
+export const TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION = 15
 // Extension protocol versions this Hub still serves, oldest first. The Hub upgrades itself on
 // every launch while the extension waits for store review, so the Hub carries the compatibility.
 export const TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [

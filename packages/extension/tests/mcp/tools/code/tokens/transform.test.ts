@@ -159,7 +159,7 @@ describe('tokens/transform applyPluginTransformToNames', () => {
         ['--b', '--token']
       ])
     )
-    expect(result.finalBridge).toEqual(new Map([['--token', 'var-1']]))
+    expect(result.finalBridge).toEqual(new Map())
     expect(logger.warn).toHaveBeenCalledWith(
       'Duplicate token name resolved to multiple ids:',
       '--token'

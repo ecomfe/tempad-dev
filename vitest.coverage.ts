@@ -102,7 +102,6 @@ export const EXTENSION_COVERAGE_FILES = [
   'mcp/tools/code/tokens/process.ts',
   'mcp/tools/code/tokens/rewrite.ts',
   'mcp/tools/code/tokens/source-index.ts',
-  'mcp/tools/code/tokens/used.ts',
   'mcp/tools/code/text/types.ts',
   'mcp/tools/code/text/index.ts',
   'mcp/tools/code/text/segments.ts',

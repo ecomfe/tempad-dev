@@ -152,7 +152,7 @@ These tools are called by the agent. For everyday use, describe the task in your
 `nodeIds`. Results preserve each root's identity; deferred nodes are returned as `remainingNodeIds`
 for exact continuation. A single `nodeId` remains supported.
 
-- `get_code`: High-fidelity JSX/Vue + TailwindCSS code output by default, plus attached assets and the codegen preset/config used.
+- `get_code`: High-fidelity JSX/Vue + TailwindCSS code output by default, plus attached assets and the codegen preset/config used. `resolveTokens` controls references versus consumer-specific literals in code; `tokens` always preserves definitions, modes, and aliases. Failed resolutions keep references and report warnings.
 - `get_design_system`: An immutable, deterministic catalog. It returns compact pages of component
   definitions on accessible pages plus local or directly referenced variable, collection/mode,
   style, and shader definitions without inspecting canvas usage or loading every page. Cursor

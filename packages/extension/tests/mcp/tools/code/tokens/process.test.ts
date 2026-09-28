@@ -4,10 +4,10 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { createTokenMatcher, extractTokenNames } from '@/mcp/tools/code/tokens/extract'
 import { processTokens } from '@/mcp/tools/code/tokens/process'
-import { filterBridge, rewriteTokenNamesInCode } from '@/mcp/tools/code/tokens/rewrite'
+import { rewriteTokenNamesInCode } from '@/mcp/tools/code/tokens/rewrite'
 import { buildSourceNameIndex } from '@/mcp/tools/code/tokens/source-index'
 import { applyPluginTransformToNames } from '@/mcp/tools/code/tokens/transform'
-import { buildUsedTokens } from '@/mcp/tools/code/tokens/used'
+import { resolveTokenDefsByIds } from '@/mcp/tools/token/defs'
 import { stripFallback } from '@/utils/css'
 
 vi.mock('@/utils/css', () => ({
@@ -20,8 +20,7 @@ vi.mock('@/mcp/tools/code/tokens/extract', () => ({
 }))
 
 vi.mock('@/mcp/tools/code/tokens/rewrite', () => ({
-  rewriteTokenNamesInCode: vi.fn((code: string) => code),
-  filterBridge: vi.fn((bridge: Map<string, string>) => bridge)
+  rewriteTokenNamesInCode: vi.fn((code: string) => code)
 }))
 
 vi.mock('@/mcp/tools/code/tokens/source-index', () => ({
@@ -32,8 +31,8 @@ vi.mock('@/mcp/tools/code/tokens/transform', () => ({
   applyPluginTransformToNames: vi.fn()
 }))
 
-vi.mock('@/mcp/tools/code/tokens/used', () => ({
-  buildUsedTokens: vi.fn()
+vi.mock('@/mcp/tools/token/defs', () => ({
+  resolveTokenDefsByIds: vi.fn()
 }))
 
 const CONFIG: CodegenConfig = {
@@ -91,20 +90,22 @@ describe('tokens/process processTokens', () => {
       finalBridge: new Map([['--renamed', 'var-1']])
     })
     vi.mocked(rewriteTokenNamesInCode).mockReturnValue('const a = "var(--renamed)";')
-    vi.mocked(filterBridge).mockReturnValue(new Map([['--renamed', 'var-1']]))
-    vi.mocked(buildUsedTokens).mockResolvedValue({
-      tokensByCanonical: {
-        '--renamed': {
-          kind: 'color',
-          value: '#fff'
-        }
+    vi.mocked(resolveTokenDefsByIds).mockResolvedValue({
+      '--renamed': {
+        kind: 'color',
+        value: '#fff'
       }
     })
 
     const result = await processTokens(baseInput())
 
     expect(result.code).toBe('const a = "var(--renamed)";')
-    expect(buildUsedTokens).toHaveBeenCalled()
+    expect(resolveTokenDefsByIds).toHaveBeenCalledWith(
+      new Map([['--renamed', 'var-1']]),
+      expect.any(Object),
+      true,
+      undefined
+    )
   })
 
   it('builds token matcher and resolve node ids when resolveTokens is enabled', async () => {
@@ -116,12 +117,10 @@ describe('tokens/process processTokens', () => {
       rewriteMap: new Map(),
       finalBridge: new Map([['--token', 'var-1']])
     })
-    vi.mocked(buildUsedTokens).mockResolvedValue({
-      tokensByCanonical: {
-        '--token': {
-          kind: 'color',
-          value: '#fff'
-        }
+    vi.mocked(resolveTokenDefsByIds).mockResolvedValue({
+      '--token': {
+        kind: 'color',
+        value: '#fff'
       }
     })
     vi.mocked(createTokenMatcher).mockReturnValue(matcher)
@@ -153,24 +152,33 @@ describe('tokens/process processTokens', () => {
     expect(result.resolveNodeIds).toEqual(new Set(['node-a', 'node-c', 'node-d', 'node-svg']))
   })
 
-  it('does not create matcher when resolved token set is empty', async () => {
+  it('still resolves code when definition metadata is unavailable', async () => {
+    const report = vi.fn()
     vi.mocked(buildSourceNameIndex).mockReturnValue(new Map([['--token', 'var-1']]))
     vi.mocked(extractTokenNames).mockReturnValue(new Set(['--token']))
     vi.mocked(applyPluginTransformToNames).mockResolvedValue({
       rewriteMap: new Map(),
       finalBridge: new Map([['--token', 'var-1']])
     })
-    vi.mocked(buildUsedTokens).mockResolvedValue({
-      tokensByCanonical: {}
-    })
+    vi.mocked(resolveTokenDefsByIds).mockImplementation(
+      async (_seeds, _context, _allModes, warn) => {
+        warn?.('Variable var-1 is unavailable.')
+        return {}
+      }
+    )
 
+    const matcher = vi.fn(() => true)
+    vi.mocked(createTokenMatcher).mockReturnValue(matcher)
     const result = await processTokens({
       ...baseInput(),
-      resolveTokens: true
+      resolveTokens: true,
+      report,
+      styles: new Map([['node-a', { color: 'var(--token)' }]])
     })
 
-    expect(result.tokenMatcher).toBeUndefined()
-    expect(result.resolveNodeIds).toBeUndefined()
+    expect(result.tokenMatcher).toBe(matcher)
+    expect(result.resolveNodeIds).toEqual(new Set(['node-a']))
+    expect(report).toHaveBeenCalledWith('token-definition', 'Variable var-1 is unavailable.')
   })
 
   it('merges candidate ids and records used-stage stamp with partial rename map', async () => {
@@ -187,13 +195,10 @@ describe('tokens/process processTokens', () => {
       finalBridge: new Map([['--renamed', 'var-1']])
     })
     vi.mocked(rewriteTokenNamesInCode).mockReturnValue('short')
-    vi.mocked(filterBridge).mockReturnValue(new Map([['--renamed', 'var-1']]))
-    vi.mocked(buildUsedTokens).mockResolvedValue({
-      tokensByCanonical: {
-        '--renamed': {
-          kind: 'color',
-          value: '#fff'
-        }
+    vi.mocked(resolveTokenDefsByIds).mockResolvedValue({
+      '--renamed': {
+        kind: 'color',
+        value: '#fff'
       }
     })
     vi.mocked(createTokenMatcher).mockReturnValue(matcher)

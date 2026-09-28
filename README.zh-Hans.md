@@ -148,7 +148,7 @@ Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可
 保留每个根节点的身份；尚未处理的节点通过 `remainingNodeIds` 返回，可按精确 ID 继续读取。
 也可以继续使用单个 `nodeId`。
 
-- `get_code`：默认输出高保真的 JSX/Vue + TailwindCSS 代码，同时包含相关资源以及使用的 codegen 预设和配置。
+- `get_code`：默认输出高保真的 JSX/Vue + TailwindCSS 代码，同时包含相关资源以及使用的 codegen 预设和配置。`resolveTokens` 控制代码保留引用还是按消费节点解析为字面量；`tokens` 始终保留定义、各模式和 alias。解析失败时保留引用并返回 warning。
 - `get_design_system`：创建不可变、确定性的紧凑目录，按资源类型平衡分页返回可访问页面的
   组件定义，以及本地或被定义直接引用的变量、集合/模式、样式和 shader 定义；既不扫描
   画布中的使用情况，也不加载所有页面。游标可继续读取遗漏定义；使用同一目录精确查询

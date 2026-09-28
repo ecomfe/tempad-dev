@@ -29,7 +29,7 @@ through native conversation messages. Do not poll, launch helpers, or configure 
 Treat tool outputs as file-scoped facts. Never invent node IDs, resource refs, library keys, token
 origins, or design-system intent. Tool descriptions give mechanical affordances; the applicable host
 skill governs workflow, representation, and design judgment. For Figma-to-code, use `get_code` as
-visible implementation evidence. Use `get_structure` only for multi-selection discovery, hierarchy, geometry, managed-key
+visible implementation evidence. Use `get_structure` only for hierarchy, geometry, managed-key
 uncertainty, or targeted mask, IMAGE paint, layout-grid, and frame-guide read-back via
 `options.native`.
 

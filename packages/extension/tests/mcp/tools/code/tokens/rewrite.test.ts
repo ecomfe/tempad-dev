@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { filterBridge, rewriteTokenNamesInCode } from '@/mcp/tools/code/tokens/rewrite'
+import { rewriteTokenNamesInCode } from '@/mcp/tools/code/tokens/rewrite'
 
 describe('mcp/code tokens rewrite', () => {
   it('rewrites matched token names while preserving token boundaries', () => {
@@ -45,16 +45,5 @@ describe('mcp/code tokens rewrite', () => {
     const code = 'color-red'
     const rewriteMap = new Map([['color-red', undefined as unknown as string]])
     expect(rewriteTokenNamesInCode(code, rewriteMap)).toBe(code)
-  })
-
-  it('filters bridge map to used names only', () => {
-    const bridge = new Map([
-      ['a', 'id-a'],
-      ['b', 'id-b'],
-      ['empty', '']
-    ])
-
-    expect(filterBridge(bridge, new Set(['b', 'c']))).toEqual(new Map([['b', 'id-b']]))
-    expect(filterBridge(bridge, new Set(['empty']))).toEqual(new Map())
   })
 })

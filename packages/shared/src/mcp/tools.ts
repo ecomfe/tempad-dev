@@ -91,7 +91,7 @@ export const GetCodeParametersSchema = z
     resolveTokens: z
       .boolean()
       .describe(
-        'Inline token values instead of references for quick renders; default false returns token metadata plus bounded repeated-unbound-color diagnostics so you can reconcile the theming system. When true, values are resolved per-node (mode-aware) and literal diagnostics are omitted.'
+        'Inline token values in code using each consuming node’s effective modes; default false keeps references and repeated-unbound-color diagnostics. Token metadata always preserves definitions, all modes, and aliases. Failed resolutions keep references and emit warnings. Literal diagnostics are omitted when true.'
       )
       .optional(),
     vectorMode: z
@@ -117,13 +117,20 @@ export type GetCodeLiteralCluster = {
   omittedConsumers?: number
 }
 export type GetCodeWarning = {
-  type: 'auto-layout' | 'shell' | 'depth-cap' | 'literal-cluster'
+  type:
+    | 'auto-layout'
+    | 'shell'
+    | 'depth-cap'
+    | 'literal-cluster'
+    | 'token-resolution'
+    | 'token-definition'
   message: string
 }
 export type GetCodeResult = {
   code: string
   lang: 'vue' | 'jsx'
   assets?: AssetDescriptor[]
+  // Definitions, including every mode and alias dependency; independent of resolveTokens.
   tokens?: GetTokenDefsResult
   literalClusters?: GetCodeLiteralCluster[]
   codegen: {
@@ -147,12 +154,12 @@ export const GetTokenDefsParametersSchema = z.object({
     .array(z.string().regex(/^--[a-zA-Z0-9-_]+$/))
     .min(1)
     .describe(
-      'Canonical token names (CSS variable form) from Object.keys(get_code.tokens) or your own list to resolve, e.g., --color-primary.'
+      'Canonical token names (CSS variable form) from a get_code node result’s tokens or your own list, e.g., --color-primary. Returns definitions with aliases, not consumer-specific resolved values.'
     ),
   includeAllModes: z
     .boolean()
     .describe(
-      'Include all token modes (light/dark/etc.) instead of just the active one to mirror responsive tokens; default false.'
+      'Return all defined modes. Default false uses the collection’s active mode when available, otherwise its default; this lookup has no consuming node context. Aliases are preserved.'
     )
     .optional()
 })

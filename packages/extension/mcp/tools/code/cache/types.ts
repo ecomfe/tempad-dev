@@ -1,5 +1,6 @@
 import type { FigmaLookupReaders } from '@/utils/figma-style/types'
 
+import type { TokenReadContext } from '../../token/context'
 import type { VectorColorModel } from '../assets/vector-semantics'
 
 export type PaintArrayState =
@@ -86,6 +87,8 @@ export type CacheMetrics = {
 }
 
 export type GetCodeCacheContext = {
+  tokens?: TokenReadContext
+  pluginName?: string
   rawCss: Map<string, Promise<Record<string, string>>>
   readers: FigmaLookupReaders
   variables: Map<string, Variable | null>

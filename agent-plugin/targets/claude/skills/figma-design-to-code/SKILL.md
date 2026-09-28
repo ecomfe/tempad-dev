@@ -74,7 +74,9 @@ Call TemPad Dev's `get_code` directly for the requested selection before impleme
   asset-preserving vector fidelity and the active MCP version supports it.
 
 Use `resolveTokens: true` only when the user explicitly does not want design
-token references. Treat returned `lang` as authoritative because plugin
+token references in code; the returned `tokens` still contains definitions and aliases.
+Check warnings for references that could not be resolved.
+Treat returned `lang` as authoritative because plugin
 configuration may override `preferredLang`.
 
 Retain the returned `code`, `lang`, `warnings`, `assets`, `tokens`, and

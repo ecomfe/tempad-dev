@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { suggestDepthLimit } from '@/mcp/semantic-tree'
 import { buildVisibleTree } from '@/mcp/tools/code/tree'
-import { logger } from '@/utils/log'
 
 vi.mock('@/mcp/semantic-tree', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/mcp/semantic-tree')>()),
@@ -44,30 +43,6 @@ describe('mcp/tools/code/tree', () => {
   it('builds visible tree with semantic tags and composed hints', () => {
     vi.mocked(suggestDepthLimit).mockReturnValue(undefined)
 
-    const getVariableCollectionById = vi.fn((id: string) => {
-      if (id === 'theme-a') {
-        return {
-          id: 'theme-a',
-          name: 'Theme',
-          modes: [{ modeId: 'm-light', name: 'Light' }]
-        }
-      }
-      if (id === 'theme-b') {
-        return {
-          id: 'theme-b',
-          name: 'Theme',
-          modes: [{ modeId: 'm-dark', name: 'Dark' }]
-        }
-      }
-      return null
-    })
-
-    ;(globalThis as unknown as { figma: PluginAPI }).figma = {
-      variables: {
-        getVariableCollectionById
-      }
-    } as unknown as PluginAPI
-
     const text = createNode('TEXT', 'text-1', { characters: 'a\nb' })
     const image = createNode('RECTANGLE', 'image-1', {
       fills: [{ type: 'IMAGE', visible: true }]
@@ -93,10 +68,6 @@ describe('mcp/tools/code/tree', () => {
           Disabled: { type: 'BOOLEAN', value: false },
           Text: { type: 'TEXT', value: 'Submit' },
           Swap: { type: 'INSTANCE_SWAP', value: 'skip' }
-        },
-        explicitVariableModes: {
-          'theme-a': 'm-light',
-          'theme-b': 'm-dark'
         },
         layoutMode: 'NONE',
         inferredAutoLayout: { layoutMode: 'HORIZONTAL' },
@@ -133,8 +104,6 @@ describe('mcp/tools/code/tree', () => {
     expect(root?.dataHint?.['data-hint-design-component']).toContain('[Size=Large]')
     expect(root?.dataHint?.['data-hint-design-component']).toContain('[Disabled=off]')
     expect(root?.dataHint?.['data-hint-design-component']).toContain('[Text=Submit]')
-    expect(root?.dataHint?.['data-hint-variable-mode']).toContain('Theme=Light')
-    expect(root?.dataHint?.['data-hint-variable-mode']).toContain('Theme=Dark')
     expect(root?.dataHint?.['data-hint-auto-layout']).toBe('inferred')
     expect(root?.autoLayoutHint).toBe('inferred')
 
@@ -145,7 +114,6 @@ describe('mcp/tools/code/tree', () => {
     expect(tree.nodes.get('video-1')?.assetKind).toBe('image')
     expect(tree.nodes.get('vector-1')?.tag).toBe('svg')
     expect(tree.nodes.get('vector-1')?.assetKind).toBe('vector')
-    expect(logger.warn).toHaveBeenCalledWith('Duplicate variable collection name "Theme" detected.')
   })
 
   it('caps traversal at depth limit', () => {

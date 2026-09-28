@@ -4,13 +4,16 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { stripFallback } from '@/utils/css'
 
+import type { TokenReadContext } from '../../token/context'
 import type { SvgEntry } from '../assets'
+import type { ReportTokenDiagnostic } from './diagnostics'
 
+import { createTokenReadContext } from '../../token/context'
+import { resolveTokenDefsByIds } from '../../token/defs'
 import { createTokenMatcher, extractTokenNames } from './extract'
-import { rewriteTokenNamesInCode, filterBridge } from './rewrite'
+import { rewriteTokenNamesInCode } from './rewrite'
 import { buildSourceNameIndex } from './source-index'
 import { applyPluginTransformToNames } from './transform'
-import { buildUsedTokens } from './used'
 
 type ProcessTokensInput = {
   code: string
@@ -23,6 +26,8 @@ type ProcessTokensInput = {
   config: CodegenConfig
   pluginCode?: string
   resolveTokens?: boolean
+  tokenContext?: TokenReadContext
+  report?: ReportTokenDiagnostic
   stamp?: (label: string, start: number) => void
   now?: () => number
 }
@@ -33,6 +38,7 @@ type ProcessTokensResult = {
   sourceIndex: Map<string, string>
   tokenMatcher?: (value: string) => boolean
   resolveNodeIds?: Set<string>
+  rewriteMap?: Map<string, string>
 }
 
 export async function processTokens({
@@ -46,6 +52,8 @@ export async function processTokens({
   config,
   pluginCode,
   resolveTokens,
+  tokenContext = createTokenReadContext(config, pluginCode, variableCache),
+  report,
   stamp,
   now
 }: ProcessTokensInput): Promise<ProcessTokensResult> {
@@ -55,7 +63,11 @@ export async function processTokens({
   const candidateIds = usedCandidateIds.size
     ? new Set<string>([...variableIds, ...usedCandidateIds])
     : variableIds
-  const sourceIndex = buildSourceNameIndex(candidateIds, variableCache)
+  const sourceIndex = buildSourceNameIndex(candidateIds, variableCache, (name) => {
+    if (extractTokenNames(code, new Set([name])).size) {
+      report?.('token-definition', `Token name "${name}" matches multiple variables.`)
+    }
+  })
   const sourceNames = new Set(sourceIndex.keys())
   const emptyResult = () => ({
     code,
@@ -78,44 +90,28 @@ export async function processTokens({
     usedNamesRaw,
     sourceIndex,
     pluginCode,
-    config
+    config,
+    report
   )
 
-  const hasRenames = rewriteMap.size > 0
-
-  if (hasRenames) {
+  if (rewriteMap.size) {
     code = rewriteTokenNamesInCode(code, rewriteMap)
   }
-
-  let usedNamesFinal = usedNamesRaw
-  if (hasRenames) {
-    const remapped = new Set<string>()
-    usedNamesRaw.forEach((name) => {
-      remapped.add(rewriteMap.get(name) ?? name)
-    })
-    usedNamesFinal = remapped
-  }
-  const finalBridgeFiltered = hasRenames ? filterBridge(finalBridge, usedNamesFinal) : finalBridge
   if (stamp) stamp('tokens:rewrite', t)
-  if (!finalBridgeFiltered.size) {
+  if (!finalBridge.size) {
     return emptyResult()
   }
 
   t = clock()
-  const { tokensByCanonical } = await buildUsedTokens(
-    finalBridgeFiltered,
-    config,
-    pluginCode,
-    variableCache,
-    {
-      includeAllModes: true,
-      resolveValues: !!resolveTokens
-    }
+  const tokensByCanonical = await resolveTokenDefsByIds(
+    finalBridge,
+    tokenContext,
+    true,
+    report ? (message) => report('token-definition', message) : undefined
   )
   if (stamp) stamp('tokens:used', t)
 
-  const hasTokens = Object.keys(tokensByCanonical).length > 0
-  const tokenMatcher = resolveTokens && hasTokens ? createTokenMatcher(sourceNames) : undefined
+  const tokenMatcher = resolveTokens ? createTokenMatcher(sourceNames) : undefined
   const resolveNodeIds =
     resolveTokens && tokenMatcher
       ? collectResolveNodeIds(styles, textSegments, svgs, tokenMatcher)
@@ -126,7 +122,8 @@ export async function processTokens({
     tokensByCanonical,
     sourceIndex,
     tokenMatcher,
-    resolveNodeIds
+    resolveNodeIds,
+    rewriteMap
   }
 }
 
