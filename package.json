@@ -38,19 +38,19 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
-    "@types/node": "^24.13.4",
+    "@types/node": "^24.13.6",
     "@vitest/coverage-istanbul": "5.0.1",
     "@vue/eslint-config-typescript": "^14.9.0",
-    "eslint": "^10.10.0",
+    "eslint": "^10.11.0",
     "eslint-config-flat-gitignore": "^2.4.0",
-    "eslint-plugin-perfectionist": "^5.11.0",
+    "eslint-plugin-perfectionist": "^5.11.1",
     "eslint-plugin-vue": "^10.11.0",
     "globby": "^16.2.4",
     "jiti": "^2.7.0",
     "lefthook": "^2.1.14",
-    "oxfmt": "^0.68.0",
+    "oxfmt": "^0.70.0",
     "typescript": "^6.0.3",
     "vitest": "5.0.1"
   },
-  "packageManager": "pnpm@12.4.1"
+  "packageManager": "pnpm@12.5.1"
 }

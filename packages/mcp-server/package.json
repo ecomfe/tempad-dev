@@ -43,7 +43,7 @@
   },
   "devDependencies": {
     "@tempad-dev/shared": "workspace:^0.1.0",
-    "@types/node": "^24.13.4",
+    "@types/node": "^24.13.6",
     "@types/proper-lockfile": "^4.1.4",
     "@types/ws": "^8.18.1",
     "tsdown": "^0.23.0",
