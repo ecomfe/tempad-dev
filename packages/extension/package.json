@@ -36,7 +36,7 @@
   "dependencies": {
     "@tempad-dev/plugins": "workspace:^0.6.2",
     "@tempad-dev/shared": "workspace:^0.1.0",
-    "@vueuse/core": "^14.4.0",
+    "@vueuse/core": "^15.0.0",
     "es-module-lexer": "3.0.2",
     "overlayscrollbars": "^2.16.0",
     "p-wait-for": "^6.0.0",
