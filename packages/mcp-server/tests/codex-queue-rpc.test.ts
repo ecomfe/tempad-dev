@@ -186,4 +186,23 @@ describe('desktop executable discovery', () => {
     )
     await expect(codexQueueExecutable()).rejects.toThrow('could not be identified')
   })
+
+  it('discovers the nested desktop CLI and deduplicates its running processes', async () => {
+    const executable =
+      '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'
+    processes(`/usr/local/bin/codex\n${executable}\n${executable}\n`)
+    expect(await codexQueueExecutable()).toBe(executable)
+  })
+
+  it('rejects ambiguity between nested and legacy desktop installations', async () => {
+    processes(
+      '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex\n/Applications/Codex.app/Contents/Resources/codex\n'
+    )
+    await expect(codexQueueExecutable()).rejects.toThrow('could not be identified')
+  })
+
+  it('does not use a standalone CLI when no desktop binary is running', async () => {
+    processes('/usr/local/bin/codex\n')
+    await expect(codexQueueExecutable()).rejects.toThrow('could not be identified')
+  })
 })

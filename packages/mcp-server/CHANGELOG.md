@@ -2,6 +2,8 @@
 
 ## 0.11.0
 
+- Fixed native Queue delivery with Codex desktop versions that bundle the CLI inside
+  `codex-cli/CodexCLI.app`, while retaining discovery of older desktop layouts.
 - Added `nodeIds` and multi-selection support to code, screenshot, and structure tools, including
   per-node errors, bounded batches, continuation IDs, and local asset paths for batch results.
 - Extended code and screenshot batch deadlines to allow the last started root to finish, while
