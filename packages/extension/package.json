@@ -58,7 +58,7 @@
     "esbuild": "^0.28.2",
     "eslint": "^10.11.0",
     "eslint-config-flat-gitignore": "^2.4.0",
-    "eslint-plugin-perfectionist": "^5.11.1",
+    "eslint-plugin-perfectionist": "^5.12.0",
     "eslint-plugin-vue": "^10.11.0",
     "jiti": "^2.7.0",
     "p-limit": "^7.3.3",
