@@ -171,11 +171,11 @@ async function openPlugin(page: Page) {
   // The heading's accessible name also includes its "Folder marketplace plugin" icon.
   const title = page.getByRole('heading', { level: 1 }).filter({ hasText: /^TemPad Dev \(Dev\)$/ })
   if (await title.isVisible()) return
-  const search = page.getByPlaceholder('Search plugins', { exact: true })
+  const main = page.getByRole('main')
+  const search = main.getByRole('textbox', { name: 'Search plugins', exact: true })
   if (!(await search.isVisible())) {
     await page
       .getByRole('button', { name: 'Plugins', exact: true })
-      .and(page.locator('.sidebar-item'))
       .evaluate((element: HTMLElement) => element.click())
     await page.getByRole('heading', { name: 'Plugins', exact: true }).waitFor({ state: 'visible' })
   }
@@ -190,16 +190,17 @@ async function openPlugin(page: Page) {
     input.dispatchEvent(new Event('input', { bubbles: true }))
   }, displayName)
   await pause(500)
-  await page
+  await main
     .getByRole('button')
     .filter({ has: page.getByText(displayName, { exact: true }) })
     .and(page.locator(':not([data-search-result-active])'))
+    .or(main.getByRole('link', { name: displayName, exact: true }))
     .evaluate((element: HTMLElement) => element.click())
   await search.waitFor({ state: 'hidden' })
   await title.waitFor({ state: 'visible' })
-  await page
+  await main
     .getByRole('button', { name: 'Install plugin', exact: true })
-    .or(page.getByRole('button', { name: 'More actions', exact: true }))
+    .or(main.getByRole('button', { name: 'More actions', exact: true }))
     .first()
     .waitFor({ state: 'visible' })
 }
@@ -208,8 +209,9 @@ async function reinstallInApp(page: Page, version: string) {
   await openPlugin(page)
   console.log('Opened the development plugin detail in Codex App.')
   // Detail and sticky-header controls can both render the same plugin action.
-  const install = page.getByRole('button', { name: 'Install plugin', exact: true }).first()
-  const actions = page.getByRole('button', { name: 'More actions', exact: true }).first()
+  const main = page.getByRole('main')
+  const install = main.getByRole('button', { name: 'Install plugin', exact: true }).first()
+  const actions = main.getByRole('button', { name: 'More actions', exact: true }).first()
   if (await actions.isVisible()) {
     await actions.click()
     await page.getByRole('menuitem', { name: 'Uninstall', exact: true }).click()
