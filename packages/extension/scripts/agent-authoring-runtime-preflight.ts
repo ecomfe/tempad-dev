@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { access, readFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, normalize, resolve } from 'node:path'
@@ -450,11 +451,16 @@ async function listProcesses(): Promise<RuntimeProcess[]> {
 
 export function resolveCodexExecutable(
   appPath = process.env.CODEX_APP_PATH ?? defaultCodexAppPath,
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  exists: (path: string) => boolean = existsSync
 ): string {
-  return platform === 'darwin'
-    ? join(normalize(resolve(appPath)), 'Contents/Resources/codex')
-    : 'codex'
+  if (platform !== 'darwin') return 'codex'
+  const resources = join(normalize(resolve(appPath)), 'Contents/Resources')
+  const candidates = [
+    join(resources, 'codex-cli/CodexCLI.app/Contents/MacOS/codex'),
+    join(resources, 'codex')
+  ]
+  return candidates.find(exists) ?? candidates[0]!
 }
 
 async function listEnabledPlugins(codexExecutable: string): Promise<EnabledPlugin[]> {
