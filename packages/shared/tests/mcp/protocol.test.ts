@@ -8,6 +8,22 @@ import {
 } from '../../src/mcp/protocol'
 
 describe('mcp/protocol', () => {
+  it('accepts an explicit extension protocol and preserves omission from released peers', () => {
+    const hello = {
+      type: 'runtimeHello',
+      extensionVersion: '0.23.0',
+      extensionRuntimeFingerprint: 'a'.repeat(64)
+    }
+    expect(parseMessageFromExtension(JSON.stringify(hello))).toEqual(hello)
+    expect(parseMessageFromExtension(JSON.stringify({ ...hello, protocolVersion: 15 }))).toEqual({
+      ...hello,
+      protocolVersion: 15
+    })
+    expect(parseMessageFromExtension(JSON.stringify({ ...hello, protocolVersion: 0 }))).toBeNull()
+    expect(
+      parseMessageFromExtension(JSON.stringify({ ...hello, protocolVersion: '15' }))
+    ).toBeNull()
+  })
   it('parses valid messages to extension', () => {
     expect(
       parseMessageToExtension(

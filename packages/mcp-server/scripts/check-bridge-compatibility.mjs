@@ -22,6 +22,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath, URL } from 'node:url'
 import { WebSocket } from 'ws'
 
+import { checkProtocol13 } from './check-protocol-13.mjs'
 import {
   MessageToExtensionSchema as OldMessages,
   codeResult,
@@ -79,7 +80,7 @@ async function until(read, description) {
   throw new Error(`Timed out: ${description}; ${stderr}`)
 }
 
-async function peer(port, legacy) {
+async function peer(port, legacy, receivingSchema = MessageToExtensionSchema) {
   const socket = new WebSocket(
     `ws://127.0.0.1:${port}/`,
     legacy ? [] : [TEMPAD_MCP_BRIDGE_SUBPROTOCOL],
@@ -98,9 +99,7 @@ async function peer(port, legacy) {
   socket.on('error', (error) => failures.push(error))
   socket.on('message', (raw) => {
     try {
-      const message = (legacy ? OldMessages : MessageToExtensionSchema).parse(
-        JSON.parse(raw.toString())
-      )
+      const message = (legacy ? OldMessages : receivingSchema).parse(JSON.parse(raw.toString()))
       state.frames.push(message)
       if (message.type === 'registered') state.id = message.id
       if (message.type === 'state')
@@ -154,6 +153,8 @@ try {
     return Number(logs.match(/WebSocket server ready\.[\s\S]*?port: (\d+)/)?.[1])
   }, 'isolated Hub startup')
   await client.connect(transport, { timeout: 5000 })
+
+  await checkProtocol13({ port, peer, send, activate, until, call, origin })
 
   const old = await peer(port, true)
   await activate(old)
@@ -280,6 +281,7 @@ try {
   assert.match(JSON.stringify(await call('get_code')), /RUNTIME_IDENTITY_MISMATCH/)
   send(modern, {
     type: 'runtimeHello',
+    protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
     extensionVersion: '0.21.0',
     extensionRuntimeFingerprint: 'a'.repeat(64)
   })
@@ -584,7 +586,7 @@ try {
     process.stdout.write(`Bridge byte samples: ${JSON.stringify(metricSamples)}\n`)
   }
   process.stdout.write(
-    'Bridge compatibility passed: legacy reads/assets/reconnect, upgrade errors, current routing and task fences.\n'
+    'Bridge compatibility passed: protocol 13 reads/writes/tasks/assets/reconnect, legacy reads/assets/reconnect, upgrade errors, current routing and task fences.\n'
   )
 } finally {
   for (const peer of peers) peer.socket.terminate()

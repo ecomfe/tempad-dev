@@ -103,8 +103,8 @@ Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可
 
 所有 plugin 和直接使用 `npx` 的配置路径都使用 `@tempad-dev/mcp@latest`。
 
-当前版本应配套使用扩展 **0.22.0**、MCP server **0.10.0** 和 Agent Plugin
-**0.3.0**。更新既有安装时，请参阅 [升级指南](./agent-plugin/src/README.zh-Hans.md#升级)。
+本次版本应配套使用扩展 **0.23.0**、MCP server **0.11.0** 和 Agent Plugin
+**0.4.0**。更新既有安装时，请参阅 [升级指南](./agent-plugin/src/README.zh-Hans.md#升级)。
 
 使用期间请保持 TemPad Dev 打开并启用 MCP。如果连接了多个 Figma 文件，请点击目标文件面板中的 MCP 徽标；该文件会成为 agent 当前访问的上下文。Agent 也可以列出已连接的会话，在独立只读调用中传入精确的 `sessionId`，无需切换激活徽标。
 

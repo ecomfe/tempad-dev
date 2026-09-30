@@ -114,25 +114,34 @@ export function attachExtensionSocket(
           options.onToolResult(message.id, extension.id, message.payload)
         }
         break
-      case 'runtimeHello':
+      case 'runtimeHello': {
+        const protocolVersion = message.protocolVersion ?? 13
+        if (!TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
+          ws.close(1008, 'Unsupported extension bridge protocol.')
+          break
+        }
         if (
           extension.runtime &&
           (extension.runtime.version !== message.extensionVersion ||
-            extension.runtime.fingerprint !== message.extensionRuntimeFingerprint)
+            extension.runtime.fingerprint !== message.extensionRuntimeFingerprint ||
+            extension.runtime.protocolVersion !== protocolVersion)
         ) {
           options.onProtocolWarning?.({
             error: new Error('Extension changed runtime identity on an open connection.'),
             extensionId: extension.id,
             kind: 'schema'
           })
+          ws.close(1008, 'Extension changed runtime identity.')
           break
         }
         extension.runtime = {
+          protocolVersion,
           version: message.extensionVersion,
           fingerprint: message.extensionRuntimeFingerprint
         }
         options.onRuntimeHello?.(extension)
         break
+      }
       case 'ping':
         break
     }

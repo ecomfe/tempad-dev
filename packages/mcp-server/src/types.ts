@@ -10,6 +10,7 @@ export interface ExtensionConnection {
   legacy?: boolean
   sessions?: FigmaSessionsMessage
   runtime?: {
+    protocolVersion: number
     version: string
     fingerprint: string
   }

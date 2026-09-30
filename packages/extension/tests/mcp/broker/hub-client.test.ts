@@ -122,6 +122,7 @@ describe('mcp/broker/hub-client', () => {
     const sockets: FakeWebSocket[] = []
     const runtimeIdentity = {
       type: 'runtimeHello' as const,
+      protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
       extensionVersion: '0.21.0',
       extensionRuntimeFingerprint: 'a'.repeat(64)
     }
@@ -402,6 +403,7 @@ describe('mcp/broker/hub-client', () => {
 
   it.each([
     ['missing', {}],
+    ['released protocol 13', { protocolVersion: 13, supportedProtocolVersions: [13] }],
     ['different', { protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION + 1 }],
     [
       'dropped',
@@ -442,6 +444,7 @@ describe('mcp/broker/hub-client', () => {
     const sockets: FakeWebSocket[] = []
     const identity: RuntimeHelloMessage = {
       type: 'runtimeHello',
+      protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
       extensionVersion: '0.21.0',
       extensionRuntimeFingerprint: 'a'.repeat(64)
     }

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.23.0
+
+- Added multi-selection and explicit `nodeIds` reads for code, screenshots, and structure.
+  Code and screenshot batches return independent results or errors and exact continuation IDs;
+  structure preserves the selected roots and supports root-only inspection.
+- Added timeout-triggered shell fallback for large code reads, preserving parent layout and child
+  order while stopping further descendant work. Containers exported as one SVG are kept intact
+  to preserve masks and compositing.
+- Preserved token definitions, modes, and aliases regardless of `resolveTokens`; resolved code
+  now uses each consumer's effective Figma modes, including text and SVG colors. Missing or
+  ambiguous definitions and failed resolution produce explicit warnings rather than guessed values.
+- Reused raw CSS, variable, style, and consumer-value lookups across overlapping roots in one call.
+- Uses protocol 15 with MCP 0.11.0 and Agent Plugin 0.4.0. The new Hub also serves extension
+  0.22.0 through protocol 13, preserving existing workflows during the store rollout.
+
 ## 0.22.0
 
 - Improved code generation by reusing request-scoped text bindings, variable IDs, and style

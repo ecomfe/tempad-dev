@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+- Updated design-to-code guidance for multiple selected roots, per-node results and errors, and
+  exact-ID continuation without losing each root's composition or read options.
+- Distinguished token definitions from consumer values, with targeted resolved reads for inherited
+  modes and cross-collection aliases and explicit recovery for missing or ambiguous token facts.
+- Allowed independent work to continue when only part of the requested scope lacks reliable evidence.
+- Pairs with extension 0.23.0 and MCP 0.11.0 for the new capabilities. MCP 0.11.0 continues serving
+  extension 0.22.0 during the store rollout. Update the plugin and reconnect the MCP client;
+  every installation channel continues to use `@tempad-dev/mcp@latest`.
+
 ## 0.3.0
 
 - Updated canvas-authoring guidance and Claude lifecycle binding for the unified

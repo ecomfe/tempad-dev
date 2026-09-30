@@ -98,7 +98,9 @@ When changing the Hub/extension compatibility path or legacy assets:
 - `pnpm mcp:check-bridge` runs an isolated Hub with temporary runtime, log, and asset directories
   and a dedicated extension Origin. It does not connect to the user's Hub or Figma sessions.
   One of the normal loopback candidate ports must be available. The old receiving schema is
-  frozen from extension 0.20.0 / MCP 0.7.1; do not derive it from current shared schemas.
+  frozen from extension 0.20.0 / MCP 0.7.1 and extension 0.22.0 / MCP 0.10.0; do not derive these
+  fixtures from current shared schemas. Every protocol bump must test the released extension's
+  supported calls and rejection of unsupported options against the new Hub in the same change.
 - Keep the broker regression for new-extension/old-Hub rejection and recovery. This deterministic
   transport check does not replace installed-host Queue/Steer/Stop acceptance.
 

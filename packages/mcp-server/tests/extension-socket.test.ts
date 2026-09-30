@@ -21,6 +21,55 @@ afterEach(async () => {
 })
 
 describe('extension socket lifecycle', () => {
+  it.each([undefined, 13, 15, 14, 16])(
+    'binds supported runtime protocol %s and closes unsupported peers',
+    async (protocolVersion) => {
+      const registry = new ExtensionRegistry(10_000)
+      registries.push(registry)
+      const onRuntimeHello = vi.fn()
+      const started = await startExtensionWebSocketServer({
+        maxConnections: 2,
+        maxPayloadBytes: 4096,
+        originPolicy: createExtensionOriginPolicy(STORE_ORIGIN),
+        portCandidates: [0]
+      })
+      servers.push(started.server)
+      started.server.on('connection', (socket) =>
+        attachExtensionSocket(socket, {
+          createId: () => 'versioned',
+          origin: STORE_ORIGIN,
+          registry,
+          onRuntimeHello,
+          onStateChange: () => {},
+          onToolResult: () => {},
+          onToolError: () => {}
+        })
+      )
+      const client = new WebSocket(
+        `ws://127.0.0.1:${started.port}/`,
+        TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+        { origin: STORE_ORIGIN }
+      )
+      await waitForOpen(client)
+      const hello = {
+        type: 'runtimeHello',
+        protocolVersion,
+        extensionVersion: '0.22.0',
+        extensionRuntimeFingerprint: 'a'.repeat(64)
+      }
+      client.send(JSON.stringify(hello))
+      if (protocolVersion === 14 || protocolVersion === 16) {
+        await waitUntil(() => client.readyState === WebSocket.CLOSED)
+        expect(onRuntimeHello).not.toHaveBeenCalled()
+        return
+      }
+      await waitUntil(() => onRuntimeHello.mock.calls.length === 1)
+      expect(registry.list()[0]?.runtime?.protocolVersion).toBe(protocolVersion ?? 13)
+      client.send(JSON.stringify({ ...hello, protocolVersion: protocolVersion === 15 ? 13 : 15 }))
+      await waitUntil(() => client.readyState === WebSocket.CLOSED)
+      expect(onRuntimeHello).toHaveBeenCalledTimes(1)
+    }
+  )
   it('keeps unversioned peers read-only and does not send version fields', async () => {
     const registry = new ExtensionRegistry(10_000)
     registries.push(registry)

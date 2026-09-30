@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.0
+
+- Added `nodeIds` and multi-selection support to code, screenshot, and structure tools, including
+  per-node errors, bounded batches, continuation IDs, and local asset paths for batch results.
+- Extended code and screenshot batch deadlines to allow the last started root to finish, while
+  retaining the shared inline response budget and existing single-node result shapes.
+- Updated the token contract: `resolveTokens` changes code output while definitions retain every
+  mode and alias. Legacy extensions receive upgrade guidance for resolved-token reads.
+- Supports extension 0.23.0 and Agent Plugin 0.4.0 through protocol 15 while retaining protocol 13
+  sessions, tasks, canvas writes, assets, and existing reads for extension 0.22.0. Unsupported new
+  read options prompt an extension upgrade without disconnecting existing installations, and
+  read results identify older selection/token semantics. The unversioned 0.20.0 read adapter remains.
+
 ## 0.10.0
 
 - Replaced `begin_design`, `resume_design`, and `end_design` with `manage_design_task`

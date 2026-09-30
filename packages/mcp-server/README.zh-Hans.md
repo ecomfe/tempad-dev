@@ -57,8 +57,10 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 - 工具响应共用 `64 KiB` 的 inline budget，按 `CallToolResult` 整体响应体积计算。若选区过大而超出 `get_code` 的预算，TemPad Dev 可能返回 shell response 而不是直接失败。shell 会保留当前节点的包裹结构，并在内联代码注释中列出被省略的直接子节点 id，方便 agent 逐个继续拉取；配套 warning 只保留最小化的提示信息，用来指向这条注释。
 - 启用 MCP access 且当前 Figma Design 文件可编辑时，`apply_canvas` 即可使用；Dev Mode 和
   只读文件仍不可写。
-- 已发布的 MCP **0.10.0** 配套扩展 **0.22.0** 和 Agent Plugin **0.3.0**。
-  上述多节点读取与 token 定义语义要求 Hub 和扩展均使用匹配的 protocol 15 构建。请更新 plugin 或已安装的 skill，
+- MCP **0.11.0** 配套扩展 **0.23.0** 和 Agent Plugin **0.4.0**。
+  上述多节点读取与 token 定义语义要求 Hub 和扩展均使用匹配的 protocol 15 构建。
+  扩展 0.22.0 仍通过 protocol 13 支持既有读取、会话、任务和画布写入。新版读取选项会提示升级，响应会标注旧版选区和 token 语义。
+  请更新扩展并重新加载 Figma 以启用新版能力，再更新 plugin 或已安装的 skill，
   将固定 alpha 版本的 MCP 配置改为 `@tempad-dev/mcp@latest`，然后重新连接 MCP client 并新建任务。
   详见[升级指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#升级)。
 - 资源是临时且与工具调用关联的。本地 stdio client 在 Hub 持有字节时会收到
