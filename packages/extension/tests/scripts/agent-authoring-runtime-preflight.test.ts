@@ -39,13 +39,22 @@ describe('agent authoring runtime preflight', () => {
   })
 
   it('queries plugins with the evaluated desktop host instead of an arbitrary PATH CLI', () => {
-    expect(resolveCodexExecutable('/Applications/ChatGPT.app', 'darwin')).toBe(
+    const legacyExists = (path: string) => path.endsWith('/Resources/codex')
+    expect(resolveCodexExecutable('/Applications/ChatGPT.app', 'darwin', legacyExists)).toBe(
       '/Applications/ChatGPT.app/Contents/Resources/codex'
     )
-    expect(resolveCodexExecutable('/opt/ChatGPT Preview.app', 'darwin')).toBe(
+    expect(resolveCodexExecutable('/opt/ChatGPT Preview.app', 'darwin', legacyExists)).toBe(
       '/opt/ChatGPT Preview.app/Contents/Resources/codex'
     )
     expect(resolveCodexExecutable('/ignored', 'linux')).toBe('codex')
+  })
+
+  it('prefers the nested host CLI and never falls back to PATH when the bundle is missing', () => {
+    const nested =
+      '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'
+    for (const exists of [(path: string) => path === nested, () => true, () => false]) {
+      expect(resolveCodexExecutable('/Applications/ChatGPT.app', 'darwin', exists)).toBe(nested)
+    }
   })
 
   it('parses macOS process start times and matches only an exact bundle path token', () => {

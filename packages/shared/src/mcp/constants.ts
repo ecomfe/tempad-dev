@@ -13,6 +13,7 @@ export const TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION = 15
 // Extension protocol versions this Hub still serves, oldest first. The Hub upgrades itself on
 // every launch while the extension waits for store review, so the Hub carries the compatibility.
 export const TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [
+  13,
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION
 ]
 

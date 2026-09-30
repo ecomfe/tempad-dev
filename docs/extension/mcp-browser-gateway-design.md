@@ -44,6 +44,31 @@ expiry, and recovery semantics. Taskless reads still use the active route.
 The bridge protocol version covers the shared tool contract as well as transport messages. Bump it
 whenever a Hub and extension built from different revisions must not exchange tool calls.
 
+Every bump must include the released-extension transition in the same change: supported wire
+versions, request/result adaptations, capability-specific upgrade errors, and mixed-version tests.
+Freeze receiving schemas from the released revision rather than importing current shared schemas
+in compatibility fixtures. A version bump alone does not complete a migration.
+
+### Protocol 13 transition
+
+The Hub serves both released protocol 13 (extension 0.22.0) and protocol 15 (extension 0.23.0).
+Current extensions include `protocolVersion` in `runtimeHello`; a missing field conservatively
+selects protocol 13. Package versions and runtime fingerprints do not select capabilities.
+An unsupported version or a changed runtime identity/protocol on an open connection closes it.
+No tool call is dispatched without a runtime identity. Protocol 13 retains the versioned session,
+task, canvas-write, and full-hash asset paths; it does not enter the unversioned read-only adapter.
+
+The session, task, route, and action-result payloads are unchanged from protocol 13. The Hub
+rejects `nodeIds`, structure `depth: 0`, and `get_code.resolveTokens: true` with
+`EXTENSION_UPGRADE_REQUIRED` before dispatch to that peer. Other released arguments are preserved.
+Read responses explicitly identify older selection and token semantics; the Hub neither invents
+alias dependencies nor claims consumer-aware token resolution. Exact `nodeId` reads remain the
+continuation path. Compatibility notices count toward the same inline response budget.
+
+`pnpm mcp:check-bridge` exercises the built Hub against frozen extension 0.22.0 schemas alongside
+current and unversioned peers, covering reads, tasks, writes, assets, reconnects, and routing fences.
+Keep protocol 13 for at least one store cycle; removal requires a separate migration decision.
+
 Runtime identities record the observed builds; changed source fingerprints, versions,
 executable hashes, or build timestamps do not determine compatibility. The modifying
 agent decides whether to reuse or refresh the Hub under the

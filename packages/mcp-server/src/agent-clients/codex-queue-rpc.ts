@@ -28,7 +28,9 @@ export async function codexQueueExecutable(): Promise<string> {
           timeout: 3000
         })
   const paths = [...new Set(stdout.split(/\r?\n/).map((path) => path.trim()))].filter((path) =>
-    /[/\\]resources[/\\]codex(?:\.exe)?$/i.test(path)
+    /[/\\]resources[/\\](?:codex-cli[/\\]CodexCLI\.app[/\\]Contents[/\\]MacOS[/\\])?codex(?:\.exe)?$/i.test(
+      path
+    )
   )
   if (paths.length !== 1)
     throw new Error('The running Codex desktop executable could not be identified.')

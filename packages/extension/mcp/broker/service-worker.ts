@@ -13,6 +13,7 @@ import type {
 
 import {
   MCP_MAX_ASSET_BYTES,
+  TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
   TEMPAD_MCP_BROWSER_SOURCE,
   TEMPAD_MCP_ERROR_CODES,
@@ -809,6 +810,7 @@ function extensionRuntimeIdentity(): RuntimeHelloMessage | null {
   }
   return {
     type: 'runtimeHello',
+    protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
     extensionVersion: manifest.version,
     extensionRuntimeFingerprint: runtimeFingerprint
   }

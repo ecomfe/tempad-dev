@@ -93,13 +93,14 @@ Codex App 的任务绑定和状态同步使用 MCP 元数据及原生 IPC，不�
 
 ## 升级
 
-当前版本应配套使用 Agent Plugin **0.3.0**、TemPad Dev 扩展 **0.22.0** 和 MCP
-server **0.10.0**。MCP server 要求 Node.js **22.x、24.x 或 26+**。
-MCP 0.10.0 将 `begin_design`、`resume_design` 和 `end_design` 合并为
-`manage_design_task`；请同时更新 plugin 并重新连接 MCP client。
+本次版本应配套使用 Agent Plugin **0.4.0**、TemPad Dev 扩展 **0.23.0** 和 MCP
+server **0.11.0**。MCP server 要求 Node.js **22.x、24.x 或 26+**。
+多节点读取和按消费节点解析 token 要求 Hub 与扩展均使用匹配的 protocol 15 构建。
+MCP 0.11.0 同时通过 protocol 13 兼容扩展 0.22.0，在商店更新期间保留既有读取、会话、任务和画布写入。
+新版读取选项会提示升级扩展，响应会明确标注旧版选区和 token 语义。
+MCP 0.10.0 及之后版本使用 `manage_design_task` 代替旧的生命周期工具。
 
-1. 若浏览器扩展低于 0.22.0，请更新并重新加载 Figma 标签页。
-   扩展 0.22.0 无需为统一任务工具更新。
+1. 将浏览器扩展更新到 0.23.0 并重新加载 Figma 标签页，以启用新版读取能力。
 2. 通过原先使用的客户端或安装器更新 plugin。独立配置时，请同时更新
    `figma-design-to-code` 和 `figma-canvas-authoring`。
 3. 正式版 MCP 配置使用 `@tempad-dev/mcp@latest`；请替换旧的 `@alpha` 或固定 alpha 版本。

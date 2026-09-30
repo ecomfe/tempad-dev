@@ -93,6 +93,7 @@ import {
   createToolErrorResponse,
   createUploadAssetToolResponse
 } from './tools'
+import { assertVersionedToolSupport, versionedReadNotice } from './versioned-extension'
 import { startExtensionWebSocketServer } from './websocket-server'
 
 const SHUTDOWN_TIMEOUT = 2000
@@ -713,6 +714,8 @@ function registerProxiedTool<T extends ExtensionTool>(
 
       const runtime =
         tool.name === 'apply_canvas' ? buildAuthoringRuntimeEvidence(activeExt) : undefined
+      const protocolVersion = activeExt.runtime!.protocolVersion
+      assertVersionedToolSupport(protocolVersion, tool.name, parsedArgs)
       if (runtime && utf8Bytes({ runtime }) > MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES) {
         throw createCodedError(
           TEMPAD_MCP_ERROR_CODES.RUNTIME_IDENTITY_MISMATCH,
@@ -777,7 +780,10 @@ function registerProxiedTool<T extends ExtensionTool>(
           if (typeof pageId === 'string') designTasks.updatePage(taskId, pageId)
         }
       }
-      return createToolResponse(tool.name, payload, runtime)
+      return createToolResponse(tool.name, payload, {
+        runtime,
+        compatibilityNotice: versionedReadNotice(protocolVersion, tool.name)
+      })
     } catch (error) {
       const normalized = coerceToolError(error)
       log.error(
@@ -858,8 +864,15 @@ function registerLocalTool(mcp: McpServer, tool: HubOnlyTool, ownerId: string): 
 function createToolResponse<Name extends ToolName>(
   toolName: Name,
   payload: ToolResultMap[Name],
-  runtime?: AuthoringRuntimeEvidence,
-  includeLocalAssetPaths = true
+  {
+    runtime,
+    includeLocalAssetPaths = true,
+    compatibilityNotice
+  }: {
+    runtime?: AuthoringRuntimeEvidence
+    includeLocalAssetPaths?: boolean
+    compatibilityNotice?: string
+  } = {}
 ): ToolResponse {
   const enrichedPayload = (() => {
     if (includeLocalAssetPaths && (toolName === 'get_code' || toolName === 'get_screenshot')) {
@@ -895,10 +908,20 @@ function createToolResponse<Name extends ToolName>(
     rawResult = coercePayloadToToolResponse(enrichedPayload)
   }
 
+  if (compatibilityNotice) {
+    rawResult = {
+      ...rawResult,
+      content: [{ type: 'text', text: compatibilityNotice }, ...rawResult.content]
+    }
+  }
   const resultBytes = measureCallToolResultBytes(rawResult)
   if (resultBytes > MCP_TOOL_INLINE_BUDGET_BYTES) {
     if (includeLocalAssetPaths && (toolName === 'get_code' || toolName === 'get_screenshot')) {
-      return createToolResponse(toolName, payload, runtime, false)
+      return createToolResponse(toolName, payload, {
+        runtime,
+        compatibilityNotice,
+        includeLocalAssetPaths: false
+      })
     }
     log.warn(
       { tool: toolName, resultBytes, inlineBudgetBytes: MCP_TOOL_INLINE_BUDGET_BYTES },

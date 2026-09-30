@@ -64,9 +64,12 @@ Notes:
 - Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
 - `apply_canvas` is available whenever MCP access is enabled and the current Figma Design file is
   editable. Dev Mode and view-only files remain read-only.
-- The published MCP **0.10.0** release pairs with extension **0.22.0** and Agent Plugin **0.3.0**.
+- MCP **0.11.0** pairs with extension **0.23.0** and Agent Plugin **0.4.0**.
   The node-set and token-definition semantics above require matching protocol 15 Hub and extension
-  builds. Update the plugin or installed skills, replace any alpha-pinned MCP configuration with `@tempad-dev/mcp@latest`,
+  builds. Extension 0.22.0 remains supported through protocol 13 for existing reads, sessions,
+  tasks, and canvas writes. New read options prompt an upgrade, and responses identify older
+  selection/token semantics. Update the extension and reload Figma for the new capabilities, update
+  the plugin or installed skills, replace any alpha-pinned MCP configuration with `@tempad-dev/mcp@latest`,
   then reconnect the MCP client and start a new task. See the
   [upgrade guide](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src#upgrading).
 - Assets are ephemeral and tool-linked. Local stdio clients receive `asset.localPath` when the Hub

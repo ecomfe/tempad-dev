@@ -96,6 +96,8 @@ export const PingMessageSchema = z
 export const RuntimeHelloMessageSchema = z
   .object({
     type: z.literal('runtimeHello'),
+    // Released protocol 13 peers omit this field. The Hub treats omission conservatively as 13.
+    protocolVersion: z.number().int().positive().optional(),
     extensionVersion: z.string().min(1),
     extensionRuntimeFingerprint: z.string().regex(/^[a-f0-9]{64}$/)
   })
