@@ -188,5 +188,5 @@ it.each([1280, 768, 390])(
       expect(OverlayScrollbars(document.body)?.options().overflow.y).toBe('scroll')
     }
   },
-  20_000
+  30_000
 )

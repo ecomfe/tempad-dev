@@ -20,7 +20,7 @@
   "dependencies": {
     "@tempad-dev/shared": "workspace:^0.1.0",
     "@vercel/analytics": "^2.0.1",
-    "@vueuse/core": "^14.4.0",
+    "@vueuse/core": "^15.0.0",
     "lucide-vue-next": "^1.0.0",
     "overlayscrollbars": "^2.16.0",
     "vue": "^3.5.43"
