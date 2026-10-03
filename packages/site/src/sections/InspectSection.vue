@@ -11,7 +11,7 @@ import { SITE_LINKS } from '@/content/landing'
   <SectionShell
     id="inspect"
     title="Inspect and adapt"
-    copy="Inspect directly in Figma. No agent setup required."
+    copy="Read the details directly in Figma. No agent setup required."
   >
     <div class="site-inspect-layout">
       <HeroFigure />
@@ -20,12 +20,12 @@ import { SITE_LINKS } from '@/content/landing'
           :items="[
             {
               title: 'Styles and variables',
-              body: 'Read CSS and JavaScript styles, keep variable references, and adjust units and scale.',
+              body: 'Read CSS and JavaScript styles with variable references, in the units your project uses.',
               icon: Variable
             },
             {
               title: 'Selection and measurements',
-              body: 'Select nested layers, measure spacing, and bring the selected node into view.',
+              body: 'Find nested layers, measure spacing, and bring any selection into view.',
               icon: PocketKnife
             },
             {

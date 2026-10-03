@@ -75,7 +75,6 @@ it.each([1280, 390])('offers the extension setup paths at %ipx', async (width) =
   expect(actions()[2]!.textContent).toContain('Then run in your terminal:')
 
   const otherAgents = page.getByRole('tab', { name: 'Other agents', exact: true })
-  await expect.element(otherAgents).toHaveTextContent('Other agents')
   await otherAgents.click()
   expect(panel.querySelector('code')!.textContent).toBe(MCP_SERVERS_CONFIG_SNIPPET)
 

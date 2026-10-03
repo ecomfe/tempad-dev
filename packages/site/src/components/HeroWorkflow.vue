@@ -28,7 +28,9 @@ import BrandMark from '@/components/BrandMark.vue'
             <div class="site-code-numbers">
               <span v-for="line in 12" :key="line">{{ line }}</span>
             </div>
-            <pre><code><span class="is-punctuation">&lt;script setup&gt;</span>
+            <pre
+              class="site-code-desktop"
+            ><code><span class="is-punctuation">&lt;script setup&gt;</span>
 <span class="is-keyword">import</span> { Button } <span class="is-keyword">from</span> <span class="is-value">'@/ui'</span>
 <span class="is-keyword">import</span> { saveProfile } <span class="is-keyword">from</span> <span class="is-value">'@/profile'</span>
 <span class="is-punctuation">&lt;/script&gt;</span>
@@ -40,6 +42,12 @@ import BrandMark from '@/components/BrandMark.vue'
   <span class="is-punctuation">&lt;/</span><span class="is-component">Button</span><span class="is-punctuation">&gt;</span>
 <span class="is-punctuation">&lt;/template&gt;</span>
 </code></pre>
+            <pre
+              class="site-code-mobile"
+            ><code><span class="is-punctuation">&lt;</span><span class="is-component">Button</span>
+  <span class="is-attribute">variant</span>=<span class="is-value">"primary"</span><span class="is-punctuation">&gt;</span>
+  Save changes
+<span class="is-punctuation">&lt;/</span><span class="is-component">Button</span><span class="is-punctuation">&gt;</span></code></pre>
           </div>
         </div>
       </div>
@@ -66,5 +74,6 @@ import BrandMark from '@/components/BrandMark.vue'
         <span class="site-workflow-agent-plugin" title="TemPad Dev plugin"><BrandMark /></span>
       </div>
     </div>
+    <figcaption class="site-sr-only">Workflow illustration</figcaption>
   </figure>
 </template>

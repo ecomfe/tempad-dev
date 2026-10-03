@@ -98,15 +98,16 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="site-page">
+    <a class="site-skip-link" href="#main-content">Skip to content</a>
     <header class="site-header" :class="{ 'is-scrolled': isScrolled }">
       <div class="site-container site-header-inner">
-        <div class="site-brand">
+        <a class="site-brand" href="#top" aria-label="TemPad Dev home">
           <BrandMark />
           <span class="site-brand-name">
             <span class="is-tempad">TemPad</span>
             <span class="is-dev">Dev</span>
           </span>
-        </div>
+        </a>
 
         <div class="site-header-actions">
           <button
@@ -140,7 +141,7 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <main>
+    <main id="main-content">
       <HeroSection />
       <AgentSection @open-skill="openSkill" />
       <InspectSection />
@@ -149,19 +150,21 @@ onBeforeUnmount(() => {
 
     <footer class="site-footer">
       <div class="site-container site-footer-inner">
-        <a
-          href="https://x.com/_justineo"
-          target="_blank"
-          rel="noopener"
-          class="site-footer-link site-footer-link-icon"
-          aria-label="Twitter"
-        >
-          <Twitter aria-hidden="true" />
-        </a>
-        <span class="site-footer-separator" aria-hidden="true">·</span>
-        <a :href="SITE_LINKS.license" target="_blank" rel="noopener" class="site-footer-link">
-          MIT
-        </a>
+        <div class="site-footer-meta">
+          <a
+            href="https://x.com/_justineo"
+            target="_blank"
+            rel="noopener"
+            class="site-footer-link site-footer-link-icon"
+            aria-label="Justineo on X"
+          >
+            <Twitter aria-hidden="true" />
+          </a>
+          <span class="site-footer-separator" aria-hidden="true">·</span>
+          <a :href="SITE_LINKS.license" target="_blank" rel="noopener" class="site-footer-link">
+            MIT license
+          </a>
+        </div>
       </div>
     </footer>
     <SkillPreviewDialog

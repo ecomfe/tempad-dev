@@ -45,7 +45,7 @@ it.each([1280, 768, 390])(
       .getByRole('button', { name: /Read the canvas skill/ })
       .first()
       .click()
-    await expect.poll(() => element<HTMLDialogElement>('dialog').open).toBe(true)
+    await expect.poll(() => element<HTMLDialogElement>('.site-skill-dialog').open).toBe(true)
     expect(OverlayScrollbars(document.body)?.options().overflow.y).toBe('hidden')
 
     const article = element('.site-skill-prose')
@@ -92,13 +92,13 @@ it.each([1280, 768, 390])(
       expect(fileButton.getAttribute('aria-expanded')).toBe('true')
       expect(document.querySelectorAll('.site-reader-select-popover')).toHaveLength(1)
       await userEvent.keyboard('{Escape}')
-      expect(element<HTMLDialogElement>('dialog').open).toBe(true)
+      expect(element<HTMLDialogElement>('.site-skill-dialog').open).toBe(true)
 
       await contents.click()
       await userEvent.keyboard('{Escape}')
       expect(contentsButton.getAttribute('aria-expanded')).toBe('false')
       expect(document.activeElement).toBe(contentsButton)
-      expect(element<HTMLDialogElement>('dialog').open).toBe(true)
+      expect(element<HTMLDialogElement>('.site-skill-dialog').open).toBe(true)
 
       await contents.click()
       const headingBounds = element('.site-skill-prose h1').getBoundingClientRect()
@@ -162,12 +162,12 @@ it.each([1280, 768, 390])(
 
     await selector.click()
     await userEvent.keyboard('{Escape}')
-    expect(element<HTMLDialogElement>('dialog').open).toBe(true)
+    expect(element<HTMLDialogElement>('.site-skill-dialog').open).toBe(true)
     expect(
       element('.site-skill-dialog-file-selector [role="combobox"]').getAttribute('aria-expanded')
     ).toBe('false')
     await userEvent.keyboard('{Escape}')
-    await expect.poll(() => element<HTMLDialogElement>('dialog').open).toBe(false)
+    await expect.poll(() => element<HTMLDialogElement>('.site-skill-dialog').open).toBe(false)
     expect(OverlayScrollbars(document.body)?.options().overflow.y).toBe('scroll')
 
     for (const withFileOptions of [false, true]) {
@@ -184,7 +184,7 @@ it.each([1280, 768, 390])(
         document.elementFromPoint(x + buttonWidth / 2, y + buttonHeight / 2)?.closest('button')
       ).toBe(closeButton)
       await page.getByRole('button', { name: 'Close skill preview', exact: true }).click()
-      await expect.poll(() => element<HTMLDialogElement>('dialog').open).toBe(false)
+      await expect.poll(() => element<HTMLDialogElement>('.site-skill-dialog').open).toBe(false)
       expect(OverlayScrollbars(document.body)?.options().overflow.y).toBe('scroll')
     }
   },

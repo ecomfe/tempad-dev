@@ -11,8 +11,8 @@ import { SITE_LINKS } from '@/content/landing'
         <div class="site-hero-copy">
           <h1 class="site-hero-title"><span>Design &amp; dev.</span><span>Connected.</span></h1>
           <p class="site-hero-copy-text">
-            Inspect Figma designs, edit the canvas with your coding agent, and bring design context
-            into your codebase.
+            Inspect Figma designs, edit the canvas with your coding agent, and build with your
+            project’s components.
           </p>
           <div class="site-hero-actions">
             <ActionButton href="#connect">Set up TemPad Dev</ActionButton>

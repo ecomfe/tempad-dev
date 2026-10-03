@@ -10,7 +10,7 @@ import {
   AGENT_SKILLS_INSTALL_COMMAND,
   MCP_SERVERS_CONFIG_SNIPPET
 } from '@tempad-dev/shared'
-import { ArrowUpRight, Check, Copy, ExternalLink } from 'lucide-vue-next'
+import { ArrowUpRight, Check, Copy, Ellipsis, ExternalLink } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 
 import ActionButton from '@/components/ActionButton.vue'
@@ -54,8 +54,8 @@ const setupGroups = computed(() => {
     return [
       {
         id: 'plugin',
-        title: 'Agent Plugin',
-        copy: 'Connects your agent to Figma for native design editing and code implementation.',
+        title: 'Agent plugin',
+        copy: 'Includes the Figma connection and both design and development skills.',
         actions: actions.filter(({ id }) => id.startsWith('plugin-'))
       }
     ]
@@ -65,13 +65,13 @@ const setupGroups = computed(() => {
     {
       id: 'mcp',
       title: 'MCP server',
-      copy: `Lets ${selectedAgentId.value === 'other' ? 'your agent' : selectedAgent.value.name} read the open Figma file and edit its canvas when you have edit access.`,
+      copy: 'Connect your agent to the open Figma file. Canvas editing requires edit access.',
       actions: actions.filter(({ id }) => id.startsWith('mcp-'))
     },
     {
       id: 'skills',
       title: 'Agent skills',
-      copy: 'Adds guidance for editing native Figma designs and implementing UI in your project.',
+      copy: 'Add guidance for designing in Figma and building in your project.',
       actions: actions.filter(({ id }) => id.startsWith('skill-'))
     }
   ]
@@ -190,13 +190,18 @@ onBeforeUnmount(() => {
     <div class="site-connect-workbench">
       <div class="site-extension-setup">
         <div class="site-connect-intro">
-          <h3 class="site-connect-stage-title">Start in Figma</h3>
-          <p>Open a Figma file, then enable MCP access in Preferences → Agent integration.</p>
+          <h3 class="site-connect-stage-title">
+            <span class="site-setup-step">01</span>Install the extension
+          </h3>
           <ActionButton :href="SITE_LINKS.install" external>
             <ExternalLink aria-hidden="true" /><span>Install extension</span>
           </ActionButton>
+          <p>
+            Open a Figma file in your browser. In TemPad Dev, enable MCP access in
+            <span class="site-settings-path">Preferences → Agent integration</span>.
+          </p>
           <p class="site-connect-row-copy">
-            Keep the Figma file and TemPad Dev open while your agent works.
+            Keep the file and extension open while your agent works.
           </p>
         </div>
         <figure class="site-setup-figure">
@@ -212,7 +217,9 @@ onBeforeUnmount(() => {
       </div>
       <div class="site-agent-setup">
         <div class="site-connect-stage-head">
-          <h3 class="site-connect-stage-title">Connect your agent</h3>
+          <h3 class="site-connect-stage-title">
+            <span class="site-setup-step">02</span>Connect your agent
+          </h3>
           <span class="site-active-agent-name">{{ selectedAgent.name }}</span>
         </div>
         <div class="site-agent-logos" role="tablist" aria-label="Coding agent">
@@ -223,9 +230,8 @@ onBeforeUnmount(() => {
             type="button"
             role="tab"
             class="site-agent-logo-button"
-            :class="{ 'site-agent-other-button': agent.id === 'other' }"
             :aria-label="agent.id === 'other' ? 'Other agents' : agent.name"
-            :title="agent.id === 'other' ? 'Other agents' : agent.name"
+            :data-tooltip="agent.id === 'other' ? 'Other agents' : agent.name"
             :aria-selected="selectedAgentId === agent.id"
             aria-controls="site-agent-configuration"
             :tabindex="selectedAgentId === agent.id ? 0 : -1"
@@ -233,7 +239,7 @@ onBeforeUnmount(() => {
             @keydown.left.prevent="selectAdjacentAgent(-1)"
             @keydown.right.prevent="selectAdjacentAgent(1)"
           >
-            <span v-if="agent.id === 'other'">Other agents</span>
+            <Ellipsis v-if="agent.id === 'other'" class="site-agent-more-icon" aria-hidden="true" />
             <BrandIcon v-else :client-id="agent.id" />
           </button>
         </div>
@@ -245,18 +251,6 @@ onBeforeUnmount(() => {
           :aria-labelledby="`site-agent-${selectedAgentId}`"
           tabindex="0"
         >
-          <div class="site-setup-group-heading">
-            <p v-if="hasPlugin" class="site-connect-row-copy">
-              Install the TemPad Dev plugin to work with Figma from your coding agent.
-            </p>
-            <p v-else-if="selectedAgentId === 'other'" class="site-connect-row-copy">
-              Connect a compatible coding agent to Figma, then install the two skills.
-            </p>
-            <p v-else class="site-connect-row-copy">
-              Connect the MCP server, then add both agent skills.
-            </p>
-            <h4>{{ hasPlugin ? 'Recommended' : 'Setup steps' }}</h4>
-          </div>
           <section
             v-for="(group, stepIndex) in setupGroups"
             :key="group.id"
@@ -304,10 +298,10 @@ onBeforeUnmount(() => {
             </div>
           </section>
           <p v-if="hasPlugin" class="site-setup-alternative">
-            Setting up an agent without plugin support? Use
+            Prefer to configure it yourself?
             <button type="button" class="site-text-link" @click="selectManualSetup">
-              Manual setup</button
-            >.
+              Manual setup <ArrowUpRight aria-hidden="true" />
+            </button>
           </p>
         </div>
       </div>

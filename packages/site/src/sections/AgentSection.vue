@@ -133,9 +133,8 @@ onBeforeUnmount(() => window.clearTimeout(copyTimer))
         tabindex="0"
       >
         <div class="site-scenario-request">
-          <p class="site-scenario-label">Example request</p>
-          <blockquote>
-            <span>{{ scenario.prompt }}</span>
+          <div class="site-scenario-request-head">
+            <p class="site-scenario-label">Example request</p>
             <button
               type="button"
               class="site-prompt-copy"
@@ -146,7 +145,8 @@ onBeforeUnmount(() => window.clearTimeout(copyTimer))
               <Check v-if="copyStatus === 'Copied'" aria-hidden="true" />
               <Copy v-else aria-hidden="true" />
             </button>
-          </blockquote>
+          </div>
+          <blockquote>{{ scenario.prompt }}</blockquote>
           <span class="site-sr-only" role="status">{{ copyStatus }}</span>
         </div>
         <ol class="site-scenario-steps site-detail-list">
