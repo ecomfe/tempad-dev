@@ -44,8 +44,9 @@ it('lets readers browse every example and restores focus after viewing an image'
     .toBe('Plugin output')
   await userEvent.keyboard('{Escape}')
   await expect.poll(() => document.querySelector<HTMLDialogElement>('dialog')!.open).toBe(false)
-  expect(document.body.style.overflow).not.toBe('hidden')
-  expect(document.activeElement).toBe(host.querySelector('.site-inspection-image'))
+  // The native dialog queues its close event after clearing the open state.
+  await expect.poll(() => document.body.style.overflow).not.toBe('hidden')
+  await expect.poll(() => document.activeElement).toBe(host.querySelector('.site-inspection-image'))
   expect(host.scrollWidth).toBeLessThanOrEqual(window.innerWidth)
 })
 
