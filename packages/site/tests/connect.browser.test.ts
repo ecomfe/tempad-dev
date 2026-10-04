@@ -6,7 +6,7 @@ import {
 } from '@tempad-dev/shared'
 import { afterEach, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
-import { createApp } from 'vue'
+import { createApp, nextTick } from 'vue'
 
 import ConnectSection from '@/sections/ConnectSection.vue'
 import '@/styles.css'
@@ -20,7 +20,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-it.each(['codex', 'kiro-cli', 'codebuddy'] as const)(
+it.each(['codex', 'kiro-cli', 'codebuddy', 'deepseek'] as const)(
   'keeps the %s artwork identical across selection and themes',
   async (id) => {
     await page.viewport(1280, 1000)
@@ -144,26 +144,48 @@ it.each([1280, 390])('offers the extension setup paths at %ipx', async (width) =
   ).not.toBeNull()
 
   expect(host.querySelector('.site-active-agent-name')).toBeNull()
-  const inactiveFills = ['claude', 'gemini', 'trae'].map(
+  const inactiveFills = ['claude', 'gemini', 'trae', 'deepseek'].map(
     (id) => getComputedStyle(host!.querySelector(`#site-agent-${id} svg path`)!).fill
   )
   expect(new Set(inactiveFills).size).toBe(1)
 
+  const visibleAgentNames = () =>
+    Array.from(host!.querySelectorAll<HTMLElement>('[role="tab"]'))
+      .filter((tab) => tab.checkVisibility() && !tab.inert)
+      .map((tab) => tab.getAttribute('aria-label'))
+  const layout = () =>
+    ['.site-connect-stage-head', '.site-agent-logos', '.site-agent-meta', '[role="tabpanel"]'].map(
+      (selector) => {
+        const element = host!.querySelector(selector)!
+        const { x, y, width, height } = element.getBoundingClientRect()
+        return { x, y: y + window.scrollY, width, height }
+      }
+    )
+  const beforeSearch = layout()
+  await page.getByRole('button', { name: 'Search agents', exact: true }).click()
+  expect(layout()).toEqual(beforeSearch)
+  await page.getByRole('button', { name: 'Close agent search' }).click()
+  expect(layout()).toEqual(beforeSearch)
   await page.getByRole('button', { name: 'Search agents', exact: true }).click()
   const search = page.getByRole('searchbox', { name: 'Search agents by name' })
   expect(document.activeElement?.getAttribute('aria-label')).toBe('Search agents by name')
+  await search.fill('cc')
+  await expect.poll(visibleAgentNames).toEqual(['Claude Code', 'Copilot CLI', 'Kimi Code'])
+  await userEvent.keyboard('{ArrowDown}')
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('Claude Code')
+  await userEvent.keyboard('{ArrowRight}')
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('Copilot CLI')
+  await search.fill('not-an-agent')
+  expect(panel.getAttribute('aria-labelledby')).toBe('site-agent-selection')
+  expect(host.querySelector('#site-agent-selection')?.textContent).toBe('Copilot CLI')
+  await search.fill('')
+  await page.getByRole('tab', { name: 'Hermes Agent', exact: true }).click()
   await search.fill('not-an-agent')
   await expect.element(page.getByText('No agents found. Try another name.')).toBeVisible()
   expect(panel.textContent).toContain('~/.hermes/config.yaml')
 
   await search.fill(' qWeN ')
-  await expect
-    .poll(() =>
-      Array.from(host!.querySelectorAll<HTMLElement>('[role="tab"]'))
-        .filter((tab) => tab.checkVisibility())
-        .map((tab) => tab.getAttribute('aria-label'))
-    )
-    .toEqual([AGENT_INTEGRATIONS_BY_ID['qwen-code'].name])
+  await expect.poll(visibleAgentNames).toEqual([AGENT_INTEGRATIONS_BY_ID['qwen-code'].name])
   await userEvent.keyboard('{ArrowDown}{Enter}')
   await expect
     .poll(() => panel.querySelector('code')?.textContent)
@@ -171,10 +193,79 @@ it.each([1280, 390])('offers the extension setup paths at %ipx', async (width) =
   await userEvent.keyboard('{Escape}')
   await expect.poll(() => document.activeElement?.getAttribute('aria-label')).toBe('Search agents')
   expect(host.querySelector<HTMLInputElement>('input[type="search"]')!.value).toBe('')
-  expect(
-    Array.from(host.querySelectorAll<HTMLElement>('[role="tab"]')).filter((tab) =>
-      tab.checkVisibility()
-    )
-  ).toHaveLength(AGENT_INTEGRATIONS.length + 1)
+  await expect.poll(visibleAgentNames).toHaveLength(AGENT_INTEGRATIONS.length + 1)
   expect(host.scrollWidth).toBeLessThanOrEqual(window.innerWidth)
 })
+
+it.each([1280, 390, 320])(
+  'animates search and filtered agent positions without covering the title at %ipx',
+  async (width) => {
+    await page.viewport(width, 1000)
+    host = document.createElement('div')
+    document.body.append(host)
+    app = createApp(ConnectSection)
+    app.mount(host)
+    const title = host.querySelector<HTMLElement>('.site-connect-stage-head h3')!
+    const field = host.querySelector<HTMLElement>('.site-agent-search')!
+    const input = host.querySelector<HTMLInputElement>('input[type="search"]')!
+    const titleBounds = title.getBoundingClientRect().toJSON()
+    const list = host.querySelector<HTMLElement>('.site-agent-list')!
+    const originalHeight = list.getBoundingClientRect().height
+    const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    const finishAnimations = () =>
+      Promise.all(
+        host!
+          .getAnimations({ subtree: true })
+          .map((animation) => animation.finished.catch(() => {}))
+      )
+    host.querySelector<HTMLButtonElement>('.site-agent-search-toggle')!.click()
+    await nextTick()
+    await frame()
+    expect(field.getAnimations().length).toBeGreaterThan(0)
+    await finishAnimations()
+    expect(getComputedStyle(title).opacity).toBe('1')
+    expect(title.getBoundingClientRect().toJSON()).toEqual(titleBounds)
+    expect(field.getBoundingClientRect().left).toBeGreaterThan(title.getBoundingClientRect().right)
+    expect(field.getBoundingClientRect().width).toBeGreaterThan(60)
+    expect(document.activeElement).toBe(input)
+
+    const claude = host.querySelector<HTMLElement>('#site-agent-claude')!
+    const originalX = claude.getBoundingClientRect().x
+    input.value = 'cc'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    await frame()
+    // Surviving tabs move, leaving tabs cannot receive focus or remain in the accessibility tree.
+    expect(claude.getAnimations().length).toBeGreaterThan(0)
+    expect(list.getAnimations().length).toBeGreaterThan(0)
+    const leaving = host.querySelector<HTMLElement>('#site-agent-codex')!
+    expect(leaving.inert).toBe(true)
+    expect(leaving.getAttribute('aria-hidden')).toBe('true')
+    await finishAnimations()
+    expect(claude.getBoundingClientRect().x).toBeLessThan(originalX)
+    expect(list.getBoundingClientRect().height).toBeLessThan(originalHeight)
+
+    // Interrupt both enter and leave transitions: no stale absolute positioning or hidden tabs.
+    for (const query of ['', 'qwen', 'not-an-agent', '']) {
+      input.value = query
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await nextTick()
+      await frame()
+    }
+    await finishAnimations()
+    const tabs = Array.from(host.querySelectorAll<HTMLElement>('[role="tab"]'))
+    expect(tabs).toHaveLength(AGENT_INTEGRATIONS.length + 1)
+    expect(
+      tabs.every((tab) => !tab.inert && !tab.hasAttribute('aria-hidden') && !tab.style.width)
+    ).toBe(true)
+    expect(list.getBoundingClientRect().height).toBe(originalHeight)
+    host.querySelector<HTMLButtonElement>('[aria-label="Close agent search"]')!.click()
+    await nextTick()
+    await frame()
+    expect(field.getAnimations().length).toBeGreaterThan(0)
+    await finishAnimations()
+    expect(title.getBoundingClientRect().toJSON()).toEqual(titleBounds)
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Search agents')
+    expect(host.scrollWidth).toBeLessThanOrEqual(width)
+  }
+)

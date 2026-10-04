@@ -12,11 +12,16 @@ import codebuddyMono from './assets/codebuddy-mono.svg?raw'
 import codebuddy from './assets/codebuddy.svg?raw'
 import codexMono from './assets/codex-mono.svg?raw'
 import codex from './assets/codex.svg?raw'
+import continueIcon from './assets/continue.svg?raw'
 import cursor from './assets/cursor.svg?raw'
+import deepseekMono from './assets/deepseek-mono.svg?raw'
+import deepseek from './assets/deepseek.svg?raw'
 import droid from './assets/droid.svg?raw'
 import geminiMono from './assets/gemini-mono.svg?raw'
 import gemini from './assets/gemini.svg?raw'
 import copilot from './assets/github-copilot.svg?raw'
+import goose from './assets/goose.svg?raw'
+import grok from './assets/grok.svg?raw'
 import hermes from './assets/hermes-agent.svg?raw'
 import junieMono from './assets/junie-mono.svg?raw'
 import junie from './assets/junie.svg?raw'
@@ -25,6 +30,8 @@ import kimiMono from './assets/kimi-code-cli-mono.svg?raw'
 import kimi from './assets/kimi-code-cli.svg?raw'
 import kiroMono from './assets/kiro-cli-mono.svg?raw'
 import kiro from './assets/kiro-cli.svg?raw'
+import mistralVibeMono from './assets/mistral-vibe-mono.svg?raw'
+import mistralVibe from './assets/mistral-vibe.svg?raw'
 import opencode from './assets/opencode.svg?raw'
 import pi from './assets/pi.svg?raw'
 import qoderMono from './assets/qoder-mono.svg?raw'
@@ -35,6 +42,7 @@ import traeMono from './assets/trae-mono.svg?raw'
 import trae from './assets/trae.svg?raw'
 import vscodeMono from './assets/vscode-mono.svg?raw'
 import vscode from './assets/vscode.svg?raw'
+import warp from './assets/warp.svg?raw'
 import zcode from './assets/zcode.svg?raw'
 import zed from './assets/zed.svg?raw'
 
@@ -46,6 +54,12 @@ export const MCP_CLIENT_BRAND_SVGS = {
   augment,
   cline,
   codebuddy,
+  continue: continueIcon,
+  deepseek,
+  goose,
+  grok,
+  'mistral-vibe': mistralVibe,
+  warp,
   droid,
   'github-copilot': copilot,
   'hermes-agent': hermes,
@@ -73,8 +87,10 @@ const MONOCHROME_BRAND_SVGS: Partial<Record<McpClientId, string>> = {
   claude: claudeMono,
   codebuddy: codebuddyMono,
   codex: codexMono,
+  deepseek: deepseekMono,
   gemini: geminiMono,
   junie: junieMono,
+  'mistral-vibe': mistralVibeMono,
   'kimi-code-cli': kimiMono,
   'kiro-cli': kiroMono,
   qoder: qoderMono,

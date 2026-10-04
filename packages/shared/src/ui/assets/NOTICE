@@ -1,10 +1,10 @@
 Brand artwork identifies the corresponding products; trademarks belong to their owners.
 
 amp, antigravity, cline, codebuddy, github-copilot, junie, kilo, kimi-code-cli, kiro-cli,
-pi, qoder, and qwen-code SVGs are from Lobe Icons:
+pi, qoder, qwen-code, goose, grok, deepseek, and mistral-vibe SVGs are from Lobe Icons:
 https://github.com/lobehub/lobe-icons/tree/master/packages/static-svg/icons
-Upstream names: githubcopilot, kilocode, kimi, kiro, and qwen where different.
-Amp, Antigravity, Junie, Kimi, Qoder, and Qwen use the upstream
+Upstream names: githubcopilot, kilocode, kimi, kiro, mistral, and qwen where different.
+Amp, Antigravity, DeepSeek, Junie, Kimi, Mistral Vibe, Qoder, and Qwen use the upstream
 `-color.svg` variants; their original colors and gradients are preserved.
 The Codex color mark uses the monochrome mark's geometry with the original color
 gradient, without an app-tile background, so both variants have identical bounds.
@@ -39,6 +39,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 Other artwork sources (view boxes and fills adapted for inline monochrome display):
+- continue.svg: https://github.com/continuedev/continue/blob/main/extensions/intellij/src/main/resources/icons/continue.svg (Apache-2.0; Copyright Continue Dev, Inc.; fill and view box adapted)
+- warp.svg: https://github.com/simple-icons/simple-icons/blob/develop/icons/warp.svg (CC0-1.0)
 - augment.svg: https://www.augmentcode.com/favicon.svg
 - droid.svg: symbol from https://factory.ai/favicon.svg
 - hermes-agent.svg: https://web-assets.nousresearch.com/nousnet-web/assets/hermes-landing/teams/hermes-wing.6ee276e9bff5a166.svg

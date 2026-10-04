@@ -17,16 +17,21 @@ type AdditionalAgentId =
   | 'augment'
   | 'cline'
   | 'codebuddy'
+  | 'continue'
   | 'github-copilot'
+  | 'goose'
+  | 'grok'
   | 'droid'
   | 'hermes-agent'
   | 'junie'
   | 'kilo'
   | 'kimi-code-cli'
   | 'kiro-cli'
+  | 'mistral-vibe'
   | 'pi'
   | 'qoder'
   | 'qwen-code'
+  | 'warp'
   | 'zcode'
   | 'zed'
 type SkillAgentId = 'opencode' | 'trae' | AdditionalAgentId
@@ -44,6 +49,7 @@ type StdioCommandConfig = BaseCommandConfig & {
 export type AgentIntegrationId =
   | AdditionalAgentId
   | 'codex'
+  | 'deepseek'
   | 'cursor'
   | 'claude'
   | 'gemini'
@@ -190,6 +196,15 @@ const OPENCODE_CONFIG_SNIPPET = JSON.stringify(
   2
 )
 
+const DEEPSEEK_CONFIG_SNIPPET = `- insert:
+    - id: mcp-${SERVER_NAME}
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: ${SERVER_NAME}
+        transport: stdio
+        command: ${SERVER_COMMAND}
+        args: ${JSON.stringify(SERVER_ARGS)}`
+
 function buildCliCommand(prefix: 'claude' | 'codex' | 'gemini'): string {
   const args = `${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`
   if (prefix === 'claude') {
@@ -328,6 +343,26 @@ const additionalClients = {
     docsUrl:
       'https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers'
   },
+  continue: {
+    name: 'Continue',
+    copyKind: 'config',
+    copyText: MCP_SERVERS_CONFIG_SNIPPET,
+    hint: 'Save as `.continue/mcpServers/tempad-dev.json` in your project, then select Agent mode:',
+    docsUrl: 'https://docs.continue.dev/customize/deep-dives/mcp'
+  },
+  goose: {
+    name: 'Goose',
+    copyKind: 'config',
+    copyText: `extensions:\n  ${SERVER_NAME}:\n    name: TemPad Dev\n    cmd: ${SERVER_COMMAND}\n    args: ${JSON.stringify(SERVER_ARGS)}\n    enabled: true\n    type: stdio\n    timeout: 300`,
+    hint: 'Merge into `~/.config/goose/config.yaml`, then start a new Goose session:',
+    docsUrl: 'https://goose-docs.ai/docs/getting-started/using-extensions/'
+  },
+  grok: {
+    name: 'Grok Build',
+    copyKind: 'command',
+    copyText: `grok mcp add ${SERVER_NAME} -- ${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`,
+    docsUrl: 'https://docs.x.ai/build/features/mcp-servers'
+  },
   droid: {
     name: 'Droid',
     copyKind: 'command',
@@ -379,6 +414,13 @@ const additionalClients = {
     hint: 'Requires Pi 0.99 or later with built-in MCP enabled. Run in your terminal, then use `/reload` in an existing Pi session:',
     docsUrl: 'https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/mcp.md'
   },
+  'mistral-vibe': {
+    name: 'Mistral Vibe',
+    copyKind: 'config',
+    copyText: `[[mcp_servers]]\nname = "${SERVER_NAME}"\ntransport = "stdio"\ncommand = "${SERVER_COMMAND}"\nargs = ${JSON.stringify(SERVER_ARGS)}`,
+    hint: 'Append to `~/.vibe/config.toml` (user) or `.vibe/config.toml` (project), then restart Vibe:',
+    docsUrl: 'https://docs.mistral.ai/vibe/code/cli/mcp-servers'
+  },
   qoder: {
     name: 'Qoder',
     copyKind: 'config',
@@ -398,6 +440,13 @@ const additionalClients = {
     copyText: JSON.stringify({ mcp: { servers: { [SERVER_NAME]: commandConfig } } }, null, 2),
     hint: 'Merge into `~/.zcode/cli/config.json` (user) or `.zcode/config.json` (workspace):',
     docsUrl: 'https://zcode.z.ai/cn/docs/mcp-services'
+  },
+  warp: {
+    name: 'Warp',
+    copyKind: 'config',
+    copyText: MCP_SERVERS_CONFIG_SNIPPET,
+    hint: 'Merge into `~/.warp/.mcp.json` (user) or `.warp/.mcp.json` (project). Keep the TemPad Dev server enabled in MCP settings:',
+    docsUrl: 'https://docs.warp.dev/agents/capabilities/mcp'
   },
   zed: {
     name: 'Zed',
@@ -447,11 +496,23 @@ function additionalIntegration(id: AdditionalAgentId): AgentIntegrationConfig {
 }
 
 export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
+  deepseek: {
+    id: 'deepseek',
+    name: 'DeepSeek Harness',
+    supportsDeepLink: false,
+    copyText: DEEPSEEK_CONFIG_SNIPPET,
+    copyKind: 'config'
+  },
   amp: additionalMcpClient('amp'),
   antigravity: additionalMcpClient('antigravity'),
   augment: additionalMcpClient('augment'),
   cline: additionalMcpClient('cline'),
   codebuddy: additionalMcpClient('codebuddy'),
+  continue: additionalMcpClient('continue'),
+  goose: additionalMcpClient('goose'),
+  grok: additionalMcpClient('grok'),
+  'mistral-vibe': additionalMcpClient('mistral-vibe'),
+  warp: additionalMcpClient('warp'),
   'github-copilot': additionalMcpClient('github-copilot'),
   droid: additionalMcpClient('droid'),
   'hermes-agent': additionalMcpClient('hermes-agent'),
@@ -527,6 +588,28 @@ export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
 export const MCP_CLIENTS: McpClientConfig[] = Object.values(MCP_CLIENTS_BY_ID)
 
 export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrationConfig> = {
+  deepseek: {
+    id: 'deepseek',
+    name: 'DeepSeek Harness',
+    docsUrl:
+      'https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md',
+    actions: [
+      {
+        id: 'mcp-config',
+        label: 'MCP config',
+        kind: 'config',
+        value: DEEPSEEK_CONFIG_SNIPPET,
+        hint: 'Append this patch to `~/.dsh/cordis.patch.yml` (or `$DSH_HOME/cordis.patch.yml`), then restart Harness:'
+      },
+      {
+        id: 'skill-cli',
+        label: 'Agent skills',
+        kind: 'command',
+        value: `${SKILLS_INSTALL_COMMAND} --agent universal`,
+        hint: 'Run from your project root to install both skills into `.agents/skills`:'
+      }
+    ]
+  },
   codex: {
     id: 'codex',
     name: 'Codex',
@@ -622,6 +705,11 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
   augment: additionalIntegration('augment'),
   cline: additionalIntegration('cline'),
   codebuddy: additionalIntegration('codebuddy'),
+  continue: additionalIntegration('continue'),
+  goose: additionalIntegration('goose'),
+  grok: additionalIntegration('grok'),
+  'mistral-vibe': additionalIntegration('mistral-vibe'),
+  warp: additionalIntegration('warp'),
   'github-copilot': additionalIntegration('github-copilot'),
   droid: additionalIntegration('droid'),
   'hermes-agent': additionalIntegration('hermes-agent'),
@@ -636,4 +724,11 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
   zed: additionalIntegration('zed')
 }
 
-export const AGENT_INTEGRATIONS: AgentIntegrationConfig[] = Object.values(AGENT_INTEGRATIONS_BY_ID)
+// Lead with the plugin installation paths; keep the remaining catalog predictable.
+const FEATURED_AGENTS: AgentIntegrationId[] = ['codex', 'claude', 'cursor', 'vscode']
+export const AGENT_INTEGRATIONS: AgentIntegrationConfig[] = [
+  ...FEATURED_AGENTS.map((id) => AGENT_INTEGRATIONS_BY_ID[id]),
+  ...Object.values(AGENT_INTEGRATIONS_BY_ID)
+    .filter(({ id }) => !FEATURED_AGENTS.includes(id))
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+]

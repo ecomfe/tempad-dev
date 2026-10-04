@@ -11,7 +11,7 @@ import {
   MCP_SERVERS_CONFIG_SNIPPET
 } from '@tempad-dev/shared'
 import { ArrowUpRight, Check, Copy, Ellipsis, ExternalLink, Search, X } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 
 import ActionButton from '@/components/ActionButton.vue'
 import BrandIcon from '@/components/BrandIcon.vue'
@@ -19,6 +19,7 @@ import SectionShell from '@/components/SectionShell.vue'
 import SkillLink from '@/components/SkillLink.vue'
 import { useSiteColorMode } from '@/composables/useSiteColorMode'
 import { AGENT_SETUP_SHOT, SITE_LINKS, type SiteSkill } from '@/content/landing'
+import { searchAgents } from '@/utils/agent-search'
 
 type FeedbackKind = 'success' | 'info' | 'error'
 type SetupTarget = Pick<AgentIntegrationConfig, 'name' | 'actions' | 'docsUrl'> & {
@@ -48,13 +49,23 @@ const searchOpen = ref(false)
 const searchQuery = ref('')
 const searchInput = useTemplateRef<HTMLInputElement>('agentSearch')
 const searchToggle = useTemplateRef<HTMLButtonElement>('searchToggle')
-const filteredAgents = computed(() => {
-  const query = searchQuery.value.trim().toLowerCase()
-  return agents.filter((agent) =>
-    `${agent.name} ${agent.id} ${agent.id === 'other' ? 'Other agents' : ''}`
-      .toLowerCase()
-      .includes(query)
-  )
+const filteredAgents = computed(() => searchAgents(agents, searchQuery.value))
+const agentList = useTemplateRef<HTMLDivElement>('agentList')
+let listAnimation: Animation | undefined
+watch(filteredAgents, async () => {
+  const list = agentList.value
+  if (!list) return
+  const height = list.getBoundingClientRect().height
+  listAnimation?.cancel()
+  await nextTick()
+  if (!list.isConnected || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const nextHeight = list.getBoundingClientRect().height
+  if (height !== nextHeight) {
+    listAnimation = list.animate([{ height: `${height}px` }, { height: `${nextHeight}px` }], {
+      duration: 320,
+      easing: 'cubic-bezier(0.22, 1, 0.36, 1)'
+    })
+  }
 })
 const focusableAgentId = computed(() =>
   filteredAgents.value.some(({ id }) => id === selectedAgentId.value)
@@ -198,6 +209,25 @@ function focusFirstResult(): void {
   if (first) document.getElementById(`site-agent-${first.id}`)?.focus()
 }
 
+function leaveAgent(element: Element): void {
+  const tab = element as HTMLButtonElement
+  // Preserve the old grid cell while the remaining tabs FLIP into their new positions.
+  Object.assign(tab.style, {
+    left: `${tab.offsetLeft}px`,
+    top: `${tab.offsetTop}px`,
+    width: `${tab.offsetWidth}px`
+  })
+  tab.inert = true
+  tab.setAttribute('aria-hidden', 'true')
+}
+
+function enterAgent(element: Element): void {
+  const tab = element as HTMLButtonElement
+  for (const property of ['left', 'top', 'width']) tab.style.removeProperty(property)
+  tab.inert = false
+  tab.removeAttribute('aria-hidden')
+}
+
 function selectManualSetup(): void {
   searchQuery.value = ''
   selectedAgentId.value = 'other'
@@ -215,6 +245,7 @@ function getCopyHint(action: AgentIntegrationAction, index: number): string {
 
 onBeforeUnmount(() => {
   if (feedbackTimer) window.clearTimeout(feedbackTimer)
+  listAnimation?.cancel()
 })
 </script>
 
@@ -253,66 +284,85 @@ onBeforeUnmount(() => {
           <h3 class="site-connect-stage-title">
             <span class="site-setup-step">02</span>Connect your agent
           </h3>
-          <button
-            ref="searchToggle"
-            class="site-agent-search-toggle"
-            type="button"
-            aria-label="Search agents"
-            :aria-expanded="searchOpen"
-            aria-controls="site-agent-search"
-            @click="toggleSearch"
+          <div class="site-agent-search-slot">
+            <div class="site-agent-search" :class="{ 'is-open': searchOpen }">
+              <button
+                ref="searchToggle"
+                class="site-agent-search-toggle"
+                :inert="searchOpen"
+                :aria-hidden="searchOpen"
+                type="button"
+                aria-label="Search agents"
+                :aria-expanded="searchOpen"
+                aria-controls="site-agent-search"
+                @click="toggleSearch"
+              >
+                <Search aria-hidden="true" />
+              </button>
+              <div
+                id="site-agent-search"
+                class="site-agent-search-field"
+                :inert="!searchOpen"
+                :aria-hidden="!searchOpen"
+              >
+                <input
+                  ref="agentSearch"
+                  v-model="searchQuery"
+                  type="search"
+                  aria-label="Search agents by name"
+                  placeholder="Search…"
+                  autocomplete="off"
+                  spellcheck="false"
+                  @keydown.down.prevent="focusFirstResult"
+                  @keydown.esc.prevent="toggleSearch"
+                />
+                <button type="button" aria-label="Close agent search" @click="toggleSearch">
+                  <X aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div ref="agentList" class="site-agent-list">
+          <TransitionGroup
+            tag="div"
+            name="site-agent-filter"
+            class="site-agent-logos"
+            role="tablist"
+            aria-label="Coding agent"
+            @keydown.esc="searchOpen && toggleSearch()"
+            @before-leave="leaveAgent"
+            @before-enter="enterAgent"
           >
-            <Search aria-hidden="true" />
-          </button>
+            <button
+              v-for="agent in filteredAgents"
+              :id="`site-agent-${agent.id}`"
+              :key="agent.id"
+              type="button"
+              role="tab"
+              class="site-agent-logo-button"
+              :aria-label="agent.id === 'other' ? 'Other agents' : agent.name"
+              :data-tooltip="agent.id === 'other' ? 'Other agents' : agent.name"
+              :aria-selected="selectedAgentId === agent.id"
+              aria-controls="site-agent-configuration"
+              :tabindex="focusableAgentId === agent.id ? 0 : -1"
+              @click="selectedAgentId = agent.id"
+              @keydown.left.prevent="selectAdjacentAgent(-1, agent.id)"
+              @keydown.right.prevent="selectAdjacentAgent(1, agent.id)"
+            >
+              <Ellipsis
+                v-if="agent.id === 'other'"
+                class="site-agent-more-icon"
+                aria-hidden="true"
+              />
+              <BrandIcon v-else :client-id="agent.id" :monochrome="selectedAgentId !== agent.id" />
+            </button>
+          </TransitionGroup>
+          <p v-if="!filteredAgents.length" class="site-agent-search-empty" role="status">
+            No agents found. Try another name.
+          </p>
         </div>
-        <div v-show="searchOpen" id="site-agent-search" class="site-agent-search">
-          <Search aria-hidden="true" />
-          <input
-            ref="agentSearch"
-            v-model="searchQuery"
-            type="search"
-            aria-label="Search agents by name"
-            placeholder="Find your agent…"
-            autocomplete="off"
-            spellcheck="false"
-            @keydown.down.prevent="focusFirstResult"
-            @keydown.esc.prevent="toggleSearch"
-          />
-          <button type="button" aria-label="Close agent search" @click="toggleSearch">
-            <X aria-hidden="true" />
-          </button>
-        </div>
-        <div
-          class="site-agent-logos"
-          role="tablist"
-          aria-label="Coding agent"
-          @keydown.esc="searchOpen && toggleSearch()"
-        >
-          <button
-            v-for="agent in agents"
-            :id="`site-agent-${agent.id}`"
-            :key="agent.id"
-            v-show="filteredAgents.includes(agent)"
-            type="button"
-            role="tab"
-            class="site-agent-logo-button"
-            :aria-label="agent.id === 'other' ? 'Other agents' : agent.name"
-            :data-tooltip="agent.id === 'other' ? 'Other agents' : agent.name"
-            :aria-selected="selectedAgentId === agent.id"
-            aria-controls="site-agent-configuration"
-            :tabindex="focusableAgentId === agent.id ? 0 : -1"
-            @click="selectedAgentId = agent.id"
-            @keydown.left.prevent="selectAdjacentAgent(-1, agent.id)"
-            @keydown.right.prevent="selectAdjacentAgent(1, agent.id)"
-          >
-            <Ellipsis v-if="agent.id === 'other'" class="site-agent-more-icon" aria-hidden="true" />
-            <BrandIcon v-else :client-id="agent.id" :monochrome="selectedAgentId !== agent.id" />
-          </button>
-        </div>
-        <p v-if="!filteredAgents.length" class="site-agent-search-empty" role="status">
-          No agents found. Try another name.
-        </p>
-        <p v-else-if="searchQuery" class="site-sr-only" role="status">
+        <p v-if="searchQuery && filteredAgents.length" class="site-sr-only" role="status">
           {{ filteredAgents.length }} {{ filteredAgents.length === 1 ? 'agent' : 'agents' }} found.
         </p>
         <div class="site-agent-meta">
@@ -328,11 +378,16 @@ onBeforeUnmount(() => {
             Setup docs <ArrowUpRight aria-hidden="true" />
           </a>
         </div>
+        <span id="site-agent-selection" class="site-sr-only">{{ selectedAgent.name }}</span>
         <div
           id="site-agent-configuration"
           class="site-setup-options"
           role="tabpanel"
-          :aria-labelledby="`site-agent-${selectedAgentId}`"
+          :aria-labelledby="
+            filteredAgents.includes(selectedAgent)
+              ? `site-agent-${selectedAgentId}`
+              : 'site-agent-selection'
+          "
           tabindex="0"
         >
           <section

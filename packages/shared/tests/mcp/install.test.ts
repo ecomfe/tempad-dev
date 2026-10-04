@@ -11,6 +11,11 @@ const ADDITIONAL_AGENTS = [
   'augment',
   'cline',
   'codebuddy',
+  'continue',
+  'goose',
+  'grok',
+  'mistral-vibe',
+  'warp',
   'github-copilot',
   'droid',
   'hermes-agent',
@@ -119,7 +124,7 @@ describe('shared/mcp/install', () => {
         }
       }
     })
-    expect(mcp.MCP_CLIENTS).toHaveLength(24)
+    expect(mcp.MCP_CLIENTS).toHaveLength(30)
   })
 
   it('describes the supported plugin and MCP setup paths', async () => {
@@ -130,11 +135,33 @@ describe('shared/mcp/install', () => {
       'codex',
       'claude',
       'cursor',
-      'gemini',
       'vscode',
+      'amp',
+      'antigravity',
+      'augment',
+      'cline',
+      'codebuddy',
+      'continue',
+      'github-copilot',
+      'deepseek',
+      'droid',
+      'gemini',
+      'goose',
+      'grok',
+      'hermes-agent',
+      'junie',
+      'kilo',
+      'kimi-code-cli',
+      'kiro-cli',
+      'mistral-vibe',
       'opencode',
+      'pi',
+      'qoder',
+      'qwen-code',
       'trae',
-      ...ADDITIONAL_AGENTS
+      'warp',
+      'zcode',
+      'zed'
     ])
 
     const codex = mcp.AGENT_INTEGRATIONS_BY_ID.codex
@@ -245,10 +272,34 @@ describe('shared/mcp/install', () => {
     }
   })
 
+  it('uses a Cordis patch and project-scoped universal skills for DeepSeek Harness', async () => {
+    const { MCP_CLIENTS_BY_ID: clients, AGENT_INTEGRATIONS_BY_ID: integrations } =
+      await importInstall()
+    const [mcp, skills] = integrations.deepseek.actions
+    expect(mcp?.value).toBe(
+      [
+        '- insert:',
+        '    - id: mcp-tempad-dev',
+        "      name: '@deepseek-ai/dsh-mcp-client'",
+        '      config:',
+        '        serverName: tempad-dev',
+        '        transport: stdio',
+        '        command: npx',
+        '        args: ["-y","@tempad-dev/mcp@latest"]'
+      ].join('\n')
+    )
+    expect(clients.deepseek.copyKind).toBe('config')
+    expect(clients.deepseek.copyText).toBe(mcp?.value)
+    expect(mcp?.hint).toContain('`~/.dsh/cordis.patch.yml`')
+    expect(skills?.value).toBe(`${SKILLS_INSTALL_COMMAND} --agent universal`)
+    expect(skills?.hint).toContain('`.agents/skills`')
+  })
+
   it('uses the native CLI syntax for each harness', async () => {
     const { MCP_CLIENTS_BY_ID: clients, AGENT_INTEGRATIONS_BY_ID: integrations } =
       await importInstall()
     expect(clients.amp.copyText).toBe('amp mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest')
+    expect(clients.grok.copyText).toBe('grok mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest')
     expect(clients['github-copilot'].copyText).toBe(
       'copilot mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest'
     )

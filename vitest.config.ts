@@ -18,6 +18,7 @@ export default defineConfig({
       include: [
         ...EXTENSION_COVERAGE_FILES.map((file) => `packages/extension/${file}`),
         'packages/plugins/src/index.ts',
+        'packages/site/src/utils/agent-search.ts',
         'packages/mcp-server/src/asset-utils.ts',
         'packages/mcp-server/src/tools.ts',
         'packages/mcp-server/src/config.ts',
