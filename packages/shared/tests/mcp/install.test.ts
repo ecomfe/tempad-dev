@@ -3,10 +3,27 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const originalBtoa = globalThis.btoa
 const SKILLS_SOURCE_URL =
   'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/targets/standard/skills'
-const DESIGN_TO_CODE_SKILL_URL = `${SKILLS_SOURCE_URL}/figma-design-to-code`
-const CANVAS_AUTHORING_SKILL_URL = `${SKILLS_SOURCE_URL}/figma-canvas-authoring`
 const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill figma-design-to-code figma-canvas-authoring`
 const PLUGIN_INSTALL_COMMAND = 'npx plugins add ecomfe/tempad-dev'
+const ADDITIONAL_AGENTS = [
+  'amp',
+  'antigravity',
+  'augment',
+  'cline',
+  'codebuddy',
+  'github-copilot',
+  'droid',
+  'hermes-agent',
+  'junie',
+  'kilo',
+  'kimi-code-cli',
+  'kiro-cli',
+  'pi',
+  'qoder',
+  'qwen-code',
+  'zcode',
+  'zed'
+] as const
 
 function restoreBtoa() {
   if (originalBtoa) {
@@ -102,7 +119,7 @@ describe('shared/mcp/install', () => {
         }
       }
     })
-    expect(mcp.MCP_CLIENTS).toHaveLength(7)
+    expect(mcp.MCP_CLIENTS).toHaveLength(24)
   })
 
   it('describes the supported plugin and MCP setup paths', async () => {
@@ -116,7 +133,8 @@ describe('shared/mcp/install', () => {
       'gemini',
       'vscode',
       'opencode',
-      'trae'
+      'trae',
+      ...ADDITIONAL_AGENTS
     ])
 
     const codex = mcp.AGENT_INTEGRATIONS_BY_ID.codex
@@ -169,8 +187,12 @@ describe('shared/mcp/install', () => {
       'skill-canvas-authoring-cli'
     ])
     expect(gemini.actions[0]?.value).toContain('gemini mcp add --scope user')
-    expect(gemini.actions[1]?.value).toBe(`gemini skills install ${DESIGN_TO_CODE_SKILL_URL}`)
-    expect(gemini.actions[2]?.value).toBe(`gemini skills install ${CANVAS_AUTHORING_SKILL_URL}`)
+    expect(gemini.actions[1]?.value).toBe(
+      'gemini skills install https://github.com/ecomfe/tempad-dev.git --path agent-plugin/targets/standard/skills/figma-design-to-code'
+    )
+    expect(gemini.actions[2]?.value).toBe(
+      'gemini skills install https://github.com/ecomfe/tempad-dev.git --path agent-plugin/targets/standard/skills/figma-canvas-authoring'
+    )
 
     const vscode = mcp.AGENT_INTEGRATIONS_BY_ID.vscode
     expect(vscode.actions).toEqual([
@@ -203,6 +225,67 @@ describe('shared/mcp/install', () => {
       )
       expect(skillAction?.value).toBe(`${SKILLS_INSTALL_COMMAND} --global --agent ${agent}`)
     }
+  })
+
+  it('provides targeted skills and documented setup instructions for additional agents', async () => {
+    const mcp = await importInstall()
+    for (const id of ADDITIONAL_AGENTS) {
+      const integration = mcp.AGENT_INTEGRATIONS_BY_ID[id]
+      const client = mcp.MCP_CLIENTS_BY_ID[id]
+      expect(integration.name).toBe(client.name)
+      expect(integration.docsUrl).toMatch(/^https:\/\//)
+      expect(integration.actions.map(({ id }) => id)).toEqual([
+        client.copyKind === 'command' ? 'mcp-cli' : 'mcp-config',
+        'skill-cli'
+      ])
+      expect(integration.actions[0]?.value).toBe(client.copyText)
+      expect(integration.actions[0]?.value).toContain('@tempad-dev/mcp@latest')
+      if (client.copyKind === 'config') expect(integration.actions[0]?.hint).toBeTruthy()
+      expect(integration.actions[1]?.value).toBe(`${SKILLS_INSTALL_COMMAND} --global --agent ${id}`)
+    }
+  })
+
+  it('uses the native CLI syntax for each harness', async () => {
+    const { MCP_CLIENTS_BY_ID: clients, AGENT_INTEGRATIONS_BY_ID: integrations } =
+      await importInstall()
+    expect(clients.amp.copyText).toBe('amp mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest')
+    expect(clients['github-copilot'].copyText).toBe(
+      'copilot mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest'
+    )
+    expect(clients.droid.copyText).toBe(
+      'droid mcp add tempad-dev "npx -y @tempad-dev/mcp@latest" --type stdio'
+    )
+    expect(clients['kimi-code-cli'].copyText).toBe(
+      'kimi mcp add --transport stdio tempad-dev -- npx -y @tempad-dev/mcp@latest'
+    )
+    expect(clients['qwen-code'].copyText).toBe(
+      'qwen mcp add --scope user tempad-dev npx -y @tempad-dev/mcp@latest'
+    )
+    expect(clients.pi.copyText).toBe('pi mcp add tempad-dev -- npx -y @tempad-dev/mcp@latest')
+    expect(integrations.pi.actions[0]?.hint).toContain('Pi 0.99')
+  })
+
+  it('keeps host-specific configuration formats instead of assuming mcpServers everywhere', async () => {
+    const { MCP_CLIENTS_BY_ID: clients } = await importInstall()
+    const command = { command: 'npx', args: ['-y', '@tempad-dev/mcp@latest'] }
+    for (const id of ['antigravity', 'augment', 'cline', 'junie', 'kiro-cli', 'qoder'] as const) {
+      expect(JSON.parse(clients[id].copyText!)).toEqual({ mcpServers: { 'tempad-dev': command } })
+    }
+    expect(JSON.parse(clients.kilo.copyText!)).toEqual({
+      mcp: { 'tempad-dev': { type: 'local', command: ['npx', '-y', '@tempad-dev/mcp@latest'] } }
+    })
+    expect(JSON.parse(clients.codebuddy.copyText!)).toEqual({
+      mcpServers: { 'tempad-dev': { type: 'stdio', ...command } }
+    })
+    expect(JSON.parse(clients.zed.copyText!)).toEqual({
+      context_servers: { 'tempad-dev': command }
+    })
+    expect(JSON.parse(clients.zcode.copyText!)).toEqual({
+      mcp: { servers: { 'tempad-dev': command } }
+    })
+    expect(clients['hermes-agent'].copyText).toBe(
+      'mcp_servers:\n  tempad-dev:\n    command: npx\n    args: ["-y","@tempad-dev/mcp@latest"]'
+    )
   })
 
   it('falls back to Buffer when btoa is unavailable', async () => {

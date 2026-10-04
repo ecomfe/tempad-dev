@@ -11,7 +11,25 @@ const CANVAS_AUTHORING_SKILL_NAME = 'figma-canvas-authoring'
 const SKILL_NAMES = [DESIGN_TO_CODE_SKILL_NAME, CANVAS_AUTHORING_SKILL_NAME] as const
 const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill ${SKILL_NAMES.join(' ')}`
 
-type SkillAgentId = 'opencode' | 'trae'
+type AdditionalAgentId =
+  | 'amp'
+  | 'antigravity'
+  | 'augment'
+  | 'cline'
+  | 'codebuddy'
+  | 'github-copilot'
+  | 'droid'
+  | 'hermes-agent'
+  | 'junie'
+  | 'kilo'
+  | 'kimi-code-cli'
+  | 'kiro-cli'
+  | 'pi'
+  | 'qoder'
+  | 'qwen-code'
+  | 'zcode'
+  | 'zed'
+type SkillAgentId = 'opencode' | 'trae' | AdditionalAgentId
 type PluginAgentId = 'claude-code' | 'codex' | 'cursor' | 'vscode'
 
 type BaseCommandConfig = {
@@ -24,6 +42,7 @@ type StdioCommandConfig = BaseCommandConfig & {
 }
 
 export type AgentIntegrationId =
+  | AdditionalAgentId
   | 'codex'
   | 'cursor'
   | 'claude'
@@ -67,12 +86,15 @@ export type AgentIntegrationAction = {
   kind: 'deep-link' | McpClientCopyKind
   value: string
   fallbackValue?: string
+  /** Plain text with backtick-delimited inline code. */
+  hint?: string
 }
 
 export type AgentIntegrationConfig = {
   id: AgentIntegrationId
   name: string
   actions: AgentIntegrationAction[]
+  docsUrl?: string
 }
 
 const stdioConfig: StdioCommandConfig = {
@@ -208,7 +230,7 @@ function buildSkillsInstallCommand(agent: SkillAgentId): string {
 }
 
 function buildGeminiSkillInstallCommand(skillName: (typeof SKILL_NAMES)[number]): string {
-  return `gemini skills install ${SKILLS_SOURCE_URL}/${skillName}`
+  return `gemini skills install https://github.com/${REPOSITORY}.git --path agent-plugin/targets/standard/skills/${skillName}`
 }
 
 export function getMcpClientCopyPayload(
@@ -262,7 +284,186 @@ export const MCP_SERVERS_CONFIG_SNIPPET = buildMcpConfigSnippet()
 export const AGENT_SKILLS_INSTALL_COMMAND = SKILLS_INSTALL_COMMAND
 export const AGENT_PLUGIN_INSTALL_COMMAND = PLUGIN_INSTALL_COMMAND
 
+// Keep each host's config shape and destination next to its official reference. These are
+// local MCP + skills setup paths, not declarations of native feedback/lifecycle support.
+const additionalClients = {
+  amp: {
+    name: 'Amp',
+    copyKind: 'command',
+    copyText: `amp mcp add ${SERVER_NAME} -- ${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`,
+    docsUrl: 'https://ampcode.com/docs/customize/mcp'
+  },
+  antigravity: {
+    name: 'Antigravity',
+    copyKind: 'config',
+    copyText: MCP_SERVERS_CONFIG_SNIPPET,
+    hint: 'Open MCP Servers → Manage MCP Servers → View raw config, then merge this configuration:',
+    docsUrl: 'https://antigravity.google/docs/mcp'
+  },
+  augment: {
+    name: 'Augment Code',
+    copyKind: 'config',
+    copyText: MCP_SERVERS_CONFIG_SNIPPET,
+    hint: 'Open Augment Settings → MCP → Import from JSON, paste this configuration, then save:',
+    docsUrl: 'https://docs.augmentcode.com/setup-augment/mcp'
+  },
+  cline: {
+    name: 'Cline',
+    copyKind: 'config',
+    copyText: MCP_SERVERS_CONFIG_SNIPPET,
+    hint: 'Open MCP Servers → Configure → Configure MCP Servers, then merge this configuration. For Cline CLI, use `~/.cline/mcp.json`:',
+    docsUrl: 'https://docs.cline.bot/mcp/mcp-overview'
+  },
+  codebuddy: {
+    name: 'CodeBuddy',
+    copyKind: 'config',
+    copyText: JSON.stringify({ mcpServers: { [SERVER_NAME]: stdioConfig } }, null, 2),
+    hint: 'For CodeBuddy Code, merge into `~/.codebuddy/.mcp.json` (user) or `.mcp.json` (project), then restart CodeBuddy:',
+    docsUrl: 'https://www.codebuddy.ai/docs/cli/mcp'
+  },
+  'github-copilot': {
+    name: 'Copilot CLI',
+    copyKind: 'command',
+    copyText: `copilot mcp add ${SERVER_NAME} -- ${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`,
+    docsUrl:
+      'https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers'
+  },
+  droid: {
+    name: 'Droid',
+    copyKind: 'command',
+    copyText: `droid mcp add ${SERVER_NAME} "${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}" --type stdio`,
+    docsUrl: 'https://docs.factory.ai/cli/configuration/mcp'
+  },
+  'hermes-agent': {
+    name: 'Hermes Agent',
+    copyKind: 'config',
+    copyText: `mcp_servers:\n  ${SERVER_NAME}:\n    command: ${SERVER_COMMAND}\n    args: ${JSON.stringify(SERVER_ARGS)}`,
+    hint: 'Merge into `~/.hermes/config.yaml`, then restart Hermes. Standard Hermes installations include MCP support:',
+    docsUrl: 'https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp/'
+  },
+  junie: {
+    name: 'Junie',
+    copyKind: 'config',
+    copyText: MCP_SERVERS_CONFIG_SNIPPET,
+    hint: 'Merge into `~/.junie/mcp/mcp.json` (user) or `.junie/mcp/mcp.json` (project). Junie CLI and JetBrains IDEs share this format:',
+    docsUrl: 'https://junie.jetbrains.com/docs/junie-cli-mcp-configuration.html'
+  },
+  kilo: {
+    name: 'Kilo Code',
+    copyKind: 'config',
+    copyText: JSON.stringify(
+      { mcp: { [SERVER_NAME]: { type: 'local', command: [SERVER_COMMAND, ...SERVER_ARGS] } } },
+      null,
+      2
+    ),
+    hint: 'For Kilo CLI, merge into `~/.config/kilo/kilo.json` (global) or `.kilo/kilo.json` (project):',
+    docsUrl: 'https://kilo.ai/docs/automate/mcp/using-in-cli'
+  },
+  'kimi-code-cli': {
+    name: 'Kimi Code',
+    copyKind: 'command',
+    copyText: `kimi mcp add --transport stdio ${SERVER_NAME} -- ${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`,
+    docsUrl: 'https://moonshotai.github.io/kimi-cli/en/customization/mcp.html'
+  },
+  'kiro-cli': {
+    name: 'Kiro CLI',
+    copyKind: 'config',
+    copyText: MCP_SERVERS_CONFIG_SNIPPET,
+    hint: 'Merge into `~/.kiro/settings/mcp.json`. The default agent loads installed skills automatically; custom agents must include them in their `resources`:',
+    docsUrl: 'https://kiro.dev/docs/mcp/configuration/'
+  },
+  pi: {
+    name: 'Pi',
+    copyKind: 'command',
+    copyText: `pi mcp add ${SERVER_NAME} -- ${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`,
+    hint: 'Requires Pi 0.99 or later with built-in MCP enabled. Run in your terminal, then use `/reload` in an existing Pi session:',
+    docsUrl: 'https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/mcp.md'
+  },
+  qoder: {
+    name: 'Qoder',
+    copyKind: 'config',
+    copyText: MCP_SERVERS_CONFIG_SNIPPET,
+    hint: 'Open Qoder Settings → MCP → My Servers → Add, then paste this configuration:',
+    docsUrl: 'https://docs.qoder.com/user-guide/chat/model-context-protocol'
+  },
+  'qwen-code': {
+    name: 'Qwen Code',
+    copyKind: 'command',
+    copyText: `qwen mcp add --scope user ${SERVER_NAME} ${SERVER_COMMAND} ${SERVER_ARGS.join(' ')}`,
+    docsUrl: 'https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/'
+  },
+  zcode: {
+    name: 'ZCode',
+    copyKind: 'config',
+    copyText: JSON.stringify({ mcp: { servers: { [SERVER_NAME]: commandConfig } } }, null, 2),
+    hint: 'Merge into `~/.zcode/cli/config.json` (user) or `.zcode/config.json` (workspace):',
+    docsUrl: 'https://zcode.z.ai/cn/docs/mcp-services'
+  },
+  zed: {
+    name: 'Zed',
+    copyKind: 'config',
+    copyText: JSON.stringify({ context_servers: { [SERVER_NAME]: commandConfig } }, null, 2),
+    hint: 'Merge into Zed user `settings.json`. Use Zed’s built-in agent to access these MCP tools:',
+    docsUrl: 'https://zed.dev/docs/ai/mcp'
+  }
+} satisfies Record<
+  AdditionalAgentId,
+  {
+    name: string
+    copyKind: McpClientCopyKind
+    copyText: string
+    hint?: string
+    docsUrl: string
+  }
+>
+
+function additionalMcpClient(id: AdditionalAgentId): McpClientConfig {
+  const { name, copyKind, copyText } = additionalClients[id]
+  return { id, name, copyKind, copyText, supportsDeepLink: false }
+}
+
+function additionalIntegration(id: AdditionalAgentId): AgentIntegrationConfig {
+  const client = additionalClients[id]
+  return {
+    id,
+    name: client.name,
+    docsUrl: client.docsUrl,
+    actions: [
+      {
+        id: client.copyKind === 'config' ? 'mcp-config' : 'mcp-cli',
+        label: client.copyKind === 'config' ? 'MCP config' : 'MCP CLI',
+        kind: client.copyKind,
+        value: client.copyText,
+        ...('hint' in client ? { hint: client.hint } : {})
+      },
+      {
+        id: 'skill-cli',
+        label: 'Agent skills',
+        kind: 'command',
+        value: buildSkillsInstallCommand(id)
+      }
+    ]
+  }
+}
+
 export const MCP_CLIENTS_BY_ID: Record<McpClientId, McpClientConfig> = {
+  amp: additionalMcpClient('amp'),
+  antigravity: additionalMcpClient('antigravity'),
+  augment: additionalMcpClient('augment'),
+  cline: additionalMcpClient('cline'),
+  codebuddy: additionalMcpClient('codebuddy'),
+  'github-copilot': additionalMcpClient('github-copilot'),
+  droid: additionalMcpClient('droid'),
+  'hermes-agent': additionalMcpClient('hermes-agent'),
+  junie: additionalMcpClient('junie'),
+  kilo: additionalMcpClient('kilo'),
+  'kimi-code-cli': additionalMcpClient('kimi-code-cli'),
+  'kiro-cli': additionalMcpClient('kiro-cli'),
+  pi: additionalMcpClient('pi'),
+  qoder: additionalMcpClient('qoder'),
+  'qwen-code': additionalMcpClient('qwen-code'),
+  zcode: additionalMcpClient('zcode'),
+  zed: additionalMcpClient('zed'),
   vscode: {
     id: 'vscode',
     name: 'VS Code',
@@ -329,21 +530,25 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
   codex: {
     id: 'codex',
     name: 'Codex',
+    docsUrl: 'https://developers.openai.com/plugins/build/plugins',
     actions: [pluginCliAction('codex')]
   },
   claude: {
     id: 'claude',
     name: 'Claude Code',
+    docsUrl: 'https://code.claude.com/docs/en/discover-plugins',
     actions: [pluginCliAction('claude-code')]
   },
   cursor: {
     id: 'cursor',
     name: 'Cursor',
+    docsUrl: 'https://cursor.com/docs/plugins',
     actions: [pluginCliAction('cursor')]
   },
   gemini: {
     id: 'gemini',
     name: 'Gemini',
+    docsUrl: 'https://geminicli.com/docs/cli/cli-reference/',
     actions: [
       {
         id: 'mcp-cli',
@@ -368,17 +573,20 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
   vscode: {
     id: 'vscode',
     name: 'VS Code',
+    docsUrl: 'https://code.visualstudio.com/docs/agent-customization/agent-plugins',
     actions: [pluginCliAction('vscode')]
   },
   opencode: {
     id: 'opencode',
     name: 'OpenCode',
+    docsUrl: 'https://opencode.ai/docs/mcp-servers/',
     actions: [
       {
         id: 'mcp-config',
         label: 'MCP config',
         kind: 'config',
-        value: OPENCODE_CONFIG_SNIPPET
+        value: OPENCODE_CONFIG_SNIPPET,
+        hint: 'Merge into `~/.config/opencode/opencode.json` (global) or `opencode.json` (project):'
       },
       {
         id: 'skill-cli',
@@ -391,6 +599,7 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
   trae: {
     id: 'trae',
     name: 'TRAE',
+    docsUrl: 'https://docs.trae.ai/ide/mcp-server-install-links',
     actions: [
       {
         id: 'mcp-deep-link',
@@ -403,10 +612,28 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
         id: 'skill-cli',
         label: 'Agent skills',
         kind: 'command',
-        value: buildSkillsInstallCommand('trae')
+        value: buildSkillsInstallCommand('trae'),
+        hint: 'Run in your terminal. For TRAE China, replace `--agent trae` with `--agent trae-cn`:'
       }
     ]
-  }
+  },
+  amp: additionalIntegration('amp'),
+  antigravity: additionalIntegration('antigravity'),
+  augment: additionalIntegration('augment'),
+  cline: additionalIntegration('cline'),
+  codebuddy: additionalIntegration('codebuddy'),
+  'github-copilot': additionalIntegration('github-copilot'),
+  droid: additionalIntegration('droid'),
+  'hermes-agent': additionalIntegration('hermes-agent'),
+  junie: additionalIntegration('junie'),
+  kilo: additionalIntegration('kilo'),
+  'kimi-code-cli': additionalIntegration('kimi-code-cli'),
+  'kiro-cli': additionalIntegration('kiro-cli'),
+  pi: additionalIntegration('pi'),
+  qoder: additionalIntegration('qoder'),
+  'qwen-code': additionalIntegration('qwen-code'),
+  zcode: additionalIntegration('zcode'),
+  zed: additionalIntegration('zed')
 }
 
 export const AGENT_INTEGRATIONS: AgentIntegrationConfig[] = Object.values(AGENT_INTEGRATIONS_BY_ID)

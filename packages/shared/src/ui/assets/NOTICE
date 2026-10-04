@@ -1,0 +1,46 @@
+Brand artwork identifies the corresponding products; trademarks belong to their owners.
+
+amp, antigravity, cline, codebuddy, github-copilot, junie, kilo, kimi-code-cli, kiro-cli,
+pi, qoder, and qwen-code SVGs are from Lobe Icons:
+https://github.com/lobehub/lobe-icons/tree/master/packages/static-svg/icons
+Upstream names: githubcopilot, kilocode, kimi, kiro, and qwen where different.
+Amp, Antigravity, Junie, Kimi, Qoder, and Qwen use the upstream
+`-color.svg` variants; their original colors and gradients are preserved.
+The Codex color mark uses the monochrome mark's geometry with the original color
+gradient, without an app-tile background, so both variants have identical bounds.
+Kiro uses the monochrome mark's geometry in its original purple (#9046FF), without
+the app-tile background, to preserve the same silhouette in both states.
+CodeBuddy likewise omits the app tile and applies its original gradient to the mark.
+Kimi's neutral letter uses currentColor for light/dark surfaces; its blue accent is unchanged.
+The `-mono.svg` files use Lobe Icons' corresponding monochrome marks, including
+Codex, Claude, Gemini, and TRAE. VS Code's monochrome mark derives from its existing
+color artwork. These variants use currentColor for a uniform UI tone.
+
+MIT License
+
+Copyright (c) 2023 LobeHub
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Other artwork sources (view boxes and fills adapted for inline monochrome display):
+- augment.svg: https://www.augmentcode.com/favicon.svg
+- droid.svg: symbol from https://factory.ai/favicon.svg
+- hermes-agent.svg: https://web-assets.nousresearch.com/nousnet-web/assets/hermes-landing/teams/hermes-wing.6ee276e9bff5a166.svg
+- zcode.svg: inline brand mark at https://zcode.z.ai/
+- zed.svg: https://github.com/simple-icons/simple-icons/blob/develop/icons/zedindustries.svg (CC0-1.0)

@@ -1,3 +1,4 @@
+import { AGENT_INTEGRATIONS_BY_ID } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it } from 'vitest'
 import { page } from 'vitest/browser'
 import { defineComponent, h, nextTick } from 'vue'
@@ -31,8 +32,6 @@ const tokens = {
 
 const SKILLS_SOURCE_URL =
   'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/targets/standard/skills'
-const DESIGN_TO_CODE_SKILL_URL = `${SKILLS_SOURCE_URL}/figma-design-to-code`
-const CANVAS_AUTHORING_SKILL_URL = `${SKILLS_SOURCE_URL}/figma-canvas-authoring`
 const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill figma-design-to-code figma-canvas-authoring`
 const PLUGIN_INSTALL_COMMAND = 'npx plugins add ecomfe/tempad-dev'
 
@@ -50,12 +49,42 @@ function mountDialog(): HTMLElement {
 }
 
 function getCode(host: HTMLElement): string[] {
-  return Array.from(host.querySelectorAll('code'), ({ textContent }) => textContent ?? '')
+  return Array.from(
+    host.querySelectorAll('.tp-agent-dialog-code-well code'),
+    ({ textContent }) => textContent ?? ''
+  )
 }
 
 afterEach(unmountAll)
 
 describe('AgentSetupDialog', () => {
+  it.each(Object.values(AGENT_INTEGRATIONS_BY_ID))(
+    'shows the setup path and official reference for $name',
+    async (agent) => {
+      const host = mountDialog()
+      await page.getByRole('tab', { name: agent.name, exact: true }).click()
+      expect(getCode(host)).toEqual(
+        agent.actions.filter(({ kind }) => kind !== 'deep-link').map(({ value }) => value)
+      )
+      expect(agent.docsUrl).toMatch(/^https:\/\//)
+      expect(host.querySelector(`a[href="${agent.docsUrl}"]`)?.getAttribute('aria-label')).toBe(
+        `${agent.name} setup documentation`
+      )
+      for (const action of agent.actions) {
+        if (action.hint) expect(host.textContent).toContain(action.hint.replaceAll('`', ''))
+      }
+      const inlineCode = Array.from(
+        host.querySelectorAll('.tp-agent-dialog-action-hint code'),
+        ({ textContent }) => textContent
+      )
+      if (agent.id === 'zcode')
+        expect(inlineCode).toEqual(['~/.zcode/cli/config.json', '.zcode/config.json'])
+      if (agent.id === 'trae') expect(inlineCode).toEqual(['--agent trae', '--agent trae-cn'])
+      if (agent.id === 'pi') expect(inlineCode).toEqual(['/reload'])
+      expect(host.querySelector('.tp-agent-dialog-brand svg path')).not.toBeNull()
+    }
+  )
+
   it('offers the Codex plugin through its native CLI command', async () => {
     const host = mountDialog()
     await nextTick()
@@ -158,8 +187,8 @@ describe('AgentSetupDialog', () => {
 
     expect(getCode(host)).toEqual([
       'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest',
-      `gemini skills install ${DESIGN_TO_CODE_SKILL_URL}`,
-      `gemini skills install ${CANVAS_AUTHORING_SKILL_URL}`
+      'gemini skills install https://github.com/ecomfe/tempad-dev.git --path agent-plugin/targets/standard/skills/figma-design-to-code',
+      'gemini skills install https://github.com/ecomfe/tempad-dev.git --path agent-plugin/targets/standard/skills/figma-canvas-authoring'
     ])
     expect(host.textContent).toContain('Then run in your terminal:')
   })

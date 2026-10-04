@@ -79,8 +79,8 @@ TemPad Dev 提供布局、样式、变量引用、组件信息和素材。`figma
 ### 配置指南
 
 1. 安装 Node.js 22.x、24.x 或 26+ 并确保 `npx` 可用。在希望 agent 检查的 Figma 标签页中保持 TemPad Dev 打开，然后启用 **Preferences → Agent integration → MCP access**。出现提示时，请允许连接到 loopback 地址 `127.0.0.1`。启用 MCP access 且当前 Figma Design 文件可编辑时，即可进行画布创作。
-2. 点击 **Set up agents**，选择 Codex、Cursor、Claude Code、Gemini、VS Code、OpenCode 或 TRAE，然后按界面显示的路径配置。其它兼容客户端请选择 **Other**。这里的选择只会切换说明，不会绑定或激活 agent。
-3. Codex 和 Claude Code 使用原生 marketplace 安装；Codex App 集成通过原生 IPC 工作，无需生命周期 hooks。Cursor 和 VS Code 使用可移植的 Agent Plugin。对 Gemini、OpenCode、TRAE 及其它尚无兼容 plugin 安装能力的客户端，则使用对应客户端的 MCP 流程并单独安装两个 skill。所有命令和 config 都会完整显示，便于检查和复制。
+2. 点击 **Set up agents**，选择你的客户端，然后按界面显示的路径配置。除原有 IDE 和 CLI 集成外，还为 Qwen Code、Qoder、ZCode、Kimi Code、Pi 和 Hermes Agent 等提供独立入口。其它兼容客户端请选择 **Other agents**。这里的选择只会切换说明，不会绑定或激活 agent。
+3. Codex 和 Claude Code 使用原生 marketplace 安装；Codex App 集成通过原生 IPC 工作，无需生命周期 hooks。Cursor 和 VS Code 使用可移植的 Agent Plugin。其它入口使用对应客户端的 MCP 流程并单独安装两个 skill，并按需显示配置位置和文档链接。Pi 需要 0.99 或更新版本，并启用内置 MCP。所有命令和 config 都会完整显示，便于检查和复制。这些配置入口不代表所有客户端都支持原生评论投递或宿主中断。
 
 以下以 Gemini 为例，展示分别配置 MCP 和两个 skill 的安装路径：
 

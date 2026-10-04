@@ -21,7 +21,7 @@ import {
   MCP_SERVERS_CONFIG_SNIPPET
 } from '@/mcp/config'
 
-type SetupTarget = Pick<AgentIntegrationConfig, 'actions' | 'name'> & {
+type SetupTarget = Pick<AgentIntegrationConfig, 'actions' | 'name' | 'docsUrl'> & {
   id: AgentIntegrationId | 'other'
 }
 
@@ -76,7 +76,7 @@ const otherSetup = {
 
 const setupTargets: SetupTarget[] = [...AGENT_INTEGRATIONS, otherSetup]
 const selectedTargetId = ref<SetupTarget['id']>('codex')
-const selectedSetup = computed(() =>
+const selectedSetup = computed<SetupTarget>(() =>
   selectedTargetId.value === 'other' ? otherSetup : AGENT_INTEGRATIONS_BY_ID[selectedTargetId.value]
 )
 const selectedSteps = computed<SetupStep[]>(() => {
@@ -143,6 +143,7 @@ function handleSetupAction(action: AgentIntegrationAction): void {
 }
 
 function getCopyHint(action: AgentIntegrationAction, index: number): string {
+  if (action.hint) return action.hint
   if (index > 0) {
     if (action.id === 'skill-canvas-authoring-cli') return 'Then run in your terminal:'
     return action.kind === 'config' ? 'Or configure manually:' : 'Or run in your terminal:'
@@ -210,6 +211,16 @@ function getCopyTitle(action: AgentIntegrationAction): string {
             Connect a compatible coding agent to Figma, then install the two skills.
           </p>
           <p v-else>Connect the MCP server, then add both agent skills.</p>
+          <a
+            v-if="selectedSetup.docsUrl"
+            class="tp-agent-dialog-docs"
+            :href="selectedSetup.docsUrl"
+            :aria-label="`${selectedSetup.name} setup documentation`"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Setup docs <ExternalLink aria-hidden="true" />
+          </a>
         </div>
 
         <section class="tp-agent-dialog-plan">
@@ -243,7 +254,14 @@ function getCopyTitle(action: AgentIntegrationAction): string {
                   </Button>
                   <div v-else class="tp-agent-dialog-copy-action">
                     <p class="tp-agent-dialog-action-hint">
-                      {{ getCopyHint(action, actionIndex) }}
+                      <template
+                        v-for="(part, partIndex) in getCopyHint(action, actionIndex).split(
+                          /`([^`]+)`/g
+                        )"
+                        :key="partIndex"
+                        ><code v-if="partIndex % 2">{{ part }}</code
+                        ><template v-else>{{ part }}</template></template
+                      >
                     </p>
                     <div class="tp-agent-dialog-code-well">
                       <code>{{ action.value }}</code>
@@ -331,6 +349,32 @@ function getCopyTitle(action: AgentIntegrationAction): string {
   display: flex;
   align-items: center;
   gap: var(--spacer-2);
+}
+
+.tp-agent-dialog-docs {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--spacer-1);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+
+.tp-agent-dialog-docs > svg {
+  width: 12px;
+  height: 12px;
+}
+
+.tp-agent-dialog-docs:hover {
+  color: var(--color-text-brand);
+  text-decoration: underline;
+}
+
+.tp-agent-dialog-docs:focus-visible {
+  border-radius: var(--radius-small);
+  outline: 1px solid var(--color-border-selected);
+  outline-offset: 3px;
 }
 
 .tp-agent-dialog-brand {
@@ -469,6 +513,12 @@ function getCopyTitle(action: AgentIntegrationAction): string {
 .tp-agent-dialog-action-hint {
   margin: 0 0 var(--spacer-2);
   color: var(--color-text);
+}
+
+.tp-agent-dialog-action-hint code {
+  font-family: var(--text-mono-medium-font-family);
+  font-size: var(--text-mono-medium-font-size);
+  overflow-wrap: anywhere;
 }
 
 .tp-agent-dialog-code-well {

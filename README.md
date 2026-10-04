@@ -82,8 +82,8 @@ Both workflows use the same MCP connection to Figma. Compatible clients can inst
 ### Setup guide
 
 1. Install Node.js 22.x, 24.x, or 26+ with `npx`. Keep TemPad Dev open in the Figma tab you want the agent to inspect, then enable **Preferences → Agent integration → MCP access**. When prompted, allow the loopback connection to `127.0.0.1`. Canvas authoring is available while MCP access is enabled and the current Figma Design file is editable.
-2. Select **Set up agents**, choose Codex, Cursor, Claude Code, Gemini, VS Code, OpenCode, or TRAE, and follow the displayed path. Use **Other** for another compatible client. The choice only changes the instructions shown; it does not bind or activate an agent.
-3. The setup flow uses native marketplace installation for Codex and Claude Code, and the portable Agent Plugin for Cursor and VS Code. Codex App integration uses native IPC without lifecycle hooks. For Gemini, OpenCode, TRAE, and other clients without compatible plugin installation, it uses the client's MCP flow plus the two standalone skills. Every command or config is shown in full for review and copying.
+2. Select **Set up agents**, choose your client, and follow the displayed path. Dedicated entries include Qwen Code, Qoder, ZCode, Kimi Code, Pi, and Hermes Agent alongside the existing IDE and CLI integrations. Use **Other agents** for another compatible client. The choice only changes the instructions shown; it does not bind or activate an agent.
+3. The setup flow uses native marketplace installation for Codex and Claude Code, and the portable Agent Plugin for Cursor and VS Code. Codex App integration uses native IPC without lifecycle hooks. Other entries provide the client's MCP flow plus the two standalone skills, with configuration destinations and documentation links where needed. Pi requires version 0.99 or later with built-in MCP enabled. Every command or config is shown in full for review and copying. These setup paths do not imply native comment delivery or host interruption support for every client.
 
 For clients with separate MCP and skill installation, the setup shows each command. Gemini is one example:
 

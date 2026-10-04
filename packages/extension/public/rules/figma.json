@@ -30,6 +30,16 @@
     }
   },
   {
+    "id": 3,
+    "priority": 20,
+    "action": { "type": "allow" },
+    "condition": {
+      "urlFilter": "tempad-fallback=1",
+      "requestDomains": ["www.figma.com"],
+      "resourceTypes": ["script"]
+    }
+  },
+  {
     "id": 99,
     "priority": 1000,
     "action": {
@@ -44,7 +54,7 @@
       "resourceTypes": ["xmlhttprequest"],
       "initiatorDomains": ["www.figma.com"],
       "requestDomains": ["ecomfe.github.io"],
-      "regexFilter": "/tempad-dev/figma\\.(?:json|comply\\.json)$"
+      "regexFilter": "/tempad-dev/(?:figma\\.(?:json|comply\\.json)|figma-runtime-v1\\.js)$"
     }
   }
 ]

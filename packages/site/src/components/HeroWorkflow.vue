@@ -1,13 +1,53 @@
 <script setup lang="ts">
-import { Braces, Layers, Terminal } from 'lucide-vue-next'
+import { AGENT_INTEGRATIONS } from '@tempad-dev/shared'
+import {
+  useDocumentVisibility,
+  useElementHover,
+  useElementVisibility,
+  useIntervalFn,
+  usePreferredReducedMotion
+} from '@vueuse/core'
+import { Braces, Layers, Plus } from 'lucide-vue-next'
+import { computed, ref, useTemplateRef, watchEffect } from 'vue'
 
+import BrandIcon from '@/components/BrandIcon.vue'
 import BrandMark from '@/components/BrandMark.vue'
+
+const figure = useTemplateRef<HTMLElement>('figure')
+const agentPair = useTemplateRef<HTMLElement>('agentPair')
+const visible = useElementVisibility(figure)
+const hovered = useElementHover(agentPair)
+const documentVisibility = useDocumentVisibility()
+const reducedMotion = usePreferredReducedMotion()
+const activeIndex = ref(0)
+const activeAgent = computed(() => AGENT_INTEGRATIONS[activeIndex.value]!)
+const { pause, resume } = useIntervalFn(
+  () => {
+    activeIndex.value = (activeIndex.value + 1) % AGENT_INTEGRATIONS.length
+  },
+  1400,
+  { immediate: false }
+)
+
+watchEffect(() => {
+  if (
+    visible.value &&
+    !hovered.value &&
+    documentVisibility.value === 'visible' &&
+    reducedMotion.value !== 'reduce'
+  ) {
+    resume()
+  } else {
+    pause()
+  }
+})
 </script>
 
 <template>
   <figure
+    ref="figure"
     class="site-workflow-figure"
-    aria-label="Illustration of editable Figma components and project code connected through your coding agent"
+    aria-label="Illustration of editable Figma components and project code connected through TemPad Dev and your coding agent"
   >
     <div class="site-workflow-drawing" aria-hidden="true">
       <div class="site-workflow-surfaces">
@@ -69,11 +109,22 @@ import BrandMark from '@/components/BrandMark.vue'
         <span class="site-workflow-bridge">Read &amp; edit</span>
         <span class="site-workflow-project">Build &amp; refine</span>
       </div>
-      <div class="site-workflow-agent">
-        <Terminal /><span>Your coding agent</span>
+      <div ref="agentPair" class="site-workflow-agent" :title="`${activeAgent.name} + TemPad Dev`">
+        <span class="site-workflow-agent-rotator">
+          <Transition name="site-workflow-logo">
+            <BrandIcon
+              :key="activeAgent.id"
+              class="site-workflow-agent-logo"
+              :client-id="activeAgent.id"
+            />
+          </Transition>
+        </span>
+        <Plus class="site-workflow-agent-plus" />
         <span class="site-workflow-agent-plugin" title="TemPad Dev plugin"><BrandMark /></span>
       </div>
     </div>
-    <figcaption class="site-sr-only">Workflow illustration</figcaption>
+    <figcaption class="site-sr-only">
+      TemPad Dev works with {{ AGENT_INTEGRATIONS.map((agent) => agent.name).join(', ') }}.
+    </figcaption>
   </figure>
 </template>

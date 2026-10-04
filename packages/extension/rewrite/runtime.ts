@@ -1,10 +1,8 @@
 import type { Group } from '@/types/rewrite'
 
 import { logger } from '../utils/log'
-import { applyGroups } from './shared'
-
-const FIGMA_DELETE_PATCH_TARGET = 'delete window.figma'
-const FIGMA_DELETE_PATCH_VALUE = 'window.figma = undefined'
+import { fetchScriptText } from './loader'
+import { rewriteSource } from './transform'
 
 function getCurrentScript(): HTMLScriptElement | null {
   const current = document.currentScript
@@ -14,15 +12,50 @@ function getCurrentScript(): HTMLScriptElement | null {
   return current
 }
 
-function replaceScript(current: HTMLScriptElement, src: string): void {
+export function replaceScript(
+  current: HTMLScriptElement,
+  src: string,
+  timeoutMs = 15000
+): Promise<void> {
   const script = document.createElement('script')
-  script.src = src
-  script.defer = true
-  current.replaceWith(script)
+  for (const { name, value } of current.attributes) {
+    if (
+      !['src', 'integrity', 'onload', 'onerror'].includes(name) &&
+      !(name === 'type' && value === 'application/x-tempad-rewrite')
+    ) {
+      script.setAttribute(name, value)
+    }
+  }
+  script.src = fallbackUrl(src)
+  script.async = false
+  return new Promise((resolve, reject) => {
+    const finish = (error?: Error) => {
+      clearTimeout(timer)
+      script.removeEventListener('load', onLoad)
+      script.removeEventListener('error', onError)
+      if (error) reject(error)
+      else resolve()
+    }
+    const onLoad = () => finish()
+    const onError = () => finish(new Error(`Unable to load ${src}`))
+    const timer = setTimeout(() => {
+      script.remove()
+      finish(new Error(`Original script request timed out: ${src}`))
+    }, timeoutMs)
+    script.addEventListener('load', onLoad, { once: true })
+    script.addEventListener('error', onError, { once: true })
+    current.replaceWith(script)
+  })
 }
 
-function withCurrentScript(current: HTMLScriptElement, run: () => void): void {
-  const descriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'currentScript')
+export function fallbackUrl(src: string): string {
+  const url = new URL(src)
+  url.searchParams.set('tempad-fallback', '1')
+  return url.href
+}
+
+export function withCurrentScript(current: HTMLScriptElement, run: () => void): void {
+  const descriptor = Object.getOwnPropertyDescriptor(document, 'currentScript')
 
   Object.defineProperty(document, 'currentScript', {
     configurable: true,
@@ -42,10 +75,6 @@ function withCurrentScript(current: HTMLScriptElement, run: () => void): void {
   }
 }
 
-function patchFigmaDelete(code: string): string {
-  return code.replaceAll(FIGMA_DELETE_PATCH_TARGET, FIGMA_DELETE_PATCH_VALUE)
-}
-
 export async function rewriteCurrentScript(groups: Group[]): Promise<void> {
   const current = getCurrentScript()
   if (!current) {
@@ -54,21 +83,23 @@ export async function rewriteCurrentScript(groups: Group[]): Promise<void> {
 
   const src = current.src
 
+  let run: () => void
   try {
-    const response = await fetch(src)
-    const original = await response.text()
-    const { content: rewritten, changed } = applyGroups(original, groups)
-
-    if (changed) {
-      logger.log(`Rewrote script: ${src}`)
-    }
-
-    const content = patchFigmaDelete(rewritten)
-    withCurrentScript(current, () => {
-      new Function(content)()
-    })
+    const original = await fetchScriptText(
+      src,
+      { credentials: 'include', cache: 'force-cache' },
+      15000
+    )
+    run = new Function(rewriteSource(original, groups)) as () => void
   } catch (error) {
     logger.error(error)
-    replaceScript(current, `${src}?fallback`)
+    await replaceScript(current, src)
+    return
+  }
+  // Never replay the original after execution has begun: it may have mutated the page.
+  try {
+    withCurrentScript(current, run)
+  } catch (error) {
+    logger.error('Rewritten script failed during execution.', error)
   }
 }
