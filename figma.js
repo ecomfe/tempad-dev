@@ -62,88 +62,7 @@
     }
   };
 
-  // public/rules/figma.json
-  var figma_default = [
-    {
-      id: 1,
-      priority: 10,
-      action: {
-        type: "modifyHeaders",
-        responseHeaders: [
-          {
-            header: "Content-Security-Policy",
-            operation: "remove"
-          }
-        ]
-      },
-      condition: {
-        resourceTypes: ["main_frame"]
-      }
-    },
-    {
-      id: 2,
-      priority: 1,
-      action: {
-        type: "redirect",
-        redirect: {
-          extensionPath: "/figma.js"
-        }
-      },
-      condition: {
-        regexFilter: "/webpack-artifacts/assets/(?:figma_app[^.]+|[0-9a-zA-Z-]+)\\.min\\.js(?:\\.br)?$",
-        resourceTypes: ["script"]
-      }
-    },
-    {
-      id: 3,
-      priority: 20,
-      action: { type: "allow" },
-      condition: {
-        urlFilter: "tempad-fallback=1",
-        requestDomains: ["www.figma.com"],
-        resourceTypes: ["script"]
-      }
-    },
-    {
-      id: 99,
-      priority: 1e3,
-      action: {
-        type: "modifyHeaders",
-        responseHeaders: [
-          { header: "Access-Control-Allow-Origin", operation: "set", value: "*" },
-          { header: "Access-Control-Allow-Methods", operation: "set", value: "GET, OPTIONS" },
-          { header: "Access-Control-Allow-Headers", operation: "set", value: "*" }
-        ]
-      },
-      condition: {
-        resourceTypes: ["xmlhttprequest"],
-        initiatorDomains: ["www.figma.com"],
-        requestDomains: ["ecomfe.github.io"],
-        regexFilter: "/tempad-dev/(?:figma\\.(?:json|comply\\.json)|figma-runtime-v1\\.js)$"
-      }
-    }
-  ];
-
   // rewrite/shared.ts
-  var REWRITE_RULE_ID = 2;
-  function isRecord(value) {
-    return value !== null && typeof value === "object";
-  }
-  function isRule(value) {
-    if (!isRecord(value)) return false;
-    return typeof value.id === "number" && isRecord(value.action) && isRecord(value.condition);
-  }
-  function isRules(value) {
-    return Array.isArray(value) && value.every(isRule);
-  }
-  function getRewriteTargetRegex(source) {
-    try {
-      const rule = source.find((item) => item.id === REWRITE_RULE_ID);
-      return rule?.condition?.regexFilter ? new RegExp(rule.condition.regexFilter, "i") : null;
-    } catch {
-      return null;
-    }
-  }
   function applyReplacement(content, replacement) {
     const { pattern, replacer } = replacement;
     if (typeof pattern === "string") {
@@ -203,45 +122,9 @@
     };
   }
 
-  // rewrite/transform.ts
-  var REWRITE_RUNTIME_PROTOCOL = 1;
-  function rewriteSource(source, groups) {
-    return applyGroups(source, groups).content.replaceAll(
-      "delete window.figma",
-      "window.figma = undefined"
-    );
-  }
-  var bundledRuntime = {
-    protocol: REWRITE_RUNTIME_PROTOCOL,
-    targetPattern: isRules(figma_default) && getRewriteTargetRegex(figma_default)?.source || "a^",
-    rewrite: (source) => rewriteSource(source, GROUPS)
-  };
-
-  // rewrite/loader.ts
-  var MAX_RUNTIME_LENGTH = 1024 * 1024;
-  async function fetchScriptText(url, init, timeoutMs) {
-    const controller = new AbortController();
-    let timer;
-    try {
-      return await Promise.race([
-        (async () => {
-          const response = await fetch(url, { ...init, signal: controller.signal });
-          if (!response.ok) throw new Error(`Script request failed (${response.status}): ${url}`);
-          return await response.text();
-        })(),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => {
-            reject(new Error(`Script request timed out: ${url}`));
-            controller.abort();
-          }, timeoutMs);
-        })
-      ]);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   // rewrite/runtime.ts
+  var FIGMA_DELETE_PATCH_TARGET = "delete window.figma";
+  var FIGMA_DELETE_PATCH_VALUE = "window.figma = undefined";
   function getCurrentScript() {
     const current = document.currentScript;
     if (!(current instanceof HTMLScriptElement) || !current.src) {
@@ -249,41 +132,14 @@
     }
     return current;
   }
-  function replaceScript(current, src, timeoutMs = 15e3) {
+  function replaceScript(current, src) {
     const script = document.createElement("script");
-    for (const { name, value } of current.attributes) {
-      if (!["src", "integrity", "onload", "onerror"].includes(name) && !(name === "type" && value === "application/x-tempad-rewrite")) {
-        script.setAttribute(name, value);
-      }
-    }
-    script.src = fallbackUrl(src);
-    script.async = false;
-    return new Promise((resolve, reject) => {
-      const finish = (error) => {
-        clearTimeout(timer);
-        script.removeEventListener("load", onLoad);
-        script.removeEventListener("error", onError);
-        if (error) reject(error);
-        else resolve();
-      };
-      const onLoad = () => finish();
-      const onError = () => finish(new Error(`Unable to load ${src}`));
-      const timer = setTimeout(() => {
-        script.remove();
-        finish(new Error(`Original script request timed out: ${src}`));
-      }, timeoutMs);
-      script.addEventListener("load", onLoad, { once: true });
-      script.addEventListener("error", onError, { once: true });
-      current.replaceWith(script);
-    });
-  }
-  function fallbackUrl(src) {
-    const url = new URL(src);
-    url.searchParams.set("tempad-fallback", "1");
-    return url.href;
+    script.src = src;
+    script.defer = true;
+    current.replaceWith(script);
   }
   function withCurrentScript(current, run) {
-    const descriptor = Object.getOwnPropertyDescriptor(document, "currentScript");
+    const descriptor = Object.getOwnPropertyDescriptor(Document.prototype, "currentScript");
     Object.defineProperty(document, "currentScript", {
       configurable: true,
       get() {
@@ -300,29 +156,29 @@
       }
     }
   }
+  function patchFigmaDelete(code) {
+    return code.replaceAll(FIGMA_DELETE_PATCH_TARGET, FIGMA_DELETE_PATCH_VALUE);
+  }
   async function rewriteCurrentScript(groups) {
     const current = getCurrentScript();
     if (!current) {
       return;
     }
     const src = current.src;
-    let run;
     try {
-      const original = await fetchScriptText(
-        src,
-        { credentials: "include", cache: "force-cache" },
-        15e3
-      );
-      run = new Function(rewriteSource(original, groups));
+      const response = await fetch(src);
+      const original = await response.text();
+      const { content: rewritten, changed } = applyGroups(original, groups);
+      if (changed) {
+        logger.log(`Rewrote script: ${src}`);
+      }
+      const content = patchFigmaDelete(rewritten);
+      withCurrentScript(current, () => {
+        new Function(content)();
+      });
     } catch (error) {
       logger.error(error);
-      await replaceScript(current, src);
-      return;
-    }
-    try {
-      withCurrentScript(current, run);
-    } catch (error) {
-      logger.error("Rewritten script failed during execution.", error);
+      replaceScript(current, `${src}?fallback`);
     }
   }
 
