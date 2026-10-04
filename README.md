@@ -106,7 +106,7 @@ see the [Agent Plugin guide](./agent-plugin/src/README.md).
 
 All plugin and direct `npx`-based setup paths use `@tempad-dev/mcp@latest`.
 
-For this release, use extension **0.23.0**, MCP server **0.11.0**, and Agent
+For this release, use extension **0.23.1**, MCP server **0.11.0**, and Agent
 Plugin **0.4.0** together. See the [upgrade guide](./agent-plugin/src/README.md#upgrading)
 when updating an existing installation.
 

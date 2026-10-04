@@ -29,19 +29,6 @@ export function getRewriteTargetRegex(source: Rules): RegExp | null {
   }
 }
 
-export function localizeRules(bundled: Rules, remote?: Rules | null): Rules {
-  const pattern = remote && getRewriteTargetRegex(remote)?.source
-  return bundled.map((rule) =>
-    rule.id === REWRITE_RULE_ID
-      ? {
-          ...rule,
-          action: { type: 'redirect', redirect: { extensionPath: '/figma.js' } },
-          condition: { ...rule.condition, ...(pattern ? { regexFilter: pattern } : {}) }
-        }
-      : rule
-  )
-}
-
 export async function loadRules(url: string, init?: RequestInit): Promise<Rules | null> {
   try {
     const response = await fetch(url, init)

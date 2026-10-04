@@ -8,7 +8,6 @@ import {
   getRewriteTargetRegex,
   groupMatches,
   isRules,
-  localizeRules,
   loadRules
 } from '@/rewrite/shared'
 import { logger } from '@/utils/log'
@@ -46,36 +45,6 @@ function createRules(regexFilter = '^https://www\\.figma\\.com/'): Rules {
 }
 
 describe('rewrite/shared isRules + regex helpers', () => {
-  it('keeps redirects and header policy local while accepting valid remote matching patterns', () => {
-    const bundled = [
-      {
-        id: 2,
-        priority: 1,
-        action: { type: 'redirect', redirect: { extensionPath: '/figma.js' } },
-        condition: { regexFilter: 'bundled', resourceTypes: ['script'] }
-      },
-      {
-        id: 3,
-        priority: 20,
-        action: { type: 'allow' },
-        condition: { urlFilter: 'tempad-fallback=1', resourceTypes: ['script'] }
-      }
-    ] as Rules
-    const remote = [
-      {
-        id: 2,
-        priority: 999,
-        action: { type: 'redirect', redirect: { url: 'https://example.test/remote.js' } },
-        condition: { regexFilter: 'updated', resourceTypes: ['main_frame'] }
-      }
-    ] as Rules
-    expect(localizeRules(bundled, remote)).toEqual([
-      { ...bundled[0], condition: { ...bundled[0].condition, regexFilter: 'updated' } },
-      bundled[1]
-    ])
-    expect(localizeRules(bundled, createRules('['))).toEqual(bundled)
-    expect(localizeRules(bundled)).toEqual(bundled)
-  })
   it('validates rules payload shape', () => {
     expect(isRules(createRules())).toBe(true)
     expect(isRules([null])).toBe(false)

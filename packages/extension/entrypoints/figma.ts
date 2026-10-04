@@ -1,8 +1,6 @@
-import { getRewriteSession } from '@/rewrite/session'
+import { GROUPS } from '@/rewrite/config'
+import { rewriteCurrentScript } from '@/rewrite/runtime'
 
 export default defineUnlistedScript(() => {
-  // Capture before any await; the remote runtime never needs document.currentScript.
-  const current = document.currentScript
-  if (!(current instanceof HTMLScriptElement) || !current.src) return
-  void getRewriteSession(!import.meta.env.DEV).rewriteScript(current)
+  rewriteCurrentScript(GROUPS)
 })

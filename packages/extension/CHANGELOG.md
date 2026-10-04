@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.1
+
+- Expanded agent setup with additional clients, client-specific installation commands,
+  configuration guidance, and updated brand icons.
+
 ## 0.23.0
 
 - Added multi-selection and explicit `nodeIds` reads for code, screenshots, and structure.

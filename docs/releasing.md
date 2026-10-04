@@ -8,7 +8,7 @@ TemPad Dev has three independently distributed integration parts:
 | MCP server        | `packages/mcp-server/package.json` | npm through `publish-mcp.yml`           |
 | Agent Plugin      | `agent-plugin/src/plugin.json`     | Git marketplace on `main`               |
 
-The current release candidate pairs extension **0.23.0**, MCP **0.11.0**, and Agent
+The current release candidate pairs extension **0.23.1**, MCP **0.11.0**, and Agent
 Plugin **0.4.0**, adding multi-node reads, consumer-aware token resolution, and timeout shell
 fallback. The new MCP continues to serve extension 0.22.0 during the store rollout.
 `@tempad-dev/plugins` is the separate code-output SDK; its version remains
@@ -31,7 +31,7 @@ frozen protocol 13 and unversioned 0.20.0 paths before moving `latest`, alongsid
    the actual installer. Release MCP configuration must use `@tempad-dev/mcp@latest`.
 3. Run the checks in [TESTING.md](../TESTING.md), then `pnpm format:check`, `pnpm build`, and
    `pnpm zip`. Ordinary build must not change tracked agent-plugin files. The extension archive is
-   written to `packages/extension/.output/tempad-dev-0.23.0-chrome.zip` for this release.
+   written to `packages/extension/.output/tempad-dev-0.23.1-chrome.zip` for this release.
 4. Remove `packages/mcp-server/dist` and rebuild before packing. A working tree that has been
    built repeatedly has been seen holding a stale hashed shared chunk even though `clean` is
    configured, and packing from it ships both copies. Then run `npm pack` in `packages/mcp-server`
