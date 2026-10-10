@@ -509,6 +509,65 @@ describe('mcp/tools/design-system', () => {
     ])
   })
 
+  it('omits composed colors from variable modes and overrides with one warning', async () => {
+    const composed: VariableComposedColor = {
+      color: { r: 1, g: 0, b: 0 },
+      opacity: { type: 'VARIABLE_ALIAS', id: 'variable:opacity' }
+    }
+    const surface = variable('variable:surface', 'Surface', 'collection:tokens', {
+      valuesByMode: {
+        'collection:tokens:light': { r: 1, g: 1, b: 1, a: 1 },
+        'collection:tokens:dark': composed
+      }
+    })
+    const tokens = collection('collection:tokens', 'Tokens', { variableIds: [surface.id] })
+    const extended = {
+      ...collection('collection:extended', 'Extended'),
+      isExtension: true,
+      parentVariableCollectionId: tokens.id,
+      rootVariableCollectionId: tokens.id,
+      variableOverrides: {
+        [surface.id]: {
+          'collection:extended:light': {
+            color: { type: 'VARIABLE_ALIAS', id: surface.id },
+            opacity: 50
+          },
+          'collection:extended:dark': { type: 'VARIABLE_ALIAS', id: surface.id }
+        }
+      }
+    } as unknown as VariableCollection
+    const opacity = variable('variable:opacity', 'Opacity', tokens.id, {
+      resolvedType: 'FLOAT',
+      valuesByMode: { 'collection:tokens:light': 50 }
+    })
+    stubFigma({ localCollections: [tokens, extended], localVariables: [surface, opacity] })
+
+    const result = await handleGetDesignSystem()
+    expect(result.warnings).toEqual([
+      'Unsupported variable values were omitted from mode definitions.'
+    ])
+    const catalog = requireDesignSystemCatalog(result.catalogId)
+    const surfaceRef = result.variables.find(({ name }) => name === 'Surface')!.ref
+    expect(catalog.entries.get(surfaceRef)?.definition).toMatchObject({
+      valuesByMode: { 'collection:tokens:light': { r: 1, g: 1, b: 1, a: 1 } }
+    })
+    expect(catalog.entries.get(surfaceRef)?.definition).not.toHaveProperty([
+      'valuesByMode',
+      'collection:tokens:dark'
+    ])
+    const extendedRef = result.collections.find(({ name }) => name === 'Extended')!.ref
+    expect(catalog.entries.get(extendedRef)?.definition).toMatchObject({
+      variableOverrides: {
+        [surface.id]: { 'collection:extended:dark': { variable: { id: surface.id } } }
+      }
+    })
+    expect(catalog.entries.get(extendedRef)?.definition).not.toHaveProperty([
+      'variableOverrides',
+      surface.id,
+      'collection:extended:light'
+    ])
+  })
+
   it('summarizes styles and shaders while keeping exact definitions on demand', async () => {
     stubFigma({
       localStyles: [

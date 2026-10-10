@@ -45,7 +45,7 @@ async function ensureLocalIndex(state: CanvasStyleState): Promise<void> {
   }
 }
 
-function createStyle(type: StyleType): BaseStyle {
+function createStyle(type: CanvasStyleResource['type']): BaseStyle {
   switch (type) {
     case 'PAINT':
       return figma.createPaintStyle()

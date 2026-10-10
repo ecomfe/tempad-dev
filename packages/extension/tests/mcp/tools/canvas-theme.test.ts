@@ -297,6 +297,42 @@ describe('Canvas theme compilation', () => {
     )
   })
 
+  it.each([
+    { color: { r: 1, g: 0, b: 0 }, opacity: { type: 'VARIABLE_ALIAS', id: 'var:opacity' } },
+    { color: { type: 'VARIABLE_ALIAS', id: 'var:color' }, opacity: 50 },
+    {
+      color: { type: 'VARIABLE_ALIAS', id: 'var:color' },
+      opacity: { type: 'VARIABLE_ALIAS', id: 'var:opacity' }
+    }
+  ] satisfies VariableComposedColor[])(
+    'rejects composed theme colors before mutation: %j',
+    async (value) => {
+      vi.stubGlobal('figma', {
+        variables: {
+          getLocalVariablesAsync: vi.fn().mockResolvedValue([
+            {
+              id: 'var:color',
+              name: 'Surface',
+              resolvedType: 'COLOR',
+              variableCollectionId: 'collection:1',
+              getSharedPluginData: () => 'token',
+              valuesByMode: { light: value }
+            }
+          ]),
+          getLocalVariableCollectionsAsync: vi.fn().mockResolvedValue([]),
+          getVariableCollectionByIdAsync: vi.fn().mockResolvedValue({ defaultModeId: 'light' })
+        },
+        createFrame: vi.fn()
+      })
+      const spec = input('bg-(--token)')
+      delete spec.variableCollections
+      await expect(prepareCanvasTheme(spec)).rejects.toThrow(
+        'Theme variable "Surface" has an unsupported composed-color value.'
+      )
+      expect(figma.createFrame).not.toHaveBeenCalled()
+    }
+  )
+
   it('accepts stable keys and catalog aliases for the same native variable and text style', () => {
     const catalog = registerDesignSystemCatalog([
       {

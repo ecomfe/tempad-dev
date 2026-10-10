@@ -108,7 +108,9 @@ export function getLocalGridStyles(): Promise<GridStyle[]> {
   )
 }
 
-export async function getLocalStyles(): Promise<BaseStyle[]> {
+export async function getLocalStyles(): Promise<
+  Array<PaintStyle | TextStyle | EffectStyle | GridStyle>
+> {
   return (
     await Promise.all([
       getLocalPaintStyles(),
