@@ -384,7 +384,7 @@ function createFixture(): FigmaFixture {
     })
   }
 
-  function createStyle(type: StyleType): BaseStyle {
+  function createStyle(type: 'PAINT' | 'TEXT' | 'EFFECT' | 'GRID'): BaseStyle {
     const id = `style:authored:${nextStyleId++}`
     const base = withSharedPluginData({
       id,

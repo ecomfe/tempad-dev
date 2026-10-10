@@ -42,7 +42,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@figma/plugin-typings": "^1.138.0",
+    "@figma/plugin-typings": "^1.140.0",
     "tsdown": "^0.23.0",
     "typescript": "^6.0.3",
     "vitest": "5.0.2"

@@ -114,16 +114,22 @@ function isSupportedVariable(variable: Variable): variable is Variable & {
 }
 
 function describeVariableValue(value: VariableValue): CanvasVariableValue | undefined {
+  if (typeof value === 'object' && 'color' in value) return undefined
   if (typeof value !== 'object' || !('type' in value)) return value
   return value.type === 'VARIABLE_ALIAS' ? { variable: describeVariableAlias(value) } : undefined
 }
 
 function describeVariableValues(
-  values: Record<string, VariableValue>
+  values: Record<string, VariableValue>,
+  warnings: string[]
 ): Record<string, CanvasVariableValue> {
   return Object.fromEntries(
     Object.entries(values).flatMap(([modeId, value]) => {
       const described = describeVariableValue(value)
+      if (described === undefined) {
+        const warning = 'Unsupported variable values were omitted from mode definitions.'
+        if (!warnings.includes(warning)) warnings.push(warning)
+      }
       return described === undefined ? [] : [[modeId, described]]
     })
   )
@@ -354,7 +360,7 @@ async function collectVariables(referencedDefinitionIds: Set<string>, warnings: 
         const description = boundedText(variable.description)
         const scopes = variable.scopes?.map(String)
         const variableAuthoringKey = readAuthoringKey(variable, CANVAS_VARIABLE_KEY_NAME)
-        const valuesByMode = describeVariableValues(variable.valuesByMode)
+        const valuesByMode = describeVariableValues(variable.valuesByMode, warnings)
         return {
           id: variable.id,
           key: variable.key,
@@ -387,7 +393,10 @@ async function collectVariables(referencedDefinitionIds: Set<string>, warnings: 
                   const variable = variablesById.get(variableId)
                   return !variable || isSupportedVariable(variable)
                 })
-                .map(([variableId, values]) => [variableId, describeVariableValues(values)])
+                .map(([variableId, values]) => [
+                  variableId,
+                  describeVariableValues(values, warnings)
+                ])
             )
           : {}
         return {
@@ -557,7 +566,9 @@ function describeLayoutGrid(grid: LayoutGrid): CanvasFigmaLayoutGrid {
   }
 }
 
-function describeStyle(style: BaseStyle) {
+type LocalStyle = Awaited<ReturnType<typeof getLocalStyles>>[number]
+
+function describeStyle(style: LocalStyle) {
   const description = boundedText(style.description)
   const descriptionMarkdown = boundedText(style.descriptionMarkdown)
   const documentationLinks = documentationUris(style)
@@ -606,7 +617,7 @@ function describeStyle(style: BaseStyle) {
   }
 }
 
-async function collectStyles(warnings: string[]): Promise<BaseStyle[]> {
+async function collectStyles(warnings: string[]): Promise<LocalStyle[]> {
   try {
     return await getLocalStyles()
   } catch {
@@ -680,7 +691,7 @@ async function collectShaders(warnings: string[]): Promise<Shader[]> {
   }
 }
 
-function collectStyleVariableIds(styles: BaseStyle[], ids: Set<string>): void {
+function collectStyleVariableIds(styles: LocalStyle[], ids: Set<string>): void {
   for (const style of styles) {
     collectVariableAliasIds(style.boundVariables, ids)
     switch (style.type) {

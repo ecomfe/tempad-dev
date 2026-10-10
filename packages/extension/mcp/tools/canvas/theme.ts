@@ -235,6 +235,9 @@ async function readVariableDefaultValue(
   const value = collection ? variable.valuesByMode[collection.defaultModeId] : undefined
   if (value === undefined)
     throw new Error(`Theme variable "${variable.name}" has no default-mode value.`)
+  if (typeof value === 'object' && 'color' in value) {
+    throw new Error(`Theme variable "${variable.name}" has an unsupported composed-color value.`)
+  }
   if (typeof value === 'object' && 'type' in value) {
     if (value.type !== 'VARIABLE_ALIAS')
       throw new Error(`Theme variable "${variable.name}" has an unsupported default-mode value.`)
