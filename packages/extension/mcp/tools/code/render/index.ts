@@ -74,7 +74,25 @@ async function renderNode(
       ...(svgEntry.presentationStyle ?? {})
     }
     const classAttr = classProp(ctx.preferredLang ?? ctx.detectedLang)
-    const { classNames, props } = classProps(svgStyle, ctx.config, classAttr, undefined, {
+    const wrapper = svgEntry.wrapper
+    const wrapperProps = wrapper
+      ? classProps(
+          {
+            ...svgStyle,
+            position: svgStyle.position || 'relative',
+            width: wrapper.width,
+            height: wrapper.height
+          },
+          ctx.config,
+          classAttr,
+          undefined,
+          { isFallback: true, includeDataHint: false }
+        ).props
+      : undefined
+    const placement = wrapper
+      ? { position: 'absolute', left: wrapper.left, top: wrapper.top }
+      : svgStyle
+    const { classNames, props } = classProps(placement, ctx.config, classAttr, undefined, {
       isFallback: true,
       includeDataHint: false
     })
@@ -87,7 +105,8 @@ async function renderNode(
     }
     if (svgEntry.raw) {
       const mergedProps = Object.keys(props).length ? props : undefined
-      return raw(svgEntry.raw, mergedProps as Record<string, string> | undefined)
+      const content = raw(svgEntry.raw, mergedProps as Record<string, string> | undefined)
+      return wrapperProps ? { name: 'div', props: wrapperProps, children: [content] } : content
     }
     const className = props[classAttr]
     if (classNames.length && className) svgProps[classAttr] = className
@@ -96,7 +115,8 @@ async function renderNode(
       svgProps[key] = val
     })
     ensureSvgSize(svgProps, snapshot)
-    return { name: 'svg', props: svgProps, children: [] }
+    const content: DevComponent = { name: 'svg', props: svgProps, children: [] }
+    return wrapperProps ? { name: 'div', props: wrapperProps, children: [content] } : content
   }
 
   let rawStyle = resolveSnapshotStyle(snapshot, ctx, parentIsGrid)

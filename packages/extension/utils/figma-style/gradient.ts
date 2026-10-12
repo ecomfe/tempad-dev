@@ -7,11 +7,12 @@ import { getVariableCssName } from '@/utils/figma-variables'
 
 import type { FigmaLookupReaders, PaintList, PaintResolutionSize } from './types'
 
-import { formatHexAlpha } from '../css'
+import { formatHexAlpha, splitByTopLevelComma } from '../css'
 
 type ResolvedBackgroundFill = { kind: 'color'; value: string } | { kind: 'layers'; value: string[] }
 
 type BackgroundFillResolverOptions = {
+  background?: string
   resolveGradientPaint?: (
     paint: GradientPaint,
     size: GradientSize | undefined,
@@ -93,7 +94,11 @@ export function resolveGradientPaintCss(
       const args = angle == null ? stops : [`${angle}deg`, ...stops]
       return `linear-gradient(${args.join(', ')})`
     }
-    case 'GRADIENT_RADIAL':
+    case 'GRADIENT_RADIAL': {
+      const geometry = resolveRadialGradientGeometry(gradientPaint)
+      const args = geometry ? [geometry, ...stops] : stops
+      return `radial-gradient(${args.join(', ')})`
+    }
     case 'GRADIENT_DIAMOND':
       return `radial-gradient(${stops.join(', ')})`
     case 'GRADIENT_ANGULAR':
@@ -163,23 +168,18 @@ export function resolveBackgroundFillFromPaints(
 
   const resolveGradient = options.resolveGradientPaint ?? resolveGradientPaintCss
   const resolveSolid = options.resolveSolidPaint ?? resolveSolidPaint
+  const sourceLayers = splitByTopLevelComma(options.background ?? '')
 
   if (visible.length === 1) {
-    const [entry] = visible
-    if (!entry) return null
-    const { paint: single, index } = entry
-    if (isSolidPaint(single)) {
-      const color = resolveSolid(single, readers, index)
+    const { paint, index } = visible[0]
+    if (isSolidPaint(paint)) {
+      const color = resolveSolid(paint, readers, index)
       return color ? { kind: 'color', value: color } : null
     }
-    if (!isGradientPaint(single)) return null
-
-    const gradient = resolveGradient(single, size, readers)
-    return gradient ? { kind: 'layers', value: [gradient] } : null
   }
 
   const layers: string[] = []
-  for (const { paint, index } of visible) {
+  for (const [layerIndex, { paint, index }] of visible.entries()) {
     if (isSolidPaint(paint)) {
       const color = resolveSolid(paint, readers, index)
       if (!color) return null
@@ -188,12 +188,61 @@ export function resolveBackgroundFillFromPaints(
     }
     if (!isGradientPaint(paint)) return null
 
-    const gradient = resolveGradient(paint, size, readers)
+    let gradient = resolveGradient(paint, size, readers)
     if (!gradient) return null
+    if (paint.type === 'GRADIENT_RADIAL' && sourceLayers.length === visible.length) {
+      gradient = preserveRadialGeometry(sourceLayers[layerIndex], gradient)
+    }
     layers.push(gradient)
   }
 
-  return layers.length ? { kind: 'layers', value: layers } : null
+  return { kind: 'layers', value: layers }
+}
+
+function preserveRadialGeometry(source: string, resolved: string): string {
+  const match = source.match(/^radial-gradient\(([\s\S]*)\)$/i)
+  if (!match) return resolved
+  const geometry = splitByTopLevelComma(match[1])[0]
+  if (!geometry || !isRadialGeometry(geometry)) return resolved
+  const args = splitByTopLevelComma(resolved.slice('radial-gradient('.length, -1))
+  if (isRadialGeometry(args[0])) args.shift()
+  return `radial-gradient(${[geometry, ...args].join(', ')})`
+}
+
+function isRadialGeometry(value: string): boolean {
+  return (
+    /^(?:circle\b|ellipse\b|(?:closest|farthest)-(?:side|corner)\b|at\s|calc\(|[+-]?(?:\d*\.)?\d+(?:%|[a-z]+)(?:\s|$))/i.test(
+      value
+    ) || /\s+at\s+/i.test(value)
+  )
+}
+
+function resolveRadialGradientGeometry(paint: GradientPaint): string | null {
+  let center: Vector
+  let u: Vector
+  let v: Vector
+  if (hasGradientHandlePositions(paint) && paint.gradientHandlePositions.length >= 3) {
+    const [start, end, width] = paint.gradientHandlePositions
+    if (!start || !end || !width) return null
+    center = start
+    u = { x: end.x - start.x, y: end.y - start.y }
+    v = { x: width.x - start.x, y: width.y - start.y }
+  } else {
+    const inverse = invertGradientTransform(paint.gradientTransform)
+    if (!inverse) return null
+    const [[a, c, e], [b, d, f]] = inverse
+    // Figma's canonical radial gradient is a circle centered at (0.5, 0.5).
+    center = applyTransform(a, c, e, b, d, f, 0.5, 0.5)
+    u = { x: a / 2, y: b / 2 }
+    v = { x: c / 2, y: d / 2 }
+  }
+  const rx = Math.hypot(u.x, v.x)
+  const ry = Math.hypot(u.y, v.y)
+  if (![center.x, center.y, rx, ry].every(Number.isFinite) || rx <= 0 || ry <= 0) return null
+  // CSS radial gradients cannot rotate an ellipse. Preserve native CSS geometry
+  // when supplied, but do not invent an axis-aligned ellipse for a skewed one.
+  if (Math.abs(u.x * u.y + v.x * v.y) > 1e-8 * rx * ry) return null
+  return `${formatPercent(rx)} ${formatPercent(ry)} at ${formatPercent(center.x)} ${formatPercent(center.y)}`
 }
 
 /**
@@ -258,6 +307,16 @@ function extractLinearGradientVectorFromTransform(
   transform: Transform | null | undefined,
   size?: GradientSize
 ): { dx: number; dy: number } | null {
+  const inverse = invertGradientTransform(transform)
+  if (!inverse) return null
+  const [[a, c, e], [b, d, f]] = inverse
+  const start = applyTransform(a, c, e, b, d, f, 0, 0.5)
+  const end = applyTransform(a, c, e, b, d, f, 1, 0.5)
+  const { width, height } = getGradientSize(size)
+  return { dx: (end.x - start.x) * width, dy: (end.y - start.y) * height }
+}
+
+function invertGradientTransform(transform: Transform | null | undefined): Transform | null {
   if (!transform || !Array.isArray(transform) || transform.length < 2) return null
 
   const row0 = transform[0]
@@ -289,14 +348,10 @@ function extractLinearGradientVectorFromTransform(
   const invD = a / det
   const invF = (b * e - a * f) / det
 
-  const start = applyTransform(invA, invC, invE, invB, invD, invF, 0, 0.5)
-  const end = applyTransform(invA, invC, invE, invB, invD, invF, 1, 0.5)
-  const { width, height } = getGradientSize(size)
-
-  return {
-    dx: (end.x - start.x) * width,
-    dy: (end.y - start.y) * height
-  }
+  return [
+    [invA, invC, invE],
+    [invB, invD, invF]
+  ]
 }
 
 function applyTransform(

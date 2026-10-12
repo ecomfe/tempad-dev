@@ -184,7 +184,7 @@ describe('figma/gradient resolveGradientFromPaints', () => {
 
   it('maps radial and angular gradient types to CSS functions', () => {
     expect(resolveGradientFromPaints([createGradientPaint('GRADIENT_RADIAL')])).toBe(
-      'radial-gradient(#F00 0%, #00F 100%)'
+      'radial-gradient(100% 100% at 0% 0%, #F00 0%, #00F 100%)'
     )
     expect(resolveGradientFromPaints([createGradientPaint('GRADIENT_DIAMOND')])).toBe(
       'radial-gradient(#F00 0%, #00F 100%)'
@@ -214,7 +214,7 @@ describe('figma/gradient resolveGradientFromPaints', () => {
     })
 
     expect(resolveGradientFromPaints([paint])).toBe(
-      'radial-gradient(color-mix(in srgb, var(--Primary-Color, #F00) 50%, transparent) 0%, #0000FF80 100%)'
+      'radial-gradient(100% 100% at 0% 0%, color-mix(in srgb, var(--Primary-Color, #F00) 50%, transparent) 0%, #0000FF80 100%)'
     )
   })
 
@@ -233,7 +233,9 @@ describe('figma/gradient resolveGradientFromPaints', () => {
     })
     ;(paint as { opacity?: unknown }).opacity = undefined
 
-    expect(resolveGradientFromPaints([paint])).toBe('radial-gradient(#F00 0%, #00F 100%)')
+    expect(resolveGradientFromPaints([paint])).toBe(
+      'radial-gradient(100% 100% at 0% 0%, #F00 0%, #00F 100%)'
+    )
   })
 
   it('returns direct CSS var fallback for near-opaque variable-bound stop color', () => {
@@ -248,7 +250,7 @@ describe('figma/gradient resolveGradientFromPaints', () => {
     })
 
     expect(resolveGradientFromPaints([paint])).toBe(
-      'radial-gradient(var(--Primary-Color, #F00) 0%, #00F 100%)'
+      'radial-gradient(100% 100% at 0% 0%, var(--Primary-Color, #F00) 0%, #00F 100%)'
     )
   })
 
@@ -262,7 +264,9 @@ describe('figma/gradient resolveGradientFromPaints', () => {
       stops: [createStop({ r: 1, g: 0, b: 0 }, 0, 'accent'), createStop({ r: 0, g: 0, b: 1 }, 1)]
     })
 
-    expect(resolveGradientFromPaints([paint])).toBe('radial-gradient(#FF000080 0%, #0000FF80 100%)')
+    expect(resolveGradientFromPaints([paint])).toBe(
+      'radial-gradient(100% 100% at 0% 0%, #FF000080 0%, #0000FF80 100%)'
+    )
   })
 
   it('falls back to literal stop color when variable lookup returns null', () => {
@@ -271,7 +275,7 @@ describe('figma/gradient resolveGradientFromPaints', () => {
       stops: [createStop({ r: 1, g: 0, b: 0 }, 0, 'missing')]
     })
 
-    expect(resolveGradientFromPaints([paint])).toBe('radial-gradient(#F00 0%)')
+    expect(resolveGradientFromPaints([paint])).toBe('radial-gradient(100% 100% at 0% 0%, #F00 0%)')
   })
 })
 
@@ -419,6 +423,18 @@ describe('figma/gradient resolveSolidFromPaints', () => {
 })
 
 describe('figma/gradient resolveBackgroundFillFromPaints', () => {
+  it.each([1, 2])(
+    'returns null when gradient resolution fails in a %s-layer background',
+    (count) => {
+      const paints = Array.from({ length: count }, () => createGradientPaint('GRADIENT_RADIAL'))
+      expect(
+        resolveBackgroundFillFromPaints(paints, undefined, undefined, {
+          resolveGradientPaint: () => null
+        })
+      ).toBeNull()
+    }
+  )
+
   it('returns a color result for a single solid fill', () => {
     const paints = [createSolidPaint({ r: 1, g: 0, b: 0 })]
 
@@ -437,7 +453,10 @@ describe('figma/gradient resolveBackgroundFillFromPaints', () => {
 
     expect(resolveBackgroundFillFromPaints(paints)).toEqual({
       kind: 'layers',
-      value: ['linear-gradient(#F00, #F00)', 'radial-gradient(#F00 0%, #00F 100%)']
+      value: [
+        'linear-gradient(#F00, #F00)',
+        'radial-gradient(100% 100% at 0% 0%, #F00 0%, #00F 100%)'
+      ]
     })
   })
 

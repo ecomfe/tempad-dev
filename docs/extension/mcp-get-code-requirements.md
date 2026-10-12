@@ -7,7 +7,8 @@ This document records the requirements and hard constraints for the MCP `get_cod
 - Accept one or more visible roots, keeping each root's code, language, tokens, assets, and warnings independent.
 - Never emit empty optional fields (`assets`, `tokens`, `literalClusters`, `warnings`).
 - Do not use `renderBounds` diffs for positioning.
-- Do not inject positioning containers on GROUP/BOOLEAN nodes.
+- Do not inject positioning containers on structural GROUP/BOOLEAN nodes. When exported as one
+  SVG, position the resulting asset as a single layout item.
 - Keep `getCSSAsync()` at most once per node.
 - Do not persist Figma-derived cache state across requests.
 - If a plugin returns component/code for an instance, do not collect or render its descendants.
@@ -111,7 +112,8 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 ### Group/boolean
 
 - GROUP and BOOLEAN_OPERATION nodes are kept in the tree for structure and hints.
-- They must not become positioning containers (`position: absolute/relative` is not injected there).
+- Structural wrappers must not become positioning containers. An atomic SVG export keeps the
+  original node's placement; its internal descendants no longer participate in HTML layout.
 
 ### Relative containers for absolute children
 
@@ -129,6 +131,8 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 - Inferred auto layout remains a hint in the raw Figma model, but once `get_code` emits flex/gap/padding for that node, the emitted auto-layout becomes the authoritative flow model for non-absolute children in this response.
 - Inferred layouts are flagged with `data-hint-auto-layout="inferred"` for downstream interpretation.
+- A freeform clipping frame with geometrically overflowing children must retain its native size
+  and child offsets instead of inferred flex/padding, which cannot represent the crop.
 - Children under inferred layout must not be constraint-positioned, unless `layoutPositioning === 'ABSOLUTE'`.
 - Any fixed/hug/fill cleanup must preserve that emitted flow model and only remove redundant size/padding expressions.
 
@@ -144,7 +148,11 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 - Video fills use one composited PNG node preview because the Plugin API has no video-byte reader.
   Its asset descriptor retains ordered unique current-file identities as `figmaVideoHashes`; those
   hashes describe the native fills, not the preview bytes.
-- Vector placeholders use the form `<svg data-src="...">`, keep `viewBox`, retain node-sized `width`/`height`, and expose the uploaded asset URL via `data-src` on the emitted `svg` root markup.
+- Vector placeholders use `<svg data-src="...">` with matching asset and markup viewports.
+  Export with full node bounds, normalize Figma's rounded viewport and baked absolute transform,
+  and keep path data intact. Do not derive placement from path bounds or clipped render bounds.
+  A transformed export that needs extra local space uses a node-sized layout wrapper and an
+  offset SVG viewport so external images and inline fallback preserve rotated edge strokes.
 - Themeable vector placeholders preserve the instance color on the emitted `svg` root markup, preferring token/class output when available.
 - Themeable-vector eligibility and single-channel color detection must share the same paint/effect visibility semantics used elsewhere in the asset pipeline; do not maintain a separate vector-only interpretation of visible paints, effects, or variable-backed solid colors.
 - `themeable` means one safe contextual color channel. The authoritative color evidence is the emitted `svg` root markup for that instance, not asset metadata. It does not imply multi-slot SVG theming.
@@ -158,7 +166,9 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
   - fixed-color vectors keep their internal palette.
 - Snapshot-preserved SVG assets may include `themeable: true` when the underlying vector is safe to adapt to a single contextual color channel, even if the current delivery stays asset-backed.
 - Public asset metadata does not carry per-instance theme color; that remains a markup concern.
-- SVG size comes from node size (rounded), not export metadata.
+- Layout size comes from node geometry (rounded), not export metadata. SVG asset size and origin
+  come from the full export rectangle mapped into node-local coordinates; consumer units and
+  scale affect markup, not intrinsic asset dimensions.
 - If the SVG export succeeded but asset upload failed, inline the SVG fallback rather than dropping the vector structure.
 - When vector export fails or assets are unavailable, preserve layout using a placeholder SVG with node size.
 - Omit `assets` when empty.

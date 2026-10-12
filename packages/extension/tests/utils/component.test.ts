@@ -28,6 +28,73 @@ function createNode(
 }
 
 describe('utils/component', () => {
+  it.each([false, true])(
+    'preserves SVG attribute case throughout Vue trees (compact: %s)',
+    (compact) => {
+      const markup = stringifyComponent(
+        {
+          name: 'svg',
+          props: { viewBox: '0 0 24 24', preserveAspectRatio: 'xMinYMin meet', className: 'icon' },
+          children: [
+            {
+              name: 'defs',
+              props: {},
+              children: [
+                {
+                  name: 'linearGradient',
+                  props: { gradientUnits: 'userSpaceOnUse', gradientTransform: 'rotate(30)' },
+                  children: []
+                }
+              ]
+            },
+            {
+              name: 'g',
+              props: {},
+              children: [
+                {
+                  name: 'path',
+                  props: { pathLength: 10, 'stroke-width': '2', 'clip-rule': 'evenodd' },
+                  children: []
+                }
+              ]
+            },
+            {
+              name: 'foreignObject',
+              props: { requiredExtensions: 'test' },
+              children: [
+                {
+                  name: 'div',
+                  props: { tabIndex: '0' },
+                  children: [
+                    {
+                      name: 'svg',
+                      props: { viewBox: '0 0 1 1' },
+                      children: []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        { lang: 'vue', isInline: () => compact }
+      )
+
+      expect(markup).toContain('viewBox="0 0 24 24"')
+      expect(markup).toContain('preserveAspectRatio="xMinYMin meet"')
+      expect(markup).toContain('class="icon"')
+      expect(markup).toContain('gradientUnits="userSpaceOnUse"')
+      expect(markup).toContain('gradientTransform="rotate(30)"')
+      expect(markup).toContain(':pathLength="10"')
+      expect(markup).toContain('stroke-width="2"')
+      expect(markup).toContain('clip-rule="evenodd"')
+      expect(markup).toContain('requiredExtensions="test"')
+      expect(markup).toContain('tab-index="0"')
+      expect(markup).toContain('viewBox="0 0 1 1"')
+      expect(markup).not.toContain('view-box')
+    }
+  )
+
   it('returns null for nodes without component properties', () => {
     const frame = createNode('FRAME', 'frame-1')
     expect(getDesignComponent(frame)).toBeNull()

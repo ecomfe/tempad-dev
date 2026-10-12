@@ -134,7 +134,8 @@ In-flight Figma API calls cannot be cancelled. A stalled root or unusable shell 
 ### Relative container injection
 
 - A layout parent is made `position: relative` if any descendant is absolute.
-- GROUP/BOOLEAN nodes are not made relative/absolute.
+- Structural GROUP/BOOLEAN wrappers are not made relative/absolute; an atomic SVG export
+  receives the original node's placement as a single layout item.
 
 ## Styles pipeline
 
@@ -287,7 +288,13 @@ The request context is threaded through:
   source video.
 - Vector-like nodes may be exported to SVG.
 - Vector containers can be converted to a single SVG when their subtree is vector-like and the container itself does not carry wrapper semantics such as its own fill/stroke/effects/clipping or design-component hints.
-- Themeable vectors are single-color vectors that can safely use one contextual color channel. The current implementation keeps node-sized `width`/`height` plus `viewBox`, uploads the SVG asset, and injects the instance color onto the emitted placeholder `svg` root markup.
+- Themeable vectors are single-color vectors that can safely use one contextual color channel.
+  Full-bounds SVG exports are mapped from Figma's baked absolute coordinates into local coordinates
+  using the inverse linear transform. Node geometry replaces integer-rounded export dimensions;
+  paths remain intact. When the inverse-mapped rectangle exceeds the local node box, a node-sized
+  layout wrapper positions the larger SVG viewport, preserving rotated edge strokes in external
+  images as well as inline output. Asset dimensions stay in design pixels. Instance color and the
+  relative linear transform belong to the layout root.
 - Fixed-color vectors preserve their internal palette in the uploaded SVG asset.
 - Plugin/component output short-circuits vector export for that subtree.
 - Placeholder SVG nodes receive external layout styles plus presentation color on the root markup when the vector is single-channel.

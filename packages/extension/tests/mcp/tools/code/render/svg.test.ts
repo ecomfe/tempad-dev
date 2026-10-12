@@ -22,6 +22,67 @@ describe('mcp/code render svg', () => {
     vi.clearAllMocks()
   })
 
+  it.each([false, true])(
+    'preserves the layout box around an expanded SVG viewport (inline: %s)',
+    async (inline) => {
+      const root = createSnapshot({ id: 'rotated', type: 'VECTOR' })
+      const tree = createTree([root])
+      const config = { cssUnit: 'px', rootFontSize: 16, scale: 1 } as const
+      const result = await renderTree(root.id, tree, {
+        styles: new Map(),
+        layout: new Map([[root.id, { position: 'absolute', left: '-30px', top: '-40px' }]]),
+        nodes: new Map([[root.id, root.node]]),
+        svgs: new Map([
+          [
+            root.id,
+            {
+              props: {
+                width: '460px',
+                height: '440px',
+                viewBox: '-70 -100 460 440',
+                'data-src': 'https://assets.test/rotated.svg'
+              },
+              wrapper: { width: '320px', height: '240px', left: '-70px', top: '-100px' },
+              presentationStyle: {
+                transform: 'matrix(0, 1, -1, 0, 0, 0)',
+                'transform-origin': '0 0'
+              },
+              ...(inline
+                ? {
+                    raw: '<svg width="460px" height="440px" viewBox="-70 -100 460 440"><path d="M0 0H320V240Z"/></svg>'
+                  }
+                : {})
+            }
+          ]
+        ]),
+        textSegments: new Map(),
+        config,
+        preferredLang: 'vue'
+      } as never)
+      expect(mocked.styleToClassNames).toHaveBeenCalledWith(
+        {
+          position: 'absolute',
+          left: '-30px',
+          top: '-40px',
+          width: '320px',
+          height: '240px',
+          transform: 'matrix(0, 1, -1, 0, 0, 0)',
+          'transform-origin': '0 0'
+        },
+        config
+      )
+      expect(mocked.styleToClassNames).toHaveBeenCalledWith(
+        { position: 'absolute', left: '-70px', top: '-100px' },
+        config
+      )
+      const markup = stringifyComponent(result as never, { lang: 'vue' })
+      expect(markup).toMatch(/^<div[\s>]/)
+      expect(markup).toContain('width="460px"')
+      expect(markup).toContain('viewBox="-70 -100 460 440"')
+      expect(markup.includes('<path')).toBe(inline)
+    }
+  )
+
   it('renders vector placeholders as svg nodes with data-src and presentation color', async () => {
     const root = createSnapshot({ id: 'icon', type: 'VECTOR' })
     root.bounds = { x: 0, y: 0, width: 16, height: 16 }
@@ -57,6 +118,10 @@ describe('mcp/code render svg', () => {
     expect(markup).toContain('data-src="https://assets.test/icon.svg"')
     expect(markup).toContain('className="relative text-[var(--icon-color)]"')
     expect(markup).not.toContain('<img')
+    expect(markup).toContain('viewBox="0 0 16 16"')
+    const vueMarkup = stringifyComponent(rendered as never, { lang: 'vue' })
+    expect(vueMarkup).toContain('viewBox="0 0 16 16"')
+    expect(vueMarkup).not.toContain('view-box')
   })
 
   it('inlines raw svg fallback when asset-backed placeholder is unavailable', async () => {

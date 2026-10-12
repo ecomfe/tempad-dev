@@ -13,7 +13,7 @@ import type { CollectedData, NodeSnapshot, VisibleTree } from './model'
 
 import { hasMediaFills, replaceMediaUrlsWithAssets } from './assets'
 import { getNodeSemanticsCached, getPaintsFromState } from './cache'
-import { getLayoutParent } from './layout-parent'
+import { getInferredAutoLayout, getLayoutParent, hasClippedOverflow } from './layout-parent'
 import { preprocessStyles, stripInertShadows } from './styles'
 import { REQUESTED_SEGMENT_FIELDS } from './text/types'
 
@@ -23,7 +23,8 @@ export async function collectNodeData(
   assetRegistry: Map<string, AssetDescriptor>,
   cache: GetCodeCacheContext,
   skipIds?: Set<string>,
-  nodeVariableIds?: ReadonlyMap<string, ReadonlySet<string>>
+  nodeVariableIds?: ReadonlyMap<string, ReadonlySet<string>>,
+  vectorRoots?: ReadonlySet<string>
 ): Promise<CollectedData> {
   const styles = new Map<string, Record<string, string>>()
   const textSegments = new Map<string, StyledTextSegment[] | null>()
@@ -60,8 +61,25 @@ export async function collectNodeData(
       css = formatNodeStyleForMcp(css, node, cache.readers, nodeVariableIds?.get(id))
       const parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
 
+      if (hasClippedOverflow(node)) {
+        // getCSSAsync also emits the inferred flex layout. Restore the native
+        // clipping box before normal style processing and child positioning.
+        for (const key of Object.keys(css)) {
+          if (
+            /^(display$|flex-direction$|flex-wrap$|align-items$|align-content$|justify-content$|gap$|row-gap$|column-gap$|padding)/.test(
+              key
+            )
+          )
+            delete css[key]
+        }
+        css.width = `${snapshot.bounds.width}px`
+        css.height = `${snapshot.bounds.height}px`
+      }
+
       let processed = preprocessStyles(preprocessRawStyle(css), node, parent?.node, cache)
-      if (parent) {
+      const isStructuralGroup =
+        (node.type === 'GROUP' || node.type === 'BOOLEAN_OPERATION') && !vectorRoots?.has(id)
+      if (parent && !isStructuralGroup) {
         processed = applyAutoLayoutAbsolutePosition(processed, snapshot, tree, cache)
         processed = applyConstraintsPosition(processed, snapshot, tree, cache)
       }
@@ -127,7 +145,6 @@ function applyConstraintsPosition(
   tree: VisibleTree,
   cache: GetCodeCacheContext
 ): Record<string, string> {
-  if (node.node.type === 'GROUP' || node.node.type === 'BOOLEAN_OPERATION') return style
   const parentSnapshot = getLayoutParent(tree, node)
   if (!parentSnapshot) return style
   const currentSemantics = getNodeSemanticsCached(node.node, cache)
@@ -226,7 +243,6 @@ function applyAutoLayoutAbsolutePosition(
   tree: VisibleTree,
   cache: GetCodeCacheContext
 ): Record<string, string> {
-  if (node.node.type === 'GROUP' || node.node.type === 'BOOLEAN_OPERATION') return style
   const parentSnapshot = getLayoutParent(tree, node)
   if (!parentSnapshot) return style
   const currentSemantics = getNodeSemanticsCached(node.node, cache)
@@ -278,9 +294,7 @@ function applyAutoLayoutAbsolutePosition(
 function hasInferredLayout(node: SceneNode, cache?: GetCodeCacheContext): boolean {
   const inferred = cache
     ? getNodeSemanticsCached(node, cache).layout.inferredAutoLayout
-    : 'inferredAutoLayout' in node
-      ? (node as { inferredAutoLayout?: { layoutMode?: string } }).inferredAutoLayout
-      : undefined
+    : getInferredAutoLayout(node)
   return !!inferred?.layoutMode && inferred.layoutMode !== 'NONE'
 }
 

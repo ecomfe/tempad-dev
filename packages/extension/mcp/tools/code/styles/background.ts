@@ -45,6 +45,7 @@ export function cleanFigmaSpecificStyles(
   const gradientSize = getPaintResolutionSize(node)
   const readers = ctx?.readers ?? DEFAULT_READERS
   const backgroundFill = resolveBackgroundFillFromPaints(activeFillPaints, gradientSize, readers, {
+    background: processed.background,
     resolveGradientPaint: resolveGradientPaintValue,
     resolveSolidPaint: resolveSolidPaintColor
   })

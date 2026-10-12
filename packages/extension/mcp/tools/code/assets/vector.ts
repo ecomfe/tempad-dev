@@ -9,7 +9,12 @@ import { toDecimalPlace } from '@/utils/number'
 
 import type { VectorColorModel } from './vector-semantics'
 
-import { ensureSvgRootSize, extractSvgAttributes, normalizeThemeableSvg } from './svg'
+import {
+  ensureSvgRootSize,
+  extractSvgAttributes,
+  normalizeSvgExport,
+  normalizeThemeableSvg
+} from './svg'
 
 export { extractSvgAttributes } from './svg'
 
@@ -19,6 +24,7 @@ export type SvgEntry = {
   props: Record<string, string>
   presentationStyle?: Record<string, string>
   raw?: string
+  wrapper?: { width: string; height: string; left: string; top: string }
 }
 
 type ExportOptions = {
@@ -34,29 +40,54 @@ export async function exportSvgEntry(
 ): Promise<SvgEntry | null> {
   const { colorModel = { kind: 'fixed' }, vectorMode = 'smart' } = options
   const themeable = colorModel.kind === 'single-channel'
-  const presentationStyle = themeable ? { color: colorModel.color } : undefined
+  const presentationStyle: Record<string, string> = themeable ? { color: colorModel.color } : {}
+  if (node.relativeTransform) {
+    const [[a, c], [b, d]] = node.relativeTransform
+    if (a !== 1 || b !== 0 || c !== 0 || d !== 1) {
+      presentationStyle.transform = `matrix(${a}, ${b}, ${c}, ${d}, 0, 0)`
+      presentationStyle['transform-origin'] = '0 0'
+    }
+  }
+  const hasPresentation = Object.keys(presentationStyle).length > 0
 
   try {
-    const svgUint8 = await node.exportAsync({ format: 'SVG' })
-    const svgString = decodeSvgBytes(svgUint8)
-    const sized = ensureSvgRootSize(svgString, config, node.width, node.height)
-    const baseProps = sized?.props ?? buildFallbackProps(node, config)
+    // Match the node-sized markup, including when ancestors clip this vector.
+    const svgUint8 = await node.exportAsync({ format: 'SVG', useAbsoluteBounds: true })
+    const exported = decodeSvgBytes(svgUint8)
+    const assetSvg = normalizeSvgExport(exported, node)
+    const svgString = assetSvg?.content ?? exported
+    const assetWidth = assetSvg?.width ?? node.width
+    const assetHeight = assetSvg?.height ?? node.height
+    const wrapper =
+      assetSvg &&
+      (assetSvg.x !== 0 ||
+        assetSvg.y !== 0 ||
+        assetWidth !== toDecimalPlace(node.width) ||
+        assetHeight !== toDecimalPlace(node.height))
+        ? {
+            width: `${toDecimalPlace(node.width)}px`,
+            height: `${toDecimalPlace(node.height)}px`,
+            left: `${assetSvg.x}px`,
+            top: `${assetSvg.y}px`
+          }
+        : undefined
+    const sized = ensureSvgRootSize(svgString, config, assetWidth, assetHeight)
+    const entry: SvgEntry = {
+      ...(wrapper ? { wrapper } : {}),
+      props: sized?.props ?? buildFallbackProps(node, config),
+      ...(hasPresentation ? { presentationStyle } : {})
+    }
     try {
-      const width = Math.round(toDecimalPlace(node.width))
-      const height = Math.round(toDecimalPlace(node.height))
-      const asset = await ensureAssetUploaded(svgUint8, 'image/svg+xml', {
+      const width = Math.round(toDecimalPlace(assetWidth))
+      const height = Math.round(toDecimalPlace(assetHeight))
+      const assetBytes = assetSvg ? new TextEncoder().encode(svgString) : svgUint8
+      const asset = await ensureAssetUploaded(assetBytes, 'image/svg+xml', {
         ...(width > 0 ? { width } : {}),
         ...(height > 0 ? { height } : {}),
         ...(themeable ? { themeable: true } : {})
       })
       assetRegistry.set(asset.hash, asset)
-      return {
-        props: {
-          ...baseProps,
-          'data-src': asset.url
-        },
-        ...(presentationStyle ? { presentationStyle } : {})
-      }
+      entry.props = { ...entry.props, 'data-src': asset.url }
     } catch (uploadError) {
       logger.warn(
         'Failed to upload vector asset; inlining SVG fallback to preserve source of truth.',
@@ -65,28 +96,19 @@ export async function exportSvgEntry(
       const themeableFallback =
         themeable && vectorMode !== 'snapshot'
           ? normalizeThemeableSvg(svgString, config, {
-              width: node.width,
-              height: node.height,
+              width: assetWidth,
+              height: assetHeight,
               idPrefix: node.id
             })
           : null
-      return {
-        props: baseProps,
-        ...(themeableFallback
-          ? {
-              raw: themeableFallback.content,
-              presentationStyle
-            }
-          : {
-              raw: sized?.content ?? svgString
-            })
-      }
+      entry.raw = themeableFallback?.content ?? sized?.content ?? svgString
     }
+    return entry
   } catch (error) {
     logger.warn('Failed to export vector node:', error)
     return {
       props: buildFallbackProps(node, config),
-      ...(presentationStyle ? { presentationStyle } : {})
+      ...(hasPresentation ? { presentationStyle } : {})
     }
   }
 }

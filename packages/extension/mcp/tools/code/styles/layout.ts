@@ -4,6 +4,7 @@ import type { GetCodeCacheContext } from '../cache'
 import type { AutoLayoutLike, StyleMap } from './types'
 
 import { getNodeSemanticsCached } from '../cache'
+import { getInferredAutoLayout } from '../layout-parent'
 
 export function mergeInferredAutoLayout(
   expandedStyle: StyleMap,
@@ -119,9 +120,7 @@ function resolveParentLayoutMode(
     const layoutMode = parent.layoutMode
     if (layoutMode && layoutMode !== 'NONE') return layoutMode
   }
-  const inferred =
-    semantics?.layout.inferredAutoLayout ??
-    ('inferredAutoLayout' in parent ? parent.inferredAutoLayout : undefined)
+  const inferred = semantics ? semantics.layout.inferredAutoLayout : getInferredAutoLayout(parent)
   if (inferred?.layoutMode && inferred.layoutMode !== 'NONE') {
     return inferred.layoutMode
   }
@@ -133,9 +132,7 @@ function getAutoLayoutSource(
   ctx?: GetCodeCacheContext
 ): AutoLayoutLike | undefined {
   const semantics = ctx ? getNodeSemanticsCached(node, ctx) : null
-  const inferred =
-    semantics?.layout.inferredAutoLayout ??
-    ('inferredAutoLayout' in node ? (node.inferredAutoLayout ?? undefined) : undefined)
+  const inferred = semantics ? semantics.layout.inferredAutoLayout : getInferredAutoLayout(node)
   const layoutMode =
     semantics?.layout.layoutMode ?? ('layoutMode' in node ? node.layoutMode : undefined)
 
@@ -153,7 +150,7 @@ function getAutoLayoutSource(
       : readLiveAutoLayoutSource(node, layoutMode)
   }
 
-  return inferred
+  return inferred ?? undefined
 }
 
 function getResizingSource(

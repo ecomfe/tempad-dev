@@ -8,6 +8,8 @@ import { toDecimalPlace } from '@/utils/number'
 
 import type { AutoLayoutHint, DataHint, NodeSnapshot, TreeStats, VisibleTree } from './model'
 
+import { getInferredAutoLayout } from './layout-parent'
+
 export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
   const depthLimit = suggestDepthLimit(roots)
   const stats: TreeStats = {
@@ -111,8 +113,7 @@ function resolveAutoLayoutHint(node: SceneNode): AutoLayoutHint | undefined {
 }
 
 function hasInferredAutoLayout(node: SceneNode): boolean {
-  if (!('inferredAutoLayout' in node)) return false
-  return Boolean(node.inferredAutoLayout)
+  return Boolean(getInferredAutoLayout(node))
 }
 
 function composeDataHint(node: SceneNode): DataHint | undefined {

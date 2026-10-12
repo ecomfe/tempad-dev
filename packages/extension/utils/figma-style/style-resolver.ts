@@ -374,6 +374,7 @@ export async function resolveStylesFromNodeData(
   const resolvedBackgroundFill = hasUrlBackground
     ? null
     : resolveBackgroundFillFromPaints(effectiveFillPaints, input.dimensions, readers, {
+        background: processed.background,
         resolveSolidPaint: (paint, readers, index) =>
           safeFillStyleNameVarExpr ??
           resolveSolidPaintWithBindings(paint, index, effectiveFillSource.bindings, readers)

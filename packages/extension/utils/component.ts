@@ -192,12 +192,15 @@ const INDENT_UNIT = '  '
 
 function stringifyBaseComponent(
   component: DevComponent,
-  stringifyProp: (key: string, value: unknown) => string,
+  stringifyProp: (key: string, value: unknown, inSvg: boolean) => string,
   indentLevel = 0,
-  isInline?: (tagName: string) => boolean
+  isInline?: (tagName: string) => boolean,
+  parentIsSvg = false
 ) {
   const indent = INDENT_UNIT.repeat(indentLevel)
   const { name, props, children: rawChildren } = component
+  const inSvg = name === 'svg' || parentIsSvg
+  const childrenInSvg = inSvg && name !== 'foreignObject'
 
   if (name === RAW_TAG_NAME) {
     const content = String(props.content || '')
@@ -211,7 +214,7 @@ function stringifyBaseComponent(
 
   const propItems = Object.entries(props)
     .filter(([, value]) => value != null)
-    .map((entry) => stringifyProp(...entry))
+    .map(([key, value]) => stringifyProp(key, value, inSvg))
     .filter(Boolean)
 
   let propsString = ''
@@ -235,7 +238,7 @@ function stringifyBaseComponent(
         if (typeof child === 'string') {
           return escapeHTML(child)
         }
-        return stringifyBaseComponent(child, stringifyProp, 0, isInline)
+        return stringifyBaseComponent(child, stringifyProp, 0, isInline, childrenInSvg)
       })
       .join('')
   } else if (children.length === 0) {
@@ -249,7 +252,13 @@ function stringifyBaseComponent(
           const content = escapeHTML(child)
           return `${indent + INDENT_UNIT}${content}`
         }
-        return stringifyBaseComponent(child, stringifyProp, indentLevel + 1, isInline)
+        return stringifyBaseComponent(
+          child,
+          stringifyProp,
+          indentLevel + 1,
+          isInline,
+          childrenInSvg
+        )
       })
       .join('\n')}\n${indent}`
   }
@@ -324,14 +333,14 @@ function stringifyVueComponent(
 ) {
   return stringifyBaseComponent(
     component,
-    (key, value) => {
+    (key, value, inSvg) => {
       const eventName = getEventName(key)
       if (eventName) {
         const callback = typeof value === 'string' ? looseEscapeHTML(value) : '() => {}'
         return `@${camelToKebab(eventName)}="${callback.trim()}"`
       }
 
-      const name = key === 'className' ? 'class' : camelToKebab(key)
+      const name = key === 'className' ? 'class' : inSvg ? key : camelToKebab(key)
 
       if (typeof value === 'string') {
         return `${name}="${escapeHTML(value).trim()}"`

@@ -183,7 +183,8 @@ describe('mcp/code handleGetCode', () => {
         expect.any(Map),
         expect.any(Object),
         new Set(['a', 'b']),
-        expect.any(Map)
+        expect.any(Map),
+        new Set()
       )
       const calls = mocks.renderTree.mock.calls.length
       const lateValues = {
@@ -594,7 +595,8 @@ describe('mcp/code handleGetCode', () => {
       expect.any(Map),
       expect.any(Object),
       new Set(['copy']),
-      expect.any(Map)
+      expect.any(Map),
+      new Set()
     )
     expect(mocks.prepareStyles).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -3,6 +3,8 @@ import { isRenderablePaint } from '@/utils/figma-paint'
 
 import type { GetCodeCacheContext, NodeSemanticSnapshot, PaintArrayState } from './types'
 
+import { getInferredAutoLayout } from '../layout-parent'
+
 export function getNodeSemanticsCached(
   node: SceneNode,
   ctx: GetCodeCacheContext
@@ -33,7 +35,7 @@ export function getNodeSemanticsCached(
     },
     layout: {
       layoutMode: readLayoutMode(node),
-      inferredAutoLayout: readInferredAutoLayout(node),
+      inferredAutoLayout: getInferredAutoLayout(node),
       itemSpacing: readNumericLayoutValue(node, 'itemSpacing'),
       primaryAxisAlignItems: readStringLayoutValue(node, 'primaryAxisAlignItems'),
       counterAxisAlignItems: readStringLayoutValue(node, 'counterAxisAlignItems'),
@@ -80,13 +82,6 @@ function readStyleId(node: SceneNode, key: 'fillStyleId' | 'strokeStyleId'): str
 function readLayoutMode(node: SceneNode): NodeSemanticSnapshot['layout']['layoutMode'] {
   if (!('layoutMode' in node)) return null
   return node.layoutMode ?? null
-}
-
-function readInferredAutoLayout(
-  node: SceneNode
-): NodeSemanticSnapshot['layout']['inferredAutoLayout'] {
-  if (!('inferredAutoLayout' in node)) return null
-  return node.inferredAutoLayout ?? null
 }
 
 function readLayoutSizing(

@@ -48,6 +48,64 @@ afterEach(() => {
 })
 
 describe('assets/vector', () => {
+  it.each([
+    { cropWidth: 491, cropHeight: 465, y: 0 },
+    { cropWidth: 317, cropHeight: 406, y: -59 }
+  ])(
+    'exports full node coordinates when an ancestor clips to $cropWidth x $cropHeight',
+    async ({ cropWidth, cropHeight, y }) => {
+      const full =
+        '<svg width="669.352" height="465" viewBox="0 0 669.352 465"><path d="M0 0h669.352v465H0Z"/></svg>'
+      const cropped = `<svg width="${cropWidth}" height="${cropHeight}" viewBox="0 0 ${cropWidth} ${cropHeight}"><path d="M0 ${y}h669.352v465H0Z"/></svg>`
+      const fullBytes = new TextEncoder().encode(full)
+      const node = {
+        id: 'clipped-vector',
+        width: 669.352,
+        height: 465,
+        exportAsync: vi.fn(async (settings: ExportSettingsSVG) =>
+          settings.useAbsoluteBounds ? fullBytes : new TextEncoder().encode(cropped)
+        )
+      } as unknown as SceneNode
+      const asset = {
+        hash: 'full',
+        url: 'http://assets.test/full.svg',
+        mimeType: 'image/svg+xml',
+        size: fullBytes.length
+      }
+
+      for (const vectorMode of ['smart', 'snapshot'] as const) {
+        vi.mocked(ensureAssetUploaded).mockResolvedValue(asset)
+        const entry = await exportSvgEntry(node, pxConfig, new Map(), { vectorMode })
+        expect(entry?.props).toMatchObject({
+          width: '669.352px',
+          height: '465px',
+          viewBox: '0 0 669.352 465'
+        })
+        expect(ensureAssetUploaded).toHaveBeenLastCalledWith(
+          expect.any(Uint8Array),
+          'image/svg+xml',
+          {
+            width: 669,
+            height: 465
+          }
+        )
+        const uploaded = new TextDecoder().decode(vi.mocked(ensureAssetUploaded).mock.lastCall![0])
+        expect(extractSvgAttributes(uploaded)).toEqual({
+          width: '669.352px',
+          height: '465px',
+          viewBox: '0 0 669.352 465'
+        })
+        expect(uploaded).toContain('d="M0 0h669.352v465H0Z"')
+
+        vi.mocked(ensureAssetUploaded).mockRejectedValue(new Error('upload failed'))
+        const fallback = await exportSvgEntry(node, pxConfig, new Map(), { vectorMode })
+        expect(fallback?.raw).toContain('viewBox="0 0 669.352 465"')
+        expect(fallback?.raw).toContain('d="M0 0h669.352v465H0Z"')
+      }
+      expect(node.exportAsync).toHaveBeenCalledWith({ format: 'SVG', useAbsoluteBounds: true })
+    }
+  )
+
   it('uploads themeable vectors as asset-backed svg placeholders in smart mode', async () => {
     const svg = '<svg viewBox="0 0 16 16"><path fill="#111" d="M0 0h16v16z"/></svg>'
     const bytes = new TextEncoder().encode(svg)
@@ -83,7 +141,7 @@ describe('assets/vector', () => {
         color: 'var(--icon-color)'
       }
     })
-    expect(ensureAssetUploaded).toHaveBeenCalledWith(bytes, 'image/svg+xml', {
+    expect(ensureAssetUploaded).toHaveBeenCalledWith(expect.any(Uint8Array), 'image/svg+xml', {
       width: 16,
       height: 16,
       themeable: true
@@ -124,7 +182,9 @@ describe('assets/vector', () => {
         'data-src': 'http://assets.test/hash.svg'
       }
     })
-    expect(ensureAssetUploaded).toHaveBeenCalledWith(bytes, 'image/svg+xml', { width: 16 })
+    expect(ensureAssetUploaded).toHaveBeenCalledWith(expect.any(Uint8Array), 'image/svg+xml', {
+      width: 16
+    })
     expect(registry.get('asset-hash')).toEqual(asset)
   })
 

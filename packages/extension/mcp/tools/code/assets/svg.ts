@@ -60,6 +60,67 @@ export function ensureSvgRootSize(
   return serializeSvg(root)
 }
 
+export function normalizeSvgExport(
+  svg: string,
+  node: Pick<SceneNode, 'width' | 'height' | 'absoluteTransform'>
+): { content: string; x: number; y: number; width: number; height: number } | null {
+  const root = parseSvg(svg)
+  if (!root || node.width <= 0 || node.height <= 0) return null
+  const [[a, c], [b, d]] = node.absoluteTransform ?? [
+    [1, 0, 0],
+    [0, 1, 0]
+  ]
+  const determinant = a * d - b * c
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-10) return null
+  const [originX = 0, originY = 0] =
+    root.attributes.viewBox
+      ?.trim()
+      .split(/[\s,]+/)
+      .map(Number) ?? []
+  if (!Number.isFinite(originX) || !Number.isFinite(originY)) return null
+
+  // Figma bakes the absolute linear transform into exported paths and moves
+  // the full axis-aligned node box to the export origin. Undo that mapping,
+  // including rotation/reflection, without inspecting or rewriting path data.
+  const x = Math.min(0, a * node.width, c * node.height, a * node.width + c * node.height) - originX
+  const y = Math.min(0, b * node.width, d * node.height, b * node.width + d * node.height) - originY
+  const matrix = [d, -b, -c, a, d * x - c * y, a * y - b * x].map((value) => value / determinant)
+  const exportWidth = Math.abs(a * node.width) + Math.abs(c * node.height)
+  const exportHeight = Math.abs(b * node.width) + Math.abs(d * node.height)
+  const corners = [
+    [0, 0],
+    [exportWidth, 0],
+    [0, exportHeight],
+    [exportWidth, exportHeight]
+  ].map(([u, v]) => [
+    (d * (u + x + originX) - c * (v + y + originY)) / determinant,
+    (a * (v + y + originY) - b * (u + x + originX)) / determinant
+  ])
+  const left = toDecimalPlace(Math.min(...corners.map(([u]) => u)))
+  const top = toDecimalPlace(Math.min(...corners.map(([, v]) => v)))
+  const width = roundedSize(Math.max(...corners.map(([u]) => u)) - left)
+  const height = roundedSize(Math.max(...corners.map(([, v]) => v)) - top)
+  if (matrix.some((value, index) => Math.abs(value - [1, 0, 0, 1, 0, 0][index]) > 1e-10)) {
+    root.children = [
+      {
+        name: 'g',
+        type: 'element',
+        value: '',
+        attributes: { transform: `matrix(${matrix.join(' ')})` },
+        children: root.children
+      }
+    ]
+  }
+  // Native exports round the viewport up to whole pixels. The node's exact
+  // dimensions prevent that padding from scaling or shifting the artwork.
+  // Keep the whole inverse-mapped export rectangle. Cropping it to local node
+  // bounds would cut off strokes on rotated edges when used as an <img>.
+  root.attributes.viewBox = `${left} ${top} ${width} ${height}`
+  root.attributes.width = `${width}px`
+  root.attributes.height = `${height}px`
+  return { content: stringify(root), x: left, y: top, width, height }
+}
+
 export function extractSvgAttributes(svg: string): Record<string, string> {
   const root = parseSvg(svg)
   return root ? { ...root.attributes } : {}

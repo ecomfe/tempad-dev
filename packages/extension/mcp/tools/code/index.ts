@@ -304,7 +304,8 @@ async function generateCode({
     assetRegistry,
     cache,
     skipIds,
-    nodeVariableIds
+    nodeVariableIds,
+    plan.vectorRoots
   )
   cache.signal?.throwIfAborted()
   stamp('collect', t)
