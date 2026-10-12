@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 
 const repository = fileURLToPath(new URL('../../../../', import.meta.url))
-const SKILLS = ['figma-canvas-authoring', 'figma-design-to-code']
+const SKILLS = ['design-in-figma', 'figma-design-to-code']
 const STANDARD = 'agent-plugin/targets/standard'
 const PLUGINS_CLI = 'agent-plugin/targets/plugins-cli'
 const CODEX = 'agent-plugin/targets/codex'
@@ -131,6 +131,7 @@ it('keeps one shared identity across every distribution', () => {
 it.each([STANDARD, PLUGINS_CLI, CODEX, CLAUDE, DEV])(
   'copies every shared skill verbatim into %s',
   (target) => {
+    expect(has(target, 'skills', 'figma-canvas-authoring')).toBe(false)
     for (const skill of SKILLS) {
       expect(readFileSync(join(root, target, 'skills', skill, 'SKILL.md'), 'utf8')).toBe(
         sourceFile(join('skills', skill, 'SKILL.md'))

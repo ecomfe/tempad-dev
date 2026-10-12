@@ -92,7 +92,10 @@ export function fingerprintSkillCatalog(skills: SkillCatalogEntry[]): SkillCatal
     count: skills.length,
     skills,
     tempadSkillPaths: skills
-      .filter((skill) => skill.name.endsWith(':figma-canvas-authoring'))
+      .filter(
+        (skill) =>
+          skill.name.endsWith(':design-in-figma') || skill.name.endsWith(':figma-canvas-authoring')
+      )
       .map((skill) => skill.locator)
   }
 }

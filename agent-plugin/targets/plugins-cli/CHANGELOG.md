@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- Renamed `figma-canvas-authoring` to `design-in-figma` to match its **Design in Figma**
+  display name. Claude invocations now use `tempad-dev:design-in-figma`.
+- Updated installation commands and skill previews. Update saved invocations and remove the
+  old skill after updating standalone installations. `figma-design-to-code` is unchanged.
+- Retained the existing extension and MCP requirements; no runtime upgrade is needed for the rename.
+
 ## 0.4.0
 
 - Updated design-to-code guidance for multiple selected roots, per-node results and errors, and

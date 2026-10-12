@@ -52,7 +52,7 @@ Agent 连接需要 Node.js 22.x、24.x 或 26+；画布编辑还需要当前 Fig
 
 > 调整这个页面的间距和文字层级，保留现有组件和内容。
 
-`figma-canvas-authoring` skill 指导 agent 检查相关资源、执行修改并检查实际渲染结果。写入需要可编辑的 Figma Design 文件；只读文件和 Dev Mode 中的访问仍然是只读的。
+`design-in-figma` skill 指导 agent 检查相关资源、执行修改并检查实际渲染结果。写入需要可编辑的 Figma Design 文件；只读文件和 Dev Mode 中的访问仍然是只读的。
 
 ### 设计任务控制与评论
 
@@ -104,7 +104,7 @@ Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可
 所有 plugin 和直接使用 `npx` 的配置路径都使用 `@tempad-dev/mcp@latest`。
 
 本次版本应配套使用扩展 **0.23.1**、MCP server **0.11.0** 和 Agent Plugin
-**0.4.0**。更新既有安装时，请参阅 [升级指南](./agent-plugin/src/README.zh-Hans.md#升级)。
+**0.5.0**。更新既有安装时，请参阅 [升级指南](./agent-plugin/src/README.zh-Hans.md#升级)。
 
 使用期间请保持 TemPad Dev 打开并启用 MCP。如果连接了多个 Figma 文件，请点击目标文件面板中的 MCP 徽标；该文件会成为 agent 当前访问的上下文。Agent 也可以列出已连接的会话，在独立只读调用中传入精确的 `sessionId`，无需切换激活徽标。
 

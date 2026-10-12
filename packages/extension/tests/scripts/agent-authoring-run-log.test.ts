@@ -112,13 +112,13 @@ function rollout(
   const version = options.skillVersion ?? pluginVersion
   const skillRoot = `/plugins/cache/tempad-dev-dev/tempad-dev-dev/${version}/skills`
   const skillLocator = options.skillAlias
-    ? 'r8/figma-canvas-authoring/SKILL.md'
-    : `${skillRoot}/figma-canvas-authoring/SKILL.md`
+    ? 'r8/design-in-figma/SKILL.md'
+    : `${skillRoot}/design-in-figma/SKILL.md`
   const supportingSkillLocator = options.skillAlias
     ? 'r8/figma-design-to-code/SKILL.md'
     : `${skillRoot}/figma-design-to-code/SKILL.md`
   const skillRoots = options.skillAlias ? `### Skill roots\n- \`r8\` = \`${skillRoot}\`\n` : ''
-  const skills = `<skills_instructions>\n## Skills\n${skillRoots}- tempad-dev-dev:figma-canvas-authoring: Create native editable Figma designs. (file: ${skillLocator})\n- tempad-dev-dev:figma-design-to-code: Implement visible Figma designs. (file: ${supportingSkillLocator})\n</skills_instructions>`
+  const skills = `<skills_instructions>\n## Skills\n${skillRoots}- tempad-dev-dev:design-in-figma: Create native editable Figma designs. (file: ${skillLocator})\n- tempad-dev-dev:figma-design-to-code: Implement visible Figma designs. (file: ${supportingSkillLocator})\n</skills_instructions>`
   return [
     row({ timestamp: '2026-08-29T00:00:20.000Z', type: 'session_meta', payload: { id: 'task-1' } }),
     row({ type: 'turn_context', payload: { model: 'gpt-5.6-sol', effort: 'xhigh' } }),
@@ -211,30 +211,36 @@ describe('agent authoring run log', () => {
     ).toThrow('successful current-checkout preflight')
   })
 
-  it('accepts a valid live review as accountable prose plus evidence', () => {
-    const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:11.000Z')
-    const finish = buildFinishEvent(
-      start,
-      review(),
-      { source: '/tmp/run-1.jsonl', text: rollout() },
-      '2026-08-29T00:01:00.000Z'
-    )
-    const state = parseRunLogState(`${JSON.stringify(start)}\n${JSON.stringify(finish)}\n`)
+  it.each(['design-in-figma', 'figma-canvas-authoring'])(
+    'accepts a valid live review recorded with %s',
+    (skillName) => {
+      const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:11.000Z')
+      const finish = buildFinishEvent(
+        start,
+        review(),
+        {
+          source: '/tmp/run-1.jsonl',
+          text: rollout().replaceAll('design-in-figma', skillName)
+        },
+        '2026-08-29T00:01:00.000Z'
+      )
+      const state = parseRunLogState(`${JSON.stringify(start)}\n${JSON.stringify(finish)}\n`)
 
-    expect(state.records).toHaveLength(1)
-    expect(finish.review).not.toHaveProperty('axes')
-    expect(finish.review).not.toHaveProperty('decision')
-    expect(finish.rollout).not.toHaveProperty('inspection')
-    expect(finish.rollout).not.toHaveProperty('tools')
-    expect(summarizeRunLog(state)).toEqual({
-      runs: 1,
-      valid: 1,
-      invalid: 0,
-      pending: 0,
-      abandoned: 0,
-      byKind: { open: 1 }
-    })
-  })
+      expect(state.records).toHaveLength(1)
+      expect(finish.review).not.toHaveProperty('axes')
+      expect(finish.review).not.toHaveProperty('decision')
+      expect(finish.rollout).not.toHaveProperty('inspection')
+      expect(finish.rollout).not.toHaveProperty('tools')
+      expect(summarizeRunLog(state)).toEqual({
+        runs: 1,
+        valid: 1,
+        invalid: 0,
+        pending: 0,
+        abandoned: 0,
+        byKind: { open: 1 }
+      })
+    }
+  )
 
   it('accepts a versioned authoring skill reached through a declared root alias', () => {
     const start = buildStartEvent(note(), preflight(), '2026-08-29T00:00:11.000Z')

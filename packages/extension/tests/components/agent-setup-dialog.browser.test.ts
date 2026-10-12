@@ -32,7 +32,7 @@ const tokens = {
 
 const SKILLS_SOURCE_URL =
   'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/targets/standard/skills'
-const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill figma-design-to-code figma-canvas-authoring`
+const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill figma-design-to-code design-in-figma`
 const PLUGIN_INSTALL_COMMAND = 'npx plugins add ecomfe/tempad-dev'
 
 function mountDialog(): HTMLElement {
@@ -188,7 +188,7 @@ describe('AgentSetupDialog', () => {
     expect(getCode(host)).toEqual([
       'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest',
       'gemini skills install https://github.com/ecomfe/tempad-dev.git --path agent-plugin/targets/standard/skills/figma-design-to-code',
-      'gemini skills install https://github.com/ecomfe/tempad-dev.git --path agent-plugin/targets/standard/skills/figma-canvas-authoring'
+      'gemini skills install https://github.com/ecomfe/tempad-dev.git --path agent-plugin/targets/standard/skills/design-in-figma'
     ])
     expect(host.textContent).toContain('Then run in your terminal:')
   })

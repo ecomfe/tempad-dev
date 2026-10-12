@@ -7,7 +7,7 @@ const PLUGIN_INSTALL_COMMAND = `npx plugins add ${REPOSITORY}`
 const SKILLS_SOURCE_URL =
   'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/targets/standard/skills'
 const DESIGN_TO_CODE_SKILL_NAME = 'figma-design-to-code'
-const CANVAS_AUTHORING_SKILL_NAME = 'figma-canvas-authoring'
+const CANVAS_AUTHORING_SKILL_NAME = 'design-in-figma'
 const SKILL_NAMES = [DESIGN_TO_CODE_SKILL_NAME, CANVAS_AUTHORING_SKILL_NAME] as const
 const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill ${SKILL_NAMES.join(' ')}`
 
@@ -647,7 +647,7 @@ export const AGENT_INTEGRATIONS_BY_ID: Record<AgentIntegrationId, AgentIntegrati
       },
       {
         id: 'skill-canvas-authoring-cli',
-        label: 'Canvas authoring skill',
+        label: 'Design in Figma skill',
         kind: 'command',
         value: buildGeminiSkillInstallCommand(CANVAS_AUTHORING_SKILL_NAME)
       }

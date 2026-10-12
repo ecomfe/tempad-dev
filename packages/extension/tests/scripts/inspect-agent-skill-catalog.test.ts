@@ -5,7 +5,7 @@ import { extractSkillCatalog, fingerprintSkillCatalog } from '@/scripts/inspect-
 const catalog = `<skills_instructions>
 ## Skills
 - imagegen: Generate images. (file: /system/imagegen/SKILL.md)
-- tempad-dev-dev:figma-canvas-authoring: Create Figma designs. (file: /plugins/tempad/0.1+codex.a/skills/figma-canvas-authoring/SKILL.md)
+- tempad-dev-dev:design-in-figma: Create Figma designs. (file: /plugins/tempad/0.1+codex.a/skills/design-in-figma/SKILL.md)
 </skills_instructions>`
 
 function rollout(text: string): string {
@@ -16,19 +16,28 @@ function rollout(text: string): string {
 }
 
 describe('agent skill catalog inspection', () => {
+  it('retains authoring skill paths from catalogs recorded before the rename', () => {
+    const legacy = catalog.replaceAll('design-in-figma', 'figma-canvas-authoring')
+    const result = fingerprintSkillCatalog(extractSkillCatalog(rollout(legacy)))
+
+    expect(result.tempadSkillPaths).toEqual([
+      '/plugins/tempad/0.1+codex.a/skills/figma-canvas-authoring/SKILL.md'
+    ])
+  })
+
   it('extracts ordered skill metadata and the exact TemPad runtime path', () => {
     const skills = extractSkillCatalog(rollout(catalog))
     const result = fingerprintSkillCatalog(skills)
 
     expect(skills.map((skill) => skill.name)).toEqual([
       'imagegen',
-      'tempad-dev-dev:figma-canvas-authoring'
+      'tempad-dev-dev:design-in-figma'
     ])
     expect(result.count).toBe(2)
     expect(result.catalogFingerprint).toMatch(/^[a-f0-9]{64}$/)
     expect(result.runtimeFingerprint).toMatch(/^[a-f0-9]{64}$/)
     expect(result.tempadSkillPaths).toEqual([
-      '/plugins/tempad/0.1+codex.a/skills/figma-canvas-authoring/SKILL.md'
+      '/plugins/tempad/0.1+codex.a/skills/design-in-figma/SKILL.md'
     ])
   })
 
@@ -48,7 +57,7 @@ describe('agent skill catalog inspection', () => {
 ### Skill roots
 - \`r8\` = \`/plugins/cache/tempad-dev-dev/0.1+codex.a/skills\`
 ### Available skills
-- tempad-dev-dev:figma-canvas-authoring: Create Figma designs. (file: r8/figma-canvas-authoring/SKILL.md)
+- tempad-dev-dev:design-in-figma: Create Figma designs. (file: r8/design-in-figma/SKILL.md)
 </skills_instructions>`
 
     const first = fingerprintSkillCatalog(extractSkillCatalog(rollout(aliased)))
@@ -57,7 +66,7 @@ describe('agent skill catalog inspection', () => {
     )
 
     expect(first.tempadSkillPaths).toEqual([
-      '/plugins/cache/tempad-dev-dev/0.1+codex.a/skills/figma-canvas-authoring/SKILL.md'
+      '/plugins/cache/tempad-dev-dev/0.1+codex.a/skills/design-in-figma/SKILL.md'
     ])
     expect(first.runtimeFingerprint).not.toBe(second.runtimeFingerprint)
   })

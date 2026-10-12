@@ -303,7 +303,8 @@ function buildRolloutEvidence(
     }
   })()
   const authoringSkill = catalog?.skills.find(
-    ({ name }) => name === 'tempad-dev-dev:figma-canvas-authoring'
+    ({ name }) =>
+      name === 'tempad-dev-dev:design-in-figma' || name === 'tempad-dev-dev:figma-canvas-authoring'
   )
   return {
     execution: inspection.execution,
@@ -330,7 +331,11 @@ function buildRolloutEvidence(
           contextFingerprint: sha256(
             JSON.stringify(
               catalog.skills
-                .filter(({ name }) => name !== 'tempad-dev-dev:figma-canvas-authoring')
+                .filter(
+                  ({ name }) =>
+                    name !== 'tempad-dev-dev:design-in-figma' &&
+                    name !== 'tempad-dev-dev:figma-canvas-authoring'
+                )
                 .map(({ name, description, locatorKind, locator }) => ({
                   name,
                   description,
@@ -363,10 +368,11 @@ function validatesExpectedTempadSkill(
   locator: string | null | undefined
 ): boolean {
   const version = start.preflight.plugin.generatedVersion
-  return Boolean(
-    locator
-      ?.replaceAll('\\', '/')
-      .includes(`/tempad-dev-dev/${version}/skills/figma-canvas-authoring/SKILL.md`)
+  // Keep archived runs readable under the skill name they originally loaded.
+  return ['design-in-figma', 'figma-canvas-authoring'].some((skill) =>
+    Boolean(
+      locator?.replaceAll('\\', '/').includes(`/tempad-dev-dev/${version}/skills/${skill}/SKILL.md`)
+    )
   )
 }
 

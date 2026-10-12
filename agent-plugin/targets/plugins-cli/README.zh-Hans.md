@@ -4,7 +4,7 @@
 
 在你的 coding agent 或 IDE 中读取、编辑和实现 Figma 设计。这个插件包含：
 
-- `figma-canvas-authoring`：创建和修改原生 Figma 设计，按任务需要复用可访问的组件、变量和样式。
+- `design-in-figma`：创建和修改原生 Figma 设计，按任务需要复用可访问的组件、变量和样式。
 - `figma-design-to-code`：读取 Figma 设计信息，结合项目已有组件和约定实现 UI。
 - TemPad Dev MCP server 配置：连接浏览器中打开的 Figma 文件。
 
@@ -93,7 +93,11 @@ Codex App 的任务绑定和状态同步使用 MCP 元数据及原生 IPC，不�
 
 ## 升级
 
-本次版本应配套使用 Agent Plugin **0.4.0**、TemPad Dev 扩展 **0.23.0** 和 MCP
+设计 skill 已更名为 `design-in-figma`，与展示名 **Design in Figma** 一致。
+请将已保存的 `figma-canvas-authoring` 调用更新为新名称；单独安装 skill 的用户，
+安装新版后还应移除旧名称的 skill。
+
+本次版本应配套使用 Agent Plugin **0.5.0**、TemPad Dev 扩展 **0.23.0** 和 MCP
 server **0.11.0**。MCP server 要求 Node.js **22.x、24.x 或 26+**。
 多节点读取和按消费节点解析 token 要求 Hub 与扩展均使用匹配的 protocol 15 构建。
 MCP 0.11.0 同时通过 protocol 13 兼容扩展 0.22.0，在商店更新期间保留既有读取、会话、任务和画布写入。
@@ -102,7 +106,7 @@ MCP 0.10.0 及之后版本使用 `manage_design_task` 代替旧的生命周期�
 
 1. 将浏览器扩展更新到 0.23.0 并重新加载 Figma 标签页，以启用新版读取能力。
 2. 通过原先使用的客户端或安装器更新 plugin。独立配置时，请同时更新
-   `figma-design-to-code` 和 `figma-canvas-authoring`。
+   `figma-design-to-code` 和 `design-in-figma`。
 3. 正式版 MCP 配置使用 `@tempad-dev/mcp@latest`；请替换旧的 `@alpha` 或固定 alpha 版本。
    重新连接 MCP client 并新建任务，以加载更新后的工具和 skill。若提示 Hub 过期，请先关闭
    使用旧 MCP server 的任务，再重新连接。
