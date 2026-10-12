@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const originalBtoa = globalThis.btoa
 const SKILLS_SOURCE_URL =
   'https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/targets/standard/skills'
-const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill figma-design-to-code figma-canvas-authoring`
+const SKILLS_INSTALL_COMMAND = `npx skills add ${SKILLS_SOURCE_URL} --skill figma-design-to-code design-in-figma`
 const PLUGIN_INSTALL_COMMAND = 'npx plugins add ecomfe/tempad-dev'
 const ADDITIONAL_AGENTS = [
   'amp',
@@ -218,7 +218,7 @@ describe('shared/mcp/install', () => {
       'gemini skills install https://github.com/ecomfe/tempad-dev.git --path agent-plugin/targets/standard/skills/figma-design-to-code'
     )
     expect(gemini.actions[2]?.value).toBe(
-      'gemini skills install https://github.com/ecomfe/tempad-dev.git --path agent-plugin/targets/standard/skills/figma-canvas-authoring'
+      'gemini skills install https://github.com/ecomfe/tempad-dev.git --path agent-plugin/targets/standard/skills/design-in-figma'
     )
 
     const vscode = mcp.AGENT_INTEGRATIONS_BY_ID.vscode

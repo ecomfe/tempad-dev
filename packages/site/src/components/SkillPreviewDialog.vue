@@ -6,7 +6,7 @@ import SkillMetadata from '@/components/SkillMetadata.vue'
 import SkillSelect from '@/components/SkillSelect.vue'
 import { createSiteScrollbar, setPageScrollLocked, vScrollbar } from '@/composables/scrollbar'
 
-import canvasSkillPreview from '../../../../agent-plugin/src/skills/figma-canvas-authoring/SKILL.md?skill-preview'
+import canvasSkillPreview from '../../../../agent-plugin/src/skills/design-in-figma/SKILL.md?skill-preview'
 import codeSkillPreview from '../../../../agent-plugin/src/skills/figma-design-to-code/SKILL.md?skill-preview'
 
 const props = defineProps<{

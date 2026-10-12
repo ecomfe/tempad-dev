@@ -1,5 +1,5 @@
 ---
-name: figma-canvas-authoring
+name: design-in-figma
 description: >-
   Create or update native, editable Figma designs with TemPad Dev MCP: screens,
   flows, components, and requested local design-system resources, including on

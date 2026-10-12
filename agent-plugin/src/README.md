@@ -4,7 +4,7 @@
 
 Read, edit, and implement Figma designs through your coding agent or IDE. This plugin includes:
 
-- `figma-canvas-authoring`: create and revise native Figma designs, reusing accessible components, variables, and styles as needed.
+- `design-in-figma`: create and revise native Figma designs, reusing accessible components, variables, and styles as needed.
 - `figma-design-to-code`: use Figma design context to implement UI with your project’s components and conventions.
 - The TemPad Dev MCP server configuration: connect to the Figma file open in your browser.
 
@@ -67,7 +67,11 @@ Design file is editable.
 
 ## Upgrading
 
-This release pairs Agent Plugin **0.4.0**, TemPad Dev extension **0.23.0**, and
+The authoring skill is now named `design-in-figma`, matching its **Design in Figma**
+display name. Update saved invocations from `figma-canvas-authoring`; standalone
+skill installations should also remove the old skill after installing the new one.
+
+This release pairs Agent Plugin **0.5.0**, TemPad Dev extension **0.23.0**, and
 MCP server **0.11.0**. Node.js **22.x, 24.x, or 26+** is required for the MCP server.
 Multi-node reads and consumer-aware token resolution require matching protocol 15 Hub and
 extension builds. MCP 0.11.0 also supports extension 0.22.0 through protocol 13, preserving
@@ -77,7 +81,7 @@ MCP 0.10.0 and later use `manage_design_task` in place of the older lifecycle to
 
 1. Update the browser extension to 0.23.0 and reload the Figma tab to enable the new read capabilities.
 2. Update the installed plugin through the client or installer used originally. With standalone
-   setup, update both `figma-design-to-code` and `figma-canvas-authoring`.
+   setup, update both `figma-design-to-code` and `design-in-figma`.
 3. Keep the release MCP configuration on `@tempad-dev/mcp@latest`; replace any previous
    `@alpha` or fixed alpha version. Reconnect the MCP client and start a new task so it loads the
    updated tools and skills. If a stale Hub is reported, close tasks using the old MCP server

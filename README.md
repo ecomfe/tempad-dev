@@ -53,7 +53,7 @@ Or select an existing design and ask:
 
 > Adjust the spacing and typography in this screen, keeping its components and content.
 
-The `figma-canvas-authoring` skill guides your agent through relevant resource inspection, editing, and checking the rendered result. Writes require an editable Figma Design file; view-only files and Dev Mode remain read-only.
+The `design-in-figma` skill guides your agent through relevant resource inspection, editing, and checking the rendered result. Writes require an editable Figma Design file; view-only files and Dev Mode remain read-only.
 
 ### Design task controls and comments
 
@@ -107,7 +107,7 @@ see the [Agent Plugin guide](./agent-plugin/src/README.md).
 All plugin and direct `npx`-based setup paths use `@tempad-dev/mcp@latest`.
 
 For this release, use extension **0.23.1**, MCP server **0.11.0**, and Agent
-Plugin **0.4.0** together. See the [upgrade guide](./agent-plugin/src/README.md#upgrading)
+Plugin **0.5.0** together. See the [upgrade guide](./agent-plugin/src/README.md#upgrading)
 when updating an existing installation.
 
 Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context. An agent can also list connected sessions and pass an exact `sessionId` to an independent read without changing the active badge.

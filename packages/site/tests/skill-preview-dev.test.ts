@@ -17,7 +17,7 @@ it('loads both complete skill packages through Vite development import analysis'
   try {
     for (const path of [
       '../../../agent-plugin/src/skills/figma-design-to-code/SKILL.md',
-      '../../../agent-plugin/src/skills/figma-canvas-authoring/SKILL.md'
+      '../../../agent-plugin/src/skills/design-in-figma/SKILL.md'
     ]) {
       const entry = fileURLToPath(new URL(path, import.meta.url))
       const result = await server.transformRequest(`/@fs${entry}?skill-preview`)

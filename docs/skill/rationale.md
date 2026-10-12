@@ -3,7 +3,7 @@
 ## Purpose
 
 This document records the maintenance model for TemPad Dev's
-`figma-design-to-code` and `figma-canvas-authoring` skills. It is not runtime
+`figma-design-to-code` and `design-in-figma` skills. It is not runtime
 instruction.
 
 The objective is not to make a skill comprehensive. A skill is valuable only
@@ -169,7 +169,7 @@ The skill preserves these invariants:
 - unevidenced states and behavior are not invented;
 - the handoff reports only branches that actually occurred.
 
-### `figma-canvas-authoring`
+### `design-in-figma`
 
 The main file keeps the requested native result focal: establish scope and
 available evidence, research unresolved material decisions, choose the native

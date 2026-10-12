@@ -9,7 +9,7 @@ TemPad Dev has three independently distributed integration parts:
 | Agent Plugin      | `agent-plugin/src/plugin.json`     | Git marketplace on `main`               |
 
 The current release candidate pairs extension **0.23.1**, MCP **0.11.0**, and Agent
-Plugin **0.4.0**, adding multi-node reads, consumer-aware token resolution, and timeout shell
+Plugin **0.5.0**, adding multi-node reads, consumer-aware token resolution, and timeout shell
 fallback. The new MCP continues to serve extension 0.22.0 during the store rollout.
 `@tempad-dev/plugins` is the separate code-output SDK; its version remains
 **0.6.2** and it does not need publication for this release.
@@ -140,7 +140,7 @@ version available before exposing the new plugin on `main`.
    `npm view @tempad-dev/mcp@latest version` return `0.11.0`. A `next` publication may be used for
    isolated candidate testing; it neither completes the migration nor changes release plugin
    configurations away from `latest`.
-4. Merge the approved candidate so the marketplace serves Agent Plugin 0.4.0. Verify that the
+4. Merge the approved candidate so the marketplace serves Agent Plugin 0.5.0. Verify that the
    standard, plugins-CLI, Codex, and Claude manifests agree, and that each generated package
    carries only its own channel's manifests. Do not publish the Agent Plugin through `publish-plugins.yml`; that
    workflow owns the separate `@tempad-dev/plugins` SDK.
