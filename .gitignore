@@ -18,6 +18,7 @@ dist
 coverage
 .artifacts/
 .vitest-attachments/
+.vitest/
 packages/*/coverage
 packages/extension/tests/**/__screenshots__/
 

@@ -1,12 +1,10 @@
 import { chromium } from 'playwright'
 
 import { GROUPS } from '@/rewrite/config'
-import { applyGroups, getRewriteTargetRegex, isRules } from '@/rewrite/shared'
+import { REWRITE_TARGET_REGEX } from '@/rewrite/rules'
+import { applyGroups } from '@/rewrite/shared'
 import { logger } from '@/utils/log'
 
-import rules from '../public/rules/figma.json'
-
-const ASSETS_PATTERN = (isRules(rules) && getRewriteTargetRegex(rules)) || /a^/
 const MAX_RETRIES = 3
 
 type RewriteGroup = (typeof GROUPS)[number]
@@ -36,7 +34,7 @@ async function runCheck() {
         return
       }
       const url = response.url()
-      if (!ASSETS_PATTERN.test(url)) {
+      if (!REWRITE_TARGET_REGEX.test(url)) {
         return
       }
       const content = await response.text()

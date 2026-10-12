@@ -65,19 +65,13 @@ export default defineConfig({
           '/ui.js',
           '/loader.js',
           '/figma.js',
-          '/codegen.js',
           '/plugin-sandbox.html',
           '/chunks/plugin-sandbox-*.js'
         ],
         matches: ['https://www.figma.com/*']
       }
     ],
-    permissions: [
-      'declarativeNetRequest',
-      'declarativeNetRequestWithHostAccess',
-      'alarms',
-      'storage'
-    ],
+    permissions: ['declarativeNetRequestWithHostAccess', 'alarms', 'storage'],
     host_permissions: ['https://www.figma.com/*'],
     optional_host_permissions: [MCP_LOCAL_HOST_ORIGIN],
     declarative_net_request: {

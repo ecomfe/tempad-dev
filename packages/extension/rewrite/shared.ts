@@ -1,46 +1,6 @@
-import type { Group, Replacement, Rules } from '@/types/rewrite'
+import type { Group, Replacement } from '@/types/rewrite'
 
 import { logger } from '@/utils/log'
-
-export const RULES_URL = 'https://ecomfe.github.io/tempad-dev/figma.json'
-export const REWRITE_RULE_ID = 2
-
-type UnknownRecord = Record<string, unknown>
-
-function isRecord(value: unknown): value is UnknownRecord {
-  return value !== null && typeof value === 'object'
-}
-
-function isRule(value: unknown): value is Rules[number] {
-  if (!isRecord(value)) return false
-  return typeof value.id === 'number' && isRecord(value.action) && isRecord(value.condition)
-}
-
-export function isRules(value: unknown): value is Rules {
-  return Array.isArray(value) && value.every(isRule)
-}
-
-export function getRewriteTargetRegex(source: Rules): RegExp | null {
-  try {
-    const rule = source.find((item) => item.id === REWRITE_RULE_ID)
-    return rule?.condition?.regexFilter ? new RegExp(rule.condition.regexFilter, 'i') : null
-  } catch {
-    return null
-  }
-}
-
-export async function loadRules(url: string, init?: RequestInit): Promise<Rules | null> {
-  try {
-    const response = await fetch(url, init)
-    if (!response.ok) {
-      return null
-    }
-    const payload: unknown = await response.json()
-    return isRules(payload) ? payload : null
-  } catch {
-    return null
-  }
-}
 
 function applyReplacement(content: string, replacement: Replacement): string {
   const { pattern, replacer } = replacement

@@ -57,9 +57,12 @@ Root:
 Per package:
 
 - `pnpm --filter @tempad-dev/extension test:run` (includes Worker dependency checks and the real
-  Chromium plugin-sandbox regression)
+  Chromium plugin-sandbox and rewrite-runtime regressions)
 - `pnpm --filter @tempad-dev/extension check:plugin-sandbox` (builds and loads the release extension,
   then probes isolation, timeout, recovery, and abuse bounds)
+- `pnpm --filter @tempad-dev/extension check:rewrite-runtime` (builds the release extension and
+  checks packaged script redirects and rules, Rspack chunk loading, offline fallback, and
+  persisted rule cleanup after an upgrade in isolated Chromium profiles)
 - `pnpm --filter @tempad-dev/extension test:node`
 - `pnpm --filter @tempad-dev/extension test:browser`
 - `pnpm --filter @tempad-dev/extension test:browser:headed`

@@ -1,15 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { Group, Rules } from '@/types/rewrite'
+import type { Group } from '@/types/rewrite'
 
-import {
-  REWRITE_RULE_ID,
-  applyGroups,
-  getRewriteTargetRegex,
-  groupMatches,
-  isRules,
-  loadRules
-} from '@/rewrite/shared'
+import { applyGroups, groupMatches } from '@/rewrite/shared'
 import { logger } from '@/utils/log'
 
 vi.mock('@/utils/log', () => ({
@@ -25,70 +18,6 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-})
-
-function createRules(regexFilter = '^https://www\\.figma\\.com/'): Rules {
-  return [
-    {
-      id: REWRITE_RULE_ID,
-      priority: 1,
-      action: {
-        type: 'modifyHeaders',
-        responseHeaders: []
-      },
-      condition: {
-        regexFilter,
-        resourceTypes: ['main_frame']
-      }
-    }
-  ] as unknown as Rules
-}
-
-describe('rewrite/shared isRules + regex helpers', () => {
-  it('validates rules payload shape', () => {
-    expect(isRules(createRules())).toBe(true)
-    expect(isRules([null])).toBe(false)
-    expect(isRules([{ id: '2' }])).toBe(false)
-    expect(isRules({})).toBe(false)
-  })
-
-  it('resolves rewrite target regex and handles invalid source', () => {
-    const regex = getRewriteTargetRegex(createRules('figma\\.com'))
-    expect(regex?.test('https://www.figma.com/file/123')).toBe(true)
-
-    expect(getRewriteTargetRegex([] as unknown as Rules)).toBeNull()
-    expect(getRewriteTargetRegex(createRules('['))).toBeNull()
-  })
-})
-
-describe('rewrite/shared loadRules', () => {
-  it('loads and validates rules from fetch response', async () => {
-    const rules = createRules()
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue(rules)
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    await expect(loadRules('https://example.test/rules')).resolves.toEqual(rules)
-    expect(fetchMock).toHaveBeenCalledWith('https://example.test/rules', undefined)
-  })
-
-  it('returns null when response is not ok, payload invalid, or fetch throws', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: false, json: vi.fn() })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ invalid: true })
-      })
-      .mockRejectedValueOnce(new Error('network down'))
-    vi.stubGlobal('fetch', fetchMock)
-
-    await expect(loadRules('https://example.test/not-ok')).resolves.toBeNull()
-    await expect(loadRules('https://example.test/invalid-payload')).resolves.toBeNull()
-    await expect(loadRules('https://example.test/throws')).resolves.toBeNull()
-  })
 })
 
 describe('rewrite/shared applyGroups', () => {

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.23.4
+
+- Simplified the dynamic script interceptor to use packaged matching rules directly, preserving
+  Rspack chunk loading and existing failure recovery.
+
+## 0.23.3
+
+- Removed rewrite hot updates and the remote JSON endpoint. Use packaged rules and `figma.js`
+  for both static scripts and dynamic chunks, and clear persisted rules from older versions.
+- Preserve clipped SVG placement and fractional viewport dimensions, including Boolean assets,
+  rotated vectors, and inline fallbacks. Keep freeform clipping frames out of inferred flex layout.
+
+## 0.23.2
+
+- Fixed radial gradient centers and radii in generated styles, preserving native Figma geometry.
+- Fixed SVG export bounds to match generated node dimensions and preserved SVG attribute casing
+  in Vue output.
+- Bundled the Figma rewrite script and patches with the extension while retaining online
+  updates to declarative request rules. Script redirects must target the packaged `figma.js`.
+- Removed legacy rewrite assets and remote JavaScript publication; deploy only JSON rules.
+- Replace persisted remote redirects on upgrade, preserve valid rules when offline, and share
+  the active rules with the dynamic script interceptor.
+
 ## 0.23.1
 
 - Expanded agent setup with additional clients, client-specific installation commands,

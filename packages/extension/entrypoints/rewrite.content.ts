@@ -1,6 +1,6 @@
-import rules from '@/public/rules/figma.json'
 import { GROUPS } from '@/rewrite/config'
-import { applyGroups, getRewriteTargetRegex, isRules, loadRules, RULES_URL } from '@/rewrite/shared'
+import { REWRITE_TARGET_REGEX } from '@/rewrite/rules'
+import { applyGroups } from '@/rewrite/shared'
 import { logger } from '@/utils/log'
 
 import type { BlobHandle, CacheEntry } from '../types/rewrite'
@@ -72,13 +72,8 @@ function isRewritableScript(node: Node): node is HTMLScriptElement {
   return node instanceof HTMLScriptElement && node.src.length > 0
 }
 
-function installScriptRewriteInterceptor({
-  shouldRewrite,
-  acquireBlobUrl
-}: {
-  shouldRewrite: (url: string) => boolean
-  acquireBlobUrl: (src: string) => Promise<BlobHandle>
-}): void {
+function installScriptRewriteInterceptor(): void {
+  const acquireBlobUrl = createBlobCache()
   const { appendChild, insertBefore } = Element.prototype
   const processedScripts = new WeakSet<HTMLScriptElement>()
 
@@ -101,7 +96,7 @@ function installScriptRewriteInterceptor({
     }
     processedScripts.add(script)
 
-    if (!shouldRewrite(script.src)) {
+    if (!REWRITE_TARGET_REGEX.test(script.src)) {
       normalizedInsert(parent, script, before)
       return
     }
@@ -150,26 +145,6 @@ export default defineContentScript({
   world: 'MAIN',
   main() {
     preserveWindowFigma()
-
-    let targetRegex: RegExp | null = isRules(rules) ? getRewriteTargetRegex(rules) : null
-    if (!targetRegex) {
-      logger.warn('Bundled rewrite rules are invalid.')
-    }
-
-    loadRules(RULES_URL, { credentials: 'omit', cache: 'no-cache' }).then((remoteRules) => {
-      const remoteRegex = remoteRules ? getRewriteTargetRegex(remoteRules) : null
-      if (remoteRegex) {
-        targetRegex = remoteRegex
-        logger.log('Loaded remote rewrite rules.')
-      } else {
-        logger.warn('Failed to fetch rewrite rules; using bundled rules.')
-      }
-    })
-
-    const acquireBlobUrl = createBlobCache()
-    installScriptRewriteInterceptor({
-      shouldRewrite: (url) => !!targetRegex && targetRegex.test(url),
-      acquireBlobUrl
-    })
+    installScriptRewriteInterceptor()
   }
 })
