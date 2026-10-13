@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/hero-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/hero-light.svg">
-    <img alt="TemPad Dev" src="packages/site/public/marketing/hero-light.svg" width="540" height="200">
+    <img alt="TemPad Dev" src="packages/site/public/marketing/hero-light.svg" width="540">
   </picture>
 </p>
 
@@ -11,7 +11,6 @@
 <p align="center">
   <a href="https://chrome.google.com/webstore/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc"><img src="https://img.shields.io/badge/Install%20on%20Chrome%20Web%20Store-4285F4?logo=chromewebstore&logoColor=%23fff" alt="在 Chrome Web Store 安装"></a>
   <a href="https://discord.gg/MXGXwtkEck"><img src="https://img.shields.io/badge/Chat%20on%20Discord-5865F2?logo=discord&logoColor=%23fff" alt="在 Discord 上聊天"></a>
-  <a href="https://deepwiki.com/ecomfe/tempad-dev"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
 <p align="center">
