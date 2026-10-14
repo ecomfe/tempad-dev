@@ -165,6 +165,66 @@ describe('composables/mcp', () => {
     vi.stubGlobal('location', { origin: ORIGIN })
   })
 
+  it.each([false, true])(
+    'synchronizes a dismissed offline Stop after re-enable (storage unavailable=%s)',
+    async (unavailable) => {
+      const storage = new Map<string, string>()
+      Object.assign(mocks.window, {
+        figma: { fileKey: 'file-a', root: { name: 'Design' }, currentPage: { id: 'page-a' } },
+        INITIAL_OPTIONS: { editor_type: 'design' },
+        sessionStorage: {
+          getItem: (key: string) => storage.get(key) ?? null,
+          setItem: (key: string, value: string) => {
+            if (unavailable) throw new Error('Storage unavailable')
+            storage.set(key, value)
+          },
+          removeItem: (key: string) => storage.delete(key)
+        }
+      })
+      const mcp = useMcp()
+      const state = bridgeState(mcp.sessionId, 'connected', null)
+      if (state.type === 'mcp.state') state.payload.gatewayId = 'gateway-a'
+      receive(state)
+      const task: DesignTask = {
+        taskId: 'task-a',
+        title: 'Design',
+        status: 'active',
+        operation: null,
+        target: {
+          sessionId: mcp.sessionId,
+          fileKey: 'file-a',
+          fileName: 'Design',
+          pageId: 'page-a'
+        },
+        expiresAt: Date.now() + 300000,
+        revision: 1
+      }
+      receive({
+        type: 'mcp.designTaskState',
+        gatewayId: 'gateway-a',
+        task,
+        source: TEMPAD_MCP_BROWSER_SOURCE,
+        version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+      })
+      mocks.options.value.mcpOn = false
+      mocks.watchCallbacks.forEach((callback) => callback())
+      mcp.stopDesignTask()
+      await Promise.resolve()
+      mcp.dismissDesignTask(task.taskId)
+      expect(mcp.designTask.value).toBeNull()
+      if (!unavailable)
+        expect(JSON.parse(storage.get('tempad-dev:design-task')!)).toMatchObject({
+          status: 'cancelled'
+        })
+      mocks.window.postMessage.mockClear()
+      mocks.options.value.mcpOn = true
+      mocks.watchCallbacks.forEach((callback) => callback())
+      expect(getPostedMessage('mcp.enable')).toMatchObject({
+        reviewTask: { taskId: task.taskId, status: 'cancelled' }
+      })
+    }
+  )
+
   it.each([
     ['stop', 'Stop confirmation timed out.'],
     ['done', 'Finishing the review timed out.'],
@@ -518,7 +578,11 @@ describe('composables/mcp', () => {
         refreshed.dismissDesignTask(task.taskId)
       }
       expect(refreshed.designTask.value).toBeNull()
-      expect(data.has('tempad-dev:design-task')).toBe(false)
+      if (status === 'completed') expect(data.has('tempad-dev:design-task')).toBe(false)
+      else
+        expect(JSON.parse(data.get('tempad-dev:design-task')!)).toMatchObject({
+          status: 'cancelled'
+        })
       expect(data.has('tempad-dev:design-anchor')).toBe(false)
       mocks.listeners.length = 0
       const closed = useMcp()

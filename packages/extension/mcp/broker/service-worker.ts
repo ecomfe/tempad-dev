@@ -293,10 +293,13 @@ export class McpServiceWorkerBroker {
         const task = fileKey
           ? (this.designTasks.get(fileKey) ?? this.reviews().get(fileKey))
           : undefined
-        if (task?.taskId === message.action.taskId)
+        if (task?.taskId === message.action.taskId) {
+          const stopped = { ...task, status: 'cancelled' as const, operation: null }
+          this.designTasks.set(task.target.fileKey, stopped)
           await this.reviews()
-            .save({ ...task, status: 'cancelled', operation: null })
+            .save(stopped)
             .catch(() => {})
+        }
         try {
           if (this.hubClient.getSnapshot().status === 'connected') {
             this.hubClient.sendDesignAction({
@@ -407,7 +410,7 @@ export class McpServiceWorkerBroker {
       const saved = message.reviewTask
       void this.reviews()
         .restore(saved)
-        .then(() => {
+        .finally(() => {
           if (this.portSessions.get(port) !== message.sessionId) return
           this.restoredReviews.set(message.sessionId, saved.taskId)
           this.publishSessions()

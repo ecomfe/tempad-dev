@@ -14,6 +14,7 @@ type Storage = {
 export class DesignReviews {
   private readonly serial = createSerialQueue()
   private loaded = false
+  private pendingStop = false
   private readonly tasks = new Map<string, DesignTask>()
 
   constructor(private readonly storage: Storage) {}
@@ -28,7 +29,7 @@ export class DesignReviews {
 
   restore(saved: DesignTask): Promise<void> {
     return this.serial(async () => {
-      await this.load()
+      await this.load(saved)
       const previous = this.tasks.get(saved.target.fileKey)
       // A stale page cannot override the durable latest review or its Done fence.
       if (!previous) {
@@ -45,13 +46,13 @@ export class DesignReviews {
 
   save(task: DesignTask): Promise<DesignTask> {
     return this.serial(async () => {
-      await this.load()
+      await this.load(task)
       const previous = this.tasks.get(task.target.fileKey)
       if (previous?.taskId === task.taskId) {
         if (previous.reviewClosed) task = { ...task, reviewClosed: true }
         if (previous.status === 'cancelled')
           task = { ...task, status: 'cancelled', operation: null }
-        if (JSON.stringify(previous) === JSON.stringify(task)) return previous
+        if (!this.pendingStop && JSON.stringify(previous) === JSON.stringify(task)) return previous
       }
       return this.commit(task)
     })
@@ -76,20 +77,48 @@ export class DesignReviews {
     persist: (values: Record<string, unknown>) => Promise<void> = (values) =>
       this.storage.set(values)
   ): Promise<DesignTask> {
-    // Publish the local state only after durable storage acknowledges it.
+    // Stop remains fenced in this worker even if storage fails. Done still needs a durable receipt.
+    this.rememberStop(task)
     const next = new Map(this.tasks).set(task.target.fileKey, task)
     await persist({ [KEY]: [...next.values()] })
     this.tasks.set(task.target.fileKey, task)
+    this.pendingStop = false
     return task
   }
 
-  private async load(): Promise<void> {
+  private rememberStop(task: DesignTask): void {
+    if (task.status !== 'cancelled') return
+    const previous = this.tasks.get(task.target.fileKey)
+    const stopped = {
+      ...task,
+      operation: null,
+      reviewClosed: previous?.taskId === task.taskId ? previous.reviewClosed : undefined
+    }
+    if (JSON.stringify(previous) !== JSON.stringify(stopped)) this.pendingStop = true
+    this.tasks.set(task.target.fileKey, stopped)
+  }
+
+  private async load(pending?: DesignTask): Promise<void> {
     if (this.loaded) return
-    const values = (await this.storage.get(KEY))[KEY]
+    let values: unknown
+    try {
+      values = (await this.storage.get(KEY))[KEY]
+    } catch (error) {
+      if (pending) this.rememberStop(pending)
+      throw error
+    }
     if (Array.isArray(values))
       for (const value of values) {
         const parsed = DesignTaskSchema.strip().safeParse(value)
-        if (parsed.success) this.tasks.set(parsed.data.target.fileKey, parsed.data)
+        if (!parsed.success) continue
+        const task = parsed.data
+        const local = this.tasks.get(task.target.fileKey)
+        this.tasks.set(
+          task.target.fileKey,
+          local?.taskId === task.taskId && local.status === 'cancelled'
+            ? { ...task, status: 'cancelled', operation: null }
+            : task
+        )
       }
     this.loaded = true
   }

@@ -180,33 +180,41 @@ describe('durable design reviews', () => {
     }
   )
 
-  it('rebinds a disconnected browser and delivers its offline Stop before cancellation', () => {
-    const seen: string[] = []
-    const tasks = new DesignTasks({
-      createId: () => 'task',
-      now: () => 1000,
-      onReviewStop: (record) => {
-        seen.push(record.task.status)
-      }
-    })
-    const record = tasks.begin(
-      'owner',
-      'old-connection',
-      session,
-      'Review',
-      'request',
-      client,
-      undefined,
-      browser
-    )
-    tasks.disconnectExtension('old-connection')
-    expect(record.extensionId).toBe('')
-    tasks.restoreReview({ ...record.task, status: 'cancelled' }, extension(), session)
-    expect(seen).toEqual(['interrupted'])
-    expect(record.task.status).toBe('cancelled')
-    tasks.restoreReview({ ...record.task, status: 'cancelled' }, extension(), session)
-    expect(seen).toHaveLength(1)
-  })
+  it.each([false, true])(
+    'delivers offline Stop before cancellation even when reviewClosed=%s',
+    (reviewClosed) => {
+      const seen: string[] = []
+      const tasks = new DesignTasks({
+        createId: () => 'task',
+        now: () => 1000,
+        onReviewStop: (record) => {
+          seen.push(record.task.status)
+        }
+      })
+      const record = tasks.begin(
+        'owner',
+        'old-connection',
+        session,
+        'Review',
+        'request',
+        client,
+        undefined,
+        browser
+      )
+      tasks.disconnectExtension('old-connection')
+      expect(record.extensionId).toBe('')
+      tasks.restoreReview(
+        { ...record.task, status: 'cancelled', reviewClosed },
+        extension(),
+        session
+      )
+      expect(seen).toEqual(['interrupted'])
+      expect(record.task.status).toBe('cancelled')
+      expect(!!record.task.reviewClosed).toBe(reviewClosed)
+      tasks.restoreReview({ ...record.task, status: 'cancelled' }, extension(), session)
+      expect(seen).toHaveLength(1)
+    }
+  )
   it('rejects copied Stop and Done snapshots from another connection or Origin', () => {
     const f = fixture()
     const record = f.begin()

@@ -163,12 +163,15 @@ export const useMcp = createSharedComposable(() => {
     const document = readSessionDocument()
     if (document) restoreDesignTask()
     const saved = readSavedDesignTask()
+    const stopped = taskGuard.task?.status === 'cancelled' ? taskGuard.task : undefined
     const reviewTask =
       designTask.value && ownsDesignTask(designTask.value)
         ? designTask.value
-        : saved?.status === 'cancelled'
-          ? saved
-          : undefined
+        : stopped && ownsDesignTask(stopped) && stopped.target.fileKey === document?.fileKey
+          ? stopped
+          : saved?.status === 'cancelled'
+            ? saved
+            : undefined
     postPageMessage({
       ...pageMessageBase,
       type: 'mcp.enable',
@@ -596,7 +599,8 @@ export const useMcp = createSharedComposable(() => {
     taskGuard.acknowledge(taskId)
     try {
       window.sessionStorage.setItem(dismissedStorageKey, JSON.stringify([...dismissedTaskIds]))
-      if (ownsDesignTask(task)) window.sessionStorage.removeItem(taskStorageKey)
+      if (ownsDesignTask(task) && task.status !== 'cancelled')
+        window.sessionStorage.removeItem(taskStorageKey)
     } catch {
       // Acknowledgement still applies to the live page if storage is unavailable.
     }

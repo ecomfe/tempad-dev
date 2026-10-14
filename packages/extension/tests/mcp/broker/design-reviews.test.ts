@@ -35,6 +35,32 @@ function storage() {
 }
 
 describe('saved design reviews', () => {
+  it.each(['save', 'restore'] as const)(
+    'keeps an offline Stop in memory after failed %s storage and does not acknowledge unpersisted Done',
+    async (operation) => {
+      const data = storage()
+      await data.set({ 'tempad.design-reviews.v1': [task] })
+      const reviews = new DesignReviews(data)
+      const get = vi.spyOn(data, 'get').mockRejectedValueOnce(new Error('Storage unavailable'))
+      const set = vi.spyOn(data, 'set').mockRejectedValue(new Error('Storage unavailable'))
+      const stopped = { ...task, status: 'cancelled' as const }
+      await expect(reviews[operation](stopped)).rejects.toThrow('Storage unavailable')
+      expect(reviews.get('file-a')).toMatchObject({ status: 'cancelled' })
+      expect(set).not.toHaveBeenCalled()
+      await reviews.ready()
+      expect(get).toHaveBeenCalledTimes(2)
+      expect(reviews.get('file-a')).toMatchObject({ status: 'cancelled' })
+      await expect(reviews.close(task)).rejects.toThrow('Storage unavailable')
+      expect(reviews.get('file-a')).toMatchObject({ status: 'cancelled' })
+      expect(reviews.get('file-a')?.reviewClosed).toBeUndefined()
+      set.mockRestore()
+      await reviews.save(stopped)
+      const restarted = new DesignReviews(data)
+      await restarted.ready()
+      expect(restarted.get('file-a')).toMatchObject({ status: 'cancelled' })
+    }
+  )
+
   it('retries restoring a review after a failed write without publishing an unpersisted state', async () => {
     const data = storage()
     const write = vi.spyOn(data, 'set').mockRejectedValueOnce(new Error('Storage unavailable'))

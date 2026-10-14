@@ -141,6 +141,9 @@ would restore cancellation first and treat Stop as an already-ended task. The ca
 still synchronizes after a failed dispatch or reconnect, including after page reload. A verified
 restored Stop attempts native interruption before cancellation; absent native turn identity cannot
 guarantee interruption, but never removes the canvas fence.
+Hiding a stopped review does not discard its cancellation. The page and broker retain the live
+Stop fence for reconnect when storage fails; unpersisted state cannot survive a full browser restart.
+Closing that review still requires a durable receipt, and reconnect processes Stop before Done.
 
 Mutating tool waits warn at their configured timeout and stop waiting after twice that interval.
 An unknown outcome keeps the file operation fenced until a definitive result or session recovery;

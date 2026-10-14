@@ -756,14 +756,15 @@ export class DesignTasks {
           record.browser.origin !== extension.origin))
     )
       return
-    if (saved.reviewClosed) {
-      this.closeReview(saved.taskId)
-      return true
-    }
     if (saved.status === 'cancelled') {
       if (!ENDED_STATUSES.includes(record.task.status) && this.current(session.fileKey) === record)
         this.options.onReviewStop?.(record)
       this.stop(saved.taskId, 'cancelled')
+      if (saved.reviewClosed) this.closeReview(saved.taskId)
+      return true
+    }
+    if (saved.reviewClosed) {
+      this.closeReview(saved.taskId)
       return true
     }
     if (record.task.reviewClosed || this.current(session.fileKey) !== record) return

@@ -46,17 +46,14 @@ const dismissBlocked = shallowRef(false)
 const feedbackComponent = shallowRef<InstanceType<typeof DesignTaskFeedback> | null>(null)
 const finishing = shallowRef(false)
 const confirmationOpen = shallowRef(false)
-const confirmationAction = shallowRef<'stop' | 'done'>('stop')
 
 function requestStop() {
-  confirmationAction.value = 'stop'
-  confirmationOpen.value = true
+  if (stoppable.value && props.task?.status !== 'stopping') emit('stop')
 }
 
-async function confirmAction() {
+async function confirmDone() {
   confirmationOpen.value = false
-  if (confirmationAction.value === 'stop') emit('stop')
-  else await done(true)
+  await done(true)
 }
 const feedbackSupported = computed(
   () => AGENT_CLIENTS[props.task?.client?.kind ?? 'other'].feedback
@@ -82,7 +79,6 @@ async function done(confirmed = false) {
     props.task?.status === 'completed' &&
     feedbackComponent.value?.hasUnsentContent
   ) {
-    confirmationAction.value = 'done'
     confirmationOpen.value = true
     return
   }
@@ -487,7 +483,7 @@ onScopeDispose(() => {
             v-if="stoppable"
             class="tp-design-stop"
             :aria-label="task.status === 'stopping' ? 'Stopping design task' : 'Stop design task'"
-            data-tooltip="Permanently cancel this design task"
+            data-tooltip="Stop permanently. Keep unsent comments."
             data-tooltip-type="text"
             :disabled="task.status === 'stopping'"
             @pointerdown.stop
@@ -495,6 +491,7 @@ onScopeDispose(() => {
           >
             Stop
           </Button>
+          <span v-if="stoppable" class="tp-design-stop-hint">Permanent · keeps drafts</span>
           <Button
             v-else-if="task.status === 'completed'"
             class="tp-design-done"
@@ -511,23 +508,13 @@ onScopeDispose(() => {
       </div>
     </div>
   </Teleport>
-  <Dialog
-    v-model="confirmationOpen"
-    compact
-    :title="confirmationAction === 'stop' ? 'Stop design task?' : 'Finish and discard comments?'"
-  >
+  <Dialog v-model="confirmationOpen" compact title="Finish and discard comments?">
     <p class="tp-design-confirmation-description">
-      {{
-        confirmationAction === 'stop'
-          ? 'This permanently cancels the current task. Unsent comments will no longer be available in this review.'
-          : 'Finishing clears your unsent comments. This cannot be undone.'
-      }}
+      Finishing clears your unsent comments. This cannot be undone.
     </p>
     <template #footer="{ close }">
       <Button @click="close">Keep reviewing</Button>
-      <Button variant="primary" @click="confirmAction">{{
-        confirmationAction === 'stop' ? 'Stop task' : 'Discard comments and finish'
-      }}</Button>
+      <Button variant="primary" @click="confirmDone">Discard comments and finish</Button>
     </template>
   </Dialog>
 </template>
@@ -684,6 +671,13 @@ onScopeDispose(() => {
   height: 24px;
   padding: 0 8px;
   flex: none;
+}
+.tp-design-stop-hint {
+  flex: none;
+  max-width: 64px;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 11px;
 }
 .tp-design-leaving {
   pointer-events: none;

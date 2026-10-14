@@ -179,6 +179,20 @@ describe('design task broker routing', () => {
         action
       })
     )
+    const offline = { ...f.client.getSnapshot(), status: 'connecting' as const, registeredId: null }
+    f.internals.handleHubSnapshot(offline)
+    f.internals.handleHubSnapshot(f.client.getSnapshot())
+    await f.internals.routeDesignTask({ type: 'designTaskState', task: { ...task, revision: 2 } })
+    f.a.message(pageMessage('mcp.activateSession', 'tab-a'))
+    expect(f.client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        reviews: [
+          expect.objectContaining({
+            task: expect.objectContaining({ taskId: task.taskId, status: 'cancelled' })
+          })
+        ]
+      })
+    )
   })
   it('closes a review offline, clears its drafts, and synchronizes Done before a stale page can reopen it', async () => {
     const f = designBroker()
