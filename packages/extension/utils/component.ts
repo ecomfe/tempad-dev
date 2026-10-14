@@ -219,7 +219,7 @@ function stringifyBaseComponent(
 
   let propsString = ''
   if (propItems.length === 1) {
-    propsString = ` ${indentAll(propItems[0], indent, true)}`
+    propsString = ` ${indentAll(propItems[0]!, indent, true)}`
   } else if (propItems.length > 1) {
     propsString = `\n${propItems.map((prop) => indentAll(prop, indent + INDENT_UNIT)).join('\n')}\n${indent}`
   }
@@ -287,7 +287,7 @@ function stringifyBaseComponent(
 function isCustomComponentTag(tag: string): boolean {
   // React/Vue components are usually PascalCase; custom elements contain a hyphen.
   if (!tag) return false
-  const first = tag[0]
+  const first = tag.charAt(0)
   return first === first.toUpperCase() || tag.includes('-')
 }
 
@@ -309,10 +309,65 @@ const VOID_HTML_TAGS = new Set([
 ])
 
 const EVENT_HANDLER_RE = /^on[A-Z]/
+const SVG_CASE_SENSITIVE_ATTRIBUTES = new Set([
+  'viewBox',
+  'preserveAspectRatio',
+  'gradientUnits',
+  'gradientTransform',
+  'patternUnits',
+  'patternContentUnits',
+  'patternTransform',
+  'markerWidth',
+  'markerHeight',
+  'markerUnits',
+  'refX',
+  'refY',
+  'textLength',
+  'lengthAdjust',
+  'filterUnits',
+  'primitiveUnits',
+  'stdDeviation',
+  'baseFrequency',
+  'numOctaves',
+  'kernelMatrix',
+  'kernelUnitLength',
+  'keyPoints',
+  'keyTimes',
+  'keySplines',
+  'attributeName',
+  'attributeType',
+  'repeatCount',
+  'repeatDur',
+  'calcMode',
+  'pathLength',
+  'startOffset',
+  'tableValues',
+  'targetX',
+  'targetY',
+  'viewTarget',
+  'xChannelSelector',
+  'yChannelSelector',
+  'zoomAndPan',
+  'requiredExtensions',
+  'requiredFeatures',
+  'systemLanguage',
+  'externalResourcesRequired',
+  'filterRes',
+  'spreadMethod',
+  'preserveAlpha',
+  'surfaceScale',
+  'diffuseConstant',
+  'specularConstant',
+  'specularExponent',
+  'limitingConeAngle',
+  'pointsAtX',
+  'pointsAtY',
+  'pointsAtZ'
+])
 
 function getEventName(key: string) {
   if (EVENT_HANDLER_RE.test(key)) {
-    return key[2].toLowerCase() + key.slice(3)
+    return key.charAt(2).toLowerCase() + key.slice(3)
   }
 
   if (key.startsWith('@')) {
@@ -340,7 +395,16 @@ function stringifyVueComponent(
         return `@${camelToKebab(eventName)}="${callback.trim()}"`
       }
 
-      const name = key === 'className' ? 'class' : inSvg ? key : camelToKebab(key)
+      const name =
+        key === 'className'
+          ? 'class'
+          : key === 'tabIndex'
+            ? 'tabindex'
+            : key === 'htmlFor'
+              ? 'for'
+              : inSvg && SVG_CASE_SENSITIVE_ATTRIBUTES.has(key)
+                ? key
+                : camelToKebab(key)
 
       if (typeof value === 'string') {
         return `${name}="${escapeHTML(value).trim()}"`
@@ -374,8 +438,8 @@ function stringifyJSXComponent(
     component,
     (key, value) => {
       if (EVENT_HANDLER_RE.test(key)) {
-        const callback = typeof value === 'string' ? value : '() => {}'
-        return `${key}="{${callback.trim()}}"`
+        const callback = typeof value === 'string' ? `() => { ${value.trim()} }` : '() => {}'
+        return `${key}={${callback}}`
       }
 
       if (typeof value === 'string') {
@@ -427,20 +491,20 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
 
   let i = 0
   // Skip leading whitespace
-  while (i < code.length && /\s/.test(code[i])) i++
+  while (i < code.length && /\s/.test(code.charAt(i))) i++
 
   if (code[i] !== '<') return code
   i++
 
   // Scan Tag Name
-  while (i < code.length && /[a-zA-Z0-9\-_:.]/.test(code[i])) i++
+  while (i < code.length && /[a-zA-Z0-9\-_:.]/.test(code.charAt(i))) i++
   const tagNameEnd = i
 
   const existingAttrs = new Map<string, { valueStart: number; valueEnd: number; quote: string }>()
 
   while (i < code.length) {
     // Skip whitespace
-    while (i < code.length && /\s/.test(code[i])) i++
+    while (i < code.length && /\s/.test(code.charAt(i))) i++
 
     if (i >= code.length) break
 
@@ -454,17 +518,17 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
 
     // Attribute Name
     const attrNameStart = i
-    while (i < code.length && /[^=\s/>]/.test(code[i])) i++
+    while (i < code.length && /[^=\s/>]/.test(code.charAt(i))) i++
     const attrName = code.slice(attrNameStart, i)
 
     // Skip whitespace after name
-    while (i < code.length && /\s/.test(code[i])) i++
+    while (i < code.length && /\s/.test(code.charAt(i))) i++
 
     // Check for equals
     if (code[i] === '=') {
       i++ // skip =
       // Skip whitespace after =
-      while (i < code.length && /\s/.test(code[i])) i++
+      while (i < code.length && /\s/.test(code.charAt(i))) i++
 
       // Attribute Value
       let quote = ''
@@ -472,7 +536,7 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
       let valueEnd
 
       if (code[i] === '"' || code[i] === "'") {
-        quote = code[i]
+        quote = code.charAt(i)
         i++
         valueStart = i
         while (i < code.length && code[i] !== quote) {
@@ -483,7 +547,7 @@ export function mergeAttributes(code: string, attrs: Record<string, string>): st
         if (i < code.length) i++ // skip closing quote
       } else {
         // Unquoted value
-        while (i < code.length && /[^>\s]/.test(code[i])) i++
+        while (i < code.length && /[^>\s]/.test(code.charAt(i))) i++
         valueEnd = i
       }
 

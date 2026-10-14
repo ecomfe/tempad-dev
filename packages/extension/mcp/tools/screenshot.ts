@@ -1,10 +1,13 @@
 import type { GetScreenshotResult } from '@tempad-dev/shared'
 
-import { MCP_MAX_ASSET_BYTES } from '@tempad-dev/shared'
+import { MCP_MAX_ASSET_BYTES, MCP_TOOL_TIMEOUT_MS } from '@tempad-dev/shared'
 
 import { ensureAssetUploaded } from '@/mcp/assets'
 
 const SCALE_STEPS = [1, 0.75, 0.5, 0.25]
+// Leave time for the page/broker response before the Hub's single-node deadline.
+// Batches additionally reserve their work window plus this final node's deadline.
+const SCREENSHOT_WORK_TIMEOUT_MS = MCP_TOOL_TIMEOUT_MS - 3000
 
 interface PngCropRect {
   x: number
@@ -102,7 +105,11 @@ function resolveAncestorCropSource(node: SceneNode): AncestorCropSource | null {
       return { ancestor, sourceBounds: ancestorBounds, targetBounds }
     }
 
-    if (!('visible' in parent) || !('absoluteBoundingBox' in parent)) return null
+    if (!('visible' in parent) || !parent.visible || !('absoluteBoundingBox' in parent)) return null
+    if ('clipsContent' in parent && parent.clipsContent) {
+      const bounds = finiteRect(parent.absoluteBoundingBox)
+      if (!bounds || !contains(bounds, targetBounds)) return null
+    }
     ancestor = parent as SceneNode
     branch = parent
     parent = parent.parent
@@ -227,31 +234,80 @@ export async function handleGetScreenshot(
   node: SceneNode,
   options: ScreenshotRuntimeOptions = {}
 ): Promise<GetScreenshotResult> {
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      exportScreenshot(node, options, controller.signal),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error(
+            'Screenshot export or asset upload timed out. No automatic retry was started. Select a smaller node or reload the Figma tab before trying again.'
+          )
+          controller.abort(error)
+          reject(error)
+        }, SCREENSHOT_WORK_TIMEOUT_MS)
+      })
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function exportScreenshot(
+  node: SceneNode,
+  options: ScreenshotRuntimeOptions,
+  signal: AbortSignal
+): Promise<GetScreenshotResult> {
   const directCropSource = resolveDirectCropSource(node)
   const ancestorCropSource = resolveAncestorCropSource(node)
   const cropPng = options.cropPng ?? cropPngWithCanvas
 
-  for (const scale of SCALE_STEPS) {
+  const bounds = overlapBounds(node)
+  const initialScale = bounds
+    ? Math.min(
+        1,
+        4096 / Math.max(bounds.width, bounds.height),
+        Math.sqrt(16_000_000 / (bounds.width * bounds.height))
+      )
+    : 1
+  for (const step of SCALE_STEPS) {
+    signal.throwIfAborted()
+    const scale = initialScale * step
     const directBytes = await node.exportAsync({
       format: 'PNG',
       constraint: { type: 'SCALE', value: scale }
     })
+    signal.throwIfAborted()
     const directCropRect = directCropSource
       ? resolveCropRect(directCropSource, readPngDimensions(directBytes))
       : null
     let bytes = directCropRect ? await cropPng(directBytes, directCropRect) : directBytes
+    signal.throwIfAborted()
 
-    if (!directCropRect && ancestorCropSource) {
+    if (
+      !directCropRect &&
+      ancestorCropSource &&
+      ancestorCropSource.sourceBounds.width * scale <= 4096 &&
+      ancestorCropSource.sourceBounds.height * scale <= 4096 &&
+      ancestorCropSource.sourceBounds.width *
+        ancestorCropSource.sourceBounds.height *
+        scale *
+        scale <=
+        16_000_000
+    ) {
       const ancestorBytes = await ancestorCropSource.ancestor.exportAsync({
         format: 'PNG',
         constraint: { type: 'SCALE', value: scale },
         useAbsoluteBounds: true
       })
+      signal.throwIfAborted()
       const ancestorDimensions = readPngDimensions(ancestorBytes)
       const ancestorCropRect = resolveCropRect(ancestorCropSource, ancestorDimensions)
       if (ancestorCropRect) bytes = await cropPng(ancestorBytes, ancestorCropRect)
     }
     const { byteLength } = bytes
+    signal.throwIfAborted()
 
     if (byteLength <= MCP_MAX_ASSET_BYTES) {
       const { width, height } = readPngDimensions(bytes)

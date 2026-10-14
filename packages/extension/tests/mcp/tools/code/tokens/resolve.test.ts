@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createTokenDiagnostics } from '@/mcp/tools/code/tokens/diagnostics'
-import { createStyleVarResolver, resolveStyleMap } from '@/mcp/tools/code/tokens/resolve'
+import {
+  createTokenConsumerResolver,
+  createStyleVarResolver,
+  resolveStyleMap
+} from '@/mcp/tools/code/tokens/resolve'
 import { createTokenReadContext } from '@/mcp/tools/token/context'
 
 vi.mock('@/mcp/transform-variables/requester', () => ({
@@ -36,11 +40,126 @@ function fixture(name: string, value: unknown, resolvedType: Variable['resolvedT
 afterEach(() => vi.unstubAllGlobals())
 
 describe('consumer token resolution', () => {
+  it('uses length consumers instead of the Opacity name heuristic', () => {
+    const { resolve } = fixture('Opacity', 50)
+    expect(
+      resolve({ opacity: 'var(--Opacity)', gap: 'var(--Opacity)', width: 'var(--Opacity)' }, node)
+    ).toEqual({
+      opacity: '0.5',
+      gap: '50px',
+      width: '50px'
+    })
+    const unresolved = createTokenConsumerResolver(
+      { '--Opacity': { kind: 'number', value: '50' } },
+      new Map([['--Opacity', 'v']]),
+      undefined
+    )
+    expect(
+      unresolved({ opacity: 'var(--Opacity)', gap: 'var(--Opacity)', width: 'var(--Opacity)' })
+    ).toEqual({
+      opacity: 'calc(var(--Opacity) / 100)',
+      gap: 'calc(var(--Opacity) * 100px / 100)',
+      width: 'calc(var(--Opacity) * 100px / 100)'
+    })
+  })
+
+  it.each([
+    [50, '0.5', '50px'],
+    [0.5, '0.005', '0.5px'],
+    [0, '0', '0px'],
+    [100, '1', '100px']
+  ])(
+    'normalizes native opacity %s without changing the same token used as length',
+    (value, opacity, gap) => {
+      const { resolve } = fixture('shared', value)
+      expect(resolve({ opacity: 'var(--shared)', gap: 'var(--shared)' }, node)).toEqual({
+        opacity,
+        gap
+      })
+    }
+  )
+
+  it('retains canonical token identity while normalizing opacity through dimensional aliases', () => {
+    const tokens = {
+      '--plugin-shared': { kind: 'number' as const, value: { Light: '--base', Dark: '0rem' } },
+      '--base': { kind: 'number' as const, value: '3.125rem' }
+    }
+    const resolve = createTokenConsumerResolver(
+      tokens,
+      new Map([['--shared', 'v']]),
+      new Map([['--shared', '--plugin-shared']])
+    )
+    const style = { opacity: 'var(--shared)', gap: 'var(--shared)' }
+    const normalized = resolve(style, node)
+    expect(normalized).toEqual({ opacity: 'calc(var(--shared) / 100px)', gap: 'var(--shared)' })
+    expect(resolve(normalized, node)).toBe(normalized)
+    expect(tokens['--base'].value).toBe('3.125rem')
+  })
+
+  it('normalizes numeric opacity tokens with a unitless denominator', () => {
+    const resolve = createTokenConsumerResolver(
+      { '--alpha': { kind: 'number', value: { Light: '50', Dark: '0' } } },
+      new Map([['--alpha', 'v']]),
+      undefined
+    )
+    expect(resolve({ opacity: 'var(--alpha)' }, node)).toEqual({
+      opacity: 'calc(var(--alpha) / 100)'
+    })
+  })
+
+  it('keeps numeric font weights unchanged and normalizes shared length aliases only at consumption', () => {
+    const resolve = createTokenConsumerResolver(
+      {
+        '--weight': { kind: 'number', value: '600' },
+        '--alias': { kind: 'number', value: '--length' },
+        '--length': { kind: 'number', value: { Light: '400px', Dark: '600px' } }
+      },
+      new Map([
+        ['--weight', 'w'],
+        ['--alias', 'a']
+      ]),
+      undefined
+    )
+    const numeric = { 'font-weight': 'var(--weight)' }
+    expect(resolve(numeric)).toBe(numeric)
+    expect(resolve({ 'font-weight': 'var(--alias)', gap: 'var(--alias)' })).toEqual({
+      'font-weight': 'calc(var(--alias) / 100px * 100)',
+      gap: 'var(--alias)'
+    })
+  })
+
+  it.each([
+    { Light: '50', Dark: '50px' },
+    { Light: '--missing', Dark: '50px' },
+    { Light: '--alpha', Dark: '50px' }
+  ])('diagnoses opacity normalization that cannot preserve all modes: %s', (value) => {
+    const diagnostics = createTokenDiagnostics()
+    const resolve = createTokenConsumerResolver(
+      { '--alpha': { kind: 'number', value } },
+      new Map([['--alpha', 'v']]),
+      undefined,
+      diagnostics.report
+    )
+    const style = { opacity: 'var(--alpha)' }
+    expect(resolve(style, node)).toBe(style)
+    expect(diagnostics.warnings()[0]?.message).toContain('opacity unit normalization')
+  })
+
+  it('uses the consuming property for unitless typography regardless of token name', () => {
+    const { resolve } = fixture('typography-weight-bold', 700)
+    expect(
+      resolve(
+        { 'font-weight': 'var(--typography-weight-bold)', width: 'var(--typography-weight-bold)' },
+        node
+      )
+    ).toEqual({ 'font-weight': '700', width: '700px' })
+  })
+
   it('resolves each native consumer once and preserves units across repeated properties', () => {
     const { resolve, variable } = fixture('spacing', 32)
     expect(resolve({ width: 'var(--spacing)', height: 'var(--spacing)' }, node)).toEqual({
-      width: '2rem',
-      height: '2rem'
+      width: '32px',
+      height: '32px'
     })
     expect(variable.resolveForConsumer).toHaveBeenCalledExactlyOnceWith(node)
   })
@@ -57,7 +176,7 @@ describe('consumer token resolution', () => {
     expect(resolve({ value: `var(--${name})` }, node).value).toBe(expected)
   })
 
-  it('shares raw reads between overlapping roots without sharing serialization', () => {
+  it('shares native reads while leaving each renderer to convert units', () => {
     const { resolve, source, cache, context, variable } = fixture('spacing', 32)
     const other = createStyleVarResolver(
       source,
@@ -67,7 +186,7 @@ describe('consumer token resolution', () => {
       undefined,
       context
     )
-    expect(resolve({ width: 'var(--spacing)' }, node).width).toBe('2rem')
+    expect(resolve({ width: 'var(--spacing)' }, node).width).toBe('32px')
     expect(other({ width: 'var(--spacing)' }, node).width).toBe('32px')
     expect(variable.resolveForConsumer).toHaveBeenCalledTimes(1)
     resolve({ width: 'var(--spacing)' }, { id: 'other' } as SceneNode)
@@ -95,7 +214,7 @@ describe('consumer token resolution', () => {
     expect(variable.resolveForConsumer).toHaveBeenCalledTimes(1)
     expect(diagnostics.warnings()).toEqual([expect.objectContaining({ type: 'token-resolution' })])
     const fresh = createStyleVarResolver(source, cache, config)
-    expect(fresh(style, node).width).toBe('2rem')
+    expect(fresh(style, node).width).toBe('32px')
     expect(variable.resolveForConsumer).toHaveBeenCalledTimes(2)
   })
 
@@ -132,7 +251,7 @@ describe('consumer token resolution', () => {
   it('handles missing variables and mixed literal/token styles without losing properties', () => {
     const { resolve, cache, diagnostics } = fixture('spacing', 32)
     const style = { width: 'calc(100% - var(--spacing))', color: 'red', empty: '' }
-    expect(resolve(style, node)).toEqual({ ...style, width: 'calc(100% - 2rem)' })
+    expect(resolve(style, node)).toEqual({ ...style, width: 'calc(100% - 32px)' })
     cache.set('v', null as unknown as Variable)
     const next = { id: 'next' } as SceneNode
     expect(resolve(style, next)).toBe(style)
@@ -146,9 +265,9 @@ describe('consumer token resolution', () => {
     const styles = new Map([['consumer', { width: 'var(--spacing)' }]])
     expect(
       resolveStyleMap(styles, new Map([['consumer', node]]), resolve).get('consumer')?.width
-    ).toBe('1rem')
-    expect(resolve({ fontSize: 'var(--spacing)' }, text).fontSize).toBe('1rem')
-    expect(resolve({ strokeWidth: 'var(--spacing)' }, svg).strokeWidth).toBe('1rem')
+    ).toBe('16px')
+    expect(resolve({ fontSize: 'var(--spacing)' }, text).fontSize).toBe('16px')
+    expect(resolve({ strokeWidth: 'var(--spacing)' }, svg).strokeWidth).toBe('16px')
     expect(vi.mocked(variable.resolveForConsumer).mock.calls.map(([consumer]) => consumer)).toEqual(
       [node, text, svg]
     )

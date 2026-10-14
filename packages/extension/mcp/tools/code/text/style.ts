@@ -65,6 +65,11 @@ export function resolveRunAttrs(
     style['font-weight'] = String(seg.fontWeight)
   }
 
+  // Figma's fontStyle variable is a face name (e.g. "Bold Italic"), not CSS.
+  if (seg.fontStyle === 'REGULAR' || seg.fontStyle === 'ITALIC') {
+    style['font-style'] = seg.fontStyle === 'ITALIC' ? 'italic' : 'normal'
+  }
+
   const lhVal = constructCssVar(lineHeight, formatLineHeightValue(seg.lineHeight))
   if (lhVal) style['line-height'] = lhVal
 

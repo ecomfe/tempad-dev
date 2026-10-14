@@ -12,7 +12,10 @@ const mocked = vi.hoisted(() => ({
 vi.mock('@/mcp/tools/code/styles', () => ({
   styleToClassNames: mocked.styleToClassNames
 }))
+vi.mock('@/mcp/assets', () => ({ ensureAssetUploaded: vi.fn() }))
 
+import { ensureAssetUploaded } from '@/mcp/assets'
+import { exportSvgEntry } from '@/mcp/tools/code/assets/vector'
 import { renderTree } from '@/mcp/tools/code/render'
 import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 import { stringifyComponent } from '@/utils/component'
@@ -21,6 +24,68 @@ describe('mcp/code render svg', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
+
+  it.each(
+    ['none', 'outside-stroke', 'shadow', 'rotation'].flatMap((effect) => [
+      { effect, layout: { width: 'var(--icon-width)', height: 'var(--icon-height)' } },
+      { effect, layout: { width: '100%', height: 'auto', 'align-self': 'stretch' } }
+    ])
+  )(
+    'preserves flow sizing through export and render: $effect $layout',
+    async ({ effect, layout }) => {
+      const root = createSnapshot({ id: 'icon', type: 'VECTOR' })
+      const rotated = effect === 'rotation'
+      const transform: Transform = rotated
+        ? [
+            [0, -1, 48],
+            [1, 0, 0]
+          ]
+        : [
+            [1, 0, 0],
+            [0, 1, 0]
+          ]
+      const bounds =
+        effect === 'outside-stroke'
+          ? { x: -12, y: -12, width: 88, height: 72 }
+          : { x: 0, y: 0, width: 88, height: 68 }
+      Object.assign(root.node, {
+        width: 64,
+        height: 48,
+        relativeTransform: transform,
+        absoluteTransform: transform,
+        ...(effect === 'outside-stroke' || effect === 'shadow'
+          ? { absoluteRenderBounds: bounds }
+          : {}),
+        exportAsync: async () =>
+          new TextEncoder().encode('<svg viewBox="0 0 64 48"><path d="M0 0H64V48H0Z"/></svg>')
+      })
+      vi.mocked(ensureAssetUploaded).mockResolvedValue({
+        hash: 'icon',
+        url: 'https://assets.test/icon.svg',
+        mimeType: 'image/svg+xml',
+        size: 1
+      })
+      const config = { cssUnit: 'px', rootFontSize: 16, scale: 1 } as const
+      const entry = await exportSvgEntry(root.node, config, new Map(), { flow: true })
+      expect(Boolean(entry?.wrapper)).toBe(effect === 'outside-stroke' || effect === 'shadow')
+      await renderTree(root.id, createTree([root]), {
+        styles: new Map(),
+        layout: new Map([[root.id, layout]]),
+        nodes: new Map([[root.id, root.node]]),
+        svgs: new Map([[root.id, entry]]),
+        textSegments: new Map(),
+        config,
+        preferredLang: 'jsx'
+      } as never)
+      expect(mocked.styleToClassNames).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ...layout,
+          ...(rotated ? { width: '48px', height: '64px' } : {})
+        }),
+        config
+      )
+    }
+  )
 
   it.each([false, true])(
     'preserves the layout box around an expanded SVG viewport (inline: %s)',

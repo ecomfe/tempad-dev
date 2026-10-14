@@ -371,7 +371,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
       node
     )
     expect(resolved).toEqual({
-      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+      background: 'linear-gradient(#0F0, #0F0), linear-gradient(#F00, #F00)'
     })
 
     const withStyleNameVars = await resolveStylesFromNode(
@@ -383,7 +383,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
       { emitSafeStyleNameVars: true }
     )
     expect(withStyleNameVars).toEqual({
-      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+      background: 'linear-gradient(#0F0, #0F0), linear-gradient(#F00, #F00)'
     })
   })
 
@@ -451,7 +451,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
       }
     )
     expect(multi).toEqual({
-      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+      background: 'linear-gradient(#0F0, #0F0), linear-gradient(#F00, #F00)'
     })
 
     const gradient = await resolveStylesFromNode(
@@ -583,7 +583,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     )
 
     expect(result).toEqual({
-      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+      background: 'linear-gradient(#0F0, #0F0), linear-gradient(#F00, #F00)'
     })
   })
 
@@ -601,7 +601,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     )
 
     expect(result).toEqual({
-      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+      background: 'linear-gradient(#0F0, #0F0), linear-gradient(#F00, #F00)'
     })
   })
 
@@ -624,7 +624,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     )
 
     expect(result).toEqual({
-      background: 'linear-gradient(#0F0, #0F0), linear-gradient(#00F, #00F)'
+      background: 'linear-gradient(#00F, #00F), linear-gradient(#0F0, #0F0)'
     })
   })
 

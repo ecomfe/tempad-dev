@@ -1,7 +1,7 @@
 import type { CodegenConfig } from '@/utils/codegen'
 
 import { getVariableByIdCached } from './cache'
-import { canonicalizeName, getTokenIndex, getVariableRawName } from './indexer'
+import { canonicalizeName, canonicalizeNames, getTokenIndex, getVariableRawName } from './indexer'
 
 export type ConsumerValue = ReturnType<Variable['resolveForConsumer']> | null
 
@@ -42,13 +42,44 @@ export function createTokenReadContext(
       }
       return collections.get(id) ?? null
     },
-    getName(variable: Variable): Promise<string> {
+    async getName(variable: Variable, checkpoint?: () => void): Promise<string> {
+      checkpoint?.()
       let name = names.get(variable.id)
       if (!name) {
-        name = canonicalizeName(getVariableRawName(variable), snapshot, pluginCode)
+        const rawName = getVariableRawName(variable)
+        checkpoint?.()
+        // Pending name reads can be shared by full and shell attempts. Keep the
+        // cached work independent of either caller's deadline.
+        name = canonicalizeName(rawName, snapshot, pluginCode)
         names.set(variable.id, name)
       }
-      return name
+      let value: string
+      try {
+        value = await name
+      } catch (error) {
+        if (names.get(variable.id) === name) names.delete(variable.id)
+        throw error
+      }
+      checkpoint?.()
+      return value
+    },
+    async prepareNames(variables: Variable[], checkpoint?: () => void): Promise<void> {
+      checkpoint?.()
+      const missing = variables.filter((variable) => {
+        checkpoint?.()
+        return !names.has(variable.id)
+      })
+      if (!missing.length) return
+      const rawNames = missing.map((variable) => {
+        checkpoint?.()
+        return getVariableRawName(variable)
+      })
+      const values = await canonicalizeNames(rawNames, snapshot, pluginCode, checkpoint)
+      checkpoint?.()
+      missing.forEach((variable, index) => {
+        checkpoint?.()
+        names.set(variable.id, Promise.resolve(values[index]!))
+      })
     },
     getIndex() {
       return (index ??= getTokenIndex(snapshot, pluginCode).then((result) => {

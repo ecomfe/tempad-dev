@@ -17,6 +17,42 @@ function createNode(type: SceneNode['type'], overrides: Record<string, unknown> 
 }
 
 describe('mcp/tools/code/styles/background', () => {
+  it('corrects the matching gradient without replacing a foreground synthetic solid layer', () => {
+    const node = createNode('FRAME', {
+      fills: [
+        {
+          type: 'GRADIENT_LINEAR',
+          opacity: 0.5,
+          gradientStops: [{ position: 0, color: { r: 0, g: 0, b: 1, a: 1 } }]
+        },
+        { type: 'SOLID', color: { r: 1, g: 0, b: 0 } }
+      ]
+    })
+    expect(
+      cleanFigmaSpecificStyles(
+        { background: 'linear-gradient(#F00, #F00), linear-gradient(90deg, blue, blue)' },
+        node
+      ).background
+    ).toBe('linear-gradient(#F00, #F00), linear-gradient(90deg, #0000FF80 0%)')
+  })
+  it('preserves media and every gradient layer when correcting stop opacity', () => {
+    const gradient = {
+      type: 'GRADIENT_LINEAR',
+      opacity: 0.5,
+      gradientStops: [{ position: 0, color: { r: 1, g: 0, b: 0, a: 1 } }]
+    }
+    const result = cleanFigmaSpecificStyles(
+      {
+        background:
+          'linear-gradient(90deg, red, blue), url("photo.png") 50% / cover, linear-gradient(0deg, red, blue)'
+      },
+      createNode('FRAME', { fills: [gradient, { type: 'IMAGE' }, gradient] })
+    )
+    expect(result.background).toContain('url("photo.png") 50% / cover')
+    expect(result.background?.match(/linear-gradient/g)).toHaveLength(2)
+    expect(result.background).toContain('#FF000080')
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
   })
@@ -79,7 +115,7 @@ describe('mcp/tools/code/styles/background', () => {
     const result = cleanFigmaSpecificStyles(style, node)
 
     expect(result).toEqual({
-      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+      background: 'linear-gradient(#0F0, #0F0), linear-gradient(#F00, #F00)'
     })
   })
 
@@ -154,7 +190,7 @@ describe('mcp/tools/code/styles/background', () => {
     const result = cleanFigmaSpecificStyles(style, node)
 
     expect(result).toEqual({
-      background: 'linear-gradient(#0F0, #0F0), linear-gradient(#00F, #00F)'
+      background: 'linear-gradient(#00F, #00F), linear-gradient(#0F0, #0F0)'
     })
   })
 
@@ -169,7 +205,7 @@ describe('mcp/tools/code/styles/background', () => {
     const result = cleanFigmaSpecificStyles({}, node)
 
     expect(result).toEqual({
-      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+      background: 'linear-gradient(#0F0, #0F0), linear-gradient(#F00, #F00)'
     })
   })
 
@@ -197,7 +233,7 @@ describe('mcp/tools/code/styles/background', () => {
     const result = cleanFigmaSpecificStyles({}, node)
 
     expect(result).toEqual({
-      background: 'linear-gradient(#F00, #F00), linear-gradient(#0F0, #0F0)'
+      background: 'linear-gradient(#0F0, #0F0), linear-gradient(#F00, #F00)'
     })
   })
 

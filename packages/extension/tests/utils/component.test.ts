@@ -89,7 +89,7 @@ describe('utils/component', () => {
       expect(markup).toContain('stroke-width="2"')
       expect(markup).toContain('clip-rule="evenodd"')
       expect(markup).toContain('requiredExtensions="test"')
-      expect(markup).toContain('tab-index="0"')
+      expect(markup).toContain('tabindex="0"')
       expect(markup).toContain('viewBox="0 0 1 1"')
       expect(markup).not.toContain('view-box')
     }
@@ -254,7 +254,7 @@ describe('utils/component', () => {
       },
       { lang: 'jsx' }
     )
-    expect(jsx).toContain('onClick="{submit()}"')
+    expect(jsx).toContain('onClick={() => { submit() }}')
     expect(jsx).toContain('disabled={false}')
 
     const raw = stringifyComponent(

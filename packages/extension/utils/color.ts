@@ -9,7 +9,7 @@ export function fadeTo(hex: string, alpha: number = 1): string {
   }
 
   if (h.length === 3) {
-    h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2]
+    h = [...h].map((digit) => digit + digit).join('')
   }
 
   if (h.length !== 6) {

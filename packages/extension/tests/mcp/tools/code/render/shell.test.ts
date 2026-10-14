@@ -13,6 +13,25 @@ import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 import { stringifyComponent } from '@/utils/component'
 
 describe('mcp/code render shell', () => {
+  it('preserves authored auto-layout order across wrapped rows', () => {
+    const root = createSnapshot({ id: 'root', children: ['a', 'b', 'c'] })
+    Object.assign(root.node, { layoutMode: 'HORIZONTAL' })
+    const children = ['a', 'b', 'c'].map((id, index) => {
+      const snapshot = createSnapshot({ id, parentId: 'root' })
+      Object.assign(snapshot.node, {
+        absoluteBoundingBox: { x: index === 1 ? 20 : 0, y: index === 2 ? 20 : 0 }
+      })
+      return snapshot
+    })
+    expect(
+      getOrderedChildIds(
+        root,
+        { display: 'flex', 'flex-wrap': 'wrap' },
+        createTree([root, ...children])
+      )
+    ).toEqual(['a', 'b', 'c'])
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mocked.styleToClassNames.mockReturnValue(['flex'])

@@ -62,11 +62,14 @@ export function ensureSvgRootSize(
 
 export function normalizeSvgExport(
   svg: string,
-  node: Pick<SceneNode, 'width' | 'height' | 'absoluteTransform'>
+  node: Pick<SceneNode, 'width' | 'height' | 'absoluteTransform'> & {
+    absoluteRenderBounds?: Rect | null
+  },
+  flowTransform?: Transform
 ): { content: string; x: number; y: number; width: number; height: number } | null {
   const root = parseSvg(svg)
-  if (!root || node.width <= 0 || node.height <= 0) return null
-  const [[a, c], [b, d]] = node.absoluteTransform ?? [
+  if (!root || node.width < 0 || node.height < 0) return null
+  const [[a, c, tx], [b, d, ty]] = node.absoluteTransform ?? [
     [1, 0, 0],
     [0, 1, 0]
   ]
@@ -79,28 +82,82 @@ export function normalizeSvgExport(
       .map(Number) ?? []
   if (!Number.isFinite(originX) || !Number.isFinite(originY)) return null
 
-  // Figma bakes the absolute linear transform into exported paths and moves
-  // the full axis-aligned node box to the export origin. Undo that mapping,
-  // including rotation/reflection, without inspecting or rewriting path data.
-  const x = Math.min(0, a * node.width, c * node.height, a * node.width + c * node.height) - originX
-  const y = Math.min(0, b * node.width, d * node.height, b * node.width + d * node.height) - originY
-  const matrix = [d, -b, -c, a, d * x - c * y, a * y - b * x].map((value) => value / determinant)
-  const exportWidth = Math.abs(a * node.width) + Math.abs(c * node.height)
-  const exportHeight = Math.abs(b * node.width) + Math.abs(d * node.height)
-  const corners = [
-    [0, 0],
-    [exportWidth, 0],
-    [0, exportHeight],
-    [exportWidth, exportHeight]
-  ].map(([u, v]) => [
-    (d * (u + x + originX) - c * (v + y + originY)) / determinant,
-    (a * (v + y + originY) - b * (u + x + originX)) / determinant
+  const geometryX = Math.min(0, a * node.width, c * node.height, a * node.width + c * node.height)
+  const geometryY = Math.min(0, b * node.width, d * node.height, b * node.width + d * node.height)
+  const geometryWidth = Math.abs(a * node.width) + Math.abs(c * node.height)
+  const geometryHeight = Math.abs(b * node.width) + Math.abs(d * node.height)
+  const bounds = node.absoluteRenderBounds
+  const render =
+    bounds && Object.values(bounds).every(Number.isFinite) && bounds.width > 0 && bounds.height > 0
+      ? { x: bounds.x - tx, y: bounds.y - ty, width: bounds.width, height: bounds.height }
+      : null
+  const renderBoundsExport = node.width === 0 || node.height === 0
+  if (renderBoundsExport && !render) return null
+
+  // Full-node exports retain unclipped path/filter geometry. Expand their
+  // viewport for visible effects, never shrink it to ancestor-clipped bounds.
+  // Degenerate lines require native render-bounds export instead.
+  const x = (renderBoundsExport ? render!.x : geometryX) - originX
+  const y = (renderBoundsExport ? render!.y : geometryY) - originY
+  let matrix: [number, number, number, number, number, number] = [
+    d / determinant,
+    -b / determinant,
+    -c / determinant,
+    a / determinant,
+    (d * x - c * y) / determinant,
+    (a * y - b * x) / determinant
+  ]
+  const minX = Math.min(geometryX, render?.x ?? geometryX)
+  const minY = Math.min(geometryY, render?.y ?? geometryY)
+  const maxX = Math.max(
+    geometryX + geometryWidth,
+    render ? render.x + render.width : geometryX + geometryWidth
+  )
+  const maxY = Math.max(
+    geometryY + geometryHeight,
+    render ? render.y + render.height : geometryY + geometryHeight
+  )
+  let corners = (
+    [
+      [minX, minY],
+      [maxX, minY],
+      [minX, maxY],
+      [maxX, maxY]
+    ] as const
+  ).map(([u, v]): [number, number] => [
+    (d * u - c * v) / determinant,
+    (a * v - b * u) / determinant
   ])
+  if (flowTransform) {
+    const [[fa, fc], [fb, fd]] = flowTransform
+    const offsetX = Math.min(
+      0,
+      fa * node.width,
+      fc * node.height,
+      fa * node.width + fc * node.height
+    )
+    const offsetY = Math.min(
+      0,
+      fb * node.width,
+      fd * node.height,
+      fb * node.width + fd * node.height
+    )
+    const [ma, mb, mc, md, mx, my] = matrix
+    matrix = [
+      fa * ma + fc * mb,
+      fb * ma + fd * mb,
+      fa * mc + fc * md,
+      fb * mc + fd * md,
+      fa * mx + fc * my - offsetX,
+      fb * mx + fd * my - offsetY
+    ]
+    corners = corners.map(([u, v]) => [fa * u + fc * v - offsetX, fb * u + fd * v - offsetY])
+  }
   const left = toDecimalPlace(Math.min(...corners.map(([u]) => u)))
   const top = toDecimalPlace(Math.min(...corners.map(([, v]) => v)))
   const width = roundedSize(Math.max(...corners.map(([u]) => u)) - left)
   const height = roundedSize(Math.max(...corners.map(([, v]) => v)) - top)
-  if (matrix.some((value, index) => Math.abs(value - [1, 0, 0, 1, 0, 0][index]) > 1e-10)) {
+  if (matrix.some((value, index) => Math.abs(value - [1, 0, 0, 1, 0, 0][index]!) > 1e-10)) {
     root.children = [
       {
         name: 'g',

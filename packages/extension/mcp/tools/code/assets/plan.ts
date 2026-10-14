@@ -64,6 +64,7 @@ export function planAssets(
 
     if (node.assetKind === 'vector') {
       vectorRoots.add(id)
+      children.forEach((child) => addSubtreeIds(child.id, tree, skipped))
     }
   }
 

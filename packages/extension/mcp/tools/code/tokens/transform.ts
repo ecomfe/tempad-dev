@@ -14,11 +14,13 @@ export async function applyPluginTransformToNames(
   sourceIndex: Map<string, string>,
   pluginCode: string | undefined,
   config: CodegenConfig,
-  report?: ReportTokenDiagnostic
+  report?: ReportTokenDiagnostic,
+  checkpoint?: () => void
 ): Promise<{
   rewriteMap: Map<string, string>
   finalBridge: Map<string, string>
 }> {
+  checkpoint?.()
   const rewriteMap = new Map<string, string>()
   const finalBridge = new Map<string, string>()
   const ambiguous = new Set<string>()
@@ -28,6 +30,7 @@ export async function applyPluginTransformToNames(
 
   if (!pluginCode) {
     ordered.forEach((name) => {
+      checkpoint?.()
       const variableId = sourceIndex.get(name)
       if (!variableId) return
       finalBridge.set(name, variableId)
@@ -38,6 +41,7 @@ export async function applyPluginTransformToNames(
   let transformed: Array<string | undefined> = []
   const refs: Array<{ code: string; name: string }> = []
   ordered.forEach((name) => {
+    checkpoint?.()
     if (!name.startsWith('--')) return
     refs.push({
       code: `var(${name})`,
@@ -47,11 +51,14 @@ export async function applyPluginTransformToNames(
 
   const hasTransform = refs.length > 0
   if (hasTransform) {
+    checkpoint?.()
     transformed = await runTransformVariableBatch(refs, workerUnitOptions(config), pluginCode)
+    checkpoint?.()
   }
 
   let refIndex = 0
   ordered.forEach((name) => {
+    checkpoint?.()
     let next = name
     if (hasTransform && name.startsWith('--')) {
       const transformedValue = transformed[refIndex]

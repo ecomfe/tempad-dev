@@ -193,6 +193,75 @@ afterEach(() => {
 })
 
 describe('mcp/tools/design-system', () => {
+  it.each(['wide-root', 'wide-nested', 'exact-cap'])(
+    'bounds anatomy path reads before expanding %s siblings',
+    async (shape) => {
+      let nameReads = 0
+      const children = Array.from(
+        { length: shape === 'exact-cap' ? 512 : 20_000 },
+        (_, index) =>
+          ({
+            id: `text:${index}`,
+            type: 'TEXT',
+            characters: `Label ${index}`,
+            get name() {
+              nameReads++
+              return `Label ${index}`
+            }
+          }) as unknown as SceneNode
+      )
+      const nested = { id: 'group', type: 'GROUP', name: 'Group', children } as unknown as SceneNode
+      stubFigma({
+        components: [
+          component('wide', 'Wide', {
+            children: shape === 'wide-nested' ? [nested] : children
+          })
+        ]
+      })
+      const catalog = await handleGetDesignSystem({})
+      const result = await handleGetDesignSystem({ catalogId: catalog.catalogId, ref: 'c1' })
+      const anatomy = (
+        result.details!.definition as {
+          anatomy: { nodes: Array<{ path: string }>; omitted: number; truncated?: boolean }
+        }
+      ).anatomy
+      expect(nameReads).toBe(shape === 'wide-nested' ? 511 : 512)
+      expect(anatomy.nodes).toHaveLength(64)
+      expect(anatomy.nodes[0]?.path).toBe(shape === 'wide-nested' ? 'Group / Label 0' : 'Label 0')
+      expect(anatomy.nodes[63]?.path).toBe(
+        shape === 'wide-nested' ? 'Group / Label 63' : 'Label 63'
+      )
+      expect(anatomy.omitted).toBe(shape === 'wide-nested' ? 447 : 448)
+      expect(anatomy.truncated).toBe(shape === 'exact-cap' ? undefined : true)
+    }
+  )
+
+  it('keeps readable components when a neighboring definition throws', async () => {
+    const broken = component('broken', 'Broken')
+    Object.defineProperty(broken, 'componentPropertyDefinitions', {
+      get() {
+        throw new Error('Invalid variant definition')
+      }
+    })
+    stubFigma({ components: [broken, component('healthy', 'Healthy')] })
+    const result = await handleGetDesignSystem({ pageId: 'page:current' })
+    expect(result.components.map((entry) => entry.name)).toEqual(['Healthy'])
+    expect(result.warnings).toContain('1 component definitions could not be read and were skipped.')
+  })
+
+  it('keeps native markup tag and attribute names available for catalog components', async () => {
+    stubFigma({
+      components: ['Div', 'Span', 'Br'].map((name) =>
+        component(name, name, {
+          componentPropertyDefinitions: { Class: { type: 'TEXT', defaultValue: 'primary' } }
+        })
+      )
+    })
+    const result = await handleGetDesignSystem({})
+    expect(result.components.map((entry) => entry.tag)).toEqual(['Br2', 'Div2', 'Span2'])
+    expect(result.components[0]!.props).toHaveProperty('class2')
+  })
+
   it('preserves WEB variable syntax for authoritative resource aliases', async () => {
     stubFigma({
       localCollections: [collection('collection:1', 'Theme')],
@@ -863,6 +932,9 @@ describe('mcp/tools/design-system', () => {
         }
       }
     })
+    const catalog = requireDesignSystemCatalog(result.catalogId)
+    const entry = catalog.entries.get(result.components[0]!.ref)
+    expect(entry?.kind === 'component' && entry.properties.state?.options).toHaveLength(140)
   })
 
   it('shares concurrent catalog discovery', async () => {

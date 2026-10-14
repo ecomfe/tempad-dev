@@ -19,22 +19,17 @@ export type TokenIndex = {
   totalVariables: number
 }
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = []
-  for (let i = 0; i < arr.length; i += size) {
-    out.push(arr.slice(i, i + size))
-  }
-  return out
-}
-
 export async function canonicalizeNames(
   rawNames: string[],
   config: CodegenConfig,
-  pluginCode?: string
+  pluginCode?: string,
+  checkpoint?: () => void
 ): Promise<string[]> {
+  checkpoint?.()
   if (!rawNames.length) return []
 
   const refs = rawNames.map((rawName) => {
+    checkpoint?.()
     // Keep token canonicalization aligned with style/code output by normalizing
     // raw Figma names through the same Figma-to-CSS variable path first.
     const canonical = normalizeFigmaVarName(rawName)
@@ -42,19 +37,20 @@ export async function canonicalizeNames(
   })
 
   const CHUNK_SIZE = 300
-  const chunks = chunk(refs, CHUNK_SIZE)
-
   const results: string[] = []
-  for (const batch of chunks) {
+  for (let index = 0; index < refs.length; index += CHUNK_SIZE) {
+    checkpoint?.()
     const transformed = await runTransformVariableBatch(
-      batch,
+      refs.slice(index, index + CHUNK_SIZE),
       workerUnitOptions(config),
       pluginCode
     )
+    checkpoint?.()
     results.push(...transformed)
   }
 
   return refs.map((fallback, idx) => {
+    checkpoint?.()
     return normalizeTransformedName(results[idx], `--${fallback.name}`)
   })
 }

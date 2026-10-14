@@ -10,7 +10,7 @@ import { resolveStylesFromNodeData } from '@/utils/figma-style/style-resolver'
 
 import { installFigmaMocks, uninstallFigmaMocks } from './test-helpers'
 
-const stops: ColorStop[] = [
+const stops: [ColorStop, ColorStop] = [
   { position: 0.101, color: { r: 189 / 255, g: 221 / 255, b: 249 / 255, a: 1 } },
   { position: 1, color: { r: 230 / 255, g: 243 / 255, b: 254 / 255, a: 1 } }
 ]

@@ -137,11 +137,10 @@ function describeVariableValues(
 
 function componentProperties(definitions: ComponentPropertyDefinitions) {
   const entries = Object.entries(definitions).map(([name, definition]) => {
-    const allOptions =
+    const options =
       definition.type === 'VARIANT'
         ? definition.variantOptions
         : definition.preferredValues?.map((value) => value.key)
-    const options = allOptions?.slice(0, MAX_DETAIL_OPTIONS)
     const defaultVariableId = definition.boundVariables?.defaultValue?.id
     const description = boundedText(definition.description)
     return [
@@ -150,9 +149,6 @@ function componentProperties(definitions: ComponentPropertyDefinitions) {
         type: definition.type,
         defaultValue: definition.defaultValue,
         ...(options?.length ? { options } : {}),
-        ...(allOptions && allOptions.length > MAX_DETAIL_OPTIONS
-          ? { omittedOptions: allOptions.length - MAX_DETAIL_OPTIONS }
-          : {}),
         ...(definition.preferredValues?.length
           ? { preferredValues: definition.preferredValues.slice(0, MAX_DETAIL_OPTIONS) }
           : {}),
@@ -215,6 +211,23 @@ function describeComponent(component: ComponentNode, page: Pick<PageNode, 'id' |
 async function collectComponents(warnings: string[], pageId?: string) {
   const components: ReturnType<typeof describeComponent>[] = []
   let unreadablePages = 0
+  let unreadableComponents = 0
+  const readComponents = (page: PageNode) => {
+    const nodes = page.findAllWithCriteria({ types: ['COMPONENT'] })
+    for (const component of nodes) {
+      try {
+        components.push(describeComponent(component, page))
+      } catch {
+        unreadableComponents++
+      }
+    }
+  }
+  const reportUnreadableComponents = () => {
+    if (unreadableComponents)
+      warnings.push(
+        `${unreadableComponents} component definitions could not be read and were skipped.`
+      )
+  }
   let pages: readonly PageNode[]
   try {
     pages = figma.root.children
@@ -233,21 +246,18 @@ async function collectComponents(warnings: string[], pageId?: string) {
     const page = pages.find((candidate) => candidate.id === pageId)
     if (!page) throw new Error(`Page "${pageId}" does not exist in this file.`)
     if (page.id !== figma.currentPage.id) await page.loadAsync()
-    return page
-      .findAllWithCriteria({ types: ['COMPONENT'] })
-      .map((component) => describeComponent(component, page))
+    readComponents(page)
+    reportUnreadableComponents()
+    return components
   }
   for (const page of pages) {
     try {
-      components.push(
-        ...page
-          .findAllWithCriteria({ types: ['COMPONENT'] })
-          .map((component) => describeComponent(component, page))
-      )
+      readComponents(page)
     } catch {
       unreadablePages += 1
     }
   }
+  reportUnreadableComponents()
   if (unreadablePages) {
     const loadedPages = pages.length - unreadablePages
     warnings.push(
@@ -764,7 +774,7 @@ function catalogComponentProperties(
   component: DescribedComponent
 ): Record<string, CatalogComponentProperty> {
   const properties: Record<string, CatalogComponentProperty> = {}
-  const used = new Set<string>()
+  const used = new Set<string>(['class'])
   let index = 1
   for (const [nativeName, definition] of Object.entries(component.properties ?? {})) {
     if (definition.type === 'SLOT') continue
@@ -782,8 +792,7 @@ function catalogComponentProperties(
       name: nativeName,
       type,
       default: definition.defaultValue,
-      ...(definition.options?.length ? { options: definition.options } : {}),
-      ...(definition.omittedOptions ? { omittedOptions: definition.omittedOptions } : {})
+      ...(definition.options?.length ? { options: definition.options } : {})
     }
   }
   return properties
@@ -962,15 +971,19 @@ function anatomyPath(parent: string, node: SceneNode): string {
 }
 
 async function describeComponentAnatomy(component: ComponentNode) {
-  const stack = component.children
-    .toReversed()
-    .map((node) => ({ node, path: anatomyPath('', node) }))
+  const stack = [{ children: component.children, index: 0, path: '' }]
   const candidates: Array<{ node: InstanceNode | SlotNode | TextNode; path: string }> = []
   let visited = 0
   let omitted = 0
 
   while (stack.length && visited < MAX_ANATOMY_VISITS) {
-    const { node, path } = stack.pop()!
+    const frame = stack[stack.length - 1]!
+    if (frame.index >= frame.children.length) {
+      stack.pop()
+      continue
+    }
+    const node = frame.children[frame.index++]!
+    const path = anatomyPath(frame.path, node)
     visited += 1
     if (node.type === 'TEXT' || node.type === 'INSTANCE' || node.type === 'SLOT') {
       if (candidates.length < MAX_ANATOMY_NODES) candidates.push({ node, path })
@@ -978,9 +991,7 @@ async function describeComponentAnatomy(component: ComponentNode) {
     }
     // A nested instance is already a semantic unit; its private subtree belongs to its own component.
     if ('children' in node && node.type !== 'INSTANCE') {
-      for (const child of node.children.toReversed()) {
-        stack.push({ node: child, path: anatomyPath(path, child) })
-      }
+      stack.push({ children: node.children, index: 0, path })
     }
   }
 
@@ -1026,7 +1037,7 @@ async function describeComponentAnatomy(component: ComponentNode) {
   return {
     nodes,
     ...(omitted ? { omitted } : {}),
-    ...(stack.length ? { truncated: true } : {})
+    ...(stack.some((frame) => frame.index < frame.children.length) ? { truncated: true } : {})
   }
 }
 
@@ -1389,7 +1400,7 @@ async function createCatalog(pageId?: string): Promise<DesignSystemResourcesResu
   const orderedStyles = sortByName(styles.map(describeStyle))
   const orderedShaders = sortByName(shaders)
   const entries: CatalogEntry[] = []
-  const componentTags = new Set<string>()
+  const componentTags = new Set<string>(['Div', 'Span', 'Br'])
   for (const [index, family] of orderedComponents.entries()) {
     const component = family.item
     const tag = uniqueName(

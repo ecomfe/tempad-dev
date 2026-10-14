@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { suggestDepthLimit } from '@/mcp/semantic-tree'
+import { createCodeCheckpoint } from '@/mcp/tools/code/deadline'
 import { buildVisibleTree } from '@/mcp/tools/code/tree'
 
 vi.mock('@/mcp/semantic-tree', async (importOriginal) => ({
@@ -40,6 +41,77 @@ function createNode(
 }
 
 describe('mcp/tools/code/tree', () => {
+  it.each([undefined, 0])('checks hidden children even at depth cap %s', (depthLimit) => {
+    vi.mocked(suggestDepthLimit).mockReturnValue(depthLimit)
+    let reads = 0
+    const time = vi.spyOn(performance, 'now').mockImplementation(() => reads * 10)
+    try {
+      const checkpoint = createCodeCheckpoint(20)
+      const children = Array.from({ length: 100 }, (_, index) => {
+        const child = createNode('RECTANGLE', String(index))
+        Object.defineProperty(child, 'visible', {
+          get() {
+            reads++
+            return false
+          }
+        })
+        return child
+      })
+      expect(() =>
+        buildVisibleTree([createNode('FRAME', 'root', {}, children)], checkpoint)
+      ).toThrow('timed out')
+      expect(reads).toBe(2)
+    } finally {
+      time.mockRestore()
+    }
+  })
+  it('rejects a wide clipped tree before inspecting its children for inferred layout', () => {
+    vi.mocked(suggestDepthLimit).mockReturnValue(undefined)
+    let transformReads = 0
+    const children = Array.from({ length: 20_000 }, (_, index) => {
+      const child = createNode('RECTANGLE', String(index))
+      Object.defineProperty(child, 'relativeTransform', {
+        get() {
+          transformReads++
+          return [
+            [1, 0, 0],
+            [0, 1, 0]
+          ]
+        }
+      })
+      return child
+    })
+    const root = createNode(
+      'FRAME',
+      'wide',
+      {
+        clipsContent: true,
+        layoutMode: 'NONE',
+        inferredAutoLayout: { layoutMode: 'HORIZONTAL' }
+      },
+      children
+    )
+    expect(() => buildVisibleTree([root])).toThrow('2,000-node work budget')
+    expect(transformReads).toBe(0)
+  })
+
+  it('bounds wide trees before collecting all native node semantics', () => {
+    vi.mocked(suggestDepthLimit).mockReturnValue(undefined)
+    const root = createNode(
+      'FRAME',
+      'wide',
+      {},
+      Array.from({ length: 2001 }, (_, index) => createNode('FRAME', String(index)))
+    )
+    expect(() => buildVisibleTree([root])).toThrow('2,000-node work budget')
+  })
+
+  it('exposes a continuation id for a capped ordinary frame', () => {
+    vi.mocked(suggestDepthLimit).mockReturnValue(0)
+    const root = createNode('FRAME', 'root', {}, [createNode('RECTANGLE', 'child')])
+    expect(buildVisibleTree([root]).nodes.get('root')?.dataHint).toEqual({ 'data-hint-id': 'root' })
+  })
+
   it('builds visible tree with semantic tags and composed hints', () => {
     vi.mocked(suggestDepthLimit).mockReturnValue(undefined)
 

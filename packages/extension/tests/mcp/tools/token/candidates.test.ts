@@ -42,6 +42,26 @@ afterEach(() => {
 })
 
 describe('token/candidates collectCandidateVariableIds', () => {
+  it.each(['paints', 'boundVariables'])(
+    'retains lookup recovery when a native style %s getter fails without a checkpoint',
+    (field) => {
+      const style = Object.defineProperty({ paints: [] }, field, {
+        get() {
+          throw new Error('Style is unavailable')
+        }
+      })
+      const result = collectCandidateVariableIds(
+        [createNode({ id: 'root', type: 'RECTANGLE', visible: true, fillStyleId: 'style' })],
+        undefined,
+        {
+          getStyleById: () => style as unknown as BaseStyle,
+          getVariableById: () => null
+        }
+      )
+      expect(result.variableIds).toEqual(new Set())
+    }
+  )
+
   it('collects candidate ids from node vars, paints, style paints and children', () => {
     const root = createNode({
       id: 'root',

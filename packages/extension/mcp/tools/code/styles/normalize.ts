@@ -40,7 +40,12 @@ const STYLE_PIPELINE: StyleStep[] = [
   (style) => expandShorthands(style),
   (style, node, _parent, ctx) => mergeInferredAutoLayout(style, node, ctx),
   (style, node, parent, ctx) => inferResizingStyles(style, node, parent, ctx),
-  (style, node) => applyOverflowStyles(style, node)
+  (style, node, _parent, ctx) =>
+    applyOverflowStyles(
+      style,
+      node,
+      node && ctx ? getNodeSemanticsCached(node, ctx).layout.childOverflow : undefined
+    )
 ]
 
 export function preprocessStyles(

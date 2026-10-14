@@ -10,8 +10,8 @@ import type { AutoLayoutHint, DataHint, NodeSnapshot, TreeStats, VisibleTree } f
 
 import { getInferredAutoLayout } from './layout-parent'
 
-export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
-  const depthLimit = suggestDepthLimit(roots)
+export function buildVisibleTree(roots: SceneNode[], checkpoint?: () => void): VisibleTree {
+  const depthLimit = suggestDepthLimit(roots, checkpoint)
   const stats: TreeStats = {
     totalNodes: 0,
     maxDepth: 0,
@@ -24,7 +24,13 @@ export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
   const rootIds: string[] = []
 
   const visit = (node: SceneNode, depth: number, parentId?: string) => {
+    checkpoint?.()
     if (!node.visible) return
+    if (stats.totalNodes >= 2000) {
+      throw new Error(
+        'Code read exceeds the 2,000-node work budget. Use get_structure to select a narrower node and retry.'
+      )
+    }
 
     stats.totalNodes += 1
     stats.maxDepth = Math.max(stats.maxDepth, depth)
@@ -51,24 +57,27 @@ export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
     const dataHint = composeDataHint(node)
     if (dataHint) snapshot.dataHint = dataHint
 
-    const autoLayoutHint = resolveAutoLayoutHint(node)
-    if (autoLayoutHint) {
-      snapshot.autoLayoutHint = autoLayoutHint
-      snapshot.dataHint = snapshot.dataHint ?? {}
-      snapshot.dataHint['data-hint-auto-layout'] = autoLayoutHint
-    }
-
     nodes.set(snapshot.id, snapshot)
     order.push(snapshot.id)
 
     if (depthLimit !== undefined && depth >= depthLimit) {
-      stats.capped = true
+      if (
+        'children' in node &&
+        node.children.some((child) => {
+          checkpoint?.()
+          return child.visible
+        })
+      ) {
+        stats.capped = true
+        snapshot.dataHint = { ...snapshot.dataHint, 'data-hint-id': node.id }
+      }
       return
     }
 
     if ('children' in node) {
-      const children = node.children.filter((child) => child.visible)
-      for (const child of children) {
+      for (const child of node.children) {
+        checkpoint?.()
+        if (!child.visible) continue
         snapshot.children.push(child.id)
         visit(child, depth + 1, node.id)
       }
@@ -76,11 +85,23 @@ export function buildVisibleTree(roots: SceneNode[]): VisibleTree {
   }
 
   roots.forEach((root) => {
+    checkpoint?.()
     if (!root.visible) return
     rootIds.push(root.id)
     visit(root, 0, undefined)
   })
 
+  // Prove the node budget before native layout inference can inspect a wide
+  // subtree that this request will reject anyway.
+  for (const snapshot of nodes.values()) {
+    checkpoint?.()
+    const autoLayoutHint = resolveAutoLayoutHint(snapshot.node, checkpoint)
+    if (autoLayoutHint) {
+      snapshot.autoLayoutHint = autoLayoutHint
+      snapshot.dataHint = snapshot.dataHint ?? {}
+      snapshot.dataHint['data-hint-auto-layout'] = autoLayoutHint
+    }
+  }
   return { rootIds, nodes, order, stats }
 }
 
@@ -102,18 +123,17 @@ function getRenderBounds(
   return null
 }
 
-function resolveAutoLayoutHint(node: SceneNode): AutoLayoutHint | undefined {
+function resolveAutoLayoutHint(
+  node: SceneNode,
+  checkpoint?: () => void
+): AutoLayoutHint | undefined {
   if ('layoutMode' in node && node.layoutMode && node.layoutMode !== 'NONE') {
     return undefined
   }
-  if (hasInferredAutoLayout(node)) {
+  if (getInferredAutoLayout(node, undefined, checkpoint)) {
     return 'inferred'
   }
   return undefined
-}
-
-function hasInferredAutoLayout(node: SceneNode): boolean {
-  return Boolean(getInferredAutoLayout(node))
 }
 
 function composeDataHint(node: SceneNode): DataHint | undefined {

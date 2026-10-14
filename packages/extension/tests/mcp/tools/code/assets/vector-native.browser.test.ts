@@ -6,6 +6,10 @@ import { ensureAssetUploaded } from '@/mcp/assets'
 import { exportSvgEntry } from '@/mcp/tools/code/assets/vector'
 import leftTopPng from '@/tests/fixtures/svg/left-top.png?url'
 import leftTopSvg from '@/tests/fixtures/svg/left-top.svg?raw'
+import nativeFill from '@/tests/fixtures/svg/native-fill-control.svg?raw'
+import nativeStroke from '@/tests/fixtures/svg/native-outside-stroke.svg?raw'
+import nativeOverflow from '@/tests/fixtures/svg/native-overflow.png?url'
+import nativeShadow from '@/tests/fixtures/svg/native-shadow.svg?raw'
 import rightPng from '@/tests/fixtures/svg/right.png?url'
 import rightSvg from '@/tests/fixtures/svg/right.svg?raw'
 import rotatedPng from '@/tests/fixtures/svg/rotated.png?url'
@@ -53,7 +57,7 @@ const cases = [
     position: [-30, -40],
     angle: 20
   }
-]
+] as const
 
 async function loadImage(src: string): Promise<HTMLImageElement> {
   const image = new Image()
@@ -61,6 +65,72 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
   await image.decode()
   return image
 }
+
+it('preserves native outside strokes and shadow pixels beyond the node layout box', async () => {
+  // Captured together by native task 5c84 on page 2772:2, frame 2772:18.
+  // Original full-node SVGs preserve paint geometry but clip it at 64 × 48.
+  const canvas = document.createElement('canvas')
+  canvas.width = 400
+  canvas.height = 200
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = 'white'
+  ctx.fillRect(0, 0, 400, 200)
+  for (const { svg, x, bounds } of [
+    { svg: nativeStroke, x: 40, bounds: { x: 28, y: 36, width: 88, height: 72 } },
+    { svg: nativeShadow, x: 160, bounds: { x: 160, y: 48, width: 88, height: 68 } },
+    { svg: nativeFill, x: 280, bounds: { x: 280, y: 48, width: 64, height: 48 } }
+  ]) {
+    let uploaded = ''
+    vi.mocked(ensureAssetUploaded).mockImplementation(async (bytes) => {
+      uploaded = new TextDecoder().decode(bytes)
+      return {
+        hash: String(x),
+        url: `https://assets.test/${x}.svg`,
+        mimeType: 'image/svg+xml',
+        size: bytes.length
+      }
+    })
+    const node = {
+      id: String(x),
+      width: 64,
+      height: 48,
+      absoluteTransform: [
+        [1, 0, x],
+        [0, 1, 48]
+      ],
+      absoluteRenderBounds: bounds,
+      exportAsync: async () => new TextEncoder().encode(svg)
+    } as unknown as SceneNode
+    const entry = (await exportSvgEntry(
+      node,
+      { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+      new Map()
+    ))!
+    ctx.drawImage(
+      await loadImage(`data:image/svg+xml,${encodeURIComponent(uploaded)}`),
+      x + parseFloat(entry.wrapper?.left ?? '0'),
+      48 + parseFloat(entry.wrapper?.top ?? '0'),
+      parseFloat(entry.props.width!),
+      parseFloat(entry.props.height!)
+    )
+  }
+  const actual = ctx.getImageData(0, 0, 400, 200).data
+  ctx.drawImage(await loadImage(nativeOverflow), 0, 0)
+  const expected = ctx.getImageData(0, 0, 400, 200).data
+  // Include points outside both layout boxes, which the old assets lose entirely.
+  for (const [x, y] of [
+    [30, 60],
+    [80, 38],
+    [230, 80],
+    [200, 105],
+    [310, 70]
+  ] as const) {
+    const offset = (y * 400 + x) * 4
+    for (let channel = 0; channel < 4; channel++) {
+      expect(Math.abs(actual[offset + channel]! - expected[offset + channel]!)).toBeLessThan(10)
+    }
+  }
+})
 
 it.each(cases)(
   'matches the native Figma screenshot: $name',
@@ -106,27 +176,29 @@ it.each(cases)(
     // Apply exactly the markup's viewport size and placement, including its
     // emitted linear transform, with the clipping frame as the canvas viewport.
     const matrix = entry!.presentationStyle?.transform
-      ?.match(/matrix\((.+)\)/)?.[1]
+      ?.match(/matrix\((.+)\)/)?.[1]!
       .split(',')
       .map(Number) ?? [1, 0, 0, 1, 0, 0]
-    ctx.setTransform(matrix[0], matrix[1], matrix[2], matrix[3], position[0], position[1])
+    expect(matrix).toHaveLength(6)
+    ctx.setTransform(matrix[0]!, matrix[1]!, matrix[2]!, matrix[3]!, position[0], position[1])
     ctx.drawImage(
       image,
       Number.parseFloat(entry!.wrapper?.left ?? '0'),
       Number.parseFloat(entry!.wrapper?.top ?? '0'),
-      Number.parseFloat(entry!.props.width),
-      Number.parseFloat(entry!.props.height)
+      Number.parseFloat(entry!.props.width!),
+      Number.parseFloat(entry!.props.height!)
     )
     const actual = ctx.getImageData(0, 0, canvas.width, canvas.height).data
     ctx.resetTransform()
     ctx.drawImage(await loadImage(png), 0, 0)
     const expected = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+    expect(expected.length).toBe(actual.length)
     let totalDifference = 0
     let differentPixels = 0
     for (let i = 0; i < actual.length; i += 4) {
       let maxDifference = 0
       for (let channel = 0; channel < 4; channel++) {
-        const difference = Math.abs(actual[i + channel] - expected[i + channel])
+        const difference = Math.abs(actual[i + channel]! - expected[i + channel]!)
         totalDifference += difference
         maxDifference = Math.max(maxDifference, difference)
       }

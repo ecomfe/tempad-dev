@@ -592,6 +592,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'font',
     mode: 'direct',
     valueKind: 'number',
+    arbitraryType: 'weight',
     keywords: [...keywordDefinitions(TAILWIND_FONT_WEIGHTS), 'normal', 'bold', 'lighter', 'bolder'],
     props: { v: 'font-weight' }
   },

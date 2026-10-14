@@ -3,12 +3,14 @@ import { isRenderablePaint } from '@/utils/figma-paint'
 
 import type { GetCodeCacheContext, NodeSemanticSnapshot, PaintArrayState } from './types'
 
-import { getInferredAutoLayout } from '../layout-parent'
+import { getInferredAutoLayout, hasClippedOverflow } from '../layout-parent'
+import { computeChildOverflow } from '../styles/overflow'
 
 export function getNodeSemanticsCached(
   node: SceneNode,
   ctx: GetCodeCacheContext
 ): NodeSemanticSnapshot {
+  ctx.checkpoint?.()
   const cached = ctx.nodeSemantics.get(node.id)
   if (cached) {
     if (ctx.metrics) ctx.metrics.nodeSemanticHits += 1
@@ -19,6 +21,11 @@ export function getNodeSemanticsCached(
 
   const fillsState = readPaintArrayState(node, 'fills')
   const strokesState = readPaintArrayState(node, 'strokes')
+  const childOverflow =
+    'clipsContent' in node && node.clipsContent
+      ? computeChildOverflow(node, ctx.checkpoint)
+      : { x: false, y: false }
+  const clippedOverflow = hasClippedOverflow(node, childOverflow)
   const snapshot: NodeSemanticSnapshot = {
     id: node.id,
     type: node.type,
@@ -35,7 +42,9 @@ export function getNodeSemanticsCached(
     },
     layout: {
       layoutMode: readLayoutMode(node),
-      inferredAutoLayout: getInferredAutoLayout(node),
+      inferredAutoLayout: getInferredAutoLayout(node, clippedOverflow, ctx.checkpoint),
+      childOverflow,
+      clippedOverflow,
       itemSpacing: readNumericLayoutValue(node, 'itemSpacing'),
       primaryAxisAlignItems: readStringLayoutValue(node, 'primaryAxisAlignItems'),
       counterAxisAlignItems: readStringLayoutValue(node, 'counterAxisAlignItems'),

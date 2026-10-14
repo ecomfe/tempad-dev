@@ -3,14 +3,18 @@ import { toDecimalPlace } from '@/utils/number'
 
 import type { LayoutBounds, OverflowDirection, StyleMap } from './types'
 
-export function applyOverflowStyles(style: StyleMap, node?: SceneNode): StyleMap {
+export function applyOverflowStyles(
+  style: StyleMap,
+  node?: SceneNode,
+  cachedOverflow?: OverflowInfo
+): StyleMap {
   if (!node || !('overflowDirection' in node)) return style
   if (isVectorLikeNode(node)) return style
 
   const dir = getOverflowDirection(node)
   const next = style
   const hasOverflow = (prop: 'overflow' | 'overflow-x' | 'overflow-y') => !!next[prop]
-  const overflowInfo = computeChildOverflow(node)
+  const overflowInfo = cachedOverflow ?? computeChildOverflow(node)
 
   // Explicit scroll settings take precedence.
   if (dir && dir !== 'NONE') {
@@ -41,12 +45,51 @@ export function applyOverflowStyles(style: StyleMap, node?: SceneNode): StyleMap
 
 type OverflowInfo = { x: boolean; y: boolean }
 
-function computeChildOverflow(node: SceneNode): OverflowInfo {
+export function computeChildOverflow(node: SceneNode, checkpoint?: () => void): OverflowInfo {
+  checkpoint?.()
   const none = { x: false, y: false }
-  if (!('children' in node) || !Array.isArray(node.children)) return none
-  const children = node.children.filter((child) => child.visible)
-  if (!children.length) return none
+  if (!('children' in node)) return none
+  const children = node.children
+  if (!Array.isArray(children)) return none
+  const width = node.width
+  const height = node.height
+  if (Number.isFinite(width) && Number.isFinite(height)) {
+    const overflow = { x: false, y: false }
+    for (const child of children) {
+      checkpoint?.()
+      if (!child.visible) continue
+      const transform = child.relativeTransform
+      if (!transform) return computeBoundsOverflow(node, children, checkpoint)
+      // A later missing transform still selects the bounds fallback for every
+      // child; only geometry work can stop until that choice is established.
+      if (overflow.x && overflow.y) continue
+      const [[a, c, x], [b, d, y]] = transform
+      for (const [u, v] of [
+        [0, 0],
+        [child.width, 0],
+        [0, child.height],
+        [child.width, child.height]
+      ]) {
+        const left = a * u + c * v + x
+        const top = b * u + d * v + y
+        overflow.x ||= left < -0.5 || left > width + 0.5
+        overflow.y ||= top < -0.5 || top > height + 0.5
+      }
+    }
+    checkpoint?.()
+    return overflow
+  }
 
+  return computeBoundsOverflow(node, children, checkpoint)
+}
+
+function computeBoundsOverflow(
+  node: SceneNode,
+  children: readonly SceneNode[],
+  checkpoint?: () => void
+): OverflowInfo {
+  checkpoint?.()
+  const none = { x: false, y: false }
   const parentBounds = getLayoutBounds(node)
   if (!parentBounds) return none
   if (parentBounds.width === 0 || parentBounds.height === 0) return none
@@ -62,6 +105,8 @@ function computeChildOverflow(node: SceneNode): OverflowInfo {
   let overflowY = false
 
   for (const child of children) {
+    checkpoint?.()
+    if (!child.visible) continue
     const bounds = getLayoutBounds(child)
     if (!bounds) continue
     const cx1 = bounds.x
@@ -73,6 +118,7 @@ function computeChildOverflow(node: SceneNode): OverflowInfo {
     if (overflowX && overflowY) break
   }
 
+  checkpoint?.()
   return { x: overflowX, y: overflowY }
 }
 

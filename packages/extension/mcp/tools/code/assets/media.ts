@@ -5,14 +5,13 @@ import type { CodegenConfig } from '@/utils/codegen'
 import { ensureAssetUploaded } from '@/mcp/assets'
 import { detectImageMime, isVisibleMediaPaint } from '@/mcp/media'
 import { BG_URL_RE } from '@/utils/css'
+import { getCssPaintLayers } from '@/utils/figma-paint'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
 
 import type { GetCodeCacheContext } from '../cache'
 
 import { getNodeSemanticsCached } from '../cache'
-
-const imageBytesCache = new Map<string, Promise<Uint8Array>>()
 
 export function hasMediaFills(node: SceneNode, ctx?: GetCodeCacheContext): boolean {
   if (ctx) {
@@ -26,10 +25,20 @@ export async function replaceMediaUrlsWithAssets(
   node: SceneNode,
   config: CodegenConfig,
   assetRegistry: Map<string, AssetDescriptor>,
-  videoPreviewAssetHashes?: Set<string>
+  videoPreviewAssetHashes?: Set<string>,
+  imageBytesCache = new Map<string, Promise<Uint8Array>>(),
+  assertActive?: () => void
 ): Promise<Record<string, string>> {
+  assertActive?.()
   if (!style['background-color'] && !style['background-image'] && !style.background) return style
-  const fills = await collectMediaFillAssets(node, assetRegistry, videoPreviewAssetHashes)
+  const fills = await collectMediaFillAssets(
+    node,
+    assetRegistry,
+    imageBytesCache,
+    videoPreviewAssetHashes,
+    assertActive
+  )
+  assertActive?.()
   const lastAsset = fills.at(-1)
   if (!lastAsset) return replaceMediaUrlsWithPlaceholder(style, node, config)
 
@@ -81,7 +90,9 @@ function replaceMediaUrlsWithPlaceholder(
 async function collectMediaFillAssets(
   node: SceneNode,
   assetRegistry: Map<string, AssetDescriptor>,
-  videoPreviewAssetHashes?: Set<string>
+  imageBytesCache: Map<string, Promise<Uint8Array>>,
+  videoPreviewAssetHashes?: Set<string>,
+  assertActive?: () => void
 ): Promise<AssetDescriptor[]> {
   if (!('fills' in node)) return []
   const fills = Array.isArray(node.fills) ? (node.fills as Paint[]) : null
@@ -95,12 +106,16 @@ async function collectMediaFillAssets(
   )
   const assets: AssetDescriptor[] = []
   let preview: Promise<AssetDescriptor> | undefined
-  const getPreview = () =>
-    (preview ??= node
-      .exportAsync({ format: 'PNG' })
-      .then((bytes) => ensureAssetUploaded(bytes, 'image/png')))
+  const getPreview = () => {
+    assertActive?.()
+    return (preview ??= node.exportAsync({ format: 'PNG' }).then((bytes) => {
+      assertActive?.()
+      return ensureAssetUploaded(bytes, 'image/png')
+    }))
+  }
 
-  for (const fill of fills) {
+  for (const { paint: fill } of getCssPaintLayers(fills)) {
+    assertActive?.()
     if (!isVisibleMediaPaint(fill)) continue
 
     if (fill.type === 'VIDEO') {
@@ -110,10 +125,12 @@ async function collectMediaFillAssets(
           ...(await getPreview()),
           figmaVideoHashes: videoHashes
         }
+        assertActive?.()
         registerAsset(assetRegistry, asset)
         videoPreviewAssetHashes?.add(asset.hash)
         if (!imageHashes.length) assets.push(asset)
       } catch (error) {
+        assertActive?.()
         logger.warn('Failed to export video fill preview:', error)
       }
       continue
@@ -122,23 +139,28 @@ async function collectMediaFillAssets(
     const hash = fill.imageHash
     if (!hash) continue
     try {
-      const bytes = await loadImageBytes(hash)
+      const bytes = await loadImageBytes(hash, imageBytesCache)
+      assertActive?.()
       const asset = {
         ...(await ensureAssetUploaded(bytes, detectImageMime(bytes) ?? 'application/octet-stream')),
         figmaImageHash: hash
       }
+      assertActive?.()
       registerAsset(assetRegistry, asset)
       assets.push(asset)
     } catch (error) {
+      assertActive?.()
       logger.warn(`Image bytes unavailable for hash ${hash}, falling back to node export.`, error)
       try {
         const asset = {
           ...(await getPreview()),
           figmaImageHashes: imageHashes
         }
+        assertActive?.()
         registerAsset(assetRegistry, asset)
         assets.push(asset)
       } catch (fallbackError) {
+        assertActive?.()
         logger.warn('Failed to export node for image fill fallback:', fallbackError)
       }
     }
@@ -164,7 +186,10 @@ function registerAsset(registry: Map<string, AssetDescriptor>, asset: AssetDescr
   registry.set(asset.hash, { ...registry.get(asset.hash), ...asset })
 }
 
-function loadImageBytes(hash: string): Promise<Uint8Array> {
+function loadImageBytes(
+  hash: string,
+  imageBytesCache: Map<string, Promise<Uint8Array>>
+): Promise<Uint8Array> {
   let promise = imageBytesCache.get(hash)
   if (!promise) {
     const image = figma.getImageByHash(hash)

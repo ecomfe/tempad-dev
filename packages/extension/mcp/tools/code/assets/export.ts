@@ -7,6 +7,7 @@ import type { VisibleTree } from '../model'
 import type { AssetPlan } from './plan'
 import type { SvgEntry, VectorMode } from './vector'
 
+import { getLayoutParent } from '../layout-parent'
 import { exportSvgEntry } from './vector'
 import { analyzeVectorColorModel } from './vector-semantics'
 
@@ -18,15 +19,21 @@ export async function exportVectorAssets(
   config: CodegenConfig,
   assetRegistry: Map<string, AssetDescriptor>,
   vectorMode: VectorMode = 'smart',
-  cache?: GetCodeCacheContext
+  cache?: GetCodeCacheContext,
+  checkpoint?: () => void
 ): Promise<Map<string, SvgEntry>> {
   const svgs = new Map<string, SvgEntry>()
   const candidates: Array<{
     id: string
     node: SceneNode
   }> = []
+  const assertActive = () => {
+    cache?.signal?.throwIfAborted()
+    checkpoint?.()
+  }
 
   for (const id of plan.vectorRoots) {
+    assertActive()
     if (cache?.metrics) cache.metrics.vectorExportCandidates += 1
     const snapshot = tree.nodes.get(id)
     if (!snapshot) {
@@ -43,20 +50,33 @@ export async function exportVectorAssets(
   }
 
   for (let index = 0; index < candidates.length; index += VECTOR_EXPORT_CONCURRENCY) {
-    cache?.signal?.throwIfAborted()
+    assertActive()
     const batch = candidates.slice(index, index + VECTOR_EXPORT_CONCURRENCY)
     const results = await Promise.all(
       batch.map(async ({ id, node }) => {
+        assertActive()
+        const snapshot = tree.nodes.get(id)!
+        const parent = getLayoutParent(tree, snapshot)
+        const flow =
+          !!parent &&
+          !('layoutPositioning' in node && node.layoutPositioning === 'ABSOLUTE') &&
+          (('layoutMode' in parent.node && parent.node.layoutMode !== 'NONE') ||
+            parent.autoLayoutHint === 'inferred')
         const exportedAssets = new Map<string, AssetDescriptor>()
+        const colorModel = analyzeVectorColorModel(tree, id, cache)
+        assertActive()
         const entry = await exportSvgEntry(node, config, exportedAssets, {
           vectorMode,
-          colorModel: analyzeVectorColorModel(tree, id, cache)
+          flow,
+          colorModel,
+          assertActive
         })
+        assertActive()
         return { entry, exportedAssets, id }
       })
     )
 
-    cache?.signal?.throwIfAborted()
+    assertActive()
     results.forEach(({ entry, exportedAssets, id }) => {
       exportedAssets.forEach((asset, hash) => assetRegistry.set(hash, asset))
       if (!entry) {

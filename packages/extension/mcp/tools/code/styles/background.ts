@@ -3,14 +3,14 @@ import type { FigmaLookupReaders, PaintResolutionSize } from '@/utils/figma-styl
 import {
   canonicalizeColor,
   formatHexAlpha,
-  normalizeFigmaVarName,
   parseBackgroundShorthand,
   preprocessCssValue,
   splitByTopLevelComma,
   stripFallback
 } from '@/utils/css'
-import { getPaintResolutionSize, isVisiblePaint } from '@/utils/figma-paint'
+import { getCssPaintLayers, getPaintResolutionSize, isVisiblePaint } from '@/utils/figma-paint'
 import {
+  formatGradientStopColor as formatPaintGradientStopColor,
   resolveBackgroundFillFromPaints,
   resolveGradientPaintCss
 } from '@/utils/figma-style/gradient'
@@ -57,7 +57,7 @@ export function cleanFigmaSpecificStyles(
     const bgValue = processed.background
     const normalized = stripFallback(preprocessCssValue(bgValue)).trim()
 
-    const gradient = resolveGradientWithOpacity(normalized, node, ctx)
+    const gradient = resolveGradientWithOpacity(normalized, activeFillPaints, readers)
     if (gradient) {
       processed.background = gradient
       return processed
@@ -211,39 +211,48 @@ function resolveGradientPaintValue(
 
 function resolveGradientWithOpacity(
   value: string,
-  node: SceneNode,
-  ctx?: GetCodeCacheContext
+  fills: PaintList,
+  readers: FigmaLookupReaders
 ): string | null {
   if (!value || !/gradient\(/i.test(value)) return null
-
-  const fills = getNodeFills(node, ctx)
   if (!fills) return null
 
-  const fill = fills.find(isVisibleLinearGradientPaint)
-  if (!fill) return null
+  const paints = getCssPaintLayers(fills)
+  const layers = splitByTopLevelComma(value)
+  // Match complete CSS layers, including synthetic solid gradients and images.
+  // A partial native CSS stack cannot safely be paired by paint index.
+  if (layers.length !== paints.length) return null
+  let changed = false
+  const rewritten = layers.map((layer, index) => {
+    if (!/^linear-gradient\(/i.test(layer.trim())) return layer
+    const fill = paints[index]!.paint
+    if (!isVisibleLinearGradientPaint(fill)) return layer
 
-  const fillOpacity = typeof fill.opacity === 'number' ? fill.opacity : 1
-  const hasStopAlpha = fill.gradientStops.some((stop) => (stop.color?.a ?? 1) < 1)
-  if (fillOpacity >= 0.99 && !hasStopAlpha) return null
+    const fillOpacity = typeof fill.opacity === 'number' ? fill.opacity : 1
+    const hasStopAlpha = fill.gradientStops.some((stop) => (stop.color?.a ?? 1) < 1)
+    if (fillOpacity >= 0.99 && !hasStopAlpha) return layer
 
-  const parsed = parseGradient(value)
-  if (!parsed) return null
+    const parsed = parseGradient(layer)
+    if (!parsed) return layer
 
-  const angle = parsed.args[0]?.trim()
-  const hasAngle =
-    !!angle &&
-    (angle.endsWith('deg') ||
-      angle.endsWith('rad') ||
-      angle.endsWith('turn') ||
-      angle.startsWith('to '))
-  const stops = fill.gradientStops.map((stop) => {
-    const pct = formatPercent(stop.position)
-    const color = formatGradientStopColor(stop, fillOpacity, ctx?.readers ?? DEFAULT_READERS)
-    return `${color} ${pct}`
+    const angle = parsed.args[0]?.trim()
+    const hasAngle =
+      !!angle &&
+      (angle.endsWith('deg') ||
+        angle.endsWith('rad') ||
+        angle.endsWith('turn') ||
+        angle.startsWith('to '))
+    const stops = fill.gradientStops.map((stop) => {
+      const pct = formatPercent(stop.position)
+      const color = formatGradientStopColor(stop, fillOpacity, readers)
+      return `${color} ${pct}`
+    })
+
+    const args = hasAngle ? [angle, ...stops] : stops
+    changed = true
+    return `${parsed.fn}(${args.join(', ')})`
   })
-
-  const args = hasAngle ? [angle, ...stops] : stops
-  return `${parsed.fn}(${args.join(', ')})`
+  return changed ? rewritten.join(', ') : null
 }
 
 function parseGradient(value: string): { fn: string; args: string[] } | null {
@@ -284,19 +293,7 @@ function formatGradientStopColor(
   fillOpacity: number,
   readers: FigmaLookupReaders
 ): string {
-  const baseAlpha = stop.color?.a ?? 1
-  const alpha = Math.max(0, Math.min(1, baseAlpha * fillOpacity))
-
-  const bound = stop.boundVariables?.color
-  if (bound && typeof bound === 'object' && 'id' in bound && bound.id) {
-    const variable = readers.getVariableById(bound.id)
-    const expr = variable ? getVariableCssExpr(variable) : `var(${normalizeFigmaVarName('')})`
-    if (alpha >= 0.99) return expr
-    const pct = Math.round(alpha * 10000) / 100
-    return `color-mix(in srgb, ${expr} ${pct}%, transparent)`
-  }
-
-  return formatHexAlpha(stop.color, alpha)
+  return stripFallback(formatPaintGradientStopColor(stop, fillOpacity, readers))
 }
 
 function isSolidBackground(value: string): boolean {

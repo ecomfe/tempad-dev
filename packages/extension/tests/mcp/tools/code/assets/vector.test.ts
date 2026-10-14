@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { VisibleTree } from '@/mcp/tools/code/model'
@@ -48,6 +49,224 @@ afterEach(() => {
 })
 
 describe('assets/vector', () => {
+  it.each(
+    ['SVG export', 'asset upload'].flatMap((stage) =>
+      ['resolve', 'reject'].map((outcome) => ({ stage, outcome }))
+    )
+  )('stops expired $stage after $outcome', async ({ stage, outcome }) => {
+    let started!: () => void
+    const ready = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    let finish!: () => void
+    const stall = <T>(value: T) =>
+      new Promise<T>((resolve, reject) => {
+        finish = () =>
+          outcome === 'resolve' ? resolve(value) : reject(new Error('Native request failed'))
+        started()
+      })
+    const bytes = new TextEncoder().encode(
+      '<svg width="10" height="10"><path d="M0 0H10V10Z"/></svg>'
+    )
+    const asset = {
+      hash: 'asset',
+      url: 'https://assets.test/asset.svg',
+      mimeType: 'image/svg+xml',
+      size: bytes.length
+    }
+    vi.mocked(ensureAssetUploaded).mockImplementation(() =>
+      stage === 'asset upload' ? stall(asset) : Promise.resolve(asset)
+    )
+    const exportAsync = vi.fn(() =>
+      stage === 'SVG export' ? stall(bytes) : Promise.resolve(bytes)
+    )
+    const registry = new Map()
+    const controller = new AbortController()
+    const pending = exportSvgEntry(
+      { id: 'vector', width: 10, height: 10, exportAsync } as unknown as SceneNode,
+      pxConfig,
+      registry,
+      { assertActive: () => controller.signal.throwIfAborted() }
+    )
+    await ready
+    const reason = new Error('Code generation timed out')
+    controller.abort(reason)
+    const rejected = expect(pending).rejects.toBe(reason)
+    finish()
+    await rejected
+
+    expect(exportAsync).toHaveBeenCalledOnce()
+    expect(ensureAssetUploaded).toHaveBeenCalledTimes(stage === 'asset upload' ? 1 : 0)
+    expect(registry.size).toBe(0)
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
+
+  it.each(['smart', 'snapshot'] as const)(
+    'preserves visible zero-height LINE stroke in %s mode',
+    async (vectorMode) => {
+      vi.mocked(ensureAssetUploaded).mockResolvedValue({
+        hash: 'line',
+        url: 'https://assets.test/line.svg',
+        mimeType: 'image/svg+xml',
+        size: 1
+      })
+      const node = {
+        id: 'line',
+        width: 80,
+        height: 0,
+        absoluteTransform: [
+          [1, 0, 100],
+          [0, 1, 200]
+        ],
+        absoluteRenderBounds: { x: 100, y: 198, width: 80, height: 4 },
+        exportAsync: vi.fn(async (options: ExportSettingsSVG) => {
+          if (options.useAbsoluteBounds) throw new Error('Zero-height export viewport')
+          return new TextEncoder().encode(
+            '<svg viewBox="0 0 80 4"><path d="M0 2H80" stroke="red" stroke-width="4"/></svg>'
+          )
+        })
+      } as unknown as SceneNode
+      const entry = await exportSvgEntry(node, pxConfig, new Map(), { vectorMode })
+      expect(entry?.props).toMatchObject({
+        width: '80px',
+        height: '4px',
+        viewBox: '0 -2 80 4',
+        'data-src': 'https://assets.test/line.svg'
+      })
+      expect(entry?.wrapper).toEqual({ width: '80px', height: '0px', left: '0px', top: '-2px' })
+      expect(node.exportAsync).toHaveBeenCalledWith({ format: 'SVG', useAbsoluteBounds: false })
+    }
+  )
+
+  it.each([
+    {
+      file: 'native-outside-stroke.svg',
+      bounds: { x: 88, y: 188, width: 88, height: 72 },
+      viewBox: '-12 -12 88 72'
+    },
+    {
+      file: 'native-shadow.svg',
+      bounds: { x: 100, y: 200, width: 88, height: 68 },
+      viewBox: '0 0 88 68'
+    }
+  ])(
+    'expands the viewport around captured native overflow: $file',
+    async ({ file, bounds, viewBox }) => {
+      const native = readFileSync(new URL(`../../../../fixtures/svg/${file}`, import.meta.url))
+      vi.mocked(ensureAssetUploaded).mockResolvedValue({
+        hash: file,
+        url: `https://assets.test/${file}`,
+        mimeType: 'image/svg+xml',
+        size: native.length
+      })
+      const node = {
+        id: file,
+        width: 64,
+        height: 48,
+        absoluteTransform: [
+          [1, 0, 100],
+          [0, 1, 200]
+        ],
+        absoluteRenderBounds: bounds,
+        exportAsync: vi.fn(async () => native)
+      } as unknown as SceneNode
+      const entry = await exportSvgEntry(node, { ...pxConfig, scale: 2 }, new Map())
+      const uploaded = new TextDecoder().decode(vi.mocked(ensureAssetUploaded).mock.lastCall![0])
+      expect(extractSvgAttributes(uploaded).viewBox).toBe(viewBox)
+      expect(entry?.props.width).toBe('176px')
+      expect(entry?.wrapper?.width).toBe('64px')
+      expect(uploaded).toContain(
+        file.includes('stroke') ? 'stroke-width="12"' : 'filter0_d_2772_20'
+      )
+    }
+  )
+
+  it.each([
+    {
+      transform: [
+        [1, 0.5, 100],
+        [0, 1, 200]
+      ],
+      bounds: { x: 98, y: 198, width: 31, height: 14 },
+      local: '-8 -2 38 14',
+      flow: '-2 -2 31 14'
+    },
+    {
+      transform: [
+        [0, -1, 100],
+        [1, 0, 200]
+      ],
+      bounds: { x: 88, y: 198, width: 14, height: 24 },
+      local: '-2 -2 24 14',
+      flow: '-2 -2 14 24'
+    }
+  ])(
+    'maps overflow through positioned and flow transforms: $transform',
+    async ({ transform, bounds, local, flow }) => {
+      vi.mocked(ensureAssetUploaded).mockResolvedValue({
+        hash: 'transform',
+        url: 'https://assets.test/transformed.svg',
+        mimeType: 'image/svg+xml',
+        size: 1
+      })
+      const node = {
+        id: 'transform',
+        width: 20,
+        height: 10,
+        absoluteTransform: transform,
+        relativeTransform: transform,
+        absoluteRenderBounds: bounds,
+        exportAsync: async () =>
+          new TextEncoder().encode('<svg viewBox="0 0 25 20"><path d="M0 0H20V10H0Z"/></svg>')
+      } as unknown as SceneNode
+      expect((await exportSvgEntry(node, pxConfig, new Map()))?.props.viewBox).toBe(local)
+      expect((await exportSvgEntry(node, pxConfig, new Map(), { flow: true }))?.props.viewBox).toBe(
+        flow
+      )
+    }
+  )
+  it.each([
+    [
+      [-1, 0, 20],
+      [0, -1, 10]
+    ],
+    [
+      [-1, 0, 20],
+      [0, 1, 0]
+    ],
+    [
+      [0, -1, 10],
+      [1, 0, 0]
+    ]
+  ] as Transform[])(
+    'bakes flow transforms into the SVG and reserves the transformed slot',
+    async (...rows) => {
+      const transform = rows as unknown as Transform
+      vi.mocked(ensureAssetUploaded).mockResolvedValue({
+        hash: 'flow',
+        url: 'https://assets.test/flow.svg',
+        mimeType: 'image/svg+xml',
+        size: 10
+      })
+      const node = {
+        id: 'flow',
+        width: 20,
+        height: 10,
+        relativeTransform: transform,
+        absoluteTransform: transform,
+        exportAsync: vi.fn(async () =>
+          new TextEncoder().encode('<svg width="20" height="10"><path d="M0 0H20V10H0Z"/></svg>')
+        )
+      } as unknown as SceneNode
+      const result = await exportSvgEntry(node, pxConfig, new Map(), { flow: true })
+      expect(result?.presentationStyle).not.toHaveProperty('transform')
+      expect(result?.presentationStyle?.width).toBe(transform[0][0] === 0 ? '10px' : '20px')
+      expect(result?.presentationStyle?.height).toBe(transform[0][0] === 0 ? '20px' : '10px')
+      const svg = new TextDecoder().decode(vi.mocked(ensureAssetUploaded).mock.calls[0]![0])
+      expect(svg).not.toContain('matrix(-1')
+    }
+  )
+
   it.each([
     { cropWidth: 491, cropHeight: 465, y: 0 },
     { cropWidth: 317, cropHeight: 406, y: -59 }
@@ -62,6 +281,11 @@ describe('assets/vector', () => {
         id: 'clipped-vector',
         width: 669.352,
         height: 465,
+        absoluteTransform: [
+          [1, 0, 0],
+          [0, 1, 0]
+        ],
+        absoluteRenderBounds: { x: 0, y: -y, width: cropWidth, height: cropHeight },
         exportAsync: vi.fn(async (settings: ExportSettingsSVG) =>
           settings.useAbsoluteBounds ? fullBytes : new TextEncoder().encode(cropped)
         )

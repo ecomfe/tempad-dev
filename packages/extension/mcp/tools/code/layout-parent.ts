@@ -1,29 +1,33 @@
 import type { NodeSnapshot, VisibleTree } from './model'
 
+import { computeChildOverflow } from './styles/overflow'
+
 const SKIP_LAYOUT_TYPES = new Set<SceneNode['type']>(['GROUP', 'BOOLEAN_OPERATION'])
 
 // A clipped, freeform composition cannot be represented by Figma's inferred
 // flex padding: negative offsets and the clipping viewport would be lost.
-export function hasClippedOverflow(node: SceneNode): boolean {
+export function hasClippedOverflow(
+  node: SceneNode,
+  overflow?: { x: boolean; y: boolean },
+  checkpoint?: () => void
+): boolean {
   if (!('clipsContent' in node) || !node.clipsContent || node.layoutMode !== 'NONE') return false
-  return node.children.some((child) => {
-    if (!child.visible) return false
-    const [[a, c, x], [b, d, y]] = child.relativeTransform
-    return [
-      [0, 0],
-      [child.width, 0],
-      [0, child.height],
-      [child.width, child.height]
-    ].some(([u, v]) => {
-      const left = a * u + c * v + x
-      const top = b * u + d * v + y
-      return left < -0.01 || top < -0.01 || left > node.width + 0.01 || top > node.height + 0.01
-    })
-  })
+  const result = overflow ?? computeChildOverflow(node, checkpoint)
+  return result.x || result.y
 }
 
-export function getInferredAutoLayout(node: SceneNode): InferredAutoLayoutResult | null {
-  if (!('inferredAutoLayout' in node) || hasClippedOverflow(node)) return null
+export function getInferredAutoLayout(
+  node: SceneNode,
+  clippedOverflow?: boolean,
+  checkpoint?: () => void
+): InferredAutoLayoutResult | null {
+  checkpoint?.()
+  if (
+    !('inferredAutoLayout' in node) ||
+    (clippedOverflow ?? hasClippedOverflow(node, undefined, checkpoint))
+  )
+    return null
+  checkpoint?.()
   return node.inferredAutoLayout
 }
 
@@ -36,7 +40,21 @@ export function getLayoutParent(
     const parent = tree.nodes.get(parentId)
     if (!parent) return undefined
     if (!SKIP_LAYOUT_TYPES.has(parent.node.type)) return parent
+    if (isFlowGroup(tree, parent)) return parent
     parentId = parent.parentId
   }
   return undefined
+}
+
+export function isFlowGroup(tree: VisibleTree, snapshot: NodeSnapshot): boolean {
+  if (snapshot.type !== 'GROUP') return false
+  if ('layoutPositioning' in snapshot.node && snapshot.node.layoutPositioning === 'ABSOLUTE')
+    return false
+  const parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
+  if (!parent) return false
+  if (parent.type === 'GROUP') return isFlowGroup(tree, parent)
+  return (
+    ('layoutMode' in parent.node && parent.node.layoutMode !== 'NONE') ||
+    parent.autoLayoutHint === 'inferred'
+  )
 }

@@ -29,7 +29,7 @@ function createSegment(overrides: Record<string, unknown> = {}) {
     fontName: { family: 'Inter', style: 'Regular' },
     fontSize: 16,
     fontWeight: 400,
-    fontStyle: 'NORMAL',
+    fontStyle: 'REGULAR',
     lineHeight: { unit: 'PIXELS', value: 24 },
     letterSpacing: { unit: 'PIXELS', value: 1.5 },
     textCase: 'ORIGINAL',
@@ -195,6 +195,7 @@ describe('mcp/code text style', () => {
     expect(attrs).toEqual({
       color: 'transparent',
       'font-family': 'Inter',
+      'font-style': 'normal',
       'font-size': '16px',
       'font-weight': '400'
     })

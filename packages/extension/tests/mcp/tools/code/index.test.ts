@@ -68,6 +68,8 @@ vi.mock('@/mcp/tools/code/assets/export', () => ({
 vi.mock('@/mcp/tools/code/tokens', async () => ({
   processTokens: mocks.processTokens,
   createStyleVarResolver: mocks.createStyleVarResolver,
+  createTokenConsumerResolver: (await import('@/mcp/tools/code/tokens/resolve'))
+    .createTokenConsumerResolver,
   resolveStyleMap: mocks.resolveStyleMap,
   rewriteTokenNamesInCode: (await import('@/mcp/tools/code/tokens/rewrite')).rewriteTokenNamesInCode
 }))
@@ -131,13 +133,112 @@ function mockAssetCollection(
 }
 
 describe('mcp/code handleGetCode', () => {
+  it('does not leak full-render font metadata into the shell retry', async () => {
+    const root = createSnapshot({ id: 'root', children: ['child'] })
+    const tree = createTree([root, createSnapshot({ id: 'child', parentId: 'root' })])
+    mockAssetCollection(tree, [], new Set())
+    mocks.renderTree.mockImplementationOnce(async (_root, _tree, ctx) => {
+      ctx.fontStyleVariableIds.add('omitted-face')
+      return raw('X'.repeat(90000))
+    })
+    mocks.getOrderedChildIds.mockReturnValue(['child'])
+    mocks.renderShellTree.mockResolvedValue(raw('<div>shell</div>'))
+    expect((await handleGetCode([root.node], 'jsx', false)).code).toContain('shell')
+    expect(mocks.processTokens.mock.calls[0]?.[0].fontStyleVariableIds).toEqual(
+      new Set(['omitted-face'])
+    )
+    expect(mocks.processTokens.mock.calls.at(-1)?.[0].fontStyleVariableIds).toEqual(new Set())
+  })
+
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
     vi.clearAllMocks()
     mocks.activePlugin.value = undefined
     mocks.currentCodegenConfig.mockReturnValue({ cssUnit: 'px', rootFontSize: 16, scale: 1 })
     vi.unstubAllGlobals()
   })
+
+  it('deducts tree construction from the full-generation deadline', async () => {
+    vi.useFakeTimers()
+    let elapsed = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => elapsed)
+    const root = createSnapshot({ id: 'root', children: ['child'] })
+    const tree = createTree([root])
+    mockAssetCollection(tree, [], new Set())
+    mocks.buildVisibleTree.mockImplementationOnce(() => {
+      elapsed = 12_000
+      return tree
+    })
+    mocks.collectNodeData.mockReturnValueOnce(new Promise(() => {}))
+    mocks.getOrderedChildIds.mockReturnValue(['child'])
+    mocks.renderShellTree.mockResolvedValue(raw('<div>shell</div>'))
+    const pending = handleGetCode([root.node])
+    await vi.advanceTimersByTimeAsync(7_999)
+    expect(mocks.renderShellTree).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect((await pending).warnings?.map(({ type }) => type)).toEqual(['shell'])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each(['plan', 'prepare'] as const)(
+    'does not dispatch more full work after synchronous %s exceeds the deadline',
+    async (stage) => {
+      let elapsed = 0
+      vi.spyOn(performance, 'now').mockImplementation(() => elapsed)
+      const root = createSnapshot({ id: 'root', children: ['child'] })
+      const tree = createTree([root, createSnapshot({ id: 'child', parentId: 'root' })])
+      mockAssetCollection(tree, [], new Set())
+      mocks.renderTree.mockResolvedValue(raw('<div>full</div>'))
+      if (stage === 'plan') {
+        mocks.planAssets.mockImplementationOnce(() => {
+          elapsed = 20_000
+          return { vectorRoots: new Set(), skippedIds: new Set() }
+        })
+      } else {
+        mocks.prepareStyles.mockImplementationOnce(() => {
+          elapsed = 20_000
+          return { usedCandidateIds: new Set(), layout: new Map() }
+        })
+      }
+      mocks.getOrderedChildIds.mockReturnValue(['child'])
+      mocks.renderShellTree.mockResolvedValue(raw('<div>shell</div>'))
+      const result = await handleGetCode([root.node])
+      expect(result.warnings?.map(({ type }) => type)).toEqual(['shell'])
+      expect(mocks.exportVectorAssets).not.toHaveBeenCalled()
+      expect(mocks.collectNodeData).toHaveBeenCalledTimes(stage === 'plan' ? 1 : 2)
+      // The final collection belongs exclusively to the root-only fallback.
+      expect(mocks.collectNodeData.mock.calls.at(-1)?.[4]).toEqual(new Set(['child']))
+      expect(mocks.renderTree).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([false, true])(
+    'only falls back when tree construction has completed: %s',
+    async (complete) => {
+      let elapsed = 0
+      vi.spyOn(performance, 'now').mockImplementation(() => elapsed)
+      const root = createSnapshot({ id: 'root', children: ['child'] })
+      const tree = createTree([root])
+      mockAssetCollection(tree, [], new Set())
+      mocks.buildVisibleTree.mockImplementationOnce((_nodes, checkpoint) => {
+        elapsed = 20_000
+        if (!complete) checkpoint()
+        return tree
+      })
+      mocks.getOrderedChildIds.mockReturnValue(['child'])
+      mocks.renderShellTree.mockResolvedValue(raw('<div>shell</div>'))
+      const pending = handleGetCode([root.node])
+      if (complete) {
+        expect((await pending).warnings?.map(({ type }) => type)).toEqual(['shell'])
+      } else {
+        await expect(pending).rejects.toThrow('Code generation timed out')
+        expect(mocks.collectNodeData).not.toHaveBeenCalled()
+        expect(mocks.renderShellTree).not.toHaveBeenCalled()
+      }
+      expect(mocks.renderTree).not.toHaveBeenCalled()
+    }
+  )
 
   it.each(['collect', 'export', 'render', 'tokens', 'plugin'])(
     'returns an ordered shell when %s stalls, and fences late full results',
@@ -184,7 +285,8 @@ describe('mcp/code handleGetCode', () => {
         expect.any(Object),
         new Set(['a', 'b']),
         expect.any(Map),
-        new Set()
+        new Set(),
+        expect.any(Function)
       )
       const calls = mocks.renderTree.mock.calls.length
       const lateValues = {
@@ -584,6 +686,7 @@ describe('mcp/code handleGetCode', () => {
       expect.any(Map),
       expect.any(Object),
       {
+        checkpoint: expect.any(Function),
         traverseChildren: false,
         captureNodeId: expect.any(Function),
         onNodeVariableIds: expect.any(Function)
@@ -596,7 +699,8 @@ describe('mcp/code handleGetCode', () => {
       expect.any(Object),
       new Set(['copy']),
       expect.any(Map),
-      new Set()
+      new Set(),
+      expect.any(Function)
     )
     expect(mocks.prepareStyles).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -774,6 +878,63 @@ describe('mcp/code handleGetCode', () => {
     const result = await handleGetCode([{ id: 'icon', visible: true } as SceneNode], 'jsx', true)
 
     expect(result.code).toContain('data-color="#fff"')
+    expect(mocks.renderTree).toHaveBeenCalledTimes(2)
+  })
+
+  it('normalizes unresolved opacity without changing shared token definitions or length consumers', async () => {
+    const root = createSnapshot({ id: 'opacity' })
+    const tree = createTree([root])
+    mockAssetCollection(tree, [], new Set())
+    const styles = new Map([['opacity', { opacity: 'var(--shared)', gap: 'var(--shared)' }]])
+    mocks.collectNodeData.mockResolvedValue({ nodes: tree.nodes, styles, textSegments: new Map() })
+    mocks.prepareStyles.mockReturnValue({ styles, layout: new Map(), usedCandidateIds: new Set() })
+    const tokens = { '--plugin-shared': { kind: 'number', value: { Light: '50px', Dark: '0px' } } }
+    mocks.processTokens.mockResolvedValue({
+      code: '<div />',
+      tokensByCanonical: tokens,
+      sourceIndex: new Map([['--shared', 'v']]),
+      rewriteMap: new Map([['--shared', '--plugin-shared']])
+    })
+    mocks.resolveStyleMap.mockImplementation(
+      (await import('@/mcp/tools/code/tokens/resolve')).resolveStyleMap
+    )
+    mocks.renderTree.mockImplementation(async (_id, _tree, ctx) => {
+      const style = ctx.styles.get('opacity')
+      return raw(`<div style="opacity:${style.opacity};gap:${style.gap}" />`)
+    })
+
+    const result = await handleGetCode([root.node], 'jsx', false)
+    expect(result.code).toContain('opacity:calc(var(--plugin-shared) / 100px)')
+    expect(result.code).toContain('gap:var(--plugin-shared)')
+    expect(result.tokens).toEqual(tokens)
+    expect(mocks.renderTree).toHaveBeenCalledTimes(2)
+    expect(mocks.createStyleVarResolver).not.toHaveBeenCalled()
+  })
+
+  it('rerenders unresolved font-weight tokens present only in text runs', async () => {
+    const root = createSnapshot({ id: 'text', type: 'TEXT' })
+    const tree = createTree([root])
+    mockAssetCollection(tree, [], new Set())
+    mocks.collectNodeData.mockResolvedValue({
+      nodes: tree.nodes,
+      styles: new Map(),
+      textSegments: new Map([['text', []]])
+    })
+    mocks.processTokens.mockResolvedValue({
+      code: '<span className="font-(--weight)">Text</span>',
+      tokensByCanonical: { '--weight': { kind: 'number', value: '600px' } },
+      sourceIndex: new Map([['--weight', 'v']])
+    })
+    mocks.resolveStyleMap.mockImplementation(
+      (await import('@/mcp/tools/code/tokens/resolve')).resolveStyleMap
+    )
+    mocks.renderTree.mockImplementation(async (_id, _tree, ctx) => {
+      const style = { 'font-weight': 'var(--weight)' }
+      const resolved = ctx.resolveStyleVars?.(style, root.node) ?? style
+      return raw(`<span style="font-weight:${resolved['font-weight']}">Text</span>`)
+    })
+    const result = await handleGetCode([root.node], 'jsx', false)
+    expect(result.code).toContain('font-weight:calc(var(--weight) / 100px * 100)')
     expect(mocks.renderTree).toHaveBeenCalledTimes(2)
   })
 

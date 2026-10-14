@@ -71,6 +71,141 @@ function setupFigma({
 }
 
 describe('utils/variable-output', () => {
+  it.each(['HORIZONTAL', 'VERTICAL'] as const)(
+    'preserves explicitly synchronized cross-axis variables in %s wrap layouts',
+    (layoutMode) => {
+      setupFigma({ variableById: { main: createVariable('main', 'Shared measure') } })
+      for (const marker of [false, true]) {
+        for (const spacing of [50, 75]) {
+          const node = {
+            type: 'FRAME',
+            layoutMode,
+            layoutWrap: 'WRAP',
+            itemSpacing: spacing,
+            counterAxisSpacing: marker ? spacing : null,
+            getSharedPluginData: () => (marker ? 'true' : ''),
+            boundVariables: { itemSpacing: { id: 'main' } }
+          } as unknown as FrameNode
+          expect(formatNodeStyleForMcp({ gap: `${spacing}px` }, node)).toEqual({
+            'row-gap': 'var(--Shared-measure)',
+            'column-gap': 'var(--Shared-measure)'
+          })
+        }
+      }
+    }
+  )
+
+  it.each([
+    ['explicit equal spacing', 'WRAP', 50, ''],
+    ['stale marker', 'WRAP', 25, 'true'],
+    ['non-wrap layout', 'NO_WRAP', 50, 'true']
+  ])('does not infer synchronization from %s', (_label, layoutWrap, crossSpacing, marker) => {
+    setupFigma({ variableById: { main: createVariable('main', 'Shared measure') } })
+    for (const spacing of [50, 75]) {
+      const node = {
+        type: 'FRAME',
+        layoutMode: 'HORIZONTAL',
+        layoutWrap,
+        itemSpacing: spacing,
+        counterAxisSpacing: crossSpacing,
+        getSharedPluginData: () => marker,
+        boundVariables: { itemSpacing: { id: 'main' } }
+      } as unknown as FrameNode
+      expect(
+        formatNodeStyleForMcp(
+          { 'row-gap': `${crossSpacing}px`, 'column-gap': `${spacing}px` },
+          node
+        )
+      ).toEqual({
+        'row-gap': `${crossSpacing}px`,
+        'column-gap': 'var(--Shared-measure)'
+      })
+    }
+  })
+
+  it('prefers an independent counter-axis binding over a retained sync marker', () => {
+    setupFigma({
+      variableById: {
+        main: createVariable('main', 'main'),
+        cross: createVariable('cross', 'cross')
+      }
+    })
+    const node = {
+      type: 'FRAME',
+      layoutMode: 'HORIZONTAL',
+      layoutWrap: 'WRAP',
+      itemSpacing: 50,
+      counterAxisSpacing: 50,
+      getSharedPluginData: () => 'true',
+      boundVariables: { itemSpacing: { id: 'main' }, counterAxisSpacing: { id: 'cross' } }
+    } as unknown as FrameNode
+    expect(formatNodeStyleForMcp({ gap: '50px' }, node)).toEqual({
+      'row-gap': 'var(--cross)',
+      'column-gap': 'var(--main)'
+    })
+  })
+
+  it('projects synchronized native gap references onto the bound variable identity', () => {
+    setupFigma({ variableById: { shared: createVariable('shared', 'Candidate 6e21 / Shared') } })
+    const node = {
+      type: 'FRAME',
+      layoutMode: 'HORIZONTAL',
+      boundVariables: { itemSpacing: { id: 'shared' } }
+    } as unknown as FrameNode
+    expect(formatNodeStyleForMcp({ gap: 'var(--Candidate-6e21-Shared)' }, node)).toEqual({
+      'row-gap': 'var(--Candidate-6e21---Shared)',
+      'column-gap': 'var(--Candidate-6e21---Shared)'
+    })
+  })
+
+  it.each([false, true])(
+    'does not guess ambiguous collapsed variable names (reverse %s)',
+    (reverse) => {
+      setupFigma({
+        variableById: {
+          spaced: createVariable('spaced', 'Candidate 6e21 / Shared'),
+          literal: createVariable('literal', 'Candidate-6e21-Shared')
+        }
+      })
+      const ids = reverse ? ['literal', 'spaced'] : ['spaced', 'literal']
+      const node = { type: 'FRAME' } as unknown as FrameNode
+      const style = { color: 'var(--Candidate-6e21-Shared)' }
+      expect(formatNodeStyleForMcp(style, node, undefined, new Set(ids))).toEqual(style)
+    }
+  )
+
+  it.each([0, -1, NaN, Infinity])(
+    'never emits invalid rem values with root size %s',
+    (rootFontSize) => {
+      const css = serializeCSS({ width: '16px' }, { useRem: true, rootFontSize, scale: 1 })
+      expect(css).toContain('1rem')
+      expect(css).not.toMatch(/Infinity|NaN/)
+    }
+  )
+
+  it.each(['HORIZONTAL', 'VERTICAL'])(
+    'preserves independent spacing axes in %s layouts',
+    (layoutMode) => {
+      setupFigma({
+        variableById: {
+          main: createVariable('main', 'space-main'),
+          cross: createVariable('cross', 'space-cross')
+        }
+      })
+      const node = {
+        type: 'FRAME',
+        layoutMode,
+        boundVariables: { itemSpacing: { id: 'main' }, counterAxisSpacing: { id: 'cross' } }
+      } as unknown as FrameNode
+      const result = formatNodeStyleForMcp({ gap: '16px 8px' }, node)
+      expect(result).toEqual(
+        layoutMode === 'HORIZONTAL'
+          ? { 'row-gap': 'var(--space-cross)', 'column-gap': 'var(--space-main)' }
+          : { 'row-gap': 'var(--space-main)', 'column-gap': 'var(--space-cross)' }
+      )
+    }
+  )
+
   beforeEach(() => {
     delete (globalThis as { figma?: unknown }).figma
   })

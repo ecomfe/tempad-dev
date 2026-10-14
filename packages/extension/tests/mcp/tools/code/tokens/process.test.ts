@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
+import { withCodeDeadline } from '@/mcp/tools/code/deadline'
 import { createTokenMatcher, extractTokenNames } from '@/mcp/tools/code/tokens/extract'
 import { processTokens } from '@/mcp/tools/code/tokens/process'
 import { rewriteTokenNamesInCode } from '@/mcp/tools/code/tokens/rewrite'
@@ -53,10 +54,34 @@ const baseInput = () => ({
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.clearAllMocks()
 })
 
 describe('tokens/process processTokens', () => {
+  it.each(['transform', 'definitions'])('checks its deadline after awaiting %s', async (stage) => {
+    let elapsed = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => elapsed)
+    vi.mocked(buildSourceNameIndex).mockReturnValue(new Map([['--token', 'var-1']]))
+    vi.mocked(extractTokenNames).mockReturnValue(new Set(['--token']))
+    vi.mocked(applyPluginTransformToNames).mockImplementation(async () => {
+      if (stage === 'transform') elapsed = 21
+      return { rewriteMap: new Map(), finalBridge: new Map([['--token', 'var-1']]) }
+    })
+    vi.mocked(resolveTokenDefsByIds).mockImplementation(async () => {
+      elapsed = 21
+      return {}
+    })
+
+    await expect(
+      withCodeDeadline(20, (_signal, checkpoint) =>
+        processTokens({ ...baseInput(), resolveTokens: true, checkpoint })
+      )
+    ).rejects.toThrow('timed out')
+    if (stage === 'transform') expect(resolveTokenDefsByIds).not.toHaveBeenCalled()
+    expect(createTokenMatcher).not.toHaveBeenCalled()
+  })
+
   it('returns early when source index has no names', async () => {
     vi.mocked(buildSourceNameIndex).mockReturnValue(new Map())
 
@@ -104,6 +129,7 @@ describe('tokens/process processTokens', () => {
       new Map([['--renamed', 'var-1']]),
       expect.any(Object),
       true,
+      undefined,
       undefined
     )
   })

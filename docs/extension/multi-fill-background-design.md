@@ -66,6 +66,10 @@ Relevant constraints:
 - Fills can differ by visibility, opacity, gradient stops, and blend mode.
 - The `fills` property itself does not provide independent rectangle geometry for separate top/bottom regions on a single node.
 - The repo already relies on Figma paint visibility semantics in multiple places; multi-fill support should reuse those semantics instead of introducing a second interpretation.
+- Native fills are ordered back-to-front: the last paint is visually on top. CSS background layers
+  run front-to-back. The native probe on page `2772:2` confirmed this with reversed opaque-blue /
+  half-opacity-red pairs. Convert order once at the paint-to-CSS boundary, retaining native indices
+  for variable bindings; existing CSS layers and radial geometry already use CSS order.
 
 Implications for this repo:
 
@@ -656,7 +660,8 @@ Before merging implementation:
 3. Lock that order in regression tests.
 4. Validate a fixture where `getCSSAsync()` emits `url(...) lightgray ...` and confirm the gray token never appears in final layered output.
 
-This verification is required because CSS multi-background order is well-defined, but the repository should not rely on an unverified assumption about Figma fill-array ordering.
+The native pair above establishes the ordering contract. Future changes to paint mapping should
+retain those regressions and verify mixed media or geometry behavior independently.
 
 ## Risks
 

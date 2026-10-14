@@ -28,6 +28,23 @@ function node(
 }
 
 describe('mcp/code/assets plan', () => {
+  it('exports boolean operations once without exporting their operands', () => {
+    const tree = {
+      order: ['boolean', 'operand'],
+      nodes: new Map([
+        [
+          'boolean',
+          node('boolean', { type: 'BOOLEAN_OPERATION', assetKind: 'vector', children: ['operand'] })
+        ],
+        ['operand', node('operand', { type: 'VECTOR', assetKind: 'vector' })]
+      ])
+    } as unknown as VisibleTree
+    expect(planAssets(tree)).toEqual({
+      vectorRoots: new Set(['boolean']),
+      skippedIds: new Set(['operand'])
+    })
+  })
+
   it('marks pure vector groups as roots and skips all descendants', () => {
     const tree = {
       order: ['group', 'v1', 'child-group', 'v2', 'standalone-vector', 'missing-node'],

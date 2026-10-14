@@ -1,7 +1,12 @@
-import { MCP_MAX_ASSET_BYTES } from '@tempad-dev/shared'
+import {
+  MCP_MAX_ASSET_BYTES,
+  MCP_TOOL_TIMEOUT_MS,
+  buildGetScreenshotToolResult
+} from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ensureAssetUploaded } from '@/mcp/assets'
+import { readNodeBatch } from '@/mcp/node-reads'
 import { handleGetScreenshot } from '@/mcp/tools/screenshot'
 
 const SCREENSHOT_HASH = 'a'.repeat(64)
@@ -46,6 +51,94 @@ function assignGeometry(node: SceneNode, bounds: Rect, parent: BaseNode & Childr
 }
 
 describe('mcp/tools/screenshot', () => {
+  it('bounds pixel dimensions before exporting a tall frame', async () => {
+    const scale = 4096 / 9000
+    const node = createNode(new Map([[scale, createPngBytes(655, 4096, 1024)]]), 1440, 9000)
+    Object.assign(node, { absoluteBoundingBox: { x: 0, y: 0, width: 1440, height: 9000 } })
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: SCREENSHOT_HASH,
+      url: 'https://example.com/a.png',
+      mimeType: 'image/png',
+      size: 1024
+    })
+    const result = await handleGetScreenshot(node)
+    expect(result.height).toBe(4096)
+    expect(result.scale).toBe(scale)
+    expect(node.exportAsync).toHaveBeenCalledOnce()
+  })
+
+  it('stops a stalled screenshot before the transport deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      const node = createNode(new Map())
+      let finishExport!: (bytes: Uint8Array) => void
+      node.exportAsync.mockImplementation(
+        () =>
+          new Promise<Uint8Array>((resolve) => {
+            finishExport = resolve
+          })
+      )
+      const request = expect(handleGetScreenshot(node)).rejects.toThrow(
+        'Screenshot export or asset upload timed out'
+      )
+      await vi.advanceTimersByTimeAsync(MCP_TOOL_TIMEOUT_MS - 1)
+      await request
+      expect(vi.getTimerCount()).toBe(0)
+      // Figma exports cannot be cancelled. A late result must not start crop/export/upload work.
+      finishExport(createPngBytes(200, 100, 1024))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(node.exportAsync).toHaveBeenCalledOnce()
+      expect(ensureAssetUploaded).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('returns a timed-out batch root with exact remaining IDs before the Hub deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      const stalled = createNode(new Map())
+      stalled.exportAsync.mockImplementation(() => new Promise(() => {}))
+      const remaining = createNode(new Map([[1, createPngBytes(200, 100, 1024)]]))
+      const batch = readNodeBatch(
+        [
+          { nodeId: 'stalled', node: stalled },
+          { nodeId: 'remaining', node: remaining }
+        ],
+        (node) => handleGetScreenshot(node),
+        buildGetScreenshotToolResult
+      )
+      await vi.advanceTimersByTimeAsync(MCP_TOOL_TIMEOUT_MS - 1)
+      expect(await batch).toEqual({
+        results: [
+          { nodeId: 'stalled', error: { message: expect.stringContaining('No automatic retry') } }
+        ],
+        remainingNodeIds: ['remaining']
+      })
+      expect(remaining.exportAsync).not.toHaveBeenCalled()
+      expect(ensureAssetUploaded).not.toHaveBeenCalled()
+      expect(vi.getTimerCount()).toBe(0)
+      vi.mocked(ensureAssetUploaded).mockResolvedValue({
+        hash: SCREENSHOT_HASH,
+        url: 'https://example.com/a.png',
+        mimeType: 'image/png',
+        size: 1024
+      })
+      const continuation = await readNodeBatch(
+        [{ nodeId: 'remaining', node: remaining }],
+        (node) => handleGetScreenshot(node),
+        buildGetScreenshotToolResult
+      )
+      expect(continuation.remainingNodeIds).toBeUndefined()
+      expect(continuation.results).toEqual([
+        { nodeId: 'remaining', result: expect.objectContaining({ width: 200, height: 100 }) }
+      ])
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   afterEach(() => {
     vi.clearAllMocks()
   })

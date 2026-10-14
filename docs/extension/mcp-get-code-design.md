@@ -19,17 +19,34 @@ One call shares raw CSS, variable, collection, consumer-value, style, and semant
 Each root keeps its own processed styles, render context, asset registry, token map, and language.
 Raw CSS is copied before preprocessing. Codegen configuration and plugin identity are fixed on the first root; all caches are discarded after the call, including before a continuation request.
 
-For splittable roots, the extension limits full generation to 20 seconds, then attempts a root-only
+For splittable roots, the extension limits tree construction and full generation together to 20 seconds, then attempts a root-only
 shell with a separate 5-second limit. These extension limits are fixed; a shorter Hub override can
 still expire first. The fallback shares lookup and CSS-promise caches with the original attempt,
 and abort checks fence late results and prevent subsequent collection, export, and plugin batches.
-In-flight Figma API calls cannot be cancelled. A stalled root or unusable shell still fails.
+Synchronous checkpoints cover depth selection, tree traversal (including hidden siblings),
+candidate-variable scans, and collection between nodes and after text, CSS, style, and media reads.
+They also run within physical-child overflow scans, per-field text-variable reads, and nested
+binding/paint scans, including overflow work during semantic-cache population. Group flow and
+vector positioning reuse the tree's existing inferred-layout hint without rescanning children.
+Token alias resolution and plugin naming batches receive the current attempt's checkpoint;
+shared token caches retain data without capturing an expired full-generation deadline.
+Vector export checks the same deadline between candidates, after color analysis, and around each
+export batch. Cached or immediately resolved reads cannot defer cancellation until collection or
+export finishes. Media and vector helpers also check after native byte reads or exports and before
+starting uploads, fallback exports, or the next fill; their fallback handlers preserve cancellation.
+An incomplete tree fails without a shell; a completed tree can use the
+fallback even when its last getter exhausts the full-generation budget. Checkpoints cannot interrupt
+a single native getter or cancel in-flight Figma API calls. Leaf and vector roots retain their full-only
+generation path after bounded tree construction; unbounded debug calls bypass these time limits.
+A stalled root or unusable shell still fails.
 
 ## High-level pipeline
 
 1. **Validate each root**
    - The inner pipeline receives exactly one visible root; the runtime owns node-set orchestration.
-   - Build a visible tree with depth capping.
+   - Build a visible tree with depth capping and reject selections exceeding 2,000 visible nodes
+     before reading inferred layout hints. Check the synchronous time budget between physical
+     node visits and layout inference calls, without treating hidden layers as visible output nodes.
 
 2. **Preflight the response budget**
    - Sum descendant text using UTF-8 bytes and stop as soon as it alone exceeds the inline budget.
@@ -40,7 +57,8 @@ In-flight Figma API calls cannot be cancelled. A stalled root or unusable shell 
 
 3. **Create request-scoped lookup context**
    - Create a `GetCodeCacheContext` near the existing variable cache.
-   - Build variable mappings from the raw selected roots, using shared lookup readers backed by that request context.
+   - Build variable mappings only from nodes in the bounded visible tree (the root alone for early
+     shells), using shared lookup readers without descending into the original subtrees.
    - Pass the same readers through text-segment rendering so bound-variable and style lookups
      discovered during scanning are reused rather than read again.
 
@@ -112,11 +130,11 @@ In-flight Figma API calls cannot be cancelled. A stalled root or unusable shell 
 
 - Built via `buildVisibleTree`.
 - Nodes include bounds, data-hints, and inferred layout hints.
-- GROUP/BOOLEAN nodes are preserved for structure but ignored for layout-parent calculations.
+- GROUP/BOOLEAN nodes are preserved for structure. A GROUP participating in auto-layout flow establishes its own layout box.
 
 ### Layout parent resolution
 
-- `getLayoutParent` walks up to the nearest non-GROUP/BOOLEAN ancestor.
+- `getLayoutParent` walks up to the nearest flow GROUP or non-GROUP/BOOLEAN ancestor.
 - All relative transforms and constraints are interpreted against this layout parent.
 
 ### Positioning rules
@@ -134,8 +152,11 @@ In-flight Figma API calls cannot be cancelled. A stalled root or unusable shell 
 ### Relative container injection
 
 - A layout parent is made `position: relative` if any descendant is absolute.
-- Structural GROUP/BOOLEAN wrappers are not made relative/absolute; an atomic SVG export
-  receives the original node's placement as a single layout item.
+- A flow GROUP gets a relative box and positions its descendants within that box. Other structural
+  GROUP/BOOLEAN wrappers preserve their existing containing blocks. For paint ranking, a GROUP
+  with a direct transform, filter, or backdrop-filter that already establishes a containing block can become relative
+  when no insets or explicit z-index would become active. An atomic SVG export receives the
+  original node's placement as a single layout item.
 
 ## Styles pipeline
 
@@ -205,6 +226,11 @@ token collection, renaming, and resolution use the same variable identities.
 - `codeSyntax` remains useful as source metadata and alias input for candidate discovery, rewrite bridging, and downstream export transforms, but it does not control the final emitted MCP style value.
 - When `resolveTokens` is `true`, the same supported properties should resolve from canonical IR to per-node literals without changing the token identity model.
 - Figma style names are not MCP token identities. A style may cause variables inside its bound paints/text/effects to be discovered, but the style name itself must not create a `tokens` entry.
+- Font-face variables cannot be consumed as CSS `font-style` values. Render native text-run
+  weight and style, preserving necessary normal-value overrides. Only bindings from text that
+  reaches the output contribute their exact variable IDs to the existing token transform and
+  definition pipeline; omitted or plugin-replaced text does not. Keep their original definitions
+  and aliases without adding synthetic CSS properties or markup hints.
 
 ### Current implementation note
 
@@ -267,6 +293,9 @@ The request context is threaded through:
 ## Sibling ordering
 
 - Ordering is applied during render, not during tree build.
+- Explicit auto layout retains native child order. Geometric sorting applies to inferred flow
+  children only, preserving absolute siblings in their original slots and treating horizontal wrap
+  as row-major.
 - Triggered only when the computed `display` is:
   - `flex` / `inline-flex` (flex ordering)
   - `grid` / `inline-grid` (grid ordering)
@@ -276,6 +305,32 @@ The request context is threaded through:
   - `column` / `column-reverse` → `y`
   - If `flex-direction` is missing, fall back to node’s `layoutMode` / `inferredAutoLayout.layoutMode`.
 - Grid ordering is row‑major (`y` then `x`), with a small epsilon (~0.5px) to keep stable order for near‑ties.
+- Mixed flow/absolute siblings use native child order for paint ranks, independent of inferred
+  DOM ordering. Honor native reverse painting, preserve explicit z-index values, and isolate the
+  parent when introducing paint ranks. Flex/grid items need no positioning change. Plain
+  transparent, untransformed non-flow GROUP wrappers containing only absolute-positioned paint
+  children participate in the outer paint order. Use `display: contents` only when all siblings are also transparent wrappers or
+  absolute items; otherwise retain the wrapper boxes so later flow siblings do not move.
+  Nested wrappers retain DOM hints, inheritance and event bubbling without introducing a
+  containing block. Native NORMAL groups retain their blending boundary with `isolation: isolate`
+  when they render a box and do not specify isolation; PASS_THROUGH groups remain transparent.
+  SVG exports and groups with their own layout, compositing, effects or other box styling keep
+  their existing representation. Groups with direct transform, filter, or backdrop-filter
+  containing blocks can receive relative positioning and paint ranks when no insets or explicit
+  z-index would become active; this retains their descendant geometry. When the remaining static
+  groups already have stacking contexts through literal opacity below 1, `isolation: isolate`,
+  or a supported non-normal `mix-blend-mode`,
+  retain their positioning and place siblings at level zero in native DOM order. This preserves
+  interleaved painting without rebasing absolute descendants. For structural PASS_THROUGH groups
+  with bound opacity, preserve the boxes and use natural level-zero painting (`z-index: auto`)
+  across their sibling sequence and nested structural groups. Prove transparent ancestor groups
+  bottom-up so wrapping a bound group does not restore the negative-rank fallback. Do not add
+  isolation to these groups: opacity becoming 1 must restore descendant blending with the outer
+  backdrop. Keep native transforms, filters, and inert insets unchanged. Ordinary frames retain
+  their own ordering rules. This works before token resolution,
+  so both unresolved mode changes and literal output retain the same paint order and metadata.
+  Other unpositioned structural wrappers retain the previous stacking fallback; arbitrary
+  external CSS is not assumed to establish a containing block or stacking context.
 
 ## SVG and asset strategy
 
@@ -290,11 +345,14 @@ The request context is threaded through:
 - Vector containers can be converted to a single SVG when their subtree is vector-like and the container itself does not carry wrapper semantics such as its own fill/stroke/effects/clipping or design-component hints.
 - Themeable vectors are single-color vectors that can safely use one contextual color channel.
   Full-bounds SVG exports are mapped from Figma's baked absolute coordinates into local coordinates
-  using the inverse linear transform. Node geometry replaces integer-rounded export dimensions;
-  paths remain intact. When the inverse-mapped rectangle exceeds the local node box, a node-sized
+  using the inverse linear transform. Node geometry replaces integer-rounded export dimensions,
+  unioned with native render bounds for visible stroke/effect overflow; clipped render bounds never
+  shrink the geometry box. Zero-width or zero-height geometry uses native render-bounds export
+  with that export's origin. Paths remain intact. When the inverse-mapped rectangle exceeds the local node box, a node-sized
   layout wrapper positions the larger SVG viewport, preserving rotated edge strokes in external
-  images as well as inline output. Asset dimensions stay in design pixels. Instance color and the
-  relative linear transform belong to the layout root.
+  images as well as inline output. Asset dimensions stay in design pixels. Instance color belongs
+  to the SVG root. Positioned vectors retain their relative linear transform on the layout root;
+  flow vectors bake it into the asset and reserve its transformed bounding box as their flow slot.
 - Fixed-color vectors preserve their internal palette in the uploaded SVG asset.
 - Plugin/component output short-circuits vector export for that subtree.
 - Placeholder SVG nodes receive external layout styles plus presentation color on the root markup when the vector is single-channel.
@@ -307,16 +365,18 @@ The request context is threaded through:
 ## Token pipeline (detailed)
 
 1. Build source index from variable IDs and codeSyntax.
-2. Strip fallbacks, then extract raw token names from code (boundary-aware).
+2. Strip fallbacks, then extract raw token names from code (boundary-aware). Include font-face
+   bindings collected from the text actually emitted by this render.
 3. Apply plugin transforms to names.
 4. Rewrite code with transformed names (only if any rename occurs).
 5. Build a single definition map from the transform's final name-to-ID mapping (direct + alias-chain tokens), always preserving modes and aliases.
-6. Resolve code for each consuming node (only when `resolveTokens` is true). Native Figma resolution owns inherited modes and cross-collection alias traversal; serialized literals are renderer-local.
+6. Resolve code for each consuming node when `resolveTokens` is true. Native Figma resolution owns inherited modes and cross-collection alias traversal; known length properties override token-name heuristics, and serialized literals stay in native pixels until rendering applies the request's units and scale. Divide native opacity percentages by 100 only for that property. Unresolved opacity, font-weight and known length properties retain canonical references in dimensionally compatible `calc()` expressions, using final definition dimensions across modes and aliases. Font-weight length conversion divides by 100px then multiplies by 100; the reverse conversion for unitless definitions in length properties multiplies by 100px then divides by 100. Both avoid rounding a 1px factor during rem conversion. Preserve length units on zero definitions; mixed or unknown dimensions retain the reference with a consumer-specific `token-resolution` warning.
 
 ### Pipeline guards
 
 - If no source names exist, return early with no tokens.
-- If no token names are detected, skip plugin transforms and defs.
+- If neither code references nor rendered font-face bindings use token names, skip plugin
+  transforms and defs.
 - If rewrites yield no bridged ids, skip defs.
 
 ## Error handling

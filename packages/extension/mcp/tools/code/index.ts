@@ -29,6 +29,7 @@ import type { GetCodeCacheContext } from './cache'
 import type { VisibleTree } from './model'
 import type { CodeLanguage, RenderContext } from './render'
 import type { PluginComponent } from './render/plugin'
+import type { StyleVarResolver } from './tokens'
 
 import { currentCodegenConfig } from '../config'
 import { collectCandidateVariableIds } from '../token/candidates'
@@ -38,7 +39,7 @@ import { planAssets } from './assets/plan'
 import { preflightGetCodeBudget } from './budget-preflight'
 import { createGetCodeCacheContext } from './cache'
 import { collectNodeData } from './collect'
-import { CodeDeadlineExceededError, withCodeDeadline } from './deadline'
+import { CodeDeadlineExceededError, createCodeCheckpoint, withCodeDeadline } from './deadline'
 import { collectUnboundColorLiteralClusters } from './literal-clusters'
 import {
   CodeBudgetExceededError,
@@ -49,6 +50,7 @@ import { getOrderedChildIds, renderShellTree, renderTree } from './render'
 import { resolvePluginComponents } from './render/plugin'
 import { buildLayoutStyles, prepareStyles } from './styles'
 import {
+  createTokenConsumerResolver,
   createStyleVarResolver,
   processTokens,
   resolveStyleMap,
@@ -114,6 +116,7 @@ type RenderMode =
 type ShellMode = Extract<RenderMode, { kind: 'shell' }>
 
 type PipelineInput = {
+  checkpoint?: () => void
   mode: RenderMode
   rootId: string
   tree: VisibleTree
@@ -167,7 +170,12 @@ export async function handleGetCode(
   }
 
   const t = now()
-  const tree = buildVisibleTree(nodes)
+  const fullTimeoutMs = (MCP_GET_CODE_TIMEOUT_MS * 2) / 3
+  const startedAt = performance.now()
+  const tree = buildVisibleTree(
+    nodes,
+    runtimeOptions.unbounded ? undefined : createCodeCheckpoint(fullTimeoutMs)
+  )
   stamp('tree', t)
   const rootId = tree.rootIds[0]
   if (!rootId) {
@@ -186,7 +194,7 @@ export async function handleGetCode(
   ))
   const pluginName = (cache.pluginName ??= activePlugin.value?.name ?? 'none')
   const assetPlan: { current?: AssetPlan } = {}
-  const generate = (signal?: AbortSignal, forceShell = false) =>
+  const generate = (signal?: AbortSignal, forceShell = false, checkpoint?: () => void) =>
     generateCode({
       nodes,
       preferredLang,
@@ -198,8 +206,9 @@ export async function handleGetCode(
       trace,
       tokenContext,
       assetPlan,
-      cache: { ...cache, pluginName, signal },
-      forceShell
+      cache: { ...cache, pluginName, signal, checkpoint },
+      forceShell,
+      checkpoint
     })
   const root = tree.nodes.get(rootId)
   if (runtimeOptions.unbounded || !root?.children.length || root.assetKind === 'vector') {
@@ -207,16 +216,20 @@ export async function handleGetCode(
   }
 
   // Leave time to return the parent shell before the Hub's default hard timeout.
-  const fullTimeoutMs = (MCP_GET_CODE_TIMEOUT_MS * 2) / 3
   try {
-    return await withCodeDeadline(fullTimeoutMs, (signal) => generate(signal))
+    return await withCodeDeadline(
+      fullTimeoutMs - (performance.now() - startedAt),
+      (signal, checkpoint) => generate(signal, false, checkpoint)
+    )
   } catch (error) {
     if (
       !(error instanceof CodeDeadlineExceededError) &&
       !(error instanceof PluginSandboxError && error.code === 'timeout')
     )
       throw error
-    return withCodeDeadline(MCP_GET_CODE_TIMEOUT_MS / 6, (signal) => generate(signal, true))
+    return withCodeDeadline(MCP_GET_CODE_TIMEOUT_MS / 6, (signal, checkpoint) =>
+      generate(signal, true, checkpoint)
+    )
   }
 }
 
@@ -232,7 +245,8 @@ async function generateCode({
   tokenContext,
   assetPlan,
   cache,
-  forceShell
+  forceShell,
+  checkpoint
 }: {
   nodes: SceneNode[]
   preferredLang?: CodeLanguage
@@ -246,6 +260,7 @@ async function generateCode({
   assetPlan: { current?: AssetPlan }
   cache: GetCodeCacheContext & { pluginName: string }
   forceShell: boolean
+  checkpoint?: () => void
 }): Promise<GetCodeResult> {
   const now = trace?.now ?? (() => 0)
   const stamp = trace?.stamp ?? (() => {})
@@ -269,22 +284,31 @@ async function generateCode({
         unbounded: !!runtimeOptions.unbounded
       })
   const earlyShell = forceShell || budgetPreflight?.kind === 'shell'
+  checkpoint?.()
 
   let t = now()
   const variableCache = cache.variables
   const nodeVariableIds = new Map<string, ReadonlySet<string>>()
-  const mappings = collectCandidateVariableIds(nodes, variableCache, cache.readers, {
-    traverseChildren: !earlyShell,
-    captureNodeId: (id) => tree.nodes.has(id),
-    onNodeVariableIds: (id, ids) => nodeVariableIds.set(id, ids)
-  })
+  const mappings = collectCandidateVariableIds(
+    earlyShell ? nodes : [...tree.nodes.values()].map((snapshot) => snapshot.node),
+    variableCache,
+    cache.readers,
+    {
+      checkpoint,
+      traverseChildren: false,
+      captureNodeId: (id) => tree.nodes.has(id),
+      onNodeVariableIds: (id, ids) => nodeVariableIds.set(id, ids)
+    }
+  )
   stamp('vars', t)
+  checkpoint?.()
 
   const { pluginComponents, pluginSkipped } =
     pluginCode && !earlyShell
       ? await collectPluginOutput(tree, config, pluginCode, preferredLang, cache.signal)
       : { pluginComponents: undefined, pluginSkipped: new Set<string>() }
   cache.signal?.throwIfAborted()
+  checkpoint?.()
 
   t = now()
   const plan = earlyShell
@@ -298,6 +322,7 @@ async function generateCode({
     ? new Set(tree.order.filter((id) => id !== rootId))
     : buildSkipIds(plan.skippedIds, pluginSkipped)
   t = now()
+  checkpoint?.()
   const collected = await collectNodeData(
     tree,
     config,
@@ -305,9 +330,11 @@ async function generateCode({
     cache,
     skipIds,
     nodeVariableIds,
-    plan.vectorRoots
+    plan.vectorRoots,
+    checkpoint
   )
   cache.signal?.throwIfAborted()
+  checkpoint?.()
   stamp('collect', t)
 
   if (earlyShell) {
@@ -325,10 +352,12 @@ async function generateCode({
   })
 
   t = now()
+  checkpoint?.()
   const svgs = earlyShell
     ? new Map<string, SvgEntry>()
-    : await exportVectorAssets(tree, plan, config, assetRegistry, vectorMode, cache)
+    : await exportVectorAssets(tree, plan, config, assetRegistry, vectorMode, cache, checkpoint)
   cache.signal?.throwIfAborted()
+  checkpoint?.()
   stamp('export-assets', t)
 
   const nodeMap = buildNodeMap(collected.nodes)
@@ -352,6 +381,7 @@ async function generateCode({
     config
   }
   const baseInput: Omit<PipelineInput, 'mode'> = {
+    checkpoint,
     rootId,
     tree,
     ctx,
@@ -523,11 +553,12 @@ async function renderPipeline(input: PipelineInput): Promise<PipelineOutput> {
 
 async function finalizeRenderedOutput(
   input: PipelineInput,
-  rendered: { code: string; lang: CodeLanguage },
+  rendered: { code: string; lang: CodeLanguage; fontStyleVariableIds: Set<string> },
   diagnostics: ReturnType<typeof createTokenDiagnostics>
 ): Promise<PipelineOutput> {
   const collected = getTokenCollectedContext(input)
   input.ctx.signal?.throwIfAborted()
+  input.checkpoint?.()
   const {
     code: rewrittenCode,
     tokensByCanonical,
@@ -539,6 +570,7 @@ async function finalizeRenderedOutput(
     code: rendered.code,
     variableIds: input.variableIds,
     usedCandidateIds: input.usedCandidateIds,
+    fontStyleVariableIds: rendered.fontStyleVariableIds,
     variableCache: input.variableCache,
     styles: collected.styles,
     textSegments: collected.textSegments,
@@ -549,18 +581,21 @@ async function finalizeRenderedOutput(
     tokenContext: input.tokenContext,
     report: diagnostics.report,
     stamp: input.trace?.stamp,
-    now: input.trace?.now
+    now: input.trace?.now,
+    checkpoint: input.checkpoint
   })
   input.ctx.signal?.throwIfAborted()
+  input.checkpoint?.()
 
   let outputCode = rewrittenCode
 
-  if (input.resolveTokens && sourceIndex.size) {
+  if (sourceIndex.size) {
     const now = input.trace?.now
     const stamp = input.trace?.stamp
     const t = now ? now() : 0
-    const hasTargetNodes = resolveNodeIds ? resolveNodeIds.size > 0 : true
+    const hasTargetNodes = !input.resolveTokens || !resolveNodeIds || resolveNodeIds.size > 0
     if (hasTargetNodes) {
+      input.checkpoint?.()
       const resolved = await rerenderResolvedOutput({
         ...input,
         collected,
@@ -568,6 +603,14 @@ async function finalizeRenderedOutput(
         sourceIndex,
         resolveNodeIds,
         tokenMatcher,
+        styleResolver: input.resolveTokens
+          ? undefined
+          : createTokenConsumerResolver(
+              tokensByCanonical,
+              sourceIndex,
+              rewriteMap,
+              diagnostics.report
+            ),
         report: diagnostics.report
       })
       if (resolved) {
@@ -612,25 +655,29 @@ async function rerenderResolvedOutput({
   sourceIndex,
   resolveNodeIds,
   tokenMatcher,
+  styleResolver,
   report,
   ...input
 }: {
   sourceIndex: Map<string, string>
   resolveNodeIds?: Set<string>
   tokenMatcher?: (value: string) => boolean
+  styleResolver?: StyleVarResolver
   report: ReturnType<typeof createTokenDiagnostics>['report']
 } & PipelineInput & {
     lang: CodeLanguage
   }): Promise<{ code: string } | null> {
-  const resolveStyleVars = createStyleVarResolver(
-    sourceIndex,
-    input.variableCache,
-    input.ctx.config,
-    resolveNodeIds,
-    tokenMatcher,
-    input.tokenContext,
-    report
-  )
+  const resolveStyleVars =
+    styleResolver ??
+    createStyleVarResolver(
+      sourceIndex,
+      input.variableCache,
+      input.ctx.config,
+      resolveNodeIds,
+      tokenMatcher,
+      input.tokenContext,
+      report
+    )
   const resolvedStyles = resolveStyleMap(input.collected.styles, input.ctx.nodes, resolveStyleVars)
   const resolvedSvgs = resolveSvgEntries(input.ctx.svgs, input.ctx.nodes, resolveStyleVars)
   if (
@@ -787,19 +834,24 @@ async function renderMarkup({
   rootTag,
   lang,
   transform,
-  trace
+  trace,
+  checkpoint
 }: PipelineInput & {
   transform?: (markup: string) => string
-}): Promise<{ code: string; lang: CodeLanguage } | null> {
+}): Promise<{ code: string; lang: CodeLanguage; fontStyleVariableIds: Set<string> } | null> {
   const clock = trace?.now
   let t = clock ? clock() : 0
-  const rendered = await renderTreeForMode(mode, rootId, tree, ctx)
+  checkpoint?.()
+  const fontStyleVariableIds = new Set<string>()
+  const renderContext = { ...ctx, fontStyleVariableIds }
+  const rendered = await renderTreeForMode(mode, rootId, tree, renderContext)
+  checkpoint?.()
   if (!rendered) {
     return null
   }
   stampRenderPhase(trace, mode, 'render', t)
 
-  const resolvedLang = lang ?? ctx.detectedLang ?? 'jsx'
+  const resolvedLang = lang ?? renderContext.detectedLang ?? 'jsx'
   t = clock ? clock() : 0
   const markup = stringifyComponentTree(rendered, rootTag, rootId, resolvedLang)
   stampRenderPhase(trace, mode, 'stringify', t)
@@ -807,7 +859,7 @@ async function renderMarkup({
   t = clock ? clock() : 0
   const output = transform ? transform(markup) : markup
   stampRenderPhase(trace, mode, 'transform', t)
-  return { code: output, lang: resolvedLang }
+  return { code: output, lang: resolvedLang, fontStyleVariableIds }
 }
 
 function createStringifyOptions(lang: CodeLanguage): {

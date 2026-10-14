@@ -454,8 +454,8 @@ describe('figma/gradient resolveBackgroundFillFromPaints', () => {
     expect(resolveBackgroundFillFromPaints(paints)).toEqual({
       kind: 'layers',
       value: [
-        'linear-gradient(#F00, #F00)',
-        'radial-gradient(100% 100% at 0% 0%, #F00 0%, #00F 100%)'
+        'radial-gradient(100% 100% at 0% 0%, #F00 0%, #00F 100%)',
+        'linear-gradient(#F00, #F00)'
       ]
     })
   })
@@ -472,6 +472,61 @@ describe('figma/gradient resolveBackgroundFillFromPaints', () => {
     ]
 
     expect(resolveBackgroundFillFromPaints(paints)).toBeNull()
+  })
+
+  it('keeps native binding indices while reversing visible CSS layers', () => {
+    const paints = [
+      createSolidPaint({ r: 0, g: 0, b: 1 }),
+      createSolidPaint({ r: 0, g: 1, b: 0 }, { visible: false }),
+      createSolidPaint({ r: 1, g: 0, b: 0 }, { opacity: 0.5 })
+    ]
+    expect(
+      resolveBackgroundFillFromPaints(paints, undefined, undefined, {
+        resolveSolidPaint: (_paint, _readers, index) => `var(--native-${index})`
+      })
+    ).toEqual({
+      kind: 'layers',
+      value: [
+        'linear-gradient(var(--native-2), var(--native-2))',
+        'linear-gradient(var(--native-0), var(--native-0))'
+      ]
+    })
+    expect(paints[0]!.color).toEqual({ r: 0, g: 0, b: 1 })
+  })
+
+  it('matches the native opaque-blue / half-red stacking probe in both array orders', () => {
+    // Native page 2772:2, nodes 2772:11/12: the first pair is blue, the reverse is purple.
+    const red = createSolidPaint({ r: 1, g: 0, b: 0 }, { opacity: 0.5 })
+    const blue = createSolidPaint({ r: 0, g: 0, b: 1 })
+    expect(resolveBackgroundFillFromPaints([red, blue])).toEqual({
+      kind: 'layers',
+      value: ['linear-gradient(#00F, #00F)', 'linear-gradient(#FF000080, #FF000080)']
+    })
+    expect(resolveBackgroundFillFromPaints([blue, red])).toEqual({
+      kind: 'layers',
+      value: ['linear-gradient(#FF000080, #FF000080)', 'linear-gradient(#00F, #00F)']
+    })
+  })
+
+  it('pairs distinct radial geometries with their CSS layer, not native array index', () => {
+    const back = createGradientPaint('GRADIENT_RADIAL', {
+      stops: [createStop({ r: 0, g: 0, b: 1 }, 0)]
+    })
+    const front = createGradientPaint('GRADIENT_RADIAL', {
+      stops: [createStop({ r: 1, g: 0, b: 0 }, 0)]
+    })
+    expect(
+      resolveBackgroundFillFromPaints([back, front], undefined, undefined, {
+        background:
+          'radial-gradient(20% 30% at 10% 15%, red, red), radial-gradient(60% 70% at 80% 90%, blue, blue)'
+      })
+    ).toEqual({
+      kind: 'layers',
+      value: [
+        'radial-gradient(20% 30% at 10% 15%, #F00 0%)',
+        'radial-gradient(60% 70% at 80% 90%, #00F 0%)'
+      ]
+    })
   })
 
   it('returns null when visible paints include unsupported image layers', () => {

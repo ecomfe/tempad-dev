@@ -80,7 +80,9 @@ describe('mcp/tools/structure', () => {
     const child = {
       id: 'child-1',
       visible: true,
-      getSharedPluginData: vi.fn(() => 'managed/child')
+      getSharedPluginData: vi.fn((_namespace: string, key: string) =>
+        key === 'canvas-owner' ? 'child-1' : 'managed/child'
+      )
     }
     const root = {
       id: 'root-1',

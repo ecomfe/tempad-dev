@@ -27,7 +27,7 @@ export function createTokenDiagnostics() {
         type,
         message: `${
           type === 'token-resolution'
-            ? 'Some token references could not be resolved for their consuming nodes and were preserved.'
+            ? 'Some token references could not be resolved or normalized for their consuming properties and were preserved.'
             : 'Some token definitions or mode labels are unavailable or ambiguous.'
         } ${Array.from(samples).join(' ')}${truncated ? ' Additional issues omitted.' : ''}`
       }))

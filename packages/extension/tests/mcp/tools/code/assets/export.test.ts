@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { VisibleTree } from '@/mcp/tools/code/model'
 
@@ -6,6 +6,8 @@ import { exportVectorAssets } from '@/mcp/tools/code/assets/export'
 import { exportSvgEntry } from '@/mcp/tools/code/assets/vector'
 import { analyzeVectorColorModel } from '@/mcp/tools/code/assets/vector-semantics'
 import { createGetCodeCacheContext } from '@/mcp/tools/code/cache'
+import { withCodeDeadline } from '@/mcp/tools/code/deadline'
+import { buildVisibleTree } from '@/mcp/tools/code/tree'
 
 vi.mock('@/mcp/tools/code/assets/vector', () => ({
   exportSvgEntry: vi.fn()
@@ -43,6 +45,113 @@ describe('assets/export exportVectorAssets', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
+  afterEach(() => vi.restoreAllMocks())
+
+  it.each([true, false])(
+    'reuses the bounded tree’s inferred flow decision (%s)',
+    async (inferred) => {
+      let layoutReads = 0
+      let transformReads = 0
+      const child = {
+        id: 'vector',
+        name: 'Vector',
+        type: 'VECTOR',
+        visible: true,
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        get relativeTransform() {
+          transformReads++
+          return [
+            [1, 0, 0],
+            [0, 1, 0]
+          ]
+        }
+      } as unknown as SceneNode
+      const root = {
+        id: 'root',
+        name: 'Root',
+        type: 'FRAME',
+        visible: true,
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        layoutMode: 'NONE',
+        clipsContent: true,
+        children: [child],
+        get inferredAutoLayout() {
+          layoutReads++
+          return inferred ? { layoutMode: 'HORIZONTAL' } : null
+        }
+      } as unknown as SceneNode
+      const tree = buildVisibleTree([root])
+      vi.mocked(exportSvgEntry).mockResolvedValueOnce({ props: { width: '10px' } })
+      await exportVectorAssets(
+        tree,
+        { vectorRoots: new Set([child.id]), skippedIds: new Set() },
+        config,
+        new Map()
+      )
+      expect(exportSvgEntry).toHaveBeenCalledWith(
+        child,
+        config,
+        expect.any(Map),
+        expect.objectContaining({ flow: inferred })
+      )
+      expect(layoutReads).toBe(1)
+      expect(transformReads).toBe(1)
+    }
+  )
+
+  it.each(['geometry', 'analysis', 'export'])(
+    'stops scheduling after %s exceeds the deadline before the timer runs',
+    async (stage) => {
+      let elapsed = 0
+      vi.spyOn(performance, 'now').mockImplementation(() => elapsed)
+      const ids = ['a', 'b', 'c']
+      const snapshots = ids.map((id) => makeSnapshot(id, { width: 10, height: 10 }))
+      if (stage === 'geometry')
+        Object.defineProperty(snapshots[0]!.bounds, 'width', {
+          get() {
+            elapsed = 21
+            return 10
+          }
+        })
+      if (stage === 'analysis')
+        vi.mocked(analyzeVectorColorModel).mockImplementationOnce(() => {
+          elapsed = 21
+          return { kind: 'fixed' }
+        })
+      const completedExport = vi.fn(() => ({ props: { width: '10px' } }))
+      vi.mocked(exportSvgEntry).mockImplementation((_node, _config, _registry, options) =>
+        Promise.resolve().then(() => {
+          if (stage === 'export') elapsed = 21
+          options?.assertActive?.()
+          return completedExport()
+        })
+      )
+      const tree = {
+        nodes: new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]))
+      } as VisibleTree
+      await expect(
+        withCodeDeadline(20, (signal, checkpoint) =>
+          exportVectorAssets(
+            tree,
+            { vectorRoots: new Set(ids), skippedIds: new Set() },
+            config,
+            new Map(),
+            'smart',
+            { ...createGetCodeCacheContext(), signal },
+            checkpoint
+          )
+        )
+      ).rejects.toThrow('Code generation timed out')
+      expect(exportSvgEntry).toHaveBeenCalledTimes(stage === 'export' ? 2 : 0)
+      expect(completedExport).not.toHaveBeenCalled()
+    }
+  )
 
   it('stops scheduling export batches after the full read times out', async () => {
     const ids = ['a', 'b', 'c']

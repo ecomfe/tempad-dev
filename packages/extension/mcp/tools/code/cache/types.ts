@@ -48,6 +48,8 @@ export type NodeSemanticSnapshot = {
     layoutAlign: string | null
     layoutPositioning: 'AUTO' | 'ABSOLUTE' | null
     clipsContent: boolean
+    clippedOverflow: boolean
+    childOverflow: { x: boolean; y: boolean }
     isMask: boolean
   }
   geometry: {
@@ -90,7 +92,9 @@ export type GetCodeCacheContext = {
   tokens?: TokenReadContext
   pluginName?: string
   rawCss: Map<string, Promise<Record<string, string>>>
+  imageBytes: Map<string, Promise<Uint8Array>>
   signal?: AbortSignal
+  checkpoint?: () => void
   readers: FigmaLookupReaders
   variables: Map<string, Variable | null>
   styles: Map<string, BaseStyle | null>

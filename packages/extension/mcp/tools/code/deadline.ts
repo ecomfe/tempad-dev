@@ -5,10 +5,18 @@ export class CodeDeadlineExceededError extends Error {
   }
 }
 
+export function createCodeCheckpoint(timeoutMs: number): () => void {
+  const expiresAt = performance.now() + timeoutMs
+  return () => {
+    if (performance.now() >= expiresAt) throw new CodeDeadlineExceededError()
+  }
+}
+
 export async function withCodeDeadline<T>(
   timeoutMs: number,
-  run: (signal: AbortSignal) => Promise<T>
+  run: (signal: AbortSignal, checkpoint: () => void) => Promise<T>
 ): Promise<T> {
+  const checkpoint = createCodeCheckpoint(timeoutMs)
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
@@ -19,7 +27,11 @@ export async function withCodeDeadline<T>(
     }, timeoutMs)
   })
   try {
-    return await Promise.race([run(controller.signal), timeout])
+    checkpoint()
+    const result = await Promise.race([run(controller.signal, checkpoint), timeout])
+    // Synchronous work and its microtasks can finish before an overdue timer runs.
+    checkpoint()
+    return result
   } catch (error) {
     controller.abort(error)
     throw error

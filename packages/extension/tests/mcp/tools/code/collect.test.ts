@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { hasMediaFills, replaceMediaUrlsWithAssets } from '@/mcp/tools/code/assets'
 import { createGetCodeCacheContext } from '@/mcp/tools/code/cache'
 import { collectNodeData } from '@/mcp/tools/code/collect'
+import { withCodeDeadline } from '@/mcp/tools/code/deadline'
 import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
+import { resolveStylesFromNodeData } from '@/utils/figma-style/style-resolver'
 import { formatNodeStyleForMcp } from '@/utils/variable-output'
 
 vi.mock('@/utils/figma-style/style-resolver', () => ({
@@ -23,7 +26,101 @@ vi.mock('@/mcp/tools/code/styles', () => ({
   stripInertShadows: vi.fn()
 }))
 
+afterEach(() => vi.restoreAllMocks())
+
 describe('mcp/code collectNodeData operation counts', () => {
+  it.each(['css', 'cached CSS', 'text', 'styles', 'media'])(
+    'stops collection when %s exceeds the deadline before the timer runs and reuses root CSS for a shell',
+    async (stage) => {
+      let elapsed = 0
+      vi.spyOn(performance, 'now').mockImplementation(() => elapsed)
+      const snapshots = ['root', 'unread'].map((id) =>
+        createSnapshot({ id, type: stage === 'text' && id === 'root' ? 'TEXT' : 'FRAME' })
+      )
+      const cssReaders = snapshots.map((snapshot, index) => {
+        const getCSSAsync = vi.fn(async () => {
+          if (index === 0 && stage === 'css') elapsed = 21
+          return { display: 'block' }
+        })
+        snapshot.node = {
+          id: snapshot.id,
+          type: snapshot.type,
+          visible: true,
+          getCSSAsync,
+          getStyledTextSegments: () => {
+            elapsed = 21
+            return []
+          }
+        } as unknown as SceneNode
+        return getCSSAsync
+      })
+      const cache = createGetCodeCacheContext()
+      if (stage === 'cached CSS')
+        cache.rawCss.set(
+          'root',
+          Promise.resolve().then(() => {
+            elapsed = 21
+            return { display: 'block' }
+          })
+        )
+      if (stage === 'styles')
+        vi.mocked(resolveStylesFromNodeData).mockImplementationOnce(async (style) => {
+          elapsed = 21
+          return style
+        })
+      const completedMedia = vi.fn()
+      if (stage === 'media') {
+        vi.mocked(hasMediaFills).mockReturnValueOnce(true)
+        vi.mocked(replaceMediaUrlsWithAssets).mockImplementationOnce(
+          async (style, _node, _config, _registry, _videoHashes, _imageBytes, assertActive) => {
+            elapsed = 21
+            assertActive?.()
+            completedMedia()
+            return style
+          }
+        )
+      }
+      const tree = createTree(snapshots)
+      const config = { cssUnit: 'px', rootFontSize: 16, scale: 1 } as const
+      await expect(
+        withCodeDeadline(20, (signal, checkpoint) =>
+          collectNodeData(
+            tree,
+            config,
+            new Map(),
+            { ...cache, signal },
+            undefined,
+            undefined,
+            undefined,
+            checkpoint
+          )
+        )
+      ).rejects.toThrow('Code generation timed out')
+      expect(cssReaders[1]).not.toHaveBeenCalled()
+      if (stage === 'text' || stage === 'cached CSS') expect(cssReaders[0]).not.toHaveBeenCalled()
+      if (stage === 'css' || stage === 'cached CSS')
+        expect(resolveStylesFromNodeData).not.toHaveBeenCalled()
+      if (stage === 'styles') expect(formatNodeStyleForMcp).not.toHaveBeenCalled()
+      expect(completedMedia).not.toHaveBeenCalled()
+
+      const shell = await withCodeDeadline(5, (signal, checkpoint) =>
+        collectNodeData(
+          tree,
+          config,
+          new Map(),
+          { ...cache, signal },
+          new Set(['unread']),
+          undefined,
+          undefined,
+          checkpoint
+        )
+      )
+      expect(shell.styles.get('root')).toEqual({ display: 'block' })
+      expect(cssReaders[0]).toHaveBeenCalledTimes(stage === 'cached CSS' ? 0 : 1)
+      expect(cssReaders[1]).not.toHaveBeenCalled()
+    }
+  )
+
   it('reuses raw CSS across overlapping root reads without sharing processed styles or later requests', async () => {
     const snapshot = createSnapshot({ id: 'shared', type: 'FRAME' })
     const getCSSAsync = vi.fn().mockResolvedValue({ color: 'red' })
@@ -122,7 +219,7 @@ describe('mcp/code collectNodeData operation counts', () => {
       ['node-5', new Set(['var-5'])]
     ])
     expect(cache.metrics).toMatchObject({
-      nodeSemanticHits: 0,
+      nodeSemanticHits: 4,
       nodeSemanticMisses: 4
     })
   })

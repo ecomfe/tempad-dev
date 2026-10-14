@@ -17,6 +17,7 @@ export type CandidateResult = {
 }
 
 type CandidateOptions = {
+  checkpoint?: () => void
   traverseChildren?: boolean
   captureNodeId?: (nodeId: string) => boolean
   onNodeVariableIds?: (nodeId: string, ids: ReadonlySet<string>) => void
@@ -38,23 +39,27 @@ export function collectCandidateVariableIds(
   const rewrites = new Map<string, { canonical: string; id: string }>()
 
   const visit = (node: SceneNode) => {
+    options.checkpoint?.()
     if (options.onNodeVariableIds && (options.captureNodeId?.(node.id) ?? true)) {
       const nodeIds = new Set<string>()
-      collectNodeVariableIdsInto(node, nodeIds, readers)
+      collectNodeVariableIdsInto(node, nodeIds, readers, options.checkpoint)
       for (const id of nodeIds) variableIds.add(id)
       options.onNodeVariableIds(node.id, nodeIds)
     } else {
-      collectNodeVariableIdsInto(node, variableIds, readers)
+      collectNodeVariableIdsInto(node, variableIds, readers, options.checkpoint)
     }
+    options.checkpoint?.()
 
     if (options.traverseChildren !== false && hasChildren(node)) {
       node.children.forEach((child) => {
+        options.checkpoint?.()
         if (child.visible) visit(child)
       })
     }
   }
 
   roots.forEach((root) => {
+    options.checkpoint?.()
     if (root.visible) visit(root)
   })
 
@@ -62,7 +67,9 @@ export function collectCandidateVariableIds(
 
   // Build lookup tables based on collected ids.
   for (const id of variableIds) {
+    options.checkpoint?.()
     const v = getVariableByIdCached(id, cache)
+    options.checkpoint?.()
     if (!v) continue
 
     const canonical = normalizeFigmaVarName(getVariableRawName(v))
@@ -82,6 +89,8 @@ export function collectCandidateVariableIds(
       }
     }
   }
+
+  options.checkpoint?.()
 
   const total = Math.round((now() - startedAt) * 10) / 10
   const scanMs = Math.round((scannedAt - startedAt) * 10) / 10

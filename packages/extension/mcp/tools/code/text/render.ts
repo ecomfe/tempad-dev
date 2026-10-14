@@ -1,6 +1,7 @@
 import type { DevComponent } from '@/types/plugin'
 
 import { pruneInheritedTextStyles, stripDefaultTextStyles } from '@/utils/css'
+import { resolveTextNodeVariableId, resolveTextSegmentVariable } from '@/utils/figma-variables'
 import { joinClassNames } from '@/utils/tailwind'
 
 import type { RenderContext } from '../render'
@@ -28,21 +29,31 @@ export async function renderTextSegments(
   commonStyle: Record<string, string>
   metas: SegmentStyleMeta[]
   segmentCount: number
+  fontStyleVariableIds: Set<string>
 }> {
   const { inheritedTextStyle, segments: providedSegments } = options
 
   const rawSegments = providedSegments === undefined ? getStyledSegments(node) : providedSegments
+  const fontStyleVariableIds = new Set<string>()
   if (!rawSegments || !rawSegments.length) {
     const literal = formatTextLiteral(node.characters ?? '')
+    const fontStyleId = literal && resolveTextNodeVariableId(node, 'fontStyle', ctx.readers)
+    if (fontStyleId) fontStyleVariableIds.add(fontStyleId)
     return {
       segments: literal ? [literal] : [],
       commonStyle: {},
       metas: [],
-      segmentCount: 0
+      segmentCount: 0,
+      fontStyleVariableIds
     }
   }
 
   const blocks = buildTextBlocks(node, rawSegments, ctx.readers)
+  for (const segment of rawSegments) {
+    if (!/[^\r\n\u2028\u2029]/.test(segment.characters)) continue
+    const variable = resolveTextSegmentVariable(node, segment, 'fontStyle', ctx.readers)
+    if (variable) fontStyleVariableIds.add(variable.id)
+  }
 
   const segmentCount = rawSegments.length
   const allRunStyles: Array<{ style: Record<string, string>; weight: number }> = []
@@ -80,7 +91,7 @@ export async function renderTextSegments(
     }
   }
 
-  return { segments: outputSegments, commonStyle, metas: [], segmentCount }
+  return { segments: outputSegments, commonStyle, metas: [], segmentCount, fontStyleVariableIds }
 }
 
 function renderBlock(
@@ -304,11 +315,17 @@ function buildInlineTree(
     }
 
     const cleanedAttrs = stripDefaultTextStyles(run.attrs)
+    // Defaults still reset a weight/style inherited from the text node or its ancestors.
+    for (const key of ['font-weight', 'font-style']) {
+      if (run.attrs[key] !== undefined) cleanedAttrs[key] = run.attrs[key]
+    }
     const resolvedAttrs = ctx.resolveStyleVars
       ? ctx.resolveStyleVars(cleanedAttrs, node)
       : cleanedAttrs
     const style = omitCommon(resolvedAttrs, commonStyle)
     const classNames = styleToClassNames(style, ctx.config)
+    // The general CSS converter omits normal as its default, but this run can inherit italic.
+    if (style['font-style'] === 'normal') classNames.push('not-italic')
     const cls = joinClassNames(classNames)
     const top = stack.at(-1)?.container ?? root
 

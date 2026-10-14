@@ -180,7 +180,7 @@ export function summarizeComponentHint(node: InstanceNode): string | undefined {
   return name ? `${toPascalCase(name)}${summarizeComponentProperties(node) ?? ''}` : undefined
 }
 
-export function suggestDepthLimit(roots: SceneNode[]): number | undefined {
+export function suggestDepthLimit(roots: SceneNode[], checkpoint?: () => void): number | undefined {
   let visibleCount = 0
   let targetDepth: number | undefined
   // Level order identifies the target depth before the full physical tree is needed.
@@ -190,6 +190,7 @@ export function suggestDepthLimit(roots: SceneNode[]): number | undefined {
     const nextLevel: Array<Iterator<SceneNode>> = []
     for (const siblings of level) {
       for (let item = siblings.next(); !item.done; item = siblings.next()) {
+        checkpoint?.()
         const node = item.value
         if (!node.visible) continue
         visibleCount += 1
@@ -200,6 +201,7 @@ export function suggestDepthLimit(roots: SceneNode[]): number | undefined {
     }
     level = nextLevel
   }
+  checkpoint?.()
   return undefined
 }
 

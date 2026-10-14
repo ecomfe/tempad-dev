@@ -14,6 +14,54 @@ afterEach(() => {
 })
 
 describe('token read context', () => {
+  it('retries a failed native-name transform within the same context', async () => {
+    const variable = { id: 'v', name: 'size' } as Variable
+    const context = createTokenReadContext(config, 'plugin')
+    vi.mocked(runTransformVariableBatch).mockRejectedValueOnce(new Error('sandbox timed out'))
+
+    await expect(context.getName(variable)).rejects.toThrow('sandbox timed out')
+    await context.prepareNames([variable])
+    expect(await context.getName(variable)).toBe('--size')
+    expect(runTransformVariableBatch).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps an expired caller’s checkpoint out of a cached native-name promise', async () => {
+    const context = createTokenReadContext(config, 'plugin')
+    const variable = { id: 'v', name: 'size' } as Variable
+    let expired = false
+    let finish!: () => void
+    vi.mocked(runTransformVariableBatch).mockImplementationOnce(
+      (refs) =>
+        new Promise((resolve) => {
+          finish = () => resolve(refs.map(({ code }) => code))
+        })
+    )
+    const pending = context.getName(variable, () => {
+      if (expired) throw new Error('expired')
+    })
+    expired = true
+    const fresh = context.getName(variable, () => {})
+    finish()
+    await expect(pending).rejects.toThrow('expired')
+    expect(await fresh).toBe('--size')
+    expect(await context.getName(variable, () => {})).toBe('--size')
+    expect(runTransformVariableBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('canonicalizes a discovered alias batch in one sandbox request and reuses the names', async () => {
+    const context = createTokenReadContext(config, 'plugin')
+    const variables = Array.from(
+      { length: 40 },
+      (_, index) => ({ id: `v${index}`, name: `token-${index}` }) as Variable
+    )
+    await context.prepareNames(variables)
+    expect(await Promise.all(variables.map((variable) => context.getName(variable)))).toHaveLength(
+      40
+    )
+    expect(runTransformVariableBatch).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(runTransformVariableBatch).mock.calls[0]![0]).toHaveLength(40)
+  })
+
   it('reads variables, collections, canonical names, and a lazy index once per request', async () => {
     const variable = { id: 'v', name: 'size' } as Variable
     const getVariableById = vi.fn(() => variable)

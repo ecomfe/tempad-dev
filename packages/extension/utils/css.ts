@@ -153,7 +153,7 @@ export function replaceVarFunctions(
     let nameEnd: number | undefined
     let commaIndex = -1
 
-    while (j < input.length && /\s/.test(input[j])) j++
+    while (j < input.length && /\s/.test(input.charAt(j))) j++
     const nameStart = j
 
     for (; j < input.length; j++) {
@@ -177,7 +177,7 @@ export function replaceVarFunctions(
       nameEnd = j
     }
 
-    while (nameEnd > nameStart && /\s/.test(input[nameEnd - 1])) nameEnd--
+    while (nameEnd > nameStart && /\s/.test(input.charAt(nameEnd - 1))) nameEnd--
 
     const full = input.slice(start, j + 1)
     const name = input.slice(nameStart, nameEnd)
@@ -250,7 +250,7 @@ export function parseBackgroundShorthand(value: string) {
   const repeatMatch = value.match(BG_REPEAT_RE)
   if (repeatMatch) {
     const [, repeatToken] = repeatMatch
-    result.repeat = repeatToken.trim()
+    result.repeat = repeatToken!.trim()
   }
 
   const posMatch = value.match(BG_POS_RE)
@@ -261,7 +261,7 @@ export function parseBackgroundShorthand(value: string) {
 
 export function parseBoxValues(value: string): [string, string, string, string] {
   const parts = value.trim().split(WHITESPACE_RE)
-  const [t, r = t, b = t, l = r] = parts
+  const [t = '', r = t, b = t, l = r] = parts
   return [t, r, b, l]
 }
 
@@ -289,13 +289,13 @@ function parseFlexShorthand(value: string): { grow: string; shrink: string; basi
   // Expand only known literals. Functions, variables and unsupported syntax stay intact.
   const parts = value.split(WHITESPACE_RE)
   if (parts.length > 3) return null
-  const [first, second, third] = parts
+  const [first = '', second, third] = parts
   if (!isFlexFactor(first)) {
     if (!isFlexBasis(first) || !parts.slice(1).every(isFlexFactor)) return null
     return { grow: second ?? '1', shrink: third ?? '1', basis: first }
   }
-  if (parts.length === 1) return { grow: first, shrink: '1', basis: '0%' }
-  if (parts.length === 2) {
+  if (second === undefined) return { grow: first, shrink: '1', basis: '0%' }
+  if (third === undefined) {
     if (isFlexFactor(second)) return { grow: first, shrink: second, basis: '0%' }
     if (isFlexBasis(second)) return { grow: first, shrink: '1', basis: second }
     return null
@@ -318,6 +318,7 @@ function scalePxValue(value: string, scale: number): string {
 }
 
 function pxToRem(value: string, rootFontSize: number) {
+  if (!Number.isFinite(rootFontSize) || rootFontSize <= 0) rootFontSize = 16
   return transformPxValue(value, (val) => `${toDecimalPlace(val / rootFontSize)}rem`)
 }
 
@@ -330,7 +331,7 @@ export function normalizeCssValue(value: string, config: CodegenConfig, prop?: s
     return current
   }
 
-  if (typeof config.scale === 'number' && config.scale !== 1) {
+  if (Number.isFinite(config.scale) && config.scale > 0 && config.scale !== 1) {
     current = scalePxValue(current, config.scale)
   }
 
@@ -407,7 +408,7 @@ export function parseBorderShorthand(normalized: string): {
   const matched = normalized.match(/^\s*(\S+)\s+(\S+)\s+(.+)\s*$/)
   if (matched) {
     const [, width, style, color] = matched
-    return { width, style, color: color.trim() }
+    return { width, style, color: color!.trim() }
   }
 
   const parts = normalized.split(WHITESPACE_RE).filter(Boolean)
@@ -488,7 +489,7 @@ function getBorderWidth(style: Record<string, string>): string | null {
 
   if (sideWidths.every((width): width is string => typeof width === 'string' && width.length > 0)) {
     const [first, ...rest] = sideWidths
-    if (rest.every((width) => width === first)) {
+    if (first !== undefined && rest.every((width) => width === first)) {
       return first
     }
   }
@@ -508,8 +509,8 @@ export function negateLengthLiteral(value: string): string | null {
   }
 
   const [, amount, unit] = matched
-  if (amount.startsWith('-')) {
-    return `${amount.slice(1)}${unit}`
+  if (amount!.startsWith('-')) {
+    return `${amount!.slice(1)}${unit}`
   }
 
   return `-${amount}${unit}`
@@ -640,9 +641,9 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
 
   if (expanded['gap']) {
     const val = normalizeStyleValue(expanded['gap'])
-    const parts = val.trim().split(WHITESPACE_RE)
-    expanded['row-gap'] = parts[0]
-    expanded['column-gap'] = parts[1] || parts[0]
+    const [row = '', column = row] = val.trim().split(WHITESPACE_RE)
+    expanded['row-gap'] = row
+    expanded['column-gap'] = column
     delete expanded['gap']
   }
 
@@ -679,8 +680,8 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
     const val = normalizeStyleValue(expanded['grid-row'])
     const parts = val.split(/\s*\/\s*/)
     if (parts.length > 1) {
-      const start = parts[0].trim()
-      const end = parts[1].trim()
+      const start = parts[0]!.trim()
+      const end = parts[1]!.trim()
 
       if (start.startsWith('span')) {
         expanded['grid-row-span'] = start.replace(/^span\s*/, '')
@@ -701,8 +702,8 @@ export function expandShorthands(style: Record<string, string>): Record<string, 
     const val = normalizeStyleValue(expanded['grid-column'])
     const parts = val.split(/\s*\/\s*/)
     if (parts.length > 1) {
-      const start = parts[0].trim()
-      const end = parts[1].trim()
+      const start = parts[0]!.trim()
+      const end = parts[1]!.trim()
 
       if (start.startsWith('span')) {
         expanded['grid-column-span'] = start.replace(/^span\s*/, '')
@@ -811,7 +812,7 @@ export function serializeCSS(
       current = normalizeStyleValue(current)
     }
 
-    if (typeof scale === 'number' && scale !== 1) {
+    if (typeof scale === 'number' && Number.isFinite(scale) && scale > 0 && scale !== 1) {
       current = scalePxValue(current, scale)
     }
 
@@ -1033,23 +1034,24 @@ export function normalizeFigmaVarName(input: string): string {
   // Merge runs of single letters (except the first part)
   const merged: string[] = []
   for (let i = 0; i < stack.length;) {
+    const part = stack[i]!
     if (i === 0) {
-      merged.push(stack[0])
+      merged.push(part)
       i++
       continue
     }
 
-    if (RE_SINGLE.test(stack[i])) {
+    if (RE_SINGLE.test(part)) {
       let j = i + 1
-      while (j < stack.length && RE_SINGLE.test(stack[j])) {
+      while (j < stack.length && RE_SINGLE.test(stack[j]!)) {
         j++
       }
 
       const run = stack.slice(i, j)
-      merged.push(run.length >= 2 ? run.join('') : stack[i])
+      merged.push(run.length >= 2 ? run.join('') : part)
       i = j
     } else {
-      merged.push(stack[i])
+      merged.push(part)
       i++
     }
   }
@@ -1191,8 +1193,9 @@ export function canonicalizeColor(value: string): string | null {
   }
   const rgb = value.match(/^rgba?\(([^)]+)\)$/)
   if (rgb) {
-    const parts = rgb[1].split(',').map((p) => p.trim())
+    const parts = rgb[1]!.split(',').map((p) => p.trim())
     const [r, g, b, a = '1'] = parts
+    if (r === undefined || g === undefined || b === undefined) return null
     const toInt = (v: string) => {
       const n = Number(v)
       return Number.isFinite(n) ? Math.round(n) : null

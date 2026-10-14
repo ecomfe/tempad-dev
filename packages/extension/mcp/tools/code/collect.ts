@@ -13,7 +13,7 @@ import type { CollectedData, NodeSnapshot, VisibleTree } from './model'
 
 import { hasMediaFills, replaceMediaUrlsWithAssets } from './assets'
 import { getNodeSemanticsCached, getPaintsFromState } from './cache'
-import { getInferredAutoLayout, getLayoutParent, hasClippedOverflow } from './layout-parent'
+import { getInferredAutoLayout, getLayoutParent, isFlowGroup } from './layout-parent'
 import { preprocessStyles, stripInertShadows } from './styles'
 import { REQUESTED_SEGMENT_FIELDS } from './text/types'
 
@@ -24,16 +24,21 @@ export async function collectNodeData(
   cache: GetCodeCacheContext,
   skipIds?: Set<string>,
   nodeVariableIds?: ReadonlyMap<string, ReadonlySet<string>>,
-  vectorRoots?: ReadonlySet<string>
+  vectorRoots?: ReadonlySet<string>,
+  checkpoint?: () => void
 ): Promise<CollectedData> {
   const styles = new Map<string, Record<string, string>>()
   const textSegments = new Map<string, StyledTextSegment[] | null>()
   const videoPreviewAssetHashes = new Set<string>()
   const rootVideoPreviewAssetHashes = new Set<string>()
   const rootIds = new Set(tree.rootIds)
+  const assertActive = () => {
+    cache.signal?.throwIfAborted()
+    checkpoint?.()
+  }
 
   for (const id of tree.order) {
-    cache.signal?.throwIfAborted()
+    assertActive()
     if (skipIds?.has(id)) continue
     const snapshot = tree.nodes.get(id)
     if (!snapshot) continue
@@ -41,6 +46,7 @@ export async function collectNodeData(
 
     if (node.type === 'TEXT') {
       textSegments.set(id, collectTextSegments(node))
+      assertActive()
     }
 
     try {
@@ -51,17 +57,17 @@ export async function collectNodeData(
       }
       // Root-specific preprocessing must never mutate the shared raw read.
       let css = { ...(await rawCss) }
-      cache.signal?.throwIfAborted()
+      assertActive()
       css = await resolveStylesFromNodeData(
         css,
         createNodePaintStyleInput(snapshot, cache),
         cache.readers
       )
-      cache.signal?.throwIfAborted()
+      assertActive()
       css = formatNodeStyleForMcp(css, node, cache.readers, nodeVariableIds?.get(id))
       const parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
 
-      if (hasClippedOverflow(node)) {
+      if (getNodeSemanticsCached(node, cache).layout.clippedOverflow) {
         // getCSSAsync also emits the inferred flex layout. Restore the native
         // clipping box before normal style processing and child positioning.
         for (const key of Object.keys(css)) {
@@ -79,11 +85,17 @@ export async function collectNodeData(
       let processed = preprocessStyles(preprocessRawStyle(css), node, parent?.node, cache)
       const isStructuralGroup =
         (node.type === 'GROUP' || node.type === 'BOOLEAN_OPERATION') && !vectorRoots?.has(id)
+      if (isStructuralGroup && isFlowGroup(tree, snapshot)) {
+        processed.position = 'relative'
+        processed.width = `${snapshot.bounds.width}px`
+        processed.height = `${snapshot.bounds.height}px`
+      }
       if (parent && !isStructuralGroup) {
         processed = applyAutoLayoutAbsolutePosition(processed, snapshot, tree, cache)
         processed = applyConstraintsPosition(processed, snapshot, tree, cache)
       }
 
+      assertActive()
       if (hasMediaFills(node, cache)) {
         const nodeVideoPreviewAssetHashes = new Set<string>()
         processed = await replaceMediaUrlsWithAssets(
@@ -91,9 +103,11 @@ export async function collectNodeData(
           node,
           config,
           assetRegistry,
-          nodeVideoPreviewAssetHashes
+          nodeVideoPreviewAssetHashes,
+          cache.imageBytes,
+          assertActive
         )
-        cache.signal?.throwIfAborted()
+        assertActive()
         for (const hash of nodeVideoPreviewAssetHashes) {
           videoPreviewAssetHashes.add(hash)
           if (rootIds.has(id)) rootVideoPreviewAssetHashes.add(hash)
@@ -103,7 +117,7 @@ export async function collectNodeData(
       stripInertShadows(processed, node, cache)
       styles.set(id, processed)
     } catch (error) {
-      cache.signal?.throwIfAborted()
+      assertActive()
       logger.warn('Failed to process node styles:', error)
     }
   }
@@ -166,8 +180,12 @@ function applyConstraintsPosition(
     return style
   }
 
-  const left = toDecimalPlace(transform[0][2])
-  const top = toDecimalPlace(transform[1][2])
+  const left = toDecimalPlace(
+    transform[0][2] - (parentSnapshot.type === 'GROUP' ? parentSnapshot.bounds.x : 0)
+  )
+  const top = toDecimalPlace(
+    transform[1][2] - (parentSnapshot.type === 'GROUP' ? parentSnapshot.bounds.y : 0)
+  )
   const right = toDecimalPlace(parentWidth - width - left)
   const bottom = toDecimalPlace(parentHeight - height - top)
 

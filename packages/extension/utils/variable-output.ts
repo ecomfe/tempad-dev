@@ -1,3 +1,5 @@
+import { CANVAS_COUNTER_AXIS_SYNC_NAME, CANVAS_KEY_NAMESPACE } from '@/mcp/tools/canvas/identity'
+
 import type { FigmaLookupReaders } from './figma-style/types'
 
 import { normalizeCustomPropertyName, replaceVarFunctions } from './css'
@@ -132,11 +134,24 @@ function buildReplacementMap(
   format: VariableFormatter
 ): Map<string, string> {
   const map = new Map<string, string>()
+  const owners = new Map<string, string | null>()
 
   for (const variable of context.variablesById.values()) {
     const value = format(variable)
-    if (!value) continue
-    map.set(getVariableCssName(variable), value)
+    const name = getVariableCssName(variable)
+    // Native CSS collapses separator runs ("Collection / Token"), while our
+    // canonical name preserves them. Match either only when identity is unambiguous.
+    const nativeName = `--${name.slice(2).replace(/-+/g, '-')}`
+    for (const alias of new Set([name, nativeName])) {
+      const owner = owners.get(alias)
+      if (owner !== undefined && owner !== variable.id) {
+        owners.set(alias, null)
+        map.delete(alias)
+      } else {
+        owners.set(alias, variable.id)
+        if (value) map.set(alias, value)
+      }
+    }
   }
 
   return map
@@ -237,8 +252,46 @@ function applyBoundFields(
     if (!props) continue
     const id = getSingleVariableId(bindings[field])
     if (!id) continue
+    if (
+      (field === 'itemSpacing' || field === 'counterAxisSpacing') &&
+      'layoutMode' in node &&
+      (node.layoutMode === 'HORIZONTAL' || node.layoutMode === 'VERTICAL')
+    ) {
+      const variable = resolveContextVariable(id, context, readers)
+      const value = variable && format(variable)
+      if (!value) continue
+      if (style.gap) {
+        // Figma's gap shorthand contains at most two top-level values.
+        const parts = style.gap.match(/(?:[^\s()]|\([^)]*\))+/g) ?? []
+        if (parts.length === 1 || parts.length === 2) {
+          style['row-gap'] ??= parts[0]!
+          style['column-gap'] ??= parts[1] ?? parts[0]!
+          delete style.gap
+        }
+      }
+      const horizontal = (node.layoutMode === 'HORIZONTAL') === (field === 'itemSpacing')
+      const prop = horizontal ? 'column-gap' : 'row-gap'
+      if (prop in style) style[prop] = value
+      if (field === 'itemSpacing' && !bindings.counterAxisSpacing && hasSyncedCounterGap(node)) {
+        const crossProp = horizontal ? 'row-gap' : 'column-gap'
+        if (crossProp in style) style[crossProp] = value
+      }
+      continue
+    }
     applyVariableToProps(style, props, id, context, format, readers)
   }
+}
+
+function hasSyncedCounterGap(node: SceneNode): boolean {
+  if (!('layoutWrap' in node) || node.layoutWrap !== 'WRAP') return false
+  if (node.counterAxisSpacing === null) return true
+  // Native getters can expose a synchronized gap as a number. The authored
+  // marker supplies the intent; equality alone must never establish it.
+  return (
+    typeof node.counterAxisSpacing === 'number' &&
+    node.counterAxisSpacing === node.itemSpacing &&
+    node.getSharedPluginData?.(CANVAS_KEY_NAMESPACE, CANVAS_COUNTER_AXIS_SYNC_NAME) === 'true'
+  )
 }
 
 function applyTextFields(

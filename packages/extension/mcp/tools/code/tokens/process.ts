@@ -2,12 +2,13 @@ import type { GetTokenDefsResult } from '@tempad-dev/shared'
 
 import type { CodegenConfig } from '@/utils/codegen'
 
-import { stripFallback } from '@/utils/css'
+import { normalizeFigmaVarName, stripFallback } from '@/utils/css'
 
 import type { TokenReadContext } from '../../token/context'
 import type { SvgEntry } from '../assets'
 import type { ReportTokenDiagnostic } from './diagnostics'
 
+import { getVariableByIdCached } from '../../token/cache'
 import { createTokenReadContext } from '../../token/context'
 import { resolveTokenDefsByIds } from '../../token/defs'
 import { createTokenMatcher, extractTokenNames } from './extract'
@@ -19,6 +20,7 @@ type ProcessTokensInput = {
   code: string
   variableIds: Set<string>
   usedCandidateIds: Set<string>
+  fontStyleVariableIds?: Set<string>
   variableCache: Map<string, Variable | null>
   styles: Map<string, Record<string, string>>
   textSegments: Map<string, StyledTextSegment[] | null>
@@ -30,6 +32,7 @@ type ProcessTokensInput = {
   report?: ReportTokenDiagnostic
   stamp?: (label: string, start: number) => void
   now?: () => number
+  checkpoint?: () => void
 }
 
 type ProcessTokensResult = {
@@ -45,6 +48,7 @@ export async function processTokens({
   code: inputCode,
   variableIds,
   usedCandidateIds,
+  fontStyleVariableIds = new Set(),
   variableCache,
   styles,
   textSegments,
@@ -55,19 +59,34 @@ export async function processTokens({
   tokenContext = createTokenReadContext(config, pluginCode, variableCache),
   report,
   stamp,
-  now
+  now,
+  checkpoint
 }: ProcessTokensInput): Promise<ProcessTokensResult> {
+  checkpoint?.()
   const clock = now ?? (() => Date.now())
   let code = stripFallback(inputCode)
 
-  const candidateIds = usedCandidateIds.size
-    ? new Set<string>([...variableIds, ...usedCandidateIds])
-    : variableIds
-  const sourceIndex = buildSourceNameIndex(candidateIds, variableCache, (name) => {
-    if (extractTokenNames(code, new Set([name])).size) {
-      report?.('token-definition', `Token name "${name}" matches multiple variables.`)
-    }
-  })
+  const candidateIds =
+    usedCandidateIds.size || fontStyleVariableIds.size
+      ? new Set<string>([...variableIds, ...usedCandidateIds, ...fontStyleVariableIds])
+      : variableIds
+  const fontStyleNames = new Set<string>()
+  for (const id of fontStyleVariableIds) {
+    checkpoint?.()
+    const variable = getVariableByIdCached(id, variableCache)
+    if (variable) fontStyleNames.add(normalizeFigmaVarName(variable.name))
+  }
+  const sourceIndex = buildSourceNameIndex(
+    candidateIds,
+    variableCache,
+    (name) => {
+      if (fontStyleNames.has(name) || extractTokenNames(code, new Set([name])).size) {
+        report?.('token-definition', `Token name "${name}" matches multiple variables.`)
+      }
+    },
+    checkpoint
+  )
+  checkpoint?.()
   const sourceNames = new Set(sourceIndex.keys())
   const emptyResult = () => ({
     code,
@@ -80,6 +99,11 @@ export async function processTokens({
 
   let t = clock()
   const usedNamesRaw = extractTokenNames(code, sourceNames)
+  for (const name of fontStyleNames) {
+    checkpoint?.()
+    if (sourceIndex.has(name)) usedNamesRaw.add(name)
+  }
+  checkpoint?.()
   if (stamp) stamp('tokens:detect', t)
   if (!usedNamesRaw.size) {
     return emptyResult()
@@ -91,13 +115,16 @@ export async function processTokens({
     sourceIndex,
     pluginCode,
     config,
-    report
+    report,
+    checkpoint
   )
+  checkpoint?.()
 
   if (rewriteMap.size) {
     code = rewriteTokenNamesInCode(code, rewriteMap)
   }
   if (stamp) stamp('tokens:rewrite', t)
+  checkpoint?.()
   if (!finalBridge.size) {
     return emptyResult()
   }
@@ -107,14 +134,16 @@ export async function processTokens({
     finalBridge,
     tokenContext,
     true,
-    report ? (message) => report('token-definition', message) : undefined
+    report ? (message) => report('token-definition', message) : undefined,
+    checkpoint
   )
+  checkpoint?.()
   if (stamp) stamp('tokens:used', t)
 
   const tokenMatcher = resolveTokens ? createTokenMatcher(sourceNames) : undefined
   const resolveNodeIds =
     resolveTokens && tokenMatcher
-      ? collectResolveNodeIds(styles, textSegments, svgs, tokenMatcher)
+      ? collectResolveNodeIds(styles, textSegments, svgs, tokenMatcher, checkpoint)
       : undefined
 
   return {
@@ -131,20 +160,24 @@ function collectResolveNodeIds(
   styles: Map<string, Record<string, string>>,
   textSegments: Map<string, unknown>,
   svgs: Map<string, SvgEntry>,
-  matcher: (value: string) => boolean
+  matcher: (value: string) => boolean,
+  checkpoint?: () => void
 ): Set<string> {
   const ids = new Set<string>()
 
   for (const [id, style] of styles.entries()) {
-    if (hasTokenInStyle(style, matcher)) ids.add(id)
+    checkpoint?.()
+    if (hasTokenInStyle(style, matcher, checkpoint)) ids.add(id)
   }
 
   for (const id of textSegments.keys()) {
+    checkpoint?.()
     ids.add(id)
   }
 
   for (const [id, entry] of svgs.entries()) {
-    if (entry.presentationStyle && hasTokenInStyle(entry.presentationStyle, matcher)) {
+    checkpoint?.()
+    if (entry.presentationStyle && hasTokenInStyle(entry.presentationStyle, matcher, checkpoint)) {
       ids.add(id)
     }
   }
@@ -154,9 +187,11 @@ function collectResolveNodeIds(
 
 function hasTokenInStyle(
   style: Record<string, string>,
-  matcher: (value: string) => boolean
+  matcher: (value: string) => boolean,
+  checkpoint?: () => void
 ): boolean {
   for (const value of Object.values(style)) {
+    checkpoint?.()
     if (!value) continue
     if (matcher(value)) return true
   }

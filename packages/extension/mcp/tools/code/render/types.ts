@@ -19,4 +19,5 @@ export type RenderContext = {
   preferredLang?: CodeLanguage
   detectedLang?: CodeLanguage
   resolveStyleVars?: (style: Record<string, string>, node?: SceneNode) => Record<string, string>
+  fontStyleVariableIds?: Set<string>
 }

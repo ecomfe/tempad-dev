@@ -5,7 +5,8 @@ import { getVariableByIdCached } from '../../token/cache'
 export function buildSourceNameIndex(
   candidateIds: Set<string>,
   cache: Map<string, Variable | null>,
-  onAmbiguous?: (name: string) => void
+  onAmbiguous?: (name: string) => void,
+  checkpoint?: () => void
 ): Map<string, string> {
   const index = new Map<string, string>()
   const ambiguous = new Set<string>()
@@ -23,7 +24,9 @@ export function buildSourceNameIndex(
   }
 
   for (const id of candidateIds) {
+    checkpoint?.()
     const v = getVariableByIdCached(id, cache)
+    checkpoint?.()
     if (!v) continue
 
     const cs = v.codeSyntax?.WEB?.trim()
@@ -47,5 +50,6 @@ export function buildSourceNameIndex(
     addName(figmaName, id)
   }
 
+  checkpoint?.()
   return index
 }

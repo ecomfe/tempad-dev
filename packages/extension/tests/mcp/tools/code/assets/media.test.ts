@@ -58,6 +58,91 @@ const webp = Uint8Array.from([
 const unknown = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x00])
 
 describe('assets/media', () => {
+  it.each(
+    ['image bytes', 'video preview', 'image fallback', 'asset upload'].flatMap((stage) =>
+      ['resolve', 'reject'].map((outcome) => ({ stage, outcome }))
+    )
+  )('stops after an expired $stage request settles with $outcome', async ({ stage, outcome }) => {
+    let started!: () => void
+    const ready = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    let finish!: () => void
+    const stall = <T>(value: T) =>
+      new Promise<T>((resolve, reject) => {
+        finish = () =>
+          outcome === 'resolve' ? resolve(value) : reject(new Error('Native request failed'))
+        started()
+      })
+    const asset = {
+      hash: 'asset',
+      url: 'https://assets.test/asset',
+      mimeType: 'image/png',
+      size: png.length
+    }
+    vi.mocked(ensureAssetUploaded).mockResolvedValue(asset)
+    if (stage === 'asset upload')
+      vi.mocked(ensureAssetUploaded).mockImplementationOnce(() => stall(asset))
+    const unread = vi.fn(async () => png)
+    setFigmaImages({
+      unread: { getBytesAsync: unread },
+      first:
+        stage === 'image fallback'
+          ? null
+          : { getBytesAsync: () => (stage === 'image bytes' ? stall(png) : Promise.resolve(png)) }
+    })
+    const exportAsync = vi.fn(() =>
+      stage === 'video preview' || stage === 'image fallback' ? stall(png) : Promise.resolve(png)
+    )
+    const registry = new Map()
+    const previewHashes = new Set<string>()
+    const controller = new AbortController()
+    const pending = replaceMediaUrlsWithAssets(
+      { background: 'url(first), url(unread)' },
+      {
+        fills: [
+          imagePaint('unread'),
+          stage === 'video preview' ? videoPaint('first') : imagePaint('first')
+        ],
+        exportAsync
+      } as unknown as SceneNode,
+      config,
+      registry,
+      previewHashes,
+      new Map(),
+      () => controller.signal.throwIfAborted()
+    )
+    await ready
+    const reason = new Error('Code generation timed out')
+    controller.abort(reason)
+    const rejected = expect(pending).rejects.toBe(reason)
+    finish()
+    await rejected
+
+    expect(ensureAssetUploaded).toHaveBeenCalledTimes(stage === 'asset upload' ? 1 : 0)
+    expect(exportAsync).toHaveBeenCalledTimes(
+      stage === 'video preview' || stage === 'image fallback' ? 1 : 0
+    )
+    expect(unread).not.toHaveBeenCalled()
+    expect(registry.size).toBe(0)
+    expect(previewHashes.size).toBe(0)
+  })
+
+  it('does not retain image bytes between requests', async () => {
+    const getBytesAsync = vi.fn(async () => png)
+    setFigmaImages({ fresh: { getBytesAsync } })
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: 'fresh',
+      url: 'https://assets.test/fresh',
+      mimeType: 'image/png',
+      size: 8
+    })
+    const node = { fills: [imagePaint('fresh')] } as unknown as SceneNode
+    await replaceMediaUrlsWithAssets({ background: 'url(image)' }, node, config, new Map())
+    await replaceMediaUrlsWithAssets({ background: 'url(image)' }, node, config, new Map())
+    expect(getBytesAsync).toHaveBeenCalledTimes(2)
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -219,15 +304,15 @@ describe('assets/media', () => {
     const result = await replaceMediaUrlsWithAssets(style, node, config, registry)
 
     expect(result.background).toBe(
-      "url('https://assets.local/image-png'), url('https://assets.local/image-jpeg'), url('https://assets.local/image-gif'), url('https://assets.local/image-webp'), url('https://assets.local/application-octet-stream'), url('https://assets.local/application-octet-stream'), linear-gradient(red, blue)"
+      "url('https://assets.local/application-octet-stream'), url('https://assets.local/image-webp'), url('https://assets.local/image-gif'), url('https://assets.local/image-jpeg'), url('https://assets.local/image-png'), url('https://assets.local/image-png'), linear-gradient(red, blue)"
     )
-    expect(result['background-image']).toBe("url('https://assets.local/image-png')")
+    expect(result['background-image']).toBe("url('https://assets.local/application-octet-stream')")
     expect(vi.mocked(ensureAssetUploaded).mock.calls.map((call) => call[1])).toEqual([
-      'image/png',
-      'image/jpeg',
-      'image/gif',
+      'application/octet-stream',
       'image/webp',
-      'application/octet-stream'
+      'image/gif',
+      'image/jpeg',
+      'image/png'
     ])
     expect(Array.from(registry.keys()).sort()).toEqual([
       'asset-application-octet-stream',

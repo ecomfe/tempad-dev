@@ -48,7 +48,9 @@ export function serializeVariableValue(
   value: unknown,
   resolvedType: Variable['resolvedType'],
   config: CodegenConfig,
-  canonicalName?: string
+  canonicalName?: string,
+  unitless?: boolean,
+  preserveZeroUnit = false
 ): string | null {
   if (value == null) return null
 
@@ -56,9 +58,11 @@ export function serializeVariableValue(
     case 'COLOR':
       return formatHexAlpha(value as RGBA, (value as RGBA).a)
     case 'FLOAT':
-      return isUnitlessFloatToken(canonicalName)
-        ? String(value)
-        : normalizeCssValue(`${value}px`, config)
+      if (unitless ?? isUnitlessFloatToken(canonicalName)) return String(value)
+      // Token units must remain stable across modes, including zero, so typed
+      // arithmetic can consume a length token without changing its dimension.
+      if (preserveZeroUnit && value === 0) return config.cssUnit === 'rem' ? '0rem' : '0px'
+      return normalizeCssValue(`${value}px`, config)
     case 'BOOLEAN':
       return (value as boolean).toString()
     case 'STRING':

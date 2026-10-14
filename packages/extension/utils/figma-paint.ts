@@ -13,6 +13,14 @@ export function isRenderablePaint(paint: Paint | null | undefined): paint is Pai
   return true
 }
 
+/** Native fills are back-to-front; CSS background layers are front-to-back. */
+export function getCssPaintLayers(paints: readonly Paint[]): { paint: Paint; index: number }[] {
+  return paints
+    .map((paint, index) => ({ paint, index }))
+    .filter(({ paint }) => isRenderablePaint(paint))
+    .reverse()
+}
+
 export function getPaintResolutionSize(node: SceneNode): PaintResolutionSize | undefined {
   if (!('width' in node) || !('height' in node)) return undefined
 

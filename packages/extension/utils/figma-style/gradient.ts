@@ -2,7 +2,7 @@
  * Gradient and color utilities for Figma styles
  */
 
-import { isRenderablePaint, isVisiblePaint } from '@/utils/figma-paint'
+import { getCssPaintLayers, isVisiblePaint } from '@/utils/figma-paint'
 import { getVariableCssName } from '@/utils/figma-variables'
 
 import type { FigmaLookupReaders, PaintList, PaintResolutionSize } from './types'
@@ -158,9 +158,7 @@ export function resolveBackgroundFillFromPaints(
 ): ResolvedBackgroundFill | null {
   if (!paints || !Array.isArray(paints)) return null
 
-  const visible = paints
-    .map((paint, index) => ({ paint, index }))
-    .filter(({ paint }) => isRenderablePaint(paint))
+  const visible = getCssPaintLayers(paints)
   if (!visible.length) return null
   if (visible.some(({ paint }) => !isSolidPaint(paint) && !isGradientPaint(paint))) {
     return null
@@ -171,7 +169,7 @@ export function resolveBackgroundFillFromPaints(
   const sourceLayers = splitByTopLevelComma(options.background ?? '')
 
   if (visible.length === 1) {
-    const { paint, index } = visible[0]
+    const { paint, index } = visible[0]!
     if (isSolidPaint(paint)) {
       const color = resolveSolid(paint, readers, index)
       return color ? { kind: 'color', value: color } : null
@@ -191,7 +189,7 @@ export function resolveBackgroundFillFromPaints(
     let gradient = resolveGradient(paint, size, readers)
     if (!gradient) return null
     if (paint.type === 'GRADIENT_RADIAL' && sourceLayers.length === visible.length) {
-      gradient = preserveRadialGeometry(sourceLayers[layerIndex], gradient)
+      gradient = preserveRadialGeometry(sourceLayers[layerIndex]!, gradient)
     }
     layers.push(gradient)
   }
@@ -202,10 +200,10 @@ export function resolveBackgroundFillFromPaints(
 function preserveRadialGeometry(source: string, resolved: string): string {
   const match = source.match(/^radial-gradient\(([\s\S]*)\)$/i)
   if (!match) return resolved
-  const geometry = splitByTopLevelComma(match[1])[0]
+  const geometry = splitByTopLevelComma(match[1]!)[0]
   if (!geometry || !isRadialGeometry(geometry)) return resolved
   const args = splitByTopLevelComma(resolved.slice('radial-gradient('.length, -1))
-  if (isRadialGeometry(args[0])) args.shift()
+  if (args[0] && isRadialGeometry(args[0])) args.shift()
   return `radial-gradient(${[geometry, ...args].join(', ')})`
 }
 
@@ -248,7 +246,7 @@ function resolveRadialGradientGeometry(paint: GradientPaint): string | null {
 /**
  * Formats a gradient stop color
  */
-function formatGradientStopColor(
+export function formatGradientStopColor(
   stop: ColorStop,
   fillOpacity: number,
   readers: FigmaLookupReaders

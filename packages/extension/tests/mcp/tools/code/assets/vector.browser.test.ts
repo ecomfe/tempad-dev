@@ -21,9 +21,9 @@ function imageOf(svg: string): Promise<HTMLImageElement> {
 
 async function render(
   svg: string,
-  frame: readonly number[],
-  position: readonly number[],
-  size: readonly number[]
+  frame: readonly [number, number],
+  position: readonly [number, number],
+  size: readonly [number, number]
 ): Promise<Uint8ClampedArray> {
   const image = await imageOf(svg)
   const canvas = document.createElement('canvas')
@@ -83,9 +83,10 @@ describe('vector export viewport', () => {
       // markup's offset. The browser, rather than a path-bounds heuristic, clips it.
       const reference = `<svg xmlns="http://www.w3.org/2000/svg" width="${frame[0]}" height="${frame[1]}"><svg x="${position[0]}" y="${position[1]}" width="${width}" height="${height}" viewBox="${viewBox}">${content}</svg></svg>`
       const referencePixels = await render(reference, frame, [0, 0], frame)
+      expect(referencePixels.length).toBe(assetPixels.length)
       let difference = 0
       for (let i = 0; i < assetPixels.length; i++)
-        difference += Math.abs(assetPixels[i] - referencePixels[i])
+        difference += Math.abs(assetPixels[i]! - referencePixels[i]!)
       // Allow subpixel antialiasing differences between standalone and nested SVG.
       expect(difference / assetPixels.length).toBeLessThan(0.1)
     }

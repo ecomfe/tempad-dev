@@ -69,19 +69,21 @@ async function renderNode(
 
   if (ctx.svgs.has(snapshot.id)) {
     const svgEntry = ctx.svgs.get(snapshot.id)!
-    const svgStyle = {
+    const svgStyle: Record<string, string> = {
       ...(ctx.layout.get(snapshot.id) ?? {}),
       ...(svgEntry.presentationStyle ?? {})
     }
     const classAttr = classProp(ctx.preferredLang ?? ctx.detectedLang)
     const wrapper = svgEntry.wrapper
+    const color = svgStyle.color
+    if (wrapper) delete svgStyle.color
     const wrapperProps = wrapper
       ? classProps(
           {
             ...svgStyle,
             position: svgStyle.position || 'relative',
-            width: wrapper.width,
-            height: wrapper.height
+            width: svgStyle.width ?? wrapper.width,
+            height: svgStyle.height ?? wrapper.height
           },
           ctx.config,
           classAttr,
@@ -90,7 +92,7 @@ async function renderNode(
         ).props
       : undefined
     const placement = wrapper
-      ? { position: 'absolute', left: wrapper.left, top: wrapper.top }
+      ? { position: 'absolute', left: wrapper.left, top: wrapper.top, ...(color ? { color } : {}) }
       : svgStyle
     const { classNames, props } = classProps(placement, ctx.config, classAttr, undefined, {
       isFallback: true,
@@ -132,6 +134,16 @@ async function renderNode(
   const preSegments = ctx.textSegments.has(snapshot.id)
     ? (ctx.textSegments.get(snapshot.id) ?? null)
     : undefined
+
+  if (
+    node.type === 'TEXT' &&
+    rawStyle['font-style'] &&
+    !/^(normal|italic|oblique(?: -?\d+(?:\.\d+)?deg)?)$/.test(rawStyle['font-style'])
+  ) {
+    rawStyle = { ...rawStyle }
+    // Bound STRING face names are metadata; runs supply the native REGULAR/ITALIC value.
+    delete rawStyle['font-style']
+  }
 
   if (node.type === 'TEXT' && !rawStyle.color) {
     const hasVisibleFill = hasVisibleTextFill(node, preSegments)
@@ -226,6 +238,7 @@ async function renderNode(
 
   const { props } = classProps(baseStyleForClass, ctx.config, classAttr, dataHint, { isFallback })
   if (node.type === 'TEXT') {
+    for (const id of textSegments?.fontStyleVariableIds ?? []) ctx.fontStyleVariableIds?.add(id)
     const segments = textSegments?.segments ?? []
     if (segments.length === 1) {
       const single = segments[0]
@@ -259,24 +272,28 @@ export function getOrderedChildIds(
   const display = style.display ?? ''
   const kind = DISPLAY_KIND.get(display)
   if (!kind) return snapshot.children
+  if ('layoutMode' in snapshot.node && snapshot.node.layoutMode !== 'NONE') {
+    return snapshot.children
+  }
 
   const axis = kind === 'grid' ? 'grid' : resolveFlexAxis(snapshot.node, style)
   if (!axis) return snapshot.children
 
-  const entries = snapshot.children.map((id, index) => {
+  const entries = snapshot.children.flatMap((id, index) => {
     const node = tree.nodes.get(id)?.node
+    if (node && 'layoutPositioning' in node && node.layoutPositioning === 'ABSOLUTE') return []
     const box =
       node && 'absoluteBoundingBox' in node
         ? (node.absoluteBoundingBox as { x: number; y: number } | null)
         : null
-    return { id, index, box }
+    return [{ id, index, box }]
   })
 
   if (entries.some((entry) => !entry.box)) return snapshot.children
 
   const EPS = 0.5
   const sorted = [...entries].sort((a, b) => {
-    if (axis === 'grid') {
+    if (axis === 'grid' || (axis === 'x' && style['flex-wrap'] === 'wrap')) {
       const deltaY = a.box!.y - b.box!.y
       if (Math.abs(deltaY) > EPS) return deltaY
       const deltaX = a.box!.x - b.box!.x
@@ -288,7 +305,9 @@ export function getOrderedChildIds(
     return a.index - b.index
   })
 
-  return sorted.map((entry) => entry.id)
+  const flowIds = new Set(entries.map((entry) => entry.id))
+  let flowIndex = 0
+  return snapshot.children.map((id) => (flowIds.has(id) ? sorted[flowIndex++]!.id : id))
 }
 
 function buildShellComment(lang: string | undefined, omittedNodeIds: string[]): string {

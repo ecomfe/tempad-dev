@@ -7,7 +7,8 @@ This document records the requirements and hard constraints for the MCP `get_cod
 - Accept one or more visible roots, keeping each root's code, language, tokens, assets, and warnings independent.
 - Never emit empty optional fields (`assets`, `tokens`, `literalClusters`, `warnings`).
 - Do not use `renderBounds` diffs for positioning.
-- Do not inject positioning containers on structural GROUP/BOOLEAN nodes. When exported as one
+- Structural GROUP nodes occupying a flow slot are positioned containers for their children;
+  freeform structural GROUP/BOOLEAN nodes remain transparent to positioning. When exported as one
   SVG, position the resulting asset as a single layout item.
 - Keep `getCSSAsync()` at most once per node.
 - Do not persist Figma-derived cache state across requests.
@@ -28,6 +29,7 @@ This document records the requirements and hard constraints for the MCP `get_cod
   - `smart` (default): emit `<svg data-src="...">` placeholders in code and preserve themeable instance color on the emitted `svg` root markup for downstream adaptation. If asset upload fails after export, inline the SVG as a fallback to preserve source of truth.
   - `snapshot`: preserve vector assets for fidelity, even if a vector would otherwise be themeable.
 - Tree traversal is capped by a depth limit (semantic-tree driven). If capped, log a warning.
+  Reads exceeding 2,000 visible nodes fail with guidance to select a narrower root before CSS collection.
 - If depth is capped, emit a `depth-cap` warning telling agents to continue with narrower `get_code` calls using returned `data-hint-id` values.
 
 ## Output contract (GetCodeResult)
@@ -103,7 +105,9 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 ### Flex/grid sibling ordering
 
 - When a node renders as `flex/inline-flex` or `grid/inline-grid`, sibling order is meaningful.
-- Siblings are sorted by position using `absoluteBoundingBox` only:
+- Explicit auto-layout children retain authored order, including wrapped and absolute children.
+- Inferred-layout flow siblings are sorted by position using `absoluteBoundingBox` only;
+  absolute siblings retain their original slots:
   - Flex: sort by primary axis (`x` for row, `y` for column).
   - Grid: row-major (`y` then `x`).
   - Use stable ordering within ~0.5px to preserve original order.
@@ -112,7 +116,9 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 ### Group/boolean
 
 - GROUP and BOOLEAN_OPERATION nodes are kept in the tree for structure and hints.
-- Structural wrappers must not become positioning containers. An atomic SVG export keeps the
+- A GROUP occupying a flow slot becomes a relative container, with child offsets rebased from
+  the native container coordinate system to that group's origin. Other structural wrappers remain
+  transparent to positioning. An atomic SVG export keeps the
   original node's placement; its internal descendants no longer participate in HTML layout.
 
 ### Relative containers for absolute children
@@ -149,8 +155,11 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
   Its asset descriptor retains ordered unique current-file identities as `figmaVideoHashes`; those
   hashes describe the native fills, not the preview bytes.
 - Vector placeholders use `<svg data-src="...">` with matching asset and markup viewports.
-  Export with full node bounds, normalize Figma's rounded viewport and baked absolute transform,
-  and keep path data intact. Do not derive placement from path bounds or clipped render bounds.
+  Export nondegenerate geometry with full node bounds, normalize Figma's rounded viewport and baked absolute transform,
+  and keep path data intact. Union the node box with native render bounds to retain visible strokes
+  and effects; ancestor-clipped render bounds must never shrink the geometry viewport. A zero-size
+  axis, such as a stroked LINE, requires a render-bounds export and its corresponding origin.
+  Do not derive placement from path bounds.
   A transformed export that needs extra local space uses a node-sized layout wrapper and an
   offset SVG viewport so external images and inline fallback preserve rotated edge strokes.
 - Themeable vector placeholders preserve the instance color on the emitted `svg` root markup, preferring token/class output when available.
@@ -167,7 +176,7 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 - Snapshot-preserved SVG assets may include `themeable: true` when the underlying vector is safe to adapt to a single contextual color channel, even if the current delivery stays asset-backed.
 - Public asset metadata does not carry per-instance theme color; that remains a markup concern.
 - Layout size comes from node geometry (rounded), not export metadata. SVG asset size and origin
-  come from the full export rectangle mapped into node-local coordinates; consumer units and
+  come from the expanded export rectangle mapped into node-local coordinates; consumer units and
   scale affect markup, not intrinsic asset dimensions.
 - If the SVG export succeeded but asset upload failed, inline the SVG fallback rather than dropping the vector structure.
 - When vector export fails or assets are unavailable, preserve layout using a placeholder SVG with node size.
@@ -181,6 +190,8 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 ## Token handling
 
 - Token detection starts from the emitted markup; names may be transformed/re-written, and final used names are derived from the rewrite map (no second scan).
+- Font-face variable bindings also contribute definitions for text actually rendered. Omitted
+  descendants and text replaced by plugin output must not contribute these bindings.
 - Token detection always strips `var(..., fallback)` before matching to avoid false positives.
 - `get_code` code output intentionally does not use inline `var(..., fallback)` values as the token value source; values, aliases, and modes belong in the `tokens` payload.
 - `get_code` emits canonical CSS variable IR for supported variable-backed properties when `resolveTokens` is `false`.
@@ -200,6 +211,24 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 - When `resolveTokens` is `true`, use Figma's native `Variable.resolveForConsumer(node)` for each actual consuming node, including text runs and themeable vector-placeholder presentation styles.
 - A themeable SVG may carry a descendant token on its root only when their effective mode maps match. Different variable identities or differing modes must retain native vector colors instead of collapsing into one color channel.
 - Cache raw native values by consumer node ID and variable ID within the current call. CSS serialization remains separate and follows the request's fixed codegen configuration.
+- Native opacity variables use 0–100 percentages. Normalize only the opacity consumer to CSS's
+  0–1 scale; preserve the shared token definition and other consumers such as spacing. Unresolved
+  output retains the canonical reference in a dimensionally compatible `calc()` expression.
+  Structural PASS_THROUGH groups must retain sibling paint order and descendant blending when
+  that variable changes between partial and full opacity, including through nested groups.
+- Font-weight consumers also normalize length-valued shared tokens to unitless numbers, including
+  text runs, without changing spacing consumers or token definitions.
+- Figma `fontStyle` variables contain font-face names such as `Bold Italic`, not CSS `font-style`
+  keywords. Use native font weight and style in code, while retaining the original variable
+  definitions, modes, and aliases in `tokens` for both values of `resolveTokens`.
+- Known length consumers such as width, gap, padding and font-size override token-name unit
+  heuristics. Unresolved unitless definitions are converted at consumption without changing the
+  definition; the renderer applies the request's length scale and units once.
+- Wrapped layouts preserve the main gap variable on a synchronized cross axis only with explicit
+  native synchronization or the authored sync marker and matching current gap values. Independent
+  cross-axis bindings take precedence; equal numeric gaps alone do not establish synchronization.
+- If an opacity or font-weight token's modes or aliases have mixed or unknown dimensions, preserve
+  the reference and emit a `token-resolution` warning identifying the incomplete normalization.
 - Failed consumer resolution preserves the reference and emits a bounded `token-resolution` warning. Never choose a collection default as a substitute for failed native resolution.
 - Missing definitions, ambiguous names, and unavailable mode labels emit bounded `token-definition` warnings. Do not fabricate empty values or pick one variable from a name collision.
 - Collection and mode IDs carry identity. Duplicate collection names make definition labels ambiguous and emit a warning; mode hints use collection IDs in that case.
@@ -221,7 +250,8 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 ### Token pipeline guards
 
 - If no source names exist, skip the token pipeline entirely.
-- If no tokens are detected in the code, skip plugin transform/rewrites and token defs.
+- If neither code references nor rendered font-face bindings use tokens, skip plugin
+  transform/rewrites and token defs.
 - If rewrites produce no valid bridge entries, skip token defs.
 
 ### Variable mode overrides
@@ -234,6 +264,8 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 - Use `getStyledTextSegments` where available; failures are logged (not fatal).
 - Use fill data when Figma CSS omits visible text paints.
+- Preserve each run's font weight and style, including normal values needed to override inherited
+  bold or italic text. A dominant run must not change the typography of its siblings.
 
 ## Logging
 
@@ -260,7 +292,9 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
   most four batch Workers active, and resolve each visible instance at most once per request.
 - Skip style collection for vector-root descendants (they are not rendered).
 - Variable candidate scanning uses bound variables and paint references; inferred variables are not required.
-- Variable candidate scanning must continue from the raw selected roots rather than `VisibleTree` so depth-cap and variable collection semantics stay unchanged.
+- Variable candidate scanning is limited to the bounded visible tree, or the root alone for an
+  early shell. Preserve native variable and style lookup semantics for each visited node without
+  traversing depth-capped descendants again.
 - Performance regressions should be gated with deterministic operation counts—collected/skipped CSS
   reads, semantic-cache hit/miss counts, plugin preparation/batch concurrency, and vector-export
   concurrency/order—not wall-clock thresholds.

@@ -14,7 +14,8 @@ export const NODE_VARIABLE_STYLE_PROPS = {
   maxWidth: ['max-width'],
   minHeight: ['min-height'],
   maxHeight: ['max-height'],
-  itemSpacing: ['gap', 'row-gap', 'column-gap'],
+  itemSpacing: [],
+  counterAxisSpacing: [],
   paddingLeft: ['padding-left'],
   paddingRight: ['padding-right'],
   paddingTop: ['padding-top'],
@@ -104,28 +105,56 @@ export function collectNodeVariableIds(
 export function collectNodeVariableIdsInto(
   node: SceneNode,
   ids: Set<string>,
-  readers: FigmaLookupReaders = DEFAULT_READERS
+  readers: FigmaLookupReaders = DEFAULT_READERS,
+  checkpoint?: () => void
 ): void {
-  collectVariableIdsFromValue((node as { boundVariables?: unknown }).boundVariables, ids)
-  collectPaintVariableIds((node as { fills?: unknown }).fills, ids)
-  collectPaintVariableIds((node as { strokes?: unknown }).strokes, ids)
-  collectEffectVariableIds((node as { effects?: unknown }).effects, ids)
-  collectPaintStyleVariableIds((node as { fillStyleId?: unknown }).fillStyleId, ids, readers)
-  collectPaintStyleVariableIds((node as { strokeStyleId?: unknown }).strokeStyleId, ids, readers)
+  checkpoint?.()
+  collectVariableIdsFromValue(
+    (node as { boundVariables?: unknown }).boundVariables,
+    ids,
+    checkpoint
+  )
+  checkpoint?.()
+  collectPaintOrEffectVariableIds((node as { fills?: unknown }).fills, ids, checkpoint)
+  checkpoint?.()
+  collectPaintOrEffectVariableIds((node as { strokes?: unknown }).strokes, ids, checkpoint)
+  checkpoint?.()
+  collectPaintOrEffectVariableIds((node as { effects?: unknown }).effects, ids, checkpoint)
+  checkpoint?.()
+  collectPaintStyleVariableIds(
+    (node as { fillStyleId?: unknown }).fillStyleId,
+    ids,
+    readers,
+    checkpoint
+  )
+  checkpoint?.()
+  collectPaintStyleVariableIds(
+    (node as { strokeStyleId?: unknown }).strokeStyleId,
+    ids,
+    readers,
+    checkpoint
+  )
+  checkpoint?.()
 
   if (node.type === 'TEXT') {
     TEXT_VARIABLE_FIELDS.forEach((field) => {
-      const id = resolveTextNodeVariableId(node, field, readers)
+      checkpoint?.()
+      const id = resolveTextNodeVariableId(node, field, readers, checkpoint)
       if (id) ids.add(id)
     })
   }
 }
 
-export function collectVariableIdsFromValue(value: unknown, ids: Set<string>): void {
+export function collectVariableIdsFromValue(
+  value: unknown,
+  ids: Set<string>,
+  checkpoint?: () => void
+): void {
+  checkpoint?.()
   if (!value) return
 
   if (Array.isArray(value)) {
-    value.forEach((entry) => collectVariableIdsFromValue(entry, ids))
+    value.forEach((entry) => collectVariableIdsFromValue(entry, ids, checkpoint))
     return
   }
 
@@ -144,7 +173,7 @@ export function collectVariableIdsFromValue(value: unknown, ids: Set<string>): v
     return
   }
 
-  Object.values(value).forEach((entry) => collectVariableIdsFromValue(entry, ids))
+  Object.values(value).forEach((entry) => collectVariableIdsFromValue(entry, ids, checkpoint))
 }
 
 export function getSingleVariableId(value: unknown): string | null {
@@ -156,7 +185,7 @@ export function getSingleVariableId(value: unknown): string | null {
         .map((entry) => getSingleVariableId(entry))
         .filter((id): id is string => typeof id === 'string' && id.length > 0)
     )
-    return ids.size === 1 ? [...ids][0] : null
+    return ids.size === 1 ? [...ids][0]! : null
   }
 
   if (typeof value !== 'object') return null
@@ -167,11 +196,21 @@ export function getSingleVariableId(value: unknown): string | null {
 export function resolveTextNodeVariableId(
   node: TextNode,
   field: VariableBindableTextField,
-  readers: FigmaLookupReaders = DEFAULT_READERS
+  readers: FigmaLookupReaders = DEFAULT_READERS,
+  checkpoint?: () => void
 ): string | null {
+  checkpoint?.()
+  const rangeId = resolveRangeVariableId(node, 0, node.characters.length, field, readers)
+  checkpoint?.()
+  if (rangeId) return rangeId
+  const styleId = resolveTextStyleVariableId(
+    (node as { textStyleId?: unknown }).textStyleId,
+    field,
+    readers
+  )
+  checkpoint?.()
   return (
-    resolveRangeVariableId(node, 0, node.characters.length, field, readers) ??
-    resolveTextStyleVariableId((node as { textStyleId?: unknown }).textStyleId, field, readers) ??
+    styleId ??
     getSingleVariableId(
       (node as { boundVariables?: Record<string, unknown> }).boundVariables?.[field]
     )
@@ -230,23 +269,24 @@ function resolveRangeVariableId(
   }
 }
 
-function collectPaintVariableIds(paints: unknown, ids: Set<string>): void {
-  if (!Array.isArray(paints)) return
-  paints.forEach((paint) => {
-    if (!paint || typeof paint !== 'object') return
-    collectVariableIdsFromValue((paint as { boundVariables?: unknown }).boundVariables, ids)
-    collectVariableIdsFromValue((paint as { variableReferences?: unknown }).variableReferences, ids)
-  })
-}
-
-function collectEffectVariableIds(effects: unknown, ids: Set<string>): void {
-  if (!Array.isArray(effects)) return
-  effects.forEach((effect) => {
-    if (!effect || typeof effect !== 'object') return
-    collectVariableIdsFromValue((effect as { boundVariables?: unknown }).boundVariables, ids)
+function collectPaintOrEffectVariableIds(
+  entries: unknown,
+  ids: Set<string>,
+  checkpoint?: () => void
+): void {
+  if (!Array.isArray(entries)) return
+  entries.forEach((entry) => {
+    checkpoint?.()
+    if (!entry || typeof entry !== 'object') return
     collectVariableIdsFromValue(
-      (effect as { variableReferences?: unknown }).variableReferences,
-      ids
+      (entry as { boundVariables?: unknown }).boundVariables,
+      ids,
+      checkpoint
+    )
+    collectVariableIdsFromValue(
+      (entry as { variableReferences?: unknown }).variableReferences,
+      ids,
+      checkpoint
     )
   })
 }
@@ -254,23 +294,33 @@ function collectEffectVariableIds(effects: unknown, ids: Set<string>): void {
 function collectPaintStyleVariableIds(
   styleId: unknown,
   ids: Set<string>,
-  readers: FigmaLookupReaders
+  readers: FigmaLookupReaders,
+  checkpoint?: () => void
 ): void {
   if (typeof styleId !== 'string' || !styleId) return
 
+  let paints: readonly Paint[]
+  let boundVariables: unknown
   try {
     const style = readers.getStyleById(styleId) as PaintStyle | null
-    if (!style?.paints || !Array.isArray(style.paints)) return
-    collectVariableIdsFromValue((style as { boundVariables?: unknown }).boundVariables, ids)
-    style.paints.forEach((paint) => {
-      if (!paint || paint.visible === false) return
-      collectVariableIdsFromValue(paint.boundVariables, ids)
-      collectVariableIdsFromValue(
-        (paint as { variableReferences?: unknown }).variableReferences,
-        ids
-      )
-    })
+    if (!style) return
+    paints = style.paints
+    if (!Array.isArray(paints)) return
+    boundVariables = (style as { boundVariables?: unknown }).boundVariables
   } catch {
-    // noop
+    return
   }
+  // Keep cancellation outside native lookup recovery so the deadline propagates.
+  checkpoint?.()
+  collectVariableIdsFromValue(boundVariables, ids, checkpoint)
+  paints.forEach((paint) => {
+    checkpoint?.()
+    if (!paint || paint.visible === false) return
+    collectVariableIdsFromValue(paint.boundVariables, ids, checkpoint)
+    collectVariableIdsFromValue(
+      (paint as { variableReferences?: unknown }).variableReferences,
+      ids,
+      checkpoint
+    )
+  })
 }
