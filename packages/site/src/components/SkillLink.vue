@@ -9,7 +9,7 @@ defineProps<{ skill: SiteSkill }>()
 <template>
   <button type="button" class="site-text-link site-skill-link" aria-haspopup="dialog">
     <BookOpen aria-hidden="true" />
-    <span>Read the {{ skill === 'canvas' ? 'canvas' : 'design-to-code' }} skill</span>
+    <span>Read the {{ skill === 'canvas' ? 'Design in Figma' : 'design-to-code' }} skill</span>
   </button>
 </template>
 

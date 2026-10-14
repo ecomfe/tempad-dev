@@ -56,7 +56,7 @@ becomes `720 × 320`.
 | `measure`                  | Inner frame selected, Measure active, outer frame under the pointer, orange target outline and four `20` distance labels.         |
 | `scroll`                   | Frame selected in the native code view, arrow pointer hovering Scroll Into View with its tooltip visible.                         |
 | `plugins`                  | Real Kong Button instance selected with Figma's purple instance highlight and Kong UI-specific output; pointer hidden.            |
-| `mcp-config-gemini`        | Gemini selected, content scrolled to the top, MCP command and first skill command fully visible.                                  |
+| `mcp-config-gemini`        | Gemini selected, content scrolled to the top, complete MCP command and introduction to the skill installation step visible.       |
 | `mcp-config-gemini-skills` | Gemini selected, content scrolled to the bottom, both standalone skill commands fully visible.                                    |
 | `mcp-unavailable`          | Preferences visible with the gray-dot, dashed MCP badge.                                                                          |
 | `mcp-inactive`             | Preferences visible with the green-dot, dashed MCP badge.                                                                         |
@@ -238,6 +238,11 @@ pnpm screenshots verify
 
 11. For fixture-based captures, always restore Figma through `Preferences → Theme → Light` and call
     `__TEMPAD_README_SCREENSHOTS__.setCanvasTheme('light')` before handing the tab back.
+
+Before subsequent MCP authoring or live regression work, stop browser automation and request a
+manual full Figma tab reload. Browser-use instrumentation can interfere with the plugin sandbox
+even after screenshot overrides are removed. Recheck the runtime and native MCP transport using
+[the authoring runbook](testing/agent-authoring-evolution.md) before continuing.
 
 ## Stability rules
 

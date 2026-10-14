@@ -42,7 +42,7 @@ it.each([1280, 768, 390])(
     window.scrollTo({ top: 500, behavior: 'instant' })
     await expect.poll(() => window.scrollY).toBe(500)
     await page
-      .getByRole('button', { name: /Read the canvas skill/ })
+      .getByRole('button', { name: /Read the Design in Figma skill/ })
       .first()
       .click()
     await expect.poll(() => element<HTMLDialogElement>('.site-skill-dialog').open).toBe(true)
@@ -172,7 +172,7 @@ it.each([1280, 768, 390])(
 
     for (const withFileOptions of [false, true]) {
       await page
-        .getByRole('button', { name: /Read the canvas skill/ })
+        .getByRole('button', { name: /Read the Design in Figma skill/ })
         .first()
         .click()
       if (withFileOptions) await page.getByRole('combobox', { name: /^Files/ }).click()
