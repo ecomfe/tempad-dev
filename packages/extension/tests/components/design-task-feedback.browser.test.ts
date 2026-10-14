@@ -597,16 +597,18 @@ describe('element feedback drafts', () => {
   })
 
   it.each(['cancelled', 'stopping'] as const)(
-    'hides comment entry points for a %s task while retaining saved drafts',
+    'hides comment entry points for a %s task and clears drafts when cancelled',
     async (status) => {
       const f = fixture()
       await save(f, 0, 'Keep this comment')
       f.task.value = { ...f.task.value, status }
       await expect.poll(() => document.querySelector('.tp-feedback-toggle')).toBeNull()
       expect(document.querySelector('.tp-element-feedback')).toBeNull()
-      expect((await f.store.request({ operation: 'load', scope })).items[0]?.text).toBe(
-        'Keep this comment'
-      )
+      await expect
+        .poll(async () =>
+          (await f.store.request({ operation: 'load', scope })).items.map((item) => item.text)
+        )
+        .toEqual(status === 'cancelled' ? [] : ['Keep this comment'])
       expect(f.send).not.toHaveBeenCalled()
     }
   )
@@ -1712,7 +1714,7 @@ describe('element feedback drafts', () => {
     })
   })
 
-  it('saves the latest local edit after Stop and closes comment controls without sending', async () => {
+  it('discards saved and unsaved element comments after Stop without sending', async () => {
     const f = fixture()
     await save(f, 0, 'Saved note')
     markers()[0]!.click()
@@ -1723,9 +1725,7 @@ describe('element feedback drafts', () => {
     expect(document.querySelector('.tp-feedback-toggle')).toBeNull()
     expect(document.querySelector('.tp-element-feedback')).toBeNull()
     await expect.poll(() => document.querySelector('.tp-design-overlay')).toBeNull()
-    expect((await f.store.request({ operation: 'load', scope })).items[0]?.text).toBe(
-      'Unsaved change'
-    )
+    expect((await f.store.request({ operation: 'load', scope })).items).toEqual([])
     expect(f.send).not.toHaveBeenCalled()
   })
 

@@ -90,7 +90,7 @@ async function done(confirmed = false) {
     const completed = props.task?.status === 'completed'
     const close = completed && props.closeReview ? () => props.closeReview!(taskId) : undefined
     if (feedbackComponent.value) {
-      if ((await feedbackComponent.value.prepareDismiss(completed, close)) === false) return
+      if ((await feedbackComponent.value.prepareDismiss(close)) === false) return
     } else await close?.()
     if (props.task?.taskId !== taskId || stoppable.value || dismissBlocked.value) return
   } catch (error) {
@@ -479,12 +479,11 @@ onScopeDispose(() => {
             :action-result="actionResult"
             @dismiss-blocked="dismissBlocked = $event"
           />
-          <span v-if="stoppable" class="tp-design-stop-hint">Permanent · keeps drafts</span>
           <Button
             v-if="stoppable"
             class="tp-design-stop"
             :aria-label="task.status === 'stopping' ? 'Stopping design task' : 'Stop design task'"
-            data-tooltip="Stop permanently. Keep unsent comments."
+            data-tooltip="Stop design task"
             data-tooltip-type="text"
             :disabled="task.status === 'stopping'"
             @pointerdown.stop
@@ -671,13 +670,6 @@ onScopeDispose(() => {
   height: 24px;
   padding: 0 8px;
   flex: none;
-}
-.tp-design-stop-hint {
-  flex: none;
-  max-width: 64px;
-  color: var(--color-text-secondary);
-  font-size: 10px;
-  line-height: 11px;
 }
 .tp-design-leaving {
   pointer-events: none;

@@ -342,7 +342,10 @@ The canvas bar shows the agent-reported name, activity from existing read/write 
 comments, and Stop/Done. The panel status locates that same anchor. With no usable anchor,
 task controls remain in the panel while canvas/comment/Locate controls are unavailable;
 drafts are retained. Paused, expired, interrupted, and completed open tasks retain comments
-when anchored. Stopping and cancelled tasks hide them. Only active work shows the outline.
+when anchored. Stopping and cancelled tasks hide them. Stop acts immediately without a
+confirmation; cancellation dismisses the controls and clears this task's unsent comments
+after pending saves settle. Draft cleanup never delays the local Stop fence or host
+interruption. Only active work shows the outline.
 
 The bar's drag offset is stored relative to its anchor in canvas coordinates, scoped to
 that task/file/anchor. It follows movement and zoom; double-click resets it. Button actions

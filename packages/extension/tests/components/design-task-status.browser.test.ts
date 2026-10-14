@@ -128,10 +128,12 @@ afterEach(() => {
 })
 
 describe('design task status and canvas overlay', () => {
-  it('stops immediately without opening a confirmation or clearing drafts', async () => {
+  it('stops immediately without confirmation and clears drafts after cancellation', async () => {
     const requestDrafts = vi
       .fn<NonNullable<InstanceType<typeof DesignTaskStatus>['$props']['requestDrafts']>>()
-      .mockResolvedValue({ items: [], comment: 'Keep this draft' })
+      .mockImplementation(async (request) =>
+        request.operation === 'load' ? { items: [], comment: 'Discard this draft' } : { items: [] }
+      )
     const f = fixture(vi.fn(), requestDrafts)
     f.task.value = {
       ...f.initial,
@@ -143,6 +145,11 @@ describe('design task status and canvas overlay', () => {
     expect(f.stop).toHaveBeenCalledOnce()
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(requestDrafts.mock.calls.some(([request]) => request?.operation === 'clear')).toBe(false)
+    f.task.value = { ...f.task.value, status: 'cancelled' }
+    await expect
+      .poll(() => requestDrafts.mock.calls.some(([request]) => request.operation === 'clear'))
+      .toBe(true)
+    await expect.poll(() => f.done.mock.calls).toEqual([['task-a']])
   })
   it('expands and collapses the panel entry in document flow with contextual text before an anchor exists', async () => {
     const f = fixture()
@@ -170,9 +177,7 @@ describe('design task status and canvas overlay', () => {
     await expect.poll(() => section.classList.contains('tp-section-enter-active')).toBe(false)
     expect(following.getBoundingClientRect().top - originalTop).toBe(40)
     expect(section.querySelector('svg')).toBeNull()
-    expect(section.textContent?.replace(/\s/g, '')).toBe(
-      'TheagentisdesigningPermanent·keepsdraftsStop'
-    )
+    expect(section.textContent?.replace(/\s/g, '')).toBe('TheagentisdesigningStop')
     expect(overlayVisible()).toBe(false)
     expect(section.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true)
 
@@ -835,7 +840,7 @@ describe('design task status and canvas overlay', () => {
     expect(requestDrafts.mock.calls.some(([request]) => request.operation === 'clear')).toBe(true)
   })
 
-  it('saves pending comments before dismissing a cancelled task without an anchor', async () => {
+  it('clears a pending save before dismissing a cancelled task without an anchor', async () => {
     await page.viewport(900, 700)
     let finishSave!: () => void
     const requestDrafts = vi.fn(async (request) => {
@@ -855,9 +860,9 @@ describe('design task status and canvas overlay', () => {
     }
     await page.getByRole('button', { name: 'Review comments' }).click()
     await page.getByRole('textbox', { name: 'General comment' }).fill('Keep the latest edit')
+    await expect.poll(() => finishSave).toBeTypeOf('function')
     f.node.removed = true
     f.task.value = { ...f.task.value, status: 'cancelled' }
-    await expect.poll(() => finishSave).toBeTypeOf('function')
     await expect.poll(() => f.panel.querySelector('.tp-design-task-section')).toBeNull()
     expect(f.done).not.toHaveBeenCalled()
     expect(overlayVisible()).toBe(false)
@@ -868,7 +873,7 @@ describe('design task status and canvas overlay', () => {
         ([request]) => request.operation === 'comment' && request.comment === 'Keep the latest edit'
       )
     ).toBe(true)
-    expect(requestDrafts.mock.calls.some(([request]) => request.operation === 'clear')).toBe(false)
+    expect(requestDrafts.mock.calls.at(-1)?.[0].operation).toBe('clear')
   })
 
   it('keeps comments available while the design task is paused and resumes delivery when available', async () => {

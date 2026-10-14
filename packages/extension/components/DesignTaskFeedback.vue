@@ -235,17 +235,7 @@ async function saveComment(): Promise<boolean> {
   if (!(await request)) return false
   return saveComment()
 }
-async function prepareDismiss(discard: boolean, close?: () => Promise<void>): Promise<boolean> {
-  if (!discard) {
-    if (editorHasChanges.value && editorText.value.trim()) {
-      await saveDraft()
-      if (editorHasChanges.value) {
-        requestError.value = editorError.value || 'Could not save the comment.'
-        return false
-      }
-    }
-    return saveComment()
-  }
+async function prepareDismiss(close?: () => Promise<void>): Promise<boolean> {
   const draftScope = scope.value
   if (!draftScope || !props.requestDrafts) {
     await close?.()

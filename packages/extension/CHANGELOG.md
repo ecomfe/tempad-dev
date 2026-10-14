@@ -9,7 +9,7 @@
 - Improved responsiveness when reading large designs and exporting screenshots.
 - Fixed blank images with the extension enabled and improved Figma script loading and recovery.
 - Kept the selected Figma file active across reconnects and extension background restarts.
-- Stop now cancels immediately while keeping unsent comments, including during disconnection.
+- Stop now cancels immediately and discards unsent comments, including during disconnection.
 - Preserved feedback drafts after failed delivery and added a reload action for conflicting
   comments saved in another tab.
 - Fixed stale selection code, incorrect unit conversions, and misleading copy or plugin-install
