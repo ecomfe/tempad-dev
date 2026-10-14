@@ -47,12 +47,14 @@ jobs:
           .claude-plugin/marketplace.json)"
 
       - name: Check plugin installer compatibility
+        if: matrix.node == '24.x'
         run: pnpm agent-plugin:check-installer
 
       - name: Type check
         run: pnpm typecheck
 
       - name: Lint
+        if: matrix.node == '24.x'
         run: pnpm lint
 
       - name: Build project
@@ -71,6 +73,7 @@ jobs:
         run: pnpm test:coverage
 
       - name: Format check
+        if: matrix.node == '24.x'
         run: pnpm format:check
 
       - name: Check bridge compatibility

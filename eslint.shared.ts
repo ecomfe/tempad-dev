@@ -14,6 +14,7 @@ configureVueProject({ scriptLangs: ['ts', 'js'] })
 export function createConfig(metaUrl: string) {
   const tsconfigRootDir = fileURLToPath(new URL('.', metaUrl))
   const typedRuntimeFiles = [
+    'packages/{mcp-server,shared,plugins}/src/**/*.ts',
     'src/**/*.{ts,vue}',
     'mcp/**/*.ts',
     'components/**/*.vue',

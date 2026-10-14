@@ -19,7 +19,6 @@ permissions:
 
 jobs:
   publish:
-    if: github.ref == 'refs/heads/main'
     name: Publish @tempad-dev/mcp
     runs-on: ubuntu-latest
     concurrency:
@@ -27,6 +26,15 @@ jobs:
       cancel-in-progress: true
 
     steps:
+      - name: Require main branch
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          if [ "$RELEASE_REF" != refs/heads/main ]; then
+            echo '::error::Publish must be dispatched from main.'
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v7
 
