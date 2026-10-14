@@ -9,11 +9,12 @@
 - Improved responsiveness when reading large designs and exporting screenshots.
 - Fixed blank images with the extension enabled and improved Figma script loading and recovery.
 - Kept the selected Figma file active across reconnects and extension background restarts.
-- Improved Stop confirmation, cancellation during disconnection, and task error messages.
+- Stop now cancels immediately while keeping unsent comments, including during disconnection.
 - Preserved feedback drafts after failed delivery and added a reload action for conflicting
   comments saved in another tab.
 - Fixed stale selection code, incorrect unit conversions, and misleading copy or plugin-install
-  success messages. Improved keyboard access.
+  success messages. Added code-generation progress and Retry. Improved keyboard access.
+- Preserved independent preferences across tabs and allowed plugin deletion when storage is full.
 - Added Refresh links and documentation links for component sets.
 
 ## 0.23.3

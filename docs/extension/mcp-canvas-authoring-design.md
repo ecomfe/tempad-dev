@@ -685,9 +685,11 @@ does not import font variables. The full resource preflight still rechecks those
 Both preflight paths share the same font resolution and request-local load cache. Empty resource declarations use the complete
 preflight before that boundary. Key-only library references retain their later import and validation
 path. Existing result pages and pages needed for declared variable, mode, or collection removals are
-loaded before opening the Undo boundary. Removal scans still read the current pages and node
-references after reconciliation, loading any newly added pages; the request caches only successful
-page loads, not consumers. Removing an entire managed root also scans references before
+loaded before opening the Undo boundary. Node removal uses `loadAllPagesAsync()` once per document
+when other pages exist; Figma also [automatically loads pages added later by other clients](https://developers.figma.com/docs/plugins/migrating-to-dynamic-loading/#accessing-all-pages).
+Variable removal loads pages individually and caches successful loads only within the request,
+loading newly added pages before its final scan. Both paths read current references after
+reconciliation rather than caching consumers. Removing an entire managed root also scans references before
 that boundary; structural updates retain their final-graph removal checks after reconciliation
 because children and references may move. Resource-dependent validation still runs after resource
 creation, and library/media preparation is not a guarantee of native transaction isolation.

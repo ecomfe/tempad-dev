@@ -12,6 +12,8 @@
 - Capped each process log at 10 MiB. Logs from exited processes are removed after seven days
   without updates.
 - Hardened local storage and Unix socket access.
+- Prevented restored reviews from sending feedback to unrelated conversations.
+- Added recovery guidance for damaged task storage while preserving Stop protections.
 
 ## 0.11.0
 
