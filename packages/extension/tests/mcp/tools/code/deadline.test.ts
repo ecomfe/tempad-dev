@@ -7,7 +7,10 @@ import { getLayoutParent } from '@/mcp/tools/code/layout-parent'
 import { buildVisibleTree } from '@/mcp/tools/code/tree'
 import { collectCandidateVariableIds } from '@/mcp/tools/token/candidates'
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 function clock() {
   let elapsed = 0
@@ -38,6 +41,26 @@ it('rejects synchronous work that finishes after the deadline before the timer r
       return 'too late'
     })
   ).rejects.toThrow('Code generation timed out')
+})
+
+it('keeps checkpoints cancelled after the timer fires ahead of the monotonic deadline', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  clock()
+  let checkpoint!: () => void
+  let signal!: AbortSignal
+  const work = Promise.withResolvers<void>()
+  const timedOut = expect(
+    withCodeDeadline(20, (currentSignal, currentCheckpoint) => {
+      signal = currentSignal
+      checkpoint = currentCheckpoint
+      return work.promise
+    })
+  ).rejects.toThrow('timed out')
+  await vi.advanceTimersByTimeAsync(20)
+  await timedOut
+  expect(signal.aborted).toBe(true)
+  expect(checkpoint).toThrow(signal.reason)
+  work.resolve()
 })
 
 it('checks hidden siblings before reading their visibility during depth selection', () => {

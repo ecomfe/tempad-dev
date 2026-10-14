@@ -16,8 +16,12 @@ export async function withCodeDeadline<T>(
   timeoutMs: number,
   run: (signal: AbortSignal, checkpoint: () => void) => Promise<T>
 ): Promise<T> {
-  const checkpoint = createCodeCheckpoint(timeoutMs)
+  const checkElapsed = createCodeCheckpoint(timeoutMs)
   const controller = new AbortController()
+  const checkpoint = () => {
+    controller.signal.throwIfAborted()
+    checkElapsed()
+  }
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {

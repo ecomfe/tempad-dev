@@ -255,11 +255,25 @@ it.skipIf(process.platform === 'win32').each(['natural', 'timeout'] as const)(
     const stores = join(directory, `late-upload-${exit}`)
     const runtime = join(directory, exit === 'natural' ? 'upload-n' : 'upload-t')
     const assets = join(stores, 'assets')
-    const preload = join(bundle, 'keep-shutdown-alive.mjs')
-    if (exit === 'timeout') {
-      writeFileSync(preload, `process.on('SIGTERM', () => setInterval(() => {}, 10000));`)
-    }
-    const hub = launch('hub.mjs', runtime, exit === 'timeout' ? preload : undefined, stores)
+    const preload = join(bundle, `shutdown-${exit}.mjs`)
+    // The parent must finish the accepted upload before testing either exit path.
+    // Trigger the real shutdown callback explicitly, without racing its 2s timer
+    // against scheduling of this process and the child on a busy test runner.
+    writeFileSync(
+      preload,
+      `process.on('SIGTERM', () => {
+        const timeout = globalThis.setTimeout;
+        globalThis.setTimeout = (fn, ms, ...args) => {
+          if (ms !== 2000) return timeout(fn, ms, ...args);
+          const timer = timeout(fn, 30000, ...args);
+          process.once('SIGUSR2', () => { clearTimeout(timer); fn(...args); });
+          process.stderr.write('fixture-shutdown-armed\\n');
+          return timer;
+        };
+        ${exit === 'timeout' ? 'setInterval(() => {}, 10000);' : ''}
+      });`
+    )
+    const hub = launch('hub.mjs', runtime, preload, stores)
     await vi.waitFor(() => expect(hub.stdout(), hub.stderr()).toContain('ready'), {
       timeout: 5000
     })
@@ -293,11 +307,15 @@ it.skipIf(process.platform === 'win32').each(['natural', 'timeout'] as const)(
       expect(readdirSync(assets).some((name) => name.includes('.tmp.'))).toBe(true)
     )
     hub.child.kill('SIGTERM')
-    await vi.waitFor(() => expect(existsSync(join(runtime, 'hub-runtime.json'))).toBe(false))
+    await vi.waitFor(() => expect(hub.stderr()).toContain('fixture-shutdown-armed'), {
+      timeout: 5000
+    })
+    expect(existsSync(join(runtime, 'hub-runtime.json'))).toBe(false)
     expect(existsSync(join(assets, '.tempad-hub-writer.lock'))).toBe(true)
     expect(JSON.parse(readFileSync(join(assets, 'assets.json'), 'utf8'))).toEqual([])
     finish()
     expect(await uploaded).toBe(201)
+    if (exit === 'timeout') hub.child.kill('SIGUSR2')
     expect((await hub.exited)[0], hub.stderr()).toBe(exit === 'timeout' ? 1 : 0)
     expect(JSON.parse(readFileSync(join(assets, 'assets.json'), 'utf8'))).toEqual([
       expect.objectContaining({ hash, size: body.length, metadata: { width: 36, height: 24 } })
@@ -382,12 +400,18 @@ it.each(['denied', 'stalled', 'closed'])(
   `
     )
     const attempt = launch('cli.mjs', join(directory, `cli-${failure}`), preload)
-    await vi.waitFor(() => expect(attempt.child.exitCode).not.toBeNull(), { timeout: 2000 })
+    // Child startup/import time is separate from the bounded connection attempts.
+    await vi.waitFor(() => expect(attempt.stderr()).toContain('fixture-connect'), {
+      timeout: 5000
+    })
+    await vi.waitFor(() => expect(attempt.child.exitCode, attempt.stderr()).not.toBeNull(), {
+      timeout: 5000
+    })
     expect((await attempt.exited)[0]).toBe(1)
     expect(attempt.stderr()).toContain('Unable to connect to TemPad Hub after 3 startup attempts')
     expect(attempt.stderr().match(/fixture-connect/g)).toHaveLength(3)
   },
-  5000
+  15000
 )
 
 it.skipIf(process.platform === 'win32')(
@@ -492,7 +516,12 @@ it.skipIf(process.platform === 'win32').each(['closed', 'invalid', 'denied-after
       await once(server, 'listening')
       chmodSync(join(runtime, 'mcp.sock'), 0o600)
       attempt = launch('cli.mjs', runtime, preload)
-      await vi.waitFor(() => expect(attempt!.child.exitCode).not.toBeNull(), { timeout: 2000 })
+      await vi.waitFor(() => expect(attempt!.stderr()).toContain('fixture-connect'), {
+        timeout: 5000
+      })
+      await vi.waitFor(() => expect(attempt!.child.exitCode, attempt!.stderr()).not.toBeNull(), {
+        timeout: 5000
+      })
       expect((await attempt.exited)[0], attempt.stderr()).toBe(1)
       expect(attempt.stderr()).toContain(
         `Unable to connect to TemPad Hub after 3 ${failure === 'denied-after-binding' ? 'reconnect' : 'startup'} attempts`
@@ -513,7 +542,7 @@ it.skipIf(process.platform === 'win32').each(['closed', 'invalid', 'denied-after
       if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()))
     }
   },
-  5000
+  15000
 )
 
 it.skipIf(process.platform === 'win32')(

@@ -13,6 +13,7 @@ vi.mock('@/mcp/tools/config', () => ({ currentCodegenConfig: vi.fn() }))
 
 const config = { cssUnit: 'px', rootFontSize: 16, scale: 1 } as const
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.mocked(runTransformVariableBatch)
@@ -61,6 +62,9 @@ describe('used token definitions', () => {
   })
 
   it('fences later alias plugin batches and reuses the same context with a fresh budget', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    // Timer dispatch and the monotonic clock need not cross the deadline together.
+    vi.spyOn(performance, 'now').mockReturnValue(0)
     const variables = aliases(1000)
     const context = createTokenReadContext(
       config,
@@ -68,24 +72,25 @@ describe('used token definitions', () => {
       new Map(variables.map((v) => [v.id, v]))
     )
     vi.spyOn(context, 'getCollection').mockReturnValue(null)
-    let finish!: () => void
-    vi.mocked(runTransformVariableBatch)
-      .mockClear()
-      .mockImplementationOnce(
-        (refs) =>
-          new Promise((resolve) => {
-            finish = () => resolve(refs.map(({ code }) => code))
-          })
-      )
+    const started = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    vi.mocked(runTransformVariableBatch).mockImplementationOnce(async (refs) => {
+      started.resolve()
+      await release.promise
+      return refs.map(({ code }) => code)
+    })
     let work!: Promise<unknown>
-    await expect(
+    const timedOut = expect(
       withCodeDeadline(20, (_signal, checkpoint) => {
         work = resolveTokenDefsByIds(new Map([['--seed', '0']]), context, true, vi.fn(), checkpoint)
         return work
       })
     ).rejects.toThrow('timed out')
+    await started.promise
+    await vi.advanceTimersByTimeAsync(20)
+    await timedOut
     expect(runTransformVariableBatch).toHaveBeenCalledTimes(1)
-    finish()
+    release.resolve()
     await expect(work).rejects.toThrow('timed out')
     expect(runTransformVariableBatch).toHaveBeenCalledTimes(1)
     const result = await withCodeDeadline(1000, (_signal, checkpoint) =>
