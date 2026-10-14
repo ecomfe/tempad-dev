@@ -27,6 +27,7 @@ import {
 } from '@tempad-dev/shared'
 
 import type {
+  CanvasGridHint,
   CanvasGridLayout,
   CanvasGridTrack,
   CanvasNodeTypeHints,
@@ -46,7 +47,8 @@ import {
   getLocalEffectStyles,
   getLocalPaintStyles,
   getMainComponent,
-  getNodeById
+  getNodeById,
+  getVariableCollectionById
 } from '../../local-resources'
 import {
   type ResolvedCanvasAssets,
@@ -54,7 +56,7 @@ import {
   resolvedSvgAsset,
   SVG_POLICY_VERSION
 } from './assets'
-import { canvasReadOnlyError, errorMessage, scopeError, specError } from './errors'
+import { applyError, canvasReadOnlyError, errorMessage, scopeError, specError } from './errors'
 import { reportCanvasPlacement } from './feedback'
 import {
   type CanvasFontState,
@@ -66,6 +68,7 @@ import {
   currentTextFonts
 } from './fonts'
 import {
+  CANVAS_COUNTER_AXIS_SYNC_NAME,
   CANVAS_KEY_NAMESPACE,
   CANVAS_NODE_KEY_NAME,
   CANVAS_NODE_OWNER_NAME,
@@ -78,7 +81,13 @@ import {
   pagesByKey,
   readOwnedNodeKey
 } from './identity'
-import { type CanvasMediaState, createMediaState, importCanvasMedia } from './media'
+import { validateAssetReferences } from './markup'
+import {
+  type CanvasMediaState,
+  collectCanvasMedia,
+  createMediaState,
+  importCanvasMedia
+} from './media'
 import {
   isCanvasNodeType,
   isFrameContainerType,
@@ -89,6 +98,7 @@ import {
   type CanvasStyleState,
   createStyleState,
   prepareStyleResources,
+  preflightStyleDeclarations,
   removeStyleResources,
   resolveStyle
 } from './styles'
@@ -102,6 +112,7 @@ import {
 import {
   type CanvasVariableState,
   createVariableState,
+  preflightVariableDeclarations,
   reconcileVariableCollections,
   removeVariableResources,
   resolveCollection,
@@ -114,7 +125,6 @@ import {
 } from './variables'
 import { canonicalVectorPaths, vectorPathsEqual } from './vector'
 
-const CANVAS_COUNTER_AXIS_SYNC_NAME = 'counter-axis-spacing-sync'
 const CANVAS_COMPONENT_PROPERTY_KEYS_NAME = 'component-property-keys'
 const CANVAS_SVG_CHILD_NAME = 'svg-child'
 const CANVAS_SVG_COLOR_NAME = 'svg-color'
@@ -145,6 +155,7 @@ type ComponentPropertyContext = {
 }
 
 type ProtectedNodeSnapshot = {
+  content: string
   childIds: string[] | null
   componentPropertyNames: string[] | null
   geometry: { height: number; width: number; x: number; y: number } | null
@@ -164,6 +175,7 @@ type ApplyState = {
   desiredKeys: Set<string>
   explicitNodes: Map<string, SupportedCanvasNode | null>
   fonts: CanvasFontState
+  ignoredLiteralWarnings: VerificationWarning[]
   keyedNodes: Map<string, SupportedCanvasNode>
   mutations: MutationCounter
   nodeIdsByKey: Record<string, string>
@@ -200,20 +212,139 @@ export async function collectUpdateNodeTypeHints(
 
   const byKey = new Map<string, CanvasPreservedNodeType>()
   const byNodeId = new Map<string, CanvasPreservedNodeType>()
+  const keys = new Set<string>()
+  const grids = new Map<string, CanvasGridHint>()
   for (const node of walkAuthoringNodes([target])) {
+    const key = readOwnedNodeKey(node)
+    if (key) keys.add(key)
+    if (isSupportedSceneNode(node) && isFrameContainer(node) && node.layoutMode === 'GRID') {
+      const grid = {
+        itemsPositioning: node.gridItemsPositioning,
+        children: node.children.flatMap((child) =>
+          'gridRowAnchorIndex' in child && child.layoutPositioning !== 'ABSOLUTE'
+            ? [
+                {
+                  id: child.id,
+                  key: readOwnedNodeKey(child),
+                  row: child.gridRowAnchorIndex,
+                  column: child.gridColumnAnchorIndex,
+                  rowSpan: child.gridRowSpan,
+                  columnSpan: child.gridColumnSpan
+                }
+              ]
+            : []
+        )
+      }
+      grids.set(node.id, grid)
+      if (key) grids.set(key, grid)
+    }
     if (!isPreservedNodeType(node.type)) continue
     const type = node.type
     byNodeId.set(node.id, type)
-    const key = readOwnedNodeKey(node)
     if (key && !byKey.has(key)) byKey.set(key, type)
   }
 
   const root = isPreservedNodeType(target.type) ? target.type : undefined
-  return { byKey, byNodeId, ...(root ? { root } : {}) }
+  return { byKey, byNodeId, keys, grids, ...(root ? { root } : {}) }
 }
 
 function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
   return {
+    // Serialize copied native values so a later in-place paint change cannot also
+    // mutate the expected snapshot. This detects content loss, not a full undo log.
+    content: JSON.stringify({
+      name: node.name,
+      ...(node.type === 'PAGE'
+        ? {
+            backgrounds: node.backgrounds,
+            guides: node.guides,
+            explicitVariableModes: node.explicitVariableModes,
+            index: figma.root.children.indexOf(node)
+          }
+        : {}),
+      ...('visible' in node ? { visible: node.visible, locked: node.locked } : {}),
+      ...('fills' in node
+        ? {
+            fills: node.fills,
+            ...('fillStyleId' in node ? { fillStyleId: node.fillStyleId } : {})
+          }
+        : {}),
+      ...('strokes' in node ? { strokes: node.strokes, strokeStyleId: node.strokeStyleId } : {}),
+      ...('effects' in node ? { effects: node.effects, effectStyleId: node.effectStyleId } : {}),
+      ...('opacity' in node ? { opacity: node.opacity } : {}),
+      ...('relativeTransform' in node ? { relativeTransform: node.relativeTransform } : {}),
+      ...('clipsContent' in node ? { clipsContent: node.clipsContent } : {}),
+      ...('minWidth' in node
+        ? {
+            minWidth: node.minWidth,
+            maxWidth: node.maxWidth,
+            minHeight: node.minHeight,
+            maxHeight: node.maxHeight
+          }
+        : {}),
+      ...('targetAspectRatio' in node ? { targetAspectRatio: node.targetAspectRatio } : {}),
+      ...('layoutSizingHorizontal' in node
+        ? {
+            layoutSizingHorizontal: node.layoutSizingHorizontal,
+            layoutSizingVertical: node.layoutSizingVertical
+          }
+        : {}),
+      ...('layoutPositioning' in node
+        ? { layoutPositioning: node.layoutPositioning, layoutGrow: node.layoutGrow }
+        : {}),
+      ...('layoutMode' in node
+        ? {
+            layoutMode: node.layoutMode,
+            primaryAxisSizingMode: node.primaryAxisSizingMode,
+            counterAxisSizingMode: node.counterAxisSizingMode,
+            primaryAxisAlignItems: node.primaryAxisAlignItems,
+            counterAxisAlignItems: node.counterAxisAlignItems,
+            counterAxisAlignContent: node.counterAxisAlignContent,
+            layoutWrap: node.layoutWrap,
+            itemSpacing: node.itemSpacing,
+            counterAxisSpacing: node.counterAxisSpacing,
+            paddingTop: node.paddingTop,
+            paddingRight: node.paddingRight,
+            paddingBottom: node.paddingBottom,
+            paddingLeft: node.paddingLeft,
+            strokesIncludedInLayout: node.strokesIncludedInLayout,
+            itemReverseZIndex: node.itemReverseZIndex,
+            ...(node.layoutMode === 'GRID'
+              ? {
+                  gridRowCount: node.gridRowCount,
+                  gridColumnCount: node.gridColumnCount,
+                  gridRowSizes: node.gridRowSizes,
+                  gridColumnSizes: node.gridColumnSizes,
+                  gridRowGap: node.gridRowGap,
+                  gridColumnGap: node.gridColumnGap,
+                  gridAutoTracks: node.gridAutoTracks,
+                  gridItemsPositioning: node.gridItemsPositioning
+                }
+              : {})
+          }
+        : {}),
+      ...('gridRowAnchorIndex' in node &&
+      node.parent &&
+      'layoutMode' in node.parent &&
+      node.parent.layoutMode === 'GRID'
+        ? {
+            gridRowAnchorIndex: node.gridRowAnchorIndex,
+            gridColumnAnchorIndex: node.gridColumnAnchorIndex,
+            gridRowSpan: node.gridRowSpan,
+            gridColumnSpan: node.gridColumnSpan,
+            gridChildHorizontalAlign: node.gridChildHorizontalAlign,
+            gridChildVerticalAlign: node.gridChildVerticalAlign
+          }
+        : {}),
+      ...(node.type === 'TEXT'
+        ? {
+            characters: node.characters,
+            fontName: node.fontName,
+            fontSize: node.fontSize,
+            textStyleId: node.textStyleId
+          }
+        : {})
+    }),
     childIds: 'children' in node ? node.children.map((child) => child.id) : null,
     componentPropertyNames: isComponentPropertyOwner(node)
       ? Object.keys(node.componentPropertyDefinitions).sort()
@@ -221,7 +352,10 @@ function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
     geometry: isSceneNode(node)
       ? { height: node.height, width: node.width, x: node.x, y: node.y }
       : null,
-    key: node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME),
+    key: node.getSharedPluginData(
+      CANVAS_KEY_NAMESPACE,
+      node.type === 'PAGE' ? CANVAS_PAGE_KEY_NAME : CANVAS_NODE_KEY_NAME
+    ),
     owner: node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_OWNER_NAME),
     parentId: node.parent?.id ?? null,
     type: node.type
@@ -229,7 +363,7 @@ function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
 }
 
 function protectNode(state: ApplyState, node: BaseNode, snapshot = true): void {
-  if (state.createdNodeIds.has(node.id)) return
+  if (state.createdNodeIds.has(node.id) || state.createdPageIds.has(node.id)) return
   if (snapshot && !state.protectedNodes.get(node.id)) {
     state.protectedNodes.set(node.id, snapshotProtectedNode(node))
   } else if (!state.protectedNodes.has(node.id)) {
@@ -295,11 +429,10 @@ function pageByKey(key: string): PageNode | undefined {
   return matches[0]
 }
 
-async function resolveResultPage(
+async function prepareResultPage(
   properties: CanvasPageProperties | undefined,
-  target: SupportedCanvasNode | null,
-  state: ApplyState
-): Promise<{ created: boolean; page: PageNode }> {
+  target: SupportedCanvasNode | null
+): Promise<PageNode | undefined> {
   const containing = target ? containingPage(target) : figma.currentPage
   const id = properties?.id
   const key = properties?.pageKey
@@ -326,16 +459,32 @@ async function resolveResultPage(
   if (index !== undefined && index > maxIndex) {
     specError(`Page index ${index} exceeds the maximum index ${maxIndex}.`)
   }
-  if (createsPage) {
+  if (createsPage) return undefined
+  page ??= containing
+  if (page.id !== figma.currentPage.id) await page.loadAsync()
+  const currentKey = key ? page.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_PAGE_KEY_NAME) : ''
+  if (key && currentKey && currentKey !== key) {
+    specError(`Page "${page.id}" is already owned by authoring key "${currentKey}".`)
+  }
+  return page
+}
+
+function applyResultPage(
+  page: PageNode | undefined,
+  properties: CanvasPageProperties | undefined,
+  state: ApplyState
+): PageNode {
+  if (!page) {
     page = figma.createPage()
     state.createdPageIds.add(page.id)
     state.mutations.count += 1
+  } else {
+    protectNode(state, page)
+    if (!state.scope) protectUnrelatedPageRoots(state, page)
   }
-  page ??= containing
-  if (page.id !== figma.currentPage.id) await page.loadAsync()
-  if (!createsPage && !state.scope) protectUnrelatedPageRoots(state, page)
-
+  const key = properties?.pageKey
   const currentKey = key ? page.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_PAGE_KEY_NAME) : ''
+  // Other preflight work can yield after the page was prepared.
   if (key && currentKey && currentKey !== key) {
     specError(`Page "${page.id}" is already owned by authoring key "${currentKey}".`)
   }
@@ -343,7 +492,7 @@ async function resolveResultPage(
     page.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_PAGE_KEY_NAME, key)
     markMutation(state, page)
   }
-  return { created: createsPage, page }
+  return page
 }
 
 function collectKeyedNodes(scope: SupportedCanvasNode): Map<string, SupportedCanvasNode> {
@@ -353,7 +502,9 @@ function collectKeyedNodes(scope: SupportedCanvasNode): Map<string, SupportedCan
     const key = readOwnedNodeKey(node)
     if (!key) continue
     if (keyed.has(key)) {
-      scopeError(`Canvas key "${key}" is duplicated inside the update scope.`)
+      scopeError(
+        `Canvas key "${key}" is duplicated on nodes "${keyed.get(key)?.id}" and "${node.id}" inside the update scope. Narrow targetNodeId to one managed subtree, or ask the user to remove the duplicate.`
+      )
     }
     keyed.set(key, node)
   }
@@ -386,6 +537,20 @@ async function resolveExplicitNodes(root: CanvasNodeSpec, state: ApplyState): Pr
 
 type CanvasNodeReference = { nodeId: string } | { canvasKey: string }
 
+function preflightRetainedNode(node: BaseNode, state: ApplyState): void {
+  for (let ancestor: BaseNode | null = node; ancestor; ancestor = ancestor.parent) {
+    if (state.removalNodeIds.has(ancestor.id)) {
+      specError(`Referenced node "${node.id}" would be removed by this result.`)
+    }
+    // A desired ancestor can carry this reference out of a removed subtree.
+    if (
+      state.explicitNodes.has(ancestor.id) ||
+      (isSceneNode(ancestor) && state.desiredKeys.has(readOwnedNodeKey(ancestor) ?? ''))
+    )
+      return
+  }
+}
+
 async function preflightNodeReference(
   reference: CanvasNodeReference,
   context: string,
@@ -398,6 +563,8 @@ async function preflightNodeReference(
         `${context} canvas key "${reference.canvasKey}" does not exist in the desired result or update scope.`
       )
     }
+    const existing = state.keyedNodes.get(reference.canvasKey)
+    if (existing) preflightRetainedNode(existing, state)
     return
   }
   const node = await lookupNodeById(reference.nodeId)
@@ -406,8 +573,24 @@ async function preflightNodeReference(
       `${context} "${reference.nodeId}" does not exist${sceneOnly ? ' or is not a scene node' : ''}.`
     )
   }
+  preflightRetainedNode(node, state)
   protectNode(state, node)
   state.referencedNodeIds.add(node.id)
+}
+
+async function preflightHyperlink(
+  hyperlink: CanvasHyperlink | undefined,
+  key: string,
+  state: ApplyState
+): Promise<void> {
+  if (hyperlink?.type !== 'NODE') return
+  await preflightNodeReference(
+    typeof hyperlink.value === 'string'
+      ? { nodeId: hyperlink.value }
+      : { canvasKey: hyperlink.value.canvasKey },
+    `Hyperlink target on "${key}"`,
+    state
+  )
 }
 
 function resolveCanvasKey(key: string, state: ApplyState): SupportedCanvasNode {
@@ -514,9 +697,14 @@ async function validateRemovalComponents(roots: SupportedCanvasNode[]): Promise<
 }
 
 type RemovalReferences = {
-  componentKeys: Set<string>
-  nodeIds: Set<string>
+  removed: { componentKeys: Set<string>; nodeIds: Set<string> }
   shaders: Array<ShaderEffect | ShaderPaint>
+}
+
+function validateRemovalReference(value: string, removed: Set<string>, kind: string): void {
+  if (removed.has(value)) {
+    scopeError(`${kind} "${value}" is still referenced outside the removal scope.`)
+  }
 }
 
 function collectReferences(value: unknown, references: RemovalReferences): void {
@@ -527,9 +715,9 @@ function collectReferences(value: unknown, references: RemovalReferences): void 
   if (!value || typeof value !== 'object') return
   const record = value as Record<string, unknown>
   if (record.type === 'PATTERN' && typeof record.sourceNodeId === 'string') {
-    references.nodeIds.add(record.sourceNodeId)
+    validateRemovalReference(record.sourceNodeId, references.removed.nodeIds, 'Node')
   } else if (record.type === 'NODE' && typeof record.value === 'string') {
-    references.nodeIds.add(record.value)
+    validateRemovalReference(record.value, references.removed.nodeIds, 'Node')
   } else if (record.type === 'SHADER' && typeof record.id === 'string') {
     references.shaders.push(value as ShaderEffect | ShaderPaint)
   }
@@ -543,10 +731,12 @@ function collectComponentReferences(
   for (const property of Object.values(properties)) {
     if (property.type === 'INSTANCE_SWAP') {
       const value = 'defaultValue' in property ? property.defaultValue : property.value
-      if (typeof value === 'string') references.nodeIds.add(value)
+      if (typeof value === 'string') {
+        validateRemovalReference(value, references.removed.nodeIds, 'Node')
+      }
     }
     for (const preferred of property.preferredValues ?? []) {
-      references.componentKeys.add(preferred.key)
+      validateRemovalReference(preferred.key, references.removed.componentKeys, 'Component key')
     }
   }
 }
@@ -566,11 +756,14 @@ function collectSceneReferences(node: SceneNode, references: RemovalReferences):
   }
   if (node.type !== 'TEXT') return
   collectReferences(node.hyperlink, references)
+  if (node.hyperlink !== figma.mixed && node.fills !== figma.mixed) return
+  let segments: Array<Pick<StyledTextSegment, 'fills' | 'hyperlink'>>
   try {
-    collectReferences(node.getStyledTextSegments(['fills', 'hyperlink']), references)
+    segments = node.getStyledTextSegments(['fills', 'hyperlink'])
   } catch {
     scopeError(`Rich text on node "${node.id}" could not be inspected before node removal.`)
   }
+  collectReferences(segments, references)
 }
 
 function collectRemovedIdentities(roots: SupportedCanvasNode[]): {
@@ -589,31 +782,38 @@ function collectRemovedIdentities(roots: SupportedCanvasNode[]): {
 
 const fullyLoadedRemovalDocuments = new WeakSet<DocumentNode>()
 
+async function loadRemovalPages(roots: SupportedCanvasNode[]): Promise<void> {
+  if (
+    !roots.length ||
+    fullyLoadedRemovalDocuments.has(figma.root) ||
+    !figma.root.children.some((page) => page.id !== figma.currentPage.id)
+  )
+    return
+  try {
+    await figma.loadAllPagesAsync()
+    fullyLoadedRemovalDocuments.add(figma.root)
+  } catch {
+    scopeError('Document pages could not be inspected before node removal.')
+  }
+}
+
 async function validateRemovalReferences(
   roots: SupportedCanvasNode[],
   state: ApplyState
 ): Promise<void> {
-  if (!roots.length) return
   const removed = collectRemovedIdentities(roots)
+  // Reparenting the last child can auto-delete a Group before this final scan.
+  // Keep its explicit removal identity without including children rescued from it.
+  for (const id of state.removalNodeIds) removed.nodeIds.add(id)
+  if (!removed.nodeIds.size) return
   const references: RemovalReferences = {
-    componentKeys: new Set(),
-    nodeIds: new Set(),
+    removed,
     shaders: []
   }
-  if (
-    !fullyLoadedRemovalDocuments.has(figma.root) &&
-    figma.root.children.some((page) => page.id !== figma.currentPage.id)
-  ) {
-    try {
-      await figma.loadAllPagesAsync()
-      fullyLoadedRemovalDocuments.add(figma.root)
-    } catch {
-      scopeError('Document pages could not be inspected before node removal.')
-    }
-  }
+  await loadRemovalPages(roots)
   for (const page of figma.root.children) {
     collectReferences(page.backgrounds, references)
-    for (const node of page.findAll()) {
+    for (const node of walkPhysicalNodes(page.children)) {
       if (removed.nodeIds.has(node.id)) continue
       collectSceneReferences(node, references)
     }
@@ -628,20 +828,20 @@ async function validateRemovalReferences(
     collectReferences(style.type === 'PAINT' ? style.paints : style.effects, references)
   }
   for (const usage of references.shaders) {
+    const candidates = Object.entries(usage.properties ?? {}).filter(
+      (entry): entry is [string, string] =>
+        typeof entry[1] === 'string' &&
+        (removed.nodeIds.has(entry[1]) || removed.componentKeys.has(entry[1]))
+    )
+    if (!candidates.length) continue
     const definitions = (await resolveShader(usage.id, state)).propertyDefinitions ?? {}
-    for (const [propertyId, value] of Object.entries(usage.properties ?? {})) {
+    for (const [propertyId, value] of candidates) {
       const type = definitions[propertyId]?.type
-      if ((type === 'INSTANCE_SWAP' || type === 'SLOT') && typeof value === 'string') {
-        references.nodeIds.add(value)
-        references.componentKeys.add(value)
+      if (type === 'INSTANCE_SWAP' || type === 'SLOT') {
+        validateRemovalReference(value, removed.nodeIds, 'Node')
+        validateRemovalReference(value, removed.componentKeys, 'Component key')
       }
     }
-  }
-  const nodeId = [...references.nodeIds].find((id) => removed.nodeIds.has(id))
-  if (nodeId) scopeError(`Node "${nodeId}" is still referenced outside the removal scope.`)
-  const componentKey = [...references.componentKeys].find((key) => removed.componentKeys.has(key))
-  if (componentKey) {
-    scopeError(`Component key "${componentKey}" is still referenced outside the removal scope.`)
   }
 }
 
@@ -697,13 +897,16 @@ async function applyRemovals(
 ): Promise<string[]> {
   const roots = outermostNodes(removalNodes.filter((node) => !node.removed))
   validateRemovalResult(roots, state)
-  await validateRemovalComponents(roots)
   await validateRemovalReferences(roots, state)
+  removeValidatedNodes(roots, state)
+  return removalNodes.map((node) => node.id)
+}
+
+function removeValidatedNodes(roots: SupportedCanvasNode[], state: ApplyState): void {
   for (const root of roots) {
     root.remove()
     state.mutations.count += 1
   }
-  return removalNodes.map((node) => node.id)
 }
 
 function markMutation(state: ApplyState, node: BaseNode): void {
@@ -754,7 +957,7 @@ function componentPropertyKeys(
       ) {
         throw new Error()
       }
-      keys = { ...(parsed as Record<string, string>) }
+      keys = Object.assign(Object.create(null) as Record<string, string>, parsed)
     } catch {
       scopeError(`Component property identity data on "${owner.id}" is invalid.`)
     }
@@ -787,7 +990,7 @@ function componentPropertyName(
 ): string | undefined {
   const mapped = componentPropertyKeys(owner, state)[key]
   if (mapped) return mapped
-  return owner.componentPropertyDefinitions[key] ? key : undefined
+  return Object.hasOwn(owner.componentPropertyDefinitions, key) ? key : undefined
 }
 
 function findExistingNode(
@@ -944,13 +1147,20 @@ function expectedVariableType(field: keyof CanvasVariableBindings): VariableReso
 
 function validateVariableType(
   field: keyof CanvasVariableBindings,
-  variable: Variable,
+  variable: Pick<Variable, 'id' | 'resolvedType'>,
   key: string
 ): void {
-  const expected = expectedVariableType(field)
+  validateVariableDataType(variable, expectedVariableType(field), `${field} on "${key}"`)
+}
+
+function validateVariableDataType(
+  variable: Pick<Variable, 'id' | 'resolvedType'>,
+  expected: VariableResolvedDataType,
+  usage: string
+): void {
   if (variable.resolvedType !== expected) {
     specError(
-      `Variable "${variable.id}" for ${field} on "${key}" is ${variable.resolvedType}, expected ${expected}.`
+      `Variable "${variable.id}" for ${usage} is ${variable.resolvedType}, expected ${expected}.`
     )
   }
 }
@@ -1023,11 +1233,7 @@ async function preflightEffects(
       for (const [field, reference] of Object.entries(effect.variables)) {
         const variable = await resolveVariable(reference, state.variables)
         const expected = field === 'color' ? 'COLOR' : 'FLOAT'
-        if (variable.resolvedType !== expected) {
-          specError(
-            `Variable "${variable.id}" for effect ${index} ${field} on "${key}" is ${variable.resolvedType}, expected ${expected}.`
-          )
-        }
+        validateVariableDataType(variable, expected, `effect ${index} ${field} on "${key}"`)
       }
     }
     if (effect.type !== 'SHADER') continue
@@ -1069,11 +1275,15 @@ async function preflightPaintVariable(
   state: ApplyState
 ): Promise<void> {
   const variable = await resolveVariable(reference, state.variables)
-  if (variable.resolvedType !== 'COLOR') {
-    specError(
-      `Variable "${variable.id}" for ${field} paint ${index} on "${key}" is ${variable.resolvedType}, expected COLOR.`
-    )
+  validateVariableDataType(variable, 'COLOR', `${field} paint ${index} on "${key}"`)
+}
+
+function paintColorVariables(paint: CanvasFigmaPaint): CanvasVariableReference[] {
+  if (paint.type === 'SOLID' && paint.variables) return [paint.variables.color]
+  if ('gradientStops' in paint) {
+    return paint.gradientStops.flatMap((stop) => (stop.variables ? [stop.variables.color] : []))
   }
+  return []
 }
 
 function hasCanvasKeyPattern(paints: CanvasFigmaPaint[] | undefined): boolean {
@@ -1113,6 +1323,41 @@ function hasDeferredTextRanges(spec: CanvasNodeSpec): boolean {
   )
 }
 
+async function preflightPaintSource(
+  paint: CanvasFigmaPaint,
+  field: string,
+  index: number,
+  key: string,
+  state: ApplyState
+): Promise<void> {
+  if (paint.type === 'IMAGE') {
+    if (paint.imageUrl !== undefined) {
+      if (!state.media.imageUrls.has(paint.imageUrl)) {
+        state.media.imageUrls.set(paint.imageUrl, `${field} paint ${index} on "${key}"`)
+      }
+    } else if (paint.assetKey !== undefined) {
+      state.media.imageAssetKeys.add(paint.assetKey)
+    } else if (paint.imageHash && !figma.getImageByHash(paint.imageHash)) {
+      specError(
+        `Image "${paint.imageHash}" for ${field} paint ${index} on "${key}" does not exist.`
+      )
+    }
+  }
+  if (paint.type === 'VIDEO' && paint.videoUrl !== undefined) {
+    state.media.videoUrls.add(paint.videoUrl)
+  }
+  if (paint.type === 'PATTERN') {
+    await preflightNodeReference(
+      paint.sourceCanvasKey
+        ? { canvasKey: paint.sourceCanvasKey }
+        : { nodeId: paint.sourceNodeId! },
+      `Pattern source for ${field} paint ${index} on "${key}"`,
+      state,
+      true
+    )
+  }
+}
+
 async function preflightPaintStack(
   paints: CanvasFigmaPaint[] | undefined,
   field: string,
@@ -1120,41 +1365,9 @@ async function preflightPaintStack(
   state: ApplyState
 ): Promise<void> {
   for (const [index, paint] of (paints ?? []).entries()) {
-    if (paint.type === 'SOLID' && paint.variables) {
-      await preflightPaintVariable(paint.variables.color, field, index, key, state)
-    } else if ('gradientStops' in paint) {
-      for (const stop of paint.gradientStops) {
-        if (stop.variables) {
-          await preflightPaintVariable(stop.variables.color, field, index, key, state)
-        }
-      }
-    }
-    if (paint.type === 'IMAGE') {
-      if (paint.imageUrl !== undefined) {
-        if (!state.media.imageUrls.has(paint.imageUrl)) {
-          state.media.imageUrls.set(paint.imageUrl, `${field} paint ${index} on "${key}"`)
-        }
-      } else if (paint.assetKey !== undefined) {
-        state.media.imageAssetKeys.add(paint.assetKey)
-      } else if (paint.imageHash && !figma.getImageByHash(paint.imageHash)) {
-        specError(
-          `Image "${paint.imageHash}" for ${field} paint ${index} on "${key}" does not exist.`
-        )
-      }
-    }
-    if (paint.type === 'VIDEO' && paint.videoUrl !== undefined) {
-      state.media.videoUrls.add(paint.videoUrl)
-    }
-    if (paint.type === 'PATTERN') {
-      await preflightNodeReference(
-        paint.sourceCanvasKey
-          ? { canvasKey: paint.sourceCanvasKey }
-          : { nodeId: paint.sourceNodeId! },
-        `Pattern source for ${field} paint ${index} on "${key}"`,
-        state,
-        true
-      )
-    }
+    for (const reference of paintColorVariables(paint))
+      await preflightPaintVariable(reference, field, index, key, state)
+    await preflightPaintSource(paint, field, index, key, state)
     if (paint.type === 'SHADER') {
       await preflightShader(paint.id, paint.properties, 'fill', key, state)
     }
@@ -1166,7 +1379,7 @@ async function preflightPaints(spec: CanvasNodeSpec, state: ApplyState): Promise
   await preflightPaintStack(spec.figma?.strokes, 'stroke', spec.key, state)
 }
 
-async function preflightVector(spec: CanvasNodeSpec, state: ApplyState): Promise<void> {
+function preflightVectorPaths(spec: CanvasNodeSpec): void {
   const shape = spec.figma?.shape
   if (shape?.type !== 'VECTOR') return
   if (shape.paths) {
@@ -1178,6 +1391,11 @@ async function preflightVector(spec: CanvasNodeSpec, state: ApplyState): Promise
       )
     }
   }
+}
+
+async function preflightVector(spec: CanvasNodeSpec, state: ApplyState): Promise<void> {
+  const shape = spec.figma?.shape
+  if (shape?.type !== 'VECTOR') return
   for (const [index, region] of (shape.network?.regions ?? []).entries()) {
     await preflightPaintStack(region.fills, `vector region ${index} fill`, spec.key, state)
     if (!region.fillStyle) continue
@@ -1186,7 +1404,24 @@ async function preflightVector(spec: CanvasNodeSpec, state: ApplyState): Promise
   }
 }
 
+function preflightTextRangeBounds(spec: CanvasNodeSpec, state: ApplyState): void {
+  for (const range of spec.figma?.text?.ranges ?? []) {
+    const existing = findExistingNode(spec, state)
+    if (
+      spec.text &&
+      !spec.variables?.characters &&
+      !(existing && currentBoundVariableId(existing, 'characters')) &&
+      range.end > spec.text.characters.length
+    ) {
+      specError(
+        `Text range ${range.start}:${range.end} on "${spec.key}" exceeds ${spec.text.characters.length} UTF-16 code units.`
+      )
+    }
+  }
+}
+
 async function preflightTextRanges(spec: CanvasNodeSpec, state: ApplyState): Promise<void> {
+  preflightTextRangeBounds(spec, state)
   for (const [index, range] of (spec.figma?.text?.ranges ?? []).entries()) {
     const key = `${spec.key} text range ${index}`
     if (range.fontName) await loadFont(range.fontName, state.fonts)
@@ -1205,15 +1440,7 @@ async function preflightTextRanges(spec: CanvasNodeSpec, state: ApplyState): Pro
       if (!reference) continue
       validateVariableType(field, await resolveVariable(reference, state.variables), key)
     }
-    if (range.hyperlink?.type === 'NODE') {
-      await preflightNodeReference(
-        typeof range.hyperlink.value === 'string'
-          ? { nodeId: range.hyperlink.value }
-          : { canvasKey: range.hyperlink.value.canvasKey },
-        `Hyperlink target on "${key}"`,
-        state
-      )
-    }
+    await preflightHyperlink(range.hyperlink, key, state)
     await preflightPaintStack(range.fills, `text range ${index} fill`, spec.key, state)
     const decorationColor = range.textDecorationColor
     if (decorationColor && decorationColor.value !== 'AUTO') {
@@ -1235,11 +1462,7 @@ async function preflightLayoutGrids(
   for (const [index, grid] of (grids ?? []).entries()) {
     for (const [field, reference] of Object.entries(grid.variables ?? {})) {
       const variable = await resolveVariable(reference, state.variables)
-      if (variable.resolvedType !== 'FLOAT') {
-        specError(
-          `Variable "${variable.id}" for layout grid ${index} ${field} on "${key}" is ${variable.resolvedType}, expected FLOAT.`
-        )
-      }
+      validateVariableDataType(variable, 'FLOAT', `layout grid ${index} ${field} on "${key}"`)
     }
   }
 }
@@ -1284,24 +1507,116 @@ function textStyleVariableEntries(
   >
 }
 
+async function defaultFontVariableValue(
+  variable: Variable,
+  state: ApplyState,
+  seen = new Set<string>()
+): Promise<VariableValue> {
+  if (seen.has(variable.id) || seen.size >= 64) {
+    specError('Text style font variable aliases contain a cycle or exceed 64 levels.')
+  }
+  seen.add(variable.id)
+  const collection = await getVariableCollectionById(variable.variableCollectionId)
+  const value = collection && variable.valuesByMode[collection.defaultModeId]
+  if (value === undefined || value === null) {
+    scopeError(`Font variable "${variable.id}" has no accessible default-mode value.`)
+  }
+  if (typeof value === 'object' && 'type' in value && value.type === 'VARIABLE_ALIAS') {
+    return defaultFontVariableValue(
+      await resolveVariable({ id: value.id }, state.variables),
+      state,
+      seen
+    )
+  }
+  return value
+}
+
+async function loadTextStyleVariableFonts(
+  style: TextStyle,
+  spec: TextStyleResource,
+  state: ApplyState
+): Promise<void> {
+  const fields = TEXT_STYLE_VARIABLES_BY_VALUE.fontName
+  const variables = await Promise.all(
+    fields.map(async (field) => {
+      const reference = spec.variables?.[field]
+      const retained = style.boundVariables?.[field]
+      if (reference === null) return undefined
+      if (reference) return resolveVariable(reference, state.variables)
+      if (retained) return resolveVariable({ id: retained.id }, state.variables)
+      return undefined
+    })
+  )
+  if (!variables.some(Boolean)) return
+  const hasRetainedBinding = fields.some(
+    (field) => style.boundVariables?.[field] && spec.variables?.[field] !== null
+  )
+  const base = (!hasRetainedBinding && spec.fontName) || style.fontName
+  // A style has no consumer mode of its own. Cover its default values and every
+  // existing consumer context without creating temporary canvas nodes.
+  const contexts: Array<SceneNode | undefined> = [
+    undefined,
+    ...(await style.getStyleConsumersAsync()).map(({ node }) => node)
+  ]
+  for (const consumer of contexts) {
+    const [family = base.family, fontStyle = base.style, weight] = await Promise.all(
+      variables.map((variable) => {
+        if (!variable) return undefined
+        if (consumer) return variable.resolveForConsumer(consumer).value
+        return defaultFontVariableValue(variable, state)
+      })
+    )
+    if (
+      typeof family !== 'string' ||
+      typeof fontStyle !== 'string' ||
+      (weight !== undefined &&
+        (typeof weight !== 'number' || !Number.isFinite(weight) || weight < 1 || weight > 1000))
+    ) {
+      specError(
+        `Font variables on Text style "${style.id}" must resolve to STRING family/style and a weight between 1 and 1000.`
+      )
+    }
+    const font =
+      weight === undefined
+        ? { ...base, family, style: fontStyle }
+        : await resolveFamilyFont(family, fontStyle, state.fonts, weight)
+    await loadVariableFontTransitions(
+      [base],
+      spec.variables,
+      { family, style: fontStyle, weight },
+      state
+    )
+    await loadFont(font, state.fonts)
+  }
+}
+
+function preflightStylePatternSources(
+  paints: CanvasFigmaPaint[] | undefined,
+  key: string,
+  state: ApplyState
+): void {
+  for (const paint of paints ?? []) {
+    if (
+      paint.type === 'PATTERN' &&
+      paint.sourceCanvasKey !== undefined &&
+      !state.keyedNodes.has(paint.sourceCanvasKey)
+    ) {
+      specError(
+        `Pattern source "${paint.sourceCanvasKey}" on Paint style "${key}" must already exist in the update scope; use sourceNodeId when creating the source separately.`
+      )
+    }
+  }
+}
+
 async function preflightStyleResources(state: ApplyState): Promise<void> {
-  for (const { key, spec } of state.styles.resources) {
+  for (const { key, spec, style } of state.styles.resources) {
     switch (spec.type) {
       case 'PAINT':
-        for (const paint of spec.paints ?? []) {
-          if (
-            paint.type === 'PATTERN' &&
-            paint.sourceCanvasKey !== undefined &&
-            !state.keyedNodes.has(paint.sourceCanvasKey)
-          ) {
-            specError(
-              `Pattern source "${paint.sourceCanvasKey}" on Paint style "${key}" must already exist in the update scope; use sourceNodeId when creating the source separately.`
-            )
-          }
-        }
+        preflightStylePatternSources(spec.paints, key, state)
         await preflightPaintStack(spec.paints, 'style', key, state)
         break
       case 'TEXT':
+        if (style.type === 'TEXT') await loadFont(style.fontName, state.fonts)
         if (spec.fontName) await loadFont(spec.fontName, state.fonts)
         for (const [field, reference] of textStyleVariableEntries(spec)) {
           if (!reference) continue
@@ -1311,6 +1626,7 @@ async function preflightStyleResources(state: ApplyState): Promise<void> {
             key
           )
         }
+        if (style.type === 'TEXT') await loadTextStyleVariableFonts(style, spec, state)
         break
       case 'EFFECT':
         await preflightEffects(spec.effects, key, state)
@@ -1372,28 +1688,32 @@ function expectedComponentPropertyVariableType(
   return type === 'BOOLEAN' ? 'BOOLEAN' : 'STRING'
 }
 
+type ComponentPreflightResources = {
+  variable: (
+    reference: CanvasVariableReference
+  ) => Promise<Pick<Variable, 'id' | 'resolvedType'> | undefined>
+  component: (reference: CanvasDesignReference) => Promise<ComponentNode | undefined>
+}
+
 async function preflightComponentPropertyDefinition(
   key: string,
   definition: CanvasFigmaComponentPropertyDefinition,
-  state: ApplyState
+  resources: ComponentPreflightResources
 ): Promise<void> {
   if (isVariableBinding(definition.defaultValue)) {
-    const variable = await resolveVariable(definition.defaultValue.variable, state.variables)
+    const variable = await resources.variable(definition.defaultValue.variable)
     const expected = expectedComponentPropertyVariableType(definition.type)
-    if (variable.resolvedType !== expected) {
-      specError(
-        `Variable "${variable.id}" for component property "${key}" is ${variable.resolvedType}, expected ${expected}.`
-      )
-    }
+    if (variable) validateVariableDataType(variable, expected, `component property "${key}"`)
   } else if (definition.type === 'INSTANCE_SWAP') {
-    await resolveComponent(definition.defaultValue, state)
+    await resources.component(definition.defaultValue)
   }
 }
 
 async function preflightAuthoredComponentProperties(
   spec: CanvasNodeSpec,
   context: ComponentPropertyContext | undefined,
-  state: ApplyState
+  state: ApplyState,
+  resources: ComponentPreflightResources
 ): Promise<void> {
   const properties = spec.figma?.component?.properties
   if (!properties) return
@@ -1423,7 +1743,7 @@ async function preflightAuthoredComponentProperties(
         `Component property "${key}" on "${spec.key}" is ${current.type}, expected ${desired.type}.`
       )
     }
-    await preflightComponentPropertyDefinition(key, desired, state)
+    await preflightComponentPropertyDefinition(key, desired, resources)
   }
 }
 
@@ -1540,12 +1860,15 @@ function preflightSlot(
 async function preflightComponentProperties(
   spec: CanvasNodeSpec,
   component: ComponentNode,
-  state: ApplyState
+  state: ApplyState,
+  resources: ComponentPreflightResources
 ): Promise<void> {
   const owner = componentDefinitionOwner(component)
   for (const [key, value] of Object.entries(spec.componentProperties ?? {})) {
     const name = componentPropertyName(owner, key, state) ?? key
-    const definition = owner.componentPropertyDefinitions[name]
+    const definition = Object.hasOwn(owner.componentPropertyDefinitions, name)
+      ? owner.componentPropertyDefinitions[name]
+      : undefined
     if (!definition) {
       specError(`Component "${component.id}" has no property "${key}" for "${spec.key}".`)
     }
@@ -1558,9 +1881,9 @@ async function preflightComponentProperties(
           `Component property "${name}" on "${spec.key}" cannot bind a variable because it is ${definition.type}.`
         )
       }
-      const variable = await resolveVariable(value.variable, state.variables)
+      const variable = await resources.variable(value.variable)
       const expected = expectedComponentPropertyVariableType(definition.type)
-      if (variable.resolvedType !== expected) {
+      if (variable && variable.resolvedType !== expected) {
         specError(
           `Variable "${variable.id}" for component property "${name}" on "${spec.key}" is ${variable.resolvedType}, expected ${expected}.`
         )
@@ -1584,6 +1907,9 @@ async function preflightComponentProperties(
       specError(
         `Instance-swap property "${name}" on "${spec.key}" must reference a component node.`
       )
+    }
+    if (replacement.type === 'COMPONENT_SET' && spec.componentProperties) {
+      spec.componentProperties[key] = replacement.defaultVariant.id
     }
   }
 }
@@ -1700,22 +2026,156 @@ function preflightContainers(
   }
 }
 
-async function preflightResources(
+function preflightMovedChildren(root: CanvasNodeSpec, state: ApplyState): void {
+  const order = new Map<CanvasNodeSpec, { start: number; end: number }>()
+  let nextOrder = 0
+  function recordOrder(spec: CanvasNodeSpec): void {
+    const start = nextOrder++
+    for (const child of spec.children ?? []) recordOrder(child)
+    order.set(spec, { start, end: nextOrder++ })
+  }
+  recordOrder(root)
+  const incoming = new Map<string, number[]>()
+  const outgoing = new Map<CanvasParentNode, { ids: Set<string>; lastMove: number }>()
+  for (const parentSpec of walkSpecs(root)) {
+    const destination = findExistingNode(parentSpec, state)
+    for (const childSpec of parentSpec.children ?? []) {
+      const child = findExistingNode(childSpec, state)
+      const parent = child?.parent
+      if (destination && 'children' in destination && parent?.id !== destination.id) {
+        const insertions = incoming.get(destination.id) ?? []
+        // Only new wrapped containers wait for their children before insertion.
+        const timing = order.get(childSpec)!
+        insertions.push(!child && isWrappedSpec(childSpec) ? timing.end : timing.start)
+        incoming.set(destination.id, insertions)
+      }
+      if (
+        !child ||
+        !parent ||
+        parent.id === destination?.id ||
+        (parent.type !== 'GROUP' &&
+          parent.type !== 'BOOLEAN_OPERATION' &&
+          parent.type !== 'COMPONENT_SET')
+      )
+        continue
+      const moves = outgoing.get(parent) ?? { ids: new Set<string>(), lastMove: -1 }
+      moves.ids.add(child.id)
+      // New sets stage every variant before reconciling any variant's descendants.
+      const moveOrder = !destination && parentSpec.type === 'COMPONENT_SET' ? parentSpec : childSpec
+      moves.lastMove = Math.max(moves.lastMove, order.get(moveOrder)!.start)
+      outgoing.set(parent, moves)
+    }
+  }
+  for (const initialParent of [...outgoing.keys()]) {
+    let parent = initialParent
+    while (true) {
+      const { ids, lastMove } = outgoing.get(parent)!
+      const addedBeforeMove = (incoming.get(parent.id) ?? []).filter(
+        (time) => time < lastMove
+      ).length
+      // An explicitly removed Group can disappear during the move, emptying its
+      // parent before the ordinary removal checks get a live subtree to inspect.
+      if (
+        parent.type !== 'GROUP' ||
+        addedBeforeMove ||
+        parent.children.some((child) => !ids.has(child.id))
+      )
+        break
+      const ancestor = parent.parent
+      if (
+        !ancestor ||
+        (ancestor.type !== 'GROUP' &&
+          ancestor.type !== 'BOOLEAN_OPERATION' &&
+          ancestor.type !== 'COMPONENT_SET')
+      )
+        break
+      const ancestorMoves = outgoing.get(ancestor) ?? { ids: new Set<string>(), lastMove: -1 }
+      if (ancestorMoves.ids.has(parent.id)) break
+      ancestorMoves.ids.add(parent.id)
+      ancestorMoves.lastMove = Math.max(ancestorMoves.lastMove, lastMove)
+      outgoing.set(ancestor, ancestorMoves)
+      parent = ancestor
+    }
+  }
+  // Aggregate sibling cascades before checking their common ancestor's last move.
+  for (const [parent, { ids, lastMove }] of outgoing) {
+    const remaining = parent.children.filter(
+      (child) => !ids.has(child.id) && !state.removalNodeIds.has(child.id)
+    )
+    const addedBeforeMove = (incoming.get(parent.id) ?? []).filter((time) => time < lastMove).length
+    const minimum = parent.type === 'BOOLEAN_OPERATION' ? 2 : 1
+    if (!state.removalNodeIds.has(parent.id) && remaining.length + addedBeforeMove < minimum) {
+      specError(
+        `Moving these children would leave ${parent.type} "${parent.id}" with fewer than ${minimum} children. Preserve its required children or explicitly remove that container in the same update.`
+      )
+    }
+  }
+}
+
+async function preflightTextFont(
+  spec: CanvasNodeSpec,
+  state: ApplyState,
+  existing?: SupportedCanvasNode
+): Promise<void> {
+  if (spec.type !== 'TEXT' || !spec.text) return
+  const textNode = existing?.type === 'TEXT' ? existing : null
+  const hasTextStyle = !!(spec.styles?.text || textNode?.textStyleId)
+  const hasFontFamilyVariable = !!(
+    spec.variables?.fontFamily ||
+    (textNode && currentBoundVariableId(textNode, 'fontFamily'))
+  )
+  const hasFontStyleVariable = !!(
+    spec.variables?.fontStyle ||
+    (textNode && currentBoundVariableId(textNode, 'fontStyle'))
+  )
+  const fontFamily = hasTextStyle || hasFontFamilyVariable ? undefined : spec.text.fontFamily
+  const fontStyle = hasTextStyle || hasFontStyleVariable ? undefined : spec.text.fontStyle
+  if (
+    (fontFamily !== undefined || fontStyle !== undefined) &&
+    !(spec.text.fontStyleMatching && (hasFontFamilyVariable || hasFontStyleVariable))
+  ) {
+    const currentFont = textNode?.fontName ?? { family: 'Inter', style: 'Regular' }
+    if (currentFont === figma.mixed && (!fontFamily || !fontStyle)) {
+      specError(
+        `TEXT "${spec.key}" has mixed fonts; provide both fontFamily and fontStyle to replace them.`
+      )
+    }
+    const desiredFamily = fontFamily ?? (currentFont === figma.mixed ? '' : currentFont.family)
+    const desiredStyle = fontStyle ?? (currentFont === figma.mixed ? '' : currentFont.style)
+    const desiredFont = spec.text.portableFontFamily
+      ? await resolvePortableFont(spec.text.portableFontFamily, desiredStyle, state.fonts)
+      : spec.text.fontStyleMatching
+        ? await resolveFamilyFont(desiredFamily, desiredStyle, state.fonts)
+        : await resolveLiteralFont(desiredFamily, desiredStyle, spec, state)
+    if (spec.text.portableFontFamily) {
+      spec.text.fontFamily = desiredFont.family
+      spec.text.fontStyle = desiredFont.style
+    }
+    await loadFont(desiredFont, state.fonts)
+  }
+}
+
+async function preflightComponentState(
   spec: CanvasNodeSpec,
   state: ApplyState,
   existing?: SupportedCanvasNode,
-  inheritedComponent?: ComponentPropertyContext
-): Promise<void> {
+  inheritedComponent?: ComponentPropertyContext,
+  resources: ComponentPreflightResources = {
+    variable: (reference) => resolveVariable(reference, state.variables),
+    component: (reference) => resolveComponent(reference, state)
+  }
+): Promise<ComponentPropertyContext | undefined> {
   const component = nextComponentPropertyContext(spec, existing, inheritedComponent)
   if (component?.existing?.remote) {
     specError(`Remote ${component.existing.type} containing "${spec.key}" is read-only.`)
   }
-  await preflightAuthoredComponentProperties(spec, component, state)
+  await preflightAuthoredComponentProperties(spec, component, state, resources)
   preflightComponentPropertyReferences(spec, existing, component, state)
   preflightSlot(spec, existing, component, state)
   if (spec.component) {
-    const instanceComponent = await resolveComponent(spec.component, state)
-    await preflightComponentProperties(spec, instanceComponent, state)
+    const instanceComponent = await resources.component(spec.component)
+    if (instanceComponent)
+      await preflightComponentProperties(spec, instanceComponent, state, resources)
   } else if (spec.componentProperties || spec.figma?.instance) {
     const instance = existing ?? findExistingNode(spec, state)
     if (instance?.type !== 'INSTANCE') {
@@ -1728,7 +2188,7 @@ async function preflightResources(
       if (!instanceComponent) {
         specError(`Existing instance "${spec.key}" has no main component.`)
       }
-      await preflightComponentProperties(spec, instanceComponent, state)
+      await preflightComponentProperties(spec, instanceComponent, state, resources)
     }
   }
   if (spec.figma?.instance?.exposed !== undefined) {
@@ -1739,6 +2199,18 @@ async function preflightResources(
       )
     }
   }
+  return component
+}
+
+async function preflightResources(
+  spec: CanvasNodeSpec,
+  state: ApplyState,
+  existing?: SupportedCanvasNode,
+  inheritedComponent?: ComponentPropertyContext
+): Promise<void> {
+  preflightShadowSpread(spec, existing)
+  if (existing?.type === 'TEXT') await loadFonts(currentTextFonts(existing), state.fonts)
+  const component = await preflightComponentState(spec, state, existing, inheritedComponent)
   if (spec.variables) {
     for (const field of Object.keys(spec.variables) as Array<keyof CanvasVariableBindings>) {
       const reference = spec.variables[field]
@@ -1757,58 +2229,8 @@ async function preflightResources(
       if (style.type === 'TEXT') await loadFont(style.fontName, state.fonts)
     }
   }
-  if (spec.type === 'TEXT' && spec.text) {
-    const textNode = existing?.type === 'TEXT' ? existing : null
-    const hasTextStyle = !!(spec.styles?.text || textNode?.textStyleId)
-    const hasFontFamilyVariable = !!(
-      spec.variables?.fontFamily ||
-      (textNode && currentBoundVariableId(textNode, 'fontFamily'))
-    )
-    const hasFontStyleVariable = !!(
-      spec.variables?.fontStyle ||
-      (textNode && currentBoundVariableId(textNode, 'fontStyle'))
-    )
-    const fontFamily = hasTextStyle || hasFontFamilyVariable ? undefined : spec.text.fontFamily
-    const fontStyle = hasTextStyle || hasFontStyleVariable ? undefined : spec.text.fontStyle
-    if (
-      (fontFamily !== undefined || fontStyle !== undefined) &&
-      !(spec.text.fontStyleMatching && (hasFontFamilyVariable || hasFontStyleVariable))
-    ) {
-      const currentFont = textNode?.fontName ?? { family: 'Inter', style: 'Regular' }
-      if (currentFont === figma.mixed && (!fontFamily || !fontStyle)) {
-        specError(
-          `TEXT "${spec.key}" has mixed fonts; provide both fontFamily and fontStyle to replace them.`
-        )
-      }
-      const desiredFamily = fontFamily ?? (currentFont === figma.mixed ? '' : currentFont.family)
-      const desiredStyle = fontStyle ?? (currentFont === figma.mixed ? '' : currentFont.style)
-      const desiredFont = spec.text.portableFontFamily
-        ? await resolvePortableFont(spec.text.portableFontFamily, desiredStyle, state.fonts)
-        : spec.text.fontStyleMatching
-          ? await resolveFamilyFont(desiredFamily, desiredStyle, state.fonts)
-          : {
-              family: desiredFamily,
-              style: spec.figma?.text?.fontName
-                ? desiredStyle
-                : normalizePortableFontStyle(desiredFamily, desiredStyle)
-            }
-      if (spec.text.portableFontFamily) {
-        spec.text.fontFamily = desiredFont.family
-        spec.text.fontStyle = desiredFont.style
-      }
-      await loadFont(desiredFont, state.fonts)
-    }
-  }
-  const hyperlink = spec.figma?.text?.hyperlink
-  if (hyperlink?.type === 'NODE') {
-    await preflightNodeReference(
-      typeof hyperlink.value === 'string'
-        ? { nodeId: hyperlink.value }
-        : { canvasKey: hyperlink.value.canvasKey },
-      `Hyperlink target on "${spec.key}"`,
-      state
-    )
-  }
+  await preflightTextFont(spec, state, existing)
+  await preflightHyperlink(spec.figma?.text?.hyperlink, spec.key, state)
   await preflightPaints(spec, state)
   await preflightVector(spec, state)
   await preflightTextRanges(spec, state)
@@ -1904,6 +2326,15 @@ async function createNode(spec: CanvasNodeSpec, state: ApplyState): Promise<Supp
       break
   }
   recordCreatedNode(node, state)
+  normalizeCreatedFrame(node, spec, state)
+  return node
+}
+
+function normalizeCreatedFrame(
+  node: SupportedCanvasNode,
+  spec: CanvasNodeSpec,
+  state: ApplyState
+): void {
   if (
     (node.type === 'FRAME' || node.type === 'COMPONENT') &&
     spec.appearance?.clipsContent === undefined &&
@@ -1921,7 +2352,6 @@ async function createNode(spec: CanvasNodeSpec, state: ApplyState): Promise<Supp
     node.fills = []
     markMutation(state, node)
   }
-  return node
 }
 
 function moveIntoParent<Child extends BaseNode>(
@@ -1935,13 +2365,17 @@ function moveIntoParent<Child extends BaseNode>(
 ): void {
   const sameParent = node.parent?.id === parent.id
   if (sameParent && parent.children.indexOf(node) === index) return
+  const preceding = sameParent ? [] : parent.children.slice(0, index)
   parent.insertChild(index, node)
-  if (sameParent && parent.children.indexOf(node) !== index) {
+  // Moving out of a Group can remove that Group (and empty ancestor Groups)
+  // from this parent, shifting the requested insertion slot.
+  const expectedIndex = index - preceding.filter((sibling) => sibling.removed).length
+  if ((sameParent || expectedIndex !== index) && parent.children.indexOf(node) !== expectedIndex) {
     const currentIndex = parent.children.indexOf(node)
-    parent.insertChild(currentIndex < index ? index + 1 : index, node)
+    parent.insertChild(currentIndex < expectedIndex ? expectedIndex + 1 : expectedIndex, node)
   }
-  if (parent.children.indexOf(node) !== index) {
-    specError(`Node "${node.id}" could not be placed at child index ${index}.`)
+  if (parent.children.indexOf(node) !== expectedIndex) {
+    specError(`Node "${node.id}" could not be placed at child index ${expectedIndex}.`)
   }
   markMutation(state, node)
 }
@@ -1953,7 +2387,12 @@ function setValue<T>(
   apply: (value: T) => void,
   state: ApplyState
 ): void {
-  if (desired === undefined || Object.is(current, desired)) return
+  if (
+    desired === undefined ||
+    Object.is(current, desired) ||
+    (typeof current === 'number' && typeof desired === 'number' && current === Math.fround(desired))
+  )
+    return
   apply(desired)
   markMutation(state, node)
 }
@@ -1976,7 +2415,7 @@ function applyCounterAxisSpacing(
   if (desired !== null) {
     setValue(
       node,
-      node.counterAxisSpacing,
+      synced ? undefined : node.counterAxisSpacing,
       desired,
       (value) => (node.counterAxisSpacing = value),
       state
@@ -2692,7 +3131,10 @@ function applyAppearance(node: SupportedCanvasNode, spec: CanvasNodeSpec, state:
 
 function resolvedComponent(reference: CanvasDesignReference, state: ApplyState): ComponentNode {
   const component = state.componentCache.get(designReferenceCacheKey(reference))
-  if (!component) specError('A preflighted component could not be resolved.')
+  if (!component)
+    applyError(
+      'A preflighted component could not be resolved. This is an internal apply failure; do not retry the same payload.'
+    )
   return component
 }
 
@@ -2735,7 +3177,7 @@ function nativeShaderProperties(
   state: ApplyState
 ): Record<string, ShaderPropertyValue> | undefined {
   const shader = state.shaderCache.get(id)
-  if (!shader) specError(`Shader "${id}" was not preflighted.`)
+  if (!shader) applyError(`Shader "${id}" was not preflighted.`)
   const properties = Object.fromEntries(
     Object.entries(shader.propertyDefinitions ?? {})
       .filter(([, definition]) => definition.defaultValue !== undefined)
@@ -2753,6 +3195,15 @@ function paintDefaults(paint: { visible?: boolean; opacity?: number; blendMode?:
     opacity: paint.opacity ?? 1,
     blendMode: paint.blendMode ?? 'NORMAL'
   } as const
+}
+
+function requiredMediaHash(hashes: ReadonlyMap<string, string>, key: string): string {
+  const hash = hashes.get(key)
+  if (!hash)
+    applyError(
+      'A preflighted media import is missing. This is an internal apply failure; do not retry the same payload.'
+    )
+  return hash
 }
 
 function nativePaint(paint: CanvasFigmaPaint, state: ApplyState): Paint {
@@ -2797,10 +3248,10 @@ function nativePaint(paint: CanvasFigmaPaint, state: ApplyState): Paint {
         ...fields,
         imageHash:
           assetKey !== undefined
-            ? state.media.imageHashes.get(`asset:${assetKey}`)!
+            ? requiredMediaHash(state.media.imageHashes, `asset:${assetKey}`)
             : imageUrl === undefined
               ? (fields.imageHash ?? null)
-              : state.media.imageHashes.get(imageUrl)!,
+              : requiredMediaHash(state.media.imageHashes, imageUrl),
         ...paintDefaults(paint)
       }
     }
@@ -2811,7 +3262,7 @@ function nativePaint(paint: CanvasFigmaPaint, state: ApplyState): Paint {
         videoHash:
           videoUrl === undefined
             ? (fields.videoHash ?? null)
-            : state.media.videoHashes.get(videoUrl)!,
+            : requiredMediaHash(state.media.videoHashes, videoUrl),
         ...paintDefaults(paint)
       }
     }
@@ -3246,13 +3697,35 @@ function applyPaintStacks(
   }
 }
 
-function validateShadowSpread(node: SupportedCanvasNode, spec: CanvasNodeSpec): void {
-  const hasSpread = spec.figma?.effects?.some(
-    (effect) =>
-      (effect.type === 'DROP_SHADOW' || effect.type === 'INNER_SHADOW') &&
-      (effect.spread !== undefined || effect.variables?.spread !== undefined)
+function hasShadowSpread(spec: CanvasNodeSpec): boolean {
+  return (
+    spec.figma?.effects?.some(
+      (effect) =>
+        (effect.type === 'DROP_SHADOW' || effect.type === 'INNER_SHADOW') &&
+        (effect.spread !== undefined || effect.variables?.spread !== undefined)
+    ) ?? false
   )
-  if (!hasSpread || node.type === 'RECTANGLE' || node.type === 'ELLIPSE') return
+}
+
+function shadowSpreadError(spec: CanvasNodeSpec): never {
+  return specError(
+    `Shadow spread on "${spec.key}" requires a rectangle, ellipse, or a clipped frame/instance with a visible fill; authored components and component sets count as frames.`
+  )
+}
+
+function preflightShadowSpread(spec: CanvasNodeSpec, existing?: SupportedCanvasNode): void {
+  if (!hasShadowSpread(spec) || spec.type === 'RECTANGLE' || spec.type === 'ELLIPSE') return
+  // Instance swaps and deferred fills need the final native state. Frame clipping,
+  // however, is known before resources are created, including normalized defaults.
+  if (spec.type !== 'FRAME' && spec.type !== 'COMPONENT') return
+  const clipsContent =
+    spec.appearance?.clipsContent ??
+    (existing && 'clipsContent' in existing ? existing.clipsContent : false)
+  if (!clipsContent) shadowSpreadError(spec)
+}
+
+function validateShadowSpread(node: SupportedCanvasNode, spec: CanvasNodeSpec): void {
+  if (!hasShadowSpread(spec) || node.type === 'RECTANGLE' || node.type === 'ELLIPSE') return
   const authoredFills = spec.figma?.fills
   const hasLiveVisibleFill =
     'fills' in node &&
@@ -3265,9 +3738,7 @@ function validateShadowSpread(node: SupportedCanvasNode, spec: CanvasNodeSpec): 
   if ((isFrameContainer(node) || node.type === 'INSTANCE') && node.clipsContent && hasVisibleFill) {
     return
   }
-  specError(
-    `Shadow spread on "${spec.key}" requires a rectangle, ellipse, or a clipped frame/instance with a visible fill; authored components and component sets count as frames.`
-  )
+  shadowSpreadError(spec)
 }
 
 function applyEffects(node: SupportedCanvasNode, spec: CanvasNodeSpec, state: ApplyState): void {
@@ -3434,6 +3905,19 @@ async function applyShape(
   }
 }
 
+async function resolveLiteralFont(
+  family: string,
+  style: string,
+  spec: CanvasNodeSpec,
+  state: ApplyState
+): Promise<FontName> {
+  if (spec.figma?.text?.fontName) return { family, style }
+  if (family === 'Inter' || family === 'Noto Serif' || family === 'Noto Sans Mono') {
+    return { family, style: normalizePortableFontStyle(family, style) }
+  }
+  return resolveFamilyFont(family, style, state.fonts)
+}
+
 async function loadTextFonts(
   node: TextNode,
   spec: CanvasNodeSpec,
@@ -3496,12 +3980,7 @@ async function loadTextFonts(
   const desiredFont: FontName | null = hasExplicitFont
     ? text?.portableFontFamily
       ? await resolvePortableFont(text.portableFontFamily, desiredStyle, state.fonts)
-      : {
-          family: desiredFamily,
-          style: spec.figma?.text?.fontName
-            ? desiredStyle
-            : normalizePortableFontStyle(desiredFamily, desiredStyle)
-        }
+      : await resolveLiteralFont(desiredFamily, desiredStyle, spec, state)
     : null
   if (desiredFont && text?.portableFontFamily) {
     text.fontFamily = desiredFont.family
@@ -3781,7 +4260,38 @@ function nativeTextDecorationColor(
   return { value: nativePaint(color.value, state) as SolidPaint }
 }
 
-type FontVariableBindings = Pick<CanvasVariableBindings, 'fontFamily' | 'fontStyle'>
+type FontVariableBindings = Pick<CanvasVariableBindings, 'fontFamily' | 'fontStyle' | 'fontWeight'>
+
+async function loadVariableFontTransitions(
+  current: FontName[],
+  bindings: FontVariableBindings | undefined,
+  values: { family?: string; style?: string; weight?: number },
+  state: ApplyState
+): Promise<void> {
+  let fonts = current
+  const required = [...fonts]
+  // Native setters apply one binding at a time, in the supplied binding order.
+  for (const field of Object.keys(bindings ?? {}) as Array<keyof FontVariableBindings>) {
+    if (!bindings?.[field]) continue
+    if (field === 'fontFamily' && values.family !== undefined) {
+      const family = values.family
+      fonts = await Promise.all(
+        fonts.map((font) =>
+          font.family === family ? font : resolveFamilyFont(family, font.style, state.fonts)
+        )
+      )
+    } else if (field === 'fontStyle' && values.style !== undefined) {
+      const style = values.style
+      fonts = fonts.map((font) => ({ family: font.family, style }))
+    } else if (field === 'fontWeight' && values.weight !== undefined) {
+      fonts = await Promise.all(
+        fonts.map((font) => resolveFamilyFont(font.family, font.style, state.fonts, values.weight))
+      )
+    } else continue
+    required.push(...fonts)
+  }
+  await loadFonts(required, state.fonts)
+}
 
 function resolvedFontVariableValue(
   node: TextNode,
@@ -3790,7 +4300,7 @@ function resolvedFontVariableValue(
 ): string {
   const value = resolvedVariable(reference, state.variables).resolveForConsumer(node).value
   if (typeof value !== 'string') {
-    specError('A preflighted font variable did not resolve to a string.')
+    applyError('A preflighted font variable did not resolve to a string.')
   }
   return value
 }
@@ -3803,22 +4313,28 @@ async function loadVariableFonts(
 ): Promise<void> {
   const familyReference = bindings?.fontFamily
   const styleReference = bindings?.fontStyle
-  if (!familyReference && !styleReference) return
-
-  const currentFonts = !familyReference || !styleReference ? currentTextFonts(node, range) : []
-  const families = familyReference
-    ? [resolvedFontVariableValue(node, familyReference, state)]
-    : currentFonts.map((font) => font.family)
-  const styles = styleReference
-    ? [resolvedFontVariableValue(node, styleReference, state)]
-    : currentFonts.map((font) => font.style)
-  const fonts: FontName[] = []
-  for (const family of families) {
-    for (const style of styles) {
-      fonts.push({ family, style })
-    }
+  const weightReference = bindings?.fontWeight
+  if (!familyReference && !styleReference && !weightReference) return
+  const weight = weightReference
+    ? resolvedVariable(weightReference, state.variables).resolveForConsumer(node).value
+    : undefined
+  if (
+    weight !== undefined &&
+    (typeof weight !== 'number' || !Number.isFinite(weight) || weight < 1 || weight > 1000)
+  ) {
+    specError(`Font weight on "${node.id}" must resolve to a number between 1 and 1000.`)
   }
-  await loadFonts(fonts, state.fonts)
+
+  await loadVariableFontTransitions(
+    currentTextFonts(node, range),
+    bindings,
+    {
+      family: familyReference ? resolvedFontVariableValue(node, familyReference, state) : undefined,
+      style: styleReference ? resolvedFontVariableValue(node, styleReference, state) : undefined,
+      weight
+    },
+    state
+  )
 }
 
 async function applyTextRangeVariables(
@@ -4283,27 +4799,230 @@ async function applyVariables(
   }
 }
 
-function applyVariableModes(
+type FontModeValues = { values: VariableValue[]; optional: boolean }
+
+async function modeFontVariableValues(
+  variable: Variable,
+  consumer: TextNode,
+  target: SupportedCanvasNode | PageNode,
+  changedCollectionId: string,
+  changedModeId: string | undefined,
+  state: ApplyState,
+  cache = new Map<string, FontModeValues>(),
+  seen = new Set<string>()
+): Promise<FontModeValues> {
+  if (seen.has(variable.id) || seen.size >= 64) {
+    specError('Font variable aliases contain a cycle or exceed 64 levels.')
+  }
+  const cached = cache.get(variable.id)
+  if (cached) return cached
+  const active = new Set(seen).add(variable.id)
+  const base = await getVariableCollectionById(variable.variableCollectionId)
+  if (!base)
+    scopeError(`Font variable collection "${variable.variableCollectionId}" is unavailable.`)
+  const related = new Map<string, VariableCollection>([[base.id, base]])
+  const ancestors: BaseNode[] = []
+  const candidateIds = new Set([
+    changedCollectionId,
+    ...Object.keys(consumer.resolvedVariableModes ?? {})
+  ])
+  for (let ancestor: BaseNode | null = consumer; ancestor; ancestor = ancestor.parent) {
+    ancestors.push(ancestor)
+    if ('explicitVariableModes' in ancestor) {
+      for (const id of Object.keys(ancestor.explicitVariableModes)) candidateIds.add(id)
+    }
+  }
+  for (const id of candidateIds) {
+    if (related.has(id)) continue
+    const collection = await getVariableCollectionById(id)
+    if (collection?.isExtension && collection.variableIds.includes(variable.id))
+      related.set(id, collection)
+  }
+  let selected: Array<[string, string]> = []
+  for (const ancestor of ancestors) {
+    const explicit =
+      'explicitVariableModes' in ancestor ? { ...ancestor.explicitVariableModes } : {}
+    if (ancestor === target) {
+      delete explicit[changedCollectionId]
+      if (changedModeId !== undefined) explicit[changedCollectionId] = changedModeId
+    }
+    selected = Object.entries(explicit).filter(([id]) => related.has(id))
+    if (selected.length) break
+  }
+  if (!selected.length) {
+    // An unaffected consumer or the parent above a cleared override exposes native
+    // Auto resolution. Page Auto has no such reader: preload candidates, don't guess.
+    const context = related.has(changedCollectionId) ? target.parent : consumer
+    if (context && 'resolvedVariableModes' in context) {
+      selected = Object.entries(context.resolvedVariableModes).filter(([id]) => related.has(id))
+    }
+  }
+  let optional = selected.length !== 1
+  const candidates: VariableValue[] = []
+  for (const collection of related.values()) {
+    const modes = selected.filter(([id]) => id === collection.id).map(([, mode]) => mode)
+    if (selected.length && !modes.length) continue
+    const values =
+      collection.id === base.id
+        ? variable.valuesByMode
+        : await variable.valuesByModeForCollectionAsync(collection)
+    const modeValues = modes.length ? modes.map((mode) => values[mode]) : Object.values(values)
+    for (const value of modeValues) {
+      if (value === undefined)
+        scopeError(`Font variable "${variable.id}" has no value for the selected mode.`)
+      if (typeof value === 'object' && 'type' in value && value.type === 'VARIABLE_ALIAS') {
+        const alias = await modeFontVariableValues(
+          await resolveVariable({ id: value.id }, state.variables),
+          consumer,
+          target,
+          changedCollectionId,
+          changedModeId,
+          state,
+          cache,
+          active
+        )
+        candidates.push(...alias.values)
+        optional ||= alias.optional
+      } else candidates.push(value)
+    }
+  }
+  const values = [...new Set(candidates)]
+  if (values.length > 64 || cache.size >= 256)
+    scopeError('Font mode preloading exceeds the bounded candidate budget.')
+  const result = { values, optional }
+  cache.set(variable.id, result)
+  return result
+}
+
+async function loadModeFonts(
+  target: SupportedCanvasNode | PageNode,
+  collectionId: string,
+  modeId: string | undefined,
+  state: ApplyState
+): Promise<void> {
+  const roots = target.type === 'PAGE' ? target.children : [target]
+  for (const node of walkPhysicalNodes(roots)) {
+    if (node.type !== 'TEXT') continue
+    await loadFonts(currentTextFonts(node), state.fonts)
+    const cache = new Map<string, FontModeValues>()
+    const segments = node.getStyledTextSegments(['fontName', 'textStyleId', 'boundVariables'])
+    for (const segment of segments) {
+      const style = segment.textStyleId
+        ? await resolveStyle({ id: segment.textStyleId }, state.styles)
+        : undefined
+      const bindings = {
+        ...(style?.type === 'TEXT' ? style.boundVariables : {}),
+        ...segment.boundVariables
+      }
+      const fields = TEXT_STYLE_VARIABLES_BY_VALUE.fontName
+      if (!fields.some((field) => bindings[field])) continue
+      const [families, styles, weights] = await Promise.all(
+        fields.map(async (field) => {
+          const reference = bindings[field]
+          if (!reference) return { values: [], optional: false }
+          return modeFontVariableValues(
+            await resolveVariable({ id: reference.id }, state.variables),
+            node,
+            target,
+            collectionId,
+            modeId,
+            state,
+            cache
+          )
+        })
+      )
+      const familyValues = families!.values.length ? families!.values : [segment.fontName.family]
+      const styleValues = styles!.values.length ? styles!.values : [segment.fontName.style]
+      const weightValues = weights!.values.length ? weights!.values : [undefined]
+      const optional = families!.optional || styles!.optional || weights!.optional
+      if (familyValues.length * styleValues.length * weightValues.length > 256) {
+        scopeError('Font mode preloading exceeds 256 possible font combinations.')
+      }
+      // Native mode changes can apply family before weight; both the intermediate
+      // face and the final face must be loaded before invoking the synchronous setter.
+      for (const family of familyValues)
+        for (const fontStyle of styleValues)
+          for (const weight of weightValues) {
+            if (
+              typeof family !== 'string' ||
+              typeof fontStyle !== 'string' ||
+              (weight !== undefined &&
+                (typeof weight !== 'number' ||
+                  !Number.isFinite(weight) ||
+                  weight < 1 ||
+                  weight > 1000))
+            ) {
+              if (optional) continue
+              specError(
+                `Font variables on "${node.id}" must resolve to STRING family/style and a weight between 1 and 1000.`
+              )
+            }
+            try {
+              await loadFont(
+                await resolveFamilyFont(family, segment.fontName.style, state.fonts),
+                state.fonts
+              )
+              await loadFont(
+                await resolveFamilyFont(family, fontStyle, state.fonts, weight),
+                state.fonts
+              )
+            } catch (error) {
+              // A possible Auto font need not be the selected one. The native setter
+              // remains authoritative; known explicit targets retain load failures.
+              if (!optional) throw error
+            }
+          }
+    }
+  }
+}
+
+async function applyVariableModes(
   node: SupportedCanvasNode | PageNode,
   modes: CanvasNodeSpec['variableModes'],
   state: ApplyState
-): void {
+): Promise<void> {
   for (const [collectionReference, modeReference] of Object.entries(modes ?? {})) {
     const collection = resolvedCollection(collectionReference, state.variables)
     const current = node.explicitVariableModes[collection.id]
     if (modeReference === null) {
       if (current === undefined) continue
+      await loadModeFonts(node, collection.id, undefined, state)
       node.clearExplicitVariableModeForCollection(collection)
     } else {
       const modeId = resolvedModeId(collection, modeReference, state.variables)
       if (current === modeId) continue
+      await loadModeFonts(node, collection.id, modeId, state)
       node.setExplicitVariableModeForCollection(collection, modeId)
     }
     markMutation(state, node)
   }
 }
 
-function applyPage(page: PageNode, properties: CanvasPageProperties, state: ApplyState): void {
+async function preloadFirstPageModeFonts(
+  page: PageNode,
+  modes: CanvasPageProperties['variableModes'],
+  state: ApplyState
+): Promise<void> {
+  for (const [collectionReference, modeReference] of Object.entries(modes ?? {})) {
+    const collection = resolvedCollection(collectionReference, state.variables)
+    const modeId =
+      modeReference === null
+        ? undefined
+        : resolvedModeId(collection, modeReference, state.variables)
+    if (page.explicitVariableModes[collection.id] === modeId) continue
+    // Later transitions can depend on the preceding mode setters. Warm only the
+    // first one; applyVariableModes still checks the live font requirements.
+    await loadModeFonts(page, collection.id, modeId, state)
+    return
+  }
+}
+
+async function applyPage(
+  page: PageNode,
+  properties: CanvasPageProperties,
+  state: ApplyState
+): Promise<void> {
+  protectNode(state, page)
   if (properties.index !== undefined) {
     moveIntoParent(page, figma.root, properties.index, state)
   }
@@ -4317,7 +5036,7 @@ function applyPage(page: PageNode, properties: CanvasPageProperties, state: Appl
     }
   }
   applyGuides(page, properties.guides, state)
-  applyVariableModes(page, properties.variableModes, state)
+  await applyVariableModes(page, properties.variableModes, state)
 }
 
 function nativeComponentPropertyDefault(
@@ -4549,6 +5268,17 @@ function placeSvgChild(child: FrameNode, wrapper: FrameNode, state: ApplyState):
   if (changed) state.mutations.count += 1
 }
 
+function finalizeSvgPositions(specs: Iterable<CanvasNodeSpec>, state: ApplyState): void {
+  for (const spec of specs) {
+    if (!spec.figma?.svg) continue
+    const wrapper = state.keyedNodes.get(spec.key)
+    if (wrapper?.type !== 'FRAME') continue
+    for (const child of wrapper.children) {
+      if (isOwnedSvgChild(child)) placeSvgChild(child, wrapper, state)
+    }
+  }
+}
+
 function setSvgMetadata(
   wrapper: FrameNode,
   digest: string,
@@ -4641,8 +5371,34 @@ async function applyNodeProperties(
   state: ApplyState,
   parent?: CanvasParentNode
 ): Promise<void> {
+  try {
+    await applyNodePropertiesUnchecked(node, spec, state, parent)
+  } catch (error) {
+    throwNodeError(error, spec.key, node.id)
+  }
+}
+
+function throwNodeError(error: unknown, key: string, nodeId?: string): never {
+  const readOnly = canvasReadOnlyError(error)
+  if (readOnly) throw readOnly
+  const failure =
+    error instanceof Error ? error : new Error(errorMessage(error, 'Native mutation failed.'))
+  failure.message = `${failure.message} on "${key}"${nodeId ? ` (${nodeId})` : ''}.`
+  throw failure
+}
+
+async function applyNodePropertiesUnchecked(
+  node: SupportedCanvasNode,
+  spec: CanvasNodeSpec,
+  state: ApplyState,
+  parent?: CanvasParentNode
+): Promise<void> {
+  state.ignoredLiteralWarnings.push(...ignoredLiteralWarnings(node, spec))
+  if (node.type === 'TEXT') {
+    await loadFonts(currentTextFonts(node), state.fonts)
+  }
   if (node.type === 'INSTANCE') await applyComponent(node, spec, state)
-  applyVariableModes(node, spec.variableModes, state)
+  await applyVariableModes(node, spec.variableModes, state)
   await unlinkStyles(node, spec.styles, state)
   clearVariables(node, spec.variables, state)
   setValue(
@@ -4729,7 +5485,7 @@ async function applyCanvasKeyReferences(
 ): Promise<void> {
   const node = state.keyedNodes.get(spec.key) ?? null
   if (!isSupportedSceneNode(node)) {
-    specError(`Desired node "${spec.key}" was not reconciled.`)
+    applyError(`Desired node "${spec.key}" was not reconciled.`)
   }
   if (hasCanvasKeyVectorPattern(spec)) {
     await applyShape(node, spec, state, true)
@@ -5198,7 +5954,10 @@ async function reconcileNewWrappedContainer(
         specError(`Component set "${spec.key}" can contain only component nodes.`)
       }
       const variant = existing ?? figma.createComponent()
-      if (!existing) recordCreatedNode(variant, state, false)
+      if (!existing) {
+        recordCreatedNode(variant, state, false)
+        normalizeCreatedFrame(variant, child, state)
+      }
       setValue(variant, variant.name, child.displayName, (value) => (variant.name = value), state)
       if (variant.parent?.id !== stagingParent.id) {
         moveIntoParent(variant, stagingParent, stagingParent.children.length, state)
@@ -5303,14 +6062,21 @@ async function reconcileNode(
 ): Promise<SupportedCanvasNode> {
   const existing = resolveExistingNode(spec, state, forcedNode)
   if (!existing && isWrappedSpec(spec)) {
-    return reconcileNewWrappedContainer(spec, state, parent, index)
+    try {
+      return await reconcileNewWrappedContainer(spec, state, parent, index)
+    } catch (error) {
+      throwNodeError(error, spec.key, state.nodeIdsByKey[spec.key])
+    }
   }
-  const node =
-    existing ??
-    (spec.type === 'SLOT' ? createSlotNode(spec, parent, state) : await createNode(spec, state))
-
-  if (parent) moveIntoParent(node, parent, index, state)
-  setNodeKey(state, node, spec.key)
+  let node = existing
+  try {
+    node ??=
+      spec.type === 'SLOT' ? createSlotNode(spec, parent, state) : await createNode(spec, state)
+    if (parent) moveIntoParent(node, parent, index, state)
+    setNodeKey(state, node, spec.key)
+  } catch (error) {
+    throwNodeError(error, spec.key, node?.id)
+  }
   if (!isIntrinsicNode(node)) {
     await applyNodeProperties(node, spec, state, parent)
   }
@@ -5431,6 +6197,7 @@ function createApplyState(
     desiredKeys,
     explicitNodes: new Map(),
     fonts: createFontState(),
+    ignoredLiteralWarnings: [],
     keyedNodes: target ? collectKeyedNodes(target) : new Map(),
     mutations: { count: 0 },
     nodeIdsByKey: Object.create(null) as Record<string, string>,
@@ -5515,6 +6282,53 @@ function unboundCreatedResourceWarnings(
 }
 
 type VariableFallback = boolean | number | string | RGBA
+
+function ignoredLiteralWarnings(
+  node: SupportedCanvasNode,
+  spec: CanvasNodeSpec
+): VerificationWarning[] {
+  const fields: string[] = []
+  for (const [field, nativeField] of Object.entries(DIRECT_VARIABLE_FIELDS) as Array<
+    [DirectVariableField, VariableBindableNodeField | VariableBindableTextField]
+  >) {
+    if (spec.variables?.[field] !== undefined || !currentBoundVariableId(node, nativeField))
+      continue
+    const literal = variableFallback(spec, field)
+    if (literal !== undefined) fields.push(field)
+  }
+  for (const field of ['fill', 'stroke'] as const) {
+    if (
+      spec.variables?.[field] !== undefined ||
+      spec.styles?.[field] !== undefined ||
+      spec.appearance?.[field] === undefined ||
+      !('fills' in node)
+    )
+      continue
+    const property = field === 'fill' ? 'fills' : 'strokes'
+    const style = field === 'fill' ? node.fillStyleId : node.strokeStyleId
+    if (style || node.boundVariables?.[property]?.length) fields.push(field)
+  }
+  if (node.type === 'TEXT' && node.textStyleId && spec.styles?.text === undefined) {
+    for (const field of [
+      'fontFamily',
+      'fontStyle',
+      'fontSize',
+      'lineHeight',
+      'letterSpacing'
+    ] as const) {
+      if (spec.text?.[field] !== undefined) fields.push(field)
+    }
+  }
+  return fields.length
+    ? [
+        {
+          code: 'literal-ignored-by-binding',
+          key: spec.key,
+          message: `Literal values for ${[...new Set(fields)].join(', ')} were ignored because existing variable or style bindings own those fields. Clear the corresponding native.${spec.key}.variables or styles binding with null before setting literal values.`
+        }
+      ]
+    : []
+}
 
 function parseFallbackColor(value: string): RGBA | undefined {
   const hex = value.slice(1)
@@ -5611,6 +6425,7 @@ function variableFallback(
     case 'letterSpacing':
       return metricFallback(spec.text?.letterSpacing)
     case 'fontWeight':
+      return spec.text?.literalFontWeight
     case 'paragraphIndent':
     case 'paragraphSpacing':
       return undefined
@@ -5694,18 +6509,24 @@ function authoredVariableFallbackWarnings(
       if (spec.themeVariableFields?.includes(field)) continue
       const values = directValues(reference.variableKey)
       const fallback = variableFallback(spec, field)
+      const nativeFallback =
+        field === 'opacity' && typeof fallback === 'number' ? fallback * 100 : fallback
       if (
         !values.length ||
-        fallback === undefined ||
-        values.some((value) => fallbackMatches(value, fallback))
+        nativeFallback === undefined ||
+        values.some((value) => fallbackMatches(value, nativeFallback))
       ) {
         continue
       }
       const authoredValues = [...new Set(values.map(formatFallback))].join(', ')
+      const units =
+        field === 'opacity'
+          ? ' Opacity variables use 0–100 percentages; literal opacity uses 0–1.'
+          : ''
       warnings.push({
         code: 'variable-fallback-mismatch',
         key: spec.key,
-        message: `"${spec.key}" binds ${field} ${formatFallback(fallback)} to authored variable "${reference.variableKey}", whose direct mode values are ${authoredValues}. Use a matching literal fallback or bind the variable that owns this value.`
+        message: `"${spec.key}" binds ${field} ${formatFallback(fallback)} to authored variable "${reference.variableKey}", whose direct mode values are ${authoredValues}.${units} Use a matching literal fallback or bind the variable that owns this value.`
       })
     }
   }
@@ -6174,7 +6995,7 @@ function verifySizingGeometry(
       (bottom !== undefined &&
         Math.abs(parent.height - node.y - node.height - bottom) > GEOMETRY_TOLERANCE)
     ) {
-      specError(`Verification failed for "${spec.key}": absolute edge placement does not match.`)
+      applyError(`Verification failed for "${spec.key}": absolute edge placement does not match.`)
     }
   }
   if (!isIntrinsicNode(node) && supportsLayoutSizing(node, parent)) {
@@ -6183,7 +7004,7 @@ function verifySizingGeometry(
       node.layoutSizingVertical !== spec.size.vertical ||
       (spec.grow !== undefined && node.layoutGrow !== (spec.grow ? 1 : 0))
     ) {
-      specError(
+      applyError(
         `Verification failed for "${spec.key}": sizing modes do not match (declared horizontal=${spec.size.horizontal}, vertical=${spec.size.vertical}, grow=${spec.grow ?? false}; applied horizontal=${node.layoutSizingHorizontal}, vertical=${node.layoutSizingVertical}, grow=${node.layoutGrow === 1}).`
       )
     }
@@ -6207,34 +7028,34 @@ function verifySizingGeometry(
     (fixedWidth !== null && Math.abs(node.width - fixedWidth) > GEOMETRY_TOLERANCE) ||
     (fixedHeight !== null && Math.abs(node.height - fixedHeight) > GEOMETRY_TOLERANCE)
   ) {
-    specError(`Verification failed for "${spec.key}": fixed geometry does not match.`)
+    applyError(`Verification failed for "${spec.key}": fixed geometry does not match.`)
   }
 
   const fill = crossAxisFill(node, spec, parent)
   if (fill) {
     const actual = fill.axis === 'horizontal' ? node.width : node.height
     if (actual < GEOMETRY_TOLERANCE) {
-      specError(`Verification failed for "${spec.key}": fill geometry does not match.`)
+      applyError(`Verification failed for "${spec.key}": fill geometry does not match.`)
     }
   }
 
   if (node.type !== 'TEXT') return
   if (node.textAutoResize !== spec.text?.autoResize) {
-    specError(`Verification failed for "${spec.key}": text auto-resize does not match.`)
+    applyError(`Verification failed for "${spec.key}": text auto-resize does not match.`)
   }
   if (
     node.characters.length > 0 &&
     (node.textAutoResize === 'HEIGHT' || node.textAutoResize === 'WIDTH_AND_HEIGHT') &&
     node.height <= GEOMETRY_TOLERANCE
   ) {
-    specError(`Verification failed for "${spec.key}": auto-resizing text has no height.`)
+    applyError(`Verification failed for "${spec.key}": auto-resizing text has no height.`)
   }
   if (
     node.characters.length > 0 &&
     node.textAutoResize === 'WIDTH_AND_HEIGHT' &&
     node.width <= GEOMETRY_TOLERANCE
   ) {
-    specError(`Verification failed for "${spec.key}": auto-resizing text has no width.`)
+    applyError(`Verification failed for "${spec.key}": auto-resizing text has no width.`)
   }
   if (
     node.characters.length > 0 &&
@@ -6243,7 +7064,7 @@ function verifySizingGeometry(
     node.width <= GEOMETRY_TOLERANCE &&
     (node.minWidth ?? 0) <= GEOMETRY_TOLERANCE
   ) {
-    specError(
+    applyError(
       `Verification failed for "${spec.key}": growing text collapsed to zero width; provide a positive min-width.`
     )
   }
@@ -6290,28 +7111,28 @@ async function verifyInstanceState(
 ): Promise<void> {
   if (!spec.componentProperties && !spec.figma?.instance) return
   if (node.type !== 'INSTANCE') {
-    specError(`Verification failed for "${spec.key}": expected an instance.`)
+    applyError(`Verification failed for "${spec.key}": expected an instance.`)
   }
   const instance = spec.figma?.instance
   if (
     instance?.scaleFactor !== undefined &&
     Math.abs(node.scaleFactor - instance.scaleFactor) > GEOMETRY_TOLERANCE
   ) {
-    specError(`Verification failed for "${spec.key}": instance scale does not match.`)
+    applyError(`Verification failed for "${spec.key}": instance scale does not match.`)
   }
   if (instance?.exposed !== undefined && node.isExposedInstance !== instance.exposed) {
-    specError(`Verification failed for "${spec.key}": instance exposure does not match.`)
+    applyError(`Verification failed for "${spec.key}": instance exposure does not match.`)
   }
   if (!spec.componentProperties) return
   const component = await getMainComponent(node)
   if (!component) {
-    specError(`Verification failed for "${spec.key}": instance has no main component.`)
+    applyError(`Verification failed for "${spec.key}": instance has no main component.`)
   }
   const owner = componentDefinitionOwner(component)
   for (const [key, value] of Object.entries(spec.componentProperties)) {
     const name = componentPropertyName(owner, key, state) ?? key
     if (!componentPropertyMatches(node.componentProperties[name], value, state)) {
-      specError(
+      applyError(
         `Verification failed for "${spec.key}": component property "${name}" does not match.`
       )
     }
@@ -6332,12 +7153,12 @@ function verifyNativeNodeState(
     if (paints === undefined) continue
     fields += 1
     if (!('fills' in node)) {
-      specError(`Verification failed for "${spec.key}": direct ${property} are unsupported.`)
+      applyError(`Verification failed for "${spec.key}": direct ${property} are unsupported.`)
     }
     const desired = paints.map((paint) => nativePaint(paint, state))
     const current = node[property]
     if (current === figma.mixed || !!node[styleProperty] || !paintStacksEqual(current, desired)) {
-      specError(`Verification failed for "${spec.key}": direct ${property} do not match.`)
+      applyError(`Verification failed for "${spec.key}": direct ${property} do not match.`)
     }
   }
 
@@ -6345,16 +7166,16 @@ function verifyNativeNodeState(
   if (effects !== undefined) {
     fields += 1
     if (!('effects' in node)) {
-      specError(`Verification failed for "${spec.key}": direct effects are unsupported.`)
+      applyError(`Verification failed for "${spec.key}": direct effects are unsupported.`)
     }
     const desired = effects.map((effect) => nativeEffect(effect, state))
     if (node.effectStyleId) {
-      specError(
+      applyError(
         `Verification failed for "${spec.key}": expected direct effects, but effect style "${node.effectStyleId}" remains applied.`
       )
     }
     if (!effectsEqual(node.effects, desired)) {
-      specError(
+      applyError(
         `Verification failed for "${spec.key}": direct ${describeEffectMismatch(node.effects, desired)}`
       )
     }
@@ -6364,11 +7185,11 @@ function verifyNativeNodeState(
   if (layoutGrids !== undefined) {
     fields += 1
     if ((!isFrameContainer(node) && node.type !== 'INSTANCE') || !('layoutGrids' in node)) {
-      specError(`Verification failed for "${spec.key}": layout grids are unsupported.`)
+      applyError(`Verification failed for "${spec.key}": layout grids are unsupported.`)
     }
     const desired = layoutGrids.map((grid) => nativeLayoutGrid(grid, state))
     if (!!node.gridStyleId || !layoutGridsEqual(node.layoutGrids, desired)) {
-      specError(`Verification failed for "${spec.key}": layout grids do not match.`)
+      applyError(`Verification failed for "${spec.key}": layout grids do not match.`)
     }
   }
 
@@ -6376,10 +7197,10 @@ function verifyNativeNodeState(
   if (guides !== undefined) {
     fields += 1
     if ((!isFrameContainer(node) && node.type !== 'INSTANCE') || !('guides' in node)) {
-      specError(`Verification failed for "${spec.key}": guides are unsupported.`)
+      applyError(`Verification failed for "${spec.key}": guides are unsupported.`)
     }
     if (!nativeValueEqual(node.guides, guides)) {
-      specError(`Verification failed for "${spec.key}": guides do not match.`)
+      applyError(`Verification failed for "${spec.key}": guides do not match.`)
     }
   }
 
@@ -6393,16 +7214,18 @@ async function verifyAppliedNode(
   parent?: SupportedCanvasNode
 ): Promise<{ nodes: number; references: number; nativeFields: number }> {
   if (node.type !== spec.type) {
-    specError(`Verification failed for "${spec.key}": expected ${spec.type}, found ${node.type}.`)
+    applyError(`Verification failed for "${spec.key}": expected ${spec.type}, found ${node.type}.`)
   }
   if (state.nodeIdsByKey[spec.key] !== node.id) {
-    specError(`Verification failed for "${spec.key}": stable identity did not resolve to its node.`)
+    applyError(
+      `Verification failed for "${spec.key}": stable identity did not resolve to its node.`
+    )
   }
   if (readOwnedNodeKey(node) !== spec.key) {
-    specError(`Verification failed for "${spec.key}": native stable identity is missing.`)
+    applyError(`Verification failed for "${spec.key}": native stable identity is missing.`)
   }
   if (parent && node.parent?.id !== parent.id) {
-    specError(`Verification failed for "${spec.key}": parent does not match the desired tree.`)
+    applyError(`Verification failed for "${spec.key}": parent does not match the desired tree.`)
   }
   const geometry = [
     node.x,
@@ -6412,7 +7235,7 @@ async function verifyAppliedNode(
     ...('rotation' in node ? [node.rotation] : [])
   ]
   if (!geometry.every(Number.isFinite)) {
-    specError(`Verification failed for "${spec.key}": geometry is not finite.`)
+    applyError(`Verification failed for "${spec.key}": geometry is not finite.`)
   }
   verifySizingGeometry(spec, node, parent)
 
@@ -6423,7 +7246,7 @@ async function verifyAppliedNode(
     const actual = node.type === 'INSTANCE' ? await getMainComponent(node) : null
     references += 1
     if (node.type !== 'INSTANCE' || !componentLinkMatches(spec, node, expected, actual, state)) {
-      specError(`Verification failed for "${spec.key}": component link does not match.`)
+      applyError(`Verification failed for "${spec.key}": component link does not match.`)
     }
   }
   await verifyInstanceState(spec, node, state)
@@ -6433,7 +7256,7 @@ async function verifyAppliedNode(
     const expected = reference ? resolvedVariable(reference, state.variables).id : undefined
     references += 1
     if (appliedVariableId(node, field) !== expected) {
-      specError(`Verification failed for "${spec.key}": variable link "${field}" does not match.`)
+      applyError(`Verification failed for "${spec.key}": variable link "${field}" does not match.`)
     }
   }
   for (const field of STYLE_FIELDS) {
@@ -6442,7 +7265,7 @@ async function verifyAppliedNode(
     const expected = reference ? (await resolveStyle(reference, state.styles)).id : ''
     references += 1
     if (styleTarget(node, field).current !== expected) {
-      specError(`Verification failed for "${spec.key}": style link "${field}" does not match.`)
+      applyError(`Verification failed for "${spec.key}": style link "${field}" does not match.`)
     }
   }
   for (const [collectionReference, modeReference] of Object.entries(spec.variableModes ?? {})) {
@@ -6453,7 +7276,7 @@ async function verifyAppliedNode(
         : resolvedModeId(collection, modeReference, state.variables)
     references += 1
     if (node.explicitVariableModes[collection.id] !== expected) {
-      specError(`Verification failed for "${spec.key}": variable mode does not match.`)
+      applyError(`Verification failed for "${spec.key}": variable mode does not match.`)
     }
   }
   if (spec.figma?.mask !== undefined) {
@@ -6464,13 +7287,13 @@ async function verifyAppliedNode(
       node.isMask !== (mask !== null) ||
       (mask !== null && (!('maskType' in node) || node.maskType !== mask))
     ) {
-      specError(`Verification failed for "${spec.key}": mask state does not match.`)
+      applyError(`Verification failed for "${spec.key}": mask state does not match.`)
     }
   }
   if (spec.figma?.svg) {
     nativeFields += 1
     if (node.type !== 'FRAME') {
-      specError(`Verification failed for "${spec.key}": SVG wrapper is not a frame.`)
+      applyError(`Verification failed for "${spec.key}": SVG wrapper is not a frame.`)
     }
     const asset = resolvedSvgAsset(
       state.media.assets,
@@ -6489,7 +7312,7 @@ async function verifyAppliedNode(
       node.getSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_SVG_COLOR_NAME) !==
         (spec.figma.svg.color?.toUpperCase() ?? '')
     ) {
-      specError(`Verification failed for "${spec.key}": SVG import state does not match.`)
+      applyError(`Verification failed for "${spec.key}": SVG import state does not match.`)
     }
     const child = owned[0]!
     if (
@@ -6498,7 +7321,7 @@ async function verifyAppliedNode(
       child.x + child.width > node.width + 0.01 ||
       child.y + child.height > node.height + 0.01
     ) {
-      specError(`Verification failed for "${spec.key}": SVG is outside its wrapper.`)
+      applyError(`Verification failed for "${spec.key}": SVG is outside its wrapper.`)
     }
     references += 1
   }
@@ -6507,19 +7330,19 @@ async function verifyAppliedNode(
   const childNodes = childSpecs.map((child) => {
     const candidate = state.keyedNodes.get(child.key) ?? null
     if (!isSupportedSceneNode(candidate)) {
-      specError(`Verification failed for "${child.key}": desired child is missing.`)
+      applyError(`Verification failed for "${child.key}": desired child is missing.`)
     }
     return candidate
   })
   if (childNodes.length) {
     if (!('children' in node)) {
-      specError(`Verification failed for "${spec.key}": desired children have no container.`)
+      applyError(`Verification failed for "${spec.key}": desired children have no container.`)
     }
     let previous = -1
     for (const child of childNodes) {
       const index = node.children.findIndex((candidate) => candidate.id === child.id)
       if (index <= previous) {
-        specError(`Verification failed for "${spec.key}": desired child order does not match.`)
+        applyError(`Verification failed for "${spec.key}": desired child order does not match.`)
       }
       previous = index
     }
@@ -6537,7 +7360,11 @@ async function verifyAppliedNode(
 async function verifyRollbackProtectedNodes(state: ApplyState): Promise<void> {
   const protectedEntries = [...state.protectedNodes]
   const protectedIds = protectedEntries.map(([id]) => id)
-  const nodes = await Promise.all(protectedIds.map(lookupNodeById))
+  const nodes = await Promise.all(
+    protectedEntries.map(([id, snapshot]) =>
+      snapshot?.type === 'PAGE' ? (pageById(id) ?? null) : lookupNodeById(id)
+    )
+  )
   const missing = protectedIds.filter((_, index) => !nodes[index])
   if (missing.length) {
     const shown = missing.slice(0, 8)
@@ -6602,7 +7429,10 @@ async function removeRollbackCreatedPages(
 async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): Promise<T> {
   const previousPage = figma.currentPage
   try {
-    if (state.scope) protectUnrelatedPageRoots(state, containingPage(state.scope))
+    if (state.scope) {
+      for (const node of walkAuthoringNodes([state.scope])) protectNode(state, node)
+      protectUnrelatedPageRoots(state, containingPage(state.scope))
+    }
     figma.commitUndo()
     const result = await apply()
     figma.commitUndo()
@@ -6622,13 +7452,14 @@ async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): 
         await removeRollbackCreatedPages(state, previousPage)
         await verifyRollbackProtectedNodes(state)
       } catch (rollbackError) {
-        if (readOnly) throw readOnly
         const rollbackMessage = errorMessage(rollbackError)
         const detail = rollbackMessage ? ` ${rollbackMessage}.` : ''
-        throw createCodedError(
+        const failure = createCodedError(
           TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
-          `Canvas apply failed and automatic rollback was not available.${detail} Use Figma Undo.`
+          `Canvas apply failed: ${errorMessage(error, 'Unknown apply error')}; automatic rollback was not available.${detail} Stop writing and ask the user to inspect the canvas or use Figma Undo.`
         )
+        failure.cause = error
+        throw failure
       }
     }
     if (readOnly) throw readOnly
@@ -6704,14 +7535,15 @@ async function createPageOnly(input: ParsedCanvasPageInput): Promise<ApplyCanvas
     specError(`Page key "${input.page.pageKey}" already identifies a local page.`)
   }
   const state = createApplyState(null, new Set())
+  const preparedPage = await prepareResultPage(input.page, null)
+  if (preparedPage) specError('Page-only create requires a new pageKey.')
+  await preflightVariableModes(input.page.variableModes, state)
   return withUndoBoundary(async () => {
-    const { created, page } = await resolveResultPage(input.page, null, state)
-    if (!created) specError('Page-only create requires a new pageKey.')
-    await preflightVariableModes(input.page.variableModes, state)
-    applyPage(page, input.page, state)
+    const page = applyResultPage(preparedPage, input.page, state)
+    await applyPage(page, input.page, state)
     page.selection = []
     if (page.selection.length !== 0) {
-      specError(`Verification failed: page "${page.id}" does not have an empty selection.`)
+      applyError(`Verification failed: page "${page.id}" does not have an empty selection.`)
     }
     return pageApplyResult(pageSnapshot(page), state)
   }, state)
@@ -6720,10 +7552,11 @@ async function createPageOnly(input: ParsedCanvasPageInput): Promise<ApplyCanvas
 async function updatePageOnly(input: ParsedCanvasPageInput): Promise<ApplyCanvasResult> {
   const page = await resolveExactPage(input.page)
   const state = createApplyState(null, new Set())
-  protectUnrelatedPageRoots(state, page)
+  await preflightVariableModes(input.page.variableModes, state)
+  await preloadFirstPageModeFonts(page, input.page.variableModes, state)
   return withUndoBoundary(async () => {
-    await preflightVariableModes(input.page.variableModes, state)
-    applyPage(page, input.page, state)
+    protectUnrelatedPageRoots(state, page)
+    await applyPage(page, input.page, state)
     return pageApplyResult(pageSnapshot(page), state)
   }, state)
 }
@@ -6735,14 +7568,14 @@ async function activatePage(input: ParsedCanvasPageInput): Promise<ApplyCanvasRe
   await figma.setCurrentPageAsync(page)
   if (selection) page.selection = selection
   if (figma.currentPage.id !== page.id) {
-    specError(`Verification failed: page "${page.id}" is not active.`)
+    applyError(`Verification failed: page "${page.id}" is not active.`)
   }
   if (
     selection &&
     (page.selection.length !== selection.length ||
       page.selection.some((node, index) => node.id !== selection[index]?.id))
   ) {
-    specError(`Verification failed: page "${page.id}" selection does not match.`)
+    applyError(`Verification failed: page "${page.id}" selection does not match.`)
   }
   return pageApplyResult(pageSnapshot(page), createApplyState(null, new Set()))
 }
@@ -6769,11 +7602,12 @@ async function removePage(input: ParsedCanvasPageInput): Promise<ApplyCanvasResu
 
   try {
     return await withUndoBoundary(async () => {
+      protectNode(state, page)
       if (figma.currentPage.id === page.id) await figma.setCurrentPageAsync(fallback)
       page.remove()
       state.mutations.count += 1
       if (figma.root.children.some((candidate) => candidate.id === page.id)) {
-        specError(`Verification failed: page "${page.id}" is still present.`)
+        applyError(`Verification failed: page "${page.id}" is still present.`)
       }
       return boundedApplyResult({
         nodeIdsByKey: {},
@@ -6817,16 +7651,21 @@ async function removeUpdateRoot(targetNodeId: string): Promise<ApplyCanvasResult
   validateRemovalOwnership(candidate, state)
   state.removalNodeIds.add(candidate.id)
   const parent = candidate.parent
+  await loadRemovalPages([candidate])
+  await validateRemovalComponents([candidate])
+  validateRemovalResult([candidate], state)
+  await validateRemovalReferences([candidate], state)
 
   return withUndoBoundary(async () => {
-    const removedNodeIds = await applyRemovals([candidate], state)
+    removeValidatedNodes([candidate], state)
+    const removedNodeIds = [candidate.id]
     if (
       !candidate.removed &&
       (!parent ||
         !('children' in parent) ||
         parent.children.some((child) => child.id === candidate.id))
     ) {
-      specError(`Verification failed: root "${candidate.id}" is still present.`)
+      applyError(`Verification failed: root "${candidate.id}" is still present.`)
     }
     return boundedApplyResult(removedRootResult(candidate.id, removedNodeIds, state))
   }, state)
@@ -6926,8 +7765,7 @@ function nativeUpdateSpec(
   const stroke = binding.figma?.stroke
   const corners = binding.figma?.corners
   const size: CanvasNodeSpec['size'] = {
-    width: node.width,
-    height: node.height,
+    ...(node.type === 'INSTANCE' ? {} : { width: node.width, height: node.height }),
     horizontal: preservedSizingMode(
       'layoutSizingHorizontal' in node ? node.layoutSizingHorizontal : undefined
     ),
@@ -6991,15 +7829,209 @@ function nativeUpdateParent(node: SupportedCanvasNode): CanvasParentNode | undef
 
 type ResourceInput = Pick<ParsedCanvasTreeInput, 'variableCollections' | 'styles'>
 
+function hasDeclaredResources(input: ResourceInput): boolean {
+  return (
+    Object.keys(input.variableCollections ?? {}).length > 0 ||
+    Object.keys(input.styles ?? {}).length > 0
+  )
+}
+
+async function preflightDeclaredResources(
+  specs: Iterable<CanvasNodeSpec>,
+  input: ResourceInput,
+  state: ApplyState
+): Promise<void> {
+  const nodes = [...specs]
+  const specsByKey = new Map(nodes.map((spec) => [spec.key, spec]))
+  const componentContexts = new Map<CanvasNodeSpec, ComponentPropertyContext | undefined>()
+  await preflightStyleDeclarations(input.styles, state.styles)
+  for (const { spec, style } of state.styles.selections ?? []) {
+    if (spec !== null && style?.type === 'TEXT') await loadFont(style.fontName, state.fonts)
+  }
+  const declaredVariables = await preflightVariableDeclarations(
+    input.variableCollections,
+    state.variables
+  )
+  async function knownVariable(reference: CanvasVariableReference) {
+    // Key-only library references can import resources; keep those in the full preflight.
+    if (!('variableKey' in reference) && reference.id === undefined) return
+    return (
+      ('variableKey' in reference ? declaredVariables.get(reference.variableKey) : undefined) ??
+      (await resolveVariable(reference, state.variables))
+    )
+  }
+  const componentResources: ComponentPreflightResources = {
+    variable: knownVariable,
+    component: (reference) =>
+      reference.id !== undefined ? resolveComponent(reference, state) : Promise.resolve(undefined)
+  }
+  async function preflightDeclaredPaints(
+    paints: CanvasFigmaPaint[] | undefined,
+    field: string,
+    key: string
+  ) {
+    for (const [index, paint] of (paints ?? []).entries()) {
+      for (const reference of paintColorVariables(paint)) {
+        const variable = await knownVariable(reference)
+        if (variable)
+          validateVariableDataType(variable, 'COLOR', `${field} paint ${index} on "${key}"`)
+      }
+      await preflightPaintSource(paint, field, index, key, state)
+    }
+  }
+  async function preflightEffectVariables(effects: CanvasFigmaEffect[] | undefined, key: string) {
+    for (const [index, effect] of (effects ?? []).entries()) {
+      if (!('variables' in effect)) continue
+      for (const [field, reference] of Object.entries(effect.variables ?? {})) {
+        const variable = await knownVariable(reference)
+        if (variable)
+          validateVariableDataType(
+            variable,
+            field === 'color' ? 'COLOR' : 'FLOAT',
+            `effect ${index} ${field} on "${key}"`
+          )
+      }
+    }
+  }
+  async function preflightGridVariables(grids: CanvasFigmaLayoutGrid[] | undefined, key: string) {
+    for (const [index, grid] of (grids ?? []).entries()) {
+      for (const [field, reference] of Object.entries(grid.variables ?? {})) {
+        const variable = await knownVariable(reference)
+        if (variable)
+          validateVariableDataType(variable, 'FLOAT', `layout grid ${index} ${field} on "${key}"`)
+      }
+    }
+  }
+  async function preflightBindings(
+    key: string,
+    variables: CanvasVariableBindings | undefined,
+    styles: CanvasStyleBindings | undefined
+  ): Promise<void> {
+    for (const [field, reference] of Object.entries(variables ?? {}) as Array<
+      [keyof CanvasVariableBindings, CanvasVariableReference | null]
+    >) {
+      if (!reference) continue
+      const variable = await knownVariable(reference)
+      if (variable) validateVariableType(field, variable, key)
+    }
+    for (const [field, reference] of Object.entries(styles ?? {}) as Array<
+      [keyof CanvasStyleBindings, CanvasStyleReference | null]
+    >) {
+      if (!reference) continue
+      const declared = 'styleKey' in reference ? input.styles?.[reference.styleKey] : undefined
+      if (declared) {
+        if (declared.type !== STYLE_TYPES[field]) {
+          specError(
+            `Declared style for ${field} on "${key}" has incompatible type ${declared.type}.`
+          )
+        }
+        continue
+      }
+      if (!('styleKey' in reference) && reference.id === undefined) continue
+      const style = await resolveStyle(reference, state.styles)
+      validateStyleType(field, style, key)
+      if (style.type === 'TEXT') await loadFont(style.fontName, state.fonts)
+    }
+  }
+  for (const [key, style] of Object.entries(input.styles ?? {})) {
+    if (style?.type === 'TEXT') {
+      if (style.fontName) await loadFont(style.fontName, state.fonts)
+      await preflightBindings(key, style.variables, undefined)
+    }
+    if (style?.type === 'PAINT') {
+      preflightStylePatternSources(style.paints, key, state)
+      await preflightDeclaredPaints(style.paints, 'style', key)
+    }
+    if (style?.type === 'EFFECT') await preflightEffectVariables(style.effects, key)
+    if (style?.type === 'GRID') await preflightGridVariables(style.layoutGrids, key)
+  }
+  if (Object.keys(input.variableCollections ?? {}).length === 0) {
+    for (const { spec, style } of state.styles.selections ?? []) {
+      if (spec?.type !== 'TEXT' || style?.type !== 'TEXT') continue
+      const importsFontVariable = TEXT_STYLE_VARIABLES_BY_VALUE.fontName.some((field) => {
+        const reference = spec.variables?.[field]
+        return reference && !('variableKey' in reference) && reference.id === undefined
+      })
+      if (importsFontVariable) continue
+      // Existing consumer modes are ready to read when no variable declarations
+      // or library imports can change their fonts. The full preflight rechecks them.
+      await loadTextStyleVariableFonts(style, spec, state)
+    }
+  }
+  for (const spec of nodes) {
+    preflightTextRangeBounds(spec, state)
+    const existing = findExistingNode(spec, state)
+    const owner = existing ? componentPropertyOwner(existing) : null
+    // Tree children inherit the desired context; native-only patches use their live owner.
+    const inherited = componentContexts.has(spec)
+      ? componentContexts.get(spec)
+      : owner
+        ? { existing: owner, spec: specsByKey.get(readOwnedNodeKey(owner) ?? '') }
+        : undefined
+    const component = await preflightComponentState(
+      spec,
+      state,
+      existing ?? undefined,
+      inherited,
+      componentResources
+    )
+    for (const child of spec.children ?? []) componentContexts.set(child, component)
+    preflightShadowSpread(spec, existing ?? undefined)
+    if (existing?.type === 'TEXT') await loadFonts(currentTextFonts(existing), state.fonts)
+    await preflightBindings(spec.key, spec.variables, spec.styles)
+    const hasBoundFont =
+      spec.variables?.fontFamily ||
+      spec.variables?.fontStyle ||
+      (existing?.type === 'TEXT' &&
+        (currentBoundVariableId(existing, 'fontFamily') ||
+          currentBoundVariableId(existing, 'fontStyle')))
+    // Same-call variable declarations can change the bound half of a literal font pair.
+    // Resolve that pair in the full preflight, after those values have been applied.
+    if (!hasBoundFont) await preflightTextFont(spec, state, existing ?? undefined)
+    await preflightHyperlink(spec.figma?.text?.hyperlink, spec.key, state)
+    await preflightDeclaredPaints(spec.figma?.fills, 'fill', spec.key)
+    await preflightDeclaredPaints(spec.figma?.strokes, 'stroke', spec.key)
+    await preflightEffectVariables(spec.figma?.effects, spec.key)
+    await preflightGridVariables(spec.figma?.layoutGrids, spec.key)
+    if (spec.figma?.shape?.type === 'VECTOR') {
+      for (const [index, region] of (spec.figma.shape.network?.regions ?? []).entries()) {
+        await preflightBindings(spec.key, undefined, { fill: region.fillStyle })
+        await preflightDeclaredPaints(region.fills, `vector region ${index} fill`, spec.key)
+      }
+    }
+    for (const [index, range] of (spec.figma?.text?.ranges ?? []).entries()) {
+      if (range.fontName) await loadFont(range.fontName, state.fonts)
+      await preflightBindings(`${spec.key} text range ${index}`, range.variables, {
+        text: range.textStyle,
+        fill: range.fillStyle
+      })
+      await preflightHyperlink(range.hyperlink, `${spec.key} text range ${index}`, state)
+      await preflightDeclaredPaints(range.fills, `text range ${index} fill`, spec.key)
+      if (range.textDecorationColor && range.textDecorationColor.value !== 'AUTO') {
+        await preflightDeclaredPaints(
+          [range.textDecorationColor.value],
+          `text range ${index} decoration`,
+          spec.key
+        )
+      }
+    }
+  }
+}
+
 async function prepareResources(input: ResourceInput, state: ApplyState): Promise<void> {
   await reconcileVariableCollections(input.variableCollections, state.variables, state.mutations)
   await prepareStyleResources(input.styles, state.styles, state.mutations)
   await preflightStyleResources(state)
 }
 
-async function applyResources(state: ApplyState): Promise<void> {
+async function prepareMedia(
+  specs: Iterable<CanvasNodeSpec>,
+  input: ResourceInput,
+  state: ApplyState
+): Promise<void> {
+  for (const spec of specs) collectCanvasMedia(spec.figma, `node "${spec.key}"`, state.media)
+  collectCanvasMedia(input.styles, 'styles', state.media)
   await importCanvasMedia(state.media)
-  applyStyleResources(state)
 }
 
 async function removeResources(state: ApplyState): Promise<void> {
@@ -7009,6 +8041,7 @@ async function removeResources(state: ApplyState): Promise<void> {
 
 function layoutWarnings(specs: CanvasNodeSpec[], state: ApplyState): VerificationWarning[] {
   return [
+    ...state.ignoredLiteralWarnings,
     ...specs.flatMap((spec) => layoutAffectingVisibilityWarnings(spec, state)),
     ...specs.flatMap((spec) => managedContentOverflowWarnings(spec, state)),
     ...specs.flatMap((spec) => managedRoundedStrokeOcclusionWarnings(spec, state)),
@@ -7047,25 +8080,40 @@ async function reconcileNativeUpdate(
     const spec = specsByKey.get(key)
     if (spec) specs.push(spec)
   }
+  try {
+    validateAssetReferences(specs, input.assets, input.styles)
+  } catch (error) {
+    specError(errorMessage(error))
+  }
   const assets = await resolveCanvasAssets(input.assets, collectSvgColorsFromSpecs(specs))
   const state = createApplyState(candidate, new Set(Object.keys(input.bindings)), assets)
   for (const spec of specs) {
     const node = state.keyedNodes.get(spec.key)!
     state.nodeIdsByKey[spec.key] = node.id
+    preflightVectorPaths(spec)
+    preflightContainers(spec, state, node)
   }
 
-  return withUndoBoundary(async () => {
-    await prepareResources(input, state)
+  const preflight = async (): Promise<void> => {
     for (const spec of specs) {
       const node = state.keyedNodes.get(spec.key)!
-      preflightContainers(spec, state, node)
       const owner = componentPropertyOwner(node)
       const inherited = owner
         ? { existing: owner, spec: specsByKey.get(readOwnedNodeKey(owner) ?? '') }
         : undefined
       await preflightResources(spec, state, node, inherited)
     }
-    await applyResources(state)
+  }
+  const declaresResources = hasDeclaredResources(input)
+  if (declaresResources) await preflightDeclaredResources(specs, input, state)
+  if (!declaresResources) await preflight()
+  await prepareMedia(specs, input, state)
+  return withUndoBoundary(async () => {
+    if (declaresResources) {
+      await prepareResources(input, state)
+      await preflight()
+    }
+    applyStyleResources(state)
     for (const spec of specs) {
       const node = state.keyedNodes.get(spec.key)!
       await applyNodeProperties(node, spec, state, nativeUpdateParent(node))
@@ -7074,6 +8122,7 @@ async function reconcileNativeUpdate(
       const node = state.keyedNodes.get(spec.key)!
       await applyCanvasKeyReferences(spec, state, nativeUpdateParent(node))
     }
+    finalizeSvgPositions(specs, state)
     await removeResources(state)
 
     const verified = { nodes: 0, references: 0, nativeFields: 0 }
@@ -7145,20 +8194,36 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
   }
   const assets = await resolveCanvasAssets(input.assets, collectSvgColors(rootSpec))
   const state = createApplyState(target, collectDesiredKeys(rootSpec), assets)
+  const resultPage = await prepareResultPage(input.page, target)
   const removalNodes = resolveRemovalNodes(input, state)
-
-  return withUndoBoundary(async () => {
-    await resolveExplicitNodes(rootSpec, state)
-    preflightExistingNodeIdentities(rootSpec, state, target)
-    const { page } = await resolveResultPage(input.page, target, state)
-    await validateRemovalComponents(outermostNodes(removalNodes))
-    preflightMasks(rootSpec, state, target)
-    preflightContainers(rootSpec, state, target)
-    await prepareResources(input, state)
+  await resolveExplicitNodes(rootSpec, state)
+  preflightExistingNodeIdentities(rootSpec, state, target)
+  preflightMasks(rootSpec, state, target)
+  preflightContainers(rootSpec, state, target)
+  preflightMovedChildren(rootSpec, state)
+  for (const spec of walkSpecs(rootSpec)) preflightVectorPaths(spec)
+  await loadRemovalPages(removalNodes)
+  await validateRemovalComponents(outermostNodes(removalNodes))
+  const preflight = async (): Promise<void> => {
     await preflightVariableModes(input.page?.variableModes, state)
     await preflightResources(rootSpec, state, target ?? undefined)
-    await applyResources(state)
-    if (input.page) applyPage(page, input.page, state)
+  }
+  const declaresResources = hasDeclaredResources(input)
+  if (declaresResources) await preflightDeclaredResources(walkSpecs(rootSpec), input, state)
+  if (!declaresResources) {
+    await preflight()
+    if (resultPage) await preloadFirstPageModeFonts(resultPage, input.page?.variableModes, state)
+  }
+  await prepareMedia(walkSpecs(rootSpec), input, state)
+
+  return withUndoBoundary(async () => {
+    const page = applyResultPage(resultPage, input.page, state)
+    if (declaresResources) {
+      await prepareResources(input, state)
+      await preflight()
+    }
+    applyStyleResources(state)
+    if (input.page) await applyPage(page, input.page, state)
     const destination =
       input.mode === 'create' && page.id !== figma.currentPage.id ? page : undefined
     const root = await reconcileNode(
@@ -7176,6 +8241,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
     const removedNodeIds = await applyRemovals(removalNodes, state)
     finalizeGridsAfterRemovals(rootSpec, state)
     finalizeAbsolutePositions(rootSpec, state)
+    finalizeSvgPositions(walkSpecs(rootSpec), state)
     await removeResources(state)
     const verified = await verifyAppliedNode(rootSpec, root, state)
     const warnings = [

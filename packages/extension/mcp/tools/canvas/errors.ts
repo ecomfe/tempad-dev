@@ -26,7 +26,15 @@ export function errorMessage(error: unknown, fallback = ''): string {
 }
 
 export function formatSchemaError(error: ZodError): string {
-  const expanded = error.issues.flatMap((issue) => expandSchemaIssue(issue))
+  const issues = error.issues.flatMap((issue) => expandSchemaIssue(issue))
+  const strictPaths = new Set(
+    issues
+      .filter(({ issue }) => issue.code === 'unrecognized_keys')
+      .map(({ path }) => JSON.stringify(path))
+  )
+  const expanded = issues.filter(
+    ({ issue, path }) => issue.code !== 'custom' || !strictPaths.has(JSON.stringify(path))
+  )
   const groups: SchemaIssueGroup[] = []
   const groupedBySource = new Map<string, SchemaIssueGroup>()
 
@@ -43,7 +51,7 @@ export function formatSchemaError(error: ZodError): string {
   }
 
   const visible = groups.slice(0, MAX_SCHEMA_ISSUES)
-  const issues = visible.map(({ count, path, source }) => {
+  const messages = visible.map(({ count, path, source }) => {
     const message =
       source.length <= MAX_SCHEMA_MESSAGE_CHARS
         ? source
@@ -53,8 +61,8 @@ export function formatSchemaError(error: ZodError): string {
   })
   const omitted = expanded.length - visible.reduce((count, issue) => count + issue.count, 0)
   if (omitted > 0)
-    issues.push(`${omitted} more validation issue${omitted === 1 ? '' : 's'} omitted.`)
-  return issues.join('\n') || 'Canvas input is invalid.'
+    messages.push(`${omitted} more validation issue${omitted === 1 ? '' : 's'} omitted.`)
+  return messages.join('\n') || 'Canvas input is invalid.'
 }
 
 function expandSchemaIssue(
@@ -93,6 +101,7 @@ function schemaIssueSource(issue: ZodIssue): string {
 
 function formatPath(path: PropertyKey[]): string {
   if (!path.length) return 'input'
+  if (path[0] === 'bindings') path = ['native', ...path.slice(1)]
   return path.reduce<string>(
     (result, segment) =>
       typeof segment === 'number'
@@ -106,6 +115,10 @@ function formatPath(path: PropertyKey[]): string {
 
 export function specError(message: string): never {
   throw createCodedError(TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC, message)
+}
+
+export function applyError(message: string): never {
+  throw createCodedError(TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED, message)
 }
 
 export function scopeError(message: string): never {

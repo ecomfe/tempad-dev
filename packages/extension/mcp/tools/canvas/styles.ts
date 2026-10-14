@@ -5,6 +5,7 @@ import { scopeError, specError } from './errors'
 import {
   CANVAS_STYLE_KEY_NAME,
   type MutationCounter,
+  assertAuthoringKey,
   claimAuthoringKey,
   designReferenceCacheKey,
   readAuthoringKey
@@ -16,13 +17,20 @@ type CanvasStyleResourceState = {
   style: BaseStyle
 }
 
+type StyleSelection = {
+  key: string
+  spec: CanvasStyleResource | null
+  style: BaseStyle | undefined
+}
+
 export type CanvasStyleState = {
   byKey: Map<string, BaseStyle>
   cache: Map<string, BaseStyle>
   createdStyleKeys: Set<string>
-  indexed: boolean
+  indexing?: Promise<void>
   removals: Array<{ key: string; style: BaseStyle }>
   resources: CanvasStyleResourceState[]
+  selections?: StyleSelection[]
 }
 
 function indexStyle(styles: Map<string, BaseStyle>, key: string, style: BaseStyle): void {
@@ -34,15 +42,23 @@ function indexStyle(styles: Map<string, BaseStyle>, key: string, style: BaseStyl
 }
 
 async function ensureLocalIndex(state: CanvasStyleState): Promise<void> {
-  if (state.indexed) return
-  state.indexed = true
-  const styles = await getLocalStyles()
-  for (const style of styles) {
-    state.cache.set(`id:${style.id}`, style)
-    if (style.key) state.cache.set(`key:${style.key}`, style)
-    const key = readAuthoringKey(style, CANVAS_STYLE_KEY_NAME)
-    if (key) indexStyle(state.byKey, key, style)
-  }
+  state.indexing ??= (async () => {
+    const styles = await getLocalStyles()
+    const byKey = new Map<string, BaseStyle>()
+    for (const style of styles) {
+      const key = readAuthoringKey(style, CANVAS_STYLE_KEY_NAME)
+      if (key) indexStyle(byKey, key, style)
+    }
+    for (const style of styles) {
+      state.cache.set(`id:${style.id}`, style)
+      if (style.key) state.cache.set(`key:${style.key}`, style)
+    }
+    for (const [key, style] of byKey) state.byKey.set(key, style)
+  })().catch((error: unknown) => {
+    state.indexing = undefined
+    throw error
+  })
+  await state.indexing
 }
 
 function createStyle(type: CanvasStyleResource['type']): BaseStyle {
@@ -58,35 +74,47 @@ function createStyle(type: CanvasStyleResource['type']): BaseStyle {
   }
 }
 
-async function selectStyle(
+async function locateStyle(
   key: string,
   spec: CanvasStyleResource,
-  state: CanvasStyleState,
-  mutations: MutationCounter
-): Promise<BaseStyle> {
+  state: CanvasStyleState
+): Promise<BaseStyle | undefined> {
   const keyed = state.byKey.get(key)
   const explicit = spec.id ? await getStyleById(spec.id) : null
   if (spec.id && !explicit) specError(`Style "${spec.id}" does not exist.`)
   if (keyed && explicit && keyed.id !== explicit.id) {
     specError(`Style key "${key}" does not identify "${explicit.id}".`)
   }
-  let style = explicit ?? keyed
-  const isNew = !style
+  const style = explicit ?? keyed
   if (!style) {
     if (!spec.name) specError(`New ${spec.type} style "${key}" requires a name.`)
-    style = createStyle(spec.type)
-    mutations.count += 1
+    return undefined
   }
   if (style.remote) specError(`Style "${style.id}" is not an editable local style.`)
   if (style.type !== spec.type) {
     specError(`Style "${style.id}" is ${style.type}, expected ${spec.type}.`)
   }
-  claimAuthoringKey(style, key, CANVAS_STYLE_KEY_NAME, 'Style', mutations)
-  indexStyle(state.byKey, key, style)
-  state.cache.set(`id:${style.id}`, style)
-  if (style.key) state.cache.set(`key:${style.key}`, style)
-  if (isNew) state.createdStyleKeys.add(key)
   return style
+}
+
+export async function preflightStyleDeclarations(
+  specs: CanvasStyles | undefined,
+  state: CanvasStyleState
+): Promise<void> {
+  if (!specs) return
+  await ensureLocalIndex(state)
+  const selections: StyleSelection[] = []
+  const claims = new Map<string, string>()
+  for (const [key, spec] of Object.entries(specs)) {
+    const style = spec === null ? state.byKey.get(key) : await locateStyle(key, spec, state)
+    if (style && spec !== null) {
+      const current = claims.get(style.id) ?? readAuthoringKey(style, CANVAS_STYLE_KEY_NAME)
+      assertAuthoringKey(style.id, key, current, 'Style')
+      claims.set(style.id, key)
+    }
+    selections.push({ key, spec, style })
+  }
+  state.selections = selections
 }
 
 export function createStyleState(): CanvasStyleState {
@@ -94,7 +122,6 @@ export function createStyleState(): CanvasStyleState {
     byKey: new Map(),
     cache: new Map(),
     createdStyleKeys: new Set(),
-    indexed: false,
     removals: [],
     resources: []
   }
@@ -106,18 +133,22 @@ export async function prepareStyleResources(
   mutations: MutationCounter
 ): Promise<void> {
   if (!specs) return
-  await ensureLocalIndex(state)
-  for (const [key, spec] of Object.entries(specs)) {
+  if (!state.selections) await preflightStyleDeclarations(specs, state)
+  for (const { key, spec, style: selected } of state.selections ?? []) {
     if (spec === null) {
-      const style = state.byKey.get(key)
-      if (style) state.removals.push({ key, style })
+      if (selected) state.removals.push({ key, style: selected })
       continue
     }
-    state.resources.push({
-      key,
-      spec,
-      style: await selectStyle(key, spec, state, mutations)
-    })
+    const style = selected ?? createStyle(spec.type)
+    if (!selected) {
+      mutations.count += 1
+      state.createdStyleKeys.add(key)
+    }
+    claimAuthoringKey(style, key, CANVAS_STYLE_KEY_NAME, 'Style', mutations)
+    indexStyle(state.byKey, key, style)
+    state.cache.set(`id:${style.id}`, style)
+    if (style.key) state.cache.set(`key:${style.key}`, style)
+    state.resources.push({ key, spec, style })
   }
 }
 

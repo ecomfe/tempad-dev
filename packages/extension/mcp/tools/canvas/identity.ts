@@ -4,6 +4,7 @@ import { specError } from './errors'
 import { isInsideInstance } from './traversal'
 
 export const CANVAS_KEY_NAMESPACE = 'tempad_dev'
+export const CANVAS_COUNTER_AXIS_SYNC_NAME = 'counter-axis-spacing-sync'
 export const CANVAS_NODE_KEY_NAME = 'canvas-key'
 export const CANVAS_NODE_OWNER_NAME = 'canvas-owner'
 export const CANVAS_PAGE_KEY_NAME = 'page-key'
@@ -56,10 +57,11 @@ export function pageSnapshot(
 export function readOwnedNodeKey(node: SceneNode): string | undefined {
   if (isInsideInstance(node)) return undefined
   const key = readAuthoringKey(node, CANVAS_NODE_KEY_NAME)
-  if (!key || node.type !== 'INSTANCE') return key
+  if (!key) return undefined
 
   const owner = readAuthoringKey(node, CANVAS_NODE_OWNER_NAME)
   if (owner) return owner === node.id ? key : undefined
+  if (node.type !== 'INSTANCE') return key
 
   try {
     const component = node.mainComponent
@@ -82,12 +84,23 @@ export function claimNodeKey(node: SceneNode, key: string): boolean {
   }
 
   const keyChanged = current !== key
-  const ownerChanged = node.type === 'INSTANCE' && owner !== node.id
+  const ownerChanged = owner !== node.id
   if (keyChanged) node.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_KEY_NAME, key)
   if (ownerChanged) {
     node.setSharedPluginData(CANVAS_KEY_NAMESPACE, CANVAS_NODE_OWNER_NAME, node.id)
   }
   return keyChanged || ownerChanged
+}
+
+export function assertAuthoringKey(
+  id: string,
+  key: string,
+  current: string | undefined,
+  label: string
+): void {
+  if (current && current !== key) {
+    specError(`${label} "${id}" is already owned by authoring key "${current}".`)
+  }
 }
 
 export function claimAuthoringKey(
@@ -103,9 +116,7 @@ export function claimAuthoringKey(
 ): void {
   const current = readAuthoringKey(resource, name)
   if (current === key) return
-  if (current) {
-    specError(`${label} "${resource.id}" is already owned by authoring key "${current}".`)
-  }
+  assertAuthoringKey(resource.id, key, current, label)
   resource.setSharedPluginData(CANVAS_KEY_NAMESPACE, name, key)
   mutations.count += 1
 }

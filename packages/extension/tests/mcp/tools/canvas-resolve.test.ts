@@ -113,6 +113,53 @@ function catalog() {
 }
 
 describe('mcp/tools/canvas authoring references and catalog resolution', () => {
+  it('rejects conflicting component tags and native properties without overwriting them', () => {
+    const designSystem = catalog()
+    const base = {
+      mode: 'create',
+      catalogId: designSystem.id,
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><Button data-key="button" data-ref="c1" label="Markup"/></div>'
+    }
+    for (const binding of [
+      { component: { id: 'other:1' } },
+      { componentProperties: { 'Label#1:2': 'Native' } }
+    ]) {
+      const resolved = resolveCanvasInput(
+        ApplyCanvasParametersSchema.parse({ ...base, native: { button: binding } })
+      )
+      expect(() => parseCanvasMarkup(resolved.input, resolved.catalog)).toThrow(/conflicts.*native/)
+    }
+  })
+
+  it('reports all unsupported classes on catalog components', () => {
+    const designSystem = catalog()
+    const resolved = resolveCanvasInput(
+      ApplyCanvasParametersSchema.parse({
+        mode: 'create',
+        catalogId: designSystem.id,
+        markup:
+          '<div data-key="root" class="flex flex-col w-80 h-80"><Button data-key="button" data-ref="c1" class="foo bar"/></div>'
+      })
+    )
+    expect(() => parseCanvasMarkup(resolved.input, resolved.catalog)).toThrow(
+      'Unsupported Canvas classes: "foo", "bar"'
+    )
+  })
+
+  it('reports public native paths without an extra empty-object error', () => {
+    const input = ApplyCanvasParametersSchema.parse({
+      mode: 'update',
+      targetNodeId: '1:1',
+      native: { root: { figma: { fooBar: true } } }
+    })
+    expect(() => resolveCanvasInput(input)).toThrow('native.root.figma: Unrecognized key: "fooBar"')
+    try {
+      resolveCanvasInput(input)
+    } catch (error) {
+      expect((error as Error).message).not.toMatch(/bindings|cannot be empty/)
+    }
+  })
   it('discovers every documented complete recipe without a file allowlist', () => {
     expect(REFERENCE_EXAMPLES.map(({ file, number }) => `${file}#${number}`)).toEqual(
       expect.arrayContaining([
@@ -162,7 +209,7 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
       }
     ])
 
-    expect(formatSchemaError(error)).toBe('bindings.card.figma: Unrecognized key: "opacity"')
+    expect(formatSchemaError(error)).toBe('native.card.figma: Unrecognized key: "opacity"')
   })
 
   it('names the expected type when the runtime supplies a generic issue message', () => {
@@ -175,7 +222,7 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
       }
     ])
 
-    expect(formatSchemaError(error)).toBe('bindings.branch.figma.shape.paths[0]: Expected object.')
+    expect(formatSchemaError(error)).toBe('native.branch.figma.shape.paths[0]: Expected object.')
   })
 
   it('surfaces the closest union branch and collapses repeated equivalent issues', () => {
@@ -275,7 +322,7 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
     expect(parsed.root.children?.[0]).toMatchObject({
       key: 'save',
       type: 'INSTANCE',
-      size: { width: 120, height: 40 },
+      size: { horizontal: 'FIXED', vertical: 'FIXED' },
       component: { id: 'component:button', key: 'component-key' },
       variables: { opacity: { id: 'variable:size', key: 'variable-key' } },
       componentProperties: {
@@ -284,6 +331,8 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
         Tone: 'Primary'
       }
     })
+    expect(parsed.root.children?.[0]?.size.width).toBeUndefined()
+    expect(parsed.root.children?.[0]?.size.height).toBeUndefined()
     expect(parsed.root.children?.[1]).toMatchObject({
       key: 'copy',
       variables: { fontSize: { id: 'variable:size', key: 'variable-key' } },

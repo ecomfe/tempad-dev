@@ -67,7 +67,21 @@ export function isIntrinsicContainer(type: string): type is 'BOOLEAN_OPERATION' 
   return type === 'BOOLEAN_OPERATION' || type === 'GROUP'
 }
 
+export type CanvasGridHint = {
+  itemsPositioning: 'MANUAL' | 'ROW_AUTO_FLOW'
+  children: Array<{
+    id: string
+    key?: string
+    row: number
+    column: number
+    rowSpan: number
+    columnSpan: number
+  }>
+}
+
 export type CanvasNodeTypeHints = {
+  keys?: ReadonlySet<string>
+  grids?: ReadonlyMap<string, CanvasGridHint>
   byKey: ReadonlyMap<string, CanvasPreservedNodeType>
   byNodeId: ReadonlyMap<string, CanvasPreservedNodeType>
   root?: CanvasPreservedNodeType
@@ -166,6 +180,8 @@ export type CanvasNodeSpec = {
     fontStyleMatching?: true
     portableFontFamily?: 'mono' | 'sans' | 'serif'
     fontStyle?: string
+    // Preserve authored weight for diagnostics; style names cannot establish numeric weight.
+    literalFontWeight?: number
     fontSize?: number
     lineHeight?: LineHeight
     letterSpacing?: LetterSpacing

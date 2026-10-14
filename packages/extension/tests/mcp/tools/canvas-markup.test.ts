@@ -45,6 +45,90 @@ const BLEND_MODE_CLASSES = [
 ] as const satisfies ReadonlyArray<readonly [string, BlendMode]>
 
 describe('canvas markup', () => {
+  it('preserves live grid flow and reserves omitted manual cells', () => {
+    const input = {
+      mode: 'update' as const,
+      targetNodeId: '1:1',
+      markup:
+        '<div data-key="root" class="grid grid-cols-2 grid-rows-2 w-80 h-80"><div data-key="new" class="size-10"/></div>'
+    }
+    const hints = {
+      byKey: new Map(),
+      byNodeId: new Map(),
+      keys: new Set(['root', 'old']),
+      grids: new Map([
+        [
+          'root',
+          {
+            itemsPositioning: 'MANUAL' as const,
+            children: [{ id: '1:2', key: 'old', row: 0, column: 0, rowSpan: 1, columnSpan: 1 }]
+          }
+        ]
+      ])
+    }
+    const manual = parseCanvasMarkup(input, undefined, hints)
+    expect(manual.root.children?.[0]?.gridChild).toMatchObject({ row: 0, column: 1 })
+    const flow = parseCanvasMarkup(input, undefined, {
+      ...hints,
+      grids: new Map([['root', { itemsPositioning: 'ROW_AUTO_FLOW', children: [] }]])
+    })
+    expect(flow.root.layout).toMatchObject({ itemsPositioning: 'ROW_AUTO_FLOW' })
+    expect(() =>
+      parseCanvasMarkup(
+        { ...input, markup: input.markup.replace('size-10', 'size-10 col-start-2 row-start-1') },
+        undefined,
+        {
+          ...hints,
+          grids: new Map([['root', { itemsPositioning: 'ROW_AUTO_FLOW', children: [] }]])
+        }
+      )
+    ).toThrow()
+  })
+
+  it('scales the default line height with an arbitrary font size', () => {
+    const markup =
+      '<div data-key="root" class="flex flex-col w-80 h-80"><span data-key="title" class="w-fit h-fit text-[48px]">Heading</span></div>'
+    expect(parse(markup).root.children?.[0]?.text?.lineHeight).toEqual({
+      unit: 'PERCENT',
+      value: 150
+    })
+    expect(
+      parse(markup, { mode: 'update', targetNodeId: '1:1' }).root.children?.[0]?.text?.lineHeight
+    ).toEqual({ unit: 'PERCENT', value: 150 })
+  })
+
+  it('accepts transparent gradient and border colors', () => {
+    const spec = parse(
+      '<div data-key="root" class="w-20 h-20 bg-linear-to-r from-transparent to-white border border-transparent"/>'
+    )
+    expect(spec.root.appearance?.stroke).toBe('#00000000')
+    expect(spec.root.figma?.fills?.[0]).toMatchObject({
+      type: 'GRADIENT_LINEAR',
+      gradientStops: [
+        { position: 0, color: { a: 0 } },
+        { position: 1, color: { a: 1 } }
+      ]
+    })
+  })
+
+  it('uses create defaults only for new nodes in an update', () => {
+    const parsed = parseCanvasMarkup(
+      {
+        mode: 'update',
+        targetNodeId: '1:1',
+        markup:
+          '<div data-key="root" class="flex flex-col w-80 h-80"><span data-key="old" class="w-fit h-fit">Existing</span><span data-key="new" class="w-fit h-fit">New</span></div>'
+      },
+      undefined,
+      { byKey: new Map(), byNodeId: new Map(), keys: new Set(['root', 'old']) }
+    )
+    expect(parsed.root.children?.[0]?.text?.fontSize).toBeUndefined()
+    expect(parsed.root.children?.[1]?.text).toMatchObject({
+      fontSize: 16,
+      lineHeight: { unit: 'PIXELS', value: 24 }
+    })
+  })
+
   it('validates image asset declarations referenced by Paint styles', () => {
     const markup = '<div data-key="root" class="w-[100px] h-[100px]"></div>'
     const styles = {
@@ -243,7 +327,7 @@ describe('canvas markup', () => {
     expect(result.root.children?.[0]?.appearance).toMatchObject({ fill: '#0008' })
   })
 
-  it('decodes numeric entities and rejects malformed or inherited names', () => {
+  it('decodes numeric entities, rejects malformed numeric references, and preserves unknown names', () => {
     const result = parse(
       '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><span data-key="copy" class="w-fit h-fit">&#65;&#x42;</span></div>'
     )
@@ -254,19 +338,19 @@ describe('canvas markup', () => {
         '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><span data-key="copy" class="w-fit h-fit">&#65A;</span></div>'
       )
     ).toThrow('Unsupported HTML entity "&#65A;".')
-    expect(() =>
+    expect(
       parse(
         '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><span data-key="copy" class="w-fit h-fit">&__proto__;</span></div>'
-      )
-    ).toThrow('Unsupported HTML entity "&__proto__;".')
+      ).root.children?.[0]?.text?.characters
+    ).toBe('&__proto__;')
   })
 
   it('preserves ampersands that do not start an entity', () => {
     const result = parse(
-      '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><span data-key="copy" class="w-fit h-fit">Artists & labels · R&B</span></div>'
+      '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><span data-key="copy" class="w-fit h-fit">Artists & labels · R&B · R&D; Q&A;</span></div>'
     )
 
-    expect(result.root.children?.[0]?.text?.characters).toBe('Artists & labels · R&B')
+    expect(result.root.children?.[0]?.text?.characters).toBe('Artists & labels · R&B · R&D; Q&A;')
   })
 
   it('keeps Figma component, variable, and style identities outside markup syntax', () => {

@@ -106,6 +106,7 @@ function resourceSlug(name: string): string {
 }
 
 function withResourceAliases(entries: CatalogEntry[]): CatalogEntry[] {
+  const explicit = new Set<CatalogEntry>()
   const proposed = entries.map((entry) => {
     if (entry.kind === 'variable') {
       const definition = entry.definition as { codeSyntax?: { WEB?: string } } | undefined
@@ -113,6 +114,7 @@ function withResourceAliases(entries: CatalogEntry[]): CatalogEntry[] {
       const cssName =
         syntax?.match(/^var\((--[a-zA-Z0-9_-]+)\)$/)?.[1] ??
         (syntax && /^--[a-zA-Z0-9_-]+$/.test(syntax) ? syntax : undefined)
+      if (cssName) explicit.add(entry)
       return cssName ?? `--${resourceSlug(entry.name) || 'variable'}`
     }
     return entry.kind === 'style' && entry.styleType === 'TEXT'
@@ -122,10 +124,15 @@ function withResourceAliases(entries: CatalogEntry[]): CatalogEntry[] {
   const reserved = new Set(proposed.filter((name): name is string => name !== undefined))
   const counts = new Map<string, number>()
   for (const name of proposed) if (name) counts.set(name, (counts.get(name) ?? 0) + 1)
+  const explicitCounts = new Map<string, number>()
+  entries.forEach((entry, index) => {
+    const name = proposed[index]
+    if (name && explicit.has(entry)) explicitCounts.set(name, (explicitCounts.get(name) ?? 0) + 1)
+  })
   return entries.map((entry, index) => {
     let name = proposed[index]
     if (!name) return entry
-    if (counts.get(name)! > 1) {
+    if (counts.get(name)! > 1 && !(explicit.has(entry) && explicitCounts.get(name) === 1)) {
       const base = `${name}-${entry.ref}`
       name = base
       for (let suffix = 2; reserved.has(name); suffix += 1) name = `${base}-${suffix}`

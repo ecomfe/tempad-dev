@@ -231,7 +231,8 @@ When one resource could change the design decision, the caller sends its exact `
 a normalized usage contract rather than a raw subtree dump: metadata, property definitions, valid
 variant tuples, default-variant Auto Layout, semantic text/instance/slot anatomy, and a
 `previewNodeId` for an optional screenshot. Descriptions, options, variants, traversal, and anatomy
-are explicitly bounded and report omissions.
+are explicitly bounded and report omissions. Anatomy traversal reads node metadata only within
+its visit budget, including in wide sibling lists.
 
 This paging-plus-detail retrieval is deliberate. The extension reports facts without pretending to
 understand task relevance. The agent reads catalog pages only until it has enough evidence and retrieves
@@ -370,7 +371,7 @@ mapped once per call through `theme`, or consumed directly through catalog alias
 `data-var-*` and `data-style-*` attributes remain available. The `native` sidecar carries local
 authored resources, mode overrides, and Figma-only state. Advanced fields expose object boundaries
 and precise routing descriptions at the MCP layer, while their exact shapes and complete examples
-load progressively from the canvas-authoring skill. The extension validates them against the
+load progressively from the Design in Figma skill. The extension validates them against the
 complete private native schema after short refs are expanded.
 
 ### Resource classes
@@ -412,7 +413,7 @@ CSS anchors; use native Auto Layout for alignment across later mode changes with
 fallbacks are excluded from caller-literal mismatch warnings. Native resource creation, type and
 scope checks, binding, undo, and verification remain in the existing reconciler.
 
-Use `resource-mapping.md` in the canvas skill for executable new/existing-system recipes and the
+Use `resource-mapping.md` in the Design in Figma skill for executable new/existing-system recipes and the
 supported utility table. Other native fields and explicit unlinks retain inline/native bindings.
 
 One markup tree is bounded to 160 elements and 12 levels. The element ceiling covers currently
@@ -501,7 +502,7 @@ The parser fails closed on unknown elements, attributes, classes, or contradicto
 Tailwind v4 utilities are accepted when their default value has a deterministic Figma equivalent;
 arbitrary pixel/color values remain available off scale. It is not a browser and does not execute
 CSS, JavaScript, project theme extensions, Tailwind variants/plugins, or remote page content. The
-exact supported subset is documented in the canvas-authoring skill. A plain ampersand remains text
+exact supported subset is documented in the Design in Figma skill. A plain ampersand remains text
 when it does not begin a semicolon-terminated entity; supported named and numeric entities decode.
 
 Before compilation, parsing reports a bounded set of independent static markup issues in the same
@@ -660,6 +661,54 @@ The local deterministic pipeline is:
 11. verify the live result;
 12. commit one Undo boundary, or undo the whole attempt on failure.
 
+Preflight is staged: identity, vector paths, known text-range bounds, incompatible local or same-call
+variable types in nodes, styles, paints, effects, grids, and component property definitions, missing
+hyperlink targets, Pattern sources, image hashes, and known unclipped shadow-spread errors are
+rejected before declared resources are created. Component property references, local instance
+properties, Slot metadata and retained bounds, and instance exposure use the same checks at this
+stage and in the full preflight. Tree children inherit the desired component context; native-only
+patches combine their live owner with any same-call property declarations. Forward canvas-key
+references still resolve against the desired result. Read-only resource
+selection also rejects missing IDs, incompatible collection declarations, and conflicting ownership,
+mode identities, or collection membership; mutation reuses the selected local styles and variables.
+Existing extended collections also check known parent identities and override targets and types.
+Value mode references and required values for new variables in existing base collections are checked
+early when the call does not declare mode changes; new and inherited mode identities still use the
+full resource preflight.
+Paint-style Pattern sources must already exist in the update scope. Existing TextStyle fonts and
+literal or portable node fonts that do not depend on a style or variable binding are loaded before
+the Undo boundary, including when the same call declares resources. Existing TextStyle variable
+fonts also preload for their current consumers when the call declares no variable collections and
+does not import font variables. The full resource preflight still rechecks those consumers.
+Both preflight paths share the same font resolution and request-local load cache. Empty resource declarations use the complete
+preflight before that boundary. Key-only library references retain their later import and validation
+path. Existing result pages and pages needed for declared variable, mode, or collection removals are
+loaded before opening the Undo boundary. Removal scans still read the current pages and node
+references after reconciliation, loading any newly added pages; the request caches only successful
+page loads, not consumers. Removing an entire managed root also scans references before
+that boundary; structural updates retain their final-graph removal checks after reconciliation
+because children and references may move. Resource-dependent validation still runs after resource
+creation, and library/media preparation is not a guarantee of native transaction isolation.
+
+Typography variable setters apply one field at a time. Preload the font faces reached by each
+binding in its actual application order, including intermediate family/style combinations, for
+Text nodes, text ranges, and Text styles. Reuse the request-local font cache across those paths.
+Updates to existing pages preload fonts for the first changed variable mode before opening the
+Undo boundary or changing page properties, including calls with markup but no declared resources.
+Each mode setter still rechecks the live font requirements; later transitions may depend on
+preceding mode changes and cannot be prepared independently.
+
+Removal checks still inspect other pages because ordinary nodes can be referenced by hyperlinks
+or Pattern paints. They traverse physical nodes incrementally and stop at a confirmed external
+reference. Shader definitions are resolved only when a property value could identify a removed node
+or component; an unrelated unavailable shader must not prevent removal.
+Explicit removal IDs remain in the final reference scan when reparenting auto-deletes an emptied
+Group; rescued descendants are not treated as removed. Movement preflight rejects cascading
+deletion of an undeclared ancestor, accounting for children inserted before the outgoing move and
+the delayed creation of new wrapped containers. New component sets stage all variants before
+reconciling their descendants. Placement also accounts for emptied Groups disappearing from the
+destination's sibling list.
+
 Figma may expose a component definition's shared plugin data on its instance and descendants, so a
 key value alone is not ownership proof. An instance root therefore records usage ownership
 separately; an unmarked key is accepted only when distinct from its definition and is then claimed.
@@ -699,9 +748,16 @@ After a failed mutation, reconciliation commits the partial attempt as the newes
 before triggering Undo. This keeps rollback scoped to that attempt in a long-lived plugin session
 instead of consuming the preceding successful apply. Rollback verifies that the update root remains
 resolvable. Exact pre-existing node/component references and unrelated top-level roots on the result
-page also retain their type, parent, canvas key, geometry, and direct child identities; losing or
-changing one is reported as rollback failure instead of masking partial corruption with the original
-validation error.
+page also retain their type, parent, canvas key, geometry, direct child identities, and common
+content fields (including paints, effects, and whole-node text content/style), local transforms,
+clipping, supported layout settings, and size constraints. These content snapshots copy native values
+so in-place changes cannot mutate the expected state. Existing pages also retain their name,
+background, guides, explicit variable modes, authoring key, page order, and direct child identities.
+Page-only updates snapshot unrelated roots after font preloading, so edits made during preparation
+are not mistaken for rollback corruption.
+Losing or changing one is reported as rollback failure instead of masking partial corruption with the original validation
+error. This detects selected rollback corruption; it does not prove restoration of every native field,
+mixed text run, resource, unrelated descendant, or concurrent user edit.
 
 The result budget is checked inside this rollback boundary, reserving 2 KiB of the shared 64 KiB
 limit for runtime evidence. The Hub checks that evidence against the reservation before dispatch
@@ -758,7 +814,8 @@ A same-call authored variable binding whose literal fallback matches none of the
 mode values produces `variable-fallback-mismatch`. Local aliases are followed until a direct value
 is reached; unresolved external aliases are skipped. This warning catches contradictory desired
 state without rejecting legitimate multi-mode fallbacks, because matching any authored mode is
-sufficient.
+sufficient. Font-weight comparison retains the explicit utility's numeric value, including
+non-hundred weights; it does not infer a weight from native style names or default fonts.
 
 A visible component-property reference that can alter Auto Layout flow produces
 `layout-affecting-visibility-property`. It is also non-fatal because optional content may be

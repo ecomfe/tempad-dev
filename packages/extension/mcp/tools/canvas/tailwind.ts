@@ -311,6 +311,7 @@ export type CanvasClasses = {
   fontStyleMatching?: true
   portableFontFamily?: PortableFontFamily
   fontStyle?: string
+  literalFontWeight?: number
   fontSize?: number
   lineHeight?: LineHeight
   letterSpacing?: LetterSpacing
@@ -428,6 +429,7 @@ function radius(raw: string, token: string): number | null {
 }
 
 function color(raw: string): `#${string}` | null {
+  if (raw === 'transparent') return '#00000000'
   if (raw === 'white') return '#FFFFFF'
   if (raw === 'black') return '#000000'
   const arbitrary = /^\[(#(?:[\dA-Fa-f]{3}|[\dA-Fa-f]{4}|[\dA-Fa-f]{6}|[\dA-Fa-f]{8}))\]$/.exec(raw)
@@ -590,7 +592,7 @@ function textSize(
   if (!arbitrary) return null
   const value = finiteNumber(arbitrary[1]!, token, { positive: true })
   if (value < 1) classError(`Font-size class "${token}" must be at least 1px.`)
-  return { value }
+  return { value, defaultLineHeight: { unit: 'PERCENT', value: 150 } }
 }
 
 function assignIndividuals<Key extends string>(
@@ -1047,6 +1049,7 @@ export function parseCanvasClasses(value: string): CanvasClasses {
         Math.max(100, Math.min(900, Math.round(weight / 100) * 100))
       ) as keyof typeof FONT_STYLES
       assign(classes, 'fontStyle', FONT_STYLES[nearest], token)
+      classes.literalFontWeight = weight
       classes.fontStyleMatching = true
       classes.textClass ??= token
       continue
@@ -1067,6 +1070,7 @@ export function parseCanvasClasses(value: string): CanvasClasses {
     const fontStyle = FONT_STYLES[fontWeight as keyof typeof FONT_STYLES]
     if (fontStyle) {
       assign(classes, 'fontStyle', fontStyle, token)
+      classes.literalFontWeight = Number(fontWeight)
       classes.textClass ??= token
       continue
     }

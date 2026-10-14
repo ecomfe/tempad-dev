@@ -50,7 +50,11 @@ export async function applyResolvedCanvas(
     try {
       preparedTheme = await prepareCanvasTheme(input, catalog)
     } catch (error) {
-      specError(errorMessage(error, 'Canvas theme is invalid.'))
+      if (error instanceof Error && 'code' in error) throw error
+      throw createCodedError(
+        TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        errorMessage(error, 'Canvas theme could not be prepared.')
+      )
     }
     const existingNodeTypes =
       input.mode === 'update' && input.markup !== undefined

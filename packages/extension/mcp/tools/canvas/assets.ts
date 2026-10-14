@@ -13,7 +13,7 @@ const INLINE_SVG_BYTES = 32 * 1024
 const HUB_SVG_BYTES = 1024 * 1024
 const MAX_SVG_ELEMENTS = 500
 const MAX_SVG_DEPTH = 32
-export const SVG_POLICY_VERSION = '2'
+export const SVG_POLICY_VERSION = '3'
 const XLINK_NAMESPACE = 'http://www.w3.org/1999/xlink'
 
 const BANNED_ELEMENTS = new Set([
@@ -159,6 +159,8 @@ async function sanitizeSvg(
   }
 
   let elements = 0
+  const ids = new Map<string, INode>()
+  const uses = new Map<INode, string>()
   const normalizedColor = color?.toUpperCase()
   const visit = (node: INode, depth: number, inheritedNamespaces: Map<string, string>): void => {
     if (node.type !== 'element') return
@@ -171,6 +173,12 @@ async function sanitizeSvg(
       )
     }
     const name = node.name.toLowerCase()
+    if (node.attributes.id) {
+      if (ids.has(node.attributes.id)) {
+        assetError(TEMPAD_MCP_ERROR_CODES.SVG_INVALID, key, 'SVG ids must be unique.')
+      }
+      ids.set(node.attributes.id, node)
+    }
     if (BANNED_ELEMENTS.has(name)) {
       assetError(TEMPAD_MCP_ERROR_CODES.SVG_INVALID, key, `SVG element <${name}> is not supported.`)
     }
@@ -208,6 +216,17 @@ async function sanitizeSvg(
             'SVG links must reference a local #id.'
           )
         }
+        if (node.name.toLowerCase() === 'use') {
+          const previous = uses.get(node)
+          if (previous && previous !== value.slice(1)) {
+            assetError(
+              TEMPAD_MCP_ERROR_CODES.SVG_INVALID,
+              key,
+              'SVG use links must identify the same target.'
+            )
+          }
+          uses.set(node, value.slice(1))
+        }
       }
       if (/@import/i.test(value) || hasExternalUrl(value)) {
         assetError(
@@ -233,6 +252,48 @@ async function sanitizeSvg(
     for (const child of node.children) visit(child, depth + 1, namespaces)
   }
   visit(root, 1, new Map())
+
+  const memo = new Map<INode, { count: number; depth: number }>()
+  const active = new Set<INode>()
+  const expandedSize = (node: INode): { count: number; depth: number } => {
+    const cached = memo.get(node)
+    if (cached) return cached
+    if (active.has(node)) {
+      assetError(TEMPAD_MCP_ERROR_CODES.SVG_TOO_COMPLEX, key, 'SVG use references contain a cycle.')
+    }
+    active.add(node)
+    const children = node.children.filter((child) => child.type === 'element')
+    const reference = uses.get(node)
+    if (reference) {
+      const target = ids.get(reference)
+      if (!target)
+        assetError(
+          TEMPAD_MCP_ERROR_CODES.SVG_INVALID,
+          key,
+          `SVG use target "${reference}" does not exist.`
+        )
+      children.push(target)
+    }
+    let count = 1
+    let depth = 1
+    for (const child of children) {
+      const size = expandedSize(child)
+      count += size.count
+      depth = Math.max(depth, size.depth + 1)
+      if (count > MAX_SVG_ELEMENTS || depth > MAX_SVG_DEPTH) {
+        assetError(
+          TEMPAD_MCP_ERROR_CODES.SVG_TOO_COMPLEX,
+          key,
+          'SVG use expansion exceeds the element or depth limit.'
+        )
+      }
+    }
+    active.delete(node)
+    const size = { count, depth }
+    memo.set(node, size)
+    return size
+  }
+  expandedSize(root)
 
   let viewport: { width: number; height: number }
   try {

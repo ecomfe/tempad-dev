@@ -1,4 +1,4 @@
-import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
+import { isCanvasVideoUrl, TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 
 import { readBoundedResponseBytes } from '../../bounded-response'
 import { createCodedError } from '../../errors'
@@ -27,6 +27,24 @@ export function createMediaState(assets: ResolvedCanvasAssets): CanvasMediaState
     videoHashes: new Map(),
     videoUrls: new Set()
   }
+}
+
+export function collectCanvasMedia(value: unknown, owner: string, state: CanvasMediaState): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectCanvasMedia(item, `${owner}[${index}]`, state))
+    return
+  }
+  if (!value || typeof value !== 'object') return
+  const record = value as Record<string, unknown>
+  if (record.type === 'IMAGE') {
+    if (typeof record.imageUrl === 'string' && !state.imageUrls.has(record.imageUrl))
+      state.imageUrls.set(record.imageUrl, owner)
+    if (typeof record.assetKey === 'string') state.imageAssetKeys.add(record.assetKey)
+  }
+  if (record.type === 'VIDEO' && typeof record.videoUrl === 'string')
+    state.videoUrls.add(record.videoUrl)
+  for (const [field, item] of Object.entries(record))
+    collectCanvasMedia(item, `${owner}.${field}`, state)
 }
 
 export async function importCanvasMedia(state: CanvasMediaState): Promise<void> {
@@ -79,7 +97,10 @@ function resolveImageAssets(state: CanvasMediaState): void {
 }
 
 async function readVideoBytes(response: Response): Promise<Uint8Array> {
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined)
+    throw new Error(`HTTP ${response.status}`)
+  }
   return readBoundedResponseBytes(
     response,
     MAX_VIDEO_BYTES,
@@ -89,12 +110,25 @@ async function readVideoBytes(response: Response): Promise<Uint8Array> {
 
 async function resolveVideoUrls(state: CanvasMediaState): Promise<void> {
   for (const url of state.videoUrls) {
+    if (!isCanvasVideoUrl(url)) {
+      specError('Video URLs must use public HTTPS without credentials or local-network addresses.')
+    }
+    let bytes: Uint8Array
     try {
       const response = await fetch(url, {
         credentials: 'omit',
+        redirect: 'error',
         signal: AbortSignal.timeout(60_000)
       })
-      const video = await figma.createVideoAsync(await readVideoBytes(response))
+      bytes = await readVideoBytes(response)
+    } catch {
+      throw createCodedError(
+        TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        'Video download failed. Use a directly accessible public HTTPS video up to 100MB; redirects, HTTP errors, oversized responses, and timeouts are rejected.'
+      )
+    }
+    try {
+      const video = await figma.createVideoAsync(bytes)
       state.videoHashes.set(url, video.hash)
     } catch {
       specError(

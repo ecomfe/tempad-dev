@@ -1,4 +1,8 @@
-import type { CanvasFigmaProperties, CanvasResolvedApplyParameters } from '@tempad-dev/shared'
+import type {
+  ApplyCanvasParametersInput,
+  CanvasFigmaProperties,
+  CanvasResolvedApplyParameters
+} from '@tempad-dev/shared'
 
 import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -14,195 +18,15 @@ import {
   handleApplyCanvas as applyCanvasFromTool
 } from '@/mcp/tools/canvas'
 
-const MIXED = Symbol('mixed')
-const SHARED_PLUGIN_DATA_NAMESPACE_PATTERN = /^[A-Za-z0-9_.]+$/
+import type { FigmaFixture, MutableNode } from '../../fakes/figma'
 
-function assertSharedPluginDataNamespace(namespace: string): void {
-  if (!SHARED_PLUGIN_DATA_NAMESPACE_PATTERN.test(namespace)) {
-    throw new Error('The namespace can only consist of alphanumeric characters, _ or .')
-  }
-}
-
-function withSharedPluginData<T extends object>(value: T): T & PluginDataMixin {
-  const shared = new Map<string, string>()
-  return Object.assign(value, {
-    getPluginData: vi.fn(() => ''),
-    getPluginDataKeys: vi.fn(() => []),
-    getSharedPluginData(namespace: string, key: string) {
-      assertSharedPluginDataNamespace(namespace)
-      return shared.get(`${namespace}:${key}`) ?? ''
-    },
-    getSharedPluginDataKeys: vi.fn(() => []),
-    setPluginData: vi.fn(),
-    setSharedPluginData(namespace: string, key: string, data: string) {
-      assertSharedPluginDataNamespace(namespace)
-      if (data) shared.set(`${namespace}:${key}`, data)
-      else shared.delete(`${namespace}:${key}`)
-    }
-  }) as T & PluginDataMixin
-}
-
-function defaultPageBackground(): Paint[] {
-  return [
-    {
-      type: 'SOLID',
-      color: { r: 0.9, g: 0.9, b: 0.9 },
-      opacity: 1
-    }
-  ]
-}
-
-function createMockPage(id: string, name: string) {
-  const page = {
-    id,
-    name,
-    type: 'PAGE' as const,
-    removed: false,
-    parent: null as BaseNode | null,
-    children: [] as SceneNode[],
-    selection: [] as SceneNode[],
-    guides: [] as Guide[],
-    backgrounds: defaultPageBackground(),
-    explicitVariableModes: {} as Record<string, string>,
-    isPageDivider: false,
-    loadAsync: vi.fn().mockResolvedValue(undefined),
-    findAll: vi.fn((callback?: (node: SceneNode) => boolean) => {
-      const found: SceneNode[] = []
-      const pending = [...page.children]
-      while (pending.length) {
-        const node = pending.pop()!
-        if (!callback || callback(node)) found.push(node)
-        if ('children' in node) pending.push(...node.children)
-      }
-      return found
-    }),
-    clearExplicitVariableModeForCollection(collection: VariableCollection) {
-      delete page.explicitVariableModes[collection.id]
-    },
-    setExplicitVariableModeForCollection(collection: VariableCollection, modeId: string) {
-      page.explicitVariableModes[collection.id] = modeId
-    },
-    insertChild(index: number, child: SceneNode) {
-      const mutable = child as SceneNode & { parent: BaseNode | null }
-      const oldParent = mutable.parent as (BaseNode & { children?: SceneNode[] }) | null
-      if (oldParent?.children) {
-        const oldIndex = oldParent.children.indexOf(child)
-        if (oldIndex >= 0) oldParent.children.splice(oldIndex, 1)
-      }
-      mutable.parent = page as unknown as PageNode
-      page.children.splice(index, 0, child)
-    },
-    appendChild(child: SceneNode) {
-      page.insertChild(page.children.length, child)
-    },
-    remove() {
-      if (page.removed) return
-      const document = page.parent as (DocumentNode & { children: PageNode[] }) | null
-      if (document) {
-        const index = document.children.indexOf(page as unknown as PageNode)
-        if (index >= 0) document.children.splice(index, 1)
-      }
-      page.removed = true
-      page.parent = null
-    }
-  }
-  return withSharedPluginData(page)
-}
-
-function containingPage(node: BaseNode): PageNode {
-  let current: BaseNode | null = node
-  while (current) {
-    if (current.type === 'PAGE') return current
-    current = current.parent
-  }
-  throw new Error(`Mock node ${node.id} is not attached to a page`)
-}
-
-const PAGE = createMockPage('0:1', 'Page 1')
-
-type Mutable<T> = T extends unknown ? { -readonly [Key in keyof T]: T[Key] } : never
-type MockNodeType =
-  | 'BOOLEAN_OPERATION'
-  | 'COMPONENT'
-  | 'COMPONENT_SET'
-  | 'ELLIPSE'
-  | 'FRAME'
-  | 'GROUP'
-  | 'INSTANCE'
-  | 'LINE'
-  | 'POLYGON'
-  | 'RECTANGLE'
-  | 'SECTION'
-  | 'SLOT'
-  | 'STAR'
-  | 'TEXT'
-  | 'VECTOR'
-
-function isMockFrameType(
-  type: MockNodeType
-): type is 'COMPONENT' | 'COMPONENT_SET' | 'FRAME' | 'SLOT' {
-  return type === 'COMPONENT' || type === 'COMPONENT_SET' || type === 'FRAME' || type === 'SLOT'
-}
-
-type MutableNode = Mutable<SupportedMockNode> & {
-  appendChild: (child: SceneNode) => void
-  booleanOperation: BooleanOperationNode['booleanOperation']
-  boundVariables: Record<string, unknown>
-  children: SceneNode[]
-  componentPropertyReferences: {
-    visible?: string
-    characters?: string
-    mainComponent?: string
-  } | null
-  componentProperties: Record<
-    string,
-    {
-      type: ComponentPropertyType
-      value: string | boolean
-      boundVariables?: { value?: VariableAlias }
-    }
-  >
-  effectStyleId: string
-  effects: readonly Effect[]
-  fillStyleId: string
-  fills: readonly Paint[]
-  gridColumnAnchorIndex: number
-  gridColumnSpan: number
-  gridRowAnchorIndex: number
-  gridRowSpan: number
-  isMask: boolean
-  insertChild: (index: number, child: SceneNode) => void
-  layoutGrow: number
-  layoutPositioning: 'ABSOLUTE' | 'AUTO'
-  mainComponent?: ComponentNode
-  parent: BaseNode | null
-  setGridChildPosition: (row: number, column: number) => void
-  strokeStyleId: string
-  strokes: readonly Paint[]
-}
-
-type SupportedMockNode = Extract<SceneNode, { type: MockNodeType }>
-
-type FigmaFixture = {
-  commitUndo: ReturnType<typeof vi.fn>
-  createImage: ReturnType<typeof vi.fn>
-  createImageAsync: ReturnType<typeof vi.fn>
-  createNodeFromSvg: ReturnType<typeof vi.fn>
-  createVideoAsync: ReturnType<typeof vi.fn>
-  createNode: (type: MockNodeType) => MutableNode
-  getNode: (id: string) => MutableNode
-  importComponentByKeyAsync: ReturnType<typeof vi.fn>
-  importShaderById: ReturnType<typeof vi.fn>
-  importStyleByKeyAsync: ReturnType<typeof vi.fn>
-  listAvailableFontsAsync: ReturnType<typeof vi.fn>
-  loadFontAsync: ReturnType<typeof vi.fn>
-  nodes: Map<string, BaseNode>
-  pages: Array<ReturnType<typeof createMockPage>>
-  styles: Map<string, BaseStyle>
-  triggerUndo: ReturnType<typeof vi.fn>
-  variableCollections: Map<string, VariableCollection>
-  variables: Map<string, Variable>
-}
+import {
+  createFixture,
+  createMockPage,
+  mockVariable,
+  mockVariableCollection,
+  solidPaint
+} from '../../fakes/figma'
 
 function transformNextFrame(fixture: FigmaFixture, transform: (node: MutableNode) => void): void {
   vi.mocked(figma.createFrame).mockImplementationOnce(() => {
@@ -226,1906 +50,6 @@ function transformNextFrameEffects(
       }
     })
   })
-}
-
-function solidPaint(color = { r: 1, g: 1, b: 1 }, opacity = 1): SolidPaint {
-  return {
-    type: 'SOLID',
-    color,
-    opacity,
-    visible: true,
-    blendMode: 'NORMAL'
-  }
-}
-
-function normalizePaint(paint: Paint): Paint {
-  return paint.type === 'SOLID'
-    ? {
-        ...paint,
-        opacity: paint.opacity ?? 1,
-        visible: paint.visible ?? true,
-        blendMode: paint.blendMode ?? 'NORMAL'
-      }
-    : paint
-}
-
-function mockVariableCollection(
-  id: string,
-  name: string,
-  modes = [{ modeId: `${id}:mode:1`, name: 'Mode 1' }]
-): VariableCollection {
-  let nextMode = modes.length + 1
-  const collection = withSharedPluginData({
-    id,
-    key: `${id}:key`,
-    name,
-    hiddenFromPublishing: false,
-    remote: false,
-    isExtension: false,
-    modes: [...modes],
-    variableIds: [] as string[],
-    defaultModeId: modes[0]!.modeId,
-    addMode(modeName: string) {
-      const modeId = `${id}:mode:${nextMode++}`
-      collection.modes.push({ modeId, name: modeName })
-      return modeId
-    },
-    renameMode(modeId: string, modeName: string) {
-      const mode = collection.modes.find((candidate) => candidate.modeId === modeId)
-      if (!mode) throw new Error(`Missing mode ${modeId}`)
-      mode.name = modeName
-    },
-    remove: vi.fn(),
-    removeMode: vi.fn()
-  })
-  return collection as unknown as VariableCollection
-}
-
-function mockVariable(
-  id: string,
-  name: string,
-  collection: VariableCollection,
-  resolvedType: VariableResolvedDataType
-): Variable {
-  const codeSyntax: Partial<Record<CodeSyntaxPlatform, string>> = {}
-  const valuesByMode: Record<string, VariableValue> = {}
-  const variable = withSharedPluginData({
-    id,
-    key: `${id}:key`,
-    name,
-    description: '',
-    hiddenFromPublishing: false,
-    remote: false,
-    variableCollectionId: collection.id,
-    resolvedType,
-    scopes: [] as VariableScope[],
-    codeSyntax,
-    valuesByMode,
-    setValueForMode(modeId: string, value: VariableValue) {
-      valuesByMode[modeId] = value
-    },
-    setVariableCodeSyntax(platform: CodeSyntaxPlatform, value: string) {
-      codeSyntax[platform] = value
-    },
-    removeVariableCodeSyntax(platform: CodeSyntaxPlatform) {
-      delete codeSyntax[platform]
-    },
-    resolveForConsumer: vi.fn((consumer: SceneNode) => {
-      let current: BaseNode | null = consumer
-      let mode = collection.defaultModeId
-      while (current && current.type !== 'DOCUMENT') {
-        const explicit =
-          'explicitVariableModes' in current
-            ? current.explicitVariableModes[collection.id]
-            : undefined
-        if (explicit) {
-          mode = explicit
-          break
-        }
-        current = current.parent
-      }
-      return { value: valuesByMode[mode], resolvedType }
-    }),
-    remove: vi.fn()
-  })
-  return variable as unknown as Variable
-}
-
-function createFixture(): FigmaFixture {
-  let nextId = 1
-  let nextComponentPropertyId = 1
-  let nextPageId = 2
-  let nextStyleId = 1
-  const nodes = new Map<string, BaseNode>()
-  const styles = new Map<string, BaseStyle>()
-  const pages = [PAGE]
-  const root = {
-    id: '0:0',
-    name: 'Document',
-    type: 'DOCUMENT' as const,
-    parent: null,
-    children: pages,
-    insertChild(index: number, page: ReturnType<typeof createMockPage>) {
-      const current = pages.indexOf(page)
-      if (current >= 0) pages.splice(current, 1)
-      pages.splice(index, 0, page)
-      page.parent = root as unknown as DocumentNode
-    }
-  }
-  PAGE.parent = root as unknown as DocumentNode
-  PAGE.children.length = 0
-  PAGE.selection = []
-  PAGE.removed = false
-  PAGE.name = 'Page 1'
-  PAGE.guides = []
-  PAGE.backgrounds = defaultPageBackground()
-  PAGE.explicitVariableModes = {}
-  PAGE.setSharedPluginData('tempad_dev', 'page-key', '')
-  PAGE.loadAsync.mockReset().mockResolvedValue(undefined)
-  PAGE.findAll.mockClear()
-  const loadAllPagesAsync = vi.fn(async () => {
-    await Promise.all(pages.filter((page) => page.id !== PAGE.id).map((page) => page.loadAsync()))
-  })
-
-  function styleConsumers(styleId: string): StyleConsumers[] {
-    const fields = [
-      'backgroundStyleId',
-      'fillStyleId',
-      'strokeStyleId',
-      'textStyleId',
-      'effectStyleId',
-      'gridStyleId'
-    ] as const
-    return [...nodes.values()].flatMap((node) => {
-      if (!('x' in node)) return []
-      const record = node as unknown as Record<string, unknown>
-      const used = fields.filter((field) => record[field] === styleId)
-      return used.length ? [{ node: node as SceneNode, fields: used }] : []
-    })
-  }
-
-  function createStyle(type: 'PAINT' | 'TEXT' | 'EFFECT' | 'GRID'): BaseStyle {
-    const id = `style:authored:${nextStyleId++}`
-    const base = withSharedPluginData({
-      id,
-      key: `${id}:key`,
-      name: '',
-      type,
-      description: '',
-      descriptionMarkdown: '',
-      documentationLinks: [] as DocumentationLink[],
-      remote: false,
-      getStyleConsumersAsync: vi.fn(() => Promise.resolve(styleConsumers(id))),
-      remove: vi.fn(() => styles.delete(id))
-    })
-    let style: BaseStyle
-    switch (type) {
-      case 'PAINT':
-        style = Object.assign(base, { paints: [] as Paint[] }) as unknown as PaintStyle
-        break
-      case 'TEXT': {
-        const boundVariables: Partial<Record<VariableBindableTextField, VariableAlias>> = {}
-        style = Object.assign(base, {
-          fontSize: 12,
-          textDecoration: 'NONE' as TextDecoration,
-          fontName: { family: 'Inter', style: 'Regular' },
-          letterSpacing: { unit: 'PIXELS', value: 0 } as LetterSpacing,
-          lineHeight: { unit: 'AUTO' } as LineHeight,
-          leadingTrim: 'NONE' as LeadingTrim,
-          paragraphIndent: 0,
-          paragraphSpacing: 0,
-          listSpacing: 0,
-          hangingPunctuation: false,
-          hangingList: false,
-          textCase: 'ORIGINAL' as TextCase,
-          boundVariables,
-          setBoundVariable(field: VariableBindableTextField, variable: Variable | null) {
-            if (variable) {
-              boundVariables[field] = { type: 'VARIABLE_ALIAS', id: variable.id }
-            } else {
-              delete boundVariables[field]
-            }
-          }
-        }) as unknown as TextStyle
-        break
-      }
-      case 'EFFECT':
-        style = Object.assign(base, { effects: [] as Effect[] }) as unknown as EffectStyle
-        break
-      case 'GRID':
-        style = Object.assign(base, { layoutGrids: [] as LayoutGrid[] }) as unknown as GridStyle
-        break
-    }
-    styles.set(style.id, style)
-    return style
-  }
-
-  function createNode(type: MockNodeType): MutableNode {
-    const id = `node:${nextId++}`
-    const pluginData = new Map<string, string>()
-    const boundVariables: Record<string, unknown> = {}
-    const explicitVariableModes: Record<string, string> = {}
-    let fills: readonly Paint[] = [solidPaint()]
-    let strokes: readonly Paint[] = []
-    let effects: readonly Effect[] = []
-    let x = 0
-    let y = 0
-    let rotation = 0
-    let relativeTransform: Transform = [
-      [1, 0, 0],
-      [0, 1, 0]
-    ]
-    let targetAspectRatio: Vector | null = null
-    const initialPage =
-      (globalThis as typeof globalThis & { figma?: PluginAPI }).figma?.currentPage ?? PAGE
-    const node = {
-      id,
-      type,
-      removed: false,
-      name: '',
-      visible: true,
-      locked: false,
-      isMask: false,
-      maskType: 'ALPHA' as MaskType,
-      blendMode: 'NORMAL' as BlendMode,
-      width: 100,
-      height: type === 'LINE' ? 0 : 100,
-      minWidth: null,
-      maxWidth: null,
-      minHeight: null,
-      maxHeight: null,
-      parent: initialPage,
-      opacity: 1,
-      clipsContent: false,
-      fillStyleId: '',
-      strokeStyleId: '',
-      effectStyleId: '',
-      strokeWeight: 1,
-      strokeAlign: 'CENTER',
-      strokeCap: 'NONE',
-      strokeJoin: 'MITER',
-      strokeMiterLimit: 4,
-      dashPattern: [],
-      layoutSizingHorizontal: 'FIXED',
-      layoutSizingVertical: 'FIXED',
-      layoutGrow: 0,
-      layoutPositioning: 'AUTO',
-      gridRowAnchorIndex: 0,
-      gridColumnAnchorIndex: 0,
-      gridRowSpan: 1,
-      gridColumnSpan: 1,
-      gridChildHorizontalAlign: 'AUTO',
-      gridChildVerticalAlign: 'AUTO',
-      boundVariables,
-      componentPropertyReferences: null,
-      explicitVariableModes,
-      exportAsync: vi.fn(() => Promise.resolve(new Uint8Array([1, 2, 3]))),
-      getSharedPluginData(namespace: string, key: string) {
-        assertSharedPluginDataNamespace(namespace)
-        return pluginData.get(`${namespace}:${key}`) ?? ''
-      },
-      setSharedPluginData(namespace: string, key: string, value: string) {
-        assertSharedPluginDataNamespace(namespace)
-        pluginData.set(`${namespace}:${key}`, value)
-      },
-      remove: vi.fn(() => {
-        if (node.removed) return
-        const parent = node.parent as (BaseNode & { children?: SceneNode[] }) | null
-        if (parent?.children) {
-          const index = parent.children.indexOf(node)
-          if (index >= 0) parent.children.splice(index, 1)
-        }
-        const stack: BaseNode[] = [node]
-        while (stack.length) {
-          const current = stack.pop()!
-          if ('children' in current) stack.push(...current.children)
-          nodes.delete(current.id)
-          const mutable = current as unknown as {
-            parent: BaseNode | null
-            removed: boolean
-          }
-          mutable.removed = true
-          mutable.parent = null
-        }
-      }),
-      resize(width: number, height: number) {
-        node.width = width
-        node.height = height
-      },
-      rescale(scale: number) {
-        node.width *= scale
-        node.height *= scale
-        node.x *= scale
-        node.y *= scale
-        for (const child of node.children ?? []) {
-          ;(child as unknown as { rescale: (value: number) => void }).rescale(scale)
-        }
-      },
-      setGridChildPosition: vi.fn((row: number, column: number) => {
-        const parent = node.parent
-        if (
-          parent &&
-          'layoutMode' in parent &&
-          parent.layoutMode === 'GRID' &&
-          'children' in parent
-        ) {
-          const collision = parent.children.some((sibling) => {
-            if (sibling.id === node.id || !('gridRowAnchorIndex' in sibling)) return false
-            const rowOverlaps =
-              row < sibling.gridRowAnchorIndex + sibling.gridRowSpan &&
-              row + node.gridRowSpan > sibling.gridRowAnchorIndex
-            const columnOverlaps =
-              column < sibling.gridColumnAnchorIndex + sibling.gridColumnSpan &&
-              column + node.gridColumnSpan > sibling.gridColumnAnchorIndex
-            return rowOverlaps && columnOverlaps
-          })
-          if (collision) throw new Error("Can't place child because the grid position is occupied")
-        }
-        node.gridRowAnchorIndex = row
-        node.gridColumnAnchorIndex = column
-        if ('layoutSizingHorizontal' in node) {
-          node.layoutSizingHorizontal = 'FIXED'
-          node.layoutSizingVertical = 'FIXED'
-        }
-      }),
-      lockAspectRatio: vi.fn(() => {
-        targetAspectRatio = { x: node.width, y: node.height }
-      }),
-      unlockAspectRatio: vi.fn(() => {
-        targetAspectRatio = null
-      }),
-      setFillStyleIdAsync: vi.fn(async (styleId: string) => {
-        if (!styleId) {
-          node.fillStyleId = ''
-          return
-        }
-        const style = styles.get(styleId)
-        if (style?.type !== 'PAINT') throw new Error('invalid fill style')
-        node.fillStyleId = styleId
-        fills = style.paints.map(normalizePaint)
-      }),
-      setStrokeStyleIdAsync: vi.fn(async (styleId: string) => {
-        if (!styleId) {
-          node.strokeStyleId = ''
-          return
-        }
-        const style = styles.get(styleId)
-        if (style?.type !== 'PAINT') throw new Error('invalid stroke style')
-        node.strokeStyleId = styleId
-        strokes = style.paints.map(normalizePaint)
-      }),
-      setEffectStyleIdAsync: vi.fn(async (styleId: string) => {
-        if (!styleId) {
-          node.effectStyleId = ''
-          return
-        }
-        const style = styles.get(styleId)
-        if (style?.type !== 'EFFECT') throw new Error('invalid effect style')
-        node.effectStyleId = styleId
-        effects = style.effects
-      }),
-      clearExplicitVariableModeForCollection: vi.fn((collection: VariableCollection) => {
-        delete explicitVariableModes[collection.id]
-      }),
-      setExplicitVariableModeForCollection: vi.fn(
-        (collection: VariableCollection, modeId: string) => {
-          explicitVariableModes[collection.id] = modeId
-        }
-      ),
-      setBoundVariable: vi.fn((field: string, variable: Variable | null) => {
-        if (variable === null) {
-          if (
-            field === 'cornerRadius' &&
-            (isMockFrameType(type) ||
-              type === 'INSTANCE' ||
-              type === 'SECTION' ||
-              type === 'RECTANGLE')
-          ) {
-            delete boundVariables.topLeftRadius
-            delete boundVariables.topRightRadius
-            delete boundVariables.bottomLeftRadius
-            delete boundVariables.bottomRightRadius
-          } else {
-            delete boundVariables[field]
-          }
-          return
-        }
-        const alias = { type: 'VARIABLE_ALIAS', id: variable.id }
-        if (
-          field === 'cornerRadius' &&
-          (isMockFrameType(type) ||
-            type === 'INSTANCE' ||
-            type === 'SECTION' ||
-            type === 'RECTANGLE')
-        ) {
-          boundVariables.topLeftRadius = alias
-          boundVariables.topRightRadius = alias
-          boundVariables.bottomLeftRadius = alias
-          boundVariables.bottomRightRadius = alias
-        } else {
-          boundVariables[field] = alias
-        }
-      })
-    } as unknown as MutableNode
-
-    function normalizePaints(
-      value: readonly Paint[],
-      field: 'fills' | 'strokes'
-    ): readonly Paint[] {
-      const paints = value.map(normalizePaint)
-      const aliases = paints
-        .map((paint) => ('boundVariables' in paint ? paint.boundVariables?.color : undefined))
-        .filter((alias): alias is VariableAlias => !!alias)
-      if (aliases.length) boundVariables[field] = aliases
-      else delete boundVariables[field]
-      return paints
-    }
-
-    Object.defineProperties(node, {
-      x: {
-        get: () => x,
-        set: (value: number) => {
-          x = value
-          relativeTransform[0][2] = value
-        }
-      },
-      y: {
-        get: () => y,
-        set: (value: number) => {
-          y = value
-          relativeTransform[1][2] = value
-        }
-      },
-      rotation: {
-        get: () => rotation,
-        set: (value: number) => {
-          rotation = ((((value + 180) % 360) + 360) % 360) - 180
-          const radians = (rotation * Math.PI) / 180
-          relativeTransform = [
-            [Math.cos(radians), Math.sin(radians), x],
-            [-Math.sin(radians), Math.cos(radians), y]
-          ]
-        }
-      },
-      relativeTransform: {
-        get: () => relativeTransform,
-        set: (value: Transform) => {
-          relativeTransform = value.map((row) => [...row]) as Transform
-          x = value[0][2]
-          y = value[1][2]
-          rotation = (Math.atan2(-value[1][0], value[0][0]) * 180) / Math.PI
-        }
-      },
-      targetAspectRatio: {
-        get: () => targetAspectRatio
-      },
-      fills: {
-        configurable: true,
-        get: () => fills,
-        set: (value: readonly Paint[]) => {
-          fills = normalizePaints(value, 'fills')
-          node.fillStyleId = ''
-        }
-      },
-      strokes: {
-        configurable: true,
-        get: () => strokes,
-        set: (value: readonly Paint[]) => {
-          strokes = normalizePaints(value, 'strokes')
-          node.strokeStyleId = ''
-        }
-      },
-      effects: {
-        configurable: true,
-        get: () => effects,
-        set: (value: readonly Effect[]) => {
-          effects = value
-          node.effectStyleId = ''
-        }
-      }
-    })
-
-    if (isMockFrameType(type) || type === 'INSTANCE') {
-      let layoutGrids: readonly LayoutGrid[] = []
-      let guides: readonly Guide[] = []
-      const frame = node as unknown as {
-        gridStyleId: string
-        layoutGrids: readonly LayoutGrid[]
-      }
-      Object.assign(node, {
-        gridStyleId: '',
-        setGridStyleIdAsync: vi.fn(async (styleId: string) => {
-          if (!styleId) {
-            frame.gridStyleId = ''
-            return
-          }
-          const style = styles.get(styleId)
-          if (style?.type !== 'GRID') throw new Error('invalid grid style')
-          frame.gridStyleId = styleId
-          layoutGrids = style.layoutGrids
-        })
-      })
-      Object.defineProperties(node, {
-        layoutGrids: {
-          configurable: true,
-          get: () => layoutGrids,
-          set: (value: readonly LayoutGrid[]) => {
-            layoutGrids = value
-            frame.gridStyleId = ''
-          }
-        },
-        guides: {
-          configurable: true,
-          get: () => guides,
-          set: (value: readonly Guide[]) => {
-            guides = value
-          }
-        }
-      })
-    }
-
-    if (isMockFrameType(type) || type === 'INSTANCE' || type === 'RECTANGLE') {
-      Object.assign(node, {
-        strokeTopWeight: 1,
-        strokeRightWeight: 1,
-        strokeBottomWeight: 1,
-        strokeLeftWeight: 1,
-        topLeftRadius: 0,
-        topRightRadius: 0,
-        bottomRightRadius: 0,
-        bottomLeftRadius: 0
-      })
-    }
-    if (
-      type === 'BOOLEAN_OPERATION' ||
-      isMockFrameType(type) ||
-      type === 'INSTANCE' ||
-      type === 'SECTION' ||
-      type === 'RECTANGLE' ||
-      type === 'ELLIPSE' ||
-      type === 'POLYGON' ||
-      type === 'STAR' ||
-      type === 'VECTOR'
-    ) {
-      Object.assign(node, {
-        cornerRadius: 0,
-        cornerSmoothing: 0
-      })
-    }
-
-    if (
-      type === 'BOOLEAN_OPERATION' ||
-      isMockFrameType(type) ||
-      type === 'GROUP' ||
-      type === 'INSTANCE' ||
-      type === 'SECTION'
-    ) {
-      Object.assign(node, {
-        children: [] as SceneNode[],
-        insertChild(index: number, child: MutableNode) {
-          const oldParent = child.parent as (BaseNode & { children?: SceneNode[] }) | null
-          let targetIndex = index
-          if (oldParent?.children) {
-            const oldIndex = oldParent.children.indexOf(child)
-            if (oldIndex >= 0) {
-              oldParent.children.splice(oldIndex, 1)
-              if (oldParent === node && oldIndex < targetIndex) targetIndex -= 1
-            }
-          }
-          child.parent = node as unknown as
-            | BooleanOperationNode
-            | ComponentNode
-            | ComponentSetNode
-            | FrameNode
-            | GroupNode
-            | InstanceNode
-            | SectionNode
-            | SlotNode
-          node.children.splice(targetIndex, 0, child)
-        },
-        appendChild(child: MutableNode) {
-          node.insertChild(node.children.length, child)
-        }
-      })
-    }
-
-    if (type === 'SECTION') {
-      Object.assign(node, {
-        sectionContentsHidden: false,
-        topLeftRadius: 0,
-        topRightRadius: 0,
-        bottomRightRadius: 0,
-        bottomLeftRadius: 0
-      })
-    }
-    if (type === 'BOOLEAN_OPERATION') {
-      Object.assign(node, { booleanOperation: 'UNION' })
-    }
-    if (type === 'COMPONENT' || type === 'COMPONENT_SET') {
-      const definitions: ComponentPropertyDefinitions = {}
-      const definition = (
-        propertyType: ComponentPropertyType,
-        defaultValue: string | boolean | VariableAlias,
-        options: ComponentPropertyOptions = {}
-      ): ComponentPropertyDefinitions[string] => ({
-        type: propertyType,
-        defaultValue:
-          typeof defaultValue === 'object'
-            ? propertyType === 'BOOLEAN'
-              ? false
-              : ''
-            : defaultValue,
-        ...options,
-        ...(typeof defaultValue === 'object' ? { boundVariables: { defaultValue } } : {})
-      })
-      Object.assign(node, {
-        remote: false,
-        key: `${type.toLowerCase()}:${id}`,
-        description: '',
-        descriptionMarkdown: '',
-        documentationLinks: [] as DocumentationLink[],
-        componentPropertyDefinitions: definitions,
-        getInstancesAsync: vi.fn(async () =>
-          [...nodes.values()].filter(
-            (candidate): candidate is InstanceNode =>
-              candidate.type === 'INSTANCE' && candidate.mainComponent?.id === node.id
-          )
-        ),
-        addComponentProperty: vi.fn(
-          (
-            propertyName: string,
-            propertyType: ComponentPropertyType,
-            defaultValue: string | boolean | VariableAlias,
-            options?: ComponentPropertyOptions
-          ) => {
-            const name = `${propertyName}#${nextComponentPropertyId++}`
-            definitions[name] = definition(propertyType, defaultValue, options)
-            return name
-          }
-        ),
-        editComponentProperty: vi.fn(
-          (
-            propertyName: string,
-            edit: {
-              name?: string
-              defaultValue?: string | boolean | VariableAlias
-              preferredValues?: InstanceSwapPreferredValue[]
-              description?: string
-              slotSettings?: SlotSettings
-            }
-          ) => {
-            const current = definitions[propertyName]
-            if (!current) throw new Error(`Missing component property ${propertyName}`)
-            const name =
-              edit.name === undefined ? propertyName : `${edit.name}#${nextComponentPropertyId++}`
-            const { boundVariables: _boundVariables, ...unbound } = current
-            const next = {
-              ...(edit.defaultValue === undefined ? current : unbound),
-              ...(edit.defaultValue === undefined
-                ? {}
-                : definition(current.type, edit.defaultValue)),
-              ...('preferredValues' in edit ? { preferredValues: edit.preferredValues } : {}),
-              ...('description' in edit ? { description: edit.description } : {}),
-              ...('slotSettings' in edit ? { slotSettings: edit.slotSettings } : {})
-            }
-            if (name !== propertyName) {
-              delete definitions[propertyName]
-              for (const candidate of nodes.values()) {
-                if (!('componentPropertyReferences' in candidate)) continue
-                const references = candidate.componentPropertyReferences
-                if (!references) continue
-                for (const field of ['characters', 'mainComponent', 'visible'] as const) {
-                  if (references[field] === propertyName) references[field] = name
-                }
-              }
-            }
-            definitions[name] = next
-            return name
-          }
-        ),
-        deleteComponentProperty: vi.fn((propertyName: string) => {
-          delete definitions[propertyName]
-        })
-      })
-      if (type === 'COMPONENT') {
-        Object.assign(node, {
-          createInstance: vi.fn(() => createInstance(node as unknown as ComponentNode)),
-          createSlot: vi.fn(() => {
-            const owner =
-              node.parent?.type === 'COMPONENT_SET'
-                ? node.parent
-                : (node as unknown as ComponentNode)
-            owner.addComponentProperty('Slot', 'SLOT', '')
-            const slot = createNode('SLOT')
-            node.insertChild(node.children.length, slot)
-            return slot
-          })
-        })
-      }
-    }
-    if (type === 'SLOT') {
-      Object.assign(node, {
-        limitViolations: [] as Array<'BELOW_MIN' | 'ABOVE_MAX' | 'HAS_NON_PREFERRED'>,
-        resetSlot: vi.fn()
-      })
-    }
-    if (type === 'COMPONENT_SET') {
-      Object.defineProperty(node, 'defaultVariant', {
-        get: () => node.children[0]
-      })
-    }
-
-    if (type === 'VECTOR') {
-      let vectorPaths: VectorPaths = []
-      let vectorNetwork: VectorNetwork = { vertices: [], segments: [] }
-      let handleMirroring: HandleMirroring = 'NONE'
-      Object.assign(node, {
-        setVectorNetworkAsync: vi.fn(async (network: VectorNetwork) => {
-          vectorNetwork = {
-            ...network,
-            segments: network.segments.map((segment) => ({
-              ...segment,
-              tangentStart: segment.tangentStart ?? { x: 0, y: 0 },
-              tangentEnd: segment.tangentEnd ?? { x: 0, y: 0 }
-            })),
-            regions: (network.regions ?? []).map((region) => ({
-              ...region,
-              ...(region.fillStyleId
-                ? { fills: (styles.get(region.fillStyleId) as PaintStyle).paints }
-                : {})
-            }))
-          }
-          vectorPaths = []
-          node.width = 12
-          node.height = 12
-        })
-      })
-      Object.defineProperties(node, {
-        vectorPaths: {
-          get: () => vectorPaths,
-          set: (paths: VectorPaths) => {
-            vectorPaths = paths
-            node.width = 6
-            node.height = 6
-          }
-        },
-        vectorNetwork: {
-          get: () => vectorNetwork
-        },
-        handleMirroring: {
-          get: () => handleMirroring,
-          set: (value: HandleMirroring) => {
-            handleMirroring = value
-          }
-        }
-      })
-    }
-
-    if (isMockFrameType(type)) {
-      let itemSpacing = 0
-      let counterAxisSpacing = 0
-      let counterAxisSpacingSynced = false
-      let gridRowCount = 1
-      let gridColumnCount = 1
-      let gridRowSizes: GridTrackSize[] = [{ type: 'FLEX', value: 1 }]
-      let gridColumnSizes: GridTrackSize[] = [{ type: 'FLEX', value: 1 }]
-      const resizeTracks = (tracks: GridTrackSize[], count: number): GridTrackSize[] =>
-        Array.from({ length: count }, (_, index) => tracks[index] ?? { type: 'FLEX', value: 1 })
-      Object.assign(node, {
-        layoutMode: 'NONE',
-        primaryAxisSizingMode: 'FIXED',
-        counterAxisSizingMode: 'FIXED',
-        itemReverseZIndex: false,
-        primaryAxisAlignItems: 'MIN',
-        counterAxisAlignItems: 'MIN',
-        counterAxisAlignContent: 'AUTO',
-        layoutWrap: 'NO_WRAP',
-        strokesIncludedInLayout: false,
-        gridRowGap: 0,
-        gridColumnGap: 0,
-        gridAutoTracks: 'NONE',
-        gridItemsPositioning: 'MANUAL',
-        clipsContent: false,
-        paddingTop: 10,
-        paddingRight: 11,
-        paddingBottom: 12,
-        paddingLeft: 13
-      })
-      Object.defineProperties(node, {
-        itemSpacing: {
-          get: () => itemSpacing,
-          set: (value: number) => {
-            itemSpacing = value
-            if (counterAxisSpacingSynced) counterAxisSpacing = value
-          }
-        },
-        counterAxisSpacing: {
-          get: () => counterAxisSpacing,
-          set: (value: number | null) => {
-            counterAxisSpacingSynced = value === null
-            counterAxisSpacing = value ?? itemSpacing
-          }
-        },
-        gridRowCount: {
-          get: () => gridRowCount,
-          set: (value: number) => {
-            gridRowCount = value
-            gridRowSizes = resizeTracks(gridRowSizes, value)
-          }
-        },
-        gridColumnCount: {
-          get: () => gridColumnCount,
-          set: (value: number) => {
-            gridColumnCount = value
-            gridColumnSizes = resizeTracks(gridColumnSizes, value)
-          }
-        },
-        gridRowSizes: {
-          get: () => gridRowSizes
-        },
-        gridColumnSizes: {
-          get: () => gridColumnSizes
-        }
-      })
-    }
-
-    if (type === 'TEXT') {
-      const text = node as unknown as TextNode
-      let layerName = node.name
-      let characters = ''
-      let autoRename = true
-      let textAutoResize: TextNode['textAutoResize'] = 'NONE'
-      let textTruncation: TextNode['textTruncation'] = 'DISABLED'
-      let maxLines: TextNode['maxLines'] = null
-      let layoutSizingHorizontal = text.layoutSizingHorizontal
-      const rangeValues = new Map<string, unknown>()
-      const rangeKey = (start: number, end: number, field: string) => `${start}:${end}:${field}`
-      const rangeValue = <T>(start: number, end: number, field: string, fallback: T): T => {
-        const key = rangeKey(start, end, field)
-        return rangeValues.has(key) ? (rangeValues.get(key) as T) : fallback
-      }
-      const setRangeValue = (start: number, end: number, field: string, value: unknown) => {
-        rangeValues.set(rangeKey(start, end, field), value)
-      }
-      const rangeGetter = <T>(field: string, fallback: () => T) =>
-        vi.fn((start: number, end: number) => rangeValue(start, end, field, fallback()))
-      const rangeSetter = <T>(field: string) =>
-        vi.fn((start: number, end: number, value: T) => setRangeValue(start, end, field, value))
-      Object.assign(node, {
-        fontName: { family: 'Inter', style: 'Regular' },
-        fontSize: 12,
-        fontWeight: 400,
-        lineHeight: { unit: 'AUTO' },
-        letterSpacing: { unit: 'PIXELS', value: 0 },
-        textAlignHorizontal: 'LEFT',
-        textAlignVertical: 'TOP',
-        textCase: 'ORIGINAL',
-        textDecoration: 'NONE',
-        textDecorationStyle: null,
-        textDecorationOffset: null,
-        textDecorationThickness: null,
-        textDecorationColor: null,
-        textDecorationSkipInk: null,
-        paragraphIndent: 0,
-        paragraphSpacing: 0,
-        listSpacing: 0,
-        hangingPunctuation: false,
-        hangingList: false,
-        leadingTrim: 'NONE',
-        hyperlink: null,
-        textStyleId: '',
-        setTextStyleIdAsync: vi.fn(async (styleId: string) => {
-          if (!styleId) {
-            text.textStyleId = ''
-            return
-          }
-          const style = styles.get(styleId)
-          if (style?.type !== 'TEXT') throw new Error('invalid text style')
-          text.textStyleId = styleId
-          text.fontName = style.fontName
-          text.fontSize = style.fontSize
-          text.lineHeight = style.lineHeight
-          text.letterSpacing = style.letterSpacing
-          Object.assign(text, {
-            textCase: style.textCase,
-            textDecoration: style.textDecoration,
-            paragraphIndent: style.paragraphIndent,
-            paragraphSpacing: style.paragraphSpacing,
-            listSpacing: style.listSpacing,
-            hangingPunctuation: style.hangingPunctuation,
-            hangingList: style.hangingList,
-            leadingTrim: style.leadingTrim
-          })
-        }),
-        getRangeAllFontNames: vi.fn(() => [{ family: 'Inter', style: 'Regular' } as FontName]),
-        getRangeFontName: rangeGetter('fontName', () => text.fontName),
-        setRangeFontName: rangeSetter<FontName>('fontName'),
-        getRangeFontSize: rangeGetter('fontSize', () => text.fontSize),
-        setRangeFontSize: rangeSetter<number>('fontSize'),
-        getRangeTextCase: rangeGetter('textCase', () => text.textCase),
-        setRangeTextCase: rangeSetter<TextCase>('textCase'),
-        getRangeLetterSpacing: rangeGetter('letterSpacing', () => text.letterSpacing),
-        setRangeLetterSpacing: rangeSetter<LetterSpacing>('letterSpacing'),
-        getRangeLineHeight: rangeGetter('lineHeight', () => text.lineHeight),
-        setRangeLineHeight: rangeSetter<LineHeight>('lineHeight'),
-        getRangeTextDecoration: rangeGetter('textDecoration', () => text.textDecoration),
-        setRangeTextDecoration: rangeSetter<TextDecoration>('textDecoration'),
-        getRangeTextDecorationStyle: rangeGetter(
-          'textDecorationStyle',
-          () => text.textDecorationStyle
-        ),
-        setRangeTextDecorationStyle: rangeSetter<TextDecorationStyle>('textDecorationStyle'),
-        getRangeTextDecorationOffset: rangeGetter(
-          'textDecorationOffset',
-          () => text.textDecorationOffset
-        ),
-        setRangeTextDecorationOffset: rangeSetter<TextDecorationOffset>('textDecorationOffset'),
-        getRangeTextDecorationThickness: rangeGetter(
-          'textDecorationThickness',
-          () => text.textDecorationThickness
-        ),
-        setRangeTextDecorationThickness:
-          rangeSetter<TextDecorationThickness>('textDecorationThickness'),
-        getRangeTextDecorationColor: rangeGetter(
-          'textDecorationColor',
-          () => text.textDecorationColor
-        ),
-        setRangeTextDecorationColor: rangeSetter<TextDecorationColor>('textDecorationColor'),
-        getRangeTextDecorationSkipInk: rangeGetter(
-          'textDecorationSkipInk',
-          () => text.textDecorationSkipInk
-        ),
-        setRangeTextDecorationSkipInk: rangeSetter<boolean>('textDecorationSkipInk'),
-        getRangeFills: rangeGetter('fills', () => text.fills),
-        setRangeFills: vi.fn((start: number, end: number, value: Paint[]) => {
-          setRangeValue(start, end, 'fills', value)
-          setRangeValue(start, end, 'fillStyleId', '')
-        }),
-        getRangeTextStyleId: rangeGetter('textStyleId', () => text.textStyleId),
-        setRangeTextStyleIdAsync: vi.fn(async (start: number, end: number, styleId: string) => {
-          if (styleId && styles.get(styleId)?.type !== 'TEXT') throw new Error('invalid text style')
-          setRangeValue(start, end, 'textStyleId', styleId)
-        }),
-        getRangeFillStyleId: rangeGetter('fillStyleId', () => text.fillStyleId),
-        setRangeFillStyleIdAsync: vi.fn(async (start: number, end: number, styleId: string) => {
-          if (styleId && styles.get(styleId)?.type !== 'PAINT')
-            throw new Error('invalid fill style')
-          setRangeValue(start, end, 'fillStyleId', styleId)
-          if (styleId)
-            setRangeValue(start, end, 'fills', (styles.get(styleId) as PaintStyle).paints)
-        }),
-        getRangeListOptions: rangeGetter(
-          'listOptions',
-          () => ({ type: 'NONE' }) as TextListOptions
-        ),
-        setRangeListOptions: rangeSetter<TextListOptions>('listOptions'),
-        getRangeListSpacing: rangeGetter('listSpacing', () => text.listSpacing),
-        setRangeListSpacing: rangeSetter<number>('listSpacing'),
-        getRangeIndentation: rangeGetter('indentation', () => 0),
-        setRangeIndentation: rangeSetter<number>('indentation'),
-        getRangeParagraphIndent: rangeGetter('paragraphIndent', () => text.paragraphIndent),
-        setRangeParagraphIndent: rangeSetter<number>('paragraphIndent'),
-        getRangeParagraphSpacing: rangeGetter('paragraphSpacing', () => text.paragraphSpacing),
-        setRangeParagraphSpacing: rangeSetter<number>('paragraphSpacing'),
-        getRangeHyperlink: rangeGetter('hyperlink', () => text.hyperlink),
-        setRangeHyperlink: rangeSetter<HyperlinkTarget | null>('hyperlink'),
-        getStyledTextSegments: vi.fn((fields: string[]) => {
-          const ranges = new Set([...rangeValues.keys()].map((key) => key.split(':', 2).join(':')))
-          if (!ranges.size) ranges.add(`0:${characters.length}`)
-          return [...ranges].map((range) => {
-            const [start, end] = range.split(':').map(Number) as [number, number]
-            const segment: Record<string, unknown> = {
-              start,
-              end,
-              characters: characters.slice(start, end)
-            }
-            if (fields.includes('fills')) {
-              segment.fills = rangeValue(start, end, 'fills', text.fills)
-            }
-            if (fields.includes('hyperlink')) {
-              segment.hyperlink = rangeValue(start, end, 'hyperlink', text.hyperlink)
-            }
-            if (fields.includes('textDecorationColor')) {
-              segment.textDecorationColor = rangeValue(
-                start,
-                end,
-                'textDecorationColor',
-                text.textDecorationColor
-              )
-            }
-            if (fields.includes('boundVariables')) {
-              const variables = { ...text.boundVariables } as Record<string, VariableAlias>
-              const prefix = `${start}:${end}:variable:`
-              for (const [key, value] of rangeValues) {
-                if (!key.startsWith(prefix) || !value) continue
-                variables[key.slice(prefix.length)] = value as VariableAlias
-              }
-              segment.boundVariables = variables
-            }
-            return segment
-          })
-        }),
-        getRangeBoundVariable: vi.fn((start: number, end: number, field: string) =>
-          rangeValue<VariableAlias | null>(start, end, `variable:${field}`, null)
-        ),
-        setRangeBoundVariable: vi.fn(
-          (start: number, end: number, field: string, variable: Variable | null) =>
-            setRangeValue(
-              start,
-              end,
-              `variable:${field}`,
-              variable ? { type: 'VARIABLE_ALIAS', id: variable.id } : null
-            )
-        )
-      })
-      Object.defineProperties(node, {
-        name: {
-          get: () => layerName,
-          set: (value: string) => {
-            layerName = value
-            autoRename = false
-          }
-        },
-        characters: {
-          get: () => characters,
-          set: (value: string) => {
-            characters = value
-            if (autoRename) layerName = value
-          }
-        },
-        autoRename: {
-          get: () => autoRename,
-          set: (value: boolean) => {
-            autoRename = value
-            if (value) layerName = characters
-          }
-        },
-        layoutSizingHorizontal: {
-          configurable: true,
-          get: () => layoutSizingHorizontal,
-          set: (value: TextNode['layoutSizingHorizontal']) => {
-            layoutSizingHorizontal = value
-            const parent = text.parent
-            if (value === 'FILL' && parent && 'layoutMode' in parent) {
-              if (parent.layoutMode === 'VERTICAL') {
-                ;(text as unknown as { width: number }).width = Math.max(
-                  0,
-                  parent.width - parent.paddingLeft - parent.paddingRight
-                )
-              }
-            }
-          }
-        },
-        textAutoResize: {
-          get: () => textAutoResize,
-          set: (value: TextNode['textAutoResize']) => {
-            textAutoResize = value
-            if (value === 'HEIGHT' && layoutSizingHorizontal === 'FILL') {
-              ;(text as unknown as { width: number }).width = 0
-            }
-          }
-        },
-        textTruncation: {
-          get: () => textTruncation,
-          set: (value: TextNode['textTruncation']) => {
-            textTruncation = value
-          }
-        },
-        maxLines: {
-          get: () => maxLines,
-          set: (value: TextNode['maxLines']) => {
-            maxLines = value
-            if (value !== null && textTruncation === 'ENDING') textAutoResize = 'HEIGHT'
-          }
-        }
-      })
-    }
-    if (type === 'ELLIPSE') {
-      Object.assign(node, {
-        arcData: { startingAngle: 0, endingAngle: Math.PI * 2, innerRadius: 0 }
-      })
-    }
-    if (type === 'POLYGON') {
-      Object.assign(node, { pointCount: 3 })
-    }
-    if (type === 'STAR') {
-      Object.assign(node, { pointCount: 5, innerRadius: 0.5 })
-    }
-
-    ;(initialPage.children as SceneNode[]).push(node)
-    nodes.set(id, node)
-    return node
-  }
-
-  function createInstance(component: ComponentNode): InstanceNode {
-    const instance = createNode('INSTANCE')
-    let mainComponent = component
-    let scaleFactor = 1
-    const overrides: Array<{ id: string; overriddenFields: NodeChangeProperty[] }> = []
-    const definitions =
-      component.parent?.type === 'COMPONENT_SET'
-        ? component.parent.componentPropertyDefinitions
-        : component.componentPropertyDefinitions
-    Object.defineProperties(instance, {
-      mainComponent: {
-        get: () => mainComponent,
-        set: (value: ComponentNode) => {
-          mainComponent = value
-          overrides.splice(0)
-        }
-      },
-      overrides: { get: () => overrides },
-      scaleFactor: {
-        get: () => scaleFactor,
-        set: (value: number) => {
-          const ratio = value / scaleFactor
-          scaleFactor = value
-          instance.width *= ratio
-          instance.height *= ratio
-        }
-      }
-    })
-    const getOwnSharedPluginData = instance.getSharedPluginData.bind(instance)
-    Object.assign(instance, {
-      getSharedPluginData: vi.fn(
-        (namespace: string, key: string) =>
-          getOwnSharedPluginData(namespace, key) ||
-          mainComponent.getSharedPluginData(namespace, key)
-      ),
-      isExposedInstance: false,
-      componentProperties: Object.fromEntries(
-        Object.entries(definitions)
-          .filter(([, property]) => property.type !== 'SLOT')
-          .map(([name, property]) => [
-            name,
-            {
-              type: property.type,
-              value: property.defaultValue,
-              ...(property.boundVariables
-                ? { boundVariables: { value: property.boundVariables.defaultValue } }
-                : {})
-            }
-          ])
-      ),
-      getMainComponentAsync: vi.fn(async () => mainComponent),
-      swapComponent: vi.fn((next: ComponentNode) => {
-        mainComponent = next
-      }),
-      setProperties: vi.fn((properties: Record<string, string | boolean | VariableAlias>) => {
-        for (const [name, value] of Object.entries(properties)) {
-          const current = instance.componentProperties[name]
-          instance.componentProperties[name] =
-            typeof value === 'object'
-              ? {
-                  type: current?.type ?? 'TEXT',
-                  value: current?.value ?? '',
-                  boundVariables: { value }
-                }
-              : { type: current?.type ?? 'TEXT', value }
-        }
-        const componentSet = mainComponent.parent
-        if (componentSet?.type !== 'COMPONENT_SET' || !('children' in componentSet)) return
-        const variantProperties = Object.fromEntries(
-          Object.entries(instance.componentProperties)
-            .filter(([, property]) => property.type === 'VARIANT')
-            .map(([name, property]) => [name.split('#')[0], property.value])
-        )
-        const variant = componentSet.children.find((child): child is ComponentNode => {
-          if (child.type !== 'COMPONENT') return false
-          const values = Object.fromEntries(
-            child.name.split(',').map((part) => {
-              const [name, ...value] = part.split('=')
-              return [name?.trim(), value.join('=').trim()]
-            })
-          )
-          return Object.entries(variantProperties).every(([name, value]) => values[name] === value)
-        })
-        if (variant) mainComponent = variant
-      })
-    })
-    return instance as unknown as InstanceNode
-  }
-
-  function wrapNodes(
-    type: 'BOOLEAN_OPERATION' | 'GROUP',
-    children: readonly MutableNode[],
-    parent: BaseNode & ChildrenMixin,
-    index: number | undefined,
-    operation: BooleanOperationNode['booleanOperation'] = 'UNION'
-  ): MutableNode {
-    const minX = Math.min(...children.map((child) => child.x))
-    const minY = Math.min(...children.map((child) => child.y))
-    const maxX = Math.max(...children.map((child) => child.x + child.width))
-    const maxY = Math.max(...children.map((child) => child.y + child.height))
-    const wrapper = createNode(type)
-    wrapper.x = minX
-    wrapper.y = minY
-    wrapper.resize(maxX - minX, maxY - minY)
-    if (type === 'BOOLEAN_OPERATION') wrapper.booleanOperation = operation
-    parent.insertChild(index ?? parent.children.length, wrapper)
-    for (const [childIndex, child] of children.entries()) {
-      const x = child.x
-      const y = child.y
-      wrapper.insertChild(childIndex, child)
-      child.x = x - minX
-      child.y = y - minY
-    }
-    return wrapper
-  }
-
-  function combineVariants(
-    children: readonly MutableNode[],
-    parent: BaseNode & ChildrenMixin,
-    index: number | undefined
-  ): MutableNode {
-    const set = createNode('COMPONENT_SET')
-    parent.insertChild(index ?? parent.children.length, set)
-    for (const [childIndex, child] of children.entries()) {
-      set.insertChild(childIndex, child)
-    }
-    return set
-  }
-
-  const componentPropertyDefinitions = {
-    Label: { type: 'TEXT', defaultValue: 'Default' },
-    Disabled: { type: 'BOOLEAN', defaultValue: false },
-    State: {
-      type: 'VARIANT',
-      defaultValue: 'Default',
-      variantOptions: ['Default', 'Hover']
-    },
-    Icon: { type: 'INSTANCE_SWAP', defaultValue: 'component:1' },
-    Content: { type: 'SLOT', defaultValue: '' }
-  } satisfies ComponentPropertyDefinitions
-  const componentSet = withSharedPluginData({
-    id: 'component-set:1',
-    type: 'COMPONENT_SET',
-    parent: PAGE,
-    componentPropertyDefinitions
-  }) as unknown as ComponentSetNode
-  const component = withSharedPluginData({
-    id: 'component:1',
-    type: 'COMPONENT',
-    key: 'component-key',
-    parent: componentSet,
-    componentPropertyDefinitions: Object.fromEntries(
-      Object.entries(componentPropertyDefinitions).filter(
-        ([, definition]) => definition.type !== 'VARIANT'
-      )
-    ),
-    createInstance: () => createInstance(component)
-  }) as unknown as ComponentNode
-  nodes.set(componentSet.id, componentSet)
-  nodes.set(component.id, component)
-
-  const colorVariable = {
-    id: 'variable:color',
-    key: 'color-key',
-    resolvedType: 'COLOR'
-  } as unknown as Variable
-  const spacingVariable = {
-    id: 'variable:spacing',
-    key: 'spacing-key',
-    resolvedType: 'FLOAT'
-  } as Variable
-  const fontVariable = {
-    id: 'variable:font',
-    key: 'font-key',
-    resolvedType: 'STRING',
-    resolveForConsumer: () => ({ value: 'Inter', resolvedType: 'STRING' })
-  } as unknown as Variable
-  const variablesById = new Map([
-    [spacingVariable.id, spacingVariable],
-    [
-      'variable:range-size',
-      {
-        id: 'variable:range-size',
-        key: 'range-size-key',
-        resolvedType: 'FLOAT'
-      } as unknown as Variable
-    ],
-    [
-      'variable:range-family',
-      {
-        id: 'variable:range-family',
-        key: 'range-family-key',
-        resolvedType: 'STRING',
-        resolveForConsumer: (consumer: SceneNode) => ({
-          value:
-            consumer.explicitVariableModes['collection:tokens'] === 'mode:dark'
-              ? 'Roboto'
-              : 'Inter',
-          resolvedType: 'STRING'
-        })
-      } as unknown as Variable
-    ],
-    [
-      'variable:range-style',
-      {
-        id: 'variable:range-style',
-        key: 'range-style-key',
-        resolvedType: 'STRING',
-        resolveForConsumer: () => ({ value: 'Bold', resolvedType: 'STRING' })
-      } as unknown as Variable
-    ],
-    [fontVariable.id, fontVariable],
-    [
-      'variable:visible',
-      {
-        id: 'variable:visible',
-        key: 'visible-key',
-        resolvedType: 'BOOLEAN'
-      } as Variable
-    ],
-    [
-      'variable:component-label',
-      {
-        id: 'variable:component-label',
-        key: 'component-label-key',
-        resolvedType: 'STRING'
-      } as Variable
-    ]
-  ])
-  const variableCollection = {
-    id: 'collection:tokens',
-    key: 'collection-key',
-    name: 'Tokens',
-    remote: false,
-    modes: [
-      { modeId: 'mode:light', name: 'Light' },
-      { modeId: 'mode:dark', name: 'Dark' }
-    ],
-    defaultModeId: 'mode:light',
-    variableIds: []
-  } as unknown as VariableCollection
-  const variableCollectionsById = new Map([[variableCollection.id, variableCollection]])
-  const localCollectionIds = new Set<string>()
-  const localVariableIds = new Set<string>()
-  const extendedModes = new Map<string, ExtendedVariableCollection>()
-  const registeredVariables = new WeakSet<object>()
-  let nextVariableCollectionId = 1
-  let nextVariableId = 1
-
-  function registerVariable(variable: Variable): Variable {
-    if (registeredVariables.has(variable)) return variable
-    registeredVariables.add(variable)
-    const setValueForMode = variable.setValueForMode.bind(variable)
-    variable.setValueForMode = (modeId, value) => {
-      const collection = extendedModes.get(modeId)
-      if (!collection) {
-        setValueForMode(modeId, value)
-        return
-      }
-      ;(collection.variableOverrides[variable.id] ??= {})[modeId] = value
-    }
-    variable.removeOverrideForMode = vi.fn((modeId: string) => {
-      const collection = extendedModes.get(modeId)
-      if (!collection) return
-      const values = collection.variableOverrides[variable.id]
-      if (!values) return
-      delete values[modeId]
-      if (!Object.keys(values).length) delete collection.variableOverrides[variable.id]
-    })
-    variable.remove = vi.fn(() => {
-      variablesById.delete(variable.id)
-      localVariableIds.delete(variable.id)
-      const collection = variableCollectionsById.get(variable.variableCollectionId)
-      if (!collection || collection.isExtension) return
-      const index = (collection.variableIds as string[]).indexOf(variable.id)
-      if (index >= 0) (collection.variableIds as string[]).splice(index, 1)
-    })
-    return variable
-  }
-
-  function registerCollection(collection: VariableCollection): VariableCollection {
-    variableCollectionsById.set(collection.id, collection)
-    localCollectionIds.add(collection.id)
-    collection.removeMode = vi.fn((modeId: string) => {
-      const index = collection.modes.findIndex((mode) => mode.modeId === modeId)
-      if (index < 0) throw new Error(`Missing mode ${modeId}`)
-      collection.modes.splice(index, 1)
-      if (collection.isExtension) {
-        const extended = collection as unknown as ExtendedVariableCollection
-        extendedModes.delete(modeId)
-        for (const values of Object.values(extended.variableOverrides)) {
-          delete values[modeId]
-        }
-      } else {
-        for (const variableId of collection.variableIds) {
-          const variable = variablesById.get(variableId)
-          if (variable) delete (variable.valuesByMode as Record<string, VariableValue>)[modeId]
-        }
-      }
-      if (collection.defaultModeId === modeId) {
-        ;(collection as unknown as { defaultModeId: string }).defaultModeId =
-          collection.modes[0]!.modeId
-      }
-    })
-    collection.remove = vi.fn(() => {
-      if (!collection.isExtension) {
-        for (const variableId of [...collection.variableIds]) {
-          variablesById.get(variableId)?.remove()
-        }
-      }
-      for (const mode of collection.modes) extendedModes.delete(mode.modeId)
-      variableCollectionsById.delete(collection.id)
-      localCollectionIds.delete(collection.id)
-    })
-    return collection
-  }
-
-  function extendCollection(parent: VariableCollection, name: string): ExtendedVariableCollection {
-    const id = `collection:extended:${nextVariableCollectionId++}`
-    const modes = parent.modes.map((mode, index) => ({
-      modeId: `${id}:mode:${index + 1}`,
-      name: mode.name,
-      parentModeId: mode.modeId
-    }))
-    const collection = withSharedPluginData({
-      id,
-      key: `${id}:key`,
-      name,
-      hiddenFromPublishing: false,
-      remote: false,
-      isExtension: true as const,
-      parentVariableCollectionId: parent.id,
-      rootVariableCollectionId: parent.isExtension
-        ? (parent as unknown as ExtendedVariableCollection).rootVariableCollectionId
-        : parent.id,
-      modes,
-      get variableIds() {
-        return parent.variableIds
-      },
-      defaultModeId:
-        modes.find((mode) => mode.parentModeId === parent.defaultModeId)?.modeId ??
-        modes[0]!.modeId,
-      variableOverrides: {} as Record<string, Record<string, VariableValue>>,
-      removeOverridesForVariable(variable: Variable) {
-        delete collection.variableOverrides[variable.id]
-      },
-      extend: vi.fn((childName: string) =>
-        extendCollection(collection as unknown as VariableCollection, childName)
-      )
-    }) as unknown as ExtendedVariableCollection
-    for (const mode of modes) extendedModes.set(mode.modeId, collection)
-    return registerCollection(
-      collection as unknown as VariableCollection
-    ) as unknown as ExtendedVariableCollection
-  }
-
-  function enableExtension(collection: VariableCollection): void {
-    collection.extend = vi.fn((name: string) => extendCollection(collection, name))
-  }
-
-  enableExtension(variableCollection)
-  const commitUndo = vi.fn()
-  const triggerUndo = vi.fn()
-  const images = new Map<string, Image>()
-  const createImage = vi.fn((bytes: Uint8Array) => {
-    const hash = `image:${Array.from(bytes).join(',')}`
-    const image = { hash } as Image
-    images.set(hash, image)
-    return image
-  })
-  const createImageAsync = vi.fn(async (url: string) => ({
-    hash: `image:${url}`
-  }))
-  const createNodeFromSvg = vi.fn(() => {
-    const node = createNode('FRAME')
-    node.resize(24, 24)
-    return node
-  })
-  const createVideoAsync = vi.fn(async (bytes: Uint8Array) => ({
-    hash: `video:${Array.from(bytes).join(',')}`
-  }))
-  const listAvailableFontsAsync = vi
-    .fn()
-    .mockResolvedValue([
-      { fontName: { family: 'Inter', style: 'Regular' } },
-      { fontName: { family: 'Inter', style: 'Semi Bold' } },
-      { fontName: { family: 'Inter', style: 'Extra Bold' } },
-      { fontName: { family: 'Inter', style: 'Extra Light' } },
-      { fontName: { family: 'Noto Serif', style: 'Regular' } },
-      { fontName: { family: 'Noto Serif', style: 'SemiBold' } },
-      { fontName: { family: 'Noto Serif', style: 'ExtraBold' } },
-      { fontName: { family: 'Noto Sans Mono', style: 'Regular' } },
-      { fontName: { family: 'Noto Sans Mono', style: 'Medium' } },
-      { fontName: { family: 'Noto Sans Mono', style: 'ExtraLight' } }
-    ] satisfies Font[])
-  const loadFontAsync = vi.fn().mockResolvedValue(undefined)
-  const importComponentByKeyAsync = vi.fn().mockResolvedValue(component)
-  const shaders = new Map<string, Shader>([
-    [
-      'shader:effect',
-      {
-        id: 'shader:effect',
-        name: 'Aurora',
-        type: 'effect',
-        imported: true,
-        propertyDefinitions: {
-          strength: {
-            name: 'Strength',
-            type: 'NUMBER',
-            defaultValue: 0.5
-          },
-          tint: {
-            name: 'Tint',
-            type: 'COLOR',
-            defaultValue: { r: 1, g: 1, b: 1 }
-          },
-          origin: {
-            name: 'Origin',
-            type: 'COLOR_POINT',
-            defaultValue: { x: 0.5, y: 0.5, color: { r: 1, g: 1, b: 1 } }
-          },
-          ramp: {
-            name: 'Ramp',
-            type: 'GRADIENT',
-            defaultValue: {
-              stops: [
-                { position: 0, color: { r: 0, g: 0, b: 0 } },
-                { position: 1, color: { r: 1, g: 1, b: 1 } }
-              ]
-            }
-          },
-          swap: {
-            name: 'Swap',
-            type: 'INSTANCE_SWAP',
-            defaultValue: 'component:1'
-          }
-        }
-      }
-    ],
-    [
-      'shader:fill',
-      {
-        id: 'shader:fill',
-        name: 'Fill only',
-        type: 'fill',
-        imported: true,
-        propertyDefinitions: {
-          strength: {
-            name: 'Strength',
-            type: 'NUMBER',
-            defaultValue: 0.5
-          },
-          tint: {
-            name: 'Tint',
-            type: 'COLOR',
-            defaultValue: { r: 1, g: 1, b: 1 }
-          },
-          swap: {
-            name: 'Swap',
-            type: 'INSTANCE_SWAP',
-            defaultValue: 'component:1'
-          }
-        }
-      }
-    ]
-  ])
-  const importShaderById = vi.fn(async (id: string) => {
-    const shader = shaders.get(id)
-    if (!shader) throw new Error('missing shader')
-    return shader
-  })
-  const importStyleByKeyAsync = vi.fn((key: string) =>
-    Promise.resolve([...styles.values()].find((style) => style.key === key) ?? null)
-  )
-  const fillStyle = {
-    id: 'style:fill',
-    key: 'fill-style-key',
-    name: 'Surface',
-    type: 'PAINT',
-    paints: [
-      {
-        type: 'GRADIENT_LINEAR',
-        gradientTransform: [
-          [1, 0, 0],
-          [0, 1, 0]
-        ],
-        gradientStops: [
-          { position: 0, color: { r: 1, g: 0, b: 0, a: 1 } },
-          { position: 1, color: { r: 0, g: 0, b: 1, a: 1 } }
-        ]
-      }
-    ]
-  } as unknown as PaintStyle
-  const strokeStyle = {
-    id: 'style:stroke',
-    key: 'stroke-style-key',
-    name: 'Border',
-    type: 'PAINT',
-    paints: [solidPaint({ r: 0, g: 0.5, b: 1 })]
-  } as unknown as PaintStyle
-  const textStyle = {
-    id: 'style:text',
-    key: 'text-style-key',
-    name: 'Heading',
-    type: 'TEXT',
-    fontName: { family: 'Inter', style: 'Bold' },
-    fontSize: 24,
-    lineHeight: { unit: 'PIXELS', value: 32 },
-    letterSpacing: { unit: 'PIXELS', value: -0.25 },
-    textCase: 'TITLE',
-    textDecoration: 'UNDERLINE',
-    paragraphIndent: 4,
-    paragraphSpacing: 20,
-    listSpacing: 6,
-    hangingPunctuation: true,
-    hangingList: false,
-    leadingTrim: 'CAP_HEIGHT'
-  } as TextStyle
-  const effectStyle = {
-    id: 'style:effect',
-    key: 'effect-style-key',
-    name: 'Raised',
-    type: 'EFFECT',
-    effects: [
-      {
-        type: 'DROP_SHADOW',
-        color: { r: 0, g: 0, b: 0, a: 0.2 },
-        offset: { x: 0, y: 4 },
-        radius: 8,
-        spread: 0,
-        visible: true,
-        blendMode: 'NORMAL'
-      }
-    ]
-  } as unknown as EffectStyle
-  const gridStyle = {
-    id: 'style:grid',
-    key: 'grid-style-key',
-    name: 'Columns',
-    type: 'GRID',
-    layoutGrids: [
-      {
-        pattern: 'COLUMNS',
-        alignment: 'STRETCH',
-        gutterSize: 16,
-        count: 12,
-        offset: 24
-      }
-    ]
-  } as unknown as GridStyle
-  for (const style of [fillStyle, strokeStyle, textStyle, effectStyle, gridStyle]) {
-    Object.assign(style, {
-      description: '',
-      descriptionMarkdown: '',
-      documentationLinks: [] as DocumentationLink[],
-      remote: false,
-      getStyleConsumersAsync: vi.fn(() => Promise.resolve(styleConsumers(style.id))),
-      remove: vi.fn(() => styles.delete(style.id))
-    })
-    styles.set(style.id, withSharedPluginData(style))
-  }
-
-  vi.stubGlobal('figma', {
-    editorType: 'figma',
-    mixed: MIXED,
-    root,
-    currentPage: PAGE,
-    setCurrentPageAsync: vi.fn(async (page: PageNode) => {
-      ;(figma as unknown as { currentPage: PageNode }).currentPage = page
-    }),
-    loadAllPagesAsync,
-    viewport: { center: { x: 500, y: 400 } },
-    commitUndo,
-    triggerUndo,
-    getNodeById: vi.fn((id: string) => nodes.get(id) ?? null),
-    getNodeByIdAsync: vi.fn((id: string) => Promise.resolve(nodes.get(id) ?? null)),
-    getImageByHash: vi.fn((hash: string) =>
-      hash === 'image:existing'
-        ? ({
-            hash,
-            getBytesAsync: vi.fn(),
-            getSizeAsync: vi.fn()
-          } as unknown as Image)
-        : (images.get(hash) ?? null)
-    ),
-    createImage,
-    createImageAsync,
-    createNodeFromSvg,
-    createVideoAsync,
-    createPage: vi.fn(() => {
-      const number = nextPageId++
-      const page = createMockPage(`0:${number}`, `Page ${number}`)
-      page.parent = root as unknown as DocumentNode
-      pages.push(page)
-      return page
-    }),
-    getStyleByIdAsync: vi.fn((id: string) => Promise.resolve(styles.get(id) ?? null)),
-    getLocalPaintStylesAsync: vi.fn(() =>
-      Promise.resolve(
-        [...styles.values()].filter((style) => style.type === 'PAINT') as PaintStyle[]
-      )
-    ),
-    getLocalTextStylesAsync: vi.fn(() =>
-      Promise.resolve([...styles.values()].filter((style) => style.type === 'TEXT') as TextStyle[])
-    ),
-    getLocalEffectStylesAsync: vi.fn(() =>
-      Promise.resolve(
-        [...styles.values()].filter((style) => style.type === 'EFFECT') as EffectStyle[]
-      )
-    ),
-    getLocalGridStylesAsync: vi.fn(() =>
-      Promise.resolve([...styles.values()].filter((style) => style.type === 'GRID') as GridStyle[])
-    ),
-    createPaintStyle: vi.fn(() => createStyle('PAINT') as PaintStyle),
-    createTextStyle: vi.fn(() => createStyle('TEXT') as TextStyle),
-    createEffectStyle: vi.fn(() => createStyle('EFFECT') as EffectStyle),
-    createGridStyle: vi.fn(() => createStyle('GRID') as GridStyle),
-    createComponent: vi.fn(() => createNode('COMPONENT')),
-    createEllipse: vi.fn(() => createNode('ELLIPSE')),
-    createFrame: vi.fn(() => createNode('FRAME')),
-    createLine: vi.fn(() => createNode('LINE')),
-    createPolygon: vi.fn(() => createNode('POLYGON')),
-    createRectangle: vi.fn(() => createNode('RECTANGLE')),
-    createSection: vi.fn(() => createNode('SECTION')),
-    createStar: vi.fn(() => createNode('STAR')),
-    createText: vi.fn(() => createNode('TEXT')),
-    createVector: vi.fn(() => createNode('VECTOR')),
-    combineAsVariants: vi.fn(
-      (children: readonly MutableNode[], parent: BaseNode & ChildrenMixin, index?: number) => {
-        const page = containingPage(parent)
-        if (children.some((child) => containingPage(child).id !== page.id)) {
-          throw new Error('Components and their destination must be on the same page')
-        }
-        return combineVariants(children, parent, index)
-      }
-    ),
-    group: vi.fn(
-      (children: readonly MutableNode[], parent: BaseNode & ChildrenMixin, index?: number) =>
-        wrapNodes('GROUP', children, parent, index)
-    ),
-    union: vi.fn(
-      (children: readonly MutableNode[], parent: BaseNode & ChildrenMixin, index?: number) =>
-        wrapNodes('BOOLEAN_OPERATION', children, parent, index, 'UNION')
-    ),
-    subtract: vi.fn(
-      (children: readonly MutableNode[], parent: BaseNode & ChildrenMixin, index?: number) =>
-        wrapNodes('BOOLEAN_OPERATION', children, parent, index, 'SUBTRACT')
-    ),
-    intersect: vi.fn(
-      (children: readonly MutableNode[], parent: BaseNode & ChildrenMixin, index?: number) =>
-        wrapNodes('BOOLEAN_OPERATION', children, parent, index, 'INTERSECT')
-    ),
-    exclude: vi.fn(
-      (children: readonly MutableNode[], parent: BaseNode & ChildrenMixin, index?: number) =>
-        wrapNodes('BOOLEAN_OPERATION', children, parent, index, 'EXCLUDE')
-    ),
-    importComponentByKeyAsync,
-    importShaderById,
-    importStyleByKeyAsync,
-    listAvailableFontsAsync,
-    listAvailableShaders: vi.fn(() => Promise.resolve([...shaders.values()])),
-    loadFontAsync,
-    util: {
-      solidPaint: vi.fn((color: string) => {
-        const hex = color.slice(1)
-        return {
-          type: 'SOLID',
-          color: {
-            r: Number.parseInt(hex.slice(0, 2), 16) / 255,
-            g: Number.parseInt(hex.slice(2, 4), 16) / 255,
-            b: Number.parseInt(hex.slice(4, 6), 16) / 255
-          },
-          opacity: hex.length === 8 ? Number.parseInt(hex.slice(6, 8), 16) / 255 : 1
-        } as SolidPaint
-      })
-    },
-    variables: {
-      createVariable: vi.fn(
-        (name: string, collection: VariableCollection, resolvedType: VariableResolvedDataType) => {
-          const variable = mockVariable(
-            `variable:authored:${nextVariableId++}`,
-            name,
-            collection,
-            resolvedType
-          )
-          variablesById.set(variable.id, registerVariable(variable))
-          localVariableIds.add(variable.id)
-          ;(collection.variableIds as string[]).push(variable.id)
-          return variable
-        }
-      ),
-      createVariableCollection: vi.fn((name: string) => {
-        const collection = mockVariableCollection(
-          `collection:authored:${nextVariableCollectionId++}`,
-          name
-        )
-        enableExtension(collection)
-        return registerCollection(collection)
-      }),
-      extendLibraryCollectionByKeyAsync: vi.fn((key: string, name: string) => {
-        const parent = [...variableCollectionsById.values()].find(
-          (collection) => collection.key === key
-        )
-        if (!parent) throw new Error(`Missing collection ${key}`)
-        return Promise.resolve(extendCollection(parent, name))
-      }),
-      getLocalVariablesAsync: vi.fn(() =>
-        Promise.resolve([...localVariableIds].map((id) => variablesById.get(id)!))
-      ),
-      getLocalVariableCollectionsAsync: vi.fn(() =>
-        Promise.resolve([...localCollectionIds].map((id) => variableCollectionsById.get(id)!))
-      ),
-      getVariableByIdAsync: vi.fn((id: string) => Promise.resolve(variablesById.get(id) ?? null)),
-      getVariableCollectionByIdAsync: vi.fn((id: string) =>
-        Promise.resolve(variableCollectionsById.get(id) ?? null)
-      ),
-      importVariableByKeyAsync: vi.fn((key: string) =>
-        Promise.resolve(
-          [...variablesById.values()].find((variable) => variable.key === key) ??
-            (key === colorVariable.key ? colorVariable : null)
-        )
-      ),
-      setBoundVariableForPaint: vi.fn(
-        (paint: SolidPaint, _field: string, variable: Variable | null) => {
-          if (variable === null) {
-            const { boundVariables: _boundVariables, ...unbound } = paint
-            return unbound
-          }
-          return {
-            ...paint,
-            boundVariables: {
-              color: { type: 'VARIABLE_ALIAS', id: variable.id }
-            }
-          }
-        }
-      ),
-      setBoundVariableForEffect: vi.fn(
-        (effect: Effect, field: string, variable: Variable) =>
-          ({
-            ...effect,
-            boundVariables: {
-              ...('boundVariables' in effect ? effect.boundVariables : {}),
-              [field]: { type: 'VARIABLE_ALIAS', id: variable.id }
-            }
-          }) as Effect
-      ),
-      setBoundVariableForLayoutGrid: vi.fn(
-        (layoutGrid: LayoutGrid, field: string, variable: Variable) =>
-          ({
-            ...layoutGrid,
-            boundVariables: {
-              ...layoutGrid.boundVariables,
-              [field]: { type: 'VARIABLE_ALIAS', id: variable.id }
-            }
-          }) as LayoutGrid
-      ),
-      createVariableAlias: vi.fn(
-        (variable: Variable) => ({ type: 'VARIABLE_ALIAS', id: variable.id }) as VariableAlias
-      )
-    }
-  } as unknown as PluginAPI)
-  vi.stubGlobal('window', {
-    INITIAL_OPTIONS: { editor_type: 'design' }
-  } as unknown as Window)
-
-  return {
-    commitUndo,
-    createImage,
-    createImageAsync,
-    createNodeFromSvg,
-    createVideoAsync,
-    createNode,
-    getNode(id: string) {
-      const node = nodes.get(id)
-      if (!node || !('resize' in node)) throw new Error(`Missing mock node ${id}`)
-      return node as MutableNode
-    },
-    importComponentByKeyAsync,
-    importShaderById,
-    importStyleByKeyAsync,
-    listAvailableFontsAsync,
-    loadFontAsync,
-    nodes,
-    pages,
-    styles,
-    triggerUndo,
-    variableCollections: variableCollectionsById,
-    variables: variablesById
-  }
 }
 
 function createSpec(text = 'Hello'): CanvasResolvedApplyParameters {
@@ -2175,7 +99,6 @@ function videoUrlSpec(videoUrl: string): CanvasResolvedApplyParameters {
 }
 
 afterEach(() => {
-  PAGE.children.length = 0
   resetAssetCache()
   setAssetDownloader(null)
   setAssetServerUrl(null)
@@ -2185,6 +108,164 @@ afterEach(() => {
 })
 
 describe('mcp/tools/canvas', () => {
+  it('preserves the size produced by a native-only variant change', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="button" class="w-16 h-8"/></div>',
+      bindings: { button: { component: { id: 'component:1' } } }
+    })
+    const button = fixture.getNode(created.nodeIdsByKey.button!) as unknown as InstanceNode
+    const setProperties = vi.mocked(button.setProperties).getMockImplementation()
+    if (!setProperties) throw new Error('Expected the fixture instance setter.')
+    vi.spyOn(button, 'setProperties').mockImplementation((properties) => {
+      setProperties(properties)
+      button.resize(160, 64)
+    })
+    const updated = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      native: { button: { componentProperties: { State: 'Hover' } } }
+    })
+    expect(button).toMatchObject({ width: 160, height: 64 })
+    expect(updated.verification.status).toBe('passed')
+  })
+
+  it('ignores copied ownership data on a duplicated managed frame', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="child" class="size-10"/></div>'
+    })
+    const root = fixture.getNode(created.rootNodeId!)
+    const child = fixture.getNode(created.nodeIdsByKey.child!)
+    const copy = fixture.createNode('FRAME')
+    for (const field of ['canvas-key', 'canvas-owner'])
+      copy.setSharedPluginData('tempad_dev', field, child.getSharedPluginData('tempad_dev', field))
+    root.appendChild(copy)
+    await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: root.id,
+      native: { child: { figma: { name: 'Original' } } }
+    })
+    expect(child.name).toBe('Original')
+    expect(copy.name).not.toBe('Original')
+    expect(copy.removed).toBe(false)
+  })
+
+  it('does not rewrite scalar values already stored at float32 precision', async () => {
+    const fixture = createFixture()
+    const markup = '<div data-key="root" class="w-20 h-20 opacity-30"/>'
+    const created = await applyCanvas({ mode: 'create', markup })
+    const root = fixture.getNode(created.rootNodeId!)
+    let opacity = Math.fround(0.3)
+    const write = vi.fn((value: number) => {
+      opacity = Math.fround(value)
+    })
+    Object.defineProperty(root, 'opacity', { configurable: true, get: () => opacity, set: write })
+    await expect(
+      applyCanvas({ mode: 'update', targetNodeId: root.id, markup })
+    ).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('reports ignored literals while preserving existing bindings', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-20 h-20"/>',
+      bindings: { root: { variables: { opacity: { id: 'variable:spacing' } } } }
+    })
+    const updated = await applyCanvas({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      markup: '<div data-key="root" class="w-20 h-20 opacity-30"/>'
+    })
+    expect(updated.verification.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'literal-ignored-by-binding',
+          key: 'root',
+          message: expect.stringContaining('opacity')
+        })
+      ])
+    )
+    expect(fixture.getNode(created.rootNodeId!).boundVariables).toMatchObject({
+      opacity: { id: 'variable:spacing' }
+    })
+  })
+
+  it('validates native-only assets before downloading or mutating', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-20 h-20"/>'
+    })
+    const before = fixture.getNode(created.rootNodeId!).name
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        native: {
+          root: {
+            figma: {
+              name: 'Changed',
+              fills: [{ type: 'IMAGE', assetKey: 'missing', scaleMode: 'FILL' }]
+            }
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining('not declared')
+    })
+    expect(fixture.getNode(created.rootNodeId!).name).toBe(before)
+  })
+
+  it('rejects variable type mismatches before creating resources', async () => {
+    createFixture()
+    await expect(
+      applyCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-20 h-20 bg-white"/>',
+        variableCollections: {
+          theme: {
+            name: 'Theme',
+            modes: { light: { name: 'Light' } },
+            variables: { color: { name: 'Color', type: 'STRING', values: { light: 'red' } } }
+          }
+        },
+        bindings: { root: { variables: { fill: { variableKey: 'color' } } } }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining('expected COLOR')
+    })
+    expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+    expect(figma.createFrame).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'http://example.com/video.mp4',
+    'https://127.0.0.1/video.mp4',
+    'https://localhost./video.mp4',
+    'https://host.local./video.mp4',
+    'https://[::1]/video.mp4',
+    'https://192.168.1.1/video.mp4'
+  ])('rejects unsafe video URL %s before network access', async (url) => {
+    createFixture()
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    await expect(applyCanvas(videoUrlSpec(url))).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining('public HTTPS')
+    })
+    expect(fetch).not.toHaveBeenCalled()
+    expect(figma.createFrame).not.toHaveBeenCalled()
+  })
+
   it('accepts a public primitive result without a catalog', async () => {
     createFixture()
 
@@ -2460,6 +541,15 @@ describe('mcp/tools/canvas', () => {
       native: { root: { figma: { autoLayout: { itemSpacing: 6 } } } }
     })
     expect(root).toMatchObject({ itemSpacing: 6, counterAxisSpacing: 6, itemReverseZIndex: false })
+    await applyCanvasFromTool({
+      ...update,
+      native: { root: { figma: { autoLayout: { counterAxisSpacing: 6 } } } }
+    })
+    await applyCanvasFromTool({
+      ...update,
+      native: { root: { figma: { autoLayout: { itemSpacing: 12 } } } }
+    })
+    expect(root).toMatchObject({ itemSpacing: 12, counterAxisSpacing: 6 })
   })
 
   it.each<CanvasFigmaProperties>([
@@ -2842,72 +932,21 @@ describe('mcp/tools/canvas', () => {
     expect(action.componentProperties.Disabled?.value).toBe(true)
   })
 
-  it('preserves portable weights when family and weight classes change independently', async () => {
+  it('normalizes an instance-swap component-set id to its default variant', async () => {
     const fixture = createFixture()
-    const markup = (textClass: string) => `
-      <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
-        <span data-key="title" class="w-fit h-fit ${textClass}">Title</span>
-      </div>
-    `
-    const created = await applyCanvas({ mode: 'create', markup: markup('font-sans font-semibold') })
-    const title = fixture.getNode(created.nodeIdsByKey.title ?? '') as unknown as TextNode
-
-    await applyCanvas({
-      mode: 'update',
-      targetNodeId: created.rootNodeId!,
-      markup: markup('font-serif')
-    })
-    expect(title.fontName).toEqual({ family: 'Noto Serif', style: 'SemiBold' })
-
-    await applyCanvas({
-      mode: 'update',
-      targetNodeId: created.rootNodeId!,
-      markup: markup('font-extrabold')
-    })
-    expect(title.fontName).toEqual({ family: 'Noto Serif', style: 'ExtraBold' })
-
-    await applyCanvas({
-      mode: 'update',
-      targetNodeId: created.rootNodeId!,
-      markup: markup('font-sans')
-    })
-    expect(title.fontName).toEqual({ family: 'Inter', style: 'Extra Bold' })
-
-    await applyCanvas({
-      mode: 'update',
-      targetNodeId: created.rootNodeId!,
-      markup: markup('font-extralight')
-    })
-    expect(title.fontName).toEqual({ family: 'Inter', style: 'Extra Light' })
-
-    await applyCanvas({
-      mode: 'update',
-      targetNodeId: created.rootNodeId!,
-      markup: markup('font-mono')
-    })
-    expect(title.fontName).toEqual({ family: 'Noto Sans Mono', style: 'ExtraLight' })
-  })
-
-  it('resolves a portable family and closest weight from fonts available to the editor', async () => {
-    const fixture = createFixture()
-    fixture.listAvailableFontsAsync.mockResolvedValue([
-      { fontName: { family: 'Inter', style: 'Regular' } },
-      { fontName: { family: 'Roboto Mono', style: 'Regular' } },
-      { fontName: { family: 'Roboto Mono', style: 'Medium' } }
-    ] satisfies Font[])
-
-    const result = await applyCanvas({
+    const set = fixture.createNode('COMPONENT_SET') as unknown as ComponentSetNode
+    const variant = fixture.createNode('COMPONENT') as unknown as ComponentNode
+    set.appendChild(variant)
+    const result = await applyCanvasFromTool({
       mode: 'create',
       markup:
-        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="title" class="size-fit font-mono font-semibold">01:24:08</span></div>'
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="instance" class="w-20 h-20"/></div>',
+      native: {
+        instance: { component: { id: 'component:1' }, componentProperties: { Icon: set.id } }
+      }
     })
-    const title = fixture.getNode(result.nodeIdsByKey.title ?? '') as unknown as TextNode
-
-    expect(title.fontName).toEqual({ family: 'Roboto Mono', style: 'Medium' })
-    expect(fixture.loadFontAsync).toHaveBeenCalledWith({
-      family: 'Roboto Mono',
-      style: 'Medium'
-    })
+    const instance = fixture.getNode(result.nodeIdsByKey.instance!) as unknown as InstanceNode
+    expect(instance.componentProperties.Icon?.value).toBe(variant.id)
   })
 
   it('does not apply Auto Layout sizing fields to freeform children', async () => {
@@ -3139,7 +1178,7 @@ describe('mcp/tools/canvas', () => {
     }
 
     await expect(applyCanvas(input)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringContaining('growing text collapsed to zero width')
     })
     expect(textResize).toHaveBeenCalledWith(0.01, expect.any(Number))
@@ -3215,7 +1254,7 @@ describe('mcp/tools/canvas', () => {
         targetNodeId: created.rootNodeId!
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringContaining('fill geometry does not match')
     })
     expect(fixture.triggerUndo).toHaveBeenCalledOnce()
@@ -3248,7 +1287,7 @@ describe('mcp/tools/canvas', () => {
         `
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringContaining(
         'declared horizontal=FILL, vertical=FIXED, grow=false; applied horizontal=FIXED'
       )
@@ -3666,6 +1705,409 @@ describe('mcp/tools/canvas', () => {
     expect(reapplied.mutationCount).toBe(0)
   })
 
+  it('preflights moving the last child out of a retained group', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="group" class="w-fit h-fit"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div></div>',
+      native: { group: { figma: { group: true } } }
+    })
+    const root = fixture.getNode(created.rootNodeId!)
+    const group = fixture.getNode(created.nodeIdsByKey.group!)
+    const child = fixture.getNode(created.nodeIdsByKey.child!)
+    fixture.commitUndo.mockClear()
+
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: root.id,
+        markup:
+          '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div>'
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining('Moving these children would leave GROUP')
+    })
+    expect(root.children).toEqual([group])
+    expect(group.children).toEqual([child])
+    expect(group.removed).toBe(false)
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+  })
+
+  it('reparents a child while preserving a nonempty omitted group', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="group" class="w-fit h-fit"><div data-key="keep" class="absolute left-0 top-0 w-10 h-10"></div><div data-key="move" class="absolute left-0 top-0 w-10 h-10"></div></div></div>',
+      native: { group: { figma: { group: true } } }
+    })
+    const group = fixture.getNode(created.nodeIdsByKey.group!)
+    const keep = fixture.getNode(created.nodeIdsByKey.keep!)
+    const move = fixture.getNode(created.nodeIdsByKey.move!)
+    const updated = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="move" class="absolute left-0 top-0 w-10 h-10"></div></div>'
+    })
+    expect(updated.verification.status).toBe('passed')
+    expect(group.removed).toBe(false)
+    expect(group.children).toEqual([keep])
+    expect(move.parent?.id).toBe(created.rootNodeId)
+  })
+
+  it('preserves a rescued child when its explicitly removed group auto-deletes', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="group" class="w-fit h-fit"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div><div data-key="tail" class="w-10 h-10"></div></div>',
+      native: { group: { figma: { group: true } } }
+    })
+    const group = fixture.getNode(created.nodeIdsByKey.group!)
+    const child = fixture.getNode(created.nodeIdsByKey.child!)
+    const updated = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div><div data-key="tail" class="w-10 h-10"></div></div>',
+      removeKeys: ['group']
+    })
+    expect(updated.verification.status).toBe('passed')
+    expect(updated.removedNodeIds).toEqual([group.id])
+    expect(group.removed).toBe(true)
+    expect(child.removed).toBe(false)
+    expect(child.parent?.id).toBe(created.rootNodeId)
+    expect(fixture.getNode(created.rootNodeId!).children.map((node) => node.id)).toEqual([
+      child.id,
+      created.nodeIdsByKey.tail
+    ])
+    expect(fixture.nodes.has(group.id)).toBe(false)
+  })
+
+  it.each(['hyperlink', 'Pattern paint'])(
+    'rejects removing an auto-deleting group referenced by an external %s',
+    async (reference) => {
+      const fixture = createFixture()
+      const created = await applyCanvasFromTool({
+        mode: 'create',
+        markup:
+          '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="destination" class="w-20 h-20"></div><div data-key="group" class="w-fit h-fit"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div></div>',
+        native: { group: { figma: { group: true } } }
+      })
+      const group = fixture.getNode(created.nodeIdsByKey.group!)
+      if (reference === 'hyperlink') {
+        const link = fixture.createNode('TEXT') as unknown as TextNode
+        link.characters = 'External link'
+        link.hyperlink = { type: 'NODE', value: group.id }
+      } else {
+        const paint = fixture.createNode('RECTANGLE')
+        paint.fills = [
+          {
+            type: 'PATTERN',
+            sourceNodeId: group.id,
+            tileType: 'RECTANGULAR',
+            scalingFactor: 1,
+            spacing: { x: 0, y: 0 },
+            horizontalAlignment: 'CENTER'
+          }
+        ]
+      }
+
+      await expect(
+        applyCanvasFromTool({
+          mode: 'update',
+          targetNodeId: created.rootNodeId!,
+          markup:
+            '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="destination" class="w-20 h-20"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div></div>',
+          removeKeys: ['group']
+        })
+      ).rejects.toMatchObject({
+        // This fixture does not emulate Undo, so inspect the preserved original failure.
+        cause: {
+          code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+          message: `Node "${group.id}" is still referenced outside the removal scope.`
+        }
+      })
+    }
+  )
+
+  it.each(['retain outer', 'retain nonempty outer', 'remove both', 'referenced outer'])(
+    'checks cascading group auto-deletion: %s',
+    async (scenario) => {
+      const fixture = createFixture()
+      const keep =
+        scenario === 'retain nonempty outer'
+          ? '<div data-key="keep" class="absolute left-0 top-0 w-10 h-10"></div>'
+          : ''
+      const created = await applyCanvasFromTool({
+        mode: 'create',
+        markup: `<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="outer" class="w-fit h-fit"><div data-key="inner" class="absolute left-0 top-0 w-fit h-fit"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div>${keep}</div></div>`,
+        native: { outer: { figma: { group: true } }, inner: { figma: { group: true } } }
+      })
+      const root = fixture.getNode(created.rootNodeId!)
+      const outer = fixture.getNode(created.nodeIdsByKey.outer!)
+      const inner = fixture.getNode(created.nodeIdsByKey.inner!)
+      const child = fixture.getNode(created.nodeIdsByKey.child!)
+      if (scenario === 'referenced outer') {
+        const link = fixture.createNode('TEXT') as unknown as TextNode
+        link.hyperlink = { type: 'NODE', value: outer.id }
+      }
+      fixture.commitUndo.mockClear()
+      const update = applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: root.id,
+        markup:
+          '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div>',
+        removeKeys: scenario.startsWith('retain') ? ['inner'] : ['inner', 'outer']
+      })
+      if (scenario === 'retain outer') {
+        await expect(update).rejects.toMatchObject({
+          code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+          message: expect.stringContaining(outer.id)
+        })
+        expect(fixture.commitUndo).not.toHaveBeenCalled()
+        expect(root.children).toEqual([outer])
+        expect(outer.children).toEqual([inner])
+        expect(inner.children).toEqual([child])
+      } else if (scenario === 'referenced outer') {
+        await expect(update).rejects.toMatchObject({
+          cause: {
+            code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+            message: `Node "${outer.id}" is still referenced outside the removal scope.`
+          }
+        })
+      } else {
+        await expect(update).resolves.toMatchObject({
+          removedNodeIds: scenario === 'retain nonempty outer' ? [inner.id] : [inner.id, outer.id],
+          verification: { status: 'passed' }
+        })
+        expect(inner.removed).toBe(true)
+        expect(child.removed).toBe(false)
+        if (scenario === 'retain nonempty outer') {
+          expect(root.children).toEqual([outer, child])
+          expect(outer.children.map((node) => node.id)).toEqual([created.nodeIdsByKey.keep])
+          expect(outer.removed).toBe(false)
+        } else {
+          expect(root.children).toEqual([child])
+          expect(outer.removed).toBe(true)
+        }
+      }
+    }
+  )
+
+  it.each(['before', 'after'])(
+    'checks an outer group populated %s its last original child auto-deletes',
+    async (order) => {
+      const fixture = createFixture()
+      const created = await applyCanvasFromTool({
+        mode: 'create',
+        markup:
+          '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="outer" class="w-fit h-fit"><div data-key="inner" class="absolute left-0 top-0 w-fit h-fit"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div></div></div>',
+        native: { outer: { figma: { group: true } }, inner: { figma: { group: true } } }
+      })
+      const outer = fixture.getNode(created.nodeIdsByKey.outer!)
+      const inner = fixture.getNode(created.nodeIdsByKey.inner!)
+      const child = fixture.getNode(created.nodeIdsByKey.child!)
+      const desiredOuter =
+        '<div data-key="outer" class="w-fit h-fit"><div data-key="replacement" class="absolute left-0 top-0 w-10 h-10"></div></div>'
+      const desiredChild = '<div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div>'
+      fixture.commitUndo.mockClear()
+      const update = applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        markup: `<div data-key="root" class="flex flex-col w-80 h-80">${order === 'before' ? desiredOuter + desiredChild : desiredChild + desiredOuter}</div>`,
+        native: { outer: { figma: { group: true } } },
+        removeKeys: ['inner']
+      })
+      if (order === 'after') {
+        await expect(update).rejects.toMatchObject({
+          code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+          message: expect.stringContaining(outer.id)
+        })
+        expect(fixture.commitUndo).not.toHaveBeenCalled()
+        expect(outer.removed).toBe(false)
+        expect(inner.removed).toBe(false)
+        expect(inner.children).toEqual([child])
+        return
+      }
+      const updated = await update
+      expect(updated.verification.status).toBe('passed')
+      expect(outer.removed).toBe(false)
+      expect(inner.removed).toBe(true)
+      expect(outer.children.map((node) => node.id)).toEqual([updated.nodeIdsByKey.replacement])
+      expect(child.parent?.id).toBe(created.rootNodeId)
+    }
+  )
+
+  it('keeps an existing group alive while a new frame adopts its last original descendant', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="group" class="w-fit h-fit"><div data-key="inner" class="absolute left-0 top-0 w-fit h-fit"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div></div>',
+      native: { group: { figma: { group: true } }, inner: { figma: { group: true } } }
+    })
+    const group = fixture.getNode(created.rootNodeId!)
+    const child = fixture.getNode(created.nodeIdsByKey.child!)
+    const updated = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: group.id,
+      markup:
+        '<div data-key="group" class="w-fit h-fit"><div data-key="frame" class="absolute left-0 top-0 w-20 h-20"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div></div>',
+      native: { group: { figma: { group: true } } },
+      removeKeys: ['inner']
+    })
+    expect(updated.verification.status).toBe('passed')
+    expect(group.removed).toBe(false)
+    expect(child.removed).toBe(false)
+    expect(group.children.map((node) => node.id)).toEqual([updated.nodeIdsByKey.frame])
+    expect(child.parent?.id).toBe(updated.nodeIdsByKey.frame)
+  })
+
+  it('retains an outer group replenished between two inner group removals', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="outer" class="w-fit h-fit"><div data-key="first" class="absolute left-0 top-0 w-fit h-fit"><div data-key="a" class="absolute left-0 top-0 w-10 h-10"></div></div><div data-key="second" class="absolute left-0 top-0 w-fit h-fit"><div data-key="b" class="absolute left-0 top-0 w-10 h-10"></div></div></div></div>',
+      native: {
+        outer: { figma: { group: true } },
+        first: { figma: { group: true } },
+        second: { figma: { group: true } }
+      }
+    })
+    const outer = fixture.getNode(created.nodeIdsByKey.outer!)
+    const first = fixture.getNode(created.nodeIdsByKey.first!)
+    const second = fixture.getNode(created.nodeIdsByKey.second!)
+    const a = fixture.getNode(created.nodeIdsByKey.a!)
+    const b = fixture.getNode(created.nodeIdsByKey.b!)
+    const updated = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="a" class="absolute left-0 top-0 w-10 h-10"></div><div data-key="outer" class="w-fit h-fit"><div data-key="replacement" class="absolute left-0 top-0 w-10 h-10"></div></div><div data-key="b" class="absolute left-0 top-0 w-10 h-10"></div></div>',
+      native: { outer: { figma: { group: true } } },
+      removeKeys: ['first', 'second']
+    })
+    expect(updated.verification.status).toBe('passed')
+    expect(first.removed).toBe(true)
+    expect(second.removed).toBe(true)
+    expect(outer.removed).toBe(false)
+    expect(outer.children.map((node) => node.id)).toEqual([updated.nodeIdsByKey.replacement])
+    expect(fixture.getNode(created.rootNodeId!).children).toEqual([a, outer, b])
+  })
+
+  it('rejects variant staging that empties an ancestor before reconciling its replacement child', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="outer" class="w-fit h-fit"><div data-key="inner" class="absolute left-0 top-0 w-fit h-fit"><div data-key="a" class="absolute left-0 top-0 w-20 h-20"></div><div data-key="b" class="absolute left-20 top-0 w-20 h-20"></div></div></div></div>',
+      native: {
+        outer: { figma: { group: true } },
+        inner: { figma: { group: true } },
+        a: { figma: { name: 'State=A', component: { type: 'COMPONENT' } } },
+        b: { figma: { name: 'State=B', component: { type: 'COMPONENT' } } }
+      }
+    })
+    const root = fixture.getNode(created.rootNodeId!)
+    const outer = fixture.getNode(created.nodeIdsByKey.outer!)
+    const inner = fixture.getNode(created.nodeIdsByKey.inner!)
+    const a = fixture.getNode(created.nodeIdsByKey.a!)
+    const b = fixture.getNode(created.nodeIdsByKey.b!)
+    const ids = [...fixture.nodes.keys()]
+    fixture.commitUndo.mockClear()
+
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: root.id,
+        markup:
+          '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="set" class="flex flex-row w-80 h-40"><div data-key="a" class="w-40 h-40"><div data-key="outer" class="absolute left-0 top-0 w-fit h-fit"><div data-key="replacement" class="absolute left-0 top-0 w-10 h-10"></div></div></div><div data-key="b" class="w-20 h-20"></div></div></div>',
+        native: {
+          set: { figma: { component: { type: 'COMPONENT_SET' } } },
+          a: { figma: { component: { type: 'COMPONENT' } } },
+          b: { figma: { component: { type: 'COMPONENT' } } },
+          outer: { figma: { group: true } }
+        },
+        removeKeys: ['inner']
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining(outer.id)
+    })
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect([...fixture.nodes.keys()]).toEqual(ids)
+    expect(root.children).toEqual([outer])
+    expect(outer.children).toEqual([inner])
+    expect(inner.children).toEqual([a, b])
+    expect(outer.removed).toBe(false)
+    expect(inner.removed).toBe(false)
+  })
+
+  it.each([
+    'clear hyperlink',
+    'clear Pattern paint',
+    'link to rescued child',
+    'external link to rescued child'
+  ])('allows group auto-deletion after reconciling references: %s', async (reference) => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="destination" class="w-20 h-20"></div><div data-key="group" class="w-fit h-fit"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div><span data-key="link" class="w-fit h-fit">Link</span></div>',
+      native: { group: { figma: { group: true } } }
+    })
+    const group = fixture.getNode(created.nodeIdsByKey.group!)
+    const child = fixture.getNode(created.nodeIdsByKey.child!)
+    const link = (reference === 'external link to rescued child'
+      ? fixture.createNode('TEXT')
+      : fixture.getNode(created.nodeIdsByKey.link!)) as unknown as TextNode
+    if (reference === 'clear Pattern paint') {
+      link.fills = [
+        {
+          type: 'PATTERN',
+          sourceNodeId: group.id,
+          tileType: 'RECTANGULAR',
+          scalingFactor: 1,
+          spacing: { x: 0, y: 0 },
+          horizontalAlignment: 'CENTER'
+        }
+      ]
+    } else {
+      link.hyperlink = {
+        type: 'NODE',
+        value: reference.endsWith('rescued child') ? child.id : group.id
+      }
+    }
+    const updated = await applyCanvasFromTool({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      markup:
+        '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="destination" class="w-20 h-20"><div data-key="child" class="absolute left-0 top-0 w-10 h-10"></div></div><span data-key="link" class="w-fit h-fit">Link</span></div>',
+      native:
+        reference === 'clear Pattern paint'
+          ? { link: { figma: { fills: [] } } }
+          : reference === 'clear hyperlink'
+            ? { link: { figma: { text: { hyperlink: null } } } }
+            : undefined,
+      removeKeys: ['group']
+    })
+    expect(updated.verification.status).toBe('passed')
+    expect(group.removed).toBe(true)
+    expect(child.removed).toBe(false)
+    expect(child.parent?.id).toBe(created.nodeIdsByKey.destination)
+    if (reference === 'clear Pattern paint') expect(link.fills).toEqual([])
+    else
+      expect(link.hyperlink).toEqual(
+        reference === 'clear hyperlink' ? null : { type: 'NODE', value: child.id }
+      )
+  })
+
   it('moves existing nested nodes into sibling positions in a new group', async () => {
     const fixture = createFixture()
     const created = await applyCanvasFromTool({
@@ -3743,6 +2185,8 @@ describe('mcp/tools/canvas', () => {
       created.nodeIdsByKey.default!
     ) as unknown as ComponentNode
     const hoverVariant = fixture.getNode(created.nodeIdsByKey.hover!) as unknown as ComponentNode
+    expect(defaultVariant).toMatchObject({ fills: [], clipsContent: false })
+    expect(hoverVariant).toMatchObject({ fills: [], clipsContent: false })
     expect(variants).toMatchObject({
       type: 'COMPONENT_SET',
       x: 260,
@@ -4316,7 +2760,7 @@ describe('mcp/tools/canvas', () => {
 
     expect(root.width).toBe(320)
     expect(component.removed).toBe(false)
-    expect(fixture.commitUndo).toHaveBeenCalledOnce()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
   })
 
@@ -5048,7 +3492,7 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: expect.stringContaining(message)
     })
-    expect(PAGE.children).toEqual([])
+    expect(fixture.page.children).toEqual([])
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
   })
 
@@ -5305,6 +3749,7 @@ describe('mcp/tools/canvas', () => {
 
   it.each([
     ['unknown property', { Missing: 'value' }],
+    ['inherited property', { constructor: 'value' }],
     ['slot property', { Content: 'value' }],
     ['wrong literal type', { Disabled: 'false' }],
     ['unknown variant', { State: 'Pressed' }],
@@ -5715,6 +4160,97 @@ describe('mcp/tools/canvas', () => {
     expect(figma.createVector).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['path', 'create'],
+    ['region style', 'create'],
+    ['path', 'update'],
+    ['region style', 'update']
+  ] as const)(
+    'rejects an invalid vector %s in %s before creating unrelated style resources',
+    async (invalid, mode) => {
+      const fixture = createFixture()
+      const markup =
+        '<div data-key="root" class="flex w-[100px] h-[100px]"><div data-key="icon" class="w-[24px] h-[24px]"></div></div>'
+      const created =
+        mode === 'update'
+          ? await applyCanvas({
+              mode: 'create',
+              markup,
+              bindings: {
+                icon: {
+                  figma: {
+                    shape: {
+                      type: 'VECTOR',
+                      paths: [{ windingRule: 'NONZERO', data: 'M 0 0 L 24 0 L 0 24 Z' }]
+                    }
+                  }
+                }
+              }
+            })
+          : undefined
+      fixture.commitUndo.mockClear()
+      vi.mocked(figma.createVector).mockClear()
+      await expect(
+        applyCanvas({
+          mode,
+          ...(created ? { targetNodeId: created.rootNodeId! } : { markup }),
+          styles: {
+            body: { type: 'TEXT', name: 'Body', fontName: { family: 'Inter', style: 'Regular' } }
+          },
+          bindings: {
+            icon: {
+              figma: {
+                shape:
+                  invalid === 'path'
+                    ? { type: 'VECTOR', paths: [{ windingRule: 'NONE', data: 'm 0 0 l 1 1' }] }
+                    : {
+                        type: 'VECTOR',
+                        network: {
+                          vertices: [{ x: 0, y: 0 }],
+                          segments: [{ start: 0, end: 0 }],
+                          regions: [
+                            {
+                              windingRule: 'NONZERO',
+                              loops: [[0]],
+                              fillStyle: { id: 'style:text' }
+                            }
+                          ]
+                        }
+                      }
+              }
+            }
+          }
+        })
+      ).rejects.toThrow(invalid === 'path' ? 'Unsupported vector path command' : 'expected PAINT')
+      expect(figma.createTextStyle).not.toHaveBeenCalled()
+      expect(figma.createVector).not.toHaveBeenCalled()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([
+    ['create', 'styles'],
+    ['create', 'variableCollections'],
+    ['update', 'styles'],
+    ['update', 'variableCollections']
+  ] as const)('preflights %s with empty %s before opening Undo', async (mode, resource) => {
+    const fixture = createFixture()
+    const markup = '<div data-key="root" class="w-[100px] h-[100px]"></div>'
+    const created = mode === 'update' ? await applyCanvas({ mode: 'create', markup }) : undefined
+    fixture.commitUndo.mockClear()
+    await expect(
+      applyCanvas({
+        mode,
+        ...(created ? { targetNodeId: created.rootNodeId! } : { markup }),
+        [resource]: {},
+        bindings: { root: { figma: { effects: [{ type: 'SHADER', id: 'missing' }] } } }
+      })
+    ).rejects.toThrow('Shader "missing" could not be imported')
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+  })
+
   it('reconciles native stroke and corner geometry without repeating unchanged writes', async () => {
     const fixture = createFixture()
     const input: CanvasResolvedApplyParameters = {
@@ -6026,7 +4562,12 @@ describe('mcp/tools/canvas', () => {
     expect(title.paragraphIndent).toBe(12)
     expect(title.paragraphSpacing).toBe(20)
     expect(fixture.importStyleByKeyAsync).toHaveBeenCalledWith('stroke-style-key')
-    expect(fixture.loadFontAsync).toHaveBeenCalledTimes(1)
+    expect(fixture.loadFontAsync.mock.calls).toEqual(
+      expect.arrayContaining([
+        [{ family: 'Inter', style: 'Regular' }],
+        [{ family: 'Inter', style: 'Bold' }]
+      ])
+    )
 
     await expect(
       applyCanvas({
@@ -6141,7 +4682,10 @@ describe('mcp/tools/canvas', () => {
     }
     fixture.loadFontAsync.mockClear()
     await applyCanvas(unlinked)
-    expect(fixture.loadFontAsync.mock.calls).toEqual([[{ family: 'Inter', style: 'Regular' }]])
+    expect(fixture.loadFontAsync.mock.calls).toEqual([
+      [{ family: 'Inter', style: 'Bold' }],
+      [{ family: 'Inter', style: 'Regular' }]
+    ])
     expect(root.fillStyleId).toBe('')
     expect(root.fills).toEqual([solidPaint()])
     expect(root.strokeStyleId).toBe('')
@@ -6502,7 +5046,7 @@ describe('mcp/tools/canvas', () => {
 
     const created = await applyCanvas(input)
     const root = fixture.getNode(created.rootNodeId!)
-    expect(root.fills).not.toBe(MIXED)
+    expect(root.fills).not.toBe(figma.mixed)
     const fills = root.fills as readonly Paint[]
     expect(fills.map((paint) => paint.type)).toEqual([
       'SOLID',
@@ -6732,7 +5276,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: 'Verification failed for "root": direct fills do not match.'
     })
   })
@@ -6762,7 +5306,7 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: 'Verification failed for "root": direct fills do not match.'
     })
     expect(fixture.triggerUndo).toHaveBeenCalledOnce()
@@ -7196,6 +5740,7 @@ describe('mcp/tools/canvas', () => {
     })
     const obsolete = fixture.getNode(created.nodeIdsByKey.obsolete!)
     const source = fixture.getNode(created.nodeIdsByKey.source!)
+    fixture.commitUndo.mockClear()
 
     await expect(
       applyCanvas({
@@ -7217,6 +5762,7 @@ describe('mcp/tools/canvas', () => {
     })
     expect(obsolete.removed).toBe(false)
     expect(source.removed).toBe(false)
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
 
     await expect(
       applyCanvas({
@@ -7242,6 +5788,21 @@ describe('mcp/tools/canvas', () => {
     })
     expect(obsolete.removed).toBe(false)
     expect(source.removed).toBe(false)
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+
+    await applyCanvas({
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      markup: `<div data-key="root" class="flex flex-row w-[320px] h-[200px]">
+        <div data-key="source" class="w-[80px] h-[80px]"></div>
+        <div data-key="surface" class="w-[100px] h-[100px]"></div>
+      </div>`,
+      bindings: { surface: { figma: { fills: [pattern({ sourceCanvasKey: 'source' })] } } },
+      removeKeys: ['obsolete']
+    })
+    expect(source.parent?.id).toBe(created.rootNodeId)
+    expect(source.removed).toBe(false)
+    expect(obsolete.removed).toBe(true)
   })
 
   it('reports the first usage when a shared URL image cannot be loaded', async () => {
@@ -7308,7 +5869,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas(videoUrlSpec('https://media.example.com/oversized.mp4'))
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringContaining('up to 100MB')
     })
     expect(cancel).toHaveBeenCalledOnce()
@@ -7331,7 +5892,7 @@ describe('mcp/tools/canvas', () => {
     await expect(
       applyCanvas(videoUrlSpec('https://media.example.com/declared-oversized.mp4'))
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringContaining('up to 100MB')
     })
     expect(arrayBuffer).not.toHaveBeenCalled()
@@ -7649,7 +6210,7 @@ describe('mcp/tools/canvas', () => {
         }
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringMatching(/showShadowBehindNode.*false.*showShadowBehindNode.*true/)
     })
     expect(fixture.triggerUndo).toHaveBeenCalledOnce()
@@ -7670,7 +6231,7 @@ describe('mcp/tools/canvas', () => {
           '<div data-key="root" class="w-[320px] h-[200px] shadow-[0_4px_8px_rgba(0,0,0,0.2)]"></div>'
       })
     ).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringMatching(
         /direct effect 0 does not match; expected .*"radius":8.*found .*"radius":9/
       )
@@ -7809,7 +6370,7 @@ describe('mcp/tools/canvas', () => {
     expect(figma.createFrame).not.toHaveBeenCalled()
   })
 
-  it('enforces Figma shadow-spread applicability after final paints and clipping', async () => {
+  it('rejects known unclipped shadow spread before creating resources or opening undo', async () => {
     const fixture = createFixture()
     const effect = {
       type: 'DROP_SHADOW' as const,
@@ -7822,13 +6383,18 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({
         mode: 'create',
         markup: '<div data-key="root" class="w-[320px] h-[200px] bg-[#FFFFFF]"></div>',
+        styles: {
+          body: { type: 'TEXT', name: 'Body', fontName: { family: 'Inter', style: 'Regular' } }
+        },
         bindings: { root: { figma: { effects: [effect] } } }
       })
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: expect.stringContaining('clipped frame/instance with a visible fill')
     })
-    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    expect(figma.createTextStyle).not.toHaveBeenCalled()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
   })
 
   it('accepts shadow spread with a deferred visible Pattern fill', async () => {
@@ -8103,57 +6669,65 @@ describe('mcp/tools/canvas', () => {
     expect(copy.hyperlink).toEqual({ type: 'NODE', value: target.id })
   })
 
-  it('resolves forward stable-key hyperlinks after whole and ranged text paints', async () => {
-    const fixture = createFixture()
-    const input: CanvasResolvedApplyParameters = {
-      mode: 'create',
-      markup: `
+  it.each([false, true])(
+    'resolves forward stable-key hyperlinks after whole and ranged text paints with declared resources=%s',
+    async (declareResources) => {
+      const fixture = createFixture()
+      const input: CanvasResolvedApplyParameters = {
+        mode: 'create',
+        markup: `
         <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
           <span data-key="copy" class="w-full h-fit">Link</span>
           <div data-key="target" class="w-[80px] h-[40px]"></div>
         </div>
       `,
-      bindings: {
-        copy: {
-          figma: {
-            fills: [
-              {
-                type: 'PATTERN',
-                sourceCanvasKey: 'target',
-                tileType: 'RECTANGULAR',
-                scalingFactor: 1,
-                spacing: { x: 0, y: 0 },
-                horizontalAlignment: 'START'
-              }
-            ],
-            text: {
-              hyperlink: { type: 'NODE', value: { canvasKey: 'target' } },
-              ranges: [
+        ...(declareResources
+          ? { styles: { unrelated: { type: 'PAINT', name: 'Unrelated' } } }
+          : {}),
+        bindings: {
+          copy: {
+            figma: {
+              fills: [
                 {
-                  start: 0,
-                  end: 4,
-                  fills: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }],
-                  hyperlink: { type: 'NODE', value: { canvasKey: 'target' } }
+                  type: 'PATTERN',
+                  sourceCanvasKey: 'target',
+                  tileType: 'RECTANGULAR',
+                  scalingFactor: 1,
+                  spacing: { x: 0, y: 0 },
+                  horizontalAlignment: 'START'
                 }
-              ]
+              ],
+              text: {
+                hyperlink: { type: 'NODE', value: { canvasKey: 'target' } },
+                ranges: [
+                  {
+                    start: 0,
+                    end: 4,
+                    fills: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }],
+                    hyperlink: { type: 'NODE', value: { canvasKey: 'target' } }
+                  }
+                ]
+              }
             }
           }
         }
       }
+
+      const created = await applyCanvas(input)
+      const targetId = created.nodeIdsByKey.target!
+      const copy = fixture.getNode(created.nodeIdsByKey.copy!) as unknown as TextNode
+
+      expect(copy.fills).toMatchObject([{ type: 'PATTERN', sourceNodeId: targetId }])
+      expect(copy.hyperlink).toEqual({ type: 'NODE', value: targetId })
+      expect(copy.getRangeFills(0, 4)).toMatchObject([
+        { type: 'SOLID', color: { r: 1, g: 0, b: 0 } }
+      ])
+      expect(copy.getRangeHyperlink(0, 4)).toEqual({ type: 'NODE', value: targetId })
+      await expect(
+        applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
+      ).resolves.toMatchObject({ mutationCount: 0 })
     }
-
-    const created = await applyCanvas(input)
-    const targetId = created.nodeIdsByKey.target!
-    const copy = fixture.getNode(created.nodeIdsByKey.copy!) as unknown as TextNode
-
-    expect(copy.fills).toMatchObject([{ type: 'PATTERN', sourceNodeId: targetId }])
-    expect(copy.hyperlink).toEqual({ type: 'NODE', value: targetId })
-    expect(copy.getRangeFills(0, 4)).toMatchObject([{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }])
-    expect(copy.getRangeHyperlink(0, 4)).toEqual({ type: 'NODE', value: targetId })
-    await expect(
-      applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
-    ).resolves.toMatchObject({ mutationCount: 0 })
-  })
+  )
 
   it('applies a deferred whole-node canvas-key hyperlink before range hyperlinks', async () => {
     const fixture = createFixture()
@@ -8211,6 +6785,12 @@ describe('mcp/tools/canvas', () => {
 
   it('reconciles complete rich-text range patches without flattening exact text', async () => {
     const fixture = createFixture()
+    fixture.listAvailableFontsAsync.mockResolvedValue([
+      { fontName: { family: 'Inter', style: 'Regular' } },
+      { fontName: { family: 'Inter', style: 'Bold' } },
+      { fontName: { family: 'Roboto', style: 'Regular' } },
+      { fontName: { family: 'Roboto', style: 'Bold' } }
+    ])
     const input: CanvasResolvedApplyParameters = {
       mode: 'create',
       markup:
@@ -8419,7 +6999,7 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: expect.stringContaining('expected TEXT')
     })
-    expect(PAGE.children).toEqual([])
+    expect(fixture.page.children).toEqual([])
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
   })
 
@@ -9460,7 +8040,7 @@ describe('mcp/tools/canvas', () => {
       mode: 'create',
       markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>'
     })
-    PAGE.loadAsync.mockRejectedValue(new Error('current page is already loaded'))
+    fixture.page.loadAsync.mockRejectedValue(new Error('current page is already loaded'))
 
     await expect(
       applyCanvas({
@@ -9471,9 +8051,8 @@ describe('mcp/tools/canvas', () => {
       rootRemoved: true,
       removedNodeIds: [created.rootNodeId!]
     })
-    expect(PAGE.loadAsync).not.toHaveBeenCalled()
+    expect(fixture.page.loadAsync).not.toHaveBeenCalled()
     expect(figma.loadAllPagesAsync).not.toHaveBeenCalled()
-    expect(PAGE.findAll).toHaveBeenCalledOnce()
     expect(fixture.nodes.has(created.rootNodeId!)).toBe(false)
   })
 
@@ -9495,10 +8074,8 @@ describe('mcp/tools/canvas', () => {
       removedNodeIds: [created.rootNodeId!]
     })
     expect(figma.loadAllPagesAsync).toHaveBeenCalledOnce()
-    expect(PAGE.loadAsync).not.toHaveBeenCalled()
+    expect(fixture.page.loadAsync).not.toHaveBeenCalled()
     expect(otherPage.loadAsync).toHaveBeenCalledOnce()
-    expect(PAGE.findAll).toHaveBeenCalledOnce()
-    expect(otherPage.findAll).toHaveBeenCalledOnce()
     expect(fixture.nodes.has(created.rootNodeId!)).toBe(false)
 
     const second = await applyCanvas({
@@ -9688,7 +8265,8 @@ describe('mcp/tools/canvas', () => {
       markup: '<div data-key="root" class="w-[32px] h-[32px]"></div>'
     })
     const copy = fixture.createNode('TEXT') as unknown as TextNode
-    copy.characters = 'Open'
+    copy.characters = 'Open details'
+    copy.hyperlink = figma.mixed
     copy.setRangeHyperlink(0, 4, {
       type: 'NODE',
       value: created.rootNodeId!
@@ -9704,6 +8282,7 @@ describe('mcp/tools/canvas', () => {
     })
 
     copy.setRangeHyperlink(0, 4, null)
+    copy.hyperlink = null
     await expect(applyCanvas(removal)).resolves.toMatchObject({
       rootRemoved: true,
       removedNodeIds: [created.rootNodeId!]
@@ -9763,6 +8342,58 @@ describe('mcp/tools/canvas', () => {
       rootRemoved: true,
       removedNodeIds: [target.id]
     })
+  })
+
+  it('ignores unrelated inaccessible shaders during node removal', async () => {
+    createFixture()
+    const target = figma.createFrame()
+    target.setSharedPluginData('tempad_dev', 'canvas-key', 'target')
+    const consumer = figma.createRectangle()
+    consumer.effects = [
+      { type: 'SHADER', id: 'unavailable', visible: true, properties: { swap: 'unrelated' } }
+    ]
+    await expect(applyCanvas({ mode: 'remove', targetNodeId: target.id })).resolves.toMatchObject({
+      rootRemoved: true
+    })
+    expect(figma.importShaderById).not.toHaveBeenCalled()
+  })
+
+  it('inspects matching shader values without treating non-reference properties as references', async () => {
+    createFixture()
+    const target = figma.createComponent()
+    target.setSharedPluginData('tempad_dev', 'canvas-key', 'target')
+    const consumer = figma.createRectangle()
+    consumer.effects = [
+      { type: 'SHADER', id: 'shader:effect', visible: true, properties: { label: target.key } }
+    ]
+    const shader = await figma.importShaderById('shader:effect')
+    vi.mocked(figma.importShaderById)
+      .mockClear()
+      .mockResolvedValue({
+        ...shader,
+        propertyDefinitions: { label: { name: 'Label', type: 'TEXT' } }
+      })
+    await expect(applyCanvas({ mode: 'remove', targetNodeId: target.id })).resolves.toMatchObject({
+      rootRemoved: true
+    })
+    expect(figma.importShaderById).toHaveBeenCalledWith('shader:effect')
+  })
+
+  it('rejects a proven hidden descendant reference before inspecting unrelated styles', async () => {
+    createFixture()
+    const target = figma.createFrame()
+    target.setSharedPluginData('tempad_dev', 'canvas-key', 'target')
+    const consumer = figma.createFrame()
+    consumer.visible = false
+    const text = figma.createText()
+    consumer.appendChild(text)
+    text.hyperlink = { type: 'NODE', value: target.id }
+    vi.mocked(figma.getLocalEffectStylesAsync).mockRejectedValueOnce(new Error('unavailable'))
+    await expect(applyCanvas({ mode: 'remove', targetNodeId: target.id })).rejects.toThrow(
+      `Node "${target.id}" is still referenced outside`
+    )
+    expect(figma.getLocalEffectStylesAsync).not.toHaveBeenCalled()
+    expect(target.removed).toBe(false)
   })
 
   it('allows a referenced descendant and its managed Paint style to be removed together', async () => {
@@ -10343,7 +8974,7 @@ describe('mcp/tools/canvas', () => {
       id: surfaceDark.id
     })
     expect(root.boundVariables.fills).toEqual([{ type: 'VARIABLE_ALIAS', id: surface.id }])
-    expect(PAGE.explicitVariableModes).toEqual({
+    expect(fixture.page.explicitVariableModes).toEqual({
       [collection.id]: darkMode.modeId
     })
     expect(created.verification.status).toBe('passed')
@@ -10386,7 +9017,7 @@ describe('mcp/tools/canvas', () => {
     expect(surfaceDark.valuesByMode[contrastMode.modeId]).toEqual(
       surfaceDark.valuesByMode[collection.defaultModeId]
     )
-    expect(PAGE.explicitVariableModes).toEqual({
+    expect(fixture.page.explicitVariableModes).toEqual({
       [collection.id]: contrastMode.modeId
     })
   })
@@ -10492,6 +9123,65 @@ describe('mcp/tools/canvas', () => {
     })
   })
 
+  it.each(['OPACITY', 'ALL_SCOPES'] as const)(
+    'compares opacity fallbacks in native percentages with %s scope',
+    async (scope) => {
+      const fixture = createFixture()
+      const input = {
+        mode: 'create' as const,
+        markup: '<div data-key="root" class="w-20 h-20 opacity-[0.5]"/>',
+        variableCollections: {
+          tokens: {
+            name: 'Tokens',
+            modes: { base: { name: 'Base' } },
+            variables: {
+              alpha: {
+                name: 'Alpha',
+                type: 'FLOAT' as const,
+                scopes: [scope],
+                values: { base: 50 }
+              }
+            }
+          }
+        },
+        native: { root: { variables: { opacity: { variableKey: 'alpha' } } } }
+      }
+      const created = await applyCanvasFromTool(input)
+      expect(created.verification.warnings).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'variable-fallback-mismatch' })])
+      )
+      const root = fixture.getNode(created.rootNodeId!) as unknown as FrameNode
+      const variableId = root.boundVariables?.opacity?.id
+      expect(Object.values(fixture.variables.get(variableId!)!.valuesByMode)).toEqual([50])
+      await expect(
+        applyCanvasFromTool({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
+      ).resolves.toMatchObject({ mutationCount: 0 })
+      const mismatched = await applyCanvasFromTool({
+        ...input,
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        variableCollections: { tokens: { variables: { alpha: { values: { base: 0.5 } } } } }
+      })
+      expect(mismatched.verification.warnings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'variable-fallback-mismatch',
+            message: expect.stringContaining('0–100')
+          })
+        ])
+      )
+      expect(root.boundVariables?.opacity?.id).toBe(variableId)
+      await applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        markup: input.markup,
+        native: { root: { variables: { opacity: null } } }
+      })
+      expect(root.opacity).toBe(0.5)
+      expect(root.boundVariables?.opacity).toBeUndefined()
+    }
+  )
+
   it('accepts a literal fallback matching any authored variable mode', async () => {
     createFixture()
 
@@ -10523,6 +9213,54 @@ describe('mcp/tools/canvas', () => {
       verification: { status: 'passed', warnings: [] }
     })
   })
+
+  it.each([
+    { utility: 'font-semibold', value: 700, fallback: 600 },
+    { utility: 'font-semibold', value: 600, fallback: undefined },
+    { utility: 'font-[650]', value: 700, fallback: 650 },
+    { utility: '', value: 700, fallback: undefined },
+    { utility: '', value: 700, fallback: undefined, style: 'Custom Display' }
+  ])(
+    'compares only explicit numeric font weight fallbacks: $utility / $value / $style',
+    async ({ utility, value, fallback, style }) => {
+      createFixture()
+      const result = await applyCanvas({
+        mode: 'create',
+        markup: `<div data-key="root" class="flex flex-col w-80 h-40"><span data-key="copy" class="w-fit h-fit ${utility}">Copy</span></div>`,
+        variableCollections: {
+          tokens: {
+            name: 'Typography',
+            modes: { default: { name: 'Default' } },
+            variables: {
+              weight: {
+                name: 'Weight',
+                type: 'FLOAT',
+                scopes: ['FONT_WEIGHT'],
+                values: { default: value }
+              }
+            }
+          }
+        },
+        bindings: {
+          copy: {
+            variables: { fontWeight: { variableKey: 'weight' } },
+            ...(style ? { figma: { text: { fontName: { family: 'Inter', style } } } } : {})
+          }
+        }
+      })
+      const warnings = result.verification.warnings.filter(
+        (warning) => warning.code === 'variable-fallback-mismatch'
+      )
+      if (fallback === undefined) expect(warnings).toEqual([])
+      else
+        expect(warnings).toEqual([
+          expect.objectContaining({
+            key: 'copy',
+            message: expect.stringContaining(`fontWeight ${fallback}`)
+          })
+        ])
+    }
+  )
 
   it('checks literal fallbacks through same-call variable aliases', async () => {
     createFixture()
@@ -10602,7 +9340,7 @@ describe('mcp/tools/canvas', () => {
   })
 
   it('explains that variable authoring keys are file-wide across collections', async () => {
-    createFixture()
+    const fixture = createFixture()
     const markup = '<div data-key="root" class="w-[100px] h-[100px]"></div>'
     await applyCanvas({
       mode: 'create',
@@ -10622,6 +9360,8 @@ describe('mcp/tools/canvas', () => {
       }
     })
 
+    vi.mocked(figma.variables.createVariableCollection).mockClear()
+    fixture.commitUndo.mockClear()
     await expect(
       applyCanvas({
         mode: 'create',
@@ -10644,6 +9384,9 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: expect.stringContaining('Authoring keys are file-wide')
     })
+    expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
   })
 
   it('removes managed variables and modes after clearing node, page, and inherited-mode consumers', async () => {
@@ -10746,7 +9489,7 @@ describe('mcp/tools/canvas', () => {
     expect(surfaceAlias.valuesByMode).toEqual({
       [tokens.defaultModeId]: { r: 0.5, g: 0.5, b: 0.5 }
     })
-    expect(PAGE.explicitVariableModes).toEqual({})
+    expect(fixture.page.explicitVariableModes).toEqual({})
     expect(fixture.getNode(created.rootNodeId!).boundVariables.fills).toBeUndefined()
     await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
     await expect(
@@ -10762,6 +9505,336 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
       message: expect.stringContaining('must retain at least one mode')
     })
+  })
+
+  it.each(['collection', 'variable', 'mode'] as const)(
+    'loads cold pages before any write for an existing %s removal',
+    async (kind) => {
+      const fixture = createFixture()
+      const created = await applyCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+        variableCollections: {
+          tokens: {
+            name: 'Tokens',
+            modes: { light: { name: 'Light' }, dark: { name: 'Dark' } },
+            variables: { size: { name: 'Size', type: 'FLOAT', values: { light: 4, dark: 8 } } }
+          }
+        }
+      })
+      const page = figma.createPage()
+      let rejectLoad!: (error: Error) => void
+      vi.mocked(page.loadAsync).mockImplementationOnce(
+        () =>
+          new Promise<void>((_, reject) => {
+            rejectLoad = reject
+          })
+      )
+      fixture.commitUndo.mockClear()
+      const createCollection = vi.mocked(figma.variables.createVariableCollection)
+      createCollection.mockClear()
+      const removal = {
+        collection: null,
+        variable: { variables: { size: null } },
+        mode: { modes: { dark: null } }
+      }[kind]
+      const pending = applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        native: { root: { figma: { name: 'Changed' } } },
+        variableCollections: {
+          added: { name: 'Added', modes: { base: { name: 'Base' } } },
+          tokens: removal
+        }
+      }).catch((error: unknown) => error)
+      await vi.waitFor(() => expect(rejectLoad).toBeTypeOf('function'))
+      const commitsWhileLoading = fixture.commitUndo.mock.calls.length
+      const creationsWhileLoading = createCollection.mock.calls.length
+      const nameWhileLoading = fixture.getNode(created.rootNodeId!).name
+      rejectLoad(new Error('Cold page unavailable'))
+      const error = await pending
+      expect(commitsWhileLoading).toBe(0)
+      expect(creationsWhileLoading).toBe(0)
+      expect(nameWhileLoading).not.toBe('Changed')
+      expect(error).toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+        message: expect.stringContaining(`Page "${page.id}" could not be inspected`)
+      })
+    }
+  )
+
+  it.each(['existing page', 'new page'] as const)(
+    'checks a late variable consumer on a %s after preloading pages',
+    async (location) => {
+      const fixture = createFixture()
+      const created = await applyCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+        variableCollections: {
+          tokens: {
+            name: 'Tokens',
+            modes: { base: { name: 'Base' } },
+            variables: { size: { name: 'Size', type: 'FLOAT', values: { base: 4 } } }
+          }
+        }
+      })
+      const variable = [...fixture.variables.values()].find(
+        (candidate) => candidate.getSharedPluginData?.('tempad_dev', 'variable-key') === 'size'
+      )!
+      let page = figma.createPage()
+      const originalPage = page
+      const root = fixture.getNode(created.rootNodeId!)
+      let name = root.name
+      let consumerId = ''
+      Object.defineProperty(root, 'name', {
+        configurable: true,
+        get: () => name,
+        set(value: string) {
+          name = value
+          if (value !== 'Changed') return
+          if (location === 'new page') {
+            originalPage.remove()
+            page = figma.createPage()
+          }
+          const consumer = fixture.createNode('FRAME')
+          consumer.boundVariables = { width: { type: 'VARIABLE_ALIAS', id: variable.id } }
+          page.appendChild(consumer as SceneNode)
+          consumerId = consumer.id
+        }
+      })
+      await expect(
+        applyCanvasFromTool({
+          mode: 'update',
+          targetNodeId: root.id,
+          native: { root: { figma: { name: 'Changed' } } },
+          variableCollections: { tokens: { variables: { size: null } } }
+        })
+      ).rejects.toThrow(/Variable .*still used by node/)
+      expect(consumerId).not.toBe('')
+      expect(page.loadAsync).toHaveBeenCalledOnce()
+      expect(originalPage.loadAsync).toHaveBeenCalledOnce()
+      expect(variable.remove).not.toHaveBeenCalled()
+    }
+  )
+
+  it('preloads pages without retaining bindings removed by the same variable patch', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px] bg-[#FFFFFF]"></div>',
+      variableCollections: {
+        tokens: {
+          name: 'Tokens',
+          modes: { base: { name: 'Base' } },
+          variables: {
+            surface: { name: 'Surface', type: 'COLOR', values: { base: { r: 1, g: 1, b: 1 } } }
+          }
+        }
+      },
+      native: { root: { variables: { fill: { variableKey: 'surface' } } } }
+    })
+    const page = figma.createPage()
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        native: { root: { variables: { fill: null } } },
+        variableCollections: { tokens: { variables: { surface: null } } }
+      })
+    ).resolves.toMatchObject({ verification: { status: 'passed' } })
+    expect([...fixture.variables.values()].some((variable) => variable.name === 'Surface')).toBe(
+      false
+    )
+    expect(page.loadAsync).toHaveBeenCalledOnce()
+  })
+
+  it('does not load pages for absent variable resource removals', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+      variableCollections: { tokens: { name: 'Tokens', modes: { base: { name: 'Base' } } } }
+    })
+    const page = figma.createPage()
+    vi.mocked(page.loadAsync).mockRejectedValue(new Error('Unrelated page unavailable'))
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        native: { root: { figma: { name: 'Changed' } } },
+        variableCollections: {
+          absent: null,
+          tokens: { modes: { absent: null }, variables: { absent: null } }
+        }
+      })
+    ).resolves.toMatchObject({ verification: { status: 'passed' } })
+    expect(page.loadAsync).not.toHaveBeenCalled()
+    expect(fixture.getNode(created.rootNodeId!).name).toBe('Changed')
+  })
+
+  it.each(['shader', 'rich text'] as const)(
+    'removes only a mode without depending on unrelated %s reads',
+    async (unavailable) => {
+      const fixture = createFixture()
+      const created = await applyCanvasFromTool({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+        variableCollections: {
+          tokens: {
+            name: 'Tokens',
+            modes: { light: { name: 'Light' }, dark: { name: 'Dark' } }
+          }
+        }
+      })
+      const text = fixture.createNode('TEXT')
+      fixture.page.appendChild(text)
+      const segments = vi.spyOn(text as unknown as TextNode, 'getStyledTextSegments')
+      if (unavailable === 'rich text') {
+        segments.mockImplementation(() => {
+          throw new Error('Unrelated text cannot be read')
+        })
+      } else {
+        vi.mocked(figma.listAvailableShaders).mockRejectedValue(new Error('Shaders unavailable'))
+      }
+
+      await expect(
+        applyCanvasFromTool({
+          mode: 'update',
+          targetNodeId: created.rootNodeId!,
+          native: { root: { figma: { name: 'Updated' } } },
+          variableCollections: { tokens: { modes: { dark: null } } }
+        })
+      ).resolves.toMatchObject({ verification: { status: 'passed' } })
+      expect(figma.listAvailableShaders).not.toHaveBeenCalled()
+      expect(segments).not.toHaveBeenCalled()
+      const collection = [...fixture.variableCollections.values()].find(
+        (candidate) =>
+          candidate.getSharedPluginData?.('tempad_dev', 'variable-collection-key') === 'tokens'
+      )!
+      expect(collection.modes.map((mode) => mode.name)).toEqual(['Light'])
+    }
+  )
+
+  it.each(['page', 'hidden node'] as const)(
+    'still rejects mode-only removal selected by a %s',
+    async (consumer) => {
+      const fixture = createFixture()
+      const created = await applyCanvasFromTool({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+        variableCollections: {
+          tokens: {
+            name: 'Tokens',
+            modes: { light: { name: 'Light' }, dark: { name: 'Dark' } }
+          }
+        }
+      })
+      const collection = [...fixture.variableCollections.values()].find(
+        (candidate) =>
+          candidate.getSharedPluginData?.('tempad_dev', 'variable-collection-key') === 'tokens'
+      )!
+      const dark = collection.modes.find((mode) => mode.name === 'Dark')!.modeId
+      const node = fixture.createNode('FRAME')
+      node.visible = false
+      fixture.page.appendChild(node)
+      const target = consumer === 'page' ? fixture.page : node
+      target.explicitVariableModes[collection.id] = dark
+      vi.mocked(figma.listAvailableShaders).mockRejectedValue(new Error('Shaders unavailable'))
+
+      await expect(
+        applyCanvasFromTool({
+          mode: 'update',
+          targetNodeId: created.rootNodeId!,
+          native: { root: { figma: { name: 'root' } } },
+          variableCollections: { tokens: { modes: { dark: null } } }
+        })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+        message: expect.stringContaining(`still selected on "${target.id}"`)
+      })
+      expect(collection.modes.some((mode) => mode.modeId === dark)).toBe(true)
+      expect(figma.listAvailableShaders).not.toHaveBeenCalled()
+    }
+  )
+
+  it('keeps variable reference checks when removing a mode and a variable together', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px] bg-[#FFFFFF]"></div>',
+      variableCollections: {
+        tokens: {
+          name: 'Tokens',
+          modes: { light: { name: 'Light' }, dark: { name: 'Dark' } },
+          variables: {
+            surface: {
+              name: 'Surface',
+              type: 'COLOR',
+              values: { light: { r: 1, g: 1, b: 1 }, dark: { r: 0, g: 0, b: 0 } }
+            }
+          }
+        }
+      },
+      native: { root: { variables: { fill: { variableKey: 'surface' } } } }
+    })
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        native: { root: { figma: { name: 'root' } } },
+        variableCollections: { tokens: { modes: { dark: null }, variables: { surface: null } } }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      message: expect.stringContaining('still used by node')
+    })
+    expect(figma.listAvailableShaders).toHaveBeenCalledOnce()
+    expect([...fixture.variables.values()].some((variable) => variable.name === 'Surface')).toBe(
+      true
+    )
+  })
+
+  it('checks references when a mode removal also creates and deletes collections', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px] bg-[#FFFFFF]"></div>',
+      variableCollections: {
+        modes: {
+          name: 'Modes',
+          modes: { light: { name: 'Light' }, dark: { name: 'Dark' } }
+        },
+        colors: {
+          name: 'Colors',
+          modes: { base: { name: 'Base' } },
+          variables: {
+            surface: { name: 'Surface', type: 'COLOR', values: { base: { r: 1, g: 1, b: 1 } } }
+          }
+        }
+      },
+      native: { root: { variables: { fill: { variableKey: 'surface' } } } }
+    })
+
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        native: { root: { figma: { name: 'root' } } },
+        variableCollections: {
+          added: { name: 'Added', modes: { base: { name: 'Base' } } },
+          modes: { modes: { dark: null } },
+          colors: null
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      message: expect.stringContaining('still used by node')
+    })
+    expect(figma.listAvailableShaders).toHaveBeenCalledOnce()
+    const surface = [...fixture.variables.values()].find(
+      (variable) => variable.getSharedPluginData?.('tempad_dev', 'variable-key') === 'surface'
+    )!
+    expect(surface.remove).not.toHaveBeenCalled()
   })
 
   it('creates a variable without requiring a value for a mode removed in the same patch', async () => {
@@ -10965,7 +10038,7 @@ describe('mcp/tools/canvas', () => {
         throw new Error('Property definitions are unavailable on a variant component.')
       }
     })
-    PAGE.appendChild(componentSet)
+    fixture.page.appendChild(componentSet)
 
     const markup =
       '<div data-key="root" class="flex flex-row w-[100px] h-[100px] gap-[16px]"></div>'
@@ -11117,6 +10190,39 @@ describe('mcp/tools/canvas', () => {
     await expect(applyCanvas(replaceStyle)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
+  it('rejects a retained extension dependency before creating or changing resources', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+      variableCollections: {
+        tokens: { name: 'Tokens', modes: { base: { name: 'Base' } } },
+        brand: { name: 'Brand', extends: { collectionKey: 'tokens' } }
+      }
+    })
+    vi.mocked(figma.variables.createVariableCollection).mockClear()
+    fixture.commitUndo.mockClear()
+    fixture.triggerUndo.mockClear()
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        native: { root: { figma: { name: 'Changed' } } },
+        variableCollections: {
+          first: { name: 'First', modes: { base: { name: 'Base' } } },
+          tokens: null
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+      message: expect.stringContaining('still depends')
+    })
+    expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(fixture.getNode(created.rootNodeId!).name).toBe('root')
+  })
+
   it('removes dependent extended collections before their managed parent', async () => {
     const fixture = createFixture()
     const markup = '<div data-key="root" class="w-[100px] h-[100px]"></div>'
@@ -11236,7 +10342,7 @@ describe('mcp/tools/canvas', () => {
     expect(brand.variableOverrides[surface.id]).toEqual({
       [light.modeId]: { r: 0.9, g: 0.2, b: 0.1 }
     })
-    expect(PAGE.explicitVariableModes).toEqual({ [brand.id]: dark.modeId })
+    expect(fixture.page.explicitVariableModes).toEqual({ [brand.id]: dark.modeId })
 
     await expect(
       applyCanvas({
@@ -11622,113 +10728,6 @@ describe('mcp/tools/canvas', () => {
     expect((await applyCanvas(spec)).mutationCount).toBe(0)
   })
 
-  it('replaces an authored typography variable with a TextStyle in one update', async () => {
-    const fixture = createFixture()
-    const created = await applyCanvasFromTool({
-      mode: 'create',
-      markup:
-        '<div data-key="root" class="flex flex-col w-[300px] h-[100px]"><span data-key="label" class="w-full h-fit text-(length:--size)">Hello</span></div>',
-      theme: { variables: { '--size': { variableKey: 'type/size' } } },
-      variableCollections: {
-        typography: {
-          name: 'Typography',
-          modes: { base: { name: 'Base' } },
-          variables: { 'type/size': { name: 'Size', type: 'FLOAT', values: { base: 18 } } }
-        }
-      }
-    })
-    const label = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
-    expect(label.boundVariables?.fontSize).toBeDefined()
-    const updated = await applyCanvasFromTool({
-      mode: 'update',
-      targetNodeId: created.rootNodeId!,
-      markup:
-        '<div data-key="root" class="flex flex-col w-[300px] h-[100px]"><span data-key="label" class="w-full h-fit type-body">Hello</span></div>',
-      theme: { textStyles: { 'type-body': { styleKey: 'type/body' } } },
-      native: { label: { variables: { fontSize: null } } },
-      styles: {
-        'type/body': {
-          type: 'TEXT',
-          name: 'Body',
-          fontName: { family: 'Inter', style: 'Regular' },
-          fontSize: 16
-        }
-      }
-    })
-    expect(updated.nodeIdsByKey.label).toBe(label.id)
-    expect(label.boundVariables?.fontSize).toBeUndefined()
-    expect(label.textStyleId).not.toBe('')
-    expect(label.fontSize).toBe(16)
-  })
-
-  it.each([
-    { styles: ['Light', 'Medium', 'Regular Italic'], weight: 'font-[400]', expected: 'Light' },
-    { styles: ['Medium', 'Light', 'Regular Italic'], weight: 'font-[400]', expected: 'Medium' },
-    { styles: ['Light', 'Regular', 'Medium'], weight: 'font-[400]', expected: 'Regular' },
-    { styles: ['Bold Italic', 'Regular', 'Light'], weight: 'font-bold', expected: 'Regular' }
-  ])(
-    'preserves closest-font ordering and slant for $styles with $weight',
-    async ({ styles, weight, expected }) => {
-      const fixture = createFixture()
-      fixture.listAvailableFontsAsync.mockResolvedValue(
-        styles.map((style) => ({ fontName: { family: 'Test Family', style } }))
-      )
-      const created = await applyCanvasFromTool({
-        mode: 'create',
-        markup: `<div data-key="root" class="flex flex-col w-[300px] h-[100px]"><span data-key="label" class="w-fit h-fit font-[family-name:Test_Family] ${weight}">Text</span></div>`
-      })
-      const label = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
-      expect(label.fontName).toEqual({ family: 'Test Family', style: expected })
-    }
-  )
-
-  it('loads the available font face for the consumer mode before binding family and weight tokens', async () => {
-    const fixture = createFixture()
-    fixture.listAvailableFontsAsync.mockResolvedValue([
-      { fontName: { family: 'Noto Sans SC', style: 'Regular' } },
-      { fontName: { family: 'Noto Sans SC', style: 'SemiBold' } },
-      { fontName: { family: 'Noto Sans TC', style: 'DemiBold' } }
-    ])
-    const created = await applyCanvasFromTool({
-      mode: 'create',
-      markup:
-        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="label" class="w-full h-fit font-(family-name:--family) font-(--weight)">中文</span></div>',
-      theme: {
-        variables: {
-          '--family': { variableKey: 'type/family' },
-          '--weight': { variableKey: 'type/weight' }
-        }
-      },
-      variableCollections: {
-        typography: {
-          name: 'Typography',
-          modes: { light: { name: 'Light' }, dark: { name: 'Dark' } },
-          variables: {
-            'type/family': {
-              name: 'Family',
-              type: 'STRING',
-              values: { light: 'Noto Sans SC', dark: 'Noto Sans TC' }
-            },
-            'type/weight': { name: 'Weight', type: 'FLOAT', values: { light: 600, dark: 600 } }
-          }
-        }
-      },
-      native: { root: { variableModes: { typography: 'dark' } } }
-    })
-    const label = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
-    expect(label.fontName).toEqual({ family: 'Noto Sans TC', style: 'DemiBold' })
-    expect(fixture.loadFontAsync).toHaveBeenCalledWith({
-      family: 'Noto Sans TC',
-      style: 'DemiBold'
-    })
-    expect(label.boundVariables?.fontFamily).toBeDefined()
-    expect(label.boundVariables?.fontWeight).toBeDefined()
-    expect(fixture.loadFontAsync).not.toHaveBeenCalledWith({
-      family: 'Noto Sans TC',
-      style: 'Semi Bold'
-    })
-  })
-
   it('authors all local style kinds and applies them by stable key in one result', async () => {
     const fixture = createFixture()
     const input: CanvasResolvedApplyParameters = {
@@ -11933,6 +10932,10 @@ describe('mcp/tools/canvas', () => {
 
   it('adopts local styles and rejects unsafe or incompatible style resources', async () => {
     const fixture = createFixture()
+    vi.mocked(figma.getStyleByIdAsync).mockImplementationOnce(async (id) => {
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      return fixture.styles.get(id) ?? null
+    })
     const adopted = await applyCanvas({
       mode: 'create',
       markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
@@ -11954,6 +10957,7 @@ describe('mcp/tools/canvas', () => {
     expect(legacy.getSharedPluginData('tempad_dev', 'style-key')).toBe('legacy')
     expect(fixture.getNode(adopted.rootNodeId!).fillStyleId).toBe(legacy.id)
     expect(figma.createPaintStyle).not.toHaveBeenCalled()
+    expect(figma.getStyleByIdAsync).toHaveBeenCalledOnce()
 
     await expect(
       applyCanvas({
@@ -12004,7 +11008,7 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: expect.stringContaining('must already exist')
     })
-    expect(fixture.triggerUndo).toHaveBeenCalledTimes(1)
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
   })
 
   it('removes managed styles only after every live consumer is explicitly cleared', async () => {
@@ -12072,7 +11076,7 @@ describe('mcp/tools/canvas', () => {
     ).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
   })
 
-  it('validates new variable resources before canvas creation and rolls back value failures', async () => {
+  it('validates new variable resources and values before resource or canvas creation', async () => {
     const fixture = createFixture()
     await expect(
       applyCanvas({
@@ -12125,13 +11129,13 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: expect.stringContaining('must be COLOR')
     })
-    expect(figma.variables.createVariableCollection).toHaveBeenCalledOnce()
+    expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
     expect(figma.createFrame).not.toHaveBeenCalled()
-    expect(fixture.triggerUndo).toHaveBeenCalledTimes(1)
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
   })
 
   it('reconciles explicit state on the page containing the result', async () => {
-    createFixture()
+    const fixture = createFixture()
     const input: CanvasResolvedApplyParameters = {
       mode: 'create',
       markup: '<div data-key="root" class="w-[320px] h-[200px]"></div>',
@@ -12147,8 +11151,8 @@ describe('mcp/tools/canvas', () => {
     }
 
     const created = await applyCanvas(input)
-    expect(created.updatedNodeIds).toContain(PAGE.id)
-    expect(PAGE).toMatchObject({
+    expect(created.updatedNodeIds).toContain(fixture.page.id)
+    expect(fixture.page).toMatchObject({
       name: 'Checkout',
       backgrounds: [
         {
@@ -12179,11 +11183,11 @@ describe('mcp/tools/canvas', () => {
     }
     await expect(applyCanvas(cleared)).resolves.toMatchObject({
       mutationCount: 2,
-      updatedNodeIds: [PAGE.id]
+      updatedNodeIds: [fixture.page.id]
     })
-    expect(PAGE.explicitVariableModes).toEqual({})
-    expect(PAGE.guides).toEqual([])
-    expect(PAGE.name).toBe('Checkout')
+    expect(fixture.page.explicitVariableModes).toEqual({})
+    expect(fixture.page.guides).toEqual([])
+    expect(fixture.page.name).toBe('Checkout')
     await expect(applyCanvas(cleared)).resolves.toMatchObject({ mutationCount: 0 })
 
     await expect(
@@ -12199,11 +11203,11 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: expect.stringContaining('has no mode')
     })
-    expect(PAGE.name).toBe('Checkout')
+    expect(fixture.page.name).toBe('Checkout')
     expect(figma.createFrame).toHaveBeenCalledTimes(1)
 
     const otherPage = createMockPage('0:2', 'Other')
-    const root = PAGE.children.shift()!
+    const root = fixture.page.children.shift()!
     Object.assign(root, { parent: otherPage as unknown as PageNode })
     otherPage.children.push(root)
     await expect(
@@ -12216,7 +11220,7 @@ describe('mcp/tools/canvas', () => {
       updatedNodeIds: [otherPage.id]
     })
     expect(otherPage.name).toBe('Owned page')
-    expect(PAGE.name).toBe('Checkout')
+    expect(fixture.page.name).toBe('Checkout')
   })
 
   it('preserves the current page and selection when creating on new or existing pages', async () => {
@@ -12234,14 +11238,14 @@ describe('mcp/tools/canvas', () => {
     const created = await applyCanvas(input)
     const checkout = fixture.pages[1]!
     expect(figma.createPage).toHaveBeenCalledOnce()
-    expect(figma.currentPage).toBe(PAGE)
+    expect(figma.currentPage).toBe(fixture.page)
     expect(created.page).toMatchObject({ id: checkout.id, active: false, selectionCount: 0 })
     expect(checkout).toMatchObject({
       name: 'Checkout',
       children: [{ id: created.rootNodeId! }]
     })
     expect(checkout.getSharedPluginData('tempad_dev', 'page-key')).toBe('flows/checkout')
-    expect(PAGE.children).toEqual([])
+    expect(fixture.page.children).toEqual([])
 
     await expect(
       applyCanvas({
@@ -12311,8 +11315,8 @@ describe('mcp/tools/canvas', () => {
       page: { pageKey: 'eval/fresh' },
       markup: '<div data-key="eval/root" class="w-[320px] h-[200px]"></div>'
     })
-    await applyCanvas({ mode: 'activate', page: { id: PAGE.id }, selection: [] })
-    expect(figma.currentPage).toBe(PAGE)
+    await applyCanvas({ mode: 'activate', page: { id: fixture.page.id }, selection: [] })
+    expect(figma.currentPage).toBe(fixture.page)
     await expect(
       applyCanvas({
         mode: 'activate',
@@ -12333,8 +11337,8 @@ describe('mcp/tools/canvas', () => {
       mutationCount: 1
     })
     expect(removed.removedNodeIds).toContain(root.rootNodeId!)
-    expect(fixture.pages).toEqual([PAGE])
-    expect(figma.currentPage).toBe(PAGE)
+    expect(fixture.pages).toEqual([fixture.page])
+    expect(figma.currentPage).toBe(fixture.page)
   })
 
   it('removes a managed page with an opaque SVG subtree but protects manual siblings', async () => {
@@ -12370,12 +11374,12 @@ describe('mcp/tools/canvas', () => {
       page: { id: created.page!.id, removed: true },
       removedNodeIds: expect.arrayContaining([wrapper.id, imported.id])
     })
-    expect(fixture.pages).toEqual([PAGE])
+    expect(fixture.pages).toEqual([fixture.page])
   })
 
   it('refuses to remove the last page or a managed page containing manual content', async () => {
     const fixture = createFixture()
-    PAGE.setSharedPluginData('tempad_dev', 'page-key', 'eval/only')
+    fixture.page.setSharedPluginData('tempad_dev', 'page-key', 'eval/only')
     await expect(
       applyCanvas({ mode: 'remove', page: { pageKey: 'eval/only' } })
     ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE })
@@ -12395,7 +11399,7 @@ describe('mcp/tools/canvas', () => {
     expect(page.removed).toBe(false)
   })
 
-  it('rolls back a newly created page when its combined root apply fails', async () => {
+  it('rejects unavailable fonts before creating the requested page', async () => {
     const fixture = createFixture()
     await expect(
       applyCanvas({
@@ -12409,9 +11413,9 @@ describe('mcp/tools/canvas', () => {
       })
     ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
 
-    expect(fixture.pages).toEqual([PAGE])
-    expect(figma.currentPage).toBe(PAGE)
-    expect(figma.triggerUndo).toHaveBeenCalledOnce()
+    expect(fixture.pages).toEqual([fixture.page])
+    expect(figma.currentPage).toBe(fixture.page)
+    expect(figma.triggerUndo).not.toHaveBeenCalled()
   })
 
   it('loads an existing keyed page before reading its protected roots', async () => {
@@ -12458,8 +11462,8 @@ describe('mcp/tools/canvas', () => {
     const checkout = fixture.pages[0]!
 
     expect(checkout.name).toBe('Checkout')
-    expect(fixture.pages).toEqual([checkout, PAGE])
-    expect(figma.currentPage).toBe(PAGE)
+    expect(fixture.pages).toEqual([checkout, fixture.page])
+    expect(figma.currentPage).toBe(fixture.page)
 
     const insertChild = vi.fn((index: number, page: ReturnType<typeof createMockPage>) => {
       const current = fixture.pages.indexOf(page)
@@ -12488,7 +11492,7 @@ describe('mcp/tools/canvas', () => {
       updatedNodeIds: [checkout.id],
       mutationCount: 1
     })
-    expect(fixture.pages).toEqual([PAGE, checkout])
+    expect(fixture.pages).toEqual([fixture.page, checkout])
     expect(insertChild.mock.calls.map(([index]) => index)).toEqual([1, 2])
     await expect(applyCanvas(moved)).resolves.toMatchObject({
       updatedNodeIds: [],
@@ -12618,7 +11622,7 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
       message: expect.stringContaining('expected COLOR')
     })
-    expect(PAGE.children).toEqual([])
+    expect(fixture.page.children).toEqual([])
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
   })
 
@@ -12690,7 +11694,8 @@ describe('mcp/tools/canvas', () => {
         targetNodeId: root.id,
         markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>'
       })
-    ).resolves.toMatchObject({ mutationCount: 0 })
+    ).resolves.toMatchObject({ mutationCount: 1 })
+    expect(root.getSharedPluginData('tempad_dev', 'canvas-owner')).toBe(root.id)
     expect(instance.children).toEqual([inherited])
   })
 
@@ -12800,7 +11805,7 @@ describe('mcp/tools/canvas', () => {
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE
     })
-    expect(fixture.commitUndo).toHaveBeenCalledOnce()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
     expect(fixture.triggerUndo).not.toHaveBeenCalled()
     expect(fixture.nodes.has(created.rootNodeId!)).toBe(true)
   })
@@ -12831,6 +11836,1292 @@ describe('mcp/tools/canvas', () => {
     }
   )
 
+  it.each(['characters', 'fills'] as const)(
+    'reports incomplete rollback of existing text %s',
+    async (field) => {
+      const fixture = createFixture()
+      const created = await applyCanvas({
+        mode: 'create',
+        markup:
+          '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><span data-key="copy" class="w-fit h-fit text-[#112233]">Before</span></div>'
+      })
+      const copy = fixture.getNode(created.nodeIdsByKey.copy!) as TextNode
+      vi.mocked(figma.util.solidPaint).mockImplementationOnce(() => {
+        throw new Error('paint unavailable')
+      })
+      fixture.triggerUndo.mockImplementationOnce(() => {
+        if (field === 'characters') copy.characters = 'Corrupted'
+        else Object.assign((copy.fills as SolidPaint[])[0]!.color, { r: 1 })
+      })
+      await expect(
+        applyCanvas({
+          mode: 'update',
+          targetNodeId: created.rootNodeId!,
+          markup:
+            '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><div data-key="new" class="w-[12px] h-[12px] bg-[#112233]"></div></div>'
+        })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        message: expect.stringContaining(`Rollback changed pre-existing node ${copy.id}`),
+        cause: expect.objectContaining({ message: expect.stringContaining('paint unavailable') })
+      })
+    }
+  )
+
+  it.each([
+    { mode: 'create', reference: 'whole hyperlink' },
+    { mode: 'native update', reference: 'range hyperlink' },
+    { mode: 'create', reference: 'image hash' },
+    { mode: 'native update', reference: 'Pattern source' }
+  ] as const)(
+    'rejects a missing $reference in $mode before creating unrelated resources',
+    async ({ mode, reference }) => {
+      const fixture = createFixture()
+      const markup =
+        '<div data-key="root" class="flex flex-col w-80 h-40"><span data-key="label" class="w-fit h-fit">Label</span></div>'
+      const created =
+        mode === 'native update' ? await applyCanvasFromTool({ mode: 'create', markup }) : undefined
+      const nodeIds = [...fixture.nodes.keys()]
+      const styleIds = [...fixture.styles.keys()]
+      fixture.commitUndo.mockClear()
+      let properties: CanvasFigmaProperties
+      if (reference === 'whole hyperlink') {
+        properties = { text: { hyperlink: { type: 'NODE', value: 'missing:reference' } } }
+      } else if (reference === 'range hyperlink') {
+        properties = {
+          text: {
+            ranges: [{ start: 0, end: 5, hyperlink: { type: 'NODE', value: 'missing:reference' } }]
+          }
+        }
+      } else if (reference === 'image hash') {
+        properties = {
+          fills: [{ type: 'IMAGE', imageHash: 'missing:reference', scaleMode: 'FILL' }]
+        }
+      } else {
+        properties = {
+          fills: [
+            {
+              type: 'PATTERN',
+              sourceNodeId: 'missing:reference',
+              tileType: 'RECTANGULAR',
+              scalingFactor: 1,
+              spacing: { x: 0, y: 0 },
+              horizontalAlignment: 'START'
+            }
+          ]
+        }
+      }
+
+      await expect(
+        applyCanvasFromTool({
+          ...(created
+            ? { mode: 'update', targetNodeId: created.rootNodeId! }
+            : { mode: 'create', markup }),
+          styles: { unrelated: { type: 'PAINT', name: 'Unrelated' } },
+          native: { label: { figma: properties } }
+        })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        message: expect.stringContaining('"missing:reference"')
+      })
+      expect(figma.createPaintStyle).not.toHaveBeenCalled()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+      expect([...fixture.nodes.keys()]).toEqual(nodeIds)
+      expect([...fixture.styles.keys()]).toEqual(styleIds)
+      if (created) {
+        const label = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+        expect(label.characters).toBe('Label')
+        expect(label.hyperlink).toBeNull()
+      }
+    }
+  )
+
+  it.each([
+    'missing property reference',
+    'missing slot metadata',
+    'variant property definition',
+    'unknown instance property',
+    'missing instance-swap default'
+  ] as const)('rejects %s before creating unrelated declared resources', async (failure) => {
+    const fixture = createFixture()
+    let markup =
+      '<div data-key="card" class="flex flex-col w-80 h-40"><span data-key="title" class="w-fit h-fit">Title</span></div>'
+    let native: NonNullable<ApplyCanvasParametersInput['native']> = {
+      card: { figma: { component: { type: 'COMPONENT' } } },
+      title: { figma: { componentPropertyReferences: { characters: 'missing' } } }
+    }
+    let message = 'is missing, expected TEXT'
+    if (failure === 'missing slot metadata') {
+      markup =
+        '<div data-key="card" class="flex flex-col w-80 h-40"><div data-key="content" class="w-full h-20"></div></div>'
+      native = {
+        card: { figma: { component: { type: 'COMPONENT' } } },
+        content: { figma: { slot: {} } }
+      }
+      message = 'requires property metadata'
+    } else if (failure === 'variant property definition') {
+      markup =
+        '<div data-key="set" class="flex flex-row w-80 h-40"><div data-key="variant" class="w-20 h-10"></div></div>'
+      native = {
+        set: { figma: { component: { type: 'COMPONENT_SET' } } },
+        variant: {
+          figma: {
+            name: 'State=Default',
+            component: {
+              type: 'COMPONENT',
+              properties: { label: { type: 'TEXT', name: 'Label', defaultValue: 'Label' } }
+            }
+          }
+        }
+      }
+      message = 'belong on its component set'
+    } else if (failure === 'unknown instance property') {
+      markup =
+        '<div data-key="root" class="flex flex-row w-80 h-40"><div data-key="action" class="w-20 h-10"></div></div>'
+      native = {
+        action: { component: { id: 'component:1' }, componentProperties: { Missing: 'value' } }
+      }
+      message = 'has no property "Missing"'
+    } else if (failure === 'missing instance-swap default') {
+      native = {
+        card: {
+          figma: {
+            component: {
+              type: 'COMPONENT',
+              properties: {
+                icon: {
+                  type: 'INSTANCE_SWAP',
+                  name: 'Icon',
+                  defaultValue: { id: 'missing:component' }
+                }
+              }
+            }
+          }
+        }
+      }
+      message = 'The requested component could not be resolved.'
+    }
+    const nodeIds = [...fixture.nodes.keys()]
+    const styleIds = [...fixture.styles.keys()]
+    await expect(
+      applyCanvasFromTool({
+        mode: 'create',
+        markup,
+        native,
+        styles: { unrelated: { type: 'PAINT', name: 'Unrelated' } }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining(message)
+    })
+    expect(figma.createPaintStyle).not.toHaveBeenCalled()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect([...fixture.nodes.keys()]).toEqual(nodeIds)
+    expect([...fixture.styles.keys()]).toEqual(styleIds)
+  })
+
+  it('rejects retained slot bounds before a native update creates unrelated resources', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="card" class="flex flex-col w-80 h-40"><div data-key="content" class="w-full h-20"></div></div>',
+      native: {
+        card: { figma: { component: { type: 'COMPONENT' } } },
+        content: {
+          figma: { slot: { property: { name: 'Content', settings: { maxChildren: 4 } } } }
+        }
+      }
+    })
+    const card = fixture.getNode(created.rootNodeId!) as unknown as ComponentNode
+    const definitions = structuredClone(card.componentPropertyDefinitions)
+    fixture.commitUndo.mockClear()
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        styles: { unrelated: { type: 'PAINT', name: 'Unrelated' } },
+        native: {
+          content: {
+            figma: { slot: { property: { name: 'Content', settings: { minChildren: 5 } } } }
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining('cannot exceed maxChildren')
+    })
+    expect(figma.createPaintStyle).not.toHaveBeenCalled()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(card.componentPropertyDefinitions).toEqual(definitions)
+  })
+
+  it('rejects exposing a page instance before a native update creates unrelated resources', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-row w-80 h-40"><div data-key="action" class="w-20 h-10"></div></div>',
+      native: { action: { component: { id: 'component:1' } } }
+    })
+    const action = fixture.getNode(created.nodeIdsByKey.action!) as unknown as InstanceNode
+    fixture.commitUndo.mockClear()
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        styles: { unrelated: { type: 'PAINT', name: 'Unrelated' } },
+        native: { action: { figma: { instance: { exposed: true } } } }
+      })
+    ).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+      message: expect.stringContaining('requires an existing primary instance inside a component')
+    })
+    expect(figma.createPaintStyle).not.toHaveBeenCalled()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(action.isExposedInstance).toBe(false)
+  })
+
+  it.each(['component set', 'native update'] as const)(
+    'preflights same-call property and variable declarations for a %s',
+    async (mode) => {
+      const fixture = createFixture()
+      const created =
+        mode === 'native update'
+          ? await applyCanvasFromTool({
+              mode: 'create',
+              markup:
+                '<div data-key="card" class="flex flex-col w-80 h-40"><span data-key="title" class="w-fit h-fit">Title</span></div>',
+              native: { card: { figma: { component: { type: 'COMPONENT' } } } }
+            })
+          : undefined
+      const result = await applyCanvasFromTool({
+        ...(created
+          ? { mode: 'update', targetNodeId: created.rootNodeId! }
+          : {
+              mode: 'create',
+              markup:
+                '<div data-key="card" class="flex flex-row w-80 h-40"><div data-key="variant" class="flex flex-col w-40 h-20"><span data-key="title" class="w-fit h-fit">Title</span></div></div>'
+            }),
+        variableCollections: {
+          copy: {
+            name: 'Copy',
+            modes: { base: { name: 'Base' } },
+            variables: { label: { type: 'STRING', name: 'Label', values: { base: 'Title' } } }
+          }
+        },
+        native: {
+          // Deliberately list the dependent sublayer before its owner in native-only input.
+          title: { figma: { componentPropertyReferences: { characters: 'title' } } },
+          card: {
+            figma: {
+              component: {
+                type: created ? 'COMPONENT' : 'COMPONENT_SET',
+                properties: {
+                  title: {
+                    type: 'TEXT',
+                    name: 'Title',
+                    defaultValue: { variable: { variableKey: 'label' } }
+                  }
+                }
+              }
+            }
+          },
+          ...(created
+            ? {}
+            : {
+                variant: {
+                  figma: { name: 'State=Default', component: { type: 'COMPONENT' } }
+                }
+              })
+        }
+      })
+      const card = fixture.getNode(result.rootNodeId!) as unknown as
+        | ComponentNode
+        | ComponentSetNode
+      const title = fixture.getNode(result.nodeIdsByKey.title!) as unknown as TextNode
+      const property = Object.keys(card.componentPropertyDefinitions).find((name) =>
+        name.startsWith('Title#')
+      )!
+      expect(title.componentPropertyReferences).toEqual({ characters: property })
+      expect(card.componentPropertyDefinitions[property]).toMatchObject({
+        type: 'TEXT',
+        boundVariables: { defaultValue: { type: 'VARIABLE_ALIAS', id: expect.any(String) } }
+      })
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['component', 'swap default', 'instance variable'] as const)(
+    'keeps library %s imports inside Undo when resources are declared',
+    async (reference) => {
+      const fixture = createFixture()
+      const importComponent = vi.mocked(figma.importComponentByKeyAsync).getMockImplementation()!
+      vi.mocked(figma.importComponentByKeyAsync).mockImplementation(async (key) => {
+        expect(fixture.commitUndo).toHaveBeenCalledOnce()
+        return importComponent(key)
+      })
+      const importVariable = vi
+        .mocked(figma.variables.importVariableByKeyAsync)
+        .getMockImplementation()!
+      vi.mocked(figma.variables.importVariableByKeyAsync).mockImplementation(async (key) => {
+        expect(fixture.commitUndo).toHaveBeenCalledOnce()
+        return importVariable(key)
+      })
+      await applyCanvas({
+        mode: 'create',
+        markup:
+          '<div data-key="card" class="flex flex-row w-80 h-40"><div data-key="action" class="w-20 h-10"></div></div>',
+        styles: { unrelated: { type: 'PAINT', name: 'Unrelated' } },
+        bindings: {
+          action: {
+            component: reference === 'component' ? { key: 'component-key' } : { id: 'component:1' },
+            ...(reference === 'instance variable'
+              ? { componentProperties: { Label: { variable: { key: 'component-label-key' } } } }
+              : {})
+          },
+          ...(reference === 'swap default'
+            ? {
+                card: {
+                  figma: {
+                    component: {
+                      type: 'COMPONENT',
+                      properties: {
+                        icon: {
+                          type: 'INSTANCE_SWAP',
+                          name: 'Icon',
+                          defaultValue: { key: 'component-key' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            : {})
+        }
+      })
+      if (reference === 'instance variable') {
+        expect(figma.variables.importVariableByKeyAsync).toHaveBeenCalledWith('component-label-key')
+        expect(fixture.importComponentByKeyAsync).not.toHaveBeenCalled()
+      } else expect(fixture.importComponentByKeyAsync).toHaveBeenCalledWith('component-key')
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it('rejects known text range bounds before creating declared resources', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><span data-key="copy" class="w-fit h-fit">Copy</span></div>'
+    })
+    fixture.commitUndo.mockClear()
+    await expect(
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        styles: {
+          body: { type: 'TEXT', name: 'Body', fontName: { family: 'Inter', style: 'Regular' } }
+        },
+        native: { copy: { figma: { text: { ranges: [{ start: 0, end: 8, fontSize: 24 }] } } } }
+      })
+    ).rejects.toThrow('exceeds 4 UTF-16 code units')
+    expect(figma.createTextStyle).not.toHaveBeenCalled()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+  })
+
+  it.each(['range variable', 'declared range variable', 'existing style', 'range style'] as const)(
+    'rejects an incompatible %s before creating unrelated declared resources',
+    async (binding) => {
+      const fixture = createFixture()
+      const created = await applyCanvas({
+        mode: 'create',
+        markup:
+          '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><span data-key="copy" class="w-fit h-fit">Copy</span></div>'
+      })
+      fixture.commitUndo.mockClear()
+      await expect(
+        applyCanvas({
+          mode: 'update',
+          targetNodeId: created.rootNodeId!,
+          styles: {
+            body: { type: 'TEXT', name: 'Body', fontName: { family: 'Inter', style: 'Regular' } }
+          },
+          ...(binding === 'declared range variable'
+            ? {
+                variableCollections: {
+                  tokens: {
+                    name: 'Tokens',
+                    modes: { default: { name: 'Default' } },
+                    variables: {
+                      spacing: { name: 'Spacing', type: 'FLOAT' as const, values: { default: 8 } }
+                    }
+                  }
+                }
+              }
+            : {}),
+          bindings: {
+            copy:
+              binding === 'existing style'
+                ? { styles: { fill: { id: 'style:text' } } }
+                : {
+                    figma: {
+                      text: {
+                        ranges: [
+                          {
+                            start: 0,
+                            end: 4,
+                            ...(binding === 'range style'
+                              ? { fillStyle: { id: 'style:text' } }
+                              : {
+                                  variables: {
+                                    fontFamily:
+                                      binding === 'declared range variable'
+                                        ? { variableKey: 'spacing' }
+                                        : { id: 'variable:spacing' }
+                                  }
+                                })
+                          }
+                        ]
+                      }
+                    }
+                  }
+          }
+        })
+      ).rejects.toThrow(binding.includes('style') ? 'expected PAINT' : 'expected STRING')
+      expect(figma.createTextStyle).not.toHaveBeenCalled()
+      expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it('does not import library-only bindings before rejecting a locally invalid range', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex flex-col w-[100px] h-[100px]"><span data-key="copy" class="w-fit h-fit">Copy</span></div>'
+    })
+    fixture.commitUndo.mockClear()
+    await expect(
+      applyCanvas({
+        mode: 'update',
+        targetNodeId: created.rootNodeId!,
+        styles: {
+          body: { type: 'TEXT', name: 'Body', fontName: { family: 'Inter', style: 'Regular' } }
+        },
+        bindings: {
+          copy: {
+            styles: { fill: { key: 'library-fill' } },
+            figma: {
+              text: {
+                ranges: [
+                  { start: 0, end: 2, variables: { fontFamily: { key: 'library-family' } } },
+                  { start: 2, end: 4, variables: { fontFamily: { id: 'variable:spacing' } } }
+                ]
+              }
+            }
+          }
+        }
+      })
+    ).rejects.toThrow('expected STRING')
+    expect(figma.importStyleByKeyAsync).not.toHaveBeenCalled()
+    expect(figma.variables.importVariableByKeyAsync).not.toHaveBeenCalled()
+    expect(figma.createTextStyle).not.toHaveBeenCalled()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+  })
+
+  it.each(
+    (['solid', 'gradient', 'effect', 'paint resource', 'effect resource'] as const).flatMap(
+      (usage) => (['create', 'update'] as const).map((mode) => ({ usage, mode }))
+    )
+  )(
+    'rejects incompatible $usage variables in $mode before creating declared resources',
+    async ({ usage, mode }) => {
+      const fixture = createFixture()
+      const markup = '<div data-key="root" class="w-[100px] h-[100px]"></div>'
+      const created = mode === 'update' ? await applyCanvas({ mode: 'create', markup }) : undefined
+      fixture.commitUndo.mockClear()
+      const paint: NonNullable<CanvasFigmaProperties['fills']>[number] =
+        usage === 'gradient'
+          ? {
+              type: 'GRADIENT_LINEAR',
+              gradientTransform: [
+                [1, 0, 0],
+                [0, 1, 0]
+              ],
+              gradientStops: [
+                {
+                  position: 0,
+                  color: { r: 0, g: 0, b: 0, a: 1 },
+                  variables: { color: { variableKey: 'wrong' } }
+                },
+                { position: 1, color: { r: 1, g: 1, b: 1, a: 1 } }
+              ]
+            }
+          : {
+              type: 'SOLID',
+              color: { r: 0, g: 0, b: 0 },
+              variables: { color: { variableKey: 'wrong' } }
+            }
+      const effect: NonNullable<CanvasFigmaProperties['effects']>[number] = {
+        type: 'LAYER_BLUR',
+        blurType: 'NORMAL',
+        radius: 8,
+        variables: { radius: { variableKey: 'wrong-color' } }
+      }
+      const paints: CanvasFigmaProperties['fills'] = [
+        { type: 'SOLID', color: { r: 0, g: 0, b: 0 }, variables: { color: { key: 'color-key' } } },
+        paint
+      ]
+      const effects: CanvasFigmaProperties['effects'] = [
+        {
+          type: 'LAYER_BLUR',
+          blurType: 'NORMAL',
+          radius: 8,
+          variables: { radius: { key: 'remote-radius' } }
+        },
+        effect
+      ]
+      let styles: CanvasResolvedApplyParameters['styles']
+      if (usage === 'paint resource')
+        styles = { resource: { type: 'PAINT', name: 'Paint', paints } }
+      if (usage === 'effect resource')
+        styles = { resource: { type: 'EFFECT', name: 'Effect', effects } }
+      let properties: CanvasFigmaProperties = {}
+      if (usage === 'effect') properties = { effects }
+      else if (!usage.includes('resource')) properties = { fills: paints }
+      await expect(
+        applyCanvas({
+          mode,
+          ...(created ? { targetNodeId: created.rootNodeId! } : { markup }),
+          variableCollections: {
+            tokens: {
+              name: 'Tokens',
+              modes: { base: { name: 'Base' } },
+              variables: {
+                wrong: { name: 'Wrong', type: 'FLOAT', values: { base: 8 } },
+                'wrong-color': {
+                  name: 'Wrong color',
+                  type: 'COLOR',
+                  values: { base: { r: 0, g: 0, b: 0 } }
+                }
+              }
+            }
+          },
+          styles,
+          bindings: { root: { figma: properties } }
+        })
+      ).rejects.toThrow(usage.includes('effect') ? 'expected FLOAT' : 'expected COLOR')
+      expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+      expect(figma.createPaintStyle).not.toHaveBeenCalled()
+      expect(figma.createEffectStyle).not.toHaveBeenCalled()
+      expect(figma.variables.importVariableByKeyAsync).not.toHaveBeenCalled()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(
+    (['text resource', 'grid resource', 'layout grid'] as const).flatMap((usage) =>
+      (['create', 'update'] as const).map((mode) => ({ usage, mode }))
+    )
+  )(
+    'rejects incompatible $usage variables in $mode before preparing resources',
+    async ({ usage, mode }) => {
+      const fixture = createFixture()
+      const markup = '<div data-key="root" class="w-[100px] h-[100px]"></div>'
+      const created = mode === 'update' ? await applyCanvas({ mode: 'create', markup }) : undefined
+      fixture.commitUndo.mockClear()
+      const layoutGrids: CanvasFigmaProperties['layoutGrids'] = [
+        { pattern: 'GRID', sectionSize: 8, variables: { sectionSize: { key: 'spacing-key' } } },
+        { pattern: 'GRID', sectionSize: 8, variables: { sectionSize: { variableKey: 'wrong' } } }
+      ]
+      let styles: CanvasResolvedApplyParameters['styles']
+      if (usage === 'text resource') {
+        styles = {
+          body: {
+            type: 'TEXT',
+            name: 'Body',
+            variables: {
+              fontSize: { key: 'spacing-key' },
+              fontFamily: { variableKey: 'wrong' }
+            }
+          }
+        }
+      } else if (usage === 'grid resource') {
+        styles = { grid: { type: 'GRID', name: 'Grid', layoutGrids } }
+      }
+      await expect(
+        applyCanvas({
+          mode,
+          ...(created ? { targetNodeId: created.rootNodeId! } : { markup }),
+          variableCollections: {
+            tokens: {
+              name: 'Tokens',
+              modes: { base: { name: 'Base' } },
+              variables: { wrong: { name: 'Wrong', type: 'BOOLEAN', values: { base: true } } }
+            }
+          },
+          styles,
+          bindings: { root: { figma: usage === 'layout grid' ? { layoutGrids } : {} } }
+        })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        message: expect.stringContaining(
+          usage === 'text resource' ? 'expected STRING' : 'expected FLOAT'
+        )
+      })
+      expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+      expect(figma.createTextStyle).not.toHaveBeenCalled()
+      expect(figma.createGridStyle).not.toHaveBeenCalled()
+      expect(figma.variables.importVariableByKeyAsync).not.toHaveBeenCalled()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(
+    (['TEXT', 'BOOLEAN'] as const).flatMap((type) =>
+      (['create', 'update'] as const).map((mode) => ({ type, mode }))
+    )
+  )(
+    'rejects incompatible $type component defaults in $mode before preparing resources',
+    async ({ type, mode }) => {
+      const fixture = createFixture()
+      const markup = '<div data-key="root" class="w-[100px] h-[100px]"></div>'
+      const created =
+        mode === 'update'
+          ? await applyCanvas({
+              mode: 'create',
+              markup,
+              bindings: { root: { figma: { component: { type: 'COMPONENT' } } } }
+            })
+          : undefined
+      fixture.commitUndo.mockClear()
+      await expect(
+        applyCanvas({
+          mode,
+          ...(created ? { targetNodeId: created.rootNodeId! } : { markup }),
+          variableCollections: {
+            tokens: {
+              name: 'Tokens',
+              modes: { base: { name: 'Base' } },
+              variables: { wrong: { name: 'Wrong', type: 'FLOAT', values: { base: 8 } } }
+            }
+          },
+          bindings: {
+            root: {
+              figma: {
+                component: {
+                  type: 'COMPONENT',
+                  properties: {
+                    remote: {
+                      type: 'TEXT',
+                      name: 'Remote',
+                      defaultValue: { variable: { key: 'font-key' } }
+                    },
+                    invalid: {
+                      type,
+                      name: 'Invalid',
+                      defaultValue: { variable: { variableKey: 'wrong' } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        })
+      ).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        message: expect.stringContaining(
+          `component property "invalid" is FLOAT, expected ${type === 'TEXT' ? 'STRING' : 'BOOLEAN'}`
+        )
+      })
+      expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+      expect(figma.variables.importVariableByKeyAsync).not.toHaveBeenCalled()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(
+    (['missing id', 'wrong type', 'owned', 'duplicate adoption'] as const).flatMap((failure) =>
+      (['create', 'update'] as const).map((mode) => ({ failure, mode }))
+    )
+  )(
+    'rejects a later style declaration with $failure in $mode before creating or claiming resources',
+    async ({ failure, mode }) => {
+      const fixture = createFixture()
+      const markup = '<div data-key="root" class="w-[100px] h-[100px]"></div>'
+      const created = mode === 'update' ? await applyCanvas({ mode: 'create', markup }) : undefined
+      fixture.commitUndo.mockClear()
+      const adopted = figma.createPaintStyle()
+      const rejected = figma.createPaintStyle()
+      if (failure === 'owned') rejected.setSharedPluginData('tempad_dev', 'style-key', 'existing')
+      vi.mocked(figma.createPaintStyle).mockClear()
+      const adoptionWrite = vi.spyOn(adopted, 'setSharedPluginData')
+      let invalid: NonNullable<CanvasResolvedApplyParameters['styles']>[string] = {
+        type: 'PAINT',
+        id: 'missing-style'
+      }
+      if (failure === 'wrong type') invalid = { type: 'TEXT', id: rejected.id }
+      if (failure === 'owned') invalid = { type: 'PAINT', id: rejected.id }
+      if (failure === 'duplicate adoption') invalid = { type: 'PAINT', id: adopted.id }
+      await expect(
+        applyCanvas({
+          mode,
+          ...(created ? { targetNodeId: created.rootNodeId! } : { markup }),
+          styles: {
+            first: { type: 'PAINT', name: 'First' },
+            adoption: { type: 'PAINT', id: adopted.id },
+            invalid
+          },
+          bindings: { root: {} }
+        })
+      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      expect(figma.createPaintStyle).not.toHaveBeenCalled()
+      expect(adoptionWrite).not.toHaveBeenCalled()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(
+    (
+      [
+        'missing collection',
+        'owned collection',
+        'duplicate collection',
+        'owned variable',
+        'wrong collection',
+        'duplicate variable',
+        'collection key mismatch',
+        'variable key mismatch',
+        'remote collection',
+        'remote variable'
+      ] as const
+    ).flatMap((failure) => (['create', 'update'] as const).map((mode) => ({ failure, mode })))
+  )(
+    'rejects $failure in $mode before creating or claiming any declared resource',
+    async ({ failure, mode }) => {
+      const fixture = createFixture()
+      const markup = '<div data-key="root" class="w-[100px] h-[100px]"></div>'
+      const created = mode === 'update' ? await applyCanvas({ mode: 'create', markup }) : undefined
+      fixture.commitUndo.mockClear()
+      const collection = figma.variables.createVariableCollection('Existing')
+      const other = figma.variables.createVariableCollection('Other')
+      const variable = figma.variables.createVariable('Existing', collection, 'FLOAT')
+      const adopted = figma.variables.createVariableCollection('Adopted')
+      if (failure === 'owned collection')
+        collection.setSharedPluginData('tempad_dev', 'variable-collection-key', 'old')
+      if (failure === 'owned variable')
+        variable.setSharedPluginData('tempad_dev', 'variable-key', 'old-variable')
+      if (failure === 'collection key mismatch')
+        other.setSharedPluginData('tempad_dev', 'variable-collection-key', 'invalid')
+      if (failure === 'variable key mismatch') {
+        const keyed = figma.variables.createVariable('Keyed', collection, 'FLOAT')
+        keyed.setSharedPluginData('tempad_dev', 'variable-key', 'value')
+      }
+      if (failure === 'remote collection')
+        Object.defineProperty(collection, 'remote', { value: true })
+      if (failure === 'remote variable') Object.defineProperty(variable, 'remote', { value: true })
+      vi.mocked(figma.variables.createVariableCollection).mockClear()
+      vi.mocked(figma.variables.createVariable).mockClear()
+      const adoptionWrite = vi.spyOn(adopted, 'setSharedPluginData')
+      const invalid: NonNullable<CanvasResolvedApplyParameters['variableCollections']>[string] = {
+        id: collection.id
+      }
+      if (failure === 'missing collection') invalid.id = 'missing-collection'
+      if (failure === 'duplicate collection') invalid.id = adopted.id
+      if (failure.includes('variable') || failure === 'wrong collection') {
+        invalid.id = failure === 'wrong collection' ? other.id : collection.id
+        invalid.variables = { value: { id: variable.id } }
+        if (failure === 'duplicate variable') invalid.variables.again = { id: variable.id }
+      }
+      await expect(
+        applyCanvas({
+          mode,
+          ...(created ? { targetNodeId: created.rootNodeId! } : { markup }),
+          variableCollections: {
+            first: { name: 'First', modes: { base: { name: 'Base' } } },
+            adoption: { id: adopted.id },
+            invalid
+          },
+          bindings: { root: {} }
+        })
+      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+      expect(figma.variables.createVariable).not.toHaveBeenCalled()
+      expect(adoptionWrite).not.toHaveBeenCalled()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it('reuses preflight identities when adopting an existing collection and variable', async () => {
+    const fixture = createFixture()
+    const collection = figma.variables.createVariableCollection('Existing')
+    const variable = figma.variables.createVariable('Existing', collection, 'FLOAT')
+    variable.setValueForMode(collection.defaultModeId, 8)
+    vi.mocked(figma.variables.createVariableCollection).mockClear()
+    vi.mocked(figma.variables.createVariable).mockClear()
+    vi.mocked(figma.variables.getVariableCollectionByIdAsync).mockImplementationOnce(async (id) => {
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(id).toBe(collection.id)
+      return collection
+    })
+    vi.mocked(figma.variables.getVariableByIdAsync).mockImplementationOnce(async (id) => {
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(id).toBe(variable.id)
+      return variable
+    })
+    await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+      variableCollections: {
+        tokens: { id: collection.id, variables: { spacing: { id: variable.id } } }
+      }
+    })
+    expect(collection.getSharedPluginData('tempad_dev', 'variable-collection-key')).toBe('tokens')
+    expect(variable.getSharedPluginData('tempad_dev', 'variable-key')).toBe('spacing')
+    expect(figma.variables.getVariableCollectionByIdAsync).toHaveBeenCalledOnce()
+    expect(figma.variables.getVariableByIdAsync).toHaveBeenCalledOnce()
+    expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+    expect(figma.variables.createVariable).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'extension modes',
+    'base overrides',
+    'missing mode',
+    'mode key mismatch',
+    'mode ownership',
+    'duplicate mode adoption',
+    'wrong deletion collection'
+  ] as const)(
+    'rejects %s before opening the undo boundary or preparing other resources',
+    async (failure) => {
+      const fixture = createFixture()
+      const collection = figma.variables.createVariableCollection('Existing')
+      const other = figma.variables.createVariableCollection('Other')
+      const variable = figma.variables.createVariable('Delete', other, 'FLOAT')
+      variable.setSharedPluginData('tempad_dev', 'variable-key', 'delete')
+      collection.setSharedPluginData(
+        'tempad_dev',
+        'variable-mode-keys',
+        JSON.stringify({ base: collection.defaultModeId })
+      )
+      const invalid: NonNullable<CanvasResolvedApplyParameters['variableCollections']>[string] = {
+        id: collection.id
+      }
+      if (failure === 'extension modes') {
+        invalid.id = collection.extend('Extended').id
+        invalid.modes = { bad: { name: 'Bad' } }
+      }
+      if (failure === 'base overrides') invalid.overrides = []
+      if (failure === 'missing mode') invalid.modes = { bad: { id: 'missing-mode' } }
+      if (failure === 'mode key mismatch') invalid.modes = { base: { id: 'other-mode' } }
+      if (failure === 'mode ownership') invalid.modes = { bad: { id: collection.defaultModeId } }
+      if (failure === 'duplicate mode adoption') {
+        collection.setSharedPluginData('tempad_dev', 'variable-mode-keys', '')
+        invalid.modes = {
+          first: { id: collection.defaultModeId, name: 'Renamed' },
+          second: { id: collection.defaultModeId }
+        }
+      }
+      if (failure === 'wrong deletion collection') invalid.variables = { delete: null }
+      vi.mocked(figma.variables.createVariableCollection).mockClear()
+      await expect(
+        applyCanvas({
+          mode: 'create',
+          markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+          variableCollections: {
+            first: { name: 'First', modes: { base: { name: 'Base' } } },
+            invalid
+          }
+        })
+      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['pattern scope', 'retained font'] as const)(
+    'rejects a style with invalid %s before preparing resources',
+    async (failure) => {
+      const fixture = createFixture()
+      const styles: NonNullable<CanvasResolvedApplyParameters['styles']> = {
+        first: { type: 'PAINT', name: 'First' }
+      }
+      if (failure === 'pattern scope') {
+        styles.invalid = {
+          type: 'PAINT',
+          name: 'Pattern',
+          paints: [
+            {
+              type: 'PATTERN',
+              sourceCanvasKey: 'root',
+              tileType: 'RECTANGULAR',
+              scalingFactor: 1,
+              spacing: { x: 0, y: 0 },
+              horizontalAlignment: 'START'
+            }
+          ]
+        }
+      } else {
+        styles.invalid = { type: 'TEXT', id: 'style:text', fontSize: 30 }
+        fixture.loadFontAsync.mockRejectedValueOnce(new Error('font unavailable'))
+      }
+      await expect(
+        applyCanvas({
+          mode: 'create',
+          markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+          styles
+        })
+      ).rejects.toThrow(failure === 'pattern scope' ? 'must already exist' : 'is unavailable')
+      expect(figma.createPaintStyle).not.toHaveBeenCalled()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['matching', 'mismatch'] as const)(
+    'imports a library-key variable alias inside Undo and handles a type %s',
+    async (result) => {
+      const fixture = createFixture()
+      const importVariable = vi
+        .mocked(figma.variables.importVariableByKeyAsync)
+        .getMockImplementation()!
+      const undoCounts: number[] = []
+      vi.mocked(figma.variables.importVariableByKeyAsync).mockImplementation(async (key) => {
+        undoCounts.push(fixture.commitUndo.mock.calls.length)
+        return importVariable(key)
+      })
+      const apply = applyCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+        variableCollections: {
+          tokens: {
+            name: 'Tokens',
+            modes: { base: { name: 'Base' } },
+            variables: {
+              alias: {
+                name: 'Alias',
+                type: 'FLOAT',
+                values: {
+                  base: { variable: { key: result === 'matching' ? 'spacing-key' : 'font-key' } }
+                }
+              }
+            }
+          }
+        }
+      })
+      if (result === 'mismatch') {
+        await expect(apply).rejects.toMatchObject({
+          code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+          message: expect.stringContaining('is STRING, expected FLOAT')
+        })
+      } else {
+        await expect(apply).resolves.toMatchObject({ rootNodeId: expect.any(String) })
+        const alias = [...fixture.variables.values()].find((variable) => variable.name === 'Alias')
+        expect(Object.values(alias?.valuesByMode ?? {})).toEqual([
+          { type: 'VARIABLE_ALIAS', id: 'variable:spacing' }
+        ])
+      }
+      expect(undoCounts).toEqual([1])
+      if (result === 'mismatch') expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+      else expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([
+    'wrong parent id',
+    'wrong parent key',
+    'unknown value mode',
+    'duplicate value mode',
+    'foreign override',
+    'duplicate override',
+    'override literal type',
+    'override alias type'
+  ] as const)(
+    'rejects %s in existing variable resources before any declaration is written',
+    async (failure) => {
+      const fixture = createFixture()
+      const parent = figma.variables.createVariableCollection('Parent')
+      const other = figma.variables.createVariableCollection('Other')
+      const variable = figma.variables.createVariable('Value', parent, 'FLOAT')
+      const foreign = figma.variables.createVariable('Foreign', other, 'FLOAT')
+      variable.setValueForMode(parent.defaultModeId, 8)
+      parent.setSharedPluginData(
+        'tempad_dev',
+        'variable-mode-keys',
+        JSON.stringify({ base: parent.defaultModeId })
+      )
+      const extended = parent.extend('Extended')
+      const invalid: NonNullable<CanvasResolvedApplyParameters['variableCollections']>[string] = {
+        id: extended.id
+      }
+      if (failure === 'wrong parent id') invalid.extends = { id: other.id }
+      if (failure === 'wrong parent key') invalid.extends = { key: 'wrong-parent-key' }
+      if (failure.includes('value mode')) {
+        invalid.id = parent.id
+        invalid.variables = {
+          value: {
+            id: variable.id,
+            values:
+              failure === 'unknown value mode'
+                ? { missing: 12 }
+                : { base: 12, [parent.defaultModeId]: 16 }
+          }
+        }
+      }
+      if (failure.includes('override')) {
+        invalid.overrides = [
+          {
+            variable: { id: failure === 'foreign override' ? foreign.id : variable.id },
+            values: { [parent.defaultModeId]: 12 }
+          }
+        ]
+        if (failure === 'duplicate override') invalid.overrides.push({ ...invalid.overrides[0]! })
+        if (failure === 'override literal type')
+          invalid.overrides[0]!.values = { [parent.defaultModeId]: true }
+        if (failure === 'override alias type')
+          invalid.overrides[0]!.values = {
+            [parent.defaultModeId]: { variable: { id: 'variable:font' } }
+          }
+      }
+      vi.mocked(figma.variables.createVariableCollection).mockClear()
+      const rename = vi.spyOn(parent, 'setSharedPluginData')
+      await expect(
+        applyCanvas({
+          mode: 'create',
+          markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+          variableCollections: {
+            first: { name: 'First', modes: { base: { name: 'Base' } } },
+            invalid
+          }
+        })
+      ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+      expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+      expect(rename).not.toHaveBeenCalled()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['adoption', 'library target', 'library alias'] as const)(
+    'preserves existing extension overrides using %s with same-call parent adoption',
+    async (reference) => {
+      const fixture = createFixture()
+      const parent = figma.variables.createVariableCollection('Parent')
+      const variable = figma.variables.createVariable('Value', parent, 'FLOAT')
+      variable.setValueForMode(parent.defaultModeId, 8)
+      const extended = parent.extend('Extended')
+      vi.mocked(figma.variables.createVariableCollection).mockClear()
+      vi.mocked(figma.variables.createVariable).mockClear()
+      const importVariable = vi
+        .mocked(figma.variables.importVariableByKeyAsync)
+        .getMockImplementation()!
+      const undoCounts: number[] = []
+      vi.mocked(figma.variables.importVariableByKeyAsync).mockImplementation(async (key) => {
+        undoCounts.push(fixture.commitUndo.mock.calls.length)
+        return importVariable(key)
+      })
+      await applyCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+        variableCollections: {
+          extended: {
+            id: extended.id,
+            extends: { collectionKey: 'adopted' },
+            overrides: [
+              {
+                variable:
+                  reference === 'library target' ? { key: variable.key } : { variableKey: 'value' },
+                values: {
+                  [parent.defaultModeId]:
+                    reference === 'library alias' ? { variable: { key: 'spacing-key' } } : 12
+                }
+              }
+            ]
+          },
+          adopted: { id: parent.id, variables: { value: { id: variable.id } } }
+        }
+      })
+      expect(parent.getSharedPluginData('tempad_dev', 'variable-collection-key')).toBe('adopted')
+      expect(variable.getSharedPluginData('tempad_dev', 'variable-key')).toBe('value')
+      expect(Object.values(extended.variableOverrides[variable.id] ?? {})).toEqual([
+        reference === 'library alias' ? { type: 'VARIABLE_ALIAS', id: 'variable:spacing' } : 12
+      ])
+      expect(undoCounts).toEqual(reference === 'adoption' ? [] : [1])
+      expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+      expect(figma.variables.createVariable).not.toHaveBeenCalled()
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['missing', 'complete'] as const)(
+    'requires every unchanged existing mode for a new variable with %s values',
+    async (coverage) => {
+      const fixture = createFixture()
+      const collection = figma.variables.createVariableCollection('Existing')
+      const alternate = collection.addMode('Alternate')
+      vi.mocked(figma.variables.createVariableCollection).mockClear()
+      const apply = applyCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+        variableCollections: {
+          first: { name: 'First', modes: { base: { name: 'Base' } } },
+          existing: {
+            id: collection.id,
+            variables: {
+              fresh: {
+                name: 'Fresh',
+                type: 'FLOAT',
+                values: {
+                  [collection.defaultModeId]: 8,
+                  ...(coverage === 'complete' ? { [alternate]: 12 } : {})
+                }
+              }
+            }
+          }
+        }
+      })
+      if (coverage === 'missing') {
+        await expect(apply).rejects.toMatchObject({
+          code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+          message: 'New variable "fresh" requires a value for mode "Alternate".'
+        })
+        expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+        expect(figma.variables.createVariable).not.toHaveBeenCalled()
+        expect(fixture.commitUndo).not.toHaveBeenCalled()
+      } else {
+        await expect(apply).resolves.toMatchObject({ rootNodeId: expect.any(String) })
+        const fresh = [...fixture.variables.values()].find((variable) => variable.name === 'Fresh')
+        expect(fresh?.valuesByMode).toEqual({ [collection.defaultModeId]: 8, [alternate]: 12 })
+      }
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([
+    'unnamed base',
+    'unnamed extension',
+    'unknown override mode',
+    'duplicate override mode'
+  ] as const)('rejects %s before writing earlier declared resources', async (failure) => {
+    const fixture = createFixture()
+    const parent = figma.variables.createVariableCollection('Parent')
+    const variable = figma.variables.createVariable('Value', parent, 'FLOAT')
+    variable.setValueForMode(parent.defaultModeId, 8)
+    const extended = parent.extend('Extended')
+    let invalid: NonNullable<CanvasResolvedApplyParameters['variableCollections']>[string]
+    if (failure === 'unnamed base') invalid = { modes: { base: { name: 'Base' } } }
+    else if (failure === 'unnamed extension') invalid = { extends: { id: parent.id } }
+    else {
+      invalid = {
+        id: extended.id,
+        overrides: [
+          {
+            variable: { id: variable.id },
+            values:
+              failure === 'unknown override mode'
+                ? { missing: 12 }
+                : { [parent.defaultModeId]: 12, [extended.defaultModeId]: 16 }
+          }
+        ]
+      }
+    }
+    vi.mocked(figma.variables.createVariableCollection).mockClear()
+    await expect(
+      applyCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+        variableCollections: {
+          first: { name: 'First', modes: { base: { name: 'Base' } } },
+          invalid
+        }
+      })
+    ).rejects.toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC })
+    expect(figma.variables.createVariableCollection).not.toHaveBeenCalled()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])(
+    'preserves nested extension override mode aliases with ancestor mode adoption=%s',
+    async (adoptMode) => {
+      const fixture = createFixture()
+      const parent = figma.variables.createVariableCollection('Parent')
+      const variable = figma.variables.createVariable('Value', parent, 'FLOAT')
+      variable.setValueForMode(parent.defaultModeId, 8)
+      const extended = parent.extend('Extended').extend('Nested')
+      if (!adoptMode) {
+        parent.setSharedPluginData(
+          'tempad_dev',
+          'variable-mode-keys',
+          JSON.stringify({ base: parent.defaultModeId })
+        )
+      }
+      await applyCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>',
+        variableCollections: {
+          parent: {
+            id: parent.id,
+            ...(adoptMode ? { modes: { base: { id: parent.defaultModeId } } } : {})
+          },
+          nested: {
+            id: extended.id,
+            overrides: [{ variable: { id: variable.id }, values: { base: 12 } }]
+          }
+        }
+      })
+      expect(extended.variableOverrides[variable.id]).toEqual({ [extended.defaultModeId]: 12 })
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it('loads an existing result page before opening the undo boundary', async () => {
+    const fixture = createFixture()
+    const page = figma.createPage()
+    vi.mocked(page.loadAsync).mockImplementationOnce(async () => {
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+    })
+    await expect(
+      applyCanvas({
+        mode: 'create',
+        page: { id: page.id },
+        markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>'
+      })
+    ).resolves.toMatchObject({ page: expect.objectContaining({ id: page.id }) })
+    expect(page.loadAsync).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a referenced root removal before opening the undo boundary', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-[100px] h-[100px]"></div>'
+    })
+    const consumer = fixture.createNode('TEXT') as TextNode
+    consumer.hyperlink = { type: 'NODE', value: created.rootNodeId! }
+    fixture.commitUndo.mockClear()
+    await expect(
+      applyCanvas({ mode: 'remove', targetNodeId: created.rootNodeId! })
+    ).rejects.toThrow('still referenced outside')
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.getNode(created.rootNodeId!).removed).toBe(false)
+  })
+
   it('reports when rollback changes an unrelated existing top-level root', async () => {
     const fixture = createFixture()
     const created = await applyCanvas(createSpec())
@@ -12853,7 +13144,9 @@ describe('mcp/tools/canvas', () => {
       })
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
-      message: expect.stringContaining(`Rollback changed pre-existing node ${unrelated.id}`)
+      message: expect.stringMatching(
+        new RegExp(`Rollback changed pre-existing nodes? .*${unrelated.id}`)
+      )
     })
   })
 
@@ -12934,7 +13227,10 @@ describe('mcp/tools/canvas', () => {
     })
     await expect(applyCanvas(createSpec())).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
-      message: expect.stringContaining('automatic rollback was not available')
+      message: expect.stringMatching(
+        /paint unavailable.*automatic rollback was not available.*undo unavailable/
+      ),
+      cause: expect.objectContaining({ message: expect.stringContaining('paint unavailable') })
     })
   })
 
@@ -12947,8 +13243,8 @@ describe('mcp/tools/canvas', () => {
     await expect(applyCanvas(createSpec())).resolves.toMatchObject({
       rootNodeId: expect.any(String)
     })
-    expect(PAGE.loadAsync).toHaveBeenCalledOnce()
-    expect(fixture.loadFontAsync).toHaveBeenCalledTimes(2)
+    expect(fixture.page.loadAsync).toHaveBeenCalledOnce()
+    expect(fixture.loadFontAsync).toHaveBeenCalledTimes(3)
   })
 
   it('rejects concurrent apply requests within one Figma session', async () => {

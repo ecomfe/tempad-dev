@@ -274,21 +274,32 @@ function normalizeCatalogElement(
       .map(([name, value]) => componentPropertyEntry(component, name, value, catalog))
   )
   const existing = bindings[key]
+  if (
+    existing?.component &&
+    !(existing.component.id !== undefined && existing.component.id === component.reference.id) &&
+    !(existing.component.key !== undefined && existing.component.key === component.reference.key)
+  ) {
+    markupError(`Component tag on "${key}" conflicts with its native component binding.`)
+  }
+  for (const [name, value] of Object.entries(properties)) {
+    if (
+      existing?.componentProperties &&
+      Object.hasOwn(existing.componentProperties, name) &&
+      existing.componentProperties[name] !== value
+    ) {
+      markupError(`Component property "${name}" on "${key}" conflicts with its native binding.`)
+    }
+  }
   bindings[key] = {
     ...(existing ?? {}),
     component: component.reference,
-    ...(Object.keys(properties).length ? { componentProperties: properties } : {})
+    ...(Object.keys(properties).length
+      ? { componentProperties: { ...existing?.componentProperties, ...properties } }
+      : {})
   }
-  const classes = parseCanvasClasses(element.attributes.class ?? '')
-  const className = [
-    element.attributes.class,
-    classes.width ? undefined : `w-[${component.nativeSize.width}px]`,
-    classes.height ? undefined : `h-[${component.nativeSize.height}px]`
-  ]
-    .filter(Boolean)
-    .join(' ')
   return {
     tag: 'div',
+    sourceClasses: element.sourceClasses,
     text: '',
     children: [],
     lineBreakOffsets: [],
@@ -300,7 +311,7 @@ function normalizeCatalogElement(
       ...Object.fromEntries(
         Object.entries(element.attributes).filter(([name]) => isInlineBindingAttribute(name))
       ),
-      class: className
+      class: element.attributes.class ?? ''
     }
   }
 }
@@ -371,7 +382,17 @@ function childLayoutIssues(
   return issues
 }
 
-function assertStaticMarkupLegality(root: CanvasMarkupElement): void {
+function sourceClassMessage(element: CanvasMarkupElement, message: string): string {
+  for (const [literal, source] of element.sourceClasses ?? []) {
+    message = message.replaceAll(`"${literal}"`, `"${source}"`)
+  }
+  return message
+}
+
+function assertStaticMarkupLegality(
+  root: CanvasMarkupElement,
+  bindings: Record<string, CanvasBinding>
+): void {
   const issues: string[] = []
   let issueCount = 0
   const add = (message: string): void => {
@@ -382,6 +403,7 @@ function assertStaticMarkupLegality(root: CanvasMarkupElement): void {
   if (unsupported) add(unsupported)
 
   const visit = (element: CanvasMarkupElement, parentClasses?: CanvasClasses): void => {
+    const report = (message: string): void => add(sourceClassMessage(element, message))
     let className: string
     let key: string
     try {
@@ -395,20 +417,20 @@ function assertStaticMarkupLegality(root: CanvasMarkupElement): void {
     if (!findUnsupportedCanvasClasses(className).classes.length) {
       try {
         classes = parseCanvasClasses(className)
-        if (!classes.width || !classes.height) {
+        if ((!classes.width || !classes.height) && !bindings[key]?.component) {
           add(`Element "${key}" requires exactly one width and one height class.`)
         }
         if (element.tag === 'span') {
           if (element.children.length) add(`span "${key}" cannot contain elements.`)
           if (classes.frameClass || classes.layoutClass) {
-            add(
+            report(
               `Class "${classes.frameClass ?? classes.layoutClass}" is not supported on span "${key}".`
             )
           }
         } else {
           if (hasText(element.text)) add(`div "${key}" cannot contain direct text.`)
           if (classes.textClass) {
-            add(
+            report(
               `Class "${classes.textClass}" is not supported on div "${key}". Canvas typography does not inherit; put text utilities on each span/TEXT node.`
             )
           }
@@ -419,7 +441,7 @@ function assertStaticMarkupLegality(root: CanvasMarkupElement): void {
           }
         }
       } catch (error) {
-        add(`Element "${key}": ${error instanceof Error ? error.message : String(error)}`)
+        report(`Element "${key}": ${error instanceof Error ? error.message : String(error)}`)
       }
     }
     for (const child of element.children) visit(child, classes)
@@ -786,6 +808,7 @@ type CompileState = {
   catalog?: DesignSystemCatalog
   existingNodeTypes?: CanvasNodeTypeHints
   keys: Set<string>
+  removedKeys: Set<string>
   mode: CanvasResolvedApplyParameters['mode']
   nodeIds: Set<string>
 }
@@ -1068,6 +1091,22 @@ function compileElement(
   gridPlacement?: GridPlacement,
   insideComponent = false
 ): CanvasNodeSpec {
+  try {
+    return compileElementUnchecked(element, state, depth, parent, gridPlacement, insideComponent)
+  } catch (error) {
+    if (error instanceof Error) error.message = sourceClassMessage(element, error.message)
+    throw error
+  }
+}
+
+function compileElementUnchecked(
+  element: CanvasMarkupElement,
+  state: CompileState,
+  depth: number,
+  parent?: CanvasNodeSpec,
+  gridPlacement?: GridPlacement,
+  insideComponent = false
+): CanvasNodeSpec {
   if (depth > MAX_CANVAS_DEPTH) {
     markupError(`Canvas markup may be at most ${MAX_CANVAS_DEPTH} levels deep.`)
   }
@@ -1085,6 +1124,14 @@ function compileElement(
 
   applyInlineBindings(element, key, state)
   const classes = parseCanvasClasses(className)
+  const liveGrid = state.existingNodeTypes?.grids?.get(nodeId ?? key)
+  if (classes.grid && classes.gridFlow === undefined && liveGrid) {
+    classes.gridFlow = liveGrid.itemsPositioning
+  }
+  if (state.bindings[key]?.component) {
+    classes.width ??= { mode: 'FIXED' }
+    classes.height ??= { mode: 'FIXED' }
+  }
   if (!classes.width || !classes.height) {
     markupError(`Element "${key}" requires exactly one width and one height class.`)
   }
@@ -1559,7 +1606,12 @@ function compileElement(
     parentMode === 'GRID' && !classes.absolute
       ? placeGridChild(key, classes, gridPlacement!)
       : undefined
-  const includeDefaults = state.mode === 'create'
+  const includeDefaults =
+    state.mode === 'create' ||
+    (!!state.existingNodeTypes?.keys &&
+      !state.existingNodeTypes.keys.has(key) &&
+      !nodeId &&
+      depth > 1)
   const size = {
     ...(classes.width.value === undefined ? {} : { width: classes.width.value }),
     ...(classes.height.value === undefined ? {} : { height: classes.height.value }),
@@ -1640,12 +1692,17 @@ function compileElement(
         ...(fontFamily !== undefined || includeDefaults
           ? { fontFamily: fontFamily ?? 'Inter' }
           : {}),
-        ...(classes.fontStyleMatching ? { fontStyleMatching: true as const } : {}),
+        ...(classes.fontStyleMatching || (classes.fontStyle && binding?.variables?.fontFamily)
+          ? { fontStyleMatching: true as const }
+          : {}),
         ...(fontName === undefined && classes.portableFontFamily
           ? { portableFontFamily: classes.portableFontFamily }
           : {}),
         ...(fontStyle !== undefined || includeDefaults
           ? { fontStyle: fontStyle ?? 'Regular' }
+          : {}),
+        ...(fontName === undefined && classes.literalFontWeight !== undefined
+          ? { literalFontWeight: classes.literalFontWeight }
           : {}),
         ...(classes.fontSize !== undefined || includeDefaults
           ? { fontSize: classes.fontSize ?? 16 }
@@ -1807,6 +1864,18 @@ function compileElement(
         : undefined
     const childInsideComponent =
       insideComponent || type === 'COMPONENT' || type === 'COMPONENT_SET' || type === 'SLOT'
+    if (placement && liveGrid) {
+      const childKeys = new Set(element.children.map((child) => child.attributes['data-key']))
+      const childIds = new Set(element.children.map((child) => child.attributes['data-node-id']))
+      for (const child of liveGrid.children) {
+        if (
+          (child.key && (childKeys.has(child.key) || state.removedKeys.has(child.key))) ||
+          childIds.has(child.id)
+        )
+          continue
+        occupyGridArea(placement, child.row, child.column, child.rowSpan, child.columnSpan)
+      }
+    }
     node.children = element.children.map((child) =>
       compileElement(child, state, depth + 1, node, placement, childInsideComponent)
     )
@@ -1843,12 +1912,13 @@ export function parseCanvasMarkup(
   const resources = preparedTheme?.resources ?? createThemeResources(input, catalog)
   const themedElement = normalizeThemeClasses(parsedElement, bindings, input, catalog, resources)
   const rootElement = normalizeCatalogElement(themedElement, bindings, catalog)
-  assertStaticMarkupLegality(rootElement)
+  assertStaticMarkupLegality(rootElement, bindings)
   const state: CompileState = {
     bindings,
     ...(catalog ? { catalog } : {}),
     ...(existingNodeTypes ? { existingNodeTypes } : {}),
     keys: new Set(),
+    removedKeys: new Set(input.removeKeys ?? []),
     mode: input.mode,
     nodeIds: new Set(),
     themeFields: resources.boundFields
@@ -1883,8 +1953,8 @@ export function parseCanvasMarkup(
   }
 }
 
-function validateAssetReferences(
-  root: CanvasNodeSpec,
+export function validateAssetReferences(
+  roots: CanvasNodeSpec | Iterable<CanvasNodeSpec>,
   assets: CanvasAssets | undefined,
   styles: CanvasResolvedApplyParameters['styles']
 ): void {
@@ -1918,7 +1988,8 @@ function validateAssetReferences(
     }
     for (const child of spec.children ?? []) visit(child)
   }
-  visit(root)
+  if ('key' in roots) visit(roots)
+  else for (const root of roots) visit(root)
   for (const [key, style] of Object.entries(styles ?? {})) {
     if (style?.type === 'PAINT') visitPaints(style.paints, `style "${key}"`)
   }

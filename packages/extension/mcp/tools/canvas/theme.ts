@@ -10,12 +10,15 @@ import type {
 import type { DesignSystemCatalog } from '../design-system-catalog'
 import type { CanvasMarkupElement } from './html'
 
-import { getVariableCollectionById } from '../../local-resources'
+import { getLocalVariableCollections, getVariableCollectionById } from '../../local-resources'
+import { specError } from './errors'
 import { parseCanvasHtml } from './html'
 import {
   CANVAS_KEY_NAMESPACE,
+  CANVAS_VARIABLE_COLLECTION_KEY_NAME,
   CANVAS_VARIABLE_MODE_KEYS_NAME,
   designReferenceCacheKey,
+  readAuthoringKey,
   parseVariableModeKeys
 } from './identity'
 import { parseCanvasClasses } from './tailwind'
@@ -32,6 +35,7 @@ export type ThemeResources = {
   textStyles: Map<string, CanvasStyleReference>
   values: Map<string, CanvasVariableValue>
   boundFields: Map<string, VariableField[]>
+  existingCollectionKeys: Set<string>
 }
 
 export type PreparedCanvasTheme = {
@@ -79,7 +83,7 @@ function resourceIdentity(
     identities.add(designReferenceCacheKey(entry.reference))
   }
   if (identities.size > 1)
-    throw new Error(`Authoring key "${key}" identifies more than one native resource.`)
+    specError(`Authoring key "${key}" identifies more than one native resource.`)
   return identities.values().next().value ?? `${variable ? 'variable' : 'style'}-key:${key}`
 }
 
@@ -91,9 +95,7 @@ function addAlias<T>(
 ): void {
   const previous = map.get(name)
   if (previous && identity(previous) !== identity(reference)) {
-    throw new Error(
-      `Theme alias "${name}" maps to more than one resource; choose a distinct alias.`
-    )
+    specError(`Theme alias "${name}" maps to more than one resource; choose a distinct alias.`)
   }
   map.set(name, reference)
 }
@@ -106,7 +108,8 @@ export function createThemeResources(
     variables: new Map(),
     textStyles: new Map(),
     values: new Map(),
-    boundFields: new Map()
+    boundFields: new Map(),
+    existingCollectionKeys: new Set()
   }
   const identity = (reference: CanvasVariableReference | CanvasStyleReference): string =>
     resourceIdentity(reference, input, catalog)
@@ -122,7 +125,7 @@ export function createThemeResources(
     else {
       const entry = catalog?.entries.get(source.ref)
       if (entry?.kind !== 'variable')
-        throw new Error(`Theme variable "${name}" requires a variable ref from catalogId.`)
+        specError(`Theme variable "${name}" requires a variable ref from catalogId.`)
       addAlias(resources.variables, name, entry.reference, identity)
     }
   }
@@ -130,12 +133,12 @@ export function createThemeResources(
     if ('styleKey' in source) {
       const style = input.styles?.[source.styleKey]
       if (style === null || (style && style.type !== 'TEXT'))
-        throw new Error(`Theme class "${name}" requires a TEXT style.`)
+        specError(`Theme class "${name}" requires a TEXT style.`)
       addAlias(resources.textStyles, name, source, identity)
     } else {
       const entry = catalog?.entries.get(source.ref)
       if (entry?.kind !== 'style' || entry.styleType !== 'TEXT')
-        throw new Error(`Theme class "${name}" requires a text-style ref from catalogId.`)
+        specError(`Theme class "${name}" requires a text-style ref from catalogId.`)
       addAlias(resources.textStyles, name, entry.reference, identity)
     }
   }
@@ -157,22 +160,33 @@ function variableValue(
 ): Exclude<CanvasVariableValue, { variable: CanvasVariableReference }> {
   const key = resourceIdentity(reference, input, catalog)
   if (seen.has(key) || seen.size >= 64)
-    throw new Error('Theme variable aliases contain a cycle or exceed 64 levels.')
+    specError('Theme variable aliases contain a cycle or exceed 64 levels.')
   seen.add(key)
   let value: CanvasVariableValue | undefined
-  if ('variableKey' in reference) {
-    for (const collection of Object.values(input.variableCollections ?? {})) {
-      if (!collection?.variables || !Object.hasOwn(collection.variables, reference.variableKey))
-        continue
-      const variable = collection.variables[reference.variableKey]
-      if (!variable)
-        throw new Error(`Theme variable "${reference.variableKey}" is removed in this call.`)
+  declarations: for (const [collectionKey, collection] of Object.entries(
+    input.variableCollections ?? {}
+  )) {
+    if (!collection) continue
+    for (const [variableKey, variable] of Object.entries(collection.variables ?? {})) {
+      if (resourceIdentity({ variableKey }, input, catalog) !== key) continue
+      if (!variable) specError(`Theme variable "${variableKey}" is removed in this call.`)
       // New collections use their first declared mode as the native default.
       const mode = Object.entries(collection.modes ?? {}).find(([, spec]) => spec !== null)
-      if (!collection.id && !collection.extends && mode)
+      if (
+        !collection.id &&
+        !collection.extends &&
+        !resources.existingCollectionKeys.has(collectionKey) &&
+        mode
+      )
         value =
           variable.values?.[mode[0]] ?? (mode[1]?.id ? variable.values?.[mode[1].id] : undefined)
-      break
+      else if (variable.values !== undefined) {
+        // A same-call edit owns the fallback, even when markup reaches it through
+        // a catalog alias whose cached default predates this request.
+        value = resources.values.get(key)
+        if (value === undefined) throw new NeedsVariableRead({ variableKey })
+      }
+      break declarations
     }
   }
   if (value === undefined) {
@@ -211,9 +225,7 @@ async function readVariableDefaultValue(
           collection.modes
         )
         if (!modes)
-          throw new Error(
-            `Variable mode identity data on collection "${collection.id}" is invalid.`
-          )
+          specError(`Variable mode identity data on collection "${collection.id}" is invalid.`)
         for (const [mode, value] of Object.entries(variable.values)) {
           const modeId = spec.modes?.[mode]?.id ?? modes.get(mode) ?? mode
           if (modeId === collection.defaultModeId) return value
@@ -223,24 +235,21 @@ async function readVariableDefaultValue(
     }
   }
   if (!('variableKey' in nativeReference) && !nativeReference.id) {
-    throw new Error('Theme fallbacks require a materialized variable id or local variableKey.')
+    specError('Theme fallbacks require a materialized variable id or local variableKey.')
   }
   const variable = await resolveVariable(nativeReference, state)
   if (variable.resolvedType === 'EASING' || variable.resolvedType === 'TIMING') {
-    throw new Error(
-      `Theme variable "${variable.name}" has unsupported type ${variable.resolvedType}.`
-    )
+    specError(`Theme variable "${variable.name}" has unsupported type ${variable.resolvedType}.`)
   }
   const collection = await getVariableCollectionById(variable.variableCollectionId)
   const value = collection ? variable.valuesByMode[collection.defaultModeId] : undefined
-  if (value === undefined)
-    throw new Error(`Theme variable "${variable.name}" has no default-mode value.`)
+  if (value === undefined) specError(`Theme variable "${variable.name}" has no default-mode value.`)
   if (typeof value === 'object' && 'color' in value) {
-    throw new Error(`Theme variable "${variable.name}" has an unsupported composed-color value.`)
+    specError(`Theme variable "${variable.name}" has an unsupported composed-color value.`)
   }
   if (typeof value === 'object' && 'type' in value) {
     if (value.type !== 'VARIABLE_ALIAS')
-      throw new Error(`Theme variable "${variable.name}" has an unsupported default-mode value.`)
+      specError(`Theme variable "${variable.name}" has an unsupported default-mode value.`)
     return { variable: { id: value.id } }
   }
   return value
@@ -263,13 +272,20 @@ export async function prepareCanvasTheme(
     element.children.forEach(visit)
   }
   visit(element)
+  if (
+    names.size &&
+    Object.values(input.variableCollections ?? {}).some((spec) => spec && !spec.id && !spec.extends)
+  ) {
+    for (const collection of await getLocalVariableCollections()) {
+      const key = readAuthoringKey(collection, CANVAS_VARIABLE_COLLECTION_KEY_NAME)
+      if (key) resources.existingCollectionKeys.add(key)
+    }
+  }
   const state = createVariableState()
   for (const name of names) {
     const reference = resources.variables.get(name)
     if (!reference)
-      throw new Error(
-        `Unknown CSS variable "${name}". Use a catalog cssName or declare theme.variables.`
-      )
+      specError(`Unknown CSS variable "${name}". Use a catalog cssName or declare theme.variables.`)
     for (let reads = 0; ; reads += 1) {
       try {
         variableValue(reference, input, catalog, resources)
@@ -294,7 +310,7 @@ function colorLiteral(value: unknown, token: string): string {
     !('g' in value) ||
     !('b' in value)
   ) {
-    throw new Error(`Class "${token}" requires a COLOR variable.`)
+    specError(`Class "${token}" requires a COLOR variable.`)
   }
   const color = value as RGBA
   return `#${[color.r, color.g, color.b, color.a ?? 1]
@@ -343,7 +359,7 @@ function utilityBinding(
     (utility === 'text' && hint !== 'length') ||
     (utility === 'border' && hint !== 'length')
   ) {
-    if (hint && hint !== 'color') throw new Error(`Class "${token}" requires the color type hint.`)
+    if (hint && hint !== 'color') specError(`Class "${token}" requires the color type hint.`)
     return {
       fields: [utility === 'border' ? 'stroke' : 'fill'],
       literal: `${utility}-[${colorLiteral(value, token)}]`
@@ -351,7 +367,7 @@ function utilityBinding(
   }
   if (utility === 'font' && hint === 'family-name') {
     if (typeof value !== 'string' || /[[\]"'\r\n\t]/.test(value))
-      throw new Error(`Class "${token}" requires a STRING font-family variable.`)
+      specError(`Class "${token}" requires a STRING font-family variable.`)
     return {
       fields: ['fontFamily'],
       literal: `font-[family-name:${value.replaceAll('\\', '\\\\').replaceAll('_', '\\_').replaceAll(' ', '_')}]`
@@ -383,18 +399,41 @@ function utilityBinding(
     }
   }
   if (!fields || (hint && hint !== 'length' && hint !== 'number'))
-    throw new Error(`Unsupported variable utility "${token}".`)
+    specError(`Unsupported variable utility "${token}".`)
   if (typeof value !== 'number' || !Number.isFinite(value))
-    throw new Error(`Class "${token}" requires a FLOAT variable.`)
+    specError(`Class "${token}" requires a FLOAT variable.`)
+  if (utility === 'opacity' && (value < 0 || value > 100)) {
+    specError(`Opacity variable class "${token}" requires a percentage between 0 and 100.`)
+  }
+  const literal = decimalLiteral(utility === 'opacity' ? value / 100 : value)
   return {
     fields,
     literal:
       utility === 'opacity'
-        ? `opacity-[${value}]`
+        ? `opacity-[${literal}]`
         : utility === 'font'
-          ? `font-[${value}]`
-          : `${utility}-[${value}px]`
+          ? `font-[${literal}]`
+          : `${utility}-[${literal}px]`
   }
+}
+
+function decimalLiteral(value: number): string {
+  const text = String(value)
+  if (!text.includes('e')) return text
+  const [coefficient, power] = text.split('e')
+  const sign = coefficient!.startsWith('-') ? '-' : ''
+  const unsigned = coefficient!.replace('-', '')
+  const [integer, fraction = ''] = unsigned.split('.')
+  const digits = `${integer}${fraction}`
+  const point = integer!.length + Number(power)
+  return (
+    sign +
+    (point <= 0
+      ? `0.${'0'.repeat(-point)}${digits}`
+      : point >= digits.length
+        ? digits.padEnd(point, '0')
+        : `${digits.slice(0, point)}.${digits.slice(point)}`)
+  )
 }
 
 const TYPOGRAPHY_FIELDS = [
@@ -434,17 +473,18 @@ export function normalizeThemeClasses(
   const variables: Partial<Record<VariableField, CanvasVariableReference>> = {}
   let textStyle: CanvasStyleReference | undefined
   const classes: string[] = []
+  const sourceClasses = new Map<string, string>()
   for (const token of className.split(/\s+/).filter(Boolean)) {
     const style = resources.textStyles.get(token)
     if (style) {
-      if (textStyle) throw new Error(`Node "${key}" has more than one text-style class.`)
+      if (textStyle) specError(`Node "${key}" has more than one text-style class.`)
       textStyle = style
       continue
     }
     const parsed = variableClass(token)
     if (!parsed) {
       if (token.startsWith('type-'))
-        throw new Error(
+        specError(
           `Unknown text-style class "${token}". Use a catalog className or declare theme.textStyles.`
         )
       classes.push(token)
@@ -452,7 +492,7 @@ export function normalizeThemeClasses(
     }
     const reference = resources.variables.get(parsed.name)
     if (!reference)
-      throw new Error(
+      specError(
         `Unknown CSS variable "${parsed.name}". Use a catalog cssName or declare theme.variables.`
       )
     const mapped = utilityBinding(
@@ -467,13 +507,14 @@ export function normalizeThemeClasses(
         bindings[key]?.variables?.[field] !== undefined ||
         element.attributes[variableAttribute(field)] !== undefined
       ) {
-        throw new Error(
+        specError(
           `Variable class "${token}" conflicts with another binding for ${field} on "${key}".`
         )
       }
       variables[field] = reference
     }
     classes.push(mapped.literal)
+    sourceClasses.set(mapped.literal, token)
   }
   const variableFields = Object.keys(variables) as VariableField[]
   if (textStyle || variableFields.length) {
@@ -484,19 +525,19 @@ export function normalizeThemeClasses(
           element.attributes['data-style-text'] !== 'none')) &&
       TYPOGRAPHY_VARIABLE_FIELDS.some((field) => variables[field] !== undefined)
     ) {
-      throw new Error(`Typography variable classes on "${key}" conflict with its text style.`)
+      specError(`Typography variable classes on "${key}" conflict with its text style.`)
     }
     if (textStyle) {
       if (
         bindings[key]?.styles?.text !== undefined ||
         element.attributes['data-style-text'] !== undefined
       )
-        throw new Error(`Text-style class on "${key}" conflicts with another text style.`)
+        specError(`Text-style class on "${key}" conflicts with another text style.`)
       if (
         TYPOGRAPHY_FIELDS.some((field) => parsed[field] !== undefined) ||
         TYPOGRAPHY_VARIABLE_FIELDS.some((field) => variables[field] !== undefined)
       ) {
-        throw new Error(
+        specError(
           `Text-style class on "${key}" owns typography; remove conflicting font, size, leading, tracking, case, or decoration classes.`
         )
       }
@@ -521,7 +562,7 @@ export function normalizeThemeClasses(
               element.attributes[variableAttribute(field)] !== 'none')
         )
       ) {
-        throw new Error(`Text-style class on "${key}" conflicts with native typography fields.`)
+        specError(`Text-style class on "${key}" conflicts with native typography fields.`)
       }
     }
     resources.boundFields.set(key, variableFields)
@@ -535,6 +576,7 @@ export function normalizeThemeClasses(
   }
   return {
     ...element,
+    sourceClasses,
     attributes: { ...element.attributes, class: classes.join(' ') },
     children: element.children.map((child) =>
       normalizeThemeClasses(child, bindings, input, catalog, resources)

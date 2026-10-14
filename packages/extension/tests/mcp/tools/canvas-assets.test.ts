@@ -14,6 +14,22 @@ function colors(color?: string): Map<string, Set<string | undefined>> {
 }
 
 describe('mcp/tools/canvas SVG assets', () => {
+  it('bounds repeated and cyclic use expansion before native import', async () => {
+    const repeated = `<svg viewBox="0 0 1 1"><defs><g id="a"><path d="M0 0z"/></g><g id="b">${'<use href="#a"/>'.repeat(20)}</g></defs>${'<use href="#b"/>'.repeat(20)}</svg>`
+    for (const svg of [repeated, '<svg viewBox="0 0 1 1"><g id="a"><use href="#a"/></g></svg>']) {
+      await expect(resolveCanvasAssets(svgAssets(svg), colors())).rejects.toMatchObject({
+        code: TEMPAD_MCP_ERROR_CODES.SVG_TOO_COMPLEX
+      })
+    }
+    await expect(
+      resolveCanvasAssets(
+        svgAssets(
+          '<svg viewBox="0 0 1 1"><defs><path id="p" d="M0 0z"/></defs><use href="#p"/></svg>'
+        ),
+        colors()
+      )
+    ).resolves.toBeInstanceOf(Map)
+  })
   it('keeps local SVG structure while resolving currentColor deterministically', async () => {
     const assets = await resolveCanvasAssets(
       svgAssets(

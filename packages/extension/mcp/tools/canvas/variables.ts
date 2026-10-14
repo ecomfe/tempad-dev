@@ -13,13 +13,14 @@ import {
   getVariableCollectionById
 } from '../../local-resources'
 import { collectVariableAliasIds } from '../../variable-references'
-import { scopeError, specError } from './errors'
+import { applyError, scopeError, specError } from './errors'
 import {
   CANVAS_KEY_NAMESPACE,
   CANVAS_VARIABLE_COLLECTION_KEY_NAME,
   CANVAS_VARIABLE_KEY_NAME,
   CANVAS_VARIABLE_MODE_KEYS_NAME,
   type MutationCounter,
+  assertAuthoringKey,
   claimAuthoringKey,
   designReferenceCacheKey,
   parseVariableModeKeys,
@@ -43,11 +44,14 @@ export type CanvasVariableState = {
   collectionRemovals: VariableCollection[]
   createdVariableKeys: Set<string>
   localIndex?: Promise<void>
+  loadedRemovalPages: Set<PageNode>
   modeIdsByCollection: Map<string, Map<string, string>>
   modeRemovals: ModeRemoval[]
   variableCache: Map<string, Variable>
   variableRemovals: Variable[]
   variablesByKey: Map<string, Variable>
+  selectedCollections?: Map<string, VariableCollection | undefined>
+  selectedVariables?: Map<string, Variable | undefined>
 }
 
 type VariableWork = {
@@ -76,6 +80,7 @@ export function createVariableState(): CanvasVariableState {
     collectionsByKey: new Map(),
     collectionRemovals: [],
     createdVariableKeys: new Set(),
+    loadedRemovalPages: new Set(),
     modeIdsByCollection: new Map(),
     modeRemovals: [],
     variableCache: new Map(),
@@ -296,9 +301,44 @@ async function validateExtendedParent(
     }
     return
   }
-  const expected = await collectionByReference(reference, state)
+  const selected =
+    'collectionKey' in reference
+      ? state.selectedCollections?.get(reference.collectionKey)
+      : undefined
+  const expected = selected ?? (await collectionByReference(reference, state))
   if (parent.id !== expected.id) {
     specError(`Extended collection "${collection.id}" does not inherit "${expected.id}".`)
+  }
+}
+
+async function locateCollection(
+  key: string,
+  spec: CollectionSpec,
+  state: CanvasVariableState
+): Promise<VariableCollection | undefined> {
+  const keyed = state.collectionsByKey.get(key)
+  const explicit = spec.id ? await getVariableCollectionById(spec.id) : undefined
+  if (spec.id && !explicit) specError(`Variable collection "${spec.id}" does not exist.`)
+  if (keyed && explicit && keyed.id !== explicit.id) {
+    specError(`Variable collection key "${key}" does not identify "${explicit.id}".`)
+  }
+  const collection = explicit ?? keyed
+  if (collection?.remote) {
+    specError(`Variable collection "${collection.id}" is not an editable local collection.`)
+  }
+  return collection
+}
+
+function validateCollectionDeclarations(
+  collection: VariableCollection,
+  spec: CollectionSpec
+): void {
+  if (collection.isExtension) {
+    if (spec.modes || spec.variables) {
+      specError(`Extended collection "${collection.id}" cannot define modes or variables.`)
+    }
+  } else if (spec.extends || spec.overrides) {
+    specError(`Base collection "${collection.id}" cannot declare extension overrides.`)
   }
 }
 
@@ -308,13 +348,9 @@ async function selectCollection(
   state: CanvasVariableState,
   mutations: MutationCounter
 ): Promise<{ collection: VariableCollection; isNew: boolean }> {
-  const keyed = state.collectionsByKey.get(key)
-  const explicit = spec.id ? await getVariableCollectionById(spec.id) : undefined
-  if (spec.id && !explicit) specError(`Variable collection "${spec.id}" does not exist.`)
-  if (keyed && explicit && keyed.id !== explicit.id) {
-    specError(`Variable collection key "${key}" does not identify "${explicit.id}".`)
-  }
-  let collection = explicit ?? keyed
+  let collection = state.selectedCollections?.has(key)
+    ? state.selectedCollections.get(key)
+    : await locateCollection(key, spec, state)
   const isNew = !collection
   if (!collection) {
     if (!spec.name) specError(`New variable collection "${key}" requires a name.`)
@@ -328,16 +364,9 @@ async function selectCollection(
   if (collection.remote) {
     specError(`Variable collection "${collection.id}" is not an editable local collection.`)
   }
-  if (collection.isExtension) {
-    if (spec.modes || spec.variables) {
-      specError(`Extended collection "${collection.id}" cannot define modes or variables.`)
-    }
-    if (spec.extends) {
-      await validateExtendedParent(collection, spec.extends, state)
-    }
-  } else if (spec.extends || spec.overrides) {
-    specError(`Base collection "${collection.id}" cannot declare extension overrides.`)
-  }
+  validateCollectionDeclarations(collection, spec)
+  if (collection.isExtension && spec.extends)
+    await validateExtendedParent(collection, spec.extends, state)
   claimAuthoringKey(collection, key, CANVAS_VARIABLE_COLLECTION_KEY_NAME, 'Resource', mutations)
   indexResource(state.collectionsByKey, key, collection, 'Variable collection')
   state.collectionCache.set(`id:${collection.id}`, collection)
@@ -372,6 +401,34 @@ function orderedCollectionEntries(
   return ordered
 }
 
+function assertModeOwnership(modeId: string, key: string, modeIds: Map<string, string>): void {
+  const claimedKey = [...modeIds].find(
+    ([existingKey, existingId]) => existingId === modeId && existingKey !== key
+  )?.[0]
+  if (claimedKey) {
+    specError(`Variable mode "${modeId}" is already owned by authoring key "${claimedKey}".`)
+  }
+}
+
+function locateMode(
+  collection: VariableCollection,
+  key: string,
+  spec: ModeSpec,
+  modeIds: Map<string, string>
+): string | undefined {
+  const mappedId = modeIds.get(key)
+  if (mappedId && spec.id && mappedId !== spec.id) {
+    specError(`Variable mode key "${key}" does not identify "${spec.id}".`)
+  }
+  const modeId = spec.id ?? mappedId
+  if (modeId && !collection.modes.some((mode) => mode.modeId === modeId)) {
+    specError(`Variable collection "${collection.id}" has no mode "${modeId}".`)
+  }
+  if (!modeId && !spec.name) specError(`New variable mode "${key}" requires a name.`)
+  if (modeId) assertModeOwnership(modeId, key, modeIds)
+  return modeId
+}
+
 function selectMode(
   collection: VariableCollection,
   key: string,
@@ -381,25 +438,13 @@ function selectMode(
   modeIds: Map<string, string>,
   mutations: MutationCounter
 ): void {
-  const mappedId = modeIds.get(key)
-  if (mappedId && spec.id && mappedId !== spec.id) {
-    specError(`Variable mode key "${key}" does not identify "${spec.id}".`)
-  }
-  let modeId = spec.id ?? mappedId
-  if (modeId && !collection.modes.some((mode) => mode.modeId === modeId)) {
-    specError(`Variable collection "${collection.id}" has no mode "${modeId}".`)
-  }
+  let modeId = locateMode(collection, key, spec, modeIds)
   if (!modeId) {
     if (!spec.name) specError(`New variable mode "${key}" requires a name.`)
     modeId = isNewCollection && first ? collection.defaultModeId : collection.addMode(spec.name)
     if (!(isNewCollection && first)) mutations.count += 1
   }
-  const claimedKey = [...modeIds].find(
-    ([existingKey, existingId]) => existingId === modeId && existingKey !== key
-  )?.[0]
-  if (claimedKey) {
-    specError(`Variable mode "${modeId}" is already owned by authoring key "${claimedKey}".`)
-  }
+  assertModeOwnership(modeId, key, modeIds)
   modeIds.set(key, modeId)
   const current = collection.modes.find((mode) => mode.modeId === modeId)!
   if (spec.name !== undefined && current.name !== spec.name) {
@@ -483,6 +528,62 @@ async function resolveValues<T>(
   return resolved
 }
 
+async function locateVariable(
+  key: string,
+  spec: VariableSpec,
+  state: CanvasVariableState
+): Promise<Variable | undefined> {
+  const keyed = state.variablesByKey.get(key)
+  const explicit = spec.id ? await getVariableById(spec.id) : undefined
+  if (spec.id && !explicit) specError(`Variable "${spec.id}" does not exist.`)
+  if (keyed && explicit && keyed.id !== explicit.id) {
+    specError(`Variable key "${key}" does not identify "${explicit.id}".`)
+  }
+  const variable = explicit ?? keyed
+  if (variable && spec.type !== undefined && variable.resolvedType !== spec.type) {
+    specError(`Variable "${variable.id}" is ${variable.resolvedType}, expected ${spec.type}.`)
+  }
+  return variable
+}
+
+function validateVariableCollection(
+  variable: Variable,
+  collection: { id: string } | { newKey: string },
+  key: string,
+  state: CanvasVariableState
+): void {
+  const target =
+    'id' in collection ? `collection "${collection.id}"` : `new collection "${collection.newKey}"`
+  if (variable.remote) {
+    specError(`Variable "${variable.id}" is not editable in ${target}.`)
+  }
+  if (!('id' in collection) || variable.variableCollectionId !== collection.id) {
+    if (state.variablesByKey.get(key)?.id === variable.id) {
+      specError(
+        `Variable authoring key "${key}" already identifies variable "${variable.id}" in collection "${variable.variableCollectionId}" and cannot be reused in ${target}. Authoring keys are file-wide; use a namespaced key.`
+      )
+    }
+    const destination = 'id' in collection ? `"${collection.id}"` : target
+    specError(
+      `Variable "${variable.id}" belongs to collection "${variable.variableCollectionId}", not ${destination}.`
+    )
+  }
+}
+
+function validateRequiredModeValues(
+  collection: VariableCollection,
+  key: string,
+  values: ReadonlyMap<string, CanvasVariableValue>,
+  removedModeIds: ReadonlySet<string> = new Set()
+): void {
+  const missingMode = collection.modes.find(
+    (mode) => !removedModeIds.has(mode.modeId) && !values.has(mode.modeId)
+  )
+  if (missingMode) {
+    specError(`New variable "${key}" requires a value for mode "${missingMode.name}".`)
+  }
+}
+
 async function selectVariable(
   collection: VariableCollection,
   key: string,
@@ -490,13 +591,9 @@ async function selectVariable(
   state: CanvasVariableState,
   mutations: MutationCounter
 ): Promise<VariableWork> {
-  const keyed = state.variablesByKey.get(key)
-  const explicit = spec.id ? await getVariableById(spec.id) : undefined
-  if (spec.id && !explicit) specError(`Variable "${spec.id}" does not exist.`)
-  if (keyed && explicit && keyed.id !== explicit.id) {
-    specError(`Variable key "${key}" does not identify "${explicit.id}".`)
-  }
-  let variable = explicit ?? keyed
+  let variable = state.selectedVariables?.has(key)
+    ? state.selectedVariables.get(key)
+    : await locateVariable(key, spec, state)
   const isNew = !variable
   const values = await resolveValues(collection, spec.values, state, 'Variable value')
   if (!variable) {
@@ -508,37 +605,35 @@ async function selectVariable(
         .filter((removal) => removal.collection.id === collection.id)
         .map((removal) => removal.modeId)
     )
-    const missingMode = collection.modes.find(
-      (mode) => !removedModeIds.has(mode.modeId) && !values.has(mode.modeId)
-    )
-    if (missingMode) {
-      specError(`New variable "${key}" requires a value for mode "${missingMode.name}".`)
-    }
+    validateRequiredModeValues(collection, key, values, removedModeIds)
     variable = figma.variables.createVariable(spec.name, collection, spec.type)
     mutations.count += 1
   }
-  if (variable.remote) {
-    specError(`Variable "${variable.id}" is not editable in collection "${collection.id}".`)
-  }
-  if (variable.variableCollectionId !== collection.id) {
-    if (keyed?.id === variable.id) {
-      specError(
-        `Variable authoring key "${key}" already identifies variable "${variable.id}" in collection "${variable.variableCollectionId}" and cannot be reused in collection "${collection.id}". Authoring keys are file-wide; use a namespaced key.`
-      )
-    }
-    specError(
-      `Variable "${variable.id}" belongs to collection "${variable.variableCollectionId}", not "${collection.id}".`
-    )
-  }
-  if (spec.type !== undefined && variable.resolvedType !== spec.type) {
-    specError(`Variable "${variable.id}" is ${variable.resolvedType}, expected ${spec.type}.`)
-  }
+  validateVariableCollection(variable, collection, key, state)
   claimAuthoringKey(variable, key, CANVAS_VARIABLE_KEY_NAME, 'Resource', mutations)
   indexResource(state.variablesByKey, key, variable, 'Variable')
   state.variableCache.set(`id:${variable.id}`, variable)
   state.variableCache.set(`variable-key:${key}`, variable)
   if (isNew) state.createdVariableKeys.add(key)
   return { collection, spec, values, variable }
+}
+
+function assertInheritedVariable(collection: ExtendedVariableCollection, variable: Variable): void {
+  if (!collection.variableIds.includes(variable.id)) {
+    specError(
+      `Variable "${variable.id}" is not inherited by extended collection "${collection.id}".`
+    )
+  }
+}
+
+function recordOverride(collectionId: string, variableId: string, overridden: Set<string>): void {
+  const key = `${collectionId}:${variableId}`
+  if (overridden.has(key)) {
+    specError(
+      `Variable "${variableId}" has more than one override entry in collection "${collectionId}".`
+    )
+  }
+  overridden.add(key)
 }
 
 async function selectOverride(
@@ -548,9 +643,7 @@ async function selectOverride(
 ): Promise<OverrideWork> {
   const extended = extendedCollection(collection)
   const variable = await resolveVariable(spec.variable, state)
-  if (!extended.variableIds.includes(variable.id)) {
-    specError(`Variable "${variable.id}" is not inherited by extended collection "${extended.id}".`)
-  }
+  assertInheritedVariable(extended, variable)
   return {
     collection: extended,
     values: await resolveValues(collection, spec.values, state, 'Extended variable override'),
@@ -633,23 +726,35 @@ function literalMatchesType(value: CanvasVariableValue, type: VariableResolvedDa
   return isColor(value)
 }
 
+function validateLiteralValue(
+  value: CanvasVariableValue,
+  variable: Pick<Variable, 'id' | 'resolvedType'>
+): void {
+  if (!literalMatchesType(value, variable.resolvedType)) {
+    specError(`Value for variable "${variable.id}" must be ${variable.resolvedType}.`)
+  }
+}
+
+function validateAliasType(
+  target: Pick<Variable, 'id' | 'resolvedType'>,
+  type: VariableResolvedDataType
+): void {
+  if (target.resolvedType !== type) {
+    specError(`Variable alias "${target.id}" is ${target.resolvedType}, expected ${type}.`)
+  }
+}
+
 async function nativeValue(
   value: CanvasVariableValue,
   variable: Variable,
   state: CanvasVariableState
 ): Promise<VariableValue> {
   if (!isVariableReference(value)) {
-    if (!literalMatchesType(value, variable.resolvedType)) {
-      specError(`Value for variable "${variable.id}" must be ${variable.resolvedType}.`)
-    }
+    validateLiteralValue(value, variable)
     return value
   }
   const target = await resolveVariable(value.variable, state)
-  if (target.resolvedType !== variable.resolvedType) {
-    specError(
-      `Variable alias "${target.id}" is ${target.resolvedType}, expected ${variable.resolvedType}.`
-    )
-  }
+  validateAliasType(target, variable.resolvedType)
   return figma.variables.createVariableAlias(target)
 }
 
@@ -686,6 +791,7 @@ async function setOverrideValues(
 }
 
 function validateNewCollection(key: string, spec: CollectionSpec): void {
+  if (!spec.name) specError(`New variable collection "${key}" requires a name.`)
   if (spec.extends) {
     if (spec.modes || spec.variables) {
       specError(`Extended collection "${key}" cannot define modes or variables.`)
@@ -752,6 +858,183 @@ async function initializeAddedModes(
   }
 }
 
+function variableForRemoval(
+  collection: VariableCollection,
+  key: string,
+  state: CanvasVariableState
+): Variable | undefined {
+  const variable = state.variablesByKey.get(key)
+  if (variable && variable.variableCollectionId !== collection.id) {
+    specError(`Variable "${variable.id}" is not in collection "${collection.id}".`)
+  }
+  return variable
+}
+
+async function modeAncestryIsUnchanged(
+  collection: VariableCollection,
+  changedCollections: ReadonlySet<string>,
+  state: CanvasVariableState
+): Promise<boolean> {
+  let current = collection
+  while (!changedCollections.has(current.id)) {
+    if (!current.isExtension) return true
+    current = await resolveCollection(extendedCollection(current).parentVariableCollectionId, state)
+  }
+  return false
+}
+
+export async function preflightVariableDeclarations(
+  specs: CanvasVariableCollections | undefined,
+  state: CanvasVariableState
+): Promise<Map<string, Pick<Variable, 'id' | 'resolvedType'>>> {
+  const types = new Map<string, Pick<Variable, 'id' | 'resolvedType'>>()
+  if (!specs) return types
+  await ensureLocalIndex(state)
+  const collections = new Map<string, VariableCollection | undefined>()
+  const variables = new Map<string, Variable | undefined>()
+  const collectionClaims = new Map<string, string>()
+  const variableClaims = new Map<string, string>()
+  for (const [key, spec] of orderedCollectionEntries(specs)) {
+    const collection = await locateCollection(key, spec, state)
+    collections.set(key, collection)
+    if (!collection) validateNewCollection(key, spec)
+    else {
+      validateCollectionDeclarations(collection, spec)
+      const modeIds = new Map(
+        state.modeIdsByCollection.get(collection.id) ?? readModeIds(collection)
+      )
+      for (const [modeKey, mode] of Object.entries(spec.modes ?? {})) {
+        if (!mode) continue
+        const id = locateMode(collection, modeKey, mode, modeIds)
+        if (id) modeIds.set(modeKey, id)
+      }
+      const current =
+        collectionClaims.get(collection.id) ??
+        readAuthoringKey(collection, CANVAS_VARIABLE_COLLECTION_KEY_NAME)
+      assertAuthoringKey(collection.id, key, current, 'Resource')
+      collectionClaims.set(collection.id, key)
+    }
+    for (const [variableKey, variable] of Object.entries(spec.variables ?? {})) {
+      if (!variable) {
+        if (collection) variableForRemoval(collection, variableKey, state)
+        continue
+      }
+      if (types.has(variableKey))
+        specError(`Variable authoring key "${variableKey}" is declared more than once.`)
+      const existing = await locateVariable(variableKey, variable, state)
+      variables.set(variableKey, existing)
+      if (existing) {
+        validateVariableCollection(existing, collection ?? { newKey: key }, variableKey, state)
+        const current =
+          variableClaims.get(existing.id) ?? readAuthoringKey(existing, CANVAS_VARIABLE_KEY_NAME)
+        assertAuthoringKey(existing.id, variableKey, current, 'Resource')
+        variableClaims.set(existing.id, variableKey)
+      }
+      const type = existing?.resolvedType ?? variable.type
+      if (!type || (!existing && !variable.name))
+        specError(`New variable "${variableKey}" requires a name and type.`)
+      types.set(variableKey, { id: existing?.id ?? variableKey, resolvedType: type })
+    }
+  }
+  state.selectedCollections = collections
+  state.selectedVariables = variables
+  const changedModeCollections = new Set<string>()
+  for (const [key, spec] of Object.entries(specs)) {
+    const collection = collections.get(key)
+    if (spec?.modes && collection) changedModeCollections.add(collection.id)
+  }
+  async function preflightValue(
+    value: CanvasVariableValue,
+    variable: Pick<Variable, 'id' | 'resolvedType'>
+  ) {
+    if (!isVariableReference(value)) {
+      validateLiteralValue(value, variable)
+      return
+    }
+    // Library imports can mutate Figma resources; nativeValue validates
+    // key-only aliases inside the Undo boundary after resolving them.
+    const reference = value.variable
+    if (!('variableKey' in reference) && reference.id === undefined) return
+    const target =
+      ('variableKey' in reference ? types.get(reference.variableKey) : undefined) ??
+      (await resolveVariable(reference, state))
+    validateAliasType(target, variable.resolvedType)
+  }
+  const overridden = new Set<string>()
+  for (const [collectionKey, spec] of Object.entries(specs)) {
+    if (!spec) continue
+    const collection = collections.get(collectionKey)
+    if (collection?.isExtension && spec.extends) {
+      const parentKey = 'collectionKey' in spec.extends ? spec.extends.collectionKey : undefined
+      if (!parentKey || !collections.has(parentKey) || collections.get(parentKey)) {
+        await validateExtendedParent(collection, spec.extends, state)
+      }
+    }
+    for (const [key, variable] of Object.entries(spec.variables ?? {})) {
+      if (!variable) continue
+      const type = types.get(key)?.resolvedType
+      if (!type) applyError(`Preflight lost the declared type for variable "${key}".`)
+      // New modes and inherited modes still need their native identities.
+      if (collection && !collection.isExtension && !spec.modes) {
+        const values = await resolveValues(collection, variable.values, state, 'Variable value')
+        if (!variables.get(key)) validateRequiredModeValues(collection, key, values)
+      }
+      for (const value of Object.values(variable.values ?? {})) {
+        await preflightValue(value, { id: key, resolvedType: type })
+      }
+    }
+    if (!collection?.isExtension) continue
+    const preflightModes =
+      !!spec.overrides?.length &&
+      (await modeAncestryIsUnchanged(collection, changedModeCollections, state))
+    for (const override of spec.overrides ?? []) {
+      if (preflightModes) {
+        await resolveValues(collection, override.values, state, 'Extended variable override')
+      }
+      const reference = override.variable
+      if (!('variableKey' in reference) && reference.id === undefined) continue
+      if (
+        'variableKey' in reference &&
+        variables.has(reference.variableKey) &&
+        !variables.get(reference.variableKey)
+      )
+        continue
+      const variable =
+        ('variableKey' in reference ? variables.get(reference.variableKey) : undefined) ??
+        (await resolveVariable(reference, state))
+      assertInheritedVariable(extendedCollection(collection), variable)
+      recordOverride(collection.id, variable.id, overridden)
+      for (const value of Object.values(override.values)) {
+        if (value !== null) await preflightValue(value, variable)
+      }
+    }
+  }
+  const removedCollectionIds = new Set<string>()
+  let hasRemoval = false
+  for (const [key, spec] of Object.entries(specs)) {
+    if (spec === null) {
+      const collection = state.collectionsByKey.get(key)
+      if (collection) removedCollectionIds.add(collection.id)
+      continue
+    }
+    const collection = collections.get(key)
+    if (!collection) continue
+    const modeIds = state.modeIdsByCollection.get(collection.id)
+    hasRemoval ||= Object.entries(spec.modes ?? {}).some(
+      ([modeKey, mode]) => mode === null && modeIds?.has(modeKey)
+    )
+    hasRemoval ||= Object.entries(spec.variables ?? {}).some(
+      ([variableKey, variable]) =>
+        variable === null && !!variableForRemoval(collection, variableKey, state)
+    )
+  }
+  validateCollectionRemovals(state.collectionCache.values(), removedCollectionIds)
+  if (hasRemoval || removedCollectionIds.size) {
+    for (const page of figma.root.children) await loadRemovalPage(page, state)
+  }
+  return types
+}
+
 export async function reconcileVariableCollections(
   specs: CanvasVariableCollections | undefined,
   state: CanvasVariableState,
@@ -783,11 +1066,8 @@ export async function reconcileVariableCollections(
   for (const { collection, spec } of collections) {
     for (const [key, variable] of Object.entries(spec.variables ?? {})) {
       if (variable === null) {
-        const existing = state.variablesByKey.get(key)
+        const existing = variableForRemoval(collection, key, state)
         if (!existing) continue
-        if (existing.variableCollectionId !== collection.id) {
-          specError(`Variable "${existing.id}" is not in collection "${collection.id}".`)
-        }
         state.variableRemovals.push(existing)
         continue
       }
@@ -800,13 +1080,7 @@ export async function reconcileVariableCollections(
     if (!spec.overrides) continue
     for (const override of spec.overrides) {
       const work = await selectOverride(collection, override, state)
-      const key = `${collection.id}:${work.variable.id}`
-      if (overridden.has(key)) {
-        specError(
-          `Variable "${work.variable.id}" has more than one override entry in collection "${collection.id}".`
-        )
-      }
-      overridden.add(key)
+      recordOverride(collection.id, work.variable.id, overridden)
       overrides.push(work)
     }
   }
@@ -862,18 +1136,24 @@ function assertModeAvailable(
   }
 }
 
-async function collectDocumentConsumers(): Promise<{
+async function loadRemovalPage(page: PageNode, state: CanvasVariableState): Promise<void> {
+  if (state.loadedRemovalPages.has(page)) return
+  try {
+    await page.loadAsync()
+  } catch {
+    scopeError(`Page "${page.id}" could not be inspected before variable removal.`)
+  }
+  state.loadedRemovalPages.add(page)
+}
+
+async function collectDocumentConsumers(state: CanvasVariableState): Promise<{
   nodes: SceneNode[]
   pages: PageNode[]
 }> {
   const pages = [...figma.root.children]
   const nodes: SceneNode[] = []
   for (const page of pages) {
-    try {
-      await page.loadAsync()
-    } catch {
-      scopeError(`Page "${page.id}" could not be inspected before variable removal.`)
-    }
+    if (!state.loadedRemovalPages.has(page)) await loadRemovalPage(page, state)
     for (const node of walkPhysicalNodes(page.children)) nodes.push(node)
   }
   return { nodes, pages }
@@ -952,9 +1232,10 @@ function modeRemovalPlan(
 }
 
 function validateCollectionRemovals(
-  collections: VariableCollection[],
+  collections: Iterable<VariableCollection>,
   removedCollectionIds: Set<string>
 ): void {
+  if (!removedCollectionIds.size) return
   for (const collection of collections) {
     if (
       collection.isExtension &&
@@ -1015,22 +1296,23 @@ export async function removeVariableResources(
     return
   }
 
-  const [collections, variables, styles, shaders, document] = await Promise.all([
-    getLocalVariableCollections(),
-    getLocalVariables(),
-    getLocalStyles(),
-    collectShadersForRemoval(),
-    collectDocumentConsumers()
-  ])
-  const removedCollectionIds = new Set(state.collectionRemovals.map((collection) => collection.id))
-  validateCollectionRemovals(collections, removedCollectionIds)
-
   const removedVariableIds = new Set(state.variableRemovals.map((variable) => variable.id))
   for (const collection of state.collectionRemovals) {
     if (!collection.isExtension) {
       for (const variableId of collection.variableIds) removedVariableIds.add(variableId)
     }
   }
+  const removesVariables = removedVariableIds.size > 0
+  const [collections, variables, styles, shaders, document] = await Promise.all([
+    getLocalVariableCollections(),
+    removesVariables ? getLocalVariables() : [],
+    removesVariables ? getLocalStyles() : [],
+    removesVariables ? collectShadersForRemoval() : [],
+    collectDocumentConsumers(state)
+  ])
+  const removedCollectionIds = new Set(state.collectionRemovals.map((collection) => collection.id))
+  validateCollectionRemovals(collections, removedCollectionIds)
+
   const { removals: modeRemovals, removedModeIds } = modeRemovalPlan(
     state,
     collections,
@@ -1048,11 +1330,13 @@ export async function removeVariableResources(
 
   for (const page of document.pages) {
     assertModeAvailable(page, removedCollectionIds, removedModeIds)
-    assertNoRemovedVariable(page.backgrounds, removedVariableIds, `page "${page.id}"`)
+    if (removesVariables) {
+      assertNoRemovedVariable(page.backgrounds, removedVariableIds, `page "${page.id}"`)
+    }
   }
   for (const node of document.nodes) {
     assertModeAvailable(node, removedCollectionIds, removedModeIds)
-    inspectNodeVariables(node, removedVariableIds)
+    if (removesVariables) inspectNodeVariables(node, removedVariableIds)
   }
   for (const style of styles) {
     assertNoRemovedVariable(style.boundVariables, removedVariableIds, `style "${style.id}"`)
@@ -1074,7 +1358,8 @@ export async function removeVariableResources(
     )
   }
   for (const collection of collections) {
-    if (!collection.isExtension || removedCollectionIds.has(collection.id)) continue
+    if (!removesVariables || !collection.isExtension || removedCollectionIds.has(collection.id))
+      continue
     for (const [variableId, values] of Object.entries(
       extendedCollection(collection).variableOverrides
     )) {

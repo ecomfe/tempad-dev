@@ -1,6 +1,7 @@
 import { MAX_CANVAS_DEPTH, MAX_CANVAS_NODES } from '@tempad-dev/shared'
 
 export type CanvasMarkupElement = {
+  sourceClasses?: ReadonlyMap<string, string>
   attributes: Record<string, string>
   lineBreakOffsets: number[]
   children: CanvasMarkupElement[]
@@ -50,6 +51,8 @@ function decodeEntities(value: string): string {
     const entity = value.slice(entityStart + 1, index)
     if (Object.hasOwn(HTML_ENTITIES, entity)) {
       chunks.push(HTML_ENTITIES[entity]!)
+    } else if (!entity.startsWith('#')) {
+      chunks.push(`&${entity};`)
     } else {
       const hex = entity.startsWith('#x') || entity.startsWith('#X')
       const digits = hex ? entity.slice(2) : entity.startsWith('#') ? entity.slice(1) : ''
@@ -104,11 +107,13 @@ class CanvasHtmlParser {
       )
     }
     this.expect('<')
+    if (this.peek('!--'))
+      htmlError('HTML comments are not supported; remove the comment from canvas markup.')
     if (this.peek('/') || this.peek('!') || this.peek('?')) {
       htmlError('Unexpected closing tag, declaration, or processing instruction.')
     }
     const rawTag = this.readName()
-    if (!rawTag) htmlError('Expected an element name.')
+    if (!rawTag) htmlError('Expected an element name. Write a literal less-than sign as &lt;.')
     if (rawTag.toLowerCase() === 'br') {
       htmlError('Canvas HTML supports <br> only inside span text.')
     }
