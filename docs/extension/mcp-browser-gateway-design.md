@@ -108,7 +108,9 @@ explicit choice: registering another Figma tab clears an automatic choice. An ex
 survives WebSocket reconnects and is saved in browser session storage for service-worker recovery.
 Recovery requires the same session, tab, document, and file; disabling that session, closing its tab,
 or changing its document or file clears the saved choice. Storage failure retains the current
-worker's choice without guaranteeing recovery after restart. Foregrounding a tab does not route
+worker's choice without guaranteeing recovery after restart. While loading or awaiting a saved
+choice, the broker leaves unscoped routing inactive; a fresh tab inventory can release that wait
+when it proves the selected tab closed. Foregrounding a tab does not route
 unscoped MCP calls; clicking its badge does. Independent read tools can instead pass an exact
 `sessionId` returned by `list_design_sessions`; the Hub routes that read to the matching connected
 session without changing the active badge. A task-bound read rejects a different explicit session

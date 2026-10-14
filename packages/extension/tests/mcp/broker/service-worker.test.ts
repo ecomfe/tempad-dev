@@ -898,13 +898,14 @@ describe('mcp/broker/service-worker', () => {
     expect(second.postMessage.mock.calls.length).toBeGreaterThan(callsBeforeDisconnect)
   })
 
-  it('routes tool calls to the active session and forwards matching results', () => {
+  it('routes tool calls to the active session and forwards matching results', async () => {
     const hubClient = createHubClient()
     const broker = new McpServiceWorkerBroker(hubClient)
     const session = createPort('https://www.figma.com/design/abc/File')
 
     broker.handlePort(session.port)
     session.message(pageMessage('mcp.enable'))
+    await vi.waitFor(() => expect(hubClient.start).toHaveBeenCalled())
     routeToolCall(broker)
 
     expect(session.postMessage).toHaveBeenLastCalledWith(
@@ -1058,6 +1059,69 @@ describe('mcp/broker/service-worker', () => {
         expect.objectContaining({ activeSessionId: 'tab-b' })
       )
     })
+  })
+
+  it('holds routing for a saved tab until it returns or a fresh tab inventory proves it closed', async () => {
+    await browser.storage.session.set({
+      'tempad.mcp.badge-selection': {
+        sessionId: 'tab-b',
+        tabId: 2,
+        documentId: 'document-tab-b',
+        fileKey: 'file-b'
+      }
+    })
+    const query = vi.fn().mockResolvedValue([{ id: 1 }, { id: 2 }])
+    vi.stubGlobal('browser', { ...browser, tabs: { query } })
+    const client = createHubClient({
+      activeId: 'gateway-a',
+      registeredId: 'gateway-a',
+      status: 'connected'
+    })
+    const broker = new McpServiceWorkerBroker(client)
+    const ports = ['a', 'b'].map((id, index) => {
+      const port = createPort(`https://www.figma.com/design/file-${id}/Design`)
+      port.port.sender!.tab!.id = index + 1
+      port.port.sender!.documentId = `document-tab-${id}`
+      broker.handlePort(port.port)
+      return port
+    })
+    const enable = (index: number) =>
+      ports[index]!.message({
+        ...pageMessage('mcp.enable', index === 0 ? 'tab-a' : 'tab-b'),
+        document: {
+          fileKey: index === 0 ? 'file-a' : 'file-b',
+          fileName: 'Design',
+          pageId: 'page-a',
+          busy: false
+        }
+      })
+    enable(0)
+    await vi.waitFor(() => expect(client.start).toHaveBeenCalled())
+    expect(client.sendSessions).toHaveBeenCalled()
+    expect(
+      vi
+        .mocked(client.sendSessions)
+        .mock.calls.every(([snapshot]) => snapshot.activeSessionId === null)
+    ).toBe(true)
+    enable(1)
+    expect(client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeSessionId: 'tab-b' })
+    )
+    ports[1]!.disconnect()
+    await vi.waitFor(() => expect(query).toHaveBeenCalled())
+    expect(client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeSessionId: null })
+    )
+    query.mockResolvedValue([{ id: 1 }])
+    ;(broker as unknown as BrokerInternals).handleHubSnapshot({
+      ...client.getSnapshot(),
+      registeredId: 'replacement-hub'
+    })
+    await vi.waitFor(() =>
+      expect(client.sendSessions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ activeSessionId: 'tab-a' })
+      )
+    )
   })
 
   it.each([
@@ -1309,7 +1373,7 @@ describe('mcp/broker/service-worker', () => {
     )
   })
 
-  it('ignores session control messages from ports that do not own the session', () => {
+  it('ignores session control messages from ports that do not own the session', async () => {
     const hubClient = createHubClient()
     const broker = new McpServiceWorkerBroker(hubClient)
     const first = createPort('https://www.figma.com/design/abc/File')
@@ -1317,6 +1381,7 @@ describe('mcp/broker/service-worker', () => {
 
     broker.handlePort(first.port)
     first.message(pageMessage('mcp.enable', 'session-a'))
+    await vi.waitFor(() => expect(hubClient.start).toHaveBeenCalled())
     broker.handlePort(second.port)
     second.message(pageMessage('mcp.disable', 'session-a'))
     second.message(pageMessage('mcp.activateSession', 'session-a'))
@@ -1512,6 +1577,7 @@ describe('mcp/broker/service-worker', () => {
 
     broker.handlePort(session.port)
     session.message(pageMessage('mcp.enable'))
+    await flushMicrotasks()
     session.postMessage.mockClear()
     session.message(assetDownload())
     await flushMicrotasks()
@@ -1611,6 +1677,7 @@ describe('mcp/broker/service-worker', () => {
 
     broker.handlePort(session.port)
     session.message(pageMessage('mcp.enable'))
+    await flushMicrotasks()
     session.postMessage.mockClear()
     session.message(assetUpload())
     await flushMicrotasks()

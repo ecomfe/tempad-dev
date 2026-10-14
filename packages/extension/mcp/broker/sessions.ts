@@ -41,9 +41,9 @@ export class McpSessionRegistry {
     this.autoActivateSoleSession()
   }
 
-  resetActive(): void {
+  resetActive(autoActivate = true): void {
     this.activeSessionId = null
-    this.autoActivateSoleSession()
+    if (autoActivate) this.autoActivateSoleSession()
   }
 
   unregister(sessionId: string): void {

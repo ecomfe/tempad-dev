@@ -66,7 +66,7 @@ export class McpServiceWorkerBroker {
   private readonly identityReady: Promise<void>
   private readonly selectionReady: Promise<void>
   private readonly serializeSelection = createSerialQueue()
-  private selection: BadgeSelection | null = null
+  private selection: BadgeSelection | null | undefined
   private selectionRevision = 0
   private tabRevision = 0
   private connectedHubId: string | null = null
@@ -603,6 +603,7 @@ export class McpServiceWorkerBroker {
       this.portSessions.delete(session.port)
     }
     this.sessions.unregister(sessionId)
+    this.restoreSelection()
     this.restoredReviews.delete(sessionId)
     this.rejectPendingForSession(sessionId, message)
     this.publishSessions()
@@ -800,11 +801,16 @@ export class McpServiceWorkerBroker {
 
   private restoreSelection(): void {
     const selected = this.selection
+    if (selected === null) return
+    // No other tab may become the implicit route while a saved choice is pending.
+    this.sessions.resetActive(false)
     if (!selected) return
     const session = this.sessions.get(selected.sessionId)
     if (!session) {
-      if (this.sessions.list().some((value) => value.port.sender?.tab?.id === selected.tabId))
+      if (this.sessions.list().some((value) => value.port.sender?.tab?.id === selected.tabId)) {
         this.setSelection(null)
+        this.sessions.resetActive()
+      }
       return
     }
     const { tab, documentId } = session.port.sender ?? {}
@@ -837,10 +843,16 @@ export class McpServiceWorkerBroker {
       )
         return
       this.selection = value as BadgeSelection
-      this.restoreSelection()
-      this.broadcastState()
     } catch {
       // Session storage is optional for current-worker routing.
+    } finally {
+      const activeSessionId = this.sessions.getActiveId()
+      if (this.selection === undefined) {
+        this.selection = null
+        this.sessions.resetActive()
+      }
+      this.restoreSelection()
+      if (activeSessionId !== this.sessions.getActiveId()) this.broadcastState()
     }
   }
 
@@ -859,12 +871,14 @@ export class McpServiceWorkerBroker {
 
   private async refreshOpenTabs(): Promise<void> {
     if (typeof browser === 'undefined' || !browser.tabs?.query) return
+    await this.selectionReady
     const revision = this.tabRevision
     try {
       const tabs = await browser.tabs.query({})
       // A tab registering during this query invalidates absence as destruction evidence.
       if (revision !== this.tabRevision) return
       const ids = tabs.flatMap((tab) => (tab.id === undefined ? [] : [tab.id]))
+      this.forgetSelection((selection) => !ids.includes(selection.tabId))
       this.publishSessions(ids)
     } catch {
       // Missing inventory is not evidence that an executing tab has closed.
