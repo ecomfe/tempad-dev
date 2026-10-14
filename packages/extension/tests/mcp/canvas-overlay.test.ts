@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { canvasHoverContains, observeCanvasOverlay, placeCanvasPopover } from '@/mcp/canvas-overlay'
 
@@ -7,6 +7,15 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('@/utils/figma', () => ({ getCanvas: () => ({ getBoundingClientRect: mocks.rect }) }))
 const dispose: Array<() => void> = []
+beforeEach(() => {
+  vi.stubGlobal(
+    'MutationObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  )
+})
 afterEach(() => {
   dispose.splice(0).forEach((stop) => stop())
   vi.useRealTimers()

@@ -19,6 +19,8 @@ let frameId: number | undefined
 let idleTimer: ReturnType<typeof setTimeout> | undefined
 let currentFrame: CanvasOverlayFrame | null = null
 let activeUntil = 0
+let tooltipElements: HTMLElement[] | undefined
+let tooltipObserver: MutationObserver | undefined
 const ACTIVITY_EVENTS = [
   'pointerdown',
   'pointermove',
@@ -67,7 +69,9 @@ function readFrame(): CanvasOverlayFrame | null {
       pageId: api.currentPage.id,
       fileKey: readFigmaFileKey(api),
       selectedNode: selection.length === 1 ? selection[0]! : null,
-      tooltips: [...document.querySelectorAll<HTMLElement>('[role="tooltip"]')]
+      tooltips: (tooltipElements ??= [
+        ...document.querySelectorAll<HTMLElement>('[role="tooltip"]')
+      ])
         .filter(
           (element) =>
             !element.closest('tempad') &&
@@ -107,6 +111,16 @@ export function observeCanvasOverlay(
 ): () => void {
   const firstObserver = !observers.size
   if (firstObserver) {
+    // Cache membership only: visibility and geometry can change without DOM mutations.
+    tooltipObserver = new MutationObserver(() => {
+      tooltipElements = undefined
+    })
+    tooltipObserver.observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['role']
+    })
     activeUntil = performance.now() + 500
     for (const event of ACTIVITY_EVENTS)
       window.addEventListener(event, markActivity, { passive: true })
@@ -126,6 +140,9 @@ export function observeCanvasOverlay(
     if (!observers.size) {
       cancelScheduledFrame()
       currentFrame = null
+      tooltipObserver?.disconnect()
+      tooltipObserver = undefined
+      tooltipElements = undefined
       for (const event of ACTIVITY_EVENTS) window.removeEventListener(event, markActivity)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
