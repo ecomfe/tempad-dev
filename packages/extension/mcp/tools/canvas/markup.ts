@@ -1124,6 +1124,8 @@ function compileElementUnchecked(
 
   applyInlineBindings(element, key, state)
   const classes = parseCanvasClasses(className)
+  const hasWidth = classes.width !== undefined
+  const hasHeight = classes.height !== undefined
   const liveGrid = state.existingNodeTypes?.grids?.get(nodeId ?? key)
   if (classes.grid && classes.gridFlow === undefined && liveGrid) {
     classes.gridFlow = liveGrid.itemsPositioning
@@ -1635,8 +1637,12 @@ function compileElementUnchecked(
       : includeDefaults
         ? { maxHeight: null }
         : {}),
-    horizontal: horizontalMode,
-    vertical: verticalMode
+    ...(type !== 'INSTANCE' || hasWidth || (classes.grow && parentMode === 'HORIZONTAL')
+      ? { horizontal: horizontalMode }
+      : {}),
+    ...(type !== 'INSTANCE' || hasHeight || (classes.grow && parentMode === 'VERTICAL')
+      ? { vertical: verticalMode }
+      : {})
   }
   const common = {
     key,
@@ -1646,7 +1652,9 @@ function compileElementUnchecked(
       ? { displayName: binding?.figma?.name ?? key }
       : {}),
     size,
-    ...(classes.grow !== undefined || includeDefaults ? { grow: classes.grow ?? false } : {}),
+    ...(classes.grow !== undefined || (includeDefaults && type !== 'INSTANCE')
+      ? { grow: classes.grow ?? false }
+      : {}),
     ...(classes.visible === undefined ? {} : { visible: classes.visible }),
     ...(classes.blendMode === undefined ? {} : { blendMode: classes.blendMode }),
     ...(classes.rotation === undefined ? {} : { rotation: classes.rotation }),

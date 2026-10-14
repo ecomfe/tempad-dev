@@ -4799,7 +4799,15 @@ async function applyVariables(
   }
 }
 
-type FontModeValues = { values: VariableValue[]; optional: boolean }
+type FontModeValues = { values: VariableValue[]; optional: boolean; affected: boolean }
+
+const TEXT_MODE_FONT_FIELDS = [
+  'characters',
+  'width',
+  'height',
+  ...SIZE_BOUND_FIELDS,
+  ...Object.values(TEXT_STYLE_VARIABLES_BY_VALUE).flat()
+] as const
 
 async function modeFontVariableValues(
   variable: Variable,
@@ -4839,10 +4847,12 @@ async function modeFontVariableValues(
       related.set(id, collection)
   }
   let selected: Array<[string, string]> = []
+  let affected = false
   for (const ancestor of ancestors) {
     const explicit =
       'explicitVariableModes' in ancestor ? { ...ancestor.explicitVariableModes } : {}
     if (ancestor === target) {
+      affected = related.has(changedCollectionId) && explicit[changedCollectionId] !== changedModeId
       delete explicit[changedCollectionId]
       if (changedModeId !== undefined) explicit[changedCollectionId] = changedModeId
     }
@@ -4883,13 +4893,14 @@ async function modeFontVariableValues(
         )
         candidates.push(...alias.values)
         optional ||= alias.optional
+        affected ||= alias.affected
       } else candidates.push(value)
     }
   }
   const values = [...new Set(candidates)]
   if (values.length > 64 || cache.size >= 256)
     scopeError('Font mode preloading exceeds the bounded candidate budget.')
-  const result = { values, optional }
+  const result = { values, optional, affected }
   cache.set(variable.id, result)
   return result
 }
@@ -4903,7 +4914,6 @@ async function loadModeFonts(
   const roots = target.type === 'PAGE' ? target.children : [target]
   for (const node of walkPhysicalNodes(roots)) {
     if (node.type !== 'TEXT') continue
-    await loadFonts(currentTextFonts(node), state.fonts)
     const cache = new Map<string, FontModeValues>()
     const segments = node.getStyledTextSegments(['fontName', 'textStyleId', 'boundVariables'])
     for (const segment of segments) {
@@ -4911,16 +4921,18 @@ async function loadModeFonts(
         ? await resolveStyle({ id: segment.textStyleId }, state.styles)
         : undefined
       const bindings = {
+        ...node.boundVariables,
         ...(style?.type === 'TEXT' ? style.boundVariables : {}),
         ...segment.boundVariables
       }
-      const fields = TEXT_STYLE_VARIABLES_BY_VALUE.fontName
-      if (!fields.some((field) => bindings[field])) continue
-      const [families, styles, weights] = await Promise.all(
-        fields.map(async (field) => {
-          const reference = bindings[field]
-          if (!reference) return { values: [], optional: false }
-          return modeFontVariableValues(
+      const values = new Map<string, FontModeValues>()
+      for (const field of TEXT_MODE_FONT_FIELDS) {
+        const reference = bindings[field]
+        // Mixed node bindings are arrays; segment aliases identify the actual run.
+        if (!reference || Array.isArray(reference)) continue
+        values.set(
+          field,
+          await modeFontVariableValues(
             await resolveVariable({ id: reference.id }, state.variables),
             node,
             target,
@@ -4929,12 +4941,17 @@ async function loadModeFonts(
             state,
             cache
           )
-        })
-      )
-      const familyValues = families!.values.length ? families!.values : [segment.fontName.family]
-      const styleValues = styles!.values.length ? styles!.values : [segment.fontName.style]
-      const weightValues = weights!.values.length ? weights!.values : [undefined]
-      const optional = families!.optional || styles!.optional || weights!.optional
+        )
+      }
+      if (![...values.values()].some((value) => value.affected)) continue
+      await loadFonts(currentTextFonts(node), state.fonts)
+      const families = values.get('fontFamily')
+      const styles = values.get('fontStyle')
+      const weights = values.get('fontWeight')
+      const familyValues = families?.values.length ? families.values : [segment.fontName.family]
+      const styleValues = styles?.values.length ? styles.values : [segment.fontName.style]
+      const weightValues = weights?.values.length ? weights.values : [undefined]
+      const optional = families?.optional || styles?.optional || weights?.optional
       if (familyValues.length * styleValues.length * weightValues.length > 256) {
         scopeError('Font mode preloading exceeds 256 possible font combinations.')
       }
@@ -7000,8 +7017,9 @@ function verifySizingGeometry(
   }
   if (!isIntrinsicNode(node) && supportsLayoutSizing(node, parent)) {
     if (
-      node.layoutSizingHorizontal !== spec.size.horizontal ||
-      node.layoutSizingVertical !== spec.size.vertical ||
+      (spec.size.horizontal !== undefined &&
+        node.layoutSizingHorizontal !== spec.size.horizontal) ||
+      (spec.size.vertical !== undefined && node.layoutSizingVertical !== spec.size.vertical) ||
       (spec.grow !== undefined && node.layoutGrow !== (spec.grow ? 1 : 0))
     ) {
       applyError(
@@ -7765,13 +7783,18 @@ function nativeUpdateSpec(
   const stroke = binding.figma?.stroke
   const corners = binding.figma?.corners
   const size: CanvasNodeSpec['size'] = {
-    ...(node.type === 'INSTANCE' ? {} : { width: node.width, height: node.height }),
-    horizontal: preservedSizingMode(
-      'layoutSizingHorizontal' in node ? node.layoutSizingHorizontal : undefined
-    ),
-    vertical: preservedSizingMode(
-      'layoutSizingVertical' in node ? node.layoutSizingVertical : undefined
-    ),
+    ...(node.type === 'INSTANCE'
+      ? {}
+      : {
+          width: node.width,
+          height: node.height,
+          horizontal: preservedSizingMode(
+            'layoutSizingHorizontal' in node ? node.layoutSizingHorizontal : undefined
+          ),
+          vertical: preservedSizingMode(
+            'layoutSizingVertical' in node ? node.layoutSizingVertical : undefined
+          )
+        }),
     ...('minWidth' in node ? { minWidth: node.minWidth } : {}),
     ...('maxWidth' in node ? { maxWidth: node.maxWidth } : {}),
     ...('minHeight' in node ? { minHeight: node.minHeight } : {}),
@@ -7799,7 +7822,7 @@ function nativeUpdateSpec(
           }
         }
       : {}),
-    ...('layoutGrow' in node ? { grow: node.layoutGrow > 0 } : {}),
+    ...(node.type !== 'INSTANCE' && 'layoutGrow' in node ? { grow: node.layoutGrow > 0 } : {}),
     ...(node.type === 'TEXT'
       ? {
           text: {

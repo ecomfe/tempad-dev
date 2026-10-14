@@ -322,7 +322,6 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
     expect(parsed.root.children?.[0]).toMatchObject({
       key: 'save',
       type: 'INSTANCE',
-      size: { horizontal: 'FIXED', vertical: 'FIXED' },
       component: { id: 'component:button', key: 'component-key' },
       variables: { opacity: { id: 'variable:size', key: 'variable-key' } },
       componentProperties: {
@@ -333,6 +332,8 @@ describe('mcp/tools/canvas authoring references and catalog resolution', () => {
     })
     expect(parsed.root.children?.[0]?.size.width).toBeUndefined()
     expect(parsed.root.children?.[0]?.size.height).toBeUndefined()
+    expect(parsed.root.children?.[0]?.size.horizontal).toBeUndefined()
+    expect(parsed.root.children?.[0]?.size.vertical).toBeUndefined()
     expect(parsed.root.children?.[1]).toMatchObject({
       key: 'copy',
       variables: { fontSize: { id: 'variable:size', key: 'variable-key' } },

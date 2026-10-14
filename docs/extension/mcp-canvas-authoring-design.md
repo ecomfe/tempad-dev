@@ -693,6 +693,9 @@ creation, and library/media preparation is not a guarantee of native transaction
 Typography variable setters apply one field at a time. Preload the font faces reached by each
 binding in its actual application order, including intermediate family/style combinations, for
 Text nodes, text ranges, and Text styles. Reuse the request-local font cache across those paths.
+Mode changes prepare fonts only for affected typography, text-content, or size bindings, including
+aliases and extended collections. Unbound text and descendant mode overrides do not require unrelated
+fonts to load. Affected text metrics still require the current fonts even without a font-family binding.
 Updates to existing pages preload fonts for the first changed variable mode before opening the
 Undo boundary or changing page properties, including calls with markup but no declared resources.
 Each mode setter still rechecks the live font requirements; later transitions may depend on
@@ -739,6 +742,8 @@ exact component references for rollback. This keeps both exact variant IDs and c
 instantiate. A component-set reference creates its default variant; applying a VARIANT property may
 then select another component in that set. Verification accepts that selected sibling only when it
 belongs to the same set and the requested variant property values or bindings remain applied.
+Omitted instance sizing axes preserve their native modes, including modes produced by variant
+selection. Explicit size or grow utilities override only the axes they describe.
 
 Figma may normalize Text auto-resize while truncation and maximum-line state changes. Reconciliation
 therefore applies truncation state before the declared auto-resize mode, so fixed text boxes remain

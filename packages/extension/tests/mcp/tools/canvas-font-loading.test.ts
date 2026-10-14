@@ -52,6 +52,105 @@ afterEach(() => {
 })
 
 describe('mcp/tools/canvas font loading', () => {
+  it.each(['unbound', 'unbound style', 'other collection', 'overridden mode'] as const)(
+    'does not load a missing font on %s text during a page mode change',
+    async (binding) => {
+      const fixture = createFixture()
+      const collection = figma.variables.createVariableCollection('Changed')
+      const alternate = collection.addMode('Alternate')
+      const label = figma.createText()
+      label.characters = 'Unaffected'
+      const missing = { family: 'Missing', style: 'Regular' }
+      label.fontName = missing
+      if (binding === 'unbound style') {
+        const style = figma.createTextStyle()
+        style.fontName = missing
+        await label.setTextStyleIdAsync(style.id)
+      } else if (binding !== 'unbound') {
+        const owner =
+          binding === 'other collection'
+            ? figma.variables.createVariableCollection('Unchanged')
+            : collection
+        const family = figma.variables.createVariable('Family', owner, 'STRING')
+        family.setValueForMode(owner.defaultModeId, 'Missing')
+        if (binding === 'overridden mode') {
+          family.setValueForMode(alternate, 'Roboto')
+          label.setExplicitVariableModeForCollection(collection, collection.defaultModeId)
+        }
+        label.setBoundVariable('fontFamily', family)
+      }
+      fixture.loadFontAsync.mockImplementation(async (font: FontName) => {
+        if (font.family === 'Missing') throw new Error('Font is unavailable')
+      })
+      const result = await applyCanvasFromTool({
+        mode: 'update',
+        page: { id: fixture.page.id, variableModes: { [collection.id]: alternate } }
+      })
+      expect(result.verification.status).toBe('passed')
+      expect(fixture.page.explicitVariableModes[collection.id]).toBe(alternate)
+      expect(fixture.loadFontAsync).not.toHaveBeenCalledWith(missing)
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    }
+  )
+
+  it('loads a font reached through an alias in a different collection when its mode changes', async () => {
+    const fixture = createFixture()
+    const collection = figma.variables.createVariableCollection('Families')
+    const alternate = collection.addMode('Alternate')
+    const family = figma.variables.createVariable('Family', collection, 'STRING')
+    family.setValueForMode(collection.defaultModeId, 'Inter')
+    family.setValueForMode(alternate, 'Roboto')
+    const aliases = figma.variables.createVariableCollection('Aliases')
+    const alias = figma.variables.createVariable('Alias', aliases, 'STRING')
+    alias.setValueForMode(aliases.defaultModeId, { type: 'VARIABLE_ALIAS', id: family.id })
+    const label = figma.createText()
+    label.characters = 'Affected'
+    label.setBoundVariable('fontFamily', alias)
+    fixture.listAvailableFontsAsync.mockResolvedValue(
+      ['Inter', 'Roboto'].map((family) => ({ fontName: { family, style: 'Regular' } }))
+    )
+    const fonts = createFontLoadingFixture()
+    fixture.loadFontAsync.mockImplementation(fonts.loadFontAsync)
+    const setMode = fixture.page.setExplicitVariableModeForCollection.bind(fixture.page)
+    vi.spyOn(fixture.page, 'setExplicitVariableModeForCollection').mockImplementation(
+      (collection, mode) => {
+        fonts.requireLoadedFont({ family: 'Roboto', style: 'Regular' }, 'change aliased font')
+        setMode(collection, mode)
+      }
+    )
+    await applyCanvasFromTool({
+      mode: 'update',
+      page: { id: fixture.page.id, variableModes: { [collection.id]: alternate } }
+    })
+  })
+
+  it('loads current fonts when a mode changes bound text metrics', async () => {
+    const fixture = createFixture()
+    const collection = figma.variables.createVariableCollection('Type size')
+    const alternate = collection.addMode('Alternate')
+    const size = figma.variables.createVariable('Size', collection, 'FLOAT')
+    size.setValueForMode(collection.defaultModeId, 12)
+    size.setValueForMode(alternate, 20)
+    const label = figma.createText()
+    label.characters = 'Affected'
+    label.setBoundVariable('fontSize', size)
+    const current = label.fontName as FontName
+    const fonts = createFontLoadingFixture()
+    fixture.loadFontAsync.mockImplementation(fonts.loadFontAsync)
+    const setMode = fixture.page.setExplicitVariableModeForCollection.bind(fixture.page)
+    vi.spyOn(fixture.page, 'setExplicitVariableModeForCollection').mockImplementation(
+      (collection, mode) => {
+        fonts.requireLoadedFont(current, 'change the bound font size')
+        setMode(collection, mode)
+      }
+    )
+    await applyCanvasFromTool({
+      mode: 'update',
+      page: { id: fixture.page.id, variableModes: { [collection.id]: alternate } }
+    })
+    expect(fixture.loadFontAsync).toHaveBeenCalledWith(current)
+  })
+
   it.each(['resize', 'autoResize', 'unbind'] as const)(
     'waits for the unchanged current font before a %s-only update',
     async (operation) => {
@@ -1356,16 +1455,14 @@ describe('mcp/tools/canvas font loading', () => {
       ? 'clearExplicitVariableModeForCollection'
       : 'setExplicitVariableModeForCollection'
     const spy = vi.spyOn(target, setter).mockImplementation((changed, mode) => {
-      const expected = scenario === 'descendant-override' ? 'Inter' : 'Roboto'
-      expect(fixture.loadFontAsync).toHaveBeenCalledWith({ family: expected, style: 'Regular' })
-      if (expected === 'Roboto')
+      if (scenario === 'descendant-override' || scenario === 'native-auto') {
+        expect(fixture.loadFontAsync).not.toHaveBeenCalled()
+      } else {
+        expect(fixture.loadFontAsync).toHaveBeenCalledWith({ family: 'Roboto', style: 'Regular' })
         expect(fixture.loadFontAsync).toHaveBeenCalledWith({ family: 'Roboto', style: 'SemiBold' })
+      }
       if (scenario === 'mixed-runs')
         expect(fixture.loadFontAsync).toHaveBeenCalledWith({ family: 'Noto Serif', style: 'Bold' })
-      if (scenario === 'descendant-override')
-        expect(fixture.loadFontAsync).not.toHaveBeenCalledWith(
-          expect.objectContaining({ family: 'Roboto' })
-        )
       if (pageAuto) delete target.explicitVariableModes[changed.id]
       else target.explicitVariableModes[changed.id] = mode!
     })

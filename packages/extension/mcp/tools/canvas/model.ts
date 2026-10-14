@@ -133,8 +133,8 @@ export type CanvasNodeSpec = {
     maxWidth?: number | null
     minHeight?: number | null
     maxHeight?: number | null
-    horizontal: CanvasSizingMode
-    vertical: CanvasSizingMode
+    horizontal?: CanvasSizingMode
+    vertical?: CanvasSizingMode
   }
   grow?: boolean
   visible?: boolean
