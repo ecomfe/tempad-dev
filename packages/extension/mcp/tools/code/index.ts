@@ -211,7 +211,11 @@ export async function handleGetCode(
       checkpoint
     })
   const root = tree.nodes.get(rootId)
-  if (runtimeOptions.unbounded || !root?.children.length || root.assetKind === 'vector') {
+  if (
+    runtimeOptions.unbounded ||
+    (!root?.children.length && !tree.stats.capped) ||
+    root?.assetKind === 'vector'
+  ) {
     return generate()
   }
 
@@ -435,6 +439,8 @@ async function generateCode({
       ...baseInput,
       mode: { kind: 'full' }
     })
+    // A fallback shell may omit the plugin child that established the output language.
+    baseInput.lang = output.lang
     const literalClusters = resolveTokens
       ? undefined
       : collectUnboundColorLiteralClusters(collected.styles, tree)

@@ -13,7 +13,12 @@ import type { CollectedData, NodeSnapshot, VisibleTree } from './model'
 
 import { hasMediaFills, replaceMediaUrlsWithAssets } from './assets'
 import { getNodeSemanticsCached, getPaintsFromState } from './cache'
-import { getInferredAutoLayout, getLayoutParent, isFlowGroup } from './layout-parent'
+import {
+  getInferredAutoLayout,
+  getLayoutParent,
+  isFlowGroup,
+  isGroupLayoutBox
+} from './layout-parent'
 import { preprocessStyles, stripInertShadows } from './styles'
 import { REQUESTED_SEGMENT_FIELDS } from './text/types'
 
@@ -85,12 +90,14 @@ export async function collectNodeData(
       let processed = preprocessStyles(preprocessRawStyle(css), node, parent?.node, cache)
       const isStructuralGroup =
         (node.type === 'GROUP' || node.type === 'BOOLEAN_OPERATION') && !vectorRoots?.has(id)
-      if (isStructuralGroup && isFlowGroup(tree, snapshot)) {
-        processed.position = 'relative'
+      const groupBox = isStructuralGroup && isGroupLayoutBox(tree, snapshot)
+      const flowGroup = groupBox && isFlowGroup(tree, snapshot)
+      if (groupBox) {
+        if (flowGroup) processed.position = 'relative'
         processed.width = `${snapshot.bounds.width}px`
         processed.height = `${snapshot.bounds.height}px`
       }
-      if (parent && !isStructuralGroup) {
+      if (parent && (!isStructuralGroup || (groupBox && !flowGroup))) {
         processed = applyAutoLayoutAbsolutePosition(processed, snapshot, tree, cache)
         processed = applyConstraintsPosition(processed, snapshot, tree, cache)
       }

@@ -36,16 +36,19 @@ export finishes. Media and vector helpers also check after native byte reads or 
 starting uploads, fallback exports, or the next fill; their fallback handlers preserve cancellation.
 An incomplete tree fails without a shell; a completed tree can use the
 fallback even when its last getter exhausts the full-generation budget. Checkpoints cannot interrupt
-a single native getter or cancel in-flight Figma API calls. Leaf and vector roots retain their full-only
+a single native getter or cancel in-flight Figma API calls. Actual leaf and vector roots retain their full-only
 generation path after bounded tree construction; unbounded debug calls bypass these time limits.
+A root whose descendants were depth-capped still receives the deadline even with no retained children.
 A stalled root or unusable shell still fails.
 
 ## High-level pipeline
 
 1. **Validate each root**
    - The inner pipeline receives exactly one visible root; the runtime owns node-set orchestration.
-   - Build a visible tree with depth capping and reject selections exceeding 2,000 visible nodes
-     before reading inferred layout hints. Check the synchronous time budget between physical
+   - Select the deepest complete level within 2,000 visible nodes, then build that bounded tree
+     before reading inferred layout hints. Stop the level-order preflight at the 2,001st visible
+     node; retain a traversal guard for native tree changes between preflight and collection.
+     Check the synchronous time budget between physical
      node visits and layout inference calls, without treating hidden layers as visible output nodes.
 
 2. **Preflight the response budget**
@@ -118,10 +121,13 @@ A stalled root or unusable shell still fails.
     - Validate output size using a shared `CallToolResult` UTF-8 byte budget (`64 KiB` by default).
     - If over budget, prefer a shell response for the current node.
     - Overflow not proven by the preflight remains correctness-first and reuses the already-collected
-      tree/style context instead of rerunning the request.
+      tree/style context instead of rerunning the request. Preserve the full output's resolved
+      language when a shell omits the plugin child that established it.
     - Emit lightweight `type + message` warnings for inferred auto layout, depth-cap, repeated
       unbound color evidence, and shell guidance.
-    - If tree depth was capped, include a `depth-cap` warning that tells agents to continue with narrower `get_code` calls using returned `data-hint-id` values.
+    - If tree depth was capped, include a `depth-cap` warning that tells agents to continue with
+      narrower `get_code` calls using returned `data-hint-id` values. For a root-only cap, point to
+      `get_structure` to choose children without claiming a complete shell child-ID list.
     - If a shell response is returned, list omitted direct child ids in an inline comment in render order and emit a `shell` warning that points agents to that comment.
 
 ## Tree and layout semantics
@@ -130,12 +136,14 @@ A stalled root or unusable shell still fails.
 
 - Built via `buildVisibleTree`.
 - Nodes include bounds, data-hints, and inferred layout hints.
-- GROUP/BOOLEAN nodes are preserved for structure. A GROUP participating in auto-layout flow establishes its own layout box.
+- GROUP/BOOLEAN nodes are preserved for structure. GROUP chains under an explicit or inferred
+  auto-layout container retain layout boxes, including nested and absolute groups.
 
 ### Layout parent resolution
 
-- `getLayoutParent` walks up to the nearest flow GROUP or non-GROUP/BOOLEAN ancestor.
-- All relative transforms and constraints are interpreted against this layout parent.
+- `getLayoutParent` walks up to the nearest boxed GROUP or non-GROUP/BOOLEAN ancestor.
+- Native transforms use container coordinates. For a boxed GROUP parent, subtract its native
+  origin before applying child constraints; nested boxes each preserve their own offset.
 
 ### Positioning rules
 
@@ -152,8 +160,9 @@ A stalled root or unusable shell still fails.
 ### Relative container injection
 
 - A layout parent is made `position: relative` if any descendant is absolute.
-- A flow GROUP gets a relative box and positions its descendants within that box. Other structural
-  GROUP/BOOLEAN wrappers preserve their existing containing blocks. For paint ranking, a GROUP
+- A direct flow GROUP gets a relative box. Nested GROUP boxes use absolute placement in their
+  parent box, and direct `ABSOLUTE` groups use the existing auto-layout absolute-placement rule.
+  Freeform structural GROUP/BOOLEAN wrappers preserve their existing containing blocks. For paint ranking, a GROUP
   with a direct transform, filter, or backdrop-filter that already establishes a containing block can become relative
   when no insets or explicit z-index would become active. An atomic SVG export receives the
   original node's placement as a single layout item.

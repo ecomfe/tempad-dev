@@ -315,6 +315,23 @@ describe('mcp/code handleGetCode', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('keeps a depth-capped root under the deadline even without snapshot children', async () => {
+    vi.useFakeTimers()
+    const root = createSnapshot({ id: 'root', children: [] })
+    const tree = createTree([root])
+    tree.stats.capped = true
+    mockAssetCollection(tree, [], new Set())
+    mocks.collectNodeData.mockImplementation(() => new Promise(() => {}))
+    let failure: unknown
+    void handleGetCode([root.node]).catch((error: unknown) => {
+      failure = error
+    })
+    await vi.advanceTimersByTimeAsync(25_000)
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toContain('Code generation timed out')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('does not split a container exported as a single vector asset after a timeout', async () => {
     vi.useFakeTimers()
     const root = createSnapshot({ id: 'root', children: ['mask', 'artwork'] })
@@ -559,6 +576,26 @@ describe('mcp/code handleGetCode', () => {
       ['c', 'b']
     )
     expect(result.assets).toBeUndefined()
+  })
+
+  it('retains plugin-detected language when a large full result falls back to a shell', async () => {
+    const root = createSnapshot({ id: 'root', children: ['child'] })
+    const tree = createTree([root, createSnapshot({ id: 'child', parentId: 'root' })])
+    mockAssetCollection(tree, [], new Set())
+    mocks.renderTree.mockImplementation(async (_root, _tree, ctx) => {
+      ctx.detectedLang = 'vue'
+      return raw('X'.repeat(90_000))
+    })
+    mocks.getOrderedChildIds.mockReturnValue(['child'])
+    mocks.renderShellTree.mockResolvedValue(
+      raw('<div><!-- omitted direct children: child --></div>')
+    )
+    vi.stubGlobal('__DEV__', false)
+
+    const result = await handleGetCode([root.node])
+
+    expect(result.lang).toBe('vue')
+    expect(result.warnings?.map(({ type }) => type)).toEqual(['shell'])
   })
 
   it('includes literal diagnostics in the final byte budget and omits them from fallback shells', async () => {

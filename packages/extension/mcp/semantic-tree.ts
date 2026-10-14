@@ -180,7 +180,11 @@ export function summarizeComponentHint(node: InstanceNode): string | undefined {
   return name ? `${toPascalCase(name)}${summarizeComponentProperties(node) ?? ''}` : undefined
 }
 
-export function suggestDepthLimit(roots: SceneNode[], checkpoint?: () => void): number | undefined {
+export function suggestDepthLimit(
+  roots: SceneNode[],
+  checkpoint?: () => void,
+  nodeLimit?: number
+): number | undefined {
   let visibleCount = 0
   let targetDepth: number | undefined
   // Level order identifies the target depth before the full physical tree is needed.
@@ -194,8 +198,10 @@ export function suggestDepthLimit(roots: SceneNode[], checkpoint?: () => void): 
         const node = item.value
         if (!node.visible) continue
         visibleCount += 1
+        // A work budget must exclude the overflowing level, not cut through its siblings.
+        if (nodeLimit !== undefined && visibleCount > nodeLimit) return Math.max(0, depth - 1)
         if (visibleCount === NODE_TARGET + 1) targetDepth = depth
-        if (visibleCount === NODE_CAP + 1) return targetDepth
+        if (nodeLimit === undefined && visibleCount === NODE_CAP + 1) return targetDepth
         if ('children' in node) nextLevel.push(node.children[Symbol.iterator]())
       }
     }

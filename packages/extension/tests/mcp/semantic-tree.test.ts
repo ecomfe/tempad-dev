@@ -96,6 +96,42 @@ describe('mcp/semantic-tree', () => {
     expect(visibilityReads).toBe(2049)
   })
 
+  it('chooses the last complete level within a caller node budget', () => {
+    const children = Array.from({ length: 2000 }, (_, index) =>
+      createNode('RECTANGLE', `child-${index}`)
+    )
+    expect(
+      suggestDepthLimit([createNode('FRAME', 'root', {}, children.slice(0, 1999))], undefined, 2000)
+    ).toBeUndefined()
+    expect(suggestDepthLimit([createNode('FRAME', 'root', {}, children)], undefined, 2000)).toBe(0)
+    const branches = Array.from({ length: 100 }, (_, index) =>
+      createNode(
+        'FRAME',
+        `branch-${index}`,
+        {},
+        Array.from({ length: 20 }, (_, leaf) => createNode('RECTANGLE', `leaf-${index}-${leaf}`))
+      )
+    )
+    expect(suggestDepthLimit([createNode('FRAME', 'root', {}, branches)], undefined, 2000)).toBe(1)
+  })
+
+  it('stops a caller-budget scan before reading the remaining wide suffix', () => {
+    let visibilityReads = 0
+    const children = Array.from({ length: 20_000 }, (_, index) =>
+      createNode('RECTANGLE', `child-${index}`)
+    )
+    for (const child of children) {
+      Object.defineProperty(child, 'visible', {
+        get() {
+          visibilityReads += 1
+          return true
+        }
+      })
+    }
+    expect(suggestDepthLimit([createNode('FRAME', 'root', {}, children)], undefined, 2000)).toBe(0)
+    expect(visibilityReads).toBe(2000)
+  })
+
   it('matches the complete depth count for mixed visible and hidden trees', () => {
     const completeDepthLimit = (roots: SceneNode[]): number | undefined => {
       const counts: number[] = []

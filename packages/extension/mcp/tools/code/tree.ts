@@ -10,8 +10,10 @@ import type { AutoLayoutHint, DataHint, NodeSnapshot, TreeStats, VisibleTree } f
 
 import { getInferredAutoLayout } from './layout-parent'
 
+const NODE_WORK_BUDGET = 2000
+
 export function buildVisibleTree(roots: SceneNode[], checkpoint?: () => void): VisibleTree {
-  const depthLimit = suggestDepthLimit(roots, checkpoint)
+  const depthLimit = suggestDepthLimit(roots, checkpoint, NODE_WORK_BUDGET)
   const stats: TreeStats = {
     totalNodes: 0,
     maxDepth: 0,
@@ -26,7 +28,7 @@ export function buildVisibleTree(roots: SceneNode[], checkpoint?: () => void): V
   const visit = (node: SceneNode, depth: number, parentId?: string) => {
     checkpoint?.()
     if (!node.visible) return
-    if (stats.totalNodes >= 2000) {
+    if (stats.totalNodes >= NODE_WORK_BUDGET) {
       throw new Error(
         'Code read exceeds the 2,000-node work budget. Use get_structure to select a narrower node and retry.'
       )
@@ -91,8 +93,7 @@ export function buildVisibleTree(roots: SceneNode[], checkpoint?: () => void): V
     visit(root, 0, undefined)
   })
 
-  // Prove the node budget before native layout inference can inspect a wide
-  // subtree that this request will reject anyway.
+  // Bound the snapshot before native layout inference can inspect physical descendants.
   for (const snapshot of nodes.values()) {
     checkpoint?.()
     const autoLayoutHint = resolveAutoLayoutHint(snapshot.node, checkpoint)

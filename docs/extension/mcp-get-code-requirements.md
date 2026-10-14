@@ -7,8 +7,9 @@ This document records the requirements and hard constraints for the MCP `get_cod
 - Accept one or more visible roots, keeping each root's code, language, tokens, assets, and warnings independent.
 - Never emit empty optional fields (`assets`, `tokens`, `literalClusters`, `warnings`).
 - Do not use `renderBounds` diffs for positioning.
-- Structural GROUP nodes occupying a flow slot are positioned containers for their children;
-  freeform structural GROUP/BOOLEAN nodes remain transparent to positioning. When exported as one
+- Structural GROUP nodes under an auto-layout container retain layout boxes: direct flow groups
+  are relative, while nested groups and explicitly absolute groups are positioned within their
+  nearest box. Freeform structural GROUP/BOOLEAN nodes remain transparent to positioning. When exported as one
   SVG, position the resulting asset as a single layout item.
 - Keep `getCSSAsync()` at most once per node.
 - Do not persist Figma-derived cache state across requests.
@@ -28,9 +29,12 @@ This document records the requirements and hard constraints for the MCP `get_cod
 - `vectorMode` is optional:
   - `smart` (default): emit `<svg data-src="...">` placeholders in code and preserve themeable instance color on the emitted `svg` root markup for downstream adaptation. If asset upload fails after export, inline the SVG as a fallback to preserve source of truth.
   - `snapshot`: preserve vector assets for fidelity, even if a vector would otherwise be themeable.
-- Tree traversal is capped by a depth limit (semantic-tree driven). If capped, log a warning.
-  Reads exceeding 2,000 visible nodes fail with guidance to select a narrower root before CSS collection.
-- If depth is capped, emit a `depth-cap` warning telling agents to continue with narrower `get_code` calls using returned `data-hint-id` values.
+- Tree traversal retains complete levels within a 2,000-visible-node work budget. If the next
+  level would exceed that budget, omit its descendants before CSS collection and emit hints on
+  the retained frontier. Keep a hard traversal guard if the native tree changes during the read.
+- If depth is capped, emit a `depth-cap` warning telling agents to continue with narrower
+  `get_code` calls using returned `data-hint-id` values. When only the selected root fits, use
+  `get_structure` to choose its children; this root context is not a shell claiming complete child IDs.
 
 ## Output contract (GetCodeResult)
 
@@ -66,6 +70,8 @@ This document records the requirements and hard constraints for the MCP `get_cod
   The Hub allows the batch work window plus the normal per-root deadline for calls that may read multiple roots.
 - Defer later roots intact when they cannot fit after earlier results. Only a root with its own full response budget uses shell fallback; batching alone must not force a later root into a shell.
 - If output exceeds the inline budget, prefer returning a shell response for the current node.
+- A byte-budget shell retains the full result's resolved language, including language detected
+  from a plugin child that the shell omits.
 - A shell response:
   - preserves the current node wrapper/layout markup,
   - omits all direct children for that node,
@@ -81,15 +87,18 @@ This document records the requirements and hard constraints for the MCP `get_cod
 - Only throw a user-facing budget error when a usable shell cannot be generated.
 - For splittable roots, a full read that takes 20 seconds falls back to the same shell contract.
   Allow up to 5 seconds for the shell so it can return before the Hub's default 30-second timeout.
-  Reuse request-scoped CSS reads and stop scheduling descendant work after the deadline. Leaf and
+  Reuse request-scoped CSS reads and stop scheduling descendant work after the deadline. Actual leaf and
   vector roots and unbounded debug reads retain full reads. Containers planned as a single vector
   asset must not fall back to a shell, which could break masks or compositing across children.
+  A depth-capped root with no retained children still obeys the deadline; it is not an actual leaf.
 
 ## Layout and positioning
 
 ### Layout parent
 
-Figma `relativeTransform` is relative to the container parent, not to a GROUP/BOOLEAN parent. The layout parent is the nearest ancestor that is not `GROUP` or `BOOLEAN_OPERATION`.
+Figma `relativeTransform` is relative to the native container parent, not to a GROUP/BOOLEAN
+parent. The emitted layout parent is the nearest boxed GROUP in an auto-layout subtree or the
+nearest non-GROUP/BOOLEAN ancestor. Rebase offsets by the boxed group's native origin.
 
 ### Positioning rules
 
@@ -117,8 +126,9 @@ Figma `relativeTransform` is relative to the container parent, not to a GROUP/BO
 
 - GROUP and BOOLEAN_OPERATION nodes are kept in the tree for structure and hints.
 - A GROUP occupying a flow slot becomes a relative container, with child offsets rebased from
-  the native container coordinate system to that group's origin. Other structural wrappers remain
-  transparent to positioning. An atomic SVG export keeps the
+  the native container coordinate system to that group's origin. Nested GROUP boxes use absolute
+  positioning within that container; a direct `ABSOLUTE` GROUP keeps its authored offset in the
+  auto-layout parent. Freeform structural wrappers remain transparent to positioning. An atomic SVG export keeps the
   original node's placement; its internal descendants no longer participate in HTML layout.
 
 ### Relative containers for absolute children

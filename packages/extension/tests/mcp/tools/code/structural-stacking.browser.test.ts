@@ -131,6 +131,55 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it.each([
+  { nested: true, absolute: false, inferred: false },
+  { nested: true, absolute: false, inferred: true },
+  { nested: false, absolute: true, inferred: false },
+  { nested: true, absolute: true, inferred: false }
+])(
+  'preserves group geometry in auto layout (nested=$nested, absolute=$absolute, inferred=$inferred)',
+  async ({ nested, absolute, inferred }) => {
+    const move = (item: SceneNode, y: number) => {
+      Object.assign(item, {
+        y,
+        relativeTransform: [
+          [1, 0, item.x],
+          [0, 1, y]
+        ]
+      })
+      return item
+    }
+    const outerX = absolute ? 40 : 30
+    const outerY = absolute ? 30 : 20
+    const leafX = outerX + (nested ? 40 : 10)
+    const leafY = outerY + (nested ? 40 : 10)
+    const leaf = move(node('leaf', 'FRAME', leafX, [], { 'background-color': 'red' }), leafY)
+    const inner = move(node('inner', 'GROUP', outerX + 30, [leaf]), outerY + 30)
+    const outer = move(node('outer', 'GROUP', outerX, nested ? [inner] : [leaf]), outerY)
+    if (absolute) Object.assign(outer, { layoutPositioning: 'ABSOLUTE' })
+    const root = node('root', 'FRAME', 0, [outer], {
+      display: 'flex',
+      padding: '20px 0 0 30px',
+      width: '300px',
+      height: '200px'
+    })
+    Object.assign(root, {
+      layoutMode: inferred ? 'NONE' : 'HORIZONTAL',
+      ...(inferred ? { inferredAutoLayout: { layoutMode: 'HORIZONTAL' } } : {}),
+      width: 300,
+      height: 200
+    })
+    const result = await pipeline(root)
+    const origin = result.element('root').getBoundingClientRect()
+    const bounds = result.element('leaf').getBoundingClientRect()
+    expect(bounds.x - origin.x).toBeCloseTo(leafX)
+    expect(bounds.y - origin.y).toBeCloseTo(leafY)
+    expect(result.styles.get('outer')?.position).toBe(absolute ? 'absolute' : 'relative')
+    if (nested) expect(result.styles.get('inner')?.position).toBe('absolute')
+    expect(document.elementFromPoint(bounds.x + 5, bounds.y + 5)).toBe(result.element('leaf'))
+  }
+)
+
 it.each([false, true])(
   'preserves structural group paint order, hit testing, and inherited events (nested=%s)',
   async (nested) => {

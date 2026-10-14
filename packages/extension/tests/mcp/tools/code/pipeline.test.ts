@@ -56,6 +56,43 @@ function node(
 
 afterEach(() => vi.unstubAllGlobals())
 
+describe('get_code bounded tree recovery', () => {
+  it.each(['layered', 'wide'] as const)(
+    'returns bounded root context for a %s tree',
+    async (shape) => {
+      vi.stubGlobal('__DEV__', false)
+      vi.stubGlobal('figma', {
+        mixed: Symbol('mixed'),
+        variables: { getVariableById: () => null, getVariableCollectionById: () => null },
+        getStyleById: () => null
+      })
+      const leaves = Array.from({ length: 2000 }, (_, index) =>
+        node(`leaf-${index}`, 'FRAME', 0, 0)
+      )
+      const children =
+        shape === 'wide'
+          ? leaves
+          : Array.from({ length: 100 }, (_, index) =>
+              node(`branch-${index}`, 'FRAME', 0, 0, leaves.slice(index * 20, index * 20 + 20))
+            )
+      const root = node('root', 'FRAME', 0, 0, children)
+
+      const result = await handleGetCode([root])
+
+      expect(result.code).toContain(`data-hint-id="${shape === 'wide' ? 'root' : 'branch-0'}"`)
+      expect(result.warnings?.find(({ type }) => type === 'depth-cap')?.message).toContain(
+        'get_structure'
+      )
+      for (const leaf of leaves) expect(leaf.getCSSAsync).not.toHaveBeenCalled()
+      expect(root.getCSSAsync).toHaveBeenCalledOnce()
+      if (shape === 'layered') {
+        expect(result.code).toContain('data-hint-id="branch-99"')
+        for (const child of children) expect(child.getCSSAsync).toHaveBeenCalledOnce()
+      }
+    }
+  )
+})
+
 describe('get_code with native opacity bindings', () => {
   function fixture(
     modeId: 'base' | 'opaque',

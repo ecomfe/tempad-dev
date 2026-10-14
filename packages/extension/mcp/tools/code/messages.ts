@@ -45,7 +45,7 @@ export function buildGetCodeWarnings(
     warnings.push({
       type: 'depth-cap',
       message:
-        'Tree depth capped; some subtree roots were omitted. Use returned data-hint-id values to continue with narrower get_code calls.'
+        'Tree depth capped; some descendants were omitted. Use returned data-hint-id values for narrower get_code calls, or get_structure to choose children of a capped root.'
     })
   }
 

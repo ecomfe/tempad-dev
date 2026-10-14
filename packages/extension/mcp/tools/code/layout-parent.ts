@@ -40,7 +40,7 @@ export function getLayoutParent(
     const parent = tree.nodes.get(parentId)
     if (!parent) return undefined
     if (!SKIP_LAYOUT_TYPES.has(parent.node.type)) return parent
-    if (isFlowGroup(tree, parent)) return parent
+    if (isGroupLayoutBox(tree, parent)) return parent
     parentId = parent.parentId
   }
   return undefined
@@ -52,7 +52,21 @@ export function isFlowGroup(tree: VisibleTree, snapshot: NodeSnapshot): boolean 
     return false
   const parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
   if (!parent) return false
-  if (parent.type === 'GROUP') return isFlowGroup(tree, parent)
+  return isAutoLayoutParent(parent)
+}
+
+// Groups in auto layout need a box even when nested or absolutely positioned.
+// Freeform groups keep sharing their nearest container's coordinate system.
+export function isGroupLayoutBox(tree: VisibleTree, snapshot: NodeSnapshot): boolean {
+  if (snapshot.type !== 'GROUP') return false
+  let parent = snapshot.parentId ? tree.nodes.get(snapshot.parentId) : undefined
+  while (parent?.type === 'GROUP') {
+    parent = parent.parentId ? tree.nodes.get(parent.parentId) : undefined
+  }
+  return !!parent && isAutoLayoutParent(parent)
+}
+
+function isAutoLayoutParent(parent: NodeSnapshot): boolean {
   return (
     ('layoutMode' in parent.node && parent.node.layoutMode !== 'NONE') ||
     parent.autoLayoutHint === 'inferred'

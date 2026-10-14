@@ -1,6 +1,6 @@
 import type { NodeSnapshot, VisibleTree } from '../model'
 
-import { isFlowGroup } from '../layout-parent'
+import { isGroupLayoutBox } from '../layout-parent'
 
 type StyleMap = Map<string, Record<string, string>>
 
@@ -222,7 +222,7 @@ function isStructuralGroup(
     node.type !== 'GROUP' ||
     !snapshot.children.length ||
     !style ||
-    isFlowGroup(tree, snapshot) ||
+    isGroupLayoutBox(tree, snapshot) ||
     snapshot.autoLayoutHint
   )
     return false
