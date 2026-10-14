@@ -109,6 +109,9 @@ when another Hub uses a different runtime directory. These locks remain held unt
 exit so shutdown writes cannot overlap a replacement Hub. Older releases do not honor these
 additional locks; do not run them against shared storage concurrently with this version.
 
+On Unix, overridden runtime, state, log, and asset directories must belong to the current
+user, must not be symlinks, and must deny group and other access (for example, mode `0700`).
+
 Before its first connection, the CLI stops after three failed startup attempts and reports
 the error on stderr. Resolve the reported problem and reconnect the MCP client to retry.
 After a working bridge, transient connection failures continue retrying without a limit;
@@ -133,6 +136,21 @@ down the old runtime before reconnecting. Windows retains the released fixed nam
 per-user pipe isolation is not yet implemented.
 
 The hub accepts WebSocket handshakes only from Chrome extension origins on its root path. For a locked-down installation, configure `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS` with the TemPad Dev extension origin shown by the browser. This origin check and the per-process asset capability reduce cross-origin loopback abuse, but do not authenticate local processes, including another OS user's process that binds the port first; see the [local MCP threat model](../../docs/security/local-mcp-threat-model.md).
+
+## Task storage recovery
+
+If task storage cannot be read safely, the error names the affected snapshot. Reads remain
+available, but canvas writes stay blocked across restarts because the snapshot may contain
+permanent Stop fences. The Hub preserves unreadable state in a `.corrupt` file when possible.
+
+To recover, disconnect all MCP clients and wait for the Hub to exit before changing its state.
+Keep copies of the snapshot and any `.corrupt` file. Restore a verified complete snapshot
+that includes the latest Stop fences to the original path using an atomic replacement, then
+reconnect a client. A valid restored snapshot is accepted while the `.corrupt` evidence remains.
+
+An older backup or leftover `.tmp` file may predate a Stop action. Without a trustworthy complete
+snapshot, automatic recovery cannot safely restore writes. Do not delete the quarantine marker
+or replace the snapshot with empty state to bypass the fence.
 
 ## Requirements
 

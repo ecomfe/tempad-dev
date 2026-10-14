@@ -69,7 +69,7 @@ export class DesignTaskStore {
           /* Keep the original evidence. */
         }
       }
-      this.recoveryError = `Design task storage requires recovery at ${this.path}. Reads remain available; canvas writes are blocked to preserve saved Stop fences.`
+      this.recoveryError = `Design task storage requires recovery at ${this.path}. Reads remain available; canvas writes are blocked to preserve saved Stop fences. Restore a verified complete snapshot including the latest Stop fences, then restart the Hub. Keep ${this.path}.corrupt; see Task storage recovery in the MCP README.`
       return undefined
     }
   }

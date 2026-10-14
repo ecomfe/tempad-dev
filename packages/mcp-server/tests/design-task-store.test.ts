@@ -78,6 +78,27 @@ describe('task snapshot recovery', () => {
     expect(files.has('/state/tasks.json.tmp')).toBe(false)
   })
 
+  it('recovers from a verified replacement snapshot without deleting quarantined evidence', () => {
+    files.set('/state/tasks.json', '{broken')
+    const store = new DesignTaskStore('/state/tasks.json')
+    expect(store.load()).toBeUndefined()
+    expect(store.recoveryError).toContain('verified complete snapshot')
+
+    const recovered = {
+      revision: 2,
+      current: {},
+      records: [],
+      fileFences: { stopped: true }
+    }
+    files.set('/state/tasks.json', JSON.stringify(recovered))
+    const restarted = new DesignTaskStore('/state/tasks.json')
+    expect(restarted.load()).toEqual(recovered)
+    expect(restarted.recoveryError).toBeUndefined()
+    expect(() => restarted.save(recovered)).not.toThrow()
+    expect(new DesignTaskStore('/state/tasks.json').load()).toEqual(recovered)
+    expect(files.get('/state/tasks.json.corrupt')).toBe('{broken')
+  })
+
   it('round-trips compact file fences without requiring retained task details', () => {
     const store = new DesignTaskStore('/state/tasks.json')
     const snapshot = {
