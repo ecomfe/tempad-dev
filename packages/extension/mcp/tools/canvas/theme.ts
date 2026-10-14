@@ -11,7 +11,7 @@ import type { DesignSystemCatalog } from '../design-system-catalog'
 import type { CanvasMarkupElement } from './html'
 
 import { getLocalVariableCollections, getVariableCollectionById } from '../../local-resources'
-import { specError } from './errors'
+import { errorMessage, sourceClassMessage, specError } from './errors'
 import { parseCanvasHtml } from './html'
 import {
   CANVAS_KEY_NAMESPACE,
@@ -518,7 +518,12 @@ export function normalizeThemeClasses(
   }
   const variableFields = Object.keys(variables) as VariableField[]
   if (textStyle || variableFields.length) {
-    const parsed = parseCanvasClasses(classes.join(' '))
+    let parsed
+    try {
+      parsed = parseCanvasClasses(classes.join(' '))
+    } catch (error) {
+      specError(sourceClassMessage(sourceClasses, errorMessage(error)))
+    }
     if (
       (bindings[key]?.styles?.text ||
         (element.attributes['data-style-text'] &&

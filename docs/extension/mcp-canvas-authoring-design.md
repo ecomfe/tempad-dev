@@ -502,8 +502,10 @@ The parser fails closed on unknown elements, attributes, classes, or contradicto
 Tailwind v4 utilities are accepted when their default value has a deterministic Figma equivalent;
 arbitrary pixel/color values remain available off scale. It is not a browser and does not execute
 CSS, JavaScript, project theme extensions, Tailwind variants/plugins, or remote page content. The
-exact supported subset is documented in the Design in Figma skill. A plain ampersand remains text
-when it does not begin a semicolon-terminated entity; supported named and numeric entities decode.
+exact supported subset is documented in the Design in Figma skill. Numeric entities and these named
+entities decode: `amp`, `apos`, `gt`, `lt`, `nbsp`, `quot`, `bull`, `copy`, `hellip`, `ldquo`, `lsquo`,
+`mdash`, `middot`, `ndash`, `rdquo`, `reg`, `rsquo`, and `trade`. Plain ampersands and unknown named
+entities remain literal text.
 
 Before compilation, parsing reports a bounded set of independent static markup issues in the same
 pre-mutation error so the caller can repair them together. This includes unsupported classes,

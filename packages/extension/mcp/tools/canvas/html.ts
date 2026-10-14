@@ -1,5 +1,7 @@
 import { MAX_CANVAS_DEPTH, MAX_CANVAS_NODES } from '@tempad-dev/shared'
 
+import { specError as htmlError } from './errors'
+
 export type CanvasMarkupElement = {
   sourceClasses?: ReadonlyMap<string, string>
   attributes: Record<string, string>
@@ -12,14 +14,22 @@ export type CanvasMarkupElement = {
 const HTML_ENTITIES: Readonly<Record<string, string>> = {
   amp: '&',
   apos: "'",
+  bull: '\u2022',
+  copy: '\u00a9',
   gt: '>',
+  hellip: '\u2026',
+  ldquo: '\u201c',
+  lsquo: '\u2018',
   lt: '<',
+  mdash: '\u2014',
+  middot: '\u00b7',
   nbsp: '\u00a0',
-  quot: '"'
-}
-
-function htmlError(message: string): never {
-  throw new Error(message)
+  ndash: '\u2013',
+  quot: '"',
+  rdquo: '\u201d',
+  reg: '\u00ae',
+  rsquo: '\u2019',
+  trade: '\u2122'
 }
 
 function normalizeTag(tag: string): string {

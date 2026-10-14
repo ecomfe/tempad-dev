@@ -5386,9 +5386,11 @@ async function applyNodeProperties(
   node: SupportedCanvasNode,
   spec: CanvasNodeSpec,
   state: ApplyState,
-  parent?: CanvasParentNode
+  parent?: CanvasParentNode,
+  nativeOnly = false
 ): Promise<void> {
   try {
+    state.ignoredLiteralWarnings.push(...ignoredLiteralWarnings(node, spec, nativeOnly))
     await applyNodePropertiesUnchecked(node, spec, state, parent)
   } catch (error) {
     throwNodeError(error, spec.key, node.id)
@@ -5410,7 +5412,6 @@ async function applyNodePropertiesUnchecked(
   state: ApplyState,
   parent?: CanvasParentNode
 ): Promise<void> {
-  state.ignoredLiteralWarnings.push(...ignoredLiteralWarnings(node, spec))
   if (node.type === 'TEXT') {
     await loadFonts(currentTextFonts(node), state.fonts)
   }
@@ -6302,7 +6303,8 @@ type VariableFallback = boolean | number | string | RGBA
 
 function ignoredLiteralWarnings(
   node: SupportedCanvasNode,
-  spec: CanvasNodeSpec
+  spec: CanvasNodeSpec,
+  nativeOnly: boolean
 ): VerificationWarning[] {
   const fields: string[] = []
   for (const [field, nativeField] of Object.entries(DIRECT_VARIABLE_FIELDS) as Array<
@@ -6310,6 +6312,8 @@ function ignoredLiteralWarnings(
   >) {
     if (spec.variables?.[field] !== undefined || !currentBoundVariableId(node, nativeField))
       continue
+    // Native-only specs copy size and characters to preserve live state, not to author literals.
+    if (nativeOnly && (field === 'characters' || Object.hasOwn(spec.size, field))) continue
     const literal = variableFallback(spec, field)
     if (literal !== undefined) fields.push(field)
   }
@@ -8139,7 +8143,7 @@ async function reconcileNativeUpdate(
     applyStyleResources(state)
     for (const spec of specs) {
       const node = state.keyedNodes.get(spec.key)!
-      await applyNodeProperties(node, spec, state, nativeUpdateParent(node))
+      await applyNodeProperties(node, spec, state, nativeUpdateParent(node), true)
     }
     for (const spec of specs) {
       const node = state.keyedNodes.get(spec.key)!

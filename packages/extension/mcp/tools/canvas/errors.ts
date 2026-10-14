@@ -25,6 +25,16 @@ export function errorMessage(error: unknown, fallback = ''): string {
   return fallback
 }
 
+export function sourceClassMessage(
+  sourceClasses: ReadonlyMap<string, string> | undefined,
+  message: string
+): string {
+  for (const [literal, source] of sourceClasses ?? []) {
+    message = message.replaceAll(`"${literal}"`, `"${source}"`)
+  }
+  return message
+}
+
 export function formatSchemaError(error: ZodError): string {
   const issues = error.issues.flatMap((issue) => expandSchemaIssue(issue))
   const strictPaths = new Set(

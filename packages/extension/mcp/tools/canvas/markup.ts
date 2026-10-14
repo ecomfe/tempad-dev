@@ -22,6 +22,7 @@ import type {
 } from './model'
 import type { CanvasClasses } from './tailwind'
 
+import { sourceClassMessage } from './errors'
 import { parseCanvasHtml } from './html'
 import { isFrameContainerType, isIntrinsicContainer, isShapeType } from './model'
 import {
@@ -382,13 +383,6 @@ function childLayoutIssues(
   return issues
 }
 
-function sourceClassMessage(element: CanvasMarkupElement, message: string): string {
-  for (const [literal, source] of element.sourceClasses ?? []) {
-    message = message.replaceAll(`"${literal}"`, `"${source}"`)
-  }
-  return message
-}
-
 function assertStaticMarkupLegality(
   root: CanvasMarkupElement,
   bindings: Record<string, CanvasBinding>
@@ -403,7 +397,8 @@ function assertStaticMarkupLegality(
   if (unsupported) add(unsupported)
 
   const visit = (element: CanvasMarkupElement, parentClasses?: CanvasClasses): void => {
-    const report = (message: string): void => add(sourceClassMessage(element, message))
+    const report = (message: string): void =>
+      add(sourceClassMessage(element.sourceClasses, message))
     let className: string
     let key: string
     try {
@@ -1094,7 +1089,8 @@ function compileElement(
   try {
     return compileElementUnchecked(element, state, depth, parent, gridPlacement, insideComponent)
   } catch (error) {
-    if (error instanceof Error) error.message = sourceClassMessage(element, error.message)
+    if (error instanceof Error)
+      error.message = sourceClassMessage(element.sourceClasses, error.message)
     throw error
   }
 }
