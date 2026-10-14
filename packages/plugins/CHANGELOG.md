@@ -2,8 +2,9 @@
 
 ## 0.6.3
 
-- Preserve named props in `h()` and normalize absent or null props to an empty object.
-- Clarify predicate queries and link to the published SDK's source documentation.
+- Fixed `h()` treating props with a `name` field as a child component. Missing or null props
+  now become an empty object.
+- Clarified predicate examples for `queryAll` and `queryOne`.
 
 ## 0.6.2
 

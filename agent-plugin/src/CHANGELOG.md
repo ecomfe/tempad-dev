@@ -2,13 +2,11 @@
 
 ## 0.5.1
 
-- Bind Claude task sessions from bare MCP text or content arrays as well as wrapped results,
-  so lifecycle changes and Figma Stop can reach the correct conversation.
-- Restored the former standalone authoring skill name as a generated compatibility alias for one
-  extension store release cycle. Native plugins continue to expose the two current skills.
-- Corrected read-tool guidance and extension upgrade instructions, and limited Claude's
-  post-tool lifecycle hook to TemPad calls while preserving Stop checks before every tool.
-- Configured Codex's tool timeout to cover the Hub's bounded canvas-write wait.
+- Fixed Claude session binding so Figma Stop reaches the correct conversation.
+- Retained the `figma-canvas-authoring` alias for standalone installs for one extension release
+  cycle. New invocations should use `design-in-figma`.
+- Corrected design, code-export, and extension upgrade guidance.
+- Increased Codex's tool timeout to allow slow canvas operations to report their outcome.
 
 ## 0.5.0
 

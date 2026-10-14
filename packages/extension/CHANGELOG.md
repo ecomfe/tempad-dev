@@ -2,86 +2,19 @@
 
 ## 0.23.4
 
-- Preserve component variant sizing, new-node defaults, native grid placement, and text font
-  bindings in canvas updates; validate resources earlier and retain useful rollback diagnostics.
-- Detect incomplete rollback of clipping, layout, size constraints, and local transforms in
-  pre-existing nodes even when their identity and bounding geometry remain unchanged.
-  Verify that existing page properties, authoring keys, page order, and children are restored too.
-  Preserve the rollback baseline for unrelated edits made while page fonts preload.
-- Load intermediate font faces before sequential typography variable bindings on text nodes,
-  text ranges, and Text styles, respecting the binding order.
-- Preload fonts for the first changed page mode before changing page properties or opening the
-  Undo boundary, including calls with markup and no declared resources. Retain live font checks
-  before each mode change.
-- Validate geometry against same-call variable updates in the existing collection's default mode,
-  including when markup references a cached catalog alias.
-- Reject malformed vector paths and known variable type errors in paints, effects, text/grid
-  styles, and component property definitions before creating declared resources. Keep empty
-  resource declarations outside the Undo boundary during preflight.
-- Validate declared resource IDs, ownership, collection membership, mode identities, and Pattern
-  sources before creating resources; check known extension parents, overrides, and value modes
-  early, and preload existing TextStyle fonts and independent node fonts before the Undo boundary.
-  Preload existing TextStyle variable fonts for current consumers when no variable declarations
-  or font-variable imports must be applied first.
-- Reject missing hyperlink targets, Pattern sources, and image hashes before creating unrelated
-  declared resources, including in native-only updates.
-- Reject invalid component references, local instance properties, Slot metadata and bounds, and
-  instance exposure before creating declared resources; preserve same-call property declarations
-  and defer library imports to the Undo boundary.
-- Reject deletion of a retained extended collection's parent before writing, and skip unrelated
-  variable-reference reads when removing only modes while retaining full explicit-mode checks.
-  Preload pages needed for resource removals before writing, then inspect current references
-  after reconciliation so same-call unbinding and newly added consumers remain respected.
-- Preserve child order and reference checks when moving the last child auto-deletes its Group;
-  reject cascading deletion of ancestor Groups not explicitly included in the removal.
-- Correct native-to-CSS fill stacking, auto-layout ordering, SVG flow placement and visible
-  stroke/shadow bounds, including zero-height lines. Normalize percent-valued opacity bindings
-  in canvas authoring and token output without changing shared spacing variables.
-- Preserve normal weight and style in mixed-font text exports. Render Figma font-face variable
-  bindings as native CSS typography while retaining their original token definitions.
-- Preserve interleaved flow/absolute siblings and native reverse paint order for flex/grid and
-  ordinary block elements in generated CSS. Order transparent non-flow group descendants in the
-  outer paint context, removing wrapper boxes only when flow siblings will not move. Rank
-  eligible transformed or filtered groups, including background blur, without flattening them or
-  moving their descendants. Preserve interleaved static opacity, isolation, and blend groups
-  without changing their descendants' containing blocks. Isolate native Normal groups so child
-  blending does not leak into the external backdrop, while retaining Pass through blending.
-  Keep nested groups with variable-bound opacity in native paint order as modes switch between
-  partial and full opacity, without introducing new blending boundaries or discarding tokens.
-- Bound code reads and screenshot work and release request-local image caches. Reject oversized
-  trees before native layout inference and reduce repeated child-overflow scans. Count tree
-  construction toward the code-generation deadline and check synchronous scans before starting
-  more work, including scans over hidden nodes. Check elapsed time between node reads and vector
-  export batches even when cached or immediately resolved Promises defer timeout timers. Do not
-  start asset uploads, fallback exports, or subsequent fills after native reads exceed the deadline.
-  Check physical-child overflow and nested variable/paint scans within each node, and reuse inferred
-  layout hints for group flow and vector positioning instead of rescanning children.
-  Stop token alias resolution and later plugin naming batches after the current attempt expires.
-  Read component anatomy lazily so wide sibling lists respect the existing visit limit.
-- Cancel unused network response bodies after rejected downloads and completed resource uploads.
-- Validate video URLs before importing sibling media, using the same HTTPS and local-address
-  checks at input validation and download time.
-- Recover task controls from malformed review storage, propagate offline Stop requests, and
-  report lost connections and permissions. Confirm permanent Stop and preserve unsent feedback.
-- Retain explicit active-file choices across reconnects and service-worker restarts, validating
-  the original tab, document, and file before recovery. Limit active-session broadcasts to its tab.
-- Persist restored reviews before exposing them, retain cancellation when closing an older
-  snapshot, and clear pending requests immediately when the bridge cannot send them.
-- Provide a saved-comment reload action after cross-tab draft conflicts and distinguish Stop,
-  review completion, and comment-delivery timeouts.
-- Unlock comment editing as soon as a failure receipt arrives, preserving drafts and preventing
-  late responses from changing a subsequent retry's submission state.
-- Refresh pending draft snapshots after confirmed delivery so delayed saves cannot restore
-  already delivered comments or discard newer drafts.
-- Prevent stale selection code, invalid unit conversion, and false clipboard success; improve
-  keyboard access and make plugin installation explicit.
-- Refresh selected-node resources across file changes, allow retries after synchronous resource
-  lookup failures, and provide a Refresh links action without changing selection. Preserve cached
-  links when refreshing fails, and reduce idle overlay work while retaining prompt updates during interaction.
-- Show documentation links when selecting a component set directly.
-- Confirm plugin installation only after saving it, and preserve installed plugins when storage fails.
-- Simplified the dynamic script interceptor to use packaged matching rules directly, preserving
-  Rspack chunk loading and existing failure recovery.
+- Improved CSS exports for layered fills, stacking and blending, mixed fonts, variable opacity,
+  and SVG sizing and placement.
+- Fixed canvas updates involving components, grids, fonts, and variable modes. Invalid resource
+  changes are rejected earlier, with clearer errors when failed edits cannot be fully restored.
+- Improved responsiveness when reading large designs and exporting screenshots.
+- Fixed blank images with the extension enabled and improved Figma script loading and recovery.
+- Kept the selected Figma file active across reconnects and extension background restarts.
+- Improved Stop confirmation, cancellation during disconnection, and task error messages.
+- Preserved feedback drafts after failed delivery and added a reload action for conflicting
+  comments saved in another tab.
+- Fixed stale selection code, incorrect unit conversions, and misleading copy or plugin-install
+  success messages. Improved keyboard access.
+- Added Refresh links and documentation links for component sets.
 
 ## 0.23.3
 
