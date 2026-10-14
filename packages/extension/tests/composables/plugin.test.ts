@@ -60,7 +60,7 @@ describe('composables/plugin', () => {
     vi.restoreAllMocks()
   })
 
-  it('installs from direct URL and shows install toast', async () => {
+  it('prepares a direct URL plugin without claiming it has been persisted', async () => {
     fetchMock.mockResolvedValueOnce(response({ text: async () => 'export default {}' }))
     mocks.codegen.mockResolvedValueOnce({ pluginName: 'DemoPlugin' })
 
@@ -76,17 +76,7 @@ describe('composables/plugin', () => {
     })
     expect(plugin.validity.value).toBe('')
     expect(plugin.installing.value).toBe(false)
-    expect(mocks.notify).toHaveBeenCalledWith('Plugin "DemoPlugin" installed successfully.')
-  })
-
-  it('shows update toast when install is called in update mode', async () => {
-    fetchMock.mockResolvedValueOnce(response({ text: async () => 'export default {}' }))
-    mocks.codegen.mockResolvedValueOnce({ pluginName: 'UpdatePlugin' })
-
-    const plugin = usePluginInstall()
-    await plugin.install('https://cdn/update.js', true)
-
-    expect(mocks.notify).toHaveBeenCalledWith('Plugin "UpdatePlugin" updated successfully.')
+    expect(mocks.notify).not.toHaveBeenCalled()
   })
 
   it('resolves registered source from remote registry', async () => {
@@ -129,7 +119,7 @@ describe('composables/plugin', () => {
 
     expect(installed).toBeNull()
     expect(plugin.validity.value).toBe(
-      'Failed to fetch the script content: "missing-plugin" is not a registered plugin.'
+      'Plugin installation failed: "missing-plugin" is not a registered plugin.'
     )
   })
 
@@ -145,7 +135,43 @@ describe('composables/plugin', () => {
     const installed = await plugin.install('https://cdn/404.js')
 
     expect(installed).toBeNull()
-    expect(plugin.validity.value).toBe('Failed to fetch the script content: 500: Request failed')
+    expect(plugin.validity.value).toBe('Plugin installation failed: 500: Request failed')
+  })
+
+  it.each([
+    { status: 500, type: 'text/javascript', url: 'https://cdn/plugin.js', error: '500:' },
+    { status: 200, type: 'text/html', url: 'https://cdn/plugin.js', error: 'HTML document' },
+    {
+      status: 200,
+      type: 'text/javascript',
+      url: 'http://remote/plugin.js',
+      error: 'must use HTTPS'
+    }
+  ])('cancels unread plugin bodies on rejection: $error', async ({ status, type, url, error }) => {
+    const cancel = vi.fn(async () => {
+      throw new Error('Cleanup failed')
+    })
+    const body = new ReadableStream<Uint8Array>({ cancel })
+    const reply = new Response(body, { status, headers: { 'Content-Type': type } })
+    Object.defineProperty(reply, 'url', { value: url })
+    fetchMock.mockResolvedValueOnce(reply)
+    const plugin = usePluginInstall()
+    expect(await plugin.install('https://cdn/plugin.js')).toBeNull()
+    expect(plugin.validity.value).toContain(error)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(body.locked).toBe(false)
+    expect(mocks.codegen).not.toHaveBeenCalled()
+  })
+
+  it('cancels a rejected registry body before falling back to the snapshot', async () => {
+    const cancel = vi.fn()
+    fetchMock
+      .mockResolvedValueOnce(new Response(new ReadableStream({ cancel }), { status: 503 }))
+      .mockResolvedValueOnce(response({ text: async () => 'export default {}' }))
+    mocks.codegen.mockResolvedValueOnce({ pluginName: 'SnapshotPlugin' })
+    const plugin = usePluginInstall()
+    expect(await plugin.install('@snapshot-plugin')).toMatchObject({ pluginName: 'SnapshotPlugin' })
+    expect(cancel).toHaveBeenCalledOnce()
   })
 
   it('handles empty plugin names from codegen result', async () => {
@@ -180,7 +206,7 @@ describe('composables/plugin', () => {
     const installed = await plugin.install('https://cdn/network-error.js')
 
     expect(installed).toBeNull()
-    expect(plugin.validity.value).toBe('Failed to fetch the script content: Network error')
+    expect(plugin.validity.value).toBe('Plugin installation failed: Network error')
   })
 
   it('cancels a pending install without allowing its stale result to win', async () => {
@@ -210,14 +236,17 @@ describe('composables/plugin', () => {
     expect(retried?.pluginName).toBe('RetriedPlugin')
     expect(abortSpy).toHaveBeenCalledOnce()
 
+    const cancelBody = vi.fn()
     resolveFirstFetch(
       response({
         status: 500,
+        body: new ReadableStream({ cancel: cancelBody }),
         text: async () => ''
       })
     )
     expect(await first).toBeNull()
     expect(plugin.validity.value).toBe('')
+    expect(cancelBody).toHaveBeenCalledOnce()
   })
 
   it('returns early when install is called while an install is already running', async () => {
@@ -243,6 +272,39 @@ describe('composables/plugin', () => {
       })
     )
     await first
+  })
+
+  it('keeps a newer pending install active when stale response cleanup finishes', async () => {
+    const oldFetch = Promise.withResolvers<Response>()
+    const newFetch = Promise.withResolvers<Response>()
+    const cleanup = Promise.withResolvers<void>()
+    const cancelBody = vi.fn(() => cleanup.promise)
+    fetchMock.mockReturnValueOnce(oldFetch.promise).mockReturnValueOnce(newFetch.promise)
+    const plugin = usePluginInstall()
+    const oldInstall = plugin.install('https://cdn/old.js')
+    plugin.cancel()
+    oldFetch.resolve(new Response(new ReadableStream({ cancel: cancelBody }), { status: 500 }))
+    await vi.waitFor(() => expect(cancelBody).toHaveBeenCalledOnce())
+    const newInstall = plugin.install('https://cdn/new.js')
+    try {
+      expect(plugin.installing.value).toBe(true)
+      cleanup.resolve()
+      expect(await oldInstall).toBeNull()
+      expect(plugin.installing.value).toBe(true)
+      const signal = fetchMock.mock.calls[1]![1].signal as AbortSignal
+      expect(signal.aborted).toBe(false)
+      plugin.cancel()
+      expect(signal.aborted).toBe(true)
+      expect(plugin.installing.value).toBe(false)
+      newFetch.resolve(new Response('export default {}'))
+      expect(await newInstall).toBeNull()
+      expect(plugin.validity.value).toBe('')
+      expect(mocks.codegen).not.toHaveBeenCalled()
+    } finally {
+      cleanup.resolve()
+      newFetch.resolve(new Response(null))
+      await Promise.allSettled([oldInstall, newInstall])
+    }
   })
 
   it('accepts registered, HTTPS, and loopback development sources only', () => {

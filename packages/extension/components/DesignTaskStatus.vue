@@ -13,6 +13,7 @@ import { computed, nextTick, onMounted, onScopeDispose, shallowRef, watch } from
 
 import Button from '@/components/Button.vue'
 import DesignTaskFeedback from '@/components/DesignTaskFeedback.vue'
+import Dialog from '@/components/Dialog.vue'
 import TemPadLogo from '@/components/icons/TemPadLogo.vue'
 import Section from '@/components/Section.vue'
 import { useToast } from '@/composables/toast'
@@ -44,6 +45,19 @@ const stoppable = computed(
 const dismissBlocked = shallowRef(false)
 const feedbackComponent = shallowRef<InstanceType<typeof DesignTaskFeedback> | null>(null)
 const finishing = shallowRef(false)
+const confirmationOpen = shallowRef(false)
+const confirmationAction = shallowRef<'stop' | 'done'>('stop')
+
+function requestStop() {
+  confirmationAction.value = 'stop'
+  confirmationOpen.value = true
+}
+
+async function confirmAction() {
+  confirmationOpen.value = false
+  if (confirmationAction.value === 'stop') emit('stop')
+  else await done(true)
+}
 const feedbackSupported = computed(
   () => AGENT_CLIENTS[props.task?.client?.kind ?? 'other'].feedback
 )
@@ -62,7 +76,16 @@ const exitPhase = shallowRef<'collapsing' | 'exiting' | null>(null)
 const dismissed = shallowRef(false)
 let exitTimer: ReturnType<typeof setTimeout> | undefined
 
-async function done() {
+async function done(confirmed = false) {
+  if (
+    !confirmed &&
+    props.task?.status === 'completed' &&
+    feedbackComponent.value?.hasUnsentContent
+  ) {
+    confirmationAction.value = 'done'
+    confirmationOpen.value = true
+    return
+  }
   const taskId = props.task?.taskId
   if (!taskId || stoppable.value || dismissBlocked.value || exitPhase.value || finishing.value)
     return
@@ -104,6 +127,7 @@ watch(
       exitPhase.value = null
       dismissed.value = false
       finishing.value = false
+      confirmationOpen.value = false
       retainedAnchor.value = null
     }
     if (anchor) retainedAnchor.value = anchor
@@ -433,8 +457,6 @@ onScopeDispose(() => {
           'tp-design-exiting': exitPhase === 'exiting'
         }"
         :style="projection?.feedback"
-        role="status"
-        aria-live="polite"
         @dblclick="resetPosition"
       >
         <TemPadLogo
@@ -444,7 +466,7 @@ onScopeDispose(() => {
           aria-hidden="true"
         />
         <div class="tp-design-feedback-content" :inert="!!exitPhase">
-          <span v-if="hasAnchor" class="tp-design-anchor-label">
+          <span v-if="hasAnchor" class="tp-design-anchor-label" role="status" aria-live="polite">
             <span class="tp-design-label-text" :class="{ 'tp-design-shimmer': active }">{{
               label
             }}</span>
@@ -465,11 +487,11 @@ onScopeDispose(() => {
             v-if="stoppable"
             class="tp-design-stop"
             :aria-label="task.status === 'stopping' ? 'Stopping design task' : 'Stop design task'"
-            data-tooltip="Stop design task"
+            data-tooltip="Permanently cancel this design task"
             data-tooltip-type="text"
             :disabled="task.status === 'stopping'"
             @pointerdown.stop
-            @click.stop="emit('stop')"
+            @click.stop="requestStop"
           >
             Stop
           </Button>
@@ -482,16 +504,41 @@ onScopeDispose(() => {
             "
             data-tooltip-type="text"
             @pointerdown.stop
-            @click.stop="done"
+            @click.stop="done()"
             >Done</Button
           >
         </div>
       </div>
     </div>
   </Teleport>
+  <Dialog
+    v-model="confirmationOpen"
+    compact
+    :title="confirmationAction === 'stop' ? 'Stop design task?' : 'Finish and discard comments?'"
+  >
+    <p class="tp-design-confirmation-description">
+      {{
+        confirmationAction === 'stop'
+          ? 'This permanently cancels the current task. Unsent comments will no longer be available in this review.'
+          : 'Finishing clears your unsent comments. This cannot be undone.'
+      }}
+    </p>
+    <template #footer="{ close }">
+      <Button @click="close">Keep reviewing</Button>
+      <Button variant="primary" @click="confirmAction">{{
+        confirmationAction === 'stop' ? 'Stop task' : 'Discard comments and finish'
+      }}</Button>
+    </template>
+  </Dialog>
 </template>
 
 <style scoped>
+.tp-design-confirmation-description {
+  margin: 0;
+  padding: var(--spacer-3);
+  line-height: var(--text-body-medium-line-height);
+}
+
 .tp-design-task-section :deep(.tp-section-content) {
   padding: 0;
 }
@@ -694,10 +741,10 @@ onScopeDispose(() => {
   background-image: linear-gradient(
     90deg,
     transparent,
-    color-mix(in srgb, var(--color-text, #222) 50%, white) 25%,
-    color-mix(in srgb, var(--color-text, #222) 15%, white) 45%,
-    color-mix(in srgb, var(--color-text, #222) 15%, white) 55%,
-    color-mix(in srgb, var(--color-text, #222) 50%, white) 75%,
+    color-mix(in srgb, var(--color-text, #222) 50%, var(--color-bg, #fff)) 25%,
+    color-mix(in srgb, var(--color-text, #222) 15%, var(--color-bg, #fff)) 45%,
+    color-mix(in srgb, var(--color-text, #222) 15%, var(--color-bg, #fff)) 55%,
+    color-mix(in srgb, var(--color-text, #222) 50%, var(--color-bg, #fff)) 75%,
     transparent
   );
   background-position: 250% 0;

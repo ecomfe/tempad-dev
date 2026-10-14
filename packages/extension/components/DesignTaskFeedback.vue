@@ -13,7 +13,7 @@ import {
   DesignFeedbackSchema,
   MCP_DESIGN_FEEDBACK_MAX_ITEMS
 } from '@tempad-dev/shared'
-import { onClickOutside, unrefElement, useEventListener, useResizeObserver } from '@vueuse/core'
+import { onClickOutside, unrefElement, useEventListener } from '@vueuse/core'
 import { computed, onScopeDispose, shallowRef, watch } from 'vue'
 
 import Button from '@/components/Button.vue'
@@ -23,19 +23,11 @@ import Check from '@/components/icons/Check.vue'
 import Comment from '@/components/icons/Comment.vue'
 import Spinner from '@/components/icons/Spinner.vue'
 import Times from '@/components/icons/Times.vue'
+import { useFeedbackCanvas } from '@/composables/feedback-canvas'
 import { useToast } from '@/composables/toast'
 import {
-  canvasClipStyle,
-  canvasHoverContains,
-  canvasRectsOverlap,
-  observeCanvasOverlay,
-  placeCanvasPopover,
-  projectCanvasAnchor,
-  selectionActionBounds,
-  type CanvasOverlayFrame
-} from '@/mcp/canvas-overlay'
-import {
   describeFeedbackTarget,
+  FEEDBACK_DRAFT_CONFLICT_MESSAGE,
   getFeedbackDraftScope,
   sameFeedbackItem
 } from '@/mcp/design-feedback'
@@ -57,15 +49,6 @@ const emit = defineEmits<{
 }>()
 
 type Draft = { node: SceneNode | null; item: DesignFeedbackItem }
-type Marker = {
-  node: SceneNode
-  nodeId: string
-  number: number | null
-  x: number
-  y: number
-  revealed: boolean
-  occluded: boolean
-}
 type Editor = { key: string; node: SceneNode } & NonNullable<
   ReturnType<typeof describeFeedbackTarget>
 >
@@ -77,6 +60,7 @@ const scopeKey = computed(() => JSON.stringify(scope.value))
 let attempt: DesignFeedback | undefined
 const deliveries = new Map<string, DesignFeedback>()
 let generation = 0
+let deliveryRevision = 0
 const editor = shallowRef<Editor | null>(null)
 const editorText = shallowRef('')
 const editedDraft = computed(() =>
@@ -98,17 +82,11 @@ watch(
     flush: 'post'
   }
 )
-const editorMultiline = shallowRef(false)
-const editorHeight = shallowRef(220)
-useResizeObserver(editorElement, () => {
-  editorHeight.value = editorElement.value?.offsetHeight ?? 220
-})
 const batchOpen = shallowRef(false)
 const batchButton = shallowRef<InstanceType<typeof Button> | null>(null)
 const batchTrigger = computed(() => unrefElement(batchButton))
 const batchElement = shallowRef<HTMLElement | null>(null)
 const commentInput = shallowRef<HTMLTextAreaElement | null>(null)
-const commentMultiline = shallowRef(false)
 let focusBatch = false
 function toggleBatch(): void {
   if (!commentsEnabled.value || sending.value) return
@@ -126,10 +104,6 @@ watch(commentInput, (element) => {
     element.focus({ preventScroll: true })
     focusBatch = false
   }
-})
-const batchHeight = shallowRef(320)
-useResizeObserver(batchElement, () => {
-  batchHeight.value = batchElement.value?.offsetHeight ?? 320
 })
 onClickOutside(batchElement, () => (batchOpen.value = false), { ignore: [batchTrigger] })
 
@@ -172,22 +146,6 @@ useEventListener(
   (event) => (submitModifierPressed.value = event.metaKey || event.ctrlKey),
   { capture: true }
 )
-const suppressedNode = shallowRef<string | null>(null)
-let selectedNodeId: string | null = null
-const hoveredMarker = shallowRef<string | null>(null)
-let hideAddAt: number | undefined
-let pointer: { x: number; y: number } | null = null
-useEventListener(
-  window,
-  'pointermove',
-  (event) => {
-    pointer = { x: event.clientX, y: event.clientY }
-  },
-  { passive: true, capture: true }
-)
-useEventListener(window, 'pointerout', (event) => {
-  if (!event.relatedTarget) pointer = null
-})
 let clearTimer: ReturnType<typeof setTimeout> | undefined
 
 const local = computed(() => props.restored || props.task.target.sessionId === props.sessionId)
@@ -201,8 +159,6 @@ const canDraft = computed(() => commentsEnabled.value && !!scope.value && !!prop
 
 useEventListener(window, 'blur', () => {
   submitModifierPressed.value = false
-  pointer = null
-  hoveredMarker.value = null
 })
 const hasContent = computed(() => drafts.value.length > 0 || !!commentText.value.trim())
 const submissionBlockedHint = computed(() => {
@@ -255,11 +211,9 @@ async function saveComment(): Promise<boolean> {
   commentSaving.value = true
   commentError.value = ''
   requestError.value = ''
-  const request = props
-    .requestDrafts({ operation: 'comment', scope: draftScope, comment })
+  const request = requestSnapshot({ operation: 'comment', scope: draftScope, comment })
     .then((snapshot) => {
-      if (token !== generation) return false
-      installSnapshot(snapshot)
+      if (token !== generation || !snapshot) return false
       commentError.value = ''
       requestError.value = ''
       return true
@@ -324,7 +278,8 @@ async function prepareDismiss(discard: boolean, close?: () => Promise<void>): Pr
     if (token === generation) clearing.value = false
   }
 }
-defineExpose({ prepareDismiss })
+const hasUnsentContent = computed(() => hasContent.value || editorHasChanges.value)
+defineExpose({ prepareDismiss, hasUnsentContent })
 
 watch([commentText, busy], () => {
   clearTimeout(commentTimer)
@@ -381,6 +336,27 @@ function installSnapshot(snapshot: FeedbackDraftSnapshot, knownNode?: SceneNode)
   void hydrateNodes()
 }
 
+async function requestSnapshot(
+  request: FeedbackDraftRequest,
+  knownNode?: SceneNode
+): Promise<FeedbackDraftSnapshot | undefined> {
+  const requestDrafts = props.requestDrafts
+  if (!requestDrafts) return
+  const token = generation
+  let revision = deliveryRevision
+  let snapshot = await requestDrafts(request)
+  while (token === generation) {
+    if (revision === deliveryRevision) {
+      installSnapshot(snapshot, knownNode)
+      return snapshot
+    }
+    // Delivery can settle storage while an earlier save/load response is in flight.
+    // Keep that operation busy until a fresh read includes every received delivery.
+    revision = deliveryRevision
+    snapshot = await requestDrafts({ operation: 'load', scope: request.scope })
+  }
+}
+
 let loadRetryTimer: ReturnType<typeof setTimeout> | undefined
 let loadRetryDelay = 1000
 
@@ -401,9 +377,8 @@ async function loadDrafts(): Promise<void> {
   requestError.value = ''
   ready.value = false
   try {
-    const snapshot = await props.requestDrafts({ operation: 'load', scope: draftScope })
-    if (token !== generation) return
-    installSnapshot(snapshot)
+    const snapshot = await requestSnapshot({ operation: 'load', scope: draftScope })
+    if (token !== generation || !snapshot) return
     loadRetryDelay = 1000
     if (scopeKey.value === key) {
       requestError.value = snapshot.submission ? 'Sending not confirmed.' : ''
@@ -419,17 +394,7 @@ async function loadDrafts(): Promise<void> {
   }
 }
 
-function visibleNodePage(node: SceneNode): string | null {
-  if (node.removed) return null
-  let page: BaseNode | null = node
-  while (page && page.type !== 'PAGE') {
-    if ('visible' in page && !page.visible) return null
-    page = page.parent
-  }
-  return page?.id ?? null
-}
-
-function openEditor(marker: Pick<Marker, 'node' | 'nodeId'>): void {
+function openEditor(marker: { node: SceneNode; nodeId: string }): void {
   if (!commentsEnabled.value || busy.value || submitting.value) return
   const target = describeFeedbackTarget(marker.node)
   if (!target) return
@@ -452,12 +417,11 @@ async function submitEditor(event?: KeyboardEvent | MouseEvent): Promise<void> {
   const target = editor.value
   const token = generation
   submitting.value = 'editor'
-  try {
-    if (!(await saveDraft(!queueBatch)) || token !== generation) return
-    if (queueBatch && editor.value === target) await sendBatch('queue', true)
-  } finally {
+  const saved = await saveDraft(!queueBatch).finally(() => {
     if (token === generation) submitting.value = null
-  }
+  })
+  if (saved && token === generation && queueBatch && editor.value === target)
+    await sendBatch('queue', true)
 }
 
 async function saveDraft(closeEditor = true): Promise<boolean> {
@@ -496,13 +460,11 @@ async function saveDraft(closeEditor = true): Promise<boolean> {
   const token = generation
   persisting.value = true
   try {
-    const snapshot = await props.requestDrafts({
-      operation: 'save',
-      scope: draftScope,
-      item: parsed.data
-    })
-    if (token !== generation) return false
-    installSnapshot(snapshot, target.node)
+    const snapshot = await requestSnapshot(
+      { operation: 'save', scope: draftScope, item: parsed.data },
+      target.node
+    )
+    if (token !== generation || !snapshot) return false
     if (closeEditor && editor.value === target) editor.value = null
     if (scopeKey.value === target.key) requestError.value = ''
     return true
@@ -523,9 +485,8 @@ async function removeDraft(nodeId: string): Promise<void> {
   persisting.value = true
   requestError.value = ''
   try {
-    const snapshot = await props.requestDrafts({ operation: 'remove', scope: draftScope, nodeId })
-    if (token !== generation) return
-    installSnapshot(snapshot)
+    const snapshot = await requestSnapshot({ operation: 'remove', scope: draftScope, nodeId })
+    if (token !== generation || !snapshot) return
     if (editor.value?.key === key && editor.value.nodeId === nodeId) editor.value = null
     if (scopeKey.value === key) requestError.value = ''
   } catch (error) {
@@ -611,7 +572,8 @@ async function sendBatch(
     if (!props.sendFeedback) throw new Error('The agent connection is unavailable.')
     const result = await props.sendFeedback(feedback)
     // A final receipt may beat this initial response. Never revive a settled batch.
-    if (token !== generation || !deliveries.has(feedback.id)) return
+    if (token !== generation || submission !== submissionGeneration || !deliveries.has(feedback.id))
+      return
     if (result.status === 'accepted') {
       if (!isDeliveryInterrupted()) queuedFeedbackId.value = feedback.id
     } else if (result.status === 'failed') {
@@ -623,7 +585,11 @@ async function sendBatch(
     batchOpen.value = false
     if (editor.value === submittedEditor) cancelEditor()
   } catch (error) {
-    if (token === generation && (!feedbackId || deliveries.has(feedbackId)))
+    if (
+      token === generation &&
+      submission === submissionGeneration &&
+      (!feedbackId || deliveries.has(feedbackId))
+    )
       requestError.value = error instanceof Error ? error.message : 'Could not send comments.'
   } finally {
     if (token === generation && submission === submissionGeneration) {
@@ -662,14 +628,20 @@ function cancelEditor(): void {
   editorError.value = ''
 }
 
+function settleSubmission(requestId: string): boolean {
+  if (!sending.value || attempt?.id !== requestId) return false
+  // A terminal receipt wins even while the initial Hub response is pending.
+  submissionGeneration++
+  sending.value = false
+  submitting.value = null
+  return true
+}
+
 function acknowledgeDelivery(requestId: string): void {
   const feedback = deliveries.get(requestId)
   if (!feedback) return
-  if (sending.value && attempt?.id === requestId) {
-    // Native admission is final even if the initial Hub request is still resolving.
-    submissionGeneration++
-    sending.value = false
-    submitting.value = null
+  deliveryRevision++
+  if (settleSubmission(requestId)) {
     batchOpen.value = false
     cancelEditor()
   }
@@ -686,12 +658,13 @@ function acknowledgeDelivery(requestId: string): void {
     deliveredItems.some((item) => sameFeedbackItem(draft.item, item))
   fadingNodes.value = new Set(drafts.value.filter(submitted).map((draft) => draft.item.nodeId))
   fading.value = true
-  suppressedNode.value = selectedNodeId
+  suppressSelection()
   requestError.value = ''
   clearTimeout(clearTimer)
   clearTimer = setTimeout(() => {
     if (token !== generation) return
     drafts.value = drafts.value.filter((draft) => !submitted(draft))
+    syncDraftMarkers()
     deliveredItems = []
     fadingNodes.value = new Set()
     fading.value = false
@@ -716,6 +689,7 @@ watch(
       // A final receipt can arrive after the page's waiting deadline has elapsed.
       acknowledgeDelivery(result.requestId)
     } else if (result.status === 'failed') {
+      settleSubmission(result.requestId)
       deliveries.delete(result.requestId)
       requestError.value = result.message
       if (queuedFeedbackId.value === result.requestId) queuedFeedbackId.value = null
@@ -729,206 +703,32 @@ watch(
   }
 )
 
-const projection = shallowRef<{
-  clip: ReturnType<typeof canvasClipStyle>
-  markers: Marker[]
-  editor: { left: string; top: string; width: string; maxHeight: string } | null
-  batch: { left: string; top: string; width: string; maxHeight: string } | null
-} | null>(null)
-let previousProjection = ''
-let previousPage = ''
-function updateProjection(frame: CanvasOverlayFrame | null): void {
-  if (
-    !commentsEnabled.value ||
-    !frame ||
-    (frame.fileKey && frame.fileKey !== scope.value?.fileKey)
-  ) {
-    projection.value = null
-    previousProjection = ''
-    hideAddAt = undefined
-    hoveredMarker.value = null
-    return
-  }
-  const pageKey = `${frame.fileKey}/${frame.pageId}`
-  if (previousPage !== pageKey) {
-    previousPage = pageKey
-    hoveredMarker.value = null
-    hideAddAt = undefined
-    if (scope.value) void hydrateNodes()
-  }
-  editorMultiline.value = (editorInput.value?.offsetHeight ?? 28) > 28
-  commentMultiline.value = (commentInput.value?.offsetHeight ?? 28) > 28
-  const { canvas } = frame
-  const selected = frame.selectedNode
-  const nativeControls = selectionActionBounds(frame)
-  if (selected?.id !== selectedNodeId) {
-    suppressedNode.value = null
-    hoveredMarker.value = null
-    hideAddAt = undefined
-  }
-  selectedNodeId = selected?.id ?? null
-  const markers: Marker[] = []
-  function position(node: SceneNode, allowOffscreen = false): { x: number; y: number } | null {
-    try {
-      if (visibleNodePage(node) !== frame!.pageId || !node.absoluteBoundingBox) return null
-      const rect = projectCanvasAnchor(node.absoluteBoundingBox, frame!.bounds, frame!.zoom)
-      if (
-        !rect ||
-        (!allowOffscreen &&
-          (rect.x + rect.width < 0 ||
-            rect.y + rect.height < 0 ||
-            rect.x > canvas.width ||
-            rect.y > canvas.height))
-      )
-        return null
-      const point = { x: rect.x + rect.width + 9, y: rect.y + 28 }
-      if (allowOffscreen) return point
-      const size = 16
-      return {
-        // Align below the native 16px Agent entry, with an 8px gap.
-        x: Math.max(8, Math.min(point.x, canvas.width - size - 8)),
-        y: Math.max(8, Math.min(point.y, canvas.height - size - 8))
-      }
-    } catch {
-      return null
-    }
-  }
-  function add(node: SceneNode, number: number | null): void {
-    const point = position(node)
-    if (!point) return
-    const size = 16
-    // Nested elements can share a corner. Keep their numbered targets independently clickable.
-    while (
-      (nativeControls &&
-        canvasRectsOverlap({ ...point, width: size, height: size }, nativeControls)) ||
-      markers.some(
-        (marker) => Math.abs(marker.x - point.x) < 30 && Math.abs(marker.y - point.y) < 30
-      )
-    ) {
-      if (point.y + size + 40 <= canvas.height) point.y += 32
-      else if (point.x >= 40) {
-        point.x -= 32
-        point.y = Math.max(8, point.y - 32)
-      } else return
-    }
-    const rect =
-      number === null && node.absoluteBoundingBox
-        ? projectCanvasAnchor(node.absoluteBoundingBox, frame!.bounds, frame!.zoom)
-        : null
-    const x = pointer ? pointer.x - canvas.left : null
-    const y = pointer ? pointer.y - canvas.top : null
-    const wasRevealed = projection.value?.markers.some(
-      (marker) => marker.nodeId === node.id && marker.number === null && marker.revealed
-    )
-    // The selected element is a canvas shape; its entry test must use projection.
-    // Retain travel passively so native controls and resize handles keep their hit targets.
-    let revealed =
-      number !== null ||
-      editor.value?.nodeId === node.id ||
-      hoveredMarker.value === node.id ||
-      !!(
-        rect &&
-        x !== null &&
-        y !== null &&
-        x >= 0 &&
-        x <= canvas.width &&
-        y >= 0 &&
-        y <= canvas.height &&
-        canvasHoverContains({ x, y }, [
-          rect,
-          ...(wasRevealed
-            ? [{ x: point.x - 4, y: point.y - 4, width: size + 8, height: size + 8 }]
-            : [])
-        ])
-      )
-    if (number === null) {
-      if (revealed) hideAddAt = undefined
-      else if (wasRevealed) {
-        const now = performance.now()
-        hideAddAt ??= now + 100
-        revealed = now < hideAddAt
-      }
-    }
-    const occluded = (frame!.tooltips ?? []).some((tooltip) =>
-      canvasRectsOverlap(
-        { x: canvas.left + point.x, y: canvas.top + point.y, width: size, height: size },
-        tooltip
-      )
-    )
-    markers.push({ node, nodeId: node.id, number, ...point, revealed, occluded })
-  }
-  drafts.value.forEach((draft, index) => {
-    if (draft.node) add(draft.node, index + 1)
-  })
-  if (
-    canDraft.value &&
-    ready.value &&
-    !busy.value &&
-    selected &&
-    selected.id !== suppressedNode.value &&
-    !drafts.value.some((draft) => draft.item.nodeId === selected.id)
-  )
-    add(selected, null)
-  const target =
-    editor.value &&
-    (markers.find((marker) => marker.nodeId === editor.value!.nodeId) ??
-      position(editor.value.node, true))
-  const width = Math.max(0, Math.min(300, canvas.width - 16))
-  const popup =
-    target &&
-    placeCanvasPopover(
-      { ...target, width: 16, height: 16 },
-      { width, height: Math.min(editorHeight.value, Math.max(0, canvas.height - 16)) },
-      canvas
-    )
-  const editorPosition = popup
-    ? {
-        left: `${popup.x}px`,
-        top: `${popup.y}px`,
-        width: `${width}px`,
-        maxHeight: `${canvas.height - 16}px`
-      }
-    : null
-  const trigger = batchOpen.value ? batchTrigger.value : null
-  const anchor = (trigger?.closest('.tp-design-feedback') ?? trigger)?.getBoundingClientRect()
-  const below = (anchor?.bottom ?? 0) - canvas.top + 8
-  const above = (anchor?.top ?? 0) - canvas.top - batchHeight.value - 8
-  const batchPosition = anchor?.width
-    ? {
-        left: `${Math.max(8, Math.min(anchor.right - canvas.left - width, canvas.width - width - 8))}px`,
-        top: `${Math.max(8, Math.min(below + batchHeight.value <= canvas.height - 8 ? below : above, canvas.height - batchHeight.value - 8))}px`,
-        width: `${width}px`,
-        maxHeight: `${canvas.height - 16}px`
-      }
-    : null
-  const next = {
-    clip: canvasClipStyle(canvas),
-    markers,
-    editor: editorPosition,
-    batch: batchPosition
-  }
-  const serialized = JSON.stringify({
-    ...next,
-    markers: markers.map(({ node: _node, ...marker }) => marker)
-  })
-  if (serialized !== previousProjection) {
-    projection.value = next
-    previousProjection = serialized
-  }
-}
-
-let stopObserving: (() => void) | undefined
-watch(
-  () =>
-    commentsEnabled.value &&
-    (canDraft.value || drafts.value.length > 0 || !!editor.value || batchOpen.value),
-  (observe) => {
-    stopObserving?.()
-    stopObserving = observe ? observeCanvasOverlay(updateProjection) : undefined
-    previousProjection = ''
-    if (!observe) projection.value = null
+const {
+  projection,
+  hoveredMarker,
+  editorMultiline,
+  commentMultiline,
+  reset: resetCanvas,
+  suppressSelection,
+  syncDraftMarkers
+} = useFeedbackCanvas(
+  () => ({
+    enabled: commentsEnabled.value,
+    fileKey: scope.value?.fileKey,
+    canDraft: canDraft.value,
+    canAdd: canDraft.value && ready.value && !busy.value,
+    drafts: drafts.value,
+    editor: editor.value,
+    batchOpen: batchOpen.value
+  }),
+  {
+    editor: editorElement,
+    editorInput,
+    batch: batchElement,
+    commentInput,
+    batchTrigger: () => batchTrigger.value
   },
-  { immediate: true }
+  () => void hydrateNodes()
 )
 
 watch(
@@ -970,12 +770,7 @@ watch(
     persisting.value = false
     loading.value = false
     clearing.value = false
-    previousProjection = ''
-    previousPage = ''
-    projection.value = null
-    suppressedNode.value = null
-    hoveredMarker.value = null
-    hideAddAt = undefined
+    resetCanvas()
     ready.value = false
     requestError.value = ''
     void loadDrafts()
@@ -985,7 +780,6 @@ watch(
 onScopeDispose(() => {
   generation++
   clearTimeout(loadRetryTimer)
-  stopObserving?.()
   clearTimeout(clearTimer)
   clearTimeout(commentTimer)
 })
@@ -1003,7 +797,7 @@ onScopeDispose(() => {
       sending
         ? 'Sending comments'
         : drafts.length
-          ? `Review ${drafts.length} comments`
+          ? `Review ${drafts.length} ${drafts.length === 1 ? 'comment' : 'comments'}`
           : 'Review comments'
     "
     :data-tooltip="triggerHint"
@@ -1133,6 +927,14 @@ onScopeDispose(() => {
           <Button v-if="commentError" :disabled="!commentText.trim()" @click="saveComment">
             Retry saving comment
           </Button>
+          <Button
+            v-if="requestError === FEEDBACK_DRAFT_CONFLICT_MESSAGE"
+            :disabled="busy"
+            @click="loadDrafts"
+          >
+            Reload saved comments
+          </Button>
+          <p v-if="commentError || requestError" role="alert">{{ commentError || requestError }}</p>
         </section>
       </Transition>
       <Transition name="tp-feedback-popup">
@@ -1176,6 +978,10 @@ onScopeDispose(() => {
                 class="tp-feedback-check"
             /></IconButton>
           </div>
+          <p v-if="editorError" role="alert">{{ editorError }}</p>
+          <p v-else-if="editorWarned" role="status">
+            Unsaved changes. Click outside again to discard.
+          </p>
         </form>
       </Transition>
     </div>

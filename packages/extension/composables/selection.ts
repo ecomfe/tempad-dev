@@ -1,8 +1,11 @@
 import { useDocumentVisibility, useEventListener, useWindowFocus } from '@vueuse/core'
 import { computed, onMounted, shallowRef, watch } from 'vue'
 
+import { readFigmaFileKey } from '@/mcp/figma-session'
 import { layoutReady, selection, runtimeMode } from '@/ui/state'
 import { getCanvas, getLeftPanel } from '@/utils'
+
+let selectionFileKey: string | null = null
 
 function isSameSelection(next: readonly SceneNode[], current: readonly SceneNode[]): boolean {
   if (next.length !== current.length) return false
@@ -13,16 +16,22 @@ function isSameSelection(next: readonly SceneNode[], current: readonly SceneNode
 }
 
 export function syncSelection() {
-  if (!window.figma?.currentPage) {
+  const api = window.figma
+  if (!api?.currentPage) {
+    selectionFileKey = null
     if (selection.value.length) {
       selection.value = []
     }
     return
   }
-  const next = figma.currentPage.selection
-  if (!isSameSelection(next, selection.value)) {
+  const fileKey = readFigmaFileKey(api)
+  const next = api.currentPage.selection
+  // Node IDs are file-local. Keep same-file wrappers stable, but never retain a
+  // previous document's node (and its resources) when the selected IDs coincide.
+  if (selectionFileKey !== fileKey || !isSameSelection(next, selection.value)) {
     selection.value = next
   }
+  selectionFileKey = fileKey
 }
 
 function handleClick() {

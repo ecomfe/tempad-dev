@@ -4,8 +4,6 @@ import { readBoundedResponseBytes } from '@/mcp/bounded-response'
 import SNAPSHOT_PLUGINS from '@/plugins/available-plugins.json'
 import { codegen } from '@/utils'
 
-import { useToast } from './toast'
-
 export const REGISTERED_PLUGIN_SOURCE_RE = /^@[a-z\d_-]+(?:\/[a-z\d_-]+)*$/
 export const MAX_PLUGIN_SOURCE_BYTES = 512 * 1024
 const MAX_PLUGIN_REGISTRY_BYTES = 128 * 1024
@@ -35,9 +33,13 @@ async function getRegisteredPluginSource(source: string, signal?: AbortSignal): 
 
 async function fetchRegistry(signal?: AbortSignal): Promise<RegistryEntry[]> {
   const response = await fetch(REGISTRY_URL, { cache: 'no-cache', signal })
-  ensureSuccessfulResponse(response)
-  const text = await readBoundedText(response, MAX_PLUGIN_REGISTRY_BYTES)
-  return validateRegistry(JSON.parse(text))
+  try {
+    ensureSuccessfulResponse(response)
+    const text = await readBoundedText(response, MAX_PLUGIN_REGISTRY_BYTES)
+    return validateRegistry(JSON.parse(text))
+  } finally {
+    if (response.body && !response.bodyUsed) await response.body.cancel().catch(() => {})
+  }
 }
 
 function validateRegistry(value: unknown): RegistryEntry[] {
@@ -66,8 +68,6 @@ export type PluginData = {
 }
 
 export function usePluginInstall() {
-  const { show } = useToast()
-
   const validity = shallowRef('')
   const installing = shallowRef(false)
   let controller: AbortController | null = null
@@ -78,7 +78,7 @@ export function usePluginInstall() {
     installing.value = false
   }
 
-  async function install(src: string, isUpdate = false) {
+  async function install(src: string) {
     if (installing.value) {
       return null
     }
@@ -89,6 +89,7 @@ export function usePluginInstall() {
     const isCurrent = () => controller === currentController && !signal.aborted
 
     installing.value = true
+    let response: Response | undefined
 
     try {
       const url = REGISTERED_PLUGIN_SOURCE_RE.test(src)
@@ -100,7 +101,7 @@ export function usePluginInstall() {
       const allowLoopbackRedirect =
         requestedUrl.protocol === 'http:' && isLoopbackHost(requestedUrl.hostname)
 
-      const response = await fetch(url, { cache: 'no-cache', signal })
+      response = await fetch(url, { cache: 'no-cache', signal })
       if (!isCurrent()) return null
       ensureSuccessfulResponse(response)
       validatePluginUrl(response.url || url, allowLoopbackRedirect)
@@ -124,7 +125,6 @@ export function usePluginInstall() {
           return null
         }
         validity.value = ''
-        show(`Plugin "${pluginName}" ${isUpdate ? 'updated' : 'installed'} successfully.`)
         return {
           code,
           integrity,
@@ -140,10 +140,11 @@ export function usePluginInstall() {
       }
     } catch (error) {
       if (isCurrent()) {
-        validity.value = `Failed to fetch the script content: ${errorMessage(error, 'Network error')}`
+        validity.value = `Plugin installation failed: ${errorMessage(error, 'Network error')}`
       }
       return null
     } finally {
+      if (response?.body && !response.bodyUsed) await response.body.cancel().catch(() => {})
       if (controller === currentController) {
         controller = null
         installing.value = false

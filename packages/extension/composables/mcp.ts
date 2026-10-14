@@ -97,7 +97,7 @@ export const useMcp = createSharedComposable(() => {
   let disableRequested = false
   let closingReviewId: string | null = null
   let lastSessionInfo = ''
-  const taskGuard = new PageDesignTasks({
+  const taskGuard: PageDesignTasks = new PageDesignTasks({
     session: () => readFigmaSession(sessionId, taskGuard.busy),
     stoppedStorage: () => window.sessionStorage,
     onChange: () => {
@@ -162,12 +162,17 @@ export const useMcp = createSharedComposable(() => {
     errorMessage.value = null
     const document = readSessionDocument()
     if (document) restoreDesignTask()
+    const saved = readSavedDesignTask()
+    const reviewTask =
+      designTask.value && ownsDesignTask(designTask.value)
+        ? designTask.value
+        : saved?.status === 'cancelled'
+          ? saved
+          : undefined
     postPageMessage({
       ...pageMessageBase,
       type: 'mcp.enable',
-      ...(designTask.value && ownsDesignTask(designTask.value)
-        ? { reviewTask: designTask.value }
-        : {}),
+      ...(reviewTask ? { reviewTask } : {}),
       ...(document ? { document } : {})
     })
   }
@@ -175,7 +180,6 @@ export const useMcp = createSharedComposable(() => {
   function stop() {
     if (taskGuard.busy) {
       disableRequested = true
-      stopDesignTask()
       taskGuard.connect(null)
       return
     }
@@ -363,13 +367,26 @@ export const useMcp = createSharedComposable(() => {
       stopFeedback?.()
       finish?.()
     }
-    postPageMessage({
-      ...pageMessageBase,
-      callId,
-      ...(error ? { error } : { payload: result }),
-      type: 'mcp.toolResult'
-    })
-    if (disableRequested) stop()
+    try {
+      postPageMessage({
+        ...pageMessageBase,
+        callId,
+        ...(error ? { error } : { payload: result }),
+        type: 'mcp.toolResult'
+      })
+    } catch {
+      postPageMessage({
+        ...pageMessageBase,
+        callId,
+        error: {
+          message:
+            'The tool result could not be transferred. Inspect the canvas before retrying a write.'
+        },
+        type: 'mcp.toolResult'
+      })
+    } finally {
+      if (disableRequested) stop()
+    }
   }
 
   function ownsDesignTask(task: DesignTask): boolean {
@@ -378,20 +395,29 @@ export const useMcp = createSharedComposable(() => {
 
   function restoreDesignTask(): void {
     if (taskGuard.task) return
+    const task = readSavedDesignTask()
+    if (
+      !task ||
+      dismissedTaskIds.has(task.taskId) ||
+      task.status === 'cancelled' ||
+      task.reviewClosed
+    )
+      return
+    restoredTaskId.value = task.taskId
+    taskGuard.restore(task)
+  }
+
+  function readSavedDesignTask(): DesignTask | undefined {
     try {
-      const parsed = DesignTaskSchema.safeParse(
+      const parsed = DesignTaskSchema.strip().safeParse(
         JSON.parse(window.sessionStorage.getItem(taskStorageKey) ?? 'null')
       )
       if (
         !parsed.success ||
-        dismissedTaskIds.has(parsed.data.taskId) ||
-        parsed.data.status === 'cancelled' ||
-        parsed.data.reviewClosed ||
         parsed.data.target.fileKey !== readFigmaSession(sessionId, false)?.fileKey
       )
         return
-      restoredTaskId.value = parsed.data.taskId
-      taskGuard.restore(parsed.data)
+      return parsed.data
     } catch {
       // Restore only a valid task saved by this tab; never select a different file.
     }
@@ -605,7 +631,12 @@ export const useMcp = createSharedComposable(() => {
           requestId: action.requestId,
           taskId: action.taskId,
           status: 'failed',
-          message: 'Sending timed out.'
+          message:
+            action.action === 'stop'
+              ? 'Stop confirmation timed out.'
+              : action.action === 'done'
+                ? 'Finishing the review timed out.'
+                : 'Sending comments timed out.'
         }
         designActionResult.value = result
         reject(new Error(result.message))
@@ -616,15 +647,21 @@ export const useMcp = createSharedComposable(() => {
         timer,
         local: ['stop', 'done'].includes(action.action)
       })
-      sentDesignActions.add(action.requestId)
-      if (sentDesignActions.size > 1024)
-        sentDesignActions.delete(sentDesignActions.values().next().value!)
-      postPageMessage({
-        ...pageMessageBase,
-        type: 'mcp.designAction',
-        action,
-        ...(draftScope ? { draftScope } : {})
-      })
+      try {
+        postPageMessage({
+          ...pageMessageBase,
+          type: 'mcp.designAction',
+          action,
+          ...(draftScope ? { draftScope } : {})
+        })
+        sentDesignActions.add(action.requestId)
+        if (sentDesignActions.size > 1024)
+          sentDesignActions.delete(sentDesignActions.values().next().value!)
+      } catch (error) {
+        takePending(pendingDesignActions, action.requestId)?.reject(
+          error instanceof Error ? error : new Error('Failed to send design action.')
+        )
+      }
     })
   }
 
@@ -665,7 +702,13 @@ export const useMcp = createSharedComposable(() => {
         reject(new Error('Saving timed out.'))
       }, 8000)
       pendingFeedbackDrafts.set(requestId, { resolve, reject, timer })
-      postPageMessage({ ...pageMessageBase, type: 'mcp.feedbackDrafts', requestId, request })
+      try {
+        postPageMessage({ ...pageMessageBase, type: 'mcp.feedbackDrafts', requestId, request })
+      } catch (error) {
+        takePending(pendingFeedbackDrafts, requestId)?.reject(
+          error instanceof Error ? error : new Error('Failed to request saved comments.')
+        )
+      }
     })
   }
 

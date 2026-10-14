@@ -617,7 +617,9 @@ describe('element feedback drafts', () => {
       const f = fixture()
       await save(f, 0, 'First comment')
       f.task.value = { ...f.task.value, status }
-      await expect.element(page.getByRole('button', { name: 'Review 1 comments' })).toBeVisible()
+      await expect
+        .element(page.getByRole('button', { name: 'Review 1 comment', exact: true }))
+        .toBeVisible()
       await save(f, 1, 'Follow-up comment')
       await writeComment('Review these changes')
       await expect
@@ -861,7 +863,7 @@ describe('element feedback drafts', () => {
     const toggle = document.querySelector<HTMLButtonElement>('.tp-feedback-toggle')!
     expect(toggle.disabled).toBe(false)
     expect(toggle.getAttribute('data-tooltip')).toBe('Comments queued. Waiting for Codex App…')
-    expect(toggle.getAttribute('aria-label')).toBe('Review 1 comments')
+    expect(toggle.getAttribute('aria-label')).toBe('Review 1 comment')
     expect(toggle.querySelector('.tp-feedback-spinner')).not.toBeNull()
     expect(toggle.querySelector('svg:not(.tp-feedback-spinner)')).toBeNull()
     await openBatch()
@@ -988,10 +990,12 @@ describe('element feedback drafts', () => {
         message: status === 'failed' ? 'Delivery failed' : 'Collected'
       }
       await nextTick()
+      const toggle = document.querySelector<HTMLButtonElement>('.tp-feedback-toggle')!
+      expect(toggle.getAttribute('aria-busy')).toBe('false')
+      expect(toggle.disabled).toBe(false)
       if (response === 'accepted')
         resolve({ requestId: feedback.id, taskId: 'task-a', status: 'accepted', message: 'Queued' })
       else reject(new Error('Transport timed out'))
-      const toggle = document.querySelector<HTMLButtonElement>('.tp-feedback-toggle')!
       await expect.poll(() => toggle.getAttribute('aria-busy')).toBe('false')
       expect(toggle.disabled).toBe(false)
       expect(toggle.getAttribute('data-tooltip')).toBe('Review comments')
@@ -1011,6 +1015,98 @@ describe('element feedback drafts', () => {
         expect(document.querySelector<HTMLButtonElement>('.tp-feedback-send')!.disabled).toBe(false)
       }
       expect(f.send).toHaveBeenCalledOnce()
+    }
+  )
+
+  it.each(
+    (['element', 'general'] as const).flatMap((composer) =>
+      (['accepted', 'failed', 'rejected'] as const).map((response) => ({ composer, response }))
+    )
+  )(
+    'retries an early failure in the $composer composer without letting the old $response response change its pending state',
+    async ({ composer, response }) => {
+      const f = fixture()
+      const pending: {
+        resolve: (result: DesignActionResult) => void
+        reject: (error: Error) => void
+      }[] = []
+      f.send.mockImplementation(async (feedback) => {
+        await f.store.recordSubmission(scope, feedback)
+        return new Promise<DesignActionResult>((resolve, reject) => {
+          pending.push({ resolve, reject })
+        })
+      })
+      if (composer === 'element') {
+        await save(f, 0, 'Retain this element comment')
+        markers()[0]!.click()
+        await expect.poll(() => document.querySelector('.tp-feedback-editor')).not.toBeNull()
+      } else await writeComment('Retain this general comment')
+      const selector = composer === 'element' ? '.tp-feedback-editor' : '.tp-feedback-review'
+      const submit = () => {
+        document.querySelector<HTMLButtonElement>(`${selector} .tp-feedback-submit`)!.dispatchEvent(
+          new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            metaKey: composer === 'element'
+          })
+        )
+      }
+      submit()
+      await expect.poll(() => pending.length).toBe(1)
+      const first = f.send.mock.calls[0]![0]
+      await f.store.settle(first.id, 'failed')
+      f.actionResult.value = {
+        requestId: first.id,
+        taskId: 'task-a',
+        status: 'failed',
+        message: 'Delivery failed'
+      }
+      const input = document.querySelector<HTMLTextAreaElement>(`${selector} textarea`)!
+      await expect.poll(() => input.disabled).toBe(false)
+      expect(input.value).toBe(
+        composer === 'element' ? 'Retain this element comment' : 'Retain this general comment'
+      )
+      submit()
+      await expect.poll(() => pending.length).toBe(2)
+      const second = f.send.mock.calls[1]![0]
+      expect(second).toEqual(first)
+      if (response === 'rejected') pending[0]!.reject(new Error('Old transport timed out'))
+      else
+        pending[0]!.resolve({
+          requestId: first.id,
+          taskId: 'task-a',
+          status: response,
+          message: 'Old request response'
+        })
+      await f.send.mock.results[0]!.value.catch(() => {})
+      await nextTick()
+      const toggle = document.querySelector<HTMLButtonElement>('.tp-feedback-toggle')!
+      const button = document.querySelector<HTMLButtonElement>(`${selector} .tp-feedback-submit`)!
+      expect(toggle.disabled).toBe(true)
+      expect(toggle.getAttribute('data-tooltip')).toBe('Sending comments…')
+      expect(button.getAttribute('aria-busy')).toBe('true')
+      expect(input.disabled).toBe(true)
+      expect(document.querySelector(selector)).not.toBeNull()
+      expect(f.api.notify.mock.calls).toEqual([['Delivery failed']])
+
+      pending[1]!.resolve({
+        requestId: second.id,
+        taskId: 'task-a',
+        status: 'accepted',
+        message: 'Queued'
+      })
+      await expect.poll(() => document.querySelector(selector)).toBeNull()
+      expect(toggle.disabled).toBe(false)
+      expect(toggle.getAttribute('aria-busy')).toBe('true')
+      await f.store.settle(second.id, 'delivered')
+      f.actionResult.value = {
+        requestId: second.id,
+        taskId: 'task-a',
+        status: 'delivered',
+        message: 'Collected'
+      }
+      await expect.poll(() => toggle.getAttribute('aria-busy')).toBe('false')
+      expect(f.send).toHaveBeenCalledTimes(2)
     }
   )
 
@@ -1239,6 +1335,39 @@ describe('element feedback drafts', () => {
       expect(f.send).toHaveBeenCalledOnce()
     }
   )
+
+  it('removes delivered markers before unlocking the editor even while projection is suspended', async () => {
+    const f = fixture()
+    acceptNextBatch(f)
+    await save(f, 0, 'Delivered revision')
+    await sendBatch()
+    await expect.poll(() => document.querySelector('.tp-feedback-review')).toBeNull()
+    await openBatch()
+    expect(markers()).toHaveLength(1)
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    document.dispatchEvent(new Event('visibilitychange'))
+    try {
+      const feedback = f.send.mock.calls[0]![0]
+      await f.store.settle(feedback.id, 'delivered')
+      f.actionResult.value = {
+        requestId: feedback.id,
+        taskId: 'task-a',
+        status: 'delivered',
+        message: 'Delivered'
+      }
+      await nextTick()
+      expect(markers()[0]!.classList.contains('tp-feedback-marker-sent')).toBe(true)
+      expect(getComputedStyle(markers()[0]!).pointerEvents).toBe('none')
+      await expect
+        .poll(() => document.querySelector<HTMLTextAreaElement>('#tp-feedback-comment')?.disabled)
+        .toBe(false)
+      expect(markers()).toHaveLength(0)
+    } finally {
+      hidden.mockRestore()
+      document.dispatchEvent(new Event('visibilitychange'))
+    }
+    expect(markers()).toHaveLength(0)
+  })
 
   it('saves comments with Enter, expands on Shift+Enter, and only offers Delete after saving', async () => {
     await page.viewport(900, 700)
@@ -2098,6 +2227,7 @@ describe('element feedback drafts', () => {
     expect(done().disabled).toBe(false)
     f.requestDrafts.mockRejectedValueOnce(new Error('Cannot clear local drafts'))
     done().click()
+    await page.getByRole('button', { name: 'Discard comments and finish' }).click()
     await nextTick()
     expect(done().disabled).toBe(true)
     await finishSave()
@@ -2107,6 +2237,7 @@ describe('element feedback drafts', () => {
       comment: 'Last guidance'
     })
     done().click()
+    await page.getByRole('button', { name: 'Discard comments and finish' }).click()
     await expect.poll(() => document.querySelector('.tp-design-overlay')).toBeNull()
     expect(await f.store.request({ operation: 'load', scope })).toEqual({ items: [] })
     unmountAll()
@@ -2127,6 +2258,11 @@ describe('element feedback drafts', () => {
     const done = () => document.querySelector<HTMLButtonElement>('.tp-design-done')!
     expect(done().disabled).toBe(false)
     done().click()
+    await expect
+      .element(page.getByRole('dialog', { name: 'Finish and discard comments?' }))
+      .toBeVisible()
+    expect(await f.store.request({ operation: 'load', scope })).not.toEqual({ items: [] })
+    await page.getByRole('button', { name: 'Discard comments and finish' }).click()
     await expect.poll(() => document.querySelector('.tp-design-overlay')).toBeNull()
     expect(document.querySelector('.tp-element-feedback')).toBeNull()
     expect(await f.store.request({ operation: 'load', scope })).toEqual({ items: [] })
@@ -2177,6 +2313,13 @@ describe('element feedback drafts', () => {
       .poll(async () => (await f.store.request({ operation: 'load', scope })).comment)
       .toBe('Keep the whole page compact.')
     expect(f.send).not.toHaveBeenCalled()
+    await expect
+      .poll(() => {
+        const popup = document.querySelector('.tp-feedback-review')!.getBoundingClientRect()
+        const bar = document.querySelector('.tp-design-feedback')!.getBoundingClientRect()
+        return [popup.top - bar.bottom, popup.right - bar.right]
+      })
+      .toEqual([8, 0])
     const popup = document.querySelector('.tp-feedback-review')!.getBoundingClientRect()
     const canvas = f.canvas.getBoundingClientRect()
     expect(popup.left).toBeGreaterThanOrEqual(canvas.left)
@@ -2225,6 +2368,125 @@ describe('element feedback drafts', () => {
     expect((await f.store.request({ operation: 'load', scope })).items[0]?.text).toBe(
       'Original heading'
     )
+  })
+
+  it.each(['comment', 'element'] as const)(
+    'does not restore delivered comments from a delayed %s save snapshot',
+    async (writer) => {
+      const f = fixture()
+      await save(f, 0, 'Delivered note')
+      f.send.mockImplementationOnce(async (feedback) => {
+        await f.store.recordSubmission(scope, feedback)
+        throw new Error('Waiting deadline elapsed')
+      })
+      await sendBatch()
+      await expect
+        .poll(() => document.querySelector('.tp-feedback-toggle')?.getAttribute('data-tooltip'))
+        .toBe('Review comments')
+      const sent = f.send.mock.calls[0]![0]
+      let release!: () => void
+      f.requestDrafts.mockImplementationOnce(async (request) => {
+        expect(request.operation).toBe(writer === 'comment' ? 'comment' : 'save')
+        const snapshot = await f.store.request(request)
+        return new Promise((resolve) => {
+          release = () => resolve(snapshot)
+        })
+      })
+      if (writer === 'comment') await writeComment('Keep this new guidance')
+      else {
+        f.api.currentPage.selection = [f.nodes[1]!]
+        await expect
+          .poll(() => document.querySelector('[aria-label="Add comment to Button"]'))
+          .not.toBeNull()
+        click('[aria-label="Add comment to Button"]')
+        await page
+          .getByRole('textbox', { name: 'Element comment', exact: true })
+          .fill('Keep this new element note')
+        click('.tp-feedback-editor [type="submit"]')
+      }
+      await expect.poll(() => typeof release).toBe('function')
+      await f.store.settle(sent.id, 'delivered')
+      f.actionResult.value = {
+        requestId: sent.id,
+        taskId: 'task-a',
+        status: 'delivered',
+        message: 'Delivered late'
+      }
+      // Delivery finishes fading while the earlier save response is still in flight.
+      await expect.poll(() => markers().length).toBe(0)
+      release()
+      if (writer === 'element')
+        await expect.poll(() => document.querySelector('.tp-feedback-editor')).toBeNull()
+      else
+        await expect.element(page.getByRole('textbox', { name: 'General comment' })).toBeEnabled()
+      await expect
+        .poll(() => markers().map((marker) => marker.getAttribute('aria-label')))
+        .toEqual(writer === 'element' ? ['Edit comment 1 for Button'] : [])
+      await sendBatch()
+      await expect.poll(() => f.send.mock.calls.length).toBe(2)
+      expect(f.send.mock.calls[1]![0]).toMatchObject(
+        writer === 'comment'
+          ? { comment: 'Keep this new guidance', items: [] }
+          : { items: [{ nodeId: 'node-1', text: 'Keep this new element note' }] }
+      )
+      expect(f.api.notify.mock.calls).toEqual([['Waiting deadline elapsed']])
+    }
+  )
+
+  it('refreshes again when another delivery settles during a save snapshot refresh', async () => {
+    const f = fixture()
+    f.send.mockImplementation(async (feedback) => {
+      await f.store.recordSubmission(scope, feedback)
+      throw new Error('Waiting deadline elapsed')
+    })
+    const submit = async () => {
+      await sendBatch()
+      await expect
+        .poll(() => document.querySelector('.tp-feedback-toggle')?.getAttribute('data-tooltip'))
+        .toBe('Review comments')
+      return f.send.mock.calls.at(-1)![0]
+    }
+    await save(f, 0, 'First delivered note')
+    const first = await submit()
+    await save(f, 1, 'Second delivered note')
+    const second = await submit()
+    const releases: Array<() => void> = []
+    f.requestDrafts.mockClear()
+    f.requestDrafts.mockImplementation(async (request) => {
+      const snapshot = await f.store.request(request)
+      if (releases.length >= 2) return snapshot
+      return new Promise((resolve) => releases.push(() => resolve(snapshot)))
+    })
+    await writeComment('Keep the latest guidance')
+    await expect.poll(() => releases.length).toBe(1)
+    const deliver = async (feedback: DesignFeedback) => {
+      await f.store.settle(feedback.id, 'delivered')
+      f.actionResult.value = {
+        requestId: feedback.id,
+        taskId: 'task-a',
+        status: 'delivered',
+        message: 'Delivered late'
+      }
+    }
+    await deliver(first)
+    await expect.poll(() => markers().length).toBe(1)
+    releases[0]!()
+    await expect.poll(() => releases.length).toBe(2)
+    expect(f.requestDrafts.mock.calls.map(([request]) => request.operation)).toEqual([
+      'comment',
+      'load'
+    ])
+    await deliver(second)
+    await expect.poll(() => markers().length).toBe(0)
+    releases[1]!()
+    await expect.element(page.getByRole('textbox', { name: 'General comment' })).toBeEnabled()
+    expect(f.requestDrafts.mock.calls.map(([request]) => request.operation)).toEqual([
+      'comment',
+      'load',
+      'load'
+    ])
+    const remaining = await submit()
+    expect(remaining).toMatchObject({ comment: 'Keep the latest guidance', items: [] })
   })
 
   it('keeps revised overall guidance after a late delivery and restores it after reopening', async () => {
@@ -2395,7 +2657,9 @@ describe('element feedback drafts', () => {
     f.requestDrafts.mockRejectedValueOnce(new Error('Local storage unavailable'))
     click('.tp-feedback-editor [type="submit"]')
     await expect.poll(() => f.api.notify.mock.calls).toEqual([['Local storage unavailable']])
-    expect(document.querySelector('.tp-feedback-editor [role="alert"]')).toBeNull()
+    expect(document.querySelector('.tp-feedback-editor [role="alert"]')?.textContent).toBe(
+      'Local storage unavailable'
+    )
     expect(input.value).toBe('Keep my note')
     expect(input.disabled).toBe(false)
     expect(markers()).toHaveLength(0)
@@ -2492,21 +2756,31 @@ describe('element feedback drafts', () => {
     await expect.poll(() => document.querySelector('.tp-feedback-review')).toBeNull()
     click('.tp-feedback-editor [type="submit"]')
     await expect.poll(() => document.querySelector('.tp-feedback-editor')).toBeNull()
-    await f.store.settle(sent.id, 'delivered')
-    f.actionResult.value = {
-      requestId: sent.id,
-      taskId: 'task-a',
-      status: 'delivered',
-      message: 'Delivered late'
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    document.dispatchEvent(new Event('visibilitychange'))
+    try {
+      await f.store.settle(sent.id, 'delivered')
+      f.actionResult.value = {
+        requestId: sent.id,
+        taskId: 'task-a',
+        status: 'delivered',
+        message: 'Delivered late'
+      }
+      await expect
+        .poll(
+          () =>
+            markers().filter((marker) => marker.classList.contains('tp-feedback-marker-sent'))
+              .length
+        )
+        .toBe(1)
+      expect(markers()[0]!.classList.contains('tp-feedback-marker-sent')).toBe(false)
+      await expect.poll(() => markers().length).toBe(1)
+      expect(markers()[0]!.getAttribute('aria-label')).toBe('Edit comment 1 for Heading')
+      expect(markers()[0]!.classList.contains('tp-feedback-marker-sent')).toBe(false)
+    } finally {
+      hidden.mockRestore()
+      document.dispatchEvent(new Event('visibilitychange'))
     }
-    await expect
-      .poll(
-        () =>
-          markers().filter((marker) => marker.classList.contains('tp-feedback-marker-sent')).length
-      )
-      .toBe(1)
-    expect(markers()[0]!.classList.contains('tp-feedback-marker-sent')).toBe(false)
-    await expect.poll(() => markers().length).toBe(1)
     expect(document.querySelector('.tp-feedback-review [role="alert"]')).toBeNull()
     expect(document.querySelector('.tp-feedback-toggle')?.textContent?.trim()).toBe('1')
     f.nodes[0]!.visible = false
@@ -2602,6 +2876,50 @@ describe('element feedback drafts', () => {
     expect((await reopened.store.request({ operation: 'load', scope })).items).toHaveLength(1)
   })
 
+  it('reloads a cross-tab draft conflict without sending or discarding unsaved guidance', async () => {
+    const f = fixture()
+    await save(f, 0, 'Original note')
+    const original = (await f.store.request({ operation: 'load', scope })).items[0]!
+    await f.store.request({
+      operation: 'save',
+      scope,
+      item: { ...original, text: 'Updated in another tab', createdAt: original.createdAt + 1 }
+    })
+    await sendBatch()
+    await expect
+      .poll(() => document.querySelector('[role="alert"]')?.textContent)
+      .toContain('Drafts changed in another tab.')
+    expect(f.send).toHaveBeenCalledOnce()
+    expect((await f.store.request({ operation: 'load', scope })).submission).toBeUndefined()
+    const reload = page.getByRole('button', { name: 'Reload saved comments', exact: true })
+    await expect.element(reload).toBeVisible()
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => (release = resolve))
+    f.requestDrafts.mockImplementationOnce(async (request) => {
+      expect(request.operation).toBe('load')
+      await pending
+      return f.store.request(request)
+    })
+    await writeComment('Keep my unsaved guidance')
+    await reload.click()
+    expect(f.send).toHaveBeenCalledOnce()
+    release()
+    await expect
+      .poll(() => document.querySelector('.tp-feedback-review')?.textContent)
+      .toContain('Updated in another tab')
+    expect(document.querySelector<HTMLTextAreaElement>('#tp-feedback-comment')?.value).toBe(
+      'Keep my unsaved guidance'
+    )
+    expect(f.send).toHaveBeenCalledOnce()
+    await sendBatch()
+    await expect.poll(() => f.send.mock.calls.length).toBe(2)
+    expect(f.send.mock.calls[1]![0]).toMatchObject({
+      comment: 'Keep my unsaved guidance',
+      items: [{ ...original, text: 'Updated in another tab', createdAt: original.createdAt + 1 }]
+    })
+    await expect.poll(() => markers().length).toBe(0)
+  })
+
   it('retains a failed batch and its delivery identity without coloring the review entry red', async () => {
     const f = fixture()
     f.task.value = {
@@ -2636,6 +2954,9 @@ describe('element feedback drafts', () => {
       .toBe('Review comments')
     await openBatch()
     await expect.poll(() => f.api.notify.mock.calls).toEqual([['Delivery was not acknowledged']])
+    await expect
+      .element(page.getByRole('button', { name: 'Reload saved comments', exact: true }))
+      .not.toBeInTheDocument()
     expect(markers()).toHaveLength(1)
     const previous = f.send.mock.calls[0]![0]
     markers()[0]!.click()

@@ -107,7 +107,7 @@ function selectTarget(id: SetupTarget['id']): void {
 
 function selectManualSetup(): void {
   selectTarget('other')
-  nextTick(() => document.querySelector<HTMLElement>('#tp-agent-tab-other')?.focus())
+  void nextTick(() => document.querySelector<HTMLElement>('#tp-agent-tab-other')?.focus())
 }
 
 function getStepDescription(id: ActionGroupId): string {
@@ -124,7 +124,7 @@ function selectAdjacentTarget(direction: -1 | 1): void {
   const nextIndex = (index + direction + setupTargets.length) % setupTargets.length
   selectedTargetId.value = setupTargets[nextIndex]?.id ?? 'codex'
 
-  nextTick(() => {
+  void nextTick(() => {
     document.querySelector<HTMLElement>(`#tp-agent-tab-${selectedTargetId.value}`)?.focus()
   })
 }
@@ -139,7 +139,7 @@ function handleSetupAction(action: AgentIntegrationAction): void {
   }
 
   const message = action.kind === 'command' ? 'Copied setup command' : 'Copied MCP configuration'
-  copy(action.value, message)
+  void copy(action.value, message)
 }
 
 function getCopyHint(action: AgentIntegrationAction, index: number): string {

@@ -29,6 +29,13 @@ useSelectAll(fontSizeInput)
 const scaleInput = useTemplateRef('scaleInput')
 useSelectAll(scaleInput)
 
+function setPositiveOption(key: 'rootFontSize' | 'scale', event: Event) {
+  const input = event.target as HTMLInputElement
+  const value = input.valueAsNumber
+  if (Number.isFinite(value) && value > 0) options.value[key] = value
+  input.value = String(options.value[key])
+}
+
 const cssUnitOptions = [
   { label: 'px', value: 'px' },
   { label: 'rem', value: 'rem' }
@@ -80,7 +87,10 @@ const variableDisplayOptions = [
           class="tp-pref-input"
           ref="fontSizeInput"
           type="number"
-          v-model.number="options.rootFontSize"
+          min="0.01"
+          step="any"
+          :value="options.rootFontSize"
+          @change="setPositiveOption('rootFontSize', $event)"
         />
       </div>
       <div class="tp-grid-row tp-pref-field">
@@ -90,8 +100,10 @@ const variableDisplayOptions = [
           class="tp-pref-input"
           ref="scaleInput"
           type="number"
-          step="1"
-          v-model.number="options.scale"
+          min="0.01"
+          step="any"
+          :value="options.scale"
+          @change="setPositiveOption('scale', $event)"
         />
       </div>
     </div>

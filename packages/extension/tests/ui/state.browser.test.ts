@@ -1,7 +1,16 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 
 import { ui } from '@/ui/figma'
-import { activePlugin, options, selectedNode, selectedTemPadComponent, selection } from '@/ui/state'
+import {
+  activePlugin,
+  options,
+  plugins,
+  savePlugin,
+  selectedNode,
+  selectedTemPadComponent,
+  selection
+} from '@/ui/state'
 
 function createDefaultOptions() {
   return {
@@ -19,16 +28,17 @@ function createDefaultOptions() {
     scale: 1,
     variableDisplay: 'reference' as const,
     mcpOn: false,
-    plugins: {},
     activePluginSource: null as string | null
   }
 }
 
 describe('ui/state', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.removeItem('tempad-dev')
     options.value = createDefaultOptions()
+    plugins.value = {}
     selection.value = []
+    await nextTick()
   })
 
   it('initializes options with expected panel defaults', () => {
@@ -50,10 +60,38 @@ describe('ui/state', () => {
     expect(selectedNode.value).toBe(node)
   })
 
+  it('retains the migration backup on failure and removes it only after a successful save', async () => {
+    const oldPlugin = { name: 'Old', source: 'old', code: 'old code' }
+    const nextPlugin = { name: 'New', source: 'new', code: 'new code' }
+    const preferences = options.value as typeof options.value & {
+      plugins?: typeof plugins.value
+    }
+    preferences.plugins = { old: oldPlugin }
+    plugins.value = { old: oldPlugin }
+    await nextTick()
+    const nativeSetItem = Storage.prototype.setItem
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage quota exceeded', 'QuotaExceededError')
+    })
+    expect(() => savePlugin('new', nextPlugin)).toThrow('Storage quota exceeded')
+    expect(plugins.value).toEqual({ old: oldPlugin })
+    expect(preferences.plugins).toEqual({ old: oldPlugin })
+
+    write.mockImplementation(nativeSetItem)
+    savePlugin('new', nextPlugin)
+    expect(preferences.plugins).toBeUndefined()
+    const thirdPlugin = { name: 'Third', source: 'third', code: 'third code' }
+    savePlugin('third', thirdPlugin)
+    await nextTick()
+    expect(plugins.value).toEqual({ old: oldPlugin, new: nextPlugin, third: thirdPlugin })
+    expect(JSON.parse(localStorage.getItem('tempad-dev-plugins')!)).toEqual(plugins.value)
+    expect(JSON.parse(localStorage.getItem('tempad-dev')!)).not.toHaveProperty('plugins')
+  })
+
   it('resolves active plugin from source id and falls back to null', async () => {
     expect(activePlugin.value).toBeNull()
 
-    options.value.plugins = {
+    plugins.value = {
       local: {
         name: 'Local plugin',
         code: 'export default {}',

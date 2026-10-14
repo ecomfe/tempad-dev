@@ -47,7 +47,7 @@ function handleChange(e: Event) {
 }
 
 async function handleUpdate() {
-  const installed = await install(props.source, true)
+  const installed = await install(props.source)
 
   if (installed) {
     emit('updated', installed)

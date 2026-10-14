@@ -77,7 +77,7 @@ export function useFigmaAvailability() {
         stopRecover()
         return
       }
-      runCheck()
+      void runCheck().catch((error) => logger.error(error))
     },
     { immediate: true }
   )

@@ -3,9 +3,10 @@ import Badge from '@/components/Badge.vue'
 import Copyable from '@/components/Copyable.vue'
 import IconButton from '@/components/IconButton.vue'
 import Link from '@/components/icons/Link.vue'
+import Refresh from '@/components/icons/Refresh.vue'
 import Select from '@/components/icons/Select.vue'
 import Section from '@/components/Section.vue'
-import { useDevResourceLinks } from '@/composables'
+import { refreshDevResourceLinks, useDevResourceLinks, useToast } from '@/composables'
 import { selection, selectedNode, selectedTemPadComponent } from '@/ui/state'
 
 const title = computed(() => {
@@ -33,6 +34,24 @@ const showFocusButton = computed(
 )
 
 const devResourceLinks = useDevResourceLinks(selectedNode)
+const refreshingNode = shallowRef<SceneNode | null>(null)
+const refreshing = computed(
+  () => !!selectedNode.value && refreshingNode.value === selectedNode.value
+)
+const { show } = useToast()
+
+async function refreshLinks() {
+  const node = selectedNode.value
+  if (!node || refreshing.value) return
+  refreshingNode.value = node
+  try {
+    await refreshDevResourceLinks(node)
+  } catch {
+    if (selectedNode.value === node) show('Could not refresh links. Try again.')
+  } finally {
+    if (refreshingNode.value === node) refreshingNode.value = null
+  }
+}
 
 const libDisplayName = computed(() => selectedTemPadComponent.value?.libDisplayName)
 
@@ -62,14 +81,24 @@ function scrollIntoView() {
         </Copyable>
       </div>
       <span class="tp-meta-title-aux tp-ellipsis" v-else>No selection</span>
-      <IconButton
-        v-if="showFocusButton"
-        title="Scroll into view"
-        class="tp-meta-scroll"
-        @click="scrollIntoView"
-      >
-        <Select />
-      </IconButton>
+      <div v-if="selectedNode || showFocusButton" class="tp-row">
+        <IconButton
+          v-if="selectedNode"
+          title="Refresh links"
+          :disabled="refreshing"
+          @click="refreshLinks"
+        >
+          <Refresh :spin="refreshing" />
+        </IconButton>
+        <IconButton
+          v-if="showFocusButton"
+          title="Scroll into view"
+          class="tp-meta-scroll"
+          @click="scrollIntoView"
+        >
+          <Select />
+        </IconButton>
+      </div>
     </template>
     <div v-if="devResourceLinks.length > 0" class="tp-meta-dev-links">
       <a

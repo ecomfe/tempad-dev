@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed, shallowRef, watch, onBeforeUnmount } from 'vue'
+
 import type { CodeBlock } from '@/types/codegen'
 
 import Badge from '@/components/Badge.vue'
@@ -7,48 +9,67 @@ import IconButton from '@/components/IconButton.vue'
 import Preview from '@/components/icons/Preview.vue'
 import Section from '@/components/Section.vue'
 import { selection, selectedNode, options, selectedTemPadComponent, activePlugin } from '@/ui/state'
-import { generateCodeBlocksForNode } from '@/utils'
+import { generateCodeBlocksForNode } from '@/utils/codegen'
 
 const componentCode = shallowRef('')
 const componentLink = shallowRef('')
 const codeBlocks = shallowRef<CodeBlock[]>([])
+const codeError = shallowRef('')
+let generation = 0
 
 const playButtonTitle = computed(() =>
   componentLink.value
     ? 'Open in TemPad Playground'
-    : 'The component is produced with older versions of TemPad that does not provide a link to TemPad playground.'
+    : 'This component was produced with an older version of TemPad that does not provide a Playground link.'
 )
 
 async function updateCode() {
+  const current = ++generation
   const node = selectedNode.value
+  codeBlocks.value = []
+  componentCode.value = ''
+  componentLink.value = ''
+  codeError.value = ''
 
-  if (node == null || selection.value.length > 1) {
-    codeBlocks.value = []
-    return
-  }
+  if (node == null || selection.value.length > 1) return
 
   const tempadComponent = selectedTemPadComponent.value
   componentCode.value = tempadComponent?.code || ''
   componentLink.value = tempadComponent?.link || ''
 
-  const result = await generateCodeBlocksForNode(
-    node,
-    {
-      cssUnit: options.value.cssUnit,
-      rootFontSize: options.value.rootFontSize,
-      scale: options.value.scale
-    },
-    activePlugin.value?.code || undefined,
-    { variableDisplay: options.value.variableDisplay }
-  )
-  codeBlocks.value = result.codeBlocks
+  try {
+    const result = await generateCodeBlocksForNode(
+      node,
+      {
+        cssUnit: options.value.cssUnit,
+        rootFontSize: options.value.rootFontSize,
+        scale: options.value.scale
+      },
+      activePlugin.value?.code || undefined,
+      { variableDisplay: options.value.variableDisplay }
+    )
+    if (current === generation) codeBlocks.value = result.codeBlocks
+  } catch {
+    if (current === generation)
+      codeError.value = 'Code generation failed. Select the node again to retry.'
+  }
 }
 
-watch(options, updateCode, {
-  deep: true
+watch(
+  [
+    selection,
+    activePlugin,
+    () => options.value.cssUnit,
+    () => options.value.rootFontSize,
+    () => options.value.scale,
+    () => options.value.variableDisplay
+  ],
+  updateCode,
+  { immediate: true }
+)
+onBeforeUnmount(() => {
+  generation++
 })
-
-watch([selectedNode, activePlugin], updateCode)
 
 function open() {
   window.open(componentLink.value)
@@ -56,7 +77,7 @@ function open() {
 </script>
 
 <template>
-  <Section :collapsed="!selectedNode || !(componentCode || codeBlocks.length)">
+  <Section :collapsed="!selectedNode || !(componentCode || codeBlocks.length || codeError)">
     <template #header>
       <div class="tp-code-header tp-row tp-shrink tp-gap-l">
         Code
@@ -65,6 +86,7 @@ function open() {
         }}</Badge>
       </div>
     </template>
+    <p v-if="codeError" role="alert">{{ codeError }}</p>
     <Code
       v-if="componentCode"
       class="tp-code-code"

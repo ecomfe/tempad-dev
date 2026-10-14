@@ -16,7 +16,41 @@ export type CanvasOverlayFrame = {
 
 const observers = new Set<(frame: CanvasOverlayFrame | null) => void>()
 let frameId: number | undefined
+let idleTimer: ReturnType<typeof setTimeout> | undefined
 let currentFrame: CanvasOverlayFrame | null = null
+let activeUntil = 0
+const ACTIVITY_EVENTS = [
+  'pointerdown',
+  'pointermove',
+  'pointerup',
+  'wheel',
+  'keydown',
+  'resize'
+] as const
+function markActivity() {
+  if (document.hidden) return
+  activeUntil = performance.now() + 500
+  if (observers.size && frameId === undefined) {
+    clearTimeout(idleTimer)
+    idleTimer = undefined
+    frameId = requestAnimationFrame(updateFrame)
+  }
+}
+
+function cancelScheduledFrame() {
+  if (frameId !== undefined) cancelAnimationFrame(frameId)
+  clearTimeout(idleTimer)
+  frameId = undefined
+  idleTimer = undefined
+}
+
+function onVisibilityChange() {
+  cancelScheduledFrame()
+  if (!document.hidden && observers.size) {
+    activeUntil = performance.now() + 500
+    updateFrame()
+  }
+}
 
 function readFrame(): CanvasOverlayFrame | null {
   try {
@@ -51,6 +85,8 @@ function readFrame(): CanvasOverlayFrame | null {
 
 function updateFrame(): void {
   frameId = undefined
+  idleTimer = undefined
+  if (document.hidden) return
   currentFrame = readFrame()
   for (const observer of observers) {
     try {
@@ -59,15 +95,25 @@ function updateFrame(): void {
       // A stale native node must not stop the other overlays or canvas work.
     }
   }
-  if (observers.size) frameId = requestAnimationFrame(updateFrame)
+  if (observers.size && !document.hidden && frameId === undefined && idleTimer === undefined) {
+    if (performance.now() < activeUntil) frameId = requestAnimationFrame(updateFrame)
+    else idleTimer = setTimeout(updateFrame, 100)
+  }
 }
 
-/** Every canvas overlay shares one measurement and one animation frame loop. */
+/** Share measurements, with a bounded idle refresh for native changes without DOM events. */
 export function observeCanvasOverlay(
   observer: (frame: CanvasOverlayFrame | null) => void
 ): () => void {
+  const firstObserver = !observers.size
+  if (firstObserver) {
+    activeUntil = performance.now() + 500
+    for (const event of ACTIVITY_EVENTS)
+      window.addEventListener(event, markActivity, { passive: true })
+    document.addEventListener('visibilitychange', onVisibilityChange)
+  }
   observers.add(observer)
-  if (frameId === undefined) updateFrame()
+  if (firstObserver) updateFrame()
   else {
     try {
       observer(currentFrame)
@@ -78,9 +124,10 @@ export function observeCanvasOverlay(
   return () => {
     observers.delete(observer)
     if (!observers.size) {
-      if (frameId !== undefined) cancelAnimationFrame(frameId)
-      frameId = undefined
+      cancelScheduledFrame()
       currentFrame = null
+      for (const event of ACTIVITY_EVENTS) window.removeEventListener(event, markActivity)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }
 }

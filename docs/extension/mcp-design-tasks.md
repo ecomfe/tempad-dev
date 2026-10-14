@@ -6,17 +6,18 @@ turn ending pauses work; it does not complete the requested design or close its 
 
 ## Ownership
 
-| Layer                                                  | Responsibility                                                  |
-| ------------------------------------------------------ | --------------------------------------------------------------- |
-| `packages/shared/src/mcp/design-task.ts`               | Task, epoch, client, action, and draft contracts                |
-| `packages/mcp-server/src/design-tasks.ts`              | File leases, routing, operation draining, recovery, and results |
-| `packages/mcp-server/src/agent-clients/`               | Host identity, native lifecycle, capabilities, and delivery     |
-| `packages/extension/mcp/design-task.ts`                | Final page execution fence and native anchor                    |
-| `packages/extension/composables/mcp.ts`                | Tab state, restoration, and actions                             |
-| `packages/extension/components/DesignTaskStatus.vue`   | Task status and anchored controls                               |
-| `packages/extension/components/DesignTaskFeedback.vue` | Comment editing and submission                                  |
-| `packages/extension/mcp/broker/`                       | Registered page routing and durable drafts/reviews              |
-| `agent-plugin/src/clients/`                            | Authored Claude lifecycle hooks and hook transport              |
+| Layer                                                  | Responsibility                                                   |
+| ------------------------------------------------------ | ---------------------------------------------------------------- |
+| `packages/shared/src/mcp/design-task.ts`               | Task, epoch, client, action, and draft contracts                 |
+| `packages/mcp-server/src/design-tasks.ts`              | File leases, routing, operation draining, recovery, and results  |
+| `packages/mcp-server/src/agent-clients/`               | Host identity, native lifecycle, capabilities, and delivery      |
+| `packages/extension/mcp/design-task.ts`                | Final page execution fence and native anchor                     |
+| `packages/extension/composables/mcp.ts`                | Tab state, restoration, and actions                              |
+| `packages/extension/components/DesignTaskStatus.vue`   | Task status and anchored controls                                |
+| `packages/extension/components/DesignTaskFeedback.vue` | Comment editing and submission                                   |
+| `packages/extension/composables/feedback-canvas.ts`    | Feedback canvas markers, hover, projection, and popover geometry |
+| `packages/extension/mcp/broker/`                       | Registered page routing and durable drafts/reviews               |
+| `agent-plugin/src/clients/`                            | Authored Claude lifecycle hooks and hook transport               |
 
 The Hub owns task records; the page enforces the last write fence. The latest task
 owns a file's displayed state. An older task's update cannot replace its controls,
@@ -25,8 +26,12 @@ reset its editor, or regain ownership after a newer task releases the file.
 Runtime metadata establishes conversation identity. Codex supplies thread/turn IDs
 per request; the CLI handshake describes its own process, independently of the
 process that started the shared Hub. Claude's exact `claude-code` client identity
-and installed hooks identify Claude. Task titles, display names, and focused windows
-never determine routing. Without a conversation identity, ownership stays with the
+and installed hooks identify Claude. That explicit client identity takes precedence over
+inherited Codex environment or request metadata; only Claude hooks bind its conversation.
+After a Hub reconnect without a client handshake, inherited Codex environment alone
+cannot establish conversation identity; request metadata must identify that conversation.
+Task titles, display names, and focused windows never determine routing.
+Without a conversation identity, ownership stays with the
 MCP transport. Reconnection can reclaim an inactive task only for its exact conversation.
 
 `AGENT_CLIENTS` distinguishes integration support from live capabilities. Codex App and
@@ -41,7 +46,8 @@ readable to preserve drafts; current delivery uses Queue or Steer.
 - Badge activation chooses the default Figma session. `list_design_sessions` exposes
   exact choices; `manage_design_task({ action: "begin", title, requestId, sessionId? })` reserves the file
   and requires its page to acknowledge the session, file, page, and epoch. Reuse a
-  request ID only for the same begin request.
+  request ID only for the same begin request; changing its title or explicit session
+  returns `REQUEST_ID_CONFLICT` without changing the original task.
 - Carry `taskId` and the returned lease epoch as `taskEpoch` on task work. Hub,
   broker, and page verify the route. Exact node/page operations can address another
   page in the file; implicit operations reject a changed current page. Explicit
@@ -52,7 +58,10 @@ readable to preserve drafts; current delivery uses Queue or Steer.
 - `manage_design_task({ action: "resume", taskId, epoch })` resumes a paused, expired, interrupted, or
   completed task only while it is the current task and its review is open. It
   repeats the page acknowledgement, increments the epoch, and requires a successful
-  `get_structure` or `get_code` read before writing. Preserve the anchor and page
+  `get_structure` or `get_code` read before writing. A new pass clears the previous
+  result snapshot while retaining accumulated result node IDs; its first completion
+  captures a fresh summary and timestamp, and same-pass retries preserve that snapshot.
+  Preserve the anchor and page
   binding; reconstruct changes from current native state instead of replaying writes.
 - `manage_design_task({ action: "complete" | "cancel", taskId, epoch, summary? })` completes or abandons the
   design pass. Completion rejects while an operation is running, releases ownership, and
@@ -76,17 +85,34 @@ idle expiry, leaving the previous task permanently superseded.
 
 The Hub serializes operations per file across connected tabs. Independent reads can
 run between operations; taskless writes still obey file occupancy and Stop fences.
-A timeout or lost socket is not proof that native execution stopped. Occupancy remains
-until the exact page reports idle, a fresh tab inventory proves closure, or a changed
-document ID proves reload. Missing registry entries alone are insufficient. Disabling
-integration during execution keeps its result channel open until settlement. A stuck
+A cancelled consumer wait, timeout, or lost socket is not proof that native execution stopped.
+Occupancy remains until a definitive result arrives, a fresh same-browser tab inventory proves
+closure, or a changed document ID proves reload. Idle snapshots and missing registry entries
+alone are insufficient: reconnecting the same document must still await the result or a manual
+reload. Disabling integration during execution keeps its result channel open until settlement. A stuck
 runtime may require reloading that executing tab. This coordinates the Hub's sessions,
 not human editing, other devices, or unrelated services.
 
 ## Persistence and recovery
 
 The Hub atomically stores task identity, current-file ownership, results, and Stop/Done
-fences under `~/.tempad-dev/state/`. Reviews have no idle eviction. On restart it restores
+fences under `~/.tempad-dev/state/`. Current, open reviews have no idle eviction. Closed,
+cancelled, and replaced task details are retained for 30 days from retirement; running
+operations must settle before their records can be removed. Existing records without a
+retirement timestamp start their retention window when first loaded by a retention-aware
+Hub. Lease expiry is not a history timestamp.
+
+Begin and resume publish a new lease only after its snapshot is saved. If a resumed lease cannot
+be saved, retain the previous status, epoch, result, and readiness; storage recovery can then retry
+the same resume without having exposed an active lease that would disappear on restart.
+
+Expired task IDs cannot be queried or resumed. The Hub retains a small fence per affected
+file so an old tab cannot recreate a removed task or bypass a previous Stop with taskless
+writes. A fresh task can still begin normally. Same-owner retries of a removed begin request
+are rejected until that owner disconnects; historical request identities are not archived
+indefinitely. Snapshot downgrade to a Hub without these retention fences is unsupported.
+
+On restart the Hub restores
 metadata with fresh epochs and inactive leases; it never restores transport authority,
 running operations, or advertised capabilities. The exact conversation must reconnect,
 resume explicitly, and reread before writing.
@@ -103,7 +129,7 @@ snapshots appear interrupted until confirmed by the Hub. Wrong-file, malformed, 
 or unavailable storage cannot attach unrelated state. The page includes its saved review
 in its enable handshake; the broker retains the latest review per file and synchronizes
 matching claims through session inventory. A saved tab may recover a missing review with
-an inactive lease only if no newer task owns the file.
+an inactive lease only if no newer task owns the file and no retained cleanup fence exists.
 
 Done persists a closure fence before clearing drafts. It propagates through reconnects
 and worker restarts, and notifies other tabs locally even without a Hub. Late messages,
@@ -130,6 +156,17 @@ The hook client connects only to the existing TemPad Hub. Its versioned private 
 carry host session/turn identity and, after successful begin/resume, task identity.
 Subagent events are excluded. Events are `PreToolUse`, `PostToolUse`,
 `UserPromptSubmit`, `Stop`, and `SessionEnd`.
+
+The CLI keeps Hub-confirmed Claude bindings in memory through a private subscription;
+binding updates never reach the MCP host. After a Hub reconnect, the cached identity
+requires a matching active lifecycle hook in that Hub before reclaiming a task.
+For a new MCP process, `CLAUDE_CODE_SESSION_ID` is only a candidate: it requires both
+the exact `claude-code` handshake and a matching lifecycle hook. SessionEnd clears
+pending and confirmed candidates, and a cleared CLI never falls back to its startup
+identity. An absent or mismatched identity leaves old tasks fenced. Claude documents
+the startup variable for [explicit session resumes](https://code.claude.com/docs/en/env-vars);
+`--continue` and interactive resume may retain a different startup identity and must
+not be inferred from a task ID or the most recent hook.
 
 Hooks carry lifecycle identity and one-time Figma Stop notices only. They never carry
 comments, advertise feedback capabilities, block turn completion to deliver a review,
@@ -265,6 +302,21 @@ from a fresh complete queue. Stop's local fence and host interruption do not wai
 cleanup. Failed cleanup remains fenced and retries during capability refresh, including
 after a Hub restart. Cancellation tombstones remain after an empty-queue check, so a
 late commit from a disconnected writer is removed on subsequent reconciliation.
+Background reconciliation advances through at most 128 directory entries per refresh;
+explicit cancellation still scans all receipts. An empty persisted server queue avoids
+starting the queue companion, allowing its existing idle timeout to release the process.
+Confirmed delivery receipts are retained for 30 days after the later of local acceptance
+and batch creation. Legacy receipts start a conservative retention window on first read.
+Queued-message receipts also require a readable native queue that no longer contains their
+message. Cleanup rechecks the receipt inside the conversation's existing serialized queue.
+An unreadable queue is never treated as empty. Uncertain submissions and cancellation
+tombstones that could still receive a late commit remain until that uncertainty is resolved;
+an empty queue alone does not establish that a disconnected writer has finished.
+
+Feedback batches older than 30 days, or dated more than five minutes in the future, cannot
+be dispatched. A failed expiry check keeps the draft and delivery identity. The user must
+check the original conversation before actually editing the comments to create a new batch;
+reopening the editor or retrying unchanged content cannot silently resend an old submission.
 Ordinary transport disconnects do not remove admitted messages.
 Already consumed input cannot be recalled. Acknowledgement confirms admission, not
 execution or completion of design changes.
@@ -356,6 +408,8 @@ initial request resolves immediately ends its submission state. It takes precede
 late acceptance or transport error; the old request cannot reset a newer batch's pending state. Acceptance after a transport
 timeout locks the unchanged submitted batch, but never freezes newer saved edits. Unrelated task/batch and
 control receipts cannot settle the feedback batch. Disconnect does not prevent review.
+If delivery is confirmed while a draft save or load is pending, reread the current draft scope
+before installing its snapshot so delayed responses cannot restore acknowledged comments.
 Stop/interruption clears pending UI authority; a late acceptance cannot
 restore it. Task/epoch changes fence callbacks and receipts from the previous scope.
 

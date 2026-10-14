@@ -76,8 +76,10 @@ const mcpBadgeTooltip = computed(() => {
   }
 
   if (!isMcpConnected.value) {
-    if (status.value === 'connecting') return 'Connecting'
-    return errorMessage.value ?? 'MCP server is not running'
+    return (
+      errorMessage.value ??
+      (status.value === 'connecting' ? 'Connecting' : 'MCP server is not running')
+    )
   }
 
   const fileCount = count.value || 0
@@ -169,6 +171,7 @@ function activateMcp() {
       <div class="tp-row tp-gap-l">
         <span>TemPad Dev</span>
         <Badge
+          interactive
           v-if="options.mcpOn && runtimeMode === 'standard'"
           :class="[
             'tp-mcp-badge',
@@ -196,7 +199,10 @@ function activateMcp() {
         >
           <Preferences class="tp-panel-header-icon" />
         </IconButton>
-        <IconButton @click="toggleMinimized">
+        <IconButton
+          :title="options.minimized ? 'Expand panel' : 'Minimize panel'"
+          @click="toggleMinimized"
+        >
           <Plus v-if="options.minimized" />
           <Minus v-else />
         </IconButton>

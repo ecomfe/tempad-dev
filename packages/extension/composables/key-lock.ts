@@ -125,7 +125,7 @@ function learnDuplicateClass(host: HTMLElement) {
   if (duplicateClass) return
   const added = Array.from(host.classList).filter((c) => !classSnapshot.has(c))
   if (added.length === 1) {
-    duplicateClass = added[0]
+    duplicateClass = added[0]!
   }
 }
 

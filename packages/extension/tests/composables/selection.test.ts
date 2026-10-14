@@ -95,6 +95,7 @@ function createSceneNode(id: string, visible = true): SceneNode {
 
 function setFigmaSelection(nodes: SceneNode[]) {
   const figma = {
+    fileKey: 'file-a',
     currentPage: {
       selection: nodes
     }

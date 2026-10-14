@@ -83,7 +83,7 @@ function endResize(e: PointerEvent) {
   resizeState.target.releasePointerCapture(resizeState.pointerId)
 
   if (position) {
-    position.width = panelWidth.value
+    options.value.panelPosition.width = panelWidth.value
   }
 
   resizeState = null
@@ -101,7 +101,7 @@ function resetWidth(direction: 'left' | 'right') {
   panelWidth.value = newWidth
 
   if (position) {
-    delete position.width
+    delete options.value.panelPosition.width
   }
 }
 
@@ -114,7 +114,7 @@ const isAtMaxWidth = computed(() => panelWidth.value >= ui.tempadPanelMaxWidth)
 
 const restrictedPosition = computed(() => {
   if (!header.value) {
-    return { top: x.value, left: y.value }
+    return { top: y.value, left: x.value }
   }
 
   const panelPixelWidth = panelWidth.value
@@ -147,8 +147,8 @@ if (position) {
   watchDebounced(
     restrictedPosition,
     () => {
-      position.top = restrictedPosition.value.top
-      position.left = restrictedPosition.value.left
+      options.value.panelPosition.top = restrictedPosition.value.top
+      options.value.panelPosition.left = restrictedPosition.value.left
     },
     { debounce: 300 }
   )

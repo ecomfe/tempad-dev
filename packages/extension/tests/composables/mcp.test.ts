@@ -165,6 +165,154 @@ describe('composables/mcp', () => {
     vi.stubGlobal('location', { origin: ORIGIN })
   })
 
+  it.each([
+    ['stop', 'Stop confirmation timed out.'],
+    ['done', 'Finishing the review timed out.'],
+    ['feedback', 'Sending comments timed out.']
+  ] as const)('identifies the %s action when confirmation times out', async (action, message) => {
+    vi.useFakeTimers()
+    try {
+      Object.assign(mocks.window, {
+        figma: { fileKey: 'file-a', root: { name: 'Design' }, currentPage: { id: 'page-a' } },
+        INITIAL_OPTIONS: { editor_type: 'design' }
+      })
+      const mcp = useMcp()
+      const state = bridgeState(mcp.sessionId, 'connected', null)
+      if (state.type === 'mcp.state') state.payload.gatewayId = 'gateway-a'
+      receive(state)
+      const task: DesignTask = {
+        taskId: 'task-a',
+        title: 'Design',
+        status: 'active',
+        operation: null,
+        target: {
+          sessionId: mcp.sessionId,
+          fileKey: 'file-a',
+          fileName: 'Design',
+          pageId: 'page-a'
+        },
+        client: { kind: 'codex-app', name: 'Codex', sessionId: 'thread-a' },
+        expiresAt: Date.now() + 300000,
+        revision: 1
+      }
+      receive({
+        type: 'mcp.designTaskState',
+        gatewayId: 'gateway-a',
+        task,
+        source: TEMPAD_MCP_BROWSER_SOURCE,
+        version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+      })
+      const request =
+        action === 'stop'
+          ? mcp.stopDesignTask()
+          : action === 'done'
+            ? mcp.closeDesignReview('task-a')
+            : mcp.sendDesignFeedback({
+                id: '77bf50b5-d652-4b94-9970-a537b6a32e1f',
+                mode: 'queue',
+                fileKey: 'file-a',
+                comment: 'Keep this',
+                items: [],
+                createdAt: Date.now()
+              })
+      const rejection = request?.catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(30000)
+      if (request) expect(await rejection).toEqual(new Error(message))
+      expect(mcp.designActionResult.value).toMatchObject({ status: 'failed', message })
+      expect(vi.getTimerCount()).toBe(0)
+      if (action === 'stop') expect(mcp.designTask.value?.status).toBe('cancelled')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    { kind: 'feedback', failure: 'post' },
+    { kind: 'drafts', failure: 'post' },
+    { kind: 'feedback', failure: 'invalidated' },
+    { kind: 'feedback', failure: 'disable' },
+    { kind: 'drafts', failure: 'disable' }
+  ])(
+    'cleans $kind RPC state after $failure without a later timeout overwriting a new result',
+    async ({ kind, failure }) => {
+      vi.useFakeTimers()
+      try {
+        Object.assign(mocks.window, {
+          figma: { fileKey: 'file-a', root: { name: 'Design' }, currentPage: { id: 'page-a' } },
+          INITIAL_OPTIONS: { editor_type: 'design' }
+        })
+        const mcp = useMcp()
+        receive(bridgeState(mcp.sessionId, 'connected', null))
+        mcp.designTask.value = {
+          taskId: 'task-a',
+          title: 'Design',
+          status: 'completed',
+          operation: null,
+          target: {
+            sessionId: mcp.sessionId,
+            fileKey: 'file-a',
+            fileName: 'Design',
+            pageId: 'page-a'
+          },
+          client: { kind: 'codex-app', name: 'Codex', sessionId: 'thread-a' },
+          expiresAt: Date.now() + 300000,
+          revision: 1
+        }
+        if (failure === 'post') {
+          mocks.window.postMessage.mockImplementationOnce(() => {
+            throw new DOMException('Cannot clone request', 'DataCloneError')
+          })
+        }
+        const request =
+          kind === 'feedback'
+            ? mcp.sendDesignFeedback({
+                id: '77bf50b5-d652-4b94-9970-a537b6a32e1f',
+                mode: 'queue',
+                fileKey: 'file-a',
+                items: [],
+                comment: 'Keep this',
+                createdAt: Date.now()
+              })
+            : mcp.requestFeedbackDrafts({
+                operation: 'load',
+                scope: {
+                  taskId: 'task-a',
+                  fileKey: 'file-a',
+                  clientKind: 'codex-app',
+                  conversationId: 'thread-a'
+                }
+              })
+        if (failure === 'invalidated') {
+          receive(
+            bridgeState(
+              mcp.sessionId,
+              'connecting',
+              'TemPad Dev was updated. Reload this Figma tab to reconnect.'
+            )
+          )
+        } else if (failure === 'disable') {
+          mocks.options.value.mcpOn = false
+          mocks.watchCallbacks.forEach((callback) => callback())
+        }
+        await expect(request).rejects.toThrow(
+          failure === 'post' ? 'Cannot clone request' : /disconnected/i
+        )
+        expect(vi.getTimerCount()).toBe(0)
+        const newer = {
+          requestId: 'new-action',
+          taskId: 'task-a',
+          status: 'delivered' as const,
+          message: 'Sent'
+        }
+        mcp.designActionResult.value = newer
+        await vi.advanceTimersByTimeAsync(30000)
+        expect(mcp.designActionResult.value).toEqual(newer)
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+  )
+
   it('applies another tab’s durable Done while offline and ignores later task state', () => {
     Object.assign(mocks.window, {
       figma: { fileKey: 'file-a', root: { name: 'Design' }, currentPage: { id: 'page-a' } },

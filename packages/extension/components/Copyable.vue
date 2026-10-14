@@ -7,12 +7,12 @@ const root = useTemplateRef('root')
 
 const copy = useCopy(root)
 
-async function copyText() {
+function copyText() {
   if (!root.value) {
     return
   }
 
-  copy()
+  void copy()
 }
 </script>
 

@@ -34,27 +34,27 @@ describe('composables/copy', () => {
     vi.clearAllMocks()
   })
 
-  it('copies explicit source and uses explicit message', () => {
+  it('copies explicit source and uses explicit message', async () => {
     const copy = useCopy('default')
 
-    copy('hello', 'Done')
+    await copy('hello', 'Done')
 
     expect(mocks.copyToClipboard).toHaveBeenCalledWith('hello')
     expect(mocks.show).toHaveBeenCalledWith('Done')
   })
 
-  it('resolves value from fallback content and option message getter', () => {
+  it('resolves value from fallback content and option message getter', async () => {
     const copy = useCopy('fallback-value', {
       message: () => 'Copied from options'
     })
 
-    copy()
+    await copy()
 
     expect(mocks.copyToClipboard).toHaveBeenCalledWith('fallback-value')
     expect(mocks.show).toHaveBeenCalledWith('Copied from options')
   })
 
-  it('supports element sources via dataset, textContent, and empty fallback', () => {
+  it('supports element sources via dataset, textContent, and empty fallback', async () => {
     const copy = useCopy()
 
     const datasetNode = {
@@ -72,9 +72,9 @@ describe('composables/copy', () => {
       textContent: null
     } as unknown as HTMLElement
 
-    copy(datasetNode)
-    copy(textNode)
-    copy(emptyNode)
+    await copy(datasetNode)
+    await copy(textNode)
+    await copy(emptyNode)
 
     expect(mocks.copyToClipboard).toHaveBeenNthCalledWith(1, 'from-dataset')
     expect(mocks.copyToClipboard).toHaveBeenNthCalledWith(2, 'from-text')
@@ -84,17 +84,17 @@ describe('composables/copy', () => {
     expect(mocks.show).toHaveBeenNthCalledWith(3, 'Copied to clipboard')
   })
 
-  it('logs errors when clipboard copy fails', () => {
+  it('reports asynchronous clipboard failures without claiming success', async () => {
     const err = new Error('copy failed')
-    mocks.copyToClipboard.mockImplementationOnce(() => {
-      throw err
-    })
+    mocks.copyToClipboard.mockRejectedValueOnce(err)
 
     const copy = useCopy('payload')
 
-    copy()
+    await copy()
 
     expect(mocks.loggerError).toHaveBeenCalledWith(err)
-    expect(mocks.show).not.toHaveBeenCalled()
+    expect(mocks.show).toHaveBeenCalledExactlyOnceWith(
+      'Could not copy to clipboard. Please try again.'
+    )
   })
 })

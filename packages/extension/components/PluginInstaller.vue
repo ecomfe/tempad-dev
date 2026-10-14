@@ -3,6 +3,7 @@ import type { PluginData } from '@/composables'
 
 import { isAllowedPluginSource, usePluginInstall } from '@/composables'
 
+import Button from './Button.vue'
 import IconButton from './IconButton.vue'
 import Minus from './icons/Minus.vue'
 
@@ -50,15 +51,13 @@ function validate() {
 const source = shallowRef('')
 
 async function startImport() {
+  if (installing.value) return
   if (!validate()) {
     return
   }
 
   const src = source.value
-  source.value = 'Installing...'
-
   const installed = await install(src)
-  source.value = src
 
   if (installed) {
     emit('installed', installed)
@@ -80,10 +79,12 @@ function cancelImport() {
       v-model="source"
       :disabled="installing"
       @input="validity = ''"
-      @blur="startImport"
       @keydown.enter="startImport"
     />
-    <IconButton title="Remove" @click="cancelImport" variant="secondary">
+    <Button :disabled="installing" @click="startImport">{{
+      installing ? 'Installing…' : 'Install'
+    }}</Button>
+    <IconButton title="Cancel" @click="cancelImport" variant="secondary">
       <Minus />
     </IconButton>
   </div>

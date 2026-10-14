@@ -34,6 +34,7 @@ function setMcpEnabled(enabled: boolean | undefined): void {
     <div class="tp-grid tp-grid-2">
       <label>MCP access</label>
       <SegmentedControl
+        aria-label="MCP access"
         class="tp-grid-end"
         :options="mcpOptions"
         :model-value="options.mcpOn"

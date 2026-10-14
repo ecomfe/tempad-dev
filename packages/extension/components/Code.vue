@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useEventListener } from '@vueuse/core'
+import { computed, shallowRef, useTemplateRef } from 'vue'
 
-import { useCopy } from '@/composables'
+import { useCopy, useScrollbar } from '@/composables'
 import { PRISM_LANGUAGES_READY_EVENT } from '@/entrypoints/ui/prism'
 import { transformHTML } from '@/utils/dom'
 import { escapeHTML } from '@/utils/string'
@@ -42,15 +43,17 @@ const highlighted = computed(() => {
   // Recompute after asynchronously loaded grammars become available.
   void prismRevision.value
   const Prism = window.Prism
-  if (!Prism || !Prism.languages[lang.value]) {
+  const grammar = Prism?.languages[lang.value]
+  if (!Prism || !grammar) {
     return escapeHTML(code.value)
   }
 
-  const html = Prism.highlight(code.value, Prism.languages[lang.value], lang.value)
+  const html = Prism.highlight(code.value, grammar, lang.value)
 
   return transformHTML(html, (tpl) => {
     tpl.querySelectorAll<HTMLElement>('.token.variable, .token.constant').forEach((el) => {
       el.setAttribute('tabindex', '0')
+      el.setAttribute('role', 'button')
       el.classList.add('copyable')
       el.dataset.tooltipType = 'text'
       el.dataset.tooltip = 'Copy'
@@ -83,16 +86,24 @@ const lines = computed(() => code.value.split('\n').length)
 const copy = useCopy(code)
 
 function handleCopy() {
-  copy()
+  void copy()
 }
 
 function handleClick(event: MouseEvent) {
   const target = event.target as Element | null
   const token = target?.closest('.token.copyable')
   if (token) {
-    copy(token as HTMLElement)
+    void copy(token as HTMLElement)
   }
 }
+
+useEventListener(content, 'keydown', (event: KeyboardEvent) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  const token = (event.target as Element | null)?.closest<HTMLElement>('.token.copyable')
+  if (!token) return
+  event.preventDefault()
+  void copy(token)
+})
 
 useEventListener(window, PRISM_LANGUAGES_READY_EVENT, () => {
   prismRevision.value += 1

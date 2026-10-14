@@ -14,10 +14,10 @@ export function useCopy(content?: MaybeRefOrGetter<CopySource>, options?: UseCop
   const { copy: copyToClipboard } = useClipboard()
   const { show } = useToast()
 
-  return (source?: CopySource, message?: string) => {
+  return async (source?: CopySource, message?: string) => {
     try {
       const value = toValue(source ?? content)
-      copyToClipboard(
+      await copyToClipboard(
         typeof value === 'string' ? value : value?.dataset?.copy || value?.textContent || ''
       )
       const resolvedMessage =
@@ -25,6 +25,7 @@ export function useCopy(content?: MaybeRefOrGetter<CopySource>, options?: UseCop
       show(resolvedMessage)
     } catch (e) {
       logger.error(e)
+      show('Could not copy to clipboard. Please try again.')
     }
   }
 }

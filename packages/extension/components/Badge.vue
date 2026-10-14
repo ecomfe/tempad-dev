@@ -3,18 +3,21 @@ defineProps<{
   title?: string
   tone?: 'brand' | 'neutral' | 'success' | 'warning'
   variant?: 'solid' | 'dashed'
+  interactive?: boolean
 }>()
 </script>
 
 <template>
-  <div
+  <component
+    :is="interactive ? 'button' : 'div'"
+    :type="interactive ? 'button' : undefined"
     class="tp-badge"
     :class="[`tp-badge-${tone || 'brand'}`, `tp-badge-${variant || 'solid'}`]"
     :data-tooltip="title || null"
     :data-tooltip-type="title ? 'text' : null"
   >
     <slot />
-  </div>
+  </component>
 </template>
 
 <style scoped>

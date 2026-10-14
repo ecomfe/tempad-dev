@@ -154,7 +154,13 @@ it('layers feedback popovers above the main panel while keeping canvas controls 
   tooltip.remove()
   panel.style.visibility = 'hidden'
   await stopButton.click()
+  expect(stop).not.toHaveBeenCalled()
+  await expect.element(page.getByRole('dialog', { name: 'Stop design task?' })).toBeVisible()
+  await page.getByRole('button', { name: 'Stop task', exact: true }).click()
   expect(stop).toHaveBeenCalledOnce()
+  await expect
+    .element(page.getByRole('dialog', { name: 'Stop design task?' }))
+    .not.toBeInTheDocument()
 
   async function expectPopoverAbovePanel(name: string): Promise<void> {
     const input = page.getByRole('textbox', { name, exact: true })

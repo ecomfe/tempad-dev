@@ -12,7 +12,10 @@ import Section from '@/components/Section.vue'
         <Warning class="tp-error-icon" /> Temporarily Unavailable
       </div>
     </template>
-    <p>Due to Figma updates, TemPad is temporarily unavailable in view-only mode.</p>
+    <p>
+      TemPad Dev could not connect to Figma’s runtime. Update the extension and reload this Figma
+      tab.
+    </p>
     <p class="tp-error-actions">
       <a target="_blank" href="https://discord.gg/MXGXwtkEck"
         ><Discord /> Join Discord for updates</a

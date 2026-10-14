@@ -1,10 +1,15 @@
 <script setup lang="ts">
+import type { PluginData } from '@/composables'
+
 import IconButton from '@/components/IconButton.vue'
 import Plus from '@/components/icons/Plus.vue'
 import PluginInstaller from '@/components/PluginInstaller.vue'
 import PluginItem from '@/components/PluginItem.vue'
 import Section from '@/components/Section.vue'
-import { options } from '@/ui/state'
+import { useToast } from '@/composables'
+import { options, plugins, savePlugin } from '@/ui/state'
+
+const { show } = useToast()
 
 const isImporterShown = shallowRef(false)
 const installer = useTemplateRef('installer')
@@ -16,31 +21,23 @@ async function showImporter() {
   installer.value?.focus()
 }
 
-const installedPlugins = computed(() => Object.values(options.value.plugins || {}))
+const installedPlugins = computed(() => Object.values(plugins.value))
 
-function handleInstalled({
-  source,
-  code,
-  integrity,
-  resolvedUrl,
-  pluginName
-}: {
-  source: string
-  code: string
-  integrity: string
-  resolvedUrl: string
-  pluginName: string
-}) {
-  if (!options.value.plugins) {
-    options.value.plugins = {}
-  }
-
-  options.value.plugins[source] = {
-    name: pluginName,
-    source,
-    code,
-    integrity,
-    resolvedUrl
+function handleInstalled(
+  { source, code, integrity, resolvedUrl, pluginName }: PluginData,
+  isUpdate = false
+) {
+  try {
+    savePlugin(source, {
+      name: pluginName,
+      source,
+      code,
+      integrity,
+      resolvedUrl
+    })
+  } catch {
+    show('Could not save plugin. Browser storage may be full or unavailable.')
+    return
   }
 
   if (!options.value.activePluginSource) {
@@ -48,6 +45,7 @@ function handleInstalled({
   }
 
   isImporterShown.value = false
+  show(`Plugin "${pluginName}" ${isUpdate ? 'updated' : 'installed'} successfully.`)
 }
 
 function handleActiveChange(source: string, checked: boolean) {
@@ -59,7 +57,12 @@ function handleActiveChange(source: string, checked: boolean) {
 }
 
 function handleRemove(source: string) {
-  delete options.value.plugins[source]
+  try {
+    savePlugin(source, null)
+  } catch {
+    show('Could not save plugin removal. Browser storage may be full or unavailable.')
+    return
+  }
 
   if (options.value.activePluginSource === source) {
     options.value.activePluginSource = null
@@ -109,7 +112,7 @@ function handleRemove(source: string) {
         :integrity="integrity"
         :resolved-url="resolvedUrl"
         :name="name"
-        @updated="handleInstalled"
+        @updated="handleInstalled($event, true)"
         @change="handleActiveChange(source, $event)"
         @remove="handleRemove(source)"
         class="tp-plugin-item"

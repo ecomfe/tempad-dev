@@ -128,6 +128,71 @@ afterEach(() => {
 })
 
 describe('design task status and canvas overlay', () => {
+  it.each([
+    { theme: 'light', width: 900, background: 'rgb(255, 255, 255)', text: 'rgb(34, 34, 34)' },
+    { theme: 'dark', width: 360, background: 'rgb(44, 44, 44)', text: 'rgb(255, 255, 255)' }
+  ])(
+    'lays out the $theme Stop confirmation with separated actions and safe cancellation',
+    async ({ width, background, text }) => {
+      await page.viewport(width, 700)
+      const f = fixture()
+      for (const [name, value] of Object.entries({
+        '--spacer-1': '4px',
+        '--spacer-2': '8px',
+        '--spacer-3': '16px',
+        '--spacer-4': '24px',
+        '--spacer-6': '40px',
+        '--radius-medium': '5px',
+        '--radius-large': '13px',
+        '--color-bg': background,
+        '--color-text': text,
+        '--color-text-onbrand': '#fff',
+        '--font-family-ui': 'Arial, sans-serif',
+        '--text-body-medium-strong-font-size': '11px',
+        '--text-body-medium-strong-font-weight': '600',
+        '--text-body-medium-strong-line-height': '16px',
+        '--text-body-medium-line-height': '16px',
+        '--elevation-500': '0 10px 24px #0003'
+      })) {
+        f.host.style.setProperty(name, value)
+      }
+      f.task.value = { ...f.initial, status: 'paused' }
+      await nextTick()
+      await page.getByRole('button', { name: 'Stop design task', exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: 'Stop design task?' })
+      await expect.element(dialog).toBeVisible()
+      const panel = dialog.element() as HTMLElement
+      await expect.poll(() => panel.closest('.tp-dialog-enter-active')).toBeNull()
+      // The panel's transform can finish after the overlay's opacity transition.
+      await expect.poll(() => panel.getBoundingClientRect().width).toBe(Math.min(400, width - 32))
+      const description = panel.querySelector('p')!
+      const footer = panel.querySelector('footer')!
+      expect(footer).not.toBeNull()
+      const [cancel, confirm] = footer.querySelectorAll('button')
+      const bounds = panel.getBoundingClientRect()
+      expect(bounds.height).toBeLessThan(240)
+      expect(getComputedStyle(panel).backgroundColor).toBe(background)
+      expect(getComputedStyle(description).color).toBe(text)
+      expect(getComputedStyle(description).paddingLeft).toBe('16px')
+      expect(getComputedStyle(description).paddingTop).toBe('16px')
+      expect(footer.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+        description.getBoundingClientRect().bottom
+      )
+      expect(
+        confirm!.getBoundingClientRect().left - cancel!.getBoundingClientRect().right
+      ).toBeGreaterThanOrEqual(4)
+      expect(confirm!.getBoundingClientRect().right).toBeLessThan(bounds.right)
+      expect(getComputedStyle(confirm!).backgroundColor).toBe('rgb(13, 153, 255)')
+      expect(getComputedStyle(confirm!).color).toBe('rgb(255, 255, 255)')
+      expect(f.stop).not.toHaveBeenCalled()
+      await page.getByRole('button', { name: 'Keep reviewing' }).click()
+      await expect.element(dialog).not.toBeInTheDocument()
+      expect(f.stop).not.toHaveBeenCalled()
+      expect(f.done).not.toHaveBeenCalled()
+      await page.viewport(900, 700)
+    }
+  )
+
   it('expands and collapses the panel entry in document flow with contextual text before an anchor exists', async () => {
     const f = fixture()
     const following = document.createElement('div')
@@ -199,6 +264,8 @@ describe('design task status and canvas overlay', () => {
       if (status !== 'completed') {
         expect(locate.textContent).toBe("The agent's design task is paused")
         document.querySelector<HTMLButtonElement>('.tp-design-stop')!.click()
+        expect(f.stop).not.toHaveBeenCalled()
+        await page.getByRole('button', { name: 'Stop task', exact: true }).click()
         expect(f.stop).toHaveBeenCalledOnce()
       } else expect(document.querySelector('.tp-design-done')).not.toBeNull()
       f.node.removed = true
@@ -308,6 +375,7 @@ describe('design task status and canvas overlay', () => {
       'The agent is working on the design'
     )
     document.querySelector<HTMLButtonElement>('.tp-design-stop')!.click()
+    await page.getByRole('button', { name: 'Stop task', exact: true }).click()
     expect(f.stop).toHaveBeenCalledOnce()
     f.task.value = { ...f.initial, status: 'stopping', operation: 'writing' }
     await nextTick()
@@ -487,6 +555,7 @@ describe('design task status and canvas overlay', () => {
     expect(bar.style.left).toBe('240px')
     expect(bar.style.top).toBe('116px')
     await page.getByRole('button', { name: 'Stop design task', exact: true }).click()
+    await page.getByRole('button', { name: 'Stop task', exact: true }).click()
     expect(f.stop).toHaveBeenCalledOnce()
     expect(bar.style.left).toBe('240px')
     expect(f.api.viewport.scrollAndZoomIntoView).not.toHaveBeenCalled()
@@ -694,6 +763,7 @@ describe('design task status and canvas overlay', () => {
     expect(getComputedStyle(anchor).pointerEvents).toBe('none')
     expect(getComputedStyle(feedback).pointerEvents).toBe('auto')
     feedback.querySelector<HTMLButtonElement>('.tp-design-stop')!.click()
+    await page.getByRole('button', { name: 'Stop task', exact: true }).click()
     expect(f.stop).toHaveBeenCalledOnce()
     f.task.value = { ...f.initial, status: 'stopping' }
     await nextTick()
@@ -804,6 +874,15 @@ describe('design task status and canvas overlay', () => {
     await expect.element(page.getByRole('button', { name: 'Review comments' })).toBeVisible()
     await expect.element(page.getByRole('button', { name: 'Done' })).toBeEnabled()
     await page.getByRole('button', { name: 'Done' }).click()
+    await expect
+      .element(page.getByRole('dialog', { name: 'Finish and discard comments?' }))
+      .toBeVisible()
+    await page.getByRole('button', { name: 'Keep reviewing' }).click()
+    expect(f.done).not.toHaveBeenCalled()
+    expect(requestDrafts.mock.calls.some(([request]) => request.operation === 'clear')).toBe(false)
+    expect(comment()?.value).toBe('Keep this revision')
+    await page.getByRole('button', { name: 'Done' }).click()
+    await page.getByRole('button', { name: 'Discard comments and finish' }).click()
     await expect.poll(() => f.done.mock.calls.length).toBe(1)
     expect(requestDrafts.mock.calls.some(([request]) => request.operation === 'clear')).toBe(true)
   })
@@ -863,6 +942,7 @@ describe('design task status and canvas overlay', () => {
     expect(document.querySelector('.tp-element-feedback')).toBeNull()
     expect(requestDrafts).not.toHaveBeenCalled()
     document.querySelector<HTMLButtonElement>('.tp-design-stop')!.click()
+    await page.getByRole('button', { name: 'Stop task', exact: true }).click()
     expect(f.stop).toHaveBeenCalledOnce()
 
     for (const kind of ['claude', 'codex-cli'] as const) {
@@ -1117,6 +1197,7 @@ describe('design task status and canvas overlay', () => {
         await expect.poll(() => f.done.mock.calls).toEqual([['task-a']])
       } else {
         await page.getByRole('button', { name: 'Stop design task' }).click()
+        await page.getByRole('button', { name: 'Stop task', exact: true }).click()
         expect(f.stop).toHaveBeenCalledOnce()
       }
     }

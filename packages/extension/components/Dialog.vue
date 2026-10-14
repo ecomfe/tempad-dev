@@ -6,6 +6,7 @@ import Times from '@/components/icons/Times.vue'
 
 defineProps<{
   title: string
+  compact?: boolean
 }>()
 
 const open = defineModel<boolean>({ default: false })
@@ -94,7 +95,10 @@ onBeforeUnmount(() => {
         <section
           ref="dialog"
           class="tp-dialog-panel"
-          :class="{ 'tp-dialog-panel-with-footer': $slots.footer }"
+          :class="{
+            'tp-dialog-panel-with-footer': $slots.footer,
+            'tp-dialog-panel-compact': compact
+          }"
           role="dialog"
           aria-modal="true"
           :aria-labelledby="titleId"
@@ -147,6 +151,11 @@ onBeforeUnmount(() => {
 
 .tp-dialog-panel-with-footer {
   grid-template-rows: var(--spacer-6) minmax(0, 1fr) var(--spacer-6);
+}
+
+.tp-dialog-panel-compact {
+  width: 400px;
+  height: auto;
 }
 
 .tp-dialog-header,

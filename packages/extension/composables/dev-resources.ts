@@ -4,8 +4,8 @@ import { computed, reactive, toValue, watchEffect } from 'vue'
 
 import { bytesToBase64 } from '@/mcp/encoding'
 
-const devResourcesCache = reactive<Map<string, DevResourceWithNodeId[]>>(new Map())
-const inflightDevResources = new Map<string, Promise<void>>()
+const devResourcesCache = reactive(new WeakMap<SceneNode, DevResourceWithNodeId[]>())
+const inflightDevResources = new WeakMap<SceneNode, Promise<void>>()
 
 const faviconCache = reactive<Map<string, string | null>>(new Map())
 const inflightFavicons = new Map<string, Promise<void>>()
@@ -23,6 +23,7 @@ async function getFavicon(url: string) {
   try {
     const response = await fetch(FAVICON_PROXY_ENDPOINT + encodeURIComponent(url))
     if (!response.ok) {
+      await response.body?.cancel()
       return null
     }
     const { meta } = await response.json()
@@ -42,7 +43,7 @@ export function useDevResourceLinks(nodeSource: MaybeRefOrGetter<SceneNode | nul
     }
 
     const documentationLinks = getDocumentationLinks(node)
-    const resources = devResourcesCache.get(node.id) ?? []
+    const resources = devResourcesCache.get(node) ?? []
 
     const docLinks = documentationLinks.map(({ uri }) => toLink('Documentation', uri))
     const resourceLinks = [...resources]
@@ -58,7 +59,9 @@ export function useDevResourceLinks(nodeSource: MaybeRefOrGetter<SceneNode | nul
       return
     }
 
-    ensureDevResources(node)
+    void refreshDevResourceLinks(node).catch(() => {
+      // Preserve the last successful links; explicit refresh reports failures.
+    })
   })
 
   watchEffect(() => {
@@ -77,25 +80,21 @@ export function useDevResourceLinks(nodeSource: MaybeRefOrGetter<SceneNode | nul
   return links
 }
 
-function ensureDevResources(node: SceneNode) {
-  if (inflightDevResources.has(node.id)) {
-    return
-  }
+export function refreshDevResourceLinks(node: SceneNode): Promise<void> {
+  const pending = inflightDevResources.get(node)
+  if (pending) return pending
 
-  async function request() {
-    try {
+  // Register before invoking the native API, including its synchronous failures.
+  const request = Promise.resolve()
+    .then(async () => {
       const resources = await node.getDevResourcesAsync()
-      devResourcesCache.set(node.id, resources)
-    } catch (e: unknown) {
-      if (typeof e === 'string' && e.includes('status 403')) {
-        devResourcesCache.set(node.id, [])
-      }
-    } finally {
-      inflightDevResources.delete(node.id)
-    }
-  }
-
-  inflightDevResources.set(node.id, request())
+      devResourcesCache.set(node, resources)
+    })
+    .finally(() => {
+      inflightDevResources.delete(node)
+    })
+  inflightDevResources.set(node, request)
+  return request
 }
 
 function ensureFavicon(url: string) {
@@ -128,6 +127,7 @@ function getDocumentationLinks(node: SceneNode): readonly DocumentationLink[] {
   if (node.type !== 'INSTANCE' && node.type !== 'COMPONENT' && node.type !== 'COMPONENT_SET') {
     return []
   }
+  if (node.type === 'COMPONENT_SET') return node.documentationLinks
 
   let currentNode = node
 

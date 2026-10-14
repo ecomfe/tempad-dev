@@ -54,7 +54,8 @@ describe('Select', () => {
     await page.getByRole('combobox', { name: 'Agent' }).click()
 
     const controlRect = select.getBoundingClientRect()
-    const selectedRect = select.selectedOptions[0].getBoundingClientRect()
+    expect(select.selectedOptions).toHaveLength(1)
+    const selectedRect = select.selectedOptions[0]!.getBoundingClientRect()
 
     expect(Math.abs(selectedRect.top - controlRect.top)).toBeLessThanOrEqual(1)
     expect(Math.abs(selectedRect.left - controlRect.left)).toBeLessThanOrEqual(2)
