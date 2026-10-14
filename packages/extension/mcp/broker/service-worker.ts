@@ -71,6 +71,8 @@ export class McpServiceWorkerBroker {
   private tabRevision = 0
   private connectedHubId: string | null = null
   private permissionMissing = false
+  private permissionRevision = 0
+  private permissionChangeRevision = 0
   private readonly hubClient: McpBrokerHubClient
   private readonly pendingToolCalls = new Map<string, string>()
   private readonly portSessions = new WeakMap<McpBrokerPort, string>()
@@ -110,6 +112,8 @@ export class McpServiceWorkerBroker {
   start(): void {
     browser.permissions?.onRemoved?.addListener((permissions) => {
       if (!permissions.origins?.includes(MCP_LOCAL_HOST_ORIGIN)) return
+      this.permissionRevision++
+      this.permissionChangeRevision++
       this.permissionMissing = true
       this.hubClient.stop()
       this.broadcastState()
@@ -378,14 +382,34 @@ export class McpServiceWorkerBroker {
     // listener, so request() cannot wait on a contains() check first. Re-requesting
     // an already granted origin is a no-op.
     const method = type === 'mcp.permissions.request' ? 'request' : 'contains'
+    const revision = ++this.permissionRevision
+    const changeRevision =
+      method === 'request' ? ++this.permissionChangeRevision : this.permissionChangeRevision
+    let granted = false
     try {
-      const granted = await browser.permissions[method]({ origins: [MCP_LOCAL_HOST_ORIGIN] })
-      this.permissionMissing = !granted
-      if (granted) this.startHubWhenReady()
-      return { granted }
+      granted = await browser.permissions[method]({ origins: [MCP_LOCAL_HOST_ORIGIN] })
     } catch {
-      return { granted: false }
+      // A failed check cannot authorize loopback access.
     }
+    // Background checks cannot supersede an open user prompt. A newer prompt or
+    // revocation can; accepting a prompt also invalidates checks made while it was open.
+    if (
+      method === 'request'
+        ? changeRevision !== this.permissionChangeRevision
+        : revision !== this.permissionRevision
+    )
+      return { granted: !this.permissionMissing }
+    const acceptedRevision = method === 'request' ? ++this.permissionRevision : revision
+    const wasMissing = this.permissionMissing
+    this.permissionMissing = !granted
+    if (granted)
+      void this.identityReady.then(() => {
+        if (acceptedRevision === this.permissionRevision && this.sessions.size > 0)
+          this.hubClient.start()
+      })
+    else this.hubClient.stop()
+    if (wasMissing !== this.permissionMissing) this.broadcastState()
+    return { granted }
   }
 
   private enableSession(port: McpBrokerPort, message: PageEnableMessage): void {
@@ -435,7 +459,7 @@ export class McpServiceWorkerBroker {
 
   private startHubWhenReady(): void {
     void this.identityReady.then(() => {
-      if (this.sessions.size > 0 && !this.permissionMissing) this.hubClient.start()
+      if (this.sessions.size > 0) return this.handlePermissionMessage('mcp.permissions.contains')
     })
   }
 

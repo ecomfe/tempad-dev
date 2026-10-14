@@ -16,6 +16,7 @@ import { McpServiceWorkerBroker } from '@/mcp/broker/service-worker'
 import {
   type McpPermissionMessageType,
   createMcpPermissionMessage,
+  MCP_LOCAL_HOST_PERMISSION_ERROR,
   MCP_LOCAL_HOST_ORIGIN
 } from '@/mcp/permissions'
 
@@ -24,6 +25,10 @@ const ASSET_HASH = '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011c
 beforeEach(() => {
   const values: Record<string, unknown> = {}
   vi.stubGlobal('browser', {
+    permissions: {
+      contains: vi.fn().mockResolvedValue(true),
+      request: vi.fn().mockResolvedValue(true)
+    },
     storage: {
       session: {
         get: async (key: string | null) => (key === null ? { ...values } : { [key]: values[key] }),
@@ -1771,6 +1776,178 @@ describe('mcp/broker/service-worker', () => {
     expect(contains).toHaveBeenCalledWith({ origins: [MCP_LOCAL_HOST_ORIGIN] })
     expect(contains).toHaveBeenCalledTimes(3)
     expect(request).not.toHaveBeenCalled()
+  })
+
+  it.each(['denied', 'unavailable'] as const)(
+    'checks permissions before a cached content session starts a fresh worker (%s)',
+    async (result) => {
+      const contains = vi.fn()
+      if (result === 'denied') contains.mockResolvedValue(false)
+      else contains.mockRejectedValue(new Error('Permission check unavailable'))
+      vi.stubGlobal('browser', { ...browser, permissions: { contains, request: vi.fn() } })
+      const client = createHubClient()
+      const broker = new McpServiceWorkerBroker(client)
+      const session = createPort('https://www.figma.com/design/abc/File')
+      broker.handlePort(session.port)
+      session.message(pageMessage('mcp.enable'))
+      await vi.waitFor(() =>
+        expect(contains).toHaveBeenCalledWith({ origins: [MCP_LOCAL_HOST_ORIGIN] })
+      )
+      expect(client.start).not.toHaveBeenCalled()
+      expect(browser.permissions.request).not.toHaveBeenCalled()
+      expect(session.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ errorMessage: MCP_LOCAL_HOST_PERMISSION_ERROR })
+        })
+      )
+    }
+  )
+
+  it.each(['removed', 'granted'] as const)(
+    'ignores a stale permission check after permission is %s',
+    async (change) => {
+      let finishCheck!: (granted: boolean) => void
+      const contains = vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finishCheck = resolve
+          })
+      )
+      let removed!: (value: { origins: string[] }) => void
+      vi.stubGlobal('browser', {
+        ...browser,
+        permissions: {
+          contains,
+          request: vi.fn().mockResolvedValue(true),
+          onRemoved: {
+            addListener: vi.fn((listener: typeof removed) => {
+              removed = listener
+            })
+          }
+        },
+        runtime: { onConnect: { addListener: vi.fn() }, onMessage: { addListener: vi.fn() } }
+      })
+      const client = createHubClient()
+      const broker = new McpServiceWorkerBroker(client)
+      broker.start()
+      const session = createPort('https://www.figma.com/design/abc/File')
+      broker.handlePort(session.port)
+      session.message(pageMessage('mcp.enable'))
+      await vi.waitFor(() => expect(contains).toHaveBeenCalledOnce())
+      if (change === 'removed') removed({ origins: [MCP_LOCAL_HOST_ORIGIN] })
+      else
+        await (broker as unknown as BrokerInternals).handlePermissionMessage(
+          'mcp.permissions.request'
+        )
+      finishCheck(change === 'removed')
+      await flushMicrotasks()
+      await flushMicrotasks()
+      if (change === 'removed') {
+        expect(client.start).not.toHaveBeenCalled()
+        expect(session.postMessage).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            payload: expect.objectContaining({ errorMessage: MCP_LOCAL_HOST_PERMISSION_ERROR })
+          })
+        )
+      } else {
+        expect(client.start).toHaveBeenCalledOnce()
+        expect(client.stop).not.toHaveBeenCalled()
+        expect(session.postMessage).toHaveBeenLastCalledWith(
+          expect.objectContaining({ payload: expect.objectContaining({ errorMessage: null }) })
+        )
+      }
+    }
+  )
+
+  it.each(['check-first', 'request-first', 'revoked'] as const)(
+    'preserves an interactive permission request across another tab check (%s)',
+    async (order) => {
+      let finishRequest!: (granted: boolean) => void
+      let finishCheck!: (granted: boolean) => void
+      let removed!: (value: { origins: string[] }) => void
+      const request = vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finishRequest = resolve
+          })
+      )
+      const contains = vi
+        .fn(
+          () =>
+            new Promise<boolean>((resolve) => {
+              finishCheck = resolve
+            })
+        )
+        .mockResolvedValueOnce(true)
+      vi.stubGlobal('browser', {
+        ...browser,
+        permissions: {
+          contains,
+          request,
+          onRemoved: {
+            addListener: vi.fn((listener: typeof removed) => {
+              removed = listener
+            })
+          }
+        },
+        runtime: { onConnect: { addListener: vi.fn() }, onMessage: { addListener: vi.fn() } }
+      })
+      const client = createHubClient()
+      const broker = new McpServiceWorkerBroker(client)
+      broker.start()
+      const first = createPort('https://www.figma.com/design/first/File')
+      broker.handlePort(first.port)
+      first.message(pageMessage('mcp.enable'))
+      await vi.waitFor(() => expect(client.start).toHaveBeenCalledOnce())
+      vi.mocked(client.start).mockClear()
+      const prompting = (broker as unknown as BrokerInternals).handlePermissionMessage(
+        'mcp.permissions.request'
+      )
+      expect(request).toHaveBeenCalledOnce()
+      const second = createPort('https://www.figma.com/design/second/File')
+      second.port.sender!.tab!.id = 2
+      broker.handlePort(second.port)
+      second.message(pageMessage('mcp.enable', 'second-session'))
+      await vi.waitFor(() => expect(contains).toHaveBeenCalledTimes(2))
+      if (order === 'revoked') removed({ origins: [MCP_LOCAL_HOST_ORIGIN] })
+      if (order === 'check-first') {
+        finishCheck(false)
+        await flushMicrotasks()
+      }
+      finishRequest(true)
+      await expect(prompting).resolves.toEqual({ granted: order !== 'revoked' })
+      if (order !== 'check-first') finishCheck(false)
+      await flushMicrotasks()
+      await flushMicrotasks()
+      expect(client.start).toHaveBeenCalledTimes(order === 'revoked' ? 0 : 1)
+      expect(second.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            errorMessage: order === 'revoked' ? MCP_LOCAL_HOST_PERMISSION_ERROR : null
+          })
+        })
+      )
+    }
+  )
+
+  it('keeps the newest background permission result when checks complete out of order', async () => {
+    const pending: Array<(granted: boolean) => void> = []
+    const contains = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          pending.push(resolve)
+        })
+    )
+    vi.stubGlobal('browser', { ...browser, permissions: { contains } })
+    const client = createHubClient()
+    const broker = new McpServiceWorkerBroker(client) as unknown as BrokerInternals
+    const earlier = broker.handlePermissionMessage('mcp.permissions.contains')
+    const later = broker.handlePermissionMessage('mcp.permissions.contains')
+    pending[1]!(true)
+    await expect(later).resolves.toEqual({ granted: true })
+    pending[0]!(false)
+    await expect(earlier).resolves.toEqual({ granted: true })
+    expect(client.stop).not.toHaveBeenCalled()
   })
 
   it('requests local host permissions without awaiting first, preserving user activation', async () => {

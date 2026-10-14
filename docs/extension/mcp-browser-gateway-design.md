@@ -23,6 +23,8 @@ expiry, and recovery semantics. Taskless reads still use the active route.
 1. Enabling Agent integration requests optional access to `http://127.0.0.1/*` from the initiating
    user action.
 2. The content bridge opens a named runtime port and registers the page session with the broker.
+   Each registration rechecks optional loopback permission before starting the Hub connection;
+   a cached grant in a surviving content script cannot authorize a restarted worker.
 3. The broker starts one WebSocket client for all Figma tabs in the extension context.
 4. The client probes the known ports and requests the `tempad-mcp` WebSocket subprotocol before
    receiving any frames. It accepts a candidate only after receiving both `registered` and `state`.
