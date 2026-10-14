@@ -24,6 +24,8 @@ export default defineConfig({
   test: {
     name: 'mcp-server',
     environment: 'node',
+    globalSetup: ['./tests/global-setup.ts'],
+    setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.ts'],
     coverage: {
       provider: 'istanbul',

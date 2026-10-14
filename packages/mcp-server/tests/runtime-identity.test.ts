@@ -154,6 +154,7 @@ it.skipIf(process.platform === 'win32').each([
         env: {
           ...process.env,
           TEMPAD_MCP_RUNTIME_DIR: runtimeDir,
+          TEMPAD_MCP_STATE_DIR: join(runtimeDir, 'state'),
           TEMPAD_MCP_LOG_DIR: join(runtimeDir, 'logs'),
           TEMPAD_MCP_ASSET_DIR: join(runtimeDir, 'assets'),
           CLAUDE_CODE_SESSION_ID: 'birth-session'
@@ -195,7 +196,10 @@ it.skipIf(process.platform === 'win32').each([
         reconnectedOutput += String(chunk)
       })
       for (const socket of sockets) socket.end()
-      await vi.waitFor(() => expect(bindings).toBe(2))
+      await vi.waitFor(() => {
+        expect(bindings).toBe(2)
+        expect(subscriptions).toHaveLength(2)
+      })
       if (bindingUpdates === 'session') {
         expect(connections.at(-1)).toMatchObject({ kind: 'claude', sessionId: 'verified-session' })
         expect(subscriptions.at(-1)).toBeUndefined()
@@ -210,7 +214,10 @@ it.skipIf(process.platform === 'win32').each([
       expect(child.stdout!.readableEnded).toBe(false)
       if (bindingUpdates === 'session') {
         for (const socket of sockets) socket.end()
-        await vi.waitFor(() => expect(bindings).toBe(3))
+        await vi.waitFor(() => {
+          expect(bindings).toBe(3)
+          expect(subscriptions).toHaveLength(3)
+        })
         expect(connections.at(-1)).toMatchObject({ kind: 'claude' })
         expect(connections.at(-1)?.sessionId).toBeUndefined()
         expect(subscriptions.at(-1)).toBeUndefined()
