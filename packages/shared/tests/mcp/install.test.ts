@@ -110,7 +110,7 @@ describe('shared/mcp/install', () => {
     expect(mcp.MCP_CLIENTS_BY_ID.codex.copyText).toContain('codex mcp add "tempad-dev"')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyKind).toBe('config')
     expect(mcp.MCP_CLIENTS_BY_ID.codex.alternateCopyText).toBe(
-      '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@latest"]'
+      '[mcp_servers.tempad-dev]\ncommand = "npx"\nargs = ["-y", "@tempad-dev/mcp@latest"]\ntool_timeout_sec = 300'
     )
     expect(mcp.MCP_CLIENTS_BY_ID.gemini.copyText).toBe(
       'gemini mcp add --scope user "tempad-dev" npx -y @tempad-dev/mcp@latest'
@@ -344,5 +344,27 @@ describe('shared/mcp/install', () => {
 
     const mcp = await importInstall()
     expect(mcp.MCP_CLIENTS_BY_ID.cursor.deepLink).toContain('config=')
+  })
+
+  it('cycles available copy formats and falls back when an alternate is incomplete', async () => {
+    const { getMcpClientCopyPayload: copy, getNextMcpClientCopyVariant: next } =
+      await importInstall()
+    const client = {
+      copyText: 'command',
+      alternateCopyText: '{"config":true}',
+      alternateCopyKind: 'config' as const
+    }
+    expect(copy(client)).toEqual({ text: 'command', kind: 'command' })
+    expect(copy(client, 'alternate')).toEqual({ text: '{"config":true}', kind: 'config' })
+    expect(next(client)).toBe('alternate')
+    expect(next(client, 'alternate')).toBe('primary')
+    expect(copy({ copyText: '{}', copyKind: 'config' })).toEqual({ text: '{}', kind: 'config' })
+    expect(copy({})).toBeNull()
+    expect(copy({ copyText: 'fallback', alternateCopyText: '{}' }, 'alternate')).toEqual({
+      text: 'fallback',
+      kind: 'command'
+    })
+    expect(next({ alternateCopyText: '{}' }, 'alternate')).toBe('primary')
+    expect(next({ alternateCopyKind: 'config' }, 'alternate')).toBe('primary')
   })
 })

@@ -1465,6 +1465,40 @@ describe('mcp/tools canvas authoring schemas', () => {
     ).toBe(false)
   })
 
+  it.each([
+    ['https://media.example.com/video.mp4', true],
+    ['https://8.8.8.8/video.mp4', true],
+    ['https://[2606:4700:4700::1111]/video.mp4', true],
+    ['http://media.example.com/video.mp4', false],
+    ['not a URL', false],
+    ['https://user:secret@media.example.com/video.mp4', false],
+    ['https://localhost./video.mp4', false],
+    ['https://video.localhost/video.mp4', false],
+    ['https://video.local./video.mp4', false],
+    ['https://127.1/video.mp4', false],
+    ['https://0.0.0.0/video.mp4', false],
+    ['https://10.1.2.3/video.mp4', false],
+    ['https://169.254.1.1/video.mp4', false],
+    ['https://172.16.0.1/video.mp4', false],
+    ['https://172.32.0.1/video.mp4', true],
+    ['https://192.168.1.1/video.mp4', false],
+    ['https://[::]/video.mp4', false],
+    ['https://[::1]/video.mp4', false],
+    ['https://[fc00::1]/video.mp4', false],
+    ['https://[fe80::1]/video.mp4', false],
+    ['https://[::ffff:127.0.0.1]/video.mp4', false]
+  ])('validates video URL %s before canvas resolution', (videoUrl, accepted) => {
+    expect(
+      acceptsCanvas({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-20 h-20"/>',
+        bindings: {
+          root: { figma: { fills: [{ type: 'VIDEO', videoUrl, scaleMode: 'FILL' }] } }
+        }
+      })
+    ).toBe(accepted)
+  })
+
   it('accepts every native Figma paint type and its mode-specific fields', () => {
     const gradient = (type: string) => ({
       type,

@@ -61,6 +61,7 @@ describe('mcp/errors', () => {
       CANVAS_BUSY: 'CANVAS_BUSY',
       DESIGN_TASK_BUSY: 'DESIGN_TASK_BUSY',
       DESIGN_TASK_INACTIVE: 'DESIGN_TASK_INACTIVE',
+      REQUEST_ID_CONFLICT: 'REQUEST_ID_CONFLICT',
       DESIGN_TASK_OWNER_MISMATCH: 'DESIGN_TASK_OWNER_MISMATCH',
       DESIGN_TARGET_CHANGED: 'DESIGN_TARGET_CHANGED',
       INVALID_CANVAS_SCOPE: 'INVALID_CANVAS_SCOPE',
@@ -95,6 +96,6 @@ describe('mcp/errors', () => {
     expect(TempadMcpErrorPayloadSchema.safeParse({ message: '' }).success).toBe(false)
     expect(
       TempadMcpErrorPayloadSchema.safeParse({ code: 'UNKNOWN', message: 'failed' }).success
-    ).toBe(false)
+    ).toBe(true)
   })
 })

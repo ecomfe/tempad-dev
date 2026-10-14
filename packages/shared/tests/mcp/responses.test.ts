@@ -6,11 +6,13 @@ import type { ToolResultMap } from '../../src/mcp/tools'
 import { TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION } from '../../src/mcp/constants'
 import {
   buildApplyCanvasToolResult,
+  buildGetAssetsToolResult,
   buildGetCodeToolResult,
   buildGetDesignSystemToolResult,
   buildGetScreenshotToolResult,
   buildGetStructureToolResult,
   buildGetTokenDefsToolResult,
+  buildUploadAssetToolResult,
   measureCallToolResultBytes,
   utf8Bytes
 } from '../../src/mcp/responses'
@@ -22,6 +24,82 @@ describe('mcp/responses helpers', () => {
     expect(utf8Bytes('abc')).toBe(3)
     expect(utf8Bytes('你好')).toBe(6)
     expect(utf8Bytes('🙂')).toBe(4)
+    expect(utf8Bytes(undefined)).toBe(9)
+  })
+
+  it('preserves partial batch results and distinguishes deferred nodes from total failure', () => {
+    const code = {
+      code: '<div />',
+      lang: 'jsx' as const,
+      codegen: {
+        plugin: 'builtin',
+        config: { cssUnit: 'px' as const, rootFontSize: 16, scale: 1 }
+      },
+      tokens: { '--white': { kind: 'color' as const, value: '#fff' } },
+      assets: [{ hash: ASSET_HASH, url: 'http://127.0.0.1/asset', mimeType: 'image/png', size: 1 }]
+    }
+    const results = [
+      { nodeId: 'ok', result: code },
+      { nodeId: 'bad', error: { code: 'NODE_NOT_FOUND', message: 'Missing node' } },
+      { nodeId: 'unknown', error: { message: 'Unavailable' } }
+    ]
+    const partial = buildGetCodeToolResult({ results, remainingNodeIds: ['later'] })
+    expect(partial.isError).toBeUndefined()
+    expect(partial.structuredContent).toEqual({ results, remainingNodeIds: ['later'] })
+    const text = partial.content?.map((block) => block.text).join('\n')
+    expect(text).toContain('pass remainingNodeIds as nodeIds')
+    expect(text).toContain('[NODE_NOT_FOUND] Missing node')
+    expect(text).toContain('Token definitions included: 1')
+    expect(text).toContain('Assets attached: 1')
+    expect(buildGetCodeToolResult({ results: results.slice(1) }).isError).toBe(true)
+    expect(
+      buildGetCodeToolResult({ results: results.slice(1), remainingNodeIds: ['later'] }).isError
+    ).toBeUndefined()
+  })
+
+  it('keeps screenshot links accessible in a batch and prefers local files', () => {
+    const screenshot = {
+      format: 'png' as const,
+      width: 100,
+      height: 80,
+      scale: 2,
+      bytes: 2 * 1024 * 1024,
+      asset: {
+        hash: ASSET_HASH,
+        url: 'http://127.0.0.1/asset',
+        localPath: '/tmp/image.png',
+        mimeType: 'image/png',
+        size: 2 * 1024 * 1024
+      }
+    }
+    const result = buildGetScreenshotToolResult({
+      results: [{ nodeId: 'node', result: screenshot }]
+    })
+    expect(result.content?.find((block) => block.type === 'resource_link')?.uri).toBe(
+      screenshot.asset.url
+    )
+    expect(result.content?.map((block) => block.text).join('\n')).toContain('2.0 MB')
+    expect(result.content?.map((block) => block.text).join('\n')).toContain('/tmp/image.png')
+    expect(result.isError).toBeUndefined()
+  })
+
+  it('reports missing assets separately from successfully uploaded images', () => {
+    const empty = buildGetAssetsToolResult({ assets: [], missing: [ASSET_HASH] })
+    expect(empty.content?.[0]?.text).toContain('No assets were resolved')
+    expect(empty.content?.[0]?.text).toContain(`Missing: ${ASSET_HASH}`)
+    const asset = {
+      hash: ASSET_HASH,
+      url: 'http://127.0.0.1/asset',
+      mimeType: 'image/png',
+      size: 10
+    }
+    expect(buildGetAssetsToolResult({ assets: [asset], missing: [] }).content?.[0]?.text).toContain(
+      'Resolved 1 asset'
+    )
+    const uploaded = { assetHash: ASSET_HASH, mimeType: 'image/png' as const, size: 10 }
+    expect(buildUploadAssetToolResult(uploaded).structuredContent).toEqual(uploaded)
+    expect(buildUploadAssetToolResult(uploaded).content?.[0]?.text).toContain('10 B')
+    expect(buildGetTokenDefsToolResult({}).content?.[0]?.text).toContain('No token definitions')
   })
 
   it('measures CallToolResult bytes beyond the bare text payload', () => {
@@ -277,6 +355,40 @@ describe('mcp/responses helpers', () => {
     })
     expect(removed.content?.[0]?.text).toContain('Root node is absent: 2:1')
     expect(removed.content?.[0]?.text).not.toContain('Reuse nodeIdsByKey')
+  })
+
+  it('keeps font and page continuation guidance tied to the requested catalog scope', () => {
+    const pages = {
+      scope: 'pages' as const,
+      pages: [{ id: 'page', name: 'Library', index: 0, active: false }]
+    }
+    expect(buildGetDesignSystemToolResult(pages).content?.[0]?.text).toContain(
+      'Returned 1 Figma page.'
+    )
+    expect(
+      buildGetDesignSystemToolResult({ ...pages, nextCursor: 3 }).content?.[0]?.text
+    ).toContain('Continue the page list with cursor 3')
+    const fonts = {
+      scope: 'fonts' as const,
+      fonts: [{ family: 'Inter', style: 'Regular' }],
+      nextCursor: 2
+    }
+    expect(buildGetDesignSystemToolResult(fonts).content?.[0]?.text).toContain(
+      '1 available font faces. Continue with the same font filters and cursor 2'
+    )
+    expect(
+      buildGetDesignSystemToolResult({ scope: 'fonts', families: ['Inter'] }).content?.[0]?.text
+    ).toContain('1 available font families.')
+    const catalog = {
+      catalogId: 'empty',
+      components: [],
+      variables: [],
+      styles: [],
+      collections: []
+    }
+    expect(buildGetDesignSystemToolResult(catalog).content?.[0]?.text).not.toContain(
+      'Continue this catalog'
+    )
   })
 
   it('summarizes an exact design-system definition without discovery guidance', () => {

@@ -210,6 +210,36 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
+// This is a lexical guard; page-context Fetch cannot verify the IP resolved by DNS.
+export function isCanvasVideoUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    const host = parsed.hostname.toLowerCase().replace(/\.$/, '')
+    const octets = host.split('.').map(Number)
+    const localIPv4 =
+      octets.length === 4 &&
+      octets.every(Number.isInteger) &&
+      (octets[0] === 0 ||
+        octets[0] === 10 ||
+        octets[0] === 127 ||
+        (octets[0] === 169 && octets[1] === 254) ||
+        (octets[0] === 172 && octets[1]! >= 16 && octets[1]! <= 31) ||
+        (octets[0] === 192 && octets[1] === 168))
+    return (
+      parsed.protocol === 'https:' &&
+      !parsed.username &&
+      !parsed.password &&
+      host !== 'localhost' &&
+      !host.endsWith('.localhost') &&
+      !host.endsWith('.local') &&
+      !localIPv4 &&
+      !/^\[(?:::|::1|f[cd][\da-f]*:|fe[89ab][\da-f]*:|::ffff:)/.test(host)
+    )
+  } catch {
+    return false
+  }
+}
+
 const CanvasFigmaImageSourceFields = {
   imageHash: z.string().min(1).nullable().optional(),
   imageUrl: z
@@ -236,8 +266,8 @@ const CanvasFigmaVideoSourceFields = {
   videoHash: z.string().min(1).nullable().optional(),
   videoUrl: z
     .string()
-    .refine(isHttpUrl, {
-      message: 'Video URL must use HTTP or HTTPS.'
+    .refine(isCanvasVideoUrl, {
+      message: 'Video URLs must use public HTTPS without credentials or local-network addresses.'
     })
     .optional()
 }
@@ -1726,7 +1756,7 @@ const CanvasNativeBindingSchema = z
     figma: z
       .record(z.string(), z.unknown())
       .describe(
-        'Strict desired state for the selected Figma-native capability. Use the matching progressive reference from the canvas-authoring skill for its exact shape.'
+        'Strict desired state for the selected Figma-native capability. Use the matching progressive reference from the design-in-figma skill for its exact shape.'
       )
       .optional()
   })
@@ -1915,13 +1945,13 @@ export const ApplyCanvasParametersSchema = z
     variableCollections: z
       .record(CanvasStableKeySchema, z.unknown())
       .describe(
-        'Optional local variable collections, modes, and variables keyed by file-wide authoring identities. This does not require catalogId; use the canvas-authoring variables reference for the exact shape.'
+        'Optional local variable collections, modes, and variables keyed by file-wide authoring identities. This does not require catalogId; use the design-in-figma variables reference for the exact shape.'
       )
       .optional(),
     styles: z
       .record(CanvasStableKeySchema, z.unknown())
       .describe(
-        'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide authoring identities. This does not require catalogId; use the canvas-authoring local-styles reference for the exact shape.'
+        'Optional local Paint, Text, Effect, and Grid styles keyed by file-wide authoring identities. This does not require catalogId; use the design-in-figma local-styles reference for the exact shape.'
       )
       .optional(),
     assets: z
@@ -1934,7 +1964,7 @@ export const ApplyCanvasParametersSchema = z
     page: z
       .record(z.string(), z.unknown())
       .describe(
-        'Optional local page identity and desired state. Use the canvas-authoring document-geometry reference for the exact shape.'
+        'Optional local page identity and desired state. Use the design-in-figma document-geometry reference for the exact shape.'
       )
       .optional(),
     selection: z
@@ -2046,7 +2076,8 @@ export const ApplyCanvasResultSchema = z
             .object({
               code: z.string().min(1),
               message: z.string(),
-              key: z.string().optional()
+              key: z.string().optional(),
+              nodeId: z.string().optional()
             })
             .strict()
         )

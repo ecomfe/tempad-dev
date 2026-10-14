@@ -152,7 +152,7 @@ describe('mcp/browser-gateway', () => {
       { payload: undefined },
       { error: undefined },
       { error: { message: 'Nope' }, payload: {} },
-      { error: { code: 'NOT_A_TEMPAD_ERROR', message: 'Nope' } }
+      { error: { code: '', message: 'Nope' } }
     ]
     for (const result of invalidResults) {
       expect(

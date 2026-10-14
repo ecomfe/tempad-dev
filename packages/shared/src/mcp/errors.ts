@@ -13,6 +13,7 @@ export const TEMPAD_MCP_ERROR_CODES = {
   CANVAS_BUSY: 'CANVAS_BUSY',
   DESIGN_TASK_BUSY: 'DESIGN_TASK_BUSY',
   DESIGN_TASK_INACTIVE: 'DESIGN_TASK_INACTIVE',
+  REQUEST_ID_CONFLICT: 'REQUEST_ID_CONFLICT',
   DESIGN_TASK_OWNER_MISMATCH: 'DESIGN_TASK_OWNER_MISMATCH',
   DESIGN_TARGET_CHANGED: 'DESIGN_TARGET_CHANGED',
   INVALID_CANVAS_SCOPE: 'INVALID_CANVAS_SCOPE',
@@ -38,7 +39,7 @@ export type TempadMcpErrorCode =
 
 export const TempadMcpErrorPayloadSchema = z
   .object({
-    code: z.enum(TEMPAD_MCP_ERROR_CODES).optional(),
+    code: z.string().min(1).optional(),
     message: z.string().min(1)
   })
   .strict()
