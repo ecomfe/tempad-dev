@@ -22,17 +22,30 @@ For contributor workflow and commands, see `TESTING.md`.
 
 - Packages own their runtime-sensitive scripts such as `test`, `test:run`, and browser-specific commands.
 - Root owns repo-level checks for root-only files and provides thin aggregation scripts such as `lint`, `format`, `typecheck`, and `test:run`.
-- Root coverage remains centralized in `vitest.config.ts`; shared thresholds and the extension node
-  source list live in `vitest.coverage.ts` so package and workspace coverage cannot drift.
+- Root coverage remains centralized in `vitest.config.ts`; baseline inventories, source patterns,
+  and thresholds live in `vitest.coverage.ts` so package and workspace coverage cannot drift.
 
 ## Coverage model
 
 - Coverage provider: `istanbul`.
 - Build artifacts are excluded from coverage (`**/dist/**`, `**/.output/**`).
-- Shared and plugin packages keep their package-owned 100% thresholds.
-- Root, extension, and MCP aggregate coverage use the thresholds in `vitest.coverage.ts`:
-  90% lines/statements/functions and 85% branches, measured across the configured scope.
-- Browser-only behavior is verified in the browser suite and excluded from node-only root coverage.
+- Shared schemas and the plugin SDK retain their package-owned 100% thresholds. Shared installation
+  and response helpers are also reported; they participate in the root aggregate baseline rather
+  than being omitted from the shared report.
+- Root, extension, and MCP report all TypeScript runtime modules in their node source scope,
+  including untested modules. The shared agent/Hub runtime-path JavaScript helper also participates
+  in the root and MCP reports and baseline. Their existing baseline groups retain the thresholds in
+  `vitest.coverage.ts`: 90% lines/statements/functions and 85% branches. These gates do not imply
+  that the full runtime has reached those percentages. Extend the gated baseline when adding
+  behavioral coverage; do not remove baseline files or lower its floor to pass a change.
+- Every extension MCP module and Hub runtime module also has a per-file floor of 50% for
+  lines/statements/functions and 40% for branches. Broad source globs include new modules
+  automatically, so aggregate coverage cannot hide a completely untested core file. The CLI and
+  Hub launchers remain reported but are excluded from this floor because their integration tests
+  run in child processes outside coverage instrumentation. These minimums supplement the existing
+  baseline; meeting either gate is not evidence that every behavior is correct.
+- Browser behavior is verified separately in the browser suite. Browser-facing TypeScript still
+  appears in the node coverage report; that report does not measure Vue templates or native host behavior.
 - Adding a security- or protocol-critical source file to coverage scope is part of the same change
   that introduces it.
 
@@ -42,7 +55,7 @@ There is no manually maintained pure-function matrix in docs anymore.
 Coverage scope is defined only in executable Vitest configuration:
 
 - workspace and package composition: `vitest.config.ts` and package-level configs
-- shared aggregate thresholds and extension node source list: `vitest.coverage.ts`
+- shared aggregate thresholds, baseline inventories, and runtime source patterns: `vitest.coverage.ts`
 - extension browser: `packages/extension/vitest.browser.config.ts`
 
 If a file should enter or leave strict coverage scope, update config + tests in the same PR.

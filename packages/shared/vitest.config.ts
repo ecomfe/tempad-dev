@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config'
 
+import { SHARED_COVERAGE_FILES, SHARED_SCHEMA_COVERAGE_FILES } from '../../vitest.coverage'
+
 export default defineConfig({
   test: {
     name: 'shared',
@@ -8,25 +10,15 @@ export default defineConfig({
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'html'],
-      include: [
-        'src/index.ts',
-        'src/mcp/index.ts',
-        'src/mcp/browser-gateway.ts',
-        'src/mcp/protocol.ts',
-        'src/mcp/legacy.ts',
-        'src/mcp/tool-result.ts',
-        'src/mcp/tools.ts',
-        'src/mcp/canvas.ts',
-        'src/mcp/constants.ts',
-        'src/mcp/design-task.ts',
-        'src/mcp/errors.ts'
-      ],
+      include: [...SHARED_COVERAGE_FILES],
       thresholds: {
-        lines: 100,
-        functions: 100,
-        branches: 100,
-        statements: 100,
-        perFile: true
+        [`{${SHARED_SCHEMA_COVERAGE_FILES.join(',')}}`]: {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+          perFile: true
+        }
       }
     }
   }

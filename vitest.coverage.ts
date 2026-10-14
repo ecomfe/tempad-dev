@@ -6,6 +6,23 @@ export const AGGREGATE_COVERAGE_THRESHOLDS = {
   perFile: false
 } as const
 
+// A per-file floor prevents a new or neglected core module from disappearing
+// into the aggregate. It does not replace the stronger existing baseline.
+export const CORE_COVERAGE_THRESHOLDS = {
+  branches: 40,
+  functions: 50,
+  lines: 50,
+  statements: 50,
+  perFile: true
+} as const
+
+export const EXTENSION_CORE_COVERAGE_FILES = ['mcp/**/*.ts'] as const
+// CLI and Hub launchers are exercised in child processes, outside instrumentation.
+// Include every other top-level module and every nested runtime module.
+export const MCP_CORE_COVERAGE_FILES = ['src/!(cli|hub).ts', 'src/*/**/*.ts'] as const
+
+export const AGENT_RUNTIME_FILES = ['agent-plugin/src/clients/shared/runtime-paths.mjs']
+
 export const EXTENSION_COVERAGE_FILES = [
   'scripts/inspect-agent-run-identity.ts',
   'scripts/rollout-rows.ts',
@@ -115,3 +132,78 @@ export const EXTENSION_COVERAGE_FILES = [
   'mcp/tools/token/index.ts',
   'mcp/tools/token/value.ts'
 ] as const
+
+export const MCP_COVERAGE_FILES = [
+  'src/asset-utils.ts',
+  'src/tools.ts',
+  'src/config.ts',
+  'src/consumer-transport.ts',
+  'src/client-binding.ts',
+  'src/log-retention.ts',
+  'src/log-destination.ts',
+  'src/log-transport.ts',
+  'src/request.ts',
+  'src/design-tasks.ts',
+  'src/agent-clients/identity.ts',
+  'src/agent-clients/registry.ts',
+  'src/agent-clients/hooks.ts',
+  'src/agent-clients/codex-ipc.ts',
+  'src/agent-clients/codex-feedback.ts',
+  'src/agent-clients/codex-queue.ts',
+  'src/agent-clients/codex-queue-rpc.ts',
+  'src/agent-clients/codex-server-queue.ts',
+  'src/agent-clients/types.ts',
+  'src/asset-store.ts',
+  'src/asset-http-server.ts',
+  'src/extension-registry.ts',
+  'src/extension-socket.ts',
+  'src/legacy-extension.ts',
+  'src/security.ts',
+  'src/websocket-server.ts',
+  'src/shared.ts'
+] as const
+
+export const SHARED_SCHEMA_COVERAGE_FILES = [
+  'src/index.ts',
+  'src/mcp/browser-gateway.ts',
+  'src/mcp/constants.ts',
+  'src/mcp/design-task.ts',
+  'src/mcp/errors.ts',
+  'src/mcp/index.ts',
+  'src/mcp/protocol.ts',
+  'src/mcp/legacy.ts',
+  'src/mcp/tool-result.ts',
+  'src/mcp/tools.ts',
+  'src/mcp/canvas.ts'
+] as const
+
+export const SHARED_COVERAGE_FILES = [
+  ...SHARED_SCHEMA_COVERAGE_FILES,
+  'src/mcp/responses.ts',
+  'src/mcp/install.ts'
+] as const
+
+// Report runtime TypeScript, including files not yet protected by the existing floor.
+export const EXTENSION_SOURCE_FILES = [
+  '{codegen,composables,constants,entrypoints,mcp,plugin-sandbox,rewrite,utils,worker,ui}/**/*.ts',
+  'scripts/inspect-agent-run-identity.ts',
+  'scripts/rollout-rows.ts'
+] as const
+
+export const COVERAGE_BASELINE_FILES = [
+  ...EXTENSION_COVERAGE_FILES.map((file) => `packages/extension/${file}`),
+  ...MCP_COVERAGE_FILES.map((file) => `packages/mcp-server/${file}`),
+  ...SHARED_COVERAGE_FILES.map((file) => `packages/shared/${file}`),
+  'packages/plugins/src/index.ts',
+  'packages/site/src/utils/agent-search.ts'
+]
+
+export function coverageThresholds(
+  baselineFiles: readonly string[],
+  corePatterns: readonly string[]
+) {
+  return {
+    [`{${baselineFiles.join(',')}}`]: AGGREGATE_COVERAGE_THRESHOLDS,
+    ...Object.fromEntries(corePatterns.map((pattern) => [pattern, CORE_COVERAGE_THRESHOLDS]))
+  }
+}

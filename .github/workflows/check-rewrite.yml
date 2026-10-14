@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   check-rewrite:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
 
     env:
@@ -21,6 +22,15 @@ jobs:
       FIGMA_FILE_KEY: ${{ secrets.FIGMA_FILE_KEY }}
 
     steps:
+      - name: Report missing credentials
+        if: env.FIGMA_EMAIL == '' || env.FIGMA_PASSWORD == '' || env.FIGMA_FILE_KEY == ''
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == 'schedule' ]]; then
+            echo '::error::Scheduled rewrite monitoring requires Figma credentials.'
+            exit 1
+          fi
+          echo '::notice::Live rewrite check skipped because Figma credentials are unavailable.'
+
       - name: Checkout repository
         uses: actions/checkout@v7
 
@@ -41,4 +51,24 @@ jobs:
         run: pnpm --filter @tempad-dev/extension test:setup
 
       - name: Run check script
+        if: env.FIGMA_EMAIL != '' && env.FIGMA_PASSWORD != '' && env.FIGMA_FILE_KEY != ''
         run: pnpm --filter @tempad-dev/extension check:rewrite
+
+  notify-failure:
+    needs: check-rewrite
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open one issue for a scheduled rewrite failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title='Scheduled Figma rewrite check failed'
+          existing=$(gh issue list --state open --search "$title in:title" --json title --jq '.[] | select(.title == "Scheduled Figma rewrite check failed") | .title')
+          if [ -z "$existing" ]; then
+            gh issue create --title "$title" --body "The scheduled rewrite check failed. Inspect $RUN_URL before publishing the extension. Close this issue once compatibility is verified."
+          fi

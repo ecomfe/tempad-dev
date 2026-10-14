@@ -1,8 +1,26 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
-import { AGGREGATE_COVERAGE_THRESHOLDS } from '../../vitest.coverage'
+import {
+  AGENT_RUNTIME_FILES,
+  coverageThresholds,
+  MCP_CORE_COVERAGE_FILES,
+  MCP_COVERAGE_FILES
+} from '../../vitest.coverage'
+
+const agentRuntimeFiles = AGENT_RUNTIME_FILES.map((file) => `../../${file}`)
 
 export default defineConfig({
+  resolve: {
+    conditions: ['source', 'module', 'node', 'development|production'],
+    alias: [
+      // Match only the package entry; /ui subpaths keep their own exports.
+      {
+        find: /^@tempad-dev\/shared$/,
+        replacement: fileURLToPath(new URL('../shared/src/index.ts', import.meta.url))
+      }
+    ]
+  },
   test: {
     name: 'mcp-server',
     environment: 'node',
@@ -10,31 +28,12 @@ export default defineConfig({
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'html'],
-      include: [
-        'src/asset-utils.ts',
-        'src/tools.ts',
-        'src/config.ts',
-        'src/request.ts',
-        'src/design-tasks.ts',
-        'src/agent-clients/identity.ts',
-        'src/agent-clients/registry.ts',
-        'src/agent-clients/hooks.ts',
-        'src/agent-clients/codex-ipc.ts',
-        'src/agent-clients/codex-feedback.ts',
-        'src/agent-clients/codex-queue.ts',
-        'src/agent-clients/codex-queue-rpc.ts',
-        'src/agent-clients/codex-server-queue.ts',
-        'src/agent-clients/types.ts',
-        'src/asset-store.ts',
-        'src/asset-http-server.ts',
-        'src/extension-registry.ts',
-        'src/extension-socket.ts',
-        'src/legacy-extension.ts',
-        'src/security.ts',
-        'src/websocket-server.ts',
-        'src/shared.ts'
-      ],
-      thresholds: AGGREGATE_COVERAGE_THRESHOLDS
+      include: ['src/**/*.ts', ...agentRuntimeFiles],
+      allowExternal: true,
+      thresholds: coverageThresholds(
+        [...MCP_COVERAGE_FILES, ...agentRuntimeFiles],
+        MCP_CORE_COVERAGE_FILES
+      )
     }
   }
 })

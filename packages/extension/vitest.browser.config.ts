@@ -9,6 +9,7 @@ const rootDir = fileURLToPath(new URL('.', import.meta.url))
 export default defineConfig({
   plugins: [vue()],
   resolve: {
+    conditions: ['source', 'module', 'browser', 'development|production'],
     alias: {
       '@': path.resolve(rootDir)
     }

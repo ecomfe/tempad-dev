@@ -19,6 +19,7 @@ permissions:
 
 jobs:
   publish:
+    if: github.ref == 'refs/heads/main'
     name: Publish @tempad-dev/mcp
     runs-on: ubuntu-latest
     concurrency:
@@ -45,6 +46,13 @@ jobs:
 
       - name: Build package
         run: pnpm build:mcp
+
+      - name: Validate package
+        run: |
+          pnpm --filter @tempad-dev/mcp... typecheck
+          pnpm --filter @tempad-dev/mcp... test:run
+          pnpm mcp:check-bridge
+          pnpm --filter @tempad-dev/mcp check:logging
 
       - name: Publish
         working-directory: packages/mcp-server

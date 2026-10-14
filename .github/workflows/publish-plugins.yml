@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   publish:
+    if: github.ref == 'refs/heads/main'
     name: Publish @tempad-dev/plugins
     runs-on: ubuntu-latest
     concurrency:
@@ -32,6 +33,11 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --filter @tempad-dev/plugins...
+
+      - name: Validate package
+        run: |
+          pnpm --filter @tempad-dev/plugins typecheck
+          pnpm --filter @tempad-dev/plugins test:coverage
 
       - name: Publish
         working-directory: packages/plugins

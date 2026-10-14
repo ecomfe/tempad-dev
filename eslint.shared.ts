@@ -13,6 +13,19 @@ configureVueProject({ scriptLangs: ['ts', 'js'] })
 
 export function createConfig(metaUrl: string) {
   const tsconfigRootDir = fileURLToPath(new URL('.', metaUrl))
+  const typedRuntimeFiles = [
+    'src/**/*.{ts,vue}',
+    'mcp/**/*.ts',
+    'components/**/*.vue',
+    'composables/**/*.ts',
+    'utils/**/*.ts',
+    'codegen/**/*.ts',
+    'entrypoints/**/*.{ts,vue}',
+    'ui/**/*.ts',
+    'rewrite/**/*.ts',
+    'plugin-sandbox/**/*.ts',
+    'worker/**/*.ts'
+  ]
 
   return defineConfigWithVueTs(
     gitignore(),
@@ -37,6 +50,22 @@ export function createConfig(metaUrl: string) {
         '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
         'perfectionist/sort-imports': 'error'
       }
+    },
+    {
+      name: 'app/typed-promises',
+      files: typedRuntimeFiles,
+      languageOptions: { parserOptions: { projectService: true, tsconfigRootDir } },
+      rules: {
+        '@typescript-eslint/no-floating-promises': 'error',
+        '@typescript-eslint/no-misused-promises': 'error'
+      }
+    },
+    {
+      // Vue's helper enables project service for all TS files; keep it scoped to runtime code.
+      name: 'app/untyped-tooling',
+      files: ['**/*.{ts,tsx,mts,cts}'],
+      ignores: typedRuntimeFiles,
+      languageOptions: { parserOptions: { projectService: false } }
     }
   )
 }

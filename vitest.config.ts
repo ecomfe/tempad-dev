@@ -1,6 +1,13 @@
 import { defineConfig } from 'vitest/config'
 
-import { AGGREGATE_COVERAGE_THRESHOLDS, EXTENSION_COVERAGE_FILES } from './vitest.coverage'
+import {
+  AGENT_RUNTIME_FILES,
+  coverageThresholds,
+  COVERAGE_BASELINE_FILES,
+  EXTENSION_CORE_COVERAGE_FILES,
+  MCP_CORE_COVERAGE_FILES,
+  EXTENSION_SOURCE_FILES
+} from './vitest.coverage'
 
 export default defineConfig({
   test: {
@@ -16,46 +23,18 @@ export default defineConfig({
     coverage: {
       provider: 'istanbul',
       include: [
-        ...EXTENSION_COVERAGE_FILES.map((file) => `packages/extension/${file}`),
-        'packages/plugins/src/index.ts',
-        'packages/site/src/utils/agent-search.ts',
-        'packages/mcp-server/src/asset-utils.ts',
-        'packages/mcp-server/src/tools.ts',
-        'packages/mcp-server/src/config.ts',
-        'packages/mcp-server/src/request.ts',
-        'packages/mcp-server/src/design-tasks.ts',
-        'packages/mcp-server/src/agent-clients/identity.ts',
-        'packages/mcp-server/src/agent-clients/registry.ts',
-        'packages/mcp-server/src/agent-clients/hooks.ts',
-        'packages/mcp-server/src/agent-clients/codex-ipc.ts',
-        'packages/mcp-server/src/agent-clients/codex-feedback.ts',
-        'packages/mcp-server/src/agent-clients/codex-queue.ts',
-        'packages/mcp-server/src/agent-clients/codex-queue-rpc.ts',
-        'packages/mcp-server/src/agent-clients/codex-server-queue.ts',
-        'packages/mcp-server/src/agent-clients/types.ts',
-        'packages/mcp-server/src/asset-store.ts',
-        'packages/mcp-server/src/asset-http-server.ts',
-        'packages/mcp-server/src/extension-registry.ts',
-        'packages/mcp-server/src/extension-socket.ts',
-        'packages/mcp-server/src/legacy-extension.ts',
-        'packages/mcp-server/src/security.ts',
-        'packages/mcp-server/src/websocket-server.ts',
-        'packages/mcp-server/src/shared.ts',
-        'packages/shared/src/index.ts',
-        'packages/shared/src/mcp/browser-gateway.ts',
-        'packages/shared/src/mcp/constants.ts',
-        'packages/shared/src/mcp/design-task.ts',
-        'packages/shared/src/mcp/errors.ts',
-        'packages/shared/src/mcp/index.ts',
-        'packages/shared/src/mcp/protocol.ts',
-        'packages/shared/src/mcp/legacy.ts',
-        'packages/shared/src/mcp/responses.ts',
-        'packages/shared/src/mcp/tool-result.ts',
-        'packages/shared/src/mcp/tools.ts',
-        'packages/shared/src/mcp/canvas.ts'
+        ...AGENT_RUNTIME_FILES,
+        ...EXTENSION_SOURCE_FILES.map((file) => `packages/extension/${file}`),
+        'packages/{mcp-server,shared,plugins,site}/src/**/*.ts'
       ],
-      exclude: ['**/dist/**', '**/.output/**'],
-      thresholds: AGGREGATE_COVERAGE_THRESHOLDS
+      exclude: ['**/dist/**', '**/.output/**', '**/*.d.ts'],
+      thresholds: coverageThresholds(
+        [...COVERAGE_BASELINE_FILES, ...AGENT_RUNTIME_FILES],
+        [
+          ...EXTENSION_CORE_COVERAGE_FILES.map((file) => `packages/extension/${file}`),
+          ...MCP_CORE_COVERAGE_FILES.map((file) => `packages/mcp-server/${file}`)
+        ]
+      )
     }
   }
 })

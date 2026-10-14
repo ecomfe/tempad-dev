@@ -25,9 +25,9 @@ Then run:
 1. `pnpm typecheck`
 2. `pnpm lint`
 3. `pnpm test:run`
-4. `pnpm test:coverage`
 
-Use this sequence as the default pre-PR verification.
+Use this sequence as the default pre-PR verification. Also run `pnpm test:coverage` when changing
+pure utilities or coverage configuration, as detailed below. CI enforces the coverage floor.
 
 ## Command reference
 
@@ -58,6 +58,8 @@ Per package:
 
 - `pnpm --filter @tempad-dev/extension test:run` (includes Worker dependency checks and the real
   Chromium plugin-sandbox and rewrite-runtime regressions)
+- `pnpm --filter @tempad-dev/extension test:built` (same checks, reusing a production extension
+  built from the current sources; CI builds once before running this command)
 - `pnpm --filter @tempad-dev/extension check:plugin-sandbox` (builds and loads the release extension,
   then probes isolation, timeout, recovery, and abuse bounds)
 - `pnpm --filter @tempad-dev/extension check:rewrite-runtime` (builds the release extension and
@@ -72,11 +74,22 @@ Per package:
 - `pnpm --filter @tempad-dev/plugins test:coverage`
 - `pnpm --filter @tempad-dev/mcp test:run`
 - `pnpm --filter @tempad-dev/mcp test:coverage`
+- `pnpm --filter @tempad-dev/mcp check:logging` (checks the built logging worker in isolated
+  child processes; run `pnpm build:mcp` first)
 - `pnpm --filter @tempad-dev/shared test:run`
 - `pnpm --filter @tempad-dev/shared test:coverage`
 - `pnpm --filter @tempad-dev/site test:run` (node and Chromium reader regressions)
 - `pnpm --filter @tempad-dev/site test:browser`
 - `pnpm --filter @tempad-dev/site test:setup` (install Chromium for site browser tests)
+
+The official TypeScript compatibility job installs `typescript@6.0.3` and `vue-tsc@3.3.12`
+in a temporary directory outside the workspace and verifies the compiler's package identity.
+Use an explicit official `typescript/bin/tsc` path rather than `pnpm dlx tsc`: a cached dlx
+installation can contain the workspace's compiler fork even when invoked outside the workspace.
+`node scripts/check-declarations.mjs /absolute/path/to/typescript/bin/tsc` also builds shared
+and the public plugin SDK into a temporary consumer and checks their generated declarations
+with strict library checking and no workspace source condition. It does not change workspace
+`dist` directories. MCP is a CLI package and does not publish a declaration entrypoint.
 
 ## Required checks by change type
 
@@ -100,12 +113,19 @@ When changing the Hub/extension compatibility path or legacy assets:
 
 - `pnpm mcp:check-bridge` runs an isolated Hub with temporary runtime, log, and asset directories
   and a dedicated extension Origin. It does not connect to the user's Hub or Figma sessions.
+  The harness rejects Windows before starting a Hub because the fixed named pipe ignores runtime
+  directory overrides. Unix socket hook fixtures are also skipped on Windows.
   One of the normal loopback candidate ports must be available. The old receiving schema is
   frozen from extension 0.20.0 / MCP 0.7.1 and extension 0.22.0 / MCP 0.10.0; do not derive these
   fixtures from current shared schemas. Every protocol bump must test the released extension's
   supported calls and rejection of unsupported options against the new Hub in the same change.
 - Keep the broker regression for new-extension/old-Hub rejection and recovery. This deterministic
   transport check does not replace installed-host Queue/Steer/Stop acceptance.
+
+When changing MCP logging or its packaging:
+
+- Build with `pnpm build:mcp`, then run `pnpm --filter @tempad-dev/mcp check:logging` to verify
+  worker loading, bounded output, and final-record flushing on normal and immediate exit.
 
 When changing agent-plugin packaging or marketplace routing:
 

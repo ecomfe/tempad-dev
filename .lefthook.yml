@@ -1,3 +1,8 @@
+commit-msg:
+  jobs:
+    - name: conventional-commit
+      run: node scripts/check-commit-message.mjs {1}
+
 pre-commit:
   parallel: true
   jobs:

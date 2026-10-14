@@ -12,6 +12,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.x', '24.x']
 
     steps:
       - name: Checkout repository
@@ -23,7 +27,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '24.x'
+          node-version: ${{ matrix.node }}
           cache: 'pnpm'
           cache-dependency-path: pnpm-lock.yaml
 
@@ -51,14 +55,51 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Test
-        run: pnpm test:run
+      - name: Build project
+        run: pnpm build
+
+      - name: Test the built project
+        run: |
+          pnpm -r --filter '!@tempad-dev/extension' --if-present test:run
+          pnpm --filter @tempad-dev/extension test:built
+
+      - name: Check packaged logging worker
+        run: pnpm --filter @tempad-dev/mcp check:logging
+
+      - name: Check coverage
+        if: matrix.node == '24.x'
+        run: pnpm test:coverage
 
       - name: Format check
         run: pnpm format:check
 
-      - name: Build project
-        run: pnpm build
-
       - name: Check bridge compatibility
         run: pnpm mcp:check-bridge
+
+  typescript-compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.x'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Check sources and declarations with official TypeScript
+        # Install outside the workspace; dlx caches may contain an earlier overridden compiler.
+        working-directory: ${{ runner.temp }}
+        run: |
+          tools=$(mktemp -d)
+          trap 'rm -rf "$tools"' EXIT
+          pnpm --dir "$tools" --ignore-workspace add --ignore-scripts typescript@6.0.3 vue-tsc@3.3.12
+          node -e 'const p = require(process.argv[1]); if (p.name !== "typescript" || p.version !== "6.0.3") throw new Error("Expected official TypeScript 6.0.3")' "$tools/node_modules/typescript/package.json"
+          tsc="$tools/node_modules/typescript/bin/tsc"
+          vue_tsc="$tools/node_modules/vue-tsc/bin/vue-tsc.js"
+          node "$tsc" -p "$GITHUB_WORKSPACE/tsconfig.configs.json"
+          for package in shared plugins mcp-server; do
+            node "$tsc" -p "$GITHUB_WORKSPACE/packages/$package/tsconfig.json" --noEmit
+          done
+          node "$vue_tsc" -p "$GITHUB_WORKSPACE/packages/extension/tsconfig.json" --noEmit
+          node "$vue_tsc" --build "$GITHUB_WORKSPACE/packages/site/tsconfig.json"
+          node "$GITHUB_WORKSPACE/scripts/check-declarations.mjs" "$tsc"
