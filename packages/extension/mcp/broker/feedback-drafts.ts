@@ -13,7 +13,7 @@ import {
   MCP_DESIGN_FEEDBACK_MAX_TEXT
 } from '@tempad-dev/shared'
 
-import { sameFeedbackItem } from '@/mcp/design-feedback'
+import { FEEDBACK_DRAFT_CONFLICT_MESSAGE, sameFeedbackItem } from '@/mcp/design-feedback'
 
 import { createSerialQueue } from './serial'
 
@@ -118,7 +118,7 @@ export class FeedbackDraftStore {
           snapshot.items.some((saved) => sameFeedbackItem(item, saved))
         )
       ) {
-        throw new Error('Drafts changed in another tab. Reload the drafts before sending.')
+        throw new Error(FEEDBACK_DRAFT_CONFLICT_MESSAGE)
       }
       const roundKey = feedbackDraftKey(scope) + '.round'
       const round = (await this.storage.get(roundKey))[roundKey]

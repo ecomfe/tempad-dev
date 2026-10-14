@@ -5,33 +5,49 @@ import { logger } from '@/utils/log'
 
 vi.mock('@/utils/log', () => ({ logger: { error: vi.fn() } }))
 
-const getDynamicRules = vi.fn()
-const updateDynamicRules = vi.fn()
-const updateEnabledRulesets = vi.fn()
-const removeStorage = vi.fn()
-const clearAlarm = vi.fn()
-const onInstalled = vi.fn()
-const onStartup = vi.fn()
+const state = {
+  enabled: new Set<string>(),
+  dynamicRules: [] as { id: number }[],
+  alarms: new Set<string>(),
+  storage: new Set<string>()
+}
+const onInstalled = vi.fn<(callback: () => void) => void>()
+const onStartup = vi.fn<(callback: () => void) => void>()
+const getDynamicRules = vi.fn(async () => state.dynamicRules)
+const updateDynamicRules = vi.fn(async ({ removeRuleIds }: { removeRuleIds: number[] }) => {
+  // Keep a working replacement before removing a persisted redirect.
+  expect(state.enabled.has('figma')).toBe(true)
+  state.dynamicRules = state.dynamicRules.filter(({ id }) => !removeRuleIds.includes(id))
+})
+const updateEnabledRulesets = vi.fn(
+  async ({ enableRulesetIds }: { enableRulesetIds: string[] }) => {
+    for (const id of enableRulesetIds) state.enabled.add(id)
+  }
+)
+const removeStorage = vi.fn(async (key: string) => {
+  state.storage.delete(key)
+})
+const clearAlarm = vi.fn(async (name: string) => state.alarms.delete(name))
 const fetchMock = vi.fn()
 
-async function start() {
-  startBundledRewriteRules()
-  await onStartup.mock.calls[0][0]()
+async function expectActive() {
+  await vi.waitFor(() => {
+    expect(state.enabled).toEqual(new Set(['figma']))
+    expect(state.dynamicRules).toEqual([])
+    expect(state.alarms.has('sync-rules')).toBe(false)
+    expect(state.storage.has('rewrite-rules')).toBe(false)
+  })
 }
 
 beforeEach(() => {
-  vi.resetAllMocks()
-  getDynamicRules.mockResolvedValue([])
-  updateDynamicRules.mockResolvedValue(undefined)
-  updateEnabledRulesets.mockResolvedValue(undefined)
-  removeStorage.mockResolvedValue(undefined)
-  clearAlarm.mockResolvedValue(false)
+  vi.clearAllMocks()
+  state.enabled.clear()
+  state.dynamicRules = []
+  state.alarms = new Set(['sync-rules', 'unrelated'])
+  state.storage = new Set(['rewrite-rules', 'preferences'])
   vi.stubGlobal('fetch', fetchMock)
   vi.stubGlobal('browser', {
-    runtime: {
-      onInstalled: { addListener: onInstalled },
-      onStartup: { addListener: onStartup }
-    },
+    runtime: { onInstalled: { addListener: onInstalled }, onStartup: { addListener: onStartup } },
     storage: { local: { remove: removeStorage } },
     alarms: { clear: clearAlarm },
     declarativeNetRequest: { getDynamicRules, updateDynamicRules, updateEnabledRulesets }
@@ -41,64 +57,48 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('packaged rewrite activation', () => {
-  it('activates static rules without downloads or installing dynamic rules', async () => {
-    await start()
-
-    expect(updateEnabledRulesets).toHaveBeenCalledExactlyOnceWith({
-      enableRulesetIds: ['figma']
-    })
-    expect(updateDynamicRules).not.toHaveBeenCalled()
-    expect(removeStorage).toHaveBeenCalledExactlyOnceWith('rewrite-rules')
-    expect(clearAlarm).toHaveBeenCalledExactlyOnceWith('sync-rules')
+  it('enables packaged rules and removes only obsolete persistence without downloads', async () => {
+    startBundledRewriteRules()
+    await expectActive()
+    expect(state.alarms).toEqual(new Set(['unrelated']))
+    expect(state.storage).toEqual(new Set(['preferences']))
     expect(fetchMock).not.toHaveBeenCalled()
     expect(logger.error).not.toHaveBeenCalled()
   })
 
-  it('removes every persisted dynamic rule after enabling the packaged fallback', async () => {
-    getDynamicRules.mockResolvedValue([
-      { id: 1 },
-      {
-        id: 2,
-        action: { type: 'redirect', redirect: { url: 'https://rewrite.invalid/figma.js' } }
-      },
-      { id: 99 }
-    ])
-    await start()
-
-    expect(updateDynamicRules).toHaveBeenCalledExactlyOnceWith({ removeRuleIds: [1, 2, 99] })
-    expect(updateEnabledRulesets.mock.invocationCallOrder[0]).toBeLessThan(
-      updateDynamicRules.mock.invocationCallOrder[0]
-    )
-    expect(removeStorage).toHaveBeenCalledWith('rewrite-rules')
+  it('removes old dynamic redirects after enabling the packaged fallback', async () => {
+    state.dynamicRules = [{ id: 1 }, { id: 2 }, { id: 99 }]
+    startBundledRewriteRules()
+    await expectActive()
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('shares activation across worker startup, installation and browser startup', async () => {
+  it('shares one activation across simultaneous lifecycle events', async () => {
     startBundledRewriteRules()
-    await Promise.all([onInstalled.mock.calls[0][0](), onStartup.mock.calls[0][0]()])
-    await onStartup.mock.calls[0][0]()
-
+    expect(onInstalled).toHaveBeenCalledOnce()
+    expect(onStartup).toHaveBeenCalledOnce()
+    onInstalled.mock.calls[0]![0]()
+    onStartup.mock.calls[0]![0]()
+    await expectActive()
     expect(updateEnabledRulesets).toHaveBeenCalledOnce()
-    expect(getDynamicRules).toHaveBeenCalledOnce()
-    expect(removeStorage).toHaveBeenCalledOnce()
-    expect(clearAlarm).toHaveBeenCalledOnce()
   })
 
   it.each([updateEnabledRulesets, getDynamicRules, updateDynamicRules, clearAlarm, removeStorage])(
-    'reports a Chrome API failure and retries activation on the next lifecycle event',
+    'recovers the final rule state after a Chrome API failure',
     async (failingApi) => {
-      getDynamicRules.mockResolvedValue([{ id: 2 }])
+      state.dynamicRules = [{ id: 2 }]
       const error = new Error('temporarily unavailable')
       failingApi.mockRejectedValueOnce(error)
-      await start()
-      expect(logger.error).toHaveBeenCalledExactlyOnceWith(
-        'Failed to activate bundled rewrite rules:',
-        error
+      startBundledRewriteRules()
+      await vi.waitFor(() =>
+        expect(logger.error).toHaveBeenCalledWith(
+          'Failed to activate bundled rewrite rules:',
+          error
+        )
       )
-
-      await onInstalled.mock.calls[0][0]()
-      expect(removeStorage).toHaveBeenCalledWith('rewrite-rules')
-      expect(updateDynamicRules).toHaveBeenCalledWith({ removeRuleIds: [2] })
+      expect(onInstalled).toHaveBeenCalledOnce()
+      onInstalled.mock.calls[0]![0]()
+      await expectActive()
       expect(logger.error).toHaveBeenCalledOnce()
     }
   )

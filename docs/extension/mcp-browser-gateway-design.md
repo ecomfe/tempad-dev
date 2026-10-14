@@ -104,18 +104,26 @@ see [release coordination](../releasing.md#bridge-protocol-and-release-order).
 
 The hub chooses the active browser connection. Inside that connection, the broker chooses the
 active Figma session. A sole session is selected automatically. More than one session requires an
-explicit choice: registering another Figma tab clears the previous choice, and a newly connected
-Hub clears an ambiguous choice inherited from its predecessor. Foregrounding a tab does not route
+explicit choice: registering another Figma tab clears an automatic choice. An explicit badge choice
+survives WebSocket reconnects and is saved in browser session storage for service-worker recovery.
+Recovery requires the same session, tab, document, and file; disabling that session, closing its tab,
+or changing its document or file clears the saved choice. Storage failure retains the current
+worker's choice without guaranteeing recovery after restart. Foregrounding a tab does not route
 unscoped MCP calls; clicking its badge does. Independent read tools can instead pass an exact
 `sessionId` returned by `list_design_sessions`; the Hub routes that read to the matching connected
 session without changing the active badge. A task-bound read rejects a different explicit session
 rather than rebinding the task. Broker activation is sent to the hub only from an explicit user
-action. Pending tool results are
+action. Page-state broadcasts expose the active session ID only to that session itself; the Hub
+retains the full inventory for exact routing. Pending tool results are
 bound to the extension connection that received the request, so a second connection cannot satisfy
 or reject another connection's request by guessing its id. While an extension connection is active,
 the hub accepts replacement activation only from the same extension Origin. Normal reconnects and
 all Figma-tab switching inside one extension context keep the current flow; a later connection from
 a differently identified extension cannot take over the established route.
+
+Versioned peers must send `runtimeHello` before sessions or design actions. A session ID cannot
+be claimed by two live connections. Task state and actions are bound to the owning connection;
+saved reviews must also match the persisted browser identity and Origin before restoring fences.
 
 Review recovery uses the same registered session inventory. An optional saved review in
 `mcp.enable` identifies the task this page is restoring; the broker sends its durable latest
@@ -126,10 +134,19 @@ before acknowledging Done, then synchronizes it on reconnect. `mcp.designReviewC
 notifies other registered tabs locally; it never grants a canvas lease. Both browser and
 Hub protocol versions advance for this contract.
 
-Stop persists cancellation locally before dispatch. On a connected socket, the broker sends
+Stop attempts to persist cancellation locally before dispatch; a storage failure cannot prevent
+the Stop action or live task state from reaching its destination. On a connected socket, the broker sends
 the explicit Stop action before publishing the cancelled review snapshot. Otherwise the Hub
-restores cancellation first and treats Stop as an already-ended task, skipping native host
-interruption. The cancelled snapshot still synchronizes when dispatch fails or on reconnect.
+would restore cancellation first and treat Stop as an already-ended task. The cancelled snapshot
+still synchronizes after a failed dispatch or reconnect, including after page reload. A verified
+restored Stop attempts native interruption before cancellation; absent native turn identity cannot
+guarantee interruption, but never removes the canvas fence.
+
+Mutating tool waits warn at their configured timeout and stop waiting after twice that interval.
+An unknown outcome keeps the file operation fenced until a definitive result or session recovery;
+the error explicitly forbids replaying the write. Incompatible saved task records retain a durable
+file fence while valid records recover independently. An unreadable snapshot with no identifiable
+file boundary preserves its evidence and blocks all writes, allowing read tools to remain available.
 
 ## Assets
 

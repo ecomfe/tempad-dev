@@ -317,6 +317,8 @@ describe('page-side design fencing', () => {
     ).toThrow('current page changed')
     const finish = f.guard.enter('apply_canvas', { targetNodeId: 'node-a' }, route)
     finish()
+    f.guard.enter('get_code', { nodeIds: ['1:2', '1:3'] }, route)()
+    f.guard.enter('get_screenshot', { nodeIds: ['1:2'] }, route)()
     expect(() => f.guard.bind(f.task, route)).toThrow('file or page changed')
   })
 

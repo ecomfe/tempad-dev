@@ -24,7 +24,11 @@ export function startBundledRewriteRules(): void {
     }))
   }
 
-  browser.runtime.onInstalled.addListener(restoreRules)
-  browser.runtime.onStartup.addListener(restoreRules)
+  browser.runtime.onInstalled.addListener(() => {
+    void restoreRules()
+  })
+  browser.runtime.onStartup.addListener(() => {
+    void restoreRules()
+  })
   void restoreRules()
 }

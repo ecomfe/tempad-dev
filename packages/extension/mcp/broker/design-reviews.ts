@@ -29,10 +29,16 @@ export class DesignReviews {
   restore(saved: DesignTask): Promise<void> {
     return this.serial(async () => {
       await this.load()
+      const previous = this.tasks.get(saved.target.fileKey)
       // A stale page cannot override the durable latest review or its Done fence.
-      if (!this.tasks.has(saved.target.fileKey)) {
-        this.tasks.set(saved.target.fileKey, saved)
-        await this.write()
+      if (!previous) {
+        await this.commit(saved)
+      } else if (previous.taskId === saved.taskId && saved.status === 'cancelled') {
+        await this.commit({
+          ...previous,
+          status: 'cancelled',
+          operation: null
+        })
       }
     })
   }
@@ -60,6 +66,7 @@ export class DesignReviews {
       const previous = this.tasks.get(task.target.fileKey)
       if (previous && previous.taskId !== task.taskId)
         throw new Error('This review has been replaced by a newer task.')
+      if (previous?.status === 'cancelled') task = { ...task, status: 'cancelled', operation: null }
       return this.commit({ ...task, reviewClosed: true }, persist)
     })
   }
@@ -79,13 +86,11 @@ export class DesignReviews {
   private async load(): Promise<void> {
     if (this.loaded) return
     const values = (await this.storage.get(KEY))[KEY]
-    if (values !== undefined)
-      for (const value of DesignTaskSchema.array().parse(values))
-        this.tasks.set(value.target.fileKey, value)
+    if (Array.isArray(values))
+      for (const value of values) {
+        const parsed = DesignTaskSchema.strip().safeParse(value)
+        if (parsed.success) this.tasks.set(parsed.data.target.fileKey, parsed.data)
+      }
     this.loaded = true
-  }
-
-  private write(): Promise<void> {
-    return this.storage.set({ [KEY]: [...this.tasks.values()] })
   }
 }

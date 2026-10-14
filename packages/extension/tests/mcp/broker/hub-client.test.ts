@@ -116,6 +116,46 @@ afterEach(() => {
 })
 
 describe('mcp/broker/hub-client', () => {
+  it('aborts a reachable HTTP probe after headers while still opening its WebSocket', async () => {
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    let signal: AbortSignal | undefined
+    let body: ReadableStream<Uint8Array> | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        signal = init.signal!
+        body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            // Fetch leaves its streaming response tied to the request's signal.
+            signal!.addEventListener('abort', () => controller.error(signal!.reason), {
+              once: true
+            })
+          }
+        })
+        return new Response(body, { status: 426 })
+      })
+    )
+    const sockets: FakeWebSocket[] = []
+    const client = createClient(sockets)
+    try {
+      client.start()
+      await flushMicrotasks()
+      expect(sockets[0]?.url).toBe('ws://127.0.0.1:6220')
+      expect(signal?.aborted).toBe(true)
+      const reader = body!.getReader()
+      try {
+        await expect(reader.read()).rejects.toBe(signal!.reason)
+      } finally {
+        reader.releaseLock()
+      }
+      completeHandshake(sockets[0]!)
+      await flushMicrotasks()
+      expect(client.getSnapshot().status).toBe('connected')
+    } finally {
+      client.stop()
+    }
+  })
+
   it('publishes extension runtime identity before declaring the handshake connected', async () => {
     vi.stubGlobal('WebSocket', { OPEN: 1 })
     installHubProbe()

@@ -22,7 +22,7 @@ beforeEach(() => {
 
 describe('rewrite/shared applyGroups', () => {
   it('checks marker matches and applies mixed replacement types', () => {
-    const groups: Group[] = [
+    const groups: [Group, Group] = [
       {
         markers: ['alpha', 'beta'],
         replacements: [

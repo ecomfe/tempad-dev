@@ -8,6 +8,13 @@ import {
 } from './protocol'
 
 const CONNECT_TIMEOUT_MS = 5000
+const RESPONSE_TIMEOUT_MS =
+  PLUGIN_SANDBOX_LIMITS.requestTimeoutMs *
+    (Math.ceil(
+      PLUGIN_SANDBOX_LIMITS.maxQueuedRequests / PLUGIN_SANDBOX_LIMITS.maxConcurrentWorkers
+    ) +
+      1) +
+  CONNECT_TIMEOUT_MS
 
 type PendingRequest = {
   reject: (error: Error) => void
@@ -62,10 +69,10 @@ export class PluginSandboxClient {
         this.#reset(
           new PluginSandboxError(
             'timeout',
-            `Plugin sandbox timed out after ${PLUGIN_SANDBOX_LIMITS.requestTimeoutMs}ms.`
+            `Plugin sandbox timed out after ${RESPONSE_TIMEOUT_MS}ms, including queue time.`
           )
         )
-      }, PLUGIN_SANDBOX_LIMITS.requestTimeoutMs)
+      }, RESPONSE_TIMEOUT_MS)
 
       this.#pending.set(id, {
         reject,

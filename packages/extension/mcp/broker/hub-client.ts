@@ -131,7 +131,7 @@ export class McpHubClient {
   }
 
   sendDesignAction(message: DesignActionMessage): void {
-    this.sendJson(message)
+    if (!this.sendJson(message)) throw new Error('The agent connection is unavailable.')
   }
 
   private async connect(epoch: number): Promise<void> {
@@ -322,6 +322,7 @@ export class McpHubClient {
   private rejectConnectedMessage(ws: WebSocket, message: string): void {
     if (this.ws !== ws) return
     this.errorMessage = message
+    this.status = 'connecting'
     this.emitSnapshot()
     closeWebSocket(ws)
   }
@@ -405,9 +406,10 @@ export class McpHubClient {
     closeWebSocket(current)
   }
 
-  private sendJson(payload: unknown): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) return
+  private sendJson(payload: unknown): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false
     this.ws.send(JSON.stringify(payload))
+    return true
   }
 
   private emitSnapshot(): void {
@@ -488,6 +490,7 @@ async function probeLocalHubPort(port: number): Promise<boolean> {
     return false
   } finally {
     clearTimeout(timeout)
+    controller.abort()
   }
 }
 

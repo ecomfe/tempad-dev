@@ -116,7 +116,10 @@ function installScriptRewriteInterceptor(): void {
 
   Element.prototype.appendChild = function <T extends Node>(this: Element, node: T): T {
     if (isRewritableScript(node)) {
-      rewriteAndInsert(this, node, null)
+      void rewriteAndInsert(this, node, null).catch((error) => {
+        logger.error('Failed to insert rewritten script:', error)
+        node.dispatchEvent(new Event('error'))
+      })
       return node
     }
 
@@ -130,7 +133,10 @@ function installScriptRewriteInterceptor(): void {
     before: Node | null
   ): T {
     if (isRewritableScript(node)) {
-      rewriteAndInsert(this, node, before)
+      void rewriteAndInsert(this, node, before).catch((error) => {
+        logger.error('Failed to insert rewritten script:', error)
+        node.dispatchEvent(new Event('error'))
+      })
       return node
     }
 

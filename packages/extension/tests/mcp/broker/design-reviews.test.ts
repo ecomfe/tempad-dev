@@ -35,6 +35,56 @@ function storage() {
 }
 
 describe('saved design reviews', () => {
+  it('retries restoring a review after a failed write without publishing an unpersisted state', async () => {
+    const data = storage()
+    const write = vi.spyOn(data, 'set').mockRejectedValueOnce(new Error('Storage unavailable'))
+    const reviews = new DesignReviews(data)
+    await expect(reviews.restore(task)).rejects.toThrow('Storage unavailable')
+    expect(reviews.get(task.target.fileKey)).toBeUndefined()
+    await reviews.restore(task)
+    expect(write).toHaveBeenCalledTimes(2)
+    const restarted = new DesignReviews(data)
+    await restarted.ready()
+    expect(restarted.get(task.target.fileKey)).toEqual(task)
+  })
+
+  it('keeps a persisted Stop when Done arrives with an older completed snapshot', async () => {
+    const data = storage()
+    const reviews = new DesignReviews(data)
+    await reviews.save({ ...task, status: 'cancelled' })
+    expect(await reviews.close(task)).toMatchObject({
+      status: 'cancelled',
+      operation: null,
+      reviewClosed: true
+    })
+    const restarted = new DesignReviews(data)
+    await restarted.ready()
+    expect(restarted.get(task.target.fileKey)).toMatchObject({
+      status: 'cancelled',
+      operation: null,
+      reviewClosed: true
+    })
+  })
+
+  it('loads valid reviews independently of malformed or future records', async () => {
+    const data = storage()
+    await data.set({ 'tempad.design-reviews.v1': [{ broken: true }, { ...task, future: true }] })
+    const reviews = new DesignReviews(data)
+    await reviews.ready()
+    expect(reviews.get('file-a')).toEqual(task)
+    await reviews.save({ ...task, status: 'cancelled' })
+    expect(reviews.get('file-a')?.status).toBe('cancelled')
+  })
+
+  it('merges an offline Stop without replacing a newer review', async () => {
+    const reviews = new DesignReviews(storage())
+    await reviews.save(task)
+    await reviews.restore({ ...task, status: 'cancelled' })
+    expect(reviews.get('file-a')?.status).toBe('cancelled')
+    await reviews.save({ ...task, taskId: 'new-task' })
+    await reviews.restore({ ...task, status: 'cancelled' })
+    expect(reviews.get('file-a')?.taskId).toBe('new-task')
+  })
   it('keeps queued Done behind a failing save and continues after the failure', async () => {
     const data = storage()
     const persist = data.set

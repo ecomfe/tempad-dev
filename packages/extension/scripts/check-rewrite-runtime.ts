@@ -68,6 +68,18 @@ async function verifyScripts(context: BrowserContext) {
       })
     }
     counts.set(file, (counts.get(file) ?? 0) + 1)
+    if (file === 'image_decoder.min.js') {
+      return await route.fulfill({
+        contentType: 'application/javascript',
+        body: 'self.postMessage({ready:true,src:self.location.href});'
+      })
+    }
+    if (file === 'image_loader.min.js') {
+      return await route.fulfill({
+        contentType: 'application/javascript',
+        body: 'var nativeImageHelper = {src:document.currentScript.src};'
+      })
+    }
     if (file === 'entry.min.js') {
       if (failEntry && !url.searchParams.has('fallback')) return await route.abort()
       return await route.fulfill({
@@ -100,6 +112,48 @@ async function verifyScripts(context: BrowserContext) {
     src: entryUrl
   })
   assert.deepEqual(await page.evaluate(() => Reflect.get(window, 'figma')), { fixture: true })
+  // Dedicated Worker requests are classified as scripts by Chromium too. They
+  // must never be redirected to the extension's document-only rewrite bootstrap.
+  assert.deepEqual(
+    await page.evaluate(async (src) => {
+      const worker = new Worker(src)
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        return await new Promise((resolve) => {
+          timer = setTimeout(() => resolve({ error: 'Worker startup timed out' }), 3000)
+          worker.onmessage = (event) => resolve(event.data)
+          worker.onerror = (event) => resolve({ error: event.message || 'Worker startup failed' })
+        })
+      } finally {
+        clearTimeout(timer)
+        worker.terminate()
+      }
+    }, `${base}/image_decoder.min.js`),
+    { ready: true, src: `https://www.figma.com${base}/image_decoder.min.js` }
+  )
+  // Unmatched resource helpers retain native global declarations and their source
+  // URL; replacing even unchanged code with a Blob can break relative asset URLs.
+  assert.deepEqual(
+    await page.evaluate(
+      async (src) =>
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+          const timer = setTimeout(() => reject(new Error('Image helper startup timed out')), 3000)
+          script.onload = () => {
+            clearTimeout(timer)
+            resolve(Reflect.get(window, 'nativeImageHelper'))
+          }
+          script.onerror = () => {
+            clearTimeout(timer)
+            reject(new Error('Image helper startup failed'))
+          }
+          script.src = src
+          document.head.appendChild(script)
+        }),
+      `${base}/image_loader.min.js`
+    ),
+    { src: `https://www.figma.com${base}/image_loader.min.js` }
+  )
   assert.deepEqual(
     await page.evaluate(async () => {
       const load = Reflect.get(window, 'loadTestChunk')
@@ -171,7 +225,7 @@ async function main() {
       await readFile(path.join(extension, 'rules/figma.json'), 'utf8')
     )
     assert.deepEqual(packagedRules, bundledRules)
-    assert.deepEqual(packagedRules[1].action.redirect, { extensionPath: '/figma.js' })
+    assert.deepEqual(packagedRules[1]!.action.redirect, { extensionPath: '/figma.js' })
     assert.ok(
       !(await readdir(path.join(extension, 'content-scripts'))).includes('rewrite-rules.js')
     )

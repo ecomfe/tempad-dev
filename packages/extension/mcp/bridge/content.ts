@@ -20,7 +20,8 @@ import {
 const RECONNECT_DELAY_MS = 1000
 type EnableMessage = Extract<PageToBridgeMessage, { type: 'mcp.enable' }>
 
-export function startMcpContentBridge(): void {
+export function startMcpContentBridge(): () => void {
+  let invalidated = false
   let enableMessage: EnableMessage | null = null
   let enableReady: Promise<void> | null = null
   let port: ReturnType<typeof browser.runtime.connect> | null = null
@@ -35,7 +36,7 @@ export function startMcpContentBridge(): void {
   }
 
   function scheduleReconnect(): void {
-    if (!enableMessage || !permissionGranted || reconnectTimer) return
+    if (invalidated || !enableMessage || !permissionGranted || reconnectTimer) return
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       if (enableMessage) postToServiceWorker(enableMessage)
@@ -43,6 +44,7 @@ export function startMcpContentBridge(): void {
   }
 
   function connect(): boolean {
+    if (invalidated) return false
     if (port) return true
     let nextPort: ReturnType<typeof browser.runtime.connect>
     try {
@@ -63,6 +65,7 @@ export function startMcpContentBridge(): void {
     nextPort.onDisconnect.addListener(() => {
       if (port !== nextPort) return
       port = null
+      if (enableMessage) postDisconnected('Agent disconnected. Reconnecting…')
       scheduleReconnect()
     })
 
@@ -187,10 +190,39 @@ export function startMcpContentBridge(): void {
     if (event.source !== window || event.origin !== TEMPAD_MCP_FIGMA_ORIGIN) {
       return
     }
-    void forwardToServiceWorker(event.data)
+    void forwardToServiceWorker(event.data).catch(() => {
+      postDisconnected('The extension connection is unavailable. Reload this Figma tab.')
+    })
   })
 
   window.addEventListener(MCP_PERMISSION_REQUEST_EVENT, () => {
     void requestLocalHostPermission()
   })
+
+  function postDisconnected(message: string): void {
+    if (!enableMessage) return
+    window.postMessage(
+      {
+        payload: {
+          activeSessionId: null,
+          errorMessage: message,
+          sessionCount: 0,
+          sessionId: enableMessage.sessionId,
+          status: 'connecting'
+        },
+        source: TEMPAD_MCP_BROWSER_SOURCE,
+        type: 'mcp.state',
+        version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
+      },
+      TEMPAD_MCP_FIGMA_ORIGIN
+    )
+  }
+
+  return () => {
+    invalidated = true
+    clearReconnectTimer()
+    port?.disconnect()
+    port = null
+    postDisconnected('TemPad Dev was updated. Reload this Figma tab to reconnect.')
+  }
 }

@@ -17,7 +17,7 @@ describe('utils/module', () => {
 
     expect(mod.evaluated).toBe(42)
     expect(createObjectURL).toHaveBeenCalledTimes(1)
-    const [blobArg] = createObjectURL.mock.calls[0]
+    const [blobArg] = createObjectURL.mock.calls[0]!
     expect(blobArg).toBeInstanceOf(Blob)
     if (!(blobArg instanceof Blob)) {
       throw new Error('Expected Blob payload for URL.createObjectURL.')

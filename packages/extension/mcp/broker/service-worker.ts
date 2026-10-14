@@ -30,6 +30,7 @@ import { base64ToBytes, bytesToBase64, digestMatchesAssetHash, sha256Hex } from 
 import { coerceToolErrorPayload, createCodedError } from '../errors'
 import {
   MCP_LOCAL_HOST_ORIGIN,
+  MCP_LOCAL_HOST_PERMISSION_ERROR,
   type McpPermissionMessageType,
   type McpPermissionResponse,
   isMcpPermissionMessage
@@ -41,6 +42,8 @@ import { createSerialQueue } from './serial'
 import { McpSessionRegistry } from './sessions'
 
 type PageEnableMessage = Extract<PageToBridgeMessage, { type: 'mcp.enable' }>
+const BADGE_SELECTION_KEY = 'tempad.mcp.badge-selection'
+type BadgeSelection = { sessionId: string; tabId: number; documentId: string; fileKey: string }
 type AssetUploadMessage = Extract<PageToBridgeMessage, { type: 'mcp.uploadAsset' }>
 type AssetDownloadMessage = Extract<PageToBridgeMessage, { type: 'mcp.downloadAsset' }>
 type AssetDownloadResultPayload = NonNullable<
@@ -60,9 +63,14 @@ export type McpBrokerHubClient = Pick<
 
 export class McpServiceWorkerBroker {
   private browserId: string = crypto.randomUUID()
-  private readonly identityReady: Promise<void> | undefined
+  private readonly identityReady: Promise<void>
+  private readonly selectionReady: Promise<void>
+  private readonly serializeSelection = createSerialQueue()
+  private selection: BadgeSelection | null = null
+  private selectionRevision = 0
   private tabRevision = 0
   private connectedHubId: string | null = null
+  private permissionMissing = false
   private readonly hubClient: McpBrokerHubClient
   private readonly pendingToolCalls = new Map<string, string>()
   private readonly portSessions = new WeakMap<McpBrokerPort, string>()
@@ -92,11 +100,22 @@ export class McpServiceWorkerBroker {
         undefined,
         extensionRuntimeIdentity()
       )
-    if (!hubClient) this.identityReady = this.initializeBrowserIdentity()
+    this.selectionReady = this.loadSelection()
+    this.identityReady = Promise.all([
+      hubClient ? undefined : this.initializeBrowserIdentity(),
+      this.selectionReady
+    ]).then(() => {})
   }
 
   start(): void {
-    browser.tabs?.onRemoved?.addListener(() => {
+    browser.permissions?.onRemoved?.addListener((permissions) => {
+      if (!permissions.origins?.includes(MCP_LOCAL_HOST_ORIGIN)) return
+      this.permissionMissing = true
+      this.hubClient.stop()
+      this.broadcastState()
+    })
+    browser.tabs?.onRemoved?.addListener((tabId) => {
+      this.forgetSelection((selection) => selection.tabId === tabId)
       void this.refreshOpenTabs()
     })
     browser.runtime.onConnect.addListener((port) => this.handlePort(port))
@@ -148,7 +167,8 @@ export class McpServiceWorkerBroker {
         if (this.portSessions.get(port) !== message.sessionId) return
         const session = this.sessions.get(message.sessionId)
         if (session) session.document = this.sessionDocument(port, message.document)
-        this.publishSessions()
+        this.restoreSelection()
+        this.broadcastState()
         break
       }
       case 'mcp.designAction':
@@ -236,7 +256,11 @@ export class McpServiceWorkerBroker {
   ): Promise<void> {
     if (this.portSessions.get(port) !== message.sessionId) return
     try {
-      await this.reviews().ready()
+      await this.reviews()
+        .ready()
+        .catch((error) => {
+          if (message.action.action !== 'stop') throw error
+        })
       if (message.action.action === 'done') {
         const fileKey = this.sessions.get(message.sessionId)?.document?.fileKey
         const task = fileKey
@@ -270,7 +294,9 @@ export class McpServiceWorkerBroker {
           ? (this.designTasks.get(fileKey) ?? this.reviews().get(fileKey))
           : undefined
         if (task?.taskId === message.action.taskId)
-          await this.reviews().save({ ...task, status: 'cancelled', operation: null })
+          await this.reviews()
+            .save({ ...task, status: 'cancelled', operation: null })
+            .catch(() => {})
         try {
           if (this.hubClient.getSnapshot().status === 'connected') {
             this.hubClient.sendDesignAction({
@@ -351,6 +377,8 @@ export class McpServiceWorkerBroker {
     const method = type === 'mcp.permissions.request' ? 'request' : 'contains'
     try {
       const granted = await browser.permissions[method]({ origins: [MCP_LOCAL_HOST_ORIGIN] })
+      this.permissionMissing = !granted
+      if (granted) this.startHubWhenReady()
       return { granted }
     } catch {
       return { granted: false }
@@ -367,6 +395,11 @@ export class McpServiceWorkerBroker {
     }
     const existingSession = this.sessions.get(message.sessionId)
     if (existingSession && existingSession.port !== port) {
+      if (
+        existingSession.port.sender?.tab?.id !== port.sender?.tab?.id ||
+        existingSession.port.sender?.documentId !== port.sender?.documentId
+      )
+        return
       this.portSessions.delete(existingSession.port)
     }
 
@@ -392,17 +425,21 @@ export class McpServiceWorkerBroker {
       sessionId: message.sessionId,
       document: this.sessionDocument(port, message.document)
     })
-    if (this.identityReady) {
-      void this.identityReady.then(() => {
-        if (this.sessions.size > 0) this.hubClient.start()
-      })
-    } else this.hubClient.start()
+    this.restoreSelection()
+    this.startHubWhenReady()
     this.broadcastState()
   }
 
-  private disableSession(port: McpBrokerPort, sessionId: string): void {
+  private startHubWhenReady(): void {
+    void this.identityReady.then(() => {
+      if (this.sessions.size > 0 && !this.permissionMissing) this.hubClient.start()
+    })
+  }
+
+  private disableSession(port: McpBrokerPort, sessionId: string, explicit = true): void {
     const mappedSessionId = this.portSessions.get(port)
     if (mappedSessionId !== sessionId) return
+    if (explicit) this.forgetSelection((selection) => selection.sessionId === sessionId)
     this.unregisterSession(sessionId, 'Figma session disconnected before providing a result.')
     this.stopHubIfIdle()
     this.broadcastState()
@@ -411,6 +448,13 @@ export class McpServiceWorkerBroker {
   private activateSession(port: McpBrokerPort, sessionId: string): void {
     if (this.portSessions.get(port) !== sessionId) return
     if (!this.sessions.activate(sessionId)) return
+    const session = this.sessions.get(sessionId)!
+    const { tab, documentId } = port.sender ?? {}
+    this.setSelection(
+      tab?.id !== undefined && documentId && session.document?.fileKey
+        ? { sessionId, tabId: tab.id, documentId, fileKey: session.document.fileKey }
+        : null
+    )
     const { activeId, registeredId } = this.hubClient.getSnapshot()
     if (registeredId && activeId !== registeredId) {
       this.hubClient.sendActivate()
@@ -482,7 +526,7 @@ export class McpServiceWorkerBroker {
   private handlePortDisconnect(port: McpBrokerPort): void {
     const sessionId = this.portSessions.get(port)
     if (!sessionId) return
-    this.disableSession(port, sessionId)
+    this.disableSession(port, sessionId, false)
   }
 
   private handleHubSnapshot(snapshot: ReturnType<McpBrokerHubClient['getSnapshot']>): void {
@@ -491,7 +535,6 @@ export class McpServiceWorkerBroker {
       if (snapshot.status === 'connected') void this.refreshOpenTabs()
     }
     if (snapshot.registeredId && snapshot.registeredId !== this.connectedHubId) {
-      this.sessions.resetActive()
       this.designTasks.clear()
     }
     this.connectedHubId = snapshot.registeredId
@@ -647,9 +690,15 @@ export class McpServiceWorkerBroker {
       activeSessionId: brokerIsActive ? this.sessions.getActiveId() : null,
       gatewayId: snapshot.registeredId,
       assetServerUrl: snapshot.assetServerUrl,
-      errorMessage: snapshot.errorMessage,
+      errorMessage: this.permissionMissing
+        ? MCP_LOCAL_HOST_PERMISSION_ERROR
+        : snapshot.errorMessage,
       sessionCount: this.sessions.size,
-      status: snapshot.status === 'idle' ? 'disabled' : snapshot.status
+      status: this.permissionMissing
+        ? 'connecting'
+        : snapshot.status === 'idle'
+          ? 'disabled'
+          : snapshot.status
     } satisfies Omit<McpBrowserStatePayload, 'sessionId'>
 
     this.publishSessions()
@@ -659,6 +708,8 @@ export class McpServiceWorkerBroker {
       const message: BridgeToPageMessage = {
         payload: {
           ...commonState,
+          activeSessionId:
+            commonState.activeSessionId === session.sessionId ? session.sessionId : null,
           sessionId: session.sessionId
         },
         source: TEMPAD_MCP_BROWSER_SOURCE,
@@ -715,6 +766,79 @@ export class McpServiceWorkerBroker {
           session.document ? [{ sessionId: session.sessionId, ...session.document }] : []
         )
     })
+  }
+
+  private setSelection(selection: BadgeSelection | null): void {
+    this.selection = selection
+    this.selectionRevision++
+    void this.serializeSelection(async () => {
+      await browser.storage.session?.set({ [BADGE_SELECTION_KEY]: selection })
+    }).catch(() => {
+      // A storage failure must not undo the user's choice in this worker.
+    })
+  }
+
+  private forgetSelection(matches: (selection: BadgeSelection) => boolean): void {
+    if (this.selection && matches(this.selection)) {
+      this.setSelection(null)
+      this.sessions.resetActive()
+      this.broadcastState()
+      return
+    }
+    const revision = this.selectionRevision
+    void this.selectionReady.then(() => {
+      if (revision === this.selectionRevision && this.selection && matches(this.selection)) {
+        this.setSelection(null)
+        this.sessions.resetActive()
+        this.broadcastState()
+      }
+    })
+  }
+
+  private restoreSelection(): void {
+    const selected = this.selection
+    if (!selected) return
+    const session = this.sessions.get(selected.sessionId)
+    if (!session) {
+      if (this.sessions.list().some((value) => value.port.sender?.tab?.id === selected.tabId))
+        this.setSelection(null)
+      return
+    }
+    const { tab, documentId } = session.port.sender ?? {}
+    if (tab?.id === selected.tabId && documentId === selected.documentId) {
+      // Registration may precede page identity; missing evidence is not a new file.
+      if (!session.document?.fileKey) return
+      if (session.document.fileKey === selected.fileKey) {
+        this.sessions.activate(session.sessionId)
+        return
+      }
+    }
+    this.setSelection(null)
+    this.sessions.resetActive()
+  }
+
+  private async loadSelection(): Promise<void> {
+    const revision = this.selectionRevision
+    try {
+      const stored = await browser.storage.session?.get(BADGE_SELECTION_KEY)
+      const value = stored?.[BADGE_SELECTION_KEY] as Partial<BadgeSelection> | null
+      if (revision !== this.selectionRevision || !value || typeof value !== 'object') return
+      if (
+        typeof value.sessionId !== 'string' ||
+        !value.sessionId ||
+        !Number.isInteger(value.tabId) ||
+        typeof value.documentId !== 'string' ||
+        !value.documentId ||
+        typeof value.fileKey !== 'string' ||
+        !value.fileKey
+      )
+        return
+      this.selection = value as BadgeSelection
+      this.restoreSelection()
+      this.broadcastState()
+    } catch {
+      // Session storage is optional for current-worker routing.
+    }
   }
 
   private async initializeBrowserIdentity(): Promise<void> {
@@ -778,7 +902,9 @@ export class McpServiceWorkerBroker {
     const fileKey = message.task.target.fileKey
     const previous = this.designTasks.get(fileKey)
     if (previous && message.task.revision < previous.revision) return
-    const task = await this.reviews().save(message.task)
+    const task = await this.reviews()
+      .save(message.task)
+      .catch(() => message.task)
     if (gatewayId !== this.connectedHubId) return
     this.designTasks.set(fileKey, task)
     for (const session of this.sessions.list()) {
@@ -826,8 +952,12 @@ async function uploadAssetToServer(
     method: 'POST'
   })
 
-  if (!response.ok) {
-    throw new Error(`Upload failed with status ${response.status} ${response.statusText}`)
+  try {
+    if (!response.ok) {
+      throw new Error(`Upload failed with status ${response.status} ${response.statusText}`)
+    }
+  } finally {
+    if (response.body) await response.body.cancel().catch(() => {})
   }
 }
 
@@ -836,37 +966,41 @@ async function downloadAssetFromServer(
   hash: string
 ): Promise<AssetDownloadResultPayload> {
   const response = await fetch(`${assetServerUrl}/assets/${hash}`, { method: 'GET' })
-  if (response.status === 404) {
-    throw createCodedError(
-      TEMPAD_MCP_ERROR_CODES.ASSET_NOT_FOUND,
-      `Asset "${hash}" was not found in the local store.`
-    )
-  }
-  if (!response.ok) {
-    throw createCodedError(
-      TEMPAD_MCP_ERROR_CODES.ASSET_BRIDGE_UNAVAILABLE,
-      `Asset download failed with status ${response.status} ${response.statusText}.`
-    )
-  }
-  const tooLarge = () =>
-    createCodedError(
-      TEMPAD_MCP_ERROR_CODES.ASSET_TOO_LARGE,
-      `Asset "${hash}" exceeds the ${MCP_MAX_ASSET_BYTES}-byte bridge limit.`
-    )
-  const bytes = await readBoundedResponseBytes(response, MCP_MAX_ASSET_BYTES, tooLarge)
-  const actual = await sha256Hex(bytes)
-  if (!digestMatchesAssetHash(actual, hash)) {
-    throw createCodedError(
-      TEMPAD_MCP_ERROR_CODES.ASSET_HASH_MISMATCH,
-      `Asset "${hash}" did not match its SHA-256 digest.`
-    )
-  }
-  return {
-    base64: bytesToBase64(bytes),
-    mimeType:
-      response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() ||
-      'application/octet-stream',
-    size: bytes.byteLength
+  try {
+    if (response.status === 404) {
+      throw createCodedError(
+        TEMPAD_MCP_ERROR_CODES.ASSET_NOT_FOUND,
+        `Asset "${hash}" was not found in the local store.`
+      )
+    }
+    if (!response.ok) {
+      throw createCodedError(
+        TEMPAD_MCP_ERROR_CODES.ASSET_BRIDGE_UNAVAILABLE,
+        `Asset download failed with status ${response.status} ${response.statusText}.`
+      )
+    }
+    const tooLarge = () =>
+      createCodedError(
+        TEMPAD_MCP_ERROR_CODES.ASSET_TOO_LARGE,
+        `Asset "${hash}" exceeds the ${MCP_MAX_ASSET_BYTES}-byte bridge limit.`
+      )
+    const bytes = await readBoundedResponseBytes(response, MCP_MAX_ASSET_BYTES, tooLarge)
+    const actual = await sha256Hex(bytes)
+    if (!digestMatchesAssetHash(actual, hash)) {
+      throw createCodedError(
+        TEMPAD_MCP_ERROR_CODES.ASSET_HASH_MISMATCH,
+        `Asset "${hash}" did not match its SHA-256 digest.`
+      )
+    }
+    return {
+      base64: bytesToBase64(bytes),
+      mimeType:
+        response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() ||
+        'application/octet-stream',
+      size: bytes.byteLength
+    }
+  } finally {
+    if (response.body && !response.bodyUsed) await response.body.cancel().catch(() => {})
   }
 }
 

@@ -4,7 +4,10 @@ export async function readBoundedResponseBytes(
   tooLarge: () => Error
 ): Promise<Uint8Array> {
   const contentLength = response.headers.get('content-length')
-  if (contentLength !== null && Number(contentLength) > maxBytes) throw tooLarge()
+  if (contentLength !== null && Number(contentLength) > maxBytes) {
+    await response.body?.cancel().catch(() => undefined)
+    throw tooLarge()
+  }
 
   if (!response.body) {
     const bytes = new Uint8Array(await response.arrayBuffer())

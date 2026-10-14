@@ -4,7 +4,7 @@ export default defineContentScript({
   matches: ['https://www.figma.com/*'],
   runAt: 'document_end',
   main(ctx) {
-    startMcpContentBridge()
+    ctx.onInvalidated(startMcpContentBridge())
 
     const ui = createIntegratedUi(ctx, {
       tag: 'tempad',
@@ -15,12 +15,12 @@ export default defineContentScript({
         root.tabIndex = -1
         root.classList.add('js-fullscreen-prevent-event-capture')
 
-        injectScript('/loader.js', {
+        await injectScript('/loader.js', {
           modifyScript(script) {
             const entry = browser.runtime.getURL('/ui.js')
             script.dataset.entry = entry
           }
-        })
+        }).catch((error) => console.error('Failed to initialize TemPad Dev UI.', error))
       }
     })
 

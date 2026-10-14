@@ -1,5 +1,8 @@
 import type { DesignFeedbackItem, DesignTask, FeedbackDraftScope } from '@tempad-dev/shared'
 
+export const FEEDBACK_DRAFT_CONFLICT_MESSAGE =
+  'Drafts changed in another tab. Reload saved comments before sending.'
+
 /** Draft identity survives page and lease changes; authorization is checked by each boundary. */
 export function getFeedbackDraftScope(task: DesignTask): FeedbackDraftScope | null {
   const client = task.client

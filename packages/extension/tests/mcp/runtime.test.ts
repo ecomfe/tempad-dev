@@ -176,6 +176,12 @@ describe('mcp/runtime', () => {
     })
   })
 
+  it('validates page-boundary arguments before calling a tool implementation', async () => {
+    const runtime = await importRuntime()
+    await expect(runtime.runMcpTool('get_code', { nodeIds: 'wrong' })).rejects.toThrow()
+    expect(mocks.runGetCode).not.toHaveBeenCalled()
+  })
+
   it('distinguishes missing, unsupported, and hidden node ids', async () => {
     setFigmaGetNodeById(null)
     const runtime = await importRuntime()

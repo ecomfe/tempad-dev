@@ -25,6 +25,12 @@ beforeEach(() => {
   const values: Record<string, unknown> = {}
   vi.stubGlobal('browser', {
     storage: {
+      session: {
+        get: async (key: string | null) => (key === null ? { ...values } : { [key]: values[key] }),
+        set: async (next: Record<string, unknown>) => {
+          Object.assign(values, structuredClone(next))
+        }
+      },
       local: {
         get: async (key: string) => ({ [key]: values[key] }),
         set: async (next: Record<string, unknown>) => {
@@ -117,6 +123,7 @@ function designBroker() {
   internals.handleHubSnapshot(client.getSnapshot())
   const a = createPort('https://www.figma.com/design/file-a/Design')
   const b = createPort('https://www.figma.com/design/file-b/Design')
+  b.port.sender!.tab!.id = 2
   for (const [port, sessionId, fileKey] of [
     [a, 'tab-a', 'file-a'],
     [b, 'tab-b', 'file-b']
@@ -133,6 +140,46 @@ function designBroker() {
 }
 
 describe('design task broker routing', () => {
+  it('forwards task state and Stop even when review persistence is unavailable', async () => {
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: async () => ({}),
+          set: async () => {
+            throw new Error('Storage full')
+          }
+        }
+      }
+    })
+    const f = designBroker()
+    const task = {
+      taskId: 'task-a',
+      title: 'Design',
+      status: 'active' as const,
+      operation: null,
+      target: { sessionId: 'tab-a', fileKey: 'file-a', fileName: 'Design', pageId: 'page-a' },
+      expiresAt: 1000,
+      revision: 1
+    }
+    await f.internals.routeDesignTask({ type: 'designTaskState', task })
+    expect(f.a.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'mcp.designTaskState', task })
+    )
+    const action = {
+      requestId: '00000000-0000-4000-8000-000000000001',
+      taskId: task.taskId,
+      epoch: 0,
+      action: 'stop'
+    }
+    f.a.message({ ...pageMessage('mcp.enable', 'tab-a'), type: 'mcp.designAction', action })
+    await vi.waitFor(() =>
+      expect(f.client.sendDesignAction).toHaveBeenCalledWith({
+        type: 'designAction',
+        sessionId: 'tab-a',
+        action
+      })
+    )
+  })
   it('closes a review offline, clears its drafts, and synchronizes Done before a stale page can reopen it', async () => {
     const f = designBroker()
     const task = {
@@ -924,41 +971,328 @@ describe('mcp/broker/service-worker', () => {
     expect(hubClient.sendActivate).toHaveBeenCalledTimes(1)
   })
 
-  it('requires a new explicit tab choice when a hub reconnects with multiple sessions', () => {
-    const snapshot: Partial<ReturnType<McpBrokerHubClient['getSnapshot']>> = {
-      activeId: 'gateway-1',
-      registeredId: 'gateway-1',
-      status: 'connected'
+  it.each(['gateway-1', 'gateway-2'])(
+    'preserves the explicit tab choice across WebSocket registration %s',
+    (gatewayId) => {
+      const snapshot: Partial<ReturnType<McpBrokerHubClient['getSnapshot']>> = {
+        activeId: 'gateway-1',
+        registeredId: 'gateway-1',
+        status: 'connected'
+      }
+      const hubClient = createHubClient(snapshot)
+      const broker = new McpServiceWorkerBroker(hubClient)
+      const internals = broker as unknown as BrokerInternals
+      internals.handleHubSnapshot(hubClient.getSnapshot())
+      const first = createPort('https://www.figma.com/design/abc/File')
+      const second = createPort('https://www.figma.com/design/def/File')
+
+      broker.handlePort(first.port)
+      first.message(pageMessage('mcp.enable', 'session-a'))
+      broker.handlePort(second.port)
+      second.message(pageMessage('mcp.enable', 'session-b'))
+      second.message(pageMessage('mcp.activateSession', 'session-b'))
+
+      snapshot.registeredId = null
+      snapshot.activeId = null
+      snapshot.status = 'connecting'
+      internals.handleHubSnapshot(hubClient.getSnapshot())
+      snapshot.activeId = gatewayId
+      snapshot.registeredId = gatewayId
+      snapshot.status = 'connected'
+      internals.handleHubSnapshot(hubClient.getSnapshot())
+      internals.routeToolCall({
+        id: 'call-after-reconnect',
+        payload: { args: undefined, name: 'get_code' },
+        type: 'toolCall'
+      })
+
+      expect(hubClient.sendToolResult).not.toHaveBeenCalled()
+      expect(second.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ type: 'mcp.toolCall', callId: 'call-after-reconnect' })
+      )
     }
-    const hubClient = createHubClient(snapshot)
-    const broker = new McpServiceWorkerBroker(hubClient)
-    const internals = broker as unknown as BrokerInternals
-    const first = createPort('https://www.figma.com/design/abc/File')
-    const second = createPort('https://www.figma.com/design/def/File')
+  )
 
-    broker.handlePort(first.port)
-    first.message(pageMessage('mcp.enable', 'session-a'))
-    broker.handlePort(second.port)
-    second.message(pageMessage('mcp.enable', 'session-b'))
-    second.message(pageMessage('mcp.activateSession', 'session-b'))
-
-    snapshot.activeId = 'gateway-2'
-    snapshot.registeredId = 'gateway-2'
-    internals.handleHubSnapshot(hubClient.getSnapshot())
-    internals.routeToolCall({
-      id: 'call-after-reconnect',
-      payload: { args: undefined, name: 'get_code' },
-      type: 'toolCall'
+  it('restores an explicit badge selection after a worker restart, independent of port arrival order', async () => {
+    const first = designBroker()
+    await vi.waitFor(async () => {
+      const stored = await browser.storage.session.get(null)
+      expect(Object.values(stored)).toContainEqual(
+        expect.objectContaining({ sessionId: 'tab-b', documentId: 'document-tab-b' })
+      )
     })
+    first.b.disconnect()
 
-    expect(hubClient.sendToolResult).toHaveBeenLastCalledWith({
-      error: {
-        code: TEMPAD_MCP_ERROR_CODES.NO_ACTIVE_EXTENSION,
-        message: 'No active TemPad Dev Figma session available.'
+    const client = createHubClient({
+      activeId: 'gateway-new',
+      registeredId: 'gateway-new',
+      status: 'connected'
+    })
+    const broker = new McpServiceWorkerBroker(client)
+    for (const id of ['b', 'a']) {
+      const port = createPort(`https://www.figma.com/design/file-${id}/Design`)
+      port.port.sender!.tab!.id = id === 'a' ? 1 : 2
+      port.port.sender!.documentId = `document-tab-${id}`
+      broker.handlePort(port.port)
+      port.message({
+        ...pageMessage('mcp.enable', `tab-${id}`),
+        document: { fileKey: `file-${id}`, fileName: 'Design', pageId: 'page-a', busy: false }
+      })
+    }
+    await vi.waitFor(() => {
+      expect(client.sendSessions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ activeSessionId: 'tab-b' })
+      )
+    })
+  })
+
+  it.each([
+    { tabId: 3, documentId: 'document-tab-b', fileKey: 'file-b' },
+    { tabId: 2, documentId: 'replacement-document', fileKey: 'file-b' },
+    { tabId: 2, documentId: 'document-tab-b', fileKey: 'different-file' }
+  ])('does not restore a badge choice into a different identity: %j', async (identity) => {
+    designBroker()
+    await vi.waitFor(async () => {
+      expect(Object.values(await browser.storage.session.get(null))).toContainEqual(
+        expect.objectContaining({ sessionId: 'tab-b' })
+      )
+    })
+    const client = createHubClient({ activeId: 'new', registeredId: 'new', status: 'connected' })
+    const broker = new McpServiceWorkerBroker(client)
+    for (const id of ['a', 'b']) {
+      const port = createPort(`https://www.figma.com/design/file-${id}/Design`)
+      port.port.sender!.tab!.id = id === 'a' ? 1 : identity.tabId
+      port.port.sender!.documentId = id === 'a' ? 'document-tab-a' : identity.documentId
+      broker.handlePort(port.port)
+      port.message({
+        ...pageMessage('mcp.enable', `tab-${id}`),
+        document: {
+          fileKey: id === 'a' ? 'file-a' : identity.fileKey,
+          fileName: 'Design',
+          pageId: 'page-a',
+          busy: false
+        }
+      })
+    }
+    await vi.waitFor(async () => {
+      expect(Object.values(await browser.storage.session.get(null))).toContain(null)
+    })
+    expect(client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeSessionId: null })
+    )
+  })
+
+  it('clears explicit selection on an in-document file change and does not expose another tab ID', async () => {
+    const f = designBroker()
+    expect(f.a.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: 'mcp.state',
+        payload: expect.objectContaining({ activeSessionId: null })
+      })
+    )
+    expect(f.b.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: 'mcp.state',
+        payload: expect.objectContaining({ activeSessionId: 'tab-b' })
+      })
+    )
+    f.b.message({
+      ...pageMessage('mcp.enable', 'tab-b'),
+      type: 'mcp.sessionInfo',
+      document: { fileKey: 'new-file', fileName: 'New', pageId: 'page-a', busy: false }
+    })
+    expect(f.client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeSessionId: null })
+    )
+    await vi.waitFor(async () => {
+      expect(Object.values(await browser.storage.session.get(null))).toContain(null)
+    })
+  })
+
+  it('clears a manually disabled choice but keeps current routing if storage writes fail', async () => {
+    const f = designBroker()
+    await vi.waitFor(async () => {
+      expect(Object.values(await browser.storage.session.get(null))).toContainEqual(
+        expect.objectContaining({ sessionId: 'tab-b' })
+      )
+    })
+    f.b.message(pageMessage('mcp.disable', 'tab-b'))
+    await vi.waitFor(async () => {
+      expect(Object.values(await browser.storage.session.get(null))).toContain(null)
+    })
+    vi.spyOn(browser.storage.session, 'set').mockRejectedValue(new Error('storage unavailable'))
+    f.b.message({
+      ...pageMessage('mcp.enable', 'tab-b'),
+      document: { fileKey: 'file-b', fileName: 'Design', pageId: 'page-a', busy: false }
+    })
+    f.b.message(pageMessage('mcp.activateSession', 'tab-b'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(f.client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeSessionId: 'tab-b' })
+    )
+  })
+
+  it('does not let a delayed storage read overwrite a newer badge choice', async () => {
+    designBroker()
+    await vi.waitFor(async () => {
+      expect(Object.values(await browser.storage.session.get(null))).toContainEqual(
+        expect.objectContaining({ sessionId: 'tab-b' })
+      )
+    })
+    const stored = await browser.storage.session.get(null)
+    let finishRead!: (value: Record<string, unknown>) => void
+    vi.spyOn(browser.storage.session, 'get').mockImplementationOnce(
+      () =>
+        new Promise<Record<string, unknown>>((resolve) => {
+          finishRead = resolve
+        })
+    )
+    const next = designBroker()
+    next.a.message(pageMessage('mcp.activateSession', 'tab-a'))
+    finishRead(stored)
+    await vi.waitFor(async () => {
+      expect(Object.values(await browser.storage.session.get(null))).toContainEqual(
+        expect.objectContaining({ sessionId: 'tab-a' })
+      )
+    })
+    expect(next.client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeSessionId: 'tab-a' })
+    )
+  })
+
+  it('forgets the saved badge when its tab closes', async () => {
+    const f = designBroker()
+    let removed!: (tabId: number) => void
+    vi.stubGlobal('browser', {
+      ...browser,
+      tabs: {
+        onRemoved: {
+          addListener: (listener: typeof removed) => {
+            removed = listener
+          }
+        }
       },
-      id: 'call-after-reconnect',
-      type: 'toolResult'
+      runtime: { onConnect: { addListener: vi.fn() }, onMessage: { addListener: vi.fn() } }
     })
+    f.broker.start()
+    removed(2)
+    await vi.waitFor(async () => {
+      expect(Object.values(await browser.storage.session.get(null))).toContain(null)
+    })
+  })
+
+  it('waits for saved selection before permission-driven connection, then restores after page identity arrives', async () => {
+    designBroker()
+    await vi.waitFor(async () => {
+      expect(Object.values(await browser.storage.session.get(null))).toContainEqual(
+        expect.objectContaining({ sessionId: 'tab-b' })
+      )
+    })
+    const stored = await browser.storage.session.get(null)
+    let finishRead!: (value: Record<string, unknown>) => void
+    vi.spyOn(browser.storage.session, 'get').mockImplementationOnce(
+      () =>
+        new Promise<Record<string, unknown>>((resolve) => {
+          finishRead = resolve
+        })
+    )
+    vi.stubGlobal('browser', {
+      ...browser,
+      permissions: { contains: vi.fn().mockResolvedValue(true) }
+    })
+    const client = createHubClient()
+    const broker = new McpServiceWorkerBroker(client)
+    const a = createPort('https://www.figma.com/design/file-a/Design')
+    const b = createPort('https://www.figma.com/design/file-b/Design')
+    b.port.sender!.tab!.id = 2
+    b.port.sender!.documentId = 'document-tab-b'
+    for (const [port, id] of [
+      [a, 'a'],
+      [b, 'b']
+    ] as const) {
+      broker.handlePort(port.port)
+      port.message(pageMessage('mcp.enable', `tab-${id}`))
+    }
+    await (broker as unknown as BrokerInternals).handlePermissionMessage('mcp.permissions.contains')
+    expect(client.start).not.toHaveBeenCalled()
+    finishRead(stored)
+    await vi.waitFor(() => expect(client.start).toHaveBeenCalled())
+    vi.spyOn(client, 'getSnapshot').mockReturnValue({
+      ...client.getSnapshot(),
+      status: 'connected',
+      registeredId: 'restored',
+      activeId: 'restored'
+    })
+    ;(broker as unknown as BrokerInternals).handleHubSnapshot(client.getSnapshot())
+    expect(client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeSessionId: null })
+    )
+    b.message({
+      ...pageMessage('mcp.enable', 'tab-b'),
+      type: 'mcp.sessionInfo',
+      document: { fileKey: 'file-b', fileName: 'Design', pageId: 'page-a', busy: false }
+    })
+    expect(client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeSessionId: 'tab-b' })
+    )
+  })
+
+  it('does not persist choices without a document identity', async () => {
+    const f = designBroker()
+    delete f.b.port.sender!.documentId
+    f.b.message(pageMessage('mcp.activateSession', 'tab-b'))
+    await vi.waitFor(async () => {
+      expect(Object.values(await browser.storage.session.get(null))).toContain(null)
+    })
+    expect(f.client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeSessionId: 'tab-b' })
+    )
+  })
+
+  it('does not reactivate a choice disabled and reenabled while saved identity is loading', async () => {
+    const saved = {
+      'tempad.mcp.badge-selection': {
+        sessionId: 'tab-b',
+        tabId: 2,
+        documentId: 'document-tab-b',
+        fileKey: 'file-b'
+      }
+    }
+    let finishRead!: (value: Record<string, unknown>) => void
+    vi.spyOn(browser.storage.session, 'get').mockImplementationOnce(
+      () =>
+        new Promise<Record<string, unknown>>((resolve) => {
+          finishRead = resolve
+        })
+    )
+    const client = createHubClient({
+      registeredId: 'gateway',
+      activeId: 'gateway',
+      status: 'connected'
+    })
+    const broker = new McpServiceWorkerBroker(client)
+    for (const id of ['a', 'b']) {
+      const port = createPort(`https://www.figma.com/design/file-${id}/Design`)
+      port.port.sender!.tab!.id = id === 'a' ? 1 : 2
+      port.port.sender!.documentId = `document-tab-${id}`
+      const enable = {
+        ...pageMessage('mcp.enable', `tab-${id}`),
+        document: { fileKey: `file-${id}`, fileName: 'Design', pageId: 'page-a', busy: false }
+      }
+      broker.handlePort(port.port)
+      port.message(enable)
+      if (id === 'b') {
+        port.message(pageMessage('mcp.disable', 'tab-b'))
+        port.message(enable)
+      }
+    }
+    finishRead(saved)
+    await vi.waitFor(async () => {
+      expect(Object.values(await browser.storage.session.get(null))).toContain(null)
+    })
+    expect(client.sendSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeSessionId: null })
+    )
   })
 
   it('ignores session control messages from ports that do not own the session', () => {
@@ -1103,6 +1437,51 @@ describe('mcp/broker/service-worker', () => {
       version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION
     })
   })
+
+  it.each([
+    { operation: 'upload', status: 201 },
+    { operation: 'upload', status: 507 },
+    { operation: 'download', status: 404 },
+    { operation: 'download', status: 503 }
+  ])(
+    'cancels the unread $operation response with status $status',
+    async ({ operation, status }) => {
+      const cancel = vi.fn(async () => {
+        throw new Error('Cleanup failed')
+      })
+      const body = new ReadableStream<Uint8Array>({ cancel })
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(new Response(body, { status, statusText: 'Fixture' }))
+      )
+      const broker = new McpServiceWorkerBroker(
+        createHubClient({ assetServerUrl: 'http://127.0.0.1:9000' })
+      )
+      const session = createPort('https://www.figma.com/design/abc/File')
+      broker.handlePort(session.port)
+      session.message(pageMessage('mcp.enable'))
+      session.postMessage.mockClear()
+      session.message(operation === 'upload' ? assetUpload() : assetDownload())
+      await vi.waitFor(() => expect(session.postMessage).toHaveBeenCalled())
+      expect(cancel).toHaveBeenCalledOnce()
+      expect(body.locked).toBe(false)
+      const result = session.postMessage.mock.lastCall![0]
+      if (status === 201) expect(result).not.toHaveProperty('error')
+      else if (operation === 'upload')
+        expect(result).toMatchObject({
+          error: { message: 'Upload failed with status 507 Fixture' }
+        })
+      else
+        expect(result).toMatchObject({
+          error: {
+            code:
+              status === 404
+                ? TEMPAD_MCP_ERROR_CODES.ASSET_NOT_FOUND
+                : TEMPAD_MCP_ERROR_CODES.ASSET_BRIDGE_UNAVAILABLE
+          }
+        })
+    }
+  )
 
   it('downloads and verifies hash-addressed assets for the owning session', async () => {
     const fetchMock = vi.fn().mockResolvedValue(

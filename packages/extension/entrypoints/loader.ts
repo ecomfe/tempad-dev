@@ -1,4 +1,4 @@
-export default defineUnlistedScript(async () => {
+async function loadUi(): Promise<void> {
   const currentScript = document.currentScript
   if (!(currentScript instanceof HTMLScriptElement)) {
     console.error('Failed to resolve current script element.')
@@ -30,4 +30,8 @@ export default defineUnlistedScript(async () => {
   script.onload = () => {
     script.remove()
   }
+}
+
+export default defineUnlistedScript(() => {
+  void loadUi().catch((error) => console.error('Failed to load TemPad Dev UI.', error))
 })

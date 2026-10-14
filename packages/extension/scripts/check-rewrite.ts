@@ -1,4 +1,5 @@
-import { chromium } from 'playwright'
+import { pathToFileURL } from 'node:url'
+import { chromium, type Response } from 'playwright'
 
 import { GROUPS } from '@/rewrite/config'
 import { REWRITE_TARGET_REGEX } from '@/rewrite/rules'
@@ -22,24 +23,26 @@ function formatUrls(urls: string[], max = 3) {
   return `${preview.join(', ')}${suffix}`
 }
 
-async function runCheck() {
-  const scripts: { url: string; content: string }[] = []
+export async function runCheck() {
+  const scriptReads: Promise<{ url: string; content: string } | { error: unknown }>[] = []
 
   const browser = await chromium.launch()
   const page = await browser.newPage()
+  const captureScript = (response: Response) => {
+    if (response.request().resourceType() !== 'script') return
+    const url = response.url()
+    if (!REWRITE_TARGET_REGEX.test(url)) return
+    // Observe failures immediately, including when navigation fails before the report.
+    scriptReads.push(
+      response.text().then(
+        (content) => ({ url, content }),
+        (error: unknown) => ({ error })
+      )
+    )
+  }
 
   try {
-    page.on('response', async (response) => {
-      if (response.request().resourceType() !== 'script') {
-        return
-      }
-      const url = response.url()
-      if (!REWRITE_TARGET_REGEX.test(url)) {
-        return
-      }
-      const content = await response.text()
-      scripts.push({ url, content })
-    })
+    page.on('response', captureScript)
 
     try {
       await page.goto('https://www.figma.com/login', { timeout: 10000 })
@@ -69,6 +72,9 @@ async function runCheck() {
     )
     await page.goto(`https://www.figma.com/design/${process.env.FIGMA_FILE_KEY}`)
     logger.log(`Page loaded at <${page.url()}>.`)
+    page.off('response', captureScript)
+    // Navigation completion does not await asynchronous response listeners.
+    const scripts = await Promise.all(scriptReads)
 
     const replacementStats = GROUPS.map((group) =>
       group.replacements.map(() => ({
@@ -81,7 +87,9 @@ async function runCheck() {
     let rewrittenCount = 0
     const notRewritten: string[] = []
 
-    for (const { url, content } of scripts) {
+    for (const script of scripts) {
+      if ('error' in script) throw script.error
+      const { url, content } = script
       const {
         changed,
         matchedGroups,
@@ -104,7 +112,7 @@ async function runCheck() {
         replacementIndex,
         changed: replacementChanged
       } of scriptReplacementStats) {
-        const stat = replacementStats[groupIndex][replacementIndex]
+        const stat = replacementStats[groupIndex]![replacementIndex]!
         if (replacementChanged) {
           stat.hits.push(url)
         } else {
@@ -144,7 +152,7 @@ async function runCheck() {
       hasFailure = true
       reportLines.push('', 'FAIL: Some replacements were never applied.')
       missingReplacements.forEach(({ groupIndex, replacementIndex, noEffect }) => {
-        const group = GROUPS[groupIndex]
+        const group = GROUPS[groupIndex]!
         const statusText =
           noEffect.length > 0 ? `no effect in ${noEffect.length} script(s)` : 'group never matched'
         reportLines.push(
@@ -163,6 +171,7 @@ async function runCheck() {
     logger.log(reportLines.join('\n'))
     return !hasFailure
   } finally {
+    page.off('response', captureScript)
     await browser.close()
   }
 }
@@ -188,7 +197,9 @@ async function main() {
   process.exit(1)
 }
 
-main().catch((error) => {
-  logger.error('Unexpected error:', error)
-  process.exit(1)
-})
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  void main().catch((error: unknown) => {
+    logger.error('Unexpected error:', error)
+    process.exit(1)
+  })
+}

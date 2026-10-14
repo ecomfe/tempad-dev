@@ -25,6 +25,7 @@ function createPort() {
   const messageListeners: MessageListener[] = []
   const disconnectListeners: DisconnectListener[] = []
   const port = {
+    disconnect: vi.fn(() => disconnectListeners.forEach((listener) => listener())),
     onDisconnect: {
       addListener: vi.fn((listener: DisconnectListener) => disconnectListeners.push(listener))
     },
@@ -157,6 +158,28 @@ afterEach(() => {
 })
 
 describe('mcp/bridge/content', () => {
+  it('stops retrying and reports reload guidance when the extension context is invalidated', async () => {
+    vi.useFakeTimers()
+    const ports: Array<ReturnType<typeof createPort>> = []
+    installBrowser(ports)
+    const page = installWindow()
+    const invalidate = startMcpContentBridge()
+    page.sendPageMessage(pageMessage('mcp.enable'))
+    await flushMicrotasks()
+    invalidate()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(ports).toHaveLength(1)
+    expect(page.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: 'mcp.state',
+        payload: expect.objectContaining({
+          status: 'connecting',
+          errorMessage: expect.stringContaining('Reload this Figma tab')
+        })
+      }),
+      TEMPAD_MCP_FIGMA_ORIGIN
+    )
+  })
   it('forwards page messages and replays the last enable after reconnect', async () => {
     vi.useFakeTimers()
     const ports: Array<ReturnType<typeof createPort>> = []

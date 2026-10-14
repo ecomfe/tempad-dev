@@ -155,6 +155,7 @@ export class PageDesignTasks {
       const page = record(input.page)
       const explicitTarget =
         input.nodeId ||
+        (Array.isArray(input.nodeIds) && input.nodeIds.length > 0) ||
         input.targetNodeId ||
         input.pageId ||
         input.pageKey ||

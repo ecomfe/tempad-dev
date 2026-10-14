@@ -10,6 +10,12 @@ import type {
 } from '@tempad-dev/shared'
 
 import {
+  ApplyCanvasParametersSchema,
+  GetCodeParametersSchema,
+  GetDesignSystemParametersSchema,
+  GetScreenshotParametersSchema,
+  GetStructureParametersSchema,
+  GetTokenDefsParametersSchema,
   TEMPAD_MCP_ERROR_CODES,
   buildGetCodeToolResult,
   buildGetScreenshotToolResult
@@ -132,6 +138,15 @@ export const MCP_TOOL_HANDLERS = {
   get_structure: handleGetStructure
 }
 
+const MCP_TOOL_SCHEMAS = {
+  apply_canvas: ApplyCanvasParametersSchema,
+  get_code: GetCodeParametersSchema,
+  get_design_system: GetDesignSystemParametersSchema,
+  get_token_defs: GetTokenDefsParametersSchema,
+  get_screenshot: GetScreenshotParametersSchema,
+  get_structure: GetStructureParametersSchema
+}
+
 export type MCPHandlers = typeof MCP_TOOL_HANDLERS
 
 export type TempadWindowHandlers = Omit<MCPHandlers, 'get_code'> & {
@@ -158,11 +173,11 @@ export async function runMcpTool(name: string, args: unknown): Promise<unknown> 
     throw new Error(`No handler registered for tool "${name}".`)
   }
   const handler = MCP_TOOL_HANDLERS[name] as (args?: unknown) => Promise<unknown>
-  return handler(args)
+  return handler(MCP_TOOL_SCHEMAS[name].parse(args ?? {}))
 }
 
 function exposeToolsOnWindow(): void {
-  if (typeof window === 'undefined') {
+  if (!import.meta.env.DEV || typeof window === 'undefined') {
     return
   }
   window.tempadTools = {
