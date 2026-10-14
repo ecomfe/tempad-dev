@@ -1,7 +1,6 @@
-import { CANVAS_COUNTER_AXIS_SYNC_NAME, CANVAS_KEY_NAMESPACE } from '@/mcp/tools/canvas/identity'
-
 import type { FigmaLookupReaders } from './figma-style/types'
 
+import { CANVAS_COUNTER_AXIS_SYNC_NAME, CANVAS_KEY_NAMESPACE } from './canvas-metadata'
 import { normalizeCustomPropertyName, replaceVarFunctions } from './css'
 import {
   collectNodeVariableIds,

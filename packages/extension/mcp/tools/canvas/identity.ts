@@ -1,10 +1,12 @@
 import type { CanvasDesignReference, CanvasPageSnapshot } from '@tempad-dev/shared'
 
+import { CANVAS_COUNTER_AXIS_SYNC_NAME, CANVAS_KEY_NAMESPACE } from '@/utils/canvas-metadata'
+
 import { specError } from './errors'
 import { isInsideInstance } from './traversal'
 
-export const CANVAS_KEY_NAMESPACE = 'tempad_dev'
-export const CANVAS_COUNTER_AXIS_SYNC_NAME = 'counter-axis-spacing-sync'
+export { CANVAS_COUNTER_AXIS_SYNC_NAME, CANVAS_KEY_NAMESPACE }
+
 export const CANVAS_NODE_KEY_NAME = 'canvas-key'
 export const CANVAS_NODE_OWNER_NAME = 'canvas-owner'
 export const CANVAS_PAGE_KEY_NAME = 'page-key'
