@@ -171,7 +171,7 @@ describe('design task status and canvas overlay', () => {
     expect(following.getBoundingClientRect().top - originalTop).toBe(40)
     expect(section.querySelector('svg')).toBeNull()
     expect(section.textContent?.replace(/\s/g, '')).toBe(
-      'TheagentisdesigningStopPermanent·keepsdrafts'
+      'TheagentisdesigningPermanent·keepsdraftsStop'
     )
     expect(overlayVisible()).toBe(false)
     expect(section.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true)

@@ -479,6 +479,7 @@ onScopeDispose(() => {
             :action-result="actionResult"
             @dismiss-blocked="dismissBlocked = $event"
           />
+          <span v-if="stoppable" class="tp-design-stop-hint">Permanent · keeps drafts</span>
           <Button
             v-if="stoppable"
             class="tp-design-stop"
@@ -491,7 +492,6 @@ onScopeDispose(() => {
           >
             Stop
           </Button>
-          <span v-if="stoppable" class="tp-design-stop-hint">Permanent · keeps drafts</span>
           <Button
             v-else-if="task.status === 'completed'"
             class="tp-design-done"
