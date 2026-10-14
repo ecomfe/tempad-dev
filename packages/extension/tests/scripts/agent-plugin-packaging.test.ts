@@ -173,11 +173,13 @@ it.each([STANDARD, PLUGINS_CLI, CODEX, CLAUDE, DEV])(
 
 it('derives the standalone compatibility skill from the current authoring skill', () => {
   const alias = join(STANDARD, 'skills/figma-canvas-authoring')
-  expect(readFileSync(join(root, alias, 'SKILL.md'), 'utf8')).toBe(
-    sourceFile('skills/design-in-figma/SKILL.md').replace(
-      /^name: design-in-figma$/m,
-      'name: figma-canvas-authoring'
-    )
+  const content = readFileSync(join(root, alias, 'SKILL.md'), 'utf8')
+  expect(content).toContain('name: figma-canvas-authoring')
+  expect(content).toContain(
+    'Use only when design-in-figma is not installed; otherwise use design-in-figma.'
+  )
+  expect(content.split('\n---\n')[1]).toBe(
+    sourceFile('skills/design-in-figma/SKILL.md').split('\n---\n')[1]
   )
   expect(readFileSync(join(root, alias, 'references/canvas-html.md'), 'utf8')).toBe(
     sourceFile('skills/design-in-figma/references/canvas-html.md')

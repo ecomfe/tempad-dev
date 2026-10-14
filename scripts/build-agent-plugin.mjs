@@ -63,10 +63,12 @@ function buildStandard() {
   const skillPath = join(alias, 'SKILL.md')
   writeFileSync(
     skillPath,
-    readFileSync(skillPath, 'utf8').replace(
-      /^name: design-in-figma$/m,
-      'name: figma-canvas-authoring'
-    )
+    readFileSync(skillPath, 'utf8')
+      .replace(/^name: design-in-figma$/m, 'name: figma-canvas-authoring')
+      .replace(
+        /^description: >-\n/m,
+        'description: >-\n  Legacy compatibility entry. Use only when design-in-figma is not installed; otherwise use design-in-figma.\n'
+      )
   )
   writeJson(join(target, 'plugin.json'), manifest)
   writeJson(join(target, 'mcp.json'), portableMcp)

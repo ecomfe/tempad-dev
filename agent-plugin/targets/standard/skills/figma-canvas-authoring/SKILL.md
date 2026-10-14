@@ -1,6 +1,7 @@
 ---
 name: figma-canvas-authoring
 description: >-
+  Legacy compatibility entry. Use only when design-in-figma is not installed; otherwise use design-in-figma.
   Create or update native, editable Figma designs with TemPad Dev MCP: screens,
   flows, components, and requested local design-system resources, including on
   an empty canvas. Use when asked to create, mock up, or edit native Figma layers, not Figma-to-code, critique
