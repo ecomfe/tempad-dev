@@ -97,11 +97,12 @@ describe('figma/gradient resolveGradientFromPaints', () => {
     expect(resolveGradientFromPaints('invalid' as unknown as Paint[])).toBeNull()
   })
 
-  it('picks the first visible gradient and resolves linear angle from handles', () => {
+  it('picks the frontmost visible gradient and resolves linear angle from handles', () => {
     const paints = [
-      createGradientPaint('GRADIENT_LINEAR', { visible: false }),
+      createGradientPaint('GRADIENT_RADIAL'),
       createSolidPaint({ r: 0, g: 1, b: 0 }),
-      createGradientPaint('GRADIENT_LINEAR')
+      createGradientPaint('GRADIENT_LINEAR'),
+      createGradientPaint('GRADIENT_ANGULAR', { visible: false })
     ]
 
     expect(resolveGradientFromPaints(paints)).toBe('linear-gradient(90deg, #F00 0%, #00F 100%)')
@@ -280,6 +281,15 @@ describe('figma/gradient resolveGradientFromPaints', () => {
 })
 
 describe('figma/gradient resolveSolidFromPaints', () => {
+  it('uses the frontmost visible solid without looking through a gradient', () => {
+    const red = createSolidPaint({ r: 1, g: 0, b: 0 })
+    const blue = createSolidPaint({ r: 0, g: 0, b: 1 })
+    const hidden = createSolidPaint({ r: 0, g: 1, b: 0 }, { visible: false })
+    expect(resolveSolidFromPaints([red, blue, hidden])).toBe('#00F')
+    expect(resolveSolidFromPaints([red, createGradientPaint('GRADIENT_LINEAR')])).toBeNull()
+    expect(resolveGradientFromPaints([createGradientPaint('GRADIENT_LINEAR'), blue])).toBeNull()
+  })
+
   it('returns null for invalid paint lists', () => {
     expect(resolveSolidFromPaints()).toBeNull()
     expect(resolveSolidFromPaints(null)).toBeNull()

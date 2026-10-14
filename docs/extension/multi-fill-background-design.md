@@ -1,17 +1,20 @@
 # Multi-fill Background Resolution Design
 
-This document analyzes issue `#101` and proposes a complete implementation strategy for background resolution when a Figma node has multiple fill paints.
+This document records the paint-order contract and background resolution design for issue `#101` when a Figma node has multiple fill paints.
 
 The goal of this design is to preserve same-node fill intent directly. If a user explicitly configured multiple fills on one Figma node, the generated CSS should preserve that stack whenever those fills can be represented as CSS background layers.
 
 ## Summary
 
-The current implementation assumes that background-like fill output can be reduced to one of two values:
+The extension style resolver and MCP fallback preserve representable same-node fill stacks:
 
-- a single `background-color`
-- a single gradient `background`
+- a single solid uses `background-color`
+- a single gradient uses `background`
+- multiple solid or gradient paints use ordered CSS background layers
 
-That assumption is embedded in both the extension style resolver and the extension-side MCP cleanup pipeline. As a result, the repo cannot preserve same-node multi-fill stacks as authored.
+Scalar channels such as text color and strokes use the frontmost renderable paint only when it
+can represent the stack. They retain native CSS for translucent or blended stacks instead of
+substituting a lower paint.
 
 However, issue `#101` is not sufficient evidence that every visual involving "multiple layers" should be solved by emitting multiple CSS background layers:
 
@@ -101,17 +104,12 @@ The UI/codegen path uses:
 - `packages/extension/utils/codegen.ts`
 - `packages/extension/utils/figma-style/style-resolver.ts`
 
-Current limitations:
-
-- `resolveGradientFromPaints()` in `packages/extension/utils/figma-style/gradient.ts` picks the first visible gradient paint.
-- `resolveSolidFromPaints()` in the same file picks the first visible solid paint.
-- `ResolvedPaintValue` in `packages/extension/utils/figma-style/style-resolver.ts` only models one `gradient` or one `solidColor`.
-- `resolveStylesFromNodeData()` rewrites fill-derived CSS channels with a single resolved result.
-
-Impact:
-
-- same-node multi-fill stacks are reduced to one layer
-- explicit fill ordering configured in Figma is lost
+- `resolveBackgroundFillFromPaints()` preserves all renderable solid/gradient layers in CSS order.
+- Single-value helpers inspect the frontmost renderable paint, without searching through a
+  covering paint of another type. Hidden and zero-opacity paints do not cover lower paints.
+- `ResolvedPaintValue` remains scalar for `color`, `fill`, and stroke channels. An opaque normal
+  front paint can replace these values; a translucent or blended multi-paint stack retains native
+  CSS. Indexed variable bindings keep the original native paint index after reversing paint order.
 
 ### Extension MCP cleanup path
 
@@ -121,16 +119,10 @@ The MCP `get_code` path uses:
 - `packages/extension/mcp/tools/code/styles/background.ts`
 - `packages/extension/mcp/tools/code/styles/normalize.ts`
 
-Current limitations:
-
-- `cleanFigmaSpecificStyles()` injects at most one `background-color` or one gradient `background`
-- `findVisibleSolidPaint()` uses `find()`, so it only sees the first visible solid paint
-- the local gradient resolver only returns a gradient when exactly one visible paint is present
-- style-backed fill summaries in the cache are optimized around `singleVisibleSolidColor`
-
-Impact:
-
-- even after extension style resolution, MCP fallback/injection logic still cannot produce layered backgrounds
+The MCP fallback injects representable layered backgrounds from live or style-backed paints
+when native CSS omits them. It shares renderability and paint-order helpers with the style
+resolver while retaining MCP-specific token formatting. Existing real image shorthand is not
+merged with inferred color/gradient layers.
 
 ### `getCSSAsync()` fallback gray behavior
 
@@ -383,7 +375,7 @@ In `packages/extension/utils/figma-style/style-resolver.ts`:
 
 - replace the current fill-to-single-value rewrite in `resolveStylesFromNodeData()`
 - when fill-derived background channels are being resolved, use the new stack helper instead of `ResolvedPaintValue`
-- keep the old single-value logic for:
+- use conservative frontmost-paint resolution for scalar channels:
   - `color`
   - `fill`
   - stroke handling
@@ -484,7 +476,7 @@ Tasks:
 - keep single-fill output compact:
   - single solid -> `background-color`
   - single gradient -> `background`
-- preserve current non-background behavior for:
+- preserve native CSS when a composited stack cannot be represented by one value in:
   - `color`
   - `fill`
   - stroke channels

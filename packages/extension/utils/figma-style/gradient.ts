@@ -2,7 +2,7 @@
  * Gradient and color utilities for Figma styles
  */
 
-import { getCssPaintLayers, isVisiblePaint } from '@/utils/figma-paint'
+import { getCssPaintLayers } from '@/utils/figma-paint'
 import { getVariableCssName } from '@/utils/figma-variables'
 
 import type { FigmaLookupReaders, PaintList, PaintResolutionSize } from './types'
@@ -65,14 +65,10 @@ export function resolveGradientFromPaints(
 ): string | null {
   if (!paints || !Array.isArray(paints)) return null
 
-  // Find the first visible gradient paint
-  const gradientPaint = paints.find(
-    (paint): paint is GradientPaint => isVisiblePaint(paint) && isGradientPaint(paint)
-  )
+  const paint = getCssPaintLayers(paints)[0]?.paint
+  if (!paint || !isGradientPaint(paint)) return null
 
-  if (!gradientPaint) return null
-
-  return resolveGradientPaintCss(gradientPaint, size, readers)
+  return resolveGradientPaintCss(paint, size, readers)
 }
 
 export function resolveGradientPaintCss(
@@ -118,12 +114,8 @@ export function resolveSolidFromPaints(
 ): string | null {
   if (!paints || !Array.isArray(paints)) return null
 
-  // Find the first visible solid paint
-  const solidPaint = paints.find(
-    (paint): paint is SolidPaint => isVisiblePaint(paint) && isSolidPaint(paint)
-  )
-
-  return solidPaint ? resolveSolidPaint(solidPaint, readers) : null
+  const paint = getCssPaintLayers(paints)[0]?.paint
+  return paint && isSolidPaint(paint) ? resolveSolidPaint(paint, readers) : null
 }
 
 function resolveSolidPaint(

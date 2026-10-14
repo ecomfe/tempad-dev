@@ -12,7 +12,7 @@ import type {
 } from './types'
 
 import { formatHexAlpha, normalizeFigmaVarName, replaceVarFunctions } from '../css'
-import { getPaintResolutionSize } from '../figma-paint'
+import { getCssPaintLayers, getPaintResolutionSize } from '../figma-paint'
 import { getVariableCssName, resolveVariableAlias } from '../figma-variables'
 import {
   resolveBackgroundFillFromPaints,
@@ -110,22 +110,26 @@ function resolvePaintValueFromPaints(
   bindings?: PaintVariableBindings
 ): ResolvedPaintValue | null {
   if (!paints) return null
-  const gradient = resolveGradientFromPaints(paints, size, readers)
-  if (gradient) return { gradient }
-
-  let solidEntry: { paint: SolidPaint; index: number } | null = null
-  for (let index = 0; index < paints.length; index += 1) {
-    const paint = paints[index]
-    if (isVisibleSolidPaint(paint)) {
-      solidEntry = { paint, index }
-      break
-    }
+  const layers = getCssPaintLayers(paints)
+  const front = layers[0]
+  if (!front) return null
+  const { paint, index } = front
+  // Scalar channels cannot represent lower paints showing through a composited front layer.
+  // Keep native CSS there; background layers are resolved separately without flattening.
+  if (
+    layers.length > 1 &&
+    ((paint.opacity ?? 1) < 1 ||
+      (paint.blendMode !== undefined && paint.blendMode !== 'NORMAL') ||
+      ('gradientStops' in paint && paint.gradientStops.some((stop) => stop.color.a < 1)))
+  ) {
+    return null
   }
-  const solidColor = solidEntry
-    ? resolveSolidPaintWithBindings(solidEntry.paint, solidEntry.index, bindings, readers)
-    : null
-
-  return solidColor ? { solidColor } : null
+  if (isVisibleSolidPaint(paint)) {
+    const solidColor = resolveSolidPaintWithBindings(paint, index, bindings, readers)
+    return solidColor ? { solidColor } : null
+  }
+  const gradient = resolveGradientFromPaints([paint], size, readers)
+  return gradient ? { gradient } : null
 }
 
 // A style-name var is safe only when one CSS value fully represents the style.

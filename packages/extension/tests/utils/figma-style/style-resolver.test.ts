@@ -55,6 +55,69 @@ afterEach(() => {
 })
 
 describe('figma/style-resolver paint precedence', () => {
+  it.each(['node', 'style'])(
+    'uses frontmost %s paint bindings for scalar color channels',
+    async (source) => {
+      const paints = [
+        solidPaint({ r: 1, g: 0, b: 0 }),
+        solidPaint({ r: 0, g: 0, b: 1 }),
+        { ...solidPaint({ r: 0, g: 1, b: 0 }), visible: false }
+      ]
+      const bindings = [{ id: 'back' }, { id: 'front' }, { id: 'hidden' }]
+      installFigmaMocks({
+        variables: { front: { name: 'Front' } as Variable, back: { name: 'Back' } as Variable },
+        styles: { paint: paintStyle(paints, { paints: bindings }) }
+      })
+      const result = await resolveStylesFromNodeData(
+        { color: '#00F', fill: '#00F', stroke: '#00F', border: '1px solid #00F' },
+        source === 'style'
+          ? { fillStyleId: 'paint', strokeStyleId: 'paint' }
+          : {
+              fills: paints,
+              strokes: paints,
+              fillVariableBindings: bindings,
+              strokeVariableBindings: bindings
+            }
+      )
+      expect(result).toEqual({
+        color: 'var(--Front, #00F)',
+        fill: 'var(--Front, #00F)',
+        stroke: 'var(--Front, #00F)',
+        border: '1px solid var(--Front, #00F)'
+      })
+    }
+  )
+
+  it('does not prefer a covered gradient over an opaque front solid', async () => {
+    installFigmaMocks()
+    const paints = [gradientPaint(), solidPaint({ r: 0, g: 0, b: 1 })]
+    expect(
+      await resolveStylesFromNodeData(
+        { color: '#00F', 'border-color': '#00F' },
+        { fills: paints, strokes: paints }
+      )
+    ).toEqual({ color: '#00F', 'border-color': '#00F' })
+  })
+
+  it.each(['opacity', 'blend'])(
+    'retains native scalar CSS for a composited %s stack',
+    async (kind) => {
+      installFigmaMocks()
+      const front = {
+        ...solidPaint({ r: 0, g: 0, b: 1 }),
+        ...(kind === 'opacity' ? { opacity: 0.5 } : { blendMode: 'MULTIPLY' as const })
+      }
+      const paints = [solidPaint({ r: 1, g: 0, b: 0 }), front]
+      const css = {
+        color: '#800080',
+        fill: '#800080',
+        stroke: '#800080',
+        border: '1px solid #800080'
+      }
+      expect(await resolveStylesFromNodeData(css, { fills: paints, strokes: paints })).toEqual(css)
+    }
+  )
+
   it('prefers fill style paints over direct node fills', async () => {
     installFigmaMocks({
       styles: {
@@ -628,7 +691,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     })
   })
 
-  it('does not merge image shorthand with multi-fill layers after removing lightgray fallback', async () => {
+  it('keeps image shorthand separate from the frontmost color after removing lightgray fallback', async () => {
     installFigmaMocks()
     const node = {
       fills: [solidPaint({ r: 1, g: 0, b: 0 }), solidPaint({ r: 0, g: 1, b: 0 })]
@@ -643,7 +706,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
 
     expect(result).toEqual({
       background: 'url("asset.png")',
-      'background-color': '#F00'
+      'background-color': '#0F0'
     })
   })
 
