@@ -663,8 +663,7 @@ export async function startHub(): Promise<void> {
         'Wait for the running operation before completing the design task.'
       )
     }
-    if (args.outcome === 'cancelled')
-      void agentClients.cancelFeedback(args.taskId, true).catch(() => {})
+    if (args.outcome === 'cancelled') void agentClients.cancelFeedback(args.taskId).catch(() => {})
     designTasks.snapshotResult(args.taskId, args.summary)
     designTasks.stop(args.taskId, args.outcome)
     return createDesignTaskToolResponse(record.task)
@@ -1247,7 +1246,7 @@ export async function startHub(): Promise<void> {
       log.warn({ err }, 'Consumer socket error.')
       transport.close().catch((closeErr) => log.warn({ err: closeErr }, 'Transport close failed.'))
     })
-    sock.on('close', async () => {
+    const closeConsumer = async () => {
       agentClients.disconnect(ownerId)
       await transport
         .close()
@@ -1262,6 +1261,9 @@ export async function startHub(): Promise<void> {
         log.info('Last consumer disconnected. Shutting down.')
         shutdown()
       }
+    }
+    sock.on('close', () => {
+      closeConsumer().catch((err) => log.warn({ err }, 'Consumer cleanup failed.'))
     })
   }
 
@@ -1482,7 +1484,7 @@ export async function startHub(): Promise<void> {
             record &&
             (record.task.reviewClosed || record.task.status === 'cancelled')
           )
-            void agentClients.cancelFeedback(review.task.taskId, true).catch(() => {})
+            void agentClients.cancelFeedback(review.task.taskId).catch(() => {})
         }
         designTasks.reconcileSessions(snapshot.browserId, snapshot.sessions, snapshot.openTabIds)
         for (const record of designTasks.list()) {
@@ -1566,8 +1568,11 @@ export async function startHub(): Promise<void> {
       },
       onStateChange: broadcastState,
       onToolError: (requestId, extensionId, error) => {
-        if (error.code !== TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED)
-          designTasks.finishOperation(requestId, extensionId)
+        designTasks.finishOperation(
+          requestId,
+          extensionId,
+          error.code !== TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED
+        )
         const normalized = coerceToolError(error)
         log.warn(
           {

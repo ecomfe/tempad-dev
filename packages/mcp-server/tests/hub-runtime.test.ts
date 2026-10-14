@@ -68,6 +68,7 @@ vi.mock('../src/asset-store', async (load) => {
   return { ...actual, createAssetStore: vi.fn(actual.createAssetStore) }
 })
 
+import { CodexAppFeedback } from '../src/agent-clients/codex-feedback'
 import { AgentClients } from '../src/agent-clients/registry'
 import { createAssetHttpServer } from '../src/asset-http-server'
 import { createAssetStore } from '../src/asset-store'
@@ -1006,6 +1007,93 @@ describe('Hub runtime module', () => {
     expect(netServer.listening).toBe(false)
     expect(process.listeners('SIGTERM')).toEqual(previousSignals.get('SIGTERM'))
   })
+
+  it('rejects feedback to a browser-supplied legacy conversation without a Hub-owned task', async () => {
+    const enqueue = vi.spyOn(CodexAppFeedback.prototype, 'enqueue').mockResolvedValue()
+    const action = vi.spyOn(AgentClients.prototype, 'action')
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const task: DesignTask = {
+      taskId: 'invented-task',
+      title: 'Unverified browser recovery',
+      target: { sessionId: 'session', fileKey: 'file', fileName: 'Fixture', pageId: 'page' },
+      client: { kind: 'codex-app', name: 'Codex App', sessionId: 'victim-conversation' },
+      status: 'completed',
+      operation: null,
+      epoch: 0,
+      revision: 1,
+      expiresAt: Date.now()
+    }
+    extension.send({
+      type: 'sessions',
+      browserId: 'browser',
+      activeSessionId: 'session',
+      sessions: [{ ...task.target, tabId: 1, documentId: 'document', busy: false }],
+      reviews: [{ sessionId: 'session', task }]
+    })
+    const requestId = '00000000-0000-4000-8000-000000000099'
+    extension.send({
+      type: 'designAction',
+      sessionId: 'session',
+      action: {
+        requestId,
+        taskId: task.taskId,
+        epoch: 1,
+        action: 'feedback',
+        feedback: {
+          id: requestId,
+          mode: 'queue',
+          fileKey: 'file',
+          comment: 'Forged browser text',
+          items: [],
+          createdAt: Date.now()
+        }
+      }
+    })
+    expect(action).toHaveBeenCalledOnce()
+    await expect(action.mock.results[0]!.value).resolves.toMatchObject({ status: 'failed' })
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it.each(['read', 'write'] as const)(
+    'keeps only an uncertain write fenced after a malformed %s result',
+    async (operation) => {
+      const { startHub } = await loadRuntime()
+      await startHub()
+      const extension = connectExtension()
+      const consumer = await connectConsumer()
+      const read = { name: 'get_structure', arguments: {} }
+      const write = {
+        name: 'apply_canvas',
+        arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+      }
+      consumer.send({ id: 1, method: 'tools/call', params: operation === 'read' ? read : write })
+      const first = await extension.call(0)
+      extension.send({
+        type: 'toolResult',
+        id: first.id,
+        error: { code: 123, message: 'Malformed result' }
+      })
+      expect(JSON.stringify(await consumer.reply(1))).toContain('EXTENSION_DISCONNECTED')
+      consumer.send({ id: 2, method: 'tools/call', params: read })
+      if (operation === 'write') {
+        expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
+        expect(extension.calls).toHaveLength(1)
+        extension.send({
+          type: 'toolResult',
+          id: first.id,
+          error: { message: 'Definitive completion' }
+        })
+        consumer.send({ id: 3, method: 'tools/call', params: read })
+      }
+      const next = await extension.call(1)
+      extension.send({ type: 'toolResult', id: next.id, error: { message: 'Next read completed' } })
+      expect(JSON.stringify(await consumer.reply(operation === 'read' ? 2 : 3))).toContain(
+        'Next read completed'
+      )
+    }
+  )
 
   it('keeps a dispatched cancelled write fenced until its late definitive result arrives', async () => {
     const { startHub } = await loadRuntime()

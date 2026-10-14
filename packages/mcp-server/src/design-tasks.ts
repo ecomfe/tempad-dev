@@ -34,6 +34,11 @@ export type DesignTaskRecord = {
   retiredAt?: number
 }
 
+/** Only a Hub begin request establishes a client binding; browser migration leaves it empty. */
+export function getVerifiedTaskClient(record: DesignTaskRecord): AgentClient | undefined {
+  return record.requestId ? record.task.client : undefined
+}
+
 type Operation = {
   extensionId: string
   browserId: string
@@ -41,6 +46,7 @@ type Operation = {
   taskId?: string
   tabId?: number
   documentId?: string
+  write: boolean
 }
 
 type Options = {
@@ -239,11 +245,8 @@ export class DesignTasks {
   attachClient(ownerId: string, client: AgentClient, capabilities?: AgentCapabilities): void {
     if (!client.sessionId || ['other', 'unknown'].includes(client.kind)) return
     for (const record of this.records.values()) {
-      if (
-        record.task.client?.kind !== client.kind ||
-        record.task.client.sessionId !== client.sessionId
-      )
-        continue
+      const verified = getVerifiedTaskClient(record)
+      if (verified?.kind !== client.kind || verified.sessionId !== client.sessionId) continue
       if (
         !RESUMABLE_DESIGN_TASK_STATUSES.includes(record.task.status) &&
         record.ownerId !== ownerId
@@ -407,16 +410,18 @@ export class DesignTasks {
       target,
       taskId,
       tabId,
-      documentId
+      documentId,
+      write
     })
     if (!record) return
     record.task.operation = write ? 'writing' : 'reading'
     this.renew(record)
   }
 
-  finishOperation(requestId: string, extensionId: string): void {
+  finishOperation(requestId: string, extensionId: string, definitive = true): void {
     const operation = this.operations.get(requestId)
-    if (!operation || operation.extensionId !== extensionId) return
+    if (!operation || operation.extensionId !== extensionId || (!definitive && operation.write))
+      return
     this.operations.delete(requestId)
     if (!operation.taskId) return
     const record = this.records.get(operation.taskId)

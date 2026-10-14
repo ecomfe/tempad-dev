@@ -1,10 +1,10 @@
 import type { DesignAction, DesignActionResult } from '@tempad-dev/shared'
 
 import type { ClientBindingUpdate } from '../client-binding'
-import type { DesignTasks } from '../design-tasks'
 import type { CodexAppLifecycle, CodexLifecycleState } from './codex-lifecycle'
 import type { ClientBinding } from './types'
 
+import { getVerifiedTaskClient, type DesignTasks } from '../design-tasks'
 import { HISTORY_RETENTION_MS } from '../history-retention'
 import { log } from '../shared'
 import { CODEX_APP_FEEDBACK, type CodexAppFeedback } from './codex-feedback'
@@ -60,7 +60,7 @@ export class AgentClients {
       if (previous && ['completed', 'interrupted', 'failed'].includes(previous.status)) {
         for (const record of this.tasks.list()) {
           if (record.ownerId !== ownerId) continue
-          if (previous.status === 'interrupted') this.cancelFeedback(record.task.taskId)
+          if (previous.status === 'interrupted') this.abortFeedback(record.task.taskId)
           this.tasks.stop(record.task.taskId, 'paused')
         }
       }
@@ -173,8 +173,7 @@ export class AgentClients {
       if (params.event === 'SessionEnd' && bound)
         this.tasks.attachClient(record.ownerId, bound.client, CANVAS_ONLY)
       else this.refresh(record.ownerId)
-      if (['Interrupt', 'SessionEnd'].includes(params.event))
-        this.cancelFeedback(record.task.taskId)
+      if (['Interrupt', 'SessionEnd'].includes(params.event)) this.abortFeedback(record.task.taskId)
       if (['Interrupt', 'Stop', 'SessionEnd'].includes(params.event))
         this.tasks.stop(record.task.taskId, 'paused')
     }
@@ -282,7 +281,8 @@ export class AgentClients {
     const binding = this.bindings.get(ownerId)
     if (binding) return binding
     // Native App delivery belongs to the conversation, independently of an MCP connection.
-    const client = this.tasks.list().find((record) => record.ownerId === ownerId)?.task.client
+    const record = this.tasks.list().find((record) => record.ownerId === ownerId)
+    const client = record && getVerifiedTaskClient(record)
     return client && nativeFeedback(client) ? { client } : undefined
   }
 
@@ -393,7 +393,7 @@ export class AgentClients {
       const record = this.tasks.find(action.taskId)
       if (!record) throw new Error('This design task is no longer available.')
       if (action.action === 'done') {
-        const cancelled = this.cancelFeedback(action.taskId, true).then(
+        const cancelled = this.cancelFeedback(action.taskId).then(
           () => true,
           () => false
         )
@@ -424,7 +424,7 @@ export class AgentClients {
         }
         if (binding?.client.kind === 'claude') this.hooks.stop(binding, action.taskId)
         // Stop's local fence and host interruption must not wait for a pending queue write.
-        void this.cancelFeedback(action.taskId, true).catch(() => {})
+        void this.cancelFeedback(action.taskId).catch(() => {})
         this.tasks.stop(action.taskId, 'cancelled')
         onAccepted?.()
         if (this.lifecycle && target) {
@@ -513,7 +513,7 @@ export class AgentClients {
       )
     }
     for (const taskId of this.feedbackSignals.keys()) {
-      if (reviewEnded(taskId)) void this.cancelFeedback(taskId)
+      if (reviewEnded(taskId)) this.abortFeedback(taskId)
     }
     await this.codex.reconcileQueued(reviewEnded)
     const reviews = this.tasks
@@ -527,7 +527,7 @@ export class AgentClients {
     this.lifecycle?.retain(
       new Set(
         reviews.flatMap((record) => {
-          const conversationId = nativeConversation(record.task.client)
+          const conversationId = nativeConversation(getVerifiedTaskClient(record))
           return conversationId ? [conversationId] : []
         })
       )
@@ -544,13 +544,17 @@ export class AgentClients {
   close(): void {
     this.lifecycle?.close()
     this.codex?.close()
-    for (const taskId of this.feedbackSignals.keys()) this.cancelFeedback(taskId)
+    for (const taskId of this.feedbackSignals.keys()) this.abortFeedback(taskId)
   }
 
-  cancelFeedback(taskId: string, removeQueued = false): Promise<void> {
+  private abortFeedback(taskId: string): void {
     this.feedbackSignals.get(taskId)?.abort()
     this.feedbackSignals.delete(taskId)
-    return removeQueued && this.codex ? this.codex.cancelQueued(taskId) : Promise.resolve()
+  }
+
+  cancelFeedback(taskId: string): Promise<void> {
+    this.abortFeedback(taskId)
+    return this.codex?.cancelQueued(taskId) ?? Promise.resolve()
   }
 
   disconnect(connectionId: string): void {
@@ -561,7 +565,7 @@ export class AgentClients {
       if (ownerId !== connectionId && !ownerId.startsWith(`${connectionId}/`)) continue
       this.hooks.disconnect(this.bindings.get(ownerId)!)
       for (const record of this.tasks.list()) {
-        if (record.ownerId === ownerId) this.cancelFeedback(record.task.taskId)
+        if (record.ownerId === ownerId) this.abortFeedback(record.task.taskId)
       }
       this.tasks.disconnectOwner(ownerId)
       this.bindings.delete(ownerId)

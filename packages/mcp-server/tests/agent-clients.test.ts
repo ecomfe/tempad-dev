@@ -3,6 +3,7 @@ import type { DesignAction, DesignFeedback } from '@tempad-dev/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ClientHook } from '../src/agent-clients/hooks'
+import type { DesignTaskSnapshot } from '../src/design-task-store'
 
 import { CodexAppFeedback } from '../src/agent-clients/codex-feedback'
 import {
@@ -87,6 +88,127 @@ async function fixture(connected = true) {
 }
 
 describe('client identity and capabilities', () => {
+  it.each([false, true])(
+    'does not trust a browser-only review destination after restart=%s or an ordinary owner read',
+    async (restart) => {
+      let snapshot: DesignTaskSnapshot | undefined
+      const store = {
+        load: () => structuredClone(snapshot),
+        save: (next: DesignTaskSnapshot) => {
+          snapshot = structuredClone(next)
+        }
+      }
+      let tasks = new DesignTasks({ createId: () => 'unused', now: () => 1000, store })
+      const client = { kind: 'codex-app' as const, name: 'Codex App', sessionId: 'victim-thread' }
+      const { busy: _busy, ...target } = session
+      tasks.restoreReview(
+        {
+          taskId: 'browser-only',
+          title: 'Saved review',
+          target,
+          client,
+          status: 'completed',
+          operation: null,
+          epoch: 0,
+          revision: 1,
+          expiresAt: 1000
+        },
+        {
+          id: 'extension-a',
+          origin: 'chrome-extension://fixture',
+          sessions: { browserId: 'browser', sessions: [session] }
+        } as never,
+        session
+      )
+      if (restart) {
+        tasks = new DesignTasks({ createId: () => 'unused', now: () => 1000, store })
+        tasks.restore()
+      }
+      const native = new CodexAppFeedback('/unused')
+      const enqueue = vi.spyOn(native, 'enqueue').mockResolvedValue()
+      const available = vi.spyOn(native, 'available').mockResolvedValue(true)
+      const clients = new AgentClients(tasks, native)
+      try {
+        const record = tasks.find('browser-only')!
+        const originalOwner = record.ownerId
+        const action: DesignAction = {
+          requestId: feedback.id,
+          taskId: record.task.taskId,
+          epoch: record.task.epoch!,
+          action: 'feedback',
+          feedback
+        }
+        expect(record.task.client).toEqual(client)
+        expect((await clients.action(action)).status).toBe('failed')
+        // A normal read identifies the real conversation, but does not adopt an
+        // arbitrary browser-created task claiming that conversation.
+        clients.event('victim-transport', {
+          method: 'notifications/tempad/client-event',
+          params: { event: 'connect', kind: 'codex-app' }
+        })
+        await clients.owner('victim-transport', {
+          'x-codex-turn-metadata': { thread_id: client.sessionId, turn_id: 'real-turn' }
+        })
+        expect(record.ownerId).toBe(originalOwner)
+        expect((await clients.action(action)).status).toBe('failed')
+        expect(enqueue).not.toHaveBeenCalled()
+        expect(available).not.toHaveBeenCalled()
+      } finally {
+        clients.close()
+      }
+    }
+  )
+
+  it('keeps native feedback available for a persisted Hub-owned review after restart', async () => {
+    let snapshot: DesignTaskSnapshot | undefined
+    const store = {
+      load: () => structuredClone(snapshot),
+      save: (value: DesignTaskSnapshot) => {
+        snapshot = structuredClone(value)
+      }
+    }
+    const client = { kind: 'codex-app' as const, name: 'Codex App', sessionId: 'original-thread' }
+    const original = new DesignTasks({ createId: () => 'saved-task', now: () => 1000, store })
+    original.begin(
+      'original-owner',
+      'original-extension',
+      session,
+      'Saved review',
+      'begin-request',
+      client
+    )
+    original.stop('saved-task', 'completed')
+    const restored = new DesignTasks({ createId: () => 'unused', now: () => 1000, store })
+    restored.restore()
+    const native = new CodexAppFeedback('/unused')
+    const enqueue = vi.spyOn(native, 'enqueue').mockResolvedValue()
+    const clients = new AgentClients(restored, native)
+    try {
+      const record = restored.find('saved-task')!
+      expect(
+        (
+          await clients.action({
+            requestId: feedback.id,
+            taskId: record.task.taskId,
+            epoch: record.task.epoch!,
+            action: 'feedback',
+            feedback
+          })
+        ).status
+      ).toBe('delivered')
+      expect(enqueue).toHaveBeenCalledWith(
+        { client },
+        record.task.taskId,
+        feedback,
+        expect.any(AbortSignal),
+        expect.any(Function),
+        expect.any(Function)
+      )
+    } finally {
+      clients.close()
+    }
+  })
+
   it.each([
     ['parent-codex-thread', 'claude-turn', true],
     [undefined, undefined, true],
