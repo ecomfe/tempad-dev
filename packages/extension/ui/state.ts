@@ -5,6 +5,7 @@ import { getTemPadComponent } from '@/utils'
 import { logger } from '@/utils/log'
 
 import { ui } from './figma'
+import { createPreferenceStorage } from './preference-storage'
 
 interface PluginData {
   name: string
@@ -51,7 +52,7 @@ export const options = useStorage<Options>(
     mcpOn: false,
     activePluginSource: null
   },
-  undefined,
+  createPreferenceStorage(localStorage),
   { mergeDefaults: true, listenToStorageChanges: false }
 )
 
@@ -80,7 +81,19 @@ export function savePlugin(source: string, plugin: PluginData | null): void {
 
   // Commit before publishing: useStorage reports asynchronous write errors without
   // rolling back its ref. Its later watcher skips this already-persisted value.
-  localStorage.setItem(PLUGIN_STORAGE_KEY, JSON.stringify(next))
+  try {
+    localStorage.setItem(PLUGIN_STORAGE_KEY, JSON.stringify(next))
+  } catch (error) {
+    const preferences = options.value as typeof legacy
+    // A shrinking legacy record can free space without temporarily duplicating its code.
+    // Replacing one key is atomic; a failed write leaves the only durable copy intact.
+    if (plugin || !preferences.plugins) throw error
+    const stored = JSON.parse(localStorage.getItem('tempad-dev') ?? '{}')
+    localStorage.setItem('tempad-dev', JSON.stringify({ ...stored, plugins: next }))
+    preferences.plugins = next
+    plugins.value = next
+    return
+  }
   plugins.value = next
   // Finish a migration that previously retained its backup after a storage error.
   delete (options.value as typeof legacy).plugins

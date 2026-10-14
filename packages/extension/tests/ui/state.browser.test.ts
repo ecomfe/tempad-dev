@@ -116,6 +116,43 @@ describe('ui/state', () => {
     expect(activePlugin.value).toBeNull()
   })
 
+  it('can delete a legacy plugin to free real browser quota without losing the remaining code', async () => {
+    const plugin = (name: string) => ({ name, source: name, code: 'x'.repeat(100_000) })
+    const original = { first: plugin('first'), second: plugin('second') }
+    const preferences = options.value as typeof options.value & { plugins?: typeof plugins.value }
+    preferences.plugins = original
+    plugins.value = original
+    await nextTick()
+    localStorage.removeItem('tempad-dev-plugins')
+    const quotaKey = 'tempad-quota-fixture'
+    let low = 0
+    let high = 6_000_000
+    try {
+      while (high - low > 1024) {
+        const size = Math.floor((low + high) / 2)
+        try {
+          localStorage.setItem(quotaKey, 'x'.repeat(size))
+          low = size
+        } catch {
+          high = size
+        }
+      }
+      localStorage.setItem(quotaKey, 'x'.repeat(Math.max(0, low - 8192)))
+      expect(() => savePlugin('first', null)).not.toThrow()
+      await nextTick()
+      expect(plugins.value).toEqual({ second: original.second })
+      const saved =
+        JSON.parse(localStorage.getItem('tempad-dev-plugins') ?? 'null') ??
+        JSON.parse(localStorage.getItem('tempad-dev')!).plugins
+      expect(saved).toEqual({ second: original.second })
+    } finally {
+      localStorage.removeItem(quotaKey)
+      delete preferences.plugins
+      plugins.value = {}
+      await nextTick()
+    }
+  })
+
   it('derives tempad component metadata from selected frame node', () => {
     const selectedFrame = {
       type: 'FRAME',
