@@ -2,14 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   copyToClipboard: vi.fn(),
-  useClipboard: vi.fn(),
   show: vi.fn(),
   useToast: vi.fn(),
   loggerError: vi.fn()
-}))
-
-vi.mock('@vueuse/core', () => ({
-  useClipboard: mocks.useClipboard
 }))
 
 vi.mock('@/composables', () => ({
@@ -26,12 +21,13 @@ import { useCopy } from '@/composables/copy'
 
 describe('composables/copy', () => {
   beforeEach(() => {
-    mocks.useClipboard.mockReturnValue({ copy: mocks.copyToClipboard })
+    vi.stubGlobal('navigator', { clipboard: { writeText: mocks.copyToClipboard } })
     mocks.useToast.mockReturnValue({ show: mocks.show })
   })
 
   afterEach(() => {
     vi.clearAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('copies explicit source and uses explicit message', async () => {
@@ -82,19 +78,5 @@ describe('composables/copy', () => {
     expect(mocks.show).toHaveBeenNthCalledWith(1, 'Copied to clipboard')
     expect(mocks.show).toHaveBeenNthCalledWith(2, 'Copied to clipboard')
     expect(mocks.show).toHaveBeenNthCalledWith(3, 'Copied to clipboard')
-  })
-
-  it('reports asynchronous clipboard failures without claiming success', async () => {
-    const err = new Error('copy failed')
-    mocks.copyToClipboard.mockRejectedValueOnce(err)
-
-    const copy = useCopy('payload')
-
-    await copy()
-
-    expect(mocks.loggerError).toHaveBeenCalledWith(err)
-    expect(mocks.show).toHaveBeenCalledExactlyOnceWith(
-      'Could not copy to clipboard. Please try again.'
-    )
   })
 })

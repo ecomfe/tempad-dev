@@ -55,3 +55,49 @@ it('clears stale code and exposes generation errors', async () => {
     .poll(() => host.querySelector('[role="alert"]')?.textContent)
     .toContain('Code generation failed')
 })
+
+it('keeps the Code surface while loading and retries without changing selection', async () => {
+  const generate = vi.mocked(generateCodeBlocksForNode)
+  const pending = Promise.withResolvers<Awaited<ReturnType<typeof generateCodeBlocksForNode>>>()
+  generate.mockReturnValueOnce(pending.promise)
+  generate.mockResolvedValueOnce({
+    codeBlocks: [{ name: 'css', title: 'CSS', lang: 'css', code: 'retried' }]
+  })
+  const host = mount(CodeSection)
+  selection.value = [{ id: 'slow' } as SceneNode]
+  await nextTick()
+  expect(host.querySelector('[role="status"]')?.textContent).toContain('Generating code')
+  expect(host.querySelector('section')).not.toBeNull()
+  pending.reject(new Error('temporary failure'))
+  await expect.poll(() => host.querySelector('[role="alert"]')).not.toBeNull()
+  host.querySelector<HTMLButtonElement>('.tp-code-retry')!.click()
+  await expect.poll(() => host.textContent).toContain('retried')
+  expect(generate).toHaveBeenCalledTimes(2)
+})
+
+it('keeps the previous content height without presenting stale code for the new selection', async () => {
+  const generate = vi.mocked(generateCodeBlocksForNode)
+  const pending = Promise.withResolvers<Awaited<ReturnType<typeof generateCodeBlocksForNode>>>()
+  generate.mockResolvedValueOnce({
+    codeBlocks: [
+      { name: 'css', title: 'CSS', lang: 'css', code: 'old-selection-code\n'.repeat(10) }
+    ]
+  })
+  generate.mockReturnValueOnce(pending.promise)
+  const host = mount(CodeSection)
+  selection.value = [{ id: 'first' } as SceneNode]
+  await expect.poll(() => host.textContent).toContain('old-selection-code')
+  const section = host.querySelector('section')!
+  const height = host.querySelector('[aria-busy]')!.getBoundingClientRect().height
+  selection.value = [{ id: 'second' } as SceneNode]
+  await nextTick()
+  expect(host.querySelector('section')).toBe(section)
+  expect(host.textContent).not.toContain('old-selection-code')
+  expect(host.querySelector('[aria-busy]')!.getBoundingClientRect().height).toBeGreaterThanOrEqual(
+    height
+  )
+  pending.resolve({
+    codeBlocks: [{ name: 'css', title: 'CSS', lang: 'css', code: 'new-selection-code' }]
+  })
+  await expect.poll(() => host.textContent).toContain('new-selection-code')
+})

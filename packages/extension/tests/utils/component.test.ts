@@ -53,7 +53,7 @@ describe('utils/component', () => {
               children: [
                 {
                   name: 'path',
-                  props: { pathLength: 10, 'stroke-width': '2', 'clip-rule': 'evenodd' },
+                  props: { pathLength: 10, strokeWidth: '2', 'clip-rule': 'evenodd' },
                   children: []
                 }
               ]

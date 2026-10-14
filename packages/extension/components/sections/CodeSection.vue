@@ -4,6 +4,7 @@ import { computed, shallowRef, watch, onBeforeUnmount } from 'vue'
 import type { CodeBlock } from '@/types/codegen'
 
 import Badge from '@/components/Badge.vue'
+import Button from '@/components/Button.vue'
 import Code from '@/components/Code.vue'
 import IconButton from '@/components/IconButton.vue'
 import Preview from '@/components/icons/Preview.vue'
@@ -15,23 +16,29 @@ const componentCode = shallowRef('')
 const componentLink = shallowRef('')
 const codeBlocks = shallowRef<CodeBlock[]>([])
 const codeError = shallowRef('')
+const loading = shallowRef(false)
+const content = shallowRef<HTMLElement | null>(null)
+const loadingHeight = shallowRef(0)
 let generation = 0
 
 const playButtonTitle = computed(() =>
   componentLink.value
     ? 'Open in TemPad Playground'
-    : 'This component was produced with an older version of TemPad that does not provide a Playground link.'
+    : 'This component was produced with an older version of TemPad Dev that does not provide a Playground link.'
 )
 
 async function updateCode() {
   const current = ++generation
   const node = selectedNode.value
+  loadingHeight.value = content.value?.getBoundingClientRect().height ?? 0
+  loading.value = false
   codeBlocks.value = []
   componentCode.value = ''
   componentLink.value = ''
   codeError.value = ''
 
   if (node == null || selection.value.length > 1) return
+  loading.value = true
 
   const tempadComponent = selectedTemPadComponent.value
   componentCode.value = tempadComponent?.code || ''
@@ -50,8 +57,9 @@ async function updateCode() {
     )
     if (current === generation) codeBlocks.value = result.codeBlocks
   } catch {
-    if (current === generation)
-      codeError.value = 'Code generation failed. Select the node again to retry.'
+    if (current === generation) codeError.value = 'Code generation failed.'
+  } finally {
+    if (current === generation) loading.value = false
   }
 }
 
@@ -77,7 +85,9 @@ function open() {
 </script>
 
 <template>
-  <Section :collapsed="!selectedNode || !(componentCode || codeBlocks.length || codeError)">
+  <Section
+    :collapsed="!selectedNode || !(loading || componentCode || codeBlocks.length || codeError)"
+  >
     <template #header>
       <div class="tp-code-header tp-row tp-shrink tp-gap-l">
         Code
@@ -86,34 +96,43 @@ function open() {
         }}</Badge>
       </div>
     </template>
-    <p v-if="codeError" role="alert">{{ codeError }}</p>
-    <Code
-      v-if="componentCode"
-      class="tp-code-code"
-      title="Component"
-      lang="js"
-      :link="componentLink"
-      :code="componentCode"
+    <div
+      ref="content"
+      :aria-busy="loading"
+      :style="loading ? { minHeight: `${loadingHeight}px` } : undefined"
     >
-      <template #actions>
-        <IconButton
-          :disabled="!componentLink"
-          variant="secondary"
-          :title="playButtonTitle"
-          @click="open"
-        >
-          <Preview />
-        </IconButton>
-      </template>
-    </Code>
-    <Code
-      v-for="{ name, title, lang, code } in codeBlocks"
-      :key="name"
-      class="tp-code-code"
-      :title="title"
-      :lang="lang"
-      :code="code"
-    />
+      <p v-if="loading" role="status">Generating code…</p>
+      <p v-if="codeError" role="alert">
+        {{ codeError }} <Button class="tp-code-retry" @click="updateCode">Retry</Button>
+      </p>
+      <Code
+        v-if="componentCode"
+        class="tp-code-code"
+        title="Component"
+        lang="js"
+        :link="componentLink"
+        :code="componentCode"
+      >
+        <template #actions>
+          <IconButton
+            :disabled="!componentLink"
+            variant="secondary"
+            :title="playButtonTitle"
+            @click="open"
+          >
+            <Preview />
+          </IconButton>
+        </template>
+      </Code>
+      <Code
+        v-for="{ name, title, lang, code } in codeBlocks"
+        :key="name"
+        class="tp-code-code"
+        :title="title"
+        :lang="lang"
+        :code="code"
+      />
+    </div>
   </Section>
 </template>
 
