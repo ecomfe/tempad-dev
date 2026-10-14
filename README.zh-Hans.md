@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/hero-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/hero-light.svg">
-    <img alt="TemPad Dev" src="packages/site/public/marketing/hero-light.svg" width="540" height="200">
+    <img alt="TemPad Dev" src="packages/site/public/marketing/hero-light.svg" width="540">
   </picture>
 </p>
 
@@ -11,7 +11,6 @@
 <p align="center">
   <a href="https://chrome.google.com/webstore/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc"><img src="https://img.shields.io/badge/Install%20on%20Chrome%20Web%20Store-4285F4?logo=chromewebstore&logoColor=%23fff" alt="在 Chrome Web Store 安装"></a>
   <a href="https://discord.gg/MXGXwtkEck"><img src="https://img.shields.io/badge/Chat%20on%20Discord-5865F2?logo=discord&logoColor=%23fff" alt="在 Discord 上聊天"></a>
-  <a href="https://deepwiki.com/ecomfe/tempad-dev"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
 <p align="center">
@@ -104,7 +103,7 @@ Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可
 所有 plugin 和直接使用 `npx` 的配置路径都使用 `@tempad-dev/mcp@latest`。
 
 本次版本应配套使用扩展 **0.23.4**、MCP server **0.11.0** 和 Agent Plugin
-**0.5.0**。更新既有安装时，请参阅 [升级指南](./agent-plugin/src/README.zh-Hans.md#升级)。
+**0.5.1**。更新既有安装时，请参阅 [升级指南](./agent-plugin/src/README.zh-Hans.md#升级)。
 
 使用期间请保持 TemPad Dev 打开并启用 MCP。如果连接了多个 Figma 文件，请点击目标文件面板中的 MCP 徽标；该文件会成为 agent 当前访问的上下文。Agent 也可以列出已连接的会话，在独立只读调用中传入精确的 `sessionId`，无需切换激活徽标。
 
@@ -153,7 +152,11 @@ Codex 和 Claude 的原生 marketplace 命令，以及 Cursor 和 VS Code 的可
   组件定义，以及本地或被定义直接引用的变量、集合/模式、样式和 shader 定义；既不扫描
   画布中的使用情况，也不加载所有页面。游标可继续读取遗漏定义；使用同一目录精确查询
   某个引用时，返回该资源的有界定义。使用 `scope: "fonts"` 可查询当前可用字体家族和精确
-  原生样式，不扫描文件资源。
+  原生样式，不扫描文件资源。使用 `scope: "pages"` 获取页面 ID，并通过 `pageId` 加载指定页面的定义。
+- `list_design_sessions`：列出已连接的 Figma 会话，供独立读取指定精确会话。
+- `manage_design_task`：开始、恢复、完成或取消绑定到精确 Figma 文件的任务。
+- `get_design_task`：读取任务状态及当前写入 lease。
+- `set_design_anchor`：将已有画板设为任务的稳定设计区域，不移动或修改画板。
 - `apply_canvas`：对精确页面或托管根节点执行创建、更新、删除或激活。仅操作页面时可省略
   Canvas HTML；对精确托管根内既有稳定 key 的纯 native 更新也可省略。也可以直接把根节点写入
   非当前的精确目标页面，而不切换编辑器上下文。扩展会在本地解析、验证、计算与实时画布的
@@ -366,7 +369,7 @@ Quirks 模式是在 TemPad Dev v0.1.0 中引入的，当 `window.figma` 不可�
 - 填充样式的混合模式，对应 CSS 的 `background-blend-mode`。
 - 文本节点的 `font-family`，该值通过启发式方式获取，可能不准确。
 - 除数字样式之外的高级 OpenType 配置，通常在实际中较少使用。
-- [“将选中项滚动到视图中”](#scroll-selection-into-view) 功能在该模式下不可用。
+- [“将选中项滚动到视图中”](#将选中项滚动到视图中) 功能在该模式下不可用。
 
 除上述限制外，其余功能与标准模式基本一致。如果 Quirks 模式能够满足你的使用场景，就可以避免复制到草稿文件等繁琐操作，直接在只读视图中使用。但需要注意的是，该模式同样依赖于 Figma 全局暴露的调试接口，无法保证长期可用性。如果 Figma 再次移除相关接口，该模式也会随之失效。
 

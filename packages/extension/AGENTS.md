@@ -46,7 +46,7 @@ You are not responsible for:
   - `tools/`: MCP tool implementations and supporting code.
   - `bridge/`: page-to-extension runtime messaging.
   - `broker/`: background session routing and loopback WebSocket lifecycle.
-  - `runtime.ts`: tool routing + validation.
+  - `runtime.ts`: tool routing and shared parameter validation at the page boundary.
   - `assets.ts`: asset upload integration.
 - `codegen/` + `components/` + `utils/`:
   - UI code generation pipeline (separate from MCP).

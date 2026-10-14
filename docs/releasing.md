@@ -8,41 +8,38 @@ TemPad Dev has three independently distributed integration parts:
 | MCP server        | `packages/mcp-server/package.json` | npm through `publish-mcp.yml`           |
 | Agent Plugin      | `agent-plugin/src/plugin.json`     | Git marketplace on `main`               |
 
-The current release candidate pairs extension **0.23.4**, MCP **0.11.0**, and Agent
-Plugin **0.5.0**, adding multi-node reads, consumer-aware token resolution, and timeout shell
-fallback. The new MCP continues to serve extension 0.22.0 during the store rollout.
-`@tempad-dev/plugins` is the separate code-output SDK; its version remains
-**0.6.2** and it does not need publication for this release.
-
-This candidate serves bridge protocols 13 and 15. Extension 0.22.0 retains sessions, tasks,
-canvas writes, assets, and existing reads. Unsupported new read options return a per-call upgrade
-error; older selection and token semantics are explicitly identified in results. Verify both the
-frozen protocol 13 and unversioned 0.20.0 paths before moving `latest`, alongside the new extension.
+`@tempad-dev/plugins` is the separate code-output SDK, published through `publish-plugins.yml`.
+Use each package's changelog for release contents and the compatibility requirements below for
+rollout decisions. Keep published extension entries even when the corresponding store artifacts
+were prepared before their source changes were committed.
 
 ## Prepare the candidate
 
 1. Resolve the branch against current `main`, include all intended source files, and update the
    package changelogs and English/Chinese installation guidance. Obtain explicit authorization
    before creating commits, as required by the repository's agent guide.
-2. Run `pnpm agent-plugin:build` after changing anything under `agent-plugin/src/`. Inspect the
+2. Bump `agent-plugin/src/plugin.json` and update its changelog whenever released skills, hooks,
+   or manifests change. Run `pnpm agent-plugin:build` after changing any authored input. Inspect the
    generated output under `agent-plugin/targets/`, `.plugin/marketplace.json`,
    `.agents/plugins/marketplace.json`, and `.claude-plugin/marketplace.json`. Run
    `pnpm agent-plugin:check-installer` to verify marketplace routing and MCP discovery with
    the actual installer. Release MCP configuration must use `@tempad-dev/mcp@latest`.
 3. Run the checks in [TESTING.md](../TESTING.md), then `pnpm format:check`, `pnpm build`, and
    `pnpm zip`. Ordinary build must not change tracked agent-plugin files. The extension archive is
-   written to `packages/extension/.output/tempad-dev-0.23.4-chrome.zip` for this release.
+   written to `packages/extension/.output/` with the version from the extension package.
 4. Remove `packages/mcp-server/dist` and rebuild before packing. A working tree that has been
    built repeatedly has been seen holding a stale hashed shared chunk even though `clean` is
    configured, and packing from it ships both copies. Then run `npm pack` in `packages/mcp-server`
-   and inspect the tarball: the CLI, Hub, exactly one bundled shared chunk, package metadata, and
+   and inspect the tarball: the CLI, Hub, logging worker, exactly one bundled shared chunk, package metadata, and
    both README languages must be present. Install it outside the
    workspace and verify MCP initialization and tool discovery on a supported Node.js runtime.
-   Use separate runtime, log, and asset directories for the check so an active local Hub is
+   Run `node packages/mcp-server/scripts/check-log-transport.mjs <installed-package-directory>`
+   from the checkout to check the shipped logging worker with its installed dependencies.
+   Use separate runtime, state, log, and asset directories for the check so an active local Hub is
    unaffected. Restrict the smoke Hub's allowed extension origin to a dedicated test origin,
    remove inherited host task-identity variables from its child environment, and verify its
    runtime identity points at the installed tarball. Close the smoke client and confirm that
-   only its isolated Hub exits. MCP 0.11.0 supports Node.js 22.x, 24.x, or 26+.
+   only its isolated Hub exits. Test the Node.js versions declared by the package's `engines` field.
    Retain the package and extension archive hashes with the candidate revision; rebuild them
    if packaged source or documentation changes.
 5. Before claiming full native host support, follow the
@@ -121,6 +118,13 @@ remain fixed to the original extension connection and session.
 Publishing to the store alone does not retire old installations. Keep the adapter and its fixture
 checks throughout the rollout; never treat store availability as evidence that every user updated.
 
+Keep the generated standalone `figma-canvas-authoring` skill alias and the legacy `figma.js`,
+`figma.json`, and `figma.comply.json` assets on `gh-pages` for at least one extension store release
+cycle after their replacements ship. Do not let a site deployment remove these assets. New
+extensions use packaged rewrite resources; old installations need the existing remote URLs until
+they update and reload Figma. Remove these compatibility entries only as an explicit migration
+change after verifying the supported old-extension setup and runtime paths.
+
 ## Publish the coordinated release
 
 The Agent Plugin follows `main` and launches the npm `latest` tag. Make the required stable MCP
@@ -134,13 +138,14 @@ version available before exposing the new plugin on `main`.
    sufficient. The current Codex findings are tracked in the
    [IPC report](engineering/codex-desktop-ipc.md#original-installed-host-findings), including
    the later acceptance evidence preceding the original findings.
-3. Follow that verified transition when dispatching `publish-mcp.yml` from the checked candidate
-   ref with `tag=latest`. Its `prepublishOnly` hook rebuilds the
-   package before npm publication. Confirm that both `npm view @tempad-dev/mcp@0.11.0 version` and
-   `npm view @tempad-dev/mcp@latest version` return `0.11.0`. A `next` publication may be used for
+3. Merge the checked MCP runtime change to `main` before dispatching `publish-mcp.yml`
+   with `tag=latest`; publication workflows reject other branches. Keep plugin changes that
+   require that runtime in a separate follow-up until publication is verified. Its `prepublishOnly` hook rebuilds the
+   package before npm publication. Confirm that both the exact package version and
+   `npm view @tempad-dev/mcp@latest version` match the checked package manifest. A `next` publication may be used for
    isolated candidate testing; it neither completes the migration nor changes release plugin
    configurations away from `latest`.
-4. Merge the approved candidate so the marketplace serves Agent Plugin 0.5.0. Verify that the
+4. Merge the approved candidate so the marketplace serves the checked Agent Plugin version. Verify that the
    standard, plugins-CLI, Codex, and Claude manifests agree, and that each generated package
    carries only its own channel's manifests. Do not publish the Agent Plugin through `publish-plugins.yml`; that
    workflow owns the separate `@tempad-dev/plugins` SDK.

@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/hero-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/hero-light.svg">
-    <img alt="TemPad Dev" src="packages/site/public/marketing/hero-light.svg" width="540" height="200">
+    <img alt="TemPad Dev" src="packages/site/public/marketing/hero-light.svg" width="540">
   </picture>
 </p>
 
@@ -11,7 +11,6 @@
 <p align="center">
   <a href="https://chrome.google.com/webstore/detail/tempad-dev/lgoeakbaikpkihoiphamaeopmliaimpc"><img src="https://img.shields.io/badge/Install%20on%20Chrome%20Web%20Store-4285F4?logo=chromewebstore&logoColor=%23fff" alt="Install on Chrome Web Store"></a>
   <a href="https://discord.gg/MXGXwtkEck"><img src="https://img.shields.io/badge/Chat%20on%20Discord-5865F2?logo=discord&logoColor=%23fff" alt="Chat on Discord"></a>
-  <a href="https://deepwiki.com/ecomfe/tempad-dev"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   <a href="./README.zh-Hans.md"><img src="https://img.shields.io/badge/Simplified%20Chinese%20%C2%BB-000" alt="Read in Simplified Chinese"></a>
 </p>
 
@@ -98,7 +97,7 @@ Scroll down in the dialog for both skill installation commands:
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="packages/site/public/marketing/mcp-config-gemini-skills-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="packages/site/public/marketing/mcp-config-gemini-skills-light.png">
-  <img alt="The complete Gemini commands for the design-to-code and canvas authoring skills." src="packages/site/public/marketing/mcp-config-gemini-skills-light.png" width="600">
+  <img alt="The complete Gemini commands for the design-to-code and Design in Figma skills." src="packages/site/public/marketing/mcp-config-gemini-skills-light.png" width="600">
 </picture>
 
 For native Codex and Claude marketplace commands and portable Cursor and VS Code installation,
@@ -107,7 +106,7 @@ see the [Agent Plugin guide](./agent-plugin/src/README.md).
 All plugin and direct `npx`-based setup paths use `@tempad-dev/mcp@latest`.
 
 For this release, use extension **0.23.4**, MCP server **0.11.0**, and Agent
-Plugin **0.5.0** together. See the [upgrade guide](./agent-plugin/src/README.md#upgrading)
+Plugin **0.5.1** together. See the [upgrade guide](./agent-plugin/src/README.md#upgrading)
 when updating an existing installation.
 
 Keep TemPad Dev open with MCP enabled while using it. If multiple Figma files are connected, click the MCP badge in the panel for the file you want the agent to inspect; that file becomes the active context. An agent can also list connected sessions and pass an exact `sessionId` to an independent read without changing the active badge.
@@ -158,7 +157,12 @@ for exact continuation. A single `nodeId` remains supported.
   style, and shader definitions without inspecting canvas usage or loading every page. Cursor
   continuation exposes omitted definitions; exact-ref lookup returns one bounded definition.
   With `scope: "fonts"`, it queries available font families and exact native styles without
-  scanning file resources.
+  scanning file resources. Use `scope: "pages"` to discover page IDs and `pageId` to load a
+  specific page's definitions.
+- `list_design_sessions`: Lists connected Figma sessions so independent reads can target an exact session.
+- `manage_design_task`: Begins, resumes, completes, or cancels a task tied to an exact Figma file.
+- `get_design_task`: Reads task state and its current write lease.
+- `set_design_anchor`: Uses an existing frame as the task's stable design region without moving or modifying it.
 - `apply_canvas`: Creates, updates, removes, or activates exact pages and managed roots. Canvas HTML
   is optional for page-only operations and native-only updates to existing stable keys inside an
   exact managed root; a root can be written directly to an exact off-current page without switching

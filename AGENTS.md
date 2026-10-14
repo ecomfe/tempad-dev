@@ -13,7 +13,8 @@ every linked document.
 | `packages/extension/`  | `packages/extension/AGENTS.md`  | Figma extension, UI, codegen, browser runtime, and MCP tool implementation |
 | `packages/mcp-server/` | `packages/mcp-server/AGENTS.md` | MCP server, Hub, transport, and tool exposure                              |
 | `packages/shared/`     | `packages/shared/AGENTS.md`     | Shared schemas, types, and contracts                                       |
-| `packages/plugins/`    | `packages/plugins/AGENTS.md`    | Plugin transforms and sandboxed plugin-side code                           |
+| `packages/plugins/`    | `packages/plugins/AGENTS.md`    | Public SDK for code-output plugin authors                                  |
+| `packages/site/`       | `packages/site/README.md`       | Public website and skill previews                                          |
 | `agent-plugin/`        | This guide                      | Agent skills, manifests, host extras, and marketplace metadata             |
 
 For a cross-package change, read the guides for every affected package. For a
@@ -86,8 +87,9 @@ default authority unless a routed document says otherwise.
   `targets/standard`. Run `pnpm agent-plugin:check-installer` after packaging changes.
 - `agent-plugin/src/plugin.json` and `mcp.json` own every shared manifest and MCP
   field. Host-specific authored extras live under `agent-plugin/src/clients/`:
-  `claude/hooks.json`, `codex/interface.json` (Codex directory presentation), and
-  `shared/lifecycle.mjs`.
+  `claude/hooks.json`, `codex/interface.json` (Codex directory presentation),
+  `codex/mcp.json` (Codex tool timeout), `shared/lifecycle.mjs`, and
+  `shared/runtime-paths.mjs` (shared local runtime discovery).
 - Both skills are authored under `agent-plugin/src/skills/`. Icons, host manifests,
   marketplace metadata, and every target copy are derived.
 - `.dev/plugins/tempad-dev-dev/` is the one exception to the per-host split: an
