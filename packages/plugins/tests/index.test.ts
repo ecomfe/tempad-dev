@@ -92,9 +92,9 @@ describe('plugins sdk helpers', () => {
       children: ['Save']
     })
 
-    expect(h('Box', null as unknown as Record<string, unknown>, 'child')).toEqual({
+    expect(h('Box', null, 'child')).toEqual({
       name: 'Box',
-      props: null,
+      props: {},
       children: ['child']
     })
 
@@ -103,6 +103,18 @@ describe('plugins sdk helpers', () => {
       props: {},
       children: []
     })
+  })
+
+  it('preserves named props instead of treating them as child components', () => {
+    for (const props of [
+      { name: 'email', type: 'text' },
+      { name: 'email', props: null, children: [] },
+      { name: 'email', props: [], children: [] },
+      { name: 'email', props: {}, children: 'label' }
+    ]) {
+      expect(h('Input', props)).toEqual({ name: 'Input', props, children: [] })
+    }
+    expect(h('Box', null)).toEqual({ name: 'Box', props: {}, children: [] })
   })
 
   it('finds direct children with property and predicate queries', () => {
@@ -149,6 +161,11 @@ describe('plugins sdk helpers', () => {
     expect(first?.name).toBe('Duplicated Label')
 
     expect(queryAll(root, [])).toEqual([])
+    expect(
+      queryAll(root, [
+        Object.assign((node: DesignNode) => node.type === 'TEXT', { query: 'all' as const })
+      ]).map((node) => node.name)
+    ).toEqual(['Title', 'Duplicated Label', 'Hint'])
     expect(queryOne(root, [{ query: 'child', name: 'missing' }])).toBeNull()
 
     expect(

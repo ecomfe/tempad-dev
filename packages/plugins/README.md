@@ -167,9 +167,11 @@ queryOne(container, queries)
 queryAll(container, queries)
 ```
 
-Queries can be simple property filters (`{ type: 'TEXT', name: /Title/ }`) or custom predicates.
+The `find*` helpers accept property filters (`{ type: 'TEXT', name: /Title/ }`) or predicates.
 `queryAll`/`queryOne` let you chain multiple lookups, e.g. find a footer frame and then every
-button inside it. See `plugins/src/index.ts` for full documentation and the type definitions for
+button inside it. Each step adds a `query` property; a predicate step can use
+`Object.assign(predicate, { query: 'all' as const })`.
+See the [SDK source](https://github.com/ecomfe/tempad-dev/blob/main/packages/plugins/src/index.ts) for documentation and the type definitions for
 `DesignNode`, `DesignComponent`, and related structures.
 
 ## Debugging and testing
@@ -189,7 +191,7 @@ button inside it. See `plugins/src/index.ts` for full documentation and the type
 ## Further resources
 
 - Root project README: insights into TemPad Dev features and plugin registry expectations.
-- `plugins/src/index.ts`: canonical source of all exported types, with extensive inline
+- [SDK source](https://github.com/ecomfe/tempad-dev/blob/main/packages/plugins/src/index.ts): canonical source of all exported types, with inline
   documentation and examples.
 - Example plugins: <https://github.com/Justineo/tempad-dev-plugin-kong>
 

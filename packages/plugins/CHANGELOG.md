@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.3
+
+- Preserve named props in `h()` and normalize absent or null props to an empty object.
+- Clarify predicate queries and link to the published SDK's source documentation.
+
 ## 0.6.2
 
 - Exposed `options.scale` and `options.variableDisplay` to plugin transform hook typings.

@@ -320,16 +320,20 @@ export function definePlugin(plugin: Plugin): Plugin {
   return plugin
 }
 
-function isDevComponent(value: unknown): value is DevComponent {
-  if (value === null || typeof value !== 'object') {
-    return false
-  }
+function isDevComponent(value: object): value is DevComponent {
   const name = Reflect.get(value, 'name')
-  return typeof name === 'string'
+  const props = Reflect.get(value, 'props')
+  return (
+    typeof name === 'string' &&
+    props !== null &&
+    typeof props === 'object' &&
+    !Array.isArray(props) &&
+    Array.isArray(Reflect.get(value, 'children'))
+  )
 }
 
 function isChildrenArgument(
-  value: unknown
+  value: object | string
 ): value is (DevComponent | string)[] | DevComponent | string {
   if (Array.isArray(value)) {
     return true
@@ -382,6 +386,11 @@ function normalizeChildren(
 export function h(name: string): DevComponent<Record<string, unknown>>
 export function h(
   name: string,
+  props: null | undefined,
+  children?: (DevComponent | string)[] | DevComponent | string
+): DevComponent<Record<string, unknown>>
+export function h(
+  name: string,
   children: (DevComponent | string)[] | DevComponent | string
 ): DevComponent<Record<string, unknown>>
 export function h<T extends object>(
@@ -391,18 +400,12 @@ export function h<T extends object>(
 ): DevComponent<T>
 export function h<T extends object = Record<string, unknown>>(
   name: string,
-  propsOrChildren?: T | (DevComponent | string)[] | DevComponent | string,
+  propsOrChildren?: T | (DevComponent | string)[] | DevComponent | string | null,
   childrenOrSingle?: (DevComponent | string)[] | DevComponent | string
 ): DevComponent<T> {
-  const props =
-    propsOrChildren === undefined || isChildrenArgument(propsOrChildren)
-      ? ({} as T)
-      : (propsOrChildren as T)
-
-  const childSource =
-    propsOrChildren === undefined || isChildrenArgument(propsOrChildren)
-      ? (propsOrChildren ?? childrenOrSingle)
-      : childrenOrSingle
+  const childrenOnly = propsOrChildren == null || isChildrenArgument(propsOrChildren)
+  const props = childrenOnly ? ({} as T) : (propsOrChildren as T)
+  const childSource = childrenOnly ? (propsOrChildren ?? childrenOrSingle) : childrenOrSingle
 
   return {
     name,

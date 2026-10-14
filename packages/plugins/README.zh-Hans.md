@@ -161,9 +161,10 @@ queryOne(container, queries)
 queryAll(container, queries)
 ```
 
-查询条件既可以是简单的属性过滤（例如 `{ type: 'TEXT', name: /Title/ }`），也可以是自定义谓词函数。
+`find*` 辅助函数接受属性过滤（例如 `{ type: 'TEXT', name: /Title/ }`）或自定义谓词函数。
 `queryAll` 和 `queryOne` 支持串联多个查找步骤，例如先找到 footer 的 frame，再找到其中的所有 button。
-完整文档以及 `DesignNode`、`DesignComponent` 等相关结构的类型定义，请参见 `plugins/src/index.ts`。
+每一步都要带 `query` 属性；谓词步骤可写成 `Object.assign(predicate, { query: 'all' as const })`。
+完整文档以及类型定义见 [SDK 源码](https://github.com/ecomfe/tempad-dev/blob/main/packages/plugins/src/index.ts)。
 
 ## 调试与测试
 
@@ -180,7 +181,7 @@ queryAll(container, queries)
 ## 更多资源
 
 - 项目根目录 README：了解 TemPad Dev 的功能，以及插件注册表的约定与期望。
-- `plugins/src/index.ts`：所有导出类型的权威来源，包含大量内联文档与示例。
+- [SDK 源码](https://github.com/ecomfe/tempad-dev/blob/main/packages/plugins/src/index.ts)：所有导出类型的权威来源，包含内联文档与示例。
 - 示例插件：<https://github.com/Justineo/tempad-dev-plugin-kong>
 
 如果你遇到限制，或对新的辅助 API 有想法，欢迎在本仓库提交 issue 或 pull request，让插件开发更轻松。
