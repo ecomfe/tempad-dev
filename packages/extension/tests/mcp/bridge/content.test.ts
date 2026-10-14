@@ -49,6 +49,7 @@ function installBrowser(
 ): ReturnType<typeof vi.fn> {
   vi.stubGlobal('browser', {
     runtime: {
+      id: 'test-extension',
       connect: vi.fn(({ name }: { name: string }) => {
         expect(name).toBe(TEMPAD_MCP_SESSION_PORT_NAME)
         const port = createPort()
@@ -71,6 +72,16 @@ function installWindow() {
         return
       }
       eventListeners.set(type, [...(eventListeners.get(type) ?? []), listener as EventListener])
+    }),
+    removeEventListener: vi.fn((type: string, listener: WindowMessageListener | EventListener) => {
+      if (type === 'message') {
+        const index = messageListeners.indexOf(listener as WindowMessageListener)
+        if (index !== -1) messageListeners.splice(index, 1)
+      } else
+        eventListeners.set(
+          type,
+          (eventListeners.get(type) ?? []).filter((value) => value !== listener)
+        )
     }),
     postMessage: vi.fn()
   }
@@ -158,6 +169,54 @@ afterEach(() => {
 })
 
 describe('mcp/bridge/content', () => {
+  it.each(['connect', 'postMessage', 'permission', 'disconnect'] as const)(
+    'detects extension invalidation through the actual %s path without retrying',
+    async (path) => {
+      vi.useFakeTimers()
+      const ports: Array<ReturnType<typeof createPort>> = []
+      const sendMessage = installBrowser(ports)
+      const page = installWindow()
+      startMcpContentBridge()
+      const invalidated = new Error('Extension context invalidated.')
+      if (path === 'permission') sendMessage.mockRejectedValue(invalidated)
+      page.sendPageMessage(pageMessage('mcp.enable'))
+      await flushMicrotasks()
+      if (path === 'connect') {
+        vi.mocked(browser.runtime.connect).mockImplementation(() => {
+          throw invalidated
+        })
+        ports[0]!.disconnect()
+        await vi.advanceTimersByTimeAsync(1000)
+      } else if (path === 'postMessage') {
+        ports[0]!.postMessage.mockImplementation(() => {
+          throw invalidated
+        })
+        page.sendPageMessage(pageMessage('mcp.activateSession'))
+        await flushMicrotasks()
+      } else if (path === 'disconnect') {
+        Reflect.deleteProperty(browser.runtime, 'id')
+        ports[0]!.disconnect()
+      }
+      expect(page.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: 'mcp.state',
+          payload: expect.objectContaining({
+            errorMessage: expect.stringContaining('Reload this Figma tab')
+          })
+        }),
+        TEMPAD_MCP_FIGMA_ORIGIN
+      )
+      const attempts = vi.mocked(browser.runtime.connect).mock.calls.length
+      const permissionChecks = sendMessage.mock.calls.length
+      await vi.advanceTimersByTimeAsync(5000)
+      page.sendPageMessage(pageMessage('mcp.enable'))
+      page.dispatchEvent(MCP_PERMISSION_REQUEST_EVENT)
+      await flushMicrotasks()
+      expect(browser.runtime.connect).toHaveBeenCalledTimes(attempts)
+      expect(sendMessage).toHaveBeenCalledTimes(permissionChecks)
+    }
+  )
+
   it('stops retrying and reports reload guidance when the extension context is invalidated', async () => {
     vi.useFakeTimers()
     const ports: Array<ReturnType<typeof createPort>> = []

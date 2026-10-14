@@ -44,19 +44,20 @@ export function startMcpContentBridge(): () => void {
   }
 
   function connect(): boolean {
-    if (invalidated) return false
+    if (invalidated || invalidateIfNeeded()) return false
     if (port) return true
     let nextPort: ReturnType<typeof browser.runtime.connect>
     try {
       nextPort = browser.runtime.connect({ name: TEMPAD_MCP_SESSION_PORT_NAME })
       port = nextPort
       clearReconnectTimer()
-    } catch {
-      scheduleReconnect()
+    } catch (error) {
+      if (!invalidateIfNeeded(error)) scheduleReconnect()
       return false
     }
 
     nextPort.onMessage.addListener((raw) => {
+      if (invalidated) return
       const message = parseBridgeToPageMessage(raw)
       if (!message) return
       window.postMessage(message, TEMPAD_MCP_FIGMA_ORIGIN)
@@ -65,6 +66,7 @@ export function startMcpContentBridge(): () => void {
     nextPort.onDisconnect.addListener(() => {
       if (port !== nextPort) return
       port = null
+      if (invalidateIfNeeded()) return
       if (enableMessage) postDisconnected('Agent disconnected. Reconnecting…')
       scheduleReconnect()
     })
@@ -82,16 +84,18 @@ export function startMcpContentBridge(): () => void {
         port.postMessage(enableMessage)
       port.postMessage(message)
       return true
-    } catch {
-      port = null
-      scheduleReconnect()
+    } catch (error) {
+      if (!invalidateIfNeeded(error)) {
+        port = null
+        scheduleReconnect()
+      }
       return false
     }
   }
 
   async function enable(message: EnableMessage): Promise<void> {
     const granted = await ensureLocalHostPermission()
-    if (enableMessage !== message) return
+    if (invalidated || enableMessage !== message) return
     if (!granted) {
       postMissingLocalHostPermission(message.sessionId)
       return
@@ -101,6 +105,7 @@ export function startMcpContentBridge(): () => void {
   }
 
   async function forwardToServiceWorker(raw: unknown): Promise<void> {
+    if (invalidated) return
     const message = parsePageToBridgeMessage(raw)
     if (!message) return
 
@@ -161,7 +166,8 @@ export function startMcpContentBridge(): () => void {
     try {
       const response = await browser.runtime.sendMessage(createMcpPermissionMessage(type))
       return isMcpPermissionResponse(response) && response.granted
-    } catch {
+    } catch (error) {
+      invalidateIfNeeded(error)
       return false
     }
   }
@@ -184,7 +190,7 @@ export function startMcpContentBridge(): () => void {
     )
   }
 
-  window.addEventListener('message', (event) => {
+  function handlePageMessage(event: MessageEvent<unknown>): void {
     // The MCP runtime uses Figma's page-world API, so the exact Figma origin is
     // intentionally the trust boundary. The broker still validates port/session ownership.
     if (event.source !== window || event.origin !== TEMPAD_MCP_FIGMA_ORIGIN) {
@@ -193,11 +199,14 @@ export function startMcpContentBridge(): () => void {
     void forwardToServiceWorker(event.data).catch(() => {
       postDisconnected('The extension connection is unavailable. Reload this Figma tab.')
     })
-  })
+  }
 
-  window.addEventListener(MCP_PERMISSION_REQUEST_EVENT, () => {
+  function handlePermissionRequest(): void {
     void requestLocalHostPermission()
-  })
+  }
+
+  window.addEventListener('message', handlePageMessage)
+  window.addEventListener(MCP_PERMISSION_REQUEST_EVENT, handlePermissionRequest)
 
   function postDisconnected(message: string): void {
     if (!enableMessage) return
@@ -218,11 +227,32 @@ export function startMcpContentBridge(): () => void {
     )
   }
 
-  return () => {
+  function invalidateIfNeeded(error?: unknown): boolean {
+    if (
+      !browser.runtime.id ||
+      (error instanceof Error && error.message.includes('Extension context invalidated'))
+    ) {
+      invalidate()
+      return true
+    }
+    return false
+  }
+
+  function invalidate(): void {
+    if (invalidated) return
     invalidated = true
     clearReconnectTimer()
-    port?.disconnect()
+    window.removeEventListener('message', handlePageMessage)
+    window.removeEventListener(MCP_PERMISSION_REQUEST_EVENT, handlePermissionRequest)
+    const previousPort = port
     port = null
+    try {
+      previousPort?.disconnect()
+    } catch {
+      // Invalidated contexts may reject disconnect as well as messaging.
+    }
     postDisconnected('TemPad Dev was updated. Reload this Figma tab to reconnect.')
   }
+
+  return invalidate
 }
