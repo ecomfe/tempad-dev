@@ -112,8 +112,10 @@ additional locks; do not run them against shared storage concurrently with this 
 On Unix, overridden runtime, state, log, and asset directories must belong to the current
 user, must not be symlinks, and must deny group and other access (for example, mode `0700`).
 
-Before its first connection, the CLI stops after three failed startup attempts and reports
-the error on stderr. Resolve the reported problem and reconnect the MCP client to retry.
+Before its first connection, transient connection failures get a bounded recovery window
+covering the Hub's 60-second orphan-lock lease plus startup time. Other failures stop after
+three attempts. The CLI reports exhausted retries on stderr; resolve the reported problem
+and reconnect the MCP client to retry.
 After a working bridge, transient connection failures continue retrying without a limit;
 three consecutive permission, trust, or invalid-bridge failures still stop the CLI.
 

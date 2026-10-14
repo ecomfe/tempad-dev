@@ -12,6 +12,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync
 } from 'node:fs'
 import { request } from 'node:http'
@@ -153,10 +154,14 @@ it.skipIf(process.platform === 'win32').each(['permissions', 'symlink', 'file'] 
     const preload = join(bundle, `reject-${kind}.mjs`)
     writeFileSync(
       preload,
-      `import childProcess from 'node:child_process'; import {appendFileSync} from 'node:fs'; import {syncBuiltinESMExports} from 'node:module';
-      const timeout = globalThis.setTimeout, spawn = childProcess.spawn;
-      globalThis.setTimeout = (fn, ms, ...args) => timeout(fn, ms >= 1000 ? 10 : ms, ...args);
-      childProcess.spawn = (...args) => { appendFileSync(${JSON.stringify(spawned)}, 'spawn\\n'); return spawn(...args); };
+      `import childProcess from 'node:child_process'; import fs from 'node:fs'; import {syncBuiltinESMExports} from 'node:module';
+      const timeout = globalThis.setTimeout, spawn = childProcess.spawn, lstat = fs.lstatSync;
+      globalThis.setTimeout = (fn, ms, ...args) => timeout(fn, ms === 5000 ? 10 : ms, ...args);
+      childProcess.spawn = (...args) => { fs.appendFileSync(${JSON.stringify(spawned)}, 'spawn\\n'); return spawn(...args); };
+      fs.lstatSync = (path, ...args) => {
+        if (path === ${JSON.stringify(socketPath)}) process.stderr.write('fixture-trust-check\\n');
+        return lstat(path, ...args);
+      };
       syncBuiltinESMExports();`
     )
     try {
@@ -167,11 +172,17 @@ it.skipIf(process.platform === 'win32').each(['permissions', 'symlink', 'file'] 
       if (kind === 'file') writeFileSync(socketPath, 'not a socket', { mode: 0o600 })
       const before = lstatSync(socketPath)
       const cli = launch('cli.mjs', runtime, preload, stores)
+      // Measure bounded rejection after the process has loaded the CLI, as in
+      // the initial-connection fixture below; do not count import scheduling.
+      await vi.waitFor(() => expect(cli.stderr()).toContain('fixture-trust-check'), {
+        timeout: 5000
+      })
       await vi.waitFor(() => expect(cli.child.exitCode, cli.stderr()).not.toBeNull(), {
         timeout: 3000
       })
       expect((await cli.exited)[0], cli.stderr()).toBe(1)
       expect(cli.stderr()).toContain('Refusing untrusted Hub socket')
+      expect(cli.stderr().match(/fixture-trust-check/g)).toHaveLength(3)
       expect(connections).toBe(0)
       expect(existsSync(spawned)).toBe(false)
       expect(existsSync(join(runtime, 'hub-runtime.json'))).toBe(false)
@@ -184,7 +195,7 @@ it.skipIf(process.platform === 'win32').each(['permissions', 'symlink', 'file'] 
       if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()))
     }
   },
-  5000
+  10000
 )
 
 it.skipIf(process.platform === 'win32')(
@@ -212,6 +223,59 @@ it.skipIf(process.platform === 'win32')(
     expect((await first.exited)[0], first.stderr()).toBe(0)
   },
   10000
+)
+
+it.skipIf(process.platform === 'win32')(
+  'recovers through the CLI after orphaned lifecycle and writer locks expire',
+  async () => {
+    const runtime = join(directory, 'orphaned')
+    const stores = join(directory, 'orphaned-stores')
+    const old = launch('hub.mjs', runtime, undefined, stores)
+    await vi.waitFor(() => expect(old.stdout(), old.stderr()).toContain('ready'), {
+      timeout: 5000
+    })
+    old.child.kill('SIGKILL')
+    expect(await old.exited).toEqual([null, 'SIGKILL'])
+
+    const locks = [
+      join(runtime, 'hub.lock.lock'),
+      join(stores, 'state/.tempad-hub-writer.lock'),
+      join(stores, 'assets/.tempad-hub-writer.lock')
+    ]
+    // Keep 30s of the real 60s lease: longer than the former 25s CLI retry
+    // window, without spending a full minute aging the killed Hub's locks.
+    const lastHeartbeat = new Date(Date.now() - 30000)
+    for (const lock of locks) utimesSync(lock, lastHeartbeat, lastHeartbeat)
+    const lockInodes = locks.map((lock) => lstatSync(lock).ino)
+    const identityPath = join(runtime, 'hub-runtime.json')
+    const oldIdentity = readFileSync(identityPath, 'utf8')
+    const cli = launch('cli.mjs', runtime, undefined, stores)
+    cli.child.stdin!.write('{"jsonrpc":"2.0","id":1,"method":"ping"}\n')
+    try {
+      await vi.waitFor(
+        () => {
+          expect(cli.child.exitCode, cli.stderr()).toBeNull()
+          expect(cli.stdout(), cli.stderr()).toContain('"id":1')
+        },
+        { timeout: 40000 }
+      )
+      expect(Date.now() - lastHeartbeat.getTime()).toBeGreaterThanOrEqual(60000)
+      expect(locks.map((lock) => lstatSync(lock).ino)).not.toEqual(lockInodes)
+      expect(readFileSync(identityPath, 'utf8')).not.toBe(oldIdentity)
+      expect(JSON.parse(cli.stdout().trim())).toEqual({ jsonrpc: '2.0', id: 1, result: {} })
+    } finally {
+      cli.child.stdin!.end()
+      await cli.exited
+      if (existsSync(identityPath) && readFileSync(identityPath, 'utf8') !== oldIdentity) {
+        // The CLI-spawned Hub is detached; wait for its idle shutdown before
+        // deleting its isolated directories in afterAll.
+        await vi.waitFor(() => expect(existsSync(identityPath)).toBe(false), {
+          timeout: 5000
+        })
+      }
+    }
+  },
+  50000
 )
 
 it.skipIf(process.platform === 'win32')(
@@ -388,10 +452,12 @@ it.each(['denied', 'stalled', 'closed'])(
     import net from 'node:net'; import fs from 'node:fs'; import {syncBuiltinESMExports} from 'node:module';
     const timeout = globalThis.setTimeout;
     globalThis.setTimeout = (fn, ms, ...args) => timeout(fn, ms >= 1000 ? 10 : ms, ...args);
+    ${failure === 'stalled' ? 'let now = Date.now(); Date.now = () => now;' : ''}
     fs.lstatSync = () => ({isDirectory:()=>true,isSymbolicLink:()=>false,isSocket:()=>true,uid:process.getuid?.(),mode:0o700});
     net.connect = () => {
       process.stderr.write('fixture-connect\\n');
       const socket = new net.Socket();
+      ${failure === 'stalled' ? 'now += 15000;' : ''}
       ${failure === 'denied' ? "queueMicrotask(() => socket.destroy(Object.assign(new Error('Fixture denied'), {code:'EACCES'})));" : ''}
       ${failure === 'closed' ? 'queueMicrotask(() => socket.destroy());' : ''}
       return socket;
@@ -408,8 +474,11 @@ it.each(['denied', 'stalled', 'closed'])(
       timeout: 5000
     })
     expect((await attempt.exited)[0]).toBe(1)
-    expect(attempt.stderr()).toContain('Unable to connect to TemPad Hub after 3 startup attempts')
-    expect(attempt.stderr().match(/fixture-connect/g)).toHaveLength(3)
+    const attempts = failure === 'stalled' ? 5 : 3
+    expect(attempt.stderr()).toContain(
+      `Unable to connect to TemPad Hub after ${attempts} startup attempts`
+    )
+    expect(attempt.stderr().match(/fixture-connect/g)).toHaveLength(attempts)
   },
   15000
 )

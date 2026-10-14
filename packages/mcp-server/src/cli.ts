@@ -17,6 +17,7 @@ import {
 } from './client-binding'
 import {
   HUB_BUSY_EXIT_CODE,
+  HUB_LOCK_STALE_MS,
   PACKAGE_VERSION,
   log,
   LOCK_PATH,
@@ -262,6 +263,9 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
 
 async function main() {
   log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Client starting...')
+  // A killed Hub can leave valid lock leases behind. Allow their full stale
+  // interval and a further startup attempt without weakening lock ownership.
+  const startupDeadline = Date.now() + HUB_LOCK_STALE_MS + 2 * HUB_STARTUP_TIMEOUT
   let connected = false
   let failedAttempts = 0
 
@@ -281,12 +285,13 @@ async function main() {
       log.info('Bridge disconnected. Restarting connection process...')
       await new Promise((r) => setTimeout(r, CONNECT_RETRY_DELAY))
     } catch (err: unknown) {
-      if (connected && isTransientConnectionError(err)) failedAttempts = 0
+      const transient = isTransientConnectionError(err)
+      if (connected && transient) failedAttempts = 0
       else failedAttempts++
-      if (failedAttempts >= 3) {
+      if (failedAttempts >= 3 && (!transient || Date.now() >= startupDeadline)) {
         const reason = err instanceof Error ? err.message : String(err)
         process.stderr.write(
-          `Unable to connect to TemPad Hub after 3 ${connected ? 'reconnect' : 'startup'} attempts: ${reason} Reconnect the MCP client after resolving the connection error.\n`
+          `Unable to connect to TemPad Hub after ${failedAttempts} ${connected ? 'reconnect' : 'startup'} attempts: ${reason} Reconnect the MCP client after resolving the connection error.\n`
         )
         process.stdin.pause()
         process.exitCode = 1
