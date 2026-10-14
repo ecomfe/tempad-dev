@@ -145,7 +145,7 @@ describe('Codex Windows integration', () => {
           fileKey: 'file-a',
           items: [],
           comment: 'Keep spacing',
-          createdAt: 0
+          createdAt: Date.now()
         },
         new AbortController().signal,
         () => {},

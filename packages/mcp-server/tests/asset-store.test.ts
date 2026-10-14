@@ -61,6 +61,12 @@ vi.mock('node:fs', () => ({
     fsState.existing.add(path)
     fsState.contentByPath.set(path, content)
   }),
+  renameSync: vi.fn((from: string, to: string) => {
+    fsState.contentByPath.set(to, fsState.contentByPath.get(from)!)
+    fsState.contentByPath.delete(from)
+    fsState.existing.delete(from)
+    fsState.existing.add(to)
+  }),
   readdirSync: vi.fn((path: string) => {
     if (fsState.readdirError) throw fsState.readdirError
     if (path !== ASSET_DIR) return []
@@ -194,7 +200,6 @@ describe('asset-store', () => {
       themeable: true
     })
     expect(store.get('b2')?.uploadedAt).toBe(100)
-    expect(store.getMany(['missing', 'a1', 'b2']).map((item) => item.hash)).toEqual(['a1', 'b2'])
     expect(writeFileSync).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(5000)
@@ -329,7 +334,7 @@ describe('asset-store', () => {
     expect(store.get('h-orphan')).toEqual({
       hash: 'h-orphan',
       filePath: orphanOkPath,
-      mimeType: 'application/octet-stream',
+      mimeType: 'image/png',
       size: 99,
       uploadedAt: 111,
       lastAccess: 222

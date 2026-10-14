@@ -7,7 +7,6 @@ import {
   TOOL_DEFS,
   coercePayloadToToolResponse,
   createApplyCanvasToolResponse,
-  createAssetsToolResponse,
   createCodeToolResponse,
   createDesignSystemToolResponse,
   createDesignTaskToolResponse,
@@ -15,7 +14,6 @@ import {
   createInlineBudgetExceededToolResponse,
   createScreenshotToolResponse,
   createStructureToolResponse,
-  createTokenDefsToolResponse,
   createToolErrorResponse,
   createUploadAssetToolResponse
 } from '../src/tools'
@@ -121,9 +119,7 @@ describe('tools response helpers', () => {
     }
   })
   it('exposes result-oriented canvas authoring tools', () => {
-    expect(
-      new Set(TOOL_DEFS.filter((tool) => tool.exposed !== false).map((tool) => tool.name))
-    ).toEqual(
+    expect(new Set(TOOL_DEFS.map((tool) => tool.name))).toEqual(
       new Set([
         'get_design_task',
         'list_design_sessions',
@@ -296,23 +292,13 @@ describe('tools response helpers', () => {
     expect(textContent(result.content[0])).toContain('No binary assets were attached')
   })
 
-  it('formats structure and token tool responses with structured content summaries', () => {
+  it('formats structure tool responses with structured content summaries', () => {
     const structurePayload: ToolResultMap['get_structure'] = {
       roots: [{ id: '1', name: 'Root', type: 'FRAME', x: 0, y: 0, width: 10, height: 10 }]
     }
     const structureResult = createStructureToolResponse(structurePayload)
     expect(structureResult.structuredContent).toEqual(structurePayload)
     expect(textContent(structureResult.content[0])).toContain('Returned structure outline')
-
-    const tokenPayload: ToolResultMap['get_token_defs'] = {
-      '--color-primary': {
-        kind: 'color',
-        value: '#6699CC'
-      }
-    }
-    const tokenResult = createTokenDefsToolResponse(tokenPayload)
-    expect(tokenResult.structuredContent).toEqual(tokenPayload)
-    expect(textContent(tokenResult.content[0])).toContain('Resolved 1 token definition')
   })
 
   it('formats design-system discovery and canvas apply responses', () => {
@@ -450,27 +436,6 @@ describe('tools response helpers', () => {
     expect(result.content).toHaveLength(2)
   })
 
-  it('formats asset tool responses with summary text and structured content', () => {
-    const payload: ToolResultMap['get_assets'] = {
-      assets: [
-        {
-          hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-          url: 'https://assets.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png',
-          mimeType: 'image/png',
-          size: 1024
-        }
-      ],
-      missing: ['bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb']
-    }
-
-    const result = createAssetsToolResponse(payload)
-    expect(result.structuredContent).toEqual(payload)
-    expect(textContent(result.content[0])).toContain('Resolved 1 asset')
-    expect(textContent(result.content[0])).toContain(
-      'Missing: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-    )
-  })
-
   it('formats inline budget errors with retry guidance', () => {
     const result = createInlineBudgetExceededToolResponse('get_token_defs', 70000)
     expect(result.isError).toBe(true)
@@ -520,9 +485,9 @@ describe('tools response helpers', () => {
     expect(textContent(connectivityError.content[0])).toContain('Exact sessionId reads')
     expect(textContent(connectivityError.content[0])).toContain('reports a protocol mismatch')
     expect(textContent(connectivityError.content[0])).toContain(
-      'reload the installed TemPad Dev browser extension'
+      'update TemPad Dev and its agent plugin'
     )
-    expect(textContent(connectivityError.content[0])).toContain('start a fresh task')
+    expect(textContent(connectivityError.content[0])).toContain('confirm the intended session')
 
     const selectionError = createToolErrorResponse('get_code', {
       cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_SELECTION },
@@ -621,9 +586,6 @@ describe('tools response helpers', () => {
     expect(() =>
       createStructureToolResponse({ roots: null } as unknown as ToolResultMap['get_structure'])
     ).toThrow(/Invalid get_structure payload/)
-    expect(() =>
-      createTokenDefsToolResponse({ '--x': null } as unknown as ToolResultMap['get_token_defs'])
-    ).toThrow(/Invalid get_token_defs payload/)
     expect(() =>
       createDesignSystemToolResponse({
         catalogId: null

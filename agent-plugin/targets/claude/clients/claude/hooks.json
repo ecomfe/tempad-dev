@@ -25,6 +25,7 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "mcp__.*tempad.*",
         "hooks": [
           {
             "type": "command",

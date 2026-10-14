@@ -35,7 +35,7 @@ export function runtimeIdentity(env: NodeJS.ProcessEnv): ClientBinding {
     ? 'codex-app'
     : env.CODEX_THREAD_ID || env.CODEX_SESSION_ID
       ? 'codex-cli'
-      : env.CLAUDE_CODE
+      : env.CLAUDECODE || env.CLAUDE_CODE
         ? 'claude'
         : 'other'
   return {

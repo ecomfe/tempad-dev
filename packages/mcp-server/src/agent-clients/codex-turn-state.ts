@@ -131,7 +131,7 @@ export class CodexTurnState {
       return
     }
     if (index === entries.length) throw new Error('Missing Codex turn.')
-    if (path.length > 2) this.field(entries[index], path.slice(2), next)
+    if (path.length > 2) this.field(entries[index]!, path.slice(2), next)
     else if (op === 'remove') entries.splice(index, 1)
     else entries[index] = turn(next)
   }

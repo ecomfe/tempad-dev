@@ -11,6 +11,7 @@ const pendingCalls = new Map<string, PendingToolCall>()
 
 type RegisterOptions = {
   waitForDefinitiveResult?: boolean
+  signal?: AbortSignal
 }
 
 function createToolError(
@@ -27,18 +28,40 @@ export function register<T>(
   timeout: number,
   options: RegisterOptions = {}
 ): { promise: Promise<T>; requestId: string } {
+  options.signal?.throwIfAborted()
   const requestId = nanoid()
   const promise = new Promise<T>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(call.timer)
+      options.signal?.removeEventListener('abort', abort)
+      pendingCalls.delete(requestId)
+    }
+    const abort = () =>
+      call.reject(
+        new DOMException(
+          'The tool request was cancelled. Any dispatched Figma operation may still be running; do not replay a canvas write.',
+          'AbortError'
+        )
+      )
     const timer = setTimeout(() => {
       if (options.waitForDefinitiveResult) {
         log.warn(
           { reqId: requestId, extId: extensionId, timeout },
           'Extension call exceeded its warning threshold; waiting for a definitive result.'
         )
+        const call = pendingCalls.get(requestId)
+        if (call)
+          call.timer = setTimeout(() => {
+            call.reject(
+              createToolError(
+                TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT,
+                'The canvas operation outcome is unknown. Do not replay this write; inspect the canvas or reload the executing Figma tab before continuing.'
+              )
+            )
+          }, timeout)
         return
       }
-      pendingCalls.delete(requestId)
-      reject(
+      call.reject(
         createToolError(
           TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT,
           `Extension did not respond within ${timeout / 1000}s.`
@@ -46,12 +69,20 @@ export function register<T>(
       )
     }, timeout)
 
-    pendingCalls.set(requestId, {
-      resolve: resolve as (value: unknown) => void,
-      reject,
+    const call: PendingToolCall = {
+      resolve: (value) => {
+        cleanup()
+        resolve(value as T)
+      },
+      reject: (error) => {
+        cleanup()
+        reject(error)
+      },
       timer,
       extensionId
-    })
+    }
+    pendingCalls.set(requestId, call)
+    options.signal?.addEventListener('abort', abort, { once: true })
   })
   return { promise, requestId }
 }
@@ -73,7 +104,6 @@ function pendingResponse(
     )
     return
   }
-  clearTimeout(call.timer)
   return call
 }
 
@@ -81,28 +111,24 @@ export function resolve(requestId: string, extensionId: string, payload: unknown
   const call = pendingResponse(requestId, extensionId, 'result')
   if (!call) return
   call.resolve(payload)
-  pendingCalls.delete(requestId)
 }
 
 export function reject(requestId: string, extensionId: string, error: Error): void {
   const call = pendingResponse(requestId, extensionId, 'error')
   if (!call) return
   call.reject(error)
-  pendingCalls.delete(requestId)
 }
 
 export function cleanupForExtension(extensionId: string): void {
   for (const [reqId, call] of pendingCalls.entries()) {
-    const { timer, reject: fail, extensionId: extId } = call
+    const { reject: fail, extensionId: extId } = call
     if (extId === extensionId) {
-      clearTimeout(timer)
       fail(
         createToolError(
           TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED,
           'Extension disconnected before providing a result.'
         )
       )
-      pendingCalls.delete(reqId)
       log.warn({ reqId, extId: extensionId }, 'Rejected pending call from disconnected extension.')
     }
   }
@@ -110,8 +136,7 @@ export function cleanupForExtension(extensionId: string): void {
 
 export function cleanupAll(): void {
   pendingCalls.forEach((call, reqId) => {
-    const { timer, reject: fail } = call
-    clearTimeout(timer)
+    const { reject: fail } = call
     fail(new Error('Hub is shutting down.'))
     log.debug({ reqId }, 'Rejected pending tool call due to shutdown.')
   })

@@ -1,10 +1,10 @@
 import type { DesignFeedback } from '@tempad-dev/shared'
 
-import { mkdtemp, rm, readdir, symlink } from 'node:fs/promises'
+import { mkdtemp, rm, readdir, readFile, rename, symlink, writeFile } from 'node:fs/promises'
 import { createServer, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   CodexAppFeedback,
@@ -16,6 +16,13 @@ import { CodexNativeQueue, CodexQueueUnavailable } from '../src/agent-clients/co
 import { AgentClients } from '../src/agent-clients/registry'
 import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
+import { HISTORY_RETENTION_MS } from '../src/history-retention'
+
+vi.mock('node:fs/promises', async (original) => {
+  const fs = await original<typeof import('node:fs/promises')>()
+  return { ...fs, rename: vi.fn(fs.rename), writeFile: vi.fn(fs.writeFile) }
+})
+const realFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
 
 const binding = { client: { kind: 'codex' as const, name: 'Codex', sessionId: 'thread-a' } }
 const feedback = {
@@ -33,8 +40,14 @@ const accepted = {
   result: { result: { turn: { id: 'turn-a', status: 'inProgress' } } }
 }
 const cleanups: (() => Promise<unknown>)[] = []
+beforeEach(() => {
+  feedback.createdAt = Date.now()
+})
 afterEach(async () => {
   vi.useRealTimers()
+  vi.restoreAllMocks()
+  vi.mocked(rename).mockReset().mockImplementation(realFs.rename)
+  vi.mocked(writeFile).mockReset().mockImplementation(realFs.writeFile)
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 async function directory() {
@@ -85,6 +98,308 @@ async function fixture() {
 }
 
 describe('Codex feedback delivery', () => {
+  it.each([
+    { age: HISTORY_RETENTION_MS, error: 'expired' },
+    { age: -5 * 60000 - 1, error: 'future' }
+  ])('rejects $error submissions before opening a connection', async ({ age, error }) => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    const f = await fixture()
+    await expect(f.send({ ...feedback, createdAt: now - age })).rejects.toThrow(error)
+    expect(f.open).not.toHaveBeenCalled()
+    expect(await readdir(f.dir)).toEqual([])
+  })
+
+  it('rechecks expiration after owner discovery before dispatch', async () => {
+    let now = Date.now()
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const f = await fixture()
+    f.owner.mockImplementationOnce(async () => {
+      now += HISTORY_RETENTION_MS
+      return 'owner-a'
+    })
+    await expect(f.send()).rejects.toThrow('expired')
+    expect(f.request).not.toHaveBeenCalled()
+    expect(f.queue.admit).not.toHaveBeenCalled()
+  })
+
+  it('rechecks expiration after fallback queue inspection before starting a turn', async () => {
+    let now = Date.now()
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const f = await fixture()
+    vi.spyOn(f.queue, 'areQueuesEmpty').mockImplementationOnce(async () => {
+      now += HISTORY_RETENTION_MS
+      return true
+    })
+    await expect(f.send()).rejects.toThrow('expired')
+    expect(f.request).not.toHaveBeenCalled()
+    expect(f.dispatched).not.toHaveBeenCalled()
+    expect(await readdir(f.dir)).toEqual([])
+  })
+
+  it('keeps future-dated confirmed receipts until retry is expired, including across restart', async () => {
+    let now = Date.now()
+    const acceptedAt = now
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const f = await fixture()
+    const value = { ...feedback, createdAt: now + 5 * 60000 }
+    await f.send(value)
+    const files = await readdir(f.dir)
+    const path = join(f.dir, files[0]!)
+    expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
+      acceptedAt,
+      feedbackCreatedAt: value.createdAt
+    })
+    f.native.close()
+    const restarted = new CodexAppFeedback(f.dir, f.open, 1, f.load, f.queue)
+    cleanups.push(async () => restarted.close())
+    now += HISTORY_RETENTION_MS
+    await restarted.reconcileQueued(() => false)
+    expect(await readdir(f.dir)).toEqual(files)
+    await restarted.enqueue(binding, 'task-a', value, f.controller.signal, f.validate, f.dispatched)
+    expect(f.request).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(await readFile(path, 'utf8')).acceptedAt).toBe(acceptedAt)
+    now += 5 * 60000
+    await restarted.reconcileQueued(() => false)
+    expect(await readdir(f.dir)).toEqual([])
+    await expect(
+      restarted.enqueue(binding, 'task-a', value, f.controller.signal, f.validate, f.dispatched)
+    ).rejects.toThrow('expired')
+    expect(f.request).toHaveBeenCalledTimes(1)
+  })
+
+  it('migrates confirmed legacy receipts conservatively and retains unknown submissions', async () => {
+    let now = Date.now()
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const f = await fixture()
+    const delivered = join(f.dir, `${'a'.repeat(64)}.json`)
+    const pending = join(f.dir, `${'b'.repeat(64)}.json`)
+    await writeFile(
+      delivered,
+      JSON.stringify({ signature: 'old', status: 'delivered', turnId: 'turn-a' })
+    )
+    await writeFile(pending, JSON.stringify({ signature: 'unknown', status: 'pending' }))
+    await f.native.reconcileQueued(() => false)
+    expect(JSON.parse(await readFile(delivered, 'utf8')).acceptedAt).toBe(now)
+    now += HISTORY_RETENTION_MS + 5 * 60000
+    await f.native.reconcileQueued(() => false)
+    expect(await readdir(f.dir)).toEqual([`${'b'.repeat(64)}.json`])
+  })
+
+  it('does not prune queued receipts until a successful read confirms the message is absent', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    const f = await fixture()
+    const path = join(f.dir, `${'c'.repeat(64)}.json`)
+    await writeFile(
+      path,
+      JSON.stringify({
+        signature: 'queue',
+        status: 'delivered',
+        delivery: 'queue',
+        conversationId: 'thread-a',
+        taskId: 'task-a',
+        messageId: feedback.id,
+        acceptedAt: now - HISTORY_RETENTION_MS,
+        feedbackCreatedAt: now - HISTORY_RETENTION_MS
+      })
+    )
+    const read = vi.spyOn(f.queue, 'readForReconciliation')
+    read.mockResolvedValueOnce([{ id: feedback.id }])
+    await f.native.reconcileQueued(() => false)
+    expect(await readdir(f.dir)).toHaveLength(1)
+    read.mockRejectedValueOnce(new Error('Database unavailable'))
+    await f.native.reconcileQueued(() => false)
+    expect(await readdir(f.dir)).toHaveLength(1)
+    read.mockResolvedValueOnce([])
+    await f.native.reconcileQueued(() => false)
+    expect(await readdir(f.dir)).toEqual([])
+  })
+
+  it('retains unknown cancellation fences until that exact late message is observed and removed', async () => {
+    let now = Date.now()
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const f = await fixture()
+    const path = join(f.dir, `${'d'.repeat(64)}.json`)
+    const otherPath = join(f.dir, `${'e'.repeat(64)}.json`)
+    const receipt = {
+      signature: 'uncertain',
+      status: 'pending',
+      delivery: 'queue',
+      conversationId: 'thread-a',
+      taskId: 'task-a',
+      messageId: feedback.id,
+      acceptedAt: now,
+      feedbackCreatedAt: now
+    }
+    await writeFile(path, JSON.stringify(receipt))
+    await writeFile(
+      otherPath,
+      JSON.stringify({
+        ...receipt,
+        messageId: 'still-unknown',
+        status: 'removed',
+        acceptedAt: undefined,
+        feedbackCreatedAt: undefined
+      })
+    )
+    const read = vi.spyOn(f.queue, 'read').mockResolvedValue([])
+    const remove = vi.spyOn(f.queue, 'remove').mockResolvedValue(undefined)
+    await f.native.cancelQueued('task-a')
+    now += HISTORY_RETENTION_MS * 2
+    await f.native.reconcileQueued(() => false)
+    expect(await readdir(f.dir)).toHaveLength(2)
+    read.mockResolvedValue([{ id: feedback.id }])
+    remove.mockImplementationOnce(async () => {
+      read.mockResolvedValue([])
+    })
+    await f.native.reconcileQueued(() => false)
+    expect(remove).toHaveBeenCalledOnce()
+    expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
+      status: 'removed',
+      queueCommitConfirmed: true
+    })
+    expect(JSON.parse(await readFile(otherPath, 'utf8'))).toMatchObject({
+      status: 'removed',
+      queueCommitConfirmed: false
+    })
+    await f.native.reconcileQueued(() => false)
+    expect(await readdir(f.dir)).toEqual([`${'e'.repeat(64)}.json`])
+  })
+
+  it('retains observed commit certainty across a failed Stop removal and restart', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    const f = await fixture()
+    const path = join(f.dir, `${'f'.repeat(64)}.json`)
+    await writeFile(
+      path,
+      JSON.stringify({
+        signature: 'uncertain',
+        status: 'pending',
+        delivery: 'queue',
+        conversationId: 'thread-a',
+        taskId: 'task-a',
+        messageId: feedback.id,
+        acceptedAt: now - HISTORY_RETENTION_MS,
+        feedbackCreatedAt: now - HISTORY_RETENTION_MS
+      })
+    )
+    const read = vi.spyOn(f.queue, 'read').mockResolvedValue([{ id: feedback.id }])
+    vi.spyOn(f.queue, 'remove').mockRejectedValueOnce(new CodexIpcError('Disconnected', true))
+    await expect(f.native.cancelQueued('task-a')).rejects.toThrow('Disconnected')
+    expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
+      status: 'cancelled',
+      queueCommitConfirmed: true
+    })
+    f.native.close()
+    // A successful read after restart proves the observed commit is no longer queued.
+    read.mockResolvedValue([])
+    const restarted = new CodexAppFeedback(f.dir, f.open, 1, f.load, f.queue)
+    cleanups.push(async () => restarted.close())
+    await restarted.reconcileQueued(() => false)
+    await restarted.reconcileQueued(() => false)
+    expect(await readdir(f.dir)).toEqual([])
+  })
+
+  it('does not wait for a different task after the cancelled task has finished delivery', async () => {
+    const f = await fixture()
+    await f.send()
+    const gate = Promise.withResolvers<typeof accepted>()
+    f.request.mockReturnValueOnce(gate.promise)
+    const pending = f.native.enqueue(
+      binding,
+      'task-b',
+      { ...feedback, id: '00000000-0000-4000-8000-000000000002' },
+      f.controller.signal,
+      f.validate,
+      f.dispatched
+    )
+    let cancelled = false
+    let cancellation: Promise<void> | undefined
+    try {
+      await vi.waitFor(() => expect(f.request).toHaveBeenCalledTimes(2))
+      cancellation = f.native.cancelQueued('task-a').then(() => {
+        cancelled = true
+      })
+      await vi.waitFor(() => expect(cancelled).toBe(true), { timeout: 500 })
+    } finally {
+      gate.resolve(accepted)
+      await pending
+      await cancellation
+    }
+  })
+
+  it('waits for the last same-task delivery before Stop and permanently fences later enqueues', async () => {
+    const f = await fixture()
+    const first = Promise.withResolvers<typeof accepted>()
+    const second = Promise.withResolvers<typeof accepted>()
+    f.request.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    const delivery = f.send()
+    const next = f.send({ ...feedback, id: '00000000-0000-4000-8000-000000000002' })
+    let cancelled = false
+    let cancellation: Promise<void> | undefined
+    try {
+      await vi.waitFor(() => expect(f.request).toHaveBeenCalledOnce())
+      first.resolve(accepted)
+      await delivery
+      await vi.waitFor(() => expect(f.request).toHaveBeenCalledTimes(2))
+      cancellation = f.native.cancelQueued('task-a').then(() => {
+        cancelled = true
+      })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(cancelled).toBe(false)
+      second.resolve(accepted)
+      await next
+      await cancellation
+      await expect(
+        f.send({ ...feedback, id: '00000000-0000-4000-8000-000000000003' })
+      ).rejects.toThrow('cancelled')
+      expect(f.request).toHaveBeenCalledTimes(2)
+    } finally {
+      first.resolve(accepted)
+      second.resolve(accepted)
+      await Promise.all([delivery, next, cancellation])
+    }
+  })
+
+  it.each(
+    (['queue', 'steer'] as const).flatMap((mode) =>
+      (['write', 'rename'] as const).map((operation) => ({ mode, operation }))
+    )
+  )(
+    'cleans a failed $operation of a $mode success receipt without losing the uncertain delivery fence',
+    async ({ mode, operation }) => {
+      const f = await fixture()
+      const batch = { ...feedback, mode }
+      if (mode === 'steer') {
+        f.request
+          .mockRejectedValueOnce(
+            new CodexIpcError('App context must wait until the current turn finishes')
+          )
+          .mockResolvedValueOnce({ ...accepted, result: { result: { turnId: 'active-turn' } } })
+      }
+      const failure = new Error('Receipt persistence failed')
+      if (operation === 'rename') vi.mocked(rename).mockRejectedValueOnce(failure)
+      else
+        vi.mocked(writeFile).mockImplementation(async (...args) => {
+          await realFs.writeFile(...args)
+          if (String(args[0]).endsWith('.tmp')) throw failure
+        })
+      await expect(f.send(batch)).rejects.toThrow(failure)
+      const entries = await readdir(f.dir)
+      expect(entries.filter((name) => name.endsWith('.tmp'))).toEqual([])
+      const receipts = entries.filter((name) => name.endsWith('.json'))
+      expect(receipts).toHaveLength(1)
+      expect(JSON.parse(await readFile(join(f.dir, receipts[0]!), 'utf8'))).toMatchObject({
+        status: 'pending',
+        signature: expect.any(String)
+      })
+      await expect(f.send(batch)).rejects.toThrow('Earlier Codex delivery is uncertain')
+      expect(f.request).toHaveBeenCalledTimes(mode === 'steer' ? 2 : 1)
+    }
+  )
+
   it.each(['queue', 'steer'] as const)(
     'uses visible IPC for %s with active hooks and never falls back after an IPC failure',
     async (mode) => {
@@ -580,7 +895,7 @@ describe('Codex feedback delivery', () => {
 
   it('bounds unsuccessful loading and allows the same saved batch to retry', async () => {
     const f = await fixture()
-    let now = 1000
+    let now = Date.now()
     const time = vi.spyOn(Date, 'now').mockImplementation(() => now)
     try {
       f.owner.mockImplementation(async () => {

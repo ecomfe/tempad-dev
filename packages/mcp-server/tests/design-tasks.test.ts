@@ -341,6 +341,41 @@ describe('design task leases', () => {
     })
   })
 
+  it.each(['completed', 'paused', 'expired', 'interrupted'] as const)(
+    'captures a new review result after resuming through %s, preserving same-pass retries',
+    (status) => {
+      const f = fixture()
+      const task = f.begin()
+      f.tasks.captureResult(task.taskId, 'root-a', false)
+      f.tasks.snapshotResult(task.taskId, 'First pass')
+      f.tasks.stop(task.taskId, 'completed')
+      const first = task.result
+      f.tasks.resume(task.taskId, 'caller-a', 0, session)
+      expect(task.result).toBeUndefined()
+      if (status !== 'completed') {
+        f.tasks.stop(task.taskId, status)
+        f.tasks.resume(task.taskId, 'caller-a', 1, session)
+      }
+      f.advance(50)
+      f.tasks.captureResult(task.taskId, 'root-a', true)
+      f.tasks.captureResult(task.taskId, 'root-b', false)
+      f.tasks.snapshotResult(task.taskId, 'Revised pass')
+      const current = task.result
+      // An active resume retry does not start another pass or discard a pending snapshot.
+      f.tasks.resume(task.taskId, 'caller-a', task.epoch!, session)
+      expect(task.result).toBe(current)
+      f.tasks.stop(task.taskId, 'completed')
+      f.advance(50)
+      f.tasks.snapshotResult(task.taskId, 'Retry must not replace the revised pass')
+      expect(task.result).toEqual({
+        nodeIds: ['root-b'],
+        summary: 'Revised pass',
+        capturedAt: 1050
+      })
+      expect(first).toEqual({ nodeIds: ['root-a'], summary: 'First pass', capturedAt: 1000 })
+    }
+  )
+
   it('keeps a task on its bound connection when another connection reports the same session id', () => {
     const f = fixture()
     const task = f.begin()
@@ -467,7 +502,7 @@ describe('design task leases', () => {
     expect(task.expiresAt).toBe(1100)
     expect(() =>
       f.tasks.begin('caller-a', 'extension-a', session, 'Different title', 'begin-1')
-    ).toThrow('another title')
+    ).toThrow(expect.objectContaining({ code: 'REQUEST_ID_CONFLICT' }))
     expect(() => f.begin('caller-a')).toThrow('occupied')
     expect(() => f.begin('caller-b')).toThrow('occupied')
   })
@@ -513,6 +548,22 @@ describe('design task leases', () => {
     f.advance(80)
     f.tasks.touch(task.taskId, 'caller-a')
     expect(task.expiresAt).toBe(2260)
+  })
+
+  it('sweeps only current file leases while retaining every historical Stop fence', () => {
+    const f = fixture()
+    const old = f.begin()
+    f.tasks.stop(old.taskId, 'cancelled')
+    const current = f.begin()
+    const historicalStatus = vi.fn(() => 'cancelled')
+    Object.defineProperty(old, 'status', { get: historicalStatus, configurable: true })
+    f.advance(100)
+    f.tasks.sweep()
+    expect(current.status).toBe('expired')
+    expect(historicalStatus).not.toHaveBeenCalled()
+    expect(f.tasks.find(old.taskId)?.task).toBe(old)
+    expect(() => f.tasks.owned(old.taskId, 'caller-a', true)).toThrow('cancelled')
+    expect(() => f.call('untagged-write')).toThrow('Begin a new task')
   })
 
   it('rejects writes without the occupying task and permits independent reads between operations', () => {
@@ -616,7 +667,7 @@ describe('design task leases', () => {
     expect(f.begin('caller-b').status).toBe('active')
   })
 
-  it('keeps uncertain execution fenced until its browser proves the runtime idle or gone', () => {
+  it('keeps disconnected execution fenced until a result or proven tab closure', () => {
     const f = fixture()
     const task = f.begin()
     f.call('write', task.taskId)
@@ -625,15 +676,19 @@ describe('design task leases', () => {
     f.tasks.reconcileSessions('browser-a', [{ ...session, busy: true }])
     expect(() => f.begin('caller-b')).toThrow('not finished')
     f.tasks.reconcileSessions('browser-a', [session])
+    expect(() => f.begin('caller-b')).toThrow('not finished')
+    f.tasks.finishOperation('write', 'wrong-extension')
+    expect(() => f.begin('caller-b')).toThrow('not finished')
+    f.tasks.finishOperation('write', 'extension-a')
     expect(task.status).toBe('interrupted')
     const second = f.begin()
     f.call('write-2', second.taskId, true, { ...session, tabId: 1, documentId: 'document-a' })
-    f.tasks.uncertain('write-2', 'wrong-extension')
     f.tasks.reconcileSessions('browser-a', [])
     expect(() => f.begin('caller-b')).toThrow('not finished')
-    f.tasks.uncertain('write-2', 'extension-a')
     f.tasks.stop(second.taskId, 'interrupted')
     f.tasks.reconcileSessions('browser-a', [])
+    expect(() => f.begin('caller-b')).toThrow('not finished')
+    f.tasks.reconcileSessions('other-browser', [], [])
     expect(() => f.begin('caller-b')).toThrow('not finished')
     f.tasks.reconcileSessions('browser-a', [], [])
     expect(f.begin('caller-b').status).toBe('active')

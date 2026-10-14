@@ -48,6 +48,17 @@ function client(executable = vi.fn(async () => '/host/resources/codex')) {
 }
 
 describe('queue-only native RPC', () => {
+  it('releases an idle queue process and reconnects on demand', async () => {
+    vi.useFakeTimers()
+    const first = peer()
+    const rpc = client()
+    await rpc.list('thread')
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(first.child.kill).toHaveBeenCalledOnce()
+    const second = peer()
+    await rpc.list('thread')
+    expect(second.requests.some(({ method }) => method === 'thread/queue/list')).toBe(true)
+  })
   it('initializes once, reads every page and exposes only queue operations', async () => {
     const message = { id: 'native-a', clientUserMessageId: 'feedback-a', input: [] }
     const f = peer(({ method, params }) => {

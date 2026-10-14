@@ -1,5 +1,50 @@
 # Changelog
 
+## Unreleased
+
+- Identify Claude from its exact MCP client handshake before inherited Codex metadata,
+  preventing nested Claude sessions from routing controls to the parent Codex conversation.
+  Reconnected clients without a handshake require request metadata before using a Codex
+  conversation, rather than trusting inherited environment identity alone.
+- Recover Claude task ownership across Hub reconnects using confirmed client bindings,
+  and accept startup session identity only after an exact Claude handshake and matching
+  lifecycle hook. Clear pending identities on SessionEnd without restoring stale startup IDs.
+- Handle lifecycle hooks without creating MCP consumers or triggering last-consumer shutdown,
+  and remove logs older than seven days only after their owning process has exited.
+- Cap each active process log at 10 MiB in the logging worker, marking discarded history and
+  oversized entries while preserving final records on exit. Update the locked logging transport
+  dependency to fix oversized multibyte writes during exit flushing.
+- Honor cancellation for numeric zero and empty-string request IDs without changing wire IDs,
+  and remove unreachable Hub handlers while preserving the public tool list and legacy protocol.
+- Verify extension ownership before routing task actions and isolate incompatible persisted
+  records without discarding Stop fences. Keep reads available when task storage needs recovery.
+- Bound uncertain canvas-write waits, preserve future error codes, retry failed task persistence,
+  and keep Stop available when completed action history fills its cache.
+- Cancel consumer waits without releasing in-flight operation fences. Stale idle snapshots no
+  longer prove completion; definitive results or closure/replacement of the executing document do.
+- Verify private Unix sockets before connecting and isolate unsafe Linux temporary roots without
+  silently migrating an active Hub.
+- Bound individual CLI connection attempts and repeated empty or invalid bridges. Back off after
+  disconnection and report repeated permission or trust failures, while retaining automatic
+  recovery from transient errors after a working bridge.
+- Lock state and asset directories before recovery and retain ownership until process exit,
+  preventing updated Hubs with different runtime directories from sharing a writer.
+- Flush asset metadata again before shutdown exits, preserving uploads that finish after the
+  initial flush without extending the shutdown timeout.
+- Expire retired task details and confirmed delivery receipts after 30 days, retaining current
+  open reviews, compact Stop/recovery fences, and unresolved late-delivery protection.
+  Reject expired feedback batches before dispatch and bound background receipt scans without
+  waking the queue companion for empty queues.
+- Capture a fresh completion summary after resuming a design task while preserving same-pass retries.
+- Publish resumed task leases only after saving them; retain the previous status and result when
+  persistence fails so retry and restart cannot expose conflicting task state.
+- Distinguish conflicting begin request IDs from inactive tasks without changing retry or Stop behavior.
+- Avoid rewriting task snapshots when result roots and page bindings have not changed.
+- Keep runtime identity update failures from interrupting live connections and finish shutdown
+  cleanup even when asset or identity persistence fails.
+- Isolate compatibility-check state, save asset indexes atomically, preserve asset paths, and
+  avoid unnecessary lifecycle subscriptions for read-only calls.
+
 ## 0.11.0
 
 - Fixed native Queue delivery with Codex desktop versions that bundle the CLI inside

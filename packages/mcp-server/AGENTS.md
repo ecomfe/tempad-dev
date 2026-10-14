@@ -58,7 +58,8 @@ pnpm -C packages/mcp-server test:coverage
 ## Project structure
 
 - `src/cli.ts`: MCP stdio entrypoint and Hub startup.
-- `src/hub.ts`: tool routing, WebSocket server, MCP resources.
+- `src/hub.ts`: startup entrypoint.
+- `src/hub-runtime.ts`: Hub lifecycle, tool routing, and WebSocket server.
 - `src/tools.ts`: tool definitions and formatters.
 - `src/request.ts`: pending tool call tracking and timeouts.
 - `src/asset-store.ts`: asset index and cleanup.

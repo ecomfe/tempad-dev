@@ -168,7 +168,7 @@ export function createAssetHttpServer(
       return
     }
 
-    const filename = segments[2]
+    const filename = segments[2]!
     const hash = getHashFromAssetFilename(filename)
     if (!hash) {
       sendError(res, 404, 'Not Found')
@@ -293,15 +293,7 @@ export function createAssetHttpServer(
       }
 
       if (existsSync(existingPath)) {
-        if (existingPath !== filePath) {
-          try {
-            renameSync(existingPath, filePath)
-            existing.filePath = filePath
-          } catch (error) {
-            log.warn({ error, hash }, 'Failed to rename existing asset to include extension.')
-          }
-        }
-
+        // Previously returned localPath values stay valid across MIME metadata updates.
         // Drain request to ensure connection is clean
         req.resume()
 

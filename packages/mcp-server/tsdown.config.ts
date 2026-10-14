@@ -2,7 +2,7 @@ import { defineConfig } from 'tsdown'
 import raw from 'unplugin-raw/rolldown'
 
 export default defineConfig({
-  entry: ['src/cli.ts', 'src/hub.ts'],
+  entry: ['src/cli.ts', 'src/hub.ts', 'src/log-transport.ts'],
   plugins: [raw()],
   format: ['esm'],
   platform: 'node',

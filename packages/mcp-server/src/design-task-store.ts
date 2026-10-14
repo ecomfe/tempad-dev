@@ -1,15 +1,17 @@
 import { DesignTaskSchema } from '@tempad-dev/shared'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 
 const SnapshotSchema = z.object({
   revision: z.number().int().nonnegative(),
   current: z.record(z.string(), z.string()),
+  fileFences: z.record(z.string(), z.boolean()).optional(),
   records: z.array(
     z.object({
-      task: DesignTaskSchema,
+      task: DesignTaskSchema.strip(),
       requestId: z.string(),
+      retiredAt: z.number().nonnegative().optional(),
       browser: z
         .object({
           browserId: z.string(),
@@ -26,22 +28,61 @@ export type DesignTaskSnapshot = z.infer<typeof SnapshotSchema>
 
 /** One lock-owning Hub writes a small atomic snapshot; transport and leases are never restored. */
 export class DesignTaskStore {
+  recoveryError?: string
+  blockedFiles?: Set<string>
+  private incompatibleRecords: unknown[] = []
   constructor(private readonly path: string) {}
 
   load(): DesignTaskSnapshot | undefined {
+    this.recoveryError = undefined
+    this.blockedFiles = new Set()
+    this.incompatibleRecords = []
     try {
-      return SnapshotSchema.parse(JSON.parse(readFileSync(this.path, 'utf8')))
+      if (!existsSync(this.path) && existsSync(`${this.path}.corrupt`))
+        throw new Error('A quarantined task snapshot requires recovery.')
+      const raw = SnapshotSchema.extend({ records: z.array(z.unknown()) }).parse(
+        JSON.parse(readFileSync(this.path, 'utf8'))
+      )
+      const records: DesignTaskSnapshot['records'] = []
+      for (const item of raw.records) {
+        const parsed = SnapshotSchema.shape.records.element.safeParse(item)
+        if (parsed.success) {
+          records.push(parsed.data)
+          continue
+        }
+        const target = z
+          .object({ task: z.object({ target: z.object({ fileKey: z.string().min(1) }) }) })
+          .safeParse(item)
+        if (!target.success) throw new Error('An incompatible task has no identifiable file fence.')
+        this.blockedFiles.add(target.data.task.target.fileKey)
+        // Preserve incompatible records verbatim so later writes and restarts keep their fences.
+        this.incompatibleRecords.push(item)
+      }
+      return { ...raw, records }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-      // Do not silently erase task identity or Stop/Done fences on corrupt storage.
-      throw error
+      // Keep a durable marker: restarting must never erase unknown Stop fences.
+      if (existsSync(this.path) && !existsSync(`${this.path}.corrupt`)) {
+        try {
+          renameSync(this.path, `${this.path}.corrupt`)
+        } catch {
+          /* Keep the original evidence. */
+        }
+      }
+      this.recoveryError = `Design task storage requires recovery at ${this.path}. Reads remain available; canvas writes are blocked to preserve saved Stop fences.`
+      return undefined
     }
   }
 
   save(snapshot: DesignTaskSnapshot): void {
+    if (this.recoveryError) throw new Error(this.recoveryError)
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 })
     const temporary = `${this.path}.tmp`
-    writeFileSync(temporary, JSON.stringify(snapshot), { mode: 0o600, flush: true })
+    writeFileSync(
+      temporary,
+      JSON.stringify({ ...snapshot, records: [...snapshot.records, ...this.incompatibleRecords] }),
+      { mode: 0o600, flush: true }
+    )
     renameSync(temporary, this.path)
   }
 }

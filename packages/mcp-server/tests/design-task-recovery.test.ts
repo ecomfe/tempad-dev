@@ -34,7 +34,8 @@ function fixture() {
       snapshot = structuredClone(value)
     }
   }
-  const options = { createId: () => `task-${++id}`, now: () => 1000, store }
+  const onChange = vi.fn()
+  const options = { createId: () => `task-${++id}`, now: () => 1000, store, onChange }
   const tasks = new DesignTasks(options)
   const begin = () =>
     tasks.begin(
@@ -52,10 +53,188 @@ function fixture() {
     restored.restore()
     return restored
   }
-  return { tasks, begin, restart, store }
+  return { tasks, begin, restart, store, onChange }
 }
 
 describe('durable design reviews', () => {
+  it('writes result roots only when their ordered last-20 snapshot changes', () => {
+    const f = fixture()
+    const record = f.begin()
+    const taskId = record.task.taskId
+    const save = vi.spyOn(f.store, 'save')
+    f.tasks.captureResult(taskId, 'absent', true)
+    expect(save).not.toHaveBeenCalled()
+    for (let index = 0; index < 21; index++) f.tasks.captureResult(taskId, `root-${index}`, false)
+    expect(save).toHaveBeenCalledTimes(21)
+    expect(f.store.load()?.records[0]?.resultNodeIds).toEqual(
+      Array.from({ length: 20 }, (_, index) => `root-${index + 1}`)
+    )
+    save.mockClear()
+    f.tasks.captureResult(taskId, 'root-20', false)
+    f.tasks.captureResult(taskId, 'root-0', true)
+    expect(save).not.toHaveBeenCalled()
+    f.tasks.captureResult(taskId, 'root-1', false)
+    expect(save).toHaveBeenCalledOnce()
+    expect(f.store.load()?.records[0]?.resultNodeIds).toEqual([
+      ...Array.from({ length: 19 }, (_, index) => `root-${index + 2}`),
+      'root-1'
+    ])
+    f.tasks.captureResult(taskId, 'root-1', true)
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(f.restart().find(taskId)?.resultNodeIds).toEqual(
+      Array.from({ length: 19 }, (_, index) => `root-${index + 2}`)
+    )
+  })
+
+  it('keeps repeated reads, confirmations, unchanged pages and idle sweeps write-free', () => {
+    const f = fixture()
+    const record = f.begin()
+    const taskId = record.task.taskId
+    f.tasks.confirm(taskId, record.ownerId)
+    const before = structuredClone(record.task)
+    const save = vi.spyOn(f.store, 'save')
+    f.tasks.find(taskId)
+    f.tasks.owned(taskId, record.ownerId)
+    f.tasks.confirm(taskId, record.ownerId)
+    f.tasks.list()
+    f.tasks.sweep()
+    f.tasks.updatePage(taskId, session.pageId)
+    expect(save).not.toHaveBeenCalled()
+    expect(record.task).toEqual(before)
+    expect(record.ready).toBe(true)
+    f.tasks.updatePage(taskId, 'page-new')
+    expect(save).toHaveBeenCalledOnce()
+    expect(record.task.expiresAt).toBe(before.expiresAt)
+    expect(record.task.needsRead).toBe(before.needsRead)
+    expect(record.ready).toBe(true)
+    expect(f.restart().find(taskId)?.task.target.pageId).toBe('page-new')
+  })
+
+  it('retains a completed snapshot across restart until resume starts a new result pass', () => {
+    const f = fixture()
+    const record = f.begin()
+    const taskId = record.task.taskId
+    f.tasks.captureResult(taskId, 'root-a', false)
+    f.tasks.snapshotResult(taskId, 'Saved first pass')
+    f.tasks.stop(taskId, 'completed')
+    const restored = f.restart()
+    expect(restored.find(taskId)?.task.result).toEqual(record.task.result)
+    restored.attachClient('fresh-transport', client)
+    const resumed = restored.resume(taskId, 'fresh-transport', 1, session)
+    expect(resumed.task.result).toBeUndefined()
+    // A restart during resumed work must not restore the old completion snapshot.
+    const next = f.restart()
+    expect(next.find(taskId)?.task.result).toBeUndefined()
+    next.attachClient('next-transport', client)
+    next.resume(taskId, 'next-transport', 3, session)
+    next.snapshotResult(taskId, 'New pass without canvas mutations')
+    next.stop(taskId, 'completed')
+    expect(f.restart().find(taskId)?.task.result).toEqual({
+      nodeIds: ['root-a'],
+      summary: 'New pass without canvas mutations',
+      capturedAt: 1000
+    })
+  })
+
+  it.each(['completed', 'paused', 'interrupted', 'expired'] as const)(
+    'keeps the %s review unchanged when its resumed lease cannot be saved',
+    (status) => {
+      const f = fixture()
+      const record = f.begin()
+      const task = record.task
+      f.tasks.confirm(task.taskId, record.ownerId)
+      if (status === 'completed') f.tasks.snapshotResult(task.taskId, 'Prior completed pass')
+      f.tasks.stop(task.taskId, status)
+      const before = structuredClone(record)
+      const saved = f.store.load()
+      const save = f.store.save
+      f.store.save = () => {
+        throw new Error('Disk full')
+      }
+      f.onChange.mockClear()
+
+      expect(() => f.tasks.resume(task.taskId, record.ownerId, 0, session)).toThrow('Disk full')
+      expect(record.task).toBe(task)
+      expect(record).toEqual(before)
+      expect(f.onChange).not.toHaveBeenCalled()
+      expect(f.store.load()).toEqual(saved)
+      expect(() => f.begin()).toThrow('storage recovers')
+
+      f.store.save = save
+      const resumed = f.tasks.resume(task.taskId, record.ownerId, 0, session)
+      expect(resumed.task).toBe(task)
+      expect(task).toMatchObject({ status: 'active', epoch: 1, needsRead: true })
+      expect(task.result).toBeUndefined()
+      expect(record.ready).toBe(false)
+      expect(record.ending).toBeUndefined()
+      expect(f.onChange).toHaveBeenCalledOnce()
+      expect(f.store.load()?.records[0]?.task).toMatchObject({ status: 'active', epoch: 1 })
+      expect(f.store.load()?.records[0]?.task.result).toBeUndefined()
+      const restored = f.restart().find(task.taskId)?.task
+      expect(restored).toMatchObject({
+        status: 'paused',
+        epoch: 2,
+        needsRead: true
+      })
+      expect(restored?.result).toBeUndefined()
+    }
+  )
+
+  it('rebinds a disconnected browser and delivers its offline Stop before cancellation', () => {
+    const seen: string[] = []
+    const tasks = new DesignTasks({
+      createId: () => 'task',
+      now: () => 1000,
+      onReviewStop: (record) => {
+        seen.push(record.task.status)
+      }
+    })
+    const record = tasks.begin(
+      'owner',
+      'old-connection',
+      session,
+      'Review',
+      'request',
+      client,
+      undefined,
+      browser
+    )
+    tasks.disconnectExtension('old-connection')
+    expect(record.extensionId).toBe('')
+    tasks.restoreReview({ ...record.task, status: 'cancelled' }, extension(), session)
+    expect(seen).toEqual(['interrupted'])
+    expect(record.task.status).toBe('cancelled')
+    tasks.restoreReview({ ...record.task, status: 'cancelled' }, extension(), session)
+    expect(seen).toHaveLength(1)
+  })
+  it('rejects copied Stop and Done snapshots from another connection or Origin', () => {
+    const f = fixture()
+    const record = f.begin()
+    const copied = { ...record.task, reviewClosed: true, status: 'cancelled' as const }
+    f.tasks.restoreReview(copied, extension(), session)
+    f.tasks.restoreReview(
+      copied,
+      { ...extension(), id: record.extensionId, origin: 'chrome-extension://attacker' },
+      session
+    )
+    expect(record.task.status).toBe('active')
+    expect(record.task.reviewClosed).toBeUndefined()
+  })
+
+  it('keeps Stop in memory on storage failure and retries before accepting writes', () => {
+    const f = fixture()
+    const record = f.begin()
+    const save = f.store.save
+    f.store.save = () => {
+      throw new Error('Disk full')
+    }
+    expect(() => f.tasks.stop(record.task.taskId, 'cancelled')).not.toThrow()
+    expect(record.task.status).toBe('cancelled')
+    expect(() => f.begin()).toThrow('storage recovers')
+    f.store.save = save
+    f.tasks.sweep()
+    expect(f.restart().find(record.task.taskId)?.task.status).toBe('cancelled')
+  })
   it.each(['active', 'completed', 'cancelled'] as const)(
     'restores %s metadata with no transport, operation, capability, or old write lease',
     (status) => {
@@ -209,7 +388,11 @@ describe('durable design reviews', () => {
     )
     const f2 = fixture()
     const stopped = f2.begin()
-    f2.tasks.restoreReview({ ...stopped.task, status: 'cancelled' }, extension(), session)
+    f2.tasks.restoreReview(
+      { ...stopped.task, status: 'cancelled' },
+      { ...extension(), id: 'original-extension' },
+      session
+    )
     expect(f2.restart().find(stopped.task.taskId)?.task.status).toBe('cancelled')
   })
 

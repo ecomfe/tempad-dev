@@ -78,6 +78,19 @@ export function attachExtensionSocket(
       extension.legacy ? LegacyMessageFromExtensionSchema : MessageFromExtensionSchema
     ).safeParse(parsedJson)
     if (!parseResult.success) {
+      if (
+        parsedJson &&
+        typeof parsedJson === 'object' &&
+        'type' in parsedJson &&
+        parsedJson.type === 'toolResult' &&
+        'id' in parsedJson &&
+        typeof parsedJson.id === 'string'
+      )
+        options.onToolError(parsedJson.id, extension.id, {
+          code: 'EXTENSION_DISCONNECTED',
+          message:
+            'The extension returned an invalid result. A canvas write may have completed; inspect the canvas before retrying.'
+        })
       options.onProtocolWarning?.({
         error: parseResult.error.flatten(),
         extensionId: extension.id,
@@ -87,8 +100,30 @@ export function attachExtensionSocket(
     }
 
     const message = parseResult.data
+    if (
+      !extension.legacy &&
+      !extension.runtime &&
+      (message.type === 'sessions' || message.type === 'designAction')
+    ) {
+      ws.close(1008, 'Runtime handshake required.')
+      return
+    }
     switch (message.type) {
       case 'sessions':
+        if (
+          options.registry
+            .list()
+            .some(
+              (peer) =>
+                peer.id !== extension.id &&
+                peer.sessions?.sessions.some((session) =>
+                  message.sessions.some((incoming) => incoming.sessionId === session.sessionId)
+                )
+            )
+        ) {
+          ws.close(1008, 'Figma session is already registered.')
+          return
+        }
         extension.sessions = message
         options.onSessions?.(extension)
         break

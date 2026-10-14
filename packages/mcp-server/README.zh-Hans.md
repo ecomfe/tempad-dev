@@ -32,6 +32,8 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
   恢复暂停的任务、设置状态栏锚点，以及结束或取消任务。Stop 会永久禁止旧任务写入，重新连接也不会恢复。
   兼容 Codex App 的原生评论支持 Queue 和 Steer；确认接收后清空已提交草稿，无需等待执行完成。
   详细行为与宿主验证范围见[评论指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#使用)。
+- `get_design_task`：读取任务状态及当前写入 lease。
+- `list_design_sessions`：列出已连接的 Figma 文件，供精确指定会话读取。
 - `apply_canvas`：使用受限 HTML、可确定转换的 Tailwind utility、类型化原生状态、SVG 和图片资源，
   对精确页面或托管根节点执行创建、更新、删除或激活。变量 utility 和命名文字样式 class 可绑定
   既有资源或同次调用中声明的资源；仅操作页面或更新 native 状态时可省略标记。
@@ -79,7 +81,7 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 - `TEMPAD_MCP_GET_CODE_TIMEOUT`：`get_code` 超时时间（毫秒，默认 `30000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。
 - `TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT`：`get_design_system` 首次资源目录发现的超时时间（毫秒，默认 `45000`；续页、精确引用、字体和页面列表读取仍使用常规超时）。设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值。
 - `TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT`：指定页面 ID 或 key 的 `get_structure` 超时时间（毫秒，默认 `45000`；冷页面可能需要先加载，节点和当前选择的读取仍使用常规超时）。设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值。
-- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`：`apply_canvas` 慢调用告警阈值（毫秒，默认 `120000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。超过阈值后，Hub 会继续等待明确结果或扩展断开，避免把已经完成的画布变更误报为超时。
+- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`：`apply_canvas` 慢调用告警阈值（毫秒，默认 `120000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。达到阈值的两倍时，Hub 会报告结果未知并禁止后续写入，直到明确结果或会话恢复解决该状态。重试前请先检查画布，变更可能已完成。
 - `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`：仅一个扩展连接时自动激活前的延迟（默认 `1500`）。
 - `TEMPAD_MCP_MAX_ASSET_BYTES`：截图/资源捕获的最大上传体积（字节，默认 `8388608`）。
 - `TEMPAD_MCP_MAX_ASSET_STORE_BYTES`：本地资源存储总量上限（字节，默认 `268435456`）。
@@ -87,11 +89,31 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 - `TEMPAD_MCP_MAX_EXTENSION_CONNECTIONS`：单个 Hub 同时允许的浏览器扩展连接上限（默认 `16`）。
 - `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS`：允许连接的精确 `chrome-extension://...` Origin，以逗号分隔。配置值无效时启动会直接失败，而不会弱化策略；未配置时为了向后兼容会接受所有格式合法的 Chrome 扩展 Origin。
 - `TEMPAD_MCP_ASSET_TTL_MS`：资源基于最近访问时间的清理 TTL（毫秒）；设置为 `0` 表示禁用（默认 `2592000000`）。
-- `TEMPAD_MCP_RUNTIME_DIR`：运行时目录覆盖（默认在系统临时目录下的 `tempad-dev/run`）。
-- `TEMPAD_MCP_LOG_DIR`：日志目录覆盖（默认在系统临时目录下的 `tempad-dev/log`）。
-- `TEMPAD_MCP_ASSET_DIR`：资源存储目录覆盖（默认在系统临时目录下的 `tempad-dev/assets`）。
+- `TEMPAD_MCP_RUNTIME_DIR`：运行时目录覆盖（默认为下述临时根目录中的 `run`）。
+- `TEMPAD_MCP_STATE_DIR`：任务与反馈持久化目录覆盖（默认为 `~/.tempad-dev/state`；显式覆盖运行时目录时，默认为其中的 `state`）。隔离 Hub 检查使用临时目录。
+- `TEMPAD_MCP_LOG_DIR`：日志目录覆盖（默认为临时根目录中的 `log`）。
+- `TEMPAD_MCP_ASSET_DIR`：资源存储目录覆盖（默认为临时根目录中的 `assets`）。
 
-Hub 仅接受来自 Chrome 扩展 Origin、且目标为根路径的 WebSocket 握手。如需收紧安装环境，请将浏览器中显示的 TemPad Dev 扩展 Origin 写入 `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS`。Origin 校验与每次进程启动生成的 asset capability 可以降低跨 Origin 的 loopback 滥用，但不能认证以同一操作系统用户运行的其他进程；详见[本地 MCP 威胁模型](../../docs/security/local-mcp-threat-model.md)。
+Hub 在加载状态和资源之前，会独占锁定两个存储目录，即使另一个 Hub 使用了不同的运行时目录。
+这些锁一直保留到进程退出，防止关闭期间的写入与接替的 Hub 重叠。旧版本不遵守新增的存储锁，
+请勿让旧版本与当前版本同时使用同一存储目录。
+
+首次连接前，CLI 连续三次启动失败后会向 stderr 报告错误并退出。解决报告的问题后，重新连接 MCP
+客户端即可重试。桥接成功后，临时连接故障会持续自动重试；连续三次权限、信任或无效桥接故障仍会使 CLI 退出。
+
+每个进程的日志文件上限为 10 MiB。超过上限时会丢弃该文件中的旧记录；单条超大记录会截断并注明。
+已退出进程的日志在七天未写入后清理。这是单文件限制，不是整个目录的总配额。
+
+Linux 上，运行时会以 `0700` 权限创建 `<系统临时目录>/tempad-dev`，或复用属于当前用户且权限为
+`0700` 的既有目录，确保重启及升级后旧 hooks 和客户端仍连接同一个 Hub 与生命周期锁。
+旧目录不安全（包括属于其他用户）时，改用 `<系统临时目录>/tempad-dev-<uid>`。
+一旦已有私有 UID 目录，旧目录消失或后来出现空目录都不会切回；两个目录同时存在 socket 或 Hub
+锁，或当前用户目录中的这些文件权限不安全时，会拒绝自动迁移。请先关闭既有运行时并修正所有者和权限。
+其他平台仍使用 `<系统临时目录>/tempad-dev`；显式目录覆盖优先。Unix 客户端与生命周期 hooks
+连接前会检查 socket 类型、所有者和私有权限，不可信时直接拒绝，不另启 Hub。Windows 仍保留已发布的
+固定命名管道路径，尚未实现逐用户管道隔离。
+
+Hub 仅接受来自 Chrome 扩展 Origin、且目标为根路径的 WebSocket 握手。如需收紧安装环境，请将浏览器中显示的 TemPad Dev 扩展 Origin 写入 `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS`。Origin 校验与每次进程启动生成的 asset capability 可以降低跨 Origin 的 loopback 滥用，但不能认证本机进程，包括先占用端口的其他操作系统用户进程；详见[本地 MCP 威胁模型](../../docs/security/local-mcp-threat-model.md)。
 
 ## 要求
 

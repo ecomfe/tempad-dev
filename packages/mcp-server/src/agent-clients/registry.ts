@@ -1,9 +1,11 @@
 import type { DesignAction, DesignActionResult } from '@tempad-dev/shared'
 
+import type { ClientBindingUpdate } from '../client-binding'
 import type { DesignTasks } from '../design-tasks'
 import type { CodexAppLifecycle, CodexLifecycleState } from './codex-lifecycle'
 import type { ClientBinding } from './types'
 
+import { HISTORY_RETENTION_MS } from '../history-retention'
 import { log } from '../shared'
 import { CODEX_APP_FEEDBACK, type CodexAppFeedback } from './codex-feedback'
 import { ClientHooks, type ClientHook } from './hooks'
@@ -25,10 +27,15 @@ function soleActiveTurn(state?: CodexLifecycleState): string | undefined {
 export class AgentClients {
   private readonly hooks = new ClientHooks()
   private readonly connections = new Map<string, ClientBinding>()
+  private readonly pendingClaudeBindings = new Map<
+    string,
+    { binding: ClientBinding; needsInitialize: boolean }
+  >()
+  private readonly bindingListeners = new Map<string, (binding: ClientBindingUpdate) => void>()
   private readonly bindings = new Map<string, ClientBinding>()
   private readonly actions = new Map<
     string,
-    { signature: string; pending: Promise<DesignActionResult> }
+    { signature: string; pending: Promise<DesignActionResult>; settledAt?: number }
   >()
   private readonly feedbackSignals = new Map<string, AbortController>()
   private readonly lifecycle?: Pick<
@@ -102,10 +109,17 @@ export class AgentClients {
   event(connectionId: string, input: unknown): void {
     const { params } = ClientEventSchema.parse(input)
     if (params.event === 'connect') {
-      this.connections.set(connectionId, {
+      const binding = {
         client: clientDescriptor(params.kind, params.sessionId),
         ...(params.turnId ? { turnId: params.turnId } : {})
-      })
+      }
+      this.pendingClaudeBindings.delete(connectionId)
+      if (params.kind === 'claude' && params.sessionId) {
+        // A cached session can predate an offline /clear. Require this Hub's
+        // native hook evidence before it can reclaim any persisted task.
+        this.pendingClaudeBindings.set(connectionId, { binding, needsInitialize: false })
+        this.connections.set(connectionId, { client: clientDescriptor('claude') })
+      } else this.connections.set(connectionId, binding)
       return
     }
     if (!params.sessionId) return
@@ -129,6 +143,8 @@ export class AgentClients {
       }
       const ownerId = `${connectionId}/${kind}/${params.sessionId}`
       this.connections.set(connectionId, next)
+      this.pendingClaudeBindings.delete(connectionId)
+      this.publishBinding(connectionId, next)
       this.bindings.set(ownerId, next)
       record.ownerId = ownerId
       record.task.client = next.client
@@ -162,6 +178,22 @@ export class AgentClients {
       if (['Interrupt', 'Stop', 'SessionEnd'].includes(params.event))
         this.tasks.stop(record.task.taskId, 'paused')
     }
+    if (params.event === 'SessionEnd') {
+      for (const [id, { binding, needsInitialize }] of this.pendingClaudeBindings) {
+        if (binding.client.kind === params.kind && binding.client.sessionId === params.sessionId) {
+          this.pendingClaudeBindings.delete(id)
+          if (needsInitialize) this.bindingListeners.get(id)?.({ clearSessionHint: true })
+          else this.publishBinding(id, { client: clientDescriptor('claude') })
+        }
+      }
+      for (const [id, binding] of this.connections) {
+        if (binding.client.kind === params.kind && binding.client.sessionId === params.sessionId) {
+          const cleared = { client: clientDescriptor(params.kind) }
+          this.connections.set(id, cleared)
+          this.publishBinding(id, cleared)
+        }
+      }
+    }
   }
 
   async owner(
@@ -169,25 +201,67 @@ export class AgentClients {
     metadata: unknown,
     clientInfo?: { name: string; title?: string }
   ): Promise<string> {
-    const fallback =
-      clientInfo?.name === 'claude-code' ? clientDescriptor('claude') : clientDescriptor('other')
-    const binding = bindRequestMetadata(
-      this.connections.get(connectionId) ?? { client: fallback },
-      metadata
+    const pending = this.pendingClaudeBindings.get(connectionId)
+    if (
+      pending?.binding.client.sessionId &&
+      (!pending.needsInitialize || clientInfo?.name === 'claude-code') &&
+      this.hooks.isActive('claude', pending.binding.client.sessionId)
+    ) {
+      this.connections.set(connectionId, pending.binding)
+      this.pendingClaudeBindings.delete(connectionId)
+      this.publishBinding(connectionId, pending.binding)
+    }
+    const isClaude = clientInfo?.name === 'claude-code'
+    const fallback = clientDescriptor(isClaude ? 'claude' : 'other')
+    let connection = this.connections.get(connectionId)
+    const needsMetadata = !clientInfo && connection?.client.kind.startsWith('codex')
+    // A CLI reconnect does not replay initialize. Inherited environment alone
+    // cannot identify the caller; Codex supplies its conversation on each request.
+    if (needsMetadata && connection)
+      connection = { client: clientDescriptor(connection.client.kind) }
+    // Nested hosts inherit their parent's environment. The initialized Claude
+    // client must not acquire that parent's Codex conversation or controls.
+    let binding = bindRequestMetadata(
+      connection && (!isClaude || connection.client.kind === 'claude')
+        ? connection
+        : { client: fallback },
+      isClaude ? undefined : metadata
     )
+    if (needsMetadata && !binding.client.sessionId) binding = { client: fallback }
     const reportedName = clientInfo?.title?.trim() || clientInfo?.name.trim()
     if (reportedName) binding.client = { ...binding.client, name: reportedName.slice(0, 80) }
     const ownerId = binding.client.sessionId
       ? `${connectionId}/${binding.client.kind}/${binding.client.sessionId}`
       : connectionId
     // Requests may identify only the conversation. Keep its native turn binding across calls.
-    binding.turnId ??= this.bindings.get(ownerId)?.turnId
+    const previous = this.bindings.get(ownerId)
+    if (previous?.client.kind === binding.client.kind) binding.turnId ??= previous.turnId
     this.bindings.set(ownerId, binding)
     // Reconnect only after runtime metadata has supplied an exact client conversation.
     this.tasks.attachClient(ownerId, binding.client)
-    const conversationId = nativeConversation(binding.client)
-    if (conversationId) this.lifecycle?.watch(conversationId)
     return ownerId
+  }
+
+  subscribeBinding(
+    connectionId: string,
+    listener: (binding: ClientBindingUpdate) => void,
+    sessionHint?: string
+  ): void {
+    this.bindingListeners.set(connectionId, listener)
+    if (sessionHint && !this.pendingClaudeBindings.has(connectionId)) {
+      this.pendingClaudeBindings.set(connectionId, {
+        binding: { client: clientDescriptor('claude', sessionHint) },
+        needsInitialize: true
+      })
+    }
+  }
+
+  private publishBinding(connectionId: string, binding: ClientBinding): void {
+    if (binding.client.kind !== 'claude') return
+    this.bindingListeners.get(connectionId)?.({
+      kind: 'claude',
+      ...(binding.client.sessionId ? { sessionId: binding.client.sessionId } : {})
+    })
   }
 
   private refresh(ownerId: string): void {
@@ -195,10 +269,12 @@ export class AgentClients {
     if (binding) {
       this.tasks.attachClient(ownerId, binding.client, this.unavailable(binding))
       if (this.codex)
-        void this.describe(ownerId).then(({ capabilities }) => {
-          if (this.bindings.get(ownerId) === binding)
-            this.tasks.attachClient(ownerId, binding.client, capabilities)
-        })
+        void this.describe(ownerId)
+          .then(({ capabilities }) => {
+            if (this.bindings.get(ownerId) === binding)
+              this.tasks.attachClient(ownerId, binding.client, capabilities)
+          })
+          .catch((error) => log.warn({ error }, 'Could not refresh client capabilities.'))
     }
   }
 
@@ -238,6 +314,7 @@ export class AgentClients {
   }
 
   async action(action: DesignAction, onAccepted?: () => void): Promise<DesignActionResult> {
+    this.pruneActions()
     const record = this.tasks.find(action.taskId)
     const client = record?.task.client
     // A reopened Figma tab may acquire a new task lease for the same conversation.
@@ -265,7 +342,11 @@ export class AgentClients {
       return { ...(await existing.pending), taskId: action.taskId }
     }
     // Bound memory and preserve all in-flight deduplication entries.
-    if (this.actions.size >= 1024)
+    for (const [id, entry] of this.actions) {
+      if (this.actions.size < 1024) break
+      if (entry.settledAt !== undefined) this.actions.delete(id)
+    }
+    if (this.actions.size >= 1024 && !['stop', 'done'].includes(action.action))
       throw new Error(
         'Client action history is full. Check pending deliveries before restarting the Hub.'
       )
@@ -273,6 +354,8 @@ export class AgentClients {
     const pending = this.perform(action, onAccepted, () => {
       dispatched = true
     }).then((result) => {
+      const entry = this.actions.get(key)
+      if (entry) entry.settledAt = Date.now()
       // A rejection before host dispatch is safe to retry with the same delivery
       // identity. Queue retries re-enter the adapter's durable receipt reconciliation;
       // they cannot replay an uncertain native write.
@@ -286,6 +369,13 @@ export class AgentClients {
     })
     this.actions.set(key, { signature, pending })
     return pending
+  }
+
+  private pruneActions(): void {
+    const cutoff = Date.now() - HISTORY_RETENTION_MS
+    for (const [key, entry] of this.actions) {
+      if (entry.settledAt !== undefined && entry.settledAt <= cutoff) this.actions.delete(key)
+    }
   }
 
   private async perform(
@@ -411,16 +501,21 @@ export class AgentClients {
   }
 
   async refreshCapabilities(): Promise<void> {
+    this.pruneActions()
     if (!this.codex) return
-    await this.codex.reconcileQueued((taskId) => {
+    const reviewEnded = (taskId: string) => {
       const record = this.tasks.find(taskId)
       return (
-        !!record &&
-        (record.task.reviewClosed === true ||
-          record.task.status === 'cancelled' ||
-          this.tasks.current(record.task.target.fileKey) !== record)
+        !record ||
+        record.task.reviewClosed === true ||
+        record.task.status === 'cancelled' ||
+        this.tasks.current(record.task.target.fileKey) !== record
       )
-    })
+    }
+    for (const taskId of this.feedbackSignals.keys()) {
+      if (reviewEnded(taskId)) void this.cancelFeedback(taskId)
+    }
+    await this.codex.reconcileQueued(reviewEnded)
     const reviews = this.tasks
       .list()
       .filter(
@@ -460,6 +555,8 @@ export class AgentClients {
 
   disconnect(connectionId: string): void {
     this.connections.delete(connectionId)
+    this.pendingClaudeBindings.delete(connectionId)
+    this.bindingListeners.delete(connectionId)
     for (const ownerId of this.bindings.keys()) {
       if (ownerId !== connectionId && !ownerId.startsWith(`${connectionId}/`)) continue
       this.hooks.disconnect(this.bindings.get(ownerId)!)

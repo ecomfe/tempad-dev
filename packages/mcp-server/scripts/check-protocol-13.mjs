@@ -19,6 +19,8 @@ export async function checkProtocol13({ port, peer, send, activate, until, call,
     fileKey: 'file-13',
     fileName: 'Released',
     pageId: 'page-13',
+    tabId: 13,
+    documentId: 'document-13',
     busy: false
   }
   const connect = async () => {
@@ -272,10 +274,35 @@ export async function checkProtocol13({ port, peer, send, activate, until, call,
   const replacement = await connect()
   replacement.respond = () => structure
   assert.notEqual(replacement.id, released.id)
-  assert.deepEqual((await call('get_structure', { nodeId: '1:2' })).structuredContent, structure)
+  const reconnectRead = await call('get_structure', { nodeId: '1:2' })
+  assert.match(JSON.stringify(reconnectRead), /DESIGN_TASK_BUSY/, JSON.stringify(reconnectRead))
+  assert.equal(replacement.calls.length, 0, 'same-document idle cannot settle a disconnected call')
+  // Protocol 13 already reports native tab/document identity. A reload, unlike
+  // reconnecting the same idle snapshot, proves the old executor is gone.
+  const reloadedSession = {
+    ...session,
+    sessionId: 'tab-13-reloaded',
+    documentId: 'document-13-reloaded'
+  }
+  send(replacement, {
+    type: 'sessions',
+    browserId: 'browser-13',
+    activeSessionId: reloadedSession.sessionId,
+    sessions: [reloadedSession]
+  })
+  await until(
+    async () =>
+      (await call('list_design_sessions')).structuredContent.sessions.some(
+        (value) => value.sessionId === reloadedSession.sessionId
+      ),
+    'protocol 13 reloaded document registration'
+  )
+  const recoveredRead = await call('get_structure', { nodeId: '1:2' })
+  assert.equal(recoveredRead.isError, undefined, JSON.stringify(recoveredRead))
+  assert.deepEqual(recoveredRead.structuredContent, structure)
   const replacementCalls = replacement.calls.length
   const fenced = await call('get_structure', { taskId: task.taskId, nodeId: '1:2' })
-  assert.equal(fenced.isError, true, 'old task lease must not migrate to a reconnected peer')
+  assert.equal(fenced.isError, true, 'old task lease must not regain authority after reload')
   assert.equal(replacement.calls.length, replacementCalls)
   assert.deepEqual(Buffer.from(await (await globalThis.fetch(asset.url)).arrayBuffer()), bytes)
   for (const extension of [other, replacement]) {

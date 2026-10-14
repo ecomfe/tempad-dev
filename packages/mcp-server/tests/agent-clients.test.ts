@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { ClientHook } from '../src/agent-clients/hooks'
 
+import { CodexAppFeedback } from '../src/agent-clients/codex-feedback'
 import {
   bindRequestMetadata,
   ClientEventSchema,
@@ -86,9 +87,152 @@ async function fixture(connected = true) {
 }
 
 describe('client identity and capabilities', () => {
+  it.each([
+    ['parent-codex-thread', 'claude-turn', true],
+    [undefined, undefined, true],
+    ['parent-codex-thread', 'claude-turn', false]
+  ] as const)(
+    'isolates inherited Codex conversation %s with hook turn %s and initialized=%s',
+    async (inheritedSession, hookTurn, initialized) => {
+      const tasks = new DesignTasks({ createId: () => 'claude-task', now: () => 1000 })
+      const nativeOwner = vi.fn().mockResolvedValue('codex-owner')
+      const native = new CodexAppFeedback('/unused', async () => ({
+        owner: nativeOwner,
+        close: vi.fn(),
+        request: vi.fn(),
+        broadcast: vi.fn(),
+        onBroadcast: vi.fn(() => () => {}),
+        onDisconnect: vi.fn(() => () => {})
+      }))
+      const watch = vi.fn()
+      const interrupt = vi.fn().mockResolvedValue(true)
+      const clients = new AgentClients(tasks, native, () => ({
+        watch,
+        interrupt,
+        retain: vi.fn(),
+        close: vi.fn(),
+        state: () => undefined
+      }))
+      try {
+        clients.event('nested', {
+          method: 'notifications/tempad/client-event',
+          params: {
+            event: 'connect',
+            kind: 'codex-app',
+            sessionId: inheritedSession,
+            turnId: 'parent-turn'
+          }
+        })
+        await clients.owner('nested', undefined)
+        const clientInfo = initialized ? { name: 'claude-code', title: 'Claude Code' } : undefined
+        const metadata = initialized
+          ? {
+              'x-codex-turn-metadata': { thread_id: 'parent-codex-thread', turn_id: 'parent-turn' }
+            }
+          : undefined
+        const owner = await clients.owner('nested', metadata, clientInfo)
+        const description = await clients.describe(owner)
+        expect(description.capabilities).toEqual(CANVAS_ONLY)
+        expect(description.client).toMatchObject({ kind: initialized ? 'claude' : 'other' })
+        expect(description.client.sessionId).toBeUndefined()
+        if (!initialized) {
+          for (const invalid of ['not-json', { turn_id: 'parent-turn' }, { thread_id: '' }]) {
+            const invalidOwner = await clients.owner('nested', { 'x-codex-turn-metadata': invalid })
+            const invalidDescription = await clients.describe(invalidOwner)
+            expect(invalidDescription.client).toMatchObject({ kind: 'other' })
+            expect(invalidDescription.client.sessionId).toBeUndefined()
+            expect(invalidDescription.capabilities).toEqual(CANVAS_ONLY)
+          }
+        }
+        expect(nativeOwner).not.toHaveBeenCalled()
+        expect(watch).not.toHaveBeenCalled()
+        const record = tasks.begin(
+          owner,
+          'extension-a',
+          session,
+          'Nested Claude',
+          'request-a',
+          description.client,
+          description.capabilities
+        )
+        tasks.confirm(record.task.taskId, owner)
+        clients.clientHook({
+          version: 1,
+          kind: 'claude',
+          event: 'PostToolUse',
+          sessionId: 'real-claude-session',
+          turnId: hookTurn,
+          taskId: record.task.taskId,
+          invocationId: '00000000-0000-4000-8000-000000000001'
+        })
+        const boundOwner = await clients.owner('nested', metadata, clientInfo)
+        expect(tasks.owned(record.task.taskId, boundOwner).task.client?.sessionId).toBe(
+          'real-claude-session'
+        )
+        expect((await clients.describe(boundOwner)).capabilities).toEqual(CANVAS_ONLY)
+        await clients.action({
+          requestId: 'stop-nested',
+          taskId: record.task.taskId,
+          epoch: 0,
+          action: 'stop'
+        })
+        expect(interrupt).not.toHaveBeenCalled()
+        expect(
+          clients.clientHook({
+            version: 1,
+            kind: 'claude',
+            event: 'PreToolUse',
+            sessionId: 'real-claude-session',
+            turnId: 'claude-turn',
+            invocationId: '00000000-0000-4000-8000-000000000002'
+          }).output?.hookSpecificOutput.additionalContext
+        ).toContain('claude-task')
+        if (!initialized) {
+          clients.event('codex-reconnected', {
+            method: 'notifications/tempad/client-event',
+            params: {
+              event: 'connect',
+              kind: 'codex-app',
+              sessionId: 'inherited-thread',
+              turnId: 'inherited-turn'
+            }
+          })
+          const conversationOwner = await clients.owner('codex-reconnected', {
+            'x-codex-turn-metadata': { thread_id: 'actual-thread' }
+          })
+          expect((await clients.describe(conversationOwner)).capabilities.interrupt).toBe(false)
+          const codexOwner = await clients.owner('codex-reconnected', {
+            'x-codex-turn-metadata': { thread_id: 'actual-thread', turn_id: 'actual-turn' }
+          })
+          const codex = await clients.describe(codexOwner)
+          expect(codex.client).toMatchObject({ kind: 'codex-app', sessionId: 'actual-thread' })
+          expect(codex.capabilities).toMatchObject({ interrupt: true, queue: true, steer: true })
+          expect(nativeOwner).toHaveBeenCalledWith('actual-thread', undefined, 2000)
+          expect(watch).toHaveBeenCalledWith('actual-thread')
+        }
+      } finally {
+        clients.close()
+      }
+    }
+  )
+
+  it('keeps Stop available after more than the bounded completed-action history', async () => {
+    const f = await fixture()
+    for (let index = 0; index < 1030; index++) {
+      const result = await f.clients.action(
+        f.action({ requestId: `stop-${index}`, action: 'stop', feedback: undefined })
+      )
+      expect(result.status).toBe('delivered')
+    }
+    expect(f.record.task.status).toBe('cancelled')
+  })
   it('binds a host session from the successful begin result without model-authored identity', async () => {
     const tasks = new DesignTasks({ createId: () => 'task-claude', now: () => 1000 })
     const clients = new AgentClients(tasks)
+    clients.event('claude-connection', {
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'other' }
+    })
     const original = await clients.owner('claude-connection', undefined, {
       name: 'claude-code',
       title: 'Claude Code'
@@ -125,6 +269,68 @@ describe('client identity and capabilities', () => {
     expect(record.task.status).toBe('paused')
   })
 
+  it('rebinds Claude after SessionEnd on the same connection and routes Stop to the new session', async () => {
+    let taskId = 0
+    let invocationId = 0
+    const tasks = new DesignTasks({ createId: () => `task-${++taskId}`, now: () => 1000 })
+    const clients = new AgentClients(tasks)
+    const owner = () =>
+      clients.owner('claude-connection', undefined, { name: 'claude-code', title: 'Claude Code' })
+    const hook = (event: ClientHook['event'], sessionId: string, taskId?: string) =>
+      clients.clientHook({
+        version: 1,
+        kind: 'claude',
+        event,
+        sessionId,
+        ...(taskId ? { taskId } : {}),
+        invocationId: `00000000-0000-4000-8000-${String(++invocationId).padStart(12, '0')}`
+      })
+    clients.event('claude-connection', {
+      method: 'notifications/tempad/client-event',
+      params: { event: 'connect', kind: 'claude' }
+    })
+
+    hook('UserPromptSubmit', 'before-clear')
+    const firstOwner = await owner()
+    const first = tasks.begin(firstOwner, 'extension-a', session, 'Before clear', 'request-a')
+    tasks.confirm(first.task.taskId, firstOwner)
+    hook('PostToolUse', 'before-clear', first.task.taskId)
+    const boundFirstOwner = await owner()
+    expect(first.task.client?.sessionId).toBe('before-clear')
+
+    hook('SessionEnd', 'before-clear')
+    expect(first.task.status).toBe('paused')
+    hook('UserPromptSubmit', 'after-clear')
+    const secondOwner = await owner()
+    expect(secondOwner).not.toBe(boundFirstOwner)
+    expect((await clients.describe(secondOwner)).client.sessionId).toBeUndefined()
+    const second = tasks.begin(secondOwner, 'extension-a', session, 'After clear', 'request-b')
+    tasks.confirm(second.task.taskId, secondOwner)
+    hook('PostToolUse', 'after-clear', second.task.taskId)
+    const boundSecondOwner = await owner()
+    expect(tasks.owned(second.task.taskId, boundSecondOwner).task.client?.sessionId).toBe(
+      'after-clear'
+    )
+    hook('Stop', 'before-clear')
+    expect(second.task.status).toBe('active')
+
+    expect(
+      await clients.action({
+        requestId: 'stop-after-clear',
+        taskId: second.task.taskId,
+        epoch: 0,
+        action: 'stop'
+      })
+    ).toMatchObject({ status: 'delivered' })
+    expect(second.task.status).toBe('cancelled')
+    expect(first.task.status).toBe('paused')
+    expect(hook('PreToolUse', 'before-clear')).toEqual({})
+    expect(
+      hook('PreToolUse', 'after-clear').output?.hookSpecificOutput.additionalContext
+    ).toContain(`task ${second.task.taskId}`)
+    expect(hook('PreToolUse', 'after-clear')).toEqual({})
+  })
+
   it('uses MCP-reported display names without changing runtime identity or capabilities', async () => {
     const f = await fixture()
     const owner = await f.clients.owner(
@@ -151,6 +357,11 @@ describe('client identity and capabilities', () => {
       kind: 'other',
       name: 'Claude Code'
     })
+    const namedWrapper = await f.clients.owner('connection-a', undefined, {
+      name: 'custom-claude-wrapper',
+      title: 'Claude Code'
+    })
+    expect((await f.clients.describe(namedWrapper)).client.kind).toBe('codex-app')
   })
 
   it('distinguishes application and CLI runtime evidence without granting controls', () => {
@@ -159,6 +370,7 @@ describe('client identity and capabilities', () => {
     ).toEqual({ kind: 'codex-app', name: 'Codex App', sessionId: 'a' })
     expect(runtimeIdentity({ CODEX_SESSION_ID: 'b' }).client.kind).toBe('codex-cli')
     expect(runtimeIdentity({}).client.kind).toBe('other')
+    expect(runtimeIdentity({ CLAUDECODE: '1' }).client.kind).toBe('claude')
     for (const kind of ['other', 'unknown'] as const) {
       expect(
         bindRequestMetadata(

@@ -1,4 +1,12 @@
-import { existsSync, readFileSync, rmSync, writeFileSync, readdirSync, statSync } from 'node:fs'
+import {
+  existsSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  readdirSync,
+  statSync,
+  renameSync
+} from 'node:fs'
 import { join } from 'node:path'
 
 import type { AssetRecord } from './types'
@@ -8,6 +16,15 @@ import { ASSET_DIR, ensureDir, ensureFile, log } from './shared'
 
 const INDEX_FILENAME = 'assets.json'
 const DEFAULT_INDEX_PATH = join(ASSET_DIR, INDEX_FILENAME)
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  svg: 'image/svg+xml',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif'
+}
 
 export interface AssetStoreOptions {
   indexPath?: string
@@ -17,7 +34,6 @@ export interface AssetStore {
   list(): AssetRecord[]
   has(hash: string): boolean
   get(hash: string): AssetRecord | undefined
-  getMany(hashes: string[]): AssetRecord[]
   upsert(
     input: Omit<AssetRecord, 'uploadedAt' | 'lastAccess'> &
       Partial<Pick<AssetRecord, 'uploadedAt' | 'lastAccess'>>
@@ -43,7 +59,9 @@ function readIndex(indexPath: string): AssetRecord[] {
 
 function writeIndex(indexPath: string, values: AssetRecord[]): void {
   const payload = JSON.stringify(values, null, 2)
-  writeFileSync(indexPath, payload, 'utf8')
+  const temporary = `${indexPath}.tmp.${process.pid}`
+  writeFileSync(temporary, payload, { encoding: 'utf8', mode: 0o600 })
+  renameSync(temporary, indexPath)
 }
 
 export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
@@ -66,7 +84,12 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
     if (persistTimer) return
     persistTimer = setTimeout(() => {
       persistTimer = null
-      writeIndex(indexPath, [...records.values()])
+      try {
+        writeIndex(indexPath, [...records.values()])
+      } catch (error) {
+        log.warn({ error, indexPath }, 'Could not persist asset catalog; retrying.')
+        persist()
+      }
     }, 5000)
     if (typeof persistTimer.unref === 'function') {
       persistTimer.unref()
@@ -91,12 +114,6 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
 
   function get(hash: string): AssetRecord | undefined {
     return records.get(hash)
-  }
-
-  function getMany(hashes: string[]): AssetRecord[] {
-    return hashes
-      .map((hash) => records.get(hash))
-      .filter((record): record is AssetRecord => !!record)
   }
 
   function upsert(
@@ -178,7 +195,8 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
             records.set(hash, {
               hash,
               filePath,
-              mimeType: 'application/octet-stream',
+              mimeType:
+                IMAGE_MIME_TYPES[file.split('.').at(-1) ?? ''] ?? 'application/octet-stream',
               size: stat.size,
               uploadedAt: stat.birthtimeMs,
               lastAccess: stat.atimeMs
@@ -204,7 +222,6 @@ export function createAssetStore(options: AssetStoreOptions = {}): AssetStore {
     list,
     has,
     get,
-    getMany,
     upsert,
     touch,
     remove,

@@ -162,6 +162,18 @@ export class CodexNativeQueue {
     }))
   }
 
+  /** Empty persisted queues need no companion process; keep polling for late admissions. */
+  async readForReconciliation(
+    conversationId: string,
+    backend: CodexQueueBackend = 'legacy'
+  ): Promise<CodexQueuedMessage[]> {
+    if (backend === 'server') {
+      const state = await this.readServer(conversationId)
+      if (state && !state.hasMessages) return []
+    }
+    return this.read(conversationId, backend)
+  }
+
   /** Direct Start must not overtake either native queue while native admission is unavailable. */
   async areQueuesEmpty(conversationId: string): Promise<boolean> {
     const server = await this.readServer(conversationId)

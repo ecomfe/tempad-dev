@@ -2,8 +2,8 @@
 
 This document covers the local path between an MCP client, the `@tempad-dev/mcp` hub, the browser
 extension broker, Figma's page world, and the loopback asset HTTP server. It describes the controls
-that exist today, including the plugin execution boundary, and the compatibility changes that still
-need an explicit product decision.
+that exist today, including the plugin execution boundary, and the remaining trust assumptions
+of the zero-configuration installation flow.
 
 ## Security goals
 
@@ -38,10 +38,34 @@ timeouts, and termination are additional containment and recovery layers; no sin
 as sufficient by itself.
 
 The loopback interface is not an authentication boundary by itself. Browsers, other extensions, and
-other processes owned by the same OS user may all be able to reach it. Origin and capability checks
+other local processes, including processes owned by other OS users on a shared machine, may all reach it. Origin and capability checks
 are therefore required even though the listeners bind only to `127.0.0.1`.
 
+Loopback discovery does not authenticate the Hub process. A process that occupies a discovery
+port first can impersonate the Hub; private Unix runtime directories protect the CLI socket but
+do not authenticate the browser's TCP connection. Shared-machine deployments must account for
+this residual risk. The supported installation retains zero-configuration discovery and assumes
+that hostile local processes do not preempt those ports. First-use pairing and mutual process
+authentication are outside the current protocol; Origin checks must not be described as either.
+
 ## Current controls
+
+### Local consumer socket
+
+- Unix CLI connections, Hub probes, and installed lifecycle hooks require a socket inode owned
+  by the current user, with no group/other permissions, inside a private current-user directory.
+  Symlinks and regular files are rejected. Trust failures do not trigger replacement Hub startup.
+- Linux atomically claims an absent legacy temporary root with mode `0700`, or retains an existing
+  current-user `0700` root to reuse the running Hub and its lifecycle locks. Unsafe legacy roots
+  select a UID-specific root for runtime, logs, and assets instead.
+  Existing private UID roots remain stable when the legacy root disappears or reappears empty.
+  Socket/Hub-lock traces in both roots, or in an unsafe current-user root, refuse automatic startup
+  rather than risking a second Hub sharing durable state. Hook discovery and preflight use the same
+  read-only resolver; only the runtime claims directories.
+  Explicit directory overrides and macOS paths remain unchanged.
+- These checks do not authenticate processes running as the same user and do not remove the
+  loopback port impersonation risk. Windows retains its fixed named pipe; no per-user pipe
+  isolation or authenticated fallback has been validated on Windows.
 
 ### WebSocket hub
 

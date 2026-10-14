@@ -23,6 +23,72 @@ afterEach(() => {
 })
 
 describe('mcp-server/request', () => {
+  it('rejects an already cancelled request without retaining timers or listeners', () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    controller.abort()
+    expect(() => register('ext', 1000, { signal: controller.signal })).toThrow()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('cancels the wait after a write warning without claiming native execution stopped', async () => {
+    vi.useFakeTimers()
+    vi.mocked(nanoid).mockReturnValue('cancelled')
+    const controller = new AbortController()
+    const remove = vi.spyOn(controller.signal, 'removeEventListener')
+    const { promise, requestId } = register('ext', 1000, {
+      signal: controller.signal,
+      waitForDefinitiveResult: true
+    })
+    const result = expect(promise).rejects.toMatchObject({
+      name: 'AbortError',
+      message: expect.stringContaining('may still be running')
+    })
+    await vi.advanceTimersByTimeAsync(1000)
+    controller.abort()
+    await result
+    expect(vi.getTimerCount()).toBe(0)
+    expect(remove).toHaveBeenCalledWith('abort', expect.any(Function))
+    resolve(requestId, 'ext', { late: true })
+    expect(log.warn).toHaveBeenLastCalledWith(
+      { reqId: requestId },
+      'Received result for unknown/timed-out call.'
+    )
+  })
+
+  it.each(['result', 'error', 'timeout', 'disconnect', 'shutdown'])(
+    'detaches cancellation after %s settlement',
+    async (outcome) => {
+      vi.useFakeTimers()
+      vi.mocked(nanoid).mockReturnValue('settled')
+      const controller = new AbortController()
+      const remove = vi.spyOn(controller.signal, 'removeEventListener')
+      const { promise, requestId } = register('ext', 1000, { signal: controller.signal })
+      const settled = promise.catch(() => undefined)
+      if (outcome === 'result') resolve(requestId, 'ext', {})
+      else if (outcome === 'error') reject(requestId, 'ext', new Error('Native failure'))
+      else if (outcome === 'timeout') await vi.advanceTimersByTimeAsync(1000)
+      else if (outcome === 'disconnect') cleanupForExtension('ext')
+      else cleanupAll()
+      await settled
+      expect(remove).toHaveBeenCalledWith('abort', expect.any(Function))
+      expect(vi.getTimerCount()).toBe(0)
+      controller.abort()
+      expect(vi.getTimerCount()).toBe(0)
+    }
+  )
+
+  it('bounds uncertain canvas calls without suggesting a replay', async () => {
+    vi.useFakeTimers()
+    vi.mocked(nanoid).mockReturnValue('uncertain')
+    const { promise } = register('ext', 1000, { waitForDefinitiveResult: true })
+    const result = expect(promise).rejects.toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT,
+      message: expect.stringContaining('Do not replay')
+    })
+    await vi.advanceTimersByTimeAsync(2000)
+    await result
+  })
   it('registers and resolves a pending call', async () => {
     vi.mocked(nanoid).mockReturnValue('req-1')
 

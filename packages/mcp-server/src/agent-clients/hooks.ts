@@ -43,6 +43,10 @@ function scope(kind: string, sessionId: string): string {
 export class ClientHooks {
   private readonly sessions = new Map<string, Session>()
 
+  isActive(kind: string, sessionId: string): boolean {
+    return this.sessions.get(scope(kind, sessionId))?.active === true
+  }
+
   stop(binding: ClientBinding, taskId: string): void {
     const session = this.session(binding)
     if (session) session.stopNotice = { taskId, turnId: binding.turnId }

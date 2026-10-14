@@ -97,8 +97,17 @@ export function readHubRuntimeIdentity(path: string): HubRuntimeIdentity | null 
 
 export function writeHubRuntimeIdentity(path: string, identity: HubRuntimeIdentity): void {
   const temporaryPath = `${path}.${identity.processId}.tmp`
-  writeFileSync(temporaryPath, `${JSON.stringify(identity, null, 2)}\n`, { mode: 0o600 })
-  renameSync(temporaryPath, path)
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(identity, null, 2)}\n`, { mode: 0o600 })
+    renameSync(temporaryPath, path)
+  } catch (error) {
+    try {
+      rmSync(temporaryPath, { force: true })
+    } catch {
+      // Preserve the original write error when cleanup also fails.
+    }
+    throw error
+  }
 }
 
 export function removeHubRuntimeIdentityIfOwned(path: string, processId: number): void {

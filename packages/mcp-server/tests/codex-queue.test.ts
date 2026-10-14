@@ -27,7 +27,7 @@ const feedback: DesignFeedback = {
   fileKey: 'file-a',
   comment: 'Keep the user’s **Markdown**.',
   items: [],
-  createdAt: 1000
+  createdAt: Date.now()
 }
 const binding = { client: { kind: 'codex-app' as const, name: 'Codex', sessionId: 'thread-a' } }
 const cleanups: (() => Promise<unknown> | void)[] = []
@@ -192,9 +192,13 @@ describe('native Codex queue admission', () => {
   it('bounds waiting for existing messages without leaving an uncertain receipt', async () => {
     const f = await fixture()
     f.readServer.mockResolvedValue({ hasMessages: true })
-    f.read.mockRejectedValueOnce(new CodexQueueUnavailable('Store temporarily unavailable'))
-    const now = vi.spyOn(Date, 'now').mockReturnValue(400000).mockReturnValueOnce(1000)
-    cleanups.push(() => now.mockRestore())
+    let now = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    cleanups.push(() => clock.mockRestore())
+    f.read.mockImplementationOnce(async () => {
+      now += 400000
+      throw new CodexQueueUnavailable('Store temporarily unavailable')
+    })
     await expect(f.send()).rejects.toThrow('still has queued messages')
     expect(f.request).not.toHaveBeenCalled()
     expect(await readdir(f.directory)).toEqual([])
@@ -273,9 +277,98 @@ describe('native Codex queue admission', () => {
     f.server.add.mockRejectedValueOnce(new CodexIpcError('Disconnected', true))
     await expect(f.send()).rejects.toThrow('uncertain')
     await f.native.cancelQueued('task-a')
+    f.server.list.mockClear()
+    await f.native.reconcileQueued(() => false)
+    expect(f.server.list).not.toHaveBeenCalled()
     f.setServerMessages([{ id: 'late', clientUserMessageId: feedback.id, input: [] }])
+    f.readServer.mockResolvedValue({ hasMessages: true })
     await f.native.reconcileQueued(() => false)
     expect(f.serverMessages()).toEqual([])
+  })
+
+  it('bounds background receipt reads while eventually revisiting every retained identity', async () => {
+    const f = await fixture()
+    for (let index = 0; index < 260; index++) {
+      await writeFile(
+        join(f.directory, `${index.toString(16).padStart(64, '0')}.json`),
+        JSON.stringify({
+          delivery: 'queue',
+          signature: 'signature',
+          status: 'delivered',
+          conversationId: 'thread-a',
+          taskId: `task-${index}`,
+          messageId: `message-${index}`
+        })
+      )
+    }
+    const isCancelled = vi.fn<(taskId: string) => boolean>(() => false)
+    await Promise.all([
+      f.native.reconcileQueued(isCancelled),
+      f.native.reconcileQueued(isCancelled)
+    ])
+    expect(isCancelled).toHaveBeenCalledTimes(128)
+    await f.native.reconcileQueued(isCancelled)
+    expect(isCancelled).toHaveBeenCalledTimes(256)
+    await f.native.reconcileQueued(isCancelled)
+    expect(new Set(isCancelled.mock.calls.map(([taskId]) => taskId)).size).toBe(260)
+    expect(await readdir(f.directory)).toHaveLength(260)
+    isCancelled.mockClear()
+    await f.native.reconcileQueued(isCancelled)
+    expect(isCancelled).toHaveBeenCalledTimes(128)
+    expect(f.request).not.toHaveBeenCalled()
+  })
+
+  it('does not treat missing or unreadable server state as an empty queue during reconciliation', async () => {
+    const f = await fixture()
+    const queue = new CodexNativeQueue(f.read, f.readServer, f.server)
+    f.readServer.mockRejectedValueOnce(new Error('Database unreadable'))
+    await expect(queue.readForReconciliation('thread-a', 'server')).rejects.toThrow(
+      'Database unreadable'
+    )
+    expect(f.server.list).not.toHaveBeenCalled()
+    f.setServerMessages([{ id: 'native-message', clientUserMessageId: feedback.id, input: [] }])
+    await expect(queue.readForReconciliation('thread-a', 'server')).resolves.toEqual([
+      { id: feedback.id, text: '' }
+    ])
+    expect(f.server.list).toHaveBeenCalledOnce()
+  })
+
+  it('checks an unreadable server store only once per conversation in a background batch', async () => {
+    const f = await fixture()
+    f.readServer.mockResolvedValue({ hasMessages: false })
+    await f.send()
+    await f.send({ ...feedback, id: '00000000-0000-4000-8000-000000000002' })
+    await f.native.cancelQueued('task-a')
+    f.readServer.mockClear().mockRejectedValue(new Error('Database unavailable'))
+    f.server.list.mockClear()
+    await f.native.reconcileQueued(() => false)
+    expect(f.readServer).toHaveBeenCalledOnce()
+    expect(f.server.list).not.toHaveBeenCalled()
+    expect(await readdir(f.directory)).toHaveLength(2)
+  })
+
+  it('scans every receipt on explicit Stop even when background reconciliation is batched', async () => {
+    const f = await fixture()
+    for (let index = 0; index < 129; index++) {
+      await writeFile(
+        join(f.directory, `${index.toString(16).padStart(64, '0')}.json`),
+        JSON.stringify({
+          delivery: 'queue',
+          signature: 'signature',
+          status: 'pending',
+          conversationId: 'thread-a',
+          taskId: 'task-a',
+          messageId: `message-${index}`
+        })
+      )
+    }
+    f.setMessages([{ id: 'message-128' }, { id: 'user-message' }])
+    await f.native.cancelQueued('task-a')
+    expect(f.messages()).toEqual([{ id: 'user-message' }])
+    for (const file of await readdir(f.directory)) {
+      expect(JSON.parse(await readFile(join(f.directory, file), 'utf8')).status).toBe('removed')
+    }
+    expect(await readdir(f.directory)).toHaveLength(129)
   })
 
   it('cancels receipts from both backends without removing other messages', async () => {

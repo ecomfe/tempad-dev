@@ -43,6 +43,7 @@ export class CodexQueueRpc {
   private ready?: Promise<void>
   private closed = false
   private nextId = 0
+  private idleTimer?: ReturnType<typeof setTimeout>
   private readonly pending = new Map<
     number,
     {
@@ -121,6 +122,7 @@ export class CodexQueueRpc {
   }
 
   private async connect(): Promise<void> {
+    clearTimeout(this.idleTimer)
     if (this.closed) throw new Error('Codex queue connection is closed.')
     this.ready ??= this.start()
     const ready = this.ready
@@ -184,6 +186,11 @@ export class CodexQueueRpc {
         clearTimeout(timer)
         signal?.removeEventListener('abort', abort)
         this.pending.delete(id)
+        if (!this.pending.size) {
+          clearTimeout(this.idleTimer)
+          this.idleTimer = setTimeout(() => this.disconnect(), 60000)
+          this.idleTimer.unref()
+        }
         if (error) reject(error)
         else resolve(value)
       }
@@ -207,11 +214,13 @@ export class CodexQueueRpc {
   }
 
   private disconnect(): void {
+    clearTimeout(this.idleTimer)
     const child = this.child
     this.child = undefined
     this.ready = undefined
     for (const pending of this.pending.values())
       pending.reject(new CodexIpcError('Codex queue connection closed after dispatch.', true))
+    clearTimeout(this.idleTimer)
     child?.kill()
   }
 

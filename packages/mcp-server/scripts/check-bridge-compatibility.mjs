@@ -29,6 +29,12 @@ import {
   structure
 } from './fixtures/extension-0.20.0.mjs'
 
+if (process.platform === 'win32') {
+  throw new Error(
+    'Bridge compatibility checks cannot run safely on Windows: the fixed named pipe is not isolated by TEMPAD_MCP_RUNTIME_DIR. Run this harness on Linux or macOS.'
+  )
+}
+
 // Exercise the shipped Hub, without connecting to the user's Hub or Figma sessions.
 // A dedicated Origin allowlist prevents the browser from joining this test Hub.
 const origin = 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -42,6 +48,7 @@ const environment = {
   TEMPAD_MCP_RUNTIME_DIR: directory,
   TEMPAD_MCP_LOG_DIR: directory,
   TEMPAD_MCP_ASSET_DIR: join(directory, 'assets'),
+  TEMPAD_MCP_STATE_DIR: join(directory, 'state'),
   TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS: origin,
   TEMPAD_MCP_TOOL_TIMEOUT: '1000',
   TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT: '2000',
@@ -261,7 +268,7 @@ try {
   assert.equal(old.calls.length, count, 'unsupported calls must not reach the old peer')
 
   // A versioned peer with no runtime identity must not enter the legacy bypass.
-  const modern = await peer(port, false)
+  let modern = await peer(port, false)
   assert.equal(modern.frames[0].protocolVersion, TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION)
   assert.notEqual(modern.assetServerUrl, old.assetServerUrl)
   const session = {
@@ -277,14 +284,24 @@ try {
     activeSessionId: session.sessionId,
     sessions: [session]
   })
-  await activate(modern)
-  assert.match(JSON.stringify(await call('get_code')), /RUNTIME_IDENTITY_MISMATCH/)
+  await until(
+    () => modern.socket.readyState === WebSocket.CLOSED,
+    'reject missing runtime handshake'
+  )
+  modern = await peer(port, false)
   send(modern, {
     type: 'runtimeHello',
     protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
     extensionVersion: '0.21.0',
     extensionRuntimeFingerprint: 'a'.repeat(64)
   })
+  send(modern, {
+    type: 'sessions',
+    browserId: 'browser-a',
+    activeSessionId: session.sessionId,
+    sessions: [session]
+  })
+  await activate(modern)
   // Wait on an echoed state so all preceding frames have been processed.
   modern.activeId = null
   await activate(modern)

@@ -30,5 +30,5 @@ export function buildAssetFilename(hash: string, mimeType: string): string {
 
 export function getHashFromAssetFilename(filename: string): string | null {
   const match = HASH_FILENAME_PATTERN.exec(filename)
-  return match ? match[1] : null
+  return match?.[1] ?? null
 }

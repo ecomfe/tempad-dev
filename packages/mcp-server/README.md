@@ -36,6 +36,8 @@ Supported tools/resources:
   Stop permanently fences the old task across reconnects. Native Codex App comments support Queue
   and Steer; confirmed admission clears submitted drafts before execution finishes. See the
   [comment guide and host validation scope](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src#task-controls-and-client-enhancements).
+- `get_design_task`: Read the task state and current write lease.
+- `list_design_sessions`: List connected Figma files for exact-session reads.
 - `apply_canvas`: Creates, updates, removes, or activates exact pages and managed roots using
   restricted HTML, deterministic Tailwind utilities, typed native state, SVG, and image assets.
   Variable utilities and named text-style classes bind existing resources or resources declared
@@ -89,7 +91,7 @@ Optional environment variables:
 - `TEMPAD_MCP_GET_CODE_TIMEOUT`: `get_code` timeout in milliseconds (default `30000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set).
 - `TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT`: Initial `get_design_system` resource-discovery timeout in milliseconds (default `45000`; continuation, exact-ref, font, and page-list reads use the general timeout). Falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set.
 - `TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT`: `get_structure` timeout for an explicit page ID or key, which may require loading a cold Figma page (default `45000` milliseconds; node and selection reads use the general timeout). Falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set.
-- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`: `apply_canvas` slow-call warning threshold in milliseconds (default `120000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set). After the threshold, the Hub keeps waiting for a definitive result or extension disconnect so a completed mutation is never reported as a timeout.
+- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`: `apply_canvas` slow-call warning threshold in milliseconds (default `120000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set). At twice this threshold, the Hub reports an unknown outcome and fences further writes until the result or session recovery resolves it. Inspect the canvas before retrying; the mutation may have completed.
 - `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`: Delay before auto-activating the sole connected extension (default `1500`).
 - `TEMPAD_MCP_MAX_ASSET_BYTES`: Maximum upload size for captured assets/screenshots in bytes (default `8388608`).
 - `TEMPAD_MCP_MAX_ASSET_STORE_BYTES`: Maximum aggregate size of the local asset store in bytes (default `268435456`).
@@ -97,11 +99,40 @@ Optional environment variables:
 - `TEMPAD_MCP_MAX_EXTENSION_CONNECTIONS`: Maximum simultaneous browser extension connections to one Hub (default `16`).
 - `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS`: Comma-separated exact `chrome-extension://...` origins allowed to connect. Invalid configured values fail startup rather than weakening the policy. When omitted, any syntactically valid Chrome extension origin is accepted for backward compatibility.
 - `TEMPAD_MCP_ASSET_TTL_MS`: Asset cleanup TTL in milliseconds based on last access; set `0` to disable (default `2592000000`).
-- `TEMPAD_MCP_RUNTIME_DIR`: Override runtime directory (defaults to system temp under `tempad-dev/run`).
-- `TEMPAD_MCP_LOG_DIR`: Override log directory (defaults to system temp under `tempad-dev/log`).
-- `TEMPAD_MCP_ASSET_DIR`: Override asset storage directory (defaults to system temp under `tempad-dev/assets`).
+- `TEMPAD_MCP_RUNTIME_DIR`: Override runtime directory (defaults to `run` under the temporary root described below).
+- `TEMPAD_MCP_STATE_DIR`: Override durable task and feedback storage (defaults to `~/.tempad-dev/state`, or `state` under an explicitly overridden runtime directory). Isolated Hub checks set this to temporary storage.
+- `TEMPAD_MCP_LOG_DIR`: Override log directory (defaults to `log` under the temporary root).
+- `TEMPAD_MCP_ASSET_DIR`: Override asset storage directory (defaults to `assets` under the temporary root).
 
-The hub accepts WebSocket handshakes only from Chrome extension origins on its root path. For a locked-down installation, configure `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS` with the TemPad Dev extension origin shown by the browser. This origin check and the per-process asset capability reduce cross-origin loopback abuse, but do not authenticate another process running as the same OS user; see the [local MCP threat model](../../docs/security/local-mcp-threat-model.md).
+The Hub exclusively locks its state and asset directories before loading either store, even
+when another Hub uses a different runtime directory. These locks remain held until process
+exit so shutdown writes cannot overlap a replacement Hub. Older releases do not honor these
+additional locks; do not run them against shared storage concurrently with this version.
+
+Before its first connection, the CLI stops after three failed startup attempts and reports
+the error on stderr. Resolve the reported problem and reconnect the MCP client to retry.
+After a working bridge, transient connection failures continue retrying without a limit;
+three consecutive permission, trust, or invalid-bridge failures still stop the CLI.
+
+Each process log is capped at 10 MiB. Crossing the limit discards older entries in that file;
+oversized entries are truncated with a marker. Logs from exited processes are removed after
+seven days without writes. This is a per-file limit, not an aggregate directory quota.
+
+On Linux, the runtime claims `<system temp>/tempad-dev` with mode `0700` when absent, or reuses
+that directory when owned by the current user with mode `0700`. This keeps older installed hooks
+working after a reboot and upgrading clients connected to the same Hub and lifecycle locks. An
+unsafe legacy root, including one owned by another user, selects `<system temp>/tempad-dev-<uid>`
+instead. An existing private UID root remains selected if the legacy root disappears or an empty
+legacy root appears later. If both roots contain a socket or Hub lock, or a current-user root
+contains those files with unsafe permissions, startup refuses automatic migration. Shut down the
+existing runtimes and correct ownership/permissions before reconnecting. Other platforms retain
+`<system temp>/tempad-dev`. Explicit directory overrides take precedence. Unix clients and lifecycle
+hooks check the socket inode, ownership, and private permissions before connecting; an untrusted
+socket is rejected without launching a replacement Hub. Correct its ownership/permissions or shut
+down the old runtime before reconnecting. Windows retains the released fixed named-pipe path;
+per-user pipe isolation is not yet implemented.
+
+The hub accepts WebSocket handshakes only from Chrome extension origins on its root path. For a locked-down installation, configure `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS` with the TemPad Dev extension origin shown by the browser. This origin check and the per-process asset capability reduce cross-origin loopback abuse, but do not authenticate local processes, including another OS user's process that binds the port first; see the [local MCP threat model](../../docs/security/local-mcp-threat-model.md).
 
 ## Requirements
 

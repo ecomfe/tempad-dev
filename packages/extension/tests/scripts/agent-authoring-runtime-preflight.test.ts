@@ -1,3 +1,6 @@
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -8,7 +11,8 @@ import {
   extractDevelopmentBundleFingerprint,
   parseEnabledPlugins,
   parseProcessTable,
-  resolveCodexExecutable
+  resolveCodexExecutable,
+  resolveDefaultRuntimeDir
 } from '@/scripts/agent-authoring-runtime-preflight'
 
 const paths = {
@@ -25,6 +29,31 @@ function runtimeProcess(
 }
 
 describe('agent authoring runtime preflight', () => {
+  it.skipIf(process.platform === 'win32')(
+    'locates the same private Linux root as the Hub, retaining a safe legacy runtime',
+    () => {
+      const directory = mkdtempSync(join(tmpdir(), 'tempad-preflight-path-'))
+      const legacyRoot = join(directory, 'tempad-dev')
+      const isolated = join(directory, `tempad-dev-${process.getuid!()}`, 'run')
+      try {
+        expect(resolveDefaultRuntimeDir(directory, 'linux')).toBe(join(legacyRoot, 'run'))
+        expect(existsSync(legacyRoot)).toBe(false)
+        mkdirSync(legacyRoot, { mode: 0o700 })
+        expect(resolveDefaultRuntimeDir(directory, 'linux')).toBe(join(legacyRoot, 'run'))
+        expect(resolveDefaultRuntimeDir(directory, 'linux', process.getuid!() + 1)).toBe(
+          join(directory, `tempad-dev-${process.getuid!() + 1}`, 'run')
+        )
+        chmodSync(legacyRoot, 0o755)
+        expect(resolveDefaultRuntimeDir(directory, 'linux')).toBe(isolated)
+        rmSync(legacyRoot, { recursive: true })
+        symlinkSync(directory, legacyRoot)
+        expect(resolveDefaultRuntimeDir(directory, 'linux')).toBe(isolated)
+        expect(resolveDefaultRuntimeDir(directory, 'darwin')).toBe(join(legacyRoot, 'run'))
+      } finally {
+        rmSync(directory, { recursive: true, force: true })
+      }
+    }
+  )
   it('reads one unambiguous development bundle fingerprint', () => {
     const fingerprint = 'a'.repeat(64)
     expect(

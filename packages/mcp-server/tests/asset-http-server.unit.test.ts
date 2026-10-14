@@ -117,7 +117,6 @@ function createStoreMock(): AssetStore & StoreMock {
     list: vi.fn(() => []),
     has: vi.fn(() => false),
     get: vi.fn(),
-    getMany: vi.fn(() => []),
     upsert: vi.fn(),
     touch: vi.fn(),
     remove: vi.fn(),
@@ -463,7 +462,7 @@ describe('asset-http-server unit branches', () => {
     expect(recoveredResponse.statusCode).toBe(200)
   })
 
-  it('covers existing upload paths including rename warnings and headers-sent responses', async () => {
+  it('preserves existing upload paths and handles headers-sent responses', async () => {
     const store = createStoreMock()
     const existing = {
       hash: ASSET_HASH,
@@ -505,21 +504,17 @@ describe('asset-http-server unit branches', () => {
     existing.filePath = '/tmp/mock-assets/legacy-noext'
     state.exists.set('/tmp/mock-assets/legacy-noext', true)
     state.exists.set(ASSET_FILE_PATH, false)
-    state.renameError = new Error('rename failed')
-    const renameWarnRes = createResponse({ headersSent: true })
+    const headersSentRes = createResponse({ headersSent: true })
     state.requestHandler?.(
       createRequest({
         method: 'POST',
         url: `/assets/${ASSET_FILENAME}`,
         headers: { 'content-type': 'image/png' }
       }),
-      renameWarnRes
+      headersSentRes
     )
-    expect(mocks.log.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ error: expect.any(Error), hash: ASSET_HASH }),
-      'Failed to rename existing asset to include extension.'
-    )
-    expect(renameWarnRes.writeHead).not.toHaveBeenCalled()
+    expect(existing.filePath).toBe('/tmp/mock-assets/legacy-noext')
+    expect(headersSentRes.writeHead).not.toHaveBeenCalled()
   })
 
   it('falls back to upload pipeline when existing record paths are both missing', async () => {

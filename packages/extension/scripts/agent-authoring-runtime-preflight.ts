@@ -7,6 +7,8 @@ import { dirname, isAbsolute, join, normalize, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 
+import { resolveDefaultRoot } from '../../../agent-plugin/src/clients/shared/runtime-paths.mjs'
+
 const execFileAsync = promisify(execFile)
 const defaultRepoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const defaultCodexAppPath = '/Applications/ChatGPT.app'
@@ -392,6 +394,14 @@ export function evaluateTempadPluginIdentity(
   return { installed, issues }
 }
 
+export function resolveDefaultRuntimeDir(
+  systemTmpDir: string = tmpdir(),
+  platform: NodeJS.Platform = process.platform,
+  uid: number | undefined = process.getuid?.()
+): string {
+  return join(resolveDefaultRoot(systemTmpDir, platform, uid), 'run')
+}
+
 async function resolveRuntimeConfiguration(checkout: string): Promise<RuntimeConfiguration> {
   const pluginRoot = join(checkout, '.dev/plugins/tempad-dev-dev')
   const manifestPath = join(pluginRoot, '.codex-plugin/plugin.json')
@@ -421,7 +431,7 @@ async function resolveRuntimeConfiguration(checkout: string): Promise<RuntimeCon
           ? configuredRuntimeDir
           : resolve(pluginRoot, configuredRuntimeDir)
       )
-    : join(tmpdir(), 'tempad-dev', 'run')
+    : resolveDefaultRuntimeDir()
   await Promise.all([access(cli), access(hub)])
   return {
     generatedVersion: manifest.version,

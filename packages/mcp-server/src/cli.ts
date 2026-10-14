@@ -11,17 +11,25 @@ import lockfile from 'proper-lockfile'
 
 import { runtimeIdentity } from './agent-clients/identity'
 import {
+  ClientBindingFilter,
+  ClientBindingSubscribeSchema,
+  type ClaudeBinding
+} from './client-binding'
+import {
   HUB_BUSY_EXIT_CODE,
   PACKAGE_VERSION,
   log,
   LOCK_PATH,
   RUNTIME_DIR,
   SOCK_PATH,
-  ensureDir
+  ensureDir,
+  assertTrustedSocket
 } from './shared'
 
 let activeSocket: Socket | null = null
 let shuttingDown = false
+let claudeBinding: ClaudeBinding | undefined
+let claudeHintRetired = false
 
 function closeActiveSocket() {
   if (!activeSocket) return
@@ -48,6 +56,7 @@ function shutdownCli(reason: string) {
 
 process.on('SIGINT', () => shutdownCli('SIGINT received.'))
 process.on('SIGTERM', () => shutdownCli('SIGTERM received.'))
+process.stdin.once('end', () => shutdownCli('Consumer stream ended.'))
 
 const HUB_STARTUP_TIMEOUT = 5000
 const CONNECT_RETRY_DELAY = 200
@@ -57,55 +66,116 @@ const HUB_ENTRY = join(HERE, 'hub.mjs')
 
 ensureDir(RUNTIME_DIR)
 
-function bridge(socket: Socket): Promise<void> {
-  return new Promise((resolve) => {
+function bridge(socket: Socket): Promise<boolean> {
+  return new Promise((resolve, reject) => {
     log.info('Bridge established with Hub. Forwarding I/O.')
     activeSocket = socket
-
-    const onStdinEnd = () => {
-      shutdownCli('Consumer stream ended.')
-    }
-    process.stdin.once('end', onStdinEnd)
+    let receivedOutput = false
+    let outputError: Error | undefined
+    const output = new ClientBindingFilter((binding) => {
+      receivedOutput = true
+      claudeHintRetired = true
+      if ('kind' in binding) claudeBinding = binding
+    })
+    output.on('data', () => {
+      receivedOutput = true
+    })
+    output.on('error', (error) => {
+      outputError = error
+      log.warn({ error }, 'Invalid Hub output. Reconnecting.')
+      socket.destroy()
+    })
 
     const onSocketClose = () => {
       log.warn('Connection to Hub lost. Attempting to reconnect...')
       activeSocket = null
-      process.stdin.removeListener('end', onStdinEnd)
       process.stdin.unpipe(socket)
-      socket.unpipe(process.stdout)
+      socket.unpipe(output)
+      output.unpipe(process.stdout)
+      output.destroy()
       socket.removeAllListeners()
-      resolve()
+      if (outputError) reject(outputError)
+      else resolve(receivedOutput)
     }
     socket.once('close', onSocketClose)
     socket.on('error', (err) => log.warn({ err }, 'Socket error occurred.'))
 
-    const binding = runtimeIdentity(process.env)
+    const binding = claudeBinding ?? runtimeIdentity(process.env).client
     socket.write(
       JSON.stringify({
         jsonrpc: '2.0',
         method: 'notifications/tempad/client-event',
         params: {
           event: 'connect',
-          kind: binding.client.kind,
-          sessionId: binding.client.sessionId
+          kind: binding.kind,
+          sessionId: binding.sessionId
         }
+      }) + '\n'
+    )
+    socket.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: ClientBindingSubscribeSchema.shape.method.value,
+        ...(!claudeHintRetired &&
+        process.env.CLAUDE_CODE_SESSION_ID &&
+        process.env.CLAUDE_CODE_SESSION_ID.length <= 256
+          ? { params: { sessionId: process.env.CLAUDE_CODE_SESSION_ID } }
+          : {})
       }) + '\n'
     )
 
     // The `{ end: false }` option prevents stdin from closing the socket.
-    process.stdin.pipe(socket, { end: false }).pipe(process.stdout)
+    process.stdin.pipe(socket, { end: false })
+    socket.pipe(output).pipe(process.stdout, { end: false })
   })
 }
 
-function connectHub(): Promise<Socket> {
+function connectHub(timeout = HUB_STARTUP_TIMEOUT): Promise<Socket> {
   return new Promise((resolve, reject) => {
+    assertTrustedSocket(SOCK_PATH)
     const socket = connect(SOCK_PATH)
-    socket.on('connect', () => {
-      socket.removeAllListeners('error')
+    const cleanup = () => {
+      clearTimeout(timer)
+      socket.off('connect', onConnect)
+      socket.off('error', fail)
+      socket.off('close', onClose)
+    }
+    const fail = (error: Error) => {
+      cleanup()
+      socket.destroy()
+      reject(error)
+    }
+    const onClose = () => fail(new Error('Hub socket closed before connecting.'))
+    const onConnect = () => {
+      cleanup()
       resolve(socket)
-    })
-    socket.on('error', reject)
+    }
+    const timer = setTimeout(() => {
+      fail(Object.assign(new Error('Hub connection timed out.'), { code: 'ETIMEDOUT' }))
+    }, timeout)
+    socket.once('connect', onConnect)
+    socket.once('error', fail)
+    socket.once('close', onClose)
   })
+}
+
+function isHubUnavailable(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    (error.code === 'ENOENT' || error.code === 'ECONNREFUSED')
+  )
+}
+
+function isTransientConnectionError(error: unknown): boolean {
+  if (isHubUnavailable(error)) return true
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    (error.code === 'ETIMEDOUT' || error.code === 'ECONNRESET' || error.code === 'EPIPE')
+  )
 }
 
 async function connectWithRetry(timeout: number): Promise<Socket> {
@@ -113,14 +183,9 @@ async function connectWithRetry(timeout: number): Promise<Socket> {
   let delay = CONNECT_RETRY_DELAY
   while (Date.now() - startTime < timeout) {
     try {
-      return await connectHub()
+      return await connectHub(Math.max(1, timeout - (Date.now() - startTime)))
     } catch (err: unknown) {
-      if (
-        err &&
-        typeof err === 'object' &&
-        'code' in err &&
-        (err.code === 'ENOENT' || err.code === 'ECONNREFUSED')
-      ) {
+      if (isHubUnavailable(err)) {
         const remainingTime = timeout - (Date.now() - startTime)
         const waitTime = Math.min(delay, remainingTime)
         if (waitTime <= 0) break
@@ -131,7 +196,9 @@ async function connectWithRetry(timeout: number): Promise<Socket> {
       }
     }
   }
-  throw new Error(`Failed to connect to Hub within ${timeout}ms.`)
+  throw Object.assign(new Error(`Failed to connect to Hub within ${timeout}ms.`), {
+    code: 'ETIMEDOUT'
+  })
 }
 
 function startHub(): ChildProcess {
@@ -173,7 +240,8 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
   try {
     try {
       return await connectHub()
-    } catch {
+    } catch (error) {
+      if (!isHubUnavailable(error)) throw error
       // If the Hub is not running, we proceed to start it.
       log.info('Hub not running. Proceeding to start it...')
     }
@@ -194,16 +262,36 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
 
 async function main() {
   log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Client starting...')
+  let connected = false
+  let failedAttempts = 0
 
   while (true) {
     try {
-      const socket = await connectHub().catch(() => {
+      const socket = await connectHub().catch((error: unknown) => {
+        if (!isHubUnavailable(error)) throw error
         log.info('Hub not running. Initiating startup sequence...')
         return tryBecomeLeaderAndStartHub()
       })
-      await bridge(socket)
+      // Accepting a socket alone must not disable the initial retry limit.
+      if (!(await bridge(socket))) {
+        throw new Error('Hub closed before sending a valid MCP message.')
+      }
+      connected = true
+      failedAttempts = 0
       log.info('Bridge disconnected. Restarting connection process...')
+      await new Promise((r) => setTimeout(r, CONNECT_RETRY_DELAY))
     } catch (err: unknown) {
+      if (connected && isTransientConnectionError(err)) failedAttempts = 0
+      else failedAttempts++
+      if (failedAttempts >= 3) {
+        const reason = err instanceof Error ? err.message : String(err)
+        process.stderr.write(
+          `Unable to connect to TemPad Hub after 3 ${connected ? 'reconnect' : 'startup'} attempts: ${reason} Reconnect the MCP client after resolving the connection error.\n`
+        )
+        process.stdin.pause()
+        process.exitCode = 1
+        return
+      }
       log.error(
         { err },
         `Connection attempt failed. Retrying in ${FAILED_RESTART_DELAY / 1000}s...`

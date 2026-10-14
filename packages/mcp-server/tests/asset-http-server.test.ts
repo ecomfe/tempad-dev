@@ -17,7 +17,6 @@ function createStoreMock(): AssetStore & StoreMock {
     list: vi.fn(() => []),
     has: vi.fn(() => false),
     get: vi.fn(),
-    getMany: vi.fn(() => []),
     upsert: vi.fn(),
     touch: vi.fn(),
     remove: vi.fn(),
@@ -254,7 +253,7 @@ describe('asset-http-server', () => {
     server.stop()
   })
 
-  it('renames existing asset path to extension-aware target when needed', async () => {
+  it('preserves returned local paths when repeated uploads change MIME metadata', async () => {
     const store = createStoreMock()
     const server = createAssetHttpServer(store)
     await server.start()
@@ -281,7 +280,7 @@ describe('asset-http-server', () => {
     expect(store.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         hash: ASSET_HASH,
-        filePath: expectedPath,
+        filePath: legacyPath,
         mimeType: 'image/png'
       })
     )

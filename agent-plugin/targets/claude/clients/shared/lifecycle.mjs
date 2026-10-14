@@ -2,10 +2,11 @@
 // launch an agent, poll a model, change host trust, or unlock a stopped Figma file.
 import { randomUUID } from 'node:crypto'
 import { connect } from 'node:net'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
 import { clearTimeout, setTimeout } from 'node:timers'
+
+import { assertTrustedSocket, resolveDefaultRoot } from './runtime-paths.mjs'
 
 let socket
 const deadline = setTimeout(() => process.exit(0), 750)
@@ -32,19 +33,20 @@ try {
       /tempad[-_]dev.*__(?:begin_design|resume_design)$/.test(input.tool_name || ''))
   ) {
     const response = input.tool_response
-    if (!response?.isError) {
+    if (!response?.isError && !response?.result?.isError) {
       let result = response?.structuredContent || response?.result?.structuredContent || response
-      if (!result?.taskId && Array.isArray(response?.content)) {
-        const text = response.content.find((value) => value.type === 'text')?.text
-        if (text) {
-          try {
-            result = JSON.parse(text)
-          } catch {
-            /* This tool did not return a task. */
-          }
+      // Claude passes the tool's content directly, as text or content blocks.
+      const content = Array.isArray(result) ? result : response?.content
+      if (!result?.taskId && Array.isArray(content))
+        result = content.find((value) => value?.type === 'text')?.text
+      if (typeof result === 'string') {
+        try {
+          result = JSON.parse(result)
+        } catch {
+          /* This tool did not return a task. */
         }
       }
-      if (typeof result?.taskId === 'string') taskId = result.taskId
+      if (!result?.isError && typeof result?.taskId === 'string') taskId = result.taskId
     }
   }
   const identity = {
@@ -52,9 +54,10 @@ try {
     kind: process.argv[2] === 'claude' ? 'claude' : 'codex',
     sessionId: input.session_id
   }
-  const runtimeDir = process.env.TEMPAD_MCP_RUNTIME_DIR || join(tmpdir(), 'tempad-dev', 'run')
+  const runtimeDir = process.env.TEMPAD_MCP_RUNTIME_DIR || join(resolveDefaultRoot(), 'run')
   const path =
     process.platform === 'win32' ? '\\\\.\\pipe\\tempad-mcp' : join(runtimeDir, 'mcp.sock')
+  assertTrustedSocket(path)
   socket = connect(path)
   const pending = new Map()
   let sequence = 0

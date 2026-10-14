@@ -3,6 +3,7 @@ import {
   TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
   TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS
 } from '@tempad-dev/shared'
+import { EventEmitter } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket, WebSocketServer } from 'ws'
 
@@ -21,6 +22,57 @@ afterEach(async () => {
 })
 
 describe('extension socket lifecycle', () => {
+  it('requires runtime identity and rejects session IDs already held by another connection', () => {
+    const registry = new ExtensionRegistry(10000)
+    registries.push(registry)
+    const onSessions = vi.fn()
+    const peer = (id: string) => {
+      const socket = Object.assign(new EventEmitter(), {
+        protocol: TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+        send: vi.fn(),
+        close: vi.fn()
+      })
+      attachExtensionSocket(socket as unknown as WebSocket, {
+        createId: () => id,
+        origin: STORE_ORIGIN,
+        registry,
+        onSessions,
+        onStateChange: () => {},
+        onToolResult: () => {},
+        onToolError: () => {}
+      })
+      return {
+        socket,
+        send: (value: unknown) => socket.emit('message', JSON.stringify(value), false)
+      }
+    }
+    const sessions = {
+      type: 'sessions',
+      browserId: 'browser',
+      activeSessionId: 'session',
+      sessions: [
+        { sessionId: 'session', fileKey: 'file', fileName: 'File', pageId: 'page', busy: false }
+      ]
+    }
+    const hello = {
+      type: 'runtimeHello',
+      extensionVersion: '1.0.0',
+      extensionRuntimeFingerprint: 'a'.repeat(64)
+    }
+    const missing = peer('missing')
+    missing.send(sessions)
+    expect(missing.socket.close).toHaveBeenCalledWith(1008, 'Runtime handshake required.')
+    expect(onSessions).not.toHaveBeenCalled()
+    const owner = peer('owner')
+    owner.send(hello)
+    owner.send(sessions)
+    const attacker = peer('attacker')
+    attacker.send(hello)
+    attacker.send(sessions)
+    expect(attacker.socket.close).toHaveBeenCalledWith(1008, 'Figma session is already registered.')
+    expect(onSessions).toHaveBeenCalledOnce()
+    expect(registry.list().find(({ id }) => id === 'attacker')?.sessions).toBeUndefined()
+  })
   it.each([undefined, 13, 15, 14, 16])(
     'binds supported runtime protocol %s and closes unsupported peers',
     async (protocolVersion) => {
@@ -268,6 +320,19 @@ describe('extension socket lifecycle', () => {
       message: 'timed out'
     })
 
+    client.send(
+      JSON.stringify({
+        type: 'toolResult',
+        id: 'future',
+        error: { code: 'FUTURE_ERROR', message: 'Future error' }
+      })
+    )
+    await waitUntil(() => onToolError.mock.calls.length === 2)
+    expect(onToolError).toHaveBeenLastCalledWith('future', 'ext-1', {
+      code: 'FUTURE_ERROR',
+      message: 'Future error'
+    })
+
     client.send(JSON.stringify({ type: 'ping' }))
     client.send('{')
     client.send(JSON.stringify({ type: 'unknown' }))
@@ -278,6 +343,17 @@ describe('extension socket lifecycle', () => {
       'schema',
       'binary'
     ])
+
+    client.send(JSON.stringify({ type: 'toolResult', id: 'malformed', error: {} }))
+    await waitUntil(() => onToolError.mock.calls.length === 3)
+    expect(onToolError).toHaveBeenLastCalledWith(
+      'malformed',
+      'ext-1',
+      expect.objectContaining({
+        code: 'EXTENSION_DISCONNECTED',
+        message: expect.stringContaining('inspect the canvas before retrying')
+      })
+    )
 
     client.close()
     await waitForClose(client)

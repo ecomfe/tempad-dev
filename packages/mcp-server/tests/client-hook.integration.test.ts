@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,9 +17,25 @@ const hook = fileURLToPath(
 )
 
 async function withHookHub(
-  run: (directory: string, hooks: ClientHooks, received: ClientHook[]) => Promise<void>
+  run: (
+    directory: string,
+    hooks: ClientHooks,
+    received: ClientHook[],
+    root: string
+  ) => Promise<void>,
+  linuxRoot?: 'private' | 'unsafe'
 ) {
-  const directory = await mkdtemp(join(tmpdir(), 'tempad-hook-test-'))
+  const root = await mkdtemp(join(tmpdir(), 'th-'))
+  let directory = root
+  if (linuxRoot) {
+    const legacyRoot = join(root, 'tempad-dev')
+    await mkdir(legacyRoot, { mode: linuxRoot === 'private' ? 0o700 : 0o755 })
+    directory = join(
+      linuxRoot === 'private' ? legacyRoot : join(root, `tempad-dev-${process.getuid?.()}`),
+      'run'
+    )
+    await mkdir(directory, { recursive: true, mode: 0o700 })
+  }
   const hooks = new ClientHooks()
   const received: ClientHook[] = []
   const clients = new Set<McpServer>()
@@ -38,17 +54,36 @@ async function withHookHub(
   })
   try {
     await new Promise<void>((resolve) => server.listen(join(directory, 'mcp.sock'), resolve))
-    await run(directory, hooks, received)
+    if (process.platform !== 'win32') await chmod(join(directory, 'mcp.sock'), 0o600)
+    await run(directory, hooks, received, root)
   } finally {
     await Promise.all([...clients].map((client) => client.close()))
     await new Promise<void>((resolve) => server.close(() => resolve()))
-    await rm(directory, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true })
   }
 }
 
-async function runHook(directory: string, event: string, extra = {}, kind = 'codex') {
-  const child = spawn(process.execPath, [hook, kind], {
-    env: { ...process.env, TEMPAD_MCP_RUNTIME_DIR: directory },
+async function runHook(
+  directory: string,
+  event: string,
+  extra = {},
+  kind = 'codex',
+  linuxTmpDir?: string
+) {
+  const args = linuxTmpDir
+    ? [
+        '--import',
+        'data:text/javascript,Object.defineProperty(process,"platform",{value:"linux"})',
+        hook,
+        kind
+      ]
+    : [hook, kind]
+  const child = spawn(process.execPath, args, {
+    env: {
+      ...process.env,
+      TEMPAD_MCP_RUNTIME_DIR: linuxTmpDir ? '' : directory,
+      ...(linuxTmpDir ? { TMPDIR: linuxTmpDir, TMP: linuxTmpDir, TEMP: linuxTmpDir } : {})
+    },
     stdio: ['pipe', 'pipe', 'pipe']
   })
   let stdout = '',
@@ -66,7 +101,56 @@ async function runHook(directory: string, event: string, extra = {}, kind = 'cod
   return { code, stdout, stderr }
 }
 
+// The installed Windows hook ignores runtime-directory overrides for its fixed pipe.
+// Only the in-memory protocol test is safe there; never probe the user's real Hub.
 describe('plugin hook transport', () => {
+  it.skipIf(process.platform === 'win32')(
+    'keeps the isolated Hub after legacy root changes and refuses ambiguous roots',
+    async () => {
+      await withHookHub(async (directory, _hooks, received, root) => {
+        const legacy = join(root, 'tempad-dev')
+        await rm(legacy, { recursive: true })
+        await runHook(directory, 'Interrupt', {}, 'claude', root)
+        expect(received).toHaveLength(1)
+        await mkdir(legacy, { mode: 0o700 })
+        await runHook(directory, 'Interrupt', {}, 'claude', root)
+        expect(received).toHaveLength(2)
+        await mkdir(join(legacy, 'run'), { mode: 0o700 })
+        await writeFile(join(legacy, 'run', 'mcp.sock'), '')
+        expect(await runHook(directory, 'Interrupt', {}, 'claude', root)).toEqual({
+          code: 0,
+          stdout: '',
+          stderr: ''
+        })
+        expect(received).toHaveLength(2)
+      }, 'unsafe')
+    }
+  )
+  it.skipIf(process.platform === 'win32').each(['private', 'unsafe'] as const)(
+    'finds the Hub with a %s legacy Linux root without an override',
+    async (state) => {
+      await withHookHub(async (directory, _hooks, received, root) => {
+        expect(await runHook(directory, 'Interrupt', {}, 'claude', root)).toEqual({
+          code: 0,
+          stdout: '',
+          stderr: ''
+        })
+        expect(received).toHaveLength(1)
+        expect(received[0]?.event).toBe('Interrupt')
+      }, state)
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'does not send lifecycle identity to a shared-access socket',
+    async () => {
+      await withHookHub(async (directory, _hooks, received) => {
+        await chmod(join(directory, 'mcp.sock'), 0o666)
+        expect(await runHook(directory, 'Interrupt')).toEqual({ code: 0, stdout: '', stderr: '' })
+        expect(received).toEqual([])
+      })
+    }
+  )
   it('still accepts the lifecycle notification used by existing runtime clients', async () => {
     const server = new McpServer({ name: 'test', version: '1.0.0' })
     const input = new PassThrough(),
@@ -85,24 +169,27 @@ describe('plugin hook transport', () => {
     await server.close()
   })
 
-  it('reports lifecycle over the real Hub transport without exposing a model tool or output', async () => {
-    await withHookHub(async (directory, _hooks, received) => {
-      expect(await runHook(directory, 'Interrupt')).toEqual({ code: 0, stdout: '', stderr: '' })
-      expect(received).toEqual([
-        expect.objectContaining({
-          version: 1,
-          event: 'Interrupt',
-          kind: 'codex',
-          sessionId: 'thread-a',
-          turnId: 'turn-a'
-        })
-      ])
-      await runHook(directory, 'PostToolUse', { agent_id: 'child-agent' })
-      expect(received).toHaveLength(1)
-    })
-  })
+  it.skipIf(process.platform === 'win32')(
+    'reports lifecycle over the real Hub transport without exposing a model tool or output',
+    async () => {
+      await withHookHub(async (directory, _hooks, received) => {
+        expect(await runHook(directory, 'Interrupt')).toEqual({ code: 0, stdout: '', stderr: '' })
+        expect(received).toEqual([
+          expect.objectContaining({
+            version: 1,
+            event: 'Interrupt',
+            kind: 'codex',
+            sessionId: 'thread-a',
+            turnId: 'turn-a'
+          })
+        ])
+        await runHook(directory, 'PostToolUse', { agent_id: 'child-agent' })
+        expect(received).toHaveLength(1)
+      })
+    }
+  )
 
-  it.each(['codex', 'claude'] as const)(
+  it.skipIf(process.platform === 'win32').each(['codex', 'claude'] as const)(
     'reports %s task binding and emits only the one-time Figma Stop notice',
     async (kind) => {
       await withHookHub(async (directory, hooks, received) => {
@@ -143,7 +230,7 @@ describe('plugin hook transport', () => {
     }
   )
 
-  it.each(['begin', 'resume', 'complete', 'cancel'])(
+  it.skipIf(process.platform === 'win32').each(['begin', 'resume', 'complete', 'cancel'])(
     'binds unified %s hook results only when work begins or resumes',
     async (action) => {
       await withHookHub(async (directory, _hooks, received) => {
@@ -164,57 +251,143 @@ describe('plugin hook transport', () => {
     }
   )
 
-  it('does not bind failed unified actions and still accepts older installed tool names', async () => {
-    await withHookHub(async (directory, _hooks, received) => {
-      await runHook(
-        directory,
-        'PostToolUse',
-        {
+  it.skipIf(process.platform === 'win32')(
+    'binds Claude content strings and arrays alongside existing MCP result wrappers',
+    async () => {
+      await withHookHub(async (directory, _hooks, received) => {
+        const task = { taskId: 'task-a' }
+        const text = JSON.stringify(task)
+        const content = [{ type: 'text', text }]
+        for (const tool_response of [
+          text,
+          content,
+          task,
+          { structuredContent: task },
+          { result: { structuredContent: task } },
+          { content }
+        ]) {
+          expect(
+            await runHook(
+              directory,
+              'PostToolUse',
+              {
+                tool_name: 'mcp__plugin_tempad-dev-dev_tempad-dev-dev__manage_design_task',
+                tool_input: { action: 'begin' },
+                tool_response
+              },
+              'claude'
+            )
+          ).toEqual({ code: 0, stdout: '', stderr: '' })
+          expect(received.at(-1)).toMatchObject({
+            kind: 'claude',
+            event: 'PostToolUse',
+            sessionId: 'thread-a',
+            taskId: 'task-a'
+          })
+        }
+      })
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'does not bind malformed content, errors, unrelated tools or subagent responses',
+    async () => {
+      await withHookHub(async (directory, _hooks, received) => {
+        const task = { taskId: 'task-a' }
+        const content = [{ type: 'text', text: JSON.stringify(task) }]
+        const input = {
           tool_name: 'mcp__tempad-dev__manage_design_task',
           tool_input: { action: 'resume' },
-          tool_response: { isError: true, structuredContent: { taskId: 'task-a' } }
-        },
-        'claude'
-      )
-      expect(received.at(-1)?.taskId).toBeUndefined()
-      await runHook(
-        directory,
-        'PostToolUse',
-        {
-          tool_name: 'mcp__tempad-dev__resume_design',
-          tool_response: { structuredContent: { taskId: 'task-a' } }
-        },
-        'claude'
-      )
-      expect(received.at(-1)?.taskId).toBe('task-a')
-    })
-  })
-
-  it('does not emit comment context offered by an older Hub', async () => {
-    await withHookHub(async (directory, hooks) => {
-      vi.spyOn(hooks, 'handle').mockReturnValue({
-        receiptId: '00000000-0000-4000-8000-000000000001',
-        output: {
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            additionalContext: 'Hidden legacy comment'
-          }
+          tool_response: content
         }
-      } as ReturnType<ClientHooks['handle']>)
-      expect(await runHook(directory, 'PreToolUse')).toEqual({
-        code: 0,
-        stdout: '',
-        stderr: ''
+        for (const tool_response of [
+          'not JSON',
+          'null',
+          '42',
+          [{ type: 'image', text: JSON.stringify(task) }],
+          { isError: true, content },
+          { result: { isError: true, structuredContent: task } },
+          JSON.stringify({ isError: true, ...task }),
+          [{ type: 'text', text: JSON.stringify({ isError: true, ...task }) }]
+        ]) {
+          await runHook(directory, 'PostToolUse', { ...input, tool_response }, 'claude')
+          expect(received.at(-1)?.taskId).toBeUndefined()
+        }
+        await runHook(
+          directory,
+          'PostToolUse',
+          { ...input, tool_name: 'mcp__tempad-dev__get_design_task' },
+          'claude'
+        )
+        expect(received.at(-1)?.taskId).toBeUndefined()
+        const count = received.length
+        for (const extra of [{ agent_id: 'child' }, { subagent_id: 'child' }])
+          await runHook(directory, 'PostToolUse', { ...input, ...extra }, 'claude')
+        expect(received).toHaveLength(count)
       })
-    })
-  })
-
-  it('exits quietly when no Hub is running instead of launching a helper', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'tempad-no-hub-'))
-    try {
-      expect(await runHook(directory, 'PreToolUse')).toEqual({ code: 0, stdout: '', stderr: '' })
-    } finally {
-      await rm(directory, { recursive: true, force: true })
     }
-  })
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'does not bind failed unified actions and still accepts older installed tool names',
+    async () => {
+      await withHookHub(async (directory, _hooks, received) => {
+        await runHook(
+          directory,
+          'PostToolUse',
+          {
+            tool_name: 'mcp__tempad-dev__manage_design_task',
+            tool_input: { action: 'resume' },
+            tool_response: { isError: true, structuredContent: { taskId: 'task-a' } }
+          },
+          'claude'
+        )
+        expect(received.at(-1)?.taskId).toBeUndefined()
+        await runHook(
+          directory,
+          'PostToolUse',
+          {
+            tool_name: 'mcp__tempad-dev__resume_design',
+            tool_response: { structuredContent: { taskId: 'task-a' } }
+          },
+          'claude'
+        )
+        expect(received.at(-1)?.taskId).toBe('task-a')
+      })
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'does not emit comment context offered by an older Hub',
+    async () => {
+      await withHookHub(async (directory, hooks) => {
+        vi.spyOn(hooks, 'handle').mockReturnValue({
+          receiptId: '00000000-0000-4000-8000-000000000001',
+          output: {
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              additionalContext: 'Hidden legacy comment'
+            }
+          }
+        } as ReturnType<ClientHooks['handle']>)
+        expect(await runHook(directory, 'PreToolUse')).toEqual({
+          code: 0,
+          stdout: '',
+          stderr: ''
+        })
+      })
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'exits quietly when no Hub is running instead of launching a helper',
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), 'tempad-no-hub-'))
+      try {
+        expect(await runHook(directory, 'PreToolUse')).toEqual({ code: 0, stdout: '', stderr: '' })
+      } finally {
+        await rm(directory, { recursive: true, force: true })
+      }
+    }
+  )
 })

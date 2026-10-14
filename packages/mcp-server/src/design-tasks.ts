@@ -3,7 +3,8 @@ import type {
   AgentCapabilities,
   DesignTask,
   DesignTaskTarget,
-  FigmaSession
+  FigmaSession,
+  TempadMcpErrorCode
 } from '@tempad-dev/shared'
 
 import { MCP_DESIGN_TASK_LEASE_MS, RESUMABLE_DESIGN_TASK_STATUSES } from '@tempad-dev/shared'
@@ -12,6 +13,7 @@ import { isDeepStrictEqual } from 'node:util'
 import type { DesignTaskSnapshot, DesignTaskStore } from './design-task-store'
 import type { ExtensionConnection } from './types'
 
+import { HISTORY_RETENTION_MS } from './history-retention'
 import { extensionUpgradeRequired } from './legacy-extension'
 
 type TerminalStatus = Exclude<DesignTask['status'], 'active' | 'stopping'>
@@ -29,6 +31,7 @@ export type DesignTaskRecord = {
   ending?: TerminalStatus
   resultNodeIds?: string[]
   browser?: BrowserIdentity & { tabId: number; documentId: string }
+  retiredAt?: number
 }
 
 type Operation = {
@@ -36,7 +39,6 @@ type Operation = {
   browserId: string
   target: DesignTaskTarget
   taskId?: string
-  uncertain: boolean
   tabId?: number
   documentId?: string
 }
@@ -46,10 +48,12 @@ type Options = {
   now?: () => number
   leaseMs?: number
   onChange?: (record: DesignTaskRecord) => void
-  store?: Pick<DesignTaskStore, 'load' | 'save'>
+  store?: Pick<DesignTaskStore, 'load' | 'save' | 'recoveryError' | 'blockedFiles'>
+  onPersistenceError?: (error: unknown) => void
+  onReviewStop?: (record: DesignTaskRecord) => void
 }
 
-function fail(code: string, message: string): never {
+function fail(code: TempadMcpErrorCode, message: string): never {
   throw Object.assign(new Error(message), { code })
 }
 
@@ -109,9 +113,14 @@ export class DesignTasks {
   private readonly records = new Map<string, DesignTaskRecord>()
   private readonly currentTaskIds = new Map<string, string>()
   private readonly operations = new Map<string, Operation>()
+  // Every retired file rejects stale unknown reviews; true also retains its Stop write fence.
+  private readonly fileFences = new Map<string, boolean>()
+  private readonly expiredRequests = new Map<string, Set<string>>()
+  private nextHistorySweep = Infinity
   private readonly now: () => number
   private readonly leaseMs: number
   private revision = 0
+  private persistenceError?: unknown
 
   constructor(private readonly options: Options) {
     this.now = options.now ?? Date.now
@@ -120,6 +129,11 @@ export class DesignTasks {
 
   retry(ownerId: string, requestId: string): DesignTaskRecord | undefined {
     this.sweep()
+    if (this.expiredRequests.get(ownerId)?.has(requestId))
+      fail(
+        'DESIGN_TASK_INACTIVE',
+        'This begin requestId has expired. Begin a new task with a fresh requestId.'
+      )
     return [...this.records.values()].find(
       (record) => record.ownerId === ownerId && record.requestId === requestId
     )
@@ -135,10 +149,11 @@ export class DesignTasks {
     capabilities?: AgentCapabilities,
     browser?: BrowserIdentity
   ): DesignTaskRecord {
+    this.assertStorageWritable(session.fileKey)
     const retry = this.retry(ownerId, requestId)
     if (retry) {
       if (retry.task.title !== title) {
-        fail('DESIGN_TASK_INACTIVE', 'This begin requestId was already used with another title.')
+        fail('REQUEST_ID_CONFLICT', 'This begin requestId was already used with another title.')
       }
       return retry
     }
@@ -168,14 +183,18 @@ export class DesignTasks {
       }
     }
     const previousTaskId = this.currentTaskIds.get(session.fileKey)
+    const previous = previousTaskId ? this.records.get(previousTaskId) : undefined
     this.records.set(record.task.taskId, record)
     this.currentTaskIds.set(session.fileKey, record.task.taskId)
+    if (!this.expiredRequests.has(ownerId)) this.expiredRequests.set(ownerId, new Set())
+    if (previous) this.trackRetirement(previous)
     try {
-      this.publish(record)
+      this.publish(record, true)
     } catch (error) {
       this.records.delete(record.task.taskId)
       if (previousTaskId) this.currentTaskIds.set(session.fileKey, previousTaskId)
       else this.currentTaskIds.delete(session.fileKey)
+      if (previous) this.trackRetirement(previous)
       throw error
     }
     return record
@@ -230,10 +249,12 @@ export class DesignTasks {
         record.ownerId !== ownerId
       )
         continue
+      const ownerChanged = record.ownerId !== ownerId
       const changed =
-        record.ownerId !== ownerId ||
-        (capabilities && !isDeepStrictEqual(record.task.capabilities, capabilities))
+        ownerChanged || (capabilities && !isDeepStrictEqual(record.task.capabilities, capabilities))
       record.ownerId = ownerId
+      if (ownerChanged && !this.expiredRequests.has(ownerId))
+        this.expiredRequests.set(ownerId, new Set())
       record.task.client = client
       if (capabilities) record.task.capabilities = capabilities
       if (changed) this.publish(record)
@@ -273,13 +294,22 @@ export class DesignTasks {
       )
     }
     this.assertFileIdle(session)
+    const previousTask = { ...record.task, needsRead: record.task.needsRead }
+    const { ready, ending, retiredAt } = record
     record.ending = undefined
     record.ready = false
     record.task.status = 'active'
     record.task.epoch = (record.task.epoch ?? 0) + 1
+    delete record.task.result
     record.task.needsRead = true
     // The task keeps its page binding; switching pages is an explicit operation.
-    this.renew(record)
+    try {
+      this.renew(record, true)
+    } catch (error) {
+      Object.assign(record.task, previousTask)
+      Object.assign(record, { ready, ending, retiredAt })
+      throw error
+    }
     return record
   }
 
@@ -334,6 +364,7 @@ export class DesignTasks {
 
   checkOperation(ownerId: string, session: FigmaSession, taskId?: string, write = false): void {
     this.sweep()
+    if (write) this.assertStorageWritable(session.fileKey)
     this.assertFileIdle(session)
     const record = taskId ? this.owned(taskId, ownerId, true) : undefined
     if (record && (!record.ready || record.task.target.sessionId !== session.sessionId)) {
@@ -350,9 +381,10 @@ export class DesignTasks {
     if (
       write &&
       !taskId &&
-      [...this.records.values()].some(
-        ({ task }) => task.target.fileKey === session.fileKey && task.status === 'cancelled'
-      )
+      (this.fileFences.get(session.fileKey) ||
+        [...this.records.values()].some(
+          ({ task }) => task.target.fileKey === session.fileKey && task.status === 'cancelled'
+        ))
     )
       fail('DESIGN_TASK_INACTIVE', 'This file has a stopped task. Begin a new task before writing.')
   }
@@ -374,7 +406,6 @@ export class DesignTasks {
       browserId,
       target,
       taskId,
-      uncertain: false,
       tabId,
       documentId
     })
@@ -395,24 +426,14 @@ export class DesignTasks {
     else if (record.task.status === 'active') this.renew(record)
   }
 
-  /** A transport failure is not evidence that page execution stopped. */
-  uncertain(requestId: string, extensionId: string): void {
-    const operation = this.operations.get(requestId)
-    if (operation?.extensionId === extensionId) operation.uncertain = true
-  }
-
   reconcileSessions(browserId: string, sessions: FigmaSession[], openTabIds?: number[]): void {
     for (const [requestId, operation] of this.operations) {
-      if (!operation.uncertain) continue
-      const session = sessions.find((value) => value.sessionId === operation.target.sessionId)
-      const sameBrowser = browserId === operation.browserId
+      if (browserId !== operation.browserId) continue
       const tabClosed =
-        sameBrowser &&
         operation.tabId !== undefined &&
         openTabIds !== undefined &&
         !openTabIds.includes(operation.tabId)
       const documentReplaced =
-        sameBrowser &&
         operation.tabId !== undefined &&
         operation.documentId !== undefined &&
         sessions.some(
@@ -421,7 +442,9 @@ export class DesignTasks {
             value.documentId !== undefined &&
             value.documentId !== operation.documentId
         )
-      if ((session && !session.busy) || tabClosed || documentReplaced) {
+      // Idle snapshots have no causal link to the pending operation. Only a
+      // definitive result or loss of its executing document can release the fence.
+      if (tabClosed || documentReplaced) {
         this.finishOperation(requestId, operation.extensionId)
       }
     }
@@ -497,7 +520,9 @@ export class DesignTasks {
     const record = this.records.get(taskId)
     if (!record) return
     const ids = (record.resultNodeIds ?? []).filter((id) => id !== rootNodeId)
-    record.resultNodeIds = (removed ? ids : [...ids, rootNodeId]).slice(-20)
+    const next = (removed ? ids : [...ids, rootNodeId]).slice(-20)
+    if (isDeepStrictEqual(record.resultNodeIds ?? [], next)) return
+    record.resultNodeIds = next
     this.persist()
   }
 
@@ -533,20 +558,21 @@ export class DesignTasks {
     for (const record of this.records.values()) {
       if (record.ownerId === ownerId) this.stop(record.task.taskId, 'paused')
     }
+    this.expiredRequests.delete(ownerId)
   }
 
   disconnectExtension(extensionId: string): void {
-    for (const operation of this.operations.values()) {
-      if (operation.extensionId === extensionId) operation.uncertain = true
-    }
     for (const record of this.records.values()) {
-      if (record.extensionId === extensionId) this.stop(record.task.taskId, 'interrupted')
+      if (record.extensionId === extensionId) {
+        this.stop(record.task.taskId, 'interrupted')
+        record.extensionId = ''
+      }
     }
   }
 
   updatePage(taskId: string, pageId: string): void {
     const record = this.records.get(taskId)
-    if (!record || record.task.status !== 'active') return
+    if (!record || record.task.status !== 'active' || record.task.target.pageId === pageId) return
     record.task.target.pageId = pageId
     this.publish(record)
   }
@@ -556,8 +582,12 @@ export class DesignTasks {
   }
 
   sweep(): void {
+    if (this.persistenceError) this.persist()
     const now = this.now()
-    for (const record of this.records.values()) {
+    // Historical tasks never own a lease. Retain their fences without scanning
+    // every record on each lookup and operation.
+    for (const taskId of this.currentTaskIds.values()) {
+      const record = this.records.get(taskId)!
       if (
         record.task.status === 'active' &&
         !record.task.operation &&
@@ -566,11 +596,62 @@ export class DesignTasks {
         this.finish(record, 'expired')
       }
     }
+    this.pruneHistory(now)
   }
 
-  private renew(record: DesignTaskRecord): void {
+  private trackRetirement(record: DesignTaskRecord): void {
+    const { task } = record
+    if (
+      !RUNNING_STATUSES.includes(task.status) &&
+      (task.reviewClosed ||
+        task.status === 'cancelled' ||
+        this.current(task.target.fileKey) !== record)
+    ) {
+      record.retiredAt ??= this.now()
+      this.nextHistorySweep = Math.min(
+        this.nextHistorySweep,
+        record.retiredAt + HISTORY_RETENTION_MS
+      )
+    } else {
+      delete record.retiredAt
+    }
+  }
+
+  private pruneHistory(now: number): void {
+    if (now < this.nextHistorySweep || this.persistenceError) return
+    this.nextHistorySweep = Infinity
+    const pendingTasks = new Set([...this.operations.values()].map(({ taskId }) => taskId))
+    let changed = false
+    for (const [taskId, record] of this.records) {
+      if (record.retiredAt === undefined) continue
+      const deadline = record.retiredAt + HISTORY_RETENTION_MS
+      if (
+        deadline > now ||
+        RUNNING_STATUSES.includes(record.task.status) ||
+        pendingTasks.has(taskId)
+      ) {
+        this.nextHistorySweep = Math.min(
+          this.nextHistorySweep,
+          deadline > now ? deadline : now + 60_000
+        )
+        continue
+      }
+      const fileKey = record.task.target.fileKey
+      this.fileFences.set(
+        fileKey,
+        this.fileFences.get(fileKey) === true || record.task.status === 'cancelled'
+      )
+      if (record.requestId) this.expiredRequests.get(record.ownerId)?.add(record.requestId)
+      this.records.delete(taskId)
+      if (this.currentTaskIds.get(fileKey) === taskId) this.currentTaskIds.delete(fileKey)
+      changed = true
+    }
+    if (changed) this.persist()
+  }
+
+  private renew(record: DesignTaskRecord, requireDurable = false): void {
     record.task.expiresAt = this.now() + this.leaseMs
-    this.publish(record)
+    this.publish(record, requireDurable)
   }
 
   private finish(record: DesignTaskRecord, status: TerminalStatus): void {
@@ -579,9 +660,11 @@ export class DesignTasks {
     this.publish(record)
   }
 
-  private publish(record: DesignTaskRecord): void {
+  private publish(record: DesignTaskRecord, requireDurable = false): void {
     record.task.revision = ++this.revision
+    this.trackRetirement(record)
     this.persist()
+    if (requireDurable && this.persistenceError) throw this.persistenceError
     if (this.current(record.task.target.fileKey) === record) this.options.onChange?.(record)
   }
 
@@ -590,6 +673,8 @@ export class DesignTasks {
     const snapshot = this.options.store?.load()
     if (!snapshot) return
     this.revision = snapshot.revision
+    for (const [fileKey, stopped] of Object.entries(snapshot.fileFences ?? {}))
+      this.fileFences.set(fileKey, stopped)
     for (const saved of snapshot.records) {
       const task = {
         ...saved.task,
@@ -613,11 +698,16 @@ export class DesignTasks {
     for (const [fileKey, taskId] of Object.entries(snapshot.current))
       if (this.records.get(taskId)?.task.target.fileKey === fileKey)
         this.currentTaskIds.set(fileKey, taskId)
+    for (const record of this.records.values()) this.trackRetirement(record)
     this.persist()
   }
 
   /** A registered page can recover its saved review, never its execution authority. */
-  restoreReview(saved: DesignTask, extension: ExtensionConnection, session: FigmaSession): void {
+  restoreReview(
+    saved: DesignTask,
+    extension: ExtensionConnection,
+    session: FigmaSession
+  ): boolean | undefined {
     if (saved.target.fileKey !== session.fileKey || !extension.sessions) return
     let record = this.records.get(saved.taskId)
     if (
@@ -629,7 +719,7 @@ export class DesignTasks {
       return
     if (!record) {
       // Migrate a tab saved before durable Hub records existed. Never replace a newer task.
-      if (this.current(session.fileKey)) return
+      if (this.current(session.fileKey) || this.fileFences.has(session.fileKey)) return
       record = {
         task: {
           ...saved,
@@ -654,13 +744,22 @@ export class DesignTasks {
       this.currentTaskIds.set(session.fileKey, saved.taskId)
       this.publish(record)
     }
+    if (
+      (record.extensionId && record.extensionId !== extension.id) ||
+      (record.browser &&
+        (record.browser.browserId !== extension.sessions.browserId ||
+          record.browser.origin !== extension.origin))
+    )
+      return
     if (saved.reviewClosed) {
       this.closeReview(saved.taskId)
-      return
+      return true
     }
     if (saved.status === 'cancelled') {
+      if (!ENDED_STATUSES.includes(record.task.status) && this.current(session.fileKey) === record)
+        this.options.onReviewStop?.(record)
       this.stop(saved.taskId, 'cancelled')
-      return
+      return true
     }
     if (record.task.reviewClosed || this.current(session.fileKey) !== record) return
     // Preserve normal exact-tab refresh recovery, including its fresh write epoch.
@@ -679,12 +778,6 @@ export class DesignTasks {
         (value) => value.sessionId === record.task.target.sessionId
       ) &&
       record.task.target.sessionId !== session.sessionId
-    )
-      return
-    if (
-      record.browser &&
-      (record.browser.browserId !== extension.sessions.browserId ||
-        record.browser.origin !== extension.origin)
     )
       return
     if (record.task.target.sessionId === session.sessionId && record.extensionId === extension.id)
@@ -720,13 +813,37 @@ export class DesignTasks {
     const snapshot: DesignTaskSnapshot = {
       revision: this.revision,
       current: Object.fromEntries(this.currentTaskIds),
-      records: [...this.records.values()].map(({ task, requestId, browser, resultNodeIds }) => ({
-        task: { ...task, capabilities: undefined, operation: null },
-        requestId,
-        browser,
-        resultNodeIds
-      }))
+      ...(this.fileFences.size ? { fileFences: Object.fromEntries(this.fileFences) } : {}),
+      records: [...this.records.values()].map(
+        ({ task, requestId, browser, resultNodeIds, retiredAt }) => ({
+          task: { ...task, capabilities: undefined, operation: null },
+          requestId,
+          browser,
+          resultNodeIds,
+          retiredAt
+        })
+      )
     }
-    this.options.store.save(snapshot)
+    try {
+      this.options.store.save(snapshot)
+      this.persistenceError = undefined
+    } catch (error) {
+      if (!this.persistenceError) this.options.onPersistenceError?.(error)
+      this.persistenceError = error
+    }
+  }
+
+  private assertStorageWritable(fileKey: string): void {
+    if (this.options.store?.blockedFiles?.has(fileKey))
+      fail(
+        'DESIGN_TASK_INACTIVE',
+        'This Figma file has an incompatible saved task. Its canvas writes remain blocked until that task record is recovered; other files are unaffected.'
+      )
+    if (this.options.store?.recoveryError || this.persistenceError)
+      fail(
+        'DESIGN_TASK_INACTIVE',
+        this.options.store?.recoveryError ??
+          'Design task state could not be saved. Canvas writes are blocked until storage recovers; stopped tasks remain fenced.'
+      )
   }
 }

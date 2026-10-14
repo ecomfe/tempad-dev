@@ -19,7 +19,7 @@ export function decodeImageDataUrl(
   }
 
   const mimeType = match[1] as DecodedImageDataUrl['mimeType']
-  const encoded = match[2]
+  const encoded = match[2]!
   if (encoded.length % 4 !== 0) {
     throw new Error('Image data URL contains invalid base64 padding.')
   }

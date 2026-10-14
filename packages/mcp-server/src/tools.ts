@@ -1,7 +1,6 @@
 import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import type {
   DesignTask,
-  GetAssetsResult,
   GetCodeResult,
   GetScreenshotResult,
   NodeReadBatchResult,
@@ -24,21 +23,16 @@ import {
   DesignTaskIdSchema,
   MCP_TOOL_INLINE_BUDGET_BYTES,
   buildApplyCanvasToolResult,
-  buildGetAssetsToolResult,
   buildGetCodeToolResult,
   buildGetDesignSystemToolResult,
   buildGetScreenshotToolResult,
   buildGetStructureToolResult,
-  buildGetTokenDefsToolResult,
   buildUploadAssetToolResult,
-  GetAssetsParametersSchema,
-  GetAssetsResultSchema,
   GetCodeParametersSchema,
   GetDesignSystemParametersSchema,
   GetDesignSystemResultSchema,
   GetScreenshotParametersSchema,
   GetStructureParametersSchema,
-  GetTokenDefsParametersSchema,
   TEMPAD_MCP_ERROR_CODES,
   UploadAssetParametersSchema,
   UploadAssetResultSchema
@@ -131,7 +125,7 @@ const CONNECTIVITY_TROUBLESHOOTING_LINES = [
   'Troubleshooting:',
   '- In Figma, open TemPad Dev panel and enable the MCP server in Preferences → Agent integration. Enabled permits connection; it does not prove that an extension is active.',
   "- Badge-default reads require the intended tab's active MCP badge. Exact sessionId reads require that session in list_design_sessions; browser focus does not select a default.",
-  '- If the connection is missing or reports a protocol mismatch, rebuild the affected runtime layers, reload the installed TemPad Dev browser extension, reload the same Figma tab, and start a fresh task.'
+  '- If the connection is missing or reports a protocol mismatch, update TemPad Dev and its agent plugin, reload the same Figma tab, and reconnect. Use list_design_sessions to confirm the intended session before retrying.'
 ]
 
 const MULTI_SELECTION_TROUBLESHOOTING_LINE =
@@ -221,16 +215,6 @@ export const TOOL_DEFS = [
     format: createApplyCanvasToolResponse
   }),
   extTool({
-    name: 'get_token_defs',
-    description:
-      'Read definitions for canonical token names referenced by get_code, preserving aliases and optionally all modes. Consumer-specific literal values belong to get_code with resolveTokens enabled.',
-    annotations: READ_ONLY_ANNOTATIONS,
-    parameters: GetTokenDefsParametersSchema,
-    target: 'extension',
-    format: createTokenDefsToolResponse,
-    exposed: false
-  }),
-  extTool({
     name: 'get_screenshot',
     description:
       'Capture a bounded rendered PNG per exact nodeId/nodeIds or selected node. Multi-selection and explicit nodeIds return independent results keyed by nodeId, including per-node errors. Continue remainingNodeIds with nodeIds. Single-node calls retain the flat result. Open each returned PNG to visually verify it.',
@@ -257,16 +241,6 @@ export const TOOL_DEFS = [
     target: 'hub',
     outputSchema: UploadAssetResultSchema,
     format: createUploadAssetToolResponse
-  }),
-  hubTool({
-    name: 'get_assets',
-    description:
-      'Resolve asset hashes to downloadable URLs and metadata for assets referenced by tool responses. SVG asset metadata may include `themeable=true` when the underlying vector can safely adopt one contextual color channel.',
-    annotations: READ_ONLY_ANNOTATIONS,
-    parameters: GetAssetsParametersSchema,
-    target: 'hub',
-    outputSchema: GetAssetsResultSchema,
-    exposed: false
   })
 ] as const
 
@@ -377,12 +351,6 @@ export function createStructureToolResponse(
   return formatToolResult('get_structure', payload, isStructureResult, buildGetStructureToolResult)
 }
 
-export function createTokenDefsToolResponse(
-  payload: ToolResultMap['get_token_defs']
-): CallToolResult {
-  return formatToolResult('get_token_defs', payload, isTokenDefsResult, buildGetTokenDefsToolResult)
-}
-
 export function createScreenshotToolResponse(
   payload: ToolResultMap['get_screenshot']
 ): CallToolResult {
@@ -463,15 +431,6 @@ function isStructureResult(payload: unknown): payload is ToolResultMap['get_stru
   return isRecord(payload) && Array.isArray(payload.roots)
 }
 
-function isTokenDefsResult(payload: unknown): payload is ToolResultMap['get_token_defs'] {
-  if (!isRecord(payload)) return false
-  for (const token of Object.values(payload)) {
-    if (!isRecord(token) || typeof token.kind !== 'string' || token.value === undefined)
-      return false
-  }
-  return true
-}
-
 export function coercePayloadToToolResponse(payload: unknown): CallToolResult {
   if (isRecord(payload) && Array.isArray(payload.content)) {
     return payload as CallToolResult
@@ -485,10 +444,6 @@ export function coercePayloadToToolResponse(payload: unknown): CallToolResult {
       }
     ]
   }
-}
-
-export function createAssetsToolResponse(payload: GetAssetsResult): CallToolResult {
-  return toCallToolResult(buildGetAssetsToolResult(payload))
 }
 
 export function createUploadAssetToolResponse(payload: UploadAssetResult): CallToolResult {
