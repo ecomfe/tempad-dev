@@ -43,6 +43,9 @@ codex plugin add tempad-dev@tempad-dev
 
 添加 marketplace 后，也可以从 Codex 应用的插件目录安装 **TemPad Dev**。
 
+Codex 包将工具超时设为 300 秒，让 Hub 有时间在客户端停止等待前返回较慢画布操作的结果，
+或明确报告结果未知。
+
 ### Claude Code 和 Claude Desktop
 
 ```bash
@@ -85,6 +88,9 @@ Codex App 的任务绑定和状态同步使用 MCP 元数据及原生 IPC，不�
 原生队列评论，保留其它消息；清理失败后会在重新连接时重试，已被宿主取走的输入无法撤回。
 宿主不可用时，本地取消仍然生效。Claude 保留生命周期和 Stop 通知 hooks；Claude、Codex CLI
 等尚未接入原生投递的客户端提供任务状态和 Stop/Done，但不显示评论入口，已有草稿不会删除。
+Claude 会在下一个启用 hook 的工具边界收到 Stop 通知。任务暂停可用新的 lease epoch 恢复，
+恢复后必须先重新读取画布才能写入；取消的任务不能恢复。详见
+[任务与客户端设计](https://github.com/ecomfe/tempad-dev/blob/main/docs/extension/mcp-design-tasks.md)。
 
 原生适配器在 macOS/Linux 上使用 Unix socket，在 Windows 上使用 Codex 的本机 Named Pipe。
 已在 macOS Codex App 26.908.70816 上实测 Steer，以及暂停状态下的原生队列入队和移除。
@@ -96,15 +102,16 @@ Codex App 的任务绑定和状态同步使用 MCP 元数据及原生 IPC，不�
 设计 skill 已更名为 `design-in-figma`，与展示名 **Design in Figma** 一致。
 请将已保存的 `figma-canvas-authoring` 调用更新为新名称；单独安装 skill 的用户，
 安装新版后还应移除旧名称的 skill。
+独立 skill 包会保留旧名称的生成兼容入口一个扩展商店发布周期，让已安装旧扩展中的配置命令继续有效。
 
-本次版本应配套使用 Agent Plugin **0.5.0**、TemPad Dev 扩展 **0.23.0** 和 MCP
-server **0.11.0**。MCP server 要求 Node.js **22.x、24.x 或 26+**。
+请使用 TemPad Dev 扩展 **0.23.4 或更高版本**和 MCP server **0.11.0 或更高版本**。
+MCP server 要求 Node.js **22.x、24.x 或 26+**。
 多节点读取和按消费节点解析 token 要求 Hub 与扩展均使用匹配的 protocol 15 构建。
 MCP 0.11.0 同时通过 protocol 13 兼容扩展 0.22.0，在商店更新期间保留既有读取、会话、任务和画布写入。
 新版读取选项会提示升级扩展，响应会明确标注旧版选区和 token 语义。
 MCP 0.10.0 及之后版本使用 `manage_design_task` 代替旧的生命周期工具。
 
-1. 将浏览器扩展更新到 0.23.0 并重新加载 Figma 标签页，以启用新版读取能力。
+1. 将浏览器扩展更新到 0.23.4 或更高版本并重新加载 Figma 标签页。0.23.4 包含内置 rewrite 规则和 SVG 定位修复；多节点读取从 0.23.0 开始提供。
 2. 通过原先使用的客户端或安装器更新 plugin。独立配置时，请同时更新
    `figma-design-to-code` 和 `design-in-figma`。
 3. 正式版 MCP 配置使用 `@tempad-dev/mcp@latest`；请替换旧的 `@alpha` 或固定 alpha 版本。
@@ -125,7 +132,7 @@ MCP 0.10.0 及之后版本使用 `manage_design_task` 代替旧的生命周期�
 | `agent-plugin/src/mcp.json`        | 标准 MCP 配置                          |
 | `agent-plugin/src/skills/`         | 两个 skill                             |
 | `agent-plugin/src/clients/claude/` | Claude 生命周期 hooks                  |
-| `agent-plugin/src/clients/codex/`  | Codex 目录展示信息（`interface.json`） |
+| `agent-plugin/src/clients/codex/`  | Codex 目录展示信息及 MCP 超时设置      |
 | `agent-plugin/src/clients/shared/` | 宿主共用的 hook 传输脚本               |
 | `agent-plugin/targets/standard`    | 生成产物，同时是独立 skills 的安装地址 |
 | `agent-plugin/targets/plugins-cli` | 为 `plugins` CLI 生成的兼容包          |

@@ -72,7 +72,8 @@ Call TemPad Dev's `get_code` directly for the requested roots before implementin
 - set `preferredLang` from the project target; treat returned `lang` as
   authoritative because plugin configuration may override that preference;
 - keep TemPad's default vector behavior unless the user explicitly requests
-  asset-preserving vector fidelity and the active MCP version supports it.
+  asset-preserving vector fidelity; for that request, use `vectorMode: "snapshot"`
+  when the active tool schema supports it.
 
 Keep each root's `code`, `lang`, `warnings`, `assets`, `tokens`, and `codegen`
 together. In a batch, each `results` entry identifies its `nodeId` and carries

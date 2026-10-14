@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1
+
+- Bind Claude task sessions from bare MCP text or content arrays as well as wrapped results,
+  so lifecycle changes and Figma Stop can reach the correct conversation.
+- Restored the former standalone authoring skill name as a generated compatibility alias for one
+  extension store release cycle. Native plugins continue to expose the two current skills.
+- Corrected read-tool guidance and extension upgrade instructions, and limited Claude's
+  post-tool lifecycle hook to TemPad calls while preserving Stop checks before every tool.
+- Configured Codex's tool timeout to cover the Hub's bounded canvas-write wait.
+
 ## 0.5.0
 
 - Renamed `figma-canvas-authoring` to `design-in-figma` to match its **Design in Figma**
@@ -44,7 +54,6 @@
   native IPC without hooks; Claude uses installed lifecycle and Stop hooks.
 - Documented native Codex App comments, Queue/Steer timing, and element-editor Save & Queue
   shortcuts. Other clients retain task controls without comment delivery.
-
 - Added `figma-canvas-authoring` for creating and editing native Figma designs, alongside the
   existing `figma-design-to-code` skill.
 - Added progressive references for native authoring, fonts, images, icons, resource bindings,

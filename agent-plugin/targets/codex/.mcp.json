@@ -5,7 +5,8 @@
       "args": [
         "-y",
         "@tempad-dev/mcp@latest"
-      ]
+      ],
+      "tool_timeout_sec": 300
     }
   }
 }

@@ -120,6 +120,12 @@ Bind through `native[key].variables` using the exact supported field, such as
 `characters`. Retain a matching literal class when Figma needs an initial paint
 or numeric fallback.
 
+A FLOAT bound to layer `opacity` uses percentages: `50` means 50%, matching
+literal `opacity-50` or `opacity-[0.5]`. A variable value of `0.5` means 0.5%.
+This depends on the bound field, not the variable's scope: `OPACITY` and
+`ALL_SCOPES` bindings use the same units. Do not rescale the stored variable;
+the same value may also supply a pixel metric such as gap.
+
 Bind each variable to representative fields performing its semantic role.
 Prefer `GAP` for shared gaps/padding, `WIDTH_HEIGHT` for semantic control/icon
 sizes, and `CORNER_RADIUS` for shared radii. Do not tokenize viewport dimensions,

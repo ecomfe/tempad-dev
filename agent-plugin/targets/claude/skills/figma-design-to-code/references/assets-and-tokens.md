@@ -54,11 +54,16 @@ If a needed consumer value is unknown, make a targeted `get_code` read with
 `resolveTokens: true` for its exact node or a subtree containing it, preserving
 the session/task scope and other read options. Retain the original composition;
 use the extra read for the missing value. Verify that the value actually became
-a literal and inspect warnings. `get_token_defs` supplies definitions without a
-consuming node and cannot establish that node's actual value.
+a literal and inspect warnings. Definitions in the returned `tokens` field do not
+establish a consuming node's actual value by themselves.
 
 Definitions and a consumer's rendered value need not have the same literal
-representation. If they still contradict after accounting for aliases and
+representation. Figma opacity variables store percentages (`50` means `0.5`
+opacity). Code output normalizes only the opacity consumer: resolved output uses
+the fraction, while unresolved output retains a token reference in `calc()` with
+the matching number or length denominator. Preserve that expression; do not divide
+the shared token definition, which may also serve spacing or other properties.
+If definitions still contradict consumer output after accounting for aliases and
 effective modes, narrow the design evidence or ask which state is intended.
 For unavailable or ambiguous facts, follow the token warnings in
 [recovery.md](recovery.md#incomplete-get_code-results).

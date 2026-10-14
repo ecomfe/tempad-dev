@@ -14,6 +14,7 @@ const mcpSchema = 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json'
 const manifest = readJson(join(srcRoot, 'plugin.json'))
 const portableMcp = readJson(join(srcRoot, 'mcp.json'))
 const codexInterface = readJson(join(srcRoot, 'clients/codex/interface.json'))
+const codexMcpSettings = readJson(join(srcRoot, 'clients/codex/mcp.json'))
 
 if (manifest.$schema !== pluginSchema) {
   throw new Error(`Unsupported Agent Plugins manifest schema: ${String(manifest.$schema)}`)
@@ -27,8 +28,12 @@ buildStandard()
 buildHost(join(targetRoot, 'plugins-cli'), (target) =>
   writeJson(join(target, '.plugin/plugin.json'), sharedManifestFields(manifest))
 )
-buildHost(join(targetRoot, 'codex'), (target) =>
-  writeCodexManifest(target, manifest, codexInterface)
+const codexMcp = hostMcpConfig(portableMcp)
+codexMcp.mcpServers[manifest.name].tool_timeout_sec = codexMcpSettings.tool_timeout_sec
+buildHost(
+  join(targetRoot, 'codex'),
+  (target) => writeCodexManifest(target, manifest, codexInterface),
+  codexMcp
 )
 buildHost(join(targetRoot, 'claude'), (target) => writeClaudeManifest(target, manifest))
 const marketplaces = syncMarketplaces()
@@ -51,6 +56,18 @@ console.log(
 function buildStandard() {
   const target = join(targetRoot, 'standard')
   stageSharedContent(target)
+  // Old store extensions install this exact standalone skill name from main.
+  // Retain the alias for one store release cycle; native host packages use only current names.
+  const alias = join(target, 'skills/figma-canvas-authoring')
+  cpSync(join(target, 'skills/design-in-figma'), alias, { recursive: true })
+  const skillPath = join(alias, 'SKILL.md')
+  writeFileSync(
+    skillPath,
+    readFileSync(skillPath, 'utf8').replace(
+      /^name: design-in-figma$/m,
+      'name: figma-canvas-authoring'
+    )
+  )
   writeJson(join(target, 'plugin.json'), manifest)
   writeJson(join(target, 'mcp.json'), portableMcp)
 }
@@ -107,6 +124,7 @@ function buildDev(marketplaces) {
         [devName]: {
           command: 'node',
           args: [join(root, 'packages/mcp-server/dist/cli.mjs')],
+          tool_timeout_sec: codexMcpSettings.tool_timeout_sec,
           env: {
             TEMPAD_MCP_DEV_CHECKOUT: root,
             TEMPAD_MCP_MAX_ASSET_STORE_BYTES: String(devMaxAssetStoreBytes)

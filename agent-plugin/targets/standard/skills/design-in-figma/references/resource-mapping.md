@@ -109,13 +109,17 @@ ambiguous Tailwind prefixes, for example `text-(length:--body-size)` versus
 | `text-(length:--size)`, `leading-(--leading)`, `tracking-(--tracking)` | FLOAT font size, line height, letter spacing, in pixels |
 | `font-(family-name:--family)`                                          | STRING font family                                      |
 | `font-(--weight)`                                                      | FLOAT font weight, 1–1000                               |
-| `opacity-(--opacity)`                                                  | FLOAT opacity, 0–1                                      |
+| `opacity-(--opacity)`                                                  | FLOAT opacity percentage, 0–100                         |
 
 The tool reads an initial native value itself and retains the variable binding;
 do not add a second literal fallback class. Native node, layout, and scope rules
 still apply. This is a bounded mapping to Figma fields, not a CSS engine: no
 `calc()`, var fallbacks, arbitrary expressions, or cascade. FLOAT metrics use
 the native units above, not unitless CSS line-height multipliers.
+
+Opacity variables use native percentages: a value of `50` means 50% opacity.
+The tool converts only the initial class fallback to `0.5`; the variable and
+its binding retain `50`. Literal `opacity-50` and `opacity-[0.5]` also mean 50%.
 
 ## Typography ownership
 

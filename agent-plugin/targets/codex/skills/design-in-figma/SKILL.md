@@ -3,7 +3,7 @@ name: design-in-figma
 description: >-
   Create or update native, editable Figma designs with TemPad Dev MCP: screens,
   flows, components, and requested local design-system resources, including on
-  an empty canvas. Use for Design in Figma work, not Figma-to-code, critique
+  an empty canvas. Use when asked to create, mock up, or edit native Figma layers, not Figma-to-code, critique
   without edits, or raw Plugin API automation.
 ---
 

@@ -47,6 +47,9 @@ codex plugin add tempad-dev@tempad-dev
 You can also install **TemPad Dev** from the Codex app plugin directory after adding the
 marketplace.
 
+The Codex package sets a 300-second tool timeout so the Hub can report a slow canvas
+operation's result or unknown outcome before the client stops waiting.
+
 ### Claude Code and Claude Desktop
 
 ```bash
@@ -70,16 +73,18 @@ Design file is editable.
 The authoring skill is now named `design-in-figma`, matching its **Design in Figma**
 display name. Update saved invocations from `figma-canvas-authoring`; standalone
 skill installations should also remove the old skill after installing the new one.
+The standalone package retains the former name as a generated alias for one extension store
+release cycle so setup commands in older installed extensions continue to work.
 
-This release pairs Agent Plugin **0.5.0**, TemPad Dev extension **0.23.0**, and
-MCP server **0.11.0**. Node.js **22.x, 24.x, or 26+** is required for the MCP server.
+Use TemPad Dev extension **0.23.4 or later** and MCP server **0.11.0 or later**.
+Node.js **22.x, 24.x, or 26+** is required for the MCP server.
 Multi-node reads and consumer-aware token resolution require matching protocol 15 Hub and
 extension builds. MCP 0.11.0 also supports extension 0.22.0 through protocol 13, preserving
 existing reads, sessions, tasks, and canvas writes during the store rollout. New read options
 prompt an extension upgrade; results identify older selection and token semantics.
 MCP 0.10.0 and later use `manage_design_task` in place of the older lifecycle tools.
 
-1. Update the browser extension to 0.23.0 and reload the Figma tab to enable the new read capabilities.
+1. Update the browser extension to 0.23.4 or later and reload the Figma tab. Version 0.23.4 includes packaged rewrite rules and SVG placement fixes; multi-node reads arrived in 0.23.0.
 2. Update the installed plugin through the client or installer used originally. With standalone
    setup, update both `figma-design-to-code` and `design-in-figma`.
 3. Keep the release MCP configuration on `@tempad-dev/mcp@latest`; replace any previous
@@ -101,7 +106,7 @@ Everything is authored once under `agent-plugin/src/` and published by
 | `agent-plugin/src/mcp.json`        | Standard MCP configuration                        |
 | `agent-plugin/src/skills/`         | Both skills                                       |
 | `agent-plugin/src/clients/claude/` | Claude lifecycle hooks                            |
-| `agent-plugin/src/clients/codex/`  | Codex directory presentation (`interface.json`)   |
+| `agent-plugin/src/clients/codex/`  | Codex presentation and MCP timeout settings       |
 | `agent-plugin/src/clients/shared/` | Hook transport shared by hosts                    |
 | `agent-plugin/targets/standard`    | Generated; also the standalone skills URL         |
 | `agent-plugin/targets/plugins-cli` | Generated compatibility package for `plugins` CLI |

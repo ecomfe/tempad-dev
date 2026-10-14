@@ -10,7 +10,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 
 const repository = fileURLToPath(new URL('../../../../', import.meta.url))
@@ -109,11 +109,40 @@ it('gives the Claude distribution its hooks and no Codex layout', () => {
   for (const event of ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop', 'SessionEnd']) {
     expect(hooks[event][0].hooks[0].command).toContain('lifecycle.mjs" claude')
   }
+  expect(hooks.PostToolUse[0].matcher).toBe('mcp__.*tempad.*')
+  expect(hooks.PreToolUse[0]).not.toHaveProperty('matcher')
   expect(readFileSync(join(root, CLAUDE, 'clients/shared/lifecycle.mjs'), 'utf8')).toBe(
     sourceFile('clients/shared/lifecycle.mjs')
   )
   expect(has(CLAUDE, '.codex-plugin')).toBe(false)
 })
+
+it.each([CLAUDE, DEV])(
+  'ships an independently importable lifecycle and runtime discovery helper in %s',
+  (target) => {
+    const shared = join(root, target, 'clients/shared')
+    expect(readFileSync(join(shared, 'runtime-paths.mjs'), 'utf8')).toBe(
+      sourceFile('clients/shared/runtime-paths.mjs')
+    )
+    const output = execFileSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '--eval',
+        'const { resolveDefaultRoot } = await import(process.argv[1]); console.log(resolveDefaultRoot("/tmp/packaged-runtime", "darwin"))',
+        pathToFileURL(join(shared, 'runtime-paths.mjs')).href
+      ],
+      { encoding: 'utf8' }
+    )
+    expect(output.trim()).toBe(join('/tmp/packaged-runtime', 'tempad-dev'))
+    expect(
+      execFileSync(process.execPath, [join(shared, 'lifecycle.mjs'), 'claude'], {
+        input: '{}',
+        encoding: 'utf8'
+      })
+    ).toBe('')
+  }
+)
 
 it('keeps one shared identity across every distribution', () => {
   const identity = ({ name, version, description }: Record<string, unknown>) => ({
@@ -131,7 +160,7 @@ it('keeps one shared identity across every distribution', () => {
 it.each([STANDARD, PLUGINS_CLI, CODEX, CLAUDE, DEV])(
   'copies every shared skill verbatim into %s',
   (target) => {
-    expect(has(target, 'skills', 'figma-canvas-authoring')).toBe(false)
+    expect(has(target, 'skills', 'figma-canvas-authoring')).toBe(target === STANDARD)
     for (const skill of SKILLS) {
       expect(readFileSync(join(root, target, 'skills', skill, 'SKILL.md'), 'utf8')).toBe(
         sourceFile(join('skills', skill, 'SKILL.md'))
@@ -141,6 +170,19 @@ it.each([STANDARD, PLUGINS_CLI, CODEX, CLAUDE, DEV])(
     expect(has(target, 'assets/icon.png')).toBe(true)
   }
 )
+
+it('derives the standalone compatibility skill from the current authoring skill', () => {
+  const alias = join(STANDARD, 'skills/figma-canvas-authoring')
+  expect(readFileSync(join(root, alias, 'SKILL.md'), 'utf8')).toBe(
+    sourceFile('skills/design-in-figma/SKILL.md').replace(
+      /^name: design-in-figma$/m,
+      'name: figma-canvas-authoring'
+    )
+  )
+  expect(readFileSync(join(root, alias, 'references/canvas-html.md'), 'utf8')).toBe(
+    sourceFile('skills/design-in-figma/references/canvas-html.md')
+  )
+})
 
 it('pins releases to npm and the development build to this checkout', () => {
   for (const target of [PLUGINS_CLI, CODEX, CLAUDE]) {
@@ -157,4 +199,19 @@ it('pins releases to npm and the development build to this checkout', () => {
     'TemPad Dev (Dev)'
   )
   expect(read(join(DEV, '.claude-plugin/plugin.json')).hooks).toBe('./clients/claude/hooks.json')
+})
+
+it('gives Codex enough time to receive the bounded canvas outcome', () => {
+  const settings = JSON.parse(sourceFile('clients/codex/mcp.json'))
+  expect(settings.tool_timeout_sec).toBe(300)
+  expect(read(join(CODEX, '.mcp.json')).mcpServers['tempad-dev'].tool_timeout_sec).toBe(300)
+  expect(read(join(DEV, '.mcp.json')).mcpServers['tempad-dev-dev'].tool_timeout_sec).toBe(300)
+  for (const target of [CLAUDE, PLUGINS_CLI]) {
+    expect(read(join(target, '.mcp.json')).mcpServers['tempad-dev']).not.toHaveProperty(
+      'tool_timeout_sec'
+    )
+  }
+  expect(read(join(STANDARD, 'mcp.json')).mcpServers['tempad-dev']).not.toHaveProperty(
+    'tool_timeout_sec'
+  )
 })

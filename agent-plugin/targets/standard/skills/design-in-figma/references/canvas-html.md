@@ -5,7 +5,7 @@ interface structure and genuine simple UI geometry, not as a drawing medium.
 Do not assemble `div` or `span` primitives to imitate a photograph,
 illustration, icon, logo, texture, or other content-bearing visual; acquire the
 appropriate routed raster or vector asset instead. Classes do not cover every
-Figma result: use routed native bindings for gradients, media, non-shadow
+Figma result: use routed native bindings for gradients beyond the linear subset below, media, non-shadow
 effects, masks, transforms, exact fonts, and rich text.
 
 One `apply_canvas` markup tree may contain at most 160 elements and 12 levels.
@@ -158,7 +158,7 @@ For grid use:
 - custom tracks: `grid-cols-[1fr_240px_fit-content(100%)]`
 - optional `grid-flow-row` or `grid-flow-none`
 - child placement: `col-start-N`, `row-start-N`, `col-span-N`, `row-span-N`
-- child alignment: `justify-self-auto|start|center|end`,
+- grid-only child alignment: `justify-self-auto|start|center|end`,
   `self-auto|start|center|end`
 
 Give manual grid children both row and column starts or neither. Auto-flow uses
@@ -205,12 +205,12 @@ Frame appearance:
 
 - `bg-transparent|white|black`, or an exact CSS hex value
 - Linear backgrounds use `bg-linear-to-t|tr|r|br|b|bl|l|tl` with exact
-  `from-white|black|[#hex]`, optional `via-white|black|[#hex]`, and required
-  `to-white|black|[#hex]` stops. Stops are fixed at 0, optional 0.5, and 1;
+  `from-transparent|white|black|[#hex]`, optional `via-transparent|white|black|[#hex]`, and required
+  `to-transparent|white|black|[#hex]` stops. Stops are fixed at 0, optional 0.5, and 1;
   `bg-gradient-to-*` is accepted as a legacy alias. Do not combine a gradient
   with a solid background, direct fill paints, or a fill style/variable.
 - `border`, `border-N`, `border-[Npx]`; use `border-x|y|t|r|b|l` with the same widths
-- `border-white|black`, or an exact CSS hex value
+- `border-transparent|white|black`, or an exact CSS hex value
 - `rounded`, `rounded-none|xs|sm|md|lg|xl|2xl|3xl|4xl|full`, or `rounded-[Npx]`;
   prefix the value with `t`, `r`, `b`, `l`, `tl`, `tr`, `br`, or `bl` for individual sides/corners
 - `overflow-hidden`, `overflow-visible`
@@ -241,8 +241,11 @@ intended.
 
 Shared appearance:
 
-- `opacity-N` (`N%`) or `opacity-[0..1]`, `hidden`, `visible`
-- `rotate-N`, `-rotate-N`, `rotate-none`, or `rotate-[Ndeg]`
+- `opacity-N` (`N%`) or `opacity-[0..1]`, `hidden`, `visible`. Bound opacity
+  FLOAT variables use native percentages `0..100`, so `50` matches `opacity-50`.
+- `rotate-N`, `-rotate-N`, `rotate-none`, or `rotate-[Ndeg]`. These set native Figma
+  rotation around the node's local origin, not CSS's default center. Use an explicit
+  native relative transform when the pivot matters, and verify the rendered position.
 - `mix-blend-` with `pass-through`, `normal`, `darken`, `multiply`,
   `plus-darker`, `color-burn`, `lighten`, `screen`, `plus-lighter`,
   `color-dodge`, `overlay`, `soft-light`, `hard-light`, `difference`,

@@ -1,0 +1,65 @@
+# Reuse an existing design system
+
+Use this reference only when reuse is allowed and relevant. If the user rejects
+a design system, use Direct.
+
+## Discover definitions
+
+For a small file, call `get_design_system` without arguments. For a large file
+or a known component library on another page, call it with `scope: "pages"` to
+find the relevant component page, then with that `pageId` for an exact scan.
+Variables, styles, and shaders remain file-wide. The resulting immutable
+deterministic catalog contains:
+
+- a `catalogId` scoping all short refs;
+- component tags, props, source pages, and native sizes;
+- variables, collections, modes, styles, and shaders as refs such as `v1`,
+  `k1`, `m1_2`, `s1`, and `h1`;
+- `cssName` on variables and `className` on text styles for direct use in markup;
+- `omitted` and `nextCursor` when more definitions remain.
+
+The catalog neither scans usage nor ranks resources. Unscoped discovery does
+not load other pages, so a missing component there is inconclusive even if the
+query succeeds. A `pageId` call loads that page. Select from returned names,
+pages, summaries, props, types, scopes, and defaults. Continue a cursor or
+inspect an exact ref only until evidence is sufficient.
+
+Prefer, in order: catalog component, supported component prop, matching native
+style, semantic variable, then primitive or literal for a real gap.
+
+When variants, anatomy, layout, or semantic meaning affect the result, inspect
+the exact `ref` with the same `catalogId`. Use its `previewNodeId` with
+`get_screenshot` only when appearance affects selection. Read an existing
+composition with `get_code` or `get_screenshot`; catalogs do not reveal usage
+conventions. Never invent refs, IDs, keys, props, or variant values.
+
+## Apply catalog resources
+
+Component tags are childless, include returned `data-ref`, and use exact props.
+Omit size classes to preserve native size. Use returned CSS variable names and
+text-style classes through [resource-mapping.md](resource-mapping.md). For other
+native fields, bind `data-var-<field>="vN"` or `data-style-<field>="sN"`; put
+collection modes or strict native links under `native[data-key]`.
+
+Replace every illustrative ref in this contract with one from the active
+catalog:
+
+```json
+{
+  "mode": "create",
+  "catalogId": "ds_example",
+  "markup": "<div data-key=\"settings\" class=\"flex flex-col w-[320px] h-[200px] gap-[16px] p-[24px] bg-[#FFFFFF]\"><span data-key=\"settings/title\" class=\"w-fit h-fit type-body\">Team settings</span><Button data-key=\"settings/save\" data-ref=\"c1\" label=\"Save\" disabled=\"false\" tone=\"Primary\" /></div>",
+  "theme": { "textStyles": { "type-body": { "ref": "s1" } } },
+  "native": {
+    "settings": {
+      "variableModes": { "k1": "m1_1" }
+    }
+  }
+}
+```
+
+If a mandatory component is absent from unscoped discovery, use `scope: "pages"`
+and scan its likely definition page by `pageId` before choosing a primitive
+fallback. An empty canvas does not block catalog reuse. When reuse is
+unavailable, create a small coherent primitive draft—never a token or
+component library solely for one screen.
