@@ -246,7 +246,6 @@ it.skipIf(process.platform === 'win32')(
     // window, without spending a full minute aging the killed Hub's locks.
     const lastHeartbeat = new Date(Date.now() - 30000)
     for (const lock of locks) utimesSync(lock, lastHeartbeat, lastHeartbeat)
-    const lockInodes = locks.map((lock) => lstatSync(lock).ino)
     const identityPath = join(runtime, 'hub-runtime.json')
     const oldIdentity = readFileSync(identityPath, 'utf8')
     const cli = launch('cli.mjs', runtime, undefined, stores)
@@ -260,7 +259,10 @@ it.skipIf(process.platform === 'win32')(
         { timeout: 40000 }
       )
       expect(Date.now() - lastHeartbeat.getTime()).toBeGreaterThanOrEqual(60000)
-      expect(locks.map((lock) => lstatSync(lock).ino)).not.toEqual(lockInodes)
+      // Filesystems may reuse freed inodes; each recovered lease needs a fresh heartbeat.
+      for (const lock of locks) {
+        expect(lstatSync(lock).mtimeMs).toBeGreaterThan(lastHeartbeat.getTime())
+      }
       expect(readFileSync(identityPath, 'utf8')).not.toBe(oldIdentity)
       expect(JSON.parse(cli.stdout().trim())).toEqual({ jsonrpc: '2.0', id: 1, result: {} })
     } finally {
