@@ -14,7 +14,8 @@ turn ending pauses work; it does not complete the requested design or close its 
 | `packages/extension/mcp/design-task.ts`                | Final page execution fence and native anchor                     |
 | `packages/extension/composables/mcp.ts`                | Tab state, restoration, and actions                              |
 | `packages/extension/components/DesignTaskStatus.vue`   | Task status and anchored controls                                |
-| `packages/extension/components/DesignTaskFeedback.vue` | Comment editing and submission                                   |
+| `packages/extension/components/DesignTaskFeedback.vue` | Comment presentation, focus, and input events                    |
+| `packages/extension/composables/feedback-state.ts`     | Comment edits, persistence, submission, and delivery receipts    |
 | `packages/extension/composables/feedback-canvas.ts`    | Feedback canvas markers, hover, projection, and popover geometry |
 | `packages/extension/mcp/broker/`                       | Registered page routing and durable drafts/reviews               |
 | `agent-plugin/src/clients/`                            | Authored Claude lifecycle hooks and hook transport               |
@@ -133,9 +134,9 @@ an inactive lease only if no newer task owns the file and no retained cleanup fe
 
 Done persists a closure fence before clearing drafts. It propagates through reconnects
 and worker restarts, and notifies other tabs locally even without a Hub. Late messages,
-autosaves, and delivery receipts cannot reopen or clear a later round. Stop preserves
-drafts; cancelled controls dismiss after pending work and local saves settle. This is
-local persistence, not cross-device history.
+autosaves, and delivery receipts cannot reopen or clear a later round. Stop clears
+unsent comments and dismisses cancelled controls after pending work and local saves
+settle. This is local persistence, not cross-device history.
 
 ## Host integration
 

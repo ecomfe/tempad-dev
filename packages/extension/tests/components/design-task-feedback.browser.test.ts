@@ -1732,6 +1732,34 @@ describe('element feedback drafts', () => {
     expect(f.send).not.toHaveBeenCalled()
   })
 
+  it('discards a general comment whose autosave response arrives after Stop', async () => {
+    const f = fixture()
+    await openBatch()
+    await expect.element(page.getByRole('textbox', { name: 'General comment' })).toBeEnabled()
+    let release!: () => void
+    f.requestDrafts.mockImplementationOnce(async (request) => {
+      expect(request.operation).toBe('comment')
+      const snapshot = await f.store.request(request)
+      return new Promise((resolve) => {
+        release = () => resolve(snapshot)
+      })
+    })
+    await writeComment('Discard this pending guidance')
+    await expect.poll(() => typeof release).toBe('function')
+    f.task.value = { ...f.task.value, status: 'cancelled' }
+    await nextTick()
+    expect(document.querySelector('.tp-feedback-toggle')).toBeNull()
+    expect(document.querySelector('.tp-element-feedback')).toBeNull()
+    release()
+    await expect.poll(() => document.querySelector('.tp-design-overlay')).toBeNull()
+    expect(await f.store.request({ operation: 'load', scope })).toEqual({ items: [] })
+    expect(f.send).not.toHaveBeenCalled()
+    unmountAll()
+    fixture(f.storage)
+    await openBatch()
+    await expect.element(page.getByRole('textbox', { name: 'General comment' })).toHaveValue('')
+  })
+
   it('ignores IME confirmation and queues overall guidance with Enter while Shift+Enter adds a line', async () => {
     const f = fixture()
     await writeComment('First line')

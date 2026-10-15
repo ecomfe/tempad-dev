@@ -1,20 +1,6 @@
 <script setup lang="ts">
-import type {
-  DesignActionResult,
-  DesignFeedback,
-  DesignFeedbackItem,
-  DesignTask,
-  FeedbackDraftRequest,
-  FeedbackDraftSnapshot
-} from '@tempad-dev/shared'
-
-import {
-  DesignFeedbackItemSchema,
-  DesignFeedbackSchema,
-  MCP_DESIGN_FEEDBACK_MAX_ITEMS
-} from '@tempad-dev/shared'
 import { onClickOutside, unrefElement, useEventListener } from '@vueuse/core'
-import { computed, onScopeDispose, shallowRef, watch } from 'vue'
+import { computed, shallowRef, watch } from 'vue'
 
 import Button from '@/components/Button.vue'
 import IconButton from '@/components/IconButton.vue'
@@ -24,55 +10,64 @@ import Comment from '@/components/icons/Comment.vue'
 import Spinner from '@/components/icons/Spinner.vue'
 import Times from '@/components/icons/Times.vue'
 import { useFeedbackCanvas } from '@/composables/feedback-canvas'
-import { useToast } from '@/composables/toast'
 import {
-  describeFeedbackTarget,
-  FEEDBACK_DRAFT_CONFLICT_MESSAGE,
-  getFeedbackDraftScope,
-  sameFeedbackItem
-} from '@/mcp/design-feedback'
+  useFeedbackState,
+  type FeedbackDraft,
+  type FeedbackStateOptions
+} from '@/composables/feedback-state'
+import { useToast } from '@/composables/toast'
+import { FEEDBACK_DRAFT_CONFLICT_MESSAGE } from '@/mcp/design-feedback'
 import { readFigmaSession } from '@/mcp/figma-session'
 import { getContainingPage } from '@/mcp/local-resources'
 
-const props = defineProps<{
-  task: DesignTask
-  canvasEnabled?: boolean
-  actionResult?: DesignActionResult | null
-  sessionId: string
-  restored?: boolean
-  sendFeedback?: (feedback: DesignFeedback) => Promise<DesignActionResult>
-  requestDrafts?: (request: FeedbackDraftRequest) => Promise<FeedbackDraftSnapshot>
-}>()
+const props = defineProps<FeedbackStateOptions>()
 const { show: showError } = useToast()
 const emit = defineEmits<{
   dismissBlocked: [blocked: boolean]
 }>()
 
-type Draft = { node: SceneNode | null; item: DesignFeedbackItem }
-type Editor = { key: string; node: SceneNode } & NonNullable<
-  ReturnType<typeof describeFeedbackTarget>
->
+const {
+  scope,
+  drafts,
+  editor,
+  editorText,
+  editedDraft,
+  editorError,
+  editorWarned,
+  batchOpen,
+  commentText,
+  commentError,
+  requestError,
+  sending,
+  submitting,
+  queuedFeedbackId,
+  fadingNodes,
+  loading,
+  ready,
+  deliveryPending,
+  draftsBusy,
+  busy,
+  commentsEnabled,
+  canDraft,
+  hasContent,
+  hasEditorContent,
+  hasUnsentContent,
+  dismissBlocked,
+  saveComment,
+  prepareDismiss,
+  hydrateNodes,
+  loadDrafts,
+  openEditor,
+  submitEditor: saveEditor,
+  removeDraft,
+  sendBatch,
+  dismissEditor,
+  cancelEditor,
+  bindCanvas
+} = useFeedbackState(props, showError)
 
-// Drafts survive lease changes and reloads within this design task.
-const drafts = shallowRef<Draft[]>([])
-const scope = computed(() => getFeedbackDraftScope(props.task))
-const scopeKey = computed(() => JSON.stringify(scope.value))
-let attempt: DesignFeedback | undefined
-const deliveries = new Map<string, DesignFeedback>()
-let generation = 0
-let deliveryRevision = 0
-const editor = shallowRef<Editor | null>(null)
-const editorText = shallowRef('')
-const editedDraft = computed(() =>
-  drafts.value.find((draft) => draft.item.nodeId === editor.value?.nodeId)
-)
-const editorHasChanges = computed(
-  () => !!editor.value && editorText.value.trim() !== (editedDraft.value?.item.text ?? '')
-)
+defineExpose({ prepareDismiss, hasUnsentContent })
 
-const editorError = shallowRef('')
-const editorWarned = shallowRef(false)
-watch([editor, editorText], () => (editorWarned.value = false))
 const editorElement = shallowRef<HTMLElement | null>(null)
 const editorInput = shallowRef<HTMLTextAreaElement | null>(null)
 watch(
@@ -82,7 +77,6 @@ watch(
     flush: 'post'
   }
 )
-const batchOpen = shallowRef(false)
 const batchButton = shallowRef<InstanceType<typeof Button> | null>(null)
 const batchTrigger = computed(() => unrefElement(batchButton))
 const batchElement = shallowRef<HTMLElement | null>(null)
@@ -107,30 +101,6 @@ watch(commentInput, (element) => {
 })
 onClickOutside(batchElement, () => (batchOpen.value = false), { ignore: [batchTrigger] })
 
-const commentText = shallowRef('')
-const savedComment = shallowRef('')
-const commentSaving = shallowRef(false)
-const commentError = shallowRef('')
-let commentTimer: ReturnType<typeof setTimeout> | undefined
-let pendingComment: Promise<boolean> | undefined
-
-// These flags belong to the current scope; generation guards reject callbacks after a reset.
-const sending = shallowRef(false)
-let submissionGeneration = 0
-const submitting = shallowRef<'editor' | 'batch' | null>(null)
-const queuedFeedbackId = shallowRef<string | null>(null)
-const fading = shallowRef(false)
-const fadingNodes = shallowRef<ReadonlySet<string>>(new Set())
-let deliveredItems: DesignFeedbackItem[] = []
-const persisting = shallowRef(false)
-const loading = shallowRef(false)
-const clearing = shallowRef(false)
-const ready = shallowRef(false)
-const deliveryPending = computed(() => sending.value || !!queuedFeedbackId.value)
-const draftsBusy = computed(
-  () => deliveryPending.value || fading.value || persisting.value || loading.value || clearing.value
-)
-const busy = computed(() => draftsBusy.value || commentSaving.value)
 const submitModifierPressed = shallowRef(false)
 useEventListener(
   window,
@@ -146,37 +116,15 @@ useEventListener(
   (event) => (submitModifierPressed.value = event.metaKey || event.ctrlKey),
   { capture: true }
 )
-let clearTimer: ReturnType<typeof setTimeout> | undefined
-
-const local = computed(() => props.restored || props.task.target.sessionId === props.sessionId)
-const commentsEnabled = computed(
-  () =>
-    local.value &&
-    props.canvasEnabled !== false &&
-    !['stopping', 'cancelled'].includes(props.task.status)
-)
-const canDraft = computed(() => commentsEnabled.value && !!scope.value && !!props.requestDrafts)
-
 useEventListener(window, 'blur', () => {
   submitModifierPressed.value = false
-})
-const hasContent = computed(() => drafts.value.length > 0 || !!commentText.value.trim())
-const submissionBlockedHint = computed(() => {
-  if (!canDraft.value) return 'Comments unavailable.'
-  if (!ready.value) return 'Loading comments…'
-  if (editorHasChanges.value) return 'Save the element comment first.'
-  if (draftsBusy.value) return 'Comments are updating…'
-  if (!hasContent.value) return 'Add a comment first.'
-  return ''
 })
 const batchMode = computed(() =>
   submitModifierPressed.value && hasContent.value ? 'steer' : 'queue'
 )
-const hasEditorContent = computed(() => !!editorText.value.trim())
 const editorAction = computed(() =>
   submitModifierPressed.value && hasEditorContent.value ? 'Save & Queue' : 'Save comment'
 )
-const requestError = shallowRef('')
 watch(
   [editorError, commentError, requestError],
   (messages, previous) => {
@@ -194,299 +142,7 @@ const triggerHint = computed(() => {
   return 'Review comments'
 })
 
-async function saveComment(): Promise<boolean> {
-  clearTimeout(commentTimer)
-  if (pendingComment) {
-    if (!(await pendingComment)) return false
-    return saveComment()
-  }
-  const draftScope = scope.value
-  const comment = commentText.value.trim()
-  if (comment === savedComment.value) return true
-  if (!draftScope || !props.requestDrafts || busy.value) {
-    showError(busy.value ? 'Comments are updating…' : 'Could not save the comment.')
-    return false
-  }
-  const token = generation
-  commentSaving.value = true
-  commentError.value = ''
-  requestError.value = ''
-  const request = requestSnapshot({ operation: 'comment', scope: draftScope, comment })
-    .then((snapshot) => {
-      if (token !== generation || !snapshot) return false
-      commentError.value = ''
-      requestError.value = ''
-      return true
-    })
-    .catch((error) => {
-      if (token === generation) {
-        commentError.value = error instanceof Error ? error.message : 'Could not save the comment.'
-        requestError.value = commentError.value
-      }
-      return false
-    })
-    .finally(() => {
-      if (token === generation) {
-        commentSaving.value = false
-        pendingComment = undefined
-      }
-    })
-  pendingComment = request
-  if (!(await request)) return false
-  return saveComment()
-}
-async function prepareDismiss(close?: () => Promise<void>): Promise<boolean> {
-  const draftScope = scope.value
-  if (!draftScope || !props.requestDrafts) {
-    await close?.()
-    return true
-  }
-  const token = generation
-  clearTimeout(commentTimer)
-  clearing.value = true
-  requestError.value = ''
-  try {
-    // A save already sent to storage must settle before deleting the round.
-    await pendingComment
-    if (token !== generation) return false
-    const snapshot = close
-      ? (await close(), { items: [] })
-      : await props.requestDrafts({ operation: 'clear', scope: draftScope })
-    if (token !== generation) return false
-    installSnapshot(snapshot)
-    commentText.value = ''
-    commentError.value = ''
-    deliveries.clear()
-    editor.value = null
-    requestError.value = ''
-    return true
-  } catch (error) {
-    if (token === generation)
-      requestError.value = error instanceof Error ? error.message : 'Could not clear comments.'
-    return false
-  } finally {
-    if (token === generation) clearing.value = false
-  }
-}
-const hasUnsentContent = computed(() => hasContent.value || editorHasChanges.value)
-defineExpose({ prepareDismiss, hasUnsentContent })
-
-watch([commentText, busy], () => {
-  clearTimeout(commentTimer)
-  if (!busy.value && !commentError.value && commentText.value.trim() !== savedComment.value)
-    commentTimer = setTimeout(() => void saveComment(), 400)
-})
-
-async function hydrateNodes(): Promise<void> {
-  const draftScope = scope.value
-  if (!draftScope || readFigmaSession(props.sessionId, false)?.fileKey !== draftScope.fileKey)
-    return
-  const token = generation
-  const values = drafts.value
-  const next = await Promise.all(
-    values.map(async (draft): Promise<Draft> => {
-      if (draft.node && !draft.node.removed) return draft
-      try {
-        const node = await window.figma.getNodeByIdAsync(draft.item.nodeId)
-        return {
-          ...draft,
-          node: node && node.type !== 'PAGE' && node.type !== 'DOCUMENT' ? node : null
-        }
-      } catch {
-        return { ...draft, node: null }
-      }
-    })
-  )
-  if (
-    token === generation &&
-    drafts.value === values &&
-    readFigmaSession(props.sessionId, false)?.fileKey === draftScope.fileKey
-  )
-    drafts.value = next
-}
-
-function installSnapshot(snapshot: FeedbackDraftSnapshot, knownNode?: SceneNode): void {
-  const previous = drafts.value
-  const previousComment = savedComment.value
-  savedComment.value = snapshot.comment ?? ''
-  if (commentText.value.trim() === previousComment) commentText.value = savedComment.value
-  ready.value = true
-  drafts.value = snapshot.items.map((item) => ({
-    item,
-    node:
-      knownNode?.id === item.nodeId
-        ? knownNode
-        : (previous.find((draft) => draft.item.nodeId === item.nodeId)?.node ?? null)
-  }))
-  if (snapshot.submission) {
-    const feedback = snapshot.submission
-    deliveries.set(feedback.id, feedback)
-    attempt = feedback
-  } else attempt = undefined
-  void hydrateNodes()
-}
-
-async function requestSnapshot(
-  request: FeedbackDraftRequest,
-  knownNode?: SceneNode
-): Promise<FeedbackDraftSnapshot | undefined> {
-  const requestDrafts = props.requestDrafts
-  if (!requestDrafts) return
-  const token = generation
-  let revision = deliveryRevision
-  let snapshot = await requestDrafts(request)
-  while (token === generation) {
-    if (revision === deliveryRevision) {
-      installSnapshot(snapshot, knownNode)
-      return snapshot
-    }
-    // Delivery can settle storage while an earlier save/load response is in flight.
-    // Keep that operation busy until a fresh read includes every received delivery.
-    revision = deliveryRevision
-    snapshot = await requestDrafts({ operation: 'load', scope: request.scope })
-  }
-}
-
-let loadRetryTimer: ReturnType<typeof setTimeout> | undefined
-let loadRetryDelay = 1000
-
-async function loadDrafts(): Promise<void> {
-  const draftScope = scope.value
-  if (
-    !draftScope ||
-    !local.value ||
-    !props.requestDrafts ||
-    busy.value ||
-    ['stopping', 'cancelled'].includes(props.task.status)
-  )
-    return
-  clearTimeout(loadRetryTimer)
-  const token = generation
-  const key = scopeKey.value
-  loading.value = true
-  requestError.value = ''
-  ready.value = false
-  try {
-    const snapshot = await requestSnapshot({ operation: 'load', scope: draftScope })
-    if (token !== generation || !snapshot) return
-    loadRetryDelay = 1000
-    if (scopeKey.value === key) {
-      requestError.value = snapshot.submission ? 'Sending not confirmed.' : ''
-    }
-  } catch {
-    if (token === generation) {
-      // The bridge reconnects independently; wait for it without exposing repair controls.
-      loadRetryTimer = setTimeout(() => void loadDrafts(), loadRetryDelay)
-      loadRetryDelay = Math.min(loadRetryDelay * 2, 10000)
-    }
-  } finally {
-    if (token === generation) loading.value = false
-  }
-}
-
-function openEditor(marker: { node: SceneNode; nodeId: string }): void {
-  if (!commentsEnabled.value || busy.value || submitting.value) return
-  const target = describeFeedbackTarget(marker.node)
-  if (!target) return
-  if (editor.value?.nodeId === marker.nodeId) return
-  if (editor.value && !dismissEditor()) return
-  batchOpen.value = false
-  const saved = drafts.value.find((draft) => draft.item.nodeId === marker.nodeId)
-  editor.value = {
-    key: scopeKey.value,
-    node: marker.node,
-    ...target
-  }
-  editorText.value = saved?.item.text ?? ''
-  editorError.value = ''
-}
-
-async function submitEditor(event?: KeyboardEvent | MouseEvent): Promise<void> {
-  if (!hasEditorContent.value || submitting.value || deliveryPending.value) return
-  const queueBatch = !!(event?.metaKey || event?.ctrlKey)
-  const target = editor.value
-  const token = generation
-  submitting.value = 'editor'
-  const saved = await saveDraft(!queueBatch).finally(() => {
-    if (token === generation) submitting.value = null
-  })
-  if (saved && token === generation && queueBatch && editor.value === target)
-    await sendBatch('queue', true)
-}
-
-async function saveDraft(closeEditor = true): Promise<boolean> {
-  const target = editor.value
-  const draftScope = scope.value
-  if (!target || target.key !== scopeKey.value) return false
-  if (!draftScope || !props.requestDrafts || busy.value) {
-    showError(busy.value ? 'Comments are updating…' : 'Could not save the comment.')
-    return false
-  }
-  editorError.value = ''
-  const parsed = DesignFeedbackItemSchema.safeParse({
-    nodeId: target.nodeId,
-    nodeName: target.nodeName.slice(0, 256),
-    pageId: target.pageId,
-    ...(target.pageName ? { pageName: target.pageName } : {}),
-    ...(target.frame ? { frame: target.frame } : {}),
-    text: editorText.value,
-    createdAt: Date.now()
-  })
-  if (!parsed.success) {
-    editorError.value = 'Enter a comment of up to 8,000 characters.'
-    return false
-  }
-  const index = drafts.value.findIndex((draft) => draft.item.nodeId === target.nodeId)
-  const saved = drafts.value[index]?.item
-  if (saved && sameFeedbackItem(saved, { ...parsed.data, createdAt: saved.createdAt })) {
-    // Reopening and saving an unchanged note must not create a new delivery ID.
-    if (closeEditor) editor.value = null
-    return true
-  }
-  if (index < 0 && drafts.value.length >= MCP_DESIGN_FEEDBACK_MAX_ITEMS) {
-    editorError.value = `Send this batch before adding more than ${MCP_DESIGN_FEEDBACK_MAX_ITEMS} elements.`
-    return false
-  }
-  const token = generation
-  persisting.value = true
-  try {
-    const snapshot = await requestSnapshot(
-      { operation: 'save', scope: draftScope, item: parsed.data },
-      target.node
-    )
-    if (token !== generation || !snapshot) return false
-    if (closeEditor && editor.value === target) editor.value = null
-    if (scopeKey.value === target.key) requestError.value = ''
-    return true
-  } catch (error) {
-    if (token === generation && editor.value === target)
-      editorError.value = error instanceof Error ? error.message : 'Could not save the comment.'
-    return false
-  } finally {
-    if (token === generation) persisting.value = false
-  }
-}
-
-async function removeDraft(nodeId: string): Promise<void> {
-  const draftScope = scope.value
-  if (!draftScope || !props.requestDrafts || busy.value) return
-  const token = generation
-  const key = scopeKey.value
-  persisting.value = true
-  requestError.value = ''
-  try {
-    const snapshot = await requestSnapshot({ operation: 'remove', scope: draftScope, nodeId })
-    if (token !== generation || !snapshot) return
-    if (editor.value?.key === key && editor.value.nodeId === nodeId) editor.value = null
-    if (scopeKey.value === key) requestError.value = ''
-  } catch (error) {
-    if (token === generation)
-      requestError.value = error instanceof Error ? error.message : 'Could not delete the comment.'
-  } finally {
-    if (token === generation) persisting.value = false
-  }
-}
-function reviewDraft(draft: Draft): void {
+function reviewDraft(draft: FeedbackDraft): void {
   if (
     !draft.node ||
     draft.node.removed ||
@@ -500,93 +156,8 @@ function reviewDraft(draft: Draft): void {
   openEditor({ node: draft.node, nodeId: draft.item.nodeId })
 }
 
-function feedbackSignature({
-  fileKey,
-  mode,
-  comment,
-  items
-}: Pick<DesignFeedback, 'fileKey' | 'mode' | 'comment' | 'items'>): string {
-  return JSON.stringify({ fileKey, mode, comment, items })
-}
-
-function isDeliveryInterrupted(): boolean {
-  return ['stopping', 'cancelled', 'interrupted'].includes(props.task.status)
-}
-
-async function sendBatch(
-  mode: DesignFeedback['mode'] = 'queue',
-  fromEditor = false
-): Promise<void> {
-  if (!hasContent.value || deliveryPending.value || (submitting.value && !fromEditor)) return
-  requestError.value = ''
-  if (submissionBlockedHint.value) {
-    showError(submissionBlockedHint.value)
-    return
-  }
-  const token = generation
-  const submission = ++submissionGeneration
-  const submittedEditor = editor.value
-  let feedbackId: string | undefined
-  submitting.value = fromEditor ? 'editor' : 'batch'
-  try {
-    if (!(await saveComment()) || token !== generation || busy.value) return
-    if (submissionBlockedHint.value) {
-      showError(submissionBlockedHint.value)
-      return
-    }
-    const items = drafts.value.map((draft) => ({ ...draft.item }))
-    const batch = {
-      fileKey: props.task.target.fileKey,
-      mode,
-      ...(savedComment.value ? { comment: savedComment.value } : {}),
-      items
-    }
-    const parsed = DesignFeedbackSchema.safeParse(
-      attempt && feedbackSignature(attempt) === feedbackSignature(batch)
-        ? attempt
-        : {
-            id: crypto.randomUUID(),
-            ...batch,
-            createdAt: Date.now()
-          }
-    )
-    if (!parsed.success) {
-      requestError.value = 'Keep these comments within 32,000 characters in total.'
-      return
-    }
-    const feedback = parsed.data
-    feedbackId = feedback.id
-    attempt = feedback
-    deliveries.set(feedback.id, feedback)
-    sending.value = true
-    if (!props.sendFeedback) throw new Error('The agent connection is unavailable.')
-    const result = await props.sendFeedback(feedback)
-    // A final receipt may beat this initial response. Never revive a settled batch.
-    if (token !== generation || submission !== submissionGeneration || !deliveries.has(feedback.id))
-      return
-    if (result.status === 'accepted') {
-      if (!isDeliveryInterrupted()) queuedFeedbackId.value = feedback.id
-    } else if (result.status === 'failed') {
-      deliveries.delete(feedback.id)
-      requestError.value = result.message || 'Sending not confirmed.'
-      return
-    }
-    if (result.status === 'delivered') acknowledgeDelivery(feedback.id)
-    batchOpen.value = false
-    if (editor.value === submittedEditor) cancelEditor()
-  } catch (error) {
-    if (
-      token === generation &&
-      submission === submissionGeneration &&
-      (!feedbackId || deliveries.has(feedbackId))
-    )
-      requestError.value = error instanceof Error ? error.message : 'Could not send comments.'
-  } finally {
-    if (token === generation && submission === submissionGeneration) {
-      sending.value = false
-      submitting.value = null
-    }
-  }
+function submitEditor(event?: KeyboardEvent | MouseEvent): Promise<void> {
+  return saveEditor(!!(event?.metaKey || event?.ctrlKey))
 }
 
 function submitBatch(event: KeyboardEvent | MouseEvent): Promise<void> {
@@ -603,105 +174,7 @@ onClickOutside(editorElement, dismissEditor, {
   ignore: ['.tp-feedback-marker-position', batchTrigger]
 })
 
-function dismissEditor(): boolean {
-  if (!editor.value || busy.value) return false
-  if (editorHasChanges.value && !editorWarned.value) {
-    editorWarned.value = true
-    return false
-  }
-  cancelEditor()
-  return true
-}
-
-function cancelEditor(): void {
-  editor.value = null
-  editorError.value = ''
-}
-
-function settleSubmission(requestId: string): boolean {
-  if (!sending.value || attempt?.id !== requestId) return false
-  // A terminal receipt wins even while the initial Hub response is pending.
-  submissionGeneration++
-  sending.value = false
-  submitting.value = null
-  return true
-}
-
-function acknowledgeDelivery(requestId: string): void {
-  const feedback = deliveries.get(requestId)
-  if (!feedback) return
-  deliveryRevision++
-  if (settleSubmission(requestId)) {
-    batchOpen.value = false
-    cancelEditor()
-  }
-  deliveries.delete(requestId)
-  if (queuedFeedbackId.value === requestId) queuedFeedbackId.value = null
-  if (attempt?.id === requestId) attempt = undefined
-  if (feedback.comment) {
-    if (savedComment.value === feedback.comment) savedComment.value = ''
-    if (commentText.value.trim() === feedback.comment) commentText.value = ''
-  }
-  const token = generation
-  deliveredItems.push(...feedback.items)
-  const submitted = (draft: Draft) =>
-    deliveredItems.some((item) => sameFeedbackItem(draft.item, item))
-  fadingNodes.value = new Set(drafts.value.filter(submitted).map((draft) => draft.item.nodeId))
-  fading.value = true
-  suppressSelection()
-  requestError.value = ''
-  clearTimeout(clearTimer)
-  clearTimer = setTimeout(() => {
-    if (token !== generation) return
-    drafts.value = drafts.value.filter((draft) => !submitted(draft))
-    syncDraftMarkers()
-    deliveredItems = []
-    fadingNodes.value = new Set()
-    fading.value = false
-    void loadDrafts()
-  }, 220)
-}
-
-watch(
-  () => props.actionResult,
-  (result) => {
-    if (!result || result.taskId !== props.task.taskId || !deliveries.has(result.requestId)) return
-    if (
-      result.status === 'accepted' &&
-      attempt?.id === result.requestId &&
-      !isDeliveryInterrupted()
-    ) {
-      // A transport timeout can precede acceptance. Only lock the unchanged submitted batch.
-      queuedFeedbackId.value = result.requestId
-      requestError.value = ''
-    }
-    if (result.status === 'delivered') {
-      // A final receipt can arrive after the page's waiting deadline has elapsed.
-      acknowledgeDelivery(result.requestId)
-    } else if (result.status === 'failed') {
-      settleSubmission(result.requestId)
-      deliveries.delete(result.requestId)
-      requestError.value = result.message
-      if (queuedFeedbackId.value === result.requestId) queuedFeedbackId.value = null
-    }
-  }
-)
-watch(
-  () => props.task.status,
-  () => {
-    if (isDeliveryInterrupted()) queuedFeedbackId.value = null
-  }
-)
-
-const {
-  projection,
-  hoveredMarker,
-  editorMultiline,
-  commentMultiline,
-  reset: resetCanvas,
-  suppressSelection,
-  syncDraftMarkers
-} = useFeedbackCanvas(
+const canvas = useFeedbackCanvas(
   () => ({
     enabled: commentsEnabled.value,
     fileKey: scope.value?.fileKey,
@@ -720,59 +193,10 @@ const {
   },
   () => void hydrateNodes()
 )
+const { projection, hoveredMarker, editorMultiline, commentMultiline } = canvas
 
-watch(
-  () =>
-    draftsBusy.value ||
-    (commentsEnabled.value &&
-      props.task.status !== 'completed' &&
-      (editorHasChanges.value || !!commentError.value)),
-  (blocked) => emit('dismissBlocked', blocked),
-  { immediate: true }
-)
-watch(commentsEnabled, (enabled) => {
-  if (enabled && !ready.value) void loadDrafts()
-})
-watch(
-  () => [scopeKey.value, local.value, props.requestDrafts],
-  () => {
-    generation++
-    clearTimeout(loadRetryTimer)
-    loadRetryDelay = 1000
-    clearTimeout(clearTimer)
-    clearTimeout(commentTimer)
-    pendingComment = undefined
-    commentSaving.value = false
-    commentText.value = ''
-    savedComment.value = ''
-    commentError.value = ''
-    batchOpen.value = false
-    cancelEditor()
-    deliveries.clear()
-    attempt = undefined
-    drafts.value = []
-    sending.value = false
-    submitting.value = null
-    queuedFeedbackId.value = null
-    fading.value = false
-    fadingNodes.value = new Set()
-    deliveredItems = []
-    persisting.value = false
-    loading.value = false
-    clearing.value = false
-    resetCanvas()
-    ready.value = false
-    requestError.value = ''
-    void loadDrafts()
-  },
-  { immediate: true }
-)
-onScopeDispose(() => {
-  generation++
-  clearTimeout(loadRetryTimer)
-  clearTimeout(clearTimer)
-  clearTimeout(commentTimer)
-})
+watch(dismissBlocked, (blocked) => emit('dismissBlocked', blocked), { immediate: true })
+bindCanvas(canvas)
 </script>
 
 <template>

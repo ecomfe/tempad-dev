@@ -943,7 +943,8 @@ process.
 - [Turn-state projection](../../packages/mcp-server/src/agent-clients/codex-turn-state.ts)
 - [Per-request host identity](../../packages/mcp-server/src/agent-clients/identity.ts)
 - [Client actions and task cancellation](../../packages/mcp-server/src/agent-clients/registry.ts)
-- [Comment UI and pending-delivery state](../../packages/extension/components/DesignTaskFeedback.vue)
+- [Comment UI](../../packages/extension/components/DesignTaskFeedback.vue) and
+  [pending-delivery state](../../packages/extension/composables/feedback-state.ts)
 - [IPC/feedback tests](../../packages/mcp-server/tests/codex-feedback.test.ts),
   [lifecycle tests](../../packages/mcp-server/tests/codex-lifecycle.test.ts), and
   [platform tests](../../packages/mcp-server/tests/codex-platform.test.ts)
