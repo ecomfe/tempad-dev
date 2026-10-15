@@ -13,7 +13,7 @@
     },
     "condition": {
       "requestDomains": ["www.figma.com"],
-      "regexFilter": "^https://www\\.figma\\.com/(design|file|board|proto|slides|site|make)/",
+      "regexFilter": "^https://www\\.figma\\.com/",
       "resourceTypes": ["main_frame"]
     }
   },
