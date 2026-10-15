@@ -220,7 +220,7 @@ it.each([1280, 390, 320])(
       )
     host.querySelector<HTMLButtonElement>('.site-agent-search-toggle')!.click()
     await nextTick()
-    await frame()
+    // Inspect transitions in this turn; a delayed animation frame may arrive after they finish.
     expect(field.getAnimations().length).toBeGreaterThan(0)
     await finishAnimations()
     expect(getComputedStyle(title).opacity).toBe('1')
@@ -234,7 +234,8 @@ it.each([1280, 390, 320])(
     input.value = 'cc'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     await nextTick()
-    await frame()
+    // The height watcher measures the new layout after its own nextTick.
+    await nextTick()
     // Surviving tabs move, leaving tabs cannot receive focus or remain in the accessibility tree.
     expect(claude.getAnimations().length).toBeGreaterThan(0)
     expect(list.getAnimations().length).toBeGreaterThan(0)
@@ -261,7 +262,6 @@ it.each([1280, 390, 320])(
     expect(list.getBoundingClientRect().height).toBe(originalHeight)
     host.querySelector<HTMLButtonElement>('[aria-label="Close agent search"]')!.click()
     await nextTick()
-    await frame()
     expect(field.getAnimations().length).toBeGreaterThan(0)
     await finishAnimations()
     expect(title.getBoundingClientRect().toJSON()).toEqual(titleBounds)
