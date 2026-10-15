@@ -11,6 +11,14 @@ import legacyRules from '../tests/fixtures/rewrite-0.23.1-rules.json'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const fixtureUrl = 'https://www.figma.com/design/rewrite-fixture'
+const extraTestOrigins = [
+  'http://www.figma.com',
+  'https://figma.com',
+  'https://sub.www.figma.com',
+  'https://www.figma.com.example.com',
+  'https://example.com',
+  'http://127.0.0.1'
+]
 
 async function getWorker(context: BrowserContext) {
   return context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'))
@@ -46,6 +54,7 @@ async function verifyRules(context: BrowserContext) {
     'The persisted rewrite update alarm must be removed.'
   )
   assert.deepEqual(await worker.evaluate(() => Reflect.get(globalThis, 'workerFetches')), [])
+  await verifyCspScope(context, true)
 }
 
 async function verifyScripts(context: BrowserContext) {
@@ -244,21 +253,46 @@ async function verifyLegacyRules(
   )
 }
 
-async function verifyLegacyCsp(context: BrowserContext, narrowed: boolean) {
+async function verifyCspScope(context: BrowserContext, scoped: boolean) {
   const worker = await getWorker(context)
   // Chrome's unpacked-extension matcher checks real installed DNR rules. A routed
   // Playwright response bypasses header rewriting, so it cannot verify this boundary.
-  for (const route of ['design', 'file', 'board', 'proto', 'slides', 'site', 'make', 'login']) {
-    const matches: number[] = await worker.evaluate(async (url) => {
-      const result = await Reflect.get(globalThis, 'chrome').declarativeNetRequest.testMatchOutcome(
-        {
-          url,
-          type: 'main_frame'
-        }
-      )
-      return result.matchedRules.map(({ ruleId }: { ruleId: number }) => ruleId)
-    }, `https://www.figma.com/${route}/legacy-fixture`)
-    assert.deepEqual(matches, narrowed && route === 'login' ? [] : [1])
+  const paths = [
+    '/',
+    '/design/fixture',
+    '/file/fixture',
+    '/board/fixture',
+    '/proto/fixture',
+    '/slides/fixture',
+    '/site/fixture',
+    '/make/fixture',
+    '/login',
+    '/files',
+    '/deck/fixture',
+    '/buzz/fixture',
+    '/future-editor/fixture'
+  ]
+  const cases = [
+    ...paths.map((path) => ({ url: `https://www.figma.com${path}`, matches: true })),
+    ...extraTestOrigins.map((origin) => ({ url: `${origin}/legacy-fixture`, matches: false }))
+  ]
+  for (const { url, matches } of cases) {
+    const result = await worker.evaluate(async (url) => {
+      const chrome = Reflect.get(globalThis, 'chrome')
+      const permitted = await chrome.permissions.contains({
+        origins: [`${new URL(url).origin}/*`]
+      })
+      const result = await chrome.declarativeNetRequest.testMatchOutcome({
+        url,
+        type: 'main_frame'
+      })
+      return {
+        permitted,
+        ruleIds: result.matchedRules.map(({ ruleId }: { ruleId: number }) => ruleId)
+      }
+    }, url)
+    assert.equal(result.permitted, true, `The fixture needs host access to test ${url}.`)
+    assert.deepEqual(result.ruleIds, !scoped || matches ? [1] : [], url)
   }
   const scriptMatches = await worker.evaluate(async () => {
     const result = await Reflect.get(globalThis, 'chrome').declarativeNetRequest.testMatchOutcome({
@@ -327,6 +361,9 @@ async function main() {
     manifest.content_scripts = manifest.content_scripts.filter((entry: { js: string[] }) =>
       entry.js.some((file) => file.includes('rewrite'))
     )
+    // Grant only the isolated test copy extra origins: otherwise Chrome's host
+    // permission checks could hide an overly broad CSP rule in negative cases.
+    manifest.host_permissions.push(...extraTestOrigins.map((origin) => `${origin}/*`))
     await writeFile(manifestPath, JSON.stringify(manifest))
     context = await launch('clean-profile')
     await verifyRules(context)
@@ -374,7 +411,7 @@ async function main() {
     )
     context = await launch('upgrade-profile')
     await verifyLegacyRules(context, legacyRules)
-    await verifyLegacyCsp(context, false)
+    await verifyCspScope(context, false)
     const oldWorker = await getWorker(context)
     // The download changes, not the installed extension. Exercise the same refresh
     // function used by its ten-minute alarm without delaying the test ten minutes.
@@ -383,7 +420,7 @@ async function main() {
       await Reflect.get(globalThis, 'syncRules')()
     }, narrowedRules)
     await verifyLegacyRules(context, narrowedRules)
-    await verifyLegacyCsp(context, true)
+    await verifyCspScope(context, true)
     await oldWorker.evaluate(async () => {
       Reflect.set(globalThis, 'fetch', async () => {
         throw new Error('Offline fixture')
