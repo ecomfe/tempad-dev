@@ -1,8 +1,6 @@
-import { expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-vi.mock('@/mcp/assets', () => ({ ensureAssetUploaded: vi.fn() }))
-
-import { ensureAssetUploaded } from '@/mcp/assets'
+import { resetAssetCache, setAssetServerUrl, setAssetUploader } from '@/mcp/assets'
 import { exportSvgEntry } from '@/mcp/tools/code/assets/vector'
 import leftTopPng from '@/tests/fixtures/svg/left-top.png?url'
 import leftTopSvg from '@/tests/fixtures/svg/left-top.svg?raw'
@@ -16,6 +14,17 @@ import rotatedPng from '@/tests/fixtures/svg/rotated.png?url'
 import rotatedSvg from '@/tests/fixtures/svg/rotated.svg?raw'
 import widePng from '@/tests/fixtures/svg/wide.png?url'
 import wideSvg from '@/tests/fixtures/svg/wide.svg?raw'
+
+beforeEach(() => {
+  resetAssetCache()
+  setAssetServerUrl('https://assets.test')
+})
+
+afterEach(() => {
+  setAssetUploader(null)
+  setAssetServerUrl(null)
+  resetAssetCache()
+})
 
 // Native exports and frame screenshots captured together in TemPad Dev fixtures:
 // file vJBML2e6g7btKGytwiiyvn, frame nodes 2738:4/8/12/18. Full-node exports
@@ -81,14 +90,8 @@ it('preserves native outside strokes and shadow pixels beyond the node layout bo
     { svg: nativeFill, x: 280, bounds: { x: 280, y: 48, width: 64, height: 48 } }
   ]) {
     let uploaded = ''
-    vi.mocked(ensureAssetUploaded).mockImplementation(async (bytes) => {
+    setAssetUploader(async ({ bytes }) => {
       uploaded = new TextDecoder().decode(bytes)
-      return {
-        hash: String(x),
-        url: `https://assets.test/${x}.svg`,
-        mimeType: 'image/svg+xml',
-        size: bytes.length
-      }
     })
     const node = {
       id: String(x),
@@ -150,14 +153,8 @@ it.each(cases)(
       exportAsync: vi.fn(async () => new TextEncoder().encode(svg))
     } as unknown as SceneNode
     let uploaded = ''
-    vi.mocked(ensureAssetUploaded).mockImplementation(async (bytes) => {
+    setAssetUploader(async ({ bytes }) => {
       uploaded = new TextDecoder().decode(bytes)
-      return {
-        hash: 'native',
-        mimeType: 'image/svg+xml',
-        size: bytes.length,
-        url: 'https://assets.test/native.svg'
-      }
     })
     const entry = await exportSvgEntry(
       node,
