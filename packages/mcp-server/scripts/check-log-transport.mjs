@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL, URL } from 'node:url'
-import { TextDecoder } from 'node:util'
+import { stripVTControlCharacters, TextDecoder } from 'node:util'
 
 // Also accepts an unpacked/installed package to check the shipped worker and dependencies.
 const packageDir = resolve(process.argv[2] ?? fileURLToPath(new URL('..', import.meta.url)))
@@ -63,7 +63,7 @@ const env = {
   TEMPAD_MCP_STATE_DIR: join(directory, 'state'),
   TEMPAD_MCP_ASSET_DIR: join(directory, 'assets'),
   TEMPAD_MCP_LOG_DIR: directory,
-  NO_COLOR: '1'
+  FORCE_COLOR: '1'
 }
 
 async function check(mode) {
@@ -100,6 +100,7 @@ async function check(mode) {
   const bytes = await readFile(file)
   assert.ok(bytes.length <= limit, `${mode}: file exceeds 10 MiB`)
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  assert.equal(text, stripVTControlCharacters(text), `${mode}: file contains terminal escapes`)
   if (mode.startsWith('oversized')) {
     assert.ok(bytes.length > limit - 4)
     assert.match(text, /oversized-start:中文🐈/)
