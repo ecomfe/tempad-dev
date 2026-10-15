@@ -54,6 +54,8 @@ export async function runCheck() {
 
     await page.fill('input[name="email"]', process.env.FIGMA_EMAIL || '')
     await page.fill('input[name="password"]', process.env.FIGMA_PASSWORD || '')
+    // A navigation can invalidate the previous document's response bodies.
+    await Promise.all(scriptReads)
     await page.click('button[type="submit"]')
 
     try {
@@ -65,6 +67,7 @@ export async function runCheck() {
     }
 
     await page.waitForLoadState('load')
+    await Promise.all(scriptReads)
     logger.log(`Page loaded at <${page.url()}>.`)
 
     logger.log(

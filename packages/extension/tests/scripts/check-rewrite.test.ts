@@ -5,6 +5,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 const fixture = vi.hoisted(() => ({
   listener: undefined as ((response: Response) => void) | undefined,
   goto: vi.fn(),
+  click: vi.fn(),
   close: vi.fn(),
   log: vi.fn(),
   error: vi.fn()
@@ -22,7 +23,7 @@ vi.mock('playwright', () => ({
         },
         goto: fixture.goto,
         fill: async () => {},
-        click: async () => {},
+        click: fixture.click,
         waitForURL: async () => {},
         waitForLoadState: async () => {},
         url: () => 'https://www.figma.com/design/test'
@@ -49,6 +50,7 @@ function emitScript(text: () => Promise<string>) {
 beforeEach(() => {
   fixture.listener = undefined
   fixture.goto.mockReset()
+  fixture.click.mockReset()
   fixture.close.mockReset().mockResolvedValue(undefined)
   fixture.log.mockClear()
   fixture.error.mockClear()
@@ -80,6 +82,35 @@ it('waits for a captured script body before reporting rewrite compatibility', as
   expect(fixture.listener).toBeUndefined()
   expect(fixture.close).toHaveBeenCalledOnce()
 })
+
+it.each(['login', 'dashboard'])(
+  'finishes reading %s scripts before navigating away',
+  async (phase) => {
+    const body = Promise.withResolvers<string>()
+    const captured = Promise.withResolvers<void>()
+    const capture = () => {
+      emitScript(() => body.promise)
+      captured.resolve()
+    }
+    fixture.goto.mockImplementation(async (url: string) => {
+      if (phase === 'login' && url.includes('/login')) capture()
+    })
+    fixture.click.mockImplementation(async () => {
+      if (phase === 'dashboard') capture()
+    })
+    const check = runCheck()
+    await captured.promise
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const navigated =
+      phase === 'login'
+        ? fixture.click.mock.calls.length > 0
+        : fixture.goto.mock.calls.some(([url]) => String(url).includes('/design/'))
+    body.resolve('original')
+    expect(await check).toBe(true)
+    expect(navigated).toBe(false)
+    expect(fixture.close).toHaveBeenCalledOnce()
+  }
+)
 
 it('propagates body failure to the main error path and closes the browser', async () => {
   const body = Promise.withResolvers<string>()
