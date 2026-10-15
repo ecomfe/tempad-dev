@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { chromium, type BrowserContext } from 'playwright'
 
 import bundledRules from '../public/rules/figma.json'
+// Frozen remote rules from gh-pages a24331d5c9b86d3ac525b2efb13e9d3004e03844.
+import legacyRules from '../tests/fixtures/rewrite-0.23.1-rules.json'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const fixtureUrl = 'https://www.figma.com/design/rewrite-fixture'
@@ -197,6 +199,78 @@ async function verifyScripts(context: BrowserContext) {
   await verifyRules(context)
 }
 
+async function verifyLegacyRules(
+  context: BrowserContext,
+  rules: { id: number; condition: { regexFilter?: string } }[]
+) {
+  const worker = await getWorker(context)
+  await worker.evaluate(async (expected) => {
+    const chrome = Reflect.get(globalThis, 'chrome')
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const rules = await chrome.declarativeNetRequest.getDynamicRules()
+      const enabled = await chrome.declarativeNetRequest.getEnabledRulesets()
+      const alarm = await chrome.alarms.get('sync-rules')
+      if (
+        rules.length === expected.length &&
+        rules.find((rule: { id: number }) => rule.id === 1)?.condition.regexFilter ===
+          expected.find((rule) => rule.id === 1)?.condition.regexFilter &&
+        !enabled.includes('figma') &&
+        alarm
+      )
+        return
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    throw new Error(
+      `The frozen 0.23.1 worker did not install its downloaded rewrite rules: ${JSON.stringify({
+        rules: await chrome.declarativeNetRequest.getDynamicRules(),
+        enabled: await chrome.declarativeNetRequest.getEnabledRulesets(),
+        fetches: Reflect.get(globalThis, 'workerFetches')
+      })}`
+    )
+  }, rules)
+  assert.deepEqual(
+    await worker.evaluate(
+      async () => await Reflect.get(globalThis, 'chrome').declarativeNetRequest.getDynamicRules()
+    ),
+    rules
+  )
+  const fetches: string[] = await worker.evaluate(() => Reflect.get(globalThis, 'workerFetches'))
+  assert.ok(fetches.length > 0)
+  assert.ok(fetches.every((url) => url === 'https://ecomfe.github.io/tempad-dev/figma.json'))
+  assert.deepEqual(
+    await worker.evaluate(async () => await Reflect.get(globalThis, 'chrome').storage.local.get()),
+    {},
+    'The 0.23.1 rewrite code persists DNR rules and an alarm, not a local-storage rules key.'
+  )
+}
+
+async function verifyLegacyCsp(context: BrowserContext, narrowed: boolean) {
+  const worker = await getWorker(context)
+  // Chrome's unpacked-extension matcher checks real installed DNR rules. A routed
+  // Playwright response bypasses header rewriting, so it cannot verify this boundary.
+  for (const route of ['design', 'file', 'board', 'proto', 'slides', 'site', 'make', 'login']) {
+    const matches: number[] = await worker.evaluate(async (url) => {
+      const result = await Reflect.get(globalThis, 'chrome').declarativeNetRequest.testMatchOutcome(
+        {
+          url,
+          type: 'main_frame'
+        }
+      )
+      return result.matchedRules.map(({ ruleId }: { ruleId: number }) => ruleId)
+    }, `https://www.figma.com/${route}/legacy-fixture`)
+    assert.deepEqual(matches, narrowed && route === 'login' ? [] : [1])
+  }
+  const scriptMatches = await worker.evaluate(async () => {
+    const result = await Reflect.get(globalThis, 'chrome').declarativeNetRequest.testMatchOutcome({
+      url: 'https://www.figma.com/webpack-artifacts/assets/entry.min.js',
+      type: 'script',
+      initiator: 'https://www.figma.com'
+    })
+    return result.matchedRules.map(({ ruleId }: { ruleId: number }) => ruleId)
+  })
+  assert.deepEqual(scriptMatches, [2], 'The old script redirect must still match.')
+}
+
 async function main() {
   const temporary = await mkdtemp(path.join(tmpdir(), 'tempad-local-rewrite-'))
   const extension = path.join(temporary, 'extension')
@@ -265,38 +339,63 @@ async function main() {
     await context.close()
     context = undefined
 
-    // Seed the state written by previous releases, then upgrade the same extension/profile.
+    // Reconstruct the released 0.23.1 rewrite path, rather than directly seeding DNR state.
+    // The frozen fixture omits unrelated UI/MCP code; it is not a historical store artifact.
+    const legacyBackground = await readFile(
+      path.join(root, 'tests/fixtures/rewrite-0.23.1-background.js'),
+      'utf8'
+    )
     await writeFile(
       manifestPath,
       JSON.stringify({
         ...manifest,
-        version: '0.0.0',
+        version: '0.23.1',
+        permissions: ['declarativeNetRequest', ...manifest.permissions],
+        content_scripts: [],
         background: { service_worker: 'old-background.js' }
       })
     )
+    // A reviewable remote migration changes only the CSP condition. Old clients still
+    // need the remote figma.js URL and the same rule-2 matcher; never copy extensionPath here.
+    const cspRule = bundledRules.find(({ id }) => id === 1)
+    assert.ok(cspRule)
+    const narrowedRules = legacyRules.map((rule) =>
+      rule.id === 1 ? { ...rule, condition: cspRule.condition } : rule
+    )
     await writeFile(
       path.join(extension, 'old-background.js'),
-      `
-      globalThis.seedReady = (async () => {
-        await chrome.declarativeNetRequest.updateDynamicRules({addRules:[{
-          id:2,priority:1,action:{type:'redirect',redirect:{url:'https://rewrite.invalid/figma.js'}},
-          condition:{regexFilter:'/webpack-artifacts/assets/.*',resourceTypes:['script']}
-        }]});
-        await chrome.declarativeNetRequest.updateEnabledRulesets({disableRulesetIds:['figma']});
-        await chrome.alarms.create('sync-rules',{periodInMinutes:10});
-        await chrome.storage.local.set({'rewrite-rules':[{id:2}],unrelated:'preserve'});
-      })();`
+      `globalThis.workerFetches = [];
+      globalThis.remoteRules = ${JSON.stringify(legacyRules)};
+      globalThis.fetch = async (url) => {
+        globalThis.workerFetches.push(String(url));
+        return new Response(JSON.stringify(globalThis.remoteRules));
+      };
+      ${legacyBackground}`
     )
     context = await launch('upgrade-profile')
+    await verifyLegacyRules(context, legacyRules)
+    await verifyLegacyCsp(context, false)
     const oldWorker = await getWorker(context)
-    await oldWorker.evaluate(() => Reflect.get(globalThis, 'seedReady'))
-    assert.equal(
-      await oldWorker.evaluate(
-        async () =>
-          (await Reflect.get(globalThis, 'chrome').declarativeNetRequest.getDynamicRules()).length
-      ),
-      1
-    )
+    // The download changes, not the installed extension. Exercise the same refresh
+    // function used by its ten-minute alarm without delaying the test ten minutes.
+    await oldWorker.evaluate(async (rules) => {
+      Reflect.set(globalThis, 'remoteRules', rules)
+      await Reflect.get(globalThis, 'syncRules')()
+    }, narrowedRules)
+    await verifyLegacyRules(context, narrowedRules)
+    await verifyLegacyCsp(context, true)
+    await oldWorker.evaluate(async () => {
+      Reflect.set(globalThis, 'fetch', async () => {
+        throw new Error('Offline fixture')
+      })
+      await Reflect.get(globalThis, 'syncRules')()
+    })
+    await verifyLegacyRules(context, narrowedRules)
+    // An unrelated preference must survive the in-place upgrade too.
+    await oldWorker.evaluate(async () => {
+      await Reflect.get(globalThis, 'chrome').storage.local.set({ unrelated: 'preserve' })
+    })
+    const extensionId = new URL(oldWorker.url()).host
     await context.close()
     context = undefined
     await rm(path.join(extension, 'old-background.js'))
@@ -305,6 +404,7 @@ async function main() {
     await verifyRules(context)
     await verifyScripts(context)
     const upgradedWorker = await getWorker(context)
+    assert.equal(new URL(upgradedWorker.url()).host, extensionId)
     assert.deepEqual(
       await upgradedWorker.evaluate(
         async () =>
@@ -313,7 +413,7 @@ async function main() {
       { unrelated: 'preserve' }
     )
     console.log(
-      'Local rewrite: packaged rules, offline startup, upgrade cleanup, static scripts, Rspack chunks and fallback passed.'
+      'Local rewrite: packaged rules, offline startup, reconstructed 0.23.1 migration, CSP scope, static scripts, Rspack chunks and fallback passed.'
     )
   } finally {
     await context?.close()
