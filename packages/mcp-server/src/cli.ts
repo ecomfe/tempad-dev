@@ -293,7 +293,8 @@ async function main() {
         process.stderr.write(
           `Unable to connect to TemPad Hub after ${failedAttempts} ${connected ? 'reconnect' : 'startup'} attempts: ${reason} Reconnect the MCP client after resolving the connection error.\n`
         )
-        process.stdin.pause()
+        // No future bridge will consume stdin; release its read handle before exiting.
+        process.stdin.destroy()
         process.exitCode = 1
         return
       }

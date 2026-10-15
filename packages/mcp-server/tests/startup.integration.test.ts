@@ -545,7 +545,9 @@ it.skipIf(process.platform === 'win32')(
   5000
 )
 
-it.skipIf(process.platform === 'win32').each(['closed', 'invalid', 'denied-after-binding'])(
+it
+  .skipIf(process.platform === 'win32')
+  .each(['closed', 'invalid', 'invalid-with-stdin', 'denied-after-binding'])(
   'bounds an accepted CLI bridge that is %s',
   async (failure) => {
     const runtime = join(directory, failure === 'denied-after-binding' ? 'bridge-denied' : failure)
@@ -559,7 +561,7 @@ it.skipIf(process.platform === 'win32').each(['closed', 'invalid', 'denied-after
       // Keep a regressed fourth connection open so this test cannot create a hot loop.
       if (++connections > 3) return
       socket.end(
-        failure === 'invalid'
+        failure.startsWith('invalid')
           ? 'not JSON-RPC\n'
           : failure === 'denied-after-binding'
             ? '{"jsonrpc":"2.0","method":"notifications/tempad/client-binding","params":{"kind":"claude","sessionId":"reconnected-session"}}\n'
@@ -587,6 +589,9 @@ it.skipIf(process.platform === 'win32').each(['closed', 'invalid', 'denied-after
       await once(server, 'listening')
       chmodSync(join(runtime, 'mcp.sock'), 0o600)
       attempt = launch('cli.mjs', runtime, preload)
+      if (failure === 'invalid-with-stdin') {
+        attempt.child.stdin!.write('{"jsonrpc":"2.0","id":1,"method":"ping"}\n')
+      }
       await vi.waitFor(() => expect(attempt!.stderr()).toContain('fixture-connect'), {
         timeout: 5000
       })
