@@ -398,9 +398,26 @@ it.skipIf(process.platform === 'win32')(
     const preload = join(bundle, 'slow-shutdown.mjs')
     const marker = join(directory, 'drained')
     const release = join(directory, 'release')
+    // The fixture deliberately keeps shutdown pending while another process loads.
+    // Keep that parent-controlled barrier outside the real 2s watchdog; the adjacent
+    // upload tests exercise its natural/forced exits separately.
     writeFileSync(
       preload,
-      `import {writeFile} from 'node:fs/promises'; import {existsSync} from 'node:fs'; process.on('SIGTERM', () => { const timer = setInterval(() => { if (existsSync(${JSON.stringify(release)})) { clearInterval(timer); void writeFile(${JSON.stringify(marker)}, 'done'); } }, 10); });`
+      `import {writeFile} from 'node:fs/promises'; import {existsSync} from 'node:fs';
+      process.on('SIGTERM', () => {
+        const timeout = globalThis.setTimeout;
+        globalThis.setTimeout = (fn, ms, ...args) => {
+          if (ms !== 2000) return timeout(fn, ms, ...args);
+          process.stderr.write('fixture-shutdown-armed\\n');
+          return timeout(fn, 30000, ...args);
+        };
+        const timer = setInterval(() => {
+          if (existsSync(${JSON.stringify(release)})) {
+            clearInterval(timer);
+            void writeFile(${JSON.stringify(marker)}, 'done');
+          }
+        }, 10);
+      });`
     )
     const runtime = join(directory, 'run-one')
     mkdirSync(join(directory, 'state'), { mode: 0o755 })
@@ -422,6 +439,10 @@ it.skipIf(process.platform === 'win32')(
     independent.child.kill('SIGTERM')
     expect((await independent.exited)[0]).toBe(0)
     first.child.kill('SIGTERM')
+    await vi.waitFor(() => expect(first.stderr()).toContain('fixture-shutdown-armed'), {
+      timeout: 5000
+    })
+    expect(existsSync(join(runtime, 'hub-runtime.json'))).toBe(false)
     const contender = launch('hub.mjs', join(directory, 'run-two'))
     // The second process must never restore or publish an identity while the old
     // process still owns storage, even though their runtime locks differ.
