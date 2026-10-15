@@ -969,9 +969,6 @@ onScopeDispose(() => {
             /></IconButton>
           </div>
           <p v-if="editorError" role="alert">{{ editorError }}</p>
-          <p v-else-if="editorWarned" role="status">
-            Unsaved changes. Click outside again to discard.
-          </p>
         </form>
       </Transition>
     </div>

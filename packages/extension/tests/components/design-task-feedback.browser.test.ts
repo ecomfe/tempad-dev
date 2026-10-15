@@ -1494,7 +1494,10 @@ describe('element feedback drafts', () => {
     const editor = document.querySelector<HTMLElement>('.tp-feedback-editor')!
     expect(getComputedStyle(editor).transformOrigin.startsWith('24px ')).toBe(true)
     expect(getComputedStyle(editor).animationDuration).toBe('0.42s')
-    expect(editor.textContent).not.toContain('Unsaved comment')
+    expect(editor.querySelector('[role="status"]')).toBeNull()
+    await expect
+      .element(page.getByRole('textbox', { name: 'Element comment', exact: true }))
+      .toHaveValue('Unsaved thought')
     await page
       .getByRole('textbox', { name: 'Element comment', exact: true })
       .fill('Revised thought')
