@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.23.4
+## Unreleased
 
 - Improved CSS exports for layered fills, stacking and blending, mixed fonts, variable opacity,
   and SVG sizing and placement.
@@ -16,6 +16,11 @@
   success messages. Added code-generation progress and Retry. Improved keyboard access.
 - Preserved independent preferences across tabs and allowed plugin deletion when storage is full.
 - Added Refresh links and documentation links for component sets.
+
+## 0.23.4
+
+- Simplified the dynamic script interceptor to use packaged matching rules directly, preserving
+  Rspack chunk loading and existing failure recovery.
 
 ## 0.23.3
 
