@@ -168,6 +168,7 @@ export type MutableNode = Mutable<SupportedMockNode> & {
   layoutGrow: number
   layoutPositioning: 'ABSOLUTE' | 'AUTO'
   mainComponent?: ComponentNode
+  opacity: number
   parent: BaseNode | null
   setGridChildPosition: (row: number, column: number) => void
   strokeStyleId: string
@@ -311,7 +312,9 @@ export function mockVariable(
   return variable as unknown as Variable
 }
 
-export function createFixture(): FigmaFixture {
+export function createFixture({
+  float32 = []
+}: { float32?: readonly ('opacity' | 'width' | 'height')[] } = {}): FigmaFixture {
   const page = createMockPage('0:1', 'Page 1')
   let currentPage: PageNode = page as unknown as PageNode
   let nextId = 1
@@ -432,6 +435,7 @@ export function createFixture(): FigmaFixture {
       [0, 1, 0]
     ]
     let targetAspectRatio: Vector | null = null
+    let counterAxisSpacingSynced = false
     const initialPage = currentPage
     const node = {
       id,
@@ -482,6 +486,69 @@ export function createFixture(): FigmaFixture {
       setSharedPluginData(namespace: string, key: string, value: string) {
         assertSharedPluginDataNamespace(namespace)
         pluginData.set(`${namespace}:${key}`, value)
+      },
+      clone() {
+        // Only ordinary subtrees are modeled; reject unsupported descendants before
+        // creating anything, rather than silently losing text/component/grid state.
+        const pending: SceneNode[] = [node]
+        while (pending.length) {
+          const current = pending.pop()!
+          if (current.removed) throw new Error('Cannot clone a removed node')
+          if (current.type !== 'FRAME' && current.type !== 'GROUP' && current.type !== 'RECTANGLE')
+            throw new Error(`Unsupported mock clone: ${current.type}`)
+          if (current.targetAspectRatio)
+            throw new Error('Unsupported mock clone: locked aspect ratio')
+          if (
+            current.type === 'FRAME' &&
+            (current.layoutMode === 'GRID' ||
+              current.gridRowCount !== 1 ||
+              current.gridColumnCount !== 1 ||
+              [...current.gridRowSizes, ...current.gridColumnSizes].some(
+                (track) => track.type !== 'FLEX' || track.value !== 1
+              ))
+          )
+            throw new Error('Unsupported mock clone: grid tracks')
+          if ('children' in current) pending.push(...current.children)
+        }
+
+        const copy = createNode(type)
+        const deferred = new Set([
+          'id',
+          'type',
+          'removed',
+          'parent',
+          'children',
+          'boundVariables',
+          'explicitVariableModes',
+          'x',
+          'y',
+          'rotation',
+          'relativeTransform',
+          'fillStyleId',
+          'strokeStyleId',
+          'effectStyleId',
+          'gridStyleId'
+        ])
+        for (const [field, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(node))) {
+          if (deferred.has(field) || (!descriptor.writable && !descriptor.set)) continue
+          const value: unknown = Reflect.get(node, field)
+          if (typeof value !== 'function') Reflect.set(copy, field, structuredClone(value))
+        }
+        // Setters retain their own closures, and paint setters clear bindings/style IDs.
+        Object.assign(copy.boundVariables, structuredClone(boundVariables))
+        Object.assign(copy.explicitVariableModes, structuredClone(explicitVariableModes))
+        for (const field of ['fillStyleId', 'strokeStyleId', 'effectStyleId', 'gridStyleId']) {
+          if (field in node) Reflect.set(copy, field, Reflect.get(node, field))
+        }
+        copy.relativeTransform = structuredClone(node.relativeTransform)
+        if (type === 'FRAME' && counterAxisSpacingSynced)
+          (copy as FrameNode).counterAxisSpacing = null
+        for (const [entry, value] of pluginData) {
+          const separator = entry.indexOf(':')
+          copy.setSharedPluginData(entry.slice(0, separator), entry.slice(separator + 1), value)
+        }
+        for (const child of node.children ?? []) copy.appendChild(child.clone())
+        return copy
       },
       remove: vi.fn(() => {
         if (node.removed) return
@@ -982,7 +1049,6 @@ export function createFixture(): FigmaFixture {
     if (isMockFrameType(type)) {
       let itemSpacing = 0
       let counterAxisSpacing = 0
-      let counterAxisSpacingSynced = false
       let gridRowCount = 1
       let gridColumnCount = 1
       let gridRowSizes: GridTrackSize[] = [{ type: 'FLEX', value: 1 }]
@@ -1313,6 +1379,18 @@ export function createFixture(): FigmaFixture {
     }
     if (type === 'STAR') {
       Object.assign(node, { pointCount: 5, innerRadius: 0.5 })
+    }
+
+    for (const field of float32) {
+      let value = Math.fround(node[field])
+      Object.defineProperty(node, field, {
+        configurable: true,
+        enumerable: true,
+        get: () => value,
+        set: (next: number) => {
+          value = Math.fround(next)
+        }
+      })
     }
 
     ;(initialPage.children as SceneNode[]).push(node)

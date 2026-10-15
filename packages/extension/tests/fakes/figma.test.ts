@@ -45,6 +45,133 @@ describe('Figma authoring fixture', () => {
     expect(other.loadAsync).toHaveBeenCalledOnce()
   })
 
+  it('stores opted-in native scalars at float32 precision from creation', () => {
+    const fixture = createFixture({ float32: ['opacity', 'width', 'height'] })
+    const node = fixture.createNode('FRAME')
+    node.opacity = 0.3
+    node.resize(100.1, 40.3)
+    expect(node).toMatchObject({
+      opacity: Math.fround(0.3),
+      width: Math.fround(100.1),
+      height: Math.fround(40.3)
+    })
+    const ordinary = createFixture().createNode('FRAME')
+    ordinary.opacity = 0.3
+    ordinary.resize(100.1, 40.3)
+    expect(ordinary).toMatchObject({ opacity: 0.3, width: 100.1, height: 40.3 })
+  })
+
+  it('clones ordinary subtrees with independent native state and copied shared plugin data', () => {
+    const fixture = createFixture({ float32: ['opacity', 'width', 'height'] })
+    const source = fixture.createNode('FRAME') as FrameNode
+    const group = fixture.createNode('GROUP') as GroupNode
+    const leaf = fixture.createNode('RECTANGLE') as RectangleNode
+    source.appendChild(group)
+    group.appendChild(leaf)
+    source.name = 'Source'
+    source.opacity = 0.3
+    source.resize(100.1, 40.3)
+    source.rotation = 30
+    source.x = 12
+    source.y = 24
+    source.itemSpacing = 8
+    source.counterAxisSpacing = null
+    source.fills = [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }]
+    source.fillStyleId = 'style:fill'
+    const variable = fixture.variables.get('variable:spacing')!
+    const collection = fixture.variableCollections.get('collection:tokens')!
+    source.setBoundVariable('opacity', variable)
+    source.setExplicitVariableModeForCollection(collection, 'mode:dark')
+    for (const node of [source, group, leaf]) {
+      node.setSharedPluginData('tempad_dev', 'canvas-key', node.name || node.type)
+      node.setSharedPluginData('tempad_dev', 'canvas-owner', node.id)
+      node.setSharedPluginData('another_plugin', 'custom:key', `metadata:${node.id}`)
+    }
+
+    const copy = source.clone()
+    const copiedGroup = copy.children[0] as GroupNode
+    const copiedLeaf = copiedGroup.children[0] as RectangleNode
+    expect(copy.parent).toBe(fixture.page)
+    for (const [original, cloned] of [
+      [source, copy],
+      [group, copiedGroup],
+      [leaf, copiedLeaf]
+    ] as const) {
+      expect(cloned.id).not.toBe(original.id)
+      expect(fixture.getNode(cloned.id)).toBe(cloned)
+      expect(cloned.getSharedPluginData('tempad_dev', 'canvas-key')).toBe(
+        original.getSharedPluginData('tempad_dev', 'canvas-key')
+      )
+      expect(cloned.getSharedPluginData('tempad_dev', 'canvas-owner')).toBe(original.id)
+      expect(cloned.getSharedPluginData('another_plugin', 'custom:key')).toBe(
+        `metadata:${original.id}`
+      )
+    }
+    expect(copy).toMatchObject({
+      name: 'Source',
+      opacity: Math.fround(0.3),
+      width: Math.fround(100.1),
+      height: Math.fround(40.3),
+      fillStyleId: 'style:fill'
+    })
+    expect(copy.relativeTransform).toEqual(source.relativeTransform)
+    expect(copy.relativeTransform).not.toBe(source.relativeTransform)
+    expect(copy.fills).toEqual(source.fills)
+    expect(copy.fills).not.toBe(source.fills)
+    expect(copy.boundVariables).toEqual(source.boundVariables)
+    expect(copy.explicitVariableModes).toEqual(source.explicitVariableModes)
+
+    copy.resize(200.1, 80.3)
+    copy.itemSpacing = 16
+    expect(copy.counterAxisSpacing).toBe(16)
+    expect(source.counterAxisSpacing).toBe(8)
+    copy.setBoundVariable('opacity', null)
+    copy.clearExplicitVariableModeForCollection(collection)
+    copy.setSharedPluginData('tempad_dev', 'canvas-owner', copy.id)
+    expect(copy.boundVariables?.opacity).toBeUndefined()
+    expect(copy.explicitVariableModes).toEqual({})
+    expect(source.width).toBe(Math.fround(100.1))
+    expect(source.boundVariables?.opacity).toEqual({ type: 'VARIABLE_ALIAS', id: variable.id })
+    expect(source.explicitVariableModes).toEqual({ 'collection:tokens': 'mode:dark' })
+    expect(source.getSharedPluginData('tempad_dev', 'canvas-owner')).toBe(source.id)
+    copiedLeaf.remove()
+    expect(copiedGroup.removed).toBe(true)
+    expect(group.removed).toBe(false)
+    expect(group.children).toEqual([leaf])
+    copy.remove()
+    expect(source.removed).toBe(false)
+    expect(fixture.nodes.has(source.id)).toBe(true)
+  })
+
+  it('rejects unsupported clone descendants before creating any nodes', () => {
+    const fixture = createFixture()
+    const source = fixture.createNode('FRAME') as FrameNode
+    source.appendChild(fixture.createNode('TEXT'))
+    const ids = [...fixture.nodes.keys()]
+    const children = [...fixture.page.children]
+    expect(() => source.clone()).toThrow('Unsupported mock clone: TEXT')
+    expect([...fixture.nodes.keys()]).toEqual(ids)
+    expect(fixture.page.children).toEqual(children)
+    source.remove()
+    expect(() => source.clone()).toThrow('Cannot clone a removed node')
+  })
+
+  it.each(['locked aspect ratio', 'grid tracks'] as const)(
+    'rejects unsupported %s clone state without a partial copy',
+    (state) => {
+      const fixture = createFixture()
+      const source = fixture.createNode('FRAME') as FrameNode
+      const child = fixture.createNode('FRAME') as FrameNode
+      source.appendChild(child)
+      if (state === 'locked aspect ratio') child.lockAspectRatio()
+      else child.layoutMode = 'GRID'
+      const ids = [...fixture.nodes.keys()]
+      expect(() => source.clone()).toThrow(`Unsupported mock clone: ${state}`)
+      expect([...fixture.nodes.keys()]).toEqual(ids)
+      expect(fixture.page.children).toEqual([source])
+    }
+  )
+
   it('models empty group removal without deleting same-parent reorders', () => {
     const fixture = createFixture()
     const group = fixture.createNode('GROUP')

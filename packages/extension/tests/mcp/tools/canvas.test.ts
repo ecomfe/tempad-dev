@@ -141,9 +141,8 @@ describe('mcp/tools/canvas', () => {
     })
     const root = fixture.getNode(created.rootNodeId!)
     const child = fixture.getNode(created.nodeIdsByKey.child!)
-    const copy = fixture.createNode('FRAME')
-    for (const field of ['canvas-key', 'canvas-owner'])
-      copy.setSharedPluginData('tempad_dev', field, child.getSharedPluginData('tempad_dev', field))
+    const copy = child.clone()
+    expect(copy.getSharedPluginData('tempad_dev', 'canvas-owner')).toBe(child.id)
     root.appendChild(copy)
     await applyCanvasFromTool({
       mode: 'update',
@@ -156,19 +155,67 @@ describe('mcp/tools/canvas', () => {
   })
 
   it('does not rewrite scalar values already stored at float32 precision', async () => {
-    const fixture = createFixture()
+    const fixture = createFixture({ float32: ['opacity'] })
     const markup = '<div data-key="root" class="w-20 h-20 opacity-30"/>'
     const created = await applyCanvas({ mode: 'create', markup })
     const root = fixture.getNode(created.rootNodeId!)
-    let opacity = Math.fround(0.3)
-    const write = vi.fn((value: number) => {
-      opacity = Math.fround(value)
-    })
-    Object.defineProperty(root, 'opacity', { configurable: true, get: () => opacity, set: write })
+    expect(root.opacity).toBe(Math.fround(0.3))
+    const write = vi.spyOn(root, 'opacity', 'set')
     await expect(
       applyCanvas({ mode: 'update', targetNodeId: root.id, markup })
     ).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
     expect(write).not.toHaveBeenCalled()
+  })
+
+  it('adopts a copied subtree by exact ids and converges with float32 native values', async () => {
+    const fixture = createFixture({ float32: ['opacity', 'width', 'height'] })
+    const markup =
+      '<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="child" class="flex flex-col w-[80.1px] h-[80.3px] opacity-30"><div data-key="leaf" class="w-[40.1px] h-[40.3px] opacity-30"/></div></div>'
+    const created = await applyCanvas({ mode: 'create', markup })
+    const root = fixture.getNode(created.rootNodeId!)
+    const child = fixture.getNode(created.nodeIdsByKey.child!)
+    const leaf = fixture.getNode(created.nodeIdsByKey.leaf!)
+    const copy = child.clone() as FrameNode
+    const copiedLeaf = copy.children[0] as FrameNode
+    root.appendChild(copy)
+    await expect(
+      applyCanvas({ mode: 'update', targetNodeId: root.id, markup })
+    ).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
+    expect(copy.getSharedPluginData('tempad_dev', 'canvas-owner')).toBe(child.id)
+    expect(copiedLeaf.getSharedPluginData('tempad_dev', 'canvas-owner')).toBe(leaf.id)
+
+    const adoptedMarkup = `<div data-key="root" class="flex flex-col w-80 h-80"><div data-key="copy" data-node-id="${copy.id}" class="flex flex-col w-[80.1px] h-[80.3px] opacity-30"><div data-key="copy/leaf" data-node-id="${copiedLeaf.id}" class="w-[40.1px] h-[40.3px] opacity-30"/></div></div>`
+    const adopted = await applyCanvas({
+      mode: 'update',
+      targetNodeId: root.id,
+      markup: adoptedMarkup
+    })
+    expect(adopted.createdNodeIds).toEqual([])
+    expect(adopted.nodeIdsByKey).toMatchObject({ copy: copy.id, 'copy/leaf': copiedLeaf.id })
+    expect(copy.getSharedPluginData('tempad_dev', 'canvas-owner')).toBe(copy.id)
+    expect(copiedLeaf.getSharedPluginData('tempad_dev', 'canvas-owner')).toBe(copiedLeaf.id)
+    expect(child.getSharedPluginData('tempad_dev', 'canvas-key')).toBe('child')
+    expect(leaf.getSharedPluginData('tempad_dev', 'canvas-key')).toBe('leaf')
+    expect(root.children).toContain(child)
+    expect(child.children).toEqual([leaf])
+    const writes = [copy, copiedLeaf].flatMap((node) => [
+      vi.spyOn(node, 'opacity', 'set'),
+      vi.spyOn(node, 'resize')
+    ])
+    await expect(
+      applyCanvas({ mode: 'update', targetNodeId: root.id, markup: adoptedMarkup })
+    ).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
+    expect(copy).toMatchObject({
+      opacity: Math.fround(0.3),
+      width: Math.fround(80.1),
+      height: Math.fround(80.3)
+    })
+    expect(copiedLeaf).toMatchObject({
+      opacity: Math.fround(0.3),
+      width: Math.fround(40.1),
+      height: Math.fround(40.3)
+    })
+    for (const write of writes) expect(write).not.toHaveBeenCalled()
   })
 
   it('reports ignored literals while preserving existing bindings', async () => {
