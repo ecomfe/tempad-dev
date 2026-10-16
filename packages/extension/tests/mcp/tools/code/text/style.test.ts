@@ -164,6 +164,36 @@ describe('mcp/code text style', () => {
     expect(attrs.color?.toLowerCase()).toBe('#0f0')
   })
 
+  it.each([
+    { front: { type: 'SOLID', color: { r: 0, g: 1, b: 0 } }, color: '#0F0' },
+    { front: { type: 'SOLID', color: { r: 0, g: 1, b: 0 }, visible: false }, color: '#F00' },
+    { front: { type: 'SOLID', color: { r: 0, g: 1, b: 0 }, opacity: 0 }, color: '#F00' },
+    { front: { type: 'SOLID', color: { r: 0, g: 1, b: 0 }, opacity: 0.5 }, color: undefined },
+    {
+      front: { type: 'SOLID', color: { r: 0, g: 1, b: 0 }, blendMode: 'MULTIPLY' },
+      color: undefined
+    },
+    { front: { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' }, color: undefined },
+    {
+      front: {
+        type: 'GRADIENT_LINEAR',
+        gradientTransform: [
+          [1, 0, 0],
+          [0, 1, 0]
+        ],
+        gradientStops: [{ position: 0, color: { r: 0, g: 0, b: 1, a: 1 } }]
+      },
+      color: undefined
+    }
+  ])('uses only a representable front text fill: $front', ({ front, color }) => {
+    setupFigmaMock()
+    const paints = [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }, front] as Paint[]
+    const segment = createSegment({ fills: paints })
+    const { fills } = resolveTokens({} as TextNode, segment)
+    const attrs = resolveRunAttrs(segment, {}, fills)
+    expect(attrs.color).toBe(color)
+  })
+
   it('ignores invisible fills and preserves transparent when no visible paints exist', () => {
     const segment = createSegment({
       textCase: 'SMALL_CAPS',

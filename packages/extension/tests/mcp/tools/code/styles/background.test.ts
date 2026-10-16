@@ -135,9 +135,36 @@ describe('mcp/tools/code/styles/background', () => {
     expect(result['background-position']).toBe('50%')
     expect(result['background-size']).toBe('cover')
     expect(result['background-repeat']).toBe('no-repeat')
-    expect(result['background-color']).toBe('#F00')
+    expect(result['background-color']).toBe('#0F0')
     expect(JSON.stringify(result)).not.toContain('lightgray')
   })
+
+  it.each([
+    { type: 'SOLID', color: { r: 0, g: 1, b: 0 }, opacity: 0.5 },
+    { type: 'SOLID', color: { r: 0, g: 1, b: 0 }, blendMode: 'MULTIPLY' },
+    { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' },
+    {
+      type: 'GRADIENT_LINEAR',
+      gradientTransform: [
+        [1, 0, 0],
+        [0, 1, 0]
+      ],
+      gradientStops: [{ position: 0, color: { r: 0, g: 0, b: 1, a: 1 } }]
+    }
+  ])(
+    'does not infer a scalar under native image CSS from an unrepresentable stack: %j',
+    (front) => {
+      const result = cleanFigmaSpecificStyles(
+        { background: 'url("image.png") lightgray 50% / cover no-repeat' },
+        createNode('RECTANGLE', {
+          fills: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }, front]
+        })
+      )
+      expect(result['background-color']).toBeUndefined()
+      expect(result['background-image']).toContain('url("image.png")')
+      expect(JSON.stringify(result)).not.toContain('lightgray')
+    }
+  )
 
   it('uses fill style paints before direct node fills for lightgray fallback cleanup', () => {
     vi.stubGlobal('figma', {

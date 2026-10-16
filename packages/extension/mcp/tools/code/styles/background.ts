@@ -146,10 +146,15 @@ function isVisibleLinearGradientPaint(paint: Paint): paint is GradientPaint {
 }
 
 function findVisibleSolidPaint(paints: ReadonlyArray<Paint>): SolidPaint | null {
-  const solid = paints.find(
-    (paint): paint is SolidPaint => isVisiblePaint(paint) && isSolidPaint(paint)
+  const layers = getCssPaintLayers(paints)
+  const paint = layers[0]?.paint
+  if (!paint || !isSolidPaint(paint)) return null
+  if (
+    layers.length > 1 &&
+    ((paint.opacity ?? 1) < 1 || (paint.blendMode !== undefined && paint.blendMode !== 'NORMAL'))
   )
-  return solid ?? null
+    return null
+  return paint
 }
 
 function getFillStylePaints(
