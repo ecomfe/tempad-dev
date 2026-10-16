@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import { defaultClientConditions } from 'vite'
 import cssInjectedByJsPlugin from 'vite-plugin-css-injected-by-js'
 import { defineConfig } from 'wxt'
 
@@ -39,6 +40,7 @@ export default defineConfig({
     }
   },
   vite: (env) => ({
+    resolve: { conditions: ['source', ...defaultClientConditions] },
     plugins: [cssInjectedByJsPlugin(), pluginSandboxWorkers(env.command === 'serve')],
     server: env.command === 'serve' ? { cors: true } : undefined,
     optimizeDeps: {
