@@ -16,10 +16,77 @@ vi.mock('node:fs', () => ({
 }))
 
 import { DesignTaskStore } from '../src/design-task-store'
+import { DesignTasks } from '../src/design-tasks'
 
 beforeEach(() => files.clear())
 
 describe('task snapshot recovery', () => {
+  it('retains only matching incompatible current pointers through task restore and save', () => {
+    const future = {
+      task: {
+        taskId: 'future',
+        title: 'Future',
+        target: { fileKey: 'blocked-file', fileName: 'File', sessionId: 'session', pageId: 'page' },
+        status: 'future-status',
+        operation: null,
+        expiresAt: 1000,
+        revision: 1
+      },
+      requestId: 'future-request'
+    }
+    files.set(
+      '/state/tasks.json',
+      JSON.stringify({
+        revision: 1,
+        current: { 'blocked-file': 'future', 'mismatched-file': 'future', dangling: 'missing' },
+        records: [future]
+      })
+    )
+    const store = new DesignTaskStore('/state/tasks.json')
+    const tasks = new DesignTasks({ store, createId: () => 'new', now: () => 1000 })
+    tasks.restore()
+    expect(tasks.current('blocked-file')).toBeUndefined()
+    expect(store.blockedFiles).toEqual(new Set(['blocked-file']))
+    const other = {
+      sessionId: 'other',
+      fileKey: 'other',
+      fileName: 'Other',
+      pageId: 'page',
+      busy: false
+    }
+    expect(() =>
+      tasks.begin('owner', 'extension', { ...other, fileKey: 'blocked-file' }, 'New', 'r')
+    ).toThrow('incompatible')
+    tasks.begin('owner', 'extension', other, 'Other', 'request')
+    const persisted = JSON.parse(files.get('/state/tasks.json')!)
+    expect(persisted.current).toEqual({ 'blocked-file': 'future', other: 'new' })
+    expect(persisted.records).toContainEqual(future)
+
+    // Simulate the newer reader recognizing this status, without inventing a current pointer.
+    persisted.records.find(
+      (record: { task: { taskId: string } }) => record.task.taskId === 'future'
+    ).task.status = 'paused'
+    files.set('/state/tasks.json', JSON.stringify(persisted))
+    const upgraded = new DesignTasks({
+      store: new DesignTaskStore('/state/tasks.json'),
+      createId: () => 'unused',
+      now: () => 1000
+    })
+    upgraded.restore()
+    expect(upgraded.current('blocked-file')?.task).toMatchObject({
+      taskId: 'future',
+      status: 'paused'
+    })
+    expect(upgraded.current('mismatched-file')).toBeUndefined()
+    expect(upgraded.current('dangling')).toBeUndefined()
+    expect(
+      upgraded.resume('future', 'restored:future', 1, {
+        ...future.task.target,
+        busy: false
+      }).task.status
+    ).toBe('active')
+  })
+
   it('isolates an incompatible record to its file and preserves its fence when saving valid tasks', () => {
     const incompatible = {
       task: { taskId: 'future', target: { fileKey: 'blocked-file' }, status: 'future-status' }

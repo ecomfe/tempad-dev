@@ -31,12 +31,14 @@ export class DesignTaskStore {
   recoveryError?: string
   blockedFiles?: Set<string>
   private incompatibleRecords: unknown[] = []
+  private readonly incompatibleCurrent = new Map<string, string>()
   constructor(private readonly path: string) {}
 
   load(): DesignTaskSnapshot | undefined {
     this.recoveryError = undefined
     this.blockedFiles = new Set()
     this.incompatibleRecords = []
+    this.incompatibleCurrent.clear()
     try {
       if (!existsSync(this.path) && existsSync(`${this.path}.corrupt`))
         throw new Error('A quarantined task snapshot requires recovery.')
@@ -51,10 +53,21 @@ export class DesignTaskStore {
           continue
         }
         const target = z
-          .object({ task: z.object({ target: z.object({ fileKey: z.string().min(1) }) }) })
+          .object({
+            task: z.object({
+              taskId: z.unknown().optional(),
+              target: z.object({ fileKey: z.string().min(1) })
+            })
+          })
           .safeParse(item)
         if (!target.success) throw new Error('An incompatible task has no identifiable file fence.')
-        this.blockedFiles.add(target.data.task.target.fileKey)
+        const {
+          taskId,
+          target: { fileKey }
+        } = target.data.task
+        this.blockedFiles.add(fileKey)
+        if (typeof taskId === 'string' && raw.current[fileKey] === taskId)
+          this.incompatibleCurrent.set(fileKey, taskId)
         // Preserve incompatible records verbatim so later writes and restarts keep their fences.
         this.incompatibleRecords.push(item)
       }
@@ -80,7 +93,11 @@ export class DesignTaskStore {
     const temporary = `${this.path}.tmp`
     writeFileSync(
       temporary,
-      JSON.stringify({ ...snapshot, records: [...snapshot.records, ...this.incompatibleRecords] }),
+      JSON.stringify({
+        ...snapshot,
+        current: { ...snapshot.current, ...Object.fromEntries(this.incompatibleCurrent) },
+        records: [...snapshot.records, ...this.incompatibleRecords]
+      }),
       { mode: 0o600, flush: true }
     )
     renameSync(temporary, this.path)
