@@ -8,13 +8,9 @@ permissions:
   id-token: write
 
 jobs:
-  publish:
-    name: Publish @tempad-dev/plugins
+  guard:
+    name: Validate release branch
     runs-on: ubuntu-latest
-    concurrency:
-      group: publish-plugins
-      cancel-in-progress: true
-
     steps:
       - name: Require main branch
         env:
@@ -25,6 +21,14 @@ jobs:
             exit 1
           fi
 
+  publish:
+    name: Publish @tempad-dev/plugins
+    needs: guard
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-plugins
+      cancel-in-progress: false
+    steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
