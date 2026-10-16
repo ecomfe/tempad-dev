@@ -1400,13 +1400,16 @@ async function createCatalog(pageId?: string): Promise<DesignSystemResourcesResu
   const orderedStyles = sortByName(styles.map(describeStyle))
   const orderedShaders = sortByName(shaders)
   const entries: CatalogEntry[] = []
-  const componentTags = new Set<string>(['Div', 'Span', 'Br'])
+  const componentTags = new Set<string>()
   for (const [index, family] of orderedComponents.entries()) {
     const component = family.item
-    const tag = uniqueName(
-      toIdentifier(component.componentSetName ?? component.name, `Component${index + 1}`, true),
-      componentTags
+    const baseTag = toIdentifier(
+      component.componentSetName ?? component.name,
+      `Component${index + 1}`,
+      true
     )
+    if (/^(div|span|br)$/i.test(baseTag)) componentTags.add(baseTag)
+    const tag = uniqueName(baseTag, componentTags)
     entries.push({
       kind: 'component',
       ref: `c${index + 1}`,

@@ -38,6 +38,23 @@ function input(
 }
 
 describe('Canvas theme compilation', () => {
+  it.each(['gap-[8px]', 'gap-(--child)'])(
+    'keeps a nested diagnostic tied to its own %s class',
+    (childClass) => {
+      const spec = input('gap-(--token)', 8)
+      spec.theme = {
+        variables: {
+          '--token': { variableKey: 'token' },
+          '--child': { variableKey: 'token' }
+        }
+      }
+      spec.markup = `<div data-key="root" class="flex flex-col size-80 gap-(--token)"><div data-key="child" class="size-10 ${childClass}"/></div>`
+      expect(() => parseCanvasMarkup(spec)).toThrow(
+        `Layout class "${childClass}" requires flex or grid on "child".`
+      )
+    }
+  )
+
   it('preserves original CSS-variable classes in diagnostics', () => {
     expect(() => parseCanvasMarkup(input('text-(--token)', { r: 1, g: 0, b: 0, a: 1 }))).toThrow(
       'Class "text-(--token)" is not supported on div'

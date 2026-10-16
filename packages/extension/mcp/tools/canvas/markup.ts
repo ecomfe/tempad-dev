@@ -1078,6 +1078,8 @@ function fillStrokeAppearance(
   }
 }
 
+const errorsWithSourceClasses = new WeakSet<Error>()
+
 function compileElement(
   element: CanvasMarkupElement,
   state: CompileState,
@@ -1089,8 +1091,10 @@ function compileElement(
   try {
     return compileElementUnchecked(element, state, depth, parent, gridPlacement, insideComponent)
   } catch (error) {
-    if (error instanceof Error)
+    if (error instanceof Error && !errorsWithSourceClasses.has(error)) {
       error.message = sourceClassMessage(element.sourceClasses, error.message)
+      errorsWithSourceClasses.add(error)
+    }
     throw error
   }
 }

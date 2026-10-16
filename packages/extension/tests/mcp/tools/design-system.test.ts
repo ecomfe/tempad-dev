@@ -262,6 +262,23 @@ describe('mcp/tools/design-system', () => {
     expect(result.components[0]!.props).toHaveProperty('class2')
   })
 
+  it('avoids reserved native tags in every casing without merging component identities', async () => {
+    const names = ['DIV', 'DiV', 'SPAN', 'SpAn', 'BR', 'Br', 'Button', 'BUTTON']
+    stubFigma({ components: names.map((name) => component(name, name)) })
+    const result = await handleGetDesignSystem({})
+    const tags = Object.fromEntries(result.components.map((entry) => [entry.name, entry.tag]))
+    expect(tags).toEqual({
+      DIV: 'DIV2',
+      DiV: 'DiV2',
+      SPAN: 'SPAN2',
+      SpAn: 'SpAn2',
+      BR: 'BR2',
+      Br: 'Br2',
+      Button: 'Button',
+      BUTTON: 'BUTTON'
+    })
+  })
+
   it('preserves WEB variable syntax for authoritative resource aliases', async () => {
     stubFigma({
       localCollections: [collection('collection:1', 'Theme')],
