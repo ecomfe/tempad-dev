@@ -148,6 +148,7 @@ check is sufficient.
 | ------------------------------------------------------- | --------------------------------------------------------------- |
 | Test selection, required checks, or troubleshooting     | `TESTING.md`                                                    |
 | Test runtime or coverage architecture                   | `docs/testing/architecture.md`                                  |
+| Release preparation or compatibility retirement         | `docs/releasing.md`                                             |
 | Codex desktop IPC discovery, lifecycle, or feedback     | `docs/engineering/codex-desktop-ipc.md`                         |
 | End-to-end authoring evolution or live agent evaluation | `docs/testing/agent-authoring-evolution.md`                     |
 | Extension implementation or MCP behavior                | `packages/extension/AGENTS.md`, then its routed design document |

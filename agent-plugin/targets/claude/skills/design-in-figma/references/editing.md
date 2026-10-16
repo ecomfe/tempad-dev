@@ -32,8 +32,12 @@ native references needed for the intended change.
 ## Recover locally
 
 Read the entire mutation result. For a rejected payload, correct all reported
-issues together without changing the design to fit the error. A verification
-failure is rolled back by TemPad; do not assume a partial successful edit.
+issues together without changing the design to fit the error. `CANVAS_APPLY_FAILED`
+indicates an execution or internal-state failure, not an invalid payload. Inspect
+its message and current target before deciding whether a retry is appropriate.
+TemPad attempts rollback after a failed write; do not assume a partial successful
+edit. If rollback could not be verified, stop writing and ask the user to inspect
+the canvas or use Figma Undo.
 For an unknown transport outcome, read the exact target before retrying a create
 or removal so an uncertain response does not become a duplicate mutation.
 

@@ -89,13 +89,17 @@ Codex App 的任务绑定和状态同步使用 MCP 元数据及原生 IPC，不�
 宿主不可用时，本地取消仍然生效。Claude 保留生命周期和 Stop 通知 hooks；Claude、Codex CLI
 等尚未接入原生投递的客户端提供任务状态和 Stop/Done，但不显示评论入口，已有草稿不会删除。
 Claude 会在下一个启用 hook 的工具边界收到 Stop 通知。任务暂停可用新的 lease epoch 恢复，
-恢复后必须先重新读取画布才能写入；取消的任务不能恢复。详见
+恢复后必须先重新读取画布才能写入；取消的任务不能恢复。Agent 会遵守 Stop，不会自动创建
+替代任务；必要或用户要求的后续设计工作可以显式开始新任务，无需另行在 Figma 中解锁。详见
 [任务与客户端设计](https://github.com/ecomfe/tempad-dev/blob/main/docs/extension/mcp-design-tasks.md)。
 
 原生适配器在 macOS/Linux 上使用 Unix socket，在 Windows 上使用 Codex 的本机 Named Pipe。
 已在 macOS Codex App 26.908.70816 上实测 Steer，以及暂停状态下的原生队列入队和移除。
 自动执行和完整的已安装插件/Figma UI 流程仍待实测；Windows/Linux 的证据限于源码检查和
 自动化测试，尚不能据此宣称完整宿主支持。
+
+Agent 会在对话中报告结果并附上 Figma 链接，用户可以继续提出后续要求。
+任务工具返回文本和结构化数据。
 
 ## 升级
 
@@ -104,7 +108,8 @@ Claude 会在下一个启用 hook 的工具边界收到 Stop 通知。任务暂�
 安装新版后还应移除旧名称的 skill。
 独立 skill 包会保留旧名称的生成兼容入口一个扩展商店发布周期，让已安装旧扩展中的配置命令继续有效。
 
-请使用 TemPad Dev 扩展 **0.23.4 或更高版本**和 MCP server **0.11.0 或更高版本**。
+请使用 TemPad Dev 扩展 **0.23.4 或更高版本**、MCP server **0.11.0 或更高版本**，
+以及 Agent Plugin **0.5.1 或更高版本**（或其独立 skill）。
 MCP server 要求 Node.js **22.x、24.x 或 26+**。
 多节点读取和按消费节点解析 token 要求 Hub 与扩展均使用匹配的 protocol 15 构建。
 MCP 0.11.0 同时通过 protocol 13 兼容扩展 0.22.0，在商店更新期间保留既有读取、会话、任务和画布写入。

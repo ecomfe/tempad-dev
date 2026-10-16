@@ -379,8 +379,9 @@ complete private native schema after short refs are expanded.
 `bg-(--surface)`, `gap-(--content-gap)`, `font-(family-name:--body-family)`, and
 `text-(length:--body-size)` use Tailwind custom-property shorthand; bracketed `var(...)` forms
 are equivalent. The bounded subset covers fills/strokes, dimensions, gaps, padding, corner radii,
-stroke width, opacity, and typography metrics. FLOAT measurements use native pixel units; opacity
-uses 0–1 and weight uses 1–1000. No expression evaluation, `calc()`, CSS fallback, cascade, or
+stroke width, opacity, and typography metrics. FLOAT measurements use native pixel units; bound
+opacity variables use 0–100 (literal CSS opacity uses 0–1), and weight uses 1–1000.
+No expression evaluation, `calc()`, CSS fallback, cascade, or
 project stylesheet execution is introduced. Ordinary scale utilities remain literals.
 
 Catalog aliases use valid WEB custom-property syntax when present, otherwise a normalized name.

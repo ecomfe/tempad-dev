@@ -13,7 +13,8 @@
   without updates.
 - Hardened local storage and Unix socket access.
 - Prevented restored reviews from sending feedback to unrelated conversations.
-- Added recovery guidance for damaged task storage while preserving Stop protections.
+- Added safe recovery for damaged task storage while keeping old tasks retired.
+- Preserved saved task records across version changes and showed progress during longer Hub startup.
 
 ## 0.11.0
 

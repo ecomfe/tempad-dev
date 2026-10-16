@@ -148,6 +148,8 @@ To recover, disconnect all MCP clients and wait for the Hub to exit before chang
 Keep copies of the snapshot and any `.corrupt` file. Restore a verified complete snapshot
 that includes the latest Stop fences to the original path using an atomic replacement, then
 reconnect a client. A valid restored snapshot is accepted while the `.corrupt` evidence remains.
+After upgrading from a version that quarantined newer data, `.corrupt` may itself be valid.
+Verify that it is the latest complete snapshot before restoring it; its filename alone is not proof.
 
 An older backup or leftover `.tmp` file may predate a Stop action. Without a trustworthy complete
 snapshot, disconnect all MCP clients and run `npx -y @tempad-dev/mcp@latest --recover-task-storage`.

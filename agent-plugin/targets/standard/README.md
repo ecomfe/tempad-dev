@@ -76,7 +76,8 @@ skill installations should also remove the old skill after installing the new on
 The standalone package retains the former name as a generated alias for one extension store
 release cycle so setup commands in older installed extensions continue to work.
 
-Use TemPad Dev extension **0.23.4 or later** and MCP server **0.11.0 or later**.
+Use TemPad Dev extension **0.23.4 or later**, MCP server **0.11.0 or later**, and
+Agent Plugin **0.5.1 or later** (or its standalone skills).
 Node.js **22.x, 24.x, or 26+** is required for the MCP server.
 Multi-node reads and consumer-aware token resolution require matching protocol 15 Hub and
 extension builds. MCP 0.11.0 also supports extension 0.22.0 through protocol 13, preserving

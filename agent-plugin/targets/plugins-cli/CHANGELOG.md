@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2
+
+- Clarified supported text entities and recovery after a canvas write fails.
+- Aligned upgrade requirements and Chinese Stop guidance.
+
 ## 0.5.1
 
 - Fixed Claude session binding so Figma Stop reaches the correct conversation.
