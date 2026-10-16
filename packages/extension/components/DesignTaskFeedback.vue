@@ -688,6 +688,8 @@ bindCanvas(canvas)
   }
   .tp-feedback-editor-warned {
     animation: none;
+    outline: 2px solid var(--color-border-warning, #d99a00);
+    outline-offset: -2px;
   }
   .tp-feedback-marker {
     transition: none;

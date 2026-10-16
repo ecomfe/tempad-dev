@@ -375,8 +375,10 @@ describe('design task status and canvas overlay', () => {
       operation: 'writing'
     }
     await nextTick()
-    const label = () => document.querySelector('.tp-design-anchor-label')!.textContent
+    const label = () => document.querySelector('.tp-design-label-text')!.textContent
+    const liveLabel = () => document.querySelector('[role="status"]')!.textContent
     expect(label()).toBe('My Design Client is updating the design')
+    expect(liveLabel()).toBe('My Design Client is designing')
     const panelText = f.panel.querySelector<HTMLElement>('.tp-design-locate > span')!
     expect(panelText.textContent).toBe('My Design Client is designing')
     expect(getComputedStyle(panelText).animationIterationCount).toBe('infinite')
@@ -386,11 +388,17 @@ describe('design task status and canvas overlay', () => {
     f.task.value = { ...f.task.value, operation: 'reading' }
     await nextTick()
     expect(label()).toBe('My Design Client is reviewing the design')
+    expect(liveLabel()).toBe('My Design Client is designing')
     f.task.value = { ...f.task.value, operation: null }
     await nextTick()
     expect(label()).toBe('My Design Client is working on the design')
+    expect(liveLabel()).toBe('My Design Client is designing')
+    expect(document.querySelector('.tp-design-label-text')!.getAttribute('aria-hidden')).toBe(
+      'true'
+    )
     f.task.value = { ...f.task.value, status: 'paused' }
     await nextTick()
+    expect(liveLabel()).toBe("My Design Client's design task is paused")
     expect(getComputedStyle(panelText).animationName).toBe('none')
   })
 

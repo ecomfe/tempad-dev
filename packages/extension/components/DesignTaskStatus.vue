@@ -479,9 +479,15 @@ onScopeDispose(() => {
           aria-hidden="true"
         />
         <div class="tp-design-feedback-content" :inert="!!exitPhase">
-          <span v-if="hasAnchor" class="tp-design-anchor-label" role="status" aria-live="polite">
-            <span class="tp-design-label-text" :class="{ 'tp-design-shimmer': active }">{{
-              label
+          <span v-if="hasAnchor" class="tp-design-anchor-label">
+            <span
+              class="tp-design-label-text"
+              :class="{ 'tp-design-shimmer': active }"
+              aria-hidden="true"
+              >{{ label }}</span
+            >
+            <span class="tp-design-live-label" role="status" aria-live="polite">{{
+              panelLabel
             }}</span>
           </span>
           <DesignTaskFeedback
@@ -681,6 +687,14 @@ onScopeDispose(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 500;
+}
+.tp-design-live-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .tp-design-stop,
 .tp-design-done {

@@ -226,10 +226,10 @@ describe('composables/mcp', () => {
   )
 
   it.each([
-    ['stop', 'Stop confirmation timed out.'],
+    ['stop', 'Stop acknowledgement timed out.'],
     ['done', 'Finishing the review timed out.'],
     ['feedback', 'Sending comments timed out.']
-  ] as const)('identifies the %s action when confirmation times out', async (action, message) => {
+  ] as const)('identifies the %s action when its reply times out', async (action, message) => {
     vi.useFakeTimers()
     try {
       Object.assign(mocks.window, {

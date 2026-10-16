@@ -637,7 +637,7 @@ export const useMcp = createSharedComposable(() => {
           status: 'failed',
           message:
             action.action === 'stop'
-              ? 'Stop confirmation timed out.'
+              ? 'Stop acknowledgement timed out.'
               : action.action === 'done'
                 ? 'Finishing the review timed out.'
                 : 'Sending comments timed out.'
