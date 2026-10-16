@@ -12,6 +12,7 @@ import { startMcpContentBridge } from '@/mcp/bridge/content'
 import { DesignReviews } from '@/mcp/broker/design-reviews'
 import {
   MCP_LOCAL_HOST_PERMISSION_ERROR,
+  MCP_PERMISSION_MESSAGE_SOURCE,
   MCP_PERMISSION_REQUEST_EVENT,
   createMcpPermissionMessage
 } from '@/mcp/permissions'
@@ -51,6 +52,7 @@ function installBrowser(
   vi.stubGlobal('browser', {
     runtime: {
       id: 'test-extension',
+      onMessage: { addListener: vi.fn(), removeListener: vi.fn() },
       connect: vi.fn(({ name }: { name: string }) => {
         expect(name).toBe(TEMPAD_MCP_SESSION_PORT_NAME)
         const port = createPort()
@@ -656,6 +658,63 @@ describe('mcp/bridge/content', () => {
       createMcpPermissionMessage('mcp.permissions.request')
     )
     expect(ports).toHaveLength(1)
+  })
+
+  it.each(['enabled', 'disabled', 'invalidated'] as const)(
+    'rechecks an external permission change only for a live %s page',
+    async (state) => {
+      const ports: Array<ReturnType<typeof createPort>> = []
+      const send = installBrowser(ports, vi.fn().mockResolvedValue({ granted: false }))
+      const page = installWindow()
+      const dispose = startMcpContentBridge()
+      const changed = vi.mocked(browser.runtime.onMessage.addListener).mock.calls[0]![0]
+      const message = { source: MCP_PERMISSION_MESSAGE_SOURCE, type: 'mcp.permissions.changed' }
+      page.sendPageMessage(pageMessage('mcp.enable'))
+      await flushMicrotasks()
+      expect(ports).toHaveLength(0)
+      changed(message, { id: 'other-extension' }, vi.fn())
+      changed({ ...message, source: 'unknown' }, { id: 'test-extension' }, vi.fn())
+      expect(send).toHaveBeenCalledTimes(1)
+      if (state === 'disabled') page.sendPageMessage(pageMessage('mcp.disable'))
+      if (state === 'invalidated') dispose()
+      send.mockResolvedValue({ granted: true })
+      changed(message, { id: 'test-extension' }, vi.fn())
+      await flushMicrotasks()
+      expect(ports).toHaveLength(state === 'enabled' ? 1 : 0)
+      if (state === 'enabled') {
+        expect(send).toHaveBeenLastCalledWith(
+          createMcpPermissionMessage('mcp.permissions.contains')
+        )
+        expect(ports[0]!.postMessage).toHaveBeenCalledWith(pageMessage('mcp.enable'))
+      }
+      dispose()
+      expect(browser.runtime.onMessage.removeListener).toHaveBeenCalledWith(changed)
+    }
+  )
+
+  it('ignores an older denied check after an external permission grant', async () => {
+    const ports: Array<ReturnType<typeof createPort>> = []
+    const earlier = createDeferred<{ granted: boolean }>()
+    installBrowser(
+      ports,
+      vi.fn().mockReturnValueOnce(earlier.promise).mockResolvedValue({ granted: true })
+    )
+    const page = installWindow()
+    const dispose = startMcpContentBridge()
+    page.sendPageMessage(pageMessage('mcp.enable'))
+    const changed = vi.mocked(browser.runtime.onMessage.addListener).mock.calls[0]![0]
+    changed(
+      { source: MCP_PERMISSION_MESSAGE_SOURCE, type: 'mcp.permissions.changed' },
+      { id: 'test-extension' },
+      vi.fn()
+    )
+    await flushMicrotasks()
+    expect(ports).toHaveLength(1)
+    page.postMessage.mockClear()
+    earlier.resolve({ granted: false })
+    await flushMicrotasks()
+    expect(page.postMessage).not.toHaveBeenCalled()
+    dispose()
   })
 
   it('does not prompt while auto-enabling and reports missing local host permission', async () => {

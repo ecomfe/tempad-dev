@@ -43,6 +43,11 @@ expiry, and recovery semantics. Taskless reads still use the active route.
    A draft request that cannot be forwarded receives an error response instead of being
    silently dropped. A waiting request never carries over into a replacement enable.
 
+Granting loopback access in Chrome settings also triggers a fresh permission check. The broker
+notifies Figma content scripts through extension messaging so an enabled page whose initial
+check was denied can register without a reload. The notification grants no authority: each
+page rechecks permission, disabled pages stay disabled, and a newer revocation wins.
+
 The bridge protocol version covers the shared tool contract as well as transport messages. Bump it
 whenever a Hub and extension built from different revisions must not exchange tool calls.
 

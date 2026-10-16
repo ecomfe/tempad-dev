@@ -31,6 +31,7 @@ import { coerceToolErrorPayload, createCodedError } from '../errors'
 import {
   MCP_LOCAL_HOST_ORIGIN,
   MCP_LOCAL_HOST_PERMISSION_ERROR,
+  MCP_PERMISSION_CHANGE_MESSAGE,
   type McpPermissionMessageType,
   type McpPermissionResponse,
   isMcpPermissionMessage
@@ -110,6 +111,12 @@ export class McpServiceWorkerBroker {
   }
 
   start(): void {
+    browser.permissions?.onAdded?.addListener((permissions) => {
+      if (!permissions.origins?.includes(MCP_LOCAL_HOST_ORIGIN)) return
+      void this.restorePermission().catch(() => {
+        // A tab may navigate or close before the permission notification arrives.
+      })
+    })
     browser.permissions?.onRemoved?.addListener((permissions) => {
       if (!permissions.origins?.includes(MCP_LOCAL_HOST_ORIGIN)) return
       this.permissionRevision++
@@ -373,6 +380,21 @@ export class McpServiceWorkerBroker {
     } catch {
       /* The original page may be closed; persisted receipts still settle its drafts. */
     }
+  }
+
+  private async restorePermission(): Promise<void> {
+    const { granted } = await this.handlePermissionMessage('mcp.permissions.contains')
+    if (!granted) return
+    // Initially denied pages have no registered port. Wake only Figma content scripts;
+    // each enabled script rechecks permission before opening its own port.
+    const tabs = await browser.tabs.query({ url: `${TEMPAD_MCP_FIGMA_ORIGIN}/*` })
+    await Promise.allSettled(
+      tabs.flatMap((tab) =>
+        tab.id === undefined
+          ? []
+          : [browser.tabs.sendMessage(tab.id, MCP_PERMISSION_CHANGE_MESSAGE)]
+      )
+    )
   }
 
   private async handlePermissionMessage(

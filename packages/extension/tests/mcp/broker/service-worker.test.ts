@@ -17,7 +17,8 @@ import {
   type McpPermissionMessageType,
   createMcpPermissionMessage,
   MCP_LOCAL_HOST_PERMISSION_ERROR,
-  MCP_LOCAL_HOST_ORIGIN
+  MCP_LOCAL_HOST_ORIGIN,
+  MCP_PERMISSION_CHANGE_MESSAGE
 } from '@/mcp/permissions'
 
 const ASSET_HASH = '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81'
@@ -1747,6 +1748,71 @@ describe('mcp/broker/service-worker', () => {
       type: 'toolResult'
     })
   })
+
+  it.each(['registered', 'unregistered', 'revoked'] as const)(
+    'rechecks external permission grants and wakes initially denied pages (%s)',
+    async (state) => {
+      let added!: (value: { origins: string[] }) => void
+      let removed!: (value: { origins: string[] }) => void
+      let resolveGrant!: (granted: boolean) => void
+      const contains = vi.fn().mockResolvedValue(false)
+      const query = vi.fn().mockResolvedValue([{ id: 1 }, { id: 2 }, {}])
+      const sendMessage = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Tab closed'))
+        .mockResolvedValue(undefined)
+      vi.stubGlobal('browser', {
+        ...browser,
+        permissions: {
+          contains,
+          request: vi.fn(),
+          onAdded: {
+            addListener: (listener: typeof added) => {
+              added = listener
+            }
+          },
+          onRemoved: {
+            addListener: (listener: typeof removed) => {
+              removed = listener
+            }
+          }
+        },
+        tabs: { query, sendMessage },
+        runtime: { onConnect: { addListener: vi.fn() }, onMessage: { addListener: vi.fn() } }
+      })
+      const client = createHubClient()
+      const broker = new McpServiceWorkerBroker(client)
+      broker.start()
+      if (state !== 'unregistered') {
+        const page = createPort('https://www.figma.com/design/abc/File')
+        broker.handlePort(page.port)
+        page.message(pageMessage('mcp.enable'))
+        await vi.waitFor(() => expect(client.stop).toHaveBeenCalled())
+      }
+      contains.mockClear()
+      added({ origins: ['https://example.com/*'] })
+      expect(contains).not.toHaveBeenCalled()
+      contains.mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveGrant = resolve
+          })
+      )
+      added({ origins: [MCP_LOCAL_HOST_ORIGIN] })
+      expect(contains).toHaveBeenCalledOnce()
+      if (state === 'revoked') removed({ origins: [MCP_LOCAL_HOST_ORIGIN] })
+      resolveGrant(true)
+      await flushMicrotasks()
+      await flushMicrotasks()
+      expect(browser.permissions.request).not.toHaveBeenCalled()
+      expect(client.start).toHaveBeenCalledTimes(state === 'registered' ? 1 : 0)
+      expect(sendMessage).toHaveBeenCalledTimes(state === 'revoked' ? 0 : 2)
+      if (state !== 'revoked') {
+        expect(query).toHaveBeenCalledWith({ url: 'https://www.figma.com/*' })
+        expect(sendMessage).toHaveBeenCalledWith(2, MCP_PERMISSION_CHANGE_MESSAGE)
+      }
+    }
+  )
 
   it('checks local host permissions without prompting', async () => {
     const contains = vi

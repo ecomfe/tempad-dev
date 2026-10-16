@@ -1,6 +1,10 @@
 export const MCP_LOCAL_HOST_ORIGIN = 'http://127.0.0.1/*'
 export const MCP_PERMISSION_REQUEST_EVENT = 'tempad:mcp-request-local-host-permission'
 export const MCP_PERMISSION_MESSAGE_SOURCE = 'tempad-dev:mcp-permissions'
+export const MCP_PERMISSION_CHANGE_MESSAGE = {
+  source: MCP_PERMISSION_MESSAGE_SOURCE,
+  type: 'mcp.permissions.changed'
+} as const
 
 export const MCP_LOCAL_HOST_PERMISSION_ERROR =
   'Local host permission is required before MCP can connect.'

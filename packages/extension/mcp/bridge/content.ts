@@ -11,6 +11,7 @@ import {
 
 import {
   MCP_LOCAL_HOST_PERMISSION_ERROR,
+  MCP_PERMISSION_CHANGE_MESSAGE,
   MCP_PERMISSION_REQUEST_EVENT,
   type McpPermissionMessageType,
   createMcpPermissionMessage,
@@ -25,6 +26,7 @@ export function startMcpContentBridge(): () => void {
   let enableMessage: EnableMessage | null = null
   let latestTask: DesignTask | undefined
   let enableReady: Promise<void> | null = null
+  let enableRevision = 0
   let port: ReturnType<typeof browser.runtime.connect> | null = null
   let permissionGranted = false
   let permissionRequest: Promise<boolean> | null = null
@@ -122,8 +124,9 @@ export function startMcpContentBridge(): () => void {
   }
 
   async function enable(message: EnableMessage): Promise<void> {
+    const revision = ++enableRevision
     const granted = await ensureLocalHostPermission()
-    if (invalidated || enableMessage !== message) return
+    if (invalidated || enableMessage !== message || revision !== enableRevision) return
     if (!granted) {
       postMissingLocalHostPermission(message.sessionId)
       return
@@ -252,8 +255,26 @@ export function startMcpContentBridge(): () => void {
     void requestLocalHostPermission()
   }
 
+  const runtimeMessages = browser.runtime.onMessage
+  const handlePermissionChange: Parameters<typeof runtimeMessages.addListener>[0] = (
+    message,
+    sender
+  ) => {
+    if (
+      invalidated ||
+      !enableMessage ||
+      permissionGranted ||
+      sender.id !== browser.runtime?.id ||
+      message?.source !== MCP_PERMISSION_CHANGE_MESSAGE.source ||
+      message?.type !== MCP_PERMISSION_CHANGE_MESSAGE.type
+    )
+      return
+    enableReady = enable(enableMessage)
+  }
+
   window.addEventListener('message', handlePageMessage)
   window.addEventListener(MCP_PERMISSION_REQUEST_EVENT, handlePermissionRequest)
+  runtimeMessages.addListener(handlePermissionChange)
 
   function postDisconnected(message: string): void {
     if (!enableMessage) return
@@ -294,6 +315,7 @@ export function startMcpContentBridge(): () => void {
     const previousPort = port
     port = null
     try {
+      runtimeMessages.removeListener(handlePermissionChange)
       previousPort?.disconnect()
     } catch {
       // Invalidated contexts may reject disconnect as well as messaging.
