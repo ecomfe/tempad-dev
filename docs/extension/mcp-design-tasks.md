@@ -76,8 +76,9 @@ readable to preserve drafts; current delivery uses Queue or Steer.
   higher epoch, or taskless write cannot revive it. Applied changes remain.
 - **Done** closes the review, persists its closure, and clears this round's saved
   comments and unsaved buffers before dismissing controls. It waits for pending
-  storage/delivery work; a failed clear remains retryable. Neither elapsed time,
-  refresh, disconnection, nor viewing the result counts as Done.
+  storage/delivery work; a failed clear remains retryable. For a completed review
+  with unsent content, it asks for confirmation before discarding that content.
+  Neither elapsed time, refresh, disconnection, nor viewing the result counts as Done.
 
 Respect Stop without automatically replacing its task. Further requested or necessary
 work may explicitly begin a fresh task after the running operation drains; no separate
@@ -357,7 +358,11 @@ remain separate from drag, and cancellation/blur releases capture. Locate frames
 anchor and bar while preserving the offset. Pan clips the bar at the canvas edge; page
 changes hide it. No canvas action implicitly changes the user's page, viewport, or selection.
 
-All overlays share one animation-frame snapshot of canvas, viewport, page, and selection.
+All overlays share one snapshot of canvas, viewport, page, and selection per update.
+Captured interaction events keep animation-frame updates active for 500 ms; otherwise,
+the scheduler polls every 100 ms and pauses while the document is hidden. Tooltip
+membership is cached until relevant DOM changes, while visibility and geometry are
+measured on each update.
 Native geometry determines projection; control sizes remain in screen pixels. Transparent
 wrappers and pointer-travel regions are passive. Feedback popovers sit above the main panel;
 the panel stays above canvas task controls. Markers stay below native floating layers,

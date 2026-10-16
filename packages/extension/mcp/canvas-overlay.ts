@@ -123,7 +123,7 @@ export function observeCanvasOverlay(
     })
     activeUntil = performance.now() + 500
     for (const event of ACTIVITY_EVENTS)
-      window.addEventListener(event, markActivity, { passive: true })
+      window.addEventListener(event, markActivity, { capture: true, passive: true })
     document.addEventListener('visibilitychange', onVisibilityChange)
   }
   observers.add(observer)
@@ -143,7 +143,7 @@ export function observeCanvasOverlay(
       tooltipObserver?.disconnect()
       tooltipObserver = undefined
       tooltipElements = undefined
-      for (const event of ACTIVITY_EVENTS) window.removeEventListener(event, markActivity)
+      for (const event of ACTIVITY_EVENTS) window.removeEventListener(event, markActivity, true)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }
