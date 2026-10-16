@@ -1,7 +1,7 @@
 import { ESLint } from 'eslint'
-import { globby } from 'globby'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,19 +11,20 @@ import { MCP_CORE_COVERAGE_FILES } from '../../../../vitest.coverage'
 
 const repository = fileURLToPath(new URL('../../../../', import.meta.url))
 
-it('covers Hub runtime and client modules while excluding only the two process launchers', async () => {
-  const files = await globby([...MCP_CORE_COVERAGE_FILES], {
-    cwd: join(repository, 'packages/mcp-server')
-  })
-  expect(files).toEqual(
-    expect.arrayContaining([
-      'src/hub-runtime.ts',
-      'src/client-binding.ts',
-      'src/agent-clients/registry.ts'
-    ])
-  )
-  expect(files).not.toContain('src/cli.ts')
-  expect(files).not.toContain('src/hub.ts')
+it('covers Hub runtime and client modules while excluding only the two process launchers', () => {
+  // Use the coverage engine's matcher and exact threshold glob, not a file-listing library.
+  const picomatch: (pattern: string) => (path: string) => boolean = createRequire(
+    import.meta.resolve('vitest/package.json')
+  )('picomatch')
+  const matches = picomatch(`{${MCP_CORE_COVERAGE_FILES.join(',')}}`)
+  for (const file of [
+    'src/hub-runtime.ts',
+    'src/client-binding.ts',
+    'src/agent-clients/registry.ts'
+  ]) {
+    expect(matches(file), file).toBe(true)
+  }
+  for (const file of ['src/cli.ts', 'src/hub.ts']) expect(matches(file), file).toBe(false)
 })
 
 it('enables typed promise checks in every package inheriting the root ESLint config', async () => {
@@ -40,9 +41,25 @@ it('enables typed promise checks in every package inheriting the root ESLint con
   }
 })
 
-it('accepts Git autosquash subjects without weakening ordinary commit validation', () => {
+it('accepts cleaned Git-generated subjects without weakening ordinary commit validation', () => {
   const directory = mkdtempSync(join(tmpdir(), 'tempad-commit-message-'))
   const path = join(directory, 'message')
+  const check = (subject: string, commentChar = '#') => {
+    writeFileSync(path, subject + '\n')
+    return spawnSync(
+      process.execPath,
+      [join(repository, 'scripts/check-commit-message.mjs'), path],
+      {
+        cwd: repository,
+        env: {
+          ...process.env,
+          GIT_CONFIG_COUNT: '1',
+          GIT_CONFIG_KEY_0: 'core.commentChar',
+          GIT_CONFIG_VALUE_0: commentChar
+        }
+      }
+    ).status
+  }
   try {
     for (const [subject, status] of [
       ['fix(extension): preserve layout', 0],
@@ -51,17 +68,18 @@ it('accepts Git autosquash subjects without weakening ordinary commit validation
       ['amend! fix(extension): preserve layout', 0],
       ['Merge branch main', 0],
       ['Revert "fix: preserve layout"', 0],
+      ['Reapply "fix: preserve layout"', 0],
+      ['\n# Editor instructions\n\nfix: preserve layout\n\nBody', 0],
+      ['\r\n# Editor instructions\r\nfix: preserve layout\r\n', 0],
+      ['\n# Editor instructions\nsome change', 1],
+      ['# Only a comment', 1],
       ['fixup! ', 1],
       ['fix: ', 1],
       ['some change', 1]
     ] as const) {
-      writeFileSync(path, subject + '\n')
-      const result = spawnSync(process.execPath, [
-        join(repository, 'scripts/check-commit-message.mjs'),
-        path
-      ])
-      expect(result.status, subject).toBe(status)
+      expect(check(subject), subject).toBe(status)
     }
+    expect(check('; Editor instructions\n\nfix: preserve layout', ';')).toBe(0)
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

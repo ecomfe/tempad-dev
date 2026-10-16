@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config'
 
-import { SHARED_COVERAGE_FILES, SHARED_SCHEMA_COVERAGE_FILES } from '../../vitest.coverage'
+import { SHARED_COVERAGE_FILES, SHARED_SCHEMA_COVERAGE_FILES } from '../../vitest.coverage.ts'
 
 export default defineConfig({
   test: {

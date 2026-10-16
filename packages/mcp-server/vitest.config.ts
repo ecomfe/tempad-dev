@@ -6,7 +6,7 @@ import {
   coverageThresholds,
   MCP_CORE_COVERAGE_FILES,
   MCP_COVERAGE_FILES
-} from '../../vitest.coverage'
+} from '../../vitest.coverage.ts'
 
 const agentRuntimeFiles = AGENT_RUNTIME_FILES.map((file) => `../../${file}`)
 

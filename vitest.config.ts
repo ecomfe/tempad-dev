@@ -7,7 +7,7 @@ import {
   EXTENSION_CORE_COVERAGE_FILES,
   MCP_CORE_COVERAGE_FILES,
   EXTENSION_SOURCE_FILES
-} from './vitest.coverage'
+} from './vitest.coverage.ts'
 
 export default defineConfig({
   test: {

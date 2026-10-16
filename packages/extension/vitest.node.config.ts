@@ -7,7 +7,7 @@ import {
   EXTENSION_COVERAGE_FILES,
   EXTENSION_CORE_COVERAGE_FILES,
   EXTENSION_SOURCE_FILES
-} from '../../vitest.coverage'
+} from '../../vitest.coverage.ts'
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url))
 

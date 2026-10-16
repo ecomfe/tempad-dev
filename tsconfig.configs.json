@@ -3,6 +3,7 @@
   "include": ["eslint.config.ts", "eslint.shared.ts", "vitest.config.ts", "vitest.coverage.ts"],
   "compilerOptions": {
     "types": ["node"],
+    "allowImportingTsExtensions": true,
     "noEmit": true
   }
 }

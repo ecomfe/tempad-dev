@@ -162,9 +162,9 @@ it.each([STANDARD, PLUGINS_CLI, CODEX, CLAUDE, DEV])(
   (target) => {
     expect(has(target, 'skills', 'figma-canvas-authoring')).toBe(target === STANDARD)
     for (const skill of SKILLS) {
-      expect(readFileSync(join(root, target, 'skills', skill, 'SKILL.md'), 'utf8')).toBe(
-        sourceFile(join('skills', skill, 'SKILL.md'))
-      )
+      const content = readFileSync(join(root, target, 'skills', skill, 'SKILL.md'), 'utf8')
+      expect(content).toBe(sourceFile(join('skills', skill, 'SKILL.md')))
+      expect(content.split('\n---\n', 1)[0]?.match(/^name: (.+)$/m)?.[1]).toBe(skill)
       expect(has(target, 'skills', skill, 'assets/icon.svg')).toBe(true)
     }
     expect(has(target, 'assets/icon.png')).toBe(true)
@@ -174,7 +174,7 @@ it.each([STANDARD, PLUGINS_CLI, CODEX, CLAUDE, DEV])(
 it('derives the standalone compatibility skill from the current authoring skill', () => {
   const alias = join(STANDARD, 'skills/figma-canvas-authoring')
   const content = readFileSync(join(root, alias, 'SKILL.md'), 'utf8')
-  expect(content).toContain('name: figma-canvas-authoring')
+  expect(content.split('\n---\n', 1)[0]?.match(/^name: (.+)$/m)?.[1]).toBe('figma-canvas-authoring')
   expect(content).toContain(
     'Use only when design-in-figma is not installed; otherwise use design-in-figma.'
   )

@@ -3,6 +3,7 @@
   "include": ["**/*"],
   "compilerOptions": {
     "declaration": true,
+    "allowImportingTsExtensions": true,
     "noEmit": true,
     "types": []
   }

@@ -38,6 +38,7 @@ jobs:
         run: pnpm --filter @tempad-dev/extension test:setup
 
       - name: Check agent plugins
+        if: matrix.node == '24.x'
         run: >-
           pnpm agent-plugin:build &&
           test -z "$(git status --porcelain --untracked-files=all --
@@ -77,7 +78,7 @@ jobs:
         run: pnpm format:check
 
       - name: Check bridge compatibility
-        run: pnpm mcp:check-bridge
+        run: node packages/mcp-server/scripts/check-bridge-compatibility.mjs
 
   typescript-compatibility:
     runs-on: ubuntu-latest
