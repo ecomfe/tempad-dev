@@ -167,6 +167,43 @@ describe('mcp/tools/canvas', () => {
     expect(write).not.toHaveBeenCalled()
   })
 
+  it.each(['lineHeight', 'letterSpacing'] as const)(
+    'preserves float32 %s without suppressing unit or value changes',
+    async (field) => {
+      const fixture = createFixture()
+      const property = field === 'lineHeight' ? 'leading' : 'tracking'
+      const markup = (utility: string) =>
+        `<div data-key="root" class="flex w-80 h-80"><span data-key="label" class="w-40 h-10 ${utility}">Label</span></div>`
+      const created = await applyCanvasFromTool({
+        mode: 'create',
+        markup: markup(`${property}-[24.1px]`)
+      })
+      const label = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+      let stored: LetterSpacing = { unit: 'PIXELS', value: Math.fround(24.1) }
+      const write = vi.fn((value: LetterSpacing) => {
+        stored = { ...value, value: Math.fround(value.value) }
+      })
+      Object.defineProperty(label, field, { configurable: true, get: () => stored, set: write })
+      const update = (measure: LetterSpacing) =>
+        applyCanvasFromTool({
+          mode: 'update',
+          targetNodeId: created.rootNodeId!,
+          markup: markup(`${property}-[${measure.value}${measure.unit === 'PIXELS' ? 'px' : '%'}]`)
+        })
+
+      await expect(update({ unit: 'PIXELS', value: 24.1 })).resolves.toMatchObject({
+        mutationCount: 0,
+        updatedNodeIds: []
+      })
+      expect(write).not.toHaveBeenCalled()
+      await update({ unit: 'PIXELS', value: 24.2 })
+      expect(write).toHaveBeenLastCalledWith({ unit: 'PIXELS', value: 24.2 })
+      await update({ unit: 'PERCENT', value: 24.2 })
+      expect(write).toHaveBeenLastCalledWith({ unit: 'PERCENT', value: 24.2 })
+      expect(write).toHaveBeenCalledTimes(2)
+    }
+  )
+
   it('adopts a copied subtree by exact ids and converges with float32 native values', async () => {
     const fixture = createFixture({ float32: ['opacity', 'width', 'height'] })
     const markup =

@@ -176,7 +176,7 @@ export function resolvedVariable(
   state: CanvasVariableState
 ): Variable {
   const variable = state.variableCache.get(variableReferenceCacheKey(reference))
-  if (!variable) specError('A preflighted variable could not be resolved.')
+  if (!variable) applyError('A preflighted variable could not be resolved.')
   return variable
 }
 
@@ -205,7 +205,7 @@ export function resolvedCollection(
   const collection =
     state.collectionCache.get(`id:${reference}`) ?? state.collectionsByKey.get(reference)
   if (!collection) {
-    specError(`Preflighted variable collection "${reference}" could not be resolved.`)
+    applyError(`Preflighted variable collection "${reference}" could not be resolved.`)
   }
   return collection
 }
@@ -248,7 +248,7 @@ export function resolvedModeId(
     const inherited = extended.modes.find((mode) => mode.parentModeId === parentModeId)
     if (inherited) return inherited.modeId
   }
-  specError(`Preflighted variable mode "${reference}" could not be resolved.`)
+  applyError(`Preflighted variable mode "${reference}" could not be resolved.`)
 }
 
 async function collectionByReference(

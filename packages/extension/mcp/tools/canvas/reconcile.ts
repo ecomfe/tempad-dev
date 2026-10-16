@@ -2381,6 +2381,13 @@ function moveIntoParent<Child extends BaseNode>(
   markMutation(state, node)
 }
 
+function scalarValuesEqual(current: unknown, desired: unknown): boolean {
+  return (
+    Object.is(current, desired) ||
+    (typeof current === 'number' && typeof desired === 'number' && current === Math.fround(desired))
+  )
+}
+
 function setValue<T>(
   node: BaseNode,
   current: unknown,
@@ -2388,12 +2395,7 @@ function setValue<T>(
   apply: (value: T) => void,
   state: ApplyState
 ): void {
-  if (
-    desired === undefined ||
-    Object.is(current, desired) ||
-    (typeof current === 'number' && typeof desired === 'number' && current === Math.fround(desired))
-  )
-    return
+  if (desired === undefined || scalarValuesEqual(current, desired)) return
   apply(desired)
   markMutation(state, node)
 }
@@ -4162,7 +4164,8 @@ function textMeasuresEqual(
   return (
     current !== figma.mixed &&
     current.unit === desired.unit &&
-    (current.unit === 'AUTO' || (desired.unit !== 'AUTO' && current.value === desired.value))
+    (current.unit === 'AUTO' ||
+      (desired.unit !== 'AUTO' && scalarValuesEqual(current.value, desired.value)))
   )
 }
 
