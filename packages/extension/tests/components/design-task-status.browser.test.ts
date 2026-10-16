@@ -151,6 +151,89 @@ describe('design task status and canvas overlay', () => {
       .toBe(true)
     await expect.poll(() => f.done.mock.calls).toEqual([['task-a']])
   })
+
+  it.each([false, true])(
+    'requires an explicit retry after cancelled draft cleanup fails (anchor: %s)',
+    async (anchored) => {
+      await page.viewport(900, 700)
+      const pending: Array<{
+        resolve: (snapshot: { items: [] }) => void
+        reject: (error: Error) => void
+      }> = []
+      const requestDrafts = vi.fn<
+        NonNullable<InstanceType<typeof DesignTaskStatus>['$props']['requestDrafts']>
+      >(async (request) => {
+        if (request.operation !== 'clear') return { items: [] }
+        return new Promise((resolve, reject) => pending.push({ resolve, reject }))
+      })
+      const close = vi.fn()
+      const f = fixture(vi.fn(), requestDrafts, close)
+      f.task.value = {
+        ...f.initial,
+        client: { kind: 'codex', name: 'Codex', sessionId: 'thread-a' }
+      }
+      if (anchored) f.anchor.value = f.node as unknown as SceneNode
+      await nextTick()
+      document.querySelector<HTMLButtonElement>('.tp-design-stop')!.click()
+      expect(f.stop).toHaveBeenCalledOnce()
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+      f.task.value = { ...f.task.value, status: 'cancelled' }
+      await expect.poll(() => pending.length).toBe(1)
+      pending[0]!.reject(new Error('Comments are unavailable in this file.'))
+      await expect.poll(() => f.api.notify.mock.calls.length).toBe(1)
+      // Ordinary task refreshes must not turn the clear's busy transitions into retries.
+      f.task.value = { ...f.task.value, revision: 2 }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(pending).toHaveLength(1)
+      expect(f.done).not.toHaveBeenCalled()
+      await expect.element(page.getByRole('button', { name: 'Done', exact: true })).toBeEnabled()
+      await page.getByRole('button', { name: 'Done', exact: true }).click()
+      await expect.poll(() => pending.length).toBe(2)
+      pending[1]!.reject(new Error('Comments are unavailable in this file.'))
+      await expect.poll(() => f.api.notify.mock.calls.length).toBe(2)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(pending).toHaveLength(2)
+      await page.getByRole('button', { name: 'Done', exact: true }).click()
+      await expect.poll(() => pending.length).toBe(3)
+      pending[2]!.resolve({ items: [] })
+      await expect.poll(() => f.done.mock.calls).toEqual([['task-a']])
+      expect(f.api.notify).toHaveBeenCalledTimes(2)
+      expect(close).not.toHaveBeenCalled()
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+    }
+  )
+
+  it('keeps a replacement task independent of a cancelled cleanup failure', async () => {
+    let rejectClear!: (error: Error) => void
+    const requestDrafts = vi.fn<
+      NonNullable<InstanceType<typeof DesignTaskStatus>['$props']['requestDrafts']>
+    >(async (request) => {
+      if (request.operation === 'clear' && request.scope.taskId === 'task-a')
+        return new Promise((_resolve, reject) => {
+          rejectClear = reject
+        })
+      return { items: [] }
+    })
+    const f = fixture(vi.fn(), requestDrafts)
+    const client = { kind: 'codex' as const, name: 'Codex', sessionId: 'thread-a' }
+    f.task.value = { ...f.initial, client, status: 'cancelled' }
+    await expect.poll(() => rejectClear).toBeTypeOf('function')
+    f.task.value = { ...f.initial, client, taskId: 'task-b' }
+    await nextTick()
+    rejectClear(new Error('Old cleanup failed'))
+    await nextTick()
+    expect(f.api.notify).not.toHaveBeenCalled()
+    expect(document.querySelector('.tp-design-done')).toBeNull()
+    await expect.element(page.getByRole('button', { name: 'Stop design task' })).toBeEnabled()
+    f.task.value = { ...f.task.value, status: 'cancelled' }
+    await expect.poll(() => f.done.mock.calls).toEqual([['task-b']])
+    expect(
+      requestDrafts.mock.calls
+        .filter(([request]) => request.operation === 'clear')
+        .map(([request]) => request.scope.taskId)
+    ).toEqual(['task-a', 'task-b'])
+  })
+
   it('expands and collapses the panel entry in document flow with contextual text before an anchor exists', async () => {
     const f = fixture()
     const following = document.createElement('div')

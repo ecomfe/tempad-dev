@@ -45,6 +45,7 @@ const stoppable = computed(
 const dismissBlocked = shallowRef(false)
 const feedbackComponent = shallowRef<InstanceType<typeof DesignTaskFeedback> | null>(null)
 const finishing = shallowRef(false)
+const cancelledCleanupFailed = shallowRef(false)
 const confirmationOpen = shallowRef(false)
 
 function requestStop() {
@@ -86,18 +87,24 @@ async function done(confirmed = false) {
   if (!taskId || stoppable.value || dismissBlocked.value || exitPhase.value || finishing.value)
     return
   finishing.value = true
+  cancelledCleanupFailed.value = false
+  let cleared = false
   try {
     const completed = props.task?.status === 'completed'
     const close = completed && props.closeReview ? () => props.closeReview!(taskId) : undefined
     if (feedbackComponent.value) {
       if ((await feedbackComponent.value.prepareDismiss(close)) === false) return
     } else await close?.()
+    cleared = true
     if (props.task?.taskId !== taskId || stoppable.value || dismissBlocked.value) return
   } catch (error) {
     showError(error instanceof Error ? error.message : 'Could not close this review.')
     return
   } finally {
-    if (props.task?.taskId === taskId) finishing.value = false
+    if (props.task?.taskId === taskId) {
+      cancelledCleanupFailed.value = props.task.status === 'cancelled' && !cleared
+      finishing.value = false
+    }
   }
   const finish = () => {
     dismissed.value = true
@@ -123,6 +130,7 @@ watch(
       exitPhase.value = null
       dismissed.value = false
       finishing.value = false
+      cancelledCleanupFailed.value = false
       confirmationOpen.value = false
       retainedAnchor.value = null
     }
@@ -140,7 +148,9 @@ const visible = computed(
     !!props.task &&
     !dismissed.value &&
     sameFile.value &&
-    (active.value || (local.value && (props.task.status !== 'cancelled' || hasAnchor.value)))
+    (active.value ||
+      (local.value &&
+        (props.task.status !== 'cancelled' || hasAnchor.value || cancelledCleanupFailed.value)))
 )
 const executing = computed(() => active.value && !!props.task?.operation)
 const canLocate = computed(() => visible.value && local.value && hasAnchor.value)
@@ -208,7 +218,14 @@ onMounted(() => {
     async () => {
       // Let the feedback child report restored drafts and pending edits before closing.
       await nextTick()
-      if (props.task?.status === 'cancelled' && local.value && !dismissed.value) void done()
+      // A failed clear needs an explicit retry, not its own busy-state transition.
+      if (
+        props.task?.status === 'cancelled' &&
+        local.value &&
+        !dismissed.value &&
+        !cancelledCleanupFailed.value
+      )
+        void done()
     },
     { immediate: true, flush: 'post' }
   )
@@ -492,7 +509,7 @@ onScopeDispose(() => {
             Stop
           </Button>
           <Button
-            v-else-if="task.status === 'completed'"
+            v-else-if="task.status === 'completed' || cancelledCleanupFailed"
             class="tp-design-done"
             :disabled="dismissBlocked || finishing || !!exitPhase"
             :data-tooltip="

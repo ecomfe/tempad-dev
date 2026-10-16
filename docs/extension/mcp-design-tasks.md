@@ -136,7 +136,10 @@ Done persists a closure fence before clearing drafts. It propagates through reco
 and worker restarts, and notifies other tabs locally even without a Hub. Late messages,
 autosaves, and delivery receipts cannot reopen or clear a later round. Stop clears
 unsent comments and dismisses cancelled controls after pending work and local saves
-settle. This is local persistence, not cross-device history.
+settle. If cleanup fails, cancellation remains in effect and Done retries cleanup
+explicitly, without confirmation; task refreshes do not retry it automatically.
+The panel retains that recovery action even without a usable anchor. This is local
+persistence, not cross-device history.
 
 ## Host integration
 
