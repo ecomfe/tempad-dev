@@ -1425,6 +1425,52 @@ describe('mcp/tools/canvas', () => {
     await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
+  it('preserves float32 transform translations without hiding position or axis changes', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvasFromTool({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-20 h-20"/>'
+    })
+    const root = fixture.getNode(created.rootNodeId!)
+    const descriptor = Object.getOwnPropertyDescriptor(root, 'relativeTransform')!
+    const write = vi.fn((value: Transform) => {
+      const rounded = value.map((row) => row.map(Math.fround)) as Transform
+      descriptor.set!.call(root, rounded)
+    })
+    Object.defineProperty(root, 'relativeTransform', { ...descriptor, set: write })
+    const update = (relativeTransform: Transform) =>
+      applyCanvasFromTool({
+        mode: 'update',
+        targetNodeId: root.id,
+        native: { root: { figma: { relativeTransform } } }
+      })
+    const transform: Transform = [
+      [1, 0, 1000.1],
+      [0, 1, -1000.1]
+    ]
+    await update(transform)
+    expect(root.x).toBe(Math.fround(1000.1))
+    expect(root.y).toBe(Math.fround(-1000.1))
+    expect(write).toHaveBeenCalledOnce()
+    await expect(update(transform)).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
+    expect(write).toHaveBeenCalledOnce()
+
+    transform[0][2] = 1000.1002
+    await expect(update(transform)).resolves.toMatchObject({ mutationCount: 1 })
+    expect(root.x).toBe(Math.fround(1000.1002))
+    expect(write).toHaveBeenCalledTimes(2)
+    await expect(update(transform)).resolves.toMatchObject({ mutationCount: 0 })
+
+    const angle = 2e-6
+    transform[0][0] = transform[1][1] = Math.cos(angle)
+    transform[0][1] = Math.sin(angle)
+    transform[1][0] = -Math.sin(angle)
+    await expect(update(transform)).resolves.toMatchObject({ mutationCount: 1 })
+    expect(root.relativeTransform[0][1]).toBe(Math.fround(Math.sin(angle)))
+    expect(write).toHaveBeenCalledTimes(3)
+    await expect(update(transform)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
   it('applies right and bottom absolute offsets as resolved native positions', async () => {
     const fixture = createFixture()
     const input: CanvasResolvedApplyParameters = {

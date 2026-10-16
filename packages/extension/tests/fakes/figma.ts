@@ -731,6 +731,7 @@ export function createFixture({
         }
       },
       relativeTransform: {
+        configurable: true,
         get: () => relativeTransform,
         set: (value: Transform) => {
           relativeTransform = value.map((row) => [...row]) as Transform

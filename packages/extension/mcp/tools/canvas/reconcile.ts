@@ -2902,7 +2902,13 @@ function finalizeAbsolutePositions(root: CanvasNodeSpec, state: ApplyState): voi
 
 function transformsMatch(current: Transform, desired: Transform): boolean {
   return current.every((row, rowIndex) =>
-    row.every((value, columnIndex) => Math.abs(value - desired[rowIndex]![columnIndex]!) <= 1e-6)
+    row.every((value, columnIndex) => {
+      const expected = desired[rowIndex]![columnIndex]!
+      return (
+        Math.abs(value - expected) <= 1e-6 ||
+        (columnIndex === 2 && scalarValuesEqual(value, expected))
+      )
+    })
   )
 }
 
