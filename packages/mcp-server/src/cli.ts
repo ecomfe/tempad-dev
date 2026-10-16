@@ -268,6 +268,7 @@ async function main() {
   const startupDeadline = Date.now() + HUB_LOCK_STALE_MS + 2 * HUB_STARTUP_TIMEOUT
   let connected = false
   let failedAttempts = 0
+  let waitingReported = false
 
   while (true) {
     try {
@@ -297,6 +298,10 @@ async function main() {
         process.stdin.destroy()
         process.exitCode = 1
         return
+      }
+      if (!connected && transient && !waitingReported) {
+        process.stderr.write('Waiting for TemPad Hub to become available. Retrying…\n')
+        waitingReported = true
       }
       log.error(
         { err },

@@ -59,6 +59,7 @@ beforeAll(async () => {
     format: ['esm'],
     platform: 'node',
     target: 'node22',
+    inputOptions: { resolve: { conditionNames: ['source'] } },
     dts: false,
     logLevel: 'silent',
     plugins: [
@@ -252,6 +253,10 @@ it.skipIf(process.platform === 'win32')(
     cli.child.stdin!.write('{"jsonrpc":"2.0","id":1,"method":"ping"}\n')
     try {
       await vi.waitFor(
+        () => expect(cli.stderr()).toContain('Waiting for TemPad Hub to become available.'),
+        { timeout: 15000 }
+      )
+      await vi.waitFor(
         () => {
           expect(cli.child.exitCode, cli.stderr()).toBeNull()
           expect(cli.stdout(), cli.stderr()).toContain('"id":1')
@@ -265,6 +270,7 @@ it.skipIf(process.platform === 'win32')(
       }
       expect(readFileSync(identityPath, 'utf8')).not.toBe(oldIdentity)
       expect(JSON.parse(cli.stdout().trim())).toEqual({ jsonrpc: '2.0', id: 1, result: {} })
+      expect(cli.stderr().match(/Waiting for TemPad Hub/g)).toHaveLength(1)
     } finally {
       cli.child.stdin!.end()
       await cli.exited
@@ -502,6 +508,10 @@ it.each(['denied', 'stalled', 'closed'])(
       `Unable to connect to TemPad Hub after ${attempts} startup attempts`
     )
     expect(attempt.stderr().match(/fixture-connect/g)).toHaveLength(attempts)
+    expect(attempt.stderr().match(/Waiting for TemPad Hub/g) ?? []).toHaveLength(
+      failure === 'stalled' ? 1 : 0
+    )
+    expect(attempt.stdout()).toBe('')
   },
   15000
 )
