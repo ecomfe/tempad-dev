@@ -41,16 +41,16 @@
     "@types/node": "^24.19.1",
     "@vitest/coverage-istanbul": "5.0.3",
     "@vue/eslint-config-typescript": "^14.9.0",
-    "eslint": "^10.11.0",
+    "eslint": "^10.12.0",
     "eslint-config-flat-gitignore": "^2.4.0",
     "eslint-plugin-perfectionist": "^5.12.1",
     "eslint-plugin-vue": "^10.11.1",
     "globby": "^16.2.4",
     "jiti": "^2.7.0",
-    "lefthook": "^2.1.16",
-    "oxfmt": "^0.71.0",
+    "lefthook": "^2.2.1",
+    "oxfmt": "^0.72.0",
     "typescript": "^6.0.3",
     "vitest": "5.0.3"
   },
-  "packageManager": "pnpm@12.8.2"
+  "packageManager": "pnpm@12.11.1"
 }
