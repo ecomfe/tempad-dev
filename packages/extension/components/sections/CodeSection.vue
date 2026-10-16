@@ -17,9 +17,11 @@ const componentLink = shallowRef('')
 const codeBlocks = shallowRef<CodeBlock[]>([])
 const codeError = shallowRef('')
 const loading = shallowRef(false)
+const showLoading = shallowRef(false)
 const content = shallowRef<HTMLElement | null>(null)
 const loadingHeight = shallowRef(0)
 let generation = 0
+let loadingTimer: ReturnType<typeof setTimeout> | undefined
 
 const playButtonTitle = computed(() =>
   componentLink.value
@@ -30,6 +32,8 @@ const playButtonTitle = computed(() =>
 async function updateCode() {
   const current = ++generation
   const node = selectedNode.value
+  clearTimeout(loadingTimer)
+  showLoading.value = false
   loadingHeight.value = content.value?.getBoundingClientRect().height ?? 0
   loading.value = false
   codeBlocks.value = []
@@ -39,6 +43,7 @@ async function updateCode() {
 
   if (node == null || selection.value.length > 1) return
   loading.value = true
+  loadingTimer = setTimeout(() => (showLoading.value = true), 150)
 
   const tempadComponent = selectedTemPadComponent.value
   componentCode.value = tempadComponent?.code || ''
@@ -59,7 +64,11 @@ async function updateCode() {
   } catch {
     if (current === generation) codeError.value = 'Code generation failed.'
   } finally {
-    if (current === generation) loading.value = false
+    if (current === generation) {
+      clearTimeout(loadingTimer)
+      showLoading.value = false
+      loading.value = false
+    }
   }
 }
 
@@ -77,6 +86,7 @@ watch(
 )
 onBeforeUnmount(() => {
   generation++
+  clearTimeout(loadingTimer)
 })
 
 function open() {
@@ -98,45 +108,50 @@ function open() {
     </template>
     <div
       ref="content"
-      :aria-busy="loading"
+      class="tp-code-content"
       :style="loading ? { minHeight: `${loadingHeight}px` } : undefined"
     >
-      <p v-if="loading" role="status">Generating code…</p>
-      <p v-if="codeError" role="alert">
-        {{ codeError }} <Button class="tp-code-retry" @click="updateCode">Retry</Button>
-      </p>
-      <Code
-        v-if="componentCode"
-        class="tp-code-code"
-        title="Component"
-        lang="js"
-        :link="componentLink"
-        :code="componentCode"
-      >
-        <template #actions>
-          <IconButton
-            :disabled="!componentLink"
-            variant="secondary"
-            :title="playButtonTitle"
-            @click="open"
-          >
-            <Preview />
-          </IconButton>
-        </template>
-      </Code>
-      <Code
-        v-for="{ name, title, lang, code } in codeBlocks"
-        :key="name"
-        class="tp-code-code"
-        :title="title"
-        :lang="lang"
-        :code="code"
-      />
+      <p class="tp-code-status" role="status">{{ showLoading ? 'Generating code…' : '' }}</p>
+      <div :aria-busy="loading">
+        <p v-if="codeError" role="alert">
+          {{ codeError }} <Button class="tp-code-retry" @click="updateCode">Retry</Button>
+        </p>
+        <Code
+          v-if="componentCode"
+          class="tp-code-code"
+          title="Component"
+          lang="js"
+          :link="componentLink"
+          :code="componentCode"
+        >
+          <template #actions>
+            <IconButton
+              :disabled="!componentLink"
+              variant="secondary"
+              :title="playButtonTitle"
+              @click="open"
+            >
+              <Preview />
+            </IconButton>
+          </template>
+        </Code>
+        <Code
+          v-for="{ name, title, lang, code } in codeBlocks"
+          :key="name"
+          class="tp-code-code"
+          :title="title"
+          :lang="lang"
+          :code="code"
+        />
+      </div>
     </div>
   </Section>
 </template>
 
 <style scoped>
+.tp-code-status:empty {
+  margin: 0;
+}
 .tp-code-code {
   margin-bottom: 8px;
 }

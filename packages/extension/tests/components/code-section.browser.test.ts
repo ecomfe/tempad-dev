@@ -15,7 +15,8 @@ import { mount, unmountAll } from './mount'
 afterEach(() => {
   unmountAll()
   selection.value = []
-  vi.clearAllMocks()
+  vi.useRealTimers()
+  vi.resetAllMocks()
 })
 
 it('keeps the latest selection code and does not regenerate when the panel moves', async () => {
@@ -57,6 +58,7 @@ it('clears stale code and exposes generation errors', async () => {
 })
 
 it('keeps the Code surface while loading and retries without changing selection', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   const generate = vi.mocked(generateCodeBlocksForNode)
   const pending = Promise.withResolvers<Awaited<ReturnType<typeof generateCodeBlocksForNode>>>()
   generate.mockReturnValueOnce(pending.promise)
@@ -66,13 +68,46 @@ it('keeps the Code surface while loading and retries without changing selection'
   const host = mount(CodeSection)
   selection.value = [{ id: 'slow' } as SceneNode]
   await nextTick()
-  expect(host.querySelector('[role="status"]')?.textContent).toContain('Generating code')
+  expect(host.querySelector('[aria-busy="true"]')).not.toBeNull()
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('')
   expect(host.querySelector('section')).not.toBeNull()
+  await vi.advanceTimersByTimeAsync(149)
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('')
+  await vi.advanceTimersByTimeAsync(1)
+  const status = host.querySelector('[role="status"]')!
+  expect(status.textContent).toContain('Generating code')
+  expect(status.closest('[aria-busy="true"]')).toBeNull()
   pending.reject(new Error('temporary failure'))
   await expect.poll(() => host.querySelector('[role="alert"]')).not.toBeNull()
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('')
   host.querySelector<HTMLButtonElement>('.tp-code-retry')!.click()
   await expect.poll(() => host.textContent).toContain('retried')
   expect(generate).toHaveBeenCalledTimes(2)
+})
+
+it('does not show stale loading hints for quick or replaced generations', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const generate = vi.mocked(generateCodeBlocksForNode)
+  const first = Promise.withResolvers<Awaited<ReturnType<typeof generateCodeBlocksForNode>>>()
+  generate.mockReturnValueOnce(first.promise)
+  generate.mockImplementation(() => new Promise(() => undefined))
+  const host = mount(CodeSection)
+  selection.value = [{ id: 'quick' } as SceneNode]
+  await nextTick()
+  await vi.advanceTimersByTimeAsync(100)
+  first.resolve({ codeBlocks: [{ name: 'css', title: 'CSS', lang: 'css', code: 'quick-code' }] })
+  await vi.advanceTimersByTimeAsync(100)
+  expect(host.textContent).toContain('quick-code')
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('')
+  selection.value = [{ id: 'replaced' } as SceneNode]
+  await nextTick()
+  await vi.advanceTimersByTimeAsync(100)
+  selection.value = [{ id: 'current' } as SceneNode]
+  await nextTick()
+  await vi.advanceTimersByTimeAsync(50)
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('')
+  await vi.advanceTimersByTimeAsync(100)
+  expect(host.querySelector('[role="status"]')?.textContent).toContain('Generating code')
 })
 
 it('keeps the previous content height without presenting stale code for the new selection', async () => {
@@ -88,14 +123,14 @@ it('keeps the previous content height without presenting stale code for the new 
   selection.value = [{ id: 'first' } as SceneNode]
   await expect.poll(() => host.textContent).toContain('old-selection-code')
   const section = host.querySelector('section')!
-  const height = host.querySelector('[aria-busy]')!.getBoundingClientRect().height
+  const height = host.querySelector('.tp-code-content')!.getBoundingClientRect().height
   selection.value = [{ id: 'second' } as SceneNode]
   await nextTick()
   expect(host.querySelector('section')).toBe(section)
   expect(host.textContent).not.toContain('old-selection-code')
-  expect(host.querySelector('[aria-busy]')!.getBoundingClientRect().height).toBeGreaterThanOrEqual(
-    height
-  )
+  expect(
+    host.querySelector('.tp-code-content')!.getBoundingClientRect().height
+  ).toBeGreaterThanOrEqual(height)
   pending.resolve({
     codeBlocks: [{ name: 'css', title: 'CSS', lang: 'css', code: 'new-selection-code' }]
   })
