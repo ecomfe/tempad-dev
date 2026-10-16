@@ -157,7 +157,9 @@ Closing that review still requires a durable receipt, and reconnect processes St
 
 Mutating tool waits warn at their configured timeout and stop waiting after twice that interval.
 An unknown outcome keeps the file operation fenced until a definitive result or session recovery;
-the error explicitly forbids replaying the write. Incompatible saved task records retain a durable
+the error explicitly forbids replaying the write. A failed initial page-port delivery reports
+`EXTENSION_DELIVERY_FAILED`, which releases the operation because execution never started;
+`EXTENSION_DISCONNECTED` remains an unknown outcome after delivery. Incompatible saved task records retain a durable
 file fence while valid records recover independently. An unreadable snapshot with no identifiable
 file boundary preserves its evidence and blocks all writes, allowing read tools to remain available.
 

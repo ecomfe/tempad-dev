@@ -612,7 +612,7 @@ export class McpServiceWorkerBroker {
       )
       this.sendToolError(
         message.id,
-        TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED,
+        TEMPAD_MCP_ERROR_CODES.EXTENSION_DELIVERY_FAILED,
         'Figma session disconnected before receiving a tool call.'
       )
       this.stopHubIfIdle()

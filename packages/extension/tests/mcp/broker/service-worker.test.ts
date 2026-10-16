@@ -1470,7 +1470,7 @@ describe('mcp/broker/service-worker', () => {
 
     expect(hubClient.sendToolResult).toHaveBeenCalledWith({
       error: {
-        code: TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED,
+        code: TEMPAD_MCP_ERROR_CODES.EXTENSION_DELIVERY_FAILED,
         message: 'Figma session disconnected before receiving a tool call.'
       },
       id: 'call-1',

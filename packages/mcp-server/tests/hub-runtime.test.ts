@@ -1095,6 +1095,48 @@ describe('Hub runtime module', () => {
     }
   )
 
+  it.each(['EXTENSION_DELIVERY_FAILED', 'EXTENSION_DISCONNECTED'])(
+    'releases only a definitely undelivered write after %s',
+    async (code) => {
+      const { startHub } = await loadRuntime()
+      await startHub()
+      const extension = connectExtension()
+      const consumer = await connectConsumer()
+      const write = {
+        name: 'apply_canvas',
+        arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+      }
+      consumer.send({ id: 1, method: 'tools/call', params: write })
+      const first = await extension.call(0)
+      extension.send({
+        type: 'toolResult',
+        id: first.id,
+        error: { code, message: 'Delivery failed' }
+      })
+      expect(JSON.stringify(await consumer.reply(1))).toContain(code)
+      consumer.send({ id: 2, method: 'tools/call', params: write })
+      if (code === 'EXTENSION_DISCONNECTED') {
+        expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
+        expect(extension.calls).toHaveLength(1)
+        extension.send({
+          type: 'toolResult',
+          id: first.id,
+          error: { message: 'Definitive completion' }
+        })
+        consumer.send({ id: 3, method: 'tools/call', params: write })
+      }
+      const next = await extension.call(1)
+      extension.send({
+        type: 'toolResult',
+        id: next.id,
+        error: { message: 'Next write completed' }
+      })
+      expect(
+        JSON.stringify(await consumer.reply(code === 'EXTENSION_DISCONNECTED' ? 3 : 2))
+      ).toContain('Next write completed')
+    }
+  )
+
   it('keeps a dispatched cancelled write fenced until its late definitive result arrives', async () => {
     const { startHub } = await loadRuntime()
     await startHub()

@@ -1568,6 +1568,7 @@ export async function startHub(): Promise<void> {
       },
       onStateChange: broadcastState,
       onToolError: (requestId, extensionId, error) => {
+        // DELIVERY_FAILED is definitive; DISCONNECTED may follow an accepted page write.
         designTasks.finishOperation(
           requestId,
           extensionId,
