@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -30,6 +32,12 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: 'pnpm'
           cache-dependency-path: pnpm-lock.yaml
+
+      - name: Check agent plugin version
+        if: matrix.node == '24.x'
+        env:
+          PLUGIN_VERSION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/check-agent-plugin-version.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

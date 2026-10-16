@@ -24,6 +24,8 @@ were prepared before their source changes were committed.
    `.agents/plugins/marketplace.json`, and `.claude-plugin/marketplace.json`. Run
    `pnpm agent-plugin:check-installer` to verify marketplace routing and MCP discovery with
    the actual installer. Release MCP configuration must use `@tempad-dev/mcp@latest`.
+   CI runs `pnpm agent-plugin:check-version <base>` against committed source and target payloads,
+   requiring a stable `x.y.z` increase; package-root README and changelog edits alone are exempt.
 3. Run the checks in [TESTING.md](../TESTING.md), then `pnpm format:check`, `pnpm build`, and
    `pnpm zip`. Ordinary build must not change tracked agent-plugin files. The extension archive is
    written to `packages/extension/.output/` with the version from the extension package.
