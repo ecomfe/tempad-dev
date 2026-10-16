@@ -2,6 +2,34 @@ import { expect, it } from 'vitest'
 
 import { stringifyComponent } from '@/utils/component'
 
+it('keeps native readonly, maxlength and SVG link attributes functional in Vue markup', () => {
+  const host = document.createElement('div')
+  document.body.append(host)
+  try {
+    host.innerHTML = stringifyComponent(
+      {
+        name: 'div',
+        props: {},
+        children: [
+          { name: 'input', props: { readOnly: true, maxLength: '12' }, children: [] },
+          {
+            name: 'svg',
+            props: {},
+            children: [{ name: 'use', props: { xlinkHref: '#icon' }, children: [] }]
+          }
+        ]
+      },
+      'vue'
+    )
+    const input = host.querySelector('input')!
+    expect(input.readOnly).toBe(true)
+    expect(input.maxLength).toBe(12)
+    expect(host.querySelector('use')!.href.baseVal).toBe('#icon')
+  } finally {
+    host.remove()
+  }
+})
+
 it('keeps native SVG geometry and gradient attributes functional in Vue markup', () => {
   const host = document.createElement('div')
   document.body.append(host)

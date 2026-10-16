@@ -192,7 +192,7 @@ const INDENT_UNIT = '  '
 
 function stringifyBaseComponent(
   component: DevComponent,
-  stringifyProp: (key: string, value: unknown, inSvg: boolean) => string,
+  stringifyProp: (key: string, value: unknown, inSvg: boolean, isCustomTag: boolean) => string,
   indentLevel = 0,
   isInline?: (tagName: string) => boolean,
   parentIsSvg = false
@@ -201,6 +201,7 @@ function stringifyBaseComponent(
   const { name, props, children: rawChildren } = component
   const inSvg = name === 'svg' || parentIsSvg
   const childrenInSvg = inSvg && name !== 'foreignObject'
+  const isCustomTag = isCustomComponentTag(name)
 
   if (name === RAW_TAG_NAME) {
     const content = String(props.content || '')
@@ -214,7 +215,7 @@ function stringifyBaseComponent(
 
   const propItems = Object.entries(props)
     .filter(([, value]) => value != null)
-    .map(([key, value]) => stringifyProp(key, value, inSvg))
+    .map(([key, value]) => stringifyProp(key, value, inSvg, isCustomTag))
     .filter(Boolean)
 
   let propsString = ''
@@ -265,7 +266,6 @@ function stringifyBaseComponent(
 
   const appendFinalNewline = indentLevel === 0 && !shouldCompact
   const isVoidTag = VOID_HTML_TAGS.has(name.toLowerCase())
-  const isCustomTag = isCustomComponentTag(name)
 
   let opening: string
   let closing: string
@@ -381,6 +381,19 @@ function getEventName(key: string) {
   return null
 }
 
+function getVueAttributeName(key: string, inSvg: boolean, isCustomTag: boolean): string {
+  if (key === 'className') return 'class'
+  if (key === 'tabIndex') return 'tabindex'
+  if (key === 'htmlFor') return 'for'
+
+  if (!isCustomTag) {
+    if (inSvg && key === 'xlinkHref') return 'xlink:href'
+    if (!inSvg && (key === 'readOnly' || key === 'maxLength')) return key.toLowerCase()
+  }
+
+  return inSvg && SVG_CASE_SENSITIVE_ATTRIBUTES.has(key) ? key : camelToKebab(key)
+}
+
 function stringifyVueComponent(
   component: DevComponent,
   indentLevel = 0,
@@ -388,23 +401,14 @@ function stringifyVueComponent(
 ) {
   return stringifyBaseComponent(
     component,
-    (key, value, inSvg) => {
+    (key, value, inSvg, isCustomTag) => {
       const eventName = getEventName(key)
       if (eventName) {
         const callback = typeof value === 'string' ? looseEscapeHTML(value) : '() => {}'
         return `@${camelToKebab(eventName)}="${callback.trim()}"`
       }
 
-      const name =
-        key === 'className'
-          ? 'class'
-          : key === 'tabIndex'
-            ? 'tabindex'
-            : key === 'htmlFor'
-              ? 'for'
-              : inSvg && SVG_CASE_SENSITIVE_ATTRIBUTES.has(key)
-                ? key
-                : camelToKebab(key)
+      const name = getVueAttributeName(key, inSvg, isCustomTag)
 
       if (typeof value === 'string') {
         return `${name}="${escapeHTML(value).trim()}"`

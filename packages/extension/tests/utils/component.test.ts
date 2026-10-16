@@ -28,6 +28,46 @@ function createNode(
 }
 
 describe('utils/component', () => {
+  it('normalizes native HTML property names without changing component props or JSX', () => {
+    const props = { readOnly: true, maxLength: 12 }
+    const input = { name: 'input', props, children: [] }
+    const vue = stringifyComponent(input, 'vue')
+    expect(vue).toContain('\n  readonly\n')
+    expect(vue).toContain(':maxlength="12"')
+
+    for (const name of ['InputField', 'custom-input']) {
+      const custom = stringifyComponent({ name, props, children: [] }, 'vue')
+      expect(custom).toContain('\n  read-only\n')
+      expect(custom).toContain(':max-length="12"')
+    }
+    const jsx = stringifyComponent(input, 'jsx')
+    expect(jsx).toContain('\n  readOnly\n')
+    expect(jsx).toContain('maxLength={12}')
+  })
+
+  it('normalizes native SVG namespaces while respecting foreignObject and component props', () => {
+    const markup = stringifyComponent(
+      {
+        name: 'svg',
+        props: {},
+        children: [
+          { name: 'use', props: { xlinkHref: '#icon' }, children: [] },
+          { name: 'Icon', props: { xlinkHref: '#custom' }, children: [] },
+          {
+            name: 'foreignObject',
+            props: {},
+            children: [{ name: 'input', props: { readOnly: false, maxLength: '12' }, children: [] }]
+          }
+        ]
+      },
+      'vue'
+    )
+    expect(markup).toContain('<use xlink:href="#icon"></use>')
+    expect(markup).toContain('<Icon xlink-href="#custom" />')
+    expect(markup).toContain(':readonly="false"')
+    expect(markup).toContain('maxlength="12"')
+  })
+
   it.each([false, true])(
     'preserves SVG attribute case throughout Vue trees (compact: %s)',
     (compact) => {
