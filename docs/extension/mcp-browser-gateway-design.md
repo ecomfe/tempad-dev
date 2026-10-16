@@ -146,7 +146,13 @@ still synchronizes after a failed dispatch or reconnect, including after page re
 restored Stop attempts native interruption before cancellation; absent native turn identity cannot
 guarantee interruption, but never removes the canvas fence.
 Hiding a stopped review does not discard its cancellation. The page and broker retain the live
-Stop fence for reconnect when storage fails; unpersisted state cannot survive a full browser restart.
+Stop fence when storage fails. The content bridge also retains the latest matching review and
+marks local Stop before forwarding it, so a replacement service worker receives cancellation in
+the replayed enable even if storage is still unavailable. A stale active update cannot undo that
+Stop. Another tab's live review does not become this page's claim, while cancellation and Done
+fences can synchronize from any tab in the same file. Changing file/session or disabling the
+bridge clears its cache; if all surviving page and worker state is lost before persistence or
+Hub delivery, the unpersisted Stop cannot be recovered.
 Closing that review still requires a durable receipt, and reconnect processes Stop before Done.
 
 Mutating tool waits warn at their configured timeout and stop waiting after twice that interval.

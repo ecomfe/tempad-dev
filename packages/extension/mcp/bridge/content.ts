@@ -1,4 +1,4 @@
-import type { PageToBridgeMessage } from '@tempad-dev/shared'
+import type { DesignTask, PageToBridgeMessage } from '@tempad-dev/shared'
 
 import {
   TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
@@ -23,6 +23,7 @@ type EnableMessage = Extract<PageToBridgeMessage, { type: 'mcp.enable' }>
 export function startMcpContentBridge(): () => void {
   let invalidated = false
   let enableMessage: EnableMessage | null = null
+  let latestTask: DesignTask | undefined
   let enableReady: Promise<void> | null = null
   let port: ReturnType<typeof browser.runtime.connect> | null = null
   let permissionGranted = false
@@ -33,6 +34,26 @@ export function startMcpContentBridge(): () => void {
     if (!reconnectTimer) return
     clearTimeout(reconnectTimer)
     reconnectTimer = null
+  }
+
+  function rememberTask(task: DesignTask): void {
+    if (!enableMessage || task.target.fileKey !== enableMessage.document?.fileKey) return
+    const previous = latestTask?.taskId === task.taskId ? latestTask : undefined
+    latestTask = {
+      ...task,
+      ...(previous?.status === 'cancelled' ? { status: 'cancelled', operation: null } : {}),
+      ...(previous?.reviewClosed ? { reviewClosed: true } : {})
+    }
+    // Another tab's live review cannot become this page's claim. Stop and Done
+    // fences, however, must survive worker loss from any tab showing this file.
+    if (
+      task.target.sessionId === enableMessage.sessionId ||
+      enableMessage.reviewTask?.taskId === task.taskId ||
+      latestTask.status === 'cancelled' ||
+      latestTask.reviewClosed
+    )
+      enableMessage.reviewTask = latestTask
+    else delete enableMessage.reviewTask
   }
 
   function scheduleReconnect(): void {
@@ -57,9 +78,16 @@ export function startMcpContentBridge(): () => void {
     }
 
     nextPort.onMessage.addListener((raw) => {
-      if (invalidated) return
+      if (invalidated || port !== nextPort) return
       const message = parseBridgeToPageMessage(raw)
       if (!message) return
+      if (message.type === 'mcp.designTaskState') rememberTask(message.task)
+      if (
+        message.type === 'mcp.designReviewClosed' &&
+        message.taskId === latestTask?.taskId &&
+        message.fileKey === latestTask.target.fileKey
+      )
+        rememberTask({ ...latestTask, reviewClosed: true })
       window.postMessage(message, TEMPAD_MCP_FIGMA_ORIGIN)
     })
 
@@ -110,7 +138,14 @@ export function startMcpContentBridge(): () => void {
     if (!message) return
 
     if (message.type === 'mcp.enable') {
+      if (
+        enableMessage?.sessionId !== message.sessionId ||
+        enableMessage.document?.fileKey !== message.document?.fileKey
+      )
+        latestTask = undefined
       enableMessage = message
+      const review = message.reviewTask ?? latestTask
+      if (review) rememberTask(review)
       permissionGranted = false
       enableReady = enable(message)
       return enableReady
@@ -136,10 +171,22 @@ export function startMcpContentBridge(): () => void {
         return
       }
       if (message.type === 'mcp.sessionInfo') {
+        if (enableMessage.document?.fileKey !== message.document.fileKey) {
+          latestTask = undefined
+          delete enableMessage.reviewTask
+        }
         enableMessage.document = message.document
       }
+      if (
+        message.type === 'mcp.designAction' &&
+        message.action.action === 'stop' &&
+        message.action.taskId === latestTask?.taskId
+      )
+        // Cache before reconnect can replay enable or failed storage can lose Stop.
+        rememberTask({ ...latestTask, status: 'cancelled', operation: null })
       if (message.type === 'mcp.disable') {
         enableMessage = null
+        latestTask = undefined
         permissionGranted = false
         clearReconnectTimer()
       }
@@ -229,7 +276,7 @@ export function startMcpContentBridge(): () => void {
 
   function invalidateIfNeeded(error?: unknown): boolean {
     if (
-      !browser.runtime.id ||
+      !browser.runtime?.id ||
       (error instanceof Error && error.message.includes('Extension context invalidated'))
     ) {
       invalidate()

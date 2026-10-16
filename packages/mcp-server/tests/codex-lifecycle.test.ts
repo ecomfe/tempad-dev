@@ -279,7 +279,15 @@ describe('hook-free task lifecycle', () => {
     let taskCount = 0
     const tasks = new DesignTasks({
       createId: () => `task-${taskCount++ === 0 ? 'a' : 'b'}`,
-      now: () => 1000
+      now: () => 1000,
+      onReviewStop: ({ task }) => {
+        void clients.action({
+          requestId: 'restored-stop',
+          taskId: task.taskId,
+          epoch: task.epoch ?? 0,
+          action: 'stop'
+        })
+      }
     })
     const feedback = {
       available: vi.fn().mockResolvedValue(true),
@@ -360,6 +368,26 @@ describe('hook-free task lifecycle', () => {
       expect(() => f.tasks.resume('task-a', f.owner, 0, f.session)).toThrow('begin a new task')
     }
   )
+
+  it('interrupts the native turn once when a replacement worker restores Stop before Done', async () => {
+    const f = await taskFixture()
+    const stopped = { ...f.record.task, status: 'cancelled' as const, reviewClosed: true }
+    f.tasks.disconnectExtension('extension')
+    const replacement = {
+      id: 'replacement-worker',
+      origin: 'chrome-extension://tempad',
+      sessions: { browserId: 'browser', sessions: [f.session] }
+    } as Parameters<DesignTasks['restoreReview']>[1]
+
+    f.tasks.restoreReview(stopped, replacement, f.session)
+    await vi.waitFor(() =>
+      expect(f.native.interrupt).toHaveBeenCalledExactlyOnceWith('thread-a', 'turn-a')
+    )
+    expect(f.record.task).toMatchObject({ status: 'cancelled', reviewClosed: true })
+    expect(() => f.tasks.resume('task-a', f.owner, 0, f.session)).toThrow('closed')
+    f.tasks.restoreReview(stopped, replacement, f.session)
+    expect(f.native.interrupt).toHaveBeenCalledTimes(1)
+  })
 
   it('pauses the old lease at a turn boundary and tracks the next turn for Stop', async () => {
     const f = await taskFixture()
