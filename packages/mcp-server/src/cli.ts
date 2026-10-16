@@ -293,10 +293,10 @@ async function main() {
         process.stderr.write(
           `Unable to connect to TemPad Hub after ${failedAttempts} ${connected ? 'reconnect' : 'startup'} attempts: ${reason} Reconnect the MCP client after resolving the connection error.\n`
         )
-        // No future bridge will consume stdin; release its read handle before exiting.
+        // No future bridge will consume stdin. Terminate even when a Node 22
+        // stream or logging worker keeps the event loop alive after this failure.
         process.stdin.destroy()
-        process.exitCode = 1
-        return
+        process.exit(1)
       }
       log.error(
         { err },
