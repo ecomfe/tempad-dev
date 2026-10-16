@@ -134,7 +134,7 @@ async function connectConsumer(clientEventFirst = false, clientName = 'isolated-
   return { socket, send, reply, replies, bindingUpdates }
 }
 
-function connectExtension() {
+function connectExtension(terminalReceipts = false) {
   const calls: ToolCallMessage[] = []
   const peer = Object.assign(new EventEmitter(), {
     protocol: TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
@@ -151,7 +151,8 @@ function connectExtension() {
     type: 'runtimeHello',
     protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
     extensionVersion: '0.23.4',
-    extensionRuntimeFingerprint: 'a'.repeat(64)
+    extensionRuntimeFingerprint: 'a'.repeat(64),
+    ...(terminalReceipts ? { terminalReceipts: true } : {})
   })
   const publishSession = (sessionId = 'session', documentId = 'document') =>
     send({
@@ -183,7 +184,7 @@ function connectExtension() {
     await vi.waitFor(() => expect(calls.length).toBeGreaterThan(index), { interval: 1 })
     return calls[index]!
   }
-  return { calls, call, send, publishSession }
+  return { calls, call, send, publishSession, peer }
 }
 
 async function loadRuntime() {
@@ -1195,6 +1196,101 @@ describe('Hub runtime module', () => {
       ).toContain('Next write completed')
     }
   )
+
+  it.each([false, true])(
+    'recovers a lost write result without reviving Stop (%s)',
+    async (stopped) => {
+      const { startHub } = await loadRuntime()
+      await startHub()
+      const extension = connectExtension(true)
+      const consumer = await connectConsumer()
+      const send = (id: number, name: string, args: object) =>
+        consumer.send({ id, method: 'tools/call', params: { name, arguments: args } })
+      send(1, 'manage_design_task', {
+        action: 'begin',
+        title: 'Receipt fixture',
+        requestId: '00000000-0000-4000-8000-000000000017'
+      })
+      const binding = await extension.call(0)
+      const task = binding.payload.args as DesignTask
+      extension.send({ type: 'toolResult', id: binding.id, payload: task })
+      await consumer.reply(1)
+      const args = { taskId: task.taskId, taskEpoch: task.epoch }
+      const write = { ...args, mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+      send(2, 'apply_canvas', write)
+      const call = await extension.call(1)
+      expect(call.terminalReceipt).toBeDefined()
+      extension.publishSession() // Idle alone must not release this write.
+      send(3, 'apply_canvas', write)
+      expect(JSON.stringify(await consumer.reply(3))).toContain('DESIGN_TASK_BUSY')
+      if (stopped) {
+        send(7, 'manage_design_task', { action: 'cancel', taskId: task.taskId, epoch: task.epoch })
+        expect(await consumer.reply(7)).toMatchObject({
+          result: { structuredContent: { status: 'stopping' } }
+        })
+      }
+      extension.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+      expect(JSON.stringify(await consumer.reply(2))).toContain('EXTENSION_RESULT_LOST')
+      if (stopped) {
+        send(8, 'get_design_task', { taskId: task.taskId })
+        expect(await consumer.reply(8)).toMatchObject({
+          result: { structuredContent: { status: 'cancelled', operation: null } }
+        })
+        send(9, 'apply_canvas', write)
+        expect(JSON.stringify(await consumer.reply(9))).toContain('DESIGN_TASK_INACTIVE')
+        expect(extension.calls).toHaveLength(2)
+        return
+      }
+      send(4, 'apply_canvas', write)
+      expect(JSON.stringify(await consumer.reply(4))).toContain('Read the bound canvas')
+      // The duplicate receipt must not clear a fresh read or re-arm needsRead.
+      send(5, 'get_structure', args)
+      const read = await extension.call(2)
+      extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+      await consumer.reply(5)
+      extension.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+      send(6, 'apply_canvas', write)
+      const next = await extension.call(3)
+      extension.send({ type: 'toolResult', id: next.id, error: { message: 'Finished new write' } })
+      expect(JSON.stringify(await consumer.reply(6))).toContain('Finished new write')
+    }
+  )
+
+  it('accepts a terminal receipt from a replacement connection only for its original operation', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const original = connectExtension(true)
+    const consumer = await connectConsumer()
+    const write = {
+      name: 'apply_canvas',
+      arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+    }
+    consumer.send({ id: 1, method: 'tools/call', params: write })
+    const call = await original.call(0)
+    original.peer.emit('close')
+    expect(JSON.stringify(await consumer.reply(1))).toContain('EXTENSION_DISCONNECTED')
+    const replacement = connectExtension(true)
+    replacement.send({
+      type: 'toolCompletion',
+      id: call.id,
+      ...call.terminalReceipt,
+      receiptId: 'wrong'
+    })
+    consumer.send({ id: 2, method: 'tools/call', params: write })
+    expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
+    replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+    consumer.send({ id: 3, method: 'tools/call', params: write })
+    const next = await replacement.call(0)
+    replacement.send({ type: 'toolResult', id: next.id, error: { message: 'New call completed' } })
+    expect(JSON.stringify(await consumer.reply(3))).toContain('New call completed')
+    replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+    expect(JSON.parse(replacement.peer.send.mock.calls.at(-1)![0])).toEqual({
+      type: 'toolCompletionAck',
+      id: call.id,
+      ...call.terminalReceipt,
+      accepted: true
+    })
+  })
 
   it('keeps a dispatched cancelled write fenced until its late definitive result arrives', async () => {
     const { startHub } = await loadRuntime()

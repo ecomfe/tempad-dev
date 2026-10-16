@@ -13,6 +13,7 @@ export interface ExtensionConnection {
     protocolVersion: number
     version: string
     fingerprint: string
+    terminalReceipts?: true
   }
 }
 

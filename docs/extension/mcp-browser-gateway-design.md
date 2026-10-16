@@ -168,6 +168,17 @@ the error explicitly forbids replaying the write. A failed initial page-port del
 file fence while valid records recover independently. An unreadable snapshot with no identifiable
 file boundary preserves its evidence and blocks all writes, allowing read tools to remain available.
 
+Peers may negotiate terminal receipts through an optional registration offer and runtime hello;
+released peers retain their existing messages. A surviving worker can resend only a completed
+call's receipt after reconnecting to the same Hub process. The Hub checks the original request,
+receipt identity, browser and extension Origin, and exact Figma session, file, tab and document
+before releasing that operation. It never replays the write. If the original result was lost,
+`EXTENSION_RESULT_LOST` requires reading the original target; task-bound writes also require a
+fresh read before another write. Unfinished receipt records are bounded by rejecting new calls
+before dispatch, and completed receipts are acknowledged idempotently while retained. A new Hub,
+replaced document, or lost worker memory cannot recover these process-local receipts. Ordinary
+idle snapshots still do not establish completion.
+
 ## Assets
 
 For outbound assets, the page computes hashes and descriptors and sends at most

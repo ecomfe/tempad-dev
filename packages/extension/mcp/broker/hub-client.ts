@@ -8,7 +8,9 @@ import type {
   RuntimeHelloMessage,
   StateMessage,
   ToolCallMessage,
-  ToolResultMessage
+  ToolResultMessage,
+  ToolCompletionMessage,
+  ToolCompletionAckMessage
 } from '@tempad-dev/shared'
 
 import {
@@ -28,6 +30,7 @@ const LOCAL_HUB_UNREACHABLE_MESSAGE =
 type HubConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
 type HubClientSnapshot = {
+  terminalReceiptGeneration?: string
   activeId: string | null
   assetServerUrl: string | null
   errorMessage: string | null
@@ -36,6 +39,8 @@ type HubClientSnapshot = {
 }
 
 type McpHubClientEvents = {
+  onToolCompletionAck?: (message: ToolCompletionAckMessage) => void
+  onKeepalive?: () => void
   onSnapshot?: (snapshot: HubClientSnapshot) => void
   onToolCall?: (message: ToolCallMessage) => void
   onDesignActionResult?: (message: DesignActionResultMessage) => void
@@ -66,6 +71,7 @@ export class McpHubClient {
   private registeredId: string | null = null
   private status: HubConnectionStatus = 'idle'
   private ws: WebSocket | null = null
+  private terminalReceiptGeneration: string | undefined
 
   constructor(
     private readonly events: McpHubClientEvents = {},
@@ -76,6 +82,9 @@ export class McpHubClient {
 
   getSnapshot(): HubClientSnapshot {
     return {
+      ...(this.terminalReceiptGeneration
+        ? { terminalReceiptGeneration: this.terminalReceiptGeneration }
+        : {}),
       activeId: this.activeId,
       assetServerUrl: this.assetServerUrl,
       errorMessage: this.errorMessage,
@@ -122,8 +131,21 @@ export class McpHubClient {
     this.sendJson({ type: 'activate' })
   }
 
-  sendToolResult(message: ToolResultMessage): void {
-    this.sendJson(message)
+  sendToolResult(message: ToolResultMessage): boolean {
+    return this.trySendJson(message)
+  }
+
+  sendToolCompletion(message: ToolCompletionMessage): boolean {
+    if (message.generation !== this.terminalReceiptGeneration) return false
+    return this.trySendJson(message)
+  }
+
+  private trySendJson(message: unknown): boolean {
+    try {
+      return this.sendJson(message)
+    } catch {
+      return false
+    }
   }
 
   sendSessions(message: FigmaSessionsMessage): void {
@@ -155,7 +177,11 @@ export class McpHubClient {
         }
         this.attachSocket(connection.ws)
         this.handleHubMessage(connection.registered)
-        if (this.runtimeIdentity) this.sendJson(this.runtimeIdentity)
+        if (this.runtimeIdentity)
+          this.sendJson({
+            ...this.runtimeIdentity,
+            ...(this.terminalReceiptGeneration ? { terminalReceipts: true } : {})
+          })
         this.handleHubMessage(connection.state)
         if (!this.isCurrentConnection(epoch) || this.ws !== connection.ws) return
         this.lastSuccessfulPort = candidatePort
@@ -331,6 +357,12 @@ export class McpHubClient {
     switch (message.type) {
       case 'registered':
         this.registeredId = message.id
+        this.terminalReceiptGeneration = this.runtimeIdentity
+          ? message.terminalReceiptGeneration
+          : undefined
+        break
+      case 'toolCompletionAck':
+        this.events.onToolCompletionAck?.(message)
         break
       case 'state':
         this.activeId = message.activeId
@@ -386,7 +418,8 @@ export class McpHubClient {
   private startKeepalive(): void {
     this.clearKeepaliveTimer()
     this.keepaliveTimer = setInterval(() => {
-      this.sendJson({ type: 'ping' })
+      this.trySendJson({ type: 'ping' })
+      this.events.onKeepalive?.()
     }, KEEPALIVE_INTERVAL_MS)
   }
 

@@ -21,7 +21,23 @@ export const RegisteredMessageSchema = z.object({
   type: z.literal('registered'),
   id: z.string().min(1),
   protocolVersion: z.number().int().positive(),
-  supportedProtocolVersions: z.array(z.number().int().positive()).min(1).optional()
+  supportedProtocolVersions: z.array(z.number().int().positive()).min(1).optional(),
+  terminalReceiptGeneration: z.string().min(1).max(128).optional()
+})
+
+export const TerminalReceiptSchema = z
+  .object({ generation: z.string().min(1).max(128), receiptId: z.string().min(1).max(128) })
+  .strict()
+
+export const ToolCompletionMessageSchema = TerminalReceiptSchema.extend({
+  type: z.literal('toolCompletion'),
+  id: z.string().min(1).max(128)
+}).strict()
+
+export const ToolCompletionAckMessageSchema = z.object({
+  ...ToolCompletionMessageSchema.shape,
+  type: z.literal('toolCompletionAck'),
+  accepted: z.boolean()
 })
 
 export const StateMessageSchema = z.object({
@@ -39,6 +55,7 @@ export const ToolCallMessageSchema = z.object({
   type: z.literal('toolCall'),
   id: z.string().min(1),
   route: DesignToolRouteSchema.optional(),
+  terminalReceipt: TerminalReceiptSchema.optional(),
   payload: ToolCallPayloadSchema
 })
 
@@ -62,6 +79,7 @@ export const DesignActionMessageSchema = z
   .strict()
 
 export const MessageToExtensionSchema = z.discriminatedUnion('type', [
+  ToolCompletionAckMessageSchema,
   DesignActionResultMessageSchema,
   RegisteredMessageSchema,
   StateMessageSchema,
@@ -98,6 +116,7 @@ export const RuntimeHelloMessageSchema = z
     type: z.literal('runtimeHello'),
     // Released protocol 13 peers omit this field. The Hub treats omission conservatively as 13.
     protocolVersion: z.number().int().positive().optional(),
+    terminalReceipts: z.literal(true).optional(),
     extensionVersion: z.string().min(1),
     extensionRuntimeFingerprint: z.string().regex(/^[a-f0-9]{64}$/)
   })
@@ -118,6 +137,7 @@ export const FigmaSessionsMessageSchema = z
   .strict()
 
 export const MessageFromExtensionSchema = z.union([
+  ToolCompletionMessageSchema,
   DesignActionMessageSchema,
   ActivateMessageSchema,
   ToolResultMessageSchema,
@@ -134,6 +154,9 @@ export const LegacyMessageFromExtensionSchema = z.union([
 ])
 
 export type RegisteredMessage = z.infer<typeof RegisteredMessageSchema>
+export type TerminalReceipt = z.infer<typeof TerminalReceiptSchema>
+export type ToolCompletionMessage = z.infer<typeof ToolCompletionMessageSchema>
+export type ToolCompletionAckMessage = z.infer<typeof ToolCompletionAckMessageSchema>
 export type StateMessage = z.infer<typeof StateMessageSchema>
 export type ToolCallPayload = z.infer<typeof ToolCallPayloadSchema>
 export type ToolCallMessage = z.infer<typeof ToolCallMessageSchema>

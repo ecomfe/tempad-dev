@@ -88,6 +88,7 @@ import {
   resolveStateDir,
   getRecordProperty
 } from './shared'
+import { TerminalReceipts } from './terminal-receipts'
 import {
   TOOL_DEFS,
   coercePayloadToToolResponse,
@@ -128,6 +129,7 @@ export async function startHub(): Promise<void> {
 
   const extensionRegistry = new ExtensionRegistry(autoActivateGraceMs)
   const taskStateDirectory = resolveStateDir()
+  const terminalReceipts = new TerminalReceipts()
   const designTasks = new DesignTasks({
     createId: randomUUID,
     onChange: publishDesignTask,
@@ -841,6 +843,14 @@ export async function startHub(): Promise<void> {
           }
         }
         try {
+          message.terminalReceipt = terminalReceipts.reserve(
+            requestId,
+            activeExt,
+            session,
+            taskId,
+            tool.name === 'apply_canvas',
+            taskEpoch
+          )
           designTasks.startOperation(
             requestId,
             ownerId,
@@ -852,6 +862,7 @@ export async function startHub(): Promise<void> {
           )
           activeExt.ws.send(JSON.stringify(message))
         } catch (error) {
+          terminalReceipts.settle(requestId, activeExt.id)
           designTasks.finishOperation(requestId, activeExt.id)
           reject(requestId, activeExt.id, coerceToolError(error))
         }
@@ -1431,6 +1442,26 @@ export async function startHub(): Promise<void> {
 
   activeWss.on('connection', (ws, request) => {
     attachExtensionSocket(ws, {
+      terminalReceiptGeneration: terminalReceipts.generation,
+      onToolCompletion: (message, extension) => {
+        const { accepted, recovered } = terminalReceipts.accept(message, extension)
+        if (recovered) {
+          if (recovered.write && recovered.taskId) {
+            const record = designTasks.find(recovered.taskId)
+            if (record && record.task.epoch === (recovered.epoch ?? 0)) record.task.needsRead = true
+          }
+          designTasks.finishOperation(message.id, recovered.extensionId)
+          reject(
+            message.id,
+            recovered.extensionId,
+            createCodedError(
+              TEMPAD_MCP_ERROR_CODES.EXTENSION_RESULT_LOST,
+              'The Figma call finished, but its result was lost. Read the original target to inspect its current state before further work. Do not replay the write.'
+            )
+          )
+        }
+        return accepted
+      },
       createId: randomUUID,
       origin: request.headers.origin ?? '',
       registry: extensionRegistry,
@@ -1479,6 +1510,7 @@ export async function startHub(): Promise<void> {
         )
       },
       onSessions: (extension) => {
+        terminalReceipts.reconcile(extension)
         const snapshot = extension.sessions!
         for (const review of snapshot.reviews ?? []) {
           const session = snapshot.sessions.find((value) => value.sessionId === review.sessionId)
@@ -1574,6 +1606,8 @@ export async function startHub(): Promise<void> {
       },
       onStateChange: broadcastState,
       onToolError: (requestId, extensionId, error) => {
+        if (error.code !== TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED)
+          terminalReceipts.settle(requestId, extensionId)
         // DELIVERY_FAILED is definitive; DISCONNECTED may follow an accepted page write.
         designTasks.finishOperation(
           requestId,
@@ -1593,6 +1627,7 @@ export async function startHub(): Promise<void> {
         reject(requestId, extensionId, normalized)
       },
       onToolResult: (requestId, extensionId, payload) => {
+        terminalReceipts.settle(requestId, extensionId)
         designTasks.finishOperation(requestId, extensionId)
         resolve(requestId, extensionId, payload)
       }

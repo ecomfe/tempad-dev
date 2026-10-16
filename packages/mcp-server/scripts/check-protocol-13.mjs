@@ -42,6 +42,12 @@ export async function checkProtocol13({ port, peer, send, activate, until, call,
     return extension
   }
   const released = await connect()
+  // The additive receipt offer must not opt a released hello into new messages.
+  released.socket.on('message', (raw) => {
+    const message = JSON.parse(raw.toString())
+    assert.notEqual(message.type, 'toolCompletionAck')
+    if (message.type === 'toolCall') assert.equal(message.terminalReceipt, undefined)
+  })
   const bytes = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z9WQAAAAASUVORK5CYII=',
     'base64'

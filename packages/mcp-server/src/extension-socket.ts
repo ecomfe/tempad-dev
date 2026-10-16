@@ -1,4 +1,4 @@
-import type { DesignAction, TempadMcpErrorPayload } from '@tempad-dev/shared'
+import type { DesignAction, TempadMcpErrorPayload, ToolCompletionMessage } from '@tempad-dev/shared'
 import type { RawData, WebSocket } from 'ws'
 
 import {
@@ -21,6 +21,8 @@ type AttachExtensionSocketOptions = {
   createId: () => string
   origin: string
   registry: ExtensionRegistry
+  terminalReceiptGeneration?: string
+  onToolCompletion?: (message: ToolCompletionMessage, extension: ExtensionConnection) => boolean
   onActivationRejected?: (extensionId: string, activeExtensionId: string) => void
   onActivated?: (extensionId: string) => void
   onAutoActivated?: (extensionId: string) => void
@@ -54,6 +56,9 @@ export function attachExtensionSocket(
     id: extension.id,
     protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
     supportedProtocolVersions: [...TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS],
+    ...(options.terminalReceiptGeneration
+      ? { terminalReceiptGeneration: options.terminalReceiptGeneration }
+      : {}),
     type: 'registered'
   }
   ws.send(JSON.stringify(extension.legacy ? { type: 'registered', id: extension.id } : registered))
@@ -103,12 +108,30 @@ export function attachExtensionSocket(
     if (
       !extension.legacy &&
       !extension.runtime &&
-      (message.type === 'sessions' || message.type === 'designAction')
+      (message.type === 'sessions' ||
+        message.type === 'designAction' ||
+        message.type === 'toolCompletion')
     ) {
       ws.close(1008, 'Runtime handshake required.')
       return
     }
     switch (message.type) {
+      case 'toolCompletion': {
+        if (!extension.runtime?.terminalReceipts) {
+          ws.close(1008, 'Terminal receipts were not negotiated.')
+          return
+        }
+        const accepted = options.onToolCompletion?.(message, extension) ?? false
+        try {
+          ws.send(JSON.stringify({ ...message, type: 'toolCompletionAck', accepted }))
+        } catch (error) {
+          options.onSocketError?.(
+            extension.id,
+            error instanceof Error ? error : new Error(String(error))
+          )
+        }
+        break
+      }
       case 'sessions':
         if (
           options.registry
@@ -150,6 +173,10 @@ export function attachExtensionSocket(
         }
         break
       case 'runtimeHello': {
+        if (message.terminalReceipts && !options.terminalReceiptGeneration) {
+          ws.close(1008, 'Terminal receipts are unavailable.')
+          return
+        }
         const protocolVersion = message.protocolVersion ?? 13
         if (!TEMPAD_MCP_BRIDGE_SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
           ws.close(1008, 'Unsupported extension bridge protocol.')
@@ -159,7 +186,8 @@ export function attachExtensionSocket(
           extension.runtime &&
           (extension.runtime.version !== message.extensionVersion ||
             extension.runtime.fingerprint !== message.extensionRuntimeFingerprint ||
-            extension.runtime.protocolVersion !== protocolVersion)
+            extension.runtime.protocolVersion !== protocolVersion ||
+            extension.runtime.terminalReceipts !== message.terminalReceipts)
         ) {
           options.onProtocolWarning?.({
             error: new Error('Extension changed runtime identity on an open connection.'),
@@ -172,7 +200,8 @@ export function attachExtensionSocket(
         extension.runtime = {
           protocolVersion,
           version: message.extensionVersion,
-          fingerprint: message.extensionRuntimeFingerprint
+          fingerprint: message.extensionRuntimeFingerprint,
+          ...(message.terminalReceipts ? { terminalReceipts: true as const } : {})
         }
         options.onRuntimeHello?.(extension)
         break

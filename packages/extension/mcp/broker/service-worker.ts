@@ -8,7 +8,9 @@ import type {
   PageToBridgeMessage,
   RuntimeHelloMessage,
   TempadMcpErrorCode,
-  ToolCallMessage
+  ToolCallMessage,
+  TerminalReceipt,
+  ToolCompletionAckMessage
 } from '@tempad-dev/shared'
 
 import {
@@ -56,6 +58,7 @@ export type McpBrokerHubClient = Pick<
   | 'getSnapshot'
   | 'sendActivate'
   | 'sendToolResult'
+  | 'sendToolCompletion'
   | 'sendSessions'
   | 'sendDesignAction'
   | 'start'
@@ -75,7 +78,15 @@ export class McpServiceWorkerBroker {
   private permissionRevision = 0
   private permissionChangeRevision = 0
   private readonly hubClient: McpBrokerHubClient
-  private readonly pendingToolCalls = new Map<string, string>()
+  private readonly pendingToolCalls = new Map<
+    string,
+    {
+      sessionId: string
+      port: McpBrokerPort
+      receipt?: TerminalReceipt
+      completed?: true
+    }
+  >()
   private readonly portSessions = new WeakMap<McpBrokerPort, string>()
   private readonly sessions = new McpSessionRegistry()
   private readonly serializeTaskState = createSerialQueue()
@@ -91,6 +102,8 @@ export class McpServiceWorkerBroker {
         {
           onSnapshot: (snapshot) => this.handleHubSnapshot(snapshot),
           onToolCall: (message) => this.routeToolCall(message),
+          onToolCompletionAck: (message) => this.handleToolCompletionAck(message),
+          onKeepalive: () => this.flushToolCompletions(),
           onDesignTask: (message) => {
             void this.routeDesignTask(message).catch(() => {
               /* Retry on the next session update. */
@@ -516,16 +529,56 @@ export class McpServiceWorkerBroker {
     message: Extract<PageToBridgeMessage, { type: 'mcp.toolResult' }>
   ): void {
     if (this.portSessions.get(port) !== message.sessionId) return
-    const pendingSessionId = this.pendingToolCalls.get(message.callId)
-    if (pendingSessionId !== message.sessionId) {
+    const pending = this.pendingToolCalls.get(message.callId)
+    if (
+      !pending ||
+      pending.sessionId !== message.sessionId ||
+      pending.port !== port ||
+      pending.completed
+    ) {
       return
     }
-    this.pendingToolCalls.delete(message.callId)
+    // Only a page's actual terminal response proves execution ended. A synthetic
+    // port-disconnection error must never become a completion receipt.
+    if (pending.receipt && message.error?.code !== TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED) {
+      pending.completed = true
+    } else {
+      this.pendingToolCalls.delete(message.callId)
+    }
     this.hubClient.sendToolResult(
       message.error !== undefined
         ? { error: message.error, id: message.callId, type: 'toolResult' }
         : { id: message.callId, payload: message.payload, type: 'toolResult' }
     )
+    this.flushToolCompletions()
+  }
+
+  private handleToolCompletionAck(message: ToolCompletionAckMessage): void {
+    const pending = this.pendingToolCalls.get(message.id)
+    if (
+      pending?.completed &&
+      pending.receipt?.generation === message.generation &&
+      pending.receipt.receiptId === message.receiptId
+    )
+      this.pendingToolCalls.delete(message.id)
+  }
+
+  private flushToolCompletions(): void {
+    const snapshot = this.hubClient.getSnapshot()
+    if (snapshot.status !== 'connected') return
+    for (const [id, pending] of this.pendingToolCalls) {
+      if (
+        !pending.completed ||
+        !pending.receipt ||
+        pending.receipt.generation !== snapshot.terminalReceiptGeneration
+      )
+        continue
+      if (this.sessions.get(pending.sessionId)?.port !== pending.port) {
+        this.pendingToolCalls.delete(id)
+        continue
+      }
+      this.hubClient.sendToolCompletion({ type: 'toolCompletion', id, ...pending.receipt })
+    }
   }
 
   private async uploadAsset(port: McpBrokerPort, message: AssetUploadMessage): Promise<void> {
@@ -580,7 +633,10 @@ export class McpServiceWorkerBroker {
 
   private handleHubSnapshot(snapshot: ReturnType<McpBrokerHubClient['getSnapshot']>): void {
     if (snapshot.registeredId !== this.connectedHubId) {
-      this.pendingToolCalls.clear()
+      for (const [id, pending] of this.pendingToolCalls) {
+        if (!pending.receipt || pending.receipt.generation !== snapshot.terminalReceiptGeneration)
+          this.pendingToolCalls.delete(id)
+      }
       if (snapshot.status === 'connected') void this.refreshOpenTabs()
     }
     if (snapshot.registeredId && snapshot.registeredId !== this.connectedHubId) {
@@ -588,9 +644,20 @@ export class McpServiceWorkerBroker {
     }
     this.connectedHubId = snapshot.registeredId
     this.broadcastState()
+    // broadcastState publishes the current inventory first, on the same socket.
+    this.flushToolCompletions()
   }
 
   private routeToolCall(message: ToolCallMessage): void {
+    if (this.pendingToolCalls.has(message.id)) return
+    if (this.pendingToolCalls.size >= 128) {
+      this.sendToolError(
+        message.id,
+        TEMPAD_MCP_ERROR_CODES.EXTENSION_DELIVERY_FAILED,
+        'Too many calls await completion acknowledgment. This call was not delivered to Figma.'
+      )
+      return
+    }
     const activeSession = message.route
       ? this.sessions.get(message.route.sessionId)
       : this.sessions.getActive()
@@ -626,7 +693,14 @@ export class McpServiceWorkerBroker {
 
     try {
       activeSession.port.postMessage(bridgeMessage)
-      this.pendingToolCalls.set(message.id, activeSession.sessionId)
+      this.pendingToolCalls.set(message.id, {
+        sessionId: activeSession.sessionId,
+        port: activeSession.port,
+        ...(message.terminalReceipt?.generation ===
+        this.hubClient.getSnapshot().terminalReceiptGeneration
+          ? { receipt: message.terminalReceipt }
+          : {})
+      })
     } catch {
       this.unregisterSession(
         activeSession.sessionId,
@@ -657,9 +731,10 @@ export class McpServiceWorkerBroker {
   }
 
   private rejectPendingForSession(sessionId: string, message: string): void {
-    for (const [callId, pendingSessionId] of this.pendingToolCalls) {
-      if (pendingSessionId !== sessionId) continue
+    for (const [callId, pending] of this.pendingToolCalls) {
+      if (pending.sessionId !== sessionId) continue
       this.pendingToolCalls.delete(callId)
+      if (pending.completed) continue
       this.sendToolError(callId, TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED, message)
     }
   }

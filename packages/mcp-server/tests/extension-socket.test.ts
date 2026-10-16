@@ -22,6 +22,77 @@ afterEach(async () => {
 })
 
 describe('extension socket lifecycle', () => {
+  it('requires negotiated receipts and allows a failed acknowledgment to be retried', () => {
+    const registry = new ExtensionRegistry(10000)
+    registries.push(registry)
+    const socket = Object.assign(new EventEmitter(), {
+      protocol: TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+      send: vi.fn<(data: string) => void>(),
+      close: vi.fn()
+    })
+    const onToolCompletion = vi.fn().mockReturnValue(true)
+    const onSocketError = vi.fn()
+    attachExtensionSocket(socket as unknown as WebSocket, {
+      createId: () => 'extension',
+      origin: STORE_ORIGIN,
+      registry,
+      terminalReceiptGeneration: 'hub',
+      onToolCompletion,
+      onSocketError,
+      onStateChange: () => {},
+      onToolResult: () => {},
+      onToolError: () => {}
+    })
+    const send = (message: unknown) => socket.emit('message', JSON.stringify(message), false)
+    const hello = {
+      type: 'runtimeHello',
+      protocolVersion: 15,
+      extensionVersion: '1',
+      extensionRuntimeFingerprint: 'a'.repeat(64)
+    }
+    send(hello)
+    const completion = {
+      type: 'toolCompletion',
+      id: 'call',
+      generation: 'hub',
+      receiptId: 'receipt'
+    }
+    send(completion)
+    expect(onToolCompletion).not.toHaveBeenCalled()
+    expect(socket.close).toHaveBeenCalledWith(1008, 'Terminal receipts were not negotiated.')
+    // A separate negotiated connection must survive losing the acknowledgment.
+    const negotiated = Object.assign(new EventEmitter(), {
+      protocol: TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
+      send: vi.fn<(data: string) => void>(),
+      close: vi.fn()
+    })
+    attachExtensionSocket(negotiated as unknown as WebSocket, {
+      createId: () => 'negotiated',
+      origin: STORE_ORIGIN,
+      registry,
+      terminalReceiptGeneration: 'hub',
+      onToolCompletion,
+      onSocketError,
+      onStateChange: () => {},
+      onToolResult: () => {},
+      onToolError: () => {}
+    })
+    negotiated.emit('message', JSON.stringify({ ...hello, terminalReceipts: true }), false)
+    negotiated.send.mockImplementationOnce(() => {
+      throw new Error('ack lost')
+    })
+    expect(() => negotiated.emit('message', JSON.stringify(completion), false)).not.toThrow()
+    expect(onSocketError).toHaveBeenCalledWith(
+      'negotiated',
+      expect.objectContaining({ message: 'ack lost' })
+    )
+    negotiated.emit('message', JSON.stringify(completion), false)
+    expect(JSON.parse(negotiated.send.mock.calls.at(-1)![0])).toEqual({
+      ...completion,
+      type: 'toolCompletionAck',
+      accepted: true
+    })
+  })
   it('requires runtime identity and rejects session IDs already held by another connection', () => {
     const registry = new ExtensionRegistry(10000)
     registries.push(registry)

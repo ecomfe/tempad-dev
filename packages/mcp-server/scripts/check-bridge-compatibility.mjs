@@ -598,12 +598,78 @@ try {
     replacementCount,
     'disconnected tasks cannot fall back to legacy'
   )
+  // Opt in independently of the wire version; previously released peers above
+  // keep their frozen receiving schemas and never receive completion envelopes.
+  const receiptSession = {
+    sessionId: 'receipt-session',
+    fileKey: 'receipt-file',
+    fileName: 'Receipt fixture',
+    pageId: 'receipt-page',
+    tabId: 42,
+    documentId: 'receipt-document',
+    busy: false
+  }
+  const receiptPeer = async () => {
+    const extension = await peer(port, false)
+    assert.equal(typeof extension.frames[0].terminalReceiptGeneration, 'string')
+    send(extension, {
+      type: 'runtimeHello',
+      protocolVersion: TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
+      extensionVersion: '0.23.4',
+      extensionRuntimeFingerprint: 'c'.repeat(64),
+      terminalReceipts: true
+    })
+    send(extension, {
+      type: 'sessions',
+      browserId: 'receipt-browser',
+      activeSessionId: receiptSession.sessionId,
+      sessions: [receiptSession]
+    })
+    await activate(extension)
+    return extension
+  }
+  const originalReceiptPeer = await receiptPeer()
+  const lostWrite = call('apply_canvas', {
+    mode: 'create',
+    markup: '<div class="w-10 h-10"></div>'
+  })
+  await until(() => originalReceiptPeer.calls.length === 1, 'receipt write dispatch')
+  const lostCall = originalReceiptPeer.calls[0]
+  assert.ok(lostCall.terminalReceipt)
+  originalReceiptPeer.socket.close()
+  await once(originalReceiptPeer.socket, 'close')
+  assert.match(JSON.stringify(await lostWrite), /EXTENSION_DISCONNECTED/)
+  const reconnectedReceiptPeer = await receiptPeer()
+  assert.equal(
+    (await call('get_structure')).isError,
+    true,
+    'same-document idle must not release the write'
+  )
+  const completion = { type: 'toolCompletion', id: lostCall.id, ...lostCall.terminalReceipt }
+  send(reconnectedReceiptPeer, completion)
+  await until(
+    () =>
+      reconnectedReceiptPeer.frames.some(
+        (frame) => frame.type === 'toolCompletionAck' && frame.id === lostCall.id && frame.accepted
+      ),
+    'same-Hub receipt acknowledgment'
+  )
+  reconnectedReceiptPeer.respond = () => structure
+  assert.deepEqual((await call('get_structure')).structuredContent, structure)
+  send(reconnectedReceiptPeer, completion)
+  await until(
+    () =>
+      reconnectedReceiptPeer.frames.filter(
+        (frame) => frame.type === 'toolCompletionAck' && frame.id === lostCall.id && frame.accepted
+      ).length === 2,
+    'duplicate receipt acknowledgment'
+  )
   assert.deepEqual(failures, [])
   if (metricSamples.length) {
     process.stdout.write(`Bridge byte samples: ${JSON.stringify(metricSamples)}\n`)
   }
   process.stdout.write(
-    'Bridge compatibility passed: protocol 13 reads/writes/tasks/assets/reconnect, legacy reads/assets/reconnect, upgrade errors, current routing and task fences.\n'
+    'Bridge compatibility passed: protocol 13 reads/writes/tasks/assets/reconnect, legacy reads/assets/reconnect, upgrade errors, current routing/task fences and negotiated terminal receipts.\n'
   )
 } finally {
   for (const peer of peers) peer.socket.terminate()

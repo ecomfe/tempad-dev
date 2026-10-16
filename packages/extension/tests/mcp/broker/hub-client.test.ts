@@ -116,6 +116,68 @@ afterEach(() => {
 })
 
 describe('mcp/broker/hub-client', () => {
+  it('negotiates receipts only when offered and exposes rejected or throwing terminal sends', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', { OPEN: 1 })
+    installHubProbe()
+    const sockets: FakeWebSocket[] = []
+    const onToolCompletionAck = vi.fn()
+    const onKeepalive = vi.fn()
+    const hello: RuntimeHelloMessage = {
+      type: 'runtimeHello',
+      protocolVersion: 15,
+      extensionVersion: '1',
+      extensionRuntimeFingerprint: 'a'.repeat(64)
+    }
+    const client = createClient(sockets, { onToolCompletionAck, onKeepalive }, hello)
+    const result = { id: 'call', type: 'toolResult' as const, payload: {} }
+    const completion = {
+      id: 'call',
+      type: 'toolCompletion' as const,
+      generation: 'hub',
+      receiptId: 'receipt'
+    }
+    expect(client.sendToolResult(result)).toBe(false)
+    client.start()
+    await flushMicrotasks()
+    const socket = sockets[0]!
+    socket.open()
+    socket.receive({
+      type: 'registered',
+      id: 'gateway',
+      protocolVersion: 15,
+      terminalReceiptGeneration: 'hub'
+    })
+    socket.receive(stateMessage())
+    await flushMicrotasks()
+    expect(JSON.parse(socket.sent[0]!)).toEqual({ ...hello, terminalReceipts: true })
+    expect(client.sendToolResult(result)).toBe(true)
+    expect(client.sendToolCompletion(completion)).toBe(true)
+    expect(client.sendToolCompletion({ ...completion, generation: 'old-hub' })).toBe(false)
+    socket.readyState = 2
+    expect(client.sendToolResult(result)).toBe(false)
+    expect(client.sendToolCompletion(completion)).toBe(false)
+    socket.readyState = 1
+    vi.spyOn(socket, 'send').mockImplementation(() => {
+      throw new Error('Socket write failed')
+    })
+    expect(client.sendToolResult(result)).toBe(false)
+    expect(client.sendToolCompletion(completion)).toBe(false)
+    await vi.advanceTimersByTimeAsync(20000)
+    expect(onKeepalive).toHaveBeenCalledOnce()
+    const ack = { ...completion, type: 'toolCompletionAck', accepted: true }
+    socket.receive(ack)
+    expect(onToolCompletionAck).toHaveBeenCalledWith(ack)
+    socket.closeFromRemote()
+    expect(client.getSnapshot().terminalReceiptGeneration).toBe('hub')
+    await vi.advanceTimersByTimeAsync(3000)
+    await flushMicrotasks()
+    completeHandshake(sockets[1]!) // Released Hub: no capability offer.
+    await flushMicrotasks()
+    expect(JSON.parse(sockets[1]!.sent[0]!)).toEqual(hello)
+    expect(client.getSnapshot().terminalReceiptGeneration).toBeUndefined()
+    client.stop()
+  })
   it('aborts a reachable HTTP probe after headers while still opening its WebSocket', async () => {
     vi.stubGlobal('WebSocket', { OPEN: 1 })
     let signal: AbortSignal | undefined

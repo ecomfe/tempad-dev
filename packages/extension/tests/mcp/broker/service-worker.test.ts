@@ -52,6 +52,8 @@ beforeEach(() => {
 
 type Listener<T> = (payload: T) => void
 type BrokerInternals = {
+  handleToolCompletionAck: (message: import('@tempad-dev/shared').ToolCompletionAckMessage) => void
+  flushToolCompletions: () => void
   handleDesignActionResult: (
     sessionId: string,
     result: import('@tempad-dev/shared').DesignActionResult
@@ -71,10 +73,14 @@ function createHubClient(
       assetServerUrl: snapshot.assetServerUrl ?? null,
       errorMessage: snapshot.errorMessage ?? null,
       registeredId: snapshot.registeredId ?? null,
-      status: snapshot.status ?? 'idle'
+      status: snapshot.status ?? 'idle',
+      ...(snapshot.terminalReceiptGeneration
+        ? { terminalReceiptGeneration: snapshot.terminalReceiptGeneration }
+        : {})
     }),
     sendActivate: vi.fn(),
     sendToolResult: vi.fn(),
+    sendToolCompletion: vi.fn(),
     sendSessions: vi.fn(),
     sendDesignAction: vi.fn(),
     start: vi.fn(),
@@ -1452,6 +1458,154 @@ describe('mcp/broker/service-worker', () => {
       })
     )
     expect(hubClient.sendToolResult).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])(
+    'retains a terminal receipt until acknowledgment after send returned %s',
+    async (sent) => {
+      const snapshot = {
+        status: 'connected' as const,
+        registeredId: 'gateway-1',
+        terminalReceiptGeneration: 'hub'
+      }
+      const client = createHubClient(snapshot)
+      vi.mocked(client.sendToolResult).mockReturnValue(sent)
+      const broker = new McpServiceWorkerBroker(client)
+      const internals = broker as unknown as BrokerInternals
+      internals.handleHubSnapshot(client.getSnapshot())
+      const page = createPort('https://www.figma.com/design/abc/File')
+      broker.handlePort(page.port)
+      page.message(pageMessage('mcp.enable'))
+      await vi.waitFor(() => expect(client.start).toHaveBeenCalled())
+      const receipt = { generation: 'hub', receiptId: 'receipt' }
+      const call = {
+        type: 'toolCall' as const,
+        id: 'call',
+        terminalReceipt: receipt,
+        payload: { name: 'apply_canvas', args: {} }
+      }
+      internals.routeToolCall(call)
+      internals.flushToolCompletions()
+      expect(client.sendToolCompletion).not.toHaveBeenCalled() // Still executing.
+      page.message(toolResult('call'))
+      expect(client.sendToolResult).toHaveBeenCalledOnce()
+      expect(client.sendToolCompletion).toHaveBeenCalledWith({
+        type: 'toolCompletion',
+        id: 'call',
+        ...receipt
+      })
+      const beforeReconnect = vi.mocked(client.sendToolCompletion).mock.calls.length
+      snapshot.status = 'connected'
+      snapshot.registeredId = 'gateway-2'
+      internals.handleHubSnapshot(client.getSnapshot())
+      expect(client.sendToolCompletion).toHaveBeenCalledTimes(beforeReconnect + 1)
+      expect(vi.mocked(client.sendSessions).mock.invocationCallOrder.at(-1)).toBeLessThan(
+        vi.mocked(client.sendToolCompletion).mock.invocationCallOrder.at(-1)!
+      )
+      internals.handleToolCompletionAck({
+        type: 'toolCompletionAck',
+        id: 'call',
+        ...receipt,
+        receiptId: 'wrong',
+        accepted: true
+      })
+      internals.flushToolCompletions()
+      expect(client.sendToolCompletion).toHaveBeenCalledTimes(beforeReconnect + 2)
+      internals.handleToolCompletionAck({
+        type: 'toolCompletionAck',
+        id: 'call',
+        ...receipt,
+        accepted: true
+      })
+      internals.flushToolCompletions()
+      expect(client.sendToolCompletion).toHaveBeenCalledTimes(beforeReconnect + 2)
+      expect(client.sendToolResult).toHaveBeenCalledOnce() // No payload/write replay.
+    }
+  )
+
+  it.each(['same-hub', 'new-hub', 'new-page', 'port-disconnect'] as const)(
+    'handles a late page result after %s without replaying the call',
+    async (kind) => {
+      const snapshot: Partial<ReturnType<McpBrokerHubClient['getSnapshot']>> = {
+        status: 'connected',
+        registeredId: 'gateway-1',
+        terminalReceiptGeneration: 'hub'
+      }
+      const client = createHubClient(snapshot)
+      const broker = new McpServiceWorkerBroker(client)
+      const internals = broker as unknown as BrokerInternals
+      internals.handleHubSnapshot(client.getSnapshot())
+      const page = createPort('https://www.figma.com/design/abc/File')
+      broker.handlePort(page.port)
+      page.message(pageMessage('mcp.enable'))
+      await vi.waitFor(() => expect(client.start).toHaveBeenCalled())
+      internals.routeToolCall({
+        type: 'toolCall',
+        id: 'late',
+        terminalReceipt: { generation: 'hub', receiptId: 'receipt' },
+        payload: { name: 'apply_canvas', args: {} }
+      })
+      snapshot.status = 'connecting'
+      snapshot.registeredId = null
+      internals.handleHubSnapshot(client.getSnapshot())
+      if (kind === 'new-page') page.message(pageMessage('mcp.disable'))
+      if (kind === 'port-disconnect') page.disconnect()
+      snapshot.status = 'connected'
+      snapshot.registeredId = 'gateway-2'
+      if (kind === 'new-hub') snapshot.terminalReceiptGeneration = 'new-hub'
+      internals.handleHubSnapshot(client.getSnapshot())
+      page.message(toolResult('late'))
+      expect(client.sendToolCompletion).toHaveBeenCalledTimes(kind === 'same-hub' ? 1 : 0)
+      if (kind === 'port-disconnect')
+        expect(client.sendToolResult).toHaveBeenCalledWith(
+          expect.objectContaining({
+            error: expect.objectContaining({ code: 'EXTENSION_DISCONNECTED' })
+          })
+        )
+      expect(
+        page.postMessage.mock.calls.filter(
+          ([message]) => (message as { type: string }).type === 'mcp.toolCall'
+        )
+      ).toHaveLength(1)
+    }
+  )
+
+  it('rejects excess calls before page dispatch instead of evicting unacknowledged completions', async () => {
+    const client = createHubClient({
+      status: 'connected',
+      registeredId: 'gateway',
+      terminalReceiptGeneration: 'hub'
+    })
+    const broker = new McpServiceWorkerBroker(client)
+    const internals = broker as unknown as BrokerInternals
+    internals.handleHubSnapshot(client.getSnapshot())
+    const page = createPort('https://www.figma.com/design/abc/File')
+    broker.handlePort(page.port)
+    page.message(pageMessage('mcp.enable'))
+    await vi.waitFor(() => expect(client.start).toHaveBeenCalled())
+    for (let index = 0; index < 129; index++) {
+      internals.routeToolCall({
+        type: 'toolCall',
+        id: String(index),
+        terminalReceipt: { generation: 'hub', receiptId: String(index) },
+        payload: { name: 'get_structure', args: {} }
+      })
+    }
+    expect(
+      page.postMessage.mock.calls.filter(
+        ([message]) => (message as { type: string }).type === 'mcp.toolCall'
+      )
+    ).toHaveLength(128)
+    expect(client.sendToolResult).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: '128',
+        error: expect.objectContaining({ code: 'EXTENSION_DELIVERY_FAILED' })
+      })
+    )
+    page.message(toolResult('0'))
+    expect(client.sendToolCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({ id: '0', receiptId: '0' })
+    )
   })
 
   it('ignores tool results from ports that do not own the claimed session', () => {
