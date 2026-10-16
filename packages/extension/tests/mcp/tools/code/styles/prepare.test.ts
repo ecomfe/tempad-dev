@@ -102,6 +102,7 @@ function createCache(): GetCodeCacheContext {
     styles: new Map(),
     paintStyles: new Map(),
     nodeSemantics: new Map(),
+    childOverflow: new WeakMap(),
     vectorAnalysis: new Map()
   }
 }

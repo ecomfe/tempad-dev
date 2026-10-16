@@ -172,9 +172,11 @@ export async function handleGetCode(
   const t = now()
   const fullTimeoutMs = (MCP_GET_CODE_TIMEOUT_MS * 2) / 3
   const startedAt = performance.now()
+  const cache = runtimeOptions.cache ?? createGetCodeCacheContext(undefined, { metrics: measure })
   const tree = buildVisibleTree(
     nodes,
-    runtimeOptions.unbounded ? undefined : createCodeCheckpoint(fullTimeoutMs)
+    runtimeOptions.unbounded ? undefined : createCodeCheckpoint(fullTimeoutMs),
+    cache
   )
   stamp('tree', t)
   const rootId = tree.rootIds[0]
@@ -186,7 +188,6 @@ export async function handleGetCode(
     logger.warn(`[get_code] Tree depth capped at ${depth}; output may be incomplete.`)
   }
 
-  const cache = runtimeOptions.cache ?? createGetCodeCacheContext(undefined, { metrics: measure })
   const tokenContext = (cache.tokens ??= createTokenReadContext(
     currentCodegenConfig(),
     activePlugin.value?.code,

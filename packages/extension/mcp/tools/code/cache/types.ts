@@ -99,6 +99,7 @@ export type GetCodeCacheContext = {
   variables: Map<string, Variable | null>
   styles: Map<string, BaseStyle | null>
   paintStyles: Map<string, PaintStyleSummary | null>
+  childOverflow: WeakMap<SceneNode, { x: boolean; y: boolean }>
   nodeSemantics: Map<string, NodeSemanticSnapshot>
   vectorAnalysis: Map<string, VectorColorModel>
   metrics?: CacheMetrics

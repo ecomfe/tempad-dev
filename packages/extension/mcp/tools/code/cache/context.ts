@@ -40,6 +40,7 @@ export function createGetCodeCacheContext(
     variables: variableCache,
     styles: new Map<string, BaseStyle | null>(),
     paintStyles: new Map<string, PaintStyleSummary | null>(),
+    childOverflow: new WeakMap(),
     nodeSemantics: new Map(),
     vectorAnalysis: new Map(),
     metrics: options?.metrics ? createDefaultMetrics() : undefined
