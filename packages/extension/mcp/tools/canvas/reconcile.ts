@@ -180,7 +180,7 @@ type ApplyState = {
   mutations: MutationCounter
   nodeIdsByKey: Record<string, string>
   pendingGridRemovalCleanupNodeIds: Set<string>
-  protectedNodes: Map<string, ProtectedNodeSnapshot | null>
+  protectedNodes: Map<string, { node: BaseNode; snapshot?: ProtectedNodeSnapshot }>
   removalNodeIds: Set<string>
   referencedNodeIds: Set<string>
   scope: SupportedCanvasNode | null
@@ -188,6 +188,7 @@ type ApplyState = {
   stabilizedCrossAxisFillNodeIds: Set<string>
   styles: CanvasStyleState
   updatedNodeIds: Set<string>
+  undoStarted: boolean
   variables: CanvasVariableState
 }
 
@@ -362,13 +363,13 @@ function snapshotProtectedNode(node: BaseNode): ProtectedNodeSnapshot {
   }
 }
 
-function protectNode(state: ApplyState, node: BaseNode, snapshot = true): void {
+function protectNode(state: ApplyState, node: BaseNode): void {
   if (state.createdNodeIds.has(node.id) || state.createdPageIds.has(node.id)) return
-  if (snapshot && !state.protectedNodes.get(node.id)) {
-    state.protectedNodes.set(node.id, snapshotProtectedNode(node))
-  } else if (!state.protectedNodes.has(node.id)) {
-    state.protectedNodes.set(node.id, null)
-  }
+  if (state.protectedNodes.has(node.id)) return
+  state.protectedNodes.set(node.id, {
+    node,
+    ...(state.undoStarted ? { snapshot: snapshotProtectedNode(node) } : {})
+  })
 }
 
 function topLevelPageChild(node: BaseNode, page: PageNode): BaseNode | null {
@@ -5397,12 +5398,16 @@ async function applyNodeProperties(
   }
 }
 
+const errorsWithNodeContext = new WeakSet<Error>()
+
 function throwNodeError(error: unknown, key: string, nodeId?: string): never {
   const readOnly = canvasReadOnlyError(error)
   if (readOnly) throw readOnly
   const failure =
     error instanceof Error ? error : new Error(errorMessage(error, 'Native mutation failed.'))
-  failure.message = `${failure.message} on "${key}"${nodeId ? ` (${nodeId})` : ''}.`
+  if (errorsWithNodeContext.has(failure)) throw failure
+  failure.message = `${failure.message.replace(/\.$/, '')} on "${key}"${nodeId ? ` (${nodeId})` : ''}.`
+  errorsWithNodeContext.add(failure)
   throw failure
 }
 
@@ -6228,9 +6233,10 @@ function createApplyState(
     stabilizedCrossAxisFillNodeIds: new Set(),
     styles: createStyleState(),
     updatedNodeIds: new Set(),
+    undoStarted: false,
     variables: createVariableState()
   }
-  if (target) protectNode(state, target, false)
+  if (target) protectNode(state, target)
   return state
 }
 
@@ -7383,7 +7389,7 @@ async function verifyRollbackProtectedNodes(state: ApplyState): Promise<void> {
   const protectedEntries = [...state.protectedNodes]
   const protectedIds = protectedEntries.map(([id]) => id)
   const nodes = await Promise.all(
-    protectedEntries.map(([id, snapshot]) =>
+    protectedEntries.map(([id, { snapshot }]) =>
       snapshot?.type === 'PAGE' ? (pageById(id) ?? null) : lookupNodeById(id)
     )
   )
@@ -7397,7 +7403,7 @@ async function verifyRollbackProtectedNodes(state: ApplyState): Promise<void> {
   }
 
   const changed = protectedEntries
-    .filter(([, expected], index) => {
+    .filter(([, { snapshot: expected }], index) => {
       const node = nodes[index]
       return expected && node && !nativeValueEqual(snapshotProtectedNode(node), expected)
     })
@@ -7455,6 +7461,12 @@ async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): 
       for (const node of walkAuthoringNodes([state.scope])) protectNode(state, node)
       protectUnrelatedPageRoots(state, containingPage(state.scope))
     }
+    // Preflight can yield for media/fonts while the user edits referenced nodes.
+    // Freeze their baseline only when this attempt is about to start writing.
+    for (const protectedNode of state.protectedNodes.values()) {
+      protectedNode.snapshot = snapshotProtectedNode(protectedNode.node)
+    }
+    state.undoStarted = true
     figma.commitUndo()
     const result = await apply()
     figma.commitUndo()
@@ -7475,10 +7487,10 @@ async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): 
         await verifyRollbackProtectedNodes(state)
       } catch (rollbackError) {
         const rollbackMessage = errorMessage(rollbackError)
-        const detail = rollbackMessage ? ` ${rollbackMessage}.` : ''
+        const detail = rollbackMessage ? ` ${rollbackMessage.replace(/\.$/, '')}.` : ''
         const failure = createCodedError(
           TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
-          `Canvas apply failed: ${errorMessage(error, 'Unknown apply error')}; automatic rollback was not available.${detail} Stop writing and ask the user to inspect the canvas or use Figma Undo.`
+          `Canvas apply failed: ${errorMessage(error, 'Unknown apply error').replace(/\.$/, '')}; automatic rollback was not available.${detail} Stop writing and ask the user to inspect the canvas or use Figma Undo.`
         )
         failure.cause = error
         throw failure

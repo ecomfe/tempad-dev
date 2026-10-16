@@ -46,6 +46,138 @@ const changes: Array<{
 ]
 
 describe('canvas rollback verification', () => {
+  it.each([false, true])(
+    'adds only the innermost context to a nested native failure (non-Error=%s)',
+    async (nonError) => {
+      const fixture = createFixture()
+      const cause = new Error('native cause')
+      const failure = Object.assign(new Error('paint unavailable.', { cause }), {
+        code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+      })
+      vi.mocked(figma.util.solidPaint).mockImplementationOnce(() => {
+        throw nonError ? 'paint unavailable.' : failure
+      })
+      const error = await applyCanvas({
+        mode: 'create',
+        markup:
+          '<div data-key="root" class="w-80 h-40"><div data-key="outer" class="absolute left-0 top-0 w-fit h-fit"><div data-key="inner" class="absolute left-0 top-0 w-fit h-fit"><div data-key="child" class="absolute left-0 top-0 w-20 h-10 bg-[#112233]"/></div></div></div>',
+        bindings: { outer: { figma: { group: true } }, inner: { figma: { group: true } } }
+      }).catch((error: unknown) => error)
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toMatch(/^paint unavailable on "child" \(node:\d+\)\.$/)
+      if (!nonError) {
+        expect(error).toBe(failure)
+        expect(failure.cause).toBe(cause)
+        expect(failure.code).toBe(TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC)
+      }
+      expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    }
+  )
+
+  it('joins a node failure and rollback failure without repeated punctuation', async () => {
+    const fixture = createFixture()
+    fixture.triggerUndo.mockImplementationOnce(() => {
+      throw new Error('Undo unavailable.')
+    })
+    vi.mocked(figma.util.solidPaint).mockImplementationOnce(() => {
+      throw new Error('paint unavailable.')
+    })
+    const error = await applyCanvas({
+      mode: 'create',
+      markup: '<div data-key="root" class="w-20 h-10 bg-[#112233]"/>'
+    }).catch((error: unknown) => error)
+    expect(error).toMatchObject({
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      cause: expect.objectContaining({
+        message: expect.stringMatching(/^paint unavailable on "root"/)
+      })
+    })
+    expect((error as Error).message).toMatch(/on "root" \(node:\d+\); automatic rollback/)
+    expect((error as Error).message).toContain('Undo unavailable. Stop writing')
+  })
+
+  it.each(
+    (['component', 'hyperlink', 'pattern'] as const).flatMap((reference) =>
+      [false, true].map((corruptUndo) => ({ reference, corruptUndo }))
+    )
+  )(
+    'snapshots an outside-scope $reference after preparation and detects corruption=$corruptUndo',
+    async ({ reference, corruptUndo }) => {
+      const fixture = createFixture()
+      const otherPage = figma.createPage()
+      const referenced = reference === 'component' ? figma.createComponent() : figma.createFrame()
+      otherPage.appendChild(referenced)
+      referenced.name = 'Before user edit'
+      const bindings: Record<string, CanvasBinding> = {
+        wait: { figma: { text: { fontName: { family: 'Roboto', style: 'Regular' } } } }
+      }
+      let referenceMarkup = ''
+      if (reference === 'component') {
+        bindings.reference = { component: { id: referenced.id } }
+        referenceMarkup = '<div data-key="reference" class="w-20 h-10"/>'
+      } else if (reference === 'hyperlink') {
+        bindings.reference = {
+          figma: { text: { hyperlink: { type: 'NODE', value: referenced.id } } }
+        }
+        referenceMarkup = '<span data-key="reference" class="w-fit h-fit">Link</span>'
+      } else {
+        bindings.root = {
+          figma: {
+            fills: [
+              {
+                type: 'PATTERN',
+                sourceNodeId: referenced.id,
+                tileType: 'RECTANGULAR',
+                scalingFactor: 1,
+                spacing: { x: 0, y: 0 },
+                horizontalAlignment: 'CENTER'
+              }
+            ]
+          }
+        }
+      }
+      const requested = Promise.withResolvers<void>()
+      const ready = Promise.withResolvers<void>()
+      fixture.loadFontAsync.mockImplementation(async (font: FontName) => {
+        if (font.family !== 'Roboto') return
+        requested.resolve()
+        await ready.promise
+      })
+      fixture.triggerUndo.mockImplementationOnce(() => {
+        if (corruptUndo) referenced.name = 'Undo corruption'
+      })
+      vi.mocked(figma.util.solidPaint).mockImplementationOnce(() => {
+        throw new Error('paint unavailable')
+      })
+      const pending = applyCanvas({
+        mode: 'create',
+        markup: `<div data-key="root" class="flex flex-col w-80 h-40">${referenceMarkup}<span data-key="wait" class="w-fit h-fit">Wait</span><div data-key="failure" class="w-20 h-10 bg-[#112233]"/></div>`,
+        bindings
+      })
+      void pending.catch(() => undefined)
+      let error: unknown
+      try {
+        await Promise.race([requested.promise, pending])
+        expect(fixture.commitUndo).not.toHaveBeenCalled()
+        referenced.name = 'User edit before request writes'
+      } finally {
+        ready.resolve()
+        error = await pending.catch((error: unknown) => error)
+      }
+      expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toContain('paint unavailable')
+      if (corruptUndo) {
+        expect((error as Error).message).toContain(
+          `Rollback changed pre-existing node ${referenced.id}`
+        )
+      } else {
+        expect(referenced.name).toBe('User edit before request writes')
+        expect((error as Error).message).not.toContain('automatic rollback was not available')
+      }
+    }
+  )
+
   it.each(['background', 'guides', 'mode', 'ownership', 'order'] as const)(
     'reports retained page %s after incomplete Undo',
     async (field) => {
