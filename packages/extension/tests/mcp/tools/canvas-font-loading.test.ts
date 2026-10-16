@@ -52,6 +52,67 @@ afterEach(() => {
 })
 
 describe('mcp/tools/canvas font loading', () => {
+  it('shares collection reads across text consumers and the two mode preloading passes', async () => {
+    const fixture = createFixture()
+    const changed = figma.variables.createVariableCollection('Changed')
+    const alternate = changed.addMode('Alternate')
+    const unchanged = figma.variables.createVariableCollection('Unchanged')
+    const size = figma.variables.createVariable('Size', unchanged, 'FLOAT')
+    size.setValueForMode(unchanged.defaultModeId, 16)
+    for (let index = 0; index < 50; index++) {
+      const label = figma.createText()
+      label.characters = 'Unaffected'
+      label.setBoundVariable('fontSize', size)
+    }
+    const readCollection = vi.mocked(figma.variables.getVariableCollectionByIdAsync)
+    for (const mode of [alternate, changed.defaultModeId]) {
+      readCollection.mockClear()
+      await applyCanvasFromTool({
+        mode: 'update',
+        page: { id: fixture.page.id, variableModes: { [changed.id]: mode } }
+      })
+      expect(fixture.page.explicitVariableModes[changed.id]).toBe(mode)
+      expect(readCollection.mock.calls.filter(([id]) => id === changed.id)).toHaveLength(1)
+      expect(readCollection.mock.calls.filter(([id]) => id === unchanged.id)).toHaveLength(1)
+    }
+    expect(fixture.loadFontAsync).not.toHaveBeenCalled()
+  })
+
+  it.each(['variable', 'collection'] as const)(
+    'fails safely with text dependency context when a metric %s is unavailable',
+    async (missing) => {
+      const fixture = createFixture()
+      const changed = figma.variables.createVariableCollection('Changed')
+      const alternate = changed.addMode('Alternate')
+      const metrics = figma.variables.createVariableCollection('Metrics')
+      const size = figma.variables.createVariable('Size', metrics, 'FLOAT')
+      size.setValueForMode(metrics.defaultModeId, 16)
+      const label = figma.createText()
+      label.characters = 'Unresolved dependency'
+      label.setBoundVariable('fontSize', size)
+      if (missing === 'variable') {
+        size.setValueForMode(metrics.defaultModeId, { type: 'VARIABLE_ALIAS', id: 'missing' })
+      } else fixture.variableCollections.delete(metrics.id)
+
+      await expect(
+        applyCanvasFromTool({
+          mode: 'update',
+          page: { id: fixture.page.id, variableModes: { [changed.id]: alternate } }
+        })
+      ).rejects.toMatchObject({
+        code:
+          missing === 'variable'
+            ? TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC
+            : TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE,
+        message: expect.stringContaining(
+          `Cannot resolve text variable dependency "fontSize" on "${label.id}"`
+        )
+      })
+      expect(fixture.page.explicitVariableModes[changed.id]).toBeUndefined()
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+    }
+  )
+
   it.each(['unbound', 'unbound style', 'other collection', 'overridden mode'] as const)(
     'does not load a missing font on %s text during a page mode change',
     async (binding) => {

@@ -4810,6 +4810,18 @@ const TEXT_MODE_FONT_FIELDS = [
   ...Object.values(TEXT_STYLE_VARIABLES_BY_VALUE).flat()
 ] as const
 
+async function modeFontCollection(
+  id: string,
+  state: ApplyState
+): Promise<VariableCollection | null> {
+  const key = `id:${id}`
+  const cached = state.variables.collectionCache.get(key)
+  if (cached) return cached
+  const collection = await getVariableCollectionById(id)
+  if (collection) state.variables.collectionCache.set(key, collection)
+  return collection
+}
+
 async function modeFontVariableValues(
   variable: Variable,
   consumer: TextNode,
@@ -4821,14 +4833,14 @@ async function modeFontVariableValues(
   seen = new Set<string>()
 ): Promise<FontModeValues> {
   if (seen.has(variable.id) || seen.size >= 64) {
-    specError('Font variable aliases contain a cycle or exceed 64 levels.')
+    specError('Text variable aliases contain a cycle or exceed 64 levels.')
   }
   const cached = cache.get(variable.id)
   if (cached) return cached
   const active = new Set(seen).add(variable.id)
-  const base = await getVariableCollectionById(variable.variableCollectionId)
+  const base = await modeFontCollection(variable.variableCollectionId, state)
   if (!base)
-    scopeError(`Font variable collection "${variable.variableCollectionId}" is unavailable.`)
+    scopeError(`Text variable collection "${variable.variableCollectionId}" is unavailable.`)
   const related = new Map<string, VariableCollection>([[base.id, base]])
   const ancestors: BaseNode[] = []
   const candidateIds = new Set([
@@ -4843,7 +4855,7 @@ async function modeFontVariableValues(
   }
   for (const id of candidateIds) {
     if (related.has(id)) continue
-    const collection = await getVariableCollectionById(id)
+    const collection = await modeFontCollection(id, state)
     if (collection?.isExtension && collection.variableIds.includes(variable.id))
       related.set(id, collection)
   }
@@ -4880,7 +4892,7 @@ async function modeFontVariableValues(
     const modeValues = modes.length ? modes.map((mode) => values[mode]) : Object.values(values)
     for (const value of modeValues) {
       if (value === undefined)
-        scopeError(`Font variable "${variable.id}" has no value for the selected mode.`)
+        scopeError(`Text variable "${variable.id}" has no value for the selected mode.`)
       if (typeof value === 'object' && 'type' in value && value.type === 'VARIABLE_ALIAS') {
         const alias = await modeFontVariableValues(
           await resolveVariable({ id: value.id }, state.variables),
@@ -4931,18 +4943,24 @@ async function loadModeFonts(
         const reference = bindings[field]
         // Mixed node bindings are arrays; segment aliases identify the actual run.
         if (!reference || Array.isArray(reference)) continue
-        values.set(
-          field,
-          await modeFontVariableValues(
-            await resolveVariable({ id: reference.id }, state.variables),
-            node,
-            target,
-            collectionId,
-            modeId,
-            state,
-            cache
+        try {
+          values.set(
+            field,
+            await modeFontVariableValues(
+              await resolveVariable({ id: reference.id }, state.variables),
+              node,
+              target,
+              collectionId,
+              modeId,
+              state,
+              cache
+            )
           )
-        )
+        } catch (error) {
+          const failure = error instanceof Error ? error : new Error(errorMessage(error))
+          failure.message = `Cannot resolve text variable dependency "${field}" on "${node.id}": ${failure.message}`
+          throw failure
+        }
       }
       if (![...values.values()].some((value) => value.affected)) continue
       await loadFonts(currentTextFonts(node), state.fonts)
