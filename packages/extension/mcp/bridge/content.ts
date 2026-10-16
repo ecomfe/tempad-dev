@@ -316,6 +316,10 @@ export function startMcpContentBridge(): () => void {
     port = null
     try {
       runtimeMessages.removeListener(handlePermissionChange)
+    } catch {
+      // A stale listener must not prevent disconnecting its port.
+    }
+    try {
       previousPort?.disconnect()
     } catch {
       // Invalidated contexts may reject disconnect as well as messaging.
