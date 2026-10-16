@@ -1,5 +1,5 @@
-import { afterEach, expect, it, vi } from 'vitest'
-import { computed, nextTick, ref, watch } from 'vue'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { computed, nextTick, ref, watch, type Ref } from 'vue'
 
 vi.mock('@/composables', async () => {
   const { ref } = await import('vue')
@@ -46,18 +46,32 @@ import { layoutReady, options, runtimeMode } from '@/ui/state'
 
 import { mount, unmountAll } from './mount'
 
-afterEach(() => {
-  unmountAll()
-  vi.unstubAllGlobals()
-})
+// The fixture uses writable refs for the two production computed values.
+const selfActive = useMcp().selfActive as Ref<boolean>
+const needsLocalHostPermission = useMcp().needsLocalHostPermission as Ref<boolean>
 
-it('shows recovery guidance on the connecting badge and clears it after reconnecting', async () => {
+beforeEach(() => {
   vi.stubGlobal('computed', computed)
   vi.stubGlobal('ref', ref)
   vi.stubGlobal('watch', watch)
   layoutReady.value = true
   runtimeMode.value = 'standard'
   options.value.mcpOn = true
+  const mcp = useMcp()
+  mcp.status.value = 'connecting'
+  selfActive.value = false
+  mcp.count.value = 1
+  mcp.errorMessage.value = null
+  needsLocalHostPermission.value = false
+})
+
+afterEach(() => {
+  unmountAll()
+  vi.clearAllMocks()
+  vi.unstubAllGlobals()
+})
+
+it('shows recovery guidance on the connecting badge and clears it after reconnecting', async () => {
   const mcp = useMcp()
   const host = mount(App)
   const badge = host.querySelector<HTMLButtonElement>('.tp-mcp-badge')!
@@ -77,5 +91,33 @@ it('shows recovery guidance on the connecting badge and clears it after reconnec
   await nextTick()
   expect(badge.dataset.tooltip).toBe('Inactive\nClick to activate')
   badge.click()
+  expect(mcp.activate).toHaveBeenCalledOnce()
+})
+
+it('explains an unavailable selected tab while keeping manual activation available', async () => {
+  const mcp = useMcp()
+  mcp.status.value = 'connected'
+  mcp.errorMessage.value = 'The selected Figma tab is unavailable.'
+  const host = mount(App)
+  const badge = host.querySelector<HTMLButtonElement>('.tp-mcp-badge')!
+  expect(badge.dataset.tooltip).toBe(
+    'Inactive\nThe selected Figma tab is unavailable.\nClick to activate'
+  )
+  badge.click()
+  expect(mcp.activate).toHaveBeenCalledOnce()
+
+  mcp.errorMessage.value = null
+  mcp.count.value = 2
+  await nextTick()
+  expect(badge.dataset.tooltip).toBe('Inactive • 2 files\nClick to activate')
+  selfActive.value = true
+  await nextTick()
+  expect(badge.dataset.tooltip).toBe('Active • 2 files')
+
+  needsLocalHostPermission.value = true
+  await nextTick()
+  expect(badge.dataset.tooltip).toBe('Local host permission is required. Click to grant access.')
+  badge.click()
+  expect(mcp.requestLocalHostPermission).toHaveBeenCalledOnce()
   expect(mcp.activate).toHaveBeenCalledOnce()
 })

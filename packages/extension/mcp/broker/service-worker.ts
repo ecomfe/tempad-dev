@@ -736,13 +736,16 @@ export class McpServiceWorkerBroker {
     const snapshot = this.hubClient.getSnapshot()
     const brokerIsActive =
       snapshot.registeredId !== null && snapshot.activeId === snapshot.registeredId
+    const selectedTabUnavailable =
+      this.selection != null && !this.sessions.get(this.selection.sessionId)
     const commonState = {
       activeSessionId: brokerIsActive ? this.sessions.getActiveId() : null,
       gatewayId: snapshot.registeredId,
       assetServerUrl: snapshot.assetServerUrl,
       errorMessage: this.permissionMissing
         ? MCP_LOCAL_HOST_PERMISSION_ERROR
-        : snapshot.errorMessage,
+        : (snapshot.errorMessage ??
+          (selectedTabUnavailable ? 'The selected Figma tab is unavailable.' : null)),
       sessionCount: this.sessions.size,
       status: this.permissionMissing
         ? 'connecting'

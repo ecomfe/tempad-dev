@@ -1109,14 +1109,36 @@ describe('mcp/broker/service-worker', () => {
         .mocked(client.sendSessions)
         .mock.calls.every(([snapshot]) => snapshot.activeSessionId === null)
     ).toBe(true)
+    ;(broker as unknown as BrokerInternals).handleHubSnapshot(client.getSnapshot())
+    expect(ports[0]!.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: 'mcp.state',
+        payload: expect.objectContaining({
+          sessionId: 'tab-a',
+          activeSessionId: null,
+          errorMessage: 'The selected Figma tab is unavailable.'
+        })
+      })
+    )
+    expect(JSON.stringify(ports[0]!.postMessage.mock.lastCall)).not.toContain('tab-b')
     enable(1)
     expect(client.sendSessions).toHaveBeenLastCalledWith(
       expect.objectContaining({ activeSessionId: 'tab-b' })
+    )
+    expect(ports[0]!.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ errorMessage: null }) })
     )
     ports[1]!.disconnect()
     await vi.waitFor(() => expect(query).toHaveBeenCalled())
     expect(client.sendSessions).toHaveBeenLastCalledWith(
       expect.objectContaining({ activeSessionId: null })
+    )
+    expect(ports[0]!.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          errorMessage: 'The selected Figma tab is unavailable.'
+        })
+      })
     )
     query.mockResolvedValue([{ id: 1 }])
     ;(broker as unknown as BrokerInternals).handleHubSnapshot({
@@ -1128,7 +1150,37 @@ describe('mcp/broker/service-worker', () => {
         expect.objectContaining({ activeSessionId: 'tab-a' })
       )
     )
+    expect(ports[0]!.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ errorMessage: null }) })
+    )
   })
+
+  it.each([null, 'Hub connection lost.'])(
+    'clears unavailable-tab guidance on explicit takeover without replacing Hub errors: %s',
+    async (errorMessage) => {
+      const f = designBroker()
+      await vi.waitFor(() => expect(f.client.start).toHaveBeenCalled())
+      vi.spyOn(f.client, 'getSnapshot').mockReturnValue({
+        ...f.client.getSnapshot(),
+        errorMessage
+      })
+      f.b.disconnect()
+      expect(f.a.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            activeSessionId: null,
+            errorMessage: errorMessage ?? 'The selected Figma tab is unavailable.'
+          })
+        })
+      )
+      f.a.message(pageMessage('mcp.activateSession', 'tab-a'))
+      expect(f.a.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ activeSessionId: 'tab-a', errorMessage })
+        })
+      )
+    }
+  )
 
   it.each([
     { tabId: 3, documentId: 'document-tab-b', fileKey: 'file-b' },
