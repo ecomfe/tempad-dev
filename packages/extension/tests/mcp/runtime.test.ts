@@ -66,6 +66,7 @@ afterEach(() => {
   mocks.selection.value = []
   vi.clearAllMocks()
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 describe('mcp/runtime', () => {
@@ -106,6 +107,21 @@ describe('mcp/runtime', () => {
 
     expect(tools).toEqual(runtime.WINDOW_TEMPAD_TOOL_HANDLERS)
   })
+
+  it.each([undefined, { existing: true }])(
+    'does not expose or alter window debug tools in production',
+    async (existing) => {
+      vi.stubEnv('DEV', false)
+      const page = existing ? { tempadTools: existing } : {}
+      vi.stubGlobal('window', page)
+      setFigmaGetNodeById(null)
+
+      await importRuntime()
+
+      expect(page).toEqual(existing ? { tempadTools: existing } : {})
+      expect((page as { tempadTools?: unknown }).tempadTools).toBe(existing)
+    }
+  )
 
   it('routes get_code to tool implementation with resolved node and options', async () => {
     const node = createSceneNode('node-1')
