@@ -527,7 +527,12 @@ export async function startHub(): Promise<void> {
     switch (args.action) {
       case 'begin':
         return handleBeginDesign(
-          { title: args.title!, requestId: args.requestId!, sessionId: args.sessionId },
+          {
+            title: args.title!,
+            requestId: args.requestId!,
+            sessionId: args.sessionId,
+            recoveryGeneration: args.recoveryGeneration
+          },
           ownerId,
           signal
         )
@@ -552,7 +557,7 @@ export async function startHub(): Promise<void> {
     ownerId: string,
     signal: AbortSignal
   ): Promise<ToolResponse> {
-    let record = designTasks.retry(ownerId, args.requestId)
+    let record = designTasks.retry(ownerId, args.requestId, args.recoveryGeneration)
     if (record) {
       if (
         record.task.title !== args.title ||
@@ -583,7 +588,8 @@ export async function startHub(): Promise<void> {
       capabilities,
       extension.sessions
         ? { browserId: extension.sessions.browserId, origin: extension.origin }
-        : undefined
+        : undefined,
+      args.recoveryGeneration
     )
     const task = record.task
     const binding = bindDesignTask(record, extension, session)

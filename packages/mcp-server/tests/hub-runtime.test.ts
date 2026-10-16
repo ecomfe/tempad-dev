@@ -558,6 +558,65 @@ describe('Hub runtime module', () => {
     }
   )
 
+  it('requires a recovered generation acknowledgment through the public begin tool', async () => {
+    const generation = '00000000-0000-4000-8000-000000000001'
+    mkdirSync(`${fixture.directory}/state`, { recursive: true })
+    writeFileSync(
+      `${fixture.directory}/state/design-tasks.json`,
+      JSON.stringify({
+        revision: 0,
+        current: {},
+        records: [{ recoveryGeneration: generation }]
+      })
+    )
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const consumer = await connectConsumer()
+    const args = {
+      action: 'begin',
+      title: 'Fresh after recovery',
+      requestId: '00000000-0000-4000-8000-000000000002'
+    }
+    const send = (id: number, arguments_: object) =>
+      consumer.send({
+        id,
+        method: 'tools/call',
+        params: { name: 'manage_design_task', arguments: arguments_ }
+      })
+    send(1, args)
+    expect(await consumer.reply(1)).toMatchObject({
+      result: { isError: true, content: [{ text: expect.stringContaining(generation) }] }
+    })
+    expect(extension.calls).toHaveLength(0)
+    const fresh = {
+      ...args,
+      requestId: '00000000-0000-4000-8000-000000000003',
+      recoveryGeneration: generation
+    }
+    send(2, fresh)
+    await vi.waitFor(() => expect(extension.calls.length || consumer.replies.has(2)).toBeTruthy(), {
+      interval: 1
+    })
+    expect(extension.calls).toHaveLength(1)
+    const binding = extension.calls[0]!
+    expect(binding.payload.args).toMatchObject({ status: 'active', needsRead: true })
+    extension.send({ type: 'toolResult', id: binding.id, payload: binding.payload.args })
+    expect((await consumer.reply(2)).result?.isError).not.toBe(true)
+    for (const [id, recoveryGeneration] of [
+      [3, undefined],
+      [4, '00000000-0000-4000-8000-000000000004']
+    ] as const) {
+      send(id, { ...fresh, recoveryGeneration })
+      expect(await consumer.reply(id)).toMatchObject({
+        result: { isError: true, content: [{ text: expect.stringContaining(generation) }] }
+      })
+    }
+    send(5, fresh)
+    expect((await consumer.reply(5)).result).toEqual((await consumer.reply(2)).result)
+    expect(extension.calls).toHaveLength(1)
+  })
+
   it('distinguishes begin content conflicts without changing the original task or its Stop fence', async () => {
     const { startHub } = await loadRuntime()
     await startHub()

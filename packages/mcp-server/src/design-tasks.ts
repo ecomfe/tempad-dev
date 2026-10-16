@@ -126,6 +126,7 @@ export class DesignTasks {
   private readonly now: () => number
   private readonly leaseMs: number
   private revision = 0
+  private recoveryGeneration?: string
   private persistenceError?: unknown
 
   constructor(private readonly options: Options) {
@@ -133,7 +134,16 @@ export class DesignTasks {
     this.leaseMs = options.leaseMs ?? MCP_DESIGN_TASK_LEASE_MS
   }
 
-  retry(ownerId: string, requestId: string): DesignTaskRecord | undefined {
+  retry(
+    ownerId: string,
+    requestId: string,
+    recoveryGeneration?: string
+  ): DesignTaskRecord | undefined {
+    if (this.recoveryGeneration && recoveryGeneration !== this.recoveryGeneration)
+      fail(
+        'DESIGN_TASK_INACTIVE',
+        `Task storage was recovered; old tasks cannot resume. Explicitly begin a fresh task with recoveryGeneration "${this.recoveryGeneration}" and a fresh requestId, then reread its target before writing.`
+      )
     this.sweep()
     if (this.expiredRequests.get(ownerId)?.has(requestId))
       fail(
@@ -153,10 +163,11 @@ export class DesignTasks {
     requestId: string,
     client?: AgentClient,
     capabilities?: AgentCapabilities,
-    browser?: BrowserIdentity
+    browser?: BrowserIdentity,
+    recoveryGeneration?: string
   ): DesignTaskRecord {
     this.assertStorageWritable(session.fileKey)
-    const retry = this.retry(ownerId, requestId)
+    const retry = this.retry(ownerId, requestId, recoveryGeneration)
     if (retry) {
       if (retry.task.title !== title) {
         fail('REQUEST_ID_CONFLICT', 'This begin requestId was already used with another title.')
@@ -181,6 +192,7 @@ export class DesignTasks {
         target,
         status: 'active',
         epoch: 0,
+        ...(this.recoveryGeneration ? { needsRead: true } : {}),
         ...(client ? { client } : {}),
         ...(capabilities ? { capabilities } : {}),
         operation: null,
@@ -376,7 +388,7 @@ export class DesignTasks {
     if (write && record?.task.needsRead) {
       fail(
         'DESIGN_TASK_INACTIVE',
-        'Read the bound canvas with get_structure or get_code after resuming before writing.'
+        'Read the bound canvas with get_structure or get_code before writing.'
       )
     }
     const occupant = this.occupant(session.fileKey)
@@ -384,12 +396,18 @@ export class DesignTasks {
     if (
       write &&
       !taskId &&
-      (this.fileFences.get(session.fileKey) ||
+      (this.recoveryGeneration ||
+        this.fileFences.get(session.fileKey) ||
         [...this.records.values()].some(
           ({ task }) => task.target.fileKey === session.fileKey && task.status === 'cancelled'
         ))
     )
-      fail('DESIGN_TASK_INACTIVE', 'This file has a stopped task. Begin a new task before writing.')
+      fail(
+        'DESIGN_TASK_INACTIVE',
+        this.recoveryGeneration
+          ? 'Task storage was recovered. Begin a new task before writing.'
+          : 'This file has a stopped task. Begin a new task before writing.'
+      )
   }
 
   startOperation(
@@ -678,6 +696,7 @@ export class DesignTasks {
     const snapshot = this.options.store?.load()
     if (!snapshot) return
     this.revision = snapshot.revision
+    this.recoveryGeneration = snapshot.recoveryGeneration
     for (const [fileKey, stopped] of Object.entries(snapshot.fileFences ?? {}))
       this.fileFences.set(fileKey, stopped)
     for (const saved of snapshot.records) {
@@ -724,7 +743,12 @@ export class DesignTasks {
       return
     if (!record) {
       // Migrate a tab saved before durable Hub records existed. Never replace a newer task.
-      if (this.current(session.fileKey) || this.fileFences.has(session.fileKey)) return
+      if (
+        this.recoveryGeneration ||
+        this.current(session.fileKey) ||
+        this.fileFences.has(session.fileKey)
+      )
+        return
       record = {
         task: {
           ...saved,
@@ -818,6 +842,7 @@ export class DesignTasks {
     if (!this.options.store) return
     const snapshot: DesignTaskSnapshot = {
       revision: this.revision,
+      ...(this.recoveryGeneration ? { recoveryGeneration: this.recoveryGeneration } : {}),
       current: Object.fromEntries(this.currentTaskIds),
       ...(this.fileFences.size ? { fileFences: Object.fromEntries(this.fileFences) } : {}),
       records: [...this.records.values()].map(

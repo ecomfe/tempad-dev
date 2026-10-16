@@ -24,7 +24,8 @@ import {
   RUNTIME_DIR,
   SOCK_PATH,
   ensureDir,
-  assertTrustedSocket
+  assertTrustedSocket,
+  resolveStateDir
 } from './shared'
 
 let activeSocket: Socket | null = null
@@ -262,6 +263,24 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
 }
 
 async function main() {
+  if (process.argv.includes('--recover-task-storage')) {
+    try {
+      if (process.argv.length !== 3)
+        throw new Error('Use --recover-task-storage without other arguments.')
+      const { recoverDesignTaskStorage } = await import('./task-storage-recovery')
+      const result = await recoverDesignTaskStorage(resolveStateDir())
+      process.stdout.write(
+        `Task storage recovered. Old tasks remain retired; begin a fresh task to write.\nOriginal files: ${result.backupDirectory}\n`
+      )
+    } catch (error) {
+      process.stderr.write(
+        `Task storage recovery failed: ${error instanceof Error ? error.message : String(error)}\n`
+      )
+      process.exitCode = 1
+    }
+    process.stdin.destroy()
+    return
+  }
   log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Client starting...')
   // A killed Hub can leave valid lock leases behind. Allow their full stale
   // interval and a further startup attempt without weakening lock ownership.

@@ -59,12 +59,11 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 - 工具响应共用 `64 KiB` 的 inline budget，按 `CallToolResult` 整体响应体积计算。若选区过大而超出 `get_code` 的预算，TemPad Dev 可能返回 shell response 而不是直接失败。shell 会保留当前节点的包裹结构，并在内联代码注释中列出被省略的直接子节点 id，方便 agent 逐个继续拉取；配套 warning 只保留最小化的提示信息，用来指向这条注释。
 - 启用 MCP access 且当前 Figma Design 文件可编辑时，`apply_canvas` 即可使用；Dev Mode 和
   只读文件仍不可写。
-- MCP **0.11.0** 配套扩展 **0.23.0** 和 Agent Plugin **0.4.0**。
-  上述多节点读取与 token 定义语义要求 Hub 和扩展均使用匹配的 protocol 15 构建。
+- 上述多节点读取与 token 定义语义要求 Hub 和扩展均使用匹配的 protocol 15 构建。
   扩展 0.22.0 仍通过 protocol 13 支持既有读取、会话、任务和画布写入。新版读取选项会提示升级，响应会标注旧版选区和 token 语义。
   请更新扩展并重新加载 Figma 以启用新版能力，再更新 plugin 或已安装的 skill，
   将固定 alpha 版本的 MCP 配置改为 `@tempad-dev/mcp@latest`，然后重新连接 MCP client 并新建任务。
-  详见[升级指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#升级)。
+  最低版本要求和更新步骤详见[升级指南](https://github.com/ecomfe/tempad-dev/blob/main/agent-plugin/src/README.zh-Hans.md#升级)。
 - 资源是临时且与工具调用关联的。本地 stdio client 在 Hub 持有字节时会收到
   `asset.localPath`，可直接打开而不必经过 loopback 下载；其他 client 使用带 capability 的
   HTTP `asset.url`。完整 URL 应视作临时密钥，不要持久化到日志中。
@@ -128,8 +127,11 @@ Hub 仅接受来自 Chrome 扩展 Origin、且目标为根路径的 WebSocket �
 将经过验证、包含最新 Stop 保护的完整快照原子替换到原路径，然后重新连接客户端。
 恢复的有效快照可以正常使用，无需删除 `.corrupt` 中保留的证据。
 
-旧备份或残留 `.tmp` 文件可能早于某次 Stop 操作。没有可信的完整快照时，无法安全地自动恢复写入。
-请勿删除隔离标记或用空状态替换快照来绕过保护。
+旧备份或残留 `.tmp` 文件可能早于某次 Stop 操作。没有可信的完整快照时，请断开所有 MCP 客户端，
+运行 `npx -y @tempad-dev/mcp@latest --recover-task-storage`。命令会拒绝仍有写入者或可正常读取的存储，
+将原文件保存到输出的备份目录，并创建新一代任务状态。所有旧任务继续失效：旧评论不能恢复执行，
+写入必须显式新建任务并重新读取画布。首次 begin 会返回新请求需要确认的 `recoveryGeneration`。
+读取仍然可用。请保留备份；此操作不会恢复任务历史。不要删除隔离标记或用空状态绕过保护。
 
 ## 要求
 

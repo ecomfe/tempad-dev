@@ -66,13 +66,12 @@ Notes:
 - Tool responses use a shared `64 KiB` inline budget measured on the `CallToolResult` body. When a selection is too large for the `get_code` budget, TemPad Dev may return a shell response instead of failing. The shell keeps the current node wrapper and lists omitted direct child ids in an inline code comment so agents can request them one by one. The accompanying warning stays lightweight and only points agents to that comment.
 - `apply_canvas` is available whenever MCP access is enabled and the current Figma Design file is
   editable. Dev Mode and view-only files remain read-only.
-- MCP **0.11.0** pairs with extension **0.23.0** and Agent Plugin **0.4.0**.
-  The node-set and token-definition semantics above require matching protocol 15 Hub and extension
+- The node-set and token-definition semantics above require matching protocol 15 Hub and extension
   builds. Extension 0.22.0 remains supported through protocol 13 for existing reads, sessions,
   tasks, and canvas writes. New read options prompt an upgrade, and responses identify older
   selection/token semantics. Update the extension and reload Figma for the new capabilities, update
   the plugin or installed skills, replace any alpha-pinned MCP configuration with `@tempad-dev/mcp@latest`,
-  then reconnect the MCP client and start a new task. See the
+  then reconnect the MCP client and start a new task. For minimum versions and update steps, see the
   [upgrade guide](https://github.com/ecomfe/tempad-dev/tree/main/agent-plugin/src#upgrading).
 - Assets are ephemeral and tool-linked. Local stdio clients receive `asset.localPath` when the Hub
   has the bytes and can open it without a loopback download; other clients use the
@@ -151,8 +150,13 @@ that includes the latest Stop fences to the original path using an atomic replac
 reconnect a client. A valid restored snapshot is accepted while the `.corrupt` evidence remains.
 
 An older backup or leftover `.tmp` file may predate a Stop action. Without a trustworthy complete
-snapshot, automatic recovery cannot safely restore writes. Do not delete the quarantine marker
-or replace the snapshot with empty state to bypass the fence.
+snapshot, disconnect all MCP clients and run `npx -y @tempad-dev/mcp@latest --recover-task-storage`.
+The command refuses an active writer or readable storage, preserves the original files in the
+reported backup directory, and starts a new task generation. Every old task stays retired:
+old reviews cannot restore execution, and writes require an explicitly new task and a fresh
+canvas read. The first begin attempt returns the `recoveryGeneration` to acknowledge in the new
+request. Reads remain available. Keep the backups; this operation does not recover task history.
+Do not delete the quarantine marker or replace the snapshot with empty state to bypass the fence.
 
 ## Requirements
 

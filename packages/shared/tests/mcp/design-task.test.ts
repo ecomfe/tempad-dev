@@ -466,6 +466,8 @@ describe('design task contracts', () => {
       requestId: '00000000-0000-4000-8000-000000000001'
     }
     expect(ManageDesignTaskParametersSchema.parse(begin)).toEqual(begin)
+    const recovered = { ...begin, recoveryGeneration: '00000000-0000-4000-8000-000000000002' }
+    expect(ManageDesignTaskParametersSchema.parse(recovered)).toEqual(recovered)
     expect(ManageDesignTaskParametersSchema.parse({ ...begin, title: ' Settings ' }).title).toBe(
       'Settings'
     )
@@ -480,6 +482,7 @@ describe('design task contracts', () => {
         { ...input, title: 'Another task' },
         { ...input, sessionId: 'another-session' },
         { ...input, requestId: begin.requestId },
+        { ...input, recoveryGeneration: recovered.recoveryGeneration },
         { ...input, taskEpoch: 2 },
         { ...input, progress: 'Working' }
       ]) {
@@ -496,6 +499,7 @@ describe('design task contracts', () => {
     for (const invalid of [
       { ...begin, requestId: undefined },
       { ...begin, requestId: 'not-a-uuid' },
+      { ...begin, recoveryGeneration: 'not-a-uuid' },
       { ...begin, title: ' ' },
       { ...begin, title: 'x'.repeat(121) },
       { ...begin, taskId: 'task-1' },

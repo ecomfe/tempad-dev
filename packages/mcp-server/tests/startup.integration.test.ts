@@ -87,10 +87,16 @@ afterAll(async () => {
   rmSync(bundle, { recursive: true, force: true })
 })
 
-function launch(entry: string, runtime: string, preload?: string, stores = directory) {
+function launch(
+  entry: string,
+  runtime: string,
+  preload?: string,
+  stores = directory,
+  args: string[] = []
+) {
   const child = spawn(
     process.execPath,
-    [...(preload ? ['--import', preload] : []), join(bundle, entry)],
+    [...(preload ? ['--import', preload] : []), join(bundle, entry), ...args],
     {
       env: {
         ...process.env,
@@ -115,6 +121,44 @@ function launch(entry: string, runtime: string, preload?: string, stores = direc
   const exited = once(child, 'exit')
   return { child, exited, stderr: () => stderr, stdout: () => stdout }
 }
+
+it('recovers quarantined task storage through the CLI without spawning a Hub', async () => {
+  const runtime = join(directory, 'recovery-runtime')
+  const stores = join(directory, 'recovery-stores')
+  const state = join(stores, 'state')
+  mkdirSync(state, { recursive: true })
+  const path = join(state, 'design-tasks.json')
+  writeFileSync(path, '{unreadable Stop history')
+  const preload = join(bundle, 'recovery-no-spawn.mjs')
+  writeFileSync(
+    preload,
+    `import childProcess from 'node:child_process'; import {syncBuiltinESMExports} from 'node:module';
+    childProcess.spawn = () => { throw new Error('Recovery must not spawn a Hub'); }; syncBuiltinESMExports();`
+  )
+  const recovering = launch('cli.mjs', runtime, preload, stores, ['--recover-task-storage'])
+  expect(await recovering.exited).toEqual([0, null])
+  expect(recovering.stderr()).toBe('')
+  expect(recovering.stdout()).toContain('Old tasks remain retired')
+  expect(existsSync(join(runtime, 'mcp.sock'))).toBe(false)
+  const saved = readFileSync(path, 'utf8')
+  expect(JSON.parse(saved)).toMatchObject({
+    revision: 0,
+    current: {},
+    records: [{ recoveryGeneration: expect.any(String) }]
+  })
+  expect(readFileSync(`${path}.corrupt`, 'utf8')).toBe('{unreadable Stop history')
+  const repeated = launch('cli.mjs', runtime, preload, stores, ['--recover-task-storage'])
+  expect(await repeated.exited).toEqual([1, null])
+  expect(repeated.stderr()).toContain('readable')
+  expect(readFileSync(path, 'utf8')).toBe(saved)
+  const extraArgument = launch('cli.mjs', runtime, preload, stores, [
+    '--recover-task-storage',
+    '--force'
+  ])
+  expect(await extraArgument.exited).toEqual([1, null])
+  expect(extraArgument.stderr()).toContain('without other arguments')
+  expect(readFileSync(path, 'utf8')).toBe(saved)
+})
 
 async function pingHub(socketPath: string): Promise<void> {
   const socket = connect(socketPath)
