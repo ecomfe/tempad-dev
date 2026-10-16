@@ -690,7 +690,7 @@ async function rerenderResolvedOutput({
   if (
     !resolvedEntriesChanged(input.collected.styles, resolvedStyles) &&
     !resolvedEntriesChanged(input.ctx.svgs, resolvedSvgs) &&
-    !input.collected.textSegments.size
+    ![...input.collected.textSegments.values()].some((segments) => segments?.length)
   ) {
     return null
   }

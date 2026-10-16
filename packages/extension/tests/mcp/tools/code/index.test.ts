@@ -948,6 +948,41 @@ describe('mcp/code handleGetCode', () => {
     expect(mocks.createStyleVarResolver).not.toHaveBeenCalled()
   })
 
+  it.each([{ segments: null }, { segments: [] }])(
+    'skips an unchanged token rerender with $segments text segments',
+    async ({ segments }) => {
+      const root = createSnapshot({ id: 'text', type: 'TEXT' })
+      const tree = createTree([root])
+      mockAssetCollection(tree, [], new Set())
+      const styles = new Map([['text', { color: 'var(--color)' }]])
+      mocks.collectNodeData.mockResolvedValue({
+        nodes: tree.nodes,
+        styles,
+        textSegments: new Map([['text', segments]])
+      })
+      mocks.prepareStyles.mockReturnValue({
+        styles,
+        layout: new Map(),
+        usedCandidateIds: new Set()
+      })
+      const code = '<span className="text-(--color)">Text</span>'
+      mocks.processTokens.mockResolvedValue({
+        code,
+        tokensByCanonical: { '--color': { kind: 'color', value: '#F00' } },
+        sourceIndex: new Map([['--color', 'v']])
+      })
+      mocks.resolveStyleMap.mockImplementation(
+        (await import('@/mcp/tools/code/tokens/resolve')).resolveStyleMap
+      )
+      mocks.renderTree.mockResolvedValue(raw(code))
+
+      const result = await handleGetCode([root.node], 'jsx', false)
+      expect(result.code).toBe(code)
+      expect(result.tokens).toEqual({ '--color': { kind: 'color', value: '#F00' } })
+      expect(mocks.renderTree).toHaveBeenCalledTimes(1)
+    }
+  )
+
   it('rerenders unresolved font-weight tokens present only in text runs', async () => {
     const root = createSnapshot({ id: 'text', type: 'TEXT' })
     const tree = createTree([root])
@@ -955,7 +990,7 @@ describe('mcp/code handleGetCode', () => {
     mocks.collectNodeData.mockResolvedValue({
       nodes: tree.nodes,
       styles: new Map(),
-      textSegments: new Map([['text', []]])
+      textSegments: new Map([['text', [{ characters: 'Text', start: 0, end: 4, fontWeight: 600 }]]])
     })
     mocks.processTokens.mockResolvedValue({
       code: '<span className="font-(--weight)">Text</span>',
@@ -982,7 +1017,7 @@ describe('mcp/code handleGetCode', () => {
     mocks.collectNodeData.mockResolvedValue({
       nodes: tree.nodes,
       styles: new Map(),
-      textSegments: new Map([['text', []]])
+      textSegments: new Map([['text', [{ characters: 'Text', start: 0, end: 4, fontSize: 12 }]]])
     })
     mocks.processTokens.mockImplementation(async ({ report }) => {
       report('token-definition', 'Alias definition unavailable.')
