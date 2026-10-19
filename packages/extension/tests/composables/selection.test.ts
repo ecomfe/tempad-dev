@@ -246,7 +246,7 @@ describe('composables/selection', () => {
 
     useSelection()
 
-    expect(mocks.watchers).toHaveLength(2)
+    expect(mocks.watchers).toHaveLength(3)
     expect(mocks.listeners.filter((entry) => entry.event === 'click')).toHaveLength(2)
     expect(mocks.listeners.filter((entry) => entry.event === 'keyup')).toHaveLength(1)
   })

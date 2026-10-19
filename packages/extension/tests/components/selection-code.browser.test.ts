@@ -14,14 +14,17 @@ import { generateCodeBlocksForNode } from '@/utils/codegen'
 import { mount, unmountAll } from './mount'
 
 function events() {
-  const callbacks = new Map<string, Set<() => void>>()
+  const callbacks = new Map<string, Set<(event?: unknown) => void>>()
   return {
-    on: vi.fn((type: string, callback: () => void) => {
+    on: vi.fn((type: string, callback: (event?: unknown) => void) => {
       if (!callbacks.has(type)) callbacks.set(type, new Set())
       callbacks.get(type)!.add(callback)
     }),
-    off: vi.fn((type: string, callback: () => void) => callbacks.get(type)?.delete(callback)),
-    emit: (type: string) => callbacks.get(type)?.forEach((callback) => callback()),
+    off: vi.fn((type: string, callback: (event?: unknown) => void) =>
+      callbacks.get(type)?.delete(callback)
+    ),
+    emit: (type: string, event?: unknown) =>
+      callbacks.get(type)?.forEach((callback) => callback(event)),
     count: () => [...callbacks.values()].reduce((sum, listeners) => sum + listeners.size, 0)
   }
 }
@@ -84,6 +87,152 @@ it('reads the initial selection when the Figma layout becomes ready after mounti
   expect(generateCodeBlocksForNode).toHaveBeenCalledOnce()
 })
 
+it('ignores unrelated changes and no-op interactions when native events are available', async () => {
+  const { page, api, canvas } = fixture()
+  const host = mount(View)
+  await expect.poll(() => host.textContent).toContain('width: 100px')
+  const code = host.querySelector('.tp-code-code')
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  for (const origin of ['LOCAL', 'REMOTE']) {
+    page.emit('nodechange', {
+      nodeChanges: [
+        {
+          id: 'unrelated',
+          node: { id: 'unrelated' },
+          type: 'PROPERTY_CHANGE',
+          origin,
+          properties: ['name']
+        }
+      ]
+    })
+    await vi.advanceTimersByTimeAsync(120)
+  }
+  api.emit('stylechange', { styleChanges: [{ id: 'unrelated-style' }] })
+  await vi.advanceTimersByTimeAsync(120)
+  for (let index = 0; index < 3; index++) {
+    canvas.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'a' }))
+    api.emit('selectionchange')
+    await vi.advanceTimersByTimeAsync(120)
+  }
+  expect(generateCodeBlocksForNode).toHaveBeenCalledOnce()
+  expect(host.querySelector('.tp-code-code')).toBe(code)
+})
+
+it('refreshes linked style changes and selected instance definition metadata', async () => {
+  const { node, api, page } = fixture()
+  const mainComponent = { id: 'definition' }
+  Object.assign(node, { type: 'INSTANCE', mainComponent, fillStyleId: 'fill-style' })
+  const host = mount(View)
+  await expect.poll(() => host.textContent).toContain('width: 100px')
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  node.width = 200
+  api.emit('stylechange', { styleChanges: [{ id: 'fill-style' }] })
+  await vi.advanceTimersByTimeAsync(100)
+  expect(host.textContent).toContain('width: 200px')
+  node.width = 300
+  page.emit('nodechange', {
+    nodeChanges: [
+      {
+        id: mainComponent.id,
+        node: mainComponent,
+        type: 'PROPERTY_CHANGE',
+        origin: 'REMOTE',
+        properties: ['name']
+      }
+    ]
+  })
+  await vi.advanceTimersByTimeAsync(100)
+  expect(host.textContent).toContain('width: 300px')
+})
+
+it.each(['textStyleId', 'fillStyleId'] as const)(
+  'refreshes styles referenced by mixed text ranges through %s',
+  async (field) => {
+    const { node, api } = fixture()
+    Object.assign(node, {
+      type: 'TEXT',
+      [field]: Symbol('mixed'),
+      getStyledTextSegments: () => [{ [field]: 'range-style' }]
+    })
+    const host = mount(View)
+    await expect.poll(() => host.textContent).toContain('width: 100px')
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    node.width = 200
+    api.emit('stylechange', { styleChanges: [{ id: 'other-range-style' }] })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(generateCodeBlocksForNode).toHaveBeenCalledOnce()
+    api.emit('stylechange', { styleChanges: [{ id: 'range-style' }] })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(host.textContent).toContain('width: 200px')
+  }
+)
+
+it('drops a pending content invalidation once focus recovery has refreshed it', async () => {
+  const { node, page, api } = fixture()
+  const host = mount(View)
+  await expect.poll(() => host.textContent).toContain('width: 100px')
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  node.width = 200
+  page.emit('nodechange')
+  window.dispatchEvent(new FocusEvent('blur'))
+  await nextTick()
+  await vi.advanceTimersByTimeAsync(200)
+  expect(generateCodeBlocksForNode).toHaveBeenCalledOnce()
+  window.dispatchEvent(new FocusEvent('focus'))
+  await nextTick()
+  await nextTick()
+  expect(host.textContent).toContain('width: 200px')
+  api.emit('selectionchange')
+  await vi.advanceTimersByTimeAsync(100)
+  expect(generateCodeBlocksForNode).toHaveBeenCalledTimes(2)
+})
+
+it('refreshes relevant remote ancestors and descendants, including removed and newly added children', async () => {
+  const { node, page } = fixture()
+  const parent = { id: 'parent', parent: null }
+  const child = { id: 'child', parent: node }
+  Object.assign(node, { parent, children: [child] })
+  const host = mount(View)
+  await expect.poll(() => host.textContent).toContain('width: 100px')
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  for (const changed of [node, parent, child]) {
+    node.width += 10
+    page.emit('nodechange', {
+      nodeChanges: [
+        {
+          id: changed.id,
+          node: changed,
+          type: 'PROPERTY_CHANGE',
+          origin: 'REMOTE',
+          properties: ['width']
+        }
+      ]
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(host.textContent).toContain(`width: ${node.width}px`)
+  }
+  Object.assign(node, { children: [] })
+  node.width += 10
+  page.emit('nodechange', {
+    nodeChanges: [
+      { id: child.id, node: { id: child.id, removed: true }, type: 'DELETE', origin: 'REMOTE' }
+    ]
+  })
+  await vi.advanceTimersByTimeAsync(100)
+  expect(host.textContent).toContain(`width: ${node.width}px`)
+  const added = { id: 'added', parent: node }
+  Object.assign(node, { children: [added] })
+  node.width += 10
+  page.emit('nodechange', {
+    nodeChanges: [{ id: added.id, node: added, type: 'CREATE', origin: 'REMOTE' }]
+  })
+  await vi.advanceTimersByTimeAsync(100)
+  expect(host.textContent).toContain(`width: ${node.width}px`)
+  expect(generateCodeBlocksForNode).toHaveBeenCalledTimes(6)
+})
+
 it('regenerates the same selected node after explicit sync and current-page edits', async () => {
   const { node, page } = fixture()
   const host = mount(View)
@@ -101,7 +250,10 @@ it('regenerates the same selected node after explicit sync and current-page edit
 })
 
 it('refreshes after inspector edits and window focus without reacting to TemPad inputs', async () => {
-  const { node } = fixture()
+  const { node, page } = fixture()
+  page.on.mockImplementation(() => {
+    throw new Error('Native node events unavailable')
+  })
   const host = mount(View)
   await expect.poll(() => host.textContent).toContain('width: 100px')
   const editor = document.createElement('input')

@@ -29,6 +29,7 @@ const content = shallowRef<HTMLElement | null>(null)
 const loadingHeight = shallowRef(0)
 let generation = 0
 let loadingTimer: ReturnType<typeof setTimeout> | undefined
+let contentNode: SceneNode | null = null
 
 const playButtonTitle = computed(() =>
   componentLink.value
@@ -39,18 +40,24 @@ const playButtonTitle = computed(() =>
 async function updateCode() {
   const current = ++generation
   const node = selectedNode.value
+  const retainCode = node !== null && node === contentNode && selection.value.length === 1
   clearTimeout(loadingTimer)
   showLoading.value = false
   loadingHeight.value = content.value?.getBoundingClientRect().height ?? 0
   loading.value = false
-  codeBlocks.value = []
-  componentCode.value = ''
-  componentLink.value = ''
+  if (!retainCode) {
+    contentNode = null
+    codeBlocks.value = []
+    componentCode.value = ''
+    componentLink.value = ''
+  }
   codeError.value = ''
 
   if (node == null || selection.value.length > 1) return
-  loading.value = true
-  loadingTimer = setTimeout(() => (showLoading.value = true), 150)
+  if (!retainCode) {
+    loading.value = true
+    loadingTimer = setTimeout(() => (showLoading.value = true), 150)
+  }
 
   const tempadComponent = selectedTemPadComponent.value
   componentCode.value = tempadComponent?.code || ''
@@ -67,9 +74,30 @@ async function updateCode() {
       activePlugin.value?.code || undefined,
       { variableDisplay: options.value.variableDisplay }
     )
-    if (current === generation) codeBlocks.value = result.codeBlocks
+    if (current === generation) {
+      if (
+        codeBlocks.value.length !== result.codeBlocks.length ||
+        result.codeBlocks.some((block, index) => {
+          const previous = codeBlocks.value[index]!
+          return (
+            block.name !== previous.name ||
+            block.title !== previous.title ||
+            block.lang !== previous.lang ||
+            block.code !== previous.code
+          )
+        })
+      )
+        codeBlocks.value = result.codeBlocks
+      contentNode = node
+    }
   } catch {
-    if (current === generation) codeError.value = 'Code generation failed.'
+    if (current === generation) {
+      contentNode = null
+      codeBlocks.value = []
+      componentCode.value = ''
+      componentLink.value = ''
+      codeError.value = 'Code generation failed.'
+    }
   } finally {
     if (current === generation) {
       clearTimeout(loadingTimer)

@@ -24,7 +24,7 @@ function readPageSelection(api: PluginAPI | undefined) {
   }
 }
 
-export function syncSelection() {
+export function syncSelection(refreshContent = true) {
   const api = window.figma
   const snapshot = readPageSelection(api)
   if (!snapshot) {
@@ -38,11 +38,12 @@ export function syncSelection() {
   const next = snapshot.nodes
   // Node IDs are file-local. Keep same-file wrappers stable, but never retain a
   // previous document's node (and its resources) when the selected IDs coincide.
-  if (selectionFileKey !== fileKey || !isSameSelection(next, selection.value)) {
+  const changed = selectionFileKey !== fileKey || !isSameSelection(next, selection.value)
+  if (changed) {
     selection.value = next
   }
   selectionFileKey = fileKey
-  selectionRevision.value++
+  if (changed || refreshContent) selectionRevision.value++
 }
 
 export function useSelection() {
@@ -55,9 +56,96 @@ export function useSelection() {
   const options = { capture: true }
   let disposed = false
   let refreshTimer: ReturnType<typeof setTimeout> | undefined
+  let contentChanged = false
+  let nativeSelection = false
+  let nativeChanges = false
   let observedApi: PluginAPI | undefined
   let observedPage: PageNode | undefined
   const nativeListeners: Array<() => void> = []
+  const relevantNodes = new Set<string>()
+  const relevantStyles = new Set<string>()
+
+  function trackSelection() {
+    relevantNodes.clear()
+    relevantStyles.clear()
+    const pending: BaseNode[] = [...selection.value]
+    const componentIds: string[] = []
+    while (pending.length) {
+      const node = pending.pop()!
+      if (relevantNodes.has(node.id)) continue
+      relevantNodes.add(node.id)
+      try {
+        if ('children' in node) pending.push(...node.children)
+        for (const field of [
+          'fillStyleId',
+          'strokeStyleId',
+          'effectStyleId',
+          'gridStyleId',
+          'textStyleId'
+        ] as const) {
+          const styleId: unknown = Reflect.get(node, field)
+          if (typeof styleId === 'string') relevantStyles.add(styleId)
+        }
+        if (node.type === 'TEXT') {
+          const fields = (['textStyleId', 'fillStyleId'] as const).filter(
+            (field) => typeof node[field] === 'symbol'
+          )
+          if (fields.length) {
+            for (const segment of node.getStyledTextSegments(fields)) {
+              for (const field of fields) relevantStyles.add(segment[field])
+            }
+          }
+        }
+        if (node.type === 'INSTANCE') {
+          const component = node.mainComponent
+          if (component) componentIds.push(component.id)
+        }
+      } catch {
+        // A native node can disappear while its change notification is pending.
+      }
+    }
+    for (const id of componentIds) relevantNodes.add(id)
+    for (const selected of selection.value) {
+      try {
+        let node = selected.parent
+        while (node) {
+          relevantNodes.add(node.id)
+          node = node.parent
+        }
+      } catch {
+        // Removed selections are cleared by the next selection synchronization.
+      }
+    }
+  }
+
+  function changedNodeAffectsSelection(change: NodeChange): boolean {
+    if (relevantNodes.has(change.id)) return true
+    if (change.node.removed) return false
+    try {
+      // New or reparented descendants were not present in the last snapshot.
+      let parent = change.node.parent
+      while (parent) {
+        const id = parent.id
+        if (selection.value.some((node) => node.id === id)) return true
+        parent = parent.parent
+      }
+    } catch {
+      // The retained identities above still recognize deleted selected content.
+    }
+    return false
+  }
+
+  function handleNodeChange(event?: NodeChangeEvent) {
+    if (!event || event.nodeChanges.some(changedNodeAffectsSelection)) scheduleRefresh(true)
+  }
+
+  function handleStyleChange(event?: StyleChangeEvent) {
+    if (!event || event.styleChanges.some(({ id }) => relevantStyles.has(id))) scheduleRefresh(true)
+  }
+
+  function handleSelectionChange() {
+    scheduleRefresh()
+  }
 
   function syncTargets() {
     canvas.value = getCanvas()
@@ -74,54 +162,61 @@ export function useSelection() {
     }
     observedApi = undefined
     observedPage = undefined
+    nativeSelection = false
+    nativeChanges = false
   }
 
   function subscribe(add: () => void, remove: () => void) {
     try {
       add()
       nativeListeners.push(remove)
+      return true
     } catch {
       // Runtime builds without native event support use the DOM/focus fallback.
+      return false
     }
   }
 
   function syncNativeListeners() {
     const api = layoutReady.value && runtimeMode.value === 'standard' ? window.figma : undefined
     const page = readPageSelection(api)?.page
-    if (api === observedApi && page === observedPage) return
+    if (api === observedApi && page === observedPage) return false
     removeNativeListeners()
     observedApi = api
     observedPage = page
     if (api && typeof api.on === 'function' && typeof api.off === 'function') {
-      subscribe(
-        () => api.on('selectionchange', scheduleRefresh),
-        () => api.off('selectionchange', scheduleRefresh)
+      nativeSelection = subscribe(
+        () => api.on('selectionchange', handleSelectionChange),
+        () => api.off('selectionchange', handleSelectionChange)
       )
       subscribe(
-        () => api.on('currentpagechange', scheduleRefresh),
-        () => api.off('currentpagechange', scheduleRefresh)
+        () => api.on('currentpagechange', handleSelectionChange),
+        () => api.off('currentpagechange', handleSelectionChange)
       )
       subscribe(
-        () => api.on('stylechange', scheduleRefresh),
-        () => api.off('stylechange', scheduleRefresh)
+        () => api.on('stylechange', handleStyleChange),
+        () => api.off('stylechange', handleStyleChange)
       )
     }
     if (page && typeof page.on === 'function' && typeof page.off === 'function') {
-      subscribe(
-        () => page.on('nodechange', scheduleRefresh),
-        () => page.off('nodechange', scheduleRefresh)
+      nativeChanges = subscribe(
+        () => page.on('nodechange', handleNodeChange),
+        () => page.off('nodechange', handleNodeChange)
       )
     }
+    return true
   }
 
-  function scheduleRefresh() {
+  function scheduleRefresh(refreshContent = false) {
     clearTimeout(refreshTimer)
     if (disposed || !layoutReady.value || runtimeMode.value !== 'standard' || !isWindowActive.value)
       return
+    contentChanged ||= refreshContent
     // Read after Figma's event handlers and coalesce drag, typing and native batches.
     refreshTimer = setTimeout(() => {
       syncNativeListeners()
-      syncSelection()
+      syncSelection(contentChanged)
+      contentChanged = false
     }, 100)
   }
 
@@ -129,7 +224,8 @@ export function useSelection() {
     const target = event.target as Element | null
     if (target?.closest?.('tempad')) return
     if ('key' in event && /^(Alt|Control|Meta|Shift| )$/.test(String(event.key))) return
-    scheduleRefresh()
+    const changedPage = syncNativeListeners()
+    if (changedPage || !nativeSelection || !nativeChanges) scheduleRefresh(!nativeChanges)
   }
 
   onMounted(() => {
@@ -150,6 +246,7 @@ export function useSelection() {
         return
       }
       clearTimeout(refreshTimer)
+      contentChanged = false
       removeNativeListeners()
       canvas.value = null
       objectsPanel.value = null
@@ -162,11 +259,14 @@ export function useSelection() {
 
   watch([runtimeMode, isWindowActive], ([mode, active]) => {
     clearTimeout(refreshTimer)
+    contentChanged = false
     syncNativeListeners()
     if (mode !== 'standard') return
     if (!layoutReady.value) return
     if (active) syncSelection()
   })
+
+  watch([selection, selectionRevision], trackSelection, { immediate: true })
 
   onBeforeUnmount(() => {
     disposed = true

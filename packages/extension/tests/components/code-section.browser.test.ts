@@ -7,7 +7,7 @@ vi.mock('@/utils/codegen', async (original) => ({
 }))
 
 import CodeSection from '@/components/sections/CodeSection.vue'
-import { options, selection } from '@/ui/state'
+import { options, selection, selectionRevision } from '@/ui/state'
 import { generateCodeBlocksForNode } from '@/utils/codegen'
 
 import { mount, unmountAll } from './mount'
@@ -55,6 +55,59 @@ it('clears stale code and exposes generation errors', async () => {
   await expect
     .poll(() => host.querySelector('[role="alert"]')?.textContent)
     .toContain('Code generation failed')
+})
+
+it('retains identical same-selection code and its text selection without loading announcements', async () => {
+  const generate = vi.mocked(generateCodeBlocksForNode)
+  const result = {
+    codeBlocks: [{ name: 'css', title: 'CSS', lang: 'css' as const, code: 'unchanged-code' }]
+  }
+  generate.mockResolvedValueOnce(result)
+  const pending = Promise.withResolvers<Awaited<ReturnType<typeof generateCodeBlocksForNode>>>()
+  generate.mockReturnValueOnce(pending.promise)
+  const host = mount(CodeSection)
+  selection.value = [{ id: 'same' } as SceneNode]
+  await expect.poll(() => host.textContent).toContain('unchanged-code')
+  await expect.poll(() => host.querySelector('.tp-section-enter-active')).toBeNull()
+  const block = host.querySelector('.tp-code-code')!
+  const code = block.querySelector('code')!
+  const range = document.createRange()
+  range.selectNodeContents(code)
+  window.getSelection()!.removeAllRanges()
+  window.getSelection()!.addRange(range)
+  expect(window.getSelection()!.toString()).toBe('unchanged-code')
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  selectionRevision.value++
+  await nextTick()
+  await vi.advanceTimersByTimeAsync(200)
+  expect(host.querySelector('.tp-code-code')).toBe(block)
+  expect(window.getSelection()!.toString()).toBe('unchanged-code')
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('')
+  expect(host.querySelector('[aria-busy="true"]')).toBeNull()
+  pending.resolve(structuredClone(result))
+  await nextTick()
+  expect(host.querySelector('.tp-code-code')).toBe(block)
+  expect(window.getSelection()!.toString()).toBe('unchanged-code')
+})
+
+it('clears retained code if refreshing the same node fails', async () => {
+  const generate = vi.mocked(generateCodeBlocksForNode)
+  generate.mockResolvedValueOnce({
+    codeBlocks: [{ name: 'css', title: 'CSS', lang: 'css', code: 'old-code' }]
+  })
+  const pending = Promise.withResolvers<Awaited<ReturnType<typeof generateCodeBlocksForNode>>>()
+  generate.mockReturnValueOnce(pending.promise)
+  const host = mount(CodeSection)
+  selection.value = [{ id: 'same' } as SceneNode]
+  await expect.poll(() => host.textContent).toContain('old-code')
+  selectionRevision.value++
+  await nextTick()
+  expect(host.textContent).toContain('old-code')
+  pending.reject(new Error('Changed plugin failed'))
+  await expect
+    .poll(() => host.querySelector('[role="alert"]')?.textContent)
+    .toContain('Code generation failed')
+  expect(host.textContent).not.toContain('old-code')
 })
 
 it('keeps the Code surface while loading and retries without changing selection', async () => {
