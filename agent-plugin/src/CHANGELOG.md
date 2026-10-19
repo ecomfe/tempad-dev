@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3
+
+- Explained warnings for unsupported text entities and clarified Chinese setup guidance.
+
 ## 0.5.2
 
 - Clarified supported text entities and recovery after a canvas write fails.

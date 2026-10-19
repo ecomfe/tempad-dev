@@ -146,6 +146,7 @@ export async function reconcileCanvas(input: ParsedCanvasInput): Promise<ApplyCa
     await removeResources(state)
     const verified = await verifyAppliedNode(rootSpec, root, state)
     const warnings = [
+      ...(input.warnings ?? []),
       ...unboundCreatedResourceWarnings(
         [rootSpec, input.styles, input.variableCollections, input.page],
         state

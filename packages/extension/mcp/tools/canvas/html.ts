@@ -4,6 +4,7 @@ import { specError as htmlError } from './errors'
 
 export type CanvasMarkupElement = {
   sourceClasses?: ReadonlyMap<string, string>
+  hasUnknownEntities?: boolean
   attributes: Record<string, string>
   lineBreakOffsets: number[]
   children: CanvasMarkupElement[]
@@ -37,7 +38,7 @@ function normalizeTag(tag: string): string {
   return normalized === 'div' || normalized === 'span' ? normalized : tag
 }
 
-function decodeEntities(value: string): string {
+function decodeEntities(value: string, onUnknownEntity: () => void): string {
   const chunks: string[] = []
   let copyStart = 0
   let entityStart = -1
@@ -63,6 +64,7 @@ function decodeEntities(value: string): string {
       chunks.push(HTML_ENTITIES[entity]!)
     } else if (!entity.startsWith('#')) {
       chunks.push(`&${entity};`)
+      if (/^[A-Za-z][A-Za-z0-9]*$/.test(entity)) onUnknownEntity()
     } else {
       const hex = entity.startsWith('#x') || entity.startsWith('#X')
       const digits = hex ? entity.slice(2) : entity.startsWith('#') ? entity.slice(1) : ''
@@ -90,6 +92,10 @@ function decodeEntities(value: string): string {
 class CanvasHtmlParser {
   private elementCount = 0
   private index = 0
+  private hasUnknownEntities = false
+  private readonly onUnknownEntity = () => {
+    this.hasUnknownEntities = true
+  }
 
   constructor(private readonly source: string) {}
 
@@ -103,7 +109,7 @@ class CanvasHtmlParser {
         'Canvas markup must contain exactly one root element. For a partial update, include the target or a bounded ancestor as that root; omitted siblings are preserved.'
       )
     }
-    return root
+    return this.hasUnknownEntities ? { ...root, hasUnknownEntities: true } : root
   }
 
   private parseElement(depth: number): CanvasMarkupElement {
@@ -154,7 +160,7 @@ class CanvasHtmlParser {
       this.index += 1
       const end = this.source.indexOf(quote, this.index)
       if (end < 0) htmlError(`Attribute "${name}" has an unterminated value.`)
-      attributes[name] = decodeEntities(this.source.slice(this.index, end))
+      attributes[name] = decodeEntities(this.source.slice(this.index, end), this.onUnknownEntity)
       this.index = end + 1
     }
     if (selfClosing) return { attributes, children: [], lineBreakOffsets: [], tag, text: '' }
@@ -182,7 +188,7 @@ class CanvasHtmlParser {
       } else {
         const end = this.source.indexOf('<', this.index)
         const textEnd = end < 0 ? this.source.length : end
-        text += decodeEntities(this.source.slice(this.index, textEnd))
+        text += decodeEntities(this.source.slice(this.index, textEnd), this.onUnknownEntity)
         this.index = textEnd
       }
     }

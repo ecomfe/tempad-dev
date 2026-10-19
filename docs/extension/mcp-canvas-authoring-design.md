@@ -826,6 +826,10 @@ type Verification = {
 }
 ```
 
+A named HTML entity outside the supported set remains literal and produces one
+`unknown-html-entity` warning per request. Numeric references and explicitly escaped entity
+syntax keep their existing behavior; use Unicode or a numeric reference for an intended glyph.
+
 A variable or style newly created by the call but not referenced by the same desired result produces
 an `unbound-created-variable` or `unbound-created-style` warning. This is intentionally non-fatal
 because a multi-call design-system workflow may stage definitions, but the authoring skill requires

@@ -1,4 +1,5 @@
 import type {
+  ApplyCanvasResult,
   CanvasAssets,
   CanvasBinding,
   CanvasComponentPropertyValue,
@@ -214,6 +215,7 @@ type ParsedCanvasCommon = {
 
 export type ParsedCanvasTreeInput = ParsedCanvasCommon & {
   root: CanvasNodeSpec
+  warnings?: ApplyCanvasResult['verification']['warnings']
 }
 
 export type ParsedCanvasNativeUpdateInput = {

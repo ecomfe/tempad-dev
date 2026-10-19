@@ -1,4 +1,5 @@
 import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createCodedError } from '@/mcp/errors'
@@ -14,6 +15,68 @@ afterEach(() => {
 })
 
 describe('canvas input diagnostics', () => {
+  it('decodes every named entity documented by the authoring skill', () => {
+    const reference = readFileSync(
+      new URL(
+        '../../../../../agent-plugin/src/skills/design-in-figma/references/canvas-html.md',
+        import.meta.url
+      ),
+      'utf8'
+    )
+    const names = [
+      ...reference
+        .match(/these named entities decode: ([\s\S]*?)\. Other names/)![1]!
+        .matchAll(/`(\w+)`/g)
+    ].map((match) => match[1]!)
+    const expected: Record<string, string> = {
+      amp: '&',
+      apos: "'",
+      bull: '•',
+      copy: '©',
+      gt: '>',
+      hellip: '…',
+      ldquo: '“',
+      lsquo: '‘',
+      lt: '<',
+      mdash: '—',
+      middot: '·',
+      nbsp: '\u00a0',
+      ndash: '–',
+      quot: '"',
+      rdquo: '”',
+      reg: '®',
+      rsquo: '’',
+      trade: '™'
+    }
+    expect(names).toEqual(Object.keys(expected))
+    for (const name of names) {
+      expect(parseCanvasHtml(`<span>&${name};</span>`).text).toBe(expected[name])
+    }
+  })
+
+  it.each([
+    ['&unknown; &euro; &unknown;', true],
+    ['&amp;unknown; &#8364; R&D', false]
+  ] as const)('preserves literal entities with one bounded warning: %s', async (text, warned) => {
+    const fixture = createFixture()
+    const result = await handleApplyCanvas({
+      mode: 'create',
+      markup: `<div data-key="root" class="flex w-80 h-20"><span data-key="label" class="w-fit h-fit">${text}</span></div>`
+    })
+    expect((fixture.getNode(result.nodeIdsByKey.label!) as TextNode).characters).toBe(
+      warned ? text : '&unknown; € R&D'
+    )
+    const warnings = result.verification.warnings.filter(
+      ({ code }) => code === 'unknown-html-entity'
+    )
+    expect(warnings).toHaveLength(warned ? 1 : 0)
+    if (warned)
+      expect(warnings[0]).toMatchObject({
+        message: expect.stringContaining('literal'),
+        key: 'root'
+      })
+  })
+
   it.each([
     '<div data-key="root" class="w-20 h-20">',
     '<div data-key=root class="w-20 h-20"/>',

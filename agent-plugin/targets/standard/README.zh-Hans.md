@@ -66,6 +66,9 @@ claude plugin install tempad-dev@tempad-dev
 设计任务的状态栏显示 agent 状态、Stop/Done 和评论入口。Stop 会立即阻止当前任务继续写入，
 在执行中的操作结束后永久取消该任务；重新连接也不会恢复它。后续设计工作需要明确开始新任务。
 
+正常配置只需完成 TemPad Dev 扩展设置并安装本插件，无需另行配置控制地址、
+环境变量或辅助服务。
+
 评论目前仅支持通过兼容 Codex App 的原生会话通道发送。Queue 将整批评论交给宿主的原生队列，
 等待会话可以执行时再处理。宿主确认接收后，TemPad Dev 会清空本批评论和标记、停止发送指示，
 并允许继续输入下一批；这表示已接收，不表示 agent 已完成修改。如果原生入队不可用，
@@ -90,7 +93,9 @@ Codex App 的任务绑定和状态同步使用 MCP 元数据及原生 IPC，不�
 等尚未接入原生投递的客户端提供任务状态和 Stop/Done，但不显示评论入口，已有草稿不会删除。
 Claude 会在下一个启用 hook 的工具边界收到 Stop 通知。任务暂停可用新的 lease epoch 恢复，
 恢复后必须先重新读取画布才能写入；取消的任务不能恢复。Agent 会遵守 Stop，不会自动创建
-替代任务；必要或用户要求的后续设计工作可以显式开始新任务，无需另行在 Figma 中解锁。详见
+替代任务；必要或用户要求的后续设计工作可以显式开始新任务，无需另行在 Figma 中解锁。
+只有实际持有目标会话的宿主确认支持时，才会启用 Codex 原生投递，无需手动配置连接。
+当前验证范围详见
 [任务与客户端设计](https://github.com/ecomfe/tempad-dev/blob/main/docs/extension/mcp-design-tasks.md)。
 
 原生适配器在 macOS/Linux 上使用 Unix socket，在 Windows 上使用 Codex 的本机 Named Pipe。

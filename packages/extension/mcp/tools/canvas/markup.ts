@@ -1957,6 +1957,18 @@ export function parseCanvasMarkup(
       : { variableCollections: input.variableCollections }),
     ...(input.styles === undefined ? {} : { styles: input.styles }),
     ...(input.assets === undefined ? {} : { assets: input.assets }),
+    ...(parsedElement.hasUnknownEntities
+      ? {
+          warnings: [
+            {
+              code: 'unknown-html-entity',
+              message:
+                'Unknown named HTML entities were kept as literal text. Use Unicode characters or numeric character references for the intended glyphs.',
+              key: root.key
+            }
+          ]
+        }
+      : {}),
     root
   }
 }
