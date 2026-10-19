@@ -87,7 +87,10 @@ export const useMcp = createSharedComposable(() => {
     string,
     PendingRequest<DesignActionResult> & { local: boolean }
   >()
-  const pendingFeedbackDrafts = new Map<string, PendingRequest<FeedbackDraftSnapshot>>()
+  const pendingFeedbackDrafts = new Map<
+    string,
+    PendingRequest<FeedbackDraftSnapshot> & { action: string }
+  >()
   const sentDesignActions = new Set<string>()
   const designAnchor = shallowRef<SceneNode | null>(null)
   let anchorRevision = 0
@@ -196,7 +199,11 @@ export const useMcp = createSharedComposable(() => {
       })
     }
     rejectPending(pendingDesignActions, 'Agent disconnected.')
-    rejectPending(pendingFeedbackDrafts, 'Disconnected while saving.')
+    for (const [requestId, { action }] of pendingFeedbackDrafts) {
+      takePending(pendingFeedbackDrafts, requestId)?.reject(
+        new Error(`Disconnected while ${action.toLowerCase()}.`)
+      )
+    }
     sentDesignActions.clear()
     rejectPending(pendingAssetUploads, 'MCP disabled before asset upload completed.')
     rejectPending(pendingAssetDownloads, 'MCP disabled before asset download completed.')
@@ -699,13 +706,20 @@ export const useMcp = createSharedComposable(() => {
     const session = readFigmaSession(sessionId, taskGuard.busy)
     if (!enabled || session?.fileKey !== request.scope.fileKey)
       return Promise.reject(new Error('Comments are unavailable in this file.'))
+    const action = {
+      load: 'Loading comments',
+      clear: 'Clearing comments',
+      comment: 'Saving comments',
+      save: 'Saving comments',
+      remove: 'Removing comments'
+    }[request.operation]
     return new Promise((resolve, reject) => {
       const requestId = crypto.randomUUID()
       const timer = setTimeout(() => {
         pendingFeedbackDrafts.delete(requestId)
-        reject(new Error('Saving timed out.'))
+        reject(new Error(`${action} timed out.`))
       }, 8000)
-      pendingFeedbackDrafts.set(requestId, { resolve, reject, timer })
+      pendingFeedbackDrafts.set(requestId, { resolve, reject, timer, action })
       try {
         postPageMessage({ ...pageMessageBase, type: 'mcp.feedbackDrafts', requestId, request })
       } catch (error) {

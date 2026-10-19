@@ -1,4 +1,9 @@
-import type { BridgeToPageMessage, DesignTask, PageToBridgeMessage } from '@tempad-dev/shared'
+import type {
+  BridgeToPageMessage,
+  DesignTask,
+  FeedbackDraftRequest,
+  PageToBridgeMessage
+} from '@tempad-dev/shared'
 
 import {
   TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
@@ -285,6 +290,58 @@ describe('composables/mcp', () => {
       vi.useRealTimers()
     }
   })
+
+  it.each([
+    ['load', 'Loading comments', {}],
+    ['clear', 'Clearing comments', {}],
+    ['comment', 'Saving comments', { comment: 'Keep this' }],
+    [
+      'save',
+      'Saving comments',
+      {
+        item: {
+          nodeId: 'node-a',
+          nodeName: 'Node',
+          pageId: 'page-a',
+          text: 'Keep this',
+          createdAt: 1
+        }
+      }
+    ],
+    ['remove', 'Removing comments', { nodeId: 'node-a' }]
+  ] as const)(
+    'identifies draft operation %s when its request times out or disconnects',
+    async (operation, action, payload) => {
+      vi.useFakeTimers()
+      try {
+        Object.assign(mocks.window, {
+          figma: { fileKey: 'file-a', root: { name: 'Design' }, currentPage: { id: 'page-a' } },
+          INITIAL_OPTIONS: { editor_type: 'design' }
+        })
+        const mcp = useMcp()
+        const request = {
+          operation,
+          scope: {
+            taskId: 'task-a',
+            fileKey: 'file-a',
+            clientKind: 'codex-app',
+            conversationId: 'thread-a'
+          },
+          ...payload
+        } as FeedbackDraftRequest
+        const timeout = mcp.requestFeedbackDrafts(request).catch((error: unknown) => error)
+        await vi.advanceTimersByTimeAsync(8000)
+        expect(await timeout).toEqual(new Error(`${action} timed out.`))
+        const disconnected = mcp.requestFeedbackDrafts(request).catch((error: unknown) => error)
+        mocks.options.value.mcpOn = false
+        mocks.watchCallbacks.forEach((callback) => callback())
+        expect(await disconnected).toEqual(new Error(`Disconnected while ${action.toLowerCase()}.`))
+        expect(vi.getTimerCount()).toBe(0)
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+  )
 
   it.each([
     { kind: 'feedback', failure: 'post' },
