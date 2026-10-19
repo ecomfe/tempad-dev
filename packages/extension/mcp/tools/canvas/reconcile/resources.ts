@@ -635,8 +635,7 @@ export async function preflightDeclaredResources(
   }
   const componentResources: ComponentPreflightResources = {
     variable: knownVariable,
-    component: (reference) =>
-      reference.id !== undefined ? resolveComponent(reference, state) : Promise.resolve(undefined)
+    component: (reference) => resolveComponent(reference, state)
   }
   async function preflightDeclaredPaints(
     paints: CanvasFigmaPaint[] | undefined,

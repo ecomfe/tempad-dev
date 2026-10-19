@@ -12287,12 +12287,13 @@ describe('mcp/tools/canvas', () => {
   )
 
   it.each(['component', 'swap default', 'instance variable'] as const)(
-    'keeps library %s imports inside Undo when resources are declared',
+    'prepares library %s without delaying component imports until resource writes',
     async (reference) => {
       const fixture = createFixture()
       const importComponent = vi.mocked(figma.importComponentByKeyAsync).getMockImplementation()!
       vi.mocked(figma.importComponentByKeyAsync).mockImplementation(async (key) => {
-        expect(fixture.commitUndo).toHaveBeenCalledOnce()
+        expect(fixture.commitUndo).not.toHaveBeenCalled()
+        expect(figma.createPaintStyle).not.toHaveBeenCalled()
         return importComponent(key)
       })
       const importVariable = vi
@@ -12341,6 +12342,23 @@ describe('mcp/tools/canvas', () => {
       expect(fixture.triggerUndo).not.toHaveBeenCalled()
     }
   )
+
+  it('rejects an unavailable library component before creating declared resources', async () => {
+    const fixture = createFixture()
+    fixture.importComponentByKeyAsync.mockRejectedValue(new Error('Library unavailable'))
+    await expect(
+      applyCanvas({
+        mode: 'create',
+        markup:
+          '<div data-key="root" class="flex flex-row w-80 h-40"><div data-key="action" class="w-20 h-10"/></div>',
+        styles: { unrelated: { type: 'PAINT', name: 'Unrelated' } },
+        bindings: { action: { component: { key: 'unavailable-component' } } }
+      })
+    ).rejects.toThrow('unavailable-component')
+    expect(figma.createPaintStyle).not.toHaveBeenCalled()
+    expect(fixture.commitUndo).not.toHaveBeenCalled()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+  })
 
   it('rejects known text range bounds before creating declared resources', async () => {
     const fixture = createFixture()
