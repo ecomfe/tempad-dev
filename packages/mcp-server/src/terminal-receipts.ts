@@ -58,9 +58,9 @@ export class TerminalReceipts {
     return receipt
   }
 
-  settle(requestId: string, extensionId: string): void {
+  settle(requestId: string, extensionId: string, definitive = true): void {
     const record = this.pending.get(requestId)
-    if (!record || record.extensionId !== extensionId) return
+    if (!record || record.extensionId !== extensionId || (!definitive && record.write)) return
     this.pending.delete(requestId)
     this.completed.set(requestId, record)
     if (this.completed.size > MAX_RECEIPTS)

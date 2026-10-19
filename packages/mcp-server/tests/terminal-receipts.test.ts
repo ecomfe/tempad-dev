@@ -92,6 +92,21 @@ describe('terminal receipts', () => {
     expect(registry.accept(completion, peer())).toEqual({ accepted: true })
   })
 
+  it('retires disconnected reads without losing an unresolved write receipt', () => {
+    const registry = new TerminalReceipts()
+    const write = dispatched(registry)
+    registry.settle(write.id, 'original', false)
+    for (let index = 0; index < 256; index++) {
+      const id = `read-${index}`
+      registry.reserve(id, peer(), session, undefined, false)
+      registry.settle(id, 'original', false)
+    }
+    expect(registry.accept(write, peer('replacement'))).toMatchObject({
+      accepted: true,
+      recovered: { write: true, extensionId: 'original' }
+    })
+  })
+
   it('bounds pending calls without eviction, retires replaced documents, and bounds completed tombstones', () => {
     const registry = new TerminalReceipts()
     const first = dispatched(registry, '0')

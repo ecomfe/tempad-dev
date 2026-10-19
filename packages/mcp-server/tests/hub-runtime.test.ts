@@ -1256,6 +1256,45 @@ describe('Hub runtime module', () => {
     }
   )
 
+  it('does not exhaust receipt capacity after repeated disconnected reads in one document', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension(true)
+    const consumer = await connectConsumer()
+    for (let id = 1; id <= 129; id++) {
+      consumer.send({
+        id,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: {} }
+      })
+      await vi.waitFor(
+        () => expect(extension.calls.length >= id || consumer.replies.has(id)).toBe(true),
+        {
+          interval: 1
+        }
+      )
+      expect(extension.calls).toHaveLength(id)
+      const call = extension.calls[id - 1]!
+      extension.send({
+        type: 'toolResult',
+        id: call.id,
+        error: { code: 'EXTENSION_DISCONNECTED', message: 'Page read disconnected.' }
+      })
+      expect(JSON.stringify(await consumer.reply(id))).toContain('EXTENSION_DISCONNECTED')
+    }
+    consumer.send({
+      id: 130,
+      method: 'tools/call',
+      params: {
+        name: 'apply_canvas',
+        arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+      }
+    })
+    const write = await extension.call(129)
+    extension.send({ type: 'toolResult', id: write.id, error: { message: 'Write finished' } })
+    expect(JSON.stringify(await consumer.reply(130))).toContain('Write finished')
+  })
+
   it('accepts a terminal receipt from a replacement connection only for its original operation', async () => {
     const { startHub } = await loadRuntime()
     await startHub()

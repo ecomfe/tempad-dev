@@ -1620,14 +1620,10 @@ export async function startHub(): Promise<void> {
       },
       onStateChange: broadcastState,
       onToolError: (requestId, extensionId, error) => {
-        if (error.code !== TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED)
-          terminalReceipts.settle(requestId, extensionId)
         // DELIVERY_FAILED is definitive; DISCONNECTED may follow an accepted page write.
-        designTasks.finishOperation(
-          requestId,
-          extensionId,
-          error.code !== TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED
-        )
+        const definitive = error.code !== TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED
+        terminalReceipts.settle(requestId, extensionId, definitive)
+        designTasks.finishOperation(requestId, extensionId, definitive)
         const normalized = coerceToolError(error)
         log.warn(
           {
