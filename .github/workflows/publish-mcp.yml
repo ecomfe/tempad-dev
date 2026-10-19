@@ -15,7 +15,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   guard:
@@ -35,6 +34,9 @@ jobs:
     name: Publish @tempad-dev/mcp
     needs: guard
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     concurrency:
       group: publish-mcp
       cancel-in-progress: false
