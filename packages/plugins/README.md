@@ -154,6 +154,12 @@ export default definePlugin({
 
 TemPad Dev will serialize the returned `DevComponent` into JSX/TSX for display.
 
+For MCP exports, token collection and rewriting apply to `style`, `class`/`className`, and
+SVG presentation attributes. Text children and other props remain literal: a custom
+`color: 'var(--brand, #fff)'` prop retains its fallback and name and does not add a token entry.
+Use `style: { color: 'var(--brand, #fff)' }` when the value represents CSS. Returned strings
+and `raw()` content opt into code-level token processing instead.
+
 ### Navigating design nodes
 
 Plugins often need to search through the inspected node tree. The following helpers are exported:

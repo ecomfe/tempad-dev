@@ -148,6 +148,11 @@ export default definePlugin({
 
 TemPad Dev 会将返回的 `DevComponent` 序列化为 JSX/TSX 并展示出来。
 
+MCP 导出只对 `style`、`class`/`className` 和 SVG 表现属性收集、改写 token。
+文本子节点和其他 prop 保持字面值：例如自定义 `color: 'var(--brand, #fff)'` prop
+会保留 fallback 和变量名，也不会添加 token 条目。如果值表示 CSS，请使用
+`style: { color: 'var(--brand, #fff)' }`。返回字符串或 `raw()` 内容则会启用代码级 token 处理。
+
 ### 遍历设计节点
 
 插件经常需要在被检查的节点树中查找内容。我们导出了以下辅助函数：

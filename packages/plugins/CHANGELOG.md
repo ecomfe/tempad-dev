@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.3
+## Unreleased
 
 - Fixed `h()` treating props with a `name` field as a child component. Missing or null props
   now become an empty object.
