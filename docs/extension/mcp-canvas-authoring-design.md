@@ -649,6 +649,14 @@ path.
 
 ## Reconciliation
 
+`mcp/tools/canvas/reconcile.ts` owns public dispatch and tree-update orchestration. Its internal
+`reconcile/` modules group node identity and request state, Undo protection, resource preparation,
+node-property application, tree and page operations, removals, and result checks. `tree.ts` keeps
+recursive container staging together and orders the layout, appearance, text, binding, and component
+setters. `native-update.ts` owns updates without markup. Strict verification and advisory warnings
+remain separate. Internal modules do not import the public entrypoint; shared request-state types
+use type-only imports so these responsibilities have no runtime import cycles.
+
 The local deterministic pipeline is:
 
 1. parse and validate the public input;
