@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { renderTree } from '@/mcp/tools/code/render'
 import { mapTokenValues, nativeSvg } from '@/mcp/tools/code/tokens/markup'
 import { rewriteTokenNamesInCode } from '@/mcp/tools/code/tokens/rewrite'
 import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 import { stringifyComponent } from '@/utils/component'
-import { stripFallback } from '@/utils/css'
+import { simplifyColorMixToRgba, stripFallback } from '@/utils/css'
 
 import { nativeSvgSource, nativeSvgTemplate } from './native-svg-template-fixture'
 
@@ -13,7 +13,38 @@ const source = 'var(--brand, #fff)'
 const transform = (value: string) =>
   rewriteTokenNamesInCode(stripFallback(value), new Map([['--brand', '--renamed']]))
 
+afterEach(() => vi.restoreAllMocks())
+
 describe('native SVG token values', () => {
+  it('skips XML parsing across token passes for literal exported geometry', () => {
+    const parse = vi.spyOn(DOMParser.prototype, 'parseFromString')
+    const serialize = vi.spyOn(XMLSerializer.prototype, 'serializeToString')
+    const content = '<svg viewBox="0 0 16 16"><path fill="#333" d="M0 0h16v16z"/></svg>'
+    let component = nativeSvg(content, { className: 'text-(--brand)' })
+    for (let pass = 0; pass < 4; pass++) component = mapTokenValues(component, transform)
+    expect(component.props.content).toBe(content)
+    expect(component.props.injectedProps).toEqual({ className: 'text-(--renamed)' })
+    expect(parse).not.toHaveBeenCalled()
+    expect(serialize).not.toHaveBeenCalled()
+  })
+
+  it('parses entity-encoded tokens and template delimiters before applying their semantics', () => {
+    const content =
+      '<svg><title>&#123;customer&#125;</title><path fill="&#118;ar(&#45;&#45;brand, #fff)"/></svg>'
+    expect(mapTokenValues(nativeSvg(content), transform).props.content).toBe(
+      '<svg><title>&#123;customer&#125;</title><path fill="var(--renamed)"/></svg>'
+    )
+  })
+
+  it('still simplifies literal color-mix values without variable references', () => {
+    const component = nativeSvg(
+      '<svg><path fill="color-mix(in srgb, #F00 50%, transparent)"/></svg>'
+    )
+    expect(mapTokenValues(component, simplifyColorMixToRgba).props.content).toBe(
+      '<svg><path fill="rgba(255, 0, 0, 0.5)"/></svg>'
+    )
+  })
+
   it.each(['jsx', 'vue'] as const)('serializes native XML text as literal %s text', (lang) => {
     const transformed = mapTokenValues(nativeSvg(nativeSvgSource), transform)
     expect(stringifyComponent(transformed, lang)).toBe(nativeSvgTemplate)

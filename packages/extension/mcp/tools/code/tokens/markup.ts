@@ -204,6 +204,9 @@ function transformCssValue(value: string, transform: (value: string) => string):
 }
 
 function mapSvgValues(content: string, transform: (value: string) => string): string {
+  // Literal exports need no token work. Entities can encode either CSS syntax or
+  // template delimiters, so they must still pass through the XML text boundary.
+  if (!/var\(|--|color-mix|[{}&]|<!\[CDATA\[/i.test(content)) return content
   const document = new DOMParser().parseFromString(content, 'image/svg+xml')
   if (document.querySelector('parsererror') || document.documentElement.localName !== 'svg')
     return content
