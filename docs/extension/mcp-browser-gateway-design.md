@@ -158,6 +158,10 @@ Stop. Another tab's live review does not become this page's claim, while cancell
 fences can synchronize from any tab in the same file. Changing file/session or disabling the
 bridge clears its cache; if all surviving page and worker state is lost before persistence or
 Hub delivery, the unpersisted Stop cannot be recovered.
+Even with a surviving page, a failed `storage.local.get` during worker replacement can lose the
+saved browser identity. The replacement then connects with a new browser ID, so the Hub rejects
+reviews bound to the previous identity. The page still enforces its local Stop fence; its cached
+cancellation alone cannot establish the old browser identity.
 Closing that review still requires a durable receipt, and reconnect processes Stop before Done.
 
 Mutating tool waits warn at their configured timeout and stop waiting after twice that interval.

@@ -989,7 +989,8 @@ export class McpServiceWorkerBroker {
       else await browser.storage.local.set({ [key]: this.browserId })
       await this.reviews().ready()
     } catch {
-      // The current connection can still work; recovery will require live session evidence.
+      // Connection can still work, but without the saved browser ID the Hub cannot
+      // authenticate reviews bound to the previous identity.
     }
   }
 
