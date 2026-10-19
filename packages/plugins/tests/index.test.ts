@@ -142,6 +142,26 @@ describe('plugins sdk helpers', () => {
     expect(findAll(root, (node) => node.type === 'VECTOR').map((n) => n.name)).toEqual(['Arrow'])
   })
 
+  it.each(['g', 'y', 'gy'])('matches every node independently with a /%s query', (flags) => {
+    const titles = [text('Title', 'A'), text('Title', 'B'), text('Title', 'C')]
+    const direct = frame('Root', [...titles, text('Subtitle Title', 'D')])
+    const deep = frame('Root', [group('Group', direct.children)])
+    const name = new RegExp('Title', flags)
+    name.lastIndex = 2
+    Object.freeze(name)
+    const expected = flags.includes('y') ? titles : direct.children
+
+    for (let repeat = 0; repeat < 2; repeat++) {
+      expect(findChildren(direct, { name })).toEqual(expected)
+      expect(findChild(direct, { name })).toBe(titles[0])
+      expect(findAll(deep, { name })).toEqual(expected)
+      expect(findOne(deep, { name })).toBe(titles[0])
+      expect(queryAll(deep, [{ query: 'all', name }])).toEqual(expected)
+      expect(queryOne(deep, [{ query: 'one', name }])).toBe(titles[0])
+      expect(name.lastIndex).toBe(2)
+    }
+  })
+
   it('runs chained queryAll/queryOne pipelines and deduplicates', () => {
     const duplicate = text('Duplicated Label', 'Same')
     const panel = group('Panel', [duplicate, duplicate, text('Hint', 'x', false)])

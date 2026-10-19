@@ -454,7 +454,8 @@ function matchProperty<T>(
     }
 
     if (condition instanceof RegExp) {
-      return condition.test(value)
+      // Queries match independently of earlier nodes and the caller's lastIndex.
+      return new RegExp(condition.source, condition.flags).test(value)
     }
   }
 
