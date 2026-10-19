@@ -29,20 +29,39 @@ function createNode(
 
 describe('utils/component', () => {
   it('normalizes native HTML property names without changing component props or JSX', () => {
-    const props = { readOnly: true, maxLength: 12 }
+    const props = {
+      readOnly: true,
+      maxLength: 12,
+      autoComplete: 'off',
+      contentEditable: true,
+      spellCheck: false,
+      ariaLabel: 'Name',
+      dataTestId: 'input'
+    }
     const input = { name: 'input', props, children: [] }
     const vue = stringifyComponent(input, 'vue')
     expect(vue).toContain('\n  readonly\n')
     expect(vue).toContain(':maxlength="12"')
+    expect(vue).toContain('autocomplete="off"')
+    expect(vue).toContain(':contenteditable="true"')
+    expect(vue).toContain(':spellcheck="false"')
+    expect(vue).toContain('aria-label="Name"')
+    expect(vue).toContain('data-test-id="input"')
 
     for (const name of ['InputField', 'custom-input']) {
       const custom = stringifyComponent({ name, props, children: [] }, 'vue')
       expect(custom).toContain('\n  read-only\n')
       expect(custom).toContain(':max-length="12"')
+      expect(custom).toContain('auto-complete="off"')
+      expect(custom).toContain('\n  content-editable\n')
+      expect(custom).toContain(':spell-check="false"')
     }
     const jsx = stringifyComponent(input, 'jsx')
     expect(jsx).toContain('\n  readOnly\n')
     expect(jsx).toContain('maxLength={12}')
+    expect(jsx).toContain('autoComplete="off"')
+    expect(jsx).toContain('\n  contentEditable\n')
+    expect(jsx).toContain('spellCheck={false}')
   })
 
   it('normalizes native SVG namespaces while respecting foreignObject and component props', () => {

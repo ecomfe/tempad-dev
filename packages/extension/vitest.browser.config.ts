@@ -8,6 +8,9 @@ const rootDir = fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig({
   plugins: [vue()],
+  optimizeDeps: {
+    include: ['vue/compiler-sfc']
+  },
   resolve: {
     conditions: ['source', 'module', 'browser', 'development|production'],
     alias: {

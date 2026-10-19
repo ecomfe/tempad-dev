@@ -314,6 +314,60 @@ const VOID_HTML_TAGS = new Set([
 ])
 
 const EVENT_HANDLER_RE = /^on[A-Z]/
+// Native HTML names are case-insensitive, but these DOM/JSX properties have no hyphen.
+const HTML_CAMEL_CASE_ATTRIBUTES = new Set([
+  'accessKey',
+  'allowFullScreen',
+  'autoCapitalize',
+  'autoComplete',
+  'autoFocus',
+  'autoPlay',
+  'cellPadding',
+  'cellSpacing',
+  'charSet',
+  'colSpan',
+  'contentEditable',
+  'contextMenu',
+  'controlsList',
+  'crossOrigin',
+  'dateTime',
+  'dirName',
+  'disablePictureInPicture',
+  'disableRemotePlayback',
+  'encType',
+  'enterKeyHint',
+  'fetchPriority',
+  'formAction',
+  'formEncType',
+  'formMethod',
+  'formNoValidate',
+  'formTarget',
+  'frameBorder',
+  'hrefLang',
+  'inputMode',
+  'isMap',
+  'itemID',
+  'itemProp',
+  'itemRef',
+  'itemScope',
+  'itemType',
+  'marginHeight',
+  'marginWidth',
+  'maxLength',
+  'minLength',
+  'noModule',
+  'noValidate',
+  'playsInline',
+  'readOnly',
+  'referrerPolicy',
+  'rowSpan',
+  'spellCheck',
+  'srcDoc',
+  'srcLang',
+  'srcSet',
+  'useMap'
+])
+const HTML_ENUMERATED_BOOLEAN_ATTRIBUTES = new Set(['contenteditable', 'draggable', 'spellcheck'])
 const SVG_CASE_SENSITIVE_ATTRIBUTES = new Set([
   'viewBox',
   'preserveAspectRatio',
@@ -393,7 +447,7 @@ function getVueAttributeName(key: string, inSvg: boolean, isCustomTag: boolean):
 
   if (!isCustomTag) {
     if (inSvg && key === 'xlinkHref') return 'xlink:href'
-    if (!inSvg && (key === 'readOnly' || key === 'maxLength')) return key.toLowerCase()
+    if (!inSvg && HTML_CAMEL_CASE_ATTRIBUTES.has(key)) return key.toLowerCase()
   }
 
   return inSvg && SVG_CASE_SENSITIVE_ATTRIBUTES.has(key) ? key : camelToKebab(key)
@@ -420,6 +474,9 @@ function stringifyVueComponent(
       }
 
       if (typeof value === 'boolean') {
+        if (!inSvg && !isCustomTag && HTML_ENUMERATED_BOOLEAN_ATTRIBUTES.has(name)) {
+          return `:${name}="${value}"`
+        }
         return value ? name : `:${name}="false"`
       }
 
