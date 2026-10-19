@@ -1379,7 +1379,18 @@ export async function startHub(): Promise<void> {
       }
       netServer.once('error', onError)
       netServer.once('listening', onListening)
-      netServer.listen(SOCK_PATH)
+      if (process.platform === 'win32') {
+        netServer.listen(SOCK_PATH)
+        return
+      }
+      // Unix bind creates the inode synchronously, before the listening event.
+      // It must already be private when another process first checks the path.
+      const previousMask = process.umask(0o177)
+      try {
+        netServer.listen(SOCK_PATH)
+      } finally {
+        process.umask(previousMask)
+      }
     })
   }
 

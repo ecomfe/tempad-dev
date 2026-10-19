@@ -270,6 +270,54 @@ it.skipIf(process.platform === 'win32')(
   10000
 )
 
+it.skipIf(process.platform === 'win32').each(['success', 'throw', 'error'] as const)(
+  'creates a private Hub socket and restores the process mask on %s',
+  async (outcome) => {
+    const runtime = join(directory, `bind-${outcome}`)
+    const socketPath = join(runtime, 'mcp.sock')
+    const probe = join(directory, `bind-${outcome}.jsonl`)
+    const preload = join(bundle, `bind-${outcome}.mjs`)
+    writeFileSync(
+      preload,
+      `import {Server} from 'node:net'; import {appendFileSync, lstatSync} from 'node:fs';
+      process.umask(0o022);
+      const record = value => appendFileSync(${JSON.stringify(probe)}, JSON.stringify(value) + '\\n');
+      process.once('exit', () => record({restoredMask: process.umask()}));
+      const listen = Server.prototype.listen;
+      Server.prototype.listen = function(...args) {
+        if (args[0] !== ${JSON.stringify(socketPath)}) return listen.apply(this, args);
+        if (${JSON.stringify(outcome)} === 'throw') throw new Error('Fixture bind failed');
+        if (${JSON.stringify(outcome)} === 'error') {
+          queueMicrotask(() => this.emit('error', new Error('Fixture bind failed')));
+          return this;
+        }
+        const result = listen.apply(this, args);
+        // Observe the inode before the later listening callback can chmod it.
+        record({mode: lstatSync(${JSON.stringify(socketPath)}).mode & 0o777});
+        return result;
+      };`
+    )
+    const hub = launch('hub.mjs', runtime, preload, join(directory, `bind-stores-${outcome}`))
+    if (outcome === 'success') {
+      await vi.waitFor(() => expect(hub.stdout(), hub.stderr()).toContain('ready'), {
+        timeout: 5000
+      })
+      await pingHub(socketPath)
+    }
+    await vi.waitFor(() => expect(hub.child.exitCode, hub.stderr()).not.toBeNull(), {
+      timeout: 5000
+    })
+    expect((await hub.exited)[0], hub.stderr()).toBe(outcome === 'success' ? 0 : 1)
+    const records = readFileSync(probe, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    if (outcome === 'success') expect(records[0]).toEqual({ mode: 0o600 })
+    else expect(hub.stderr()).toContain('Fixture bind failed')
+    expect(records.at(-1)).toEqual({ restoredMask: 0o022 })
+  }
+)
+
 it.skipIf(process.platform === 'win32')(
   'recovers through the CLI after orphaned lifecycle and writer locks expire',
   async () => {
