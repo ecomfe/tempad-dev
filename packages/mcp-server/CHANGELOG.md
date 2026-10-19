@@ -15,6 +15,8 @@
 - Prevented restored reviews from sending feedback to unrelated conversations.
 - Added safe recovery for damaged task storage while keeping old tasks retired.
 - Preserved saved task records across version changes and showed progress during longer Hub startup.
+- Prevented malformed asset requests from disconnecting agents and released resources after
+  cancelled downloads.
 
 ## 0.11.0
 

@@ -16,9 +16,11 @@
   comments saved in another tab.
 - Fixed stale selection code, incorrect unit conversions, and misleading copy or plugin-install
   success messages. Added code-generation progress and Retry. Improved keyboard access.
-- Preserved independent preferences across tabs and allowed plugin deletion when storage is full.
+- Preserved preferences and plugin changes across tabs, including when storage is full.
 - Added Refresh links and documentation links for component sets.
 - Preserved native HTML and SVG attributes in Vue exports.
+- Preserved literal text and token names in code exports.
+- Restored selection and measurement tools after switching windows with keys held.
 
 ## 0.23.4
 
