@@ -125,12 +125,29 @@ export function createAssetHttpServer(
       )
     })
 
+    try {
+      routeRequest(req, res)
+    } catch (error) {
+      log.error({ error }, 'Failed to handle asset request.')
+      if (res.headersSent) res.destroy()
+      else sendError(res, 500, 'Internal Server Error')
+    }
+  }
+
+  function routeRequest(req: IncomingMessage, res: ServerResponse): void {
     if (!req.url) {
       sendError(res, 400, 'Missing URL')
       return
     }
 
-    const url = new URL(req.url, getBaseUrl())
+    let url: URL
+    const baseUrl = getBaseUrl()
+    try {
+      url = new URL(req.url, baseUrl)
+    } catch {
+      sendError(res, 400, 'Invalid URL')
+      return
+    }
     const segments = url.pathname.split('/').filter(Boolean)
     const legacy = secretsEqual(segments[0] ?? '', legacyAccessToken)
     if (

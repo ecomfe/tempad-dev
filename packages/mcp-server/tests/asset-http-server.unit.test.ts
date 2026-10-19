@@ -276,6 +276,48 @@ afterEach(() => {
 })
 
 describe('asset-http-server unit branches', () => {
+  it('rejects malformed URLs and continues serving later requests', async () => {
+    const store = createStoreMock()
+    await createAssetHttpServer(store).start()
+
+    const invalid = createResponse()
+    expect(() => state.requestHandler?.(createRequest({ url: 'http://[' }), invalid)).not.toThrow()
+    expect(invalid.statusCode).toBe(400)
+    expect(readJson(invalid)).toEqual({ error: 'Invalid URL' })
+    expect(store.get).not.toHaveBeenCalled()
+
+    const next = createResponse()
+    state.requestHandler?.(createRequest({}), next)
+    expect(next.statusCode).toBe(404)
+    expect(readJson(next)).toEqual({ error: 'Asset Not Found' })
+  })
+
+  it('contains unexpected routing failures within the current response', async () => {
+    const store = createStoreMock()
+    store.get.mockImplementationOnce(() => {
+      throw new Error('store unavailable')
+    })
+    await createAssetHttpServer(store).start()
+
+    const failed = createResponse()
+    expect(() => state.requestHandler?.(createRequest({}), failed)).not.toThrow()
+    expect(failed.statusCode).toBe(500)
+    expect(readJson(failed)).toEqual({ error: 'Internal Server Error' })
+
+    const next = createResponse()
+    state.requestHandler?.(createRequest({}), next)
+    expect(next.statusCode).toBe(404)
+
+    mocks.createReadStream.mockImplementationOnce(() => {
+      throw new Error('cannot open stream')
+    })
+    store.get.mockReturnValue({ filePath: ASSET_FILE_PATH, mimeType: 'image/png' })
+    const started = createResponse()
+    expect(() => state.requestHandler?.(createRequest({}), started)).not.toThrow()
+    expect(started.destroy).toHaveBeenCalledOnce()
+    expect(started.end).not.toHaveBeenCalled()
+  })
+
   it('treats stop as a no-op before start', () => {
     const store = createStoreMock()
     const server = createAssetHttpServer(store)
