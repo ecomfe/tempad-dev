@@ -13,7 +13,9 @@
   without updates.
 - Hardened local storage and Unix socket access.
 - Prevented restored reviews from sending feedback to unrelated conversations.
-- Added safe recovery for damaged task storage while keeping old tasks retired.
+- Added safe recovery for damaged task storage, with clear recovery paths and old tasks kept retired.
+- Required a fresh canvas read after recovering disconnected writes with an unknown outcome.
+- Prevented repeated disconnected reads from exhausting request capacity.
 - Preserved saved task records across version changes and showed progress during longer Hub startup.
 - Prevented malformed asset requests from disconnecting agents and released resources after
   cancelled downloads.

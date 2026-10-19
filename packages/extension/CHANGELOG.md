@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.23.5 (unreleased)
 
 - Improved CSS exports for layered fills, stacking and blending, mixed fonts, variable opacity,
   and SVG sizing and placement.
 - Fixed canvas updates involving components, grids, fonts, and variable modes. Invalid resource
   changes are rejected earlier, with clearer errors when failed edits cannot be fully restored.
 - Improved responsiveness when reading large designs and exporting screenshots.
+- Preserved completed code exports at the time limit and reduced unnecessary code-panel refreshes.
 - Fixed blank images with the extension enabled and improved Figma script loading and recovery.
 - Kept the selected Figma file active across reconnects and extension background restarts.
 - Stop now cancels immediately and discards unsent comments, including during disconnection.
@@ -17,10 +18,13 @@
 - Fixed stale selection code, incorrect unit conversions, and misleading copy or plugin-install
   success messages. Added code-generation progress and Retry. Improved keyboard access.
 - Preserved preferences and plugin changes across tabs, including when storage is full.
+- Added recovery for unreadable saved plugins.
 - Added Refresh links and documentation links for component sets.
 - Preserved native HTML and SVG attributes in Vue exports.
 - Preserved literal text and token names in code exports.
+- Added browser-compatibility warnings for token-based font weight and opacity.
 - Restored selection and measurement tools after switching windows with keys held.
+- Reported unsupported named text entities without changing the supplied text.
 
 ## 0.23.4
 
