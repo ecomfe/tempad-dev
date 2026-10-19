@@ -317,6 +317,37 @@ describe('mcp/code handleGetCode', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it.each(['full', 'shell'])(
+    'retains a completed %s result when final response formatting overruns the deadline',
+    async (phase) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      let elapsed = 0
+      vi.spyOn(performance, 'now').mockImplementation(() => elapsed)
+      const root = createSnapshot({ id: 'root', children: ['child'] })
+      const tree = createTree([root, createSnapshot({ id: 'child', parentId: 'root' })])
+      mockAssetCollection(tree, [], new Set())
+      mocks.renderTree.mockResolvedValue(raw('<div>full</div>'))
+      if (phase === 'shell') {
+        mocks.renderTree.mockRejectedValueOnce(
+          new PluginSandboxError('timeout', 'Plugin timed out')
+        )
+      }
+      mocks.getOrderedChildIds.mockReturnValue(['child'])
+      mocks.renderShellTree.mockResolvedValue(raw('<div>shell</div>'))
+
+      const result = await handleGetCode([root.node], 'jsx', false, 'smart', {
+        formatResult: (output) => {
+          elapsed += phase === 'full' ? 20_001 : 5_001
+          return buildGetCodeToolResult(output)
+        }
+      })
+
+      expect(result.code).toContain(`<div>${phase}</div>`)
+      expect(mocks.renderShellTree).toHaveBeenCalledTimes(phase === 'shell' ? 1 : 0)
+      expect(vi.getTimerCount()).toBe(0)
+    }
+  )
+
   it('keeps a depth-capped root under the deadline even without snapshot children', async () => {
     vi.useFakeTimers()
     const root = createSnapshot({ id: 'root', children: [] })

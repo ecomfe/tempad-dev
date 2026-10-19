@@ -33,14 +33,16 @@ function node(id: string, children: SceneNode[] = []): SceneNode {
   } as unknown as SceneNode
 }
 
-it('rejects synchronous work that finishes after the deadline before the timer runs', async () => {
+it('retains work completed before the overdue timer runs', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   const advance = clock()
   await expect(
     withCodeDeadline(20, async () => {
       advance(21)
-      return 'too late'
+      return 'completed'
     })
-  ).rejects.toThrow('Code generation timed out')
+  ).resolves.toBe('completed')
+  expect(vi.getTimerCount()).toBe(0)
 })
 
 it('keeps checkpoints cancelled after the timer fires ahead of the monotonic deadline', async () => {

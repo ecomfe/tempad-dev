@@ -23,6 +23,8 @@ For splittable roots, the extension limits tree construction and full generation
 shell with a separate 5-second limit. These extension limits are fixed; a shorter Hub override can
 still expire first. The fallback shares lookup and CSS-promise caches with the original attempt,
 and abort checks fence late results and prevent subsequent collection, export, and plugin batches.
+A completed full or shell result wins if synchronous work finishes before its overdue timer runs;
+the deadline wrapper does not recheck elapsed time after success or discard completed output.
 Synchronous checkpoints cover depth selection, tree traversal (including hidden siblings),
 candidate-variable scans, and collection between nodes and after text, CSS, style, and media reads.
 They also run within physical-child overflow scans, per-field text-variable reads, and nested

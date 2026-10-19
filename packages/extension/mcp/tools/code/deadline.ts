@@ -32,10 +32,8 @@ export async function withCodeDeadline<T>(
   })
   try {
     checkpoint()
-    const result = await Promise.race([run(controller.signal, checkpoint), timeout])
-    // Synchronous work and its microtasks can finish before an overdue timer runs.
-    checkpoint()
-    return result
+    // Preserve a completed result if synchronous work finishes before an overdue timer runs.
+    return await Promise.race([run(controller.signal, checkpoint), timeout])
   } catch (error) {
     controller.abort(error)
     throw error
