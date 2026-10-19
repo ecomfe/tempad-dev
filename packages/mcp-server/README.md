@@ -153,6 +153,9 @@ Verify that it is the latest complete snapshot before restoring it; its filename
 
 An older backup or leftover `.tmp` file may predate a Stop action. Without a trustworthy complete
 snapshot, disconnect all MCP clients and run `npx -y @tempad-dev/mcp@latest --recover-task-storage`.
+Run it with the same `TEMPAD_MCP_STATE_DIR` and `TEMPAD_MCP_RUNTIME_DIR` environment overrides
+as the MCP client configuration; the command does not read that configuration. It prints the
+resolved snapshot path even when recovery is refused. Confirm that it names the affected storage.
 The command refuses an active writer or readable storage, preserves the original files in the
 reported backup directory, and starts a new task generation. Every old task stays retired:
 old reviews cannot restore execution, and writes require an explicitly new task and a fresh

@@ -138,6 +138,7 @@ it('recovers quarantined task storage through the CLI without spawning a Hub', a
   const recovering = launch('cli.mjs', runtime, preload, stores, ['--recover-task-storage'])
   expect(await recovering.exited).toEqual([0, null])
   expect(recovering.stderr()).toBe('')
+  expect(recovering.stdout()).toContain(`Task storage: ${path}\n`)
   expect(recovering.stdout()).toContain('Old tasks remain retired')
   expect(existsSync(join(runtime, 'mcp.sock'))).toBe(false)
   const saved = readFileSync(path, 'utf8')
@@ -149,6 +150,7 @@ it('recovers quarantined task storage through the CLI without spawning a Hub', a
   expect(readFileSync(`${path}.corrupt`, 'utf8')).toBe('{unreadable Stop history')
   const repeated = launch('cli.mjs', runtime, preload, stores, ['--recover-task-storage'])
   expect(await repeated.exited).toEqual([1, null])
+  expect(repeated.stdout()).toContain(`Task storage: ${path}\n`)
   expect(repeated.stderr()).toContain('readable')
   expect(readFileSync(path, 'utf8')).toBe(saved)
   const extraArgument = launch('cli.mjs', runtime, preload, stores, [
@@ -156,6 +158,7 @@ it('recovers quarantined task storage through the CLI without spawning a Hub', a
     '--force'
   ])
   expect(await extraArgument.exited).toEqual([1, null])
+  expect(extraArgument.stdout()).toContain(`Task storage: ${path}\n`)
   expect(extraArgument.stderr()).toContain('without other arguments')
   expect(readFileSync(path, 'utf8')).toBe(saved)
 })

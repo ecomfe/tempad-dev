@@ -5,7 +5,7 @@ import type { Socket } from 'node:net'
 
 import { spawn } from 'node:child_process'
 import { connect } from 'node:net'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import lockfile from 'proper-lockfile'
 
@@ -266,10 +266,12 @@ async function tryBecomeLeaderAndStartHub(): Promise<Socket> {
 async function main() {
   if (process.argv.includes('--recover-task-storage')) {
     try {
+      const directory = resolve(resolveStateDir())
+      process.stdout.write(`Task storage: ${join(directory, 'design-tasks.json')}\n`)
       if (process.argv.length !== 3)
         throw new Error('Use --recover-task-storage without other arguments.')
       const { recoverDesignTaskStorage } = await import('./task-storage-recovery')
-      const result = await recoverDesignTaskStorage(resolveStateDir())
+      const result = await recoverDesignTaskStorage(directory)
       process.stdout.write(
         `Task storage recovered. Old tasks remain retired; begin a fresh task to write.\nOriginal files: ${result.backupDirectory}\n`
       )
