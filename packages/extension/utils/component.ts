@@ -190,6 +190,11 @@ export function stringifyComponent(
 
 const INDENT_UNIT = '  '
 
+function escapeComponentText(text: string): string {
+  // Entities stay literal text in both JSX and Vue, unlike their template delimiters.
+  return escapeHTML(text).replace(/[{}]/g, (brace) => (brace === '{' ? '&#123;' : '&#125;'))
+}
+
 function stringifyBaseComponent(
   component: DevComponent,
   stringifyProp: (key: string, value: unknown, inSvg: boolean, isCustomTag: boolean) => string,
@@ -237,7 +242,7 @@ function stringifyBaseComponent(
     childrenString = children
       .map((child): string => {
         if (typeof child === 'string') {
-          return escapeHTML(child)
+          return escapeComponentText(child)
         }
         return stringifyBaseComponent(child, stringifyProp, 0, isInline, childrenInSvg)
       })
@@ -250,7 +255,7 @@ function stringifyBaseComponent(
     childrenString = `\n${children
       .map((child): string => {
         if (typeof child === 'string') {
-          const content = escapeHTML(child)
+          const content = escapeComponentText(child)
           return `${indent + INDENT_UNIT}${content}`
         }
         return stringifyBaseComponent(
