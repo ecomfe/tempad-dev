@@ -10,7 +10,7 @@ type MockState = {
   listenError?: Error
   pipelineError?: Error & { code?: string }
   digest: string
-  readMode: 'normal' | 'error-before' | 'error-after'
+  readMode: 'normal' | 'error'
   exists: Map<string, boolean>
   statError?: Error & { code?: string }
   statSize: number
@@ -142,7 +142,7 @@ function createRequest(input: {
   } as IncomingMessage & { resume: ReturnType<typeof vi.fn> }
 }
 
-function createResponse(input?: { headersSent?: boolean; keepHeadersSentOnWriteHead?: boolean }) {
+function createResponse(input?: { headersSent?: boolean }) {
   const callbacks = new Map<string, Array<() => void>>()
   const addCallback = (event: string, cb: () => void) => {
     const registered = callbacks.get(event) ?? []
@@ -170,9 +170,7 @@ function createResponse(input?: { headersSent?: boolean; keepHeadersSentOnWriteH
     }),
     writeHead: vi.fn((status: number, headers?: Record<string, string>) => {
       res.statusCode = status
-      if (!input?.keepHeadersSentOnWriteHead) {
-        res.headersSent = true
-      }
+      res.headersSent = true
       if (headers) Object.assign(res.headers, headers)
     }),
     end: vi.fn((body?: string) => {
@@ -225,20 +223,7 @@ beforeEach(() => {
   })
 
   mocks.createReadStream.mockImplementation(() => {
-    const stream = new EventEmitter() as EventEmitter & { pipe: (target: unknown) => void }
-    stream.pipe = (target: unknown) => {
-      if (state.readMode === 'error-before') {
-        stream.emit('error', new Error('stream failed'))
-        return
-      }
-      if (state.readMode === 'error-after') {
-        ;(target as { headersSent: boolean }).headersSent = true
-        stream.emit('error', new Error('stream failed'))
-        return
-      }
-      stream.emit('open')
-    }
-    return stream
+    return new EventEmitter()
   })
 
   mocks.createWriteStream.mockImplementation(() => ({}))
@@ -255,8 +240,20 @@ beforeEach(() => {
   })
 
   mocks.pipeline.mockImplementation(
-    (_req: unknown, _monitor: unknown, _writeStream: unknown, done: (err?: Error) => void) => {
-      done(state.pipelineError)
+    (
+      source: EventEmitter,
+      destination: ReturnType<typeof createResponse>,
+      third: unknown,
+      done?: (err?: Error) => void
+    ) => {
+      if (done) {
+        done(state.pipelineError)
+      } else if (state.readMode === 'error') {
+        destination.destroy()
+        ;(third as (err: Error) => void)(new Error('stream failed'))
+      } else {
+        source.emit('open')
+      }
     }
   )
 
@@ -455,17 +452,16 @@ describe('asset-http-server unit branches', () => {
     expect(readJson(statErrorRes)).toEqual({ error: 'Internal Server Error' })
 
     state.statError = undefined
-    state.readMode = 'error-before'
-    const notSentRes = createResponse({ keepHeadersSentOnWriteHead: true })
-    state.requestHandler?.(createRequest({ url: `/assets/${ASSET_FILENAME}` }), notSentRes)
-    expect(notSentRes.statusCode).toBe(500)
-    expect(readJson(notSentRes)).toEqual({ error: 'Internal Server Error' })
-
-    state.readMode = 'error-after'
+    state.readMode = 'error'
     const sentRes = createResponse()
     state.requestHandler?.(createRequest({ url: `/assets/${ASSET_FILENAME}` }), sentRes)
     expect(sentRes.statusCode).toBe(200)
-    expect(sentRes.end).toHaveBeenCalled()
+    expect(sentRes.destroy).toHaveBeenCalledOnce()
+    expect(sentRes.end).not.toHaveBeenCalled()
+    expect(mocks.log.warn).toHaveBeenCalledWith(
+      { error: expect.any(Error), hash: ASSET_HASH },
+      'Failed to stream asset file.'
+    )
   })
 
   it('bounds concurrent downloads and times out stalled responses', async () => {

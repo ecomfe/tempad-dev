@@ -259,18 +259,14 @@ export function createAssetHttpServer(
     })
 
     const stream = createReadStream(record.filePath)
-    stream.on('error', (error) => {
-      log.warn({ error, hash }, 'Failed to stream asset file.')
-      if (!res.headersSent) {
-        sendError(res, 500, 'Internal Server Error')
-      } else {
-        res.end()
-      }
-    })
     stream.on('open', () => {
       store.touch(hash)
     })
-    stream.pipe(res)
+    pipeline(stream, res, (error) => {
+      if (error && (error as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+        log.warn({ error, hash }, 'Failed to stream asset file.')
+      }
+    })
   }
 
   function handleUpload(req: IncomingMessage, res: ServerResponse, hash: string): void {
