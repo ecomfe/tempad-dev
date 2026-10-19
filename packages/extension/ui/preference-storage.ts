@@ -4,8 +4,11 @@ import { PLUGIN_STORAGE_KEY } from './plugin-storage'
 export function createPreferenceStorage(
   storage: Storage,
   locks: LockManager,
+  defaults: Record<string, unknown>,
   onError: (error: unknown) => void = console.error
 ) {
+  // VueUse may reuse and mutate the supplied defaults when no saved record exists.
+  const initial = JSON.stringify(defaults)
   let previous: Record<string, unknown> | undefined
   let queued: { value: string | null } | undefined
   const read = (value: string | null): Record<string, unknown> | undefined => {
@@ -36,7 +39,8 @@ export function createPreferenceStorage(
       // A remote tab's equal value must not skip acknowledging our own edit.
       if (previous) return JSON.stringify(previous)
       const value = storage.getItem(key)
-      previous = read(value) ?? {}
+      // Missing defaults belong to the baseline, not this tab's first edit.
+      previous = { ...read(initial), ...read(value) }
       return value === null ? null : JSON.stringify(previous)
     },
     setItem(key: string, value: string) {

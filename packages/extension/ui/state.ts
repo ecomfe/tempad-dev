@@ -26,26 +26,28 @@ export type Options = {
   activePluginSource: string | null
 }
 
+const defaultOptions: Options = {
+  minimized: false,
+  panelPosition: {
+    left: window.innerWidth - ui.nativePanelWidth - ui.tempadPanelWidth,
+    top: ui.topBoundary,
+    width: ui.tempadPanelWidth
+  },
+  prefOpen: false,
+  deepSelectOn: false,
+  measureOn: false,
+  cssUnit: 'px',
+  rootFontSize: 16,
+  scale: 1,
+  variableDisplay: 'reference',
+  mcpOn: false,
+  activePluginSource: null
+}
+
 export const options = useStorage<Options>(
   'tempad-dev',
-  {
-    minimized: false,
-    panelPosition: {
-      left: window.innerWidth - ui.nativePanelWidth - ui.tempadPanelWidth,
-      top: ui.topBoundary,
-      width: ui.tempadPanelWidth
-    },
-    prefOpen: false,
-    deepSelectOn: false,
-    measureOn: false,
-    cssUnit: 'px',
-    rootFontSize: 16,
-    scale: 1,
-    variableDisplay: 'reference',
-    mcpOn: false,
-    activePluginSource: null
-  },
-  createPreferenceStorage(localStorage, navigator.locks, (error) => {
+  defaultOptions,
+  createPreferenceStorage(localStorage, navigator.locks, defaultOptions, (error) => {
     logger.error('Failed to persist preferences:', error)
   }),
   { mergeDefaults: true, listenToStorageChanges: false }

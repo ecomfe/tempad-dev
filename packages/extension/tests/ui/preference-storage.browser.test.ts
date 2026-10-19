@@ -6,6 +6,18 @@ import { PLUGIN_STORAGE_KEY } from '@/ui/plugin-storage'
 import { createPreferenceStorage } from '@/ui/preference-storage'
 
 const key = 'tempad-preference-test'
+function usePreferences<T extends Record<string, unknown>>(
+  defaults: T,
+  onError?: (error: unknown) => void
+) {
+  return useStorage(
+    key,
+    defaults,
+    createPreferenceStorage(localStorage, navigator.locks, defaults, onError),
+    { mergeDefaults: true, listenToStorageChanges: false, onError }
+  )
+}
+
 async function flushStorage() {
   await nextTick()
   await navigator.locks.request(PLUGIN_STORAGE_KEY, () => undefined)
@@ -16,21 +28,87 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
+it.each(['missing', 'older'])(
+  'keeps an early edit when another tab initializes the %s record before the write lock is released',
+  async (record) => {
+    if (record === 'older') localStorage.setItem(key, JSON.stringify({ cssUnit: 'px' }))
+    const frame = document.createElement('iframe')
+    document.body.append(frame)
+    const remote = frame.contentWindow!
+    const flushTabs = async () => {
+      await flushStorage()
+      await remote.navigator.locks.request(PLUGIN_STORAGE_KEY, () => undefined)
+    }
+    const scope = effectScope()
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const held = navigator.locks.request(PLUGIN_STORAGE_KEY, () => {
+      entered.resolve()
+      return release.promise
+    })
+    await entered.promise
+    const openTab = (storage: Storage, locks: LockManager) =>
+      scope.run(() => {
+        const defaults = { cssUnit: 'px', mcpOn: false }
+        return useStorage(key, defaults, createPreferenceStorage(storage, locks, defaults), {
+          mergeDefaults: true,
+          listenToStorageChanges: false
+        })
+      })!
+    try {
+      const a = openTab(localStorage, navigator.locks)
+      a.value.mcpOn = true
+      await nextTick()
+      const b = openTab(remote.localStorage, remote.navigator.locks)
+      await nextTick()
+      release.resolve()
+      await held
+      await flushTabs()
+      expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ cssUnit: 'px', mcpOn: true })
+      b.value.cssUnit = 'rem'
+      await flushTabs()
+      expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ cssUnit: 'rem', mcpOn: true })
+      expect(b.value.mcpOn).toBe(false)
+    } finally {
+      release.resolve()
+      await held
+      await flushTabs()
+      scope.stop()
+      frame.remove()
+    }
+  }
+)
+
+it('does not write untouched defaults after the initial storage write fails', async () => {
+  const scope = effectScope()
+  const onError = vi.fn()
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError')
+  })
+  try {
+    const preferences = scope.run(() => usePreferences({ cssUnit: 'px', mcpOn: false }, onError))!
+    await flushStorage()
+    expect(onError).toHaveBeenCalledOnce()
+    write.mockRestore()
+    localStorage.setItem(key, JSON.stringify({ cssUnit: 'px', mcpOn: true }))
+    preferences.value.cssUnit = 'rem'
+    await flushStorage()
+    expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ cssUnit: 'rem', mcpOn: true })
+  } finally {
+    scope.stop()
+  }
+})
+
 it('merges independent tab edits without moving another open panel or reverting shared preferences', async () => {
   const scope = effectScope()
   try {
     const tabs = scope.run(() =>
       [0, 1].map(() =>
-        useStorage(
-          key,
-          {
-            cssUnit: 'px',
-            panelPosition: { left: 1, top: 2 },
-            minimized: false
-          },
-          createPreferenceStorage(localStorage, navigator.locks),
-          { listenToStorageChanges: false }
-        )
+        usePreferences({
+          cssUnit: 'px',
+          panelPosition: { left: 1, top: 2 },
+          minimized: false
+        })
       )
     )!
     tabs[0]!.value.cssUnit = 'rem'
@@ -54,7 +132,7 @@ it('merges independent tab edits without moving another open panel or reverting 
 it('does not forget an unpersisted edit after a storage failure', async () => {
   localStorage.setItem(key, JSON.stringify({ cssUnit: 'px', minimized: false }))
   const onError = vi.fn()
-  const storage = createPreferenceStorage(localStorage, navigator.locks, onError)
+  const storage = createPreferenceStorage(localStorage, navigator.locks, {}, onError)
   storage.getItem(key)
   const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
     throw new DOMException('Quota exceeded', 'QuotaExceededError')
@@ -78,18 +156,7 @@ it.each(['initial', 'later'])(
     const scope = effectScope()
     const onError = vi.fn()
     try {
-      const preferences = scope.run(() =>
-        useStorage(
-          key,
-          { cssUnit: 'px', mcpOn: false },
-          createPreferenceStorage(localStorage, navigator.locks, onError),
-          {
-            mergeDefaults: true,
-            listenToStorageChanges: false,
-            onError
-          }
-        )
-      )!
+      const preferences = scope.run(() => usePreferences({ cssUnit: 'px', mcpOn: false }, onError))!
       await flushStorage()
       if (when === 'later') localStorage.setItem(key, '{broken')
       preferences.value.cssUnit = 'rem'
@@ -107,17 +174,7 @@ it('advances a tab baseline when another tab already persisted the same local ed
   const scope = effectScope()
   try {
     const [a, b] = scope.run(() =>
-      [0, 1].map(() =>
-        useStorage(
-          key,
-          { cssUnit: 'px', mcpOn: false },
-          createPreferenceStorage(localStorage, navigator.locks),
-          {
-            mergeDefaults: true,
-            listenToStorageChanges: false
-          }
-        )
-      )
+      [0, 1].map(() => usePreferences({ cssUnit: 'px', mcpOn: false }))
     )!
     await flushStorage()
     b!.value.cssUnit = 'rem'
@@ -142,17 +199,7 @@ it('preserves another tab edit after merging defaults into an older record', asy
   const scope = effectScope()
   try {
     const [a, b] = scope.run(() =>
-      [0, 1].map(() =>
-        useStorage(
-          key,
-          { cssUnit: 'px', mcpOn: false },
-          createPreferenceStorage(localStorage, navigator.locks),
-          {
-            mergeDefaults: true,
-            listenToStorageChanges: false
-          }
-        )
-      )
+      [0, 1].map(() => usePreferences({ cssUnit: 'px', mcpOn: false }))
     )!
     b!.value.mcpOn = true
     await flushStorage()
@@ -171,12 +218,7 @@ it('retries a failed useStorage write without losing remote or unknown fields', 
   const onError = vi.fn()
   try {
     const preferences = scope.run(() =>
-      useStorage(
-        key,
-        { cssUnit: 'px', mcpOn: false, minimized: false },
-        createPreferenceStorage(localStorage, navigator.locks, onError),
-        { mergeDefaults: true, listenToStorageChanges: false, onError }
-      )
+      usePreferences({ cssUnit: 'px', mcpOn: false, minimized: false }, onError)
     )!
     await flushStorage()
     const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {

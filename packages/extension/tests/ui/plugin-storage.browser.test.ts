@@ -67,11 +67,12 @@ it('keeps legacy deletions durable when another tab persists stale preferences u
   document.body.append(frame)
   const remote = frame.contentWindow!
   const scope = effectScope()
+  const defaults = { minimized: false, plugins: original }
   const preferences = scope.run(() =>
     useStorage(
       'tempad-dev',
-      { minimized: false, plugins: original },
-      createPreferenceStorage(remote.localStorage, remote.navigator.locks),
+      defaults,
+      createPreferenceStorage(remote.localStorage, remote.navigator.locks, defaults),
       {
         listenToStorageChanges: false
       }
@@ -124,7 +125,7 @@ it('persists a preference reversal made while a plugin write owns the lock', asy
     useStorage(
       'tempad-dev',
       { minimized: false },
-      createPreferenceStorage(localStorage, navigator.locks),
+      createPreferenceStorage(localStorage, navigator.locks, { minimized: false }),
       { listenToStorageChanges: false }
     )
   )!
@@ -152,7 +153,7 @@ it('persists a preference reversal made while a plugin write owns the lock', asy
 it('reports a locked preference write failure and retries the unpersisted edit', async () => {
   localStorage.setItem('tempad-dev', JSON.stringify({ minimized: false, cssUnit: 'px' }))
   const onError = vi.fn()
-  const preferences = createPreferenceStorage(localStorage, navigator.locks, onError)
+  const preferences = createPreferenceStorage(localStorage, navigator.locks, {}, onError)
   preferences.getItem('tempad-dev')
   const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
     throw new DOMException('Quota exceeded', 'QuotaExceededError')
