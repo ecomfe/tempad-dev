@@ -49,10 +49,12 @@ describe('consumer token resolution', () => {
       gap: '50px',
       width: '50px'
     })
+    const diagnostics = createTokenDiagnostics()
     const unresolved = createTokenConsumerResolver(
       { '--Opacity': { kind: 'number', value: '50' } },
       new Map([['--Opacity', 'v']]),
-      undefined
+      undefined,
+      diagnostics.report
     )
     expect(
       unresolved({ opacity: 'var(--Opacity)', gap: 'var(--Opacity)', width: 'var(--Opacity)' })
@@ -61,6 +63,10 @@ describe('consumer token resolution', () => {
       gap: 'calc(var(--Opacity) * 100px / 100)',
       width: 'calc(var(--Opacity) * 100px / 100)'
     })
+    expect(unresolved({ 'font-weight': 'var(--Opacity)' })).toEqual({
+      'font-weight': 'var(--Opacity)'
+    })
+    expect(diagnostics.warnings()).toEqual([])
   })
 
   it.each([
@@ -106,6 +112,33 @@ describe('consumer token resolution', () => {
       opacity: 'calc(var(--alpha) / 100)'
     })
   })
+
+  it.each(['opacity', 'font-weight'])(
+    'reports a deduplicated compatibility warning for %s using typed length division',
+    (property) => {
+      const diagnostics = createTokenDiagnostics()
+      const resolve = createTokenConsumerResolver(
+        {
+          '--canonical': { kind: 'number', value: '--length' },
+          '--length': { kind: 'number', value: { Light: '50px', Dark: '0px' } }
+        },
+        new Map([['--source', 'v']]),
+        new Map([['--source', '--canonical']]),
+        diagnostics.report
+      )
+      const style = { [property]: 'var(--source)' }
+      expect(resolve(style)[property]).toBe(
+        `calc(var(--source) / 100px${property === 'font-weight' ? ' * 100' : ''})`
+      )
+      resolve(style)
+      const warnings = diagnostics.warnings()
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]?.type).toBe('token-resolution')
+      expect(warnings[0]?.message).toContain(`${property} for --canonical`)
+      expect(warnings[0]?.message.match(/requires CSS typed arithmetic support/g)).toHaveLength(1)
+      expect(warnings[0]?.message).toContain('Use resolveTokens:true for portable literal output.')
+    }
+  )
 
   it('keeps numeric font weights unchanged and normalizes shared length aliases only at consumption', () => {
     const resolve = createTokenConsumerResolver(

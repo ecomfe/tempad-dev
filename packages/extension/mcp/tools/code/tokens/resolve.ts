@@ -206,6 +206,12 @@ export function createTokenConsumerResolver(
         }
         const divisor = property === 'opacity' ? 100 : 1
         if (dimension === 'number' && divisor === 1) return full
+        if (dimension === 'length') {
+          report?.(
+            'token-resolution',
+            `${property} for ${canonical} requires CSS typed arithmetic support. Use resolveTokens:true for portable literal output.`
+          )
+        }
         // A 1px divisor rounds to 0.063rem at the default root size; using 100px
         // keeps the ratio accurate when the renderer rounds converted lengths.
         const denominator = dimension === 'number' ? String(divisor) : '100px'

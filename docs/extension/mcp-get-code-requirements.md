@@ -248,6 +248,9 @@ nearest non-GROUP/BOOLEAN ancestor. Rebase offsets by the boxed group's native o
   cross-axis bindings take precedence; equal numeric gaps alone do not establish synchronization.
 - If an opacity or font-weight token's modes or aliases have mixed or unknown dimensions, preserve
   the reference and emit a `token-resolution` warning identifying the incomplete normalization.
+- Length-valued opacity and font-weight tokens require CSS typed arithmetic when left unresolved.
+  Emit a bounded `token-resolution` compatibility warning and suggest `resolveTokens:true` for
+  portable literal output. Unitless division does not need this warning.
 - Failed consumer resolution preserves the reference and emits a bounded `token-resolution` warning. Never choose a collection default as a substitute for failed native resolution.
 - Missing definitions, ambiguous names, and unavailable mode labels emit bounded `token-definition` warnings. Do not fabricate empty values or pick one variable from a name collision.
 - Collection and mode IDs carry identity. Duplicate collection names make definition labels ambiguous and emit a warning; mode hints use collection IDs in that case.

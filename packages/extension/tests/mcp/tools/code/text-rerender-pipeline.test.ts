@@ -114,7 +114,25 @@ it.each([false, true])(
     expect(renderTextSegments).toHaveBeenCalledTimes(2)
     expect(getCSSAsync).toHaveBeenCalledTimes(1)
     expect(getStyledTextSegments).toHaveBeenCalledTimes(1)
-    if (resolveTokens) expect(resolveForConsumer).toHaveBeenCalledTimes(1)
+    if (resolveTokens) {
+      expect(resolveForConsumer).toHaveBeenCalledTimes(1)
+      expect(result.warnings).toBeUndefined()
+    } else {
+      expect(result.warnings).toEqual([
+        {
+          type: 'token-resolution',
+          message: expect.stringContaining(
+            'font-weight for --Shared requires CSS typed arithmetic support.'
+          )
+        }
+      ])
+      expect(
+        result.warnings?.[0]?.message.match(/requires CSS typed arithmetic support/g)
+      ).toHaveLength(1)
+      expect(result.warnings?.[0]?.message).toContain(
+        'Use resolveTokens:true for portable literal output.'
+      )
+    }
   }
 )
 
