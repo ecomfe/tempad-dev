@@ -5,6 +5,7 @@ vi.mock('@/ui/state', async () => {
   const { shallowRef } = await import('vue')
   return {
     selection: shallowRef<readonly SceneNode[]>([]),
+    selectionRevision: shallowRef(0),
     layoutReady: shallowRef(false),
     runtimeMode: shallowRef('standard')
   }

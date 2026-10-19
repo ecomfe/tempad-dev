@@ -9,7 +9,14 @@ import Code from '@/components/Code.vue'
 import IconButton from '@/components/IconButton.vue'
 import Preview from '@/components/icons/Preview.vue'
 import Section from '@/components/Section.vue'
-import { selection, selectedNode, options, selectedTemPadComponent, activePlugin } from '@/ui/state'
+import {
+  selection,
+  selectionRevision,
+  selectedNode,
+  options,
+  selectedTemPadComponent,
+  activePlugin
+} from '@/ui/state'
 import { generateCodeBlocksForNode } from '@/utils/codegen'
 
 const componentCode = shallowRef('')
@@ -75,6 +82,7 @@ async function updateCode() {
 watch(
   [
     selection,
+    selectionRevision,
     activePlugin,
     () => options.value.cssUnit,
     () => options.value.rootFontSize,

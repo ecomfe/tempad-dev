@@ -99,8 +99,11 @@ if (!Number.isFinite(options.value.scale) || options.value.scale <= 0) options.v
 export const runtimeMode = shallowRef<'standard' | 'unavailable'>('standard')
 export const layoutReady = shallowRef(false)
 export const selection = shallowRef<readonly SceneNode[]>([])
+export const selectionRevision = shallowRef(0)
 export const selectedNode = computed(() => selection.value?.[0] ?? null)
 export const selectedTemPadComponent = computed(() => {
+  // Native nodes are mutable even while the selected IDs stay unchanged.
+  void selectionRevision.value
   const node = selectedNode.value
   return node ? getTemPadComponent(node) : null
 })
