@@ -141,9 +141,11 @@ export class DesignTasks {
     recoveryGeneration?: string
   ): DesignTaskRecord | undefined {
     if (this.recoveryGeneration && recoveryGeneration !== this.recoveryGeneration)
-      fail(
-        'DESIGN_TASK_INACTIVE',
-        `Task storage was recovered; old tasks cannot resume. Explicitly begin a fresh task with recoveryGeneration "${this.recoveryGeneration}" and a fresh requestId, then reread its target before writing.`
+      throw Object.assign(
+        new Error(
+          `Task storage was recovered; old tasks cannot resume. Explicitly begin a fresh task with recoveryGeneration "${this.recoveryGeneration}" and a fresh requestId, then reread its target before writing.`
+        ),
+        { code: 'DESIGN_TASK_INACTIVE', recoveryGeneration: this.recoveryGeneration }
       )
     this.sweep()
     if (this.expiredRequests.get(ownerId)?.has(requestId))

@@ -587,7 +587,11 @@ describe('Hub runtime module', () => {
       })
     send(1, args)
     expect(await consumer.reply(1)).toMatchObject({
-      result: { isError: true, content: [{ text: expect.stringContaining(generation) }] }
+      result: {
+        isError: true,
+        content: [{ text: expect.stringContaining(generation) }],
+        structuredContent: { code: 'DESIGN_TASK_INACTIVE', recoveryGeneration: generation }
+      }
     })
     expect(extension.calls).toHaveLength(0)
     const fresh = {
@@ -610,7 +614,11 @@ describe('Hub runtime module', () => {
     ] as const) {
       send(id, { ...fresh, recoveryGeneration })
       expect(await consumer.reply(id)).toMatchObject({
-        result: { isError: true, content: [{ text: expect.stringContaining(generation) }] }
+        result: {
+          isError: true,
+          content: [{ text: expect.stringContaining(generation) }],
+          structuredContent: { recoveryGeneration: generation }
+        }
       })
     }
     send(5, fresh)

@@ -255,7 +255,7 @@ export const BeginDesignParametersSchema = z
       .uuid()
       .optional()
       .describe(
-        'Only after storage recovery: acknowledge the generation returned by a rejected begin request.'
+        'Required on every begin after storage recovery: use the recoveryGeneration returned in a rejected begin response. This requirement persists across sessions and restarts.'
       )
   })
   .strict()

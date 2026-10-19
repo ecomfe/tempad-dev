@@ -158,9 +158,11 @@ as the MCP client configuration; the command does not read that configuration. I
 resolved snapshot path even when recovery is refused. Confirm that it names the affected storage.
 The command refuses an active writer or readable storage, preserves the original files in the
 reported backup directory, and starts a new task generation. Every old task stays retired:
-old reviews cannot restore execution, and writes require an explicitly new task and a fresh
-canvas read. The first begin attempt returns the `recoveryGeneration` to acknowledge in the new
-request. Reads remain available. Keep the backups; this operation does not recover task history.
+old reviews cannot restore execution, and taskless writes remain blocked. Every subsequent begin
+must include `recoveryGeneration`, including in new sessions and after Hub restarts. A rejected
+begin supplies it in `structuredContent.recoveryGeneration` and the error text. Each new task
+must read its target before writing. This requirement does not expire. Reads remain available.
+Keep the backups; this operation does not recover task history.
 Do not delete the quarantine marker or replace the snapshot with empty state to bypass the fence.
 
 ## Requirements

@@ -570,6 +570,32 @@ describe('tools response helpers', () => {
     expect(textContent(stringError.content[0])).toContain('Troubleshooting:')
   })
 
+  it('exposes only valid recovery generation metadata on task recovery errors', () => {
+    const recoveryGeneration = '00000000-0000-4000-8000-000000000001'
+    const error = {
+      code: TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_INACTIVE,
+      message: 'Task storage was recovered.',
+      recoveryGeneration
+    }
+    expect(createToolErrorResponse('manage_design_task', error)).toMatchObject({
+      isError: true,
+      structuredContent: error
+    })
+    for (const value of [undefined, 'not-a-uuid', 42]) {
+      expect(
+        createToolErrorResponse('manage_design_task', { ...error, recoveryGeneration: value })
+          .structuredContent
+      ).toBeUndefined()
+    }
+    expect(createToolErrorResponse('get_code', error).structuredContent).toBeUndefined()
+    expect(
+      createToolErrorResponse('manage_design_task', {
+        ...error,
+        code: TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_BUSY
+      }).structuredContent
+    ).toBeUndefined()
+  })
+
   it('throws when payload shape is invalid', () => {
     expect(() => createCodeToolResponse({} as ToolResultMap['get_code'])).toThrow(
       /Invalid get_code payload/

@@ -270,9 +270,18 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
   const code = extractToolErrorCode(error)
   const codeLabel = code ? ` [${code}]` : ''
   const troubleshooting = buildTroubleshootingText(code, message)
+  const recovery =
+    toolName === 'manage_design_task' && code === TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_INACTIVE
+      ? ManageDesignTaskParametersSchema.shape.recoveryGeneration.safeParse(
+          getRecordProperty(error, 'recoveryGeneration')
+        )
+      : undefined
 
   return {
     isError: true,
+    ...(recovery?.success && recovery.data
+      ? { structuredContent: { code, message, recoveryGeneration: recovery.data } }
+      : {}),
     content: [
       {
         type: 'text' as const,
