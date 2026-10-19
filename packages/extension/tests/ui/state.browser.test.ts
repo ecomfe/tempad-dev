@@ -34,11 +34,14 @@ function createDefaultOptions() {
 
 describe('ui/state', () => {
   beforeEach(async () => {
+    await navigator.locks.request('tempad-dev-plugins', () => undefined)
     localStorage.removeItem('tempad-dev')
+    localStorage.removeItem('tempad-dev-plugins')
     options.value = createDefaultOptions()
     plugins.value = {}
     selection.value = []
     await nextTick()
+    await navigator.locks.request('tempad-dev-plugins', () => undefined)
   })
 
   it('initializes options with expected panel defaults', () => {
@@ -60,6 +63,19 @@ describe('ui/state', () => {
     expect(selectedNode.value).toBe(node)
   })
 
+  it('applies plugin edits to the latest persisted collection instead of the tab snapshot', async () => {
+    const first = { name: 'First', source: 'first', code: 'first code' }
+    const second = { name: 'Second', source: 'second', code: 'second code' }
+    localStorage.setItem('tempad-dev-plugins', JSON.stringify({ first }))
+
+    await savePlugin('second', second)
+
+    expect(JSON.parse(localStorage.getItem('tempad-dev-plugins')!)).toEqual({ first, second })
+    localStorage.setItem('tempad-dev-plugins', JSON.stringify({ second }))
+    await savePlugin('second', null)
+    expect(JSON.parse(localStorage.getItem('tempad-dev-plugins')!)).toEqual({})
+  })
+
   it('retains the migration backup on failure and removes it only after a successful save', async () => {
     const oldPlugin = { name: 'Old', source: 'old', code: 'old code' }
     const nextPlugin = { name: 'New', source: 'new', code: 'new code' }
@@ -67,21 +83,23 @@ describe('ui/state', () => {
       plugins?: typeof plugins.value
     }
     preferences.plugins = { old: oldPlugin }
+    localStorage.setItem('tempad-dev', JSON.stringify(preferences))
     plugins.value = { old: oldPlugin }
     await nextTick()
+    await navigator.locks.request('tempad-dev-plugins', () => undefined)
     const nativeSetItem = Storage.prototype.setItem
     const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('Storage quota exceeded', 'QuotaExceededError')
     })
-    expect(() => savePlugin('new', nextPlugin)).toThrow('Storage quota exceeded')
+    await expect(savePlugin('new', nextPlugin)).rejects.toThrow('Storage quota exceeded')
     expect(plugins.value).toEqual({ old: oldPlugin })
     expect(preferences.plugins).toEqual({ old: oldPlugin })
 
     write.mockImplementation(nativeSetItem)
-    savePlugin('new', nextPlugin)
+    await savePlugin('new', nextPlugin)
     expect(preferences.plugins).toBeUndefined()
     const thirdPlugin = { name: 'Third', source: 'third', code: 'third code' }
-    savePlugin('third', thirdPlugin)
+    await savePlugin('third', thirdPlugin)
     await nextTick()
     expect(plugins.value).toEqual({ old: oldPlugin, new: nextPlugin, third: thirdPlugin })
     expect(JSON.parse(localStorage.getItem('tempad-dev-plugins')!)).toEqual(plugins.value)
@@ -121,8 +139,10 @@ describe('ui/state', () => {
     const original = { first: plugin('first'), second: plugin('second') }
     const preferences = options.value as typeof options.value & { plugins?: typeof plugins.value }
     preferences.plugins = original
+    localStorage.setItem('tempad-dev', JSON.stringify(preferences))
     plugins.value = original
     await nextTick()
+    await navigator.locks.request('tempad-dev-plugins', () => undefined)
     localStorage.removeItem('tempad-dev-plugins')
     const quotaKey = 'tempad-quota-fixture'
     let low = 0
@@ -138,7 +158,7 @@ describe('ui/state', () => {
         }
       }
       localStorage.setItem(quotaKey, 'x'.repeat(Math.max(0, low - 8192)))
-      expect(() => savePlugin('first', null)).not.toThrow()
+      await expect(savePlugin('first', null)).resolves.toBeUndefined()
       await nextTick()
       expect(plugins.value).toEqual({ second: original.second })
       const saved =
@@ -151,6 +171,24 @@ describe('ui/state', () => {
       plugins.value = {}
       await nextTick()
     }
+  })
+
+  it('refreshes remote plugin changes without replaying a stale storage event', async () => {
+    const oldPlugin = { name: 'Old', source: 'old', code: 'old code' }
+    const currentPlugin = { name: 'Current', source: 'current', code: 'current code' }
+    localStorage.setItem('tempad-dev-plugins', JSON.stringify({ current: currentPlugin }))
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: 'tempad-dev-plugins',
+        storageArea: localStorage,
+        newValue: JSON.stringify({ old: oldPlugin })
+      })
+    )
+    await nextTick()
+    expect(plugins.value).toEqual({ current: currentPlugin })
+    localStorage.removeItem('tempad-dev-plugins')
+    window.dispatchEvent(new StorageEvent('storage', { key: null, storageArea: localStorage }))
+    expect(plugins.value).toEqual({})
   })
 
   it('derives tempad component metadata from selected frame node', () => {

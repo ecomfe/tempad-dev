@@ -2,10 +2,16 @@ import { useStorage } from '@vueuse/core'
 import { afterEach, expect, it, vi } from 'vitest'
 import { effectScope, nextTick } from 'vue'
 
+import { PLUGIN_STORAGE_KEY } from '@/ui/plugin-storage'
 import { createPreferenceStorage } from '@/ui/preference-storage'
 
 const key = 'tempad-preference-test'
-afterEach(() => {
+async function flushStorage() {
+  await nextTick()
+  await navigator.locks.request(PLUGIN_STORAGE_KEY, () => undefined)
+}
+afterEach(async () => {
+  await flushStorage()
   localStorage.removeItem(key)
   vi.restoreAllMocks()
 })
@@ -22,17 +28,17 @@ it('merges independent tab edits without moving another open panel or reverting 
             panelPosition: { left: 1, top: 2 },
             minimized: false
           },
-          createPreferenceStorage(localStorage),
+          createPreferenceStorage(localStorage, navigator.locks),
           { listenToStorageChanges: false }
         )
       )
     )!
     tabs[0]!.value.cssUnit = 'rem'
-    await nextTick()
+    await flushStorage()
     tabs[1]!.value.panelPosition.left = 30
-    await nextTick()
+    await flushStorage()
     tabs[0]!.value.minimized = true
-    await nextTick()
+    await flushStorage()
     expect(JSON.parse(localStorage.getItem(key)!)).toEqual({
       cssUnit: 'rem',
       panelPosition: { left: 30, top: 2 },
@@ -45,18 +51,20 @@ it('merges independent tab edits without moving another open panel or reverting 
   }
 })
 
-it('does not forget an unpersisted edit after a storage failure', () => {
+it('does not forget an unpersisted edit after a storage failure', async () => {
   localStorage.setItem(key, JSON.stringify({ cssUnit: 'px', minimized: false }))
-  const storage = createPreferenceStorage(localStorage)
+  const onError = vi.fn()
+  const storage = createPreferenceStorage(localStorage, navigator.locks, onError)
   storage.getItem(key)
   const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
     throw new DOMException('Quota exceeded', 'QuotaExceededError')
   })
   const next = JSON.stringify({ cssUnit: 'rem', minimized: false })
-  expect(() => storage.setItem(key, next)).toThrow('Quota exceeded')
+  await storage.setItem(key, next)
+  expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Quota exceeded' }))
   write.mockRestore()
   localStorage.setItem(key, JSON.stringify({ cssUnit: 'px', minimized: true }))
-  storage.setItem(key, next)
+  await storage.setItem(key, next)
   expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ cssUnit: 'rem', minimized: true })
 })
 
@@ -71,16 +79,21 @@ it.each(['initial', 'later'])(
     const onError = vi.fn()
     try {
       const preferences = scope.run(() =>
-        useStorage(key, { cssUnit: 'px', mcpOn: false }, createPreferenceStorage(localStorage), {
-          mergeDefaults: true,
-          listenToStorageChanges: false,
-          onError
-        })
+        useStorage(
+          key,
+          { cssUnit: 'px', mcpOn: false },
+          createPreferenceStorage(localStorage, navigator.locks, onError),
+          {
+            mergeDefaults: true,
+            listenToStorageChanges: false,
+            onError
+          }
+        )
       )!
-      await nextTick()
+      await flushStorage()
       if (when === 'later') localStorage.setItem(key, '{broken')
       preferences.value.cssUnit = 'rem'
-      await nextTick()
+      await flushStorage()
       expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ cssUnit: 'rem', mcpOn: false })
       expect(onError).not.toHaveBeenCalled()
     } finally {
@@ -95,23 +108,28 @@ it('advances a tab baseline when another tab already persisted the same local ed
   try {
     const [a, b] = scope.run(() =>
       [0, 1].map(() =>
-        useStorage(key, { cssUnit: 'px', mcpOn: false }, createPreferenceStorage(localStorage), {
-          mergeDefaults: true,
-          listenToStorageChanges: false
-        })
+        useStorage(
+          key,
+          { cssUnit: 'px', mcpOn: false },
+          createPreferenceStorage(localStorage, navigator.locks),
+          {
+            mergeDefaults: true,
+            listenToStorageChanges: false
+          }
+        )
       )
     )!
-    await nextTick()
+    await flushStorage()
     b!.value.cssUnit = 'rem'
-    await nextTick()
+    await flushStorage()
     const write = vi.spyOn(Storage.prototype, 'setItem')
     a!.value.cssUnit = 'rem'
-    await nextTick()
+    await flushStorage()
     expect(write).not.toHaveBeenCalled()
     b!.value.cssUnit = 'px'
-    await nextTick()
+    await flushStorage()
     a!.value.mcpOn = true
-    await nextTick()
+    await flushStorage()
     expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ cssUnit: 'px', mcpOn: true })
     expect(a!.value.cssUnit).toBe('rem')
   } finally {
@@ -125,16 +143,21 @@ it('preserves another tab edit after merging defaults into an older record', asy
   try {
     const [a, b] = scope.run(() =>
       [0, 1].map(() =>
-        useStorage(key, { cssUnit: 'px', mcpOn: false }, createPreferenceStorage(localStorage), {
-          mergeDefaults: true,
-          listenToStorageChanges: false
-        })
+        useStorage(
+          key,
+          { cssUnit: 'px', mcpOn: false },
+          createPreferenceStorage(localStorage, navigator.locks),
+          {
+            mergeDefaults: true,
+            listenToStorageChanges: false
+          }
+        )
       )
     )!
     b!.value.mcpOn = true
-    await nextTick()
+    await flushStorage()
     a!.value.cssUnit = 'rem'
-    await nextTick()
+    await flushStorage()
     expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ cssUnit: 'rem', mcpOn: true })
     expect(a!.value.mcpOn).toBe(false)
   } finally {
@@ -151,16 +174,16 @@ it('retries a failed useStorage write without losing remote or unknown fields', 
       useStorage(
         key,
         { cssUnit: 'px', mcpOn: false, minimized: false },
-        createPreferenceStorage(localStorage),
+        createPreferenceStorage(localStorage, navigator.locks, onError),
         { mergeDefaults: true, listenToStorageChanges: false, onError }
       )
     )!
-    await nextTick()
+    await flushStorage()
     const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
       throw new DOMException('Quota exceeded', 'QuotaExceededError')
     })
     preferences.value.cssUnit = 'rem'
-    await nextTick()
+    await flushStorage()
     expect(onError).toHaveBeenCalledOnce()
     write.mockRestore()
     localStorage.setItem(
@@ -168,7 +191,7 @@ it('retries a failed useStorage write without losing remote or unknown fields', 
       JSON.stringify({ cssUnit: 'px', mcpOn: true, minimized: false, future: { option: 1 } })
     )
     preferences.value.minimized = true
-    await nextTick()
+    await flushStorage()
     expect(JSON.parse(localStorage.getItem(key)!)).toEqual({
       cssUnit: 'rem',
       mcpOn: true,

@@ -17,6 +17,8 @@ const previous = { name: 'Previous', source, code: 'old code' }
 const notify = vi.fn<(message: string) => { cancel: () => void }>(() => ({ cancel: vi.fn() }))
 
 beforeEach(async () => {
+  await navigator.locks.request('tempad-dev-plugins', () => undefined)
+  localStorage.removeItem('tempad-dev-plugins')
   for (const [name, value] of Object.entries({
     computed,
     nextTick,
@@ -50,6 +52,7 @@ it.each(['install', 'update', 'remove'] as const)(
   async (action) => {
     if (action !== 'install') {
       plugins.value = { [source]: previous }
+      localStorage.setItem('tempad-dev-plugins', JSON.stringify(plugins.value))
       options.value.activePluginSource = source
     }
     await nextTick()

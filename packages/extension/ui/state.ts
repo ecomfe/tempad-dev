@@ -1,19 +1,12 @@
-import { useStorage, computedAsync } from '@vueuse/core'
+import { useStorage, computedAsync, useEventListener } from '@vueuse/core'
 import { computed, shallowRef } from 'vue'
 
 import { getTemPadComponent } from '@/utils'
 import { logger } from '@/utils/log'
 
 import { ui } from './figma'
+import { createPluginStorage, PLUGIN_STORAGE_KEY, type PluginData } from './plugin-storage'
 import { createPreferenceStorage } from './preference-storage'
-
-interface PluginData {
-  name: string
-  code: string
-  integrity?: string
-  resolvedUrl?: string
-  source: string
-}
 
 export type Options = {
   minimized: boolean
@@ -52,51 +45,51 @@ export const options = useStorage<Options>(
     mcpOn: false,
     activePluginSource: null
   },
-  createPreferenceStorage(localStorage),
+  createPreferenceStorage(localStorage, navigator.locks, (error) => {
+    logger.error('Failed to persist preferences:', error)
+  }),
   { mergeDefaults: true, listenToStorageChanges: false }
 )
 
-// Migrate the old combined record once before removing plugin code from preferences.
-const legacy = options.value as Options & { plugins?: Record<string, PluginData> }
-const PLUGIN_STORAGE_KEY = 'tempad-dev-plugins'
-let pluginStorageFailed = false
-export const plugins = useStorage<Record<string, PluginData>>(
-  PLUGIN_STORAGE_KEY,
-  legacy.plugins ?? {},
-  undefined,
-  {
-    listenToStorageChanges: false,
-    onError(error) {
-      pluginStorageFailed = true
-      logger.error('Failed to persist plugin storage:', error)
-    }
-  }
-)
-if (!pluginStorageFailed) delete legacy.plugins
+const pluginStorage = createPluginStorage(localStorage, navigator.locks)
+export const plugins = shallowRef<Record<string, PluginData>>({})
 
-export function savePlugin(source: string, plugin: PluginData | null): void {
-  const next = { ...plugins.value }
-  if (plugin) next[source] = plugin
-  else delete next[source]
+function publishPlugins(current: ReturnType<typeof pluginStorage.read>) {
+  plugins.value = current.plugins
+  const preferences = options.value as Options & { plugins?: typeof plugins.value }
+  if (!current.legacy) delete preferences.plugins
+}
 
-  // Commit before publishing: useStorage reports asynchronous write errors without
-  // rolling back its ref. Its later watcher skips this already-persisted value.
+function refreshPlugins() {
   try {
-    localStorage.setItem(PLUGIN_STORAGE_KEY, JSON.stringify(next))
+    publishPlugins(pluginStorage.read())
   } catch (error) {
-    const preferences = options.value as typeof legacy
-    // A shrinking legacy record can free space without temporarily duplicating its code.
-    // Replacing one key is atomic; a failed write leaves the only durable copy intact.
-    if (plugin || !preferences.plugins) throw error
-    const stored = JSON.parse(localStorage.getItem('tempad-dev') ?? '{}')
-    localStorage.setItem('tempad-dev', JSON.stringify({ ...stored, plugins: next }))
-    preferences.plugins = next
-    plugins.value = next
-    return
+    logger.error('Failed to read plugin storage:', error)
   }
-  plugins.value = next
-  // Finish a migration that previously retained its backup after a storage error.
-  delete (options.value as typeof legacy).plugins
+}
+
+refreshPlugins()
+void pluginStorage
+  .migrate()
+  .then(refreshPlugins)
+  .catch((error) => {
+    logger.error('Failed to migrate plugin storage:', error)
+  })
+useEventListener(window, 'storage', (event) => {
+  if (
+    event.storageArea === localStorage &&
+    (event.key === null ||
+      event.key === PLUGIN_STORAGE_KEY ||
+      (event.key === 'tempad-dev' && localStorage.getItem(PLUGIN_STORAGE_KEY) === null))
+  ) {
+    // Events can arrive after a newer write. Read the durable state, not newValue.
+    refreshPlugins()
+  }
+})
+
+export async function savePlugin(source: string, plugin: PluginData | null): Promise<void> {
+  await pluginStorage.save(source, plugin)
+  publishPlugins(pluginStorage.read())
 }
 
 if (!Number.isFinite(options.value.rootFontSize) || options.value.rootFontSize <= 0)

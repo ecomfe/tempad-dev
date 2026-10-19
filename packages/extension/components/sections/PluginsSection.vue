@@ -23,12 +23,12 @@ async function showImporter() {
 
 const installedPlugins = computed(() => Object.values(plugins.value))
 
-function handleInstalled(
+async function handleInstalled(
   { source, code, integrity, resolvedUrl, pluginName }: PluginData,
   isUpdate = false
 ) {
   try {
-    savePlugin(source, {
+    await savePlugin(source, {
       name: pluginName,
       source,
       code,
@@ -56,9 +56,9 @@ function handleActiveChange(source: string, checked: boolean) {
   }
 }
 
-function handleRemove(source: string) {
+async function handleRemove(source: string) {
   try {
-    savePlugin(source, null)
+    await savePlugin(source, null)
   } catch {
     show('Could not save plugin removal. Browser storage may be full or unavailable.')
     return
