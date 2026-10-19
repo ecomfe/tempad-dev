@@ -75,6 +75,7 @@ const dismissed = shallowRef(false)
 let exitTimer: ReturnType<typeof setTimeout> | undefined
 
 async function done(confirmed = false) {
+  if (finishing.value) return
   if (
     !confirmed &&
     props.task?.status === 'completed' &&
@@ -84,10 +85,8 @@ async function done(confirmed = false) {
     return
   }
   const taskId = props.task?.taskId
-  if (!taskId || stoppable.value || dismissBlocked.value || exitPhase.value || finishing.value)
-    return
+  if (!taskId || stoppable.value || dismissBlocked.value || exitPhase.value) return
   finishing.value = true
-  cancelledCleanupFailed.value = false
   let cleared = false
   try {
     const completed = props.task?.status === 'completed'
@@ -517,7 +516,8 @@ onScopeDispose(() => {
           <Button
             v-else-if="task.status === 'completed' || cancelledCleanupFailed"
             class="tp-design-done"
-            :disabled="dismissBlocked || finishing || !!exitPhase"
+            :disabled="!finishing && (dismissBlocked || !!exitPhase)"
+            :aria-disabled="finishing || undefined"
             :data-tooltip="
               dismissBlocked ? 'Wait for comments to finish' : 'Finish task and clear comments'
             "

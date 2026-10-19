@@ -187,10 +187,26 @@ describe('design task status and canvas overlay', () => {
       expect(pending).toHaveLength(1)
       expect(f.done).not.toHaveBeenCalled()
       await expect.element(page.getByRole('button', { name: 'Done', exact: true })).toBeEnabled()
+      const button = document.querySelector<HTMLButtonElement>('.tp-design-done')!
+      button.focus()
+      expect(document.activeElement).toBe(button)
       await page.getByRole('button', { name: 'Done', exact: true }).click()
       await expect.poll(() => pending.length).toBe(2)
+      expect(button.isConnected).toBe(true)
+      expect(document.activeElement).toBe(button)
+      expect(button.matches(':disabled, [aria-disabled="true"]')).toBe(true)
+      expect(
+        getComputedStyle(
+          button.closest<HTMLElement>('.tp-design-overlay, .tp-design-panel-controls')!
+        ).display
+      ).not.toBe('none')
+      button.click()
+      await nextTick()
+      expect(pending).toHaveLength(2)
       pending[1]!.reject(new Error('Comments are unavailable in this file.'))
       await expect.poll(() => f.api.notify.mock.calls.length).toBe(2)
+      expect(document.activeElement).toBe(button)
+      expect(button.matches(':disabled, [aria-disabled="true"]')).toBe(false)
       await new Promise((resolve) => setTimeout(resolve, 100))
       expect(pending).toHaveLength(2)
       await page.getByRole('button', { name: 'Done', exact: true }).click()
