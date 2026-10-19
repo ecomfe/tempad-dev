@@ -102,12 +102,18 @@ A stalled root or unusable shell still fails.
 
 10. **Token pipeline**
 
-- Detect token references in output code.
+- Detect token references in the rendered component tree's styling values before serialization.
 - Apply plugin transforms to token names.
-- Rewrite code with transformed token names.
+- Rewrite class, style, and SVG presentation values with transformed token names. Preserve literal
+  children, labels, other non-style props, and quoted CSS strings and URLs. Native inline SVG uses
+  XML attributes as its styling boundary, preserving text and whitespace; literal XML text and CDATA
+  are escaped for the target template syntax. Explicit plugin `raw()`
+  content retains its authored code contract and is processed as code.
 - Build a single `tokens` definition map from exact used variable IDs and alias dependencies, preserving all modes and aliases regardless of `resolveTokens`.
 - When `resolveTokens` is true, resolve code through native `Variable.resolveForConsumer(node)` before final render. Pass the actual node for styles, text runs, and SVG presentation.
 - The resolve rerender applies to both collected node styles and themeable vector-placeholder root presentation styles so emitted vector color evidence stays in sync with token resolution.
+- Serialize the transformed component tree. Apply fallback removal and resolved color simplification
+  at the same styling boundary so CSS-looking design text remains unchanged.
 
 11. **Build unresolved-literal diagnostics**
 

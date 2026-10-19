@@ -57,6 +57,7 @@ import {
   rewriteTokenNamesInCode
 } from './tokens'
 import { createTokenDiagnostics } from './tokens/diagnostics'
+import { mapTokenValues } from './tokens/markup'
 import { addVariableModeHints } from './tokens/modes'
 import { addSubtreeIds, buildVisibleTree } from './tree'
 
@@ -147,6 +148,13 @@ export type GetCodeRuntimeOptions = {
 }
 
 type RenderStep = 'render' | 'stringify' | 'transform'
+
+type RenderedMarkup = {
+  component: DevComponent
+  serialize: (component: DevComponent) => string
+  lang: CodeLanguage
+  fontStyleVariableIds: Set<string>
+}
 
 export async function handleGetCode(
   nodes: SceneNode[],
@@ -560,7 +568,7 @@ async function renderPipeline(input: PipelineInput): Promise<PipelineOutput> {
 
 async function finalizeRenderedOutput(
   input: PipelineInput,
-  rendered: { code: string; lang: CodeLanguage; fontStyleVariableIds: Set<string> },
+  rendered: RenderedMarkup,
   diagnostics: ReturnType<typeof createTokenDiagnostics>
 ): Promise<PipelineOutput> {
   const collected = getTokenCollectedContext(input)
@@ -574,7 +582,8 @@ async function finalizeRenderedOutput(
     resolveNodeIds,
     rewriteMap
   } = await processTokens({
-    code: rendered.code,
+    component: rendered.component,
+    serialize: rendered.serialize,
     variableIds: input.variableIds,
     usedCandidateIds: input.usedCandidateIds,
     fontStyleVariableIds: rendered.fontStyleVariableIds,
@@ -621,7 +630,11 @@ async function finalizeRenderedOutput(
         report: diagnostics.report
       })
       if (resolved) {
-        outputCode = rewriteTokenNamesInCode(stripFallback(resolved.code), rewriteMap ?? new Map())
+        outputCode = resolved.serialize(
+          mapTokenValues(resolved.component, (value) =>
+            rewriteTokenNamesInCode(stripFallback(value), rewriteMap ?? new Map())
+          )
+        )
       }
     }
     if (stamp && now) {
@@ -673,7 +686,7 @@ async function rerenderResolvedOutput({
   report: ReturnType<typeof createTokenDiagnostics>['report']
 } & PipelineInput & {
     lang: CodeLanguage
-  }): Promise<{ code: string } | null> {
+  }): Promise<RenderedMarkup | null> {
   const resolveStyleVars =
     styleResolver ??
     createStyleVarResolver(
@@ -805,34 +818,6 @@ function buildNodeMap(nodes: Map<string, { node: SceneNode }>): Map<string, Scen
   return out
 }
 
-function normalizeRootString(
-  content: string,
-  fallbackTag: string | undefined,
-  nodeId: string,
-  lang: CodeLanguage
-) {
-  return stringifyComponent(
-    {
-      name: fallbackTag || 'div',
-      props: { 'data-hint-id': nodeId },
-      children: [content]
-    },
-    createStringifyOptions(lang)
-  )
-}
-
-function stringifyComponentTree(
-  component: DevComponent | string,
-  rootTag: string | undefined,
-  nodeId: string,
-  lang: CodeLanguage
-) {
-  if (typeof component === 'string') {
-    return normalizeRootString(component, rootTag, nodeId, lang)
-  }
-  return stringifyComponent(component, createStringifyOptions(lang))
-}
-
 async function renderMarkup({
   mode,
   rootId,
@@ -845,7 +830,7 @@ async function renderMarkup({
   checkpoint
 }: PipelineInput & {
   transform?: (markup: string) => string
-}): Promise<{ code: string; lang: CodeLanguage; fontStyleVariableIds: Set<string> } | null> {
+}): Promise<RenderedMarkup | null> {
   const clock = trace?.now
   let t = clock ? clock() : 0
   checkpoint?.()
@@ -860,13 +845,19 @@ async function renderMarkup({
 
   const resolvedLang = lang ?? renderContext.detectedLang ?? 'jsx'
   t = clock ? clock() : 0
-  const markup = stringifyComponentTree(rendered, rootTag, rootId, resolvedLang)
-  stampRenderPhase(trace, mode, 'stringify', t)
-
-  t = clock ? clock() : 0
-  const output = transform ? transform(markup) : markup
+  const component: DevComponent =
+    typeof rendered === 'string'
+      ? { name: rootTag || 'div', props: { 'data-hint-id': rootId }, children: [rendered] }
+      : rendered
+  const transformed = transform ? mapTokenValues(component, transform) : component
   stampRenderPhase(trace, mode, 'transform', t)
-  return { code: output, lang: resolvedLang, fontStyleVariableIds }
+  const serialize = (value: DevComponent) => {
+    const start = clock ? clock() : 0
+    const code = stringifyComponent(value, createStringifyOptions(resolvedLang))
+    stampRenderPhase(trace, mode, 'stringify', start)
+    return code
+  }
+  return { component: transformed, serialize, lang: resolvedLang, fontStyleVariableIds }
 }
 
 function createStringifyOptions(lang: CodeLanguage): {

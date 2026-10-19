@@ -1,3 +1,4 @@
+import { raw } from '@tempad-dev/plugins'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { CodegenConfig } from '@/utils/codegen'
@@ -9,6 +10,7 @@ import { rewriteTokenNamesInCode } from '@/mcp/tools/code/tokens/rewrite'
 import { buildSourceNameIndex } from '@/mcp/tools/code/tokens/source-index'
 import { applyPluginTransformToNames } from '@/mcp/tools/code/tokens/transform'
 import { resolveTokenDefsByIds } from '@/mcp/tools/token/defs'
+import { stringifyComponent } from '@/utils/component'
 import { stripFallback } from '@/utils/css'
 
 vi.mock('@/utils/css', () => ({
@@ -43,7 +45,8 @@ const CONFIG: CodegenConfig = {
 }
 
 const baseInput = () => ({
-  code: 'const a = "/*fallback*/ var(--token)";',
+  component: raw('const a = "/*fallback*/ var(--token)";'),
+  serialize: (component: ReturnType<typeof raw>) => stringifyComponent(component, 'jsx'),
   variableIds: new Set<string>(['var-1']),
   usedCandidateIds: new Set<string>(),
   variableCache: new Map<string, Variable | null>(),

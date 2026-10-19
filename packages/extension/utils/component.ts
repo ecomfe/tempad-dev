@@ -190,7 +190,7 @@ export function stringifyComponent(
 
 const INDENT_UNIT = '  '
 
-function escapeComponentText(text: string): string {
+export function escapeComponentText(text: string): string {
   // Entities stay literal text in both JSX and Vue, unlike their template delimiters.
   return escapeHTML(text).replace(/[{}]/g, (brace) => (brace === '{' ? '&#123;' : '&#125;'))
 }

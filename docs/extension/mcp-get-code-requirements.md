@@ -199,10 +199,17 @@ nearest non-GROUP/BOOLEAN ancestor. Rebase offsets by the boxed group's native o
 
 ## Token handling
 
-- Token detection starts from the emitted markup; names may be transformed/re-written, and final used names are derived from the rewrite map (no second scan).
+- Token detection starts from styling values in the rendered component tree, including classes,
+  inline styles, and SVG presentation attributes. Names may be transformed/re-written, and final
+  used names are derived from the rewrite map (no second scan).
 - Font-face variable bindings also contribute definitions for text actually rendered. Omitted
   descendants and text replaced by plugin output must not contribute these bindings.
-- Token detection always strips `var(..., fallback)` before matching to avoid false positives.
+- Token detection strips `var(..., fallback)` from these styling values before matching to avoid
+  false positives. Literal text, labels, and other non-style props must not be detected or rewritten
+  as tokens. Preserve quoted CSS strings and URLs, including Tailwind content literals. Native inline
+  SVG must preserve XML text, entities, and whitespace without interpreting text or CDATA as template
+  expressions. Explicit plugin `raw()` output is authored
+  code and retains code-level processing.
 - `get_code` code output intentionally does not use inline `var(..., fallback)` values as the token value source; values, aliases, and modes belong in the `tokens` payload.
 - `get_code` emits canonical CSS variable IR for supported variable-backed properties when `resolveTokens` is `false`.
 - Canonical token identity is derived from variable identity and must stay stable across property families such as paint-derived channels, typography/text output, and future supported layout/effect properties.

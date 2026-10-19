@@ -328,8 +328,7 @@ function transformPxValue(value: string, transform: (value: number) => string) {
     CSS_NUMBER_RE.lastIndex = index
     const number = hasNamePrefix ? undefined : CSS_NUMBER_RE.exec(value)?.[0]
     const nameStart = index + (number?.length ?? (hasNamePrefix ? 1 : 0))
-    CSS_NAME_RE.lastIndex = nameStart
-    const name = CSS_NAME_RE.exec(value)?.[0] ?? ''
+    const name = readCssName(value, nameStart)
     const end = nameStart + name.length
 
     if (number) {
@@ -354,7 +353,12 @@ function transformPxValue(value: string, transform: (value: number) => string) {
   return output + value.slice(copiedUntil)
 }
 
-function skipCssLiteral(value: string, start: number, closing: string): number {
+export function readCssName(value: string, start: number): string {
+  CSS_NAME_RE.lastIndex = start
+  return CSS_NAME_RE.exec(value)?.[0] ?? ''
+}
+
+export function skipCssLiteral(value: string, start: number, closing: string): number {
   let index = start + 1
   while (index < value.length) {
     const ch = value[index]

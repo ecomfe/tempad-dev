@@ -8,6 +8,8 @@ import {
 } from '@tempad-dev/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { processTokens } from '@/mcp/tools/code/tokens/process'
+
 import { readNodeBatch } from '@/mcp/node-reads'
 import { handleGetCode } from '@/mcp/tools/code'
 import { createGetCodeCacheContext } from '@/mcp/tools/code/cache'
@@ -102,6 +104,10 @@ function asset(
   }
 }
 
+async function stringifyTokens({ component, serialize }: Parameters<typeof processTokens>[0]) {
+  return { code: serialize(component), tokensByCanonical: {}, sourceIndex: new Map() }
+}
+
 function mockAssetCollection(
   tree: ReturnType<typeof createTree>,
   assets: AssetDescriptor[],
@@ -124,11 +130,7 @@ function mockAssetCollection(
     layout: new Map(),
     usedCandidateIds: new Set<string>()
   })
-  mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-    code,
-    tokensByCanonical: {},
-    sourceIndex: new Map()
-  }))
+  mocks.processTokens.mockImplementation(stringifyTokens)
   vi.stubGlobal('__DEV__', false)
 }
 
@@ -457,11 +459,7 @@ describe('mcp/code handleGetCode', () => {
         usedCandidateIds: new Set<string>()
       })
     )
-    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-      code,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     mocks.renderTree.mockResolvedValue(
       raw('<div><span className="text-white">A</span><span className="text-white">B</span></div>')
     )
@@ -541,11 +539,7 @@ describe('mcp/code handleGetCode', () => {
         usedCandidateIds: new Set<string>()
       })
     )
-    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-      code,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     mocks.renderTree.mockResolvedValue(raw('X'.repeat(90000)))
     mocks.getOrderedChildIds.mockReturnValue(['c', 'b'])
     mocks.renderShellTree.mockResolvedValue(
@@ -662,11 +656,7 @@ describe('mcp/code handleGetCode', () => {
         usedCandidateIds: new Set<string>()
       })
     )
-    mocks.processTokens.mockImplementation(async ({ code: input }: { code: string }) => ({
-      code: input,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     mocks.renderTree.mockResolvedValue(raw(code))
     mocks.getOrderedChildIds.mockReturnValue(children.map((child) => child.id))
     mocks.renderShellTree.mockResolvedValue(
@@ -704,11 +694,7 @@ describe('mcp/code handleGetCode', () => {
         usedCandidateIds: new Set<string>()
       })
     )
-    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-      code,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     mocks.getOrderedChildIds.mockReturnValue(['copy'])
     mocks.renderShellTree.mockResolvedValue(
       raw('<div className="relative flex">{/* omitted direct children: copy */}</div>')
@@ -767,11 +753,7 @@ describe('mcp/code handleGetCode', () => {
         usedCandidateIds: new Set<string>()
       })
     )
-    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-      code,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     mocks.renderTree.mockResolvedValue(raw('X'.repeat(90000)))
     mocks.getOrderedChildIds.mockReturnValue(['b'])
     mocks.renderShellTree.mockResolvedValue(null)
@@ -823,11 +805,7 @@ describe('mcp/code handleGetCode', () => {
         usedCandidateIds: new Set<string>()
       })
     )
-    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-      code,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     mocks.renderTree.mockResolvedValue(
       raw(`<div data-hint-auto-layout="inferred">${'X'.repeat(40000)}</div>`)
     )
@@ -1061,9 +1039,9 @@ describe('mcp/code handleGetCode', () => {
     mockAssetCollection(createTree([root]), [], new Set())
     mocks.renderTree.mockResolvedValue(raw('<div />'))
     let fail = true
-    mocks.processTokens.mockImplementation(async ({ code, report }) => {
+    mocks.processTokens.mockImplementation(async ({ component, serialize, report }) => {
       if (fail) report('token-definition', 'First root only.')
-      return { code, tokensByCanonical: {}, sourceIndex: new Map() }
+      return { code: serialize(component), tokensByCanonical: {}, sourceIndex: new Map() }
     })
     mocks.activePlugin.value = { name: 'first', code: 'first-code' }
     const cache = createGetCodeCacheContext()
@@ -1103,11 +1081,7 @@ describe('mcp/code handleGetCode', () => {
       usedCandidateIds: new Set<string>()
     })
     mocks.renderTree.mockResolvedValue(raw('<div />'))
-    mocks.processTokens.mockImplementation(async ({ code }: { code: string }) => ({
-      code,
-      tokensByCanonical: {},
-      sourceIndex: new Map()
-    }))
+    mocks.processTokens.mockImplementation(stringifyTokens)
     vi.stubGlobal('__DEV__', false)
 
     await handleGetCode([instances[0]?.node as SceneNode], 'jsx', false)

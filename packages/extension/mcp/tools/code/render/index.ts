@@ -10,6 +10,7 @@ import type { PluginComponent } from './plugin'
 import type { CodeLanguage, RenderContext } from './types'
 
 import { renderTextSegments } from '../text'
+import { nativeSvg } from '../tokens/markup'
 import { renderPluginComponent } from './plugin'
 import { classProps, classProp, filterGridProps, mergeClass } from './props'
 
@@ -107,7 +108,7 @@ async function renderNode(
     }
     if (svgEntry.raw) {
       const mergedProps = Object.keys(props).length ? props : undefined
-      const content = raw(svgEntry.raw, mergedProps as Record<string, string> | undefined)
+      const content = nativeSvg(svgEntry.raw, mergedProps)
       return wrapperProps ? { name: 'div', props: wrapperProps, children: [content] } : content
     }
     const className = props[classAttr]

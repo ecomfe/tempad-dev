@@ -403,7 +403,8 @@ describe('real collect to render pipeline', () => {
       const rendered = await renderTree('root', tree, ctx)
       if (!rendered || typeof rendered === 'string') throw new Error('Expected component tree')
       const processed = await processTokens({
-        code: stringifyComponent(rendered, { lang: 'jsx' }),
+        component: rendered,
+        serialize: (component) => stringifyComponent(component, 'jsx'),
         variableIds: new Set(['o']),
         usedCandidateIds: new Set(),
         variableCache: cache,
@@ -562,7 +563,8 @@ describe('real collect to render pipeline', () => {
       if (!rendered || typeof rendered === 'string') throw new Error('Expected component tree')
       const code = stringifyComponent(rendered, { lang: 'jsx' })
       const processed = await processTokens({
-        code,
+        component: rendered,
+        serialize: (component) => stringifyComponent(component, 'jsx'),
         variableIds: new Set(['bound']),
         usedCandidateIds: new Set(),
         variableCache: cache,

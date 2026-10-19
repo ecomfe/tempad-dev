@@ -1,3 +1,4 @@
+import { raw } from '@tempad-dev/plugins'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { processTokens } from '@/mcp/tools/code/tokens/process'
@@ -5,6 +6,7 @@ import { createStyleVarResolver } from '@/mcp/tools/code/tokens/resolve'
 import { createTokenReadContext } from '@/mcp/tools/token/context'
 import { resolveTokenDefsByIds, resolveTokenDefsByNames } from '@/mcp/tools/token/defs'
 import { runTransformVariableBatch } from '@/mcp/transform-variables/requester'
+import { stringifyComponent } from '@/utils/component'
 
 vi.mock('@/mcp/transform-variables/requester', () => ({
   runTransformVariableBatch: vi.fn(async (refs: { code: string }[]) => refs.map(({ code }) => code))
@@ -126,7 +128,8 @@ describe('token mode and request regressions', () => {
 
   it('returns the same alias definitions with resolveTokens enabled or disabled', async () => {
     const input = {
-      code: '<div style="color:var(--semantic)" />',
+      component: raw('<div style="color:var(--semantic)" />'),
+      serialize: (component: ReturnType<typeof raw>) => stringifyComponent(component, 'jsx'),
       variableIds: new Set([semantic.id]),
       usedCandidateIds: new Set<string>(),
       variableCache: new Map<string, Variable | null>(),
@@ -225,7 +228,8 @@ describe('token mode and request regressions', () => {
       refs.map(({ name }) => `$brand ${name}`)
     )
     const result = await processTokens({
-      code: '<div style="color:var(--semantic)" />',
+      component: raw('<div style="color:var(--semantic)" />'),
+      serialize: (component) => stringifyComponent(component, 'jsx'),
       variableIds: new Set([semantic.id]),
       usedCandidateIds: new Set(),
       variableCache: new Map(),
@@ -249,7 +253,8 @@ describe('token mode and request regressions', () => {
       refs.map(({ code, name }) => (name === 'semantic' ? 'var(--brand)' : code))
     )
     const result = await processTokens({
-      code: '<div style="color:var(--palette);background:var(--semantic)" />',
+      component: raw('<div style="color:var(--palette);background:var(--semantic)" />'),
+      serialize: (component) => stringifyComponent(component, 'jsx'),
       variableIds: new Set(variables.map(({ id }) => id)),
       usedCandidateIds: new Set(),
       variableCache: new Map(),
