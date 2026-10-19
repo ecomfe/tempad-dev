@@ -11,13 +11,22 @@ const PREFERENCE_STORAGE_KEY = 'tempad-dev'
 
 type PluginRecord = Record<string, PluginData>
 
+export class CorruptPluginStorageError extends Error {
+  constructor() {
+    super('Stored plugin data is invalid.')
+  }
+}
+
 function parseRecord(value: string | null): Record<string, unknown> {
   if (value === null) return {}
-  const parsed: unknown = JSON.parse(value)
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Invalid plugin storage record.')
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+      return parsed as Record<string, unknown>
+  } catch {
+    // Preserve the invalid record until the user explicitly resets it.
   }
-  return parsed as Record<string, unknown>
+  throw new CorruptPluginStorageError()
 }
 
 export function createPluginStorage(storage: Storage, locks: LockManager) {
@@ -73,5 +82,20 @@ export function createPluginStorage(storage: Storage, locks: LockManager) {
     })
   }
 
-  return { read, migrate, save }
+  async function resetCorruptRecord() {
+    return locks.request(PLUGIN_STORAGE_KEY, () => {
+      try {
+        read()
+        // Another tab may have recovered the record while this action was queued.
+        return false
+      } catch (error) {
+        if (!(error instanceof CorruptPluginStorageError)) throw error
+      }
+      storage.setItem(PLUGIN_STORAGE_KEY, '{}')
+      removeLegacyBackup()
+      return true
+    })
+  }
+
+  return { read, migrate, save, resetCorruptRecord }
 }

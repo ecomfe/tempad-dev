@@ -2,7 +2,11 @@ import { useStorage } from '@vueuse/core'
 import { afterEach, expect, it, vi } from 'vitest'
 import { effectScope, nextTick } from 'vue'
 
-import { createPluginStorage, PLUGIN_STORAGE_KEY } from '@/ui/plugin-storage'
+import {
+  CorruptPluginStorageError,
+  createPluginStorage,
+  PLUGIN_STORAGE_KEY
+} from '@/ui/plugin-storage'
 import { createPreferenceStorage } from '@/ui/preference-storage'
 
 const plugin = (name: string) => ({ name, source: name, code: `${name} code` })
@@ -53,11 +57,79 @@ it('serializes legacy migration with edits and never reapplies a stale legacy ba
   expect(second.read().plugins).toEqual({ new: plugin('new') })
 })
 
-it('preserves malformed persisted data and leaves recovery to an explicit action', async () => {
+it.each(['{broken', '[]', 'null'])(
+  'preserves invalid persisted data (%s) until explicit recovery',
+  async (record) => {
+    localStorage.setItem(PLUGIN_STORAGE_KEY, record)
+    const storage = createPluginStorage(localStorage, navigator.locks)
+    expect(() => storage.read()).toThrow(CorruptPluginStorageError)
+    await expect(storage.migrate()).rejects.toThrow(CorruptPluginStorageError)
+    await expect(storage.save('new', plugin('new'))).rejects.toThrow(CorruptPluginStorageError)
+    expect(localStorage.getItem(PLUGIN_STORAGE_KEY)).toBe(record)
+    await expect(storage.resetCorruptRecord()).resolves.toBe(true)
+    expect(storage.read().plugins).toEqual({})
+  }
+)
+
+it('serializes recovery with installation and prevents a legacy backup from returning', async () => {
   localStorage.setItem(PLUGIN_STORAGE_KEY, '{broken')
+  localStorage.setItem(
+    'tempad-dev',
+    JSON.stringify({ minimized: true, plugins: { old: plugin('old') } })
+  )
+  const frame = document.createElement('iframe')
+  document.body.append(frame)
+  const remote = frame.contentWindow!
+  const first = createPluginStorage(localStorage, navigator.locks)
+  const second = createPluginStorage(remote.localStorage, remote.navigator.locks)
+  const entered = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  const held = navigator.locks.request(PLUGIN_STORAGE_KEY, () => {
+    entered.resolve()
+    return release.promise
+  })
+  await entered.promise
+  const reset = first.resetCorruptRecord()
+  expect(
+    (await navigator.locks.query()).pending?.some(({ name }) => name === PLUGIN_STORAGE_KEY)
+  ).toBe(true)
+  const install = second.save('new', plugin('new'))
+  const whileLocked = localStorage.getItem(PLUGIN_STORAGE_KEY)
+  release.resolve()
+  await Promise.all([held, reset, install])
+  expect(whileLocked).toBe('{broken')
+  expect(first.read().plugins).toEqual({ new: plugin('new') })
+  expect(JSON.parse(localStorage.getItem('tempad-dev')!)).toEqual({ minimized: true })
+  // A stale recovery action must not clear the other tab's newly installed plugin.
+  await expect(first.resetCorruptRecord()).resolves.toBe(false)
+  expect(first.read().plugins).toEqual({ new: plugin('new') })
+})
+
+it('keeps a retained legacy backup fenced when its cleanup is unavailable', async () => {
+  localStorage.setItem(PLUGIN_STORAGE_KEY, '{broken')
+  const legacy = JSON.stringify({ plugins: { old: plugin('old') } })
+  localStorage.setItem('tempad-dev', legacy)
+  const nativeSetItem = Storage.prototype.setItem
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+    if (key === 'tempad-dev') throw new DOMException('Storage unavailable', 'SecurityError')
+    nativeSetItem.call(this, key, value)
+  })
   const storage = createPluginStorage(localStorage, navigator.locks)
-  await expect(storage.save('new', plugin('new'))).rejects.toThrow()
-  expect(localStorage.getItem(PLUGIN_STORAGE_KEY)).toBe('{broken')
+  await expect(storage.resetCorruptRecord()).resolves.toBe(true)
+  await storage.migrate()
+  expect(localStorage.getItem('tempad-dev')).toBe(legacy)
+  expect(storage.read().plugins).toEqual({})
+})
+
+it('does not classify inaccessible storage as corruption or reset it', async () => {
+  const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    throw new DOMException('Storage unavailable', 'SecurityError')
+  })
+  const write = vi.spyOn(Storage.prototype, 'setItem')
+  const storage = createPluginStorage(localStorage, navigator.locks)
+  await expect(storage.resetCorruptRecord()).rejects.toThrow('Storage unavailable')
+  expect(write).not.toHaveBeenCalled()
+  read.mockRestore()
 })
 
 it('keeps legacy deletions durable when another tab persists stale preferences under quota pressure', async () => {

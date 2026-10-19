@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import type { PluginData } from '@/composables'
 
+import Button from '@/components/Button.vue'
 import IconButton from '@/components/IconButton.vue'
 import Plus from '@/components/icons/Plus.vue'
 import PluginInstaller from '@/components/PluginInstaller.vue'
 import PluginItem from '@/components/PluginItem.vue'
 import Section from '@/components/Section.vue'
 import { useToast } from '@/composables'
-import { options, plugins, savePlugin } from '@/ui/state'
+import { CorruptPluginStorageError } from '@/ui/plugin-storage'
+import { options, plugins, pluginStorageCorrupted, resetPlugins, savePlugin } from '@/ui/state'
 
 const { show } = useToast()
 
 const isImporterShown = shallowRef(false)
+const resetting = shallowRef(false)
 const installer = useTemplateRef('installer')
 
 async function showImporter() {
@@ -35,8 +38,12 @@ async function handleInstalled(
       integrity,
       resolvedUrl
     })
-  } catch {
-    show('Could not save plugin. Browser storage may be full or unavailable.')
+  } catch (error) {
+    show(
+      error instanceof CorruptPluginStorageError
+        ? 'Stored plugin data is invalid. Reset plugins to continue.'
+        : 'Could not save plugin. Browser storage may be full or unavailable.'
+    )
     return
   }
 
@@ -59,13 +66,29 @@ function handleActiveChange(source: string, checked: boolean) {
 async function handleRemove(source: string) {
   try {
     await savePlugin(source, null)
-  } catch {
-    show('Could not save plugin removal. Browser storage may be full or unavailable.')
+  } catch (error) {
+    show(
+      error instanceof CorruptPluginStorageError
+        ? 'Stored plugin data is invalid. Reset plugins to continue.'
+        : 'Could not save plugin removal. Browser storage may be full or unavailable.'
+    )
     return
   }
 
   if (options.value.activePluginSource === source) {
     options.value.activePluginSource = null
+  }
+}
+
+async function handleReset() {
+  if (resetting.value) return
+  resetting.value = true
+  try {
+    await resetPlugins()
+  } catch {
+    show('Could not reset plugins. Browser storage may be full or unavailable.')
+  } finally {
+    resetting.value = false
   }
 }
 </script>
@@ -97,6 +120,14 @@ async function handleRemove(source: string) {
       </template>
     </template>
     <div class="tp-plugins-list">
+      <div v-if="pluginStorageCorrupted" class="tp-plugins-recovery">
+        <p role="alert">
+          Stored plugin data is invalid. Resetting removes installed code-output plugins.
+        </p>
+        <Button class="tp-plugins-reset" :disabled="resetting" @click="handleReset">
+          Reset plugins
+        </Button>
+      </div>
       <PluginInstaller
         ref="installer"
         class="tp-plugins-item"
@@ -164,5 +195,18 @@ async function handleRemove(source: string) {
 
 .tp-plugins-list:not(:empty) {
   margin-bottom: 8px;
+}
+
+.tp-plugins-recovery {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacer-2);
+  margin-right: 8px;
+  color: var(--color-text-secondary);
+}
+
+.tp-plugins-recovery p {
+  margin: 0;
 }
 </style>

@@ -5,7 +5,12 @@ import { getTemPadComponent } from '@/utils'
 import { logger } from '@/utils/log'
 
 import { ui } from './figma'
-import { createPluginStorage, PLUGIN_STORAGE_KEY, type PluginData } from './plugin-storage'
+import {
+  CorruptPluginStorageError,
+  createPluginStorage,
+  PLUGIN_STORAGE_KEY,
+  type PluginData
+} from './plugin-storage'
 import { createPreferenceStorage } from './preference-storage'
 
 export type Options = {
@@ -55,9 +60,11 @@ export const options = useStorage<Options>(
 
 const pluginStorage = createPluginStorage(localStorage, navigator.locks)
 export const plugins = shallowRef<Record<string, PluginData>>({})
+export const pluginStorageCorrupted = shallowRef(false)
 
 function publishPlugins(current: ReturnType<typeof pluginStorage.read>) {
   plugins.value = current.plugins
+  pluginStorageCorrupted.value = false
   const preferences = options.value as Options & { plugins?: typeof plugins.value }
   if (!current.legacy) delete preferences.plugins
 }
@@ -66,6 +73,7 @@ function refreshPlugins() {
   try {
     publishPlugins(pluginStorage.read())
   } catch (error) {
+    if (error instanceof CorruptPluginStorageError) pluginStorageCorrupted.value = true
     logger.error('Failed to read plugin storage:', error)
   }
 }
@@ -90,8 +98,19 @@ useEventListener(window, 'storage', (event) => {
 })
 
 export async function savePlugin(source: string, plugin: PluginData | null): Promise<void> {
-  await pluginStorage.save(source, plugin)
+  try {
+    await pluginStorage.save(source, plugin)
+    publishPlugins(pluginStorage.read())
+  } catch (error) {
+    if (error instanceof CorruptPluginStorageError) pluginStorageCorrupted.value = true
+    throw error
+  }
+}
+
+export async function resetPlugins(): Promise<void> {
+  const reset = await pluginStorage.resetCorruptRecord()
   publishPlugins(pluginStorage.read())
+  if (reset) options.value.activePluginSource = null
 }
 
 if (!Number.isFinite(options.value.rootFontSize) || options.value.rootFontSize <= 0)
