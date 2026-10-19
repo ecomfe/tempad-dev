@@ -28,6 +28,11 @@ function versionAt(revision) {
 function check() {
   const reference = process.argv[2] ?? process.env.PLUGIN_VERSION_BASE
   if (!reference) throw new Error('Provide a Git baseline: pnpm agent-plugin:check-version <base>.')
+  if (git('rev-parse', '--is-shallow-repository') === 'true') {
+    throw new Error(
+      'Cannot check agent plugin versions in a shallow checkout. Fetch full history with git fetch --unshallow, then rerun pnpm agent-plugin:check-version <base>.'
+    )
+  }
   const head = git('rev-parse', '--verify', 'HEAD^{commit}')
   let base
   if (/^0+$/.test(reference)) {
@@ -37,7 +42,13 @@ function check() {
       )
     }
   } else {
-    base = git('rev-parse', '--verify', '--end-of-options', `${reference}^{commit}`)
+    try {
+      base = git('rev-parse', '--verify', '--end-of-options', `${reference}^{commit}`)
+    } catch {
+      throw new Error(
+        `Git baseline "${reference}" is not available in this checkout. Fetch the missing commit or rerun pnpm agent-plugin:check-version <base> with an explicit readable baseline.`
+      )
+    }
   }
   const paths = base
     ? git('diff', '--name-only', '-z', '--no-renames', base, head, '--', source, targets)

@@ -99,6 +99,10 @@ default authority unless a routed document says otherwise.
   generated output, and include it in the change. `agent-plugin/targets/` is marked as
   generated for review; read `agent-plugin/src/` instead. Ordinary `pnpm build` must
   not modify agent-plugin artifacts.
+- Installed payload changes (including skills, hooks, manifests, and assets) require a stable
+  version increase in `agent-plugin/src/plugin.json` and regenerated targets. Package-root
+  README and changelog edits alone are exempt. Before pushing, check committed changes with
+  `pnpm agent-plugin:check-version origin/main` against the intended release baseline.
 - Keep Codex and Claude development support equivalent. Both manifests must
   launch the same working-tree MCP runtime.
 - Release MCP configuration must use `@tempad-dev/mcp@latest`, never an alpha

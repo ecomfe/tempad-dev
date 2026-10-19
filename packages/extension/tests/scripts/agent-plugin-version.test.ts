@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
 const script = fileURLToPath(
@@ -51,9 +51,9 @@ function manifest(version: string) {
   write('agent-plugin/src/plugin.json', JSON.stringify({ name: 'test', version }))
 }
 
-function check(base: string) {
+function check(base: string, cwd = directory) {
   return spawnSync(process.execPath, [script], {
-    cwd: directory,
+    cwd,
     env: { ...environment, PLUGIN_VERSION_BASE: base },
     encoding: 'utf8'
   })
@@ -119,8 +119,51 @@ it('checks deleted payload and rejects unreadable history', () => {
   rmSync(join(directory, 'agent-plugin/src/skills/example/SKILL.md'))
   commit()
   expect(check(base).status).toBe(1)
-  expect(check('missing-revision').status).toBe(1)
+  expect(check('missing-revision')).toMatchObject({
+    status: 1,
+    stderr: expect.stringMatching(/baseline "missing-revision".*not available.*explicit.*baseline/)
+  })
   expect(check('0000000000000000000000000000000000000000').status).toBe(1)
+})
+
+it.each(['0000000000000000000000000000000000000000', 'HEAD'])(
+  'rejects a shallow checkout even with baseline %s',
+  (base) => {
+    manifest('0.5.1')
+    commit()
+    write('agent-plugin/src/skills/example/SKILL.md', 'changed without a version increase')
+    commit()
+    const clone = join(directory, 'shallow')
+    git('clone', '--quiet', '--depth=1', pathToFileURL(directory).href, clone)
+    expect(check(base, clone)).toMatchObject({
+      status: 1,
+      stderr: expect.stringMatching(/shallow.*full history/)
+    })
+  }
+)
+
+it('checks a PR merge against its actual first parent rather than an older event baseline', () => {
+  manifest('0.5.1')
+  const eventBase = commit()
+  const baseBranch = git('branch', '--show-current')
+  git('branch', 'feature')
+  manifest('0.5.2')
+  write('agent-plugin/src/skills/main/SKILL.md', 'updated main payload')
+  const mergeBase = commit()
+  git('switch', 'feature')
+  write(
+    'agent-plugin/src/skills/feature/SKILL.md',
+    'new feature payload without a version increase'
+  )
+  commit()
+  git('switch', baseBranch)
+  git('merge', '--no-ff', '--no-edit', 'feature')
+  expect(git('rev-parse', 'HEAD^1')).toBe(mergeBase)
+  expect(check(eventBase).status).toBe(0)
+  expect(check('HEAD^1')).toMatchObject({
+    status: 1,
+    stderr: expect.stringContaining('without a version increase')
+  })
 })
 
 it('accepts initialization only against an empty plugin baseline', () => {
