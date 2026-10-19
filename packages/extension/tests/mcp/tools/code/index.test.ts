@@ -1019,7 +1019,7 @@ describe('mcp/code handleGetCode', () => {
     expect(mocks.renderTree).toHaveBeenCalledTimes(2)
   })
 
-  it('rerenders tokens present only in text runs and preserves names for failed resolutions', async () => {
+  it('reports failed text-run resolutions and retains rewritten names without rerendering', async () => {
     const text = createSnapshot({ id: 'text', type: 'TEXT' })
     const tree = createTree([text])
     mockAssetCollection(tree, [], new Set())
@@ -1053,7 +1053,7 @@ describe('mcp/code handleGetCode', () => {
       )
     })
     const result = await handleGetCode([text.node], 'jsx', true)
-    expect(mocks.renderTree).toHaveBeenCalledTimes(2)
+    expect(mocks.renderTree).toHaveBeenCalledTimes(1)
     expect(result.code).toContain('var(--renamed)')
     expect(result.code).not.toContain('12px')
     expect(result.warnings?.map((warning) => warning.type)).toEqual([

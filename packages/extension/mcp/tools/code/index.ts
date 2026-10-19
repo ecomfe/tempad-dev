@@ -154,6 +154,7 @@ type RenderedMarkup = {
   serialize: (component: DevComponent) => string
   lang: CodeLanguage
   fontStyleVariableIds: Set<string>
+  textStyleInputs: Array<{ style: Record<string, string>; node?: SceneNode }>
 }
 
 export async function handleGetCode(
@@ -616,6 +617,7 @@ async function finalizeRenderedOutput(
         ...input,
         collected,
         lang: rendered.lang,
+        textStyleInputs: rendered.textStyleInputs,
         sourceIndex,
         resolveNodeIds,
         tokenMatcher,
@@ -676,6 +678,7 @@ async function rerenderResolvedOutput({
   resolveNodeIds,
   tokenMatcher,
   styleResolver,
+  textStyleInputs,
   report,
   ...input
 }: {
@@ -683,6 +686,7 @@ async function rerenderResolvedOutput({
   resolveNodeIds?: Set<string>
   tokenMatcher?: (value: string) => boolean
   styleResolver?: StyleVarResolver
+  textStyleInputs: RenderedMarkup['textStyleInputs']
   report: ReturnType<typeof createTokenDiagnostics>['report']
 } & PipelineInput & {
     lang: CodeLanguage
@@ -703,7 +707,7 @@ async function rerenderResolvedOutput({
   if (
     !resolvedEntriesChanged(input.collected.styles, resolvedStyles) &&
     !resolvedEntriesChanged(input.ctx.svgs, resolvedSvgs) &&
-    ![...input.collected.textSegments.values()].some((segments) => segments?.length)
+    !textStyleInputs.some(({ style, node }) => resolveStyleVars(style, node) !== style)
   ) {
     return null
   }
@@ -835,7 +839,19 @@ async function renderMarkup({
   let t = clock ? clock() : 0
   checkpoint?.()
   const fontStyleVariableIds = new Set<string>()
-  const renderContext = { ...ctx, fontStyleVariableIds }
+  const textStyleInputs: RenderedMarkup['textStyleInputs'] = []
+  const renderContext: RenderContext = {
+    ...ctx,
+    fontStyleVariableIds,
+    // Capture the actual run styles while rendering, including inheritance pruning
+    // and normal-weight resets. Token checks can reuse them without native reads.
+    resolveStyleVars:
+      ctx.resolveStyleVars ??
+      ((style, node) => {
+        textStyleInputs.push({ style, node })
+        return style
+      })
+  }
   const rendered = await renderTreeForMode(mode, rootId, tree, renderContext)
   checkpoint?.()
   if (!rendered) {
@@ -857,7 +873,13 @@ async function renderMarkup({
     stampRenderPhase(trace, mode, 'stringify', start)
     return code
   }
-  return { component: transformed, serialize, lang: resolvedLang, fontStyleVariableIds }
+  return {
+    component: transformed,
+    serialize,
+    lang: resolvedLang,
+    fontStyleVariableIds,
+    textStyleInputs
+  }
 }
 
 function createStringifyOptions(lang: CodeLanguage): {

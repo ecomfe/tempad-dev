@@ -114,6 +114,9 @@ A stalled root or unusable shell still fails.
 - Build a single `tokens` definition map from exact used variable IDs and alias dependencies, preserving all modes and aliases regardless of `resolveTokens`.
 - When `resolveTokens` is true, resolve code through native `Variable.resolveForConsumer(node)` before final render. Pass the actual node for styles, text runs, and SVG presentation.
 - The resolve rerender applies to both collected node styles and themeable vector-placeholder root presentation styles so emitted vector color evidence stays in sync with token resolution.
+- The first render records its text-run style inputs after inheritance pruning and default resets.
+  Token resolution reuses those inputs without new native reads; unchanged node, vector, and text
+  styles retain the first rendered output, including failed-resolution diagnostics.
 - Serialize the transformed component tree. Apply fallback removal and resolved color simplification
   at the same styling boundary so CSS-looking design text remains unchanged.
 
