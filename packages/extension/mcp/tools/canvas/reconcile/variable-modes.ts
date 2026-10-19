@@ -2,17 +2,23 @@ import type { CanvasPageProperties } from '@tempad-dev/shared'
 
 import type { CanvasNodeSpec } from '../model'
 
-import { getVariableCollectionById } from '../../../local-resources'
-import { specError, scopeError, errorMessage } from '../errors'
+import { getVariableById, getVariableCollectionById } from '../../../local-resources'
+import { applyError, scopeError, errorMessage } from '../errors'
 import { loadFonts, currentTextFonts, loadFont, resolveFamilyFont } from '../fonts'
 import { resolveStyle } from '../styles'
 import { walkPhysicalNodes } from '../traversal'
-import { resolveVariable, resolvedCollection, resolvedModeId } from '../variables'
+import { resolvedCollection, resolvedModeId } from '../variables'
 import { SIZE_BOUND_FIELDS } from './layout'
 import { type ApplyState, type SupportedCanvasNode, markMutation } from './state'
 import { TEXT_STYLE_VARIABLES_BY_VALUE } from './text-fonts'
 
-type FontModeValues = { values: VariableValue[]; optional: boolean; affected: boolean }
+type FontModeValues = {
+  values: VariableValue[]
+  optional: boolean
+  affected: boolean
+  unavailable?: string
+}
+type MissingModeResources = { variables: Set<string>; collections: Set<string> }
 
 const TEXT_MODE_FONT_FIELDS = [
   'characters',
@@ -21,6 +27,21 @@ const TEXT_MODE_FONT_FIELDS = [
   ...SIZE_BOUND_FIELDS,
   ...Object.values(TEXT_STYLE_VARIABLES_BY_VALUE).flat()
 ] as const
+
+async function modeFontVariable(
+  id: string,
+  state: ApplyState,
+  missing: Set<string>
+): Promise<Variable | null> {
+  const key = `id:${id}`
+  const cached = state.variables.variableCache.get(key)
+  if (cached) return cached
+  if (missing.has(id)) return null
+  const variable = await getVariableById(id)
+  if (variable) state.variables.variableCache.set(key, variable)
+  else missing.add(id)
+  return variable
+}
 
 async function modeFontCollection(
   id: string,
@@ -44,19 +65,25 @@ async function modeFontVariableValues(
   changedCollectionId: string,
   changedModeId: string | undefined,
   state: ApplyState,
-  missingCollections: Set<string>,
+  missing: MissingModeResources,
   cache = new Map<string, FontModeValues>(),
   seen = new Set<string>()
 ): Promise<FontModeValues> {
   if (seen.has(variable.id) || seen.size >= 64) {
-    specError('Text variable aliases contain a cycle or exceed 64 levels.')
+    applyError('Text variable aliases contain a cycle or exceed 64 levels.')
   }
   const cached = cache.get(variable.id)
   if (cached) return cached
   const active = new Set(seen).add(variable.id)
-  const base = await modeFontCollection(variable.variableCollectionId, state, missingCollections)
-  if (!base)
-    scopeError(`Text variable collection "${variable.variableCollectionId}" is unavailable.`)
+  const base = await modeFontCollection(variable.variableCollectionId, state, missing.collections)
+  if (!base) {
+    return {
+      values: [],
+      optional: true,
+      affected: false,
+      unavailable: `Text variable collection "${variable.variableCollectionId}" is unavailable.`
+    }
+  }
   const related = new Map<string, VariableCollection>([[base.id, base]])
   const ancestors: BaseNode[] = []
   const candidateIds = new Set([
@@ -71,7 +98,7 @@ async function modeFontVariableValues(
   }
   for (const id of candidateIds) {
     if (related.has(id)) continue
-    const collection = await modeFontCollection(id, state, missingCollections)
+    const collection = await modeFontCollection(id, state, missing.collections)
     if (collection?.isExtension && collection.variableIds.includes(variable.id))
       related.set(id, collection)
   }
@@ -97,6 +124,7 @@ async function modeFontVariableValues(
     }
   }
   let optional = selected.length !== 1
+  let unavailable: string | undefined
   const candidates: VariableValue[] = []
   for (const collection of related.values()) {
     const modes = selected.filter(([id]) => id === collection.id).map(([, mode]) => mode)
@@ -107,30 +135,38 @@ async function modeFontVariableValues(
         : await variable.valuesByModeForCollectionAsync(collection)
     const modeValues = modes.length ? modes.map((mode) => values[mode]) : Object.values(values)
     for (const value of modeValues) {
-      if (value === undefined)
-        scopeError(`Text variable "${variable.id}" has no value for the selected mode.`)
+      if (value === undefined) {
+        unavailable ??= `Text variable "${variable.id}" has no value for the selected mode.`
+        continue
+      }
       if (typeof value === 'object' && 'type' in value && value.type === 'VARIABLE_ALIAS') {
+        const referenced = await modeFontVariable(value.id, state, missing.variables)
+        if (!referenced) {
+          unavailable ??= `Text variable alias "${value.id}" is unavailable.`
+          continue
+        }
         const alias = await modeFontVariableValues(
-          await resolveVariable({ id: value.id }, state.variables),
+          referenced,
           consumer,
           target,
           changedCollectionId,
           changedModeId,
           state,
-          missingCollections,
+          missing,
           cache,
           active
         )
         candidates.push(...alias.values)
         optional ||= alias.optional
         affected ||= alias.affected
+        unavailable ??= alias.unavailable
       } else candidates.push(value)
     }
   }
   const values = [...new Set(candidates)]
   if (values.length > 64 || cache.size >= 256)
     scopeError('Font mode preloading exceeds the bounded candidate budget.')
-  const result = { values, optional, affected }
+  const result = { values, optional, affected, ...(unavailable ? { unavailable } : {}) }
   cache.set(variable.id, result)
   return result
 }
@@ -143,7 +179,7 @@ async function loadModeFonts(
 ): Promise<void> {
   const roots = target.type === 'PAGE' ? target.children : [target]
   // Only misses are scan-local: later imports can expose previously unavailable collections.
-  const missingCollections = new Set<string>()
+  const missing: MissingModeResources = { variables: new Set(), collections: new Set() }
   for (const node of walkPhysicalNodes(roots)) {
     if (node.type !== 'TEXT') continue
     const cache = new Map<string, FontModeValues>()
@@ -163,23 +199,26 @@ async function loadModeFonts(
         // Mixed node bindings are arrays; segment aliases identify the actual run.
         if (!reference || Array.isArray(reference)) continue
         try {
-          values.set(
-            field,
-            await modeFontVariableValues(
-              await resolveVariable({ id: reference.id }, state.variables),
-              node,
-              target,
-              collectionId,
-              modeId,
-              state,
-              missingCollections,
-              cache
-            )
+          const variable = await modeFontVariable(reference.id, state, missing.variables)
+          if (!variable) continue
+          const resolved = await modeFontVariableValues(
+            variable,
+            node,
+            target,
+            collectionId,
+            modeId,
+            state,
+            missing,
+            cache
           )
+          // A dangling native binding cannot be changed by an unrelated collection.
+          // Keep its failure until aliases establish whether this transition reaches it.
+          if (resolved.affected && resolved.unavailable) applyError(resolved.unavailable)
+          values.set(field, resolved)
         } catch (error) {
-          const failure = error instanceof Error ? error : new Error(errorMessage(error))
-          failure.message = `Cannot resolve text variable dependency "${field}" on "${node.id}": ${failure.message}`
-          throw failure
+          applyError(
+            `Cannot resolve text variable dependency "${field}" on "${node.id}": ${errorMessage(error)}`
+          )
         }
       }
       if (![...values.values()].some((value) => value.affected)) continue
@@ -209,7 +248,7 @@ async function loadModeFonts(
                   weight > 1000))
             ) {
               if (optional) continue
-              specError(
+              applyError(
                 `Font variables on "${node.id}" must resolve to STRING family/style and a weight between 1 and 1000.`
               )
             }

@@ -711,6 +711,9 @@ Text nodes, text ranges, and Text styles. Reuse the request-local font cache acr
 Mode changes prepare fonts only for affected typography, text-content, or size bindings, including
 aliases and extended collections. Unbound text and descendant mode overrides do not require unrelated
 fonts to load. Affected text metrics still require the current fonts even without a font-family binding.
+Unavailable native bindings in unrelated collections do not block a mode change. Alias traversal
+still finds affected dependencies across collections; an unavailable value reached by the changed
+mode fails before mutation as an existing canvas dependency error.
 Updates to existing pages preload fonts for the first changed variable mode before opening the
 Undo boundary or changing page properties, including calls with markup but no declared resources.
 Each mode setter still rechecks the live font requirements; later transitions may depend on
