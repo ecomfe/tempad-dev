@@ -8,7 +8,12 @@ import {
   splitByTopLevelComma,
   stripFallback
 } from '@/utils/css'
-import { getCssPaintLayers, getPaintResolutionSize, isVisiblePaint } from '@/utils/figma-paint'
+import {
+  getBackgroundColorPaint,
+  getCssPaintLayers,
+  getPaintResolutionSize,
+  isVisiblePaint
+} from '@/utils/figma-paint'
 import {
   formatGradientStopColor as formatPaintGradientStopColor,
   resolveBackgroundFillFromPaints,
@@ -22,6 +27,7 @@ import type { StyleMap } from './types'
 import { getNodeSemanticsCached, getPaintStyleCached, getPaintsFromState } from '../cache'
 
 const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
+const BG_URL_RE = /url\(/i
 const GRADIENT_FN_RE = /(linear-gradient|radial-gradient|conic-gradient)\s*\(/i
 
 type PaintList = Paint[] | ReadonlyArray<Paint> | null | undefined
@@ -44,14 +50,24 @@ export function cleanFigmaSpecificStyles(
   const activeFillPaints = styleFillPaints ?? fills
   const gradientSize = getPaintResolutionSize(node)
   const readers = ctx?.readers ?? DEFAULT_READERS
-  const backgroundFill = resolveBackgroundFillFromPaints(activeFillPaints, gradientSize, readers, {
-    background: processed.background,
-    resolveGradientPaint: resolveGradientPaintValue,
-    resolveSolidPaint: resolveSolidPaintColor
-  })
+  const hasUrlBackground =
+    BG_URL_RE.test(processed.background ?? '') ||
+    BG_URL_RE.test(processed['background-image'] ?? '')
+  const backgroundFill = hasUrlBackground
+    ? null
+    : resolveBackgroundFillFromPaints(activeFillPaints, gradientSize, readers, {
+        background: processed.background,
+        resolveGradientPaint: resolveGradientPaintValue,
+        resolveSolidPaint: resolveSolidPaintColor
+      })
   const backgroundLayers =
     backgroundFill?.kind === 'layers' ? backgroundFill.value.join(', ') : null
-  const fallbackSolidColor = resolveVisibleSolidPaintColor(activeFillPaints, readers)
+  const fallbackPaint = activeFillPaints
+    ? hasUrlBackground
+      ? getBackgroundColorPaint(activeFillPaints)?.paint
+      : findVisibleSolidPaint(activeFillPaints)
+    : null
+  const fallbackSolidColor = fallbackPaint ? resolveSolidPaintColor(fallbackPaint, readers) : null
 
   if (processed.background) {
     const bgValue = processed.background
@@ -194,16 +210,6 @@ function resolveSolidPaintColor(
   }
 
   return formatHexAlpha(paint.color, paint.opacity ?? 1)
-}
-
-function resolveVisibleSolidPaintColor(
-  paints: PaintList,
-  readers: FigmaLookupReaders = DEFAULT_READERS
-): string | null {
-  if (!paints || !Array.isArray(paints)) return null
-
-  const paint = findVisibleSolidPaint(paints)
-  return paint ? resolveSolidPaintColor(paint, readers) : null
 }
 
 function resolveGradientPaintValue(

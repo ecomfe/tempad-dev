@@ -12,7 +12,7 @@ import type {
 } from './types'
 
 import { formatHexAlpha, normalizeFigmaVarName, replaceVarFunctions } from '../css'
-import { getCssPaintLayers, getPaintResolutionSize } from '../figma-paint'
+import { getBackgroundColorPaint, getCssPaintLayers, getPaintResolutionSize } from '../figma-paint'
 import { getVariableCssName, resolveVariableAlias } from '../figma-variables'
 import {
   resolveBackgroundFillFromPaints,
@@ -361,20 +361,31 @@ export async function resolveStylesFromNodeData(
       ? { ...resolvedFillBase, solidColor: safeFillStyleNameVarExpr }
       : resolvedFillBase
 
+  const hasUrlBackground =
+    BG_URL_RE.test(processed.background ?? '') ||
+    BG_URL_RE.test(processed['background-image'] ?? '')
   // Remove Figma's default lightgray fallback for image fills.
   if (
     processed.background &&
     BG_URL_LIGHTGRAY_RE.test(processed.background) &&
     effectiveFillPaints
   ) {
-    if (resolvedFill?.solidColor) {
-      processed['background-color'] = resolvedFill.solidColor
+    const base = getBackgroundColorPaint(effectiveFillPaints)
+    const baseColor = base
+      ? (safeFillStyleNameVarExpr ??
+        resolveSolidPaintWithBindings(
+          base.paint,
+          base.index,
+          effectiveFillSource.bindings,
+          readers
+        ))
+      : null
+    if (baseColor) {
+      processed['background-color'] = baseColor
     }
     processed.background = processed.background.replace(/\s*,?\s*lightgray\b/i, '').trim()
   }
 
-  const hasUrlBackground =
-    typeof processed.background === 'string' && BG_URL_RE.test(processed.background)
   const resolvedBackgroundFill = hasUrlBackground
     ? null
     : resolveBackgroundFillFromPaints(effectiveFillPaints, input.dimensions, readers, {
@@ -389,16 +400,16 @@ export async function resolveStylesFromNodeData(
   )
 
   // Process background/fill styles
-  if (!appliedResolvedBackgroundFill) {
+  if (!appliedResolvedBackgroundFill && !hasUrlBackground) {
     if (resolvedFill?.gradient) {
-      if (processed.background && !hasUrlBackground) {
+      if (processed.background) {
         processed.background = resolvedFill.gradient
       } else if (processed['background-color']) {
         processed.background = resolvedFill.gradient
         delete processed['background-color']
       }
     } else if (resolvedFill?.solidColor) {
-      if (processed.background && !hasUrlBackground) {
+      if (processed.background) {
         // If it's a solid color, use background-color instead
         processed['background-color'] = resolvedFill.solidColor
         delete processed.background

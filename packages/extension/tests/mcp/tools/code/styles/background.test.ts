@@ -69,7 +69,10 @@ describe('mcp/tools/code/styles/background', () => {
   it('splits url + lightgray background shorthand and infers solid fill color', () => {
     const style = { background: 'url("image.png") lightgray 50% / cover no-repeat' }
     const node = createNode('RECTANGLE', {
-      fills: [{ type: 'SOLID', visible: true, color: { r: 1, g: 0, b: 0 }, opacity: 1 }]
+      fills: [
+        { type: 'SOLID', visible: true, color: { r: 1, g: 0, b: 0 }, opacity: 1 },
+        { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' }
+      ]
     })
 
     const result = cleanFigmaSpecificStyles(style, node)
@@ -124,6 +127,7 @@ describe('mcp/tools/code/styles/background', () => {
     const node = createNode('RECTANGLE', {
       fills: [
         { type: 'SOLID', visible: true, color: { r: 1, g: 0, b: 0 }, opacity: 1 },
+        { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' },
         { type: 'SOLID', visible: true, color: { r: 0, g: 1, b: 0 }, opacity: 1 }
       ]
     })
@@ -135,7 +139,7 @@ describe('mcp/tools/code/styles/background', () => {
     expect(result['background-position']).toBe('50%')
     expect(result['background-size']).toBe('cover')
     expect(result['background-repeat']).toBe('no-repeat')
-    expect(result['background-color']).toBe('#0F0')
+    expect(result['background-color']).toBe('#F00')
     expect(JSON.stringify(result)).not.toContain('lightgray')
   })
 
@@ -151,20 +155,41 @@ describe('mcp/tools/code/styles/background', () => {
       ],
       gradientStops: [{ position: 0, color: { r: 0, g: 0, b: 1, a: 1 } }]
     }
-  ])(
-    'does not infer a scalar under native image CSS from an unrepresentable stack: %j',
-    (front) => {
-      const result = cleanFigmaSpecificStyles(
-        { background: 'url("image.png") lightgray 50% / cover no-repeat' },
-        createNode('RECTANGLE', {
-          fills: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }, front]
-        })
-      )
-      expect(result['background-color']).toBeUndefined()
-      expect(result['background-image']).toContain('url("image.png")')
-      expect(JSON.stringify(result)).not.toContain('lightgray')
-    }
-  )
+  ])('does not use a foreground solid as the background color when the base is %j', (base) => {
+    const result = cleanFigmaSpecificStyles(
+      { background: 'url("image.png") lightgray 50% / cover no-repeat' },
+      createNode('RECTANGLE', {
+        fills: [base, { type: 'SOLID', color: { r: 1, g: 0, b: 0 } }]
+      })
+    )
+    expect(result['background-color']).toBeUndefined()
+    expect(result['background-image']).toContain('url("image.png")')
+    expect(JSON.stringify(result)).not.toContain('lightgray')
+  })
+
+  it('keeps a bound base color below a separate image channel, ignoring hidden paints', () => {
+    vi.stubGlobal('figma', {
+      variables: { getVariableById: () => ({ name: 'base' }) }
+    })
+    const result = cleanFigmaSpecificStyles(
+      { 'background-image': 'url("image.png")' },
+      createNode('RECTANGLE', {
+        fills: [
+          { type: 'SOLID', visible: false, color: { r: 0, g: 1, b: 0 } },
+          {
+            type: 'SOLID',
+            color: { r: 1, g: 0, b: 0 },
+            boundVariables: { color: { type: 'VARIABLE_ALIAS', id: 'base' } }
+          },
+          { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' }
+        ]
+      })
+    )
+    expect(result).toEqual({
+      'background-image': 'url("image.png")',
+      'background-color': 'var(--base)'
+    })
+  })
 
   it('uses fill style paints before direct node fills for lightgray fallback cleanup', () => {
     vi.stubGlobal('figma', {

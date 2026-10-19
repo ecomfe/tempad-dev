@@ -21,6 +21,24 @@ export function getCssPaintLayers(paints: readonly Paint[]): { paint: Paint; ind
     .reverse()
 }
 
+/** CSS background-color sits below every image layer, so only the bottom paint can supply it. */
+export function getBackgroundColorPaint(
+  paints: readonly Paint[]
+): { paint: SolidPaint; index: number } | null {
+  const index = paints.findIndex(isRenderablePaint)
+  const paint = paints[index]
+  if (
+    !paint ||
+    paint.type !== 'SOLID' ||
+    !paint.color ||
+    (paint.opacity ?? 1) !== 1 ||
+    (paint.blendMode !== undefined && paint.blendMode !== 'NORMAL')
+  ) {
+    return null
+  }
+  return { paint, index }
+}
+
 export function getPaintResolutionSize(node: SceneNode): PaintResolutionSize | undefined {
   if (!('width' in node) || !('height' in node)) return undefined
 

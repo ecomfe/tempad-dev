@@ -56,6 +56,50 @@ afterEach(() => {
 
 describe('figma/style-resolver paint precedence', () => {
   it.each(['node', 'style'])(
+    'uses indexed %s base bindings below images without changing foreground scalar bindings',
+    async (source) => {
+      const paints = [
+        { ...solidPaint({ r: 0, g: 1, b: 0 }), visible: false },
+        solidPaint({ r: 1, g: 0, b: 0 }),
+        { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' } as ImagePaint,
+        solidPaint({ r: 0, g: 0, b: 1 })
+      ]
+      const bindings = [{ id: 'hidden' }, { id: 'back' }, undefined, { id: 'front' }]
+      installFigmaMocks({
+        variables: { front: { name: 'Front' } as Variable, back: { name: 'Back' } as Variable },
+        styles: { paint: paintStyle(paints, { paints: bindings }) }
+      })
+      const result = await resolveStylesFromNodeData(
+        { background: 'url("image.png") lightgray 50% / cover', color: '#00F', fill: '#00F' },
+        source === 'style'
+          ? { fillStyleId: 'paint', fills: [solidPaint({ r: 0, g: 1, b: 0 })] }
+          : { fills: paints, fillVariableBindings: bindings }
+      )
+      expect(result).toEqual({
+        background: 'url("image.png") 50% / cover',
+        'background-color': 'var(--Back, #F00)',
+        color: 'var(--Front, #00F)',
+        fill: 'var(--Front, #00F)'
+      })
+    }
+  )
+
+  it.each([
+    { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' },
+    { ...solidPaint({ r: 0, g: 1, b: 0 }), opacity: 0.5 },
+    { ...solidPaint({ r: 0, g: 1, b: 0 }), blendMode: 'MULTIPLY' },
+    gradientPaint()
+  ])('does not put a foreground solid below an unrepresentable base: %j', async (base) => {
+    installFigmaMocks()
+    expect(
+      await resolveStylesFromNodeData(
+        { background: 'url("image.png") lightgray', fill: '#F00' },
+        { fills: [base as Paint, solidPaint({ r: 1, g: 0, b: 0 })] }
+      )
+    ).toEqual({ background: 'url("image.png")', fill: '#F00' })
+  })
+
+  it.each(['node', 'style'])(
     'uses frontmost %s paint bindings for scalar color channels',
     async (source) => {
       const paints = [
@@ -213,7 +257,10 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
   it('strips lightgray fallback in background image and keeps resolved background-color', async () => {
     installFigmaMocks()
     const node = {
-      fills: [solidPaint({ r: 0, g: 1, b: 0 })]
+      fills: [
+        solidPaint({ r: 0, g: 1, b: 0 }),
+        { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' }
+      ]
     } as unknown as SceneNode
 
     const result = await resolveStylesFromNode(
@@ -691,10 +738,14 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
     })
   })
 
-  it('keeps image shorthand separate from the frontmost color after removing lightgray fallback', async () => {
+  it('keeps image shorthand separate from the base color after removing lightgray fallback', async () => {
     installFigmaMocks()
     const node = {
-      fills: [solidPaint({ r: 1, g: 0, b: 0 }), solidPaint({ r: 0, g: 1, b: 0 })]
+      fills: [
+        solidPaint({ r: 1, g: 0, b: 0 }),
+        { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' },
+        solidPaint({ r: 0, g: 1, b: 0 })
+      ]
     } as unknown as SceneNode
 
     const result = await resolveStylesFromNode(
@@ -706,7 +757,7 @@ describe('figma/style-resolver resolveStylesFromNode', () => {
 
     expect(result).toEqual({
       background: 'url("asset.png")',
-      'background-color': '#0F0'
+      'background-color': '#F00'
     })
   })
 
