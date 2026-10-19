@@ -1280,9 +1280,51 @@ describe('Hub runtime module', () => {
     expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
     replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
     consumer.send({ id: 3, method: 'tools/call', params: write })
-    const next = await replacement.call(0)
+    await vi.waitFor(
+      () => expect(replacement.calls.length || consumer.replies.has(3)).toBeTruthy(),
+      {
+        interval: 1
+      }
+    )
+    expect(replacement.calls).toHaveLength(0)
+    expect(JSON.stringify(await consumer.reply(3))).toContain('get_structure or get_code')
+
+    consumer.send({
+      id: 4,
+      method: 'tools/call',
+      params: { name: 'get_structure', arguments: { sessionId: 'other-session' } }
+    })
+    const otherFile = await replacement.call(0)
+    replacement.send({ type: 'toolResult', id: otherFile.id, payload: { roots: [] } })
+    await consumer.reply(4)
+    consumer.send({ id: 5, method: 'tools/call', params: write })
+    expect(JSON.stringify(await consumer.reply(5))).toContain('get_structure or get_code')
+
+    consumer.send({
+      id: 6,
+      method: 'tools/call',
+      params: { name: 'get_structure', arguments: {} }
+    })
+    const failedRead = await replacement.call(1)
+    replacement.send({ type: 'toolResult', id: failedRead.id, error: { message: 'Read failed' } })
+    await consumer.reply(6)
+    consumer.send({ id: 7, method: 'tools/call', params: write })
+    expect(JSON.stringify(await consumer.reply(7))).toContain('get_structure or get_code')
+
+    consumer.send({
+      id: 8,
+      method: 'tools/call',
+      params: { name: 'get_structure', arguments: {} }
+    })
+    const read = await replacement.call(2)
+    replacement.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+    await consumer.reply(8)
+    // Repeated completion cannot re-arm the read requirement after a successful read.
+    replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+    consumer.send({ id: 9, method: 'tools/call', params: write })
+    const next = await replacement.call(3)
     replacement.send({ type: 'toolResult', id: next.id, error: { message: 'New call completed' } })
-    expect(JSON.stringify(await consumer.reply(3))).toContain('New call completed')
+    expect(JSON.stringify(await consumer.reply(9))).toContain('New call completed')
     replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
     expect(JSON.parse(replacement.peer.send.mock.calls.at(-1)![0])).toEqual({
       type: 'toolCompletionAck',

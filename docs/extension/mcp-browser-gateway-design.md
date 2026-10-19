@@ -173,8 +173,10 @@ released peers retain their existing messages. A surviving worker can resend onl
 call's receipt after reconnecting to the same Hub process. The Hub checks the original request,
 receipt identity, browser and extension Origin, and exact Figma session, file, tab and document
 before releasing that operation. It never replays the write. If the original result was lost,
-`EXTENSION_RESULT_LOST` requires reading the original target; task-bound writes also require a
-fresh read before another write. Unfinished receipt records are bounded by rejecting new calls
+`EXTENSION_RESULT_LOST` requires reading the original target; recovered writes require a
+successful `get_structure` or `get_code` read of that file before another write, including calls
+without a task. A disconnect reported before the receipt arrives also warns that the write outcome
+is unknown and must not be replayed. Unfinished receipt records are bounded by rejecting new calls
 before dispatch, and completed receipts are acknowledged idempotently while retained. A new Hub,
 replaced document, or lost worker memory cannot recover these process-local receipts. Ordinary
 idle snapshots still do not establish completion.

@@ -874,8 +874,9 @@ export async function startHub(): Promise<void> {
         // Consumer cancellation and transport failures end only this wait. The
         // operation remains fenced until its definitive result or document loss.
         const payload = await registration.promise
-        if (taskId && ['get_structure', 'get_code'].includes(tool.name)) {
-          designTasks.acknowledgeRead(taskId, ownerId, taskEpoch)
+        if (['get_structure', 'get_code'].includes(tool.name)) {
+          if (taskId) designTasks.acknowledgeRead(taskId, ownerId, taskEpoch)
+          designTasks.acknowledgeFileRead(session.fileKey)
         }
         if (taskId && tool.name === 'apply_canvas') {
           const rootNodeId = getRecordProperty(payload, 'rootNodeId')
@@ -1460,6 +1461,8 @@ export async function startHub(): Promise<void> {
           if (recovered.write && recovered.taskId) {
             const record = designTasks.find(recovered.taskId)
             if (record && record.task.epoch === (recovered.epoch ?? 0)) record.task.needsRead = true
+          } else if (recovered.write) {
+            designTasks.requireFileRead(recovered.session.fileKey)
           }
           designTasks.finishOperation(message.id, recovered.extensionId)
           reject(

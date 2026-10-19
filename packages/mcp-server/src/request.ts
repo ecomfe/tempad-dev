@@ -8,6 +8,8 @@ import type { PendingToolCall } from './types'
 import { log } from './shared'
 
 const pendingCalls = new Map<string, PendingToolCall>()
+const UNKNOWN_WRITE_OUTCOME =
+  'The canvas operation outcome is unknown. Do not replay this write; inspect the canvas or reload the executing Figma tab before continuing.'
 
 type RegisterOptions = {
   waitForDefinitiveResult?: boolean
@@ -53,10 +55,7 @@ export function register<T>(
         if (call)
           call.timer = setTimeout(() => {
             call.reject(
-              createToolError(
-                TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT,
-                'The canvas operation outcome is unknown. Do not replay this write; inspect the canvas or reload the executing Figma tab before continuing.'
-              )
+              createToolError(TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT, UNKNOWN_WRITE_OUTCOME)
             )
           }, timeout)
         return
@@ -76,6 +75,17 @@ export function register<T>(
       },
       reject: (error) => {
         cleanup()
+        if (
+          options.waitForDefinitiveResult &&
+          error &&
+          'code' in error &&
+          error.code === TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED
+        ) {
+          reject(
+            createToolError(TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED, UNKNOWN_WRITE_OUTCOME)
+          )
+          return
+        }
         reject(error)
       },
       timer,

@@ -119,6 +119,7 @@ export class DesignTasks {
   private readonly records = new Map<string, DesignTaskRecord>()
   private readonly currentTaskIds = new Map<string, string>()
   private readonly operations = new Map<string, Operation>()
+  private readonly filesNeedingRead = new Set<string>()
   // Every retired file rejects stale unknown reviews; true also retains its Stop write fence.
   private readonly fileFences = new Map<string, boolean>()
   private readonly expiredRequests = new Map<string, Set<string>>()
@@ -335,6 +336,14 @@ export class DesignTasks {
     this.publish(record)
   }
 
+  requireFileRead(fileKey: string): void {
+    this.filesNeedingRead.add(fileKey)
+  }
+
+  acknowledgeFileRead(fileKey: string): void {
+    this.filesNeedingRead.delete(fileKey)
+  }
+
   find(taskId: string): DesignTaskRecord | undefined {
     this.sweep()
     return this.records.get(taskId)
@@ -389,6 +398,12 @@ export class DesignTasks {
       fail(
         'DESIGN_TASK_INACTIVE',
         'Read the bound canvas with get_structure or get_code before writing.'
+      )
+    }
+    if (write && this.filesNeedingRead.has(session.fileKey)) {
+      fail(
+        'DESIGN_TASK_INACTIVE',
+        'The previous write result was lost. Read this Figma file with get_structure or get_code before writing. Do not replay the write.'
       )
     }
     const occupant = this.occupant(session.fileKey)

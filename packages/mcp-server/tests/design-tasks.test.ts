@@ -667,6 +667,23 @@ describe('design task leases', () => {
     expect(f.begin('caller-b').status).toBe('active')
   })
 
+  it('keeps a lost taskless write unread across a fresh task without weakening Stop', () => {
+    const f = fixture()
+    f.tasks.requireFileRead(session.fileKey)
+    const task = f.begin()
+    expect(() => f.tasks.checkOperation('caller-a', session, task.taskId, true)).toThrow(
+      'previous write result was lost'
+    )
+    f.tasks.checkOperation('caller-a', session, task.taskId)
+    f.tasks.acknowledgeFileRead(session.fileKey)
+    f.tasks.checkOperation('caller-a', session, task.taskId, true)
+    f.tasks.stop(task.taskId, 'cancelled')
+    f.tasks.acknowledgeFileRead(session.fileKey)
+    expect(() => f.tasks.checkOperation('caller-a', session, undefined, true)).toThrow(
+      'stopped task'
+    )
+  })
+
   it('keeps disconnected execution fenced until a result or proven tab closure', () => {
     const f = fixture()
     const task = f.begin()
