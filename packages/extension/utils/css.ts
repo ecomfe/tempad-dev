@@ -12,7 +12,8 @@ const ZERO_UNITS_RE = /(^|\s)0(px|rem|%|em)(?=$|\s)/g
 
 const SCSS_VARS_RE = /(^|[^\w-])[$@]([a-zA-Z0-9_-]+)/g
 
-const PX_VALUE_RE = /\b(-?\d+(?:\.\d+)?)px\b/g
+const CSS_NUMBER_RE = /[+-]?(?:\d*\.\d+|\d+)(?:e[+-]?\d+)?/iy
+const CSS_NAME_RE = /(?:[-\w\u0080-\uFFFF]|\\(?:[\da-f]{1,6}[ \t\r\n\f]?|[^\r\n\f]))+/iy
 export const QUOTES_RE = /['"]/g
 const FLEX_FACTOR_RE = /^[+-]?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?$/i
 const FLEX_BASIS_RE =
@@ -306,11 +307,64 @@ function parseFlexShorthand(value: string): { grow: string; shrink: string; basi
 }
 
 function transformPxValue(value: string, transform: (value: number) => string) {
-  return value.replace(PX_VALUE_RE, (_, val) => {
-    const parsed = Number(val)
-    if (parsed === 0) return '0'
-    return transform(toDecimalPlace(parsed, 5))
-  })
+  let output = ''
+  let copiedUntil = 0
+  let index = 0
+
+  // Consume complete CSS tokens so numbers inside names, strings and URLs stay literal.
+  while (index < value.length) {
+    const ch = value[index]
+    if (ch === '"' || ch === "'") {
+      index = skipCssLiteral(value, index, ch)
+      continue
+    }
+    if (ch === '/' && value[index + 1] === '*') {
+      const end = value.indexOf('*/', index + 2)
+      index = end < 0 ? value.length : end + 2
+      continue
+    }
+
+    const hasNamePrefix = ch === '#' || ch === '@'
+    CSS_NUMBER_RE.lastIndex = index
+    const number = hasNamePrefix ? undefined : CSS_NUMBER_RE.exec(value)?.[0]
+    const nameStart = index + (number?.length ?? (hasNamePrefix ? 1 : 0))
+    CSS_NAME_RE.lastIndex = nameStart
+    const name = CSS_NAME_RE.exec(value)?.[0] ?? ''
+    const end = nameStart + name.length
+
+    if (number) {
+      const parsed = Number(number)
+      if (name.toLowerCase() === 'px' && Number.isFinite(parsed)) {
+        output += value.slice(copiedUntil, index)
+        output += parsed === 0 ? '0' : transform(toDecimalPlace(parsed, 5))
+        copiedUntil = end
+      }
+      index = end
+    } else if (end > index) {
+      // Escaped function names are opaque: do not risk rewriting an encoded url().
+      index =
+        value[end] === '(' && (name.toLowerCase() === 'url' || name.includes('\\'))
+          ? skipCssLiteral(value, end, ')')
+          : end
+    } else {
+      index++
+    }
+  }
+
+  return output + value.slice(copiedUntil)
+}
+
+function skipCssLiteral(value: string, start: number, closing: string): number {
+  let index = start + 1
+  while (index < value.length) {
+    const ch = value[index]
+    if (ch === '\\') index += 2
+    else if (ch === closing) return index + 1
+    else if (closing === ')' && (ch === '"' || ch === "'")) {
+      index = skipCssLiteral(value, index, ch)
+    } else index++
+  }
+  return value.length
 }
 
 function scalePxValue(value: string, scale: number): string {
