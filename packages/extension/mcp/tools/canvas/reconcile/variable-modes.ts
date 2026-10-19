@@ -24,13 +24,16 @@ const TEXT_MODE_FONT_FIELDS = [
 
 async function modeFontCollection(
   id: string,
-  state: ApplyState
+  state: ApplyState,
+  missingCollections: Set<string>
 ): Promise<VariableCollection | null> {
   const key = `id:${id}`
   const cached = state.variables.collectionCache.get(key)
   if (cached) return cached
+  if (missingCollections.has(id)) return null
   const collection = await getVariableCollectionById(id)
   if (collection) state.variables.collectionCache.set(key, collection)
+  else missingCollections.add(id)
   return collection
 }
 
@@ -41,6 +44,7 @@ async function modeFontVariableValues(
   changedCollectionId: string,
   changedModeId: string | undefined,
   state: ApplyState,
+  missingCollections: Set<string>,
   cache = new Map<string, FontModeValues>(),
   seen = new Set<string>()
 ): Promise<FontModeValues> {
@@ -50,7 +54,7 @@ async function modeFontVariableValues(
   const cached = cache.get(variable.id)
   if (cached) return cached
   const active = new Set(seen).add(variable.id)
-  const base = await modeFontCollection(variable.variableCollectionId, state)
+  const base = await modeFontCollection(variable.variableCollectionId, state, missingCollections)
   if (!base)
     scopeError(`Text variable collection "${variable.variableCollectionId}" is unavailable.`)
   const related = new Map<string, VariableCollection>([[base.id, base]])
@@ -67,7 +71,7 @@ async function modeFontVariableValues(
   }
   for (const id of candidateIds) {
     if (related.has(id)) continue
-    const collection = await modeFontCollection(id, state)
+    const collection = await modeFontCollection(id, state, missingCollections)
     if (collection?.isExtension && collection.variableIds.includes(variable.id))
       related.set(id, collection)
   }
@@ -113,6 +117,7 @@ async function modeFontVariableValues(
           changedCollectionId,
           changedModeId,
           state,
+          missingCollections,
           cache,
           active
         )
@@ -137,6 +142,8 @@ async function loadModeFonts(
   state: ApplyState
 ): Promise<void> {
   const roots = target.type === 'PAGE' ? target.children : [target]
+  // Only misses are scan-local: later imports can expose previously unavailable collections.
+  const missingCollections = new Set<string>()
   for (const node of walkPhysicalNodes(roots)) {
     if (node.type !== 'TEXT') continue
     const cache = new Map<string, FontModeValues>()
@@ -165,6 +172,7 @@ async function loadModeFonts(
               collectionId,
               modeId,
               state,
+              missingCollections,
               cache
             )
           )

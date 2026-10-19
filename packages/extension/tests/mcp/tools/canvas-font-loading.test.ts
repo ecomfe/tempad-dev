@@ -78,6 +78,30 @@ describe('mcp/tools/canvas font loading', () => {
     expect(fixture.loadFontAsync).not.toHaveBeenCalled()
   })
 
+  it('bounds missing collection reads to one per font-preloading scan', async () => {
+    const fixture = createFixture()
+    const changed = figma.variables.createVariableCollection('Changed')
+    const alternate = changed.addMode('Alternate')
+    const unchanged = figma.variables.createVariableCollection('Unchanged')
+    const size = figma.variables.createVariable('Size', unchanged, 'FLOAT')
+    size.setValueForMode(unchanged.defaultModeId, 16)
+    for (let index = 0; index < 50; index++) {
+      const label = figma.createText()
+      label.characters = 'Unaffected'
+      label.setBoundVariable('fontSize', size)
+      Object.assign(label.explicitVariableModes, { 'missing:collection': 'missing:mode' })
+    }
+    const readCollection = vi.mocked(figma.variables.getVariableCollectionByIdAsync)
+    await applyCanvasFromTool({
+      mode: 'update',
+      page: { id: fixture.page.id, variableModes: { [changed.id]: alternate } }
+    })
+    expect(fixture.page.explicitVariableModes[changed.id]).toBe(alternate)
+    // Recheck at the mutation boundary: an import may have made a missing collection available.
+    expect(readCollection.mock.calls.filter(([id]) => id === 'missing:collection')).toHaveLength(2)
+    expect(fixture.loadFontAsync).not.toHaveBeenCalled()
+  })
+
   it.each(['variable', 'collection'] as const)(
     'fails safely with text dependency context when a metric %s is unavailable',
     async (missing) => {
