@@ -36,6 +36,7 @@ function resolveWatchSource(source: unknown) {
 }
 
 vi.mock('vue', () => ({
+  onScopeDispose: vi.fn(),
   shallowRef: <T>(value: T) => ({ value }),
   watch: (
     source: unknown,
@@ -133,6 +134,7 @@ async function mountComposable() {
 }
 
 beforeEach(() => {
+  vi.stubGlobal('document', { visibilityState: 'visible', hasFocus: () => true })
   mocks.layoutReady.value = false
   mocks.options.value = {
     deepSelectOn: true,
@@ -165,11 +167,13 @@ describe('composables/key-lock', () => {
     const layoutWatcher = mocks.watchers[0]
     if (!layoutWatcher) throw new Error('Expected layout watcher')
 
+    mocks.layoutReady.value = true
     layoutWatcher.callback(true)
     expect(mocks.getCanvas).toHaveBeenCalledTimes(1)
     expect(mocks.setLockMetaKey).toHaveBeenLastCalledWith(true)
     expect(mocks.setLockAltKey).toHaveBeenLastCalledWith(true)
 
+    mocks.layoutReady.value = false
     layoutWatcher.callback(false)
     expect(mocks.setLockMetaKey).toHaveBeenLastCalledWith(false)
     expect(mocks.setLockAltKey).toHaveBeenLastCalledWith(false)
