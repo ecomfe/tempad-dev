@@ -23,6 +23,7 @@ import {
   LOCK_PATH,
   RUNTIME_DIR,
   SOCK_PATH,
+  endLogging,
   ensureDir,
   assertTrustedSocket,
   resolveStateDir
@@ -279,6 +280,7 @@ async function main() {
       process.exitCode = 1
     }
     process.stdin.destroy()
+    endLogging()
     return
   }
   log.info({ version: PACKAGE_VERSION }, 'TemPad MCP Client starting...')
@@ -316,6 +318,7 @@ async function main() {
         // No future bridge will consume stdin; release its read handle before exiting.
         process.stdin.destroy()
         process.exitCode = 1
+        endLogging()
         return
       }
       if (!connected && transient && !waitingReported) {

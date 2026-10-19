@@ -17,6 +17,7 @@
 - Preserved saved task records across version changes and showed progress during longer Hub startup.
 - Prevented malformed asset requests from disconnecting agents and released resources after
   cancelled downloads.
+- Prevented the agent connection process from hanging after startup fails.
 
 ## 0.11.0
 

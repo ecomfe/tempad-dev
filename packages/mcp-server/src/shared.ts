@@ -141,4 +141,9 @@ export const log = pino(
   prettyTransport
 )
 
+export function endLogging(): void {
+  // Shutdown must drain the worker even when its ready event is still pending.
+  prettyTransport.end()
+}
+
 export const SOCK_PATH = resolveSockPath()

@@ -622,7 +622,7 @@ it.skipIf(process.platform === 'win32')(
 
 it
   .skipIf(process.platform === 'win32')
-  .each(['closed', 'invalid', 'invalid-with-stdin', 'denied-after-binding'])(
+  .each(['closed', 'invalid', 'invalid-with-stdin', 'invalid-log-wait', 'denied-after-binding'])(
   'bounds an accepted CLI bridge that is %s',
   async (failure) => {
     const runtime = join(directory, failure === 'denied-after-binding' ? 'bridge-denied' : failure)
@@ -647,6 +647,18 @@ it
     writeFileSync(
       preload,
       `import net from 'node:net'; import {syncBuiltinESMExports} from 'node:module';
+      import {Worker} from 'node:worker_threads';
+      if (${JSON.stringify(failure)} === 'invalid-log-wait') {
+        // Keep the transport pending readiness while its worker continues writing logs.
+        const emit = Worker.prototype.emit;
+        Worker.prototype.emit = function(event, ...args) {
+          if (event === 'message' && args[0]?.code === 'READY') {
+            process.stderr.write('fixture-log-ready-held\\n');
+            return false;
+          }
+          return emit.call(this, event, ...args);
+        };
+      }
       const timeout = globalThis.setTimeout, connect = net.connect;
       globalThis.setTimeout = (fn, ms, ...args) => timeout(fn, ms >= 1000 ? 20 : ms, ...args);
       let calls = 0;
@@ -683,6 +695,16 @@ it
       expect(connections).toBe(failure === 'denied-after-binding' ? 1 : 3)
       expect(attempt.stdout()).toBe('')
       expect(existsSync(join(runtime, 'hub-runtime.json'))).toBe(false)
+      if (failure === 'invalid-log-wait') {
+        expect(attempt.stderr()).toContain('fixture-log-ready-held')
+        const logs = join(directory, 'logs')
+        const pid = attempt.child.pid
+        const filename = readdirSync(logs).find((name) => name.endsWith(`-${pid}.log`))
+        expect(filename).toBeDefined()
+        const contents = readFileSync(join(logs, filename!), 'utf8')
+        expect(contents.match(/Invalid Hub output\. Reconnecting\./g)).toHaveLength(3)
+        expect(contents.match(/Connection attempt failed\. Retrying/g)).toHaveLength(2)
+      }
     } finally {
       // Stop the CLI before removing its listener, even when an assertion fails.
       if (attempt && attempt.child.exitCode === null && attempt.child.signalCode === null) {

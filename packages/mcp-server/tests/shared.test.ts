@@ -22,13 +22,14 @@ const osMocks = vi.hoisted(() => ({
 }))
 
 const pinoMocks = vi.hoisted(() => {
-  const transport = vi.fn(() => ({ mockTransport: true }))
+  const end = vi.fn()
+  const transport = vi.fn(() => ({ mockTransport: true, end }))
   const logger = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }
   const pino = Object.assign(
     vi.fn(() => logger),
     { transport }
   )
-  return { pino, transport, logger }
+  return { pino, transport, logger, end }
 })
 
 const pruneExpiredLogs = vi.hoisted(() => vi.fn())
@@ -157,6 +158,9 @@ describe('mcp-server/shared', () => {
         })
       })
     )
+    expect(pinoMocks.end).not.toHaveBeenCalled()
+    shared.endLogging()
+    expect(pinoMocks.end).toHaveBeenCalledOnce()
   })
 
   it('falls back to tmpdir defaults and info level when env is unset', async () => {
