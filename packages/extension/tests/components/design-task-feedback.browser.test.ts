@@ -1493,6 +1493,27 @@ describe('element feedback drafts', () => {
       expect(getComputedStyle(editor).animationName).toBe('none')
       expect(getComputedStyle(editor).outlineStyle).toBe('solid')
       expect(getComputedStyle(editor).outlineWidth).toBe('2px')
+      const luminance = (color: string) => {
+        const [r, g, b] = color
+          .match(/\d+/g)!
+          .slice(0, 3)
+          .map((channel) => {
+            const value = Number(channel) / 255
+            return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+          })
+        return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+      }
+      for (const surface of ['#fff', '#2c2c2c']) {
+        editor.style.setProperty('--color-bg', surface)
+        const style = getComputedStyle(editor)
+        const foreground = luminance(style.outlineColor)
+        const background = luminance(style.backgroundColor)
+        expect(
+          (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
+        ).toBeGreaterThanOrEqual(3)
+      }
+      editor.style.setProperty('--color-border-warning', '#c47800')
+      expect(getComputedStyle(editor).outlineColor).toBe('rgb(196, 120, 0)')
       expect(editor.querySelector('[role="status"]')).toBeNull()
       await expect.element(input).toHaveValue('Unsaved thought')
       await input.fill('Revised thought')
@@ -2297,9 +2318,16 @@ describe('element feedback drafts', () => {
     done().click()
     await page.getByRole('button', { name: 'Discard comments and finish' }).click()
     await nextTick()
-    expect(done().disabled).toBe(true)
+    expect(done().matches(':disabled, [aria-disabled="true"]')).toBe(true)
+    await expect.poll(() => document.querySelector('[role="dialog"]')).toBeNull()
+    done().click()
+    await nextTick()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(f.requestDrafts.mock.calls.some(([request]) => request.operation === 'clear')).toBe(
+      false
+    )
     await finishSave()
-    await expect.poll(() => done().disabled).toBe(false)
+    await expect.poll(() => done().matches(':disabled, [aria-disabled="true"]')).toBe(false)
     expect(await f.store.request({ operation: 'load', scope })).toEqual({
       items: [],
       comment: 'Last guidance'
