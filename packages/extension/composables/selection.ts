@@ -62,17 +62,56 @@ export function useSelection() {
   let observedApi: PluginAPI | undefined
   let observedPage: PageNode | undefined
   const nativeListeners: Array<() => void> = []
+  const pageListeners = new Map<PageNode, () => void>()
   const relevantNodes = new Set<string>()
   const relevantStyles = new Set<string>()
+  const subtreeRoots = new Set<string>()
 
   function trackSelection() {
     relevantNodes.clear()
     relevantStyles.clear()
+    subtreeRoots.clear()
+    const pages = new Set(observedPage ? [observedPage] : [])
+    // Code generation has no output for multiple selections. Avoid traversing
+    // a whole page just to keep a hidden panel's dependencies up to date.
+    if (!observedApi || selection.value.length !== 1) {
+      syncPageListeners(pages)
+      return
+    }
     const pending: BaseNode[] = [...selection.value]
-    const componentIds: string[] = []
+    const visited = new Set<string>()
+    const ancestors = new Set<string>()
+
+    function addDefinition(node: BaseNode) {
+      if (node.type !== 'INSTANCE') return
+      const component = node.mainComponent
+      if (!component) return
+      subtreeRoots.add(component.id)
+      pending.push(component)
+    }
+
+    function trackAncestors(node: BaseNode | null) {
+      while (node && !ancestors.has(node.id)) {
+        ancestors.add(node.id)
+        relevantNodes.add(node.id)
+        if (node.type === 'PAGE') pages.add(node)
+        // A selected sublayer inherits content from its containing instance.
+        addDefinition(node)
+        node = node.parent
+      }
+    }
+
+    const selected = selection.value[0]!
+    subtreeRoots.add(selected.id)
+    try {
+      trackAncestors(selected.parent)
+    } catch {
+      // Removed selections are cleared by the next selection synchronization.
+    }
     while (pending.length) {
       const node = pending.pop()!
-      if (relevantNodes.has(node.id)) continue
+      if (visited.has(node.id)) continue
+      visited.add(node.id)
       relevantNodes.add(node.id)
       try {
         if ('children' in node) pending.push(...node.children)
@@ -96,26 +135,38 @@ export function useSelection() {
             }
           }
         }
-        if (node.type === 'INSTANCE') {
-          const component = node.mainComponent
-          if (component) componentIds.push(component.id)
-        }
+        addDefinition(node)
+        // Component-set properties and accessible definition pages are also
+        // dependencies; inherited instance edits need not emit their own event.
+        if (node.type === 'COMPONENT') trackAncestors(node.parent)
       } catch {
         // A native node can disappear while its change notification is pending.
       }
     }
-    for (const id of componentIds) relevantNodes.add(id)
-    for (const selected of selection.value) {
+    syncPageListeners(pages)
+  }
+
+  function syncPageListeners(pages: Set<PageNode>) {
+    for (const [page, remove] of pageListeners) {
+      if (pages.has(page)) continue
+      removeListener(remove)
+      pageListeners.delete(page)
+    }
+    for (const page of pages) {
+      if (
+        pageListeners.has(page) ||
+        typeof page.on !== 'function' ||
+        typeof page.off !== 'function'
+      )
+        continue
       try {
-        let node = selected.parent
-        while (node) {
-          relevantNodes.add(node.id)
-          node = node.parent
-        }
+        page.on('nodechange', handleNodeChange)
+        pageListeners.set(page, () => page.off('nodechange', handleNodeChange))
       } catch {
-        // Removed selections are cleared by the next selection synchronization.
+        // Unavailable definition pages remain covered by local edits/focus.
       }
     }
+    nativeChanges = !!observedPage && pageListeners.has(observedPage)
   }
 
   function changedNodeAffectsSelection(change: NodeChange): boolean {
@@ -125,8 +176,7 @@ export function useSelection() {
       // New or reparented descendants were not present in the last snapshot.
       let parent = change.node.parent
       while (parent) {
-        const id = parent.id
-        if (selection.value.some((node) => node.id === id)) return true
+        if (subtreeRoots.has(parent.id)) return true
         parent = parent.parent
       }
     } catch {
@@ -152,14 +202,18 @@ export function useSelection() {
     objectsPanel.value = getLeftPanel()
   }
 
-  function removeNativeListeners() {
-    for (const remove of nativeListeners.splice(0)) {
-      try {
-        remove()
-      } catch {
-        // A previous document's native API may already be unavailable.
-      }
+  function removeListener(remove: () => void) {
+    try {
+      remove()
+    } catch {
+      // A previous document's native API may already be unavailable.
     }
+  }
+
+  function removeNativeListeners() {
+    for (const remove of nativeListeners.splice(0)) removeListener(remove)
+    for (const remove of pageListeners.values()) removeListener(remove)
+    pageListeners.clear()
     observedApi = undefined
     observedPage = undefined
     nativeSelection = false
@@ -198,12 +252,7 @@ export function useSelection() {
         () => api.off('stylechange', handleStyleChange)
       )
     }
-    if (page && typeof page.on === 'function' && typeof page.off === 'function') {
-      nativeChanges = subscribe(
-        () => page.on('nodechange', handleNodeChange),
-        () => page.off('nodechange', handleNodeChange)
-      )
-    }
+    syncPageListeners(new Set(page ? [page] : []))
     return true
   }
 
@@ -214,8 +263,8 @@ export function useSelection() {
     contentChanged ||= refreshContent
     // Read after Figma's event handlers and coalesce drag, typing and native batches.
     refreshTimer = setTimeout(() => {
-      syncNativeListeners()
-      syncSelection(contentChanged)
+      const changedPage = syncNativeListeners()
+      syncSelection(contentChanged || changedPage)
       contentChanged = false
     }, 100)
   }
@@ -225,7 +274,14 @@ export function useSelection() {
     if (target?.closest?.('tempad')) return
     if ('key' in event && /^(Alt|Control|Meta|Shift| )$/.test(String(event.key))) return
     const changedPage = syncNativeListeners()
-    if (changedPage || !nativeSelection || !nativeChanges) scheduleRefresh(!nativeChanges)
+    // Variable edits do not have a dedicated native event. Keep actual editor
+    // input as a fallback without regenerating on ordinary canvas clicks.
+    const edited =
+      event.type === 'input' ||
+      event.type === 'change' ||
+      (event.type === 'keyup' && !!target?.closest?.('input, textarea, [contenteditable="true"]'))
+    if (edited || changedPage || !nativeSelection || !nativeChanges)
+      scheduleRefresh(edited || !nativeChanges)
   }
 
   onMounted(() => {

@@ -147,6 +147,123 @@ it('refreshes linked style changes and selected instance definition metadata', a
   expect(host.textContent).toContain('width: 300px')
 })
 
+it.each(['instance', 'instance-child', 'variant-set'] as const)(
+  'refreshes %s dependencies on accessible component pages and cleans up their listeners',
+  async (selected) => {
+    const { node, api, page } = fixture()
+    const library = { ...events(), id: 'library-page', type: 'PAGE', parent: null }
+    const variants = { id: 'variants', type: 'COMPONENT_SET', parent: library }
+    const definition = { id: 'definition', type: 'COMPONENT', parent: variants }
+    const text = { id: 'definition-text', type: 'TEXT', parent: definition }
+    Object.assign(definition, { children: [text] })
+    if (selected === 'instance-child') {
+      Object.assign(node, {
+        parent: { id: 'instance', type: 'INSTANCE', mainComponent: definition, parent: page }
+      })
+    } else {
+      Object.assign(node, { type: 'INSTANCE', mainComponent: definition, parent: page })
+    }
+    const host = mount(View)
+    await expect.poll(() => host.textContent).toContain('width: 100px')
+    const changed = selected === 'variant-set' ? variants : text
+    node.width = 200
+    library.emit('nodechange', {
+      nodeChanges: [
+        {
+          id: changed.id,
+          node: changed,
+          type: 'PROPERTY_CHANGE',
+          origin: 'REMOTE',
+          properties: ['characters']
+        }
+      ]
+    })
+    await expect.poll(() => host.textContent).toContain('width: 200px')
+    expect(library.count()).toBe(1)
+
+    runtimeMode.value = 'unavailable'
+    await nextTick()
+    selectionRevision.value++
+    await nextTick()
+    expect(library.count()).toBe(0)
+    runtimeMode.value = 'standard'
+    await expect.poll(() => library.count()).toBe(1)
+
+    page.selection = [{ id: 'other', width: 300, characters: 'Other' }]
+    api.emit('selectionchange')
+    await expect.poll(() => host.textContent).toContain('width: 300px')
+    expect(library.count()).toBe(0)
+    unmountAll()
+    expect(page.count()).toBe(0)
+  }
+)
+
+it('refreshes new and removed descendants of main components without retaining obsolete dependencies', async () => {
+  const { node, page } = fixture()
+  const definition = { id: 'definition', type: 'COMPONENT', children: [] as object[] }
+  Object.assign(node, { type: 'INSTANCE', mainComponent: definition })
+  const host = mount(View)
+  await expect.poll(() => host.textContent).toContain('width: 100px')
+  const child = { id: 'new-definition-child', parent: definition }
+  definition.children = [child]
+  node.width = 200
+  page.emit('nodechange', {
+    nodeChanges: [{ id: child.id, node: child, type: 'CREATE', origin: 'REMOTE' }]
+  })
+  await expect.poll(() => host.textContent).toContain('width: 200px')
+  definition.children = []
+  node.width = 300
+  page.emit('nodechange', {
+    nodeChanges: [
+      { id: child.id, node: { id: child.id, removed: true }, type: 'DELETE', origin: 'REMOTE' }
+    ]
+  })
+  await expect.poll(() => host.textContent).toContain('width: 300px')
+})
+
+it('refreshes actual editor input without native node events while ignoring TemPad inputs', async () => {
+  const { node } = fixture()
+  const host = mount(View)
+  await expect.poll(() => host.textContent).toContain('width: 100px')
+  const editor = document.createElement('input')
+  document.body.append(editor)
+  for (const event of ['input', 'change', 'keyup']) {
+    node.width += 100
+    editor.dispatchEvent(
+      event === 'keyup'
+        ? new KeyboardEvent('keyup', { key: 'Enter', bubbles: true })
+        : new Event(event, { bubbles: true })
+    )
+    await expect.poll(() => host.textContent).toContain(`width: ${node.width}px`)
+  }
+  const panel = document.createElement('tempad')
+  panel.append(editor)
+  document.body.append(panel)
+  node.width = 900
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  editor.dispatchEvent(new Event('input', { bubbles: true }))
+  await vi.advanceTimersByTimeAsync(150)
+  expect(host.textContent).toContain('width: 400px')
+})
+
+it('does not traverse hidden code dependencies for a multiple selection', async () => {
+  const { node, page, api } = fixture()
+  const children = vi.fn(() => [])
+  Object.defineProperty(node, 'children', { get: children })
+  page.selection = [node, { id: 'second', width: 200, characters: 'Other' }]
+  const host = mount(View)
+  await nextTick()
+  expect(children).not.toHaveBeenCalled()
+  expect(generateCodeBlocksForNode).not.toHaveBeenCalled()
+  syncSelection()
+  await nextTick()
+  expect(children).not.toHaveBeenCalled()
+  page.selection = [node]
+  api.emit('selectionchange')
+  await expect.poll(() => host.textContent).toContain('width: 100px')
+  expect(children).toHaveBeenCalled()
+})
+
 it.each(['textStyleId', 'fillStyleId'] as const)(
   'refreshes styles referenced by mixed text ranges through %s',
   async (field) => {
