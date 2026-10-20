@@ -280,7 +280,7 @@ function createToolErrorResponse(toolName: string, error: unknown): CallToolResu
   return {
     isError: true,
     ...(recovery?.success && recovery.data
-      ? { structuredContent: { code, message, recoveryGeneration: recovery.data } }
+      ? { _meta: { code, message, recoveryGeneration: recovery.data } }
       : {}),
     content: [
       {

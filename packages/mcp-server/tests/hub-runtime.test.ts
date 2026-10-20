@@ -590,7 +590,7 @@ describe('Hub runtime module', () => {
       result: {
         isError: true,
         content: [{ text: expect.stringContaining(generation) }],
-        structuredContent: { code: 'DESIGN_TASK_INACTIVE', recoveryGeneration: generation }
+        _meta: { code: 'DESIGN_TASK_INACTIVE', recoveryGeneration: generation }
       }
     })
     expect(extension.calls).toHaveLength(0)
@@ -617,7 +617,7 @@ describe('Hub runtime module', () => {
         result: {
           isError: true,
           content: [{ text: expect.stringContaining(generation) }],
-          structuredContent: { recoveryGeneration: generation }
+          _meta: { recoveryGeneration: generation }
         }
       })
     }

@@ -579,20 +579,20 @@ describe('tools response helpers', () => {
     }
     expect(createToolErrorResponse('manage_design_task', error)).toMatchObject({
       isError: true,
-      structuredContent: error
+      _meta: error
     })
+    expect(createToolErrorResponse('manage_design_task', error).structuredContent).toBeUndefined()
     for (const value of [undefined, 'not-a-uuid', 42]) {
       expect(
-        createToolErrorResponse('manage_design_task', { ...error, recoveryGeneration: value })
-          .structuredContent
+        createToolErrorResponse('manage_design_task', { ...error, recoveryGeneration: value })._meta
       ).toBeUndefined()
     }
-    expect(createToolErrorResponse('get_code', error).structuredContent).toBeUndefined()
+    expect(createToolErrorResponse('get_code', error)._meta).toBeUndefined()
     expect(
       createToolErrorResponse('manage_design_task', {
         ...error,
         code: TEMPAD_MCP_ERROR_CODES.DESIGN_TASK_BUSY
-      }).structuredContent
+      })._meta
     ).toBeUndefined()
   })
 

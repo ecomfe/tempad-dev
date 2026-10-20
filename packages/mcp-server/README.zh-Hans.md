@@ -130,9 +130,13 @@ Hub 仅接受来自 Chrome 扩展 Origin、且目标为根路径的 WebSocket �
 恢复前仍须确认它是最新的完整快照，不能仅凭文件名判断。
 
 旧备份或残留 `.tmp` 文件可能早于某次 Stop 操作。没有可信的完整快照时，请断开所有 MCP 客户端，
-运行 `npx -y @tempad-dev/mcp@latest --recover-task-storage`。命令会拒绝仍有写入者或可正常读取的存储，
-将原文件保存到输出的备份目录，并创建新一代任务状态。所有旧任务继续失效：旧评论不能恢复执行，
-写入必须显式新建任务并重新读取画布。首次 begin 会返回新请求需要确认的 `recoveryGeneration`。
+运行 `npx -y @tempad-dev/mcp@latest --recover-task-storage`。请使用与 MCP 客户端配置相同的
+`TEMPAD_MCP_STATE_DIR` 和 `TEMPAD_MCP_RUNTIME_DIR` 环境变量；命令不会读取客户端配置。
+即使拒绝恢复，命令也会输出实际快照路径，请确认它指向受影响的存储。
+命令会拒绝仍有写入者或可正常读取的存储，将原文件保存到输出的备份目录，并创建新一代任务状态。
+所有旧任务继续失效：旧评论不能恢复执行，无任务的写入仍被阻止。此后每次 begin 都必须提供
+`recoveryGeneration`，包括新会话和 Hub 重启之后。被拒绝的 begin 会在 `_meta.recoveryGeneration`
+中向客户端提供该值，并在错误文本中向 agent 提供。每个新任务写入前都必须读取目标，此要求不会过期。
 读取仍然可用。请保留备份；此操作不会恢复任务历史。不要删除隔离标记或用空状态绕过保护。
 
 ## 要求
