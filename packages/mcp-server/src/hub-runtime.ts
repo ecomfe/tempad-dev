@@ -905,6 +905,8 @@ export async function startHub(): Promise<void> {
           runtime,
           compatibilityNotice: versionedReadNotice(protocolVersion, tool.name)
         })
+        if (response.isError && tool.name === 'apply_canvas')
+          designTasks.requireFileRead(session.fileKey)
         if (!response.isError && ['get_structure', 'get_code'].includes(tool.name)) {
           if (taskId) designTasks.acknowledgeRead(taskId, ownerId, taskEpoch)
           designTasks.acknowledgeFileRead(session.fileKey)

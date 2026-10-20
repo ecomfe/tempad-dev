@@ -436,15 +436,17 @@ describe('tools response helpers', () => {
     expect(result.content).toHaveLength(2)
   })
 
-  it('formats inline budget errors with retry guidance', () => {
+  it('formats inline budget errors with recovery guidance', () => {
     const result = createInlineBudgetExceededToolResponse('get_token_defs', 70000)
     expect(result.isError).toBe(true)
     expect(textContent(result.content[0])).toContain('64 KiB inline budget')
     expect(textContent(result.content[0])).toContain('split them into smaller batches')
 
-    expect(
-      textContent(createInlineBudgetExceededToolResponse('apply_canvas', 70000).content[0])
-    ).toContain('smaller desired subtree')
+    const writeError = textContent(
+      createInlineBudgetExceededToolResponse('apply_canvas', 70000).content[0]
+    )
+    expect(writeError).toContain('Read the original target')
+    expect(writeError).toContain('do not replay the write')
     expect(
       textContent(createInlineBudgetExceededToolResponse('get_design_system', 70000).content[0])
     ).toContain('catalog cursor')

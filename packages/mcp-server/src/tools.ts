@@ -499,7 +499,7 @@ function getBudgetRetryGuidance(toolName: ToolName): string {
     case 'set_design_anchor':
       return 'Retry the same task lifecycle request without changing its identity.'
     case 'apply_canvas':
-      return 'Submit a smaller desired subtree and retry.'
+      return 'The write may have completed. Read the original target before continuing; do not replay the write.'
     case 'get_code':
       return 'Reduce selection size or request a smaller nodeId subtree and retry.'
     case 'get_design_system':

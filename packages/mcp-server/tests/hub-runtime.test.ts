@@ -1,3 +1,4 @@
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import {
   TEMPAD_MCP_BRIDGE_PROTOCOL_VERSION,
   TEMPAD_MCP_BRIDGE_SUBPROTOCOL,
@@ -1256,6 +1257,65 @@ describe('Hub runtime module', () => {
     extension.send({ type: 'toolResult', id: next.id, error: { message: 'Native result' } })
     expect(JSON.stringify(await consumer.reply(2))).toContain('Native result')
   })
+
+  it.each(['malformed', 'oversized'])(
+    'requires readback after a completed write returns an unusable result (%s)',
+    async (kind) => {
+      const { startHub } = await loadRuntime()
+      await startHub()
+      const extension = connectExtension()
+      const consumer = await connectConsumer()
+      const write = {
+        name: 'apply_canvas',
+        arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+      }
+      consumer.send({ id: 1, method: 'tools/call', params: write })
+      const first = await extension.call(0)
+      extension.send({
+        type: 'toolResult',
+        id: first.id,
+        payload:
+          kind === 'malformed'
+            ? { rootNodeId: 'created' }
+            : {
+                rootNodeId: 'created',
+                nodeIdsByKey: {},
+                createdNodeIds: ['created'],
+                updatedNodeIds: [],
+                removedNodeIds: [],
+                mutationCount: 1,
+                verification: {
+                  status: 'warning',
+                  nodesChecked: 1,
+                  referencesChecked: 0,
+                  warnings: [{ code: 'large-warning', message: 'x'.repeat(70_000) }]
+                }
+              }
+      })
+      const response = (await consumer.reply(1)).result
+      expect(CallToolResultSchema.parse(response)).toMatchObject({ isError: true })
+      expect(response).not.toHaveProperty('structuredContent')
+      if (kind === 'oversized') {
+        expect(JSON.stringify(response)).toContain('Read the original target')
+        expect(JSON.stringify(response)).toContain('do not replay the write')
+      }
+      consumer.send({ id: 2, method: 'tools/call', params: write })
+      expect(JSON.stringify(await consumer.reply(2))).toContain('previous write result was lost')
+      expect(extension.calls).toHaveLength(1)
+      consumer.send({
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: {} }
+      })
+      const read = await extension.call(1)
+      extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+      await consumer.reply(3)
+      consumer.send({ id: 4, method: 'tools/call', params: write })
+      const next = await extension.call(2)
+      extension.send({ type: 'toolResult', id: next.id, error: { message: 'Native result' } })
+      expect(JSON.stringify(await consumer.reply(4))).toContain('Native result')
+    }
+  )
 
   it.each([false, true])(
     'recovers a lost write result without reviving Stop (%s)',

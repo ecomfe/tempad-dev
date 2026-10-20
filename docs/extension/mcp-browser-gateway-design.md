@@ -170,6 +170,7 @@ the error explicitly forbids replaying the write. When a dispatched write's call
 because of cancellation, timeout, or disconnection, that file also requires a successful
 `get_structure` or `get_code` read before further writes. A late result releases the execution
 fence but does not clear this read requirement, which survives Stop and beginning a fresh task.
+A completed write whose result cannot be formatted or fit the inline budget also requires readback.
 A failed initial page-port delivery reports
 `EXTENSION_DELIVERY_FAILED`, which releases the operation because execution never started;
 `EXTENSION_DISCONNECTED` remains an unknown outcome after delivery. Incompatible saved task records retain a durable
