@@ -71,6 +71,57 @@ it.each(['{broken', '[]', 'null'])(
   }
 )
 
+it.each(['canonical', 'legacy'] as const)(
+  'preserves malformed %s plugin entries until explicit recovery',
+  async (location) => {
+    const invalid = [
+      null,
+      [],
+      { x: null },
+      { x: [] },
+      { x: { name: 'x', source: 'x' } },
+      { x: { ...plugin('x'), code: 42 } },
+      { x: { ...plugin('x'), source: 'other' } },
+      { x: { ...plugin('x'), integrity: null } },
+      { x: { ...plugin('x'), resolvedUrl: false } }
+    ]
+    const storage = createPluginStorage(localStorage, navigator.locks)
+    for (const plugins of invalid) {
+      localStorage.removeItem(PLUGIN_STORAGE_KEY)
+      localStorage.removeItem('tempad-dev')
+      const key = location === 'canonical' ? PLUGIN_STORAGE_KEY : 'tempad-dev'
+      const record = JSON.stringify(
+        location === 'canonical' ? plugins : { minimized: true, plugins }
+      )
+      localStorage.setItem(key, record)
+      expect(() => storage.read()).toThrow(CorruptPluginStorageError)
+      await expect(storage.migrate()).rejects.toThrow(CorruptPluginStorageError)
+      await expect(storage.save('new', plugin('new'))).rejects.toThrow(CorruptPluginStorageError)
+      expect(localStorage.getItem(key)).toBe(record)
+      await expect(storage.resetCorruptRecord()).resolves.toBe(true)
+      expect(storage.read().plugins).toEqual({})
+      if (location === 'legacy')
+        expect(JSON.parse(localStorage.getItem('tempad-dev')!)).toEqual({ minimized: true })
+    }
+  }
+)
+
+it('keeps valid install metadata and additional stored fields through migration', async () => {
+  const plugins = {
+    x: {
+      ...plugin('x'),
+      integrity: 'sha256-verified',
+      resolvedUrl: 'https://example.com/plugin.js',
+      additional: 'retained'
+    }
+  }
+  localStorage.setItem('tempad-dev', JSON.stringify({ plugins }))
+  const storage = createPluginStorage(localStorage, navigator.locks)
+  await storage.migrate()
+  expect(storage.read().plugins).toEqual(plugins)
+  await expect(storage.resetCorruptRecord()).resolves.toBe(false)
+})
+
 it('serializes recovery with installation and prevents a legacy backup from returning', async () => {
   localStorage.setItem(PLUGIN_STORAGE_KEY, '{broken')
   localStorage.setItem(

@@ -17,16 +17,36 @@ export class CorruptPluginStorageError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
 function parseRecord(value: string | null): Record<string, unknown> {
   if (value === null) return {}
   try {
     const parsed: unknown = JSON.parse(value)
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
-      return parsed as Record<string, unknown>
+    if (isRecord(parsed)) return parsed
   } catch {
     // Preserve the invalid record until the user explicitly resets it.
   }
   throw new CorruptPluginStorageError()
+}
+
+function readPlugins(value: unknown): PluginRecord {
+  if (
+    !isRecord(value) ||
+    Object.entries(value).some(
+      ([source, plugin]) =>
+        !isRecord(plugin) ||
+        plugin.source !== source ||
+        typeof plugin.name !== 'string' ||
+        typeof plugin.code !== 'string' ||
+        (plugin.integrity !== undefined && typeof plugin.integrity !== 'string') ||
+        (plugin.resolvedUrl !== undefined && typeof plugin.resolvedUrl !== 'string')
+    )
+  )
+    throw new CorruptPluginStorageError()
+  return value as PluginRecord
 }
 
 export function createPluginStorage(storage: Storage, locks: LockManager) {
@@ -44,11 +64,10 @@ export function createPluginStorage(storage: Storage, locks: LockManager) {
 
   function read() {
     const stored = storage.getItem(PLUGIN_STORAGE_KEY)
-    if (stored !== null) return { plugins: parseRecord(stored) as PluginRecord, legacy: false }
+    if (stored !== null) return { plugins: readPlugins(parseRecord(stored)), legacy: false }
     const preferences = parseRecord(storage.getItem(PREFERENCE_STORAGE_KEY))
-    const legacy = preferences.plugins
-    if (legacy && typeof legacy === 'object' && !Array.isArray(legacy)) {
-      return { plugins: legacy as PluginRecord, legacy: true }
+    if (Object.hasOwn(preferences, 'plugins')) {
+      return { plugins: readPlugins(preferences.plugins), legacy: true }
     }
     return { plugins: {} as PluginRecord, legacy: false }
   }
