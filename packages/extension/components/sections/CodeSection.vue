@@ -29,6 +29,7 @@ const content = shallowRef<HTMLElement | null>(null)
 const loadingHeight = shallowRef(0)
 let generation = 0
 let loadingTimer: ReturnType<typeof setTimeout> | undefined
+const pluginCode = computed(() => activePlugin.value?.code || undefined)
 const generationInput = computed(() => ({
   node: selectedNode.value,
   config: {
@@ -36,7 +37,7 @@ const generationInput = computed(() => ({
     rootFontSize: options.value.rootFontSize,
     scale: options.value.scale
   },
-  plugin: activePlugin.value,
+  pluginCode: pluginCode.value,
   variableDisplay: options.value.variableDisplay
 }))
 let contentInput: typeof generationInput.value | null = null
@@ -75,12 +76,9 @@ async function updateCode() {
   componentLink.value = tempadComponent?.link || ''
 
   try {
-    const result = await generateCodeBlocksForNode(
-      node,
-      input.config,
-      input.plugin?.code || undefined,
-      { variableDisplay: input.variableDisplay }
-    )
+    const result = await generateCodeBlocksForNode(node, input.config, input.pluginCode, {
+      variableDisplay: input.variableDisplay
+    })
     if (current === generation) {
       if (
         codeBlocks.value.length !== result.codeBlocks.length ||

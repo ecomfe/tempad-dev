@@ -279,7 +279,14 @@ export function useSelection() {
     const edited =
       event.type === 'input' ||
       event.type === 'change' ||
-      (event.type === 'keyup' && !!target?.closest?.('input, textarea, [contenteditable="true"]'))
+      (event.type === 'keyup' &&
+        event instanceof KeyboardEvent &&
+        event.key === 'Enter' &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !target?.closest?.('.focus-target') &&
+        !!target?.closest?.('input, textarea, [contenteditable="true"]'))
     if (edited || changedPage || !nativeSelection || !nativeChanges)
       scheduleRefresh(edited || !nativeChanges)
   }

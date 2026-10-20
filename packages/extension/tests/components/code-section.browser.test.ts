@@ -93,6 +93,53 @@ it('retains identical same-selection code and its text selection without loading
   expect(window.getSelection()!.toString()).toBe('unchanged-code')
 })
 
+it('retains code and its text selection when plugin storage changes without changing active code', async () => {
+  const source = 'https://example.com/plugin.js'
+  const plugin = { source, name: 'Plugin', code: 'plugin-code' }
+  plugins.value = { [source]: plugin }
+  options.value.activePluginSource = source
+  await expect.poll(() => activePlugin.value?.code).toBe(plugin.code)
+  const generate = vi.mocked(generateCodeBlocksForNode)
+  generate.mockResolvedValueOnce({
+    codeBlocks: [{ name: 'css', title: 'CSS', lang: 'css', code: 'plugin-output' }]
+  })
+  const pending = Promise.withResolvers<Awaited<ReturnType<typeof generateCodeBlocksForNode>>>()
+  generate.mockReturnValue(pending.promise)
+  const host = mount(CodeSection)
+  selection.value = [{ id: 'same' } as SceneNode]
+  await expect.poll(() => host.textContent).toContain('plugin-output')
+  await expect.poll(() => host.querySelector('.tp-section-enter-active')).toBeNull()
+  const block = host.querySelector('.tp-code-code')!
+  const range = document.createRange()
+  range.selectNodeContents(block.querySelector('code')!)
+  window.getSelection()!.removeAllRanges()
+  window.getSelection()!.addRange(range)
+
+  const records: (typeof plugins.value)[] = [
+    { [source]: { ...plugin }, other: { source: 'other', name: 'Other', code: 'other-code' } },
+    { [source]: { ...plugin, name: 'Renamed plugin' } }
+  ]
+  for (const record of records) {
+    plugins.value = record
+    await expect.poll(() => activePlugin.value).toBe(record[source])
+    await nextTick()
+    expect(generate).toHaveBeenCalledOnce()
+    expect(host.querySelector('.tp-code-code')).toBe(block)
+    expect(window.getSelection()!.toString()).toBe('plugin-output')
+    expect(host.querySelector('[aria-busy="true"]')).toBeNull()
+  }
+  expect(host.textContent).toContain('Renamed plugin')
+
+  plugins.value = { [source]: { ...plugin, code: 'changed-plugin-code' } }
+  await expect.poll(() => generate.mock.calls.length).toBe(2)
+  expect(host.textContent).not.toContain('plugin-output')
+  expect(generate.mock.lastCall?.[2]).toBe('changed-plugin-code')
+  pending.resolve({
+    codeBlocks: [{ name: 'css', title: 'CSS', lang: 'css', code: 'changed-output' }]
+  })
+  await expect.poll(() => host.textContent).toContain('changed-output')
+})
+
 it('clears retained code if refreshing the same node fails', async () => {
   const generate = vi.mocked(generateCodeBlocksForNode)
   generate.mockResolvedValueOnce({

@@ -120,6 +120,40 @@ it('ignores unrelated changes and no-op interactions when native events are avai
   expect(host.querySelector('.tp-code-code')).toBe(code)
 })
 
+it('does not treat focus-target shortcuts or inspector navigation as content edits', async () => {
+  const { node } = fixture()
+  const children = vi.fn(() => [])
+  Object.defineProperty(node, 'children', { get: children })
+  const host = mount(View)
+  await expect.poll(() => host.textContent).toContain('width: 100px')
+  const traversals = children.mock.calls.length
+  const canvasInput = document.createElement('textarea')
+  canvasInput.className = 'focus-target'
+  const inspectorInput = document.createElement('input')
+  document.body.append(canvasInput, inspectorInput)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  for (const target of [canvasInput, inspectorInput]) {
+    for (const keys of [
+      { key: 'ArrowLeft' },
+      { key: 'v' },
+      { key: 'c', metaKey: true },
+      { key: 'c', ctrlKey: true }
+    ]) {
+      target.dispatchEvent(new KeyboardEvent('keyup', { ...keys, bubbles: true }))
+      await vi.advanceTimersByTimeAsync(120)
+    }
+  }
+  canvasInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }))
+  await vi.advanceTimersByTimeAsync(120)
+  expect(generateCodeBlocksForNode).toHaveBeenCalledOnce()
+  expect(children).toHaveBeenCalledTimes(traversals)
+
+  node.width = 200
+  canvasInput.dispatchEvent(new InputEvent('input', { data: 'a', bubbles: true }))
+  await vi.advanceTimersByTimeAsync(120)
+  expect(host.textContent).toContain('width: 200px')
+})
+
 it('refreshes linked style changes and selected instance definition metadata', async () => {
   const { node, api, page } = fixture()
   const mainComponent = { id: 'definition' }
