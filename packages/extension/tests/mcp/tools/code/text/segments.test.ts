@@ -326,7 +326,7 @@ describe('mcp/code text segments', () => {
     expect(run.attrs['font-family']).toBe('Inter')
   })
 
-  it('groups ordered/unordered list lines into separate blocks', () => {
+  it('groups adjacent ordered/unordered lists at the same level into separate blocks', () => {
     const node = { getRangeBoundVariable: vi.fn() } as unknown as TextNode
 
     const blocks = buildTextBlocks(node, [
@@ -341,7 +341,7 @@ describe('mcp/code text segments', () => {
         characters: 'Three\nFour',
         listOptions: { type: 'UNORDERED' },
         paragraphSpacing: 6,
-        indentation: 2,
+        indentation: 1,
         __attrs: { color: '#222' }
       })
     ])

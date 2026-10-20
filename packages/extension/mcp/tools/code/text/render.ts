@@ -153,16 +153,23 @@ function renderBlock(
 
   const rootStackItem: ListStackItem = {
     list: rootList,
-    level: lines[0]?.attrs.indentation || 1
+    level: lines[0]?.attrs.indentation ?? 1
   }
   const stack: ListStackItem[] = [rootStackItem]
 
   for (const line of lines) {
     const currentIndent = line.attrs.indentation
+    const listTag = line.attrs.listType === 'ORDERED' ? 'ol' : 'ul'
+    rootStackItem.level = Math.min(rootStackItem.level, currentIndent)
 
     while (stack.length > 1) {
       const activeItem = stack.at(-1)
-      if (!activeItem || currentIndent >= activeItem.level) break
+      if (
+        !activeItem ||
+        currentIndent > activeItem.level ||
+        (currentIndent === activeItem.level && listTag === activeItem.list.name)
+      )
+        break
       stack.pop()
     }
 
@@ -176,13 +183,11 @@ function renderBlock(
 
       const currentDepth = stack.length
       const newListTypeKey = line.attrs.listType === 'ORDERED' ? 'ORDERED' : 'UNORDERED'
-      const newListTag = newListTypeKey === 'ORDERED' ? 'ol' : 'ul'
-
       const newListStyle = getListStyleClass(newListTypeKey, currentDepth)
       const newListClasses = [newListStyle, 'list-outside', 'pl-[1.2em]']
 
       const newList: DevComponent = {
-        name: newListTag,
+        name: listTag,
         props: { [classProp]: joinClassNames(newListClasses) },
         children: []
       }

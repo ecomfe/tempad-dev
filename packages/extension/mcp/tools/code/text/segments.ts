@@ -80,6 +80,7 @@ function splitIntoLines(
 function groupLinesIntoBlocks(lines: TextLine[]): TextBlock[] {
   const blocks: TextBlock[] = []
   if (!lines.length) return blocks
+  let rootIndent = 0
 
   for (const line of lines) {
     const { listType } = line.attrs
@@ -91,9 +92,15 @@ function groupLinesIntoBlocks(lines: TextLine[]): TextBlock[] {
       : 'paragraph'
 
     const currentBlock = blocks.at(-1)
-    if (currentBlock?.type === blockType) {
+    if (
+      currentBlock &&
+      (currentBlock.type === blockType ||
+        (isList && currentBlock.type !== 'paragraph' && line.attrs.indentation > rootIndent))
+    ) {
       currentBlock.lines.push(line)
+      rootIndent = Math.min(rootIndent, line.attrs.indentation)
     } else {
+      rootIndent = line.attrs.indentation
       blocks.push({
         type: blockType,
         lines: [line],

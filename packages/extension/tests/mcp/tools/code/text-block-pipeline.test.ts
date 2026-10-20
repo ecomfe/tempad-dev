@@ -18,11 +18,15 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals())
 
-function createText(listTypes: Array<'NONE' | 'ORDERED' | 'UNORDERED'>): TextNode {
+function createText(
+  listTypes: Array<'NONE' | 'ORDERED' | 'UNORDERED'>,
+  indentations: number[] = []
+): TextNode {
   const fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }]
   let offset = 0
   const segments = listTypes.map((type, index) => {
-    const characters = `${index === 0 ? 'First' : 'Second'}${index < listTypes.length - 1 ? '\n' : ''}`
+    const label = ['First', 'Second', 'Third', 'Fourth'][index] ?? `Item ${index + 1}`
+    const characters = `${label}${index < listTypes.length - 1 ? '\n' : ''}`
     const start = offset
     offset += characters.length
     return {
@@ -36,7 +40,7 @@ function createText(listTypes: Array<'NONE' | 'ORDERED' | 'UNORDERED'>): TextNod
       letterSpacing: { unit: 'PIXELS', value: 0 },
       textDecoration: 'NONE',
       listOptions: { type },
-      indentation: 1,
+      indentation: indentations[index] ?? 1,
       paragraphSpacing: 0,
       fills
     }
@@ -82,6 +86,51 @@ describe.each(['jsx', 'vue'] as const)('%s native text blocks', (lang) => {
     expect(result.code).toMatch(/<ol\b[\s\S]*First<\/li>[\s\S]*<\/ol>[\s\S]*<ul\b/)
     expect(result.code.trim()).toMatch(/Second<\/li>[\s\S]*<\/ul>\s*<\/div>$/)
     expect(result.code).not.toContain('<p')
+  })
+
+  it.each([
+    {
+      types: ['UNORDERED', 'ORDERED', 'UNORDERED'] as const,
+      indents: [1, 2, 1],
+      markup: '<ul><li>First<ol><li>Second</li></ol></li><li>Third</li></ul>'
+    },
+    {
+      types: ['UNORDERED', 'ORDERED', 'UNORDERED', 'UNORDERED'] as const,
+      indents: [1, 2, 2, 1],
+      markup:
+        '<ul><li>First<ol><li>Second</li></ol><ul><li>Third</li></ul></li><li>Fourth</li></ul>'
+    },
+    {
+      types: ['UNORDERED', 'ORDERED', 'UNORDERED', 'UNORDERED'] as const,
+      indents: [0, 1, 1, 0],
+      markup:
+        '<ul><li>First<ol><li>Second</li></ol><ul><li>Third</li></ul></li><li>Fourth</li></ul>'
+    },
+    {
+      types: ['ORDERED', 'UNORDERED', 'ORDERED', 'UNORDERED'] as const,
+      indents: [1, 2, 3, 2],
+      markup:
+        '<ol><li>First<ul><li>Second<ol><li>Third</li></ol></li><li>Fourth</li></ul></li></ol>'
+    },
+    {
+      types: ['UNORDERED', 'UNORDERED', 'ORDERED'] as const,
+      indents: [1, 0, 1],
+      markup: '<ul><li>First</li><li>Second<ol><li>Third</li></ol></li></ul>'
+    },
+    {
+      types: ['UNORDERED', 'ORDERED', 'UNORDERED', 'ORDERED'] as const,
+      indents: [1, 2, 0, 1],
+      markup:
+        '<ul><li>First<ol><li>Second</li></ol></li><li>Third<ol><li>Fourth</li></ol></li></ul>'
+    }
+  ])('preserves nested list types and indentation $indents', async ({ types, indents, markup }) => {
+    const result = await handleGetCode([createText([...types], indents)], lang)
+    const structure = result.code
+      .replace(/<\/?span\b[^>]*>/g, '')
+      .replace(/<(ul|ol|li)\b[^>]*>/g, '<$1>')
+      .replace(/\s*(<\/?(?:ul|ol|li)>)\s*/g, '$1')
+      .trim()
+    expect(structure).toBe(markup)
   })
 
   it.each([
