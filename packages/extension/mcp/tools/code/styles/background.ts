@@ -85,23 +85,15 @@ export function cleanFigmaSpecificStyles(
       return processed
     }
 
-    if (backgroundLayers && (isVarOnly(normalized) || isSolidBackground(normalized))) {
-      processed.background = backgroundLayers
-      delete processed['background-color']
-      return processed
-    }
-
     if (isSolidBackground(normalized)) {
-      if (backgroundFill?.kind === 'color') {
-        processed['background-color'] = backgroundFill.value
-        delete processed.background
-      } else if (backgroundLayers) {
+      if (backgroundLayers) {
         processed.background = backgroundLayers
         delete processed['background-color']
-      } else {
-        processed['background-color'] = fallbackSolidColor ?? normalized
-        delete processed.background
+        return processed
       }
+      processed['background-color'] =
+        backgroundFill?.kind === 'color' ? backgroundFill.value : (fallbackSolidColor ?? normalized)
+      delete processed.background
     } else if (removedFallback && splitByTopLevelComma(imageBackground).length === 1) {
       const parsed = parseBackgroundShorthand(imageBackground)
 
@@ -316,9 +308,4 @@ function isSolidBackground(value: string): boolean {
   if (!trimmed) return false
   if (/var\(\s*--[A-Za-z0-9_-]+\s*\)/i.test(trimmed)) return true
   return canonicalizeColor(trimmed.toLowerCase()) !== null
-}
-
-function isVarOnly(value: string): boolean {
-  if (!value) return false
-  return /^var\(\s*--[A-Za-z0-9_-]+\s*\)$/i.test(value.trim())
 }

@@ -869,7 +869,7 @@ async function renderMarkup({
   stampRenderPhase(trace, mode, 'transform', t)
   const serialize = (value: DevComponent) => {
     const start = clock ? clock() : 0
-    const code = stringifyComponent(value, createStringifyOptions(resolvedLang))
+    const code = stringifyComponent(value, { lang: resolvedLang, isInline: isCompactTag })
     stampRenderPhase(trace, mode, 'stringify', start)
     return code
   }
@@ -879,16 +879,6 @@ async function renderMarkup({
     lang: resolvedLang,
     fontStyleVariableIds,
     textStyleInputs
-  }
-}
-
-function createStringifyOptions(lang: CodeLanguage): {
-  lang: CodeLanguage
-  isInline: (tag: string) => boolean
-} {
-  return {
-    lang,
-    isInline: isCompactTag
   }
 }
 

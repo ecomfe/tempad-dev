@@ -330,18 +330,9 @@ function applyResolvedBackgroundFill(
     return true
   }
 
-  if (style.background) {
-    style['background-color'] = resolved.value
-    delete style.background
-    return true
-  }
-
-  if (style['background-color']) {
-    style['background-color'] = resolved.value
-    return true
-  }
-
-  return false
+  style['background-color'] = resolved.value
+  if (style.background) delete style.background
+  return true
 }
 
 /**

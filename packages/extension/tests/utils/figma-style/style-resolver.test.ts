@@ -55,6 +55,20 @@ afterEach(() => {
 })
 
 describe('figma/style-resolver paint precedence', () => {
+  it.each<{ style: Record<string, string>; expected: Record<string, string> }>([
+    { style: {}, expected: {} },
+    { style: { 'background-color': '' }, expected: { 'background-color': '' } },
+    {
+      style: { background: '', 'background-color': 'var(--fill)' },
+      expected: { background: '', 'background-color': '#F00' }
+    }
+  ])('updates only existing nonempty background channels: $style', async ({ style, expected }) => {
+    installFigmaMocks()
+    expect(
+      await resolveStylesFromNodeData(style, { fills: [solidPaint({ r: 1, g: 0, b: 0 })] })
+    ).toEqual(expected)
+  })
+
   it.each(['node', 'style'])(
     'uses indexed %s base bindings below images without changing foreground scalar bindings',
     async (source) => {
