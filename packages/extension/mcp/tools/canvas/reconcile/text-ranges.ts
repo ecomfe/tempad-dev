@@ -23,6 +23,23 @@ export function* textRangesOutside(
   if (position < scope.end) yield { start: position, end: scope.end }
 }
 
+export function* textRangesIntersect(
+  left: readonly TextRange[],
+  right: readonly TextRange[]
+): Generator<TextRange> {
+  let leftIndex = 0
+  let rightIndex = 0
+  while (leftIndex < left.length && rightIndex < right.length) {
+    const a = left[leftIndex]!
+    const b = right[rightIndex]!
+    const start = Math.max(a.start, b.start)
+    const end = Math.min(a.end, b.end)
+    if (start < end) yield { start, end }
+    if (a.end <= b.end) leftIndex++
+    if (b.end <= a.end) rightIndex++
+  }
+}
+
 export function textRangesMatchOutside(
   scope: TextRange,
   overrides: readonly TextRange[],

@@ -10,7 +10,7 @@ import type { CanvasNodeSpec } from '../model'
 import { specError } from '../errors'
 import { resolveStyle } from '../styles'
 import { resolvedVariable } from '../variables'
-import { currentBoundVariableId } from './binding-values'
+import { currentBoundVariableId, unboundTextMetricRanges } from './binding-values'
 import {
   textMeasuresEqual,
   hyperlinksEqual,
@@ -28,7 +28,12 @@ import {
   rangeTextStyleMatches,
   resolvedRangeTextStyle
 } from './text-range-style'
-import { textParagraphRange, textRangesMatchOutside } from './text-ranges'
+import {
+  textParagraphRange,
+  textRangesIntersect,
+  textRangesMatchOutside,
+  type TextRange
+} from './text-ranges'
 import { baseTextStyleScope, type BaseTextStyleScope } from './text-style-scope'
 
 export async function applyText(
@@ -40,6 +45,11 @@ export async function applyText(
   if (!text) return
   const native = spec.figma?.text
   const styleScope = baseTextStyleScope(spec, node)
+  const variableRanges = {
+    fontSize: unboundTextMetricRanges(node, spec, 'fontSize'),
+    lineHeight: unboundTextMetricRanges(node, spec, 'lineHeight'),
+    letterSpacing: unboundTextMetricRanges(node, spec, 'letterSpacing')
+  }
   const desiredFont = await loadTextFonts(node, spec, state, styleScope)
   const hasTextStyle = styleScope.kind === 'retained'
   setStyledBaseTextValue(
@@ -72,9 +82,7 @@ export async function applyText(
   setStyledBaseTextValue(
     node,
     'fontSize',
-    hasTextStyle || spec.variables?.fontSize || currentBoundVariableId(node, 'fontSize')
-      ? undefined
-      : text.fontSize,
+    hasTextStyle ? undefined : text.fontSize,
     {
       current: node.fontSize,
       apply: (value) => (node.fontSize = value),
@@ -83,14 +91,13 @@ export async function applyText(
     },
     native?.ranges,
     state,
-    styleScope
+    styleScope,
+    variableRanges.fontSize
   )
   setStyledBaseTextValue(
     node,
     'lineHeight',
-    hasTextStyle || spec.variables?.lineHeight || currentBoundVariableId(node, 'lineHeight')
-      ? undefined
-      : text.lineHeight,
+    hasTextStyle ? undefined : text.lineHeight,
     {
       current: node.lineHeight,
       apply: (value) => (node.lineHeight = value),
@@ -100,14 +107,13 @@ export async function applyText(
     },
     native?.ranges,
     state,
-    styleScope
+    styleScope,
+    variableRanges.lineHeight
   )
   setStyledBaseTextValue(
     node,
     'letterSpacing',
-    hasTextStyle || spec.variables?.letterSpacing || currentBoundVariableId(node, 'letterSpacing')
-      ? undefined
-      : text.letterSpacing,
+    hasTextStyle ? undefined : text.letterSpacing,
     {
       current: node.letterSpacing,
       apply: (value) => (node.letterSpacing = value),
@@ -117,7 +123,8 @@ export async function applyText(
     },
     native?.ranges,
     state,
-    styleScope
+    styleScope,
+    variableRanges.letterSpacing
   )
   setValue(
     node,
@@ -282,16 +289,19 @@ function setStyledBaseTextValue<T>(
   access: TextValueAccess<T> & { applyRange: (start: number, end: number, value: T) => void },
   ranges: CanvasFigmaTextRange[] | undefined,
   state: ApplyState,
-  styleScope: BaseTextStyleScope
+  styleScope: BaseTextStyleScope,
+  variableRanges?: TextRange[]
 ): void {
-  if (desired === undefined) return
-  if (styleScope.kind !== 'partial') {
+  if (desired === undefined || variableRanges?.length === 0) return
+  if (styleScope.kind !== 'partial' && !variableRanges) {
     setBaseTextValue(node, field, desired, access, ranges, state)
     return
   }
-  // A literal whole-node setter can preserve linked IDs while overwriting their
-  // values. Restrict writes, not only comparisons, to the unstyled spans.
-  for (const scope of styleScope.ranges) {
+  // Restrict writes, not only comparisons, to characters whose existing styles
+  // and variables do not own the field.
+  const whole = { start: 0, end: node.characters.length }
+  const styleRanges = styleScope.kind === 'partial' ? styleScope.ranges : [whole]
+  for (const scope of textRangesIntersect(styleRanges, variableRanges ?? [whole])) {
     setBaseTextValue(
       node,
       field,

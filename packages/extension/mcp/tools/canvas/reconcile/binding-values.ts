@@ -4,11 +4,12 @@ import type {
   CanvasVariableBindings
 } from '@tempad-dev/shared'
 
+import type { CanvasNodeSpec } from '../model'
 import type { SupportedCanvasNode } from './state'
 
 import { specError } from '../errors'
 import { isFrameContainer } from './nodes'
-import { textRangesMatchOutside } from './text-ranges'
+import { textRangesMatchOutside, textRangesOutside, type TextRange } from './text-ranges'
 
 export const STYLE_TYPES = {
   fill: 'PAINT',
@@ -201,4 +202,36 @@ export function currentBoundVariableId(
   ]
   const radiusId = aliases[0]?.id
   return radiusId && aliases.every((alias) => alias?.id === radiusId) ? radiusId : undefined
+}
+
+// Undefined permits a whole-node write; an empty list preserves the whole field.
+export function unboundTextMetricRanges(
+  node: TextNode,
+  spec: CanvasNodeSpec,
+  field: 'fontSize' | 'lineHeight' | 'letterSpacing'
+): TextRange[] | undefined {
+  if (spec.variables?.[field]) return []
+  if (spec.variables?.[field] === null || !currentBoundVariableId(node, field)) return undefined
+  if (node.characters !== spec.text?.characters || !node.characters.length) return []
+  const scope = { start: 0, end: node.characters.length }
+  const current = node.getRangeBoundVariable(scope.start, scope.end, field)
+  let bound: TextRange[]
+  if (current !== figma.mixed) {
+    if (!current) return []
+    bound = [scope]
+  } else {
+    const segments = node.getStyledTextSegments(['boundVariables'])
+    let end = 0
+    bound = []
+    for (const segment of segments) {
+      if (segment.start !== end || segment.end <= end || segment.end > scope.end) return []
+      end = segment.end
+      if (segment.boundVariables?.[field]) bound.push(segment)
+    }
+    // Keep aggregate ownership when segment data cannot account for its alias.
+    if (end !== scope.end || !bound.length) return []
+  }
+  const clearing = spec.figma?.text?.ranges?.filter((range) => range.variables?.[field] === null)
+  const retained = bound.flatMap((range) => [...textRangesOutside(range, clearing ?? [])])
+  return retained.length ? [...textRangesOutside(scope, retained)] : undefined
 }

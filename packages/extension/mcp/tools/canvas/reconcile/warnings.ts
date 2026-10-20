@@ -12,12 +12,14 @@ import { readOwnedNodeKey } from '../identity'
 import {
   DIRECT_VARIABLE_FIELDS,
   type DirectVariableField,
-  currentBoundVariableId
+  currentBoundVariableId,
+  unboundTextMetricRanges
 } from './binding-values'
 import { isRecord, GEOMETRY_TOLERANCE, finiteRect } from './comparison'
 import { layoutStrokeWeight, includedLayoutEdgeStroke } from './layout'
 import { walkSpecs, isSupportedSceneNode, isFrameContainer, isSceneNode } from './nodes'
 import { textFillsUnstyledOutsideRanges } from './text-paints'
+import { textRangesIntersect } from './text-ranges'
 import { baseTextStyleScope } from './text-style-scope'
 
 const CONTENT_OVERFLOW_TOLERANCE = 0.5
@@ -83,6 +85,20 @@ export function ignoredLiteralWarnings(
   >) {
     if (spec.variables?.[field] !== undefined || !currentBoundVariableId(node, nativeField))
       continue
+    if (
+      node.type === 'TEXT' &&
+      (field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing')
+    ) {
+      const unbound = unboundTextMetricRanges(node, spec, field)
+      if (unbound === undefined) continue
+      const styleScope = baseTextStyleScope(spec, node)
+      if (
+        unbound.length &&
+        (styleScope.kind !== 'partial' ||
+          !textRangesIntersect(styleScope.ranges, unbound).next().done)
+      )
+        continue
+    }
     // Native-only specs copy size and characters to preserve live state, not to author literals.
     if (nativeOnly && (field === 'characters' || Object.hasOwn(spec.size, field))) continue
     const literal = variableFallback(spec, field)

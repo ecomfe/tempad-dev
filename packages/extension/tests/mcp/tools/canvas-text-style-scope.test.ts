@@ -82,6 +82,72 @@ function installStyledText(node: TextNode, styledLength = 5) {
   return { values, styles, segments }
 }
 
+type MetricField = 'fontSize' | 'lineHeight' | 'letterSpacing'
+
+function installMetricVariable(
+  node: TextNode,
+  native: ReturnType<typeof installStyledText>,
+  field: MetricField,
+  boundEnd = 5
+) {
+  const alias: VariableAlias = { type: 'VARIABLE_ALIAS', id: 'variable:spacing' }
+  const aliases: (VariableAlias | null)[] = Array.from(
+    { length: node.characters.length },
+    (_, index) => (index < boundEnd ? alias : null)
+  )
+  const boundValue = field === 'fontSize' ? Math.fround(21.1) : { unit: 'PIXELS', value: 21.1 }
+  native.values[field].fill(boundValue, 0, boundEnd)
+  Object.defineProperty(node, 'boundVariables', {
+    configurable: true,
+    get: () => (aliases.some(Boolean) ? { [field]: [alias] } : {})
+  })
+  node.getRangeBoundVariable = (start, end, requested) => {
+    if (requested !== field) return null
+    const first = aliases[start] ?? null
+    return aliases.slice(start, end).every((value) => value === first) ? first : figma.mixed
+  }
+  Object.defineProperty(node, field, {
+    ...Object.getOwnPropertyDescriptor(node, field),
+    set: (value: unknown) => {
+      native.values[field].fill(value)
+      aliases.fill(null)
+    }
+  })
+  Object.defineProperty(node, `setRange${field[0]!.toUpperCase()}${field.slice(1)}`, {
+    configurable: true,
+    value: (start: number, end: number, value: unknown) => {
+      native.values[field].fill(value, start, end)
+      aliases.fill(null, start, end)
+    }
+  })
+  node.setRangeBoundVariable = (start, end, requested, variable) => {
+    if (requested !== field || variable) throw new Error('Only variable removal is expected')
+    aliases.fill(null, start, end)
+  }
+  node.getStyledTextSegments = (() => {
+    const segments = []
+    for (let start = 0; start < aliases.length;) {
+      let end = start + 1
+      while (
+        end < aliases.length &&
+        aliases[end] === aliases[start] &&
+        native.styles[end] === native.styles[start]
+      )
+        end++
+      segments.push({
+        start,
+        end,
+        characters: node.characters.slice(start, end),
+        textStyleId: native.styles[start],
+        boundVariables: aliases[start] ? { [field]: aliases[start] } : {}
+      })
+      start = end
+    }
+    return segments
+  }) as TextNode['getStyledTextSegments']
+  return { aliases, alias, boundValue }
+}
+
 const RANGE: CanvasFigmaTextRange = { start: 0, end: 5, textStyle: { id: 'style:text' } }
 
 function request(
@@ -96,6 +162,165 @@ function request(
 }
 
 describe('base typography outside retained range TextStyles', () => {
+  it('applies base font size outside a range whose font-size variable is cleared', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas(request(null))
+    const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+    const native = installStyledText(node, 0)
+    const { aliases } = installMetricVariable(node, native, 'fontSize')
+    const changed = request([
+      { start: 0, end: 5, textStyle: null, fontSize: 16, variables: { fontSize: null } }
+    ])
+    changed.markup = changed.markup!.replace('text-[16px]', 'text-[20px]')
+    changed.bindings!.label!.styles = { text: null }
+    const update = { ...changed, mode: 'update' as const, targetNodeId: created.rootNodeId! }
+    const updated = await applyCanvas(update)
+    expect(node.getRangeFontSize(0, 5)).toBe(16)
+    expect(node.getRangeFontSize(5, 13)).toBe(20)
+    expect(aliases).toEqual(Array(13).fill(null))
+    expect(updated.verification.warnings).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'literal-ignored-by-binding' })])
+    )
+    await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)(
+    'updates unbound characters while retaining a range %s variable',
+    async (field) => {
+      const fixture = createFixture()
+      const created = await applyCanvas(request(null))
+      const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+      const native = installStyledText(node, 0)
+      const { aliases, alias, boundValue } = installMetricVariable(node, native, field)
+      const update = {
+        ...request(null, true),
+        mode: 'update' as const,
+        targetNodeId: created.rootNodeId!
+      }
+      const updated = await applyCanvas(update)
+      expect(native.values[field].slice(0, 5)).toEqual(Array(5).fill(boundValue))
+      expect(aliases.slice(0, 5)).toEqual(Array(5).fill(alias))
+      const expected = {
+        fontSize: 20,
+        lineHeight: { unit: 'PERCENT', value: 160 },
+        letterSpacing: { unit: 'PIXELS', value: 1 }
+      }
+      expect(native.values[field].slice(5)).toEqual(Array(8).fill(expected[field]))
+      expect(updated.verification.warnings).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'literal-ignored-by-binding' })])
+      )
+      await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
+    }
+  )
+
+  it.each(['null binding', 'literal override'] as const)(
+    'applies range font size on the same request as a %s',
+    async (kind) => {
+      const fixture = createFixture()
+      const created = await applyCanvas(request(null))
+      const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+      const native = installStyledText(node, 0)
+      const { aliases } = installMetricVariable(node, native, 'fontSize')
+      const range =
+        kind === 'null binding'
+          ? { start: 0, end: 5, variables: { fontSize: null } }
+          : { start: 0, end: 5, fontSize: 16 }
+      const update = {
+        ...request([range], true),
+        mode: 'update' as const,
+        targetNodeId: created.rootNodeId!
+      }
+      await applyCanvas(update)
+      expect(node.getRangeFontSize(0, 5)).toBe(kind === 'null binding' ? 20 : 16)
+      expect(node.getRangeFontSize(5, 13)).toBe(20)
+      expect(aliases).toEqual(Array(13).fill(null))
+      await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
+    }
+  )
+
+  it('preserves a whole-text variable and reports the ignored literal', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas(request(null))
+    const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+    const native = installStyledText(node, 0)
+    const { aliases, alias, boundValue } = installMetricVariable(
+      node,
+      native,
+      'fontSize',
+      node.characters.length
+    )
+    const updated = await applyCanvas({
+      ...request(null, true),
+      mode: 'update',
+      targetNodeId: created.rootNodeId!
+    })
+    expect(node.fontSize).toBe(boundValue)
+    expect(aliases).toEqual(Array(13).fill(alias))
+    expect(updated.verification.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'literal-ignored-by-binding',
+          message: expect.stringContaining('fontSize')
+        })
+      ])
+    )
+  })
+
+  it.each(['some', 'no'] as const)(
+    'applies base metrics when styles and variables leave %s writable characters',
+    async (writable) => {
+      const fixture = createFixture()
+      const created = await applyCanvas(request(null))
+      const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+      const native = installStyledText(node, 0)
+      const styleStart = writable === 'some' ? 5 : 3
+      const styleEnd = writable === 'some' ? 8 : 13
+      native.styles.fill('style:text', styleStart, styleEnd)
+      native.values.fontSize.fill(STYLE_VALUES.fontSize, styleStart, styleEnd)
+      const { aliases, alias, boundValue } = installMetricVariable(node, native, 'fontSize', 3)
+      const update = {
+        ...request(null, true),
+        mode: 'update' as const,
+        targetNodeId: created.rootNodeId!
+      }
+      const updated = await applyCanvas(update)
+      expect(native.values.fontSize).toEqual(
+        Array.from({ length: 13 }, (_, index) =>
+          index < 3
+            ? boundValue
+            : index >= styleStart && index < styleEnd
+              ? STYLE_VALUES.fontSize
+              : 20
+        )
+      )
+      expect(aliases.slice(0, 3)).toEqual(Array(3).fill(alias))
+      expect(native.styles.slice(styleStart, styleEnd)).toEqual(
+        Array(styleEnd - styleStart).fill('style:text')
+      )
+      const ignored = updated.verification.warnings.filter(
+        ({ code }) => code === 'literal-ignored-by-binding'
+      )
+      expect(ignored).toHaveLength(writable === 'some' ? 0 : 1)
+      if (writable === 'no') expect(ignored[0]!.message).toContain('fontSize')
+      await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
+    }
+  )
+
+  it('does not use old variable ranges while replacing the characters', async () => {
+    const fixture = createFixture()
+    const created = await applyCanvas(request(null))
+    const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+    const native = installStyledText(node, 0)
+    installMetricVariable(node, native, 'fontSize')
+    const segments = vi.spyOn(node, 'getStyledTextSegments')
+    const changed = request(null, true)
+    changed.markup = changed.markup!.replace('Range metrics', 'Longer replacement text')
+    await applyCanvas({ ...changed, mode: 'update', targetNodeId: created.rootNodeId! })
+    expect(node.characters).toBe('Longer replacement text')
+    expect(native.values.fontSize.slice(5)).toEqual(Array(8).fill(16))
+    expect(segments).not.toHaveBeenCalled()
+  })
+
   it.each(['declared', 'omitted'] as const)(
     'updates unstyled characters with %s range links',
     async (rangeMode) => {
