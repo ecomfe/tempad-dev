@@ -71,9 +71,9 @@ reveals issues one at a time.
   literal unless it forms a semicolon-terminated entity. Numeric decimal/hex
   entities and these named entities decode: `amp`, `apos`, `bull`, `copy`, `gt`,
   `hellip`, `ldquo`, `lsquo`, `lt`, `mdash`, `middot`, `nbsp`, `ndash`, `quot`,
-  `rdquo`, `reg`, `rsquo`, `trade`. Other names remain literal and produce an
-  `unknown-html-entity` warning; use the Unicode character or a numeric entity
-  instead. Canvas typography does not inherit from
+  `rdquo`, `reg`, `rsquo`, `trade`. Other names remain literal; extension 0.23.5+
+  also reports an `unknown-html-entity` warning. Use the Unicode character or a
+  numeric entity instead. Canvas typography does not inherit from
   a parent `div`: put font and other text utilities on each `span`/TEXT node.
   Put flex/grid, gaps, padding, borders, corners, and box shadows on a parent `div`.
 - A component tag is childless, includes its returned `data-ref`, and accepts

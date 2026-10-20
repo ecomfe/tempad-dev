@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.4
+
+- Clarified that unsupported text entity warnings require extension 0.23.5 or later.
+
 ## 0.5.3
 
 - Explained warnings for unsupported text entities and clarified Chinese setup guidance.
