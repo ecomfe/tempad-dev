@@ -1124,7 +1124,17 @@ export function createFixture({
       let maxLines: TextNode['maxLines'] = null
       let layoutSizingHorizontal = text.layoutSizingHorizontal
       const rangeValues = new Map<string, unknown>()
-      const rangeKey = (start: number, end: number, field: string) => `${start}:${end}:${field}`
+      const rangeKey = (start: number, end: number, field: string) => {
+        if (
+          field.replace('variable:', '') === 'paragraphIndent' ||
+          field.replace('variable:', '') === 'paragraphSpacing'
+        ) {
+          start = start === 0 ? 0 : characters.lastIndexOf('\n', start - 1) + 1
+          const newline = characters.indexOf('\n', end - 1)
+          end = newline === -1 ? characters.length : newline + 1
+        }
+        return `${start}:${end}:${field}`
+      }
       const rangeValue = <T>(start: number, end: number, field: string, fallback: T): T => {
         const key = rangeKey(start, end, field)
         return rangeValues.has(key) ? (rangeValues.get(key) as T) : fallback
@@ -1230,6 +1240,42 @@ export function createFixture({
         setRangeTextStyleIdAsync: vi.fn(async (start: number, end: number, styleId: string) => {
           if (styleId && styles.get(styleId)?.type !== 'TEXT') throw new Error('invalid text style')
           setRangeValue(start, end, 'textStyleId', styleId)
+          if (!styleId) return
+          const style = styles.get(styleId) as TextStyle
+          for (const field of [
+            'fontName',
+            'fontSize',
+            'lineHeight',
+            'letterSpacing',
+            'textCase',
+            'textDecoration',
+            'paragraphIndent',
+            'paragraphSpacing',
+            'listSpacing'
+          ] as const) {
+            setRangeValue(start, end, field, style[field])
+          }
+          text.leadingTrim = style.leadingTrim
+          text.hangingPunctuation = style.hangingPunctuation
+          text.hangingList = style.hangingList
+          for (const field of [
+            'fontFamily',
+            'fontStyle',
+            'fontWeight',
+            'fontSize',
+            'lineHeight',
+            'letterSpacing',
+            'paragraphIndent',
+            'paragraphSpacing'
+          ] as const) {
+            const alias = style.boundVariables?.[field]
+            text.setRangeBoundVariable(
+              start,
+              end,
+              field,
+              alias ? await figma.variables.getVariableByIdAsync(alias.id) : null
+            )
+          }
         }),
         getRangeFillStyleId: rangeGetter('fillStyleId', () => text.fillStyleId),
         setRangeFillStyleIdAsync: vi.fn(async (start: number, end: number, styleId: string) => {
@@ -1298,13 +1344,25 @@ export function createFixture({
           rangeValue<VariableAlias | null>(start, end, `variable:${field}`, null)
         ),
         setRangeBoundVariable: vi.fn(
-          (start: number, end: number, field: string, variable: Variable | null) =>
+          (start: number, end: number, field: string, variable: Variable | null) => {
             setRangeValue(
               start,
               end,
               `variable:${field}`,
               variable ? { type: 'VARIABLE_ALIAS', id: variable.id } : null
             )
+            if (!variable) return
+            const value = variable.resolveForConsumer(text).value
+            if (field === 'fontFamily' || field === 'fontStyle') {
+              const current = text.getRangeFontName(start, end) as FontName
+              setRangeValue(start, end, 'fontName', {
+                ...current,
+                [field === 'fontFamily' ? 'family' : 'style']: value
+              })
+            } else if (field === 'lineHeight' || field === 'letterSpacing') {
+              setRangeValue(start, end, field, { unit: 'PIXELS', value })
+            } else if (field !== 'fontWeight') setRangeValue(start, end, field, value)
+          }
         )
       })
       Object.defineProperties(node, {
@@ -1584,7 +1642,11 @@ export function createFixture({
       {
         id: 'variable:range-size',
         key: 'range-size-key',
-        resolvedType: 'FLOAT'
+        resolvedType: 'FLOAT',
+        resolveForConsumer: (consumer: SceneNode) => ({
+          value: consumer.explicitVariableModes['collection:tokens'] === 'mode:dark' ? 22 : 18,
+          resolvedType: 'FLOAT'
+        })
       } as unknown as Variable
     ],
     [

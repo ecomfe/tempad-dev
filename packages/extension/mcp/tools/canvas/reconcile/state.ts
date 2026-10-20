@@ -66,6 +66,7 @@ export type ApplyState = {
   shaderCache: Map<string, Shader>
   stabilizedCrossAxisFillNodeIds: Set<string>
   styles: CanvasStyleState
+  textRangeSemanticOverrides: Map<string, boolean>
   updatedNodeIds: Set<string>
   undoStarted: boolean
   variables: CanvasVariableState
@@ -159,6 +160,7 @@ export function createApplyState(
     shaderCache: new Map(),
     stabilizedCrossAxisFillNodeIds: new Set(),
     styles: createStyleState(),
+    textRangeSemanticOverrides: new Map(),
     updatedNodeIds: new Set(),
     undoStarted: false,
     variables: createVariableState()

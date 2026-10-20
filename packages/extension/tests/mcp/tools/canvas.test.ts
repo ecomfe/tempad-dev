@@ -6994,8 +6994,8 @@ describe('mcp/tools/canvas', () => {
 
     expect(copy.characters).toBe('Hello\nworld')
     expect(copy.getRangeTextStyleId(0, 5)).toBe('style:text')
-    expect(copy.getRangeFontName(0, 5)).toEqual({ family: 'Inter', style: 'Bold' })
-    expect(copy.getRangeFontSize(0, 5)).toBe(20)
+    expect(copy.getRangeFontName(0, 5)).toEqual({ family: 'Roboto', style: 'Bold' })
+    expect(copy.getRangeFontSize(0, 5)).toBe(22)
     expect(copy.getRangeTextCase(0, 5)).toBe('UPPER')
     expect(copy.getRangeLetterSpacing(0, 5)).toEqual({ unit: 'PERCENT', value: -2 })
     expect(copy.getRangeLineHeight(0, 5)).toEqual({ unit: 'PIXELS', value: 28 })

@@ -1,5 +1,12 @@
 export type TextRange = { start: number; end: number }
 
+export function textParagraphRange(characters: string, range: TextRange): TextRange {
+  // Paragraph setters affect every paragraph touched, including its newline.
+  const start = range.start === 0 ? 0 : characters.lastIndexOf('\n', range.start - 1) + 1
+  const newline = characters.indexOf('\n', range.end - 1)
+  return { start, end: newline === -1 ? characters.length : newline + 1 }
+}
+
 export function* textRangesOutside(
   scope: TextRange,
   overrides: readonly TextRange[]

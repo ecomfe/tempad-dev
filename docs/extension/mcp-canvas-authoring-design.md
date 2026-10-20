@@ -708,6 +708,13 @@ creation, and library/media preparation is not a guarantee of native transaction
 Typography variable setters apply one field at a time. Preload the font faces reached by each
 binding in its actual application order, including intermediate family/style combinations, for
 Text nodes, text ranges, and Text styles. Reuse the request-local font cache across those paths.
+Rich-text style references with explicit typography overrides compare the current style defaults,
+literal overrides, and final variable bindings in the consumer's mode. Figma can detach the style
+link after an override, so repeated requests compare effective typography rather than restoring
+the link on every call. Pure style references still require the native style identity. Native
+semantic overrides are detected before mutation; those ranges and variable-weight compositions
+retain their existing application path until their interaction with explicit typography has
+native acceptance.
 Mode changes prepare fonts only for affected typography, text-content, or size bindings, including
 aliases and extended collections. Unbound text and descendant mode overrides do not require unrelated
 fonts to load. Affected text metrics still require the current fonts even without a font-family binding.

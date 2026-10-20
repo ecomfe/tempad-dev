@@ -23,7 +23,12 @@ import { nativePaint, paintStacksEqual } from './native-values'
 import { isCanvasKeyHyperlink, nativeHyperlink } from './nodes'
 import { type ApplyState, markMutation, setValue } from './state'
 import { loadTextFonts, loadVariableFonts, TEXT_STYLE_VARIABLES_BY_VALUE } from './text-fonts'
-import { textRangesMatchOutside } from './text-ranges'
+import {
+  rangeTextStyleCanSkip,
+  rangeTextStyleMatches,
+  resolvedRangeTextStyle
+} from './text-range-style'
+import { textParagraphRange, textRangesMatchOutside } from './text-ranges'
 import { baseTextStyleScope, type BaseTextStyleScope } from './text-style-scope'
 
 export async function applyText(
@@ -260,10 +265,7 @@ function textFieldRange(
   range: { start: number; end: number }
 ): { start: number; end: number } {
   if (field !== 'paragraphIndent' && field !== 'paragraphSpacing') return range
-  // Paragraph setters affect every paragraph touched, including its newline.
-  const start = range.start === 0 ? 0 : node.characters.lastIndexOf('\n', range.start - 1) + 1
-  const newline = node.characters.indexOf('\n', range.end - 1)
-  return { start, end: newline === -1 ? node.characters.length : newline + 1 }
+  return textParagraphRange(node.characters, range)
 }
 
 type TextValueAccess<T> = {
@@ -386,11 +388,12 @@ async function applyTextRangeStyle(
   reference: CanvasStyleReference | null | undefined,
   current: () => string | typeof figma.mixed,
   apply: (id: string) => Promise<void>,
-  state: ApplyState
+  state: ApplyState,
+  force = false
 ): Promise<void> {
   if (reference === undefined) return
   const styleId = reference ? (await resolveStyle(reference, state.styles)).id : ''
-  if (current() === styleId) return
+  if (current() === styleId && !force) return
   await apply(styleId)
   markMutation(state, node)
 }
@@ -442,13 +445,22 @@ export async function applyTextRanges(
         `Text range ${range.start}:${range.end} exceeds TEXT node "${node.id}" with ${node.characters.length} UTF-16 code units.`
       )
     }
-    await applyTextRangeStyle(
-      node,
-      range.textStyle,
-      () => node.getRangeTextStyleId(range.start, range.end),
-      (id) => node.setRangeTextStyleIdAsync(range.start, range.end, id),
-      state
-    )
+    const laterRanges = ranges?.slice(index + 1) ?? []
+    const composed = await resolvedRangeTextStyle(node, range, state)
+    const matches = composed && rangeTextStyleMatches(node, range, composed, laterRanges)
+    const unchanged = composed && matches && rangeTextStyleCanSkip(node, composed)
+    const typography: CanvasFigmaTextRange = unchanged
+      ? { start: range.start, end: range.end }
+      : range
+    if (!unchanged)
+      await applyTextRangeStyle(
+        node,
+        range.textStyle,
+        () => node.getRangeTextStyleId(range.start, range.end),
+        (id) => node.setRangeTextStyleIdAsync(range.start, range.end, id),
+        state,
+        !!composed && !matches
+      )
     await applyTextRangeStyle(
       node,
       range.fillStyle,
@@ -460,7 +472,7 @@ export async function applyTextRanges(
     applyTextRangeValue(
       node,
       node.getRangeFontName(range.start, range.end),
-      range.fontName,
+      typography.fontName,
       (value) => node.setRangeFontName(range.start, range.end, value),
       state,
       (current, desired) => current !== null && fontNamesEqual(current, desired)
@@ -468,14 +480,15 @@ export async function applyTextRanges(
     applyTextRangeValue(
       node,
       node.getRangeFontSize(range.start, range.end),
-      range.fontSize,
+      typography.fontSize,
       (value) => node.setRangeFontSize(range.start, range.end, value),
-      state
+      state,
+      scalarValuesEqual
     )
     applyTextRangeValue(
       node,
       node.getRangeTextCase(range.start, range.end),
-      range.textCase,
+      typography.textCase,
       (value) => node.setRangeTextCase(range.start, range.end, value),
       state
     )
@@ -483,7 +496,7 @@ export async function applyTextRanges(
       node,
       'letterSpacing',
       node.getRangeLetterSpacing(range.start, range.end),
-      range.letterSpacing,
+      typography.letterSpacing,
       (value) => node.setRangeLetterSpacing(range.start, range.end, value),
       state
     )
@@ -491,14 +504,14 @@ export async function applyTextRanges(
       node,
       'lineHeight',
       node.getRangeLineHeight(range.start, range.end),
-      range.lineHeight,
+      typography.lineHeight,
       (value) => node.setRangeLineHeight(range.start, range.end, value),
       state
     )
     applyTextRangeValue(
       node,
       node.getRangeTextDecoration(range.start, range.end),
-      range.textDecoration,
+      typography.textDecoration,
       (value) => node.setRangeTextDecoration(range.start, range.end, value),
       state
     )
@@ -547,9 +560,10 @@ export async function applyTextRanges(
     applyTextRangeValue(
       node,
       node.getRangeListSpacing(range.start, range.end),
-      range.listSpacing,
+      typography.listSpacing,
       (value) => node.setRangeListSpacing(range.start, range.end, value),
-      state
+      state,
+      scalarValuesEqual
     )
     applyTextRangeValue(
       node,
@@ -561,26 +575,26 @@ export async function applyTextRanges(
     setBaseTextValue(
       node,
       'paragraphIndent',
-      range.paragraphIndent,
+      typography.paragraphIndent,
       {
         current: node.getRangeParagraphIndent(range.start, range.end),
         apply: (value) => node.setRangeParagraphIndent(range.start, range.end, value),
         readRange: (start, end) => node.getRangeParagraphIndent(start, end)
       },
-      ranges?.slice(index + 1),
+      laterRanges,
       state,
       range
     )
     setBaseTextValue(
       node,
       'paragraphSpacing',
-      range.paragraphSpacing,
+      typography.paragraphSpacing,
       {
         current: node.getRangeParagraphSpacing(range.start, range.end),
         apply: (value) => node.setRangeParagraphSpacing(range.start, range.end, value),
         readRange: (start, end) => node.getRangeParagraphSpacing(start, end)
       },
-      ranges?.slice(index + 1),
+      laterRanges,
       state,
       range
     )

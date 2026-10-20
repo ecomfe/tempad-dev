@@ -73,6 +73,7 @@ import {
   TEXT_STYLE_VALUE_FIELDS,
   TEXT_STYLE_VARIABLES_BY_VALUE
 } from './text-fonts'
+import { rangeHasSemanticTextOverrides } from './text-range-style'
 import { protectNode } from './undo'
 
 type CanvasNodeReference = { nodeId: string } | { canvasKey: string }
@@ -358,7 +359,15 @@ function preflightTextRangeBounds(spec: CanvasNodeSpec, state: ApplyState): void
 
 async function preflightTextRanges(spec: CanvasNodeSpec, state: ApplyState): Promise<void> {
   preflightTextRangeBounds(spec, state)
+  const existing = findExistingNode(spec, state)
   for (const [index, range] of (spec.figma?.text?.ranges ?? []).entries()) {
+    if (
+      existing?.type === 'TEXT' &&
+      range.end <= existing.characters.length &&
+      spec.text?.characters === existing.characters
+    ) {
+      rangeHasSemanticTextOverrides(existing, range, state)
+    }
     const key = `${spec.key} text range ${index}`
     if (range.fontName) await loadFont(range.fontName, state.fonts)
     for (const [field, reference] of [

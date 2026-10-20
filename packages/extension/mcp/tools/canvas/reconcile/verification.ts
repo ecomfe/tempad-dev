@@ -41,16 +41,11 @@ import {
   CANVAS_SVG_COLOR_NAME
 } from './svg'
 import { textFillsMatch } from './text-paints'
-
-const TEXT_STYLE_LINK_PRESERVING_RANGE_FIELDS = new Set([
-  'start',
-  'end',
-  'textStyle',
-  'fills',
-  'fillStyle',
-  'textDecoration',
-  'hyperlink'
-])
+import {
+  rangeNeedsTextStyleComposition,
+  rangeTextStyleMatches,
+  resolvedRangeTextStyle
+} from './text-range-style'
 
 function appliedVariableId(
   node: SupportedCanvasNode,
@@ -321,18 +316,25 @@ export async function verifyAppliedNode(
     }
   }
   if (node.type === 'TEXT') {
-    for (const range of spec.figma?.text?.ranges ?? []) {
+    const ranges = spec.figma?.text?.ranges ?? []
+    for (const [index, range] of ranges.entries()) {
       for (const field of ['textStyle', 'fillStyle'] as const) {
         const reference = range[field]
         if (reference === undefined) continue
-        // Other native typography overrides may detach a TextStyle. Preserve
-        // their existing acceptance until native link semantics are established.
-        if (
-          field === 'textStyle' &&
-          reference &&
-          Object.keys(range).some((key) => !TEXT_STYLE_LINK_PRESERVING_RANGE_FIELDS.has(key))
-        )
+        const composed =
+          field === 'textStyle' ? await resolvedRangeTextStyle(node, range, state) : null
+        // Semantic overrides and variable-font weights retain the previous
+        // acceptance path until their native style projection can be proved.
+        if (field === 'textStyle' && !composed && rangeNeedsTextStyleComposition(range)) continue
+        if (composed) {
+          nativeFields += 1
+          if (!rangeTextStyleMatches(node, range, composed, ranges.slice(index + 1))) {
+            applyError(
+              `Verification failed for "${spec.key}": range ${range.start}:${range.end} TextStyle typography does not match.`
+            )
+          }
           continue
+        }
         const expected = reference ? (await resolveStyle(reference, state.styles)).id : ''
         const current =
           field === 'textStyle'
