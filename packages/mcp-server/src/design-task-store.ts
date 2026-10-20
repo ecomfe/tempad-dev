@@ -25,7 +25,16 @@ const SnapshotSchema = z.object({
   )
 })
 const RecoveryMarkerSchema = z.object({ recoveryGeneration: z.string().uuid() }).strict()
-export type DesignTaskSnapshot = z.infer<typeof SnapshotSchema> & { recoveryGeneration?: string }
+const FileReadMarkerSchema = z
+  .object({
+    readRequired: z.literal(true),
+    task: z.object({ target: z.object({ fileKey: z.string().min(1) }).strict() }).strict()
+  })
+  .strict()
+export type DesignTaskSnapshot = z.infer<typeof SnapshotSchema> & {
+  recoveryGeneration?: string
+  filesNeedingRead?: string[]
+}
 
 /** One lock-owning Hub writes a small atomic snapshot; transport and leases are never restored. */
 export class DesignTaskStore {
@@ -47,8 +56,14 @@ export class DesignTaskStore {
         JSON.parse(readFileSync(this.path, 'utf8'))
       )
       const records: DesignTaskSnapshot['records'] = []
+      const filesNeedingRead = new Set<string>()
       let recoveryGeneration: string | undefined
       for (const item of raw.records) {
+        const readMarker = FileReadMarkerSchema.safeParse(item)
+        if (readMarker.success) {
+          filesNeedingRead.add(readMarker.data.task.target.fileKey)
+          continue
+        }
         const marker = RecoveryMarkerSchema.safeParse(item)
         if (marker.success) {
           if (recoveryGeneration) throw new Error('Multiple task recovery generations.')
@@ -81,7 +96,12 @@ export class DesignTaskStore {
         // Preserve incompatible records verbatim so later writes and restarts keep their fences.
         this.incompatibleRecords.push(item)
       }
-      return { ...raw, records, ...(recoveryGeneration ? { recoveryGeneration } : {}) }
+      return {
+        ...raw,
+        records,
+        ...(recoveryGeneration ? { recoveryGeneration } : {}),
+        ...(filesNeedingRead.size ? { filesNeedingRead: [...filesNeedingRead] } : {})
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
       // Keep a durable marker: restarting must never erase unknown Stop fences.
@@ -101,7 +121,7 @@ export class DesignTaskStore {
     if (this.recoveryError) throw new Error(this.recoveryError)
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 })
     const temporary = `${this.path}.tmp`
-    const { recoveryGeneration, ...stored } = snapshot
+    const { recoveryGeneration, filesNeedingRead, ...stored } = snapshot
     writeFileSync(
       temporary,
       JSON.stringify({
@@ -110,6 +130,10 @@ export class DesignTaskStore {
         // Old readers must fail closed rather than ignore a new top-level generation field.
         records: [
           ...(recoveryGeneration ? [RecoveryMarkerSchema.parse({ recoveryGeneration })] : []),
+          // Old readers retain these as incompatible per-file fences.
+          ...(filesNeedingRead ?? []).map((fileKey) =>
+            FileReadMarkerSchema.parse({ readRequired: true, task: { target: { fileKey } } })
+          ),
           ...snapshot.records,
           ...this.incompatibleRecords
         ]

@@ -57,6 +57,46 @@ function fixture() {
 }
 
 describe('durable design reviews', () => {
+  it('retains taskless read requirements across restart until a successful read', () => {
+    const f = fixture()
+    f.tasks.requireFileRead(session.fileKey)
+    const restored = f.restart()
+    expect(() => restored.checkOperation('new-owner', session, undefined, true)).toThrow(
+      'previous write result was lost'
+    )
+    restored.acknowledgeFileRead(session.fileKey)
+    expect(() => f.restart().checkOperation('new-owner', session, undefined, true)).not.toThrow()
+  })
+
+  it('retains a read requirement in memory and storage when clearing it cannot be saved', () => {
+    const f = fixture()
+    f.tasks.requireFileRead(session.fileKey)
+    const save = f.store.save
+    f.store.save = () => {
+      throw new Error('Disk full')
+    }
+    f.tasks.acknowledgeFileRead(session.fileKey)
+    f.store.save = save
+    expect(() => f.tasks.checkOperation('owner', session, undefined, true)).toThrow(
+      'previous write result was lost'
+    )
+    expect(() => f.restart().checkOperation('owner', session, undefined, true)).toThrow(
+      'previous write result was lost'
+    )
+  })
+
+  it('does not let an old completion clear a newer read requirement', () => {
+    const f = fixture()
+    const generation = f.tasks.requireFileRead(session.fileKey)
+    f.tasks.requireFileRead(session.fileKey)
+    f.tasks.acknowledgeFileRead(session.fileKey, generation)
+    expect(() => f.restart().checkOperation('owner', session, undefined, true)).toThrow(
+      'previous write result was lost'
+    )
+    f.tasks.acknowledgeFileRead(session.fileKey)
+    expect(() => f.restart().checkOperation('owner', session, undefined, true)).not.toThrow()
+  })
+
   it('writes result roots only when their ordered last-20 snapshot changes', () => {
     const f = fixture()
     const record = f.begin()

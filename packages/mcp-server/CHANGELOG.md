@@ -16,7 +16,7 @@
 - Added safe recovery for damaged task storage, with old tasks kept retired and recovery errors
   readable by MCP SDK clients.
 - Required a successful canvas read after interrupted writes with unknown results, including
-  after Stop and starting a new task.
+  after Stop, starting a new task, or restarting the Hub.
 - Prevented repeated disconnected reads from exhausting request capacity.
 - Preserved saved task records across version changes and showed progress during longer Hub startup.
 - Prevented malformed asset requests from disconnecting agents and released resources after

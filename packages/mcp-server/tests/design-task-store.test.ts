@@ -177,4 +177,54 @@ describe('task snapshot recovery', () => {
     store.save(snapshot)
     expect(new DesignTaskStore('/state/tasks.json').load()).toEqual(snapshot)
   })
+
+  it('round-trips read requirements as identifiable file fences for older readers', () => {
+    const store = new DesignTaskStore('/state/tasks.json')
+    const snapshot = {
+      revision: 2,
+      current: {},
+      records: [],
+      filesNeedingRead: ['interrupted-file']
+    }
+    store.save(snapshot)
+    expect(JSON.parse(files.get('/state/tasks.json')!).records).toContainEqual({
+      readRequired: true,
+      task: { target: { fileKey: 'interrupted-file' } }
+    })
+    expect(new DesignTaskStore('/state/tasks.json').load()).toEqual(snapshot)
+  })
+
+  it('preserves future read markers while loading known markers and recovery generations', () => {
+    const future = {
+      readRequired: true,
+      task: { target: { fileKey: 'future-file' } },
+      futureRequirement: { nodeId: '1:1' }
+    }
+    const generation = '00000000-0000-4000-8000-000000000001'
+    files.set(
+      '/state/tasks.json',
+      JSON.stringify({
+        revision: 1,
+        current: {},
+        records: [
+          { recoveryGeneration: generation },
+          { readRequired: true, task: { target: { fileKey: 'known-file' } } },
+          future
+        ]
+      })
+    )
+    const store = new DesignTaskStore('/state/tasks.json')
+    const snapshot = store.load()!
+    expect(snapshot).toMatchObject({
+      filesNeedingRead: ['known-file'],
+      recoveryGeneration: generation,
+      records: []
+    })
+    expect(store.blockedFiles).toEqual(new Set(['future-file']))
+    store.save(snapshot)
+    expect(JSON.parse(files.get('/state/tasks.json')!).records).toContainEqual(future)
+    const restarted = new DesignTaskStore('/state/tasks.json')
+    expect(restarted.load()).toEqual(snapshot)
+    expect(restarted.blockedFiles).toEqual(new Set(['future-file']))
+  })
 })

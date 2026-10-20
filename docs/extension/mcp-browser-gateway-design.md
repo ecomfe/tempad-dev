@@ -171,6 +171,14 @@ because of cancellation, timeout, or disconnection, that file also requires a su
 `get_structure` or `get_code` read before further writes. A late result releases the execution
 fence but does not clear this read requirement, which survives Stop and beginning a fresh task.
 A completed write whose result cannot be formatted or fit the inline budget also requires readback.
+The Hub persists a file read marker before dispatch and retires it only after a definitive usable
+outcome or a qualifying read. Thus a Hub restart, including while the write is still running,
+retains the requirement. A failed marker save prevents dispatch; a failed clear retains the fence.
+A qualifying read returns at least one structure root or code result, or an exact page snapshot
+(which can confirm an empty page). Empty selections and batches containing only errors do not
+acknowledge it. This recovery gate is file-scoped: a qualifying read by any caller clears it for
+that file; it does not prove that the original caller inspected every affected node. Task-specific
+resume read requirements remain bound to their task and owner.
 A failed initial page-port delivery reports
 `EXTENSION_DELIVERY_FAILED`, which releases the operation because execution never started;
 `EXTENSION_DISCONNECTED` remains an unknown outcome after delivery. Incompatible saved task records retain a durable

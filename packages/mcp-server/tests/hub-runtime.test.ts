@@ -6,7 +6,7 @@ import {
   type ToolCallMessage
 } from '@tempad-dev/shared'
 import { EventEmitter, once } from 'node:events'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer as createHttpServer } from 'node:http'
 import { connect, createServer, type Server, type Socket } from 'node:net'
 import lockfile from 'proper-lockfile'
@@ -73,6 +73,7 @@ import { CodexAppFeedback } from '../src/agent-clients/codex-feedback'
 import { AgentClients } from '../src/agent-clients/registry'
 import { createAssetHttpServer } from '../src/asset-http-server'
 import { createAssetStore } from '../src/asset-store'
+import { DesignTaskStore } from '../src/design-task-store'
 import { DesignTasks } from '../src/design-tasks'
 import { removeHubRuntimeIdentityIfOwned, writeHubRuntimeIdentity } from '../src/runtime-identity'
 import { log, resolveStateDir } from '../src/shared'
@@ -85,6 +86,9 @@ const assetStart = vi.fn<() => Promise<void>>()
 const assetStop = vi.fn()
 let websocket: WebSocketServer
 const consumerSockets: Socket[] = []
+const structure = {
+  roots: [{ id: '1:1', name: 'Root', type: 'FRAME', x: 0, y: 0, width: 100, height: 100 }]
+}
 
 async function connectConsumer(clientEventFirst = false, clientName = 'isolated-test') {
   const socket = connect(fixture.socketPath)
@@ -225,7 +229,7 @@ beforeEach(() => {
   })
 })
 
-afterEach(async () => {
+async function stopRuntime() {
   for (const socket of consumerSockets.splice(0)) socket.destroy()
   // Also stop a successfully started Hub when an assertion fails before the test's
   // explicit shutdown, so lock ownership and listeners cannot leak into the next test.
@@ -252,12 +256,15 @@ afterEach(async () => {
       if (!previousSignals.get(signal)?.includes(listener)) process.removeListener(signal, listener)
     }
   }
-  netServer ??= vi.mocked(createServer).mock.results.find((result) => result.type === 'return')
-    ?.value as Server | undefined
+  netServer ??= vi.mocked(createServer).mock.results.at(-1)?.value as Server | undefined
   if (netServer?.listening) await new Promise<void>((resolve) => netServer!.close(() => resolve()))
   netServer = undefined
   if (!vi.mocked(websocket.close).mock.calls.length) websocket.close()
   vi.clearAllTimers()
+}
+
+afterEach(async () => {
+  await stopRuntime()
   vi.useRealTimers()
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
@@ -724,7 +731,7 @@ describe('Hub runtime module', () => {
     expect(extension.calls).toHaveLength(2)
     send(5, 'get_structure', { taskId: task.taskId, taskEpoch: 1 })
     const read = await extension.call(2)
-    extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+    extension.send({ type: 'toolResult', id: read.id, payload: structure })
     expect((await consumer.reply(5)).result?.isError).not.toBe(true)
     send(6, 'apply_canvas', write)
     const update = await extension.call(3)
@@ -1222,7 +1229,7 @@ describe('Hub runtime module', () => {
         params: { name: 'get_structure', arguments: {} }
       })
       const read = await extension.call(1)
-      extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+      extension.send({ type: 'toolResult', id: read.id, payload: structure })
       await consumer.reply(4)
       consumer.send({ id: 5, method: 'tools/call', params: write })
     }
@@ -1256,6 +1263,164 @@ describe('Hub runtime module', () => {
     const next = await extension.call(0)
     extension.send({ type: 'toolResult', id: next.id, error: { message: 'Native result' } })
     expect(JSON.stringify(await consumer.reply(2))).toContain('Native result')
+  })
+
+  it('does not dispatch a write when its read requirement cannot be saved', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const consumer = await connectConsumer()
+    vi.spyOn(DesignTaskStore.prototype, 'save').mockImplementationOnce(() => {
+      throw new Error('Disk full')
+    })
+    consumer.send({
+      id: 1,
+      method: 'tools/call',
+      params: {
+        name: 'apply_canvas',
+        arguments: { mode: 'create', markup: '<div></div>' }
+      }
+    })
+    expect(JSON.stringify(await consumer.reply(1))).toContain('Disk full')
+    expect(extension.calls).toHaveLength(0)
+  })
+
+  it.each(['in-flight', 'cancelled'] as const)(
+    'persists a %s write before dispatch and requires readback after Hub restart',
+    async (state) => {
+      const { startHub } = await loadRuntime()
+      await startHub()
+      const extension = connectExtension()
+      const consumer = await connectConsumer()
+      const write = {
+        name: 'apply_canvas',
+        arguments: { mode: 'create', markup: '<div></div>' }
+      }
+      const readMarker = { readRequired: true, task: { target: { fileKey: 'file' } } }
+      const snapshot = () =>
+        JSON.parse(readFileSync(`${fixture.directory}/state/design-tasks.json`, 'utf8'))
+      consumer.send({ id: 1, method: 'tools/call', params: write })
+      const dispatched = await extension.call(0)
+      expect(snapshot().records).toContainEqual(readMarker)
+      const reader = await connectConsumer(false, 'another-reader')
+      reader.send({
+        id: 6,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: {} }
+      })
+      expect(JSON.stringify(await reader.reply(6))).toContain('DESIGN_TASK_BUSY')
+      expect(extension.calls).toHaveLength(1)
+      expect(snapshot().records).toContainEqual(readMarker)
+      if (state === 'cancelled') {
+        consumer.send({ method: 'notifications/cancelled', params: { requestId: 1 } })
+        consumer.send({ id: 2, method: 'tools/call', params: write })
+        expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
+        extension.send({
+          type: 'toolResult',
+          id: dispatched.id,
+          error: { message: 'Late definitive completion' }
+        })
+      }
+      await stopRuntime()
+      expect(snapshot().records).toContainEqual(readMarker)
+
+      websocket = new WebSocketServer({ noServer: true })
+      vi.spyOn(websocket, 'close')
+      vi.mocked(startExtensionWebSocketServer).mockResolvedValue({ server: websocket, port: 6220 })
+      await startHub()
+      const replacement = connectExtension()
+      const nextOwner = await connectConsumer()
+      nextOwner.send({ id: 3, method: 'tools/call', params: write })
+      expect(JSON.stringify(await nextOwner.reply(3))).toContain('previous write result was lost')
+      expect(replacement.calls).toHaveLength(0)
+      nextOwner.send({
+        id: 4,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: {} }
+      })
+      const read = await replacement.call(0)
+      replacement.send({ type: 'toolResult', id: read.id, payload: structure })
+      expect((await nextOwner.reply(4)).result?.isError).not.toBe(true)
+      expect(snapshot().records).not.toContainEqual(readMarker)
+      nextOwner.send({ id: 5, method: 'tools/call', params: write })
+      const next = await replacement.call(1)
+      replacement.send({ type: 'toolResult', id: next.id, error: { message: 'Definitive result' } })
+      expect(JSON.stringify(await nextOwner.reply(5))).toContain('Definitive result')
+      expect(snapshot().records).not.toContainEqual(readMarker)
+    }
+  )
+
+  it.each([
+    { name: 'empty selection', tool: 'get_structure', payload: { roots: [] } },
+    {
+      name: 'failed roots with continuation',
+      tool: 'get_structure',
+      payload: {
+        roots: [],
+        errors: [{ nodeId: 'gone', error: { message: 'Missing node' } }],
+        remainingNodeIds: ['remaining']
+      }
+    },
+    {
+      name: 'failed code with continuation',
+      tool: 'get_code',
+      payload: {
+        results: [{ nodeId: 'gone', error: { message: 'Missing node' } }],
+        remainingNodeIds: ['remaining']
+      }
+    }
+  ])('keeps readback required after $name', async ({ tool, payload }) => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const consumer = await connectConsumer()
+    const write = {
+      name: 'apply_canvas',
+      arguments: { mode: 'create', markup: '<div></div>' }
+    }
+    consumer.send({ id: 1, method: 'tools/call', params: write })
+    const first = await extension.call(0)
+    extension.send({ type: 'toolResult', id: first.id, payload: { rootNodeId: 'unusable' } })
+    expect((await consumer.reply(1)).result?.isError).toBe(true)
+    consumer.send({
+      id: 2,
+      method: 'tools/call',
+      params: { name: tool, arguments: {} }
+    })
+    const emptyRead = await extension.call(1)
+    extension.send({ type: 'toolResult', id: emptyRead.id, payload })
+    expect((await consumer.reply(2)).result?.isError).not.toBe(true)
+    consumer.send({ id: 3, method: 'tools/call', params: write })
+    expect(JSON.stringify(await consumer.reply(3))).toContain('previous write result was lost')
+    expect(extension.calls).toHaveLength(2)
+
+    // An exact empty page is valid evidence, unlike an empty selection.
+    consumer.send({
+      id: 4,
+      method: 'tools/call',
+      params: { name: 'get_structure', arguments: { pageId: 'page' } }
+    })
+    const pageRead = await extension.call(2)
+    extension.send({
+      type: 'toolResult',
+      id: pageRead.id,
+      payload: {
+        roots: [],
+        page: {
+          id: 'page',
+          name: 'Empty page',
+          index: 0,
+          active: true,
+          childCount: 0,
+          selectionCount: 0
+        }
+      }
+    })
+    await consumer.reply(4)
+    consumer.send({ id: 5, method: 'tools/call', params: write })
+    const next = await extension.call(3)
+    extension.send({ type: 'toolResult', id: next.id, error: { message: 'Write completed' } })
+    expect(JSON.stringify(await consumer.reply(5))).toContain('Write completed')
   })
 
   it.each(['malformed', 'oversized'])(
@@ -1308,7 +1473,7 @@ describe('Hub runtime module', () => {
         params: { name: 'get_structure', arguments: {} }
       })
       const read = await extension.call(1)
-      extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+      extension.send({ type: 'toolResult', id: read.id, payload: structure })
       await consumer.reply(3)
       consumer.send({ id: 4, method: 'tools/call', params: write })
       const next = await extension.call(2)
@@ -1375,7 +1540,7 @@ describe('Hub runtime module', () => {
         expect(extension.calls).toHaveLength(3)
         send(12, 'get_structure', freshArgs)
         const read = await extension.call(3)
-        extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+        extension.send({ type: 'toolResult', id: read.id, payload: structure })
         await consumer.reply(12)
         send(13, 'apply_canvas', { ...write, ...freshArgs })
         const next = await extension.call(4)
@@ -1392,7 +1557,7 @@ describe('Hub runtime module', () => {
       // The duplicate receipt must not clear a fresh read or re-arm needsRead.
       send(5, 'get_structure', args)
       const read = await extension.call(2)
-      extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+      extension.send({ type: 'toolResult', id: read.id, payload: structure })
       await consumer.reply(5)
       extension.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
       send(6, 'apply_canvas', write)
@@ -1527,7 +1692,7 @@ describe('Hub runtime module', () => {
         params: { name: 'get_structure', arguments: {} }
       })
       const read = await replacement.call(2)
-      replacement.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+      replacement.send({ type: 'toolResult', id: read.id, payload: structure })
       await consumer.reply(8)
       // Repeated completion cannot re-arm the read requirement after a successful read.
       replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
@@ -1629,7 +1794,7 @@ describe('Hub runtime module', () => {
       params: { name: 'get_structure', arguments: {} }
     })
     const read = await extension.call(1)
-    extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+    extension.send({ type: 'toolResult', id: read.id, payload: structure })
     await consumer.reply(4)
     consumer.send({ id: 5, method: 'tools/call', params: write })
     const next = await extension.call(2)

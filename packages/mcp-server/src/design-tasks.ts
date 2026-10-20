@@ -119,7 +119,8 @@ export class DesignTasks {
   private readonly records = new Map<string, DesignTaskRecord>()
   private readonly currentTaskIds = new Map<string, string>()
   private readonly operations = new Map<string, Operation>()
-  private readonly filesNeedingRead = new Set<string>()
+  private readonly filesNeedingRead = new Map<string, number>()
+  private readGeneration = 0
   // Every retired file rejects stale unknown reviews; true also retains its Stop write fence.
   private readonly fileFences = new Map<string, boolean>()
   private readonly expiredRequests = new Map<string, Set<string>>()
@@ -338,12 +339,28 @@ export class DesignTasks {
     this.publish(record)
   }
 
-  requireFileRead(fileKey: string): void {
-    this.filesNeedingRead.add(fileKey)
+  requireFileRead(fileKey: string, requireDurable = false): number {
+    const generation = ++this.readGeneration
+    this.filesNeedingRead.set(fileKey, generation)
+    this.persist()
+    if (requireDurable && this.persistenceError) throw this.persistenceError
+    return generation
   }
 
-  acknowledgeFileRead(fileKey: string): void {
+  acknowledgeFileRead(fileKey: string, expectedGeneration?: number): void {
+    const generation = this.filesNeedingRead.get(fileKey)
+    if (
+      generation === undefined ||
+      (expectedGeneration !== undefined && expectedGeneration !== generation)
+    )
+      return
     this.filesNeedingRead.delete(fileKey)
+    this.persist()
+    if (this.persistenceError) this.filesNeedingRead.set(fileKey, generation)
+  }
+
+  isOperationPending(requestId: string): boolean {
+    return this.operations.has(requestId)
   }
 
   find(taskId: string): DesignTaskRecord | undefined {
@@ -714,6 +731,8 @@ export class DesignTasks {
     if (!snapshot) return
     this.revision = snapshot.revision
     this.recoveryGeneration = snapshot.recoveryGeneration
+    for (const fileKey of snapshot.filesNeedingRead ?? [])
+      this.filesNeedingRead.set(fileKey, ++this.readGeneration)
     for (const [fileKey, stopped] of Object.entries(snapshot.fileFences ?? {}))
       this.fileFences.set(fileKey, stopped)
     for (const saved of snapshot.records) {
@@ -860,6 +879,9 @@ export class DesignTasks {
     const snapshot: DesignTaskSnapshot = {
       revision: this.revision,
       ...(this.recoveryGeneration ? { recoveryGeneration: this.recoveryGeneration } : {}),
+      ...(this.filesNeedingRead.size
+        ? { filesNeedingRead: [...this.filesNeedingRead.keys()] }
+        : {}),
       current: Object.fromEntries(this.currentTaskIds),
       ...(this.fileFences.size ? { fileFences: Object.fromEntries(this.fileFences) } : {}),
       records: [...this.records.values()].map(

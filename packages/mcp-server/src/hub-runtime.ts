@@ -25,6 +25,7 @@ import {
   STDIO_DEFAULT_MAX_BUFFER_SIZE
 } from '@modelcontextprotocol/sdk/shared/stdio.js'
 import {
+  CanvasPageSnapshotSchema,
   DesignTaskSchema,
   MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES,
   MCP_NODE_READ_BATCH_WORK_BUDGET_MS,
@@ -99,6 +100,27 @@ import {
 } from './tools'
 import { assertVersionedToolSupport, versionedReadNotice } from './versioned-extension'
 import { startExtensionWebSocketServer } from './websocket-server'
+
+function hasCanvasReadEvidence(tool: ToolName, payload: unknown): boolean {
+  if (tool === 'get_structure') {
+    const roots = getRecordProperty(payload, 'roots')
+    const page = getRecordProperty(payload, 'page')
+    return (
+      (Array.isArray(roots) &&
+        roots.some((root) => typeof getRecordProperty(root, 'id') === 'string')) ||
+      CanvasPageSnapshotSchema.safeParse(page).success
+    )
+  }
+  if (tool !== 'get_code') return false
+  if (typeof getRecordProperty(payload, 'code') === 'string') return true
+  const results = getRecordProperty(payload, 'results')
+  return (
+    Array.isArray(results) &&
+    results.some(
+      (entry) => typeof getRecordProperty(getRecordProperty(entry, 'result'), 'code') === 'string'
+    )
+  )
+}
 
 export async function startHub(): Promise<void> {
   const SHUTDOWN_TIMEOUT = 2000
@@ -843,6 +865,7 @@ export async function startHub(): Promise<void> {
           }
         }
         let dispatched = false
+        let readGeneration: number | undefined
         try {
           message.terminalReceipt = terminalReceipts.reserve(
             requestId,
@@ -861,6 +884,9 @@ export async function startHub(): Promise<void> {
             taskId,
             isCanvasWrite
           )
+          // Save before dispatch: even a crash or a subsequent disk failure must
+          // leave the original file fenced until its state is read.
+          if (isCanvasWrite) readGeneration = designTasks.requireFileRead(session.fileKey, true)
           activeExt.ws.send(JSON.stringify(message))
           dispatched = true
         } catch (error) {
@@ -877,14 +903,15 @@ export async function startHub(): Promise<void> {
         // operation remains fenced until its definitive result or document loss.
         const payload = await registration.promise.catch((error: unknown) => {
           const code = getRecordProperty(error, 'code')
-          if (
+          const unknownOutcome =
             dispatched &&
-            isCanvasWrite &&
-            (getRecordProperty(error, 'name') === 'AbortError' ||
+            (designTasks.isOperationPending(registration.requestId) ||
+              getRecordProperty(error, 'name') === 'AbortError' ||
               code === TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT ||
-              code === TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED)
-          )
-            designTasks.requireFileRead(session.fileKey)
+              code === TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED ||
+              code === TEMPAD_MCP_ERROR_CODES.EXTENSION_RESULT_LOST)
+          if (readGeneration !== undefined && !unknownOutcome)
+            designTasks.acknowledgeFileRead(session.fileKey, readGeneration)
           throw error
         })
         if (taskId && isCanvasWrite) {
@@ -905,8 +932,9 @@ export async function startHub(): Promise<void> {
           runtime,
           compatibilityNotice: versionedReadNotice(protocolVersion, tool.name)
         })
-        if (response.isError && isCanvasWrite) designTasks.requireFileRead(session.fileKey)
-        if (!response.isError && ['get_structure', 'get_code'].includes(tool.name)) {
+        if (!response.isError && readGeneration !== undefined)
+          designTasks.acknowledgeFileRead(session.fileKey, readGeneration)
+        if (!response.isError && hasCanvasReadEvidence(tool.name, payload)) {
           if (taskId) designTasks.acknowledgeRead(taskId, ownerId, taskEpoch)
           designTasks.acknowledgeFileRead(session.fileKey)
         }
