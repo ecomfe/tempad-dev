@@ -13,7 +13,6 @@ type TextField =
   | 'letterSpacing'
   | 'textCase'
   | 'textDecoration'
-  | 'listSpacing'
   | 'hyperlink'
 
 // Unlike the fixture's independent range map, native whole-node getters become
@@ -91,13 +90,6 @@ const cases = [
     changed: 'STRIKETHROUGH'
   },
   {
-    field: 'listSpacing',
-    classes: '',
-    changedClasses: '',
-    override: 8,
-    changed: 12
-  },
-  {
     field: 'hyperlink',
     classes: '',
     changedClasses: '',
@@ -121,7 +113,6 @@ describe('whole-node text values with range overrides', () => {
                 ...(test.field === 'hyperlink'
                   ? { hyperlink: changed ? URL_CHANGED : URL_BASE }
                   : {}),
-                ...(test.field === 'listSpacing' ? { listSpacing: changed ? 12 : 4 } : {}),
                 ranges: [{ start: 0, end: 5, [test.field]: test.override }]
               }
             }

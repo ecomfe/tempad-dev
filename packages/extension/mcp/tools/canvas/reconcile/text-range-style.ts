@@ -199,7 +199,12 @@ function effectiveFieldMatches(
   paragraphs: TextParagraph['effective'],
   matches: (start: number, end: number) => boolean
 ): boolean {
-  if (field !== 'paragraphIndent' && field !== 'paragraphSpacing' && field !== 'textWrapStyle') {
+  if (
+    field !== 'paragraphIndent' &&
+    field !== 'paragraphSpacing' &&
+    field !== 'listSpacing' &&
+    field !== 'textWrapStyle'
+  ) {
     return matches(range.start, range.end)
   }
   const scope = paragraphs[field]

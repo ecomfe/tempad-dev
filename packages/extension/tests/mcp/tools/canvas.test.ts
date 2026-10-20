@@ -6616,12 +6616,12 @@ describe('mcp/tools/canvas', () => {
       maxLines: 2,
       paragraphIndent: 12,
       paragraphSpacing: 16,
-      listSpacing: 8,
       hangingPunctuation: true,
       hangingList: true,
       leadingTrim: 'CAP_HEIGHT',
       hyperlink: { type: 'URL', value: 'https://example.com' }
     })
+    expect(copy.getRangeListSpacing(0, copy.characters.length)).toBe(8)
     await expect(
       applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).resolves.toMatchObject({ mutationCount: 0 })
@@ -6667,12 +6667,12 @@ describe('mcp/tools/canvas', () => {
       maxLines: null,
       paragraphIndent: 0,
       paragraphSpacing: 0,
-      listSpacing: 0,
       hangingPunctuation: false,
       hangingList: false,
       leadingTrim: 'NONE',
       hyperlink: null
     })
+    expect(copy.getRangeListSpacing(0, copy.characters.length)).toBe(0)
     await expect(applyCanvas(updated)).resolves.toMatchObject({ mutationCount: 0 })
   })
 

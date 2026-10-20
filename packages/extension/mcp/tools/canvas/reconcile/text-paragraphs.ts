@@ -2,7 +2,12 @@ import type { CanvasFigmaTextRange } from '@tempad-dev/shared'
 
 import { textParagraphRanges, type TextRange } from './text-ranges'
 
-const PARAGRAPH_FIELDS = ['paragraphIndent', 'paragraphSpacing', 'textWrapStyle'] as const
+const PARAGRAPH_FIELDS = [
+  'paragraphIndent',
+  'paragraphSpacing',
+  'listSpacing',
+  'textWrapStyle'
+] as const
 type ParagraphField = (typeof PARAGRAPH_FIELDS)[number]
 export type TextParagraph = {
   range: CanvasFigmaTextRange
@@ -18,6 +23,7 @@ export function textParagraphs(
   const nextOwner = {
     paragraphIndent: characters.length,
     paragraphSpacing: characters.length,
+    listSpacing: characters.length,
     textWrapStyle: characters.length
   }
   const result: TextParagraph[] = Array(ranges.length)
@@ -32,7 +38,8 @@ export function textParagraphs(
       effective[field] = { start: span.start, end: Math.min(span.end, nextOwner[field]) }
       if (
         range.textStyle ||
-        (field !== 'textWrapStyle' && (range[field] !== undefined || range.variables?.[field]))
+        (field !== 'textWrapStyle' && range[field] !== undefined) ||
+        ((field === 'paragraphIndent' || field === 'paragraphSpacing') && range.variables?.[field])
       ) {
         nextOwner[field] = span.start
       }

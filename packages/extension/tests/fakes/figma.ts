@@ -1127,7 +1127,8 @@ export function createFixture({
       const rangeKey = (start: number, end: number, field: string) => {
         if (
           field.replace('variable:', '') === 'paragraphIndent' ||
-          field.replace('variable:', '') === 'paragraphSpacing'
+          field.replace('variable:', '') === 'paragraphSpacing' ||
+          field === 'listSpacing'
         ) {
           start = start === 0 ? 0 : characters.lastIndexOf('\n', start - 1) + 1
           const newline = characters.indexOf('\n', end - 1)

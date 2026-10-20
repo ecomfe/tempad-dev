@@ -34,6 +34,7 @@ import {
   textParagraphRanges,
   textRangesIntersect,
   textRangesMatchOutside,
+  textRangesOutside,
   type TextRange
 } from './text-ranges'
 import { baseTextStyleScope, type BaseTextStyleScope } from './text-style-scope'
@@ -213,18 +214,7 @@ export async function applyText(
     native?.ranges,
     state
   )
-  setBaseTextValue(
-    node,
-    'listSpacing',
-    native?.listSpacing,
-    {
-      current: node.listSpacing,
-      apply: (value) => (node.listSpacing = value),
-      readRange: (start, end) => node.getRangeListSpacing(start, end)
-    },
-    native?.ranges,
-    state
-  )
+  setBaseListSpacing(node, native?.listSpacing, native?.ranges, state)
   setValue(
     node,
     node.hangingPunctuation,
@@ -363,6 +353,35 @@ function setBaseTextValue<T>(
   // existing setter and subsequent range restoration.
   apply(desired)
   markMutation(state, node)
+}
+
+function setBaseListSpacing(
+  node: TextNode,
+  desired: number | undefined,
+  ranges: CanvasFigmaTextRange[] | undefined,
+  state: ApplyState
+): void {
+  if (desired === undefined) return
+  if (!node.characters.length) {
+    setValue(node, node.listSpacing, desired, (value) => (node.listSpacing = value), state)
+    return
+  }
+  const owned = (ranges ?? []).filter((range) => rangeOwnsTextField(range, 'listSpacing'))
+  const overrides = textParagraphRanges(node.characters, owned)
+  // Native whole-node listSpacing writes leave existing range values intact.
+  // Set only the paragraphs not owned by the later range declarations.
+  for (const { start, end } of textRangesOutside(
+    { start: 0, end: node.characters.length },
+    overrides
+  )) {
+    setValue(
+      node,
+      node.getRangeListSpacing(start, end),
+      desired,
+      (value) => node.setRangeListSpacing(start, end, value),
+      state
+    )
+  }
 }
 
 function setTextMeasure<T extends LineHeight | LetterSpacing>(
@@ -630,14 +649,16 @@ export async function applyTextRanges(
       (value) => node.setRangeListOptions(range.start, range.end, value),
       state
     )
-    applyTextRangeValue(
-      node,
-      node.getRangeListSpacing(range.start, range.end),
-      typography.listSpacing,
-      (value) => node.setRangeListSpacing(range.start, range.end, value),
-      state,
-      scalarValuesEqual
-    )
+    const listSpacing = paragraph.effective.listSpacing
+    if (listSpacing.start < listSpacing.end)
+      applyTextRangeValue(
+        node,
+        node.getRangeListSpacing(listSpacing.start, listSpacing.end),
+        typography.listSpacing,
+        (value) => node.setRangeListSpacing(range.start, range.end, value),
+        state,
+        scalarValuesEqual
+      )
     applyTextRangeValue(
       node,
       node.getRangeIndentation(range.start, range.end),

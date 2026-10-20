@@ -374,11 +374,13 @@ describe('paragraph comparison scopes', () => {
     expect(paragraphs[1]!.effective).toEqual({
       paragraphIndent: { start: 1, end: 4 },
       paragraphSpacing: { start: 1, end: 1 },
+      listSpacing: { start: 1, end: 4 },
       textWrapStyle: { start: 1, end: 4 }
     })
     expect(paragraphs[2]!.effective).toEqual({
       paragraphIndent: { start: 1, end: 4 },
       paragraphSpacing: { start: 1, end: 4 },
+      listSpacing: { start: 1, end: 4 },
       textWrapStyle: { start: 1, end: 4 }
     })
   })
@@ -393,6 +395,7 @@ describe('paragraph comparison scopes', () => {
       expect(paragraphs[0]!.effective).toEqual({
         paragraphIndent: { start: 0, end: reference ? 0 : 6 },
         paragraphSpacing: { start: 0, end: 6 },
+        listSpacing: { start: 0, end: 6 },
         textWrapStyle: { start: 0, end: 6 }
       })
     }
