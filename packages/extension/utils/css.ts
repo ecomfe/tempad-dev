@@ -104,10 +104,11 @@ function hasTopLevelComma(value: string): boolean {
   return splitByTopLevelComma(value, true).length > 1
 }
 
-const BG_SIZE_RE = /\/\s*(cover|contain|auto|[\d.]+(?:px|%)?)/i
+const BG_SIZE_RE =
+  /\/\s*(cover|contain|(?:auto|[+\d.]+(?:px|rem|em|%)?)(?:\s+(?:auto|[+\d.]+(?:px|rem|em|%)?))?)(?=$|\s)/i
 const BG_REPEAT_RE = /(?:^|\s)(no-repeat|repeat-x|repeat-y|repeat|space|round)(?=$|\s)/i
 const BG_POS_RE =
-  /(?:^|\s)(center|top|bottom|left|right|[\d.]+(?:%|px))(?:\s+(?:center|top|bottom|left|right|[\d.]+(?:%|px)))?(?=\s*\/|\s*$)/i
+  /(?:^|\s)((?:center|top|bottom|left|right|[+-]?[\d.]+(?:%|px|rem|em)?)(?:\s+(?:center|top|bottom|left|right|[+-]?[\d.]+(?:%|px|rem|em)?)){0,3})(?=\s*\/|\s*$)/i
 export const BG_URL_RE = /url\((['"]?)(.*?)\1\)/i
 
 const KEEP_PX_PROPS = new Set([
@@ -244,18 +245,20 @@ export function parseBackgroundShorthand(value: string) {
 
   const urlMatch = value.match(BG_URL_RE)
   if (urlMatch) result.image = urlMatch[0]
+  const layout = urlMatch ? value.replace(urlMatch[0], '') : value
 
-  const sizeMatch = value.match(BG_SIZE_RE)
+  const sizeMatch = layout.match(BG_SIZE_RE)
   if (sizeMatch) result.size = sizeMatch[1]
 
-  const repeatMatch = value.match(BG_REPEAT_RE)
+  const repeatMatch = layout.match(BG_REPEAT_RE)
   if (repeatMatch) {
     const [, repeatToken] = repeatMatch
     result.repeat = repeatToken!.trim()
   }
 
-  const posMatch = value.match(BG_POS_RE)
-  if (posMatch) result.position = posMatch[0].trim()
+  const position = layout.split('/')[0]!.replace(BG_REPEAT_RE, '').trim()
+  const posMatch = position.match(BG_POS_RE)
+  if (posMatch) result.position = posMatch[1]
 
   return result
 }

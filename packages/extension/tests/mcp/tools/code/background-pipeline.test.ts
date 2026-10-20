@@ -21,15 +21,29 @@ vi.mock('@/mcp/assets', () => ({
 
 afterEach(() => vi.unstubAllGlobals())
 
-it.each(
-  [false, true].flatMap((resolveTokens) => [
-    { resolveTokens, layered: false, lang: 'jsx' as const },
-    { resolveTokens, layered: true, lang: 'jsx' as const },
-    { resolveTokens, layered: true, lang: 'vue' as const }
-  ])
-)(
-  'keeps a bound base color and images through get_code ($lang, layered=$layered, resolved=$resolveTokens)',
-  async ({ resolveTokens, layered, lang }) => {
+const cases = [false, true].flatMap((resolveTokens) => [
+  { resolveTokens, layered: false, lang: 'jsx' as const, mode: 'fill' as const },
+  { resolveTokens, layered: true, lang: 'jsx' as const, mode: 'fill' as const },
+  { resolveTokens, layered: true, lang: 'vue' as const, mode: 'fill' as const }
+])
+it.each([
+  ...cases,
+  ...(['jsx', 'vue'] as const).flatMap((lang) =>
+    (['crop', 'tile'] as const).map((mode) => ({
+      resolveTokens: false,
+      layered: false,
+      lang,
+      mode
+    }))
+  )
+])(
+  'keeps bound base color, image geometry and assets ($lang, layered=$layered, resolved=$resolveTokens, mode=$mode)',
+  async ({ resolveTokens, layered, lang, mode }) => {
+    const geometry = {
+      fill: '50% / cover no-repeat',
+      crop: '-2.08px -14.75px / 104.167% 145.833% no-repeat',
+      tile: '0% 0% / 20px 20px repeat'
+    }[mode]
     const variable = {
       id: 'base',
       name: 'Base',
@@ -90,7 +104,7 @@ it.each(
           color: { r: 1, g: 0, b: 0 },
           boundVariables: { color: { type: 'VARIABLE_ALIAS', id: 'base' } }
         },
-        { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' },
+        { type: 'IMAGE', imageHash: 'image', scaleMode: mode.toUpperCase() },
         ...(layered ? [{ type: 'IMAGE', imageHash: 'front', scaleMode: 'FILL' }] : [])
       ],
       strokes: [],
@@ -99,7 +113,7 @@ it.each(
       getCSSAsync: async () => ({
         background: [
           ...(layered ? ['url("front.png") lightgray left / contain repeat-x'] : []),
-          'url("image.png") lightgray 50% / cover no-repeat'
+          `url("image.png") lightgray ${geometry}`
         ].join(', ')
       })
     } as unknown as SceneNode
@@ -116,6 +130,13 @@ it.each(
       expect(result.code.indexOf('front.png')).toBeLessThan(result.code.indexOf('image.png'))
     } else {
       expect(result.code).toContain(resolveTokens ? 'bg-[#F00]' : 'bg-(--Base)')
+      if (mode === 'crop') {
+        expect(result.code).toContain('bg-[length:104.167%_145.833%]')
+        expect(result.code).toContain('bg-[position:-2.08px_-14.75px]')
+      } else if (mode === 'tile') {
+        expect(result.code).toContain('bg-[length:20px_20px]')
+        expect(result.code).toContain('bg-[position:0_0]')
+      }
     }
     expect(result.code).toContain('https://assets.test/image.png')
     expect(result.code).not.toContain('lightgray')

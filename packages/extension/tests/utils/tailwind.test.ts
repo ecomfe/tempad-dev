@@ -146,6 +146,27 @@ describe('utils/tailwind cssToTailwind', () => {
     ).toEqual(['hover:[background:linear-gradient(red,_blue)_center_/_cover_no-repeat]'])
   })
 
+  it.each(['104.167% 145.833%', '20px 20px', '16px auto'])(
+    'emits an arbitrary background-size utility for %s',
+    (size) => {
+      expect(
+        cssToClassNames({
+          'background-size': size,
+          'background-position': '-2.08px -14.75px'
+        })
+      ).toEqual([`bg-[length:${size.replaceAll(' ', '_')}]`, 'bg-[position:-2.08px_-14.75px]'])
+    }
+  )
+
+  it('retains keyword and variable background sizes', () => {
+    expect(cssToClassNames({ 'background-size': 'cover' })).toEqual(['bg-cover'])
+    expect(cssToClassNames({ 'background-size': 'contain' })).toEqual(['bg-contain'])
+    expect(cssToClassNames({ 'background-size': 'auto' })).toEqual(['bg-auto'])
+    expect(cssToClassNames({ 'background-size': 'var(--image-size)' })).toEqual([
+      'bg-(length:--image-size)'
+    ])
+  })
+
   it('maps shorthand and pseudo-related properties to canonical utilities', () => {
     const result = cssToTailwind({
       content: '""',

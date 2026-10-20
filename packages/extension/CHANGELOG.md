@@ -2,7 +2,7 @@
 
 ## 0.23.5 (unreleased)
 
-- Improved CSS exports for layered fills and image backgrounds, stacking and blending,
+- Improved CSS exports for layered fills, image crops and tiles, stacking and blending,
   mixed fonts, variable opacity, and SVG sizing and placement.
 - Fixed canvas updates involving components, grids, fonts, and variable modes. Invalid resource
   changes are rejected earlier, with clearer errors when failed edits cannot be fully restored.

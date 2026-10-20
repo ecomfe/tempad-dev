@@ -103,6 +103,29 @@ describe('utils/css parsing and normalization', () => {
     })
   })
 
+  it.each([
+    ['-2.08px -14.75px', '104.167% 145.833%', 'no-repeat'],
+    ['0% 0%', '20px 20px', 'repeat'],
+    ['left 10px top 20px', '16px auto', 'repeat-x']
+  ])('preserves image position %s and size %s', (position, size, repeat) => {
+    expect(parseBackgroundShorthand(`url("crop.png") ${position} / ${size} ${repeat}`)).toEqual({
+      image: 'url("crop.png")',
+      position,
+      size,
+      repeat
+    })
+  })
+
+  it('does not read geometry or repeat keywords from the image URL', () => {
+    expect(parseBackgroundShorthand('url("https://assets.test/20px repeat/40px.png")')).toEqual({
+      image: 'url("https://assets.test/20px repeat/40px.png")'
+    })
+    expect(parseBackgroundShorthand('url("tile.png") / 20px 30px')).toEqual({
+      image: 'url("tile.png")',
+      size: '20px 30px'
+    })
+  })
+
   it('normalizes values with scale/rem and keep-px exceptions', () => {
     const remConfig = { cssUnit: 'rem' as const, rootFontSize: 20, scale: 2 }
 

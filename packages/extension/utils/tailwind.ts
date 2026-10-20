@@ -732,6 +732,7 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     mode: 'direct',
     valueKind: 'any',
     arbitraryType: 'position',
+    inlineNegative: true,
     keywords: [
       ['center', 'center'],
       ['top', 'top'],
@@ -750,7 +751,8 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
   backgroundSize: {
     prefix: 'bg',
     mode: 'direct',
-    valueKind: 'keyword',
+    valueKind: 'any',
+    arbitraryType: 'length',
     keywords: ['auto', 'cover', 'contain'],
     props: { v: 'background-size' }
   },
