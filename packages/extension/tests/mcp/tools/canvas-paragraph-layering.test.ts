@@ -1,4 +1,4 @@
-import type { CanvasResolvedApplyParameters } from '@tempad-dev/shared'
+import type { CanvasFigmaTextRange, CanvasResolvedApplyParameters } from '@tempad-dev/shared'
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -17,7 +17,7 @@ async function createParagraphProbe(
   const fixture = createFixture()
   const request = (
     base: number | undefined,
-    ranges?: ParagraphRange[]
+    ranges?: Array<ParagraphRange | CanvasFigmaTextRange>
   ): CanvasResolvedApplyParameters => ({
     mode: 'create',
     markup: `<div data-key="root" class="flex w-80 h-80"><span data-key="label" class="w-40 h-20 whitespace-pre-wrap">${characters}</span></div>`,
@@ -28,7 +28,13 @@ async function createParagraphProbe(
             hangingPunctuation: false,
             ...(base === undefined ? {} : { [field]: base }),
             ...(ranges
-              ? { ranges: ranges.map(({ start, end, value }) => ({ start, end, [field]: value })) }
+              ? {
+                  ranges: ranges.map((range) =>
+                    'value' in range
+                      ? { start: range.start, end: range.end, [field]: range.value }
+                      : range
+                  )
+                }
               : {})
           }
         }
@@ -47,7 +53,12 @@ async function createParagraphProbe(
   const paragraphs = characters.split('\n').map((text, index, all) => {
     const start = offset
     offset += text.length + (index < all.length - 1 ? 1 : 0)
-    return { start, end: offset, value: initialValues[index]! }
+    return {
+      start,
+      end: offset,
+      value: initialValues[index]!,
+      alias: undefined as VariableAlias | undefined
+    }
   })
   const affected = (start: number, end: number) =>
     paragraphs.filter((paragraph) => paragraph.start < end && paragraph.end > start)
@@ -58,7 +69,10 @@ async function createParagraphProbe(
       : figma.mixed
   }
   const write = vi.fn((start: number, end: number, value: number) => {
-    for (const paragraph of affected(start, end)) paragraph.value = value
+    for (const paragraph of affected(start, end)) {
+      paragraph.value = value
+      paragraph.alias = undefined
+    }
   })
   Object.defineProperty(label, field, {
     configurable: true,
@@ -68,11 +82,39 @@ async function createParagraphProbe(
   const suffix = field === 'paragraphIndent' ? 'ParagraphIndent' : 'ParagraphSpacing'
   Object.defineProperty(label, `getRange${suffix}`, { value: read })
   Object.defineProperty(label, `setRange${suffix}`, { value: write })
+  const readBinding = label.getRangeBoundVariable.bind(label)
+  const writeBinding = label.setRangeBoundVariable.bind(label)
+  Object.defineProperty(label, 'getRangeBoundVariable', {
+    value: (start: number, end: number, property: VariableBindableTextField) => {
+      if (property !== field) return readBinding(start, end, property)
+      const selected = affected(start, end)
+      return selected.every((paragraph) => paragraph.alias?.id === selected[0]!.alias?.id)
+        ? selected[0]!.alias
+        : figma.mixed
+    }
+  })
+  const bind = vi.fn(
+    (
+      start: number,
+      end: number,
+      property: VariableBindableTextField,
+      variable: Variable | null
+    ) => {
+      if (property !== field) return writeBinding(start, end, property, variable)
+      for (const paragraph of affected(start, end)) {
+        paragraph.alias = variable ? { type: 'VARIABLE_ALIAS', id: variable.id } : undefined
+        if (variable) paragraph.value = variable.resolveForConsumer(label).value as number
+      }
+    }
+  )
+  Object.defineProperty(label, 'setRangeBoundVariable', { value: bind })
 
   return {
     values: () => paragraphs.map(({ value }) => value),
+    aliases: () => paragraphs.map(({ alias }) => alias?.id),
     write,
-    update: (base: number | undefined, ranges?: ParagraphRange[]) =>
+    bind,
+    update: (base: number | undefined, ranges?: Array<ParagraphRange | CanvasFigmaTextRange>) =>
       applyCanvas({
         ...request(base, ranges),
         mode: 'update',
@@ -175,5 +217,40 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
     await expect(probe.update(undefined)).resolves.toMatchObject({ mutationCount: 0 })
     expect(probe.values()).toEqual([25, 10, 10])
     expect(probe.write).not.toHaveBeenCalled()
+  })
+
+  it('converges a variable overridden by a later literal in the same paragraph', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const ranges: CanvasFigmaTextRange[] = [
+      { start: 0, end: 7, variables: { [field]: { id: 'variable:spacing' } } },
+      { start: 8, end: 9, [field]: 30 }
+    ]
+    await probe.update(undefined, ranges)
+    expect(probe.values()).toEqual([8, 30, 0])
+    expect(probe.aliases()).toEqual(['variable:spacing', undefined, undefined])
+
+    probe.write.mockClear()
+    probe.bind.mockClear()
+    await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+    expect(probe.write).not.toHaveBeenCalled()
+    expect(probe.bind).not.toHaveBeenCalled()
+
+    // Removing the later literal restores the earlier variable on that paragraph.
+    await probe.update(undefined, [ranges[0]!])
+    expect(probe.values()).toEqual([8, 8, 0])
+    expect(probe.aliases()).toEqual(['variable:spacing', 'variable:spacing', undefined])
+    await expect(probe.update(undefined, [ranges[0]!])).resolves.toMatchObject({
+      mutationCount: 0
+    })
+  })
+
+  it('does not treat a later null binding as ownership of the paragraph value', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    await probe.update(undefined, [
+      { start: 0, end: 1, variables: { [field]: { id: 'variable:spacing' } } },
+      { start: 2, end: 3, variables: { [field]: null } }
+    ])
+    expect(probe.values()).toEqual([8, 0, 0])
+    expect(probe.aliases()).toEqual([undefined, undefined, undefined])
   })
 })

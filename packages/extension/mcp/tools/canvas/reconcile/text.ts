@@ -211,11 +211,16 @@ export async function applyText(
     native?.ranges,
     state
   )
-  setValue(
+  setBaseTextValue(
     node,
-    node.listSpacing,
+    'listSpacing',
     native?.listSpacing,
-    (value) => (node.listSpacing = value),
+    {
+      current: node.listSpacing,
+      apply: (value) => (node.listSpacing = value),
+      readRange: (start, end) => node.getRangeListSpacing(start, end)
+    },
+    native?.ranges,
     state
   )
   setValue(
@@ -253,6 +258,7 @@ type BaseTextField =
   | 'textDecoration'
   | 'paragraphIndent'
   | 'paragraphSpacing'
+  | 'listSpacing'
   | 'hyperlink'
 
 function rangeOwnsTextField(range: CanvasFigmaTextRange, field: BaseTextField): boolean {
@@ -262,7 +268,7 @@ function rangeOwnsTextField(range: CanvasFigmaTextRange, field: BaseTextField): 
   if (field === 'fontName') {
     return TEXT_STYLE_VARIABLES_BY_VALUE.fontName.some((variable) => range.variables?.[variable])
   }
-  if (field === 'textCase' || field === 'textDecoration') return false
+  if (field === 'textCase' || field === 'textDecoration' || field === 'listSpacing') return false
   return !!range.variables?.[field]
 }
 
@@ -273,6 +279,19 @@ function textFieldRange(
 ): { start: number; end: number } {
   if (field !== 'paragraphIndent' && field !== 'paragraphSpacing') return range
   return textParagraphRange(node.characters, range)
+}
+
+function textFieldMatchesOutside(
+  node: TextNode,
+  field: BaseTextField,
+  scope: TextRange,
+  ranges: readonly CanvasFigmaTextRange[],
+  matches: (start: number, end: number) => boolean
+): boolean {
+  const overrides = ranges
+    .filter((range) => rangeOwnsTextField(range, field))
+    .map((range) => textFieldRange(node, field, range))
+  return textRangesMatchOutside(textFieldRange(node, field, scope), overrides, matches)
 }
 
 type TextValueAccess<T> = {
@@ -329,12 +348,9 @@ function setBaseTextValue<T>(
   scope = { start: 0, end: node.characters.length }
 ): void {
   if (desired === undefined || equal(current, desired)) return
-  const overrides = ranges
-    ?.filter((range) => rangeOwnsTextField(range, field))
-    .map((range) => textFieldRange(node, field, range))
   if (
-    overrides?.length &&
-    textRangesMatchOutside(textFieldRange(node, field, scope), overrides, (start, end) =>
+    ranges?.length &&
+    textFieldMatchesOutside(node, field, scope, ranges, (start, end) =>
       equal(readRange(start, end), desired)
     )
   )
@@ -430,6 +446,7 @@ function nativeTextDecorationColor(
 async function applyTextRangeVariables(
   node: TextNode,
   range: CanvasFigmaTextRange,
+  laterRanges: readonly CanvasFigmaTextRange[],
   state: ApplyState
 ): Promise<void> {
   await loadVariableFonts(node, range.variables, state, range)
@@ -439,6 +456,14 @@ async function applyTextRangeVariables(
     const variable = reference ? resolvedVariable(reference, state.variables) : null
     const current = node.getRangeBoundVariable(range.start, range.end, field)
     if (current !== figma.mixed && current?.id === variable?.id) continue
+    if (
+      (field === 'paragraphIndent' || field === 'paragraphSpacing') &&
+      textFieldMatchesOutside(node, field, range, laterRanges, (start, end) => {
+        const alias = node.getRangeBoundVariable(start, end, field)
+        return alias !== figma.mixed && alias?.id === variable?.id
+      })
+    )
+      continue
     node.setRangeBoundVariable(range.start, range.end, field, variable)
     markMutation(state, node)
   }
@@ -616,6 +641,6 @@ export async function applyTextRanges(
       node.setRangeHyperlink(range.start, range.end, hyperlink)
       markMutation(state, node)
     }
-    await applyTextRangeVariables(node, range, state)
+    await applyTextRangeVariables(node, range, laterRanges, state)
   }
 }
