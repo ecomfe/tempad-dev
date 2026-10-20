@@ -456,14 +456,36 @@ async function applyTextRangeVariables(
     const variable = reference ? resolvedVariable(reference, state.variables) : null
     const current = node.getRangeBoundVariable(range.start, range.end, field)
     if (current !== figma.mixed && current?.id === variable?.id) continue
-    if (
-      (field === 'paragraphIndent' || field === 'paragraphSpacing') &&
-      textFieldMatchesOutside(node, field, range, laterRanges, (start, end) => {
+    if (variable && (field === 'paragraphIndent' || field === 'paragraphSpacing')) {
+      const scope = textFieldRange(node, field, range)
+      const overriding = laterRanges
+        .filter((later) => rangeOwnsTextField(later, field))
+        .map((later) => ({ range: later, scope: textFieldRange(node, field, later) }))
+        .filter((later) => later.scope.start < scope.end && later.scope.end > scope.start)
+      const overrides = overriding.map((later) => later.scope)
+      const unchanged = textRangesMatchOutside(scope, overrides, (start, end) => {
         const alias = node.getRangeBoundVariable(start, end, field)
-        return alias !== figma.mixed && alias?.id === variable?.id
+        return alias !== figma.mixed && alias?.id === variable.id
       })
-    )
-      continue
+      if (unchanged && overriding.length) {
+        // An equal later literal may skip its native setter. Do not let its value
+        // ownership retain a different alias or swallow an explicit null unbinding.
+        const value = variable.resolveForConsumer(node).value
+        const clearsBinding = overriding.every(
+          (later) =>
+            later.range.textStyle === undefined &&
+            later.range.variables?.[field] === undefined &&
+            later.range[field] !== undefined &&
+            !scalarValuesEqual(value, later.range[field])
+        )
+        // The later setter can also clear aliases beyond the earlier range.
+        const unbound = overrides.every(({ start, end }) => {
+          const alias = node.getRangeBoundVariable(start, end, field)
+          return alias !== figma.mixed && !alias
+        })
+        if (clearsBinding && unbound) continue
+      }
+    }
     node.setRangeBoundVariable(range.start, range.end, field, variable)
     markMutation(state, node)
   }

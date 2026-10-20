@@ -253,4 +253,63 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
     expect(probe.values()).toEqual([8, 0, 0])
     expect(probe.aliases()).toEqual([undefined, undefined, undefined])
   })
+
+  it('clears an explicit null binding before an equal later paragraph literal', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    await probe.update(undefined, [
+      { start: 0, end: 1, variables: { [field]: { id: 'variable:spacing' } } }
+    ])
+    const ranges: CanvasFigmaTextRange[] = [
+      { start: 0, end: 1, variables: { [field]: null } },
+      { start: 2, end: 3, [field]: 8 }
+    ]
+    await probe.update(undefined, ranges)
+    expect(probe.values()).toEqual([8, 0, 0])
+    expect(probe.aliases()).toEqual([undefined, undefined, undefined])
+    await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('retains the requested alias when an equal later literal would not overwrite it', async () => {
+    const probe = await createParagraphProbe(field, [8, 0, 0])
+    const ranges: CanvasFigmaTextRange[] = [
+      { start: 0, end: 1, variables: { [field]: { id: 'variable:spacing' } } },
+      { start: 2, end: 3, [field]: 8 }
+    ]
+    await probe.update(undefined, ranges)
+    expect(probe.values()).toEqual([8, 0, 0])
+    expect(probe.aliases()).toEqual(['variable:spacing', undefined, undefined])
+    await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('does not preserve a different alias just because its value equals a later literal', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const collection = figma.variables.createVariableCollection('Other metric')
+    const other = figma.variables.createVariable('Other metric', collection, 'FLOAT')
+    other.setValueForMode(collection.defaultModeId, 30)
+    await probe.update(undefined, [{ start: 0, end: 1, variables: { [field]: { id: other.id } } }])
+    const ranges: CanvasFigmaTextRange[] = [
+      { start: 0, end: 1, variables: { [field]: { id: 'variable:spacing' } } },
+      { start: 2, end: 3, [field]: 30 }
+    ]
+    await probe.update(undefined, ranges)
+    expect(probe.values()).toEqual([30, 0, 0])
+    expect(probe.aliases()).toEqual([undefined, undefined, undefined])
+    await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('preserves a later literal setter clearing aliases beyond the earlier variable range', async () => {
+    const probe = await createParagraphProbe(field, [30, 0, 0])
+    const collection = figma.variables.createVariableCollection('Other metric')
+    const other = figma.variables.createVariable('Other metric', collection, 'FLOAT')
+    other.setValueForMode(collection.defaultModeId, 30)
+    await probe.update(undefined, [{ start: 6, end: 7, variables: { [field]: { id: other.id } } }])
+    const ranges: CanvasFigmaTextRange[] = [
+      { start: 0, end: 1, variables: { [field]: { id: 'variable:spacing' } } },
+      { start: 2, end: 7, [field]: 30 }
+    ]
+    await probe.update(undefined, ranges)
+    expect(probe.values()).toEqual([30, 30, 0])
+    expect(probe.aliases()).toEqual([undefined, undefined, undefined])
+    await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
 })
