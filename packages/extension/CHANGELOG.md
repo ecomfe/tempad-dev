@@ -19,13 +19,14 @@
 - Fixed stale selection code, incorrect unit conversions, and misleading copy or plugin-install
   success messages. Added code-generation progress and Retry. Improved keyboard access.
 - Preserved preferences and plugin changes across tabs, including when storage is full.
-- Added recovery for unreadable saved plugins.
+- Added recovery for unreadable or malformed saved plugins.
 - Added Refresh links and documentation links for component sets.
-- Preserved native HTML and SVG attributes in Vue exports.
+- Preserved native HTML, SVG, and accessibility attributes in Vue exports.
 - Preserved literal text and token names in code exports.
 - Added browser-compatibility warnings for token-based font weight and opacity.
 - Restored selection and measurement tools after switching windows with keys held.
-- Reported unsupported named text entities without changing the supplied text.
+- Fixed text entity decoding after literal ampersands and reported unsupported names without
+  changing the supplied text.
 
 ## 0.23.4
 

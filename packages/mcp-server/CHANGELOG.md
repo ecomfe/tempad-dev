@@ -13,8 +13,10 @@
   without updates.
 - Hardened local storage and Unix socket access.
 - Prevented restored reviews from sending feedback to unrelated conversations.
-- Added safe recovery for damaged task storage, with clear recovery paths and old tasks kept retired.
-- Required a fresh canvas read after recovering disconnected writes with an unknown outcome.
+- Added safe recovery for damaged task storage, with old tasks kept retired and recovery errors
+  readable by MCP SDK clients.
+- Required a successful canvas read after interrupted writes with unknown results, including
+  after Stop and starting a new task.
 - Prevented repeated disconnected reads from exhausting request capacity.
 - Preserved saved task records across version changes and showed progress during longer Hub startup.
 - Prevented malformed asset requests from disconnecting agents and released resources after
