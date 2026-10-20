@@ -26,6 +26,7 @@ import {
   parseVariableModeKeys,
   readAuthoringKey
 } from './identity'
+import { scalarValuesEqual } from './reconcile/comparison'
 import { isComponentPropertyOwner, walkPhysicalNodes } from './traversal'
 
 type CollectionSpec = Exclude<CanvasVariableCollections[string], null>
@@ -706,6 +707,7 @@ function isColor(value: unknown): value is RGB | RGBA {
 
 function valuesEqual(left: VariableValue | undefined, right: VariableValue): boolean {
   if (left === right) return true
+  if (typeof left === 'number' && typeof right === 'number') return scalarValuesEqual(left, right)
   if (left === undefined || typeof left !== 'object' || typeof right !== 'object') return false
   if (isAlias(left) || isAlias(right)) {
     return isAlias(left) && isAlias(right) && left.id === right.id
