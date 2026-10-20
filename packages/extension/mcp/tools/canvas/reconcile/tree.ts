@@ -288,7 +288,7 @@ export async function applyCanvasKeyReferences(
   }
   if (node.type === 'TEXT') {
     if (isCanvasKeyHyperlink(spec.figma?.text?.hyperlink)) {
-      applyTextHyperlink(node, spec.figma.text.hyperlink, state)
+      applyTextHyperlink(node, spec.figma.text.hyperlink, state, spec.figma.text.ranges)
     }
     if (hasDeferredTextRanges(spec)) {
       await applyTextRanges(node, spec.figma?.text?.ranges, state)

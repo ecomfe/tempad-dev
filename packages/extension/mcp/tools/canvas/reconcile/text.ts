@@ -11,12 +11,19 @@ import { specError } from '../errors'
 import { resolveStyle } from '../styles'
 import { resolvedVariable } from '../variables'
 import { currentBoundVariableId } from './binding-values'
-import { textMeasuresEqual, hyperlinksEqual, nativeValueEqual, fontNamesEqual } from './comparison'
+import {
+  textMeasuresEqual,
+  hyperlinksEqual,
+  nativeValueEqual,
+  fontNamesEqual,
+  scalarValuesEqual
+} from './comparison'
 import { preservesComponentPropertyReference } from './components'
 import { nativePaint, paintStacksEqual } from './native-values'
 import { isCanvasKeyHyperlink, nativeHyperlink } from './nodes'
 import { type ApplyState, markMutation, setValue } from './state'
-import { loadTextFonts, loadVariableFonts } from './text-fonts'
+import { loadTextFonts, loadVariableFonts, TEXT_STYLE_VARIABLES_BY_VALUE } from './text-fonts'
+import { textRangesMatchOutside } from './text-ranges'
 
 export async function applyText(
   node: TextNode,
@@ -28,10 +35,19 @@ export async function applyText(
   const native = spec.figma?.text
   const desiredFont = await loadTextFonts(node, spec, state)
   const hasTextStyle = !!(spec.styles?.text || node.textStyleId)
-  if (desiredFont && !fontNamesEqual(node.fontName, desiredFont)) {
-    node.fontName = desiredFont
-    markMutation(state, node)
-  }
+  setBaseTextValue(
+    node,
+    'fontName',
+    desiredFont ?? undefined,
+    {
+      current: node.fontName,
+      apply: (value) => (node.fontName = value),
+      readRange: (start, end) => node.getRangeFontName(start, end),
+      equal: fontNamesEqual
+    },
+    node.characters === text.characters ? native?.ranges : undefined,
+    state
+  )
   setValue(node, node.autoRename, native?.autoRename, (value) => (node.autoRename = value), state)
   setValue(
     node,
@@ -44,33 +60,48 @@ export async function applyText(
     (value) => (node.characters = value),
     state
   )
-  setValue(
+  setBaseTextValue(
     node,
-    node.fontSize,
+    'fontSize',
     hasTextStyle || spec.variables?.fontSize || currentBoundVariableId(node, 'fontSize')
       ? undefined
       : text.fontSize,
-    (value) => (node.fontSize = value),
+    {
+      current: node.fontSize,
+      apply: (value) => (node.fontSize = value),
+      readRange: (start, end) => node.getRangeFontSize(start, end)
+    },
+    native?.ranges,
     state
   )
-  setTextMeasure(
+  setBaseTextValue(
     node,
     'lineHeight',
-    node.lineHeight,
     hasTextStyle || spec.variables?.lineHeight || currentBoundVariableId(node, 'lineHeight')
       ? undefined
       : text.lineHeight,
-    (value) => (node.lineHeight = value),
+    {
+      current: node.lineHeight,
+      apply: (value) => (node.lineHeight = value),
+      readRange: (start, end) => node.getRangeLineHeight(start, end),
+      equal: (current, desired) => textMeasuresEqual('lineHeight', current, desired)
+    },
+    native?.ranges,
     state
   )
-  setTextMeasure(
+  setBaseTextValue(
     node,
     'letterSpacing',
-    node.letterSpacing,
     hasTextStyle || spec.variables?.letterSpacing || currentBoundVariableId(node, 'letterSpacing')
       ? undefined
       : text.letterSpacing,
-    (value) => (node.letterSpacing = value),
+    {
+      current: node.letterSpacing,
+      apply: (value) => (node.letterSpacing = value),
+      readRange: (start, end) => node.getRangeLetterSpacing(start, end),
+      equal: (current, desired) => textMeasuresEqual('letterSpacing', current, desired)
+    },
+    native?.ranges,
     state
   )
   setValue(
@@ -87,18 +118,28 @@ export async function applyText(
     (value) => (node.textAlignVertical = value),
     state
   )
-  setValue(
+  setBaseTextValue(
     node,
-    node.textCase,
+    'textCase',
     native?.case ?? (hasTextStyle ? undefined : text.textCase),
-    (value) => (node.textCase = value),
+    {
+      current: node.textCase,
+      apply: (value) => (node.textCase = value),
+      readRange: (start, end) => node.getRangeTextCase(start, end)
+    },
+    native?.ranges,
     state
   )
-  setValue(
+  setBaseTextValue(
     node,
-    node.textDecoration,
+    'textDecoration',
     hasTextStyle ? undefined : text.textDecoration,
-    (value) => (node.textDecoration = value),
+    {
+      current: node.textDecoration,
+      apply: (value) => (node.textDecoration = value),
+      readRange: (start, end) => node.getRangeTextDecoration(start, end)
+    },
+    native?.ranges,
     state
   )
   setValue(
@@ -116,22 +157,32 @@ export async function applyText(
     (value) => (node.textAutoResize = value),
     state
   )
-  setValue(
+  setBaseTextValue(
     node,
-    node.paragraphIndent,
+    'paragraphIndent',
     spec.variables?.paragraphIndent || currentBoundVariableId(node, 'paragraphIndent')
       ? undefined
       : native?.paragraphIndent,
-    (value) => (node.paragraphIndent = value),
+    {
+      current: node.paragraphIndent,
+      apply: (value) => (node.paragraphIndent = value),
+      readRange: (start, end) => node.getRangeParagraphIndent(start, end)
+    },
+    native?.ranges,
     state
   )
-  setValue(
+  setBaseTextValue(
     node,
-    node.paragraphSpacing,
+    'paragraphSpacing',
     spec.variables?.paragraphSpacing || currentBoundVariableId(node, 'paragraphSpacing')
       ? undefined
       : native?.paragraphSpacing,
-    (value) => (node.paragraphSpacing = value),
+    {
+      current: node.paragraphSpacing,
+      apply: (value) => (node.paragraphSpacing = value),
+      readRange: (start, end) => node.getRangeParagraphSpacing(start, end)
+    },
+    native?.ranges,
     state
   )
   setValue(
@@ -163,8 +214,78 @@ export async function applyText(
     state
   )
   if (!isCanvasKeyHyperlink(native?.hyperlink)) {
-    applyTextHyperlink(node, native?.hyperlink, state)
+    applyTextHyperlink(node, native?.hyperlink, state, native?.ranges)
   }
+}
+
+type BaseTextField =
+  | 'fontName'
+  | 'fontSize'
+  | 'lineHeight'
+  | 'letterSpacing'
+  | 'textCase'
+  | 'textDecoration'
+  | 'paragraphIndent'
+  | 'paragraphSpacing'
+  | 'hyperlink'
+
+function rangeOwnsTextField(range: CanvasFigmaTextRange, field: BaseTextField): boolean {
+  if (range[field] !== undefined) return true
+  if (field === 'hyperlink') return false
+  if (range.textStyle) return true
+  if (field === 'fontName') {
+    return TEXT_STYLE_VARIABLES_BY_VALUE.fontName.some((variable) => range.variables?.[variable])
+  }
+  if (field === 'textCase' || field === 'textDecoration') return false
+  return !!range.variables?.[field]
+}
+
+function textFieldRange(
+  node: TextNode,
+  field: BaseTextField,
+  range: { start: number; end: number }
+): { start: number; end: number } {
+  if (field !== 'paragraphIndent' && field !== 'paragraphSpacing') return range
+  // Paragraph setters affect every paragraph touched, including its newline.
+  const start = range.start === 0 ? 0 : node.characters.lastIndexOf('\n', range.start - 1) + 1
+  const newline = node.characters.indexOf('\n', range.end - 1)
+  return { start, end: newline === -1 ? node.characters.length : newline + 1 }
+}
+
+function setBaseTextValue<T>(
+  node: TextNode,
+  field: BaseTextField,
+  desired: T | undefined,
+  {
+    current,
+    apply,
+    readRange,
+    equal = scalarValuesEqual
+  }: {
+    current: T | typeof figma.mixed
+    apply: (value: T) => void
+    readRange: (start: number, end: number) => T | typeof figma.mixed
+    equal?: (current: T | typeof figma.mixed, desired: T) => boolean
+  },
+  ranges: CanvasFigmaTextRange[] | undefined,
+  state: ApplyState,
+  scope = { start: 0, end: node.characters.length }
+): void {
+  if (desired === undefined || equal(current, desired)) return
+  const overrides = ranges
+    ?.filter((range) => rangeOwnsTextField(range, field))
+    .map((range) => textFieldRange(node, field, range))
+  if (
+    overrides?.length &&
+    textRangesMatchOutside(textFieldRange(node, field, scope), overrides, (start, end) =>
+      equal(readRange(start, end), desired)
+    )
+  )
+    return
+  // Compare only spans not owned by later overrides. Actual changes retain the
+  // existing setter and subsequent range restoration.
+  apply(desired)
+  markMutation(state, node)
 }
 
 function setTextMeasure<T extends LineHeight | LetterSpacing>(
@@ -183,12 +304,23 @@ function setTextMeasure<T extends LineHeight | LetterSpacing>(
 export function applyTextHyperlink(
   node: TextNode,
   hyperlink: CanvasHyperlink | undefined,
-  state: ApplyState
+  state: ApplyState,
+  ranges: CanvasFigmaTextRange[] | undefined
 ): void {
   const desired = nativeHyperlink(hyperlink, state)
-  if (desired === undefined || hyperlinksEqual(node.hyperlink, desired)) return
-  node.hyperlink = desired
-  markMutation(state, node)
+  setBaseTextValue(
+    node,
+    'hyperlink',
+    desired,
+    {
+      current: node.hyperlink,
+      apply: (value) => (node.hyperlink = value),
+      readRange: (start, end) => node.getRangeHyperlink(start, end),
+      equal: hyperlinksEqual
+    },
+    ranges,
+    state
+  )
 }
 
 function applyTextRangeValue<T>(
@@ -259,7 +391,7 @@ export async function applyTextRanges(
   ranges: CanvasFigmaTextRange[] | undefined,
   state: ApplyState
 ): Promise<void> {
-  for (const range of ranges ?? []) {
+  for (const [index, range] of (ranges ?? []).entries()) {
     if (range.end > node.characters.length) {
       specError(
         `Text range ${range.start}:${range.end} exceeds TEXT node "${node.id}" with ${node.characters.length} UTF-16 code units.`
@@ -381,19 +513,31 @@ export async function applyTextRanges(
       (value) => node.setRangeIndentation(range.start, range.end, value),
       state
     )
-    applyTextRangeValue(
+    setBaseTextValue(
       node,
-      node.getRangeParagraphIndent(range.start, range.end),
+      'paragraphIndent',
       range.paragraphIndent,
-      (value) => node.setRangeParagraphIndent(range.start, range.end, value),
-      state
+      {
+        current: node.getRangeParagraphIndent(range.start, range.end),
+        apply: (value) => node.setRangeParagraphIndent(range.start, range.end, value),
+        readRange: (start, end) => node.getRangeParagraphIndent(start, end)
+      },
+      ranges?.slice(index + 1),
+      state,
+      range
     )
-    applyTextRangeValue(
+    setBaseTextValue(
       node,
-      node.getRangeParagraphSpacing(range.start, range.end),
+      'paragraphSpacing',
       range.paragraphSpacing,
-      (value) => node.setRangeParagraphSpacing(range.start, range.end, value),
-      state
+      {
+        current: node.getRangeParagraphSpacing(range.start, range.end),
+        apply: (value) => node.setRangeParagraphSpacing(range.start, range.end, value),
+        readRange: (start, end) => node.getRangeParagraphSpacing(start, end)
+      },
+      ranges?.slice(index + 1),
+      state,
+      range
     )
     const hyperlink = nativeHyperlink(range.hyperlink, state)
     if (

@@ -6807,7 +6807,7 @@ describe('mcp/tools/canvas', () => {
         mode: 'create',
         markup: `
         <div data-key="root" class="flex flex-col w-[320px] h-[200px]">
-          <span data-key="copy" class="w-full h-fit">Link</span>
+          <span data-key="copy" class="w-full h-fit">Link text</span>
           <div data-key="target" class="w-[80px] h-[40px]"></div>
         </div>
       `,
@@ -6864,7 +6864,7 @@ describe('mcp/tools/canvas', () => {
     const created = await applyCanvas({
       mode: 'create',
       markup:
-        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">Link</span><div data-key="target" class="w-[80px] h-[40px]"></div></div>'
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">Link text</span><div data-key="target" class="w-[80px] h-[40px]"></div></div>'
     })
     const copy = fixture.getNode(created.nodeIdsByKey.copy!) as unknown as TextNode
     const events: string[] = []
@@ -6887,7 +6887,7 @@ describe('mcp/tools/canvas', () => {
       mode: 'update',
       targetNodeId: created.rootNodeId!,
       markup:
-        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">Link</span><div data-key="target" class="w-[80px] h-[40px]"></div></div>',
+        '<div data-key="root" class="flex flex-col w-[320px] h-[200px]"><span data-key="copy" class="w-full h-fit">Link text</span><div data-key="target" class="w-[80px] h-[40px]"></div></div>',
       bindings: {
         copy: {
           figma: {
