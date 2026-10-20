@@ -20,6 +20,7 @@ import {
 import { normalizePortableFontStyle } from '../tailwind'
 import { resolveVariable, resolvedVariable } from '../variables'
 import { currentBoundVariableId } from './binding-values'
+import { baseTextStyleScope, type BaseTextStyleScope } from './text-style-scope'
 
 export const TEXT_STYLE_VALUE_FIELDS = [
   'fontName',
@@ -151,7 +152,7 @@ export async function preflightTextFont(
 ): Promise<void> {
   if (spec.type !== 'TEXT' || !spec.text) return
   const textNode = existing?.type === 'TEXT' ? existing : null
-  const hasTextStyle = !!(spec.styles?.text || textNode?.textStyleId)
+  const hasTextStyle = baseTextStyleScope(spec, textNode).kind === 'retained'
   const hasFontFamilyVariable = !!(
     spec.variables?.fontFamily ||
     (textNode && currentBoundVariableId(textNode, 'fontFamily'))
@@ -203,11 +204,12 @@ async function resolveLiteralFont(
 export async function loadTextFonts(
   node: TextNode,
   spec: CanvasNodeSpec,
-  state: ApplyState
+  state: ApplyState,
+  styleScope: BaseTextStyleScope
 ): Promise<FontName | null> {
   const text = spec.text
   const currentFont = node.fontName
-  const hasTextStyle = !!(spec.styles?.text || node.textStyleId)
+  const hasTextStyle = styleScope.kind === 'retained'
   if (text?.fontStyleMatching && !hasTextStyle) {
     const familyReference = spec.variables?.fontFamily
     const styleReference = spec.variables?.fontStyle

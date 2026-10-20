@@ -24,6 +24,7 @@ import { isCanvasKeyHyperlink, nativeHyperlink } from './nodes'
 import { type ApplyState, markMutation, setValue } from './state'
 import { loadTextFonts, loadVariableFonts, TEXT_STYLE_VARIABLES_BY_VALUE } from './text-fonts'
 import { textRangesMatchOutside } from './text-ranges'
+import { baseTextStyleScope, type BaseTextStyleScope } from './text-style-scope'
 
 export async function applyText(
   node: TextNode,
@@ -33,20 +34,23 @@ export async function applyText(
   const text = spec.text
   if (!text) return
   const native = spec.figma?.text
-  const desiredFont = await loadTextFonts(node, spec, state)
-  const hasTextStyle = !!(spec.styles?.text || node.textStyleId)
-  setBaseTextValue(
+  const styleScope = baseTextStyleScope(spec, node)
+  const desiredFont = await loadTextFonts(node, spec, state, styleScope)
+  const hasTextStyle = styleScope.kind === 'retained'
+  setStyledBaseTextValue(
     node,
     'fontName',
     desiredFont ?? undefined,
     {
       current: node.fontName,
       apply: (value) => (node.fontName = value),
+      applyRange: (start, end, value) => node.setRangeFontName(start, end, value),
       readRange: (start, end) => node.getRangeFontName(start, end),
       equal: fontNamesEqual
     },
     node.characters === text.characters ? native?.ranges : undefined,
-    state
+    state,
+    styleScope
   )
   setValue(node, node.autoRename, native?.autoRename, (value) => (node.autoRename = value), state)
   setValue(
@@ -60,7 +64,7 @@ export async function applyText(
     (value) => (node.characters = value),
     state
   )
-  setBaseTextValue(
+  setStyledBaseTextValue(
     node,
     'fontSize',
     hasTextStyle || spec.variables?.fontSize || currentBoundVariableId(node, 'fontSize')
@@ -69,12 +73,14 @@ export async function applyText(
     {
       current: node.fontSize,
       apply: (value) => (node.fontSize = value),
+      applyRange: (start, end, value) => node.setRangeFontSize(start, end, value),
       readRange: (start, end) => node.getRangeFontSize(start, end)
     },
     native?.ranges,
-    state
+    state,
+    styleScope
   )
-  setBaseTextValue(
+  setStyledBaseTextValue(
     node,
     'lineHeight',
     hasTextStyle || spec.variables?.lineHeight || currentBoundVariableId(node, 'lineHeight')
@@ -83,13 +89,15 @@ export async function applyText(
     {
       current: node.lineHeight,
       apply: (value) => (node.lineHeight = value),
+      applyRange: (start, end, value) => node.setRangeLineHeight(start, end, value),
       readRange: (start, end) => node.getRangeLineHeight(start, end),
       equal: (current, desired) => textMeasuresEqual('lineHeight', current, desired)
     },
     native?.ranges,
-    state
+    state,
+    styleScope
   )
-  setBaseTextValue(
+  setStyledBaseTextValue(
     node,
     'letterSpacing',
     hasTextStyle || spec.variables?.letterSpacing || currentBoundVariableId(node, 'letterSpacing')
@@ -98,11 +106,13 @@ export async function applyText(
     {
       current: node.letterSpacing,
       apply: (value) => (node.letterSpacing = value),
+      applyRange: (start, end, value) => node.setRangeLetterSpacing(start, end, value),
       readRange: (start, end) => node.getRangeLetterSpacing(start, end),
       equal: (current, desired) => textMeasuresEqual('letterSpacing', current, desired)
     },
     native?.ranges,
-    state
+    state,
+    styleScope
   )
   setValue(
     node,
@@ -118,29 +128,33 @@ export async function applyText(
     (value) => (node.textAlignVertical = value),
     state
   )
-  setBaseTextValue(
+  setStyledBaseTextValue(
     node,
     'textCase',
     native?.case ?? (hasTextStyle ? undefined : text.textCase),
     {
       current: node.textCase,
       apply: (value) => (node.textCase = value),
+      applyRange: (start, end, value) => node.setRangeTextCase(start, end, value),
       readRange: (start, end) => node.getRangeTextCase(start, end)
     },
     native?.ranges,
-    state
+    state,
+    native?.case !== undefined ? { kind: 'whole' } : styleScope
   )
-  setBaseTextValue(
+  setStyledBaseTextValue(
     node,
     'textDecoration',
     hasTextStyle ? undefined : text.textDecoration,
     {
       current: node.textDecoration,
       apply: (value) => (node.textDecoration = value),
+      applyRange: (start, end, value) => node.setRangeTextDecoration(start, end, value),
       readRange: (start, end) => node.getRangeTextDecoration(start, end)
     },
     native?.ranges,
-    state
+    state,
+    styleScope
   )
   setValue(
     node,
@@ -252,21 +266,52 @@ function textFieldRange(
   return { start, end: newline === -1 ? node.characters.length : newline + 1 }
 }
 
+type TextValueAccess<T> = {
+  current: T | typeof figma.mixed
+  apply: (value: T) => void
+  readRange: (start: number, end: number) => T | typeof figma.mixed
+  equal?: (current: T | typeof figma.mixed, desired: T) => boolean
+}
+
+function setStyledBaseTextValue<T>(
+  node: TextNode,
+  field: BaseTextField,
+  desired: T | undefined,
+  access: TextValueAccess<T> & { applyRange: (start: number, end: number, value: T) => void },
+  ranges: CanvasFigmaTextRange[] | undefined,
+  state: ApplyState,
+  styleScope: BaseTextStyleScope
+): void {
+  if (desired === undefined) return
+  if (styleScope.kind !== 'partial') {
+    setBaseTextValue(node, field, desired, access, ranges, state)
+    return
+  }
+  // A literal whole-node setter can preserve linked IDs while overwriting their
+  // values. Restrict writes, not only comparisons, to the unstyled spans.
+  for (const scope of styleScope.ranges) {
+    setBaseTextValue(
+      node,
+      field,
+      desired,
+      {
+        current: access.readRange(scope.start, scope.end),
+        apply: (value) => access.applyRange(scope.start, scope.end, value),
+        readRange: access.readRange,
+        equal: access.equal
+      },
+      ranges,
+      state,
+      scope
+    )
+  }
+}
+
 function setBaseTextValue<T>(
   node: TextNode,
   field: BaseTextField,
   desired: T | undefined,
-  {
-    current,
-    apply,
-    readRange,
-    equal = scalarValuesEqual
-  }: {
-    current: T | typeof figma.mixed
-    apply: (value: T) => void
-    readRange: (start: number, end: number) => T | typeof figma.mixed
-    equal?: (current: T | typeof figma.mixed, desired: T) => boolean
-  },
+  { current, apply, readRange, equal = scalarValuesEqual }: TextValueAccess<T>,
   ranges: CanvasFigmaTextRange[] | undefined,
   state: ApplyState,
   scope = { start: 0, end: node.characters.length }
