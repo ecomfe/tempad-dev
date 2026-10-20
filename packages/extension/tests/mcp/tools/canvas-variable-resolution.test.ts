@@ -149,6 +149,103 @@ describe('canvas variable resolution', () => {
     }
   )
 
+  it.each(['base', 'extension'] as const)(
+    'converges native COLOR precision in a %s resource without hiding channel changes',
+    async (path) => {
+      const fixture = createFixture()
+      const createVariable = vi.mocked(figma.variables.createVariable).getMockImplementation()!
+      const writes = vi.fn()
+      const normalize = (value: RGB | RGBA): RGB | RGBA => ({
+        r: Math.fround(value.r),
+        g: Math.fround(value.g),
+        b: Math.fround(value.b),
+        ...('a' in value ? { a: Math.fround(value.a) } : {})
+      })
+      vi.mocked(figma.variables.createVariable).mockImplementation((name, collection, type) => {
+        const variable = createVariable(name, collection, type)
+        const setValueForMode = variable.setValueForMode.bind(variable)
+        variable.setValueForMode = (mode, value) => {
+          writes(mode, value)
+          setValueForMode(
+            mode,
+            typeof value === 'object' && 'r' in value ? normalize(value) : value
+          )
+        }
+        return variable
+      })
+      const request = (value: RGB | RGBA): CanvasResolvedApplyParameters => ({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-80 h-80"></div>',
+        variableCollections: {
+          tokens: {
+            name: 'Colors',
+            modes: { default: { name: 'Default' } },
+            variables: {
+              color: {
+                name: 'Color',
+                type: 'COLOR',
+                values: { default: path === 'extension' ? { r: 0, g: 0, b: 0 } : value }
+              }
+            }
+          },
+          ...(path === 'extension'
+            ? {
+                extended: {
+                  name: 'Extended',
+                  extends: { collectionKey: 'tokens' },
+                  overrides: [{ variable: { variableKey: 'color' }, values: { default: value } }]
+                }
+              }
+            : {})
+        }
+      })
+      let color: RGBA = { r: 0.1, g: 0.2, b: 0.3, a: 0.4 }
+      const created = await applyCanvas(request(color))
+      const variable = [...fixture.variables.values()].find((value) => value.name === 'Color')!
+      const values = () =>
+        path === 'extension'
+          ? (
+              [...fixture.variableCollections.values()].find(
+                (collection) => collection.name === 'Extended'
+              )! as unknown as ExtendedVariableCollection
+            ).variableOverrides[variable.id]!
+          : variable.valuesByMode
+      expect(Object.values(values())).toEqual([normalize(color)])
+      const update = (value: RGB | RGBA) =>
+        applyCanvas({ ...request(value), mode: 'update', targetNodeId: created.rootNodeId! })
+      writes.mockClear()
+      await expect(update(color)).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
+      expect(writes).not.toHaveBeenCalled()
+
+      // Each next value is the adjacent float32 value above its original channel.
+      for (const [channel, next] of [
+        ['r', 0.10000000894069672],
+        ['g', 0.20000001788139343],
+        ['b', 0.30000004172325134],
+        ['a', 0.40000003576278687]
+      ] as const) {
+        expect(next).not.toBe(Math.fround(color[channel]))
+        color = { ...color, [channel]: next }
+        writes.mockClear()
+        await expect(update(color)).resolves.toMatchObject({ mutationCount: 1, updatedNodeIds: [] })
+        expect(Object.values(values())).toEqual([normalize(color)])
+        expect(writes).toHaveBeenCalledOnce()
+        await expect(update(color)).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
+        expect(writes).toHaveBeenCalledOnce()
+      }
+
+      color = { ...color, a: 1 }
+      await expect(update(color)).resolves.toMatchObject({ mutationCount: 1 })
+      writes.mockClear()
+      await expect(update({ r: color.r, g: color.g, b: color.b })).resolves.toMatchObject({
+        mutationCount: 0,
+        updatedNodeIds: []
+      })
+      expect(writes).not.toHaveBeenCalled()
+      expect([...fixture.variables.values()].find((value) => value.name === 'Color')).toBe(variable)
+    }
+  )
+
   it.each(['alias', 'string'] as const)('retains exact %s resource identity', async (kind) => {
     createFixture()
     const request = (changed: boolean): CanvasResolvedApplyParameters => ({

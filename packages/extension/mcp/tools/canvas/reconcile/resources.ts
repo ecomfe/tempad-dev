@@ -46,6 +46,7 @@ import {
   isRecord,
   isVariableBinding,
   nativeValueEqual,
+  scalarValuesEqual,
   textMeasuresEqual,
   fontNamesEqual
 } from './comparison'
@@ -560,7 +561,7 @@ function applyTextStyle(style: TextStyle, spec: TextStyleResource, state: ApplyS
         ? fontNamesEqual(style.fontName, spec.fontName!)
         : field === 'lineHeight' || field === 'letterSpacing'
           ? textMeasuresEqual(field, style[field], spec[field]!)
-          : nativeValueEqual(style[field], desired)
+          : scalarValuesEqual(style[field], desired)
     if (equal) continue
     Object.assign(style, { [field]: desired })
     state.mutations.count += 1

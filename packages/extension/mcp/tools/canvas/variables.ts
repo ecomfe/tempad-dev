@@ -714,10 +714,10 @@ function valuesEqual(left: VariableValue | undefined, right: VariableValue): boo
   }
   if (!isColor(left) || !isColor(right)) return false
   return (
-    left.r === right.r &&
-    left.g === right.g &&
-    left.b === right.b &&
-    ('a' in left ? left.a : 1) === ('a' in right ? right.a : 1)
+    scalarValuesEqual(left.r, right.r) &&
+    scalarValuesEqual(left.g, right.g) &&
+    scalarValuesEqual(left.b, right.b) &&
+    scalarValuesEqual('a' in left ? left.a : 1, 'a' in right ? right.a : 1)
   )
 }
 

@@ -7,6 +7,57 @@ import { applyResolvedCanvas as applyCanvas } from '@/mcp/tools/canvas'
 import { createFixture } from '../../fakes/figma'
 
 describe('native text metric reconciliation', () => {
+  it.each([
+    ['fontSize', 16.1, 16.10000228881836],
+    ['paragraphIndent', 1.1, 1.1000001430511475],
+    ['paragraphSpacing', 3.1, 3.1000001430511475],
+    ['listSpacing', 4.1, 4.100000381469727]
+  ] as const)(
+    'converges TextStyle %s without hiding a representable change',
+    async (field, initial, next) => {
+      const fixture = createFixture()
+      const createTextStyle = vi.mocked(figma.createTextStyle).getMockImplementation()!
+      const writes = vi.fn()
+      vi.mocked(figma.createTextStyle).mockImplementation(() => {
+        const style = createTextStyle()
+        let stored = style[field]
+        Object.defineProperty(style, field, {
+          configurable: true,
+          get: () => stored,
+          set: (value: number) => {
+            writes(value)
+            stored = Math.fround(value)
+          }
+        })
+        return style
+      })
+      const request = (value: number): CanvasResolvedApplyParameters => ({
+        mode: 'create',
+        markup: '<div data-key="root" class="w-80 h-80"></div>',
+        styles: { metric: { type: 'TEXT', name: 'Metric', [field]: value } }
+      })
+      const created = await applyCanvas(request(initial))
+      const style = [...fixture.styles.values()].find(
+        (value) => value.name === 'Metric'
+      )! as TextStyle
+      expect(style[field]).toBe(Math.fround(initial))
+      const update = (value: number) =>
+        applyCanvas({ ...request(value), mode: 'update', targetNodeId: created.rootNodeId! })
+      writes.mockClear()
+      await expect(update(initial)).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
+      expect(writes).not.toHaveBeenCalled()
+
+      // The adjacent native value must remain a real edit, not fall inside an epsilon.
+      expect(next).not.toBe(style[field])
+      await expect(update(next)).resolves.toMatchObject({ mutationCount: 1, updatedNodeIds: [] })
+      expect(style[field]).toBe(next)
+      expect(writes).toHaveBeenCalledExactlyOnceWith(next)
+      await expect(update(next)).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
+      expect(writes).toHaveBeenCalledOnce()
+      expect([...fixture.styles.values()].find((value) => value.name === 'Metric')).toBe(style)
+    }
+  )
+
   describe.each(['node', 'range', 'style'] as const)('%s metrics', (path) => {
     it.each(['lineHeight', 'letterSpacing'] as const)(
       'converges rounded %s while preserving small value and unit changes',
