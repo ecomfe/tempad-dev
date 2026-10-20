@@ -42,6 +42,37 @@ afterEach(() => {
 })
 
 describe('token/candidates collectCandidateVariableIds', () => {
+  it('collects gradient stop bindings from node fills and visible style paints', () => {
+    const gradient = (id: string, visible = true) => ({
+      type: 'GRADIENT_LINEAR',
+      visible,
+      gradientStops: [
+        { boundVariables: { color: { type: 'VARIABLE_ALIAS', id } } },
+        { color: { r: 0, g: 0, b: 0, a: 1 } }
+      ]
+    })
+    const result = collectCandidateVariableIds(
+      [
+        createNode({
+          id: 'root',
+          visible: true,
+          fills: [gradient('direct')],
+          fillStyleId: 'style'
+        })
+      ],
+      undefined,
+      {
+        getStyleById: () =>
+          ({
+            paints: [gradient('styled'), gradient('hidden', false)]
+          }) as unknown as BaseStyle,
+        getVariableById: () => null
+      }
+    )
+
+    expect(result.variableIds).toEqual(new Set(['direct', 'styled']))
+  })
+
   it.each(['paints', 'boundVariables'])(
     'retains lookup recovery when a native style %s getter fails without a checkpoint',
     (field) => {

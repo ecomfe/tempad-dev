@@ -79,9 +79,9 @@ export function cleanFigmaSpecificStyles(
     }
     const normalized = stripFallback(preprocessCssValue(imageBackground)).trim()
 
-    const gradient = resolveGradientWithOpacity(normalized, activeFillPaints, readers)
-    if (gradient) {
-      processed.background = gradient
+    const layersWithOpacity = resolveBackgroundLayerOpacity(normalized, activeFillPaints, readers)
+    if (layersWithOpacity) {
+      processed.background = layersWithOpacity
       return processed
     }
 
@@ -197,7 +197,12 @@ function resolveSolidPaintColor(
   if (bound && typeof bound === 'object' && 'id' in bound && bound.id) {
     try {
       const variable = readers.getVariableById(bound.id)
-      if (variable) return getVariableCssExpr(variable)
+      if (variable) {
+        const color = getVariableCssExpr(variable)
+        const opacity = paint.opacity ?? 1
+        if (opacity >= 0.99) return color
+        return `color-mix(in srgb, ${color} ${formatPercent(opacity)}, transparent)`
+      }
     } catch {
       // noop
     }
@@ -214,12 +219,12 @@ function resolveGradientPaintValue(
   return resolveGradientPaintCss(gradientPaint, size, readers, formatGradientStopColor)
 }
 
-function resolveGradientWithOpacity(
+function resolveBackgroundLayerOpacity(
   value: string,
   fills: PaintList,
   readers: FigmaLookupReaders
 ): string | null {
-  if (!value || !/gradient\(/i.test(value)) return null
+  if (!value) return null
   if (!fills) return null
 
   const paints = getCssPaintLayers(fills)
@@ -229,8 +234,19 @@ function resolveGradientWithOpacity(
   if (layers.length !== paints.length) return null
   let changed = false
   const rewritten = layers.map((layer, index) => {
-    if (!/^linear-gradient\(/i.test(layer.trim())) return layer
     const fill = paints[index]!.paint
+    if (isSolidPaint(fill) && (fill.opacity ?? 1) < 0.99) {
+      const color = resolveSolidPaintColor(fill, readers)
+      if (color && isSolidBackground(layer)) {
+        changed = true
+        return color
+      }
+      if (color && /^linear-gradient\(/i.test(layer.trim())) {
+        changed = true
+        return `linear-gradient(${color}, ${color})`
+      }
+    }
+    if (!/^linear-gradient\(/i.test(layer.trim())) return layer
     if (!isVisibleLinearGradientPaint(fill)) return layer
 
     const fillOpacity = typeof fill.opacity === 'number' ? fill.opacity : 1
@@ -306,6 +322,6 @@ function isSolidBackground(value: string): boolean {
 
   const trimmed = value.trim()
   if (!trimmed) return false
-  if (/var\(\s*--[A-Za-z0-9_-]+\s*\)/i.test(trimmed)) return true
+  if (/^var\(\s*--[A-Za-z0-9_-]+\s*\)$/i.test(trimmed)) return true
   return canonicalizeColor(trimmed.toLowerCase()) !== null
 }

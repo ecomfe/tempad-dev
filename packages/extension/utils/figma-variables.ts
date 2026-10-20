@@ -288,6 +288,11 @@ function collectPaintOrEffectVariableIds(
       ids,
       checkpoint
     )
+    collectPaintOrEffectVariableIds(
+      (entry as { gradientStops?: unknown }).gradientStops,
+      ids,
+      checkpoint
+    )
   })
 }
 
@@ -313,14 +318,9 @@ function collectPaintStyleVariableIds(
   // Keep cancellation outside native lookup recovery so the deadline propagates.
   checkpoint?.()
   collectVariableIdsFromValue(boundVariables, ids, checkpoint)
-  paints.forEach((paint) => {
-    checkpoint?.()
-    if (!paint || paint.visible === false) return
-    collectVariableIdsFromValue(paint.boundVariables, ids, checkpoint)
-    collectVariableIdsFromValue(
-      (paint as { variableReferences?: unknown }).variableReferences,
-      ids,
-      checkpoint
-    )
-  })
+  collectPaintOrEffectVariableIds(
+    paints.filter((paint) => paint && paint.visible !== false),
+    ids,
+    checkpoint
+  )
 }
