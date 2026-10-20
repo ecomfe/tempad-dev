@@ -344,6 +344,8 @@ const HTML_CAMEL_CASE_ATTRIBUTES = new Set([
   'formTarget',
   'frameBorder',
   'hrefLang',
+  'imageSizes',
+  'imageSrcSet',
   'inputMode',
   'isMap',
   'itemID',
@@ -358,9 +360,12 @@ const HTML_CAMEL_CASE_ATTRIBUTES = new Set([
   'noModule',
   'noValidate',
   'playsInline',
+  'popoverTarget',
+  'popoverTargetAction',
   'readOnly',
   'referrerPolicy',
   'rowSpan',
+  'shadowRootMode',
   'spellCheck',
   'srcDoc',
   'srcLang',
@@ -368,6 +373,12 @@ const HTML_CAMEL_CASE_ATTRIBUTES = new Set([
   'useMap'
 ])
 const HTML_ENUMERATED_BOOLEAN_ATTRIBUTES = new Set(['contenteditable', 'draggable', 'spellcheck'])
+// Vue's attribute fallback does not recognize these presence-only Boolean attributes.
+const HTML_PRESENCE_BOOLEAN_ATTRIBUTES = new Set([
+  'disablepictureinpicture',
+  'disableremoteplayback',
+  'playsinline'
+])
 const SVG_CASE_SENSITIVE_ATTRIBUTES = new Set([
   'viewBox',
   'preserveAspectRatio',
@@ -474,7 +485,13 @@ function stringifyVueComponent(
       }
 
       if (typeof value === 'boolean') {
-        if (!inSvg && !isCustomTag && HTML_ENUMERATED_BOOLEAN_ATTRIBUTES.has(name)) {
+        if (!inSvg && !isCustomTag && HTML_PRESENCE_BOOLEAN_ATTRIBUTES.has(name)) {
+          return value ? name : ''
+        }
+        if (
+          name.startsWith('aria-') ||
+          (!inSvg && !isCustomTag && HTML_ENUMERATED_BOOLEAN_ATTRIBUTES.has(name))
+        ) {
           return `:${name}="${value}"`
         }
         return value ? name : `:${name}="false"`

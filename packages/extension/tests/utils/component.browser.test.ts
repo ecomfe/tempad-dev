@@ -4,6 +4,75 @@ import { compileTemplate } from 'vue/compiler-sfc'
 
 import { stringifyComponent } from '@/utils/component'
 
+function mountVueMarkup(source: string) {
+  const compiled = compileTemplate({
+    source,
+    filename: 'NativeAttributes.vue',
+    id: 'native-attributes',
+    compilerOptions: { mode: 'function' }
+  })
+  expect(compiled.errors).toEqual([])
+  const app = Vue.createApp({ render: new Function('Vue', compiled.code)(Vue) })
+  const host = document.createElement('div')
+  document.body.append(host)
+  app.mount(host)
+  return {
+    host,
+    unmount() {
+      app.unmount()
+      host.remove()
+    }
+  }
+}
+
+it.each([false, true])('preserves video Boolean and ARIA tokens in Vue (%s)', (value) => {
+  const mounted = mountVueMarkup(
+    stringifyComponent(
+      {
+        name: 'video',
+        props: {
+          playsInline: value,
+          disablePictureInPicture: value,
+          disableRemotePlayback: value,
+          'aria-hidden': value,
+          'aria-expanded': value,
+          'aria-checked': value
+        },
+        children: []
+      },
+      'vue'
+    )
+  )
+  try {
+    const video = mounted.host.firstElementChild as HTMLVideoElement
+    expect(video.playsInline).toBe(value)
+    expect(video.disablePictureInPicture).toBe(value)
+    expect(video.disableRemotePlayback).toBe(value)
+    for (const name of ['aria-hidden', 'aria-expanded', 'aria-checked']) {
+      expect(video.getAttribute(name)).toBe(String(value))
+    }
+  } finally {
+    mounted.unmount()
+  }
+})
+
+it.each([
+  ['button', 'popoverTarget', 'panel'],
+  ['button', 'popoverTargetAction', 'show'],
+  ['link', 'imageSrcSet', 'image.png 1x'],
+  ['link', 'imageSizes', '100vw'],
+  ['template', 'shadowRootMode', 'open']
+] as const)('preserves the native %s attribute %s in Vue', (name, prop, value) => {
+  const mounted = mountVueMarkup(
+    stringifyComponent({ name, props: { [prop]: value }, children: [] }, 'vue')
+  )
+  try {
+    expect(mounted.host.firstElementChild!.getAttribute(prop.toLowerCase())).toBe(value)
+  } finally {
+    mounted.unmount()
+  }
+})
+
 it.each([false, true])(
   'keeps native HTML properties functional in compiled Vue markup (editable: %s)',
   (editable) => {
@@ -51,18 +120,9 @@ it.each([false, true])(
       },
       'vue'
     )
-    const compiled = compileTemplate({
-      source,
-      filename: 'NativeAttributes.vue',
-      id: 'native-attributes',
-      compilerOptions: { mode: 'function' }
-    })
-    expect(compiled.errors).toEqual([])
-    const app = Vue.createApp({ render: new Function('Vue', compiled.code)(Vue) })
-    const host = document.createElement('div')
-    document.body.append(host)
+    const mounted = mountVueMarkup(source)
+    const { host } = mounted
     try {
-      app.mount(host)
       const wrapper = host.firstElementChild as HTMLElement
       expect(wrapper.contentEditable).toBe(String(editable))
       expect(wrapper.spellcheck).toBe(editable)
@@ -82,8 +142,7 @@ it.each([false, true])(
       expect(img.crossOrigin).toBe('anonymous')
       expect(img.referrerPolicy).toBe('no-referrer')
     } finally {
-      app.unmount()
-      host.remove()
+      mounted.unmount()
     }
   }
 )
