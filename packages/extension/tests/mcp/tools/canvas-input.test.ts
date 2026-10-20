@@ -15,6 +15,17 @@ afterEach(() => {
 })
 
 describe('canvas input diagnostics', () => {
+  it.each([
+    ['AT&T&nbsp;Inc R&D&#169;', 'AT&T\u00a0Inc R&D©', false],
+    ['Q&A&unknown;', 'Q&A&unknown;', true],
+    ['&&amp;&amp; &#x41;', '&&& A', false]
+  ] as const)('decodes entities after literal ampersands: %s', (source, decoded, warned) => {
+    const parsed = parseCanvasHtml(`<span data-name="${source}">${source}</span>`)
+    expect(parsed.text).toBe(decoded)
+    expect(parsed.attributes['data-name']).toBe(decoded)
+    expect(!!parsed.hasUnknownEntities).toBe(warned)
+  })
+
   it('decodes every named entity documented by the authoring skill', () => {
     const reference = readFileSync(
       new URL(

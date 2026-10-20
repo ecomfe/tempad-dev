@@ -44,13 +44,12 @@ function decodeEntities(value: string, onUnknownEntity: () => void): string {
   let entityStart = -1
   for (let index = 0; index < value.length; index += 1) {
     const character = value[index]!
-    if (entityStart < 0) {
-      if (character === '&') {
-        chunks.push(value.slice(copyStart, index))
-        entityStart = index
-      }
+    if (character === '&') {
+      chunks.push(value.slice(entityStart < 0 ? copyStart : entityStart, index))
+      entityStart = index
       continue
     }
+    if (entityStart < 0) continue
     if (/\s/.test(character)) {
       chunks.push(value.slice(entityStart, index))
       copyStart = index
