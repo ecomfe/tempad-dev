@@ -17,6 +17,8 @@ import {
 import { isRecord, GEOMETRY_TOLERANCE, finiteRect } from './comparison'
 import { layoutStrokeWeight, includedLayoutEdgeStroke } from './layout'
 import { walkSpecs, isSupportedSceneNode, isFrameContainer, isSceneNode } from './nodes'
+import { textFillsUnstyledOutsideRanges } from './text-paints'
+import { baseTextStyleScope } from './text-style-scope'
 
 const CONTENT_OVERFLOW_TOLERANCE = 0.5
 
@@ -96,9 +98,23 @@ export function ignoredLiteralWarnings(
       continue
     const property = field === 'fill' ? 'fills' : 'strokes'
     const style = field === 'fill' ? node.fillStyleId : node.strokeStyleId
-    if (style || node.boundVariables?.[property]?.length) fields.push(field)
+    const retainedStyle =
+      style &&
+      !(
+        node.type === 'TEXT' &&
+        field === 'fill' &&
+        textFillsUnstyledOutsideRanges(
+          node,
+          node.characters === spec.text?.characters ? spec.figma?.text?.ranges : undefined
+        )
+      )
+    if (retainedStyle || node.boundVariables?.[property]?.length) fields.push(field)
   }
-  if (node.type === 'TEXT' && node.textStyleId && spec.styles?.text === undefined) {
+  if (
+    node.type === 'TEXT' &&
+    spec.styles?.text === undefined &&
+    baseTextStyleScope(spec, node).kind === 'retained'
+  ) {
     for (const field of [
       'fontFamily',
       'fontStyle',

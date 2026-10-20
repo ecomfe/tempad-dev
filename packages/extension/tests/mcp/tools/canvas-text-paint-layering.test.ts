@@ -96,9 +96,15 @@ describe('text paint and style layering', () => {
 
       await expect(update(false)).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
       expect(fills.set).not.toHaveBeenCalled()
-      expect((await update(true)).mutationCount).toBe(
-        kind === 'full range' || kind === 'retained style' ? 0 : 2
+      const updated = await update(true)
+      expect(updated.mutationCount).toBe(kind === 'full range' || kind === 'retained style' ? 0 : 2)
+      const ignoredWarnings = updated.verification.warnings.filter(
+        ({ code }) => code === 'literal-ignored-by-binding'
       )
+      expect(ignoredWarnings).toHaveLength(kind === 'retained style' ? 1 : 0)
+      if (kind === 'retained style') {
+        expect(ignoredWarnings[0]!.message).toContain('fill')
+      }
       expect(fills.read(0, rangeEnd)).toEqual(override)
       expect(styles.read(0, rangeEnd)).toBe(rangeStyleId)
       if (rangeEnd < label.characters.length) {
@@ -247,9 +253,49 @@ describe('text paint and style layering', () => {
           label: { figma: { text: { ranges: [{ start: 0, end: 5, fillStyle: null }] } } }
         }
       })
-    await update()
+    const updated = await update()
+    expect(
+      updated.verification.warnings.filter(({ code }) => code === 'literal-ignored-by-binding')
+    ).toEqual([])
     expect(fills.read()).toMatchObject([{ type: 'SOLID', color: { r: 0, g: 0, b: 1 } }])
     expect(styles.read()).toBe('')
     await expect(update()).resolves.toMatchObject({ mutationCount: 0, updatedNodeIds: [] })
+  })
+
+  it('still warns when a paint variable owns the base color outside a range style', async () => {
+    const fixture = createFixture()
+    const input: CanvasResolvedApplyParameters = {
+      mode: 'create',
+      markup:
+        '<div data-key="root" class="flex w-80 h-80"><span data-key="label" class="w-40 h-10 text-black">Range metrics</span></div>',
+      bindings: {
+        label: {
+          figma: { text: { ranges: [{ start: 0, end: 5, fillStyle: { id: 'style:fill' } }] } }
+        }
+      }
+    }
+    const created = await applyCanvas(input)
+    const label = fixture.getNode(created.nodeIdsByKey.label!)
+    Object.defineProperty(label, 'fillStyleId', { configurable: true, value: figma.mixed })
+    Object.assign(label.boundVariables, {
+      fills: [{ type: 'VARIABLE_ALIAS', id: 'variable:color' }]
+    })
+    const updated = await applyCanvas({
+      ...input,
+      mode: 'update',
+      targetNodeId: created.rootNodeId!,
+      markup: input.markup!.replace('text-black', 'text-white')
+    })
+    expect(updated.mutationCount).toBe(0)
+    expect(updated.verification.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'literal-ignored-by-binding',
+          key: 'label',
+          message: expect.stringContaining('fill')
+        })
+      ])
+    )
+    expect(label.boundVariables.fills).toEqual([{ type: 'VARIABLE_ALIAS', id: 'variable:color' }])
   })
 })

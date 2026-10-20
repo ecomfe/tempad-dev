@@ -108,7 +108,11 @@ describe('base typography outside retained range TextStyles', () => {
         mode: 'update' as const,
         targetNodeId: created.rootNodeId!
       }
-      expect((await applyCanvas(changed)).mutationCount).toBeGreaterThan(0)
+      const updated = await applyCanvas(changed)
+      expect(updated.mutationCount).toBeGreaterThan(0)
+      expect(
+        updated.verification.warnings.filter(({ code }) => code === 'literal-ignored-by-binding')
+      ).toEqual([])
       for (const [field, value] of Object.entries(STYLE_VALUES)) {
         expect(native.values[field as keyof typeof STYLE_VALUES].slice(0, 5)).toEqual(
           Array(5).fill(value)
@@ -139,7 +143,10 @@ describe('base typography outside retained range TextStyles', () => {
       mode: 'update' as const,
       targetNodeId: created.rootNodeId!
     }
-    await applyCanvas(changed)
+    const updated = await applyCanvas(changed)
+    expect(
+      updated.verification.warnings.filter(({ code }) => code === 'literal-ignored-by-binding')
+    ).toEqual([])
     expect(native.styles).toEqual(Array(13).fill(''))
     expect(node.fontName).toEqual({ family: 'Inter', style: 'Semi Bold' })
     expect(node.fontSize).toBe(20)
@@ -152,9 +159,23 @@ describe('base typography outside retained range TextStyles', () => {
     const created = await applyCanvas(request())
     const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
     const native = installStyledText(node, node.characters.length)
-    await expect(
-      applyCanvas({ ...request(null, true), mode: 'update', targetNodeId: created.rootNodeId! })
-    ).resolves.toMatchObject({ mutationCount: 0 })
+    const updated = await applyCanvas({
+      ...request(null, true),
+      mode: 'update',
+      targetNodeId: created.rootNodeId!
+    })
+    expect(updated.mutationCount).toBe(0)
+    expect(updated.verification.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'literal-ignored-by-binding',
+          key: 'label',
+          message: expect.stringContaining(
+            'fontFamily, fontStyle, fontSize, lineHeight, letterSpacing'
+          )
+        })
+      ])
+    )
     expect(node.fontName).toEqual(STYLE_VALUES.fontName)
     expect(node.fontSize).toBe(STYLE_VALUES.fontSize)
     expect(native.segments).not.toHaveBeenCalled()
