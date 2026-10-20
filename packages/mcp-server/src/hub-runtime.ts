@@ -842,6 +842,7 @@ export async function startHub(): Promise<void> {
             args: parsedArgs
           }
         }
+        let dispatched = false
         try {
           message.terminalReceipt = terminalReceipts.reserve(
             requestId,
@@ -861,6 +862,7 @@ export async function startHub(): Promise<void> {
             tool.name === 'apply_canvas'
           )
           activeExt.ws.send(JSON.stringify(message))
+          dispatched = true
         } catch (error) {
           terminalReceipts.settle(requestId, activeExt.id)
           designTasks.finishOperation(requestId, activeExt.id)
@@ -873,11 +875,18 @@ export async function startHub(): Promise<void> {
 
         // Consumer cancellation and transport failures end only this wait. The
         // operation remains fenced until its definitive result or document loss.
-        const payload = await registration.promise
-        if (['get_structure', 'get_code'].includes(tool.name)) {
-          if (taskId) designTasks.acknowledgeRead(taskId, ownerId, taskEpoch)
-          designTasks.acknowledgeFileRead(session.fileKey)
-        }
+        const payload = await registration.promise.catch((error: unknown) => {
+          const code = getRecordProperty(error, 'code')
+          if (
+            dispatched &&
+            tool.name === 'apply_canvas' &&
+            (getRecordProperty(error, 'name') === 'AbortError' ||
+              code === TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT ||
+              code === TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED)
+          )
+            designTasks.requireFileRead(session.fileKey)
+          throw error
+        })
         if (taskId && tool.name === 'apply_canvas') {
           const rootNodeId = getRecordProperty(payload, 'rootNodeId')
           if (typeof rootNodeId === 'string')
@@ -892,10 +901,15 @@ export async function startHub(): Promise<void> {
             if (typeof pageId === 'string') designTasks.updatePage(taskId, pageId)
           }
         }
-        return createToolResponse(tool.name, payload, {
+        const response = createToolResponse(tool.name, payload, {
           runtime,
           compatibilityNotice: versionedReadNotice(protocolVersion, tool.name)
         })
+        if (!response.isError && ['get_structure', 'get_code'].includes(tool.name)) {
+          if (taskId) designTasks.acknowledgeRead(taskId, ownerId, taskEpoch)
+          designTasks.acknowledgeFileRead(session.fileKey)
+        }
+        return response
       } catch (error) {
         const normalized = coerceToolError(error)
         log.error(
@@ -1052,7 +1066,10 @@ export async function startHub(): Promise<void> {
         rawResult = formatter(enrichedPayload)
       } catch (error) {
         log.warn({ tool: toolName, error }, 'Failed to format tool result; returning raw payload.')
-        rawResult = coercePayloadToToolResponse(enrichedPayload)
+        rawResult = {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify(enrichedPayload, null, 2) ?? 'undefined' }]
+        }
       }
     } else {
       rawResult = coercePayloadToToolResponse(enrichedPayload)
@@ -1458,11 +1475,13 @@ export async function startHub(): Promise<void> {
       onToolCompletion: (message, extension) => {
         const { accepted, recovered } = terminalReceipts.accept(message, extension)
         if (recovered) {
-          if (recovered.write && recovered.taskId) {
-            const record = designTasks.find(recovered.taskId)
-            if (record && record.task.epoch === (recovered.epoch ?? 0)) record.task.needsRead = true
-          } else if (recovered.write) {
+          if (recovered.write) {
             designTasks.requireFileRead(recovered.session.fileKey)
+            if (recovered.taskId) {
+              const record = designTasks.find(recovered.taskId)
+              if (record && record.task.epoch === (recovered.epoch ?? 0))
+                record.task.needsRead = true
+            }
           }
           designTasks.finishOperation(message.id, recovered.extensionId)
           reject(

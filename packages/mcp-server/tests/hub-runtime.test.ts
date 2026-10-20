@@ -1163,47 +1163,99 @@ describe('Hub runtime module', () => {
     }
   )
 
-  it.each(['EXTENSION_DELIVERY_FAILED', 'EXTENSION_DISCONNECTED'])(
-    'releases only a definitely undelivered write after %s',
-    async (code) => {
-      const { startHub } = await loadRuntime()
-      await startHub()
-      const extension = connectExtension()
-      const consumer = await connectConsumer()
-      const write = {
-        name: 'apply_canvas',
-        arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
-      }
-      consumer.send({ id: 1, method: 'tools/call', params: write })
-      const first = await extension.call(0)
+  it.each([
+    'success',
+    'INVALID_CANVAS_SPEC',
+    'EXTENSION_DELIVERY_FAILED',
+    'EXTENSION_DISCONNECTED'
+  ])('requires readback only for an unknown write outcome after %s', async (code) => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const consumer = await connectConsumer()
+    const write = {
+      name: 'apply_canvas',
+      arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+    }
+    consumer.send({ id: 1, method: 'tools/call', params: write })
+    const first = await extension.call(0)
+    extension.send({
+      type: 'toolResult',
+      id: first.id,
+      ...(code === 'success'
+        ? {
+            payload: {
+              rootNodeId: 'root',
+              nodeIdsByKey: {},
+              createdNodeIds: [],
+              updatedNodeIds: [],
+              removedNodeIds: [],
+              mutationCount: 0,
+              verification: {
+                status: 'passed',
+                nodesChecked: 1,
+                referencesChecked: 0,
+                warnings: []
+              }
+            }
+          }
+        : { error: { code, message: 'Native error' } })
+    })
+    const result = await consumer.reply(1)
+    if (code === 'success') expect(result.result?.isError).not.toBe(true)
+    else expect(JSON.stringify(result)).toContain(code)
+    consumer.send({ id: 2, method: 'tools/call', params: write })
+    if (code === 'EXTENSION_DISCONNECTED') {
+      expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
+      expect(extension.calls).toHaveLength(1)
       extension.send({
         type: 'toolResult',
         id: first.id,
-        error: { code, message: 'Delivery failed' }
+        error: { message: 'Definitive completion' }
       })
-      expect(JSON.stringify(await consumer.reply(1))).toContain(code)
-      consumer.send({ id: 2, method: 'tools/call', params: write })
-      if (code === 'EXTENSION_DISCONNECTED') {
-        expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
-        expect(extension.calls).toHaveLength(1)
-        extension.send({
-          type: 'toolResult',
-          id: first.id,
-          error: { message: 'Definitive completion' }
-        })
-        consumer.send({ id: 3, method: 'tools/call', params: write })
-      }
-      const next = await extension.call(1)
-      extension.send({
-        type: 'toolResult',
-        id: next.id,
-        error: { message: 'Next write completed' }
+      consumer.send({ id: 3, method: 'tools/call', params: write })
+      expect(JSON.stringify(await consumer.reply(3))).toContain('previous write result was lost')
+      consumer.send({
+        id: 4,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: {} }
       })
-      expect(
-        JSON.stringify(await consumer.reply(code === 'EXTENSION_DISCONNECTED' ? 3 : 2))
-      ).toContain('Next write completed')
+      const read = await extension.call(1)
+      extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+      await consumer.reply(4)
+      consumer.send({ id: 5, method: 'tools/call', params: write })
     }
-  )
+    const next = await extension.call(code === 'EXTENSION_DISCONNECTED' ? 2 : 1)
+    extension.send({
+      type: 'toolResult',
+      id: next.id,
+      error: { message: 'Next write completed' }
+    })
+    expect(
+      JSON.stringify(await consumer.reply(code === 'EXTENSION_DISCONNECTED' ? 5 : 2))
+    ).toContain('Next write completed')
+  })
+
+  it('does not require readback when the transport rejects a write before dispatch', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const consumer = await connectConsumer()
+    const write = {
+      name: 'apply_canvas',
+      arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
+    }
+    extension.peer.send.mockImplementationOnce(() => {
+      throw new Error('Socket is closed')
+    })
+    consumer.send({ id: 1, method: 'tools/call', params: write })
+    expect(JSON.stringify(await consumer.reply(1))).toContain('Socket is closed')
+    expect(extension.calls).toHaveLength(0)
+    consumer.send({ id: 2, method: 'tools/call', params: write })
+    const next = await extension.call(0)
+    extension.send({ type: 'toolResult', id: next.id, error: { message: 'Native result' } })
+    expect(JSON.stringify(await consumer.reply(2))).toContain('Native result')
+  })
 
   it.each([false, true])(
     'recovers a lost write result without reviving Stop (%s)',
@@ -1247,6 +1299,32 @@ describe('Hub runtime module', () => {
         send(9, 'apply_canvas', write)
         expect(JSON.stringify(await consumer.reply(9))).toContain('DESIGN_TASK_INACTIVE')
         expect(extension.calls).toHaveLength(2)
+
+        send(10, 'manage_design_task', {
+          action: 'begin',
+          title: 'Fresh after Stop',
+          requestId: '00000000-0000-4000-8000-000000000018'
+        })
+        const newBinding = await extension.call(2)
+        const fresh = newBinding.payload.args as DesignTask
+        extension.send({ type: 'toolResult', id: newBinding.id, payload: fresh })
+        await consumer.reply(10)
+        const freshArgs = { taskId: fresh.taskId, taskEpoch: fresh.epoch }
+        send(11, 'apply_canvas', { ...write, ...freshArgs })
+        expect(JSON.stringify(await consumer.reply(11))).toContain('previous write result was lost')
+        expect(extension.calls).toHaveLength(3)
+        send(12, 'get_structure', freshArgs)
+        const read = await extension.call(3)
+        extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+        await consumer.reply(12)
+        send(13, 'apply_canvas', { ...write, ...freshArgs })
+        const next = await extension.call(4)
+        extension.send({
+          type: 'toolResult',
+          id: next.id,
+          error: { message: 'Fresh write completed' }
+        })
+        expect(JSON.stringify(await consumer.reply(13))).toContain('Fresh write completed')
         return
       }
       send(4, 'apply_canvas', write)
@@ -1303,85 +1381,121 @@ describe('Hub runtime module', () => {
     expect(JSON.stringify(await consumer.reply(130))).toContain('Write finished')
   })
 
-  it('accepts a terminal receipt from a replacement connection only for its original operation', async () => {
-    const { startHub } = await loadRuntime()
-    await startHub()
-    const original = connectExtension(true)
-    const consumer = await connectConsumer()
-    const write = {
-      name: 'apply_canvas',
-      arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
-    }
-    consumer.send({ id: 1, method: 'tools/call', params: write })
-    const call = await original.call(0)
-    original.peer.emit('close')
-    expect(JSON.stringify(await consumer.reply(1))).toContain('EXTENSION_DISCONNECTED')
-    const replacement = connectExtension(true)
-    replacement.send({
-      type: 'toolCompletion',
-      id: call.id,
-      ...call.terminalReceipt,
-      receiptId: 'wrong'
-    })
-    consumer.send({ id: 2, method: 'tools/call', params: write })
-    expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
-    replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
-    consumer.send({ id: 3, method: 'tools/call', params: write })
-    await vi.waitFor(
-      () => expect(replacement.calls.length || consumer.replies.has(3)).toBeTruthy(),
-      {
-        interval: 1
+  it.each(['transport', 'malformed', 'roots', 'code'])(
+    'keeps a recovered write unread after a %s read failure',
+    async (failure) => {
+      const { startHub } = await loadRuntime()
+      await startHub()
+      const original = connectExtension(true)
+      const consumer = await connectConsumer()
+      const write = {
+        name: 'apply_canvas',
+        arguments: { mode: 'create', markup: '<div class="w-10 h-10"></div>' }
       }
-    )
-    expect(replacement.calls).toHaveLength(0)
-    expect(JSON.stringify(await consumer.reply(3))).toContain('get_structure or get_code')
+      consumer.send({ id: 1, method: 'tools/call', params: write })
+      const call = await original.call(0)
+      original.peer.emit('close')
+      expect(JSON.stringify(await consumer.reply(1))).toContain('EXTENSION_DISCONNECTED')
+      const replacement = connectExtension(true)
+      replacement.send({
+        type: 'toolCompletion',
+        id: call.id,
+        ...call.terminalReceipt,
+        receiptId: 'wrong'
+      })
+      consumer.send({ id: 2, method: 'tools/call', params: write })
+      expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
+      replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+      consumer.send({ id: 3, method: 'tools/call', params: write })
+      await vi.waitFor(
+        () => expect(replacement.calls.length || consumer.replies.has(3)).toBeTruthy(),
+        {
+          interval: 1
+        }
+      )
+      expect(replacement.calls).toHaveLength(0)
+      expect(JSON.stringify(await consumer.reply(3))).toContain('get_structure or get_code')
 
-    consumer.send({
-      id: 4,
-      method: 'tools/call',
-      params: { name: 'get_structure', arguments: { sessionId: 'other-session' } }
-    })
-    const otherFile = await replacement.call(0)
-    replacement.send({ type: 'toolResult', id: otherFile.id, payload: { roots: [] } })
-    await consumer.reply(4)
-    consumer.send({ id: 5, method: 'tools/call', params: write })
-    expect(JSON.stringify(await consumer.reply(5))).toContain('get_structure or get_code')
+      consumer.send({
+        id: 4,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: { sessionId: 'other-session' } }
+      })
+      const otherFile = await replacement.call(0)
+      replacement.send({ type: 'toolResult', id: otherFile.id, payload: { roots: [] } })
+      await consumer.reply(4)
+      consumer.send({ id: 5, method: 'tools/call', params: write })
+      expect(JSON.stringify(await consumer.reply(5))).toContain('get_structure or get_code')
 
-    consumer.send({
-      id: 6,
-      method: 'tools/call',
-      params: { name: 'get_structure', arguments: {} }
-    })
-    const failedRead = await replacement.call(1)
-    replacement.send({ type: 'toolResult', id: failedRead.id, error: { message: 'Read failed' } })
-    await consumer.reply(6)
-    consumer.send({ id: 7, method: 'tools/call', params: write })
-    expect(JSON.stringify(await consumer.reply(7))).toContain('get_structure or get_code')
+      consumer.send({
+        id: 6,
+        method: 'tools/call',
+        params: { name: failure === 'code' ? 'get_code' : 'get_structure', arguments: {} }
+      })
+      const failedRead = await replacement.call(1)
+      const error = { message: 'Read failed' }
+      replacement.send({
+        type: 'toolResult',
+        id: failedRead.id,
+        ...(failure === 'transport'
+          ? { error }
+          : {
+              payload:
+                failure === 'malformed'
+                  ? {
+                      roots: 'Invalid roots',
+                      content: [{ type: 'text', text: 'Invalid structured result' }],
+                      structuredContent: { invalid: true }
+                    }
+                  : failure === 'roots'
+                    ? { roots: [], errors: [{ nodeId: 'root', error }] }
+                    : { results: [{ nodeId: 'root', error }] }
+            })
+      })
+      const failedResponse = await consumer.reply(6)
+      expect(failedResponse).toMatchObject({ result: { isError: true } })
+      if (failure === 'malformed') {
+        expect(failedResponse.result).not.toHaveProperty('structuredContent')
+        expect(JSON.stringify(failedResponse)).toContain('Invalid roots')
+      }
+      consumer.send({ id: 7, method: 'tools/call', params: write })
+      expect(JSON.stringify(await consumer.reply(7))).toContain('get_structure or get_code')
 
-    consumer.send({
-      id: 8,
-      method: 'tools/call',
-      params: { name: 'get_structure', arguments: {} }
-    })
-    const read = await replacement.call(2)
-    replacement.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
-    await consumer.reply(8)
-    // Repeated completion cannot re-arm the read requirement after a successful read.
-    replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
-    consumer.send({ id: 9, method: 'tools/call', params: write })
-    const next = await replacement.call(3)
-    replacement.send({ type: 'toolResult', id: next.id, error: { message: 'New call completed' } })
-    expect(JSON.stringify(await consumer.reply(9))).toContain('New call completed')
-    replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
-    expect(JSON.parse(replacement.peer.send.mock.calls.at(-1)![0])).toEqual({
-      type: 'toolCompletionAck',
-      id: call.id,
-      ...call.terminalReceipt,
-      accepted: true
-    })
-  })
+      consumer.send({
+        id: 8,
+        method: 'tools/call',
+        params: { name: 'get_structure', arguments: {} }
+      })
+      const read = await replacement.call(2)
+      replacement.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+      await consumer.reply(8)
+      // Repeated completion cannot re-arm the read requirement after a successful read.
+      replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+      consumer.send({ id: 9, method: 'tools/call', params: write })
+      const next = await replacement.call(3)
+      replacement.send({
+        type: 'toolResult',
+        id: next.id,
+        error: { message: 'New call completed' }
+      })
+      expect(JSON.stringify(await consumer.reply(9))).toContain('New call completed')
+      replacement.send({ type: 'toolCompletion', id: call.id, ...call.terminalReceipt })
+      expect(JSON.parse(replacement.peer.send.mock.calls.at(-1)![0])).toEqual({
+        type: 'toolCompletionAck',
+        id: call.id,
+        ...call.terminalReceipt,
+        accepted: true
+      })
+    }
+  )
 
-  it('keeps a dispatched cancelled write fenced until its late definitive result arrives', async () => {
+  it.each([
+    ['cancel', 'error'],
+    ['cancel', 'success'],
+    ['timeout', 'error'],
+    ['timeout', 'success']
+  ] as const)('requires a read after %s and a late definite %s result', async (ending, outcome) => {
+    vi.stubEnv('TEMPAD_MCP_APPLY_CANVAS_TIMEOUT', '100')
     const { startHub } = await loadRuntime()
     await startHub()
     const extension = connectExtension()
@@ -1393,42 +1507,78 @@ describe('Hub runtime module', () => {
     consumer.send({ id: 1, method: 'tools/call', params: write })
     const first = await extension.call(0)
     expect(first.route).toMatchObject({ sessionId: 'session', fileKey: 'file' })
-    consumer.send({
-      method: 'notifications/cancelled',
-      params: { requestId: 1, reason: 'User cancelled' }
-    })
-    await vi.waitFor(
-      () =>
-        expect(log.error).toHaveBeenCalledWith(
-          expect.objectContaining({ req: first.id, message: expect.stringContaining('cancelled') }),
-          'Tool invocation failed.'
-        ),
-      { interval: 1 }
-    )
+    if (ending === 'cancel') {
+      consumer.send({
+        method: 'notifications/cancelled',
+        params: { requestId: 1, reason: 'User cancelled' }
+      })
+      await vi.waitFor(
+        () =>
+          expect(log.error).toHaveBeenCalledWith(
+            expect.objectContaining({
+              req: first.id,
+              message: expect.stringContaining('cancelled')
+            }),
+            'Tool invocation failed.'
+          ),
+        { interval: 1 }
+      )
+      expect(consumer.replies.has(1)).toBe(false)
+    } else {
+      await vi.advanceTimersByTimeAsync(200)
+      expect(JSON.stringify(await consumer.reply(1))).toContain('EXTENSION_TIMEOUT')
+    }
     extension.publishSession()
     consumer.send({ id: 2, method: 'tools/call', params: write })
     const blocked = await consumer.reply(2)
     expect(blocked.result?.isError).toBe(true)
     expect(JSON.stringify(blocked)).toContain('DESIGN_TASK_BUSY')
     expect(extension.calls).toHaveLength(1)
-    expect(consumer.replies.has(1)).toBe(false)
     extension.send({
       type: 'toolResult',
       id: first.id,
-      error: { message: 'Native operation definitively failed' }
+      ...(outcome === 'error'
+        ? { error: { message: 'Native operation definitively failed' } }
+        : {
+            payload: {
+              rootNodeId: 'created',
+              nodeIdsByKey: {},
+              createdNodeIds: ['created'],
+              updatedNodeIds: [],
+              removedNodeIds: [],
+              mutationCount: 1,
+              verification: {
+                status: 'passed',
+                nodesChecked: 1,
+                referencesChecked: 0,
+                warnings: []
+              }
+            }
+          })
     })
     expect(log.warn).toHaveBeenCalledWith(
       { reqId: first.id },
-      'Received error for unknown/timed-out call.'
+      `Received ${outcome === 'error' ? 'error' : 'result'} for unknown/timed-out call.`
     )
     consumer.send({ id: 3, method: 'tools/call', params: write })
-    const next = await extension.call(1)
+    expect(JSON.stringify(await consumer.reply(3))).toContain('previous write result was lost')
+    expect(extension.calls).toHaveLength(1)
+    consumer.send({
+      id: 4,
+      method: 'tools/call',
+      params: { name: 'get_structure', arguments: {} }
+    })
+    const read = await extension.call(1)
+    extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+    await consumer.reply(4)
+    consumer.send({ id: 5, method: 'tools/call', params: write })
+    const next = await extension.call(2)
     extension.send({
       type: 'toolResult',
       id: next.id,
       error: { message: 'Definitive second result' }
     })
-    expect(JSON.stringify(await consumer.reply(3))).toContain('Definitive second result')
+    expect(JSON.stringify(await consumer.reply(5))).toContain('Definitive second result')
   })
 
   it('releases a cancelled operation after its native document is replaced', async () => {
