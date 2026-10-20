@@ -466,6 +466,37 @@ function nativeTextDecorationColor(
   return { value: nativePaint(color.value, state) as SolidPaint }
 }
 
+async function paragraphUnbindingRange(
+  node: TextNode,
+  paragraphs: readonly TextParagraph[],
+  index: number,
+  field: 'paragraphIndent' | 'paragraphSpacing',
+  state: ApplyState
+): Promise<TextRange> {
+  const span = paragraphs[index]!.span
+  for (let laterIndex = index + 1; laterIndex < paragraphs.length; laterIndex++) {
+    const later = paragraphs[laterIndex]!
+    if (later.span.start >= span.end) break
+    let ownsBinding = !!later.range.variables?.[field]
+    if (!ownsBinding && later.range.textStyle) {
+      const style = await resolveStyle(later.range.textStyle, state.styles)
+      const desired = style.type === 'TEXT' ? style.boundVariables?.[field] : undefined
+      if (desired) {
+        const current = node.getRangeBoundVariable(later.span.start, span.end, field)
+        // A retained style can have semantic overrides. Preserve its own alias,
+        // not a different one that an equal literal may leave untouched.
+        ownsBinding =
+          node.getRangeTextStyleId(later.range.start, later.range.end) !== style.id ||
+          (current !== figma.mixed && current?.id === desired.id)
+      }
+    }
+    if (ownsBinding) {
+      return { start: span.start, end: later.span.start }
+    }
+  }
+  return span
+}
+
 async function applyTextRangeVariables(
   node: TextNode,
   paragraphs: readonly TextParagraph[],
@@ -479,12 +510,13 @@ async function applyTextRangeVariables(
     [VariableBindableTextField, CanvasVariableReference | null]
   >) {
     const variable = reference ? resolvedVariable(reference, state.variables) : null
-    // Partial-character null setters can leave paragraph bindings attached.
-    // Clear their metadata over the affected paragraphs, preserving their values.
+    // Null setters need complete paragraphs, but must leave a later binding
+    // owner intact. An equal literal alone does not own the alias.
     const bindingRange =
       !variable && (field === 'paragraphIndent' || field === 'paragraphSpacing')
-        ? paragraph.span
+        ? await paragraphUnbindingRange(node, paragraphs, index, field, state)
         : range
+    if (bindingRange.start === bindingRange.end) continue
     const current = node.getRangeBoundVariable(bindingRange.start, bindingRange.end, field)
     if (current !== figma.mixed && current?.id === variable?.id) continue
     if (variable && (field === 'paragraphIndent' || field === 'paragraphSpacing')) {

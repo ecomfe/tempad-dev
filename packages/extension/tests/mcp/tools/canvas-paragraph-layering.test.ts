@@ -114,6 +114,8 @@ async function createParagraphProbe(
   Object.defineProperty(label, 'setRangeBoundVariable', { value: bind })
 
   return {
+    fixture,
+    label,
     values: () => paragraphs.map(({ value }) => value),
     aliases: () => paragraphs.map(({ alias }) => alias?.id),
     write,
@@ -270,6 +272,171 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
     await probe.update(undefined, ranges)
     expect(probe.values()).toEqual([8, 0, 0])
     expect(probe.aliases()).toEqual([undefined, undefined, undefined])
+    await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it.each([
+    { start: 0, end: 1, laterStart: 2, laterEnd: 3 },
+    { start: 0, end: 7, laterStart: 8, laterEnd: 9 }
+  ])(
+    'preserves a later paragraph binding after null at $start:$end',
+    async ({ start, end, laterStart, laterEnd }) => {
+      const probe = await createParagraphProbe(field, [0, 0, 0])
+      await probe.update(undefined, [
+        { start: 0, end: 17, variables: { [field]: { id: 'variable:spacing' } } }
+      ])
+      const ranges: CanvasFigmaTextRange[] = [
+        { start, end, variables: { [field]: null } },
+        {
+          start: laterStart,
+          end: laterEnd,
+          variables: { [field]: { id: 'variable:spacing' } }
+        }
+      ]
+      const aliases =
+        laterStart === 2
+          ? ['variable:spacing', 'variable:spacing', 'variable:spacing']
+          : [undefined, 'variable:spacing', 'variable:spacing']
+      await probe.update(undefined, ranges)
+      expect(probe.aliases()).toEqual(aliases)
+      expect(probe.values()).toEqual([8, 8, 8])
+      probe.bind.mockClear()
+      await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+      expect(probe.bind).not.toHaveBeenCalled()
+
+      // Removing the later owner allows the null declaration to clear its paragraph.
+      await probe.update(undefined, [ranges[0]!])
+      expect(probe.aliases()).toEqual(
+        laterStart === 2
+          ? [undefined, 'variable:spacing', 'variable:spacing']
+          : [undefined, undefined, 'variable:spacing']
+      )
+    }
+  )
+
+  it.each([false, true])(
+    'preserves a later TextStyle paragraph binding after null: cross-paragraph=%s',
+    async (crossParagraph) => {
+      const probe = await createParagraphProbe(field, [0, 0, 0])
+      const style = probe.fixture.styles.get('style:text') as TextStyle
+      Object.assign(style, {
+        hangingPunctuation: false,
+        boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: 'variable:spacing' } }
+      })
+      const ranges: CanvasFigmaTextRange[] = [
+        { start: 0, end: crossParagraph ? 7 : 1, variables: { [field]: null } },
+        {
+          start: crossParagraph ? 8 : 2,
+          end: crossParagraph ? 9 : 3,
+          textStyle: { id: style.id }
+        }
+      ]
+      await probe.update(undefined, ranges)
+      const aliases = crossParagraph
+        ? [undefined, 'variable:spacing', undefined]
+        : ['variable:spacing', undefined, undefined]
+      expect(probe.aliases()).toEqual(aliases)
+      for (let repeat = 0; repeat < 2; repeat++) {
+        await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+        expect(probe.aliases()).toEqual(aliases)
+      }
+    }
+  )
+
+  it('clears null before a later unchanged TextStyle without a paragraph binding', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const styled: CanvasFigmaTextRange = {
+      start: 2,
+      end: 3,
+      textStyle: { id: 'style:text' }
+    }
+    await probe.update(undefined, [styled])
+    await probe.update(undefined, [
+      { start: 0, end: 1, variables: { [field]: { id: 'variable:spacing' } } }
+    ])
+    expect(probe.aliases()).toEqual(['variable:spacing', undefined, undefined])
+
+    const ranges: CanvasFigmaTextRange[] = [
+      { start: 0, end: 1, variables: { [field]: null } },
+      styled
+    ]
+    await probe.update(undefined, ranges)
+    expect(probe.aliases()).toEqual([undefined, undefined, undefined])
+    await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it.each(['equal literal', 'different literal', 'local null', 'later null'] as const)(
+    'preserves the final paragraph binding when the later style has a %s',
+    async (override) => {
+      const probe = await createParagraphProbe(field, [0, 0, 0])
+      const style = probe.fixture.styles.get('style:text') as TextStyle
+      Object.assign(style, {
+        hangingPunctuation: false,
+        boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: 'variable:spacing' } }
+      })
+      const styled: CanvasFigmaTextRange = {
+        start: 2,
+        end: 3,
+        textStyle: { id: style.id }
+      }
+      if (override === 'local null') styled.variables = { [field]: null }
+      else if (override !== 'later null') styled[field] = override === 'equal literal' ? 8 : 12
+      const ranges: CanvasFigmaTextRange[] = [
+        { start: 0, end: 1, variables: { [field]: null } },
+        styled,
+        ...(override === 'later null' ? [{ start: 4, end: 5, variables: { [field]: null } }] : [])
+      ]
+      await probe.update(undefined, ranges)
+      const aliases = [
+        override === 'equal literal' ? 'variable:spacing' : undefined,
+        undefined,
+        undefined
+      ]
+      const values = [override === 'different literal' ? 12 : 8, 0, 0]
+      expect(probe.aliases()).toEqual(aliases)
+      expect(probe.values()).toEqual(values)
+      for (let repeat = 0; repeat < 2; repeat++) {
+        await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+        expect(probe.aliases()).toEqual(aliases)
+        expect(probe.values()).toEqual(values)
+      }
+    }
+  )
+
+  it('does not preserve a different alias when a later style retains semantic overrides', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const style = probe.fixture.styles.get('style:text') as TextStyle
+    Object.assign(style, {
+      hangingPunctuation: false,
+      boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: 'variable:spacing' } }
+    })
+    const styled: CanvasFigmaTextRange = {
+      start: 2,
+      end: 3,
+      textStyle: { id: style.id },
+      [field]: 12
+    }
+    await probe.update(undefined, [styled])
+    const collection = figma.variables.createVariableCollection('Other metric')
+    const other = figma.variables.createVariable('Other metric', collection, 'FLOAT')
+    other.setValueForMode(collection.defaultModeId, 12)
+    await probe.update(undefined, [{ start: 2, end: 3, variables: { [field]: { id: other.id } } }])
+    const segments = vi.mocked(probe.label.getStyledTextSegments).getMockImplementation()!
+    vi.spyOn(probe.label, 'getStyledTextSegments').mockImplementation((...args) =>
+      segments(...args).map((segment) => ({
+        ...segment,
+        textStyleOverrides: [{ type: 'SEMANTIC_ITALIC' as const }]
+      }))
+    )
+    expect(probe.aliases()).toEqual([other.id, undefined, undefined])
+
+    const ranges: CanvasFigmaTextRange[] = [
+      { start: 0, end: 1, variables: { [field]: null } },
+      styled
+    ]
+    await probe.update(undefined, ranges)
+    expect(probe.aliases()).toEqual([undefined, undefined, undefined])
+    expect(probe.values()).toEqual([12, 0, 0])
     await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
