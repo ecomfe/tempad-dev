@@ -5,6 +5,7 @@ vi.mock('@/mcp/tools/token/indexer', () => ({
 }))
 
 import { cleanFigmaSpecificStyles } from '@/mcp/tools/code/styles/background'
+import { resolveStylesFromNode } from '@/utils/figma-style/style-resolver'
 
 function createNode(type: SceneNode['type'], overrides: Record<string, unknown> = {}): SceneNode {
   return {
@@ -17,6 +18,32 @@ function createNode(type: SceneNode['type'], overrides: Record<string, unknown> 
 }
 
 describe('mcp/tools/code/styles/background', () => {
+  it.each([false, true])(
+    'preserves image layers and URL text while removing fallbacks (resolve first: %s)',
+    async (resolveFirst) => {
+      const node = createNode('RECTANGLE', {
+        fills: [
+          { type: 'SOLID', color: { r: 1, g: 0, b: 0 } },
+          { type: 'IMAGE', imageHash: 'back' },
+          { type: 'IMAGE', imageHash: 'front' }
+        ]
+      })
+      const front = 'url("folder/lightgray (a,b).png") left / cover no-repeat'
+      const back = 'url("b.png") right / contain repeat'
+      const style = {
+        background:
+          'url("folder/lightgray (a,b).png") lightgray left / cover no-repeat, ' +
+          'url("b.png") lightgray right / contain repeat'
+      }
+      const resolved = resolveFirst ? await resolveStylesFromNode(style, node) : style
+      const result = cleanFigmaSpecificStyles(resolved, node)
+      expect(result).toEqual({
+        background: `${front}, ${back}`,
+        'background-color': '#F00'
+      })
+    }
+  )
+
   it('corrects the matching gradient without replacing a foreground synthetic solid layer', () => {
     const node = createNode('FRAME', {
       fills: [
@@ -44,13 +71,14 @@ describe('mcp/tools/code/styles/background', () => {
     const result = cleanFigmaSpecificStyles(
       {
         background:
-          'linear-gradient(90deg, red, blue), url("photo.png") 50% / cover, linear-gradient(0deg, red, blue)'
+          'linear-gradient(90deg, red, blue), url("photo.png") lightgray 50% / cover, linear-gradient(0deg, red, blue)'
       },
       createNode('FRAME', { fills: [gradient, { type: 'IMAGE' }, gradient] })
     )
     expect(result.background).toContain('url("photo.png") 50% / cover')
     expect(result.background?.match(/linear-gradient/g)).toHaveLength(2)
     expect(result.background).toContain('#FF000080')
+    expect(result.background).not.toContain('lightgray')
   })
 
   afterEach(() => {

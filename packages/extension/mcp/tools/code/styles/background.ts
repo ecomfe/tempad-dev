@@ -19,6 +19,7 @@ import {
   resolveBackgroundFillFromPaints,
   resolveGradientPaintCss
 } from '@/utils/figma-style/gradient'
+import { stripFigmaImageFallback } from '@/utils/figma-style/style-resolver'
 import { getVariableCssExpr } from '@/utils/figma-variables'
 
 import type { GetCodeCacheContext } from '../cache'
@@ -26,7 +27,6 @@ import type { StyleMap } from './types'
 
 import { getNodeSemanticsCached, getPaintStyleCached, getPaintsFromState } from '../cache'
 
-const BG_URL_LIGHTGRAY_RE = /url\(.*?\)\s+lightgray/i
 const BG_URL_RE = /url\(/i
 const GRADIENT_FN_RE = /(linear-gradient|radial-gradient|conic-gradient)\s*\(/i
 
@@ -71,7 +71,13 @@ export function cleanFigmaSpecificStyles(
 
   if (processed.background) {
     const bgValue = processed.background
-    const normalized = stripFallback(preprocessCssValue(bgValue)).trim()
+    const imageBackground = activeFillPaints ? stripFigmaImageFallback(bgValue) : bgValue
+    const removedFallback = imageBackground !== bgValue
+    if (removedFallback) {
+      processed.background = imageBackground
+      if (fallbackSolidColor) processed['background-color'] = fallbackSolidColor
+    }
+    const normalized = stripFallback(preprocessCssValue(imageBackground)).trim()
 
     const gradient = resolveGradientWithOpacity(normalized, activeFillPaints, readers)
     if (gradient) {
@@ -96,17 +102,13 @@ export function cleanFigmaSpecificStyles(
         processed['background-color'] = fallbackSolidColor ?? normalized
         delete processed.background
       }
-    } else if (BG_URL_LIGHTGRAY_RE.test(bgValue) && activeFillPaints) {
-      const parsed = parseBackgroundShorthand(bgValue)
+    } else if (removedFallback && splitByTopLevelComma(imageBackground).length === 1) {
+      const parsed = parseBackgroundShorthand(imageBackground)
 
       if (parsed.image) processed['background-image'] = parsed.image
       if (parsed.size) processed['background-size'] = parsed.size
       if (parsed.repeat) processed['background-repeat'] = parsed.repeat
       if (parsed.position) processed['background-position'] = parsed.position
-
-      if (fallbackSolidColor) {
-        processed['background-color'] = fallbackSolidColor
-      }
 
       delete processed.background
     }
