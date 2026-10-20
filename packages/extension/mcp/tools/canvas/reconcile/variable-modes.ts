@@ -34,49 +34,20 @@ const TEXT_MODE_FONT_FIELDS = [
   ...Object.values(TEXT_STYLE_VARIABLES_BY_VALUE).flat()
 ] as const
 
-async function modeFontVariable(
+async function cachedModeResource<T>(
   id: string,
-  state: ApplyState,
-  missing: Set<string>
-): Promise<Variable | null> {
+  cache: Map<string, T>,
+  missing: Set<string>,
+  lookup: (id: string) => Promise<T | null>
+): Promise<T | null> {
   const key = `id:${id}`
-  const cached = state.variables.variableCache.get(key)
+  const cached = cache.get(key)
   if (cached) return cached
   if (missing.has(id)) return null
-  const variable = await getVariableById(id)
-  if (variable) state.variables.variableCache.set(key, variable)
+  const resource = await lookup(id)
+  if (resource) cache.set(key, resource)
   else missing.add(id)
-  return variable
-}
-
-async function modeFontCollection(
-  id: string,
-  state: ApplyState,
-  missingCollections: Set<string>
-): Promise<VariableCollection | null> {
-  const key = `id:${id}`
-  const cached = state.variables.collectionCache.get(key)
-  if (cached) return cached
-  if (missingCollections.has(id)) return null
-  const collection = await getVariableCollectionById(id)
-  if (collection) state.variables.collectionCache.set(key, collection)
-  else missingCollections.add(id)
-  return collection
-}
-
-async function modeTextStyle(
-  id: string,
-  state: ApplyState,
-  missing: Set<string>
-): Promise<BaseStyle | null> {
-  const key = `id:${id}`
-  const cached = state.styles.cache.get(key)
-  if (cached) return cached
-  if (missing.has(id)) return null
-  const style = await getStyleById(id)
-  if (style) state.styles.cache.set(key, style)
-  else missing.add(id)
-  return style
+  return resource
 }
 
 async function modeFontVariableValues(
@@ -96,7 +67,12 @@ async function modeFontVariableValues(
   const cached = cache.get(variable.id)
   if (cached) return cached
   const active = new Set(seen).add(variable.id)
-  const base = await modeFontCollection(variable.variableCollectionId, state, missing.collections)
+  const base = await cachedModeResource(
+    variable.variableCollectionId,
+    state.variables.collectionCache,
+    missing.collections,
+    getVariableCollectionById
+  )
   if (!base) {
     return {
       values: [],
@@ -119,7 +95,12 @@ async function modeFontVariableValues(
   }
   for (const id of candidateIds) {
     if (related.has(id)) continue
-    const collection = await modeFontCollection(id, state, missing.collections)
+    const collection = await cachedModeResource(
+      id,
+      state.variables.collectionCache,
+      missing.collections,
+      getVariableCollectionById
+    )
     if (collection?.isExtension && collection.variableIds.includes(variable.id))
       related.set(id, collection)
   }
@@ -161,7 +142,12 @@ async function modeFontVariableValues(
         continue
       }
       if (typeof value === 'object' && 'type' in value && value.type === 'VARIABLE_ALIAS') {
-        const referenced = await modeFontVariable(value.id, state, missing.variables)
+        const referenced = await cachedModeResource(
+          value.id,
+          state.variables.variableCache,
+          missing.variables,
+          getVariableById
+        )
         if (!referenced) {
           unavailable ??= `Text variable alias "${value.id}" is unavailable.`
           continue
@@ -218,7 +204,12 @@ async function loadModeFonts(
     const segments = node.getStyledTextSegments(['fontName', 'textStyleId', 'boundVariables'])
     for (const segment of segments) {
       const style = segment.textStyleId
-        ? await modeTextStyle(segment.textStyleId, state, missing.styles)
+        ? await cachedModeResource(
+            segment.textStyleId,
+            state.styles.cache,
+            missing.styles,
+            getStyleById
+          )
         : undefined
       const bindings = {
         ...node.boundVariables,
@@ -231,7 +222,12 @@ async function loadModeFonts(
         // Mixed node bindings are arrays; segment aliases identify the actual run.
         if (!reference || Array.isArray(reference)) continue
         try {
-          const variable = await modeFontVariable(reference.id, state, missing.variables)
+          const variable = await cachedModeResource(
+            reference.id,
+            state.variables.variableCache,
+            missing.variables,
+            getVariableById
+          )
           if (!variable) continue
           const resolved = await modeFontVariableValues(
             variable,
