@@ -416,6 +416,40 @@ describe('base typography outside retained range TextStyles', () => {
     await expect(applyCanvas(changed)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
+  it.each([5, 13])(
+    'applies base typography in cleared 0:%i while restating the whole TextStyle',
+    async (end) => {
+      const fixture = createFixture()
+      const created = await applyCanvas(request(null))
+      const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+      const native = installStyledText(node, node.characters.length)
+      const changed = request([{ start: 0, end, textStyle: null }], true)
+      changed.bindings!.label!.styles = { text: { id: 'style:text' } }
+      const update = { ...changed, mode: 'update' as const, targetNodeId: created.rootNodeId! }
+      const updated = await applyCanvas(update)
+      expect(node.getRangeFontName(0, end)).toEqual({ family: 'Inter', style: 'Semi Bold' })
+      expect(node.getRangeFontSize(0, end)).toBe(20)
+      expect(node.getRangeLineHeight(0, end)).toEqual({ unit: 'PERCENT', value: 160 })
+      expect(node.getRangeLetterSpacing(0, end)).toEqual({ unit: 'PIXELS', value: 1 })
+      expect(node.getRangeTextCase(0, end)).toBe('LOWER')
+      expect(node.getRangeTextDecoration(0, end)).toBe('STRIKETHROUGH')
+      expect(native.styles.slice(0, end)).toEqual(Array(end).fill(''))
+      for (const [field, value] of Object.entries(STYLE_VALUES)) {
+        expect(native.values[field as keyof typeof STYLE_VALUES].slice(end)).toEqual(
+          Array(13 - end).fill(value)
+        )
+      }
+      expect(native.styles.slice(end)).toEqual(Array(13 - end).fill('style:text'))
+      expect(
+        updated.verification.warnings.filter(({ code }) => code === 'literal-ignored-by-binding')
+      ).toEqual([])
+      await expect(applyCanvas(update)).resolves.toMatchObject({
+        mutationCount: 0,
+        updatedNodeIds: []
+      })
+    }
+  )
+
   it('preserves a retained style that covers the whole string', async () => {
     const fixture = createFixture()
     const created = await applyCanvas(request())

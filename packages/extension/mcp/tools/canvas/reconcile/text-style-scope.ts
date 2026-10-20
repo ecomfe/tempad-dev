@@ -11,12 +11,14 @@ export function baseTextStyleScope(
   spec: CanvasNodeSpec,
   node?: TextNode | null
 ): BaseTextStyleScope {
-  if (spec.styles?.text) return { kind: 'retained' }
-  if (!node) return { kind: 'whole' }
+  if (!node) return { kind: spec.styles?.text ? 'retained' : 'whole' }
   // Old character ranges cannot safely describe replacement text. Preserve the
   // existing conservative ownership until native text replacement has happened.
   if (spec.text?.characters !== node.characters) {
-    return { kind: spec.styles?.text !== null && node.textStyleId ? 'retained' : 'whole' }
+    return {
+      kind:
+        spec.styles?.text || (spec.styles?.text !== null && node.textStyleId) ? 'retained' : 'whole'
+    }
   }
   const scope = { start: 0, end: node.characters.length }
   const ranges = spec.figma?.text?.ranges ?? []
@@ -24,11 +26,13 @@ export function baseTextStyleScope(
   let retained: TextRange[]
   if (spec.styles?.text === null) {
     retained = ranges.filter((range) => range.textStyle)
-  } else if (!node.textStyleId) {
-    return { kind: 'whole' }
-  } else if (node.textStyleId !== figma.mixed) {
+  } else if (spec.styles?.text || (node.textStyleId && node.textStyleId !== figma.mixed)) {
+    // A whole style owns every character except ranges explicitly cleared by
+    // this request, even when that whole style is declared again.
     if (!clearing.length) return { kind: 'retained' }
     retained = [...textRangesOutside(scope, clearing)]
+  } else if (!node.textStyleId) {
+    return { kind: 'whole' }
   } else {
     const segments = node.getStyledTextSegments(['textStyleId'])
     // Native segments cover the complete string. Incomplete bridge data must
