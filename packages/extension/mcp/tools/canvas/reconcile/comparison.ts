@@ -65,14 +65,24 @@ export function nativeValueEqual(current: unknown, desired: unknown, numberToler
 export const FIGMA_NATIVE_TOLERANCE = 1 / 255 + Number.EPSILON
 
 export function textMeasuresEqual(
+  field: 'lineHeight' | 'letterSpacing',
   current: LineHeight | LetterSpacing | typeof figma.mixed,
   desired: LineHeight | LetterSpacing
 ): boolean {
+  if (current === figma.mixed || current.unit !== desired.unit) return false
+  if (current.unit === 'AUTO' || desired.unit === 'AUTO') return true
+  if (field === 'lineHeight' && desired.unit === 'PERCENT') {
+    // Figma stores percent line height as a float32 ratio, not a percent value.
+    return (
+      current.value === desired.value || current.value === Math.fround(desired.value / 100) * 100
+    )
+  }
+  return scalarValuesEqual(current.value, desired.value)
+}
+
+export function fontNamesEqual(current: FontName | typeof figma.mixed, desired: FontName): boolean {
   return (
-    current !== figma.mixed &&
-    current.unit === desired.unit &&
-    (current.unit === 'AUTO' ||
-      (desired.unit !== 'AUTO' && scalarValuesEqual(current.value, desired.value)))
+    current !== figma.mixed && current.family === desired.family && current.style === desired.style
   )
 }
 

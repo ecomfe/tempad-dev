@@ -11,7 +11,7 @@ import { specError } from '../errors'
 import { resolveStyle } from '../styles'
 import { resolvedVariable } from '../variables'
 import { currentBoundVariableId } from './binding-values'
-import { textMeasuresEqual, hyperlinksEqual, nativeValueEqual } from './comparison'
+import { textMeasuresEqual, hyperlinksEqual, nativeValueEqual, fontNamesEqual } from './comparison'
 import { preservesComponentPropertyReference } from './components'
 import { nativePaint, paintStacksEqual } from './native-values'
 import { isCanvasKeyHyperlink, nativeHyperlink } from './nodes'
@@ -28,12 +28,7 @@ export async function applyText(
   const native = spec.figma?.text
   const desiredFont = await loadTextFonts(node, spec, state)
   const hasTextStyle = !!(spec.styles?.text || node.textStyleId)
-  if (
-    desiredFont &&
-    (node.fontName === figma.mixed ||
-      node.fontName.family !== desiredFont.family ||
-      node.fontName.style !== desiredFont.style)
-  ) {
+  if (desiredFont && !fontNamesEqual(node.fontName, desiredFont)) {
     node.fontName = desiredFont
     markMutation(state, node)
   }
@@ -60,6 +55,7 @@ export async function applyText(
   )
   setTextMeasure(
     node,
+    'lineHeight',
     node.lineHeight,
     hasTextStyle || spec.variables?.lineHeight || currentBoundVariableId(node, 'lineHeight')
       ? undefined
@@ -69,6 +65,7 @@ export async function applyText(
   )
   setTextMeasure(
     node,
+    'letterSpacing',
     node.letterSpacing,
     hasTextStyle || spec.variables?.letterSpacing || currentBoundVariableId(node, 'letterSpacing')
       ? undefined
@@ -172,12 +169,13 @@ export async function applyText(
 
 function setTextMeasure<T extends LineHeight | LetterSpacing>(
   node: TextNode,
+  field: 'lineHeight' | 'letterSpacing',
   current: T | typeof figma.mixed,
   desired: T | undefined,
   apply: (value: T) => void,
   state: ApplyState
 ): void {
-  if (desired === undefined || textMeasuresEqual(current, desired)) return
+  if (desired === undefined || textMeasuresEqual(field, current, desired)) return
   apply(desired)
   markMutation(state, node)
 }
@@ -198,9 +196,10 @@ function applyTextRangeValue<T>(
   current: T | typeof figma.mixed | null,
   desired: T | undefined,
   apply: (value: T) => void,
-  state: ApplyState
+  state: ApplyState,
+  equal: (current: T | typeof figma.mixed | null, desired: T) => boolean = nativeValueEqual
 ): void {
-  if (desired === undefined || nativeValueEqual(current, desired)) return
+  if (desired === undefined || equal(current, desired)) return
   apply(desired)
   markMutation(state, node)
 }
@@ -286,7 +285,8 @@ export async function applyTextRanges(
       node.getRangeFontName(range.start, range.end),
       range.fontName,
       (value) => node.setRangeFontName(range.start, range.end, value),
-      state
+      state,
+      (current, desired) => current !== null && fontNamesEqual(current, desired)
     )
     applyTextRangeValue(
       node,
@@ -302,15 +302,17 @@ export async function applyTextRanges(
       (value) => node.setRangeTextCase(range.start, range.end, value),
       state
     )
-    applyTextRangeValue(
+    setTextMeasure(
       node,
+      'letterSpacing',
       node.getRangeLetterSpacing(range.start, range.end),
       range.letterSpacing,
       (value) => node.setRangeLetterSpacing(range.start, range.end, value),
       state
     )
-    applyTextRangeValue(
+    setTextMeasure(
       node,
+      'lineHeight',
       node.getRangeLineHeight(range.start, range.end),
       range.lineHeight,
       (value) => node.setRangeLineHeight(range.start, range.end, value),

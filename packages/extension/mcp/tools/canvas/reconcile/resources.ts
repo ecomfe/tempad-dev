@@ -42,7 +42,13 @@ import {
   validateVariableType,
   STYLE_TYPES
 } from './binding-values'
-import { isRecord, isVariableBinding, nativeValueEqual } from './comparison'
+import {
+  isRecord,
+  isVariableBinding,
+  nativeValueEqual,
+  textMeasuresEqual,
+  fontNamesEqual
+} from './comparison'
 import {
   type ComponentPropertyContext,
   preflightComponentState,
@@ -536,11 +542,17 @@ function applyTextStyle(style: TextStyle, spec: TextStyleResource, state: ApplyS
       desired === undefined ||
       TEXT_STYLE_VARIABLES_BY_VALUE[field].some(
         (variableField) => style.boundVariables?.[variableField]
-      ) ||
-      nativeValueEqual(style[field], desired)
+      )
     ) {
       continue
     }
+    const equal =
+      field === 'fontName'
+        ? fontNamesEqual(style.fontName, spec.fontName!)
+        : field === 'lineHeight' || field === 'letterSpacing'
+          ? textMeasuresEqual(field, style[field], spec[field]!)
+          : nativeValueEqual(style[field], desired)
+    if (equal) continue
     Object.assign(style, { [field]: desired })
     state.mutations.count += 1
   }
