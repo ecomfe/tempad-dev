@@ -7,7 +7,7 @@ vi.mock('@/utils/codegen', async (original) => ({
 }))
 
 import CodeSection from '@/components/sections/CodeSection.vue'
-import { options, selection, selectionRevision } from '@/ui/state'
+import { activePlugin, options, plugins, selection, selectionRevision } from '@/ui/state'
 import { generateCodeBlocksForNode } from '@/utils/codegen'
 
 import { mount, unmountAll } from './mount'
@@ -15,6 +15,9 @@ import { mount, unmountAll } from './mount'
 afterEach(() => {
   unmountAll()
   selection.value = []
+  options.value.cssUnit = 'px'
+  options.value.activePluginSource = null
+  plugins.value = {}
   vi.useRealTimers()
   vi.resetAllMocks()
 })
@@ -109,6 +112,40 @@ it('clears retained code if refreshing the same node fails', async () => {
     .toContain('Code generation failed')
   expect(host.textContent).not.toContain('old-code')
 })
+
+it.each(['unit', 'plugin'] as const)(
+  'does not offer previous code for copying while a new %s configuration is pending',
+  async (setting) => {
+    const generate = vi.mocked(generateCodeBlocksForNode)
+    generate.mockResolvedValueOnce({
+      codeBlocks: [{ name: 'css', title: 'CSS', lang: 'css', code: 'old-configuration' }]
+    })
+    const pending = Promise.withResolvers<Awaited<ReturnType<typeof generateCodeBlocksForNode>>>()
+    generate.mockReturnValueOnce(pending.promise)
+    const host = mount(CodeSection)
+    selection.value = [{ id: 'same' } as SceneNode]
+    await expect.poll(() => host.textContent).toContain('old-configuration')
+    if (setting === 'unit') {
+      options.value.cssUnit = 'rem'
+    } else {
+      const source = 'https://example.com/new-plugin.js'
+      plugins.value = { [source]: { source, name: 'New plugin', code: 'new-plugin' } }
+      options.value.activePluginSource = source
+      await expect.poll(() => activePlugin.value?.code).toBe('new-plugin')
+    }
+    await nextTick()
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(host.textContent).not.toContain('old-configuration')
+    expect(host.querySelector('.tp-code [data-tooltip="Copy"]')).toBeNull()
+    expect(host.querySelector('[aria-busy="true"]')).not.toBeNull()
+    if (setting === 'plugin') expect(host.textContent).toContain('New plugin')
+    pending.resolve({
+      codeBlocks: [{ name: 'css', title: 'CSS', lang: 'css', code: 'new-configuration' }]
+    })
+    await expect.poll(() => host.textContent).toContain('new-configuration')
+    expect(host.querySelector('.tp-code [data-tooltip="Copy"]')).not.toBeNull()
+  }
+)
 
 it('keeps the Code surface while loading and retries without changing selection', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })

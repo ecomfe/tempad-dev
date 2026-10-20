@@ -29,7 +29,17 @@ const content = shallowRef<HTMLElement | null>(null)
 const loadingHeight = shallowRef(0)
 let generation = 0
 let loadingTimer: ReturnType<typeof setTimeout> | undefined
-let contentNode: SceneNode | null = null
+const generationInput = computed(() => ({
+  node: selectedNode.value,
+  config: {
+    cssUnit: options.value.cssUnit,
+    rootFontSize: options.value.rootFontSize,
+    scale: options.value.scale
+  },
+  plugin: activePlugin.value,
+  variableDisplay: options.value.variableDisplay
+}))
+let contentInput: typeof generationInput.value | null = null
 
 const playButtonTitle = computed(() =>
   componentLink.value
@@ -39,14 +49,15 @@ const playButtonTitle = computed(() =>
 
 async function updateCode() {
   const current = ++generation
-  const node = selectedNode.value
-  const retainCode = node !== null && node === contentNode && selection.value.length === 1
+  const input = generationInput.value
+  const node = input.node
+  const retainCode = node !== null && input === contentInput && selection.value.length === 1
   clearTimeout(loadingTimer)
   showLoading.value = false
   loadingHeight.value = content.value?.getBoundingClientRect().height ?? 0
   loading.value = false
   if (!retainCode) {
-    contentNode = null
+    contentInput = null
     codeBlocks.value = []
     componentCode.value = ''
     componentLink.value = ''
@@ -66,13 +77,9 @@ async function updateCode() {
   try {
     const result = await generateCodeBlocksForNode(
       node,
-      {
-        cssUnit: options.value.cssUnit,
-        rootFontSize: options.value.rootFontSize,
-        scale: options.value.scale
-      },
-      activePlugin.value?.code || undefined,
-      { variableDisplay: options.value.variableDisplay }
+      input.config,
+      input.plugin?.code || undefined,
+      { variableDisplay: input.variableDisplay }
     )
     if (current === generation) {
       if (
@@ -88,11 +95,11 @@ async function updateCode() {
         })
       )
         codeBlocks.value = result.codeBlocks
-      contentNode = node
+      contentInput = input
     }
   } catch {
     if (current === generation) {
-      contentNode = null
+      contentInput = null
       codeBlocks.value = []
       componentCode.value = ''
       componentLink.value = ''
@@ -107,19 +114,7 @@ async function updateCode() {
   }
 }
 
-watch(
-  [
-    selection,
-    selectionRevision,
-    activePlugin,
-    () => options.value.cssUnit,
-    () => options.value.rootFontSize,
-    () => options.value.scale,
-    () => options.value.variableDisplay
-  ],
-  updateCode,
-  { immediate: true }
-)
+watch([selection, selectionRevision, generationInput], updateCode, { immediate: true })
 onBeforeUnmount(() => {
   generation++
   clearTimeout(loadingTimer)
