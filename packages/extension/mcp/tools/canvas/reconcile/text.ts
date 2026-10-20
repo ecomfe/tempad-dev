@@ -23,6 +23,7 @@ import { nativePaint, paintStacksEqual } from './native-values'
 import { isCanvasKeyHyperlink, nativeHyperlink } from './nodes'
 import { type ApplyState, markMutation, setValue } from './state'
 import { loadTextFonts, loadVariableFonts, TEXT_STYLE_VARIABLES_BY_VALUE } from './text-fonts'
+import { textParagraphs, type TextParagraph } from './text-paragraphs'
 import {
   rangeTextStyleCanSkip,
   rangeTextStyleMatches,
@@ -30,6 +31,7 @@ import {
 } from './text-range-style'
 import {
   textParagraphRange,
+  textParagraphRanges,
   textRangesIntersect,
   textRangesMatchOutside,
   type TextRange
@@ -288,9 +290,11 @@ function textFieldMatchesOutside(
   ranges: readonly CanvasFigmaTextRange[],
   matches: (start: number, end: number) => boolean
 ): boolean {
-  const overrides = ranges
-    .filter((range) => rangeOwnsTextField(range, field))
-    .map((range) => textFieldRange(node, field, range))
+  const owned = ranges.filter((range) => rangeOwnsTextField(range, field))
+  const overrides =
+    field === 'paragraphIndent' || field === 'paragraphSpacing'
+      ? textParagraphRanges(node.characters, owned)
+      : owned
   return textRangesMatchOutside(textFieldRange(node, field, scope), overrides, matches)
 }
 
@@ -445,10 +449,12 @@ function nativeTextDecorationColor(
 
 async function applyTextRangeVariables(
   node: TextNode,
-  range: CanvasFigmaTextRange,
-  laterRanges: readonly CanvasFigmaTextRange[],
+  paragraphs: readonly TextParagraph[],
+  index: number,
   state: ApplyState
 ): Promise<void> {
+  const paragraph = paragraphs[index]!
+  const range = paragraph.range
   await loadVariableFonts(node, range.variables, state, range)
   for (const [field, reference] of Object.entries(range.variables ?? {}) as Array<
     [VariableBindableTextField, CanvasVariableReference | null]
@@ -457,16 +463,19 @@ async function applyTextRangeVariables(
     const current = node.getRangeBoundVariable(range.start, range.end, field)
     if (current !== figma.mixed && current?.id === variable?.id) continue
     if (variable && (field === 'paragraphIndent' || field === 'paragraphSpacing')) {
-      const scope = textFieldRange(node, field, range)
-      const overriding = laterRanges
-        .filter((later) => rangeOwnsTextField(later, field))
-        .map((later) => ({ range: later, scope: textFieldRange(node, field, later) }))
-        .filter((later) => later.scope.start < scope.end && later.scope.end > scope.start)
-      const overrides = overriding.map((later) => later.scope)
-      const unchanged = textRangesMatchOutside(scope, overrides, (start, end) => {
-        const alias = node.getRangeBoundVariable(start, end, field)
-        return alias !== figma.mixed && alias?.id === variable.id
-      })
+      const scope = paragraph.effective[field]
+      const alias =
+        scope.start < scope.end
+          ? node.getRangeBoundVariable(scope.start, scope.end, field)
+          : undefined
+      const unchanged =
+        scope.start === scope.end || (alias !== figma.mixed && alias?.id === variable.id)
+      const overriding: TextParagraph[] = []
+      for (let laterIndex = index + 1; laterIndex < paragraphs.length; laterIndex++) {
+        const later = paragraphs[laterIndex]!
+        if (later.span.start >= paragraph.span.end) break
+        if (rangeOwnsTextField(later.range, field)) overriding.push(later)
+      }
       if (unchanged && overriding.length) {
         // An equal later literal may skip its native setter. Do not let its value
         // ownership retain a different alias or swallow an explicit null unbinding.
@@ -479,8 +488,8 @@ async function applyTextRangeVariables(
             !scalarValuesEqual(value, later.range[field])
         )
         // The later setter can also clear aliases beyond the earlier range.
-        const unbound = overrides.every(({ start, end }) => {
-          const alias = node.getRangeBoundVariable(start, end, field)
+        const unbound = overriding.every(({ span }) => {
+          const alias = node.getRangeBoundVariable(span.start, span.end, field)
           return alias !== figma.mixed && !alias
         })
         if (clearsBinding && unbound) continue
@@ -496,15 +505,16 @@ export async function applyTextRanges(
   ranges: CanvasFigmaTextRange[] | undefined,
   state: ApplyState
 ): Promise<void> {
-  for (const [index, range] of (ranges ?? []).entries()) {
+  const paragraphs = textParagraphs(node.characters, ranges ?? [])
+  for (const [index, paragraph] of paragraphs.entries()) {
+    const range = paragraph.range
     if (range.end > node.characters.length) {
       specError(
         `Text range ${range.start}:${range.end} exceeds TEXT node "${node.id}" with ${node.characters.length} UTF-16 code units.`
       )
     }
-    const laterRanges = ranges?.slice(index + 1) ?? []
     const composed = await resolvedRangeTextStyle(node, range, state)
-    const matches = composed && rangeTextStyleMatches(node, range, composed, laterRanges)
+    const matches = composed && rangeTextStyleMatches(node, range, composed, paragraph.effective)
     const unchanged = composed && matches && rangeTextStyleCanSkip(node, composed)
     const typography: CanvasFigmaTextRange = unchanged
       ? { start: range.start, end: range.end }
@@ -629,32 +639,26 @@ export async function applyTextRanges(
       (value) => node.setRangeIndentation(range.start, range.end, value),
       state
     )
-    setBaseTextValue(
-      node,
-      'paragraphIndent',
-      typography.paragraphIndent,
-      {
-        current: node.getRangeParagraphIndent(range.start, range.end),
-        apply: (value) => node.setRangeParagraphIndent(range.start, range.end, value),
-        readRange: (start, end) => node.getRangeParagraphIndent(start, end)
-      },
-      laterRanges,
-      state,
-      range
-    )
-    setBaseTextValue(
-      node,
-      'paragraphSpacing',
-      typography.paragraphSpacing,
-      {
-        current: node.getRangeParagraphSpacing(range.start, range.end),
-        apply: (value) => node.setRangeParagraphSpacing(range.start, range.end, value),
-        readRange: (start, end) => node.getRangeParagraphSpacing(start, end)
-      },
-      laterRanges,
-      state,
-      range
-    )
+    const indent = paragraph.effective.paragraphIndent
+    if (indent.start < indent.end)
+      applyTextRangeValue(
+        node,
+        node.getRangeParagraphIndent(indent.start, indent.end),
+        typography.paragraphIndent,
+        (value) => node.setRangeParagraphIndent(range.start, range.end, value),
+        state,
+        scalarValuesEqual
+      )
+    const spacing = paragraph.effective.paragraphSpacing
+    if (spacing.start < spacing.end)
+      applyTextRangeValue(
+        node,
+        node.getRangeParagraphSpacing(spacing.start, spacing.end),
+        typography.paragraphSpacing,
+        (value) => node.setRangeParagraphSpacing(range.start, range.end, value),
+        state,
+        scalarValuesEqual
+      )
     const hyperlink = nativeHyperlink(range.hyperlink, state)
     if (
       hyperlink !== undefined &&
@@ -663,6 +667,6 @@ export async function applyTextRanges(
       node.setRangeHyperlink(range.start, range.end, hyperlink)
       markMutation(state, node)
     }
-    await applyTextRangeVariables(node, range, laterRanges, state)
+    await applyTextRangeVariables(node, paragraphs, index, state)
   }
 }

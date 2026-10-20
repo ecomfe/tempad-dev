@@ -41,6 +41,7 @@ import {
   CANVAS_SVG_COLOR_NAME
 } from './svg'
 import { textFillsMatch } from './text-paints'
+import { textParagraphs } from './text-paragraphs'
 import {
   rangeNeedsTextStyleComposition,
   rangeTextStyleMatches,
@@ -317,6 +318,7 @@ export async function verifyAppliedNode(
   }
   if (node.type === 'TEXT') {
     const ranges = spec.figma?.text?.ranges ?? []
+    const paragraphs = textParagraphs(node.characters, ranges)
     for (const [index, range] of ranges.entries()) {
       for (const field of ['textStyle', 'fillStyle'] as const) {
         const reference = range[field]
@@ -328,7 +330,7 @@ export async function verifyAppliedNode(
         if (field === 'textStyle' && !composed && rangeNeedsTextStyleComposition(range)) continue
         if (composed) {
           nativeFields += 1
-          if (!rangeTextStyleMatches(node, range, composed, ranges.slice(index + 1))) {
+          if (!rangeTextStyleMatches(node, range, composed, paragraphs[index]!.effective)) {
             applyError(
               `Verification failed for "${spec.key}": range ${range.start}:${range.end} TextStyle typography does not match.`
             )

@@ -7,6 +7,26 @@ export function textParagraphRange(characters: string, range: TextRange): TextRa
   return { start, end: newline === -1 ? characters.length : newline + 1 }
 }
 
+export function textParagraphRanges(characters: string, ranges: readonly TextRange[]): TextRange[] {
+  if (!ranges.length) return []
+  let start = 0
+  let end = 0
+  const advance = () => {
+    start = end
+    const newline = characters.indexOf('\n', start)
+    end = newline === -1 ? characters.length : newline + 1
+  }
+  advance()
+  // Authored ranges are ordered and do not overlap, so both paragraph boundaries
+  // advance monotonically. Each newline is visited once, regardless of range count.
+  return ranges.map((range) => {
+    while (end <= range.start && end < characters.length) advance()
+    const first = start
+    while (end < range.end && end < characters.length) advance()
+    return { start: first, end }
+  })
+}
+
 export function* textRangesOutside(
   scope: TextRange,
   overrides: readonly TextRange[]

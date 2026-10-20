@@ -3,6 +3,7 @@ import type { CanvasFigmaTextRange, CanvasResolvedApplyParameters } from '@tempa
 import { describe, expect, it, vi } from 'vitest'
 
 import { applyResolvedCanvas as applyCanvas } from '@/mcp/tools/canvas'
+import { textParagraphs } from '@/mcp/tools/canvas/reconcile/text-paragraphs'
 
 import { createFixture } from '../../fakes/figma'
 
@@ -311,5 +312,63 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
     expect(probe.values()).toEqual([30, 30, 0])
     expect(probe.aliases()).toEqual([undefined, undefined, undefined])
     await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+})
+
+describe('paragraph comparison scopes', () => {
+  it('preserves newline, empty-paragraph, and cross-paragraph boundaries for each field', () => {
+    const paragraphs = textParagraphs('\nHi\nnext\nend', [
+      { start: 0, end: 1, paragraphIndent: 1 },
+      { start: 1, end: 2, paragraphIndent: 2 },
+      { start: 2, end: 5, paragraphSpacing: 3 },
+      { start: 5, end: 6, textStyle: null, variables: { paragraphIndent: null } },
+      { start: 6, end: 7, textStyle: { id: 'style:type' } },
+      { start: 9, end: 10, paragraphIndent: 4 }
+    ])
+    expect(paragraphs.map(({ span }) => span)).toEqual([
+      { start: 0, end: 1 },
+      { start: 1, end: 4 },
+      { start: 1, end: 9 },
+      { start: 4, end: 9 },
+      { start: 4, end: 9 },
+      { start: 9, end: 12 }
+    ])
+    expect(paragraphs[1]!.effective).toEqual({
+      paragraphIndent: { start: 1, end: 4 },
+      paragraphSpacing: { start: 1, end: 1 },
+      textWrapStyle: { start: 1, end: 4 }
+    })
+    expect(paragraphs[2]!.effective).toEqual({
+      paragraphIndent: { start: 1, end: 4 },
+      paragraphSpacing: { start: 1, end: 4 },
+      textWrapStyle: { start: 1, end: 4 }
+    })
+  })
+
+  it.each([null, { id: 'variable:spacing' }])(
+    'distinguishes a null unbinding from a paragraph variable owner: %j',
+    (reference) => {
+      const paragraphs = textParagraphs('Hello\nworld', [
+        { start: 0, end: 1, paragraphIndent: 10 },
+        { start: 2, end: 3, textStyle: null, variables: { paragraphIndent: reference } }
+      ])
+      expect(paragraphs[0]!.effective).toEqual({
+        paragraphIndent: { start: 0, end: reference ? 0 : 6 },
+        paragraphSpacing: { start: 0, end: 6 },
+        textWrapStyle: { start: 0, end: 6 }
+      })
+    }
+  )
+
+  it('uses UTF-16 offsets when a range ends exactly after a newline', () => {
+    const paragraphs = textParagraphs('😀\nline', [
+      { start: 0, end: 3, paragraphIndent: 10 },
+      { start: 3, end: 4, paragraphIndent: 20 }
+    ])
+    expect(paragraphs.map(({ span }) => span)).toEqual([
+      { start: 0, end: 3 },
+      { start: 3, end: 7 }
+    ])
+    expect(paragraphs[0]!.effective.paragraphIndent).toEqual({ start: 0, end: 3 })
   })
 })

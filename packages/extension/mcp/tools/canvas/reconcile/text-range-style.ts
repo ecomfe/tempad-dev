@@ -1,6 +1,7 @@
 import type { CanvasFigmaTextRange, CanvasVariableReference } from '@tempad-dev/shared'
 
 import type { ApplyState } from './state'
+import type { TextParagraph } from './text-paragraphs'
 
 import { applyError } from '../errors'
 import { resolveFamilyFont } from '../fonts'
@@ -13,7 +14,6 @@ import {
   textMeasuresEqual
 } from './comparison'
 import { TEXT_STYLE_VARIABLES_BY_VALUE } from './text-fonts'
-import { textParagraphRange, textRangesMatchOutside } from './text-ranges'
 
 const READERS = {
   fontName: (node: TextNode, start: number, end: number) => node.getRangeFontName(start, end),
@@ -194,30 +194,23 @@ function fieldMatches(
 }
 
 function effectiveFieldMatches(
-  node: TextNode,
   range: CanvasFigmaTextRange,
   field: Field,
-  laterRanges: readonly CanvasFigmaTextRange[],
+  paragraphs: TextParagraph['effective'],
   matches: (start: number, end: number) => boolean
 ): boolean {
   if (field !== 'paragraphIndent' && field !== 'paragraphSpacing' && field !== 'textWrapStyle') {
     return matches(range.start, range.end)
   }
-  const overrides = laterRanges
-    .filter(
-      (later) =>
-        later.textStyle ||
-        (field !== 'textWrapStyle' && (later[field] !== undefined || later.variables?.[field]))
-    )
-    .map((later) => textParagraphRange(node.characters, later))
-  return textRangesMatchOutside(textParagraphRange(node.characters, range), overrides, matches)
+  const scope = paragraphs[field]
+  return scope.start === scope.end || matches(scope.start, scope.end)
 }
 
 export function rangeTextStyleMatches(
   node: TextNode,
   range: CanvasFigmaTextRange,
   expected: RangeStyleState,
-  laterRanges: readonly CanvasFigmaTextRange[]
+  paragraphs: TextParagraph['effective']
 ): boolean {
   const currentStyle = node.getRangeTextStyleId(range.start, range.end)
   if (currentStyle !== '' && currentStyle !== expected.style.id) return false
@@ -226,7 +219,7 @@ export function rangeTextStyleMatches(
     const desired = expected.values[field]
     if (desired === undefined) continue
     if (
-      !effectiveFieldMatches(node, range, field, laterRanges, (start, end) =>
+      !effectiveFieldMatches(range, field, paragraphs, (start, end) =>
         fieldMatches(field, READERS[field](node, start, end), desired, expected.namedFont)
       )
     )
@@ -236,7 +229,7 @@ export function rangeTextStyleMatches(
     const valueField =
       field === 'fontFamily' || field === 'fontStyle' || field === 'fontWeight' ? 'fontName' : field
     if (
-      !effectiveFieldMatches(node, range, valueField, laterRanges, (start, end) => {
+      !effectiveFieldMatches(range, valueField, paragraphs, (start, end) => {
         const current = node.getRangeBoundVariable(start, end, field)
         return current !== figma.mixed && current?.id === expected.aliases[field]
       })
