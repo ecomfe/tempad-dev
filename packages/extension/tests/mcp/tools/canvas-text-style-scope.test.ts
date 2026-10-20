@@ -358,6 +358,43 @@ describe('base typography outside retained range TextStyles', () => {
     }
   )
 
+  it.each(['declared', 'omitted'] as const)(
+    'resolves a style-only base font from writable characters with %s range links',
+    async (rangeMode) => {
+      const fixture = createFixture()
+      const initial = request()
+      initial.markup = initial.markup!.replace('font-sans ', '')
+      const created = await applyCanvas(initial)
+      const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+      const native = installStyledText(node)
+      const update = {
+        ...initial,
+        mode: 'update' as const,
+        targetNodeId: created.rootNodeId!,
+        bindings: rangeMode === 'declared' ? initial.bindings : undefined
+      }
+      await expect(applyCanvas(update)).resolves.toMatchObject({
+        mutationCount: 0,
+        updatedNodeIds: []
+      })
+      const changed = {
+        ...update,
+        markup: update.markup!.replace('font-normal ', 'font-semibold ')
+      }
+      fixture.loadFontAsync.mockClear()
+      const updated = await applyCanvas(changed)
+      expect(updated.mutationCount).toBe(1)
+      expect(node.getRangeFontName(0, 5)).toEqual(STYLE_VALUES.fontName)
+      expect(native.styles.slice(0, 5)).toEqual(Array(5).fill('style:text'))
+      expect(node.getRangeFontName(5, 13)).toEqual({ family: 'Inter', style: 'Semi Bold' })
+      expect(fixture.loadFontAsync).toHaveBeenCalledWith({ family: 'Inter', style: 'Semi Bold' })
+      await expect(applyCanvas(changed)).resolves.toMatchObject({
+        mutationCount: 0,
+        updatedNodeIds: []
+      })
+    }
+  )
+
   it('applies base typography on the same request that clears the range style', async () => {
     const fixture = createFixture()
     const created = await applyCanvas(request())
@@ -421,11 +458,12 @@ describe('base typography outside retained range TextStyles', () => {
     await expect(applyCanvas(update)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
-  it('keeps the mixed-font requirement for both family and style', async () => {
+  it('keeps the mixed-font requirement when writable characters themselves have mixed fonts', async () => {
     const fixture = createFixture()
     const created = await applyCanvas(request())
     const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
-    installStyledText(node)
+    const native = installStyledText(node)
+    native.values.fontName[9] = { family: 'Inter', style: 'Italic' }
     const changed = request(null)
     changed.markup = changed.markup!.replace('font-normal ', '')
     await expect(

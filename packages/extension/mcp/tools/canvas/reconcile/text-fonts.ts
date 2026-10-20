@@ -20,6 +20,7 @@ import {
 import { normalizePortableFontStyle } from '../tailwind'
 import { resolveVariable, resolvedVariable } from '../variables'
 import { currentBoundVariableId } from './binding-values'
+import { fontNamesEqual } from './comparison'
 import { baseTextStyleScope, type BaseTextStyleScope } from './text-style-scope'
 
 export const TEXT_STYLE_VALUE_FIELDS = [
@@ -152,7 +153,8 @@ export async function preflightTextFont(
 ): Promise<void> {
   if (spec.type !== 'TEXT' || !spec.text) return
   const textNode = existing?.type === 'TEXT' ? existing : null
-  const hasTextStyle = baseTextStyleScope(spec, textNode).kind === 'retained'
+  const styleScope = baseTextStyleScope(spec, textNode)
+  const hasTextStyle = styleScope.kind === 'retained'
   const hasFontFamilyVariable = !!(
     spec.variables?.fontFamily ||
     (textNode && currentBoundVariableId(textNode, 'fontFamily'))
@@ -167,7 +169,9 @@ export async function preflightTextFont(
     (fontFamily !== undefined || fontStyle !== undefined) &&
     !(spec.text.fontStyleMatching && (hasFontFamilyVariable || hasFontStyleVariable))
   ) {
-    const currentFont = textNode?.fontName ?? { family: 'Inter', style: 'Regular' }
+    const currentFont = textNode
+      ? baseTextFont(textNode, styleScope)
+      : { family: 'Inter', style: 'Regular' }
     if (currentFont === figma.mixed && (!fontFamily || !fontStyle)) {
       specError(
         `TEXT "${spec.key}" has mixed fonts; provide both fontFamily and fontStyle to replace them.`
@@ -186,6 +190,19 @@ export async function preflightTextFont(
     }
     await loadFont(desiredFont, state.fonts)
   }
+}
+
+function baseTextFont(node: TextNode, scope: BaseTextStyleScope): FontName | typeof figma.mixed {
+  if (scope.kind !== 'partial' || node.fontName !== figma.mixed) return node.fontName
+  // Retained styled characters do not supply missing family/style fields for
+  // the base font. The writable characters must still agree on one named face.
+  let font: FontName | undefined
+  for (const { start, end } of scope.ranges) {
+    const current = node.getRangeFontName(start, end)
+    if (current === figma.mixed || (font && !fontNamesEqual(font, current))) return figma.mixed
+    font ??= current
+  }
+  return font ?? figma.mixed
 }
 
 async function resolveLiteralFont(
@@ -208,7 +225,7 @@ export async function loadTextFonts(
   styleScope: BaseTextStyleScope
 ): Promise<FontName | null> {
   const text = spec.text
-  const currentFont = node.fontName
+  const currentFont = baseTextFont(node, styleScope)
   const hasTextStyle = styleScope.kind === 'retained'
   if (text?.fontStyleMatching && !hasTextStyle) {
     const familyReference = spec.variables?.fontFamily
@@ -270,12 +287,7 @@ export async function loadTextFonts(
     text.fontFamily = desiredFont.family
     text.fontStyle = desiredFont.style
   }
-  const fonts = desiredFont
-    ? [desiredFont]
-    : currentFont === figma.mixed
-      ? node.getRangeAllFontNames(0, node.characters.length)
-      : [currentFont]
-  await loadFonts(fonts, state.fonts)
+  await loadFonts(desiredFont ? [desiredFont] : currentTextFonts(node), state.fonts)
   return desiredFont
 }
 
