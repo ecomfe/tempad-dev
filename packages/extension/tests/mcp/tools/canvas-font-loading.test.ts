@@ -213,6 +213,49 @@ describe('mcp/tools/canvas font loading', () => {
     }
   )
 
+  it.each(['alias', 'font'] as const)(
+    'keeps simultaneous explicit base and extended modes strict for an unavailable %s',
+    async (missing) => {
+      const fixture = createFixture()
+      const collection = figma.variables.createVariableCollection('Typography')
+      const alternate = collection.addMode('Alternate')
+      const family = figma.variables.createVariable('Family', collection, 'STRING')
+      family.setValueForMode(collection.defaultModeId, 'Inter')
+      family.setValueForMode(alternate, 'Inter')
+      const extended = collection.extend('Extended typography')
+      const extendedAlternate = extended.modes.find(
+        (mode) => mode.parentModeId === alternate
+      )!.modeId
+      extended.variableOverrides[family.id] = {
+        [extendedAlternate]:
+          missing === 'alias'
+            ? { type: 'VARIABLE_ALIAS', id: 'missing:font-family' }
+            : 'Unavailable Font'
+      }
+      const label = figma.createText()
+      label.characters = 'Explicit dependency'
+      label.setBoundVariable('fontFamily', family)
+      fixture.page.setExplicitVariableModeForCollection(collection, alternate)
+
+      await expect(
+        applyCanvasFromTool({
+          mode: 'update',
+          page: { id: fixture.page.id, variableModes: { [extended.id]: extendedAlternate } }
+        })
+      ).rejects.toMatchObject({
+        code:
+          missing === 'alias'
+            ? TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED
+            : TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC,
+        message: expect.stringContaining(
+          missing === 'alias' ? 'missing:font-family' : 'Unavailable Font'
+        )
+      })
+      expect(fixture.page.explicitVariableModes).toEqual({ [collection.id]: alternate })
+      expect(fixture.commitUndo).not.toHaveBeenCalled()
+    }
+  )
+
   it.each([false, true])(
     'scans retained missing text styles without dropping available bindings: bound=%s',
     async (bound) => {

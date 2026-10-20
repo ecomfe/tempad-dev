@@ -125,7 +125,7 @@ async function modeFontVariableValues(
       selected = Object.entries(context.resolvedVariableModes).filter(([id]) => related.has(id))
     }
   }
-  let optional = selected.length !== 1
+  let optional = selected.length === 0
   let unavailable: string | undefined
   const candidates: VariableValue[] = []
   for (const collection of related.values()) {
@@ -179,7 +179,7 @@ async function modeFontVariableValues(
     values,
     optional,
     affected,
-    ...(selected.length === 1 && unavailable ? { unavailable } : {})
+    ...(selected.length && unavailable ? { unavailable } : {})
   }
   cache.set(variable.id, result)
   return result
