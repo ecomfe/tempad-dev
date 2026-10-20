@@ -1,11 +1,13 @@
 import type { CanvasPageProperties } from '@tempad-dev/shared'
 
+import { TEMPAD_MCP_ERROR_CODES } from '@tempad-dev/shared'
+
 import type { CanvasNodeSpec } from '../model'
 
-import { getVariableById, getVariableCollectionById } from '../../../local-resources'
+import { coerceToolErrorPayload } from '../../../errors'
+import { getStyleById, getVariableById, getVariableCollectionById } from '../../../local-resources'
 import { applyError, scopeError, errorMessage } from '../errors'
 import { loadFonts, currentTextFonts, loadFont, resolveFamilyFont } from '../fonts'
-import { resolveStyle } from '../styles'
 import { walkPhysicalNodes } from '../traversal'
 import { resolvedCollection, resolvedModeId } from '../variables'
 import { SIZE_BOUND_FIELDS } from './layout'
@@ -18,7 +20,11 @@ type FontModeValues = {
   affected: boolean
   unavailable?: string
 }
-type MissingModeResources = { variables: Set<string>; collections: Set<string> }
+type MissingModeResources = {
+  variables: Set<string>
+  collections: Set<string>
+  styles: Set<string>
+}
 
 const TEXT_MODE_FONT_FIELDS = [
   'characters',
@@ -56,6 +62,21 @@ async function modeFontCollection(
   if (collection) state.variables.collectionCache.set(key, collection)
   else missingCollections.add(id)
   return collection
+}
+
+async function modeTextStyle(
+  id: string,
+  state: ApplyState,
+  missing: Set<string>
+): Promise<BaseStyle | null> {
+  const key = `id:${id}`
+  const cached = state.styles.cache.get(key)
+  if (cached) return cached
+  if (missing.has(id)) return null
+  const style = await getStyleById(id)
+  if (style) state.styles.cache.set(key, style)
+  else missing.add(id)
+  return style
 }
 
 async function modeFontVariableValues(
@@ -166,7 +187,14 @@ async function modeFontVariableValues(
   const values = [...new Set(candidates)]
   if (values.length > 64 || cache.size >= 256)
     scopeError('Font mode preloading exceeds the bounded candidate budget.')
-  const result = { values, optional, affected, ...(unavailable ? { unavailable } : {}) }
+  // Page Auto candidates are possibilities, not selected dependencies. A missing
+  // candidate must not block the native Auto setter; known selections stay strict.
+  const result = {
+    values,
+    optional,
+    affected,
+    ...(selected.length === 1 && unavailable ? { unavailable } : {})
+  }
   cache.set(variable.id, result)
   return result
 }
@@ -178,15 +206,19 @@ async function loadModeFonts(
   state: ApplyState
 ): Promise<void> {
   const roots = target.type === 'PAGE' ? target.children : [target]
-  // Only misses are scan-local: later imports can expose previously unavailable collections.
-  const missing: MissingModeResources = { variables: new Set(), collections: new Set() }
+  // Only misses are scan-local: later imports can expose previously unavailable resources.
+  const missing: MissingModeResources = {
+    variables: new Set(),
+    collections: new Set(),
+    styles: new Set()
+  }
   for (const node of walkPhysicalNodes(roots)) {
     if (node.type !== 'TEXT') continue
     const cache = new Map<string, FontModeValues>()
     const segments = node.getStyledTextSegments(['fontName', 'textStyleId', 'boundVariables'])
     for (const segment of segments) {
       const style = segment.textStyleId
-        ? await resolveStyle({ id: segment.textStyleId }, state.styles)
+        ? await modeTextStyle(segment.textStyleId, state, missing.styles)
         : undefined
       const bindings = {
         ...node.boundVariables,
@@ -216,6 +248,8 @@ async function loadModeFonts(
           if (resolved.affected && resolved.unavailable) applyError(resolved.unavailable)
           values.set(field, resolved)
         } catch (error) {
+          if (coerceToolErrorPayload(error).code === TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE)
+            throw error
           applyError(
             `Cannot resolve text variable dependency "${field}" on "${node.id}": ${errorMessage(error)}`
           )
