@@ -210,6 +210,12 @@ remain explicit where configured. Expressions and arbitrary properties retain
 their bracket syntax. Internal style values remain CSS `var(...)` expressions;
 token collection, renaming, and resolution use the same variable identities.
 
+Keep unexpanded background shorthands and their longhand overrides in one inline
+style object, with the shorthand first. This preserves quoted image URLs and
+override order without depending on Tailwind's source scanner or utility order.
+The shared utility converter uses `[background:...]` for retained shorthands,
+rather than the `bg-[...]` image/color utilities.
+
 ## Variable output semantics
 
 ### Product boundary

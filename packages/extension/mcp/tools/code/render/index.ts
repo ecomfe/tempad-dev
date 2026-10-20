@@ -12,7 +12,14 @@ import type { CodeLanguage, RenderContext } from './types'
 import { renderTextSegments } from '../text'
 import { nativeSvg } from '../tokens/markup'
 import { renderPluginComponent } from './plugin'
-import { classProps, classProp, filterGridProps, mergeClass } from './props'
+import {
+  classProps,
+  classProp,
+  filterGridProps,
+  mergeClass,
+  toMarkupAttributes,
+  type RenderProps
+} from './props'
 
 export type { RenderContext, CodeLanguage } from './types'
 
@@ -100,14 +107,14 @@ async function renderNode(
       includeDataHint: false
     })
 
-    const svgProps: Record<string, string> = { ...(svgEntry.props ?? {}) }
+    const svgProps: RenderProps = { ...(svgEntry.props ?? {}) }
     const legacyAssetUrl = svgProps['data-asset-url']
     if (!svgProps['data-src'] && legacyAssetUrl) {
       svgProps['data-src'] = legacyAssetUrl
       delete svgProps['data-asset-url']
     }
     if (svgEntry.raw) {
-      const mergedProps = Object.keys(props).length ? props : undefined
+      const mergedProps = Object.keys(props).length ? toMarkupAttributes(props) : undefined
       const content = nativeSvg(svgEntry.raw, mergedProps)
       return wrapperProps ? { name: 'div', props: wrapperProps, children: [content] } : content
     }
@@ -232,7 +239,7 @@ async function renderNode(
     }
 
     if (pluginComponent.code) {
-      return raw(pluginComponent.code, pluginProps as Record<string, string>)
+      return raw(pluginComponent.code, pluginProps ? toMarkupAttributes(pluginProps) : undefined)
     }
     return null
   }
@@ -355,7 +362,7 @@ function buildFallbackSnapshotProps(
   ctx: RenderContext,
   style: Record<string, string>,
   langHint: CodeLanguage | undefined
-): Record<string, string> {
+): RenderProps {
   const classAttr = classProp(langHint)
   const dataHint = snapshot.dataHint
     ? { ...snapshot.dataHint, 'data-hint-id': snapshot.id }
@@ -446,19 +453,16 @@ function diffTextStyles(
   return { appliedTextStyle, nextTextStyle }
 }
 
-function mergeDevComponentProps(
-  component: DevComponent,
-  props?: Record<string, string>
-): DevComponent {
+function mergeDevComponentProps(component: DevComponent, props?: RenderProps): DevComponent {
   if (!props || !Object.keys(props).length) return component
   const next = { ...component }
-  const existing = (next.props ?? {}) as Record<string, string>
-  const merged: Record<string, string> = { ...existing }
+  const existing = next.props ?? {}
+  const merged = { ...existing }
 
   Object.entries(props).forEach(([key, value]) => {
     if (!value) return
     if (key === 'class' || key === 'className') {
-      if (existing[key]) {
+      if (typeof existing[key] === 'string' && typeof value === 'string') {
         merged[key] = mergeClass(existing[key], value)
       } else {
         merged[key] = value
@@ -526,7 +530,7 @@ function hasVisibleTextFill(
   return true
 }
 
-function ensureSvgSize(svgProps: Record<string, string>, snapshot: NodeSnapshot): void {
+function ensureSvgSize(svgProps: RenderProps, snapshot: NodeSnapshot): void {
   const hasWidth = typeof svgProps.width === 'string' && svgProps.width.trim().length > 0
   const hasHeight = typeof svgProps.height === 'string' && svgProps.height.trim().length > 0
   if (hasWidth && hasHeight) return

@@ -8,19 +8,28 @@ vi.mock('@/ui/state', () => ({
 }))
 
 vi.mock('@/mcp/assets', () => ({
-  ensureAssetUploaded: async () => ({
-    hash: 'image',
-    url: 'https://assets.test/image.png',
-    mimeType: 'image/png',
-    size: 8
-  })
+  ensureAssetUploaded: async (bytes: Uint8Array) => {
+    const hash = bytes.at(-1) === 1 ? 'front' : 'image'
+    return {
+      hash,
+      url: `https://assets.test/${hash}.png`,
+      mimeType: 'image/png',
+      size: bytes.length
+    }
+  }
 }))
 
 afterEach(() => vi.unstubAllGlobals())
 
-it.each([false, true])(
-  'keeps a bound base color and image through get_code with resolveTokens=%s',
-  async (resolveTokens) => {
+it.each(
+  [false, true].flatMap((resolveTokens) => [
+    { resolveTokens, layered: false, lang: 'jsx' as const },
+    { resolveTokens, layered: true, lang: 'jsx' as const },
+    { resolveTokens, layered: true, lang: 'vue' as const }
+  ])
+)(
+  'keeps a bound base color and images through get_code ($lang, layered=$layered, resolved=$resolveTokens)',
+  async ({ resolveTokens, layered, lang }) => {
     const variable = {
       id: 'base',
       name: 'Base',
@@ -43,8 +52,19 @@ it.each([false, true])(
         })
       },
       getStyleById: () => null,
-      getImageByHash: () => ({
-        getBytesAsync: async () => Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+      getImageByHash: (hash: string) => ({
+        getBytesAsync: async () =>
+          Uint8Array.from([
+            0x89,
+            0x50,
+            0x4e,
+            0x47,
+            0x0d,
+            0x0a,
+            0x1a,
+            0x0a,
+            ...(hash === 'front' ? [1] : [])
+          ])
       })
     })
     const root = {
@@ -70,23 +90,48 @@ it.each([false, true])(
           color: { r: 1, g: 0, b: 0 },
           boundVariables: { color: { type: 'VARIABLE_ALIAS', id: 'base' } }
         },
-        { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' }
+        { type: 'IMAGE', imageHash: 'image', scaleMode: 'FILL' },
+        ...(layered ? [{ type: 'IMAGE', imageHash: 'front', scaleMode: 'FILL' }] : [])
       ],
       strokes: [],
       effects: [],
       boundVariables: { fills: [undefined, { type: 'VARIABLE_ALIAS', id: 'base' }] },
       getCSSAsync: async () => ({
-        background: 'url("image.png") lightgray 50% / cover no-repeat'
+        background: [
+          ...(layered ? ['url("front.png") lightgray left / contain repeat-x'] : []),
+          'url("image.png") lightgray 50% / cover no-repeat'
+        ].join(', ')
       })
     } as unknown as SceneNode
 
-    const result = await handleGetCode([root], undefined, resolveTokens)
+    const result = await handleGetCode([root], lang, resolveTokens)
 
-    expect(result.code).toContain(resolveTokens ? 'bg-[#F00]' : 'bg-(--Base)')
+    if (layered) {
+      expect(result.code).toContain(lang === 'jsx' ? 'style={{' : ':style="')
+      expect(result.code).toContain(`backgroundColor: '${resolveTokens ? '#F00' : 'var(--Base)'}'`)
+      expect(result.code).not.toContain('bg-[')
+      expect(result.code).toContain('left / contain repeat-x')
+      expect(result.code).toContain('50% / cover no-repeat')
+      expect(result.code).toContain('https://assets.test/front.png')
+      expect(result.code.indexOf('front.png')).toBeLessThan(result.code.indexOf('image.png'))
+    } else {
+      expect(result.code).toContain(resolveTokens ? 'bg-[#F00]' : 'bg-(--Base)')
+    }
     expect(result.code).toContain('https://assets.test/image.png')
     expect(result.code).not.toContain('lightgray')
     expect(result.tokens?.['--Base']).toEqual({ kind: 'color', value: '#F00' })
     expect(result.assets).toEqual([
+      ...(layered
+        ? [
+            {
+              hash: 'front',
+              url: 'https://assets.test/front.png',
+              mimeType: 'image/png',
+              size: 9,
+              figmaImageHash: 'front'
+            }
+          ]
+        : []),
       {
         hash: 'image',
         url: 'https://assets.test/image.png',

@@ -127,6 +127,25 @@ describe('utils/tailwind cssToTailwind', () => {
     ])
   })
 
+  it('preserves background shorthands as explicit properties instead of image utilities', () => {
+    expect(
+      cssToClassNames({
+        background:
+          'url("front_image.png") left / cover no-repeat, url("rear.png") right / contain repeat, #FF0'
+      })
+    ).toEqual([
+      '[background:url("front_image.png")_left_/_cover_no-repeat,_url("rear.png")_right_/_contain_repeat,_#FF0]'
+    ])
+    expect(cssToClassNames({ background: 'var(--surface)' })).toEqual([
+      '[background:var(--surface)]'
+    ])
+    expect(
+      nestedCssToClassNames({
+        '&:hover': { background: 'linear-gradient(red, blue) center / cover no-repeat' }
+      })
+    ).toEqual(['hover:[background:linear-gradient(red,_blue)_center_/_cover_no-repeat]'])
+  })
+
   it('maps shorthand and pseudo-related properties to canonical utilities', () => {
     const result = cssToTailwind({
       content: '""',

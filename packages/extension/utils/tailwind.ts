@@ -1150,6 +1150,9 @@ export function cssToTailwind(rawStyle: Record<string, string>): string {
       classes.push(...collapseCorners(config, familyKey, buf.corners))
     } else if (config.mode === 'axis' && buf.axes) {
       classes.push(...collapseAxes(config, familyKey, buf.axes))
+    } else if (familyKey === 'background' && buf.val) {
+      // bg-[…] is inferred as a color or image, never a CSS background shorthand.
+      classes.push(`[background:${formatArbitraryValue(buf.val)}]`)
     } else if (config.mode === 'direct' && buf.val) {
       classes.push(buildClass(config, '', extractValuePart(buf.val, config, familyKey)))
     } else {

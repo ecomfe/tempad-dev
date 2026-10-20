@@ -86,6 +86,68 @@ describe('mcp/code render props', () => {
     expect(mergeClass('a b', 'b c')).toBe('a b c')
   })
 
+  it('keeps a shorthand and its longhand overrides together in normalized inline styles', () => {
+    mocked.styleToClassNames.mockReturnValue(['w-[2rem]'])
+    const background =
+      'url("folder/front_image;v=1.png") left / 16px 8px no-repeat, url("rear.png") center / cover'
+    const style = {
+      'background-color': 'var(--surface)',
+      width: '16px',
+      'background-position': '8px 16px, right bottom',
+      background,
+      'background-blend-mode': 'multiply',
+      'background-size': '',
+      'background-repeat': '   '
+    }
+    const config = { cssUnit: 'rem', rootFontSize: 16, scale: 2 } as const
+
+    const result = classProps(style, config, 'className', undefined)
+
+    expect(mocked.styleToClassNames).toHaveBeenCalledWith({ width: '16px' }, config)
+    expect(result.props).toEqual({
+      className: 'w-[2rem]',
+      style: {
+        background:
+          'url("folder/front_image;v=1.png") left / 2rem 1rem no-repeat, url("rear.png") center / cover',
+        backgroundColor: 'var(--surface)',
+        backgroundPosition: '1rem 2rem, right bottom',
+        backgroundBlendMode: 'multiply'
+      }
+    })
+    expect(Object.keys(result.props.style as object)[0]).toBe('background')
+    expect(style.background).toBe(background)
+  })
+
+  it('keeps quoted image URLs in inline styles even without background overrides', () => {
+    mocked.styleToClassNames.mockReturnValue([])
+    const background =
+      'url("front_image;v=1.png") center / cover no-repeat, url("rear.png") center / cover, #FF0'
+    const config = { cssUnit: 'px', rootFontSize: 16, scale: 1 } as const
+    const result = classProps(
+      { background, 'background-color': '' },
+      config,
+      'className',
+      undefined
+    )
+
+    expect(result.props).toEqual({ style: { background } })
+    expect(mocked.styleToClassNames).toHaveBeenCalledWith({}, config)
+  })
+
+  it('retains utility generation when there is no background shorthand', () => {
+    mocked.styleToClassNames.mockReturnValue(['bg-[#F00]'])
+    const config = { cssUnit: 'px', rootFontSize: 16, scale: 1 } as const
+    const styles: Record<string, string>[] = [
+      { 'background-image': 'url("image.png")', 'background-color': '#F00' },
+      { background: ' ', 'background-color': '#F00' }
+    ]
+    for (const style of styles) {
+      const result = classProps(style, config, 'class', undefined)
+      expect(result.props).toEqual({ class: 'bg-[#F00]' })
+      expect(mocked.styleToClassNames).toHaveBeenLastCalledWith(style, config)
+    }
+  })
+
   it('keeps class prop empty when no classes exist and detects inline-grid hints', () => {
     mocked.styleToClassNames.mockReturnValueOnce([])
     const noClass = classProps(

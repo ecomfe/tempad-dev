@@ -8,7 +8,7 @@ vi.mock('@/mcp/tools/code/styles', () => ({
   styleToClassNames: mocked.styleToClassNames
 }))
 
-import { getOrderedChildIds, renderShellTree } from '@/mcp/tools/code/render'
+import { getOrderedChildIds, renderShellTree, renderTree } from '@/mcp/tools/code/render'
 import { createSnapshot, createTree } from '@/tests/mcp/tools/code/test-helpers'
 import { stringifyComponent } from '@/utils/component'
 
@@ -95,6 +95,33 @@ describe('mcp/code render shell', () => {
     const markup = stringifyComponent(shell!, { lang: 'jsx' })
     expect(markup).toContain('className="flex"')
     expect(markup).toContain('{/* omitted direct children: b,c,d */}')
+  })
+
+  it('preserves plugin-owned inline styles when injecting layout classes', async () => {
+    const root = createSnapshot({ id: 'root', type: 'INSTANCE' })
+    const style = { background: 'linear-gradient(red, blue)', backgroundColor: 'green' }
+    const rendered = await renderTree(root.id, createTree([root]), {
+      styles: new Map([
+        [root.id, { background: 'url("image.png") center / cover', 'background-color': 'yellow' }]
+      ]),
+      layout: new Map([[root.id, { display: 'flex' }]]),
+      nodes: new Map([[root.id, root.node]]),
+      svgs: new Map(),
+      textSegments: new Map(),
+      config: { cssUnit: 'px', rootFontSize: 16, scale: 1 },
+      pluginComponents: new Map([
+        [
+          root.id,
+          { component: { name: 'Card', props: { style, className: 'card' }, children: [] } }
+        ]
+      ])
+    } as never)
+
+    expect(rendered).toMatchObject({ props: { style, className: 'card flex' } })
+    expect(mocked.styleToClassNames).toHaveBeenCalledWith(
+      { display: 'flex' },
+      { cssUnit: 'px', rootFontSize: 16, scale: 1 }
+    )
   })
 
   it('returns null for plugin-backed instance roots', async () => {
