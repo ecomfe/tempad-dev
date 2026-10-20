@@ -460,7 +460,13 @@ async function applyTextRangeVariables(
     [VariableBindableTextField, CanvasVariableReference | null]
   >) {
     const variable = reference ? resolvedVariable(reference, state.variables) : null
-    const current = node.getRangeBoundVariable(range.start, range.end, field)
+    // Partial-character null setters can leave paragraph bindings attached.
+    // Clear their metadata over the affected paragraphs, preserving their values.
+    const bindingRange =
+      !variable && (field === 'paragraphIndent' || field === 'paragraphSpacing')
+        ? paragraph.span
+        : range
+    const current = node.getRangeBoundVariable(bindingRange.start, bindingRange.end, field)
     if (current !== figma.mixed && current?.id === variable?.id) continue
     if (variable && (field === 'paragraphIndent' || field === 'paragraphSpacing')) {
       const scope = paragraph.effective[field]
@@ -495,7 +501,7 @@ async function applyTextRangeVariables(
         if (clearsBinding && unbound) continue
       }
     }
-    node.setRangeBoundVariable(range.start, range.end, field, variable)
+    node.setRangeBoundVariable(bindingRange.start, bindingRange.end, field, variable)
     markMutation(state, node)
   }
 }

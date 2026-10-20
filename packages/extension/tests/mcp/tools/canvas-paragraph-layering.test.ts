@@ -103,6 +103,9 @@ async function createParagraphProbe(
     ) => {
       if (property !== field) return writeBinding(start, end, property, variable)
       for (const paragraph of affected(start, end)) {
+        // Native paragraphSpacing null calls on 0:1 retained its alias, while
+        // clearing the complete paragraph stopped subsequent variable updates.
+        if (!variable && (start > paragraph.start || end < paragraph.end)) continue
         paragraph.alias = variable ? { type: 'VARIABLE_ALIAS', id: variable.id } : undefined
         if (variable) paragraph.value = variable.resolveForConsumer(label).value as number
       }
@@ -267,6 +270,41 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
     await probe.update(undefined, ranges)
     expect(probe.values()).toEqual([8, 0, 0])
     expect(probe.aliases()).toEqual([undefined, undefined, undefined])
+    await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it.each([
+    { start: 1, end: 2, aliases: [undefined, 'variable:spacing', 'variable:spacing'] },
+    { start: 5, end: 6, aliases: [undefined, 'variable:spacing', 'variable:spacing'] },
+    { start: 5, end: 7, aliases: [undefined, undefined, 'variable:spacing'] },
+    { start: 0, end: 17, aliases: [undefined, undefined, undefined] }
+  ])('clears touched paragraphs only for $start:$end', async ({ start, end, aliases }) => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    await probe.update(undefined, [
+      { start: 0, end: 17, variables: { [field]: { id: 'variable:spacing' } } }
+    ])
+    const ranges: CanvasFigmaTextRange[] = [{ start, end, variables: { [field]: null } }]
+    await probe.update(undefined, ranges)
+    expect(probe.aliases()).toEqual(aliases)
+    expect(probe.values()).toEqual([8, 8, 8])
+    await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('preserves a later independent paragraph binding after clearing the first paragraph', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const collection = figma.variables.createVariableCollection('Later metric')
+    const later = figma.variables.createVariable('Later metric', collection, 'FLOAT')
+    later.setValueForMode(collection.defaultModeId, 12)
+    await probe.update(undefined, [
+      { start: 0, end: 17, variables: { [field]: { id: 'variable:spacing' } } }
+    ])
+    const ranges: CanvasFigmaTextRange[] = [
+      { start: 1, end: 2, variables: { [field]: null } },
+      { start: 6, end: 7, variables: { [field]: { id: later.id } } }
+    ]
+    await probe.update(undefined, ranges)
+    expect(probe.aliases()).toEqual([undefined, later.id, 'variable:spacing'])
+    expect(probe.values()).toEqual([8, 12, 8])
     await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
