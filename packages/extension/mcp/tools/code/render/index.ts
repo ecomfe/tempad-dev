@@ -245,8 +245,12 @@ async function renderNode(
       const single = segments[0]
       if (single && typeof single !== 'string') return mergeDevComponentProps(single, props)
     }
+    // A multiline TEXT tag is usually p, but mixed text blocks can contain lists.
+    const hasBlockChildren = segments.some(
+      (segment) => typeof segment !== 'string' && ['p', 'ol', 'ul'].includes(segment.name)
+    )
     return {
-      name: snapshot.tag || 'span',
+      name: hasBlockChildren ? 'div' : snapshot.tag || 'span',
       props,
       children: segments.filter(Boolean)
     }

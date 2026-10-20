@@ -22,7 +22,7 @@
 - Added recovery for unreadable or malformed saved plugins.
 - Added Refresh links and documentation links for component sets.
 - Preserved native HTML, SVG, and accessibility attributes in Vue exports.
-- Preserved literal text and token names in code exports.
+- Preserved literal text, token names, and valid list nesting in code exports.
 - Added browser-compatibility warnings for token-based font weight and opacity.
 - Restored selection and measurement tools after switching windows with keys held.
 - Fixed text entity decoding after literal ampersands and reported unsupported names without
