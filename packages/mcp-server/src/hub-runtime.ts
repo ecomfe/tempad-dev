@@ -741,6 +741,7 @@ export async function startHub(): Promise<void> {
 
     const schema = tool.parameters
     const connectionId = ownerId
+    const isCanvasWrite = tool.name === 'apply_canvas'
     const handler = async (args: unknown, extra: { _meta?: unknown; signal: AbortSignal }) => {
       let requestId: string | undefined
       try {
@@ -774,7 +775,7 @@ export async function startHub(): Promise<void> {
           (getRecordProperty(parsedArgs, 'pageId') || getRecordProperty(parsedArgs, 'pageKey'))
         ) {
           timeoutMs = pageStructureTimeoutMs
-        } else if (tool.name === 'apply_canvas') {
+        } else if (isCanvasWrite) {
           timeoutMs = applyCanvasTimeoutMs
         }
         if (
@@ -811,8 +812,7 @@ export async function startHub(): Promise<void> {
           )
         }
 
-        const runtime =
-          tool.name === 'apply_canvas' ? buildAuthoringRuntimeEvidence(activeExt) : undefined
+        const runtime = isCanvasWrite ? buildAuthoringRuntimeEvidence(activeExt) : undefined
         const protocolVersion = activeExt.runtime!.protocolVersion
         assertVersionedToolSupport(protocolVersion, tool.name, parsedArgs)
         if (runtime && utf8Bytes({ runtime }) > MCP_APPLY_CANVAS_RUNTIME_BUDGET_BYTES) {
@@ -822,9 +822,9 @@ export async function startHub(): Promise<void> {
           )
         }
 
-        designTasks.checkOperation(ownerId, session, taskId, tool.name === 'apply_canvas')
+        designTasks.checkOperation(ownerId, session, taskId, isCanvasWrite)
         const registration = register<Result>(activeExt.id, timeoutMs, {
-          waitForDefinitiveResult: tool.name === 'apply_canvas',
+          waitForDefinitiveResult: isCanvasWrite,
           signal: extra.signal
         })
         requestId = registration.requestId
@@ -849,7 +849,7 @@ export async function startHub(): Promise<void> {
             activeExt,
             session,
             taskId,
-            tool.name === 'apply_canvas',
+            isCanvasWrite,
             taskEpoch
           )
           designTasks.startOperation(
@@ -859,7 +859,7 @@ export async function startHub(): Promise<void> {
             activeExt.sessions!.browserId,
             session,
             taskId,
-            tool.name === 'apply_canvas'
+            isCanvasWrite
           )
           activeExt.ws.send(JSON.stringify(message))
           dispatched = true
@@ -879,7 +879,7 @@ export async function startHub(): Promise<void> {
           const code = getRecordProperty(error, 'code')
           if (
             dispatched &&
-            tool.name === 'apply_canvas' &&
+            isCanvasWrite &&
             (getRecordProperty(error, 'name') === 'AbortError' ||
               code === TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT ||
               code === TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED)
@@ -887,7 +887,7 @@ export async function startHub(): Promise<void> {
             designTasks.requireFileRead(session.fileKey)
           throw error
         })
-        if (taskId && tool.name === 'apply_canvas') {
+        if (taskId && isCanvasWrite) {
           const rootNodeId = getRecordProperty(payload, 'rootNodeId')
           if (typeof rootNodeId === 'string')
             designTasks.captureResult(
@@ -905,8 +905,7 @@ export async function startHub(): Promise<void> {
           runtime,
           compatibilityNotice: versionedReadNotice(protocolVersion, tool.name)
         })
-        if (response.isError && tool.name === 'apply_canvas')
-          designTasks.requireFileRead(session.fileKey)
+        if (response.isError && isCanvasWrite) designTasks.requireFileRead(session.fileKey)
         if (!response.isError && ['get_structure', 'get_code'].includes(tool.name)) {
           if (taskId) designTasks.acknowledgeRead(taskId, ownerId, taskEpoch)
           designTasks.acknowledgeFileRead(session.fileKey)
