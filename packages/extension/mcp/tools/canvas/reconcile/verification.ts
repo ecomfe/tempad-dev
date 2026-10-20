@@ -13,7 +13,7 @@ import {
   currentBoundVariableId,
   DIRECT_VARIABLE_FIELDS,
   STYLE_FIELDS,
-  styleTarget
+  styleLinkMatches
 } from './binding-values'
 import { GEOMETRY_TOLERANCE, nativeValueEqual } from './comparison'
 import {
@@ -40,6 +40,17 @@ import {
   CANVAS_SVG_POLICY_NAME,
   CANVAS_SVG_COLOR_NAME
 } from './svg'
+import { textFillsMatch } from './text-paints'
+
+const TEXT_STYLE_LINK_PRESERVING_RANGE_FIELDS = new Set([
+  'start',
+  'end',
+  'textStyle',
+  'fills',
+  'fillStyle',
+  'textDecoration',
+  'hyperlink'
+])
 
 function appliedVariableId(
   node: SupportedCanvasNode,
@@ -194,7 +205,11 @@ function verifyNativeNodeState(
     }
     const desired = paints.map((paint) => nativePaint(paint, state))
     const current = node[property]
-    if (current === figma.mixed || !!node[styleProperty] || !paintStacksEqual(current, desired)) {
+    const matches =
+      node.type === 'TEXT' && property === 'fills'
+        ? textFillsMatch(node, desired, spec.figma?.text?.ranges)
+        : current !== figma.mixed && !node[styleProperty] && paintStacksEqual(current, desired)
+    if (!matches) {
       applyError(`Verification failed for "${spec.key}": direct ${property} do not match.`)
     }
   }
@@ -301,8 +316,49 @@ export async function verifyAppliedNode(
     if (reference === undefined) continue
     const expected = reference ? (await resolveStyle(reference, state.styles)).id : ''
     references += 1
-    if (styleTarget(node, field).current !== expected) {
+    if (!styleLinkMatches(node, field, expected, spec.figma?.text?.ranges)) {
       applyError(`Verification failed for "${spec.key}": style link "${field}" does not match.`)
+    }
+  }
+  if (node.type === 'TEXT') {
+    for (const range of spec.figma?.text?.ranges ?? []) {
+      for (const field of ['textStyle', 'fillStyle'] as const) {
+        const reference = range[field]
+        if (reference === undefined) continue
+        // Other native typography overrides may detach a TextStyle. Preserve
+        // their existing acceptance until native link semantics are established.
+        if (
+          field === 'textStyle' &&
+          reference &&
+          Object.keys(range).some((key) => !TEXT_STYLE_LINK_PRESERVING_RANGE_FIELDS.has(key))
+        )
+          continue
+        const expected = reference ? (await resolveStyle(reference, state.styles)).id : ''
+        const current =
+          field === 'textStyle'
+            ? node.getRangeTextStyleId(range.start, range.end)
+            : node.getRangeFillStyleId(range.start, range.end)
+        references += 1
+        if (current !== expected) {
+          applyError(
+            `Verification failed for "${spec.key}": range ${range.start}:${range.end} ${field} does not match.`
+          )
+        }
+      }
+      if (range.fills !== undefined) {
+        const current = node.getRangeFills(range.start, range.end)
+        const desired = range.fills.map((paint) => nativePaint(paint, state))
+        nativeFields += 1
+        if (
+          current === figma.mixed ||
+          node.getRangeFillStyleId(range.start, range.end) !== '' ||
+          !paintStacksEqual(current, desired)
+        ) {
+          applyError(
+            `Verification failed for "${spec.key}": range ${range.start}:${range.end} fills do not match.`
+          )
+        }
+      }
     }
   }
   for (const [collectionReference, modeReference] of Object.entries(spec.variableModes ?? {})) {

@@ -1,9 +1,14 @@
-import type { CanvasStyleBindings, CanvasVariableBindings } from '@tempad-dev/shared'
+import type {
+  CanvasFigmaTextRange,
+  CanvasStyleBindings,
+  CanvasVariableBindings
+} from '@tempad-dev/shared'
 
 import type { SupportedCanvasNode } from './state'
 
 import { specError } from '../errors'
 import { isFrameContainer } from './nodes'
+import { textRangesMatchOutside } from './text-ranges'
 
 export const STYLE_TYPES = {
   fill: 'PAINT',
@@ -56,6 +61,35 @@ export function validateVariableDataType(
 export const STYLE_FIELDS = ['fill', 'stroke', 'text', 'effect', 'grid'] as const
 
 export type StyleField = (typeof STYLE_FIELDS)[number]
+
+export function styleLinkMatches(
+  node: SupportedCanvasNode,
+  field: StyleField,
+  id: string,
+  ranges: CanvasFigmaTextRange[] | undefined
+): boolean {
+  if (styleTarget(node, field).current === id) return true
+  if (
+    node.type !== 'TEXT' ||
+    node.characters.length === 0 ||
+    (field !== 'text' && field !== 'fill')
+  )
+    return false
+  const overrides = ranges?.filter((range) =>
+    field === 'text'
+      ? range.textStyle !== undefined
+      : range.fillStyle !== undefined || range.fills !== undefined
+  )
+  if (!overrides?.length) return false
+  return textRangesMatchOutside(
+    { start: 0, end: node.characters.length },
+    overrides,
+    (start, end) =>
+      (field === 'text'
+        ? node.getRangeTextStyleId(start, end)
+        : node.getRangeFillStyleId(start, end)) === id
+  )
+}
 
 export function styleTarget(
   node: SupportedCanvasNode,

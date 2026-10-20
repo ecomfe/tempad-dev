@@ -30,6 +30,7 @@ import {
   setValue,
   type CanvasFrameContainerNode
 } from './state'
+import { textFillsMatch, textFillsUnstyledOutsideRanges } from './text-paints'
 
 function applyPaint(
   node: SupportedCanvasNode,
@@ -45,7 +46,17 @@ function applyPaint(
 
   const property = field === 'fill' ? 'fills' : 'strokes'
   const styleProperty = field === 'fill' ? 'fillStyleId' : 'strokeStyleId'
-  if (spec.styles?.[field] || (node[styleProperty] && !spec.variables?.[field])) return
+  const ranges =
+    node.type === 'TEXT' && node.characters === spec.text?.characters
+      ? spec.figma?.text?.ranges
+      : undefined
+  if (spec.styles?.[field]) return
+  if (
+    node[styleProperty] &&
+    !spec.variables?.[field] &&
+    !(node.type === 'TEXT' && field === 'fill' && textFillsUnstyledOutsideRanges(node, ranges))
+  )
+    return
   const paints = node[property]
   const desired = color === null ? [] : [figma.util.solidPaint(color)]
   const binding = spec.variables?.[field]
@@ -59,7 +70,11 @@ function applyPaint(
     const variable = state.variables.variableCache.get(variableReferenceCacheKey(binding))
     if (variable && currentVariable?.id === variable.id) return
   }
-  if (paints !== figma.mixed && paintStacksEqual(paints, desired)) {
+  if (
+    node.type === 'TEXT' && field === 'fill'
+      ? textFillsMatch(node, desired, ranges)
+      : paints !== figma.mixed && paintStacksEqual(paints, desired)
+  ) {
     return
   }
 
@@ -257,7 +272,15 @@ export function applyPaintStacks(
     }
     const desired = paints.map((paint) => nativePaint(paint, state))
     const current = node[property]
-    if (current !== figma.mixed && !node[styleProperty] && paintStacksEqual(current, desired)) {
+    const ranges =
+      node.type === 'TEXT' && node.characters === spec.text?.characters
+        ? spec.figma?.text?.ranges
+        : undefined
+    if (
+      node.type === 'TEXT' && property === 'fills'
+        ? textFillsMatch(node, desired, ranges)
+        : current !== figma.mixed && !node[styleProperty] && paintStacksEqual(current, desired)
+    ) {
       continue
     }
     node[property] = desired

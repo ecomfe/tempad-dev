@@ -208,7 +208,11 @@ async function applyNodePropertiesUnchecked(
   }
   if (node.type === 'INSTANCE') await applyComponent(node, spec, state)
   await applyVariableModes(node, spec.variableModes, state)
-  await unlinkStyles(node, spec.styles, state)
+  const textRanges =
+    node.type === 'TEXT' && node.characters === spec.text?.characters
+      ? spec.figma?.text?.ranges
+      : undefined
+  await unlinkStyles(node, spec.styles, state, textRanges)
   clearVariables(node, spec.variables, state)
   setValue(
     node,
@@ -249,7 +253,7 @@ async function applyNodePropertiesUnchecked(
   if (parent) applyPosition(node, spec, parent, state)
   applyRelativeTransform(node, spec, parent, state)
   applyAppearance(node, spec, state)
-  await applyStyles(node, spec.styles, state)
+  await applyStyles(node, spec.styles, state, textRanges)
   applyLayoutAids(node, spec, state)
   if (!hasCanvasKeyPaints(spec)) {
     applyPaintStacks(node, spec, state)

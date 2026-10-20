@@ -1,4 +1,8 @@
-import type { CanvasStyleBindings, CanvasVariableBindings } from '@tempad-dev/shared'
+import type {
+  CanvasFigmaTextRange,
+  CanvasStyleBindings,
+  CanvasVariableBindings
+} from '@tempad-dev/shared'
 
 import { specError } from '../errors'
 import { loadFonts, currentTextFonts } from '../fonts'
@@ -7,6 +11,7 @@ import { resolveVariable } from '../variables'
 import {
   type StyleField,
   styleTarget,
+  styleLinkMatches,
   STYLE_FIELDS,
   DIRECT_VARIABLE_FIELDS,
   currentBoundVariableId
@@ -18,10 +23,11 @@ async function setStyleLink(
   node: SupportedCanvasNode,
   field: StyleField,
   id: string,
-  state: ApplyState
+  state: ApplyState,
+  ranges: CanvasFigmaTextRange[] | undefined
 ): Promise<void> {
+  if (styleLinkMatches(node, field, id, ranges)) return
   const target = styleTarget(node, field)
-  if (target.current === id) return
   if (!id && target.text) await loadFonts(currentTextFonts(target.text), state.fonts)
   await target.apply(id)
   markMutation(state, node)
@@ -30,25 +36,27 @@ async function setStyleLink(
 export async function unlinkStyles(
   node: SupportedCanvasNode,
   bindings: CanvasStyleBindings | undefined,
-  state: ApplyState
+  state: ApplyState,
+  ranges: CanvasFigmaTextRange[] | undefined
 ): Promise<void> {
   for (const field of STYLE_FIELDS) {
     if (bindings?.[field] !== null) continue
-    await setStyleLink(node, field, '', state)
+    await setStyleLink(node, field, '', state, ranges)
   }
 }
 
 export async function applyStyles(
   node: SupportedCanvasNode,
   bindings: CanvasStyleBindings | undefined,
-  state: ApplyState
+  state: ApplyState,
+  ranges: CanvasFigmaTextRange[] | undefined
 ): Promise<void> {
   if (!bindings) return
   for (const field of STYLE_FIELDS) {
     const reference = bindings[field]
     if (!reference) continue
     const style = await resolveStyle(reference, state.styles)
-    await setStyleLink(node, field, style.id, state)
+    await setStyleLink(node, field, style.id, state, ranges)
   }
 }
 
