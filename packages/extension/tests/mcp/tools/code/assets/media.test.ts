@@ -493,6 +493,139 @@ describe('assets/media', () => {
     expect(result['background-size']).toBe('50px 50px')
   })
 
+  it('reuses shared image bytes without guessing the Tile scale of a partial paint stack', async () => {
+    setFigmaImages({
+      tile: {
+        getBytesAsync: async () => png,
+        getSizeAsync: async () => ({ width: 96, height: 64 })
+      }
+    })
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: 'tile',
+      url: 'https://assets.test/tile',
+      mimeType: 'image/png',
+      size: png.length
+    })
+    const result = await replaceMediaUrlsWithAssets(
+      {
+        background: 'url(tile) center / 50px 50px repeat',
+        'background-image': 'url(tile)',
+        'background-size': '50px 50px'
+      },
+      {
+        fills: [0.5, 2].map((scalingFactor) => ({
+          ...imagePaint('tile'),
+          scaleMode: 'TILE',
+          scalingFactor
+        }))
+      } as unknown as SceneNode,
+      config,
+      new Map()
+    )
+    expect(result).toEqual({
+      background: "url('https://assets.test/tile') center / 50px 50px repeat",
+      'background-image': "url('https://assets.test/tile')",
+      'background-size': '50px 50px'
+    })
+  })
+
+  it.each(['image bytes', 'asset upload'])(
+    'does not charge required %s against the optional dimensions budget',
+    async (stage) => {
+      vi.useFakeTimers()
+      const getSizeAsync = vi.fn(async () => ({ width: 96, height: 64 }))
+      const delay = () => new Promise<void>((resolve) => setTimeout(resolve, 1050))
+      setFigmaImages({
+        first: { getBytesAsync: async () => png, getSizeAsync },
+        second: {
+          getBytesAsync: async () => {
+            if (stage === 'image bytes') await delay()
+            return jpeg
+          },
+          getSizeAsync
+        }
+      })
+      vi.mocked(ensureAssetUploaded).mockImplementation(async (bytes) => {
+        if (stage === 'asset upload' && bytes === jpeg) await delay()
+        return {
+          hash: bytes === png ? 'first' : 'second',
+          url: `https://assets.test/${bytes === png ? 'first' : 'second'}`,
+          mimeType: 'image/png',
+          size: bytes.length
+        }
+      })
+      const pending = replaceMediaUrlsWithAssets(
+        {
+          background: 'url(first) center / 50px 50px repeat, url(second) center / 50px 50px repeat'
+        },
+        {
+          fills: ['second', 'first'].map((hash) => ({
+            ...imagePaint(hash),
+            scaleMode: 'TILE',
+            scalingFactor: 0.5
+          }))
+        } as unknown as SceneNode,
+        config,
+        new Map()
+      )
+      await vi.advanceTimersByTimeAsync(1050)
+      expect((await pending).background).toBe(
+        "url('https://assets.test/first') center / 48px 32px repeat, url('https://assets.test/second') center / 48px 32px repeat"
+      )
+      expect(getSizeAsync).toHaveBeenCalledTimes(2)
+      expect(vi.getTimerCount()).toBe(0)
+    }
+  )
+
+  it('reuses dimensions that finish after an earlier node exhausted its remaining budget', async () => {
+    vi.useFakeTimers()
+    const dimensions = { width: 96, height: 64 }
+    const slowSize = vi.fn(
+      () => new Promise<typeof dimensions>((resolve) => setTimeout(() => resolve(dimensions), 900))
+    )
+    const laterSize = vi.fn(
+      () => new Promise<typeof dimensions>((resolve) => setTimeout(() => resolve(dimensions), 300))
+    )
+    setFigmaImages({
+      slow: { getBytesAsync: async () => png, getSizeAsync: slowSize },
+      later: { getBytesAsync: async () => png, getSizeAsync: laterSize }
+    })
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: 'tile',
+      url: 'https://assets.test/tile',
+      mimeType: 'image/png',
+      size: png.length
+    })
+    const tile = (hash: string) => ({ ...imagePaint(hash), scaleMode: 'TILE', scalingFactor: 0.5 })
+    const cache = createGetCodeCacheContext()
+    const pending = replaceMediaUrlsWithAssets(
+      { background: 'url(slow) center / 50px 50px repeat, url(later) center / 50px 50px repeat' },
+      { fills: [tile('later'), tile('slow')] } as unknown as SceneNode,
+      config,
+      new Map(),
+      undefined,
+      cache.imageBytes,
+      cache.imageSizes
+    )
+    await vi.advanceTimersByTimeAsync(1000)
+    expect((await pending).background).toBe(
+      "url('https://assets.test/tile') center / 48px 32px repeat, url('https://assets.test/tile') center / 50px 50px repeat"
+    )
+    await vi.advanceTimersByTimeAsync(200)
+    const result = await replaceMediaUrlsWithAssets(
+      { background: 'url(later) center / 50px 50px repeat' },
+      { fills: [tile('later')] } as unknown as SceneNode,
+      config,
+      new Map(),
+      undefined,
+      cache.imageBytes,
+      cache.imageSizes
+    )
+    expect(result.background).toBe("url('https://assets.test/tile') center / 48px 32px repeat")
+    expect(laterSize).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it.each(['resolve', 'reject'])(
     'bounds optional dimensions and ignores a late %s',
     async (outcome) => {

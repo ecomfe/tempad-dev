@@ -46,6 +46,7 @@ export async function replaceMediaUrlsWithAssets(
   )
   assertActive?.()
   const placeholderUrl = getPlaceholderUrl(node, config)
+  const sharedImageAsset = getSharedImageAsset(fills)
   const result = { ...style }
   const regex = new RegExp(BG_URL_RE.source, 'gi')
 
@@ -54,7 +55,7 @@ export async function replaceMediaUrlsWithAssets(
     const mappedFills = getCssMediaFills(result[key], fills)
     let index = 0
     result[key] = result[key].replace(regex, () => {
-      const asset = (mappedFills[index] ?? mappedFills.at(-1))?.asset
+      const asset = (mappedFills[index] ?? mappedFills.at(-1))?.asset ?? sharedImageAsset
       index++
       return `url('${asset ? asset.url : placeholderUrl}')`
     })
@@ -71,9 +72,24 @@ function getCssMediaFills(value: string, fills: MediaFillAsset[]): MediaFillAsse
   // so an unavailable asset never shifts a later image into the wrong layer.
   const images = fills.filter((fill) => fill.type === 'IMAGE')
   if (urlCount === images.length) return images
-  // Repeated URLs can safely share one paint. A partial multi-paint stack cannot
-  // identify its source assets, so retain placeholders instead of guessing.
+  // Repeated URLs can safely share one paint. Keep partial multi-paint stacks
+  // unmapped because their source paints cannot be identified.
   return fills.length === 1 ? fills : []
+}
+
+function getSharedImageAsset(fills: MediaFillAsset[]): AssetDescriptor | undefined {
+  const asset = fills[0]?.asset
+  if (!asset?.figmaImageHash) return
+  // Uncertain paint geometry still permits the URL when every candidate uses the
+  // same native image. Do not extend this fallback to Tile dimensions or previews.
+  return fills.every(
+    (fill) =>
+      fill.type === 'IMAGE' &&
+      fill.asset?.figmaImageHash === asset.figmaImageHash &&
+      fill.asset?.hash === asset.hash
+  )
+    ? asset
+    : undefined
 }
 
 function correctTileSizes(style: Record<string, string>, fills: MediaFillAsset[]): void {
@@ -146,7 +162,7 @@ async function collectMediaFillAssets(
     fill.type === 'VIDEO' ? fill.videoHash : null
   )
   const assets: MediaFillAsset[] = []
-  let sizeDeadline: number | undefined
+  const sizeBudget = { remainingMs: IMAGE_SIZE_TIMEOUT_MS }
   let preview: Promise<AssetDescriptor> | undefined
   const getPreview = () => {
     assertActive?.()
@@ -193,8 +209,7 @@ async function collectMediaFillAssets(
       // Figma CSS can round the Tile period; only native bytes share these intrinsic dimensions.
       let tileSize: string | undefined
       if (fill.scaleMode === 'TILE') {
-        sizeDeadline ??= performance.now() + IMAGE_SIZE_TIMEOUT_MS
-        tileSize = await getTileSize(fill, hash, imageSizesCache, sizeDeadline)
+        tileSize = await getTileSize(fill, hash, imageSizesCache, sizeBudget)
       }
       assertActive?.()
       registerAsset(assetRegistry, asset)
@@ -225,32 +240,39 @@ async function getTileSize(
   fill: ImagePaint,
   hash: string,
   cache: GetCodeCacheContext['imageSizes'],
-  deadline: number
+  budget: { remainingMs: number }
 ): Promise<string | undefined> {
   const scale = fill.scalingFactor ?? 1
   if (!Number.isFinite(scale) || scale <= 0) return
-  const remainingMs = deadline - performance.now()
-  if (remainingMs <= 0) return
+  if (budget.remainingMs <= 0) return
   let promise = cache.get(hash)
   if (!promise) {
     const read = Promise.resolve()
       .then(() => figma.getImageByHash(hash)?.getSizeAsync?.() ?? null)
       .catch(() => null)
-    let timer: ReturnType<typeof setTimeout>
-    const timeout = new Promise<null>((resolve) => {
-      timer = setTimeout(() => resolve(null), remainingMs)
-    })
     // Dimensions refine native CSS but must never block export. Cache the bounded
     // result so later roots and shell retries do not wait on the same stalled read.
-    promise = Promise.race([read, timeout]).finally(() => clearTimeout(timer))
+    promise = withSizeTimeout(read, IMAGE_SIZE_TIMEOUT_MS)
     cache.set(hash, promise)
   }
-  const size = await promise
+  const start = performance.now()
+  // A node's remaining budget limits this wait, not the shared read. Later nodes
+  // may still use dimensions that finish within the read's full timeout.
+  const size = await withSizeTimeout(promise, budget.remainingMs)
+  budget.remainingMs = Math.max(0, budget.remainingMs - (performance.now() - start))
   if (!size) return
   const width = size.width * scale
   const height = size.height * scale
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
   return `${toDecimalPlace(width)}px ${toDecimalPlace(height)}px`
+}
+
+function withSizeTimeout<T>(read: Promise<T>, timeoutMs: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout>
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), timeoutMs)
+  })
+  return Promise.race([read, timeout]).finally(() => clearTimeout(timer))
 }
 
 function collectMediaHashes(
