@@ -2,11 +2,11 @@
 
 ## 0.23.5 (unreleased)
 
-- Improved CSS exports for layered fills, image crops and tiles, stacking and blending,
+- Improved CSS exports for layered fills and gradients, image crops and tiles, stacking and blending,
   mixed fonts, variable opacity, and SVG sizing and placement.
 - Fixed canvas updates involving components, grids, fonts, and variable modes. Invalid resource
   changes are rejected earlier, with clearer errors when failed edits cannot be fully restored.
-- Fixed updates to mixed text styles and avoided unnecessary text changes.
+- Fixed updates to mixed text styles and partially bound paragraphs, avoiding unnecessary text changes.
 - Improved responsiveness when reading large designs and exporting screenshots.
 - Preserved completed code exports at the time limit and reduced unnecessary code-panel refreshes.
 - Fixed blank images with the extension enabled and improved Figma script loading and recovery.
