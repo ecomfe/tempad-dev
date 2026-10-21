@@ -1162,6 +1162,9 @@ export function cssToTailwind(rawStyle: Record<string, string>): string {
     } else if (familyKey === 'background' && buf.val) {
       // bg-[…] is inferred as a color or image, never a CSS background shorthand.
       classes.push(`[background:${formatArbitraryValue(buf.val)}]`)
+    } else if (familyKey === 'backgroundRepeat' && buf.val && /\s/.test(buf.val)) {
+      // Two-axis repeat values have no bg-* utility in either Tailwind 3 or 4.
+      classes.push(`[background-repeat:${formatArbitraryValue(buf.val)}]`)
     } else if (config.mode === 'direct' && buf.val) {
       classes.push(buildClass(config, '', extractValuePart(buf.val, config, familyKey)))
     } else {

@@ -12,6 +12,15 @@ describe('utils/tailwind cssToTailwind', () => {
     expect(cssToClassNames({ 'background-repeat': repeat })).toEqual([`bg-repeat-${repeat}`])
   })
 
+  it.each(['repeat no-repeat', 'no-repeat repeat', 'round space'])(
+    'preserves both background repeat axes for %s',
+    (repeat) => {
+      expect(cssToClassNames({ 'background-repeat': repeat })).toEqual([
+        `[background-repeat:${repeat.replace(' ', '_')}]`
+      ])
+    }
+  )
+
   it('maps direct keyword families to classes', () => {
     expect(
       cssToTailwind({
