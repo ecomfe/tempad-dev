@@ -18,6 +18,7 @@ import {
   rangeHasVariableLiteral,
   variableLinkMatches
 } from './binding-values'
+import { scalarValuesEqual, textMeasuresEqual } from './comparison'
 import { type SupportedCanvasNode, type ApplyState, markMutation } from './state'
 import { loadVariableFonts } from './text-fonts'
 import { textParagraphRange } from './text-ranges'
@@ -174,17 +175,53 @@ export async function applyVariables(
     }
     const figmaField = DIRECT_VARIABLE_FIELDS[field]
     if (variableLinkMatches(node, figmaField, variable.id)) continue
-    // A literal may leave an equal alias untouched. Replay the base binding
-    // before literal-only overrides unless the whole field already matches.
-    const hasLiteral =
+    if (
+      node.type === 'TEXT' &&
       isTextVariableField(figmaField) &&
-      ranges?.some(
-        (range) =>
-          range.variables?.[figmaField] === undefined && rangeHasVariableLiteral(range, figmaField)
-      )
-    if (ranges?.length && !hasLiteral && variableLinkMatches(node, figmaField, variable.id, ranges))
+      ranges?.length &&
+      variableLinkMatches(node, figmaField, variable.id, ranges) &&
+      literalOverridesAreUnbound(node, figmaField, variable, ranges)
+    )
       continue
     node.setBoundVariable(figmaField, variable)
     markMutation(state, node)
   }
+}
+
+function literalOverridesAreUnbound(
+  node: TextNode,
+  field: VariableBindableTextField,
+  variable: Variable,
+  ranges: CanvasFigmaTextRange[]
+): boolean {
+  const literals = ranges.filter(
+    (range) => range.variables?.[field] === undefined && rangeHasVariableLiteral(range, field)
+  )
+  if (!literals.length) return true
+  const value = variable.resolveForConsumer(node).value
+  if (typeof value !== 'number') return false
+  const nativeValue = Math.fround(value)
+  return literals.every((range) => {
+    if (range.textStyle !== undefined) return false
+    // An equal literal skips its setter and keeps the base alias. Only a
+    // different literal can account for an already unbound override.
+    if (field === 'lineHeight' || field === 'letterSpacing') {
+      if (textMeasuresEqual(field, { unit: 'PIXELS', value: nativeValue }, range[field]!))
+        return false
+    } else if (
+      field === 'fontSize' ||
+      field === 'paragraphIndent' ||
+      field === 'paragraphSpacing'
+    ) {
+      if (scalarValuesEqual(nativeValue, range[field])) return false
+    } else {
+      return false
+    }
+    const span =
+      field === 'paragraphIndent' || field === 'paragraphSpacing'
+        ? textParagraphRange(node.characters, range)
+        : range
+    const alias = node.getRangeBoundVariable(span.start, span.end, field)
+    return alias !== figma.mixed && !alias
+  })
 }

@@ -179,6 +179,35 @@ async function createParagraphProbe(
 }
 
 describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (field) => {
+  it('converges a node binding with a literal override for one complete paragraph', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const variable = { id: 'variable:spacing' }
+    const ranges = [{ start: 7, end: 8, [field]: 13 }]
+    await probe.update(undefined, ranges, { [field]: variable })
+    expect(probe.values()).toEqual([8, 13, 8])
+    expect(probe.aliases()).toEqual([variable.id, undefined, variable.id])
+    await expect(probe.update(undefined, ranges, { [field]: variable })).resolves.toMatchObject({
+      mutationCount: 0
+    })
+  })
+
+  it('does not skip a node binding over a foreign paragraph alias equal to the literal', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const variable = { id: 'variable:spacing' }
+    await probe.update(
+      undefined,
+      [{ start: 7, end: 8, variables: { [field]: { id: 'variable:range-size' } } }],
+      { [field]: variable }
+    )
+    const ranges = [{ start: 7, end: 8, [field]: 18 }]
+    await probe.update(undefined, ranges, { [field]: variable })
+    expect(probe.values()).toEqual([8, 18, 8])
+    expect(probe.aliases()).toEqual([variable.id, undefined, variable.id])
+    await expect(probe.update(undefined, ranges, { [field]: variable })).resolves.toMatchObject({
+      mutationCount: 0
+    })
+  })
+
   it('binds the whole node when only one paragraph already uses the requested variable', async () => {
     const probe = await createParagraphProbe(field, [20, 20, 20])
     const variable = { id: 'variable:spacing' }
