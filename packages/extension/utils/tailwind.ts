@@ -760,7 +760,14 @@ export const TAILWIND_CONFIG: Record<string, FamilyConfig> = {
     prefix: 'bg',
     mode: 'direct',
     valueKind: 'keyword',
-    keywords: ['no-repeat', 'repeat', 'repeat-x', 'repeat-y'],
+    keywords: [
+      'no-repeat',
+      'repeat',
+      'repeat-x',
+      'repeat-y',
+      ['round', 'repeat-round'],
+      ['space', 'repeat-space']
+    ],
     props: { v: 'background-repeat' }
   },
   fill: {

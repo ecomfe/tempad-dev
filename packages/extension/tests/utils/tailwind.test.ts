@@ -8,6 +8,10 @@ import {
 } from '@/utils/tailwind'
 
 describe('utils/tailwind cssToTailwind', () => {
+  it.each(['round', 'space'])('emits a valid background repeat utility for %s', (repeat) => {
+    expect(cssToClassNames({ 'background-repeat': repeat })).toEqual([`bg-repeat-${repeat}`])
+  })
+
   it('maps direct keyword families to classes', () => {
     expect(
       cssToTailwind({
