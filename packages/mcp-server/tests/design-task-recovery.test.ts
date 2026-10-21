@@ -97,6 +97,27 @@ describe('durable design reviews', () => {
     expect(() => f.restart().checkOperation('owner', session, undefined, true)).not.toThrow()
   })
 
+  it.each([false, true])(
+    'restores the previous marker after a rejected save: existing=%s',
+    (existing) => {
+      const f = fixture()
+      const generation = existing ? f.tasks.requireFileRead(session.fileKey) : undefined
+      vi.spyOn(f.store, 'save').mockImplementationOnce(() => {
+        throw new Error('Disk full')
+      })
+      expect(() => f.tasks.requireFileRead(session.fileKey, true)).toThrow(
+        'No canvas write was dispatched'
+      )
+      // The next sweep retries storage. A rejected dispatch must not create a
+      // phantom read requirement or replace the generation of an existing one.
+      f.tasks.sweep()
+      expect(f.store.load()?.filesNeedingRead ?? []).toEqual(existing ? [session.fileKey] : [])
+      if (existing) f.tasks.acknowledgeFileRead(session.fileKey, generation)
+      expect(() => f.tasks.checkOperation('owner', session, undefined, true)).not.toThrow()
+      expect(() => f.restart().checkOperation('owner', session, undefined, true)).not.toThrow()
+    }
+  )
+
   it('writes result roots only when their ordered last-20 snapshot changes', () => {
     const f = fixture()
     const record = f.begin()

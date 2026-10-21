@@ -1273,16 +1273,19 @@ describe('Hub runtime module', () => {
     vi.spyOn(DesignTaskStore.prototype, 'save').mockImplementationOnce(() => {
       throw new Error('Disk full')
     })
-    consumer.send({
-      id: 1,
-      method: 'tools/call',
-      params: {
-        name: 'apply_canvas',
-        arguments: { mode: 'create', markup: '<div></div>' }
-      }
-    })
-    expect(JSON.stringify(await consumer.reply(1))).toContain('Disk full')
+    const write = {
+      name: 'apply_canvas',
+      arguments: { mode: 'create', markup: '<div></div>' }
+    }
+    consumer.send({ id: 1, method: 'tools/call', params: write })
+    const failure = JSON.stringify(await consumer.reply(1))
+    expect(failure).toContain('DESIGN_TASK_INACTIVE')
+    expect(failure).toContain('No canvas write was dispatched')
     expect(extension.calls).toHaveLength(0)
+    consumer.send({ id: 2, method: 'tools/call', params: write })
+    const next = await extension.call(0)
+    extension.send({ type: 'toolResult', id: next.id, error: { message: 'Native result' } })
+    expect(JSON.stringify(await consumer.reply(2))).toContain('Native result')
   })
 
   it.each(['in-flight', 'cancelled', 'rollback-failed'] as const)(

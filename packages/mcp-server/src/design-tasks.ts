@@ -340,10 +340,18 @@ export class DesignTasks {
   }
 
   requireFileRead(fileKey: string, requireDurable = false): number {
+    const previous = this.filesNeedingRead.get(fileKey)
     const generation = ++this.readGeneration
     this.filesNeedingRead.set(fileKey, generation)
     this.persist()
-    if (requireDurable && this.persistenceError) throw this.persistenceError
+    if (requireDurable && this.persistenceError) {
+      if (previous === undefined) this.filesNeedingRead.delete(fileKey)
+      else this.filesNeedingRead.set(fileKey, previous)
+      fail(
+        'DESIGN_TASK_INACTIVE',
+        'Design task state could not be saved. No canvas write was dispatched. Restore storage before retrying.'
+      )
+    }
     return generation
   }
 
