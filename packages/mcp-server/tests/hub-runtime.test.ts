@@ -1285,7 +1285,7 @@ describe('Hub runtime module', () => {
     expect(extension.calls).toHaveLength(0)
   })
 
-  it.each(['in-flight', 'cancelled'] as const)(
+  it.each(['in-flight', 'cancelled', 'rollback-failed'] as const)(
     'persists a %s write before dispatch and requires readback after Hub restart',
     async (state) => {
       const { startHub } = await loadRuntime()
@@ -1320,6 +1320,21 @@ describe('Hub runtime module', () => {
           id: dispatched.id,
           error: { message: 'Late definitive completion' }
         })
+      }
+      if (state === 'rollback-failed') {
+        extension.send({
+          type: 'toolResult',
+          id: dispatched.id,
+          error: {
+            code: 'CANVAS_APPLY_FAILED',
+            message: 'Canvas apply failed; automatic rollback was not available.'
+          }
+        })
+        expect(JSON.stringify(await consumer.reply(1))).toContain('CANVAS_APPLY_FAILED')
+        expect(snapshot().records).toContainEqual(readMarker)
+        consumer.send({ id: 2, method: 'tools/call', params: write })
+        expect(JSON.stringify(await consumer.reply(2))).toContain('previous write result was lost')
+        expect(extension.calls).toHaveLength(1)
       }
       await stopRuntime()
       expect(snapshot().records).toContainEqual(readMarker)

@@ -909,7 +909,10 @@ export async function startHub(): Promise<void> {
               getRecordProperty(error, 'name') === 'AbortError' ||
               code === TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT ||
               code === TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED ||
-              code === TEMPAD_MCP_ERROR_CODES.EXTENSION_RESULT_LOST)
+              code === TEMPAD_MCP_ERROR_CODES.EXTENSION_RESULT_LOST ||
+              // Internal apply failures can include an unsuccessful rollback.
+              // The error code alone cannot prove that the canvas was restored.
+              code === TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED)
           if (readGeneration !== undefined && !unknownOutcome)
             designTasks.acknowledgeFileRead(session.fileKey, readGeneration)
           throw error
