@@ -45,22 +45,48 @@ const gradient = {
 const nativeImage = 'url(<path-to-image>) lightgray 50% / cover no-repeat'
 const cases = [
   {
+    name: 'translucent solid',
+    fills: [{ ...solid, opacity: 0.5 }],
+    background: 'var(--Base, rgba(255, 0, 0, 0.50))',
+    imageCount: 0,
+    alpha: 0.5
+  },
+  {
     name: 'bottom color',
     fills: [solid, image, { ...image, imageHash: 'front' }],
     background: `${nativeImage}, ${nativeImage}, var(--Base, #F00)`,
-    imageCount: 2
+    imageCount: 2,
+    alpha: 1
   },
   {
     name: 'gradient stop',
     fills: [gradient, image],
     background: `${nativeImage}, linear-gradient(90deg, var(--Base, #F00) 0%, #00F 100%)`,
-    imageCount: 1
+    imageCount: 1,
+    alpha: 1
+  },
+  {
+    name: 'translucent gradient stop',
+    fills: [
+      {
+        ...gradient,
+        gradientStops: [
+          { ...gradient.gradientStops[0], color: { r: 1, g: 0, b: 0, a: 0.5 } },
+          gradient.gradientStops[1]
+        ]
+      },
+      image
+    ],
+    background: `${nativeImage}, linear-gradient(90deg, var(--Base, rgba(255, 0, 0, 0.50)) 0%, #00F 100%)`,
+    imageCount: 1,
+    alpha: 0.5
   },
   {
     name: 'translucent foreground',
     fills: [image, { ...solid, opacity: 0.5 }],
     background: `linear-gradient(0deg, var(--Base, rgba(255, 0, 0, 0.50)) 0%, var(--Base, rgba(255, 0, 0, 0.50)) 100%), ${nativeImage}`,
-    imageCount: 1
+    imageCount: 1,
+    alpha: 0.5
   }
 ]
 
@@ -71,16 +97,16 @@ it.each(
     )
   )
 )(
-  'preserves images beside a variable-backed $name ($lang, resolved=$resolveTokens)',
-  async ({ name, fills, background, imageCount, resolveTokens, lang }) => {
+  'preserves variable-backed $name and its images ($lang, resolved=$resolveTokens)',
+  async ({ name, fills, background, imageCount, alpha, resolveTokens, lang }) => {
     const variable = {
       id: 'base',
       name: 'Base',
       variableCollectionId: 'collection',
       resolvedType: 'COLOR',
       scopes: ['ALL_FILLS'],
-      valuesByMode: { base: { r: 1, g: 0, b: 0, a: 1 } },
-      resolveForConsumer: () => ({ value: { r: 1, g: 0, b: 0, a: 1 }, resolvedType: 'COLOR' })
+      valuesByMode: { base: { r: 1, g: 0, b: 0, a: alpha } },
+      resolveForConsumer: () => ({ value: { r: 1, g: 0, b: 0, a: alpha }, resolvedType: 'COLOR' })
     }
     vi.stubGlobal('__DEV__', false)
     vi.stubGlobal('figma', {
@@ -133,17 +159,17 @@ it.each(
 
     const result = await handleGetCode([root], lang, resolveTokens)
 
-    expect(result.code.match(/https:\/\/assets.test\/(?:image|front).png/g)).toHaveLength(
+    expect(result.code.match(/https:\/\/assets.test\/(?:image|front).png/g) ?? []).toHaveLength(
       imageCount
     )
     expect(result.code).not.toContain('<path-to-image>')
     expect(result.code).not.toContain('lightgray')
-    const translucent = name === 'translucent foreground'
-    expect(result.code).toContain(
-      resolveTokens ? (translucent ? 'rgba(255, 0, 0, 0.5)' : '#F00') : 'var(--Base)'
-    )
-    expect(result.tokens?.['--Base']).toEqual({ kind: 'color', value: '#F00' })
-    expect(result.assets).toEqual([
+    const color = alpha === 1 ? '#F00' : '#FF000080'
+    const reference = imageCount === 0 ? 'bg-(--Base)' : 'var(--Base)'
+    expect(result.code).toContain(resolveTokens ? color : reference)
+    expect(result.tokens?.['--Base']).toEqual({ kind: 'color', value: color })
+    expect(result.code).not.toContain('color-mix(')
+    expect(result.assets ?? []).toEqual([
       ...(imageCount === 2
         ? [
             {
@@ -155,25 +181,26 @@ it.each(
             }
           ]
         : []),
-      {
-        hash: 'image',
-        url: 'https://assets.test/image.png',
-        mimeType: 'image/png',
-        size: 8,
-        figmaImageHash: 'native-image'
-      }
+      ...(imageCount > 0
+        ? [
+            {
+              hash: 'image',
+              url: 'https://assets.test/image.png',
+              mimeType: 'image/png',
+              size: 8,
+              figmaImageHash: 'native-image'
+            }
+          ]
+        : [])
     ])
     if (imageCount === 2) {
       expect(result.code.indexOf('front.png')).toBeLessThan(result.code.indexOf('image.png'))
     }
-    if (name === 'gradient stop') {
+    if (name.endsWith('gradient stop')) {
       expect(result.code).toContain('linear-gradient(90deg,')
       expect(result.code).not.toContain('backgroundColor:')
     }
-    if (translucent) {
-      expect(result.code).toContain(
-        resolveTokens ? 'rgba(255, 0, 0, 0.5)' : 'color-mix(in srgb, var(--Base) 50%, transparent)'
-      )
+    if (name === 'translucent foreground') {
       expect(result.code.indexOf('linear-gradient')).toBeLessThan(result.code.indexOf('url('))
     }
   }

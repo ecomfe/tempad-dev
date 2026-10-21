@@ -239,6 +239,19 @@ describe('figma/gradient resolveGradientFromPaints', () => {
     )
   })
 
+  it.each([1, 0.5])('applies gradient opacity %s once to a translucent bound stop', (opacity) => {
+    installFigmaMocks({ variables: { accent: { name: 'Half Red' } as Variable } })
+    const paint = createGradientPaint('GRADIENT_RADIAL', {
+      opacity,
+      stops: [createStop({ r: 1, g: 0, b: 0, a: 0.5 }, 0, 'accent')]
+    })
+    const color = 'var(--Half-Red, #FF000080)'
+
+    expect(resolveGradientFromPaints([paint])).toBe(
+      `radial-gradient(100% 100% at 0% 0%, ${opacity === 1 ? color : `color-mix(in srgb, ${color} 50%, transparent)`} 0%)`
+    )
+  })
+
   it('returns direct CSS var fallback for near-opaque variable-bound stop color', () => {
     installFigmaMocks({
       variables: {

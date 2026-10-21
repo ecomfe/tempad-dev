@@ -252,13 +252,12 @@ export function formatGradientStopColor(
     try {
       const v = readers.getVariableById(bound.id)
       if (v) {
-        const fallbackOpaque = formatHexAlpha(stop.color, 1)
-        const fallbackAlpha = formatHexAlpha(stop.color, alpha)
+        const fallback = formatHexAlpha(stop.color, baseAlpha)
         const cssVarName = getVariableCssName(v)
-        const varName = `var(${cssVarName}, ${fallbackOpaque})`
-        if (alpha >= 0.99) return `var(${cssVarName}, ${fallbackAlpha})`
-        // Use color-mix for transparency
-        const pct = Math.round(alpha * 10000) / 100
+        const varName = `var(${cssVarName}, ${fallback})`
+        // Bound stop alpha is already in the variable; only paint opacity is independent.
+        if (fillOpacity >= 0.99) return varName
+        const pct = Math.round(Math.max(0, Math.min(1, fillOpacity)) * 10000) / 100
         return `color-mix(in srgb, ${varName} ${pct}%, transparent)`
       }
     } catch {

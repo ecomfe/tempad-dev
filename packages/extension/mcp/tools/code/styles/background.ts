@@ -79,7 +79,7 @@ export function cleanFigmaSpecificStyles(
     }
     const normalized = stripFallback(preprocessCssValue(imageBackground)).trim()
 
-    const layersWithOpacity = resolveBackgroundLayerOpacity(normalized, activeFillPaints, readers)
+    const layersWithOpacity = resolveGradientWithOpacity(normalized, activeFillPaints, readers)
     if (layersWithOpacity) {
       processed.background = layersWithOpacity
       return processed
@@ -197,12 +197,7 @@ function resolveSolidPaintColor(
   if (bound && typeof bound === 'object' && 'id' in bound && bound.id) {
     try {
       const variable = readers.getVariableById(bound.id)
-      if (variable) {
-        const color = getVariableCssExpr(variable)
-        const opacity = paint.opacity ?? 1
-        if (opacity >= 0.99) return color
-        return `color-mix(in srgb, ${color} ${formatPercent(opacity)}, transparent)`
-      }
+      if (variable) return getVariableCssExpr(variable)
     } catch {
       // noop
     }
@@ -219,12 +214,12 @@ function resolveGradientPaintValue(
   return resolveGradientPaintCss(gradientPaint, size, readers, formatGradientStopColor)
 }
 
-function resolveBackgroundLayerOpacity(
+function resolveGradientWithOpacity(
   value: string,
   fills: PaintList,
   readers: FigmaLookupReaders
 ): string | null {
-  if (!value) return null
+  if (!value || !/gradient\(/i.test(value)) return null
   if (!fills) return null
 
   const paints = getCssPaintLayers(fills)
@@ -235,17 +230,6 @@ function resolveBackgroundLayerOpacity(
   let changed = false
   const rewritten = layers.map((layer, index) => {
     const fill = paints[index]!.paint
-    if (isSolidPaint(fill) && (fill.opacity ?? 1) < 0.99) {
-      const color = resolveSolidPaintColor(fill, readers)
-      if (color && isSolidBackground(layer)) {
-        changed = true
-        return color
-      }
-      if (color && /^linear-gradient\(/i.test(layer.trim())) {
-        changed = true
-        return `linear-gradient(${color}, ${color})`
-      }
-    }
     if (!/^linear-gradient\(/i.test(layer.trim())) return layer
     if (!isVisibleLinearGradientPaint(fill)) return layer
 
