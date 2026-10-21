@@ -301,6 +301,52 @@ describe.each(['jsx', 'vue'] as const)('%s native text blocks', (lang) => {
     expect(paragraphs[2]![1]).not.toContain('mb-')
   })
 
+  it.each(['Hello\n', 'Hello\n\n', '\n', 'Hello\r\n', 'Hello\u2029'])(
+    'retains terminal hard paragraphs in %j',
+    async (characters) => {
+      const paragraphCount = characters.split(/\r\n|[\n\r\u2029]/).length
+      const node = createText(
+        ['NONE'],
+        [],
+        [{ characters, paragraphIndent: 12, paragraphSpacing: 12 }]
+      )
+      const result = await handleGetCode([node], lang)
+      const paragraphs = [...result.code.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)]
+      expect(paragraphs).toHaveLength(paragraphCount)
+      expect(paragraphs.at(-1)![2]).toMatch(/^\s*<br\s*\/?>\s*$/)
+      expect(paragraphs.at(-1)![1]).not.toContain('mb-')
+      for (const paragraph of paragraphs.slice(0, -1)) {
+        expect(paragraph[1]).toContain('mb-[12px]')
+      }
+      for (const paragraph of paragraphs) expect(paragraph[1]).toContain('indent-[12px]')
+    }
+  )
+
+  it.each(['Hello\n', 'Hello\n\n', '\n'])(
+    'retains the final compact line box in %j',
+    async (characters) => {
+      const result = await handleGetCode([createText(['NONE'], [], [{ characters }])], lang)
+      expect(result.code).toMatch(/^<p\b/)
+      expect(result.code.match(/<br\s*\/?>/g)).toHaveLength(characters.split('\n').length)
+      expect(result.code).toMatch(/<br\s*\/?>\s*<\/p>$/)
+    }
+  )
+
+  it.each(['ORDERED', 'UNORDERED'] as const)(
+    'retains empty terminal %s items without adding an external gap',
+    async (listType) => {
+      for (const characters of ['Hello\n', 'Hello\n\n']) {
+        const node = createText([listType], [], [{ characters, paragraphSpacing: 12 }])
+        const result = await handleGetCode([node], lang)
+        const items = [...result.code.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/g)]
+        expect(items).toHaveLength(characters.split('\n').length)
+        expect(items[0]![1]).toContain('Hello')
+        for (const item of items.slice(1)) expect(item[1]).toMatch(/^\s*<br\s*\/?>\s*$/)
+        expect(result.code).not.toContain('mb-')
+      }
+    }
+  )
+
   it('keeps a list and ordinary text inside a legal layout container without a plugin', async () => {
     const result = await handleGetCode([createText(['UNORDERED', 'NONE'])], lang)
     expect(result.codegen.plugin).toBe('none')

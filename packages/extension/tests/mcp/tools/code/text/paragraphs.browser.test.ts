@@ -35,6 +35,21 @@ it.each([
   },
   { name: 'leading soft break', characters: '\u2028Hello', indents: [12], rows: [24] },
   { name: 'trailing soft break', characters: 'Hello\u2028', indents: [12], rows: [0], height: 48 },
+  { name: 'trailing hard break', characters: 'Hello\n', indents: [12], rows: [0], height: 60 },
+  {
+    name: 'repeated trailing hard breaks',
+    characters: 'Hello\n\n',
+    indents: [12],
+    rows: [0],
+    height: 96
+  },
+  {
+    name: 'hard-break-only text',
+    characters: '\n',
+    indents: [],
+    rows: [],
+    height: 60
+  },
   {
     name: 'trailing whitespace-only soft line',
     characters: 'Hello\u2028   ',
@@ -75,6 +90,40 @@ it.each([
     height: 72
   },
   {
+    name: 'compact trailing hard break',
+    characters: 'Hello\n',
+    paragraphIndent: 0,
+    paragraphSpacing: 0,
+    indents: [0],
+    rows: [0],
+    height: 48
+  },
+  {
+    name: 'compact repeated trailing hard breaks',
+    characters: 'Hello\n\n',
+    paragraphIndent: 0,
+    paragraphSpacing: 0,
+    indents: [0],
+    rows: [0],
+    height: 72
+  },
+  {
+    name: 'compact hard-break-only text',
+    characters: '\n',
+    paragraphIndent: 0,
+    paragraphSpacing: 0,
+    indents: [],
+    rows: [],
+    height: 48
+  },
+  {
+    name: 'soft then terminal hard break',
+    characters: 'Hello\u2028\n',
+    indents: [12],
+    rows: [0],
+    height: 84
+  },
+  {
     name: 'zero-indent soft then spaced hard breaks',
     characters: 'Hello\u2028\nHello',
     paragraphIndent: 0,
@@ -100,6 +149,24 @@ it.each([
     indents: [20, 20],
     rows: [0, 24],
     height: 48
+  },
+  {
+    name: 'terminal empty ordered item',
+    characters: 'Hello\n',
+    listType: 'ORDERED',
+    paragraphIndent: 0,
+    indents: [20],
+    rows: [0],
+    height: 48
+  },
+  {
+    name: 'repeated terminal empty ordered items',
+    characters: 'Hello\n\n',
+    listType: 'ORDERED',
+    paragraphIndent: 0,
+    indents: [20],
+    rows: [0],
+    height: 72
   },
   {
     name: 'leading deeper ordered item',

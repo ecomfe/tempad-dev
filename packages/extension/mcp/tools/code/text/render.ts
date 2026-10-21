@@ -153,7 +153,10 @@ function renderBlock(
         }
       } else {
         container.children.push(...buildInlineTree(line.runs, commonStyle, classProp, ctx, node))
-        if (idx === lines.length - 1 && endsWithEmptySoftLine(line.runs)) {
+        if (
+          idx === lines.length - 1 &&
+          (line.runs.length === 0 || endsWithEmptySoftLine(line.runs))
+        ) {
           // A final br alone does not create the trailing empty line box.
           container.children.push({ name: 'br', props: {}, children: [] })
         }

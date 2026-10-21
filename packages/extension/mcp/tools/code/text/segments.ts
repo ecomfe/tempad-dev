@@ -67,7 +67,8 @@ function splitIntoLines(
     currentSegmentForAttrs = seg
   }
 
-  if (currentRuns.length > 0 && currentSegmentForAttrs) {
+  // A terminal paragraph break still starts an empty paragraph or list item.
+  if ((currentRuns.length > 0 || lines.length > 0) && currentSegmentForAttrs) {
     lines.push({
       runs: optimizeRuns(currentRuns),
       attrs: extractLineAttrs(currentSegmentForAttrs)
