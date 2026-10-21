@@ -525,11 +525,24 @@ describe('tools response helpers', () => {
       message: 'Verification failed for "root": direct effect 0 does not match.'
     })
     expect(textContent(verificationError.content[0])).toContain(
-      'TemPad rolls verification failures back'
+      'TemPad attempts to roll verification failures back'
     )
     expect(textContent(verificationError.content[0])).toContain(
       'preserving unrelated design intent'
     )
+    for (const code of [
+      TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+      TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED
+    ]) {
+      expect(
+        textContent(
+          createToolErrorResponse('apply_canvas', {
+            code,
+            message: 'Verification failed: geometry does not match.'
+          }).content[0]
+        )
+      ).toContain('Check the reported rollback outcome')
+    }
 
     const unknownError = createToolErrorResponse('get_assets', 42)
     expect(unknownError.isError).toBe(true)

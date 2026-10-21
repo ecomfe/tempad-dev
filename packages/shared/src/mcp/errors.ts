@@ -23,6 +23,8 @@ export const TEMPAD_MCP_ERROR_CODES = {
   INVALID_CANVAS_SPEC: 'INVALID_CANVAS_SPEC',
   // Execution/internal-state failure. Inspect the message and rollback outcome before retrying.
   CANVAS_APPLY_FAILED: 'CANVAS_APPLY_FAILED',
+  // Preparation failed before any canvas write started.
+  CANVAS_APPLY_ABORTED: 'CANVAS_APPLY_ABORTED',
   ASSET_SERVER_NOT_CONFIGURED: 'ASSET_SERVER_NOT_CONFIGURED',
   ASSET_NOT_FOUND: 'ASSET_NOT_FOUND',
   ASSET_HASH_MISMATCH: 'ASSET_HASH_MISMATCH',

@@ -8,6 +8,8 @@ import {
   handleApplyCanvas as applyCanvasFromTool
 } from '@/mcp/tools/canvas'
 import { CANVAS_KEY_NAMESPACE, CANVAS_PAGE_KEY_NAME } from '@/mcp/tools/canvas/identity'
+import { createApplyState, markMutation } from '@/mcp/tools/canvas/reconcile/state'
+import { withUndoBoundary } from '@/mcp/tools/canvas/reconcile/undo'
 
 import { createFixture } from '../../fakes/figma'
 
@@ -46,6 +48,58 @@ const changes: Array<{
 ]
 
 describe('canvas rollback verification', () => {
+  it('certifies a failure before the native apply callback starts as aborted', async () => {
+    const fixture = createFixture()
+    const apply = vi.fn()
+    fixture.commitUndo.mockImplementationOnce(() => {
+      throw new Error('Undo boundary unavailable')
+    })
+    await expect(withUndoBoundary(apply, createApplyState(null, new Set()))).rejects.toMatchObject({
+      code: 'CANVAS_APPLY_ABORTED',
+      message: 'Undo boundary unavailable'
+    })
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it.each([undefined, 'INVALID_CANVAS_SPEC', 'CANVAS_APPLY_ABORTED'])(
+    'does not certify a partial rollback as safe after %s',
+    async (code) => {
+      const fixture = createFixture()
+      const label = figma.createText()
+      const before = 12
+      label.paragraphSpacing = before
+      const state = createApplyState(label, new Set())
+      const cause = Object.assign(new Error('Later native operation failed'), { code })
+      const error = await withUndoBoundary(async () => {
+        label.paragraphSpacing = before + 20
+        markMutation(state, label)
+        throw cause
+      }, state).catch((error: unknown) => error)
+
+      // The protected snapshot intentionally does not cover every text property.
+      expect(label.paragraphSpacing).toBe(before + 20)
+      expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+      expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED', cause })
+      if (code === 'INVALID_CANVAS_SPEC') expect((error as Error).message).toContain(code)
+      expect((error as Error).message).not.toContain('CANVAS_APPLY_ABORTED')
+    }
+  )
+
+  it('keeps an uncounted native failure uncertain after the write phase starts', async () => {
+    const fixture = createFixture()
+    const root = figma.createFrame()
+    const state = createApplyState(root, new Set())
+    const cause = new Error('Setter failed after changing native state')
+    const error = await withUndoBoundary(async () => {
+      root.name = 'Changed before mutation accounting'
+      throw cause
+    }, state).catch((error: unknown) => error)
+
+    expect(root.name).toBe('Changed before mutation accounting')
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED', cause })
+  })
+
   it.each([false, true])(
     'adds only the innermost context to a nested native failure (non-Error=%s)',
     async (nonError) => {
@@ -64,9 +118,11 @@ describe('canvas rollback verification', () => {
         bindings: { outer: { figma: { group: true } }, inner: { figma: { group: true } } }
       }).catch((error: unknown) => error)
       expect(error).toBeInstanceOf(Error)
-      expect((error as Error).message).toMatch(/^paint unavailable on "child" \(node:\d+\)\.$/)
+      expect((error as Error).message).toMatch(/^paint unavailable on "child" \(node:\d+\)\./)
+      expect(error).toMatchObject({ code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED })
       if (!nonError) {
-        expect(error).toBe(failure)
+        expect((error as Error).cause).toBe(failure)
+        expect((error as Error).message).toContain('INVALID_CANVAS_SPEC')
         expect(failure.cause).toBe(cause)
         expect(failure.code).toBe(TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC)
       }

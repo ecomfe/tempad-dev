@@ -171,6 +171,16 @@ because of cancellation, timeout, or disconnection, that file also requires a su
 `get_structure` or `get_code` read before further writes. A late result releases the execution
 fence but does not clear this read requirement, which survives Stop and beginning a fresh task.
 A completed write whose result cannot be formatted or fit the inline budget also requires readback.
+`EXTENSION_RESULT_LOST` also covers page-to-extension result transfer failure after execution.
+`CANVAS_APPLY_FAILED` remains an uncertain outcome, including failures from older extensions.
+Current extensions return `CANVAS_APPLY_ABORTED` only for preparation failures before writing;
+those do not require a file readback. Undo-boundary failures retain the requirement even if the
+protected snapshots match: those checks do not prove that every native resource field or
+concurrent user edit was restored. Uncoded or unknown error codes from dispatched writes also
+retain readback, including result-transfer failures from older peers. Only the positive
+`CANVAS_APPLY_ABORTED` and `EXTENSION_DELIVERY_FAILED` outcomes release a failed dispatched
+write's marker. Other diagnostics can originate inside a mutation on supported older peers,
+so they retain readback even when a particular rejection happened before writing.
 The Hub persists a file read marker before dispatch and retires it only after a definitive usable
 outcome or a qualifying read. Thus a Hub restart, including while the write is still running,
 retains the requirement. A failed marker save prevents dispatch; a failed clear retains the fence.

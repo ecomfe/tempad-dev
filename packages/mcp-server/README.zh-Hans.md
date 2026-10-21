@@ -80,7 +80,7 @@ TemPad Dev 的 MCP server 将 coding agent 连接到浏览器中打开的 Figma 
 - `TEMPAD_MCP_GET_CODE_TIMEOUT`：`get_code` 超时时间（毫秒，默认 `30000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。
 - `TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT`：`get_design_system` 首次资源目录发现的超时时间（毫秒，默认 `45000`；续页、精确引用、字体和页面列表读取仍使用常规超时）。设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值。
 - `TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT`：指定页面 ID 或 key 的 `get_structure` 超时时间（毫秒，默认 `45000`；冷页面可能需要先加载，节点和当前选择的读取仍使用常规超时）。设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值。
-- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`：`apply_canvas` 慢调用告警阈值（毫秒，默认 `120000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。达到阈值的两倍时，Hub 会报告结果未知。继续写入前，既需要明确操作已结束或完成会话恢复，也需要读取该文件并获得至少一个结构根节点或代码结果，或通过 `get_structure` 获得指定页面的快照（含空页面）；空选区和失败的节点读取不计入。内部画布错误也要求读回，因为其错误码不能证明回滚成功。重启 Hub 不会清除读回要求。请先检查画布，不要重放写入。
+- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`：`apply_canvas` 慢调用告警阈值（毫秒，默认 `120000`；设置 `TEMPAD_MCP_TOOL_TIMEOUT` 时以其作为回退值）。达到阈值的两倍时，Hub 会报告结果未知。继续写入前，既需要明确操作已结束或完成会话恢复，也需要读取该文件并获得至少一个结构根节点或代码结果，或通过 `get_structure` 获得指定页面的快照（含空页面）；空选区和失败的节点读取不计入。`CANVAS_APPLY_FAILED` 也要求读回，因为回滚结果未获确认，旧版扩展的此类错误同样如此。`CANVAS_APPLY_ABORTED` 确认写入前准备失败，无需额外读回文件。Undo 边界内的失败仍保留读回要求，因为回滚验证仅覆盖部分原生状态。重启 Hub 不会清除读回要求。请先检查画布，不要重放写入。
 - `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`：仅一个扩展连接时自动激活前的延迟（默认 `1500`）。
 - `TEMPAD_MCP_MAX_ASSET_BYTES`：截图/资源捕获的最大上传体积（字节，默认 `8388608`）。
 - `TEMPAD_MCP_MAX_ASSET_STORE_BYTES`：本地资源存储总量上限（字节，默认 `268435456`）。
@@ -120,8 +120,9 @@ Hub 仅接受来自 Chrome 扩展 Origin、且目标为根路径的 WebSocket �
 
 ## 任务存储恢复
 
-不兼容的任务记录可能由新版 Hub 写入。请先升级 MCP 运行时并重新连接所有客户端。
-恢复命令会主动拒绝可读取的存储；不要删除存储来绕过版本不兼容。
+不兼容的任务记录可能由新版 Hub 写入。这种情况下，请升级 MCP 运行时并重新连接所有客户端。
+如果当前版本仍拒绝该记录，请保留快照用于诊断，或恢复经过验证、包含最新 Stop 保护的完整备份。
+恢复命令会主动拒绝可读取的存储；不要删除存储来绕过保护。
 
 任务存储无法安全读取时，错误会指出受影响的快照路径。读取仍然可用，但画布写入会在重启后
 继续被阻止，因为快照可能包含永久 Stop 保护。Hub 会尽可能将无法读取的状态保存在 `.corrupt` 文件中。

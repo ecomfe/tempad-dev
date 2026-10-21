@@ -56,7 +56,7 @@ describe('task snapshot recovery', () => {
     }
     expect(() =>
       tasks.begin('owner', 'extension', { ...other, fileKey: 'blocked-file' }, 'New', 'r')
-    ).toThrow('Upgrade TemPad Dev MCP')
+    ).toThrow(/upgrade TemPad Dev MCP/i)
     tasks.begin('owner', 'extension', other, 'Other', 'request')
     const persisted = JSON.parse(files.get('/state/tasks.json')!)
     expect(persisted.current).toEqual({ 'blocked-file': 'future', other: 'new' })

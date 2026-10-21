@@ -170,6 +170,40 @@ describe('composables/mcp', () => {
     vi.stubGlobal('location', { origin: ORIGIN })
   })
 
+  it('reports a lost result when a completed write cannot be transferred', async () => {
+    Object.assign(mocks.window, {
+      figma: { fileKey: 'file-a', root: { name: 'Design' }, currentPage: { id: 'page-a' } },
+      INITIAL_OPTIONS: { editor_type: 'design' }
+    })
+    const mcp = useMcp()
+    const state = bridgeState(mcp.sessionId, 'connected', null)
+    if (state.type === 'mcp.state') state.payload.gatewayId = 'gateway-a'
+    receive(state)
+    mocks.runMcpTool.mockResolvedValueOnce({ rootNodeId: 'written', mutationCount: 1 })
+    mocks.window.postMessage.mockImplementation((message: PageToBridgeMessage) => {
+      if (message.type === 'mcp.toolResult' && 'payload' in message)
+        throw new DOMException('Cannot clone result', 'DataCloneError')
+    })
+    receive({
+      type: 'mcp.toolCall',
+      source: TEMPAD_MCP_BROWSER_SOURCE,
+      version: TEMPAD_MCP_BROWSER_PROTOCOL_VERSION,
+      callId: 'write',
+      route: { gatewayId: 'gateway-a', sessionId: mcp.sessionId, fileKey: 'file-a' },
+      payload: { name: 'apply_canvas', args: { mode: 'create' } }
+    })
+    await vi.waitFor(() =>
+      expect(mocks.window.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          callId: 'write',
+          error: expect.objectContaining({ code: TEMPAD_MCP_ERROR_CODES.EXTENSION_RESULT_LOST })
+        }),
+        ORIGIN
+      )
+    )
+    expect(mocks.runMcpTool).toHaveBeenCalledOnce()
+  })
+
   it.each([false, true])(
     'synchronizes a dismissed offline Stop after re-enable (storage unavailable=%s)',
     async (unavailable) => {

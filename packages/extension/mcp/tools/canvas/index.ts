@@ -52,7 +52,7 @@ export async function applyResolvedCanvas(
     } catch (error) {
       if (error instanceof Error && 'code' in error) throw error
       throw createCodedError(
-        TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+        TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
         errorMessage(error, 'Canvas theme could not be prepared.')
       )
     }
@@ -89,8 +89,10 @@ export async function applyResolvedCanvas(
     return await reconcileCanvas(parsedInput)
   } catch (error) {
     if (error instanceof Error && 'code' in error) throw error
+    // Native canvas writes run inside withUndoBoundary; an untyped error here
+    // comes from preparation. Failures after writing starts already carry a code.
     throw createCodedError(
-      TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
       errorMessage(error, 'Canvas apply failed.')
     )
   } finally {

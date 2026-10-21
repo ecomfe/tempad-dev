@@ -729,12 +729,23 @@ describe('Hub runtime module', () => {
     expect(blocked.result?.isError).toBe(true)
     expect(JSON.stringify(blocked)).toContain('Read the bound canvas')
     expect(extension.calls).toHaveLength(2)
+    for (const [index, outcome] of [
+      { payload: { roots: [] } },
+      { error: { code: 'NODE_NOT_VISIBLE', message: 'Node was removed.' } }
+    ].entries()) {
+      send(50 + index, 'get_structure', { taskId: task.taskId, taskEpoch: 1 })
+      const emptyRead = await extension.call(2 + index)
+      extension.send({ type: 'toolResult', id: emptyRead.id, ...outcome })
+      expect(JSON.stringify(await consumer.reply(50 + index))).toContain(
+        'Canvas writes still require readback'
+      )
+    }
     send(5, 'get_structure', { taskId: task.taskId, taskEpoch: 1 })
-    const read = await extension.call(2)
+    const read = await extension.call(4)
     extension.send({ type: 'toolResult', id: read.id, payload: structure })
     expect((await consumer.reply(5)).result?.isError).not.toBe(true)
     send(6, 'apply_canvas', write)
-    const update = await extension.call(3)
+    const update = await extension.call(5)
     extension.send({
       type: 'toolResult',
       id: update.id,
@@ -1173,10 +1184,18 @@ describe('Hub runtime module', () => {
 
   it.each([
     'success',
+    undefined,
+    'UNKNOWN_NATIVE_ERROR',
     'INVALID_CANVAS_SPEC',
+    'CANVAS_READ_ONLY',
+    'CANVAS_APPLY_ABORTED',
+    'CANVAS_APPLY_FAILED',
+    'EXTENSION_RESULT_LOST',
     'EXTENSION_DELIVERY_FAILED',
     'EXTENSION_DISCONNECTED'
   ])('requires readback only for an unknown write outcome after %s', async (code) => {
+    const readRequired =
+      code !== 'success' && code !== 'CANVAS_APPLY_ABORTED' && code !== 'EXTENSION_DELIVERY_FAILED'
     const { startHub } = await loadRuntime()
     await startHub()
     const extension = connectExtension()
@@ -1211,7 +1230,10 @@ describe('Hub runtime module', () => {
     })
     const result = await consumer.reply(1)
     if (code === 'success') expect(result.result?.isError).not.toBe(true)
-    else expect(JSON.stringify(result)).toContain(code)
+    else
+      expect(JSON.stringify(result)).toContain(
+        code === 'EXTENSION_DISCONNECTED' ? 'outcome is unknown' : 'Native error'
+      )
     consumer.send({ id: 2, method: 'tools/call', params: write })
     if (code === 'EXTENSION_DISCONNECTED') {
       expect(JSON.stringify(await consumer.reply(2))).toContain('DESIGN_TASK_BUSY')
@@ -1221,8 +1243,13 @@ describe('Hub runtime module', () => {
         id: first.id,
         error: { message: 'Definitive completion' }
       })
-      consumer.send({ id: 3, method: 'tools/call', params: write })
-      expect(JSON.stringify(await consumer.reply(3))).toContain('previous write result was lost')
+    }
+    if (readRequired) {
+      const blockedId = code === 'EXTENSION_DISCONNECTED' ? 3 : 2
+      if (blockedId === 3) consumer.send({ id: blockedId, method: 'tools/call', params: write })
+      expect(JSON.stringify(await consumer.reply(blockedId))).toContain(
+        'previous write result was lost'
+      )
       consumer.send({
         id: 4,
         method: 'tools/call',
@@ -1233,15 +1260,15 @@ describe('Hub runtime module', () => {
       await consumer.reply(4)
       consumer.send({ id: 5, method: 'tools/call', params: write })
     }
-    const next = await extension.call(code === 'EXTENSION_DISCONNECTED' ? 2 : 1)
+    const next = await extension.call(readRequired ? 2 : 1)
     extension.send({
       type: 'toolResult',
       id: next.id,
       error: { message: 'Next write completed' }
     })
-    expect(
-      JSON.stringify(await consumer.reply(code === 'EXTENSION_DISCONNECTED' ? 5 : 2))
-    ).toContain('Next write completed')
+    expect(JSON.stringify(await consumer.reply(readRequired ? 5 : 2))).toContain(
+      'Next write completed'
+    )
   })
 
   it('does not require readback when the transport rejects a write before dispatch', async () => {
@@ -1362,8 +1389,12 @@ describe('Hub runtime module', () => {
       expect(snapshot().records).not.toContainEqual(readMarker)
       nextOwner.send({ id: 5, method: 'tools/call', params: write })
       const next = await replacement.call(1)
-      replacement.send({ type: 'toolResult', id: next.id, error: { message: 'Definitive result' } })
-      expect(JSON.stringify(await nextOwner.reply(5))).toContain('Definitive result')
+      replacement.send({
+        type: 'toolResult',
+        id: next.id,
+        error: { code: 'CANVAS_APPLY_ABORTED', message: 'Definitive preflight rejection' }
+      })
+      expect(JSON.stringify(await nextOwner.reply(5))).toContain('Definitive preflight rejection')
       expect(snapshot().records).not.toContainEqual(readMarker)
     }
   )
@@ -1386,8 +1417,36 @@ describe('Hub runtime module', () => {
         results: [{ nodeId: 'gone', error: { message: 'Missing node' } }],
         remainingNodeIds: ['remaining']
       }
+    },
+    {
+      name: 'thrown node read',
+      tool: 'get_structure',
+      error: { code: 'NODE_NOT_VISIBLE', message: 'Node was removed.' }
+    },
+    {
+      name: 'oversized thrown node read',
+      tool: 'get_code',
+      error: { message: 'x'.repeat(64 * 1024) }
+    },
+    {
+      name: 'oversized code result',
+      tool: 'get_code',
+      responseError: true,
+      payload: { code: 'x'.repeat(64 * 1024), lang: 'jsx', nodeId: 'root' }
+    },
+    {
+      name: 'oversized failed-node result',
+      tool: 'get_code',
+      responseError: true,
+      payload: { results: [{ nodeId: 'gone', error: { message: 'x'.repeat(64 * 1024) } }] }
+    },
+    {
+      name: 'unformattable code result',
+      tool: 'get_code',
+      responseError: true,
+      payload: { code: '<div/>', lang: 42 }
     }
-  ])('keeps readback required after $name', async ({ tool, payload }) => {
+  ])('keeps readback required after $name', async ({ tool, payload, error, responseError }) => {
     const { startHub } = await loadRuntime()
     await startHub()
     const extension = connectExtension()
@@ -1406,10 +1465,11 @@ describe('Hub runtime module', () => {
       params: { name: tool, arguments: {} }
     })
     const emptyRead = await extension.call(1)
-    extension.send({ type: 'toolResult', id: emptyRead.id, payload })
+    extension.send({ type: 'toolResult', id: emptyRead.id, ...(error ? { error } : { payload }) })
     const response = await consumer.reply(2)
-    expect(response.result?.isError).not.toBe(true)
+    expect(!!response.result?.isError).toBe(!!error || !!responseError)
     expect(JSON.stringify(response)).toContain('Canvas writes still require readback')
+    expect(Buffer.byteLength(JSON.stringify(response.result))).toBeLessThan(64 * 1024)
     consumer.send({ id: 3, method: 'tools/call', params: write })
     expect(JSON.stringify(await consumer.reply(3))).toContain('previous write result was lost')
     expect(extension.calls).toHaveLength(2)

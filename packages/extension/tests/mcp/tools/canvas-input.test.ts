@@ -119,7 +119,7 @@ describe('canvas input diagnostics', () => {
         code:
           kind === 'coded'
             ? TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SCOPE
-            : TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+            : TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
         message: failure.message
       })
       expect(fixture.commitUndo).not.toHaveBeenCalled()

@@ -919,7 +919,7 @@ export class DesignTasks {
     if (this.options.store?.blockedFiles?.has(fileKey))
       fail(
         'DESIGN_TASK_INACTIVE',
-        'This Figma file has an incompatible saved task. Upgrade TemPad Dev MCP and reconnect all clients before retrying. Do not reset readable task storage; other files are unaffected.'
+        'This Figma file has an incompatible saved task. If it was written by a newer Hub, upgrade TemPad Dev MCP and reconnect all clients. If the current version still rejects it, preserve the snapshot for diagnosis or restore a verified complete backup including the latest Stop fences. Do not reset readable task storage; other files are unaffected.'
       )
     if (this.options.store?.recoveryError || this.persistenceError)
       fail(

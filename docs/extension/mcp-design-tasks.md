@@ -97,16 +97,27 @@ not human editing, other devices, or unrelated services.
 
 ## Persistence and recovery
 
-The Hub atomically stores task identity, current-file ownership, results, and Stop/Done
-fences under `~/.tempad-dev/state/`. Current, open reviews have no idle eviction. Closed,
-cancelled, and replaced task details are retained for 30 days from retirement; running
-operations must settle before their records can be removed. Existing records without a
+The Hub atomically stores task identity, current-file ownership, results, Stop/Done
+fences, and per-file readback markers under `~/.tempad-dev/state/`. Current, open reviews
+have no idle eviction. Closed, cancelled, and replaced task details are retained for 30 days
+from retirement; running operations must settle before their records can be removed. Existing records without a
 retirement timestamp start their retention window when first loaded by a retention-aware
 Hub. Lease expiry is not a history timestamp.
 
 Begin and resume publish a new lease only after its snapshot is saved. If a resumed lease cannot
 be saved, retain the previous status, epoch, result, and readiness; storage recovery can then retry
 the same resume without having exposed an active lease that would disappear on restart.
+
+Before dispatching a canvas write, the Hub persists a generation-scoped readback marker.
+If saving fails, no write is dispatched and the previous marker is retained. A definitive
+success, rejected dispatch, or confirmed pre-write failure clears only that operation's
+generation. A lost result or failed mutation attempt retains the marker across Hub restarts,
+Stop, and new tasks. Once no operation remains pending, a fresh `get_structure` or
+`get_code` result with a surviving node, or an exact `get_structure` page snapshot, clears
+the file marker. An empty page snapshot is valid; empty selection, failed-node-only
+results, screenshots, and resource catalogs are not. Task resume/reconnection separately
+requires a usable read by the current task owner; another task's read cannot satisfy that
+lease's `needsRead` requirement.
 
 Expired task IDs cannot be queried or resumed. The Hub retains a small fence per affected
 file so an old tab cannot recreate a removed task or bypass a previous Stop with taskless

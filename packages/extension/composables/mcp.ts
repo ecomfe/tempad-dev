@@ -389,6 +389,7 @@ export const useMcp = createSharedComposable(() => {
         ...pageMessageBase,
         callId,
         error: {
+          code: TEMPAD_MCP_ERROR_CODES.EXTENSION_RESULT_LOST,
           message:
             'The tool result could not be transferred. Inspect the canvas before retrying a write.'
         },

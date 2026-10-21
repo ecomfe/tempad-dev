@@ -228,6 +228,7 @@ async function removeRollbackCreatedPages(
 
 export async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): Promise<T> {
   const previousPage = figma.currentPage
+  let applyStarted = false
   try {
     if (state.scope) {
       for (const node of walkAuthoringNodes([state.scope])) protectNode(state, node)
@@ -240,11 +241,21 @@ export async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyS
     }
     state.undoStarted = true
     figma.commitUndo()
+    applyStarted = true
     const result = await apply()
     figma.commitUndo()
     return result
   } catch (error) {
     const readOnly = canvasReadOnlyError(error)
+    const original = readOnly ?? error
+    const code = original instanceof Error && 'code' in original ? original.code : undefined
+    const message = errorMessage(original, 'Canvas apply failed.')
+    const diagnostic =
+      typeof code === 'string' &&
+      code !== TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED &&
+      code !== TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED
+        ? `${message} [${code}]`
+        : message
     if (state.mutations.count > 0) {
       try {
         // Make this partial attempt the newest history entry before undoing. In a long-lived
@@ -262,13 +273,26 @@ export async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyS
         const detail = rollbackMessage ? ` ${rollbackMessage.replace(/\.$/, '')}.` : ''
         const failure = createCodedError(
           TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
-          `Canvas apply failed: ${errorMessage(error, 'Unknown apply error').replace(/\.$/, '')}; automatic rollback was not available.${detail} Stop writing and ask the user to inspect the canvas or use Figma Undo.`
+          `Canvas apply failed: ${diagnostic.replace(/\.$/, '')}; automatic rollback was not available.${detail} Stop writing and ask the user to inspect the canvas or use Figma Undo.`
         )
         failure.cause = error
         throw failure
       }
     }
-    if (readOnly) throw readOnly
-    throw error
+    if (!applyStarted) {
+      if (readOnly) throw readOnly
+      if (error instanceof Error && 'code' in error) throw error
+      throw createCodedError(
+        TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
+        errorMessage(error, 'Canvas apply failed.')
+      )
+    }
+    if (error instanceof Error && code === TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED) throw error
+    // A native setter can throw before mutation accounting, and protected snapshots
+    // cover only part of document state. Neither zero writes nor a verified snapshot
+    // proves that every native field or resource was restored.
+    const failure = createCodedError(TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED, diagnostic)
+    failure.cause = error
+    throw failure
   }
 }

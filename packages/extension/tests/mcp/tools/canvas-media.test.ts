@@ -48,7 +48,7 @@ describe('Canvas video response cleanup', () => {
     state.videoUrls.add('https://media.example.com/video.mp4')
 
     await expect(importCanvasMedia(state)).rejects.toMatchObject({
-      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
+      code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED,
       message: expect.stringContaining('Video download failed')
     })
 

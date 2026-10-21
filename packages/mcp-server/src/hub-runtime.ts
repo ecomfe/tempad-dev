@@ -766,6 +766,7 @@ export async function startHub(): Promise<void> {
     const isCanvasWrite = tool.name === 'apply_canvas'
     const handler = async (args: unknown, extra: { _meta?: unknown; signal: AbortSignal }) => {
       let requestId: string | undefined
+      let readTarget: { fileKey: string; taskId?: string } | undefined
       try {
         extra.signal.throwIfAborted()
         const ownerId = await agentClients.owner(
@@ -826,6 +827,7 @@ export async function startHub(): Promise<void> {
           true,
           explicitSessionId
         )
+        readTarget = { fileKey: session.fileKey, taskId }
         const runtimeIssues = getExtensionRuntimeIssues(activeExt.runtime)
         if (runtimeIssues.length) {
           throw createCodedError(
@@ -903,16 +905,17 @@ export async function startHub(): Promise<void> {
         // operation remains fenced until its definitive result or document loss.
         const payload = await registration.promise.catch((error: unknown) => {
           const code = getRecordProperty(error, 'code')
+          // Only these outcomes prove that an older or newer peer did not write.
+          // Other codes (including legacy validation failures) can arrive after
+          // mutation; an absent/unknown code is not evidence of a safe failure.
+          const safeFailure =
+            code === TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED ||
+            code === TEMPAD_MCP_ERROR_CODES.EXTENSION_DELIVERY_FAILED
           const unknownOutcome =
             dispatched &&
             (designTasks.isOperationPending(registration.requestId) ||
               getRecordProperty(error, 'name') === 'AbortError' ||
-              code === TEMPAD_MCP_ERROR_CODES.EXTENSION_TIMEOUT ||
-              code === TEMPAD_MCP_ERROR_CODES.EXTENSION_DISCONNECTED ||
-              code === TEMPAD_MCP_ERROR_CODES.EXTENSION_RESULT_LOST ||
-              // Internal apply failures can include an unsuccessful rollback.
-              // The error code alone cannot prove that the canvas was restored.
-              code === TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED)
+              !safeFailure)
           if (readGeneration !== undefined && !unknownOutcome)
             designTasks.acknowledgeFileRead(session.fileKey, readGeneration)
           throw error
@@ -932,17 +935,9 @@ export async function startHub(): Promise<void> {
           }
         }
         const readEvidence = hasCanvasReadEvidence(tool.name, payload)
-        const readNotice =
-          (tool.name === 'get_structure' || tool.name === 'get_code') &&
-          !readEvidence &&
-          designTasks.needsFileRead(session.fileKey)
-            ? 'Canvas writes still require readback. Read a surviving node with get_structure or get_code, or an exact page with get_structure. Empty selections and failed node reads do not clear this requirement.'
-            : undefined
         const response = createToolResponse(tool.name, payload, {
           runtime,
-          notice: [versionedReadNotice(protocolVersion, tool.name), readNotice]
-            .filter(Boolean)
-            .join('\n\n')
+          notice: versionedReadNotice(protocolVersion, tool.name)
         })
         if (!response.isError && readGeneration !== undefined)
           designTasks.acknowledgeFileRead(session.fileKey, readGeneration)
@@ -950,7 +945,7 @@ export async function startHub(): Promise<void> {
           if (taskId) designTasks.acknowledgeRead(taskId, ownerId, taskEpoch)
           designTasks.acknowledgeFileRead(session.fileKey)
         }
-        return response
+        return withCanvasReadNotice(tool.name, response, readTarget)
       } catch (error) {
         const normalized = coerceToolError(error)
         log.error(
@@ -962,7 +957,11 @@ export async function startHub(): Promise<void> {
           },
           'Tool invocation failed.'
         )
-        return createToolErrorResponse(tool.name, normalized)
+        return withCanvasReadNotice(
+          tool.name,
+          createToolErrorResponse(tool.name, normalized),
+          readTarget
+        )
       }
     }
 
@@ -975,6 +974,27 @@ export async function startHub(): Promise<void> {
       },
       handler
     )
+  }
+
+  function withCanvasReadNotice(
+    tool: ToolName,
+    response: CallToolResult,
+    target?: { fileKey: string; taskId?: string }
+  ): CallToolResult {
+    const notice =
+      target &&
+      (tool === 'apply_canvas' || tool === 'get_structure' || tool === 'get_code') &&
+      (designTasks.needsFileRead(target.fileKey) ||
+        (target.taskId && designTasks.find(target.taskId)?.task.needsRead))
+        ? 'Canvas writes still require readback. Read a surviving node with get_structure or get_code, or an exact page with get_structure. For a resumed task, include its taskId and current taskEpoch. Empty selections and failed node reads do not clear this requirement.'
+        : undefined
+    const prependNotice = (result: CallToolResult): CallToolResult =>
+      notice ? { ...result, content: [{ type: 'text', text: notice }, ...result.content] } : result
+    const result = prependNotice(response)
+    const bytes = measureCallToolResultBytes(result)
+    return bytes <= MCP_TOOL_INLINE_BUDGET_BYTES
+      ? result
+      : prependNotice(createInlineBudgetExceededToolResponse(tool, bytes))
   }
 
   function registerLocalTool(mcp: McpServer, tool: HubOnlyTool, ownerId: string): void {

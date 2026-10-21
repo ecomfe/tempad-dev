@@ -131,7 +131,7 @@ const CONNECTIVITY_TROUBLESHOOTING_LINES = [
 const MULTI_SELECTION_TROUBLESHOOTING_LINE =
   'Tip: Select one or more visible nodes, or pass nodeIds (nodeId for a single node).'
 const VERIFICATION_TROUBLESHOOTING_LINE =
-  'Tip: TemPad rolls verification failures back. Correct the reported desired-state mismatch and retry the affected root while preserving unrelated design intent.'
+  'Tip: TemPad attempts to roll verification failures back. Check the reported rollback outcome and satisfy any readback requirement before retrying. Correct the desired-state mismatch while preserving unrelated design intent.'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -302,7 +302,12 @@ function buildTroubleshootingText(code: TempadMcpErrorCode | undefined, message:
     help.push(MULTI_SELECTION_TROUBLESHOOTING_LINE)
   }
 
-  if (code === TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC && /verification failed/i.test(message)) {
+  if (
+    (code === TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC ||
+      code === TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_ABORTED ||
+      code === TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED) &&
+    /verification failed/i.test(message)
+  ) {
     help.push(VERIFICATION_TROUBLESHOOTING_LINE)
   }
 
