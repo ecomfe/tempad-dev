@@ -315,14 +315,17 @@ export function ensureTextRangeUnbound(
       const newline = node.characters.indexOf('\n', start)
       const end = Math.min(range.end, newline === -1 ? node.characters.length : newline + 1)
       const alias = node.getRangeBoundVariable(start, end, field)
-      if (alias) {
+      // Including the paragraph break in a literal setter can also change the
+      // following paragraph. Empty paragraphs have no proven safe fallback.
+      const contentEnd = node.characters[end - 1] === '\n' ? end - 1 : end
+      if (alias && start < contentEnd) {
         const value =
           field === 'paragraphIndent'
             ? node.getRangeParagraphIndent(start, end)
             : node.getRangeParagraphSpacing(start, end)
         if (value !== figma.mixed) {
-          if (field === 'paragraphIndent') node.setRangeParagraphIndent(start, end, value)
-          else node.setRangeParagraphSpacing(start, end, value)
+          if (field === 'paragraphIndent') node.setRangeParagraphIndent(start, contentEnd, value)
+          else node.setRangeParagraphSpacing(start, contentEnd, value)
           markMutation(state, node)
         }
       }

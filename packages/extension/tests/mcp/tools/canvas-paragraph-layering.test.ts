@@ -181,6 +181,21 @@ async function createParagraphProbe(
   }
 }
 
+function mockRetainedParagraphNull(probe: Awaited<ReturnType<typeof createParagraphProbe>>) {
+  const bind = probe.bind.getMockImplementation()!
+  probe.bind.mockImplementation((start, end, property, variable) => {
+    if (variable) bind(start, end, property, variable)
+  })
+  const write = probe.write.getMockImplementation()!
+  probe.write.mockImplementation((start, end, value) => {
+    // Native paragraph literal writes ending just after a newline also affect
+    // the next paragraph. Full-span reads do not have this setter behavior.
+    const nextParagraph =
+      probe.label.characters[end - 1] === '\n' && end < probe.label.characters.length
+    write(start, nextParagraph ? end + 1 : end, value)
+  })
+}
+
 describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (field) => {
   it.each([
     { start: 0, end: 17, aliases: [undefined, undefined, undefined] },
@@ -194,10 +209,7 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
         [{ start: 7, end: 8, variables: { [field]: { id: 'variable:range-size' } } }],
         { [field]: { id: 'variable:spacing' } }
       )
-      const bind = probe.bind.getMockImplementation()!
-      probe.bind.mockImplementation((start, end, property, variable) => {
-        if (variable) bind(start, end, property, variable)
-      })
+      mockRetainedParagraphNull(probe)
       const ranges = [{ start, end, variables: { [field]: null } }]
       await probe.update(undefined, ranges)
       expect(probe.values()).toEqual([8, 18, 8])
@@ -205,6 +217,37 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
       await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
     }
   )
+
+  it('detaches the middle paragraph without changing the following base-bound paragraph', async () => {
+    const probe = await createParagraphProbe(field, [8, 18, 8], 'A\nB\nC')
+    const base = { [field]: { id: 'variable:spacing' } }
+    await probe.update(
+      undefined,
+      [{ start: 2, end: 3, variables: { [field]: { id: 'variable:range-size' } } }],
+      base
+    )
+    mockRetainedParagraphNull(probe)
+    probe.write.mockClear()
+    const ranges = [{ start: 2, end: 3, variables: { [field]: null } }]
+    await probe.update(undefined, ranges, base)
+    expect(probe.values()).toEqual([8, 18, 8])
+    expect(probe.aliases()).toEqual(['variable:spacing', undefined, 'variable:spacing'])
+    expect(probe.write).toHaveBeenCalledExactlyOnceWith(2, 3, 18)
+    await expect(probe.update(undefined, ranges, base)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('rejects a retained empty-paragraph alias without writing into the following paragraph', async () => {
+    const probe = await createParagraphProbe(field, [8, 8, 8], 'A\n\nC')
+    await probe.update(undefined, undefined, { [field]: { id: 'variable:spacing' } })
+    mockRetainedParagraphNull(probe)
+    probe.write.mockClear()
+    await expect(
+      probe.update(undefined, [{ start: 2, end: 3, variables: { [field]: null } }])
+    ).rejects.toThrow(`range variable link "${field}" was not cleared`)
+    expect(probe.values()).toEqual([8, 8, 8])
+    expect(probe.aliases()).toEqual(Array(3).fill('variable:spacing'))
+    expect(probe.write).not.toHaveBeenCalled()
+  })
 
   it('rejects a paragraph alias retained by both null and literal setters', async () => {
     const probe = await createParagraphProbe(field)
@@ -226,16 +269,13 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
     })
     const styled = { start: 8, end: 9, textStyle: { id: style.id } }
     await probe.update(undefined, [styled], { [field]: variable })
-    const bind = probe.bind.getMockImplementation()!
-    probe.bind.mockImplementation((start, end, property, value) => {
-      if (value) bind(start, end, property, value)
-    })
+    mockRetainedParagraphNull(probe)
     probe.write.mockClear()
     const ranges = [{ start: 0, end: 7, variables: { [field]: null } }, styled]
     await probe.update(undefined, ranges)
     expect(probe.aliases()).toEqual([undefined, variable.id, variable.id])
     expect(probe.values()).toEqual([8, 8, 8])
-    expect(probe.write).toHaveBeenCalledExactlyOnceWith(0, 6, 8)
+    expect(probe.write).toHaveBeenCalledExactlyOnceWith(0, 5, 8)
     await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
   })
 
