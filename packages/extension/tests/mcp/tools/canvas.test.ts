@@ -549,12 +549,12 @@ describe('mcp/tools/canvas', () => {
       textAutoResize: 'NONE',
       fontName: { family: 'IBM Plex Sans', style: 'Medium' },
       textAlignVertical: 'CENTER',
-      paragraphSpacing: 8,
       fontSize: 20,
       lineHeight: { unit: 'PIXELS', value: 28 },
       width: 240,
       height: 80
     })
+    expect(copy.getRangeParagraphSpacing(0, copy.characters.length)).toBe(8)
     await expect(applyCanvasFromTool(update)).resolves.toMatchObject({ mutationCount: 0 })
 
     copy.fontName = figma.mixed
@@ -4689,7 +4689,7 @@ describe('mcp/tools/canvas', () => {
     expect(title.fontSize).toBe(24)
     expect(title.textCase).toBe('TITLE')
     expect(title.textDecoration).toBe('UNDERLINE')
-    expect(title.paragraphIndent).toBe(12)
+    expect(title.getRangeParagraphIndent(0, title.characters.length)).toBe(12)
     expect(title.paragraphSpacing).toBe(20)
     expect(fixture.importStyleByKeyAsync).toHaveBeenCalledWith('stroke-style-key')
     expect(fixture.loadFontAsync.mock.calls).toEqual(
@@ -6614,13 +6614,13 @@ describe('mcp/tools/canvas', () => {
       textDecoration: 'UNDERLINE',
       textTruncation: 'ENDING',
       maxLines: 2,
-      paragraphIndent: 12,
-      paragraphSpacing: 16,
       hangingPunctuation: true,
       hangingList: true,
       leadingTrim: 'CAP_HEIGHT',
       hyperlink: { type: 'URL', value: 'https://example.com' }
     })
+    expect(copy.getRangeParagraphIndent(0, copy.characters.length)).toBe(12)
+    expect(copy.getRangeParagraphSpacing(0, copy.characters.length)).toBe(16)
     expect(copy.getRangeListSpacing(0, copy.characters.length)).toBe(8)
     await expect(
       applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })

@@ -30,7 +30,6 @@ import {
   resolvedRangeTextStyle
 } from './text-range-style'
 import {
-  textParagraphRange,
   textParagraphRanges,
   textRangesIntersect,
   textRangesMatchOutside,
@@ -186,7 +185,7 @@ export async function applyText(
     (value) => (node.textAutoResize = value),
     state
   )
-  setBaseTextValue(
+  setBaseParagraphValue(
     node,
     'paragraphIndent',
     spec.variables?.paragraphIndent || currentBoundVariableId(node, 'paragraphIndent')
@@ -195,12 +194,13 @@ export async function applyText(
     {
       current: node.paragraphIndent,
       apply: (value) => (node.paragraphIndent = value),
+      applyRange: (start, end, value) => node.setRangeParagraphIndent(start, end, value),
       readRange: (start, end) => node.getRangeParagraphIndent(start, end)
     },
     native?.ranges,
     state
   )
-  setBaseTextValue(
+  setBaseParagraphValue(
     node,
     'paragraphSpacing',
     spec.variables?.paragraphSpacing || currentBoundVariableId(node, 'paragraphSpacing')
@@ -209,12 +209,25 @@ export async function applyText(
     {
       current: node.paragraphSpacing,
       apply: (value) => (node.paragraphSpacing = value),
+      applyRange: (start, end, value) => node.setRangeParagraphSpacing(start, end, value),
       readRange: (start, end) => node.getRangeParagraphSpacing(start, end)
     },
     native?.ranges,
     state
   )
-  setBaseListSpacing(node, native?.listSpacing, native?.ranges, state)
+  setBaseParagraphValue(
+    node,
+    'listSpacing',
+    native?.listSpacing,
+    {
+      current: node.listSpacing,
+      apply: (value) => (node.listSpacing = value),
+      applyRange: (start, end, value) => node.setRangeListSpacing(start, end, value),
+      readRange: (start, end) => node.getRangeListSpacing(start, end)
+    },
+    native?.ranges,
+    state
+  )
   setValue(
     node,
     node.hangingPunctuation,
@@ -248,12 +261,14 @@ type BaseTextField =
   | 'letterSpacing'
   | 'textCase'
   | 'textDecoration'
-  | 'paragraphIndent'
-  | 'paragraphSpacing'
-  | 'listSpacing'
   | 'hyperlink'
 
-function rangeOwnsTextField(range: CanvasFigmaTextRange, field: BaseTextField): boolean {
+type BaseParagraphField = 'paragraphIndent' | 'paragraphSpacing' | 'listSpacing'
+
+function rangeOwnsTextField(
+  range: CanvasFigmaTextRange,
+  field: BaseTextField | BaseParagraphField
+): boolean {
   if (range[field] !== undefined) return true
   if (field === 'hyperlink') return false
   if (range.textStyle) return true
@@ -262,30 +277,6 @@ function rangeOwnsTextField(range: CanvasFigmaTextRange, field: BaseTextField): 
   }
   if (field === 'textCase' || field === 'textDecoration' || field === 'listSpacing') return false
   return !!range.variables?.[field]
-}
-
-function textFieldRange(
-  node: TextNode,
-  field: BaseTextField,
-  range: { start: number; end: number }
-): { start: number; end: number } {
-  if (field !== 'paragraphIndent' && field !== 'paragraphSpacing') return range
-  return textParagraphRange(node.characters, range)
-}
-
-function textFieldMatchesOutside(
-  node: TextNode,
-  field: BaseTextField,
-  scope: TextRange,
-  ranges: readonly CanvasFigmaTextRange[],
-  matches: (start: number, end: number) => boolean
-): boolean {
-  const owned = ranges.filter((range) => rangeOwnsTextField(range, field))
-  const overrides =
-    field === 'paragraphIndent' || field === 'paragraphSpacing'
-      ? textParagraphRanges(node.characters, owned)
-      : owned
-  return textRangesMatchOutside(textFieldRange(node, field, scope), overrides, matches)
 }
 
 type TextValueAccess<T> = {
@@ -344,8 +335,10 @@ function setBaseTextValue<T>(
   if (desired === undefined || equal(current, desired)) return
   if (
     ranges?.length &&
-    textFieldMatchesOutside(node, field, scope, ranges, (start, end) =>
-      equal(readRange(start, end), desired)
+    textRangesMatchOutside(
+      scope,
+      ranges.filter((range) => rangeOwnsTextField(range, field)),
+      (start, end) => equal(readRange(start, end), desired)
     )
   )
     return
@@ -355,20 +348,24 @@ function setBaseTextValue<T>(
   markMutation(state, node)
 }
 
-function setBaseListSpacing(
+function setBaseParagraphValue(
   node: TextNode,
+  field: BaseParagraphField,
   desired: number | undefined,
+  access: TextValueAccess<number> & {
+    applyRange: (start: number, end: number, value: number) => void
+  },
   ranges: CanvasFigmaTextRange[] | undefined,
   state: ApplyState
 ): void {
   if (desired === undefined) return
   if (!node.characters.length) {
-    setValue(node, node.listSpacing, desired, (value) => (node.listSpacing = value), state)
+    setValue(node, access.current, desired, access.apply, state)
     return
   }
-  const owned = (ranges ?? []).filter((range) => rangeOwnsTextField(range, 'listSpacing'))
+  const owned = (ranges ?? []).filter((range) => rangeOwnsTextField(range, field))
   const overrides = textParagraphRanges(node.characters, owned)
-  // Native whole-node listSpacing writes leave existing range values intact.
+  // Native whole-node paragraph writes leave existing range values intact.
   // Set only the paragraphs not owned by the later range declarations.
   for (const { start, end } of textRangesOutside(
     { start: 0, end: node.characters.length },
@@ -376,9 +373,9 @@ function setBaseListSpacing(
   )) {
     setValue(
       node,
-      node.getRangeListSpacing(start, end),
+      access.readRange(start, end),
       desired,
-      (value) => node.setRangeListSpacing(start, end, value),
+      (value) => access.applyRange(start, end, value),
       state
     )
   }

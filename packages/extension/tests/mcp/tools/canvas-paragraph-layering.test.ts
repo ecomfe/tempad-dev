@@ -21,7 +21,7 @@ async function createParagraphProbe(
     ranges?: Array<ParagraphRange | CanvasFigmaTextRange>
   ): CanvasResolvedApplyParameters => ({
     mode: 'create',
-    markup: `<div data-key="root" class="flex w-80 h-80"><span data-key="label" class="w-40 h-20 whitespace-pre-wrap">${characters}</span></div>`,
+    markup: `<div data-key="root" class="flex w-80 h-80"><span data-key="label" class="w-40 h-20 whitespace-pre-wrap">${characters || 'Empty'}</span></div>`,
     bindings: {
       label: {
         figma: {
@@ -44,12 +44,17 @@ async function createParagraphProbe(
   })
   const created = await applyCanvas(request(undefined))
   const label = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+  if (!characters) label.characters = ''
   expect(label.characters).toBe(characters)
 
   // Installed @figma/plugin-typings documents setRangeParagraphSpacing(0, 1, 20)
   // changing the entire first paragraph, including its newline. ParagraphIndent
   // likewise targets paragraphs containing the supplied characters. Model those
   // semantics rather than the shared fake's independent start:end range records.
+  // TextStyle aliases also use this paragraph model as a deterministic stress
+  // case. Native partial TextStyle alias propagation remains unconfirmed; these
+  // assertions do not establish its equivalence to direct variable binding.
+  let base = 0
   let offset = 0
   const paragraphs = characters.split('\n').map((text, index, all) => {
     const start = offset
@@ -75,10 +80,14 @@ async function createParagraphProbe(
       paragraph.alias = undefined
     }
   })
+  // Native whole-node writes retain existing explicit paragraph values.
+  const writeBase = vi.fn((value: number) => {
+    base = value
+  })
   Object.defineProperty(label, field, {
     configurable: true,
-    get: () => read(0, label.characters.length),
-    set: (value: number) => write(0, label.characters.length, value)
+    get: () => (characters ? read(0, label.characters.length) : base),
+    set: writeBase
   })
   const suffix = field === 'paragraphIndent' ? 'ParagraphIndent' : 'ParagraphSpacing'
   Object.defineProperty(label, `getRange${suffix}`, { value: read })
@@ -119,10 +128,12 @@ async function createParagraphProbe(
     values: () => paragraphs.map(({ value }) => value),
     aliases: () => paragraphs.map(({ alias }) => alias?.id),
     write,
+    writeBase,
     bind,
     update: (base: number | undefined, ranges?: Array<ParagraphRange | CanvasFigmaTextRange>) =>
       applyCanvas({
         ...request(base, ranges),
+        ...(!characters ? { markup: undefined } : {}),
         mode: 'update',
         targetNodeId: created.rootNodeId!
       })
@@ -130,6 +141,29 @@ async function createParagraphProbe(
 }
 
 describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (field) => {
+  it('replaces prior paragraph values when only the base field is authored', async () => {
+    const probe = await createParagraphProbe(field, [20, 30], 'Hello\nworld')
+    expect((await probe.update(12)).mutationCount).toBe(1)
+    expect(probe.values()).toEqual([12, 12])
+    expect(probe.writeBase).not.toHaveBeenCalled()
+    await expect(probe.update(12)).resolves.toMatchObject({ mutationCount: 0 })
+    await expect(
+      probe.update(undefined, [
+        { start: 0, end: 1, value: 12 },
+        { start: 6, end: 7, value: 12 }
+      ])
+    ).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
+  it('uses the whole-node setter for empty text without reading an empty range', async () => {
+    const probe = await createParagraphProbe(field, [], '')
+    expect((await probe.update(12)).mutationCount).toBe(1)
+    expect(probe.label[field]).toBe(12)
+    expect(probe.writeBase).toHaveBeenCalledExactlyOnceWith(12)
+    expect(probe.write).not.toHaveBeenCalled()
+    await expect(probe.update(12)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
   it('preserves a partial-paragraph override without rewriting it on every apply', async () => {
     const probe = await createParagraphProbe(field)
     const updated = await probe.update(10, [{ start: 1, end: 2, value: 20 }])
