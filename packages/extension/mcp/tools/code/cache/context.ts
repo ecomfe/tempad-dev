@@ -37,6 +37,7 @@ export function createGetCodeCacheContext(
   const ctx = {
     rawCss: new Map(),
     imageBytes: new Map(),
+    imageSizes: new Map(),
     variables: variableCache,
     styles: new Map<string, BaseStyle | null>(),
     paintStyles: new Map<string, PaintStyleSummary | null>(),

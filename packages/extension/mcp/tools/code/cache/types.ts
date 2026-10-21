@@ -93,6 +93,7 @@ export type GetCodeCacheContext = {
   pluginName?: string
   rawCss: Map<string, Promise<Record<string, string>>>
   imageBytes: Map<string, Promise<Uint8Array>>
+  imageSizes: Map<string, Promise<{ width: number; height: number } | null>>
   signal?: AbortSignal
   checkpoint?: () => void
   readers: FigmaLookupReaders

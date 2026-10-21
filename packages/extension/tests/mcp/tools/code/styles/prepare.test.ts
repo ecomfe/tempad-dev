@@ -94,6 +94,7 @@ function createCache(): GetCodeCacheContext {
   return {
     rawCss: new Map(),
     imageBytes: new Map(),
+    imageSizes: new Map(),
     readers: {
       getStyleById: () => null,
       getVariableById: () => null

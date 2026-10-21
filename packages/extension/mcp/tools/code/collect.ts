@@ -112,6 +112,7 @@ export async function collectNodeData(
           assetRegistry,
           nodeVideoPreviewAssetHashes,
           cache.imageBytes,
+          cache.imageSizes,
           assertActive
         )
         assertActive()

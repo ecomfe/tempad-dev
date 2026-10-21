@@ -4,7 +4,7 @@ import type { CodegenConfig } from '@/utils/codegen'
 
 import { ensureAssetUploaded } from '@/mcp/assets'
 import { detectImageMime, isVisibleMediaPaint } from '@/mcp/media'
-import { BG_URL_RE } from '@/utils/css'
+import { BG_URL_RE, parseBackgroundShorthand, splitByTopLevelComma } from '@/utils/css'
 import { getCssPaintLayers } from '@/utils/figma-paint'
 import { logger } from '@/utils/log'
 import { toDecimalPlace } from '@/utils/number'
@@ -12,6 +12,8 @@ import { toDecimalPlace } from '@/utils/number'
 import type { GetCodeCacheContext } from '../cache'
 
 import { getNodeSemanticsCached } from '../cache'
+
+type MediaFillAsset = { asset: AssetDescriptor; tileSize?: string }
 
 export function hasMediaFills(node: SceneNode, ctx?: GetCodeCacheContext): boolean {
   if (ctx) {
@@ -27,6 +29,7 @@ export async function replaceMediaUrlsWithAssets(
   assetRegistry: Map<string, AssetDescriptor>,
   videoPreviewAssetHashes?: Set<string>,
   imageBytesCache = new Map<string, Promise<Uint8Array>>(),
+  imageSizesCache: GetCodeCacheContext['imageSizes'] = new Map(),
   assertActive?: () => void
 ): Promise<Record<string, string>> {
   assertActive?.()
@@ -35,6 +38,7 @@ export async function replaceMediaUrlsWithAssets(
     node,
     assetRegistry,
     imageBytesCache,
+    imageSizesCache,
     videoPreviewAssetHashes,
     assertActive
   )
@@ -49,13 +53,46 @@ export async function replaceMediaUrlsWithAssets(
     if (!result[key]) continue
     let index = 0
     result[key] = result[key].replace(regex, () => {
-      const asset = fills[index] ?? lastAsset
+      const { asset } = fills[index] ?? lastAsset
       index++
       return `url('${asset.url}')`
     })
   }
 
+  if (fills.some((fill) => fill.tileSize)) correctTileSizes(result, fills)
   return result
+}
+
+function correctTileSizes(style: Record<string, string>, fills: MediaFillAsset[]): void {
+  let tileSizes: (string | undefined)[] = []
+  for (const key of ['background', 'background-image']) {
+    if (!style[key]) continue
+    let index = 0
+    const layers = splitByTopLevelComma(style[key])
+    tileSizes = []
+    for (const [layerIndex, layer] of layers.entries()) {
+      const urls = layer.match(new RegExp(BG_URL_RE.source, 'gi')) ?? []
+      const tileSize = urls.length === 1 ? fills[index]?.tileSize : undefined
+      index += urls.length
+      tileSizes.push(tileSize)
+      if (!tileSize || key !== 'background') continue
+      // Mask URLs so their slashes and dimension-like path segments are never rewritten.
+      const layout = layer.replace(BG_URL_RE, (url) => ' '.repeat(url.length))
+      const size = parseBackgroundShorthand(layout).size
+      const slash = /\/\s*/.exec(layout)
+      if (!size || !slash) continue
+      const start = slash.index + slash[0].length
+      if (!layout.startsWith(size, start)) continue
+      layers[layerIndex] = layer.slice(0, start) + tileSize + layer.slice(start + size.length)
+    }
+    style[key] = layers.join(', ')
+  }
+  if (style['background-size'] && tileSizes.some(Boolean)) {
+    const sizes = splitByTopLevelComma(style['background-size'])
+    style['background-size'] = tileSizes
+      .map((tileSize, index) => tileSize ?? sizes[index % sizes.length])
+      .join(', ')
+  }
 }
 
 function replaceMediaUrlsWithPlaceholder(
@@ -91,9 +128,10 @@ async function collectMediaFillAssets(
   node: SceneNode,
   assetRegistry: Map<string, AssetDescriptor>,
   imageBytesCache: Map<string, Promise<Uint8Array>>,
+  imageSizesCache: GetCodeCacheContext['imageSizes'],
   videoPreviewAssetHashes?: Set<string>,
   assertActive?: () => void
-): Promise<AssetDescriptor[]> {
+): Promise<MediaFillAsset[]> {
   if (!('fills' in node)) return []
   const fills = Array.isArray(node.fills) ? (node.fills as Paint[]) : null
   if (!fills?.length) return []
@@ -104,7 +142,7 @@ async function collectMediaFillAssets(
   const videoHashes = collectMediaHashes(fills, (fill) =>
     fill.type === 'VIDEO' ? fill.videoHash : null
   )
-  const assets: AssetDescriptor[] = []
+  const assets: MediaFillAsset[] = []
   let preview: Promise<AssetDescriptor> | undefined
   const getPreview = () => {
     assertActive?.()
@@ -128,7 +166,7 @@ async function collectMediaFillAssets(
         assertActive?.()
         registerAsset(assetRegistry, asset)
         videoPreviewAssetHashes?.add(asset.hash)
-        if (!imageHashes.length) assets.push(asset)
+        if (!imageHashes.length) assets.push({ asset })
       } catch (error) {
         assertActive?.()
         logger.warn('Failed to export video fill preview:', error)
@@ -146,8 +184,12 @@ async function collectMediaFillAssets(
         figmaImageHash: hash
       }
       assertActive?.()
+      // Figma CSS can round the Tile period; only native bytes share these intrinsic dimensions.
+      const tileSize =
+        fill.scaleMode === 'TILE' ? await getTileSize(fill, hash, imageSizesCache) : undefined
+      assertActive?.()
       registerAsset(assetRegistry, asset)
-      assets.push(asset)
+      assets.push({ asset, tileSize })
     } catch (error) {
       assertActive?.()
       logger.warn(`Image bytes unavailable for hash ${hash}, falling back to node export.`, error)
@@ -158,7 +200,7 @@ async function collectMediaFillAssets(
         }
         assertActive?.()
         registerAsset(assetRegistry, asset)
-        assets.push(asset)
+        assets.push({ asset })
       } catch (fallbackError) {
         assertActive?.()
         logger.warn('Failed to export node for image fill fallback:', fallbackError)
@@ -167,6 +209,28 @@ async function collectMediaFillAssets(
   }
 
   return assets
+}
+
+async function getTileSize(
+  fill: ImagePaint,
+  hash: string,
+  cache: GetCodeCacheContext['imageSizes']
+): Promise<string | undefined> {
+  const scale = fill.scalingFactor ?? 1
+  if (!Number.isFinite(scale) || scale <= 0) return
+  let promise = cache.get(hash)
+  if (!promise) {
+    promise = Promise.resolve()
+      .then(() => figma.getImageByHash(hash)?.getSizeAsync?.() ?? null)
+      .catch(() => null)
+    cache.set(hash, promise)
+  }
+  const size = await promise
+  if (!size) return
+  const width = size.width * scale
+  const height = size.height * scale
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
+  return `${toDecimalPlace(width)}px ${toDecimalPlace(height)}px`
 }
 
 function collectMediaHashes(
