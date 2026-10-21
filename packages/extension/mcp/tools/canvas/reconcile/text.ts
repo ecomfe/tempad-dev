@@ -47,13 +47,6 @@ export async function applyText(
   if (!text) return
   const native = spec.figma?.text
   const styleScope = baseTextStyleScope(spec, node)
-  const variableRanges = {
-    fontSize: unboundTextMetricRanges(node, spec, 'fontSize'),
-    lineHeight: unboundTextMetricRanges(node, spec, 'lineHeight'),
-    letterSpacing: unboundTextMetricRanges(node, spec, 'letterSpacing'),
-    paragraphIndent: unboundTextMetricRanges(node, spec, 'paragraphIndent'),
-    paragraphSpacing: unboundTextMetricRanges(node, spec, 'paragraphSpacing')
-  }
   const desiredFont = await loadTextFonts(node, spec, state, styleScope)
   const hasTextStyle = styleScope.kind === 'retained'
   setStyledBaseTextValue(
@@ -83,6 +76,14 @@ export async function applyText(
     (value) => (node.characters = value),
     state
   )
+  // Character replacement can change both the range boundaries and their aliases.
+  const variableRanges = {
+    fontSize: unboundTextMetricRanges(node, spec, 'fontSize'),
+    lineHeight: unboundTextMetricRanges(node, spec, 'lineHeight'),
+    letterSpacing: unboundTextMetricRanges(node, spec, 'letterSpacing'),
+    paragraphIndent: unboundTextMetricRanges(node, spec, 'paragraphIndent'),
+    paragraphSpacing: unboundTextMetricRanges(node, spec, 'paragraphSpacing')
+  }
   setStyledBaseTextValue(
     node,
     'fontSize',

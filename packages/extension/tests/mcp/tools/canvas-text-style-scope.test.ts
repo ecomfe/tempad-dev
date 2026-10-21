@@ -306,19 +306,24 @@ describe('base typography outside retained range TextStyles', () => {
     }
   )
 
-  it('does not use old variable ranges while replacing the characters', async () => {
+  it('preserves metrics when segment data does not cover the replacement text', async () => {
     const fixture = createFixture()
     const created = await applyCanvas(request(null))
     const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
     const native = installStyledText(node, 0)
     installMetricVariable(node, native, 'fontSize')
-    const segments = vi.spyOn(node, 'getStyledTextSegments')
+    const readSegments = node.getStyledTextSegments.bind(node)
+    const textWhenRead: string[] = []
+    vi.spyOn(node, 'getStyledTextSegments').mockImplementation((...args) => {
+      textWhenRead.push(node.characters)
+      return readSegments(...args)
+    })
     const changed = request(null, true)
     changed.markup = changed.markup!.replace('Range metrics', 'Longer replacement text')
     await applyCanvas({ ...changed, mode: 'update', targetNodeId: created.rootNodeId! })
     expect(node.characters).toBe('Longer replacement text')
     expect(native.values.fontSize.slice(5)).toEqual(Array(8).fill(16))
-    expect(segments).not.toHaveBeenCalled()
+    expect(textWhenRead).toEqual(['Longer replacement text'])
   })
 
   it.each(['declared', 'omitted'] as const)(
