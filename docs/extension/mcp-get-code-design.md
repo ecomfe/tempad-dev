@@ -36,6 +36,8 @@ Vector export checks the same deadline between candidates, after color analysis,
 export batch. Cached or immediately resolved reads cannot defer cancellation until collection or
 export finishes. Media and vector helpers also check after native byte reads or exports and before
 starting uploads, fallback exports, or the next fill; their fallback handlers preserve cancellation.
+Optional Tile dimensions share a one-second budget across each node's image fills. Stalled reads
+retain native CSS dimensions and cache the bounded result for later roots and shell retries.
 An incomplete tree fails without a shell; a completed tree can use the
 fallback even when its last getter exhausts the full-generation budget. Checkpoints cannot interrupt
 a single native getter or cancel in-flight Figma API calls. Actual leaf and vector roots retain their full-only

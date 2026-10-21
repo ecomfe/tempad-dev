@@ -13,7 +13,9 @@ import type { GetCodeCacheContext } from '../cache'
 
 import { getNodeSemanticsCached } from '../cache'
 
-type MediaFillAsset = { asset: AssetDescriptor; tileSize?: string }
+type MediaFillAsset = { type: 'IMAGE' | 'VIDEO'; asset?: AssetDescriptor; tileSize?: string }
+
+const IMAGE_SIZE_TIMEOUT_MS = 1000
 
 export function hasMediaFills(node: SceneNode, ctx?: GetCodeCacheContext): boolean {
   if (ctx) {
@@ -43,19 +45,17 @@ export async function replaceMediaUrlsWithAssets(
     assertActive
   )
   assertActive?.()
-  const lastAsset = fills.at(-1)
-  if (!lastAsset) return replaceMediaUrlsWithPlaceholder(style, node, config)
-
-  const result = { ...style }
+  const result = replaceMediaUrlsWithPlaceholder(style, node, config)
   const regex = new RegExp(BG_URL_RE.source, 'gi')
 
   for (const key of ['background', 'background-image']) {
     if (!result[key]) continue
+    const mappedFills = getCssMediaFills(result[key], fills)
     let index = 0
-    result[key] = result[key].replace(regex, () => {
-      const { asset } = fills[index] ?? lastAsset
+    result[key] = result[key].replace(regex, (placeholder) => {
+      const asset = (mappedFills[index] ?? mappedFills.at(-1))?.asset
       index++
-      return `url('${asset.url}')`
+      return asset ? `url('${asset.url}')` : placeholder
     })
   }
 
@@ -63,16 +63,32 @@ export async function replaceMediaUrlsWithAssets(
   return result
 }
 
+function getCssMediaFills(value: string, fills: MediaFillAsset[]): MediaFillAsset[] {
+  const urlCount = value.match(new RegExp(BG_URL_RE.source, 'gi'))?.length ?? 0
+  if (urlCount === fills.length) return fills
+  // Native CSS can omit videos from a mixed media stack. Keep failed image slots
+  // so an unavailable asset never shifts a later image into the wrong layer.
+  const images = fills.filter((fill) => fill.type === 'IMAGE')
+  if (urlCount === images.length) return images
+  // Repeated URLs can safely share one paint. A partial multi-paint stack cannot
+  // identify its source assets, so retain placeholders instead of guessing.
+  return fills.length === 1 ? fills : []
+}
+
 function correctTileSizes(style: Record<string, string>, fills: MediaFillAsset[]): void {
   let tileSizes: (string | undefined)[] = []
   for (const key of ['background', 'background-image']) {
     if (!style[key]) continue
+    tileSizes = []
+    const mappedFills = getCssMediaFills(style[key], fills)
+    const urlCount = style[key].match(new RegExp(BG_URL_RE.source, 'gi'))?.length ?? 0
+    // A partial stack does not identify which native paint supplied each URL.
+    if (urlCount !== mappedFills.length) continue
     let index = 0
     const layers = splitByTopLevelComma(style[key])
-    tileSizes = []
     for (const [layerIndex, layer] of layers.entries()) {
       const urls = layer.match(new RegExp(BG_URL_RE.source, 'gi')) ?? []
-      const tileSize = urls.length === 1 ? fills[index]?.tileSize : undefined
+      const tileSize = urls.length === 1 ? mappedFills[index]?.tileSize : undefined
       index += urls.length
       tileSizes.push(tileSize)
       if (!tileSize || key !== 'background') continue
@@ -143,6 +159,7 @@ async function collectMediaFillAssets(
     fill.type === 'VIDEO' ? fill.videoHash : null
   )
   const assets: MediaFillAsset[] = []
+  let sizeDeadline: number | undefined
   let preview: Promise<AssetDescriptor> | undefined
   const getPreview = () => {
     assertActive?.()
@@ -155,6 +172,8 @@ async function collectMediaFillAssets(
   for (const { paint: fill } of getCssPaintLayers(fills)) {
     assertActive?.()
     if (!isVisibleMediaPaint(fill)) continue
+    const slot: MediaFillAsset = { type: fill.type }
+    assets.push(slot)
 
     if (fill.type === 'VIDEO') {
       if (!fill.videoHash) continue
@@ -166,7 +185,7 @@ async function collectMediaFillAssets(
         assertActive?.()
         registerAsset(assetRegistry, asset)
         videoPreviewAssetHashes?.add(asset.hash)
-        if (!imageHashes.length) assets.push({ asset })
+        slot.asset = asset
       } catch (error) {
         assertActive?.()
         logger.warn('Failed to export video fill preview:', error)
@@ -185,11 +204,15 @@ async function collectMediaFillAssets(
       }
       assertActive?.()
       // Figma CSS can round the Tile period; only native bytes share these intrinsic dimensions.
-      const tileSize =
-        fill.scaleMode === 'TILE' ? await getTileSize(fill, hash, imageSizesCache) : undefined
+      let tileSize: string | undefined
+      if (fill.scaleMode === 'TILE') {
+        sizeDeadline ??= performance.now() + IMAGE_SIZE_TIMEOUT_MS
+        tileSize = await getTileSize(fill, hash, imageSizesCache, sizeDeadline)
+      }
       assertActive?.()
       registerAsset(assetRegistry, asset)
-      assets.push({ asset, tileSize })
+      slot.asset = asset
+      slot.tileSize = tileSize
     } catch (error) {
       assertActive?.()
       logger.warn(`Image bytes unavailable for hash ${hash}, falling back to node export.`, error)
@@ -200,7 +223,7 @@ async function collectMediaFillAssets(
         }
         assertActive?.()
         registerAsset(assetRegistry, asset)
-        assets.push({ asset })
+        slot.asset = asset
       } catch (fallbackError) {
         assertActive?.()
         logger.warn('Failed to export node for image fill fallback:', fallbackError)
@@ -214,15 +237,25 @@ async function collectMediaFillAssets(
 async function getTileSize(
   fill: ImagePaint,
   hash: string,
-  cache: GetCodeCacheContext['imageSizes']
+  cache: GetCodeCacheContext['imageSizes'],
+  deadline: number
 ): Promise<string | undefined> {
   const scale = fill.scalingFactor ?? 1
   if (!Number.isFinite(scale) || scale <= 0) return
+  const remainingMs = deadline - performance.now()
+  if (remainingMs <= 0) return
   let promise = cache.get(hash)
   if (!promise) {
-    promise = Promise.resolve()
+    const read = Promise.resolve()
       .then(() => figma.getImageByHash(hash)?.getSizeAsync?.() ?? null)
       .catch(() => null)
+    let timer: ReturnType<typeof setTimeout>
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), remainingMs)
+    })
+    // Dimensions refine native CSS but must never block export. Cache the bounded
+    // result so later roots and shell retries do not wait on the same stalled read.
+    promise = Promise.race([read, timeout]).finally(() => clearTimeout(timer))
     cache.set(hash, promise)
   }
   const size = await promise
