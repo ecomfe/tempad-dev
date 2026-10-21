@@ -931,13 +931,22 @@ export async function startHub(): Promise<void> {
             if (typeof pageId === 'string') designTasks.updatePage(taskId, pageId)
           }
         }
+        const readEvidence = hasCanvasReadEvidence(tool.name, payload)
+        const readNotice =
+          (tool.name === 'get_structure' || tool.name === 'get_code') &&
+          !readEvidence &&
+          designTasks.needsFileRead(session.fileKey)
+            ? 'Canvas writes still require readback. Read a surviving node with get_structure or get_code, or an exact page with get_structure. Empty selections and failed node reads do not clear this requirement.'
+            : undefined
         const response = createToolResponse(tool.name, payload, {
           runtime,
-          compatibilityNotice: versionedReadNotice(protocolVersion, tool.name)
+          notice: [versionedReadNotice(protocolVersion, tool.name), readNotice]
+            .filter(Boolean)
+            .join('\n\n')
         })
         if (!response.isError && readGeneration !== undefined)
           designTasks.acknowledgeFileRead(session.fileKey, readGeneration)
-        if (!response.isError && hasCanvasReadEvidence(tool.name, payload)) {
+        if (!response.isError && readEvidence) {
           if (taskId) designTasks.acknowledgeRead(taskId, ownerId, taskEpoch)
           designTasks.acknowledgeFileRead(session.fileKey)
         }
@@ -1063,11 +1072,11 @@ export async function startHub(): Promise<void> {
     {
       runtime,
       includeLocalAssetPaths = true,
-      compatibilityNotice
+      notice
     }: {
       runtime?: AuthoringRuntimeEvidence
       includeLocalAssetPaths?: boolean
-      compatibilityNotice?: string
+      notice?: string
     } = {}
   ): ToolResponse {
     const enrichedPayload = (() => {
@@ -1107,10 +1116,10 @@ export async function startHub(): Promise<void> {
       rawResult = coercePayloadToToolResponse(enrichedPayload)
     }
 
-    if (compatibilityNotice) {
+    if (notice) {
       rawResult = {
         ...rawResult,
-        content: [{ type: 'text', text: compatibilityNotice }, ...rawResult.content]
+        content: [{ type: 'text', text: notice }, ...rawResult.content]
       }
     }
     const resultBytes = measureCallToolResultBytes(rawResult)
@@ -1118,7 +1127,7 @@ export async function startHub(): Promise<void> {
       if (includeLocalAssetPaths && (toolName === 'get_code' || toolName === 'get_screenshot')) {
         return createToolResponse(toolName, payload, {
           runtime,
-          compatibilityNotice,
+          notice,
           includeLocalAssetPaths: false
         })
       }

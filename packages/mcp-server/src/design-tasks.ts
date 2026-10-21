@@ -367,6 +367,10 @@ export class DesignTasks {
     if (this.persistenceError) this.filesNeedingRead.set(fileKey, generation)
   }
 
+  needsFileRead(fileKey: string): boolean {
+    return this.filesNeedingRead.has(fileKey)
+  }
+
   isOperationPending(requestId: string): boolean {
     return this.operations.has(requestId)
   }
@@ -430,7 +434,7 @@ export class DesignTasks {
     if (write && this.filesNeedingRead.has(session.fileKey)) {
       fail(
         'DESIGN_TASK_INACTIVE',
-        'The previous write result was lost. Read this Figma file with get_structure or get_code before writing. Do not replay the write.'
+        'The previous write result was lost or its rollback could not be confirmed. Read this Figma file with get_structure or get_code before writing. Do not replay the write.'
       )
     }
     const occupant = this.occupant(session.fileKey)
@@ -915,7 +919,7 @@ export class DesignTasks {
     if (this.options.store?.blockedFiles?.has(fileKey))
       fail(
         'DESIGN_TASK_INACTIVE',
-        'This Figma file has an incompatible saved task. Its canvas writes remain blocked until that task record is recovered; other files are unaffected.'
+        'This Figma file has an incompatible saved task. Upgrade TemPad Dev MCP and reconnect all clients before retrying. Do not reset readable task storage; other files are unaffected.'
       )
     if (this.options.store?.recoveryError || this.persistenceError)
       fail(

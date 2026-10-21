@@ -1407,7 +1407,9 @@ describe('Hub runtime module', () => {
     })
     const emptyRead = await extension.call(1)
     extension.send({ type: 'toolResult', id: emptyRead.id, payload })
-    expect((await consumer.reply(2)).result?.isError).not.toBe(true)
+    const response = await consumer.reply(2)
+    expect(response.result?.isError).not.toBe(true)
+    expect(JSON.stringify(response)).toContain('Canvas writes still require readback')
     consumer.send({ id: 3, method: 'tools/call', params: write })
     expect(JSON.stringify(await consumer.reply(3))).toContain('previous write result was lost')
     expect(extension.calls).toHaveLength(2)
@@ -1434,11 +1436,30 @@ describe('Hub runtime module', () => {
         }
       }
     })
-    await consumer.reply(4)
+    expect(JSON.stringify(await consumer.reply(4))).not.toContain(
+      'Canvas writes still require readback'
+    )
     consumer.send({ id: 5, method: 'tools/call', params: write })
     const next = await extension.call(3)
     extension.send({ type: 'toolResult', id: next.id, error: { message: 'Write completed' } })
     expect(JSON.stringify(await consumer.reply(5))).toContain('Write completed')
+  })
+
+  it('keeps empty reads quiet when no canvas readback is required', async () => {
+    const { startHub } = await loadRuntime()
+    await startHub()
+    const extension = connectExtension()
+    const consumer = await connectConsumer()
+    consumer.send({
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'get_structure', arguments: {} }
+    })
+    const read = await extension.call(0)
+    extension.send({ type: 'toolResult', id: read.id, payload: { roots: [] } })
+    const response = await consumer.reply(1)
+    expect(response.result?.isError).not.toBe(true)
+    expect(JSON.stringify(response)).not.toContain('Canvas writes still require readback')
   })
 
   it.each(['malformed', 'oversized'])(

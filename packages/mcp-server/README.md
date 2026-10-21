@@ -90,7 +90,7 @@ Optional environment variables:
 - `TEMPAD_MCP_GET_CODE_TIMEOUT`: `get_code` timeout in milliseconds (default `30000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set).
 - `TEMPAD_MCP_GET_DESIGN_SYSTEM_TIMEOUT`: Initial `get_design_system` resource-discovery timeout in milliseconds (default `45000`; continuation, exact-ref, font, and page-list reads use the general timeout). Falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set.
 - `TEMPAD_MCP_PAGE_STRUCTURE_TIMEOUT`: `get_structure` timeout for an explicit page ID or key, which may require loading a cold Figma page (default `45000` milliseconds; node and selection reads use the general timeout). Falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set.
-- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`: `apply_canvas` slow-call warning threshold in milliseconds (default `120000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set). At twice this threshold, the Hub reports an unknown outcome. Further writes require both definitive completion or session recovery and a successful `get_structure` or `get_code` read of that file. The read requirement survives Hub restarts. Inspect the canvas before continuing; do not replay the write.
+- `TEMPAD_MCP_APPLY_CANVAS_TIMEOUT`: `apply_canvas` slow-call warning threshold in milliseconds (default `120000`; falls back to `TEMPAD_MCP_TOOL_TIMEOUT` when that override is set). At twice this threshold, the Hub reports an unknown outcome. Further writes require both definitive completion or session recovery and a read of that file returning at least one structure root or code result, or an exact `get_structure` page snapshot (including an empty page). Empty selections and failed node reads do not count. Internal canvas failures also require readback because their error code cannot prove rollback succeeded. The read requirement survives Hub restarts. Inspect the canvas before continuing; do not replay the write.
 - `TEMPAD_MCP_AUTO_ACTIVATE_GRACE`: Delay before auto-activating the sole connected extension (default `1500`).
 - `TEMPAD_MCP_MAX_ASSET_BYTES`: Maximum upload size for captured assets/screenshots in bytes (default `8388608`).
 - `TEMPAD_MCP_MAX_ASSET_STORE_BYTES`: Maximum aggregate size of the local asset store in bytes (default `268435456`).
@@ -139,6 +139,10 @@ per-user pipe isolation is not yet implemented.
 The hub accepts WebSocket handshakes only from Chrome extension origins on its root path. For a locked-down installation, configure `TEMPAD_MCP_ALLOWED_EXTENSION_ORIGINS` with the TemPad Dev extension origin shown by the browser. This origin check and the per-process asset capability reduce cross-origin loopback abuse, but do not authenticate local processes, including another OS user's process that binds the port first; see the [local MCP threat model](../../docs/security/local-mcp-threat-model.md).
 
 ## Task storage recovery
+
+An incompatible saved task may have been written by a newer Hub. Upgrade the MCP runtime and
+reconnect all clients first. The recovery command deliberately refuses readable storage; do not
+delete it to bypass a version mismatch.
 
 If task storage cannot be read safely, the error names the affected snapshot. Reads remain
 available, but canvas writes stay blocked across restarts because the snapshot may contain
