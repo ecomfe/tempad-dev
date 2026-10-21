@@ -135,6 +135,66 @@ describe.each(['jsx', 'vue'] as const)('%s native text blocks', (lang) => {
     expect(paragraphs[2]![1]).not.toContain('mb-')
   })
 
+  it.each(['ORDERED', 'UNORDERED'] as const)(
+    'applies spacing after a %s list only when another block follows',
+    async (listType) => {
+      const trailing = await handleGetCode(
+        [
+          createText(
+            ['NONE', listType, listType],
+            [],
+            [{}, { paragraphSpacing: 12 }, { paragraphSpacing: 12 }]
+          )
+        ],
+        lang
+      )
+      expect(trailing.code.match(/<[ou]l\b[^>]*>/)?.[0]).not.toContain('mb-')
+
+      const followed = await handleGetCode(
+        [createText([listType, 'NONE'], [], [{ paragraphSpacing: 12 }])],
+        lang
+      )
+      expect(followed.code.match(/<[ou]l\b[^>]*>/)?.[0]).toContain('mb-[12px]')
+    }
+  )
+
+  it.each(['NONE', 'UNORDERED'] as const)(
+    'retains a trailing empty soft line in an unindented %s block',
+    async (listType) => {
+      const node = createText([listType], [], [{ characters: 'Hello\u2028 \t ' }])
+      const result = await handleGetCode([node], lang)
+      expect(result.code).toContain('Hello')
+      expect(result.code.match(/<br\s*\/?>/g)).toHaveLength(2)
+      expect(result.code).not.toContain('indent-')
+    }
+  )
+
+  it('does not add an extra line when a compact hard break follows a soft break', async () => {
+    const node = createText(['NONE', 'NONE'], [], [{ characters: 'Hello\u2028' }])
+    const result = await handleGetCode([node], lang)
+    expect(result.code.match(/<br\s*\/?>/g)).toHaveLength(2)
+  })
+
+  it('hoists common paragraph styles while keeping local color and indent overrides', async () => {
+    const node = createText(
+      ['NONE', 'NONE'],
+      [],
+      [{ paragraphIndent: 12, paragraphSpacing: 12 }, { paragraphIndent: 0 }]
+    )
+    const segments = node.getStyledTextSegments(REQUESTED_SEGMENT_FIELDS)
+    segments[1]!.fills = [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }]
+    Object.assign(node, {
+      getStyledTextSegments: () => segments,
+      getCSSAsync: async () => ({ width: '472px', height: '80px', 'text-indent': '12px' })
+    })
+    const result = await handleGetCode([node], lang)
+    for (const commonClass of ['font-[Inter]', 'text-[16px]', 'leading-[24px]']) {
+      expect(result.code.split(commonClass)).toHaveLength(2)
+    }
+    expect(result.code).toContain('text-[#F00]')
+    expect(result.code.match(/<p\b[^>]*>/g)?.[1]).toContain('indent-[0]')
+  })
+
   it('keeps a soft break inside an indented paragraph', async () => {
     const node = createText(
       ['NONE', 'NONE'],
@@ -285,13 +345,18 @@ describe.each(['jsx', 'vue'] as const)('%s native text blocks', (lang) => {
     {
       types: ['UNORDERED', 'UNORDERED', 'ORDERED'] as const,
       indents: [1, 0, 1],
-      markup: '<ul><li>First</li><li>Second<ol><li>Third</li></ol></li></ul>'
+      markup: '<ul><li><ul><li>First</li></ul></li><li>Second<ol><li>Third</li></ol></li></ul>'
     },
     {
       types: ['UNORDERED', 'ORDERED', 'UNORDERED', 'ORDERED'] as const,
       indents: [1, 2, 0, 1],
       markup:
-        '<ul><li>First<ol><li>Second</li></ol></li><li>Third<ol><li>Fourth</li></ol></li></ul>'
+        '<ul><li><ul><li>First<ol><li>Second</li></ol></li></ul></li><li>Third<ol><li>Fourth</li></ol></li></ul>'
+    },
+    {
+      types: ['ORDERED', 'ORDERED', 'ORDERED'] as const,
+      indents: [2, 1, 2],
+      markup: '<ol><li><ol><li>First</li></ol></li><li>Second<ol><li>Third</li></ol></li></ol>'
     }
   ])('preserves nested list types and indentation $indents', async ({ types, indents, markup }) => {
     const result = await handleGetCode([createText([...types], indents)], lang)
@@ -301,6 +366,12 @@ describe.each(['jsx', 'vue'] as const)('%s native text blocks', (lang) => {
       .replace(/\s*(<\/?(?:ul|ol|li)>)\s*/g, '$1')
       .trim()
     expect(structure).toBe(markup)
+    if (indents[0]! > Math.min(...indents)) {
+      expect(result.code.match(/<li\b[^>]*>/)?.[0]).toContain('list-none')
+      if (types[0] === 'ORDERED') {
+        expect(result.code.match(/<li\b[^>]*>/)?.[0]).toContain('value="0"')
+      }
+    }
   })
 
   it.each([

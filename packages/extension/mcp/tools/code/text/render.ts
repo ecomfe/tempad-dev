@@ -118,15 +118,11 @@ function renderBlock(
   const props: Record<string, string> = {}
   const blockClasses: string[] = []
 
-  if (Object.keys(commonStyle).length) {
-    blockClasses.push(...styleToClassNames(commonStyle, config))
-  }
-
   if (block.paragraphLayout) {
     blockClasses.push(...styleToClassNames({ 'text-indent': `${paragraphIndent}px` }, config))
   }
 
-  if (paragraphSpacing > 0 && (isList || hasFollowingBlock)) {
+  if (paragraphSpacing > 0 && hasFollowingBlock) {
     const mbStyle = { 'margin-bottom': `${paragraphSpacing}px` }
     blockClasses.push(...styleToClassNames(mbStyle, config))
   }
@@ -157,6 +153,10 @@ function renderBlock(
         }
       } else {
         container.children.push(...buildInlineTree(line.runs, commonStyle, classProp, ctx, node))
+        if (idx === lines.length - 1 && endsWithEmptySoftLine(line.runs)) {
+          // A final br alone does not create the trailing empty line box.
+          container.children.push({ name: 'br', props: {}, children: [] })
+        }
       }
       if (isMultiline && idx < lines.length - 1) {
         container.children.push({ name: 'br', props: {}, children: [] })
@@ -181,15 +181,16 @@ function renderBlock(
 
   const rootStackItem: ListStackItem = {
     list: rootList,
-    level: lines[0]?.attrs.indentation ?? 1
+    level: lines.reduce(
+      (minimum, line) => Math.min(minimum, line.attrs.indentation),
+      lines[0]?.attrs.indentation ?? 1
+    )
   }
   const stack: ListStackItem[] = [rootStackItem]
 
   for (const line of lines) {
     const currentIndent = line.attrs.indentation
     const listTag = line.attrs.listType === 'ORDERED' ? 'ol' : 'ul'
-    rootStackItem.level = Math.min(rootStackItem.level, currentIndent)
-
     while (stack.length > 1) {
       const activeItem = stack.at(-1)
       if (
@@ -204,7 +205,15 @@ function renderBlock(
     const parentStackItem = stack.at(-1) ?? rootStackItem
     if (currentIndent > parentStackItem.level) {
       if (!parentStackItem.lastLi) {
-        const dummyLi: DevComponent = { name: 'li', props: {}, children: [] }
+        // A leading nested item needs a container, not an extra visible marker or counter.
+        const dummyLi: DevComponent = {
+          name: 'li',
+          props: {
+            [classProp]: 'list-none',
+            ...(parentStackItem.list.name === 'ol' ? { value: '0' } : {})
+          },
+          children: []
+        }
         parentStackItem.list.children.push(dummyLi)
         parentStackItem.lastLi = dummyLi
       }
@@ -225,7 +234,7 @@ function renderBlock(
     }
 
     const lineChildren = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
-    if (lineChildren.length === 0) {
+    if (lineChildren.length === 0 || endsWithEmptySoftLine(line.runs)) {
       lineChildren.push({ name: 'br', props: {}, children: [] })
     }
 
@@ -237,6 +246,10 @@ function renderBlock(
   }
 
   return rootList
+}
+
+function endsWithEmptySoftLine(runs: TextRun[]): boolean {
+  return /\u2028[\t\n\f\r ]*$/.test(runs.map((run) => run.text).join(''))
 }
 
 function splitSoftLines(runs: TextRun[]): TextRun[][] {

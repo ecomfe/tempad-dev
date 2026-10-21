@@ -47,8 +47,82 @@ it.each([
     characters: 'Hello Hello Hello Hello\u2028Hello Hello Hello Hello',
     indents: [12, 0, 12, 0],
     rows: [0, 24, 48, 72]
+  },
+  {
+    name: 'zero-indent trailing soft break',
+    characters: 'Hello\u2028',
+    paragraphIndent: 0,
+    indents: [0],
+    rows: [0],
+    height: 48
+  },
+  {
+    name: 'zero-indent trailing soft whitespace',
+    characters: 'Hello\u2028  ',
+    paragraphIndent: 0,
+    paragraphSpacing: 0,
+    indents: [0],
+    rows: [0],
+    height: 48
+  },
+  {
+    name: 'compact soft then hard breaks',
+    characters: 'Hello\u2028\nHello',
+    paragraphIndent: 0,
+    paragraphSpacing: 0,
+    indents: [0, 0],
+    rows: [0, 48],
+    height: 72
+  },
+  {
+    name: 'zero-indent soft then spaced hard breaks',
+    characters: 'Hello\u2028\nHello',
+    paragraphIndent: 0,
+    indents: [0, 0],
+    rows: [0, 60],
+    height: 84
+  },
+  {
+    name: 'list item trailing soft break',
+    characters: 'Hello\u2028\nHello',
+    listType: 'UNORDERED',
+    paragraphIndent: 0,
+    paragraphSpacing: 0,
+    indents: [20, 20],
+    rows: [0, 48],
+    height: 72
+  },
+  {
+    name: 'trailing list without an external paragraph gap',
+    characters: 'Hello\nHello',
+    listType: 'UNORDERED',
+    paragraphIndent: 0,
+    indents: [20, 20],
+    rows: [0, 24],
+    height: 48
+  },
+  {
+    name: 'leading deeper ordered item',
+    characters: 'Hello\nHello\nHello',
+    listType: 'ORDERED',
+    indentations: [2, 1, 2],
+    paragraphIndent: 0,
+    paragraphSpacing: 0,
+    indents: [40, 20, 40],
+    rows: [0, 24, 48],
+    height: 72
   }
-])('renders paragraph geometry with $name', async ({ characters, indents, rows, height }) => {
+])('renders paragraph geometry with $name', async (scenario) => {
+  const {
+    characters,
+    indents,
+    rows,
+    height,
+    paragraphIndent = 12,
+    paragraphSpacing = 12,
+    listType = 'NONE',
+    indentations
+  } = scenario
   vi.stubGlobal('__DEV__', false)
   vi.stubGlobal('figma', {
     mixed: Symbol('mixed'),
@@ -62,12 +136,26 @@ it.each([
     fontSize: 16,
     lineHeight: { unit: 'PIXELS', value: 24 },
     letterSpacing: { unit: 'PIXELS', value: 0 },
-    paragraphIndent: 12,
-    paragraphSpacing: 12,
-    listOptions: { type: 'NONE' },
+    paragraphIndent,
+    paragraphSpacing,
+    listOptions: { type: listType },
     indentation: 0,
     fills
   }
+  const textParts = indentations ? characters.split('\n') : [characters]
+  let start = 0
+  const segments = textParts.map((text, index) => {
+    const characters = `${text}${index < textParts.length - 1 ? '\n' : ''}`
+    const result = {
+      ...segment,
+      characters,
+      start,
+      end: start + characters.length,
+      indentation: indentations?.[index] ?? 0
+    }
+    start = result.end
+    return result
+  })
   const node = {
     id: 'paragraphs',
     type: 'TEXT',
@@ -88,14 +176,13 @@ it.each([
     strokes: [],
     effects: [],
     getRangeBoundVariable: () => null,
-    getStyledTextSegments: (fields: string[]) => [
-      {
+    getStyledTextSegments: (fields: string[]) =>
+      segments.map(({ characters, start, end, ...values }) => ({
         characters,
-        start: 0,
-        end: characters.length,
-        ...Object.fromEntries(Object.entries(segment).filter(([key]) => fields.includes(key)))
-      }
-    ],
+        start,
+        end,
+        ...Object.fromEntries(Object.entries(values).filter(([key]) => fields.includes(key)))
+      })),
     getCSSAsync: async () => ({ width: '120px', height: '100px' })
   } as unknown as TextNode
   const result = await handleGetCode([node], 'vue')
@@ -103,13 +190,15 @@ it.each([
   // Tailwind's preflight and the emitted geometry utilities control actual layout.
   const style = document.createElement('style')
   style.textContent = `
-    p { margin: 0; }
+    p, ol, ul { margin: 0; padding: 0; }
     .block { display: block; }
+    .list-none { list-style-type: none; }
+    .${CSS.escape('pl-[1.2em]')} { padding-left: 20px; }
     .${CSS.escape('indent-[12px]')} { text-indent: 12px; }
     .${CSS.escape('mb-[12px]')} { margin-bottom: 12px; }
   `
   const host = document.createElement('div')
-  host.style.cssText = 'width:120px;font:16px/24px monospace'
+  host.style.cssText = 'display:flow-root;width:120px;font:16px/24px monospace'
   host.innerHTML = result.code
   const reference = document.createElement('div')
   reference.style.cssText = host.style.cssText
@@ -139,4 +228,11 @@ it.each([
   expect(positions.map((position) => position.left - origin.left)).toEqual(indents)
   expect(positions.map((position) => position.top - origin.top - glyphTop)).toEqual(rows)
   if (height !== undefined) expect(origin.height).toBe(height)
+  if (indentations) {
+    const placeholder = host.querySelector('ol > li') as HTMLLIElement
+    expect(getComputedStyle(placeholder).listStyleType).toBe('none')
+    expect(placeholder.value).toBe(0)
+    expect(placeholder.nextElementSibling?.getAttribute('value')).toBeNull()
+    expect(placeholder.querySelector('ol > li')).not.toBeNull()
+  }
 })
