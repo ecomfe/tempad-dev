@@ -8,6 +8,34 @@ afterEach(() => {
 })
 
 describe('Figma authoring fixture', () => {
+  it.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)(
+    'propagates direct %s aliases to one newline without widening TextStyle scope',
+    async (field) => {
+      const fixture = createFixture()
+      const text = fixture.createNode('TEXT') as TextNode
+      text.characters = 'A\n\nB'
+      const base = fixture.variables.get('variable:spacing')!
+      const local = fixture.variables.get('variable:range-size')!
+      text.setBoundVariable(field, base)
+      text.setRangeBoundVariable(0, 1, field, local)
+      expect(text.getRangeBoundVariable(0, 1, field)).toMatchObject({ id: local.id })
+      expect(text.getRangeBoundVariable(0, 2, field)).toMatchObject({ id: local.id })
+      expect(text.getRangeBoundVariable(1, 2, field)).toMatchObject({ id: local.id })
+      expect(text.getRangeBoundVariable(2, 3, field)).toMatchObject({ id: base.id })
+      text.setRangeBoundVariable(0, 1, field, null)
+      expect(text.getRangeBoundVariable(0, 2, field)).toBeNull()
+      expect(text.getRangeBoundVariable(2, 3, field)).toMatchObject({ id: base.id })
+      const style = fixture.styles.get('style:text') as TextStyle
+      Object.assign(style, {
+        boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: local.id } }
+      })
+      await text.setRangeTextStyleIdAsync(0, 1, style.id)
+      expect(text.getRangeBoundVariable(0, 1, field)).toMatchObject({ id: local.id })
+      expect(text.getRangeBoundVariable(1, 2, field)).toBeNull()
+      expect(text.getRangeBoundVariable(0, 2, field)).toBe(figma.mixed)
+    }
+  )
+
   it('keeps document, resource, plugin data, and current-page state local to each fixture', async () => {
     const first = createFixture()
     first.page.name = 'First document'

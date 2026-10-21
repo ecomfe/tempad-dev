@@ -5,6 +5,18 @@ import { vi } from 'vitest'
 const MIXED = Symbol('mixed')
 const SHARED_PLUGIN_DATA_NAMESPACE_PATTERN = /^[A-Za-z0-9_.]+$/
 
+function metricValuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false
+  if ('id' in left && 'id' in right) return left.id === right.id
+  return (
+    'unit' in left &&
+    'unit' in right &&
+    left.unit === right.unit &&
+    ('value' in left ? left.value : undefined) === ('value' in right ? right.value : undefined)
+  )
+}
+
 function assertSharedPluginDataNamespace(namespace: string): void {
   if (!SHARED_PLUGIN_DATA_NAMESPACE_PATTERN.test(namespace)) {
     throw new Error('The namespace can only consist of alphanumeric characters, _ or .')
@@ -1123,7 +1135,10 @@ export function createFixture({
       let textTruncation: TextNode['textTruncation'] = 'DISABLED'
       let maxLines: TextNode['maxLines'] = null
       let layoutSizingHorizontal = text.layoutSizingHorizontal
+      let applyingTextStyle = false
       const rangeValues = new Map<string, unknown>()
+      const isCharacterMetric = (field: string) =>
+        ['fontSize', 'lineHeight', 'letterSpacing'].includes(field.replace('variable:', ''))
       const rangeKey = (start: number, end: number, field: string) => {
         if (
           field.replace('variable:', '') === 'paragraphIndent' ||
@@ -1136,12 +1151,33 @@ export function createFixture({
         }
         return `${start}:${end}:${field}`
       }
-      const rangeValue = <T>(start: number, end: number, field: string, fallback: T): T => {
+      const rangeValue = <T>(
+        start: number,
+        end: number,
+        field: string,
+        fallback: T
+      ): T | typeof MIXED => {
         const key = rangeKey(start, end, field)
+        if (isCharacterMetric(field)) {
+          // Resolve overlapping numeric writes in order, including the fallback
+          // outside local ranges, so a partial override cannot hide mixed state.
+          const values: unknown[] = Array(end - start).fill(fallback)
+          for (const [key, value] of rangeValues) {
+            const [first, last, ...property] = key.split(':')
+            if (property.join(':') !== field) continue
+            const from = Math.max(start, Number(first))
+            const to = Math.min(end, Number(last))
+            if (from < to) values.fill(value, from - start, to - start)
+          }
+          const first = values.length ? values[0] : fallback
+          return values.every((value) => metricValuesEqual(value, first)) ? (first as T) : MIXED
+        }
         return rangeValues.has(key) ? (rangeValues.get(key) as T) : fallback
       }
       const setRangeValue = (start: number, end: number, field: string, value: unknown) => {
-        rangeValues.set(rangeKey(start, end, field), value)
+        const key = rangeKey(start, end, field)
+        rangeValues.delete(key)
+        rangeValues.set(key, value)
       }
       const rangeGetter = <T>(field: string, fallback: () => T) =>
         vi.fn((start: number, end: number) => rangeValue(start, end, field, fallback()))
@@ -1277,12 +1313,15 @@ export function createFixture({
             'paragraphSpacing'
           ] as const) {
             const alias = style.boundVariables?.[field]
-            text.setRangeBoundVariable(
-              start,
-              end,
-              field,
-              alias ? await figma.variables.getVariableByIdAsync(alias.id) : null
-            )
+            const variable = alias ? await figma.variables.getVariableByIdAsync(alias.id) : null
+            // Direct metric binding extent is native-proven; TextStyle's
+            // implicit newline propagation is not. Preserve its authored scope.
+            applyingTextStyle = true
+            try {
+              text.setRangeBoundVariable(start, end, field, variable)
+            } finally {
+              applyingTextStyle = false
+            }
           }
         }),
         getRangeFillStyleId: rangeGetter('fillStyleId', () => text.fillStyleId),
@@ -1358,6 +1397,7 @@ export function createFixture({
         ),
         setRangeBoundVariable: vi.fn(
           (start: number, end: number, field: string, variable: Variable | null) => {
+            if (!applyingTextStyle && isCharacterMetric(field) && characters[end] === '\n') end++
             setRangeValue(
               start,
               end,
