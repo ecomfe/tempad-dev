@@ -121,6 +121,25 @@ async function createParagraphProbe(
     }
   )
   Object.defineProperty(label, 'setRangeBoundVariable', { value: bind })
+  const initialBindings = label.boundVariables
+  Object.defineProperty(label, 'boundVariables', {
+    configurable: true,
+    get: () => ({
+      ...initialBindings,
+      [field]: paragraphs.flatMap(({ alias }) => (alias ? [alias] : []))
+    })
+  })
+  const readSegments = vi.mocked(label.getStyledTextSegments).getMockImplementation()!
+  const bindingSegments: TextNode['getStyledTextSegments'] = ((...args) => {
+    if (args[0].length !== 1 || args[0][0] !== 'boundVariables') return readSegments(...args)
+    return paragraphs.map(({ start, end, alias }) => ({
+      start,
+      end,
+      characters: characters.slice(start, end),
+      boundVariables: alias ? { [field]: alias } : {}
+    }))
+  }) as TextNode['getStyledTextSegments']
+  vi.spyOn(label, 'getStyledTextSegments').mockImplementation(bindingSegments)
 
   return {
     fixture,
@@ -141,6 +160,39 @@ async function createParagraphProbe(
 }
 
 describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (field) => {
+  it.each([false, true])(
+    'updates unbound paragraphs while retaining a variable: range redeclared=%s',
+    async (redeclare) => {
+      const probe = await createParagraphProbe(field, [20, 20, 20])
+      const ranges = [{ start: 12, end: 13, variables: { [field]: { id: 'variable:spacing' } } }]
+      await probe.update(12, ranges)
+      expect(probe.values()).toEqual([12, 12, 8])
+
+      const changed = await probe.update(16, redeclare ? ranges : undefined)
+      expect(changed.mutationCount).toBe(1)
+      expect(probe.values()).toEqual([16, 16, 8])
+      expect(probe.aliases()).toEqual([undefined, undefined, 'variable:spacing'])
+      expect(changed.verification.warnings).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'literal-ignored-by-binding' })])
+      )
+      await expect(probe.update(16, redeclare ? ranges : undefined)).resolves.toMatchObject({
+        mutationCount: 0
+      })
+    }
+  )
+
+  it('applies the new base in the same request that clears a partial paragraph binding', async () => {
+    const probe = await createParagraphProbe(field, [20, 20, 20])
+    await probe.update(12, [
+      { start: 6, end: 7, variables: { [field]: { id: 'variable:spacing' } } }
+    ])
+    const ranges = [{ start: 7, end: 8, variables: { [field]: null } }]
+    await probe.update(16, ranges)
+    expect(probe.values()).toEqual([16, 16, 16])
+    expect(probe.aliases()).toEqual([undefined, undefined, undefined])
+    await expect(probe.update(16, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
   it('replaces prior paragraph values when only the base field is authored', async () => {
     const probe = await createParagraphProbe(field, [20, 30], 'Hello\nworld')
     expect((await probe.update(12)).mutationCount).toBe(1)

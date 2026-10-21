@@ -87,10 +87,15 @@ export function ignoredLiteralWarnings(
       continue
     if (
       node.type === 'TEXT' &&
-      (field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing')
+      (field === 'fontSize' ||
+        field === 'lineHeight' ||
+        field === 'letterSpacing' ||
+        field === 'paragraphIndent' ||
+        field === 'paragraphSpacing')
     ) {
       const unbound = unboundTextMetricRanges(node, spec, field)
       if (unbound === undefined) continue
+      if ((field === 'paragraphIndent' || field === 'paragraphSpacing') && unbound.length) continue
       const styleScope = baseTextStyleScope(spec, node)
       if (
         unbound.length &&

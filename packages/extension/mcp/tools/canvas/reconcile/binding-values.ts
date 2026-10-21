@@ -9,7 +9,12 @@ import type { SupportedCanvasNode } from './state'
 
 import { specError } from '../errors'
 import { isFrameContainer } from './nodes'
-import { textRangesMatchOutside, textRangesOutside, type TextRange } from './text-ranges'
+import {
+  textParagraphRanges,
+  textRangesMatchOutside,
+  textRangesOutside,
+  type TextRange
+} from './text-ranges'
 
 export const STYLE_TYPES = {
   fill: 'PAINT',
@@ -208,7 +213,7 @@ export function currentBoundVariableId(
 export function unboundTextMetricRanges(
   node: TextNode,
   spec: CanvasNodeSpec,
-  field: 'fontSize' | 'lineHeight' | 'letterSpacing'
+  field: 'fontSize' | 'lineHeight' | 'letterSpacing' | 'paragraphIndent' | 'paragraphSpacing'
 ): TextRange[] | undefined {
   if (spec.variables?.[field]) return []
   if (spec.variables?.[field] === null || !currentBoundVariableId(node, field)) return undefined
@@ -231,7 +236,12 @@ export function unboundTextMetricRanges(
     // Keep aggregate ownership when segment data cannot account for its alias.
     if (end !== scope.end || !bound.length) return []
   }
-  const clearing = spec.figma?.text?.ranges?.filter((range) => range.variables?.[field] === null)
-  const retained = bound.flatMap((range) => [...textRangesOutside(range, clearing ?? [])])
+  let clearing: TextRange[] =
+    spec.figma?.text?.ranges?.filter((range) => range.variables?.[field] === null) ?? []
+  if (field === 'paragraphIndent' || field === 'paragraphSpacing') {
+    bound = textParagraphRanges(node.characters, bound)
+    clearing = textParagraphRanges(node.characters, clearing)
+  }
+  const retained = bound.flatMap((range) => [...textRangesOutside(range, clearing)])
   return retained.length ? [...textRangesOutside(scope, retained)] : undefined
 }

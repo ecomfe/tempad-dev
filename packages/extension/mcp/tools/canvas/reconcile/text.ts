@@ -50,7 +50,9 @@ export async function applyText(
   const variableRanges = {
     fontSize: unboundTextMetricRanges(node, spec, 'fontSize'),
     lineHeight: unboundTextMetricRanges(node, spec, 'lineHeight'),
-    letterSpacing: unboundTextMetricRanges(node, spec, 'letterSpacing')
+    letterSpacing: unboundTextMetricRanges(node, spec, 'letterSpacing'),
+    paragraphIndent: unboundTextMetricRanges(node, spec, 'paragraphIndent'),
+    paragraphSpacing: unboundTextMetricRanges(node, spec, 'paragraphSpacing')
   }
   const desiredFont = await loadTextFonts(node, spec, state, styleScope)
   const hasTextStyle = styleScope.kind === 'retained'
@@ -188,9 +190,7 @@ export async function applyText(
   setBaseParagraphValue(
     node,
     'paragraphIndent',
-    spec.variables?.paragraphIndent || currentBoundVariableId(node, 'paragraphIndent')
-      ? undefined
-      : native?.paragraphIndent,
+    native?.paragraphIndent,
     {
       current: node.paragraphIndent,
       apply: (value) => (node.paragraphIndent = value),
@@ -198,14 +198,13 @@ export async function applyText(
       readRange: (start, end) => node.getRangeParagraphIndent(start, end)
     },
     native?.ranges,
-    state
+    state,
+    variableRanges.paragraphIndent
   )
   setBaseParagraphValue(
     node,
     'paragraphSpacing',
-    spec.variables?.paragraphSpacing || currentBoundVariableId(node, 'paragraphSpacing')
-      ? undefined
-      : native?.paragraphSpacing,
+    native?.paragraphSpacing,
     {
       current: node.paragraphSpacing,
       apply: (value) => (node.paragraphSpacing = value),
@@ -213,7 +212,8 @@ export async function applyText(
       readRange: (start, end) => node.getRangeParagraphSpacing(start, end)
     },
     native?.ranges,
-    state
+    state,
+    variableRanges.paragraphSpacing
   )
   setBaseParagraphValue(
     node,
@@ -356,9 +356,10 @@ function setBaseParagraphValue(
     applyRange: (start: number, end: number, value: number) => void
   },
   ranges: CanvasFigmaTextRange[] | undefined,
-  state: ApplyState
+  state: ApplyState,
+  variableRanges?: TextRange[]
 ): void {
-  if (desired === undefined) return
+  if (desired === undefined || variableRanges?.length === 0) return
   if (!node.characters.length) {
     setValue(node, access.current, desired, access.apply, state)
     return
@@ -367,10 +368,9 @@ function setBaseParagraphValue(
   const overrides = textParagraphRanges(node.characters, owned)
   // Native whole-node paragraph writes leave existing range values intact.
   // Set only the paragraphs not owned by the later range declarations.
-  for (const { start, end } of textRangesOutside(
-    { start: 0, end: node.characters.length },
-    overrides
-  )) {
+  const scope = { start: 0, end: node.characters.length }
+  const writable = [...textRangesOutside(scope, overrides)]
+  for (const { start, end } of textRangesIntersect(writable, variableRanges ?? [scope])) {
     setValue(
       node,
       access.readRange(start, end),
