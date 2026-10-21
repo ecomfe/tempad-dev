@@ -177,8 +177,10 @@ export async function applyNodeProperties(
   nativeOnly = false
 ): Promise<void> {
   try {
-    state.ignoredLiteralWarnings.push(...ignoredLiteralWarnings(node, spec, nativeOnly))
-    await applyNodePropertiesUnchecked(node, spec, state, parent)
+    if (node.type !== 'TEXT') {
+      state.ignoredLiteralWarnings.push(...ignoredLiteralWarnings(node, spec, nativeOnly))
+    }
+    await applyNodePropertiesUnchecked(node, spec, state, parent, nativeOnly)
   } catch (error) {
     throwNodeError(error, spec.key, node.id)
   }
@@ -201,7 +203,8 @@ async function applyNodePropertiesUnchecked(
   node: SupportedCanvasNode,
   spec: CanvasNodeSpec,
   state: ApplyState,
-  parent?: CanvasParentNode
+  parent: CanvasParentNode | undefined,
+  nativeOnly: boolean
 ): Promise<void> {
   if (node.type === 'TEXT') {
     await loadFonts(currentTextFonts(node), state.fonts)
@@ -259,7 +262,12 @@ async function applyNodePropertiesUnchecked(
     applyPaintStacks(node, spec, state)
   }
   applyEffects(node, spec, state)
-  if (node.type === 'TEXT') await applyText(node, spec, state)
+  if (node.type === 'TEXT') {
+    await applyText(node, spec, state)
+    // Character replacement can discard old aliases. Inspect the remaining
+    // ownership before this request adds new node or range bindings.
+    state.ignoredLiteralWarnings.push(...ignoredLiteralWarnings(node, spec, nativeOnly))
+  }
   await applyVariables(node, spec.variables, state, spec.figma?.text?.ranges)
   if (node.type === 'TEXT' && !hasDeferredTextRanges(spec)) {
     await applyTextRanges(node, spec.figma?.text?.ranges, state)

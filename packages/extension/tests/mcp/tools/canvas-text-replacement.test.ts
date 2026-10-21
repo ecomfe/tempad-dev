@@ -14,7 +14,7 @@ type MetricField =
   | 'paragraphSpacing'
 type CharacterMetric = { value: number; alias: string | undefined }
 
-async function createReplacementProbe(field: MetricField) {
+async function createReplacementProbe(field: MetricField, retainBinding = false) {
   const fixture = createFixture()
   const request = (characters: string, value?: number): CanvasResolvedApplyParameters => {
     const utilities = {
@@ -48,13 +48,15 @@ async function createReplacementProbe(field: MetricField) {
     value: index < 3 ? 12 : 8,
     alias: index < 3 ? undefined : 'variable:spacing'
   }))
-  // Exercise a native replacement outcome independently from how a particular
-  // Figma edit propagates styles: replacement text inherits an unbound first run.
-  // Reconciliation must inspect the resulting bindings before writing metrics.
+  // Native replacement can retain or discard aliases. Reconciliation and its
+  // warnings must inspect the resulting ownership rather than the old ranges.
   const sync = () => {
     if (characters === node.characters) return
     characters = node.characters
-    cells = Array.from({ length: characters.length }, () => ({ value: 12, alias: undefined }))
+    cells = Array.from({ length: characters.length }, () => ({
+      value: retainBinding ? 8 : 12,
+      alias: retainBinding ? 'variable:spacing' : undefined
+    }))
   }
   const wrap = (value: number) =>
     field === 'lineHeight' || field === 'letterSpacing' ? { unit: 'PIXELS', value } : value
@@ -135,14 +137,20 @@ describe.each([
   'paragraphIndent',
   'paragraphSpacing'
 ] as const)('%s after text replacement', (field) => {
-  it('writes newly unbound text in the same request and then converges', async () => {
-    const probe = await createReplacementProbe(field)
-    await probe.update('Xy\nZw\nQ')
-    expect(probe.state()).toEqual(
-      Array.from({ length: 7 }, () => ({ value: 20, alias: undefined }))
-    )
-    await expect(probe.update('Xy\nZw\nQ')).resolves.toMatchObject({ mutationCount: 0 })
-  })
+  it.each(['Xy\nZw\nQ', 'X'])(
+    'writes newly unbound replacement %j without a stale warning and then converges',
+    async (replacement) => {
+      const probe = await createReplacementProbe(field)
+      const result = await probe.update(replacement)
+      expect(result.verification.warnings).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'literal-ignored-by-binding' })])
+      )
+      expect(probe.state()).toEqual(
+        Array.from({ length: replacement.length }, () => ({ value: 20, alias: undefined }))
+      )
+      await expect(probe.update(replacement)).resolves.toMatchObject({ mutationCount: 0 })
+    }
+  )
 
   it('preserves the existing bound run when characters do not change', async () => {
     const probe = await createReplacementProbe(field)
@@ -153,3 +161,22 @@ describe.each([
     ])
   })
 })
+
+describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)(
+  '%s retained after text replacement',
+  (field) => {
+    it('still warns when replacement text actually retains a binding', async () => {
+      const probe = await createReplacementProbe(field, true)
+      const result = await probe.update('X')
+      expect(probe.state()).toEqual([{ value: 8, alias: 'variable:spacing' }])
+      expect(result.verification.warnings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'literal-ignored-by-binding',
+            message: expect.stringContaining(field)
+          })
+        ])
+      )
+    })
+  }
+)

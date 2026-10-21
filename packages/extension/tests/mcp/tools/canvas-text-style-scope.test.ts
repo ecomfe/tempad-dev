@@ -323,7 +323,8 @@ describe('base typography outside retained range TextStyles', () => {
     await applyCanvas({ ...changed, mode: 'update', targetNodeId: created.rootNodeId! })
     expect(node.characters).toBe('Longer replacement text')
     expect(native.values.fontSize.slice(5)).toEqual(Array(8).fill(16))
-    expect(textWhenRead).toEqual(['Longer replacement text'])
+    expect(textWhenRead.length).toBeGreaterThan(0)
+    expect(textWhenRead.every((text) => text === 'Longer replacement text')).toBe(true)
   })
 
   it.each(['declared', 'omitted'] as const)(
@@ -517,11 +518,15 @@ describe('base typography outside retained range TextStyles', () => {
     const created = await applyCanvas(request())
     const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
     const native = installStyledText(node)
+    const readSegments = native.segments.getMockImplementation()!
+    native.segments.mockImplementation(() => {
+      expect(node.characters).toBe('Longer replacement text')
+      return readSegments()
+    })
     const changed = request(null, true)
     changed.markup = changed.markup!.replace('Range metrics', 'Longer replacement text')
     await applyCanvas({ ...changed, mode: 'update', targetNodeId: created.rootNodeId! })
     expect(node.characters).toBe('Longer replacement text')
     expect(native.values.fontSize.slice(5)).toEqual(Array(8).fill(16))
-    expect(native.segments).not.toHaveBeenCalled()
   })
 })
