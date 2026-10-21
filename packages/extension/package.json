@@ -44,14 +44,14 @@
     "p-wait-for": "^6.0.0",
     "stringify-object": "^7.0.0",
     "svgson": "^5.3.1",
-    "vue": "^3.5.43"
+    "vue": "^3.5.44"
   },
   "devDependencies": {
     "@figma/plugin-typings": "^1.141.0",
-    "@types/node": "^24.19.1",
+    "@types/node": "^24.19.2",
     "@types/prismjs": "^1.26.6",
     "@types/stringify-object": "^4.0.5",
-    "@vitejs/plugin-vue": "6.0.9",
+    "@vitejs/plugin-vue": "6.0.10",
     "@vitest/browser-playwright": "5.0.4",
     "@wxt-dev/module-vue": "^1.0.3",
     "comment-mark": "^2.2.0",
@@ -63,8 +63,8 @@
     "vite": "8.3.4",
     "vite-plugin-css-injected-by-js": "^5.0.2",
     "vitest": "5.0.4",
-    "vue-tsc": "^3.3.12",
+    "vue-tsc": "^3.3.13",
     "wxt": "^0.21.4",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   }
 }
