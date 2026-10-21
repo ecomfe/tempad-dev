@@ -429,8 +429,9 @@ The request context is threaded through:
 - Text-run token resolution reads only typography fields consumed by the rendered run; list and
   paragraph geometry continue to use the segment's native values.
 - Paragraph indentation and spacing use separate paragraph boxes when needed; spacing applies
-  between blocks, and soft line breaks stay inside their paragraph or list item. Ordinary text
-  with zero paragraph geometry retains compact output.
+  between blocks, and soft line breaks stay inside their paragraph or list item. Indented ordinary
+  paragraphs repeat indentation after soft breaks without indenting automatic wrapped lines.
+  Ordinary text with zero paragraph geometry retains compact output.
 - Asset export is planned and executed once.
 - A descendant-text preflight can bypass descendant collection and all asset work when UTF-8 text
   alone proves the response cannot fit. Tests assert that it short-circuits before scanning the rest

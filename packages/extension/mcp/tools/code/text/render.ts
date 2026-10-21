@@ -141,8 +141,23 @@ function renderBlock(
     const container: DevComponent = { name: tagName, props, children: [] }
 
     lines.forEach((line, idx) => {
-      const lineNodes = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
-      container.children.push(...lineNodes)
+      if (paragraphIndent !== 0 && line.runs.some((run) => run.text.includes('\u2028'))) {
+        // Native forced lines repeat the indent, but automatic wraps do not.
+        // Separate line boxes inherit text-indent without adding paragraph gaps.
+        for (const runs of splitSoftLines(line.runs)) {
+          const children = buildInlineTree(runs, commonStyle, classProp, ctx, node)
+          if (!runs.some((run) => /[^\t\n\f\r ]/.test(run.text))) {
+            children.push({ name: 'br', props: {}, children: [] })
+          }
+          container.children.push({
+            name: 'span',
+            props: { [classProp]: 'block' },
+            children
+          })
+        }
+      } else {
+        container.children.push(...buildInlineTree(line.runs, commonStyle, classProp, ctx, node))
+      }
       if (isMultiline && idx < lines.length - 1) {
         container.children.push({ name: 'br', props: {}, children: [] })
       }
@@ -222,6 +237,17 @@ function renderBlock(
   }
 
   return rootList
+}
+
+function splitSoftLines(runs: TextRun[]): TextRun[][] {
+  const lines: TextRun[][] = [[]]
+  for (const run of runs) {
+    for (const [index, text] of run.text.split('\u2028').entries()) {
+      if (index) lines.push([])
+      if (text) lines.at(-1)!.push({ ...run, text })
+    }
+  }
+  return lines
 }
 
 function getListStyleClass(type: 'ORDERED' | 'UNORDERED', depth: number): string {

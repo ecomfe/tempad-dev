@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { handleGetCode } from '@/mcp/tools/code'
+import { REQUESTED_SEGMENT_FIELDS } from '@/mcp/tools/code/text/types'
+import { options } from '@/ui/state'
 
 vi.mock('@/ui/state', () => ({
   activePlugin: { value: undefined },
@@ -8,6 +10,7 @@ vi.mock('@/ui/state', () => ({
 }))
 
 beforeEach(() => {
+  Object.assign(options.value, { cssUnit: 'px', rootFontSize: 16, scale: 1 })
   vi.stubGlobal('__DEV__', false)
   vi.stubGlobal('figma', {
     mixed: Symbol('mixed'),
@@ -144,10 +147,62 @@ describe.each(['jsx', 'vue'] as const)('%s native text blocks', (lang) => {
     const result = await handleGetCode([node], lang)
     const paragraphs = [...result.code.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)]
     expect(paragraphs).toHaveLength(2)
-    expect(paragraphs[0]![2]).toMatch(/Hello[\s\S]*<br\s*\/?>(?:[\s\S]*)world/)
+    expect(paragraphs[0]![2]).toMatch(/<span\b[^>]*\bblock\b[^>]*>Hello<\/span>/)
+    expect(paragraphs[0]![2]).toMatch(/<span\b[^>]*\bblock\b[^>]*>world<\/span>/)
+    expect(paragraphs[0]![2]).not.toContain('<br')
     expect(paragraphs[0]![1]).toContain('mb-[8px]')
     expect(paragraphs[1]![1]).not.toContain('mb-')
     expect(result.code).not.toContain('\u2028')
+  })
+
+  it.each([
+    { characters: '\u2028Hello', lineCount: 2, blankCount: 1 },
+    { characters: 'Hello\u2028', lineCount: 2, blankCount: 1 },
+    { characters: 'Hello\u2028\u2028world', lineCount: 3, blankCount: 1 },
+    { characters: 'Hello\u2028 \t \u2028world', lineCount: 3, blankCount: 1 }
+  ])(
+    'retains empty indented soft lines in $characters',
+    async ({ characters, lineCount, blankCount }) => {
+      const node = createText(
+        ['NONE'],
+        [],
+        [{ characters, paragraphIndent: 12, paragraphSpacing: 8 }]
+      )
+      const result = await handleGetCode([node], lang)
+      expect(result.code.match(/<p\b/g)).toHaveLength(1)
+      expect(result.code.match(/<span\b[^>]*\bblock\b/g)).toHaveLength(lineCount)
+      expect(result.code.match(/<br\s*\/?>/g)).toHaveLength(blankCount)
+      expect(result.code).not.toContain('mb-')
+    }
+  )
+
+  it('keeps styled links across forced lines and segment boundaries', async () => {
+    const node = createText(['NONE'], [], [{ characters: 'He\u2028world', paragraphIndent: 12 }])
+    const segment = node.getStyledTextSegments(REQUESTED_SEGMENT_FIELDS)[0]!
+    const hyperlink = { type: 'URL', value: 'https://example.com' } as const
+    Object.assign(node, {
+      getStyledTextSegments: () => [
+        { ...segment, characters: 'He\u2028', start: 0, end: 3, fontWeight: 700, hyperlink },
+        { ...segment, characters: 'wo', start: 3, end: 5, fontWeight: 700, hyperlink },
+        { ...segment, characters: 'rld', start: 5, end: 8, hyperlink }
+      ]
+    })
+    const result = await handleGetCode([node], lang)
+    expect(result.code.match(/<span\b[^>]*\bblock\b/g)).toHaveLength(2)
+    expect(result.code.match(/href="https:\/\/example.com"/g)).toHaveLength(2)
+    expect(result.code).toMatch(/<strong\b[^>]*>He<\/strong>/)
+    expect(result.code).toMatch(/<strong\b[^>]*>wo<\/strong>/)
+    expect(result.code).toContain('rld')
+    expect(result.code).not.toContain('<br')
+  })
+
+  it('inherits scaled rem indentation on forced lines without scaling twice', async () => {
+    Object.assign(options.value, { cssUnit: 'rem', scale: 2 })
+    const node = createText(['NONE'], [], [{ characters: 'Hello\u2028world', paragraphIndent: 12 }])
+    const result = await handleGetCode([node], lang)
+    expect(result.code.match(/indent-\[1\.5rem\]/g)).toHaveLength(1)
+    expect(result.code.match(/<span\b[^>]*\bblock\b/g)).toHaveLength(2)
+    expect(result.code).not.toContain('indent-[3rem]')
   })
 
   it('keeps paragraph geometry around a list in legal sibling blocks', async () => {
