@@ -44,7 +44,6 @@ function splitIntoLines(
   const lines: TextLine[] = []
 
   let currentRuns: TextRun[] = []
-  let currentSegmentForAttrs: StyledTextSegmentSubset | null = null
 
   for (const seg of segments) {
     const text = seg.characters
@@ -64,14 +63,14 @@ function splitIntoLines(
         currentRuns = []
       }
     }
-    currentSegmentForAttrs = seg
   }
 
   // A terminal paragraph break still starts an empty paragraph or list item.
-  if ((currentRuns.length > 0 || lines.length > 0) && currentSegmentForAttrs) {
+  const lastSegment = segments.at(-1)
+  if ((currentRuns.length > 0 || lines.length > 0) && lastSegment) {
     lines.push({
       runs: optimizeRuns(currentRuns),
-      attrs: extractLineAttrs(currentSegmentForAttrs)
+      attrs: extractLineAttrs(lastSegment)
     })
   }
 

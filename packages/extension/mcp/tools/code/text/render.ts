@@ -92,10 +92,8 @@ export async function renderTextSegments(
       node,
       index < blocks.length - 1
     )
-    if (renderedBlock) {
-      optimizeComponentTree(renderedBlock, classProp)
-      outputSegments.push(renderedBlock)
-    }
+    optimizeComponentTree(renderedBlock, classProp)
+    outputSegments.push(renderedBlock)
   }
 
   return { segments: outputSegments, commonStyle, metas: [], segmentCount, fontStyleVariableIds }
@@ -108,7 +106,7 @@ function renderBlock(
   ctx: RenderContext,
   node: TextNode,
   hasFollowingBlock: boolean
-): DevComponent | null {
+): DevComponent {
   const { type, lines, attrs } = block
   const { paragraphIndent, paragraphSpacing } = attrs
   const { config } = ctx

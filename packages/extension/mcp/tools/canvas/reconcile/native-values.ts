@@ -398,24 +398,17 @@ function comparableShadow(
 function comparableEffect(effect: Effect, expected: Effect): unknown {
   if (isShadowEffect(effect) && isShadowEffect(expected)) {
     const bindings = expected.boundVariables
-    const normalized = comparableShadow(effect, expected)
+    const comparable: Record<string, unknown> = { ...comparableShadow(effect, expected) }
     // Native readback resolves bound literals; binding identity and every other
     // field still describe the requested state, including each unbound offset axis.
-    return {
-      ...Object.fromEntries(
-        Object.entries(normalized).filter(
-          ([field]) =>
-            !(
-              ['color', 'radius', 'spread'].includes(field) &&
-              bindings?.[field as 'color' | 'radius' | 'spread']
-            )
-        )
-      ),
-      offset: {
-        ...(bindings?.offsetX ? {} : { x: effect.offset.x }),
-        ...(bindings?.offsetY ? {} : { y: effect.offset.y })
-      }
+    if (bindings?.color) delete comparable.color
+    if (bindings?.radius) delete comparable.radius
+    if (bindings?.spread) delete comparable.spread
+    comparable.offset = {
+      ...(bindings?.offsetX ? {} : { x: effect.offset.x }),
+      ...(bindings?.offsetY ? {} : { y: effect.offset.y })
     }
+    return comparable
   }
   if (
     (effect.type === 'LAYER_BLUR' || effect.type === 'BACKGROUND_BLUR') &&

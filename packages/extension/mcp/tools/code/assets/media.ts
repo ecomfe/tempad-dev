@@ -45,17 +45,18 @@ export async function replaceMediaUrlsWithAssets(
     assertActive
   )
   assertActive?.()
-  const result = replaceMediaUrlsWithPlaceholder(style, node, config)
+  const placeholderUrl = getPlaceholderUrl(node, config)
+  const result = { ...style }
   const regex = new RegExp(BG_URL_RE.source, 'gi')
 
   for (const key of ['background', 'background-image']) {
     if (!result[key]) continue
     const mappedFills = getCssMediaFills(result[key], fills)
     let index = 0
-    result[key] = result[key].replace(regex, (placeholder) => {
+    result[key] = result[key].replace(regex, () => {
       const asset = (mappedFills[index] ?? mappedFills.at(-1))?.asset
       index++
-      return asset ? `url('${asset.url}')` : placeholder
+      return `url('${asset ? asset.url : placeholderUrl}')`
     })
   }
 
@@ -111,11 +112,7 @@ function correctTileSizes(style: Record<string, string>, fills: MediaFillAsset[]
   }
 }
 
-function replaceMediaUrlsWithPlaceholder(
-  style: Record<string, string>,
-  node: SceneNode,
-  config: CodegenConfig
-): Record<string, string> {
+function getPlaceholderUrl(node: SceneNode, config: CodegenConfig): string {
   const { scale = 1 } = config
   let w = 100
   let h = 100
@@ -127,17 +124,7 @@ function replaceMediaUrlsWithPlaceholder(
     h = Math.round(toDecimalPlace(node.height) * scale)
   }
 
-  const placeholderUrl = `https://placehold.co/${w}x${h}`
-  const result = { ...style }
-  const regex = new RegExp(BG_URL_RE.source, 'gi')
-
-  for (const key of ['background', 'background-image']) {
-    if (result[key]) {
-      result[key] = result[key].replace(regex, `url('${placeholderUrl}')`)
-    }
-  }
-
-  return result
+  return `https://placehold.co/${w}x${h}`
 }
 
 async function collectMediaFillAssets(
