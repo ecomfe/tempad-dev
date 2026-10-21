@@ -57,10 +57,10 @@ describe('mcp/tools/code/styles/background', () => {
     })
     expect(
       cleanFigmaSpecificStyles(
-        { background: 'linear-gradient(#F00, #F00), linear-gradient(90deg, blue, blue)' },
+        { background: 'linear-gradient(#F00, #F00), linear-gradient(90deg, blue 0%, blue 100%)' },
         node
       ).background
-    ).toBe('linear-gradient(#F00, #F00), linear-gradient(90deg, #0000FF80 0%)')
+    ).toBe('linear-gradient(#F00, #F00), linear-gradient(90deg, #0000FF80 0%, #0000FF80 100%)')
   })
   it('preserves media and every gradient layer when correcting stop opacity', () => {
     const gradient = {

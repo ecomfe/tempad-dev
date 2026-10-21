@@ -11,11 +11,11 @@ import {
 import {
   getBackgroundColorPaint,
   getCssPaintLayers,
-  getPaintResolutionSize,
-  isVisiblePaint
+  getPaintResolutionSize
 } from '@/utils/figma-paint'
 import {
   formatGradientStopColor as formatPaintGradientStopColor,
+  preserveGradientGeometry,
   resolveBackgroundFillFromPaints,
   resolveGradientPaintCss
 } from '@/utils/figma-style/gradient'
@@ -28,7 +28,6 @@ import type { StyleMap } from './types'
 import { getNodeSemanticsCached, getPaintStyleCached, getPaintsFromState } from '../cache'
 
 const BG_URL_RE = /url\(/i
-const GRADIENT_FN_RE = /(linear-gradient|radial-gradient|conic-gradient)\s*\(/i
 
 type PaintList = Paint[] | ReadonlyArray<Paint> | null | undefined
 
@@ -151,10 +150,6 @@ function isGradientPaint(paint: Paint): paint is GradientPaint {
   return 'gradientStops' in paint && Array.isArray(paint.gradientStops)
 }
 
-function isVisibleLinearGradientPaint(paint: Paint): paint is GradientPaint {
-  return isVisiblePaint(paint) && paint.type === 'GRADIENT_LINEAR' && isGradientPaint(paint)
-}
-
 function findVisibleSolidPaint(paints: ReadonlyArray<Paint>): SolidPaint | null {
   const layers = getCssPaintLayers(paints)
   const paint = layers[0]?.paint
@@ -230,67 +225,19 @@ function resolveGradientWithOpacity(
   let changed = false
   const rewritten = layers.map((layer, index) => {
     const fill = paints[index]!.paint
-    if (!/^linear-gradient\(/i.test(layer.trim())) return layer
-    if (!isVisibleLinearGradientPaint(fill)) return layer
+    if (!isGradientPaint(fill)) return layer
 
     const fillOpacity = typeof fill.opacity === 'number' ? fill.opacity : 1
     const hasStopAlpha = fill.gradientStops.some((stop) => (stop.color?.a ?? 1) < 1)
     if (fillOpacity >= 0.99 && !hasStopAlpha) return layer
 
-    const parsed = parseGradient(layer)
-    if (!parsed) return layer
-
-    const angle = parsed.args[0]?.trim()
-    const hasAngle =
-      !!angle &&
-      (angle.endsWith('deg') ||
-        angle.endsWith('rad') ||
-        angle.endsWith('turn') ||
-        angle.startsWith('to '))
-    const stops = fill.gradientStops.map((stop) => {
-      const pct = formatPercent(stop.position)
-      const color = formatGradientStopColor(stop, fillOpacity, readers)
-      return `${color} ${pct}`
-    })
-
-    const args = hasAngle ? [angle, ...stops] : stops
+    const resolved = resolveGradientPaintValue(fill, undefined, readers)
+    const corrected = resolved ? preserveGradientGeometry(layer, resolved) : null
+    if (!corrected) return layer
     changed = true
-    return `${parsed.fn}(${args.join(', ')})`
+    return corrected
   })
   return changed ? rewritten.join(', ') : null
-}
-
-function parseGradient(value: string): { fn: string; args: string[] } | null {
-  const match = value.match(GRADIENT_FN_RE)
-  if (!match || match.index == null) return null
-
-  const fn = match[1]
-  if (!fn) return null
-  const start = value.indexOf('(', match.index)
-  if (start < 0) return null
-
-  let depth = 0
-  let end = -1
-  for (let i = start; i < value.length; i += 1) {
-    const ch = value[i]
-    if (ch === '(') depth += 1
-    else if (ch === ')') {
-      depth -= 1
-      if (depth === 0) {
-        end = i
-        break
-      }
-    }
-  }
-  if (end < 0) return null
-
-  const inner = value.slice(start + 1, end)
-  return { fn, args: splitByTopLevelComma(inner) }
-}
-
-function formatPercent(pos: number): string {
-  const pct = Math.round(pos * 10000) / 100
-  return `${pct}%`
 }
 
 function formatGradientStopColor(

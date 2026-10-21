@@ -180,8 +180,11 @@ export function resolveBackgroundFillFromPaints(
 
     let gradient = resolveGradient(paint, size, readers)
     if (!gradient) return null
-    if (paint.type === 'GRADIENT_RADIAL' && sourceLayers.length === visible.length) {
-      gradient = preserveRadialGeometry(sourceLayers[layerIndex]!, gradient)
+    if (sourceLayers.length === visible.length) {
+      const source = sourceLayers[layerIndex]!
+      if (/^(?:linear|radial|conic)-gradient\s*\(/i.test(source)) {
+        gradient = preserveGradientGeometry(source, gradient) ?? source
+      }
     }
     layers.push(gradient)
   }
@@ -189,14 +192,63 @@ export function resolveBackgroundFillFromPaints(
   return { kind: 'layers', value: layers }
 }
 
-function preserveRadialGeometry(source: string, resolved: string): string {
-  const match = source.match(/^radial-gradient\(([\s\S]*)\)$/i)
-  if (!match) return resolved
-  const geometry = splitByTopLevelComma(match[1]!)[0]
-  if (!geometry || !isRadialGeometry(geometry)) return resolved
-  const args = splitByTopLevelComma(resolved.slice('radial-gradient('.length, -1))
-  if (args[0] && isRadialGeometry(args[0])) args.shift()
-  return `radial-gradient(${[geometry, ...args].join(', ')})`
+export function preserveGradientGeometry(source: string, resolved: string): string | null {
+  const original = parseGradient(source)
+  const replacement = parseGradient(resolved)
+  if (!original || !replacement || original.fn !== replacement.fn) return null
+  if (original.stops.length !== replacement.stops.length && replacement.stops.length !== 1)
+    return null
+  const stops = original.stops.map((stop, index) => {
+    const replacementStop = replacement.stops[index] ?? replacement.stops[0]!
+    return replacementStop.color + stop.position
+  })
+  const geometry = original.geometry
+  return `${original.fn}(${[...(geometry ? [geometry] : []), ...stops].join(', ')})${original.suffix}`
+}
+
+function parseGradient(value: string): {
+  fn: string
+  geometry?: string
+  stops: { color: string; position: string }[]
+  suffix: string
+} | null {
+  value = value.trim()
+  const match = /^(linear-gradient|radial-gradient|conic-gradient)\s*\(/i.exec(value)
+  if (!match) return null
+  const fn = match[1]!.toLowerCase()
+  const start = match[0].length
+  let depth = 1
+  let end = start
+  for (; end < value.length; end++) {
+    if (value[end] === '(') depth++
+    else if (value[end] === ')' && --depth === 0) break
+  }
+  if (depth !== 0) return null
+  const args = splitByTopLevelComma(value.slice(start, end))
+  let geometry: string | undefined
+  if (
+    args[0] &&
+    (fn === 'radial-gradient'
+      ? isRadialGeometry(args[0])
+      : /^(?:to\s|from\s|at\s|in\s|[+-]?(?:\d*\.)?\d+(?:deg|grad|rad|turn)(?:\s|$))/i.test(args[0]))
+  ) {
+    geometry = args.shift()
+  }
+  const stops: { color: string; position: string }[] = []
+  for (const arg of args) {
+    if (!/^(?:#[\da-f]+|[a-z][\w-]*(?:\(|(?=\s|$)))/i.test(arg)) return null
+    let colorEnd = 0
+    depth = 0
+    for (; colorEnd < arg.length; colorEnd++) {
+      const ch = arg[colorEnd]!
+      if (ch === '(') depth++
+      else if (ch === ')') depth--
+      else if (/\s/.test(ch) && depth === 0) break
+    }
+    if (depth !== 0) return null
+    stops.push({ color: arg.slice(0, colorEnd), position: arg.slice(colorEnd) })
+  }
+  return stops.length ? { fn, geometry, stops, suffix: value.slice(end + 1) } : null
 }
 
 function isRadialGeometry(value: string): boolean {

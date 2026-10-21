@@ -541,13 +541,13 @@ describe('figma/gradient resolveBackgroundFillFromPaints', () => {
     expect(
       resolveBackgroundFillFromPaints([back, front], undefined, undefined, {
         background:
-          'radial-gradient(20% 30% at 10% 15%, red, red), radial-gradient(60% 70% at 80% 90%, blue, blue)'
+          'radial-gradient(20% 30% at 10% 15%, red 0%, red 100%), radial-gradient(60% 70% at 80% 90%, blue 0%, blue 100%)'
       })
     ).toEqual({
       kind: 'layers',
       value: [
-        'radial-gradient(20% 30% at 10% 15%, #F00 0%)',
-        'radial-gradient(60% 70% at 80% 90%, #00F 0%)'
+        'radial-gradient(20% 30% at 10% 15%, #F00 0%, #F00 100%)',
+        'radial-gradient(60% 70% at 80% 90%, #00F 0%, #00F 100%)'
       ]
     })
   })
