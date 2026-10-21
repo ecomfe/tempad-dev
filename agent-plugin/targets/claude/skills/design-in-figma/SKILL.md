@@ -134,7 +134,9 @@ screen or section boundaries and carry shared roles coherently across them.
 Inspect every `apply_canvas` result, including warnings. Repair each observed
 unintended defect or disclose why it remains. A local validation failure calls
 for a local payload correction; it does not justify discarding a working root
-or simplifying away the intended content. Open pixels again after the final
+or simplifying away the intended content. If a write times out, loses its result,
+or cannot verify rollback, follow [local recovery](references/editing.md#recover-locally)
+before another write. Open pixels again after the final
 material write, covering every materially distinct screen. Verify native facts
 with `get_structure` when identity, placement, editability, or representation
 matters. Opened pixels prove visual access, not good judgment; a structural pass

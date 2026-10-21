@@ -61,8 +61,12 @@ Definitions and a consumer's rendered value need not have the same literal
 representation. Figma opacity variables store percentages (`50` means `0.5`
 opacity). Code output normalizes only the opacity consumer: resolved output uses
 the fraction, while unresolved output retains a token reference in `calc()` with
-the matching number or length denominator. Preserve that expression; do not divide
-the shared token definition, which may also serve spacing or other properties.
+the matching number or length denominator. Length division in opacity or font-weight
+expressions requires CSS typed arithmetic; preserve it only when the project's CSS
+targets support it. For portable output, follow the compatibility warning by
+rereading with `resolveTokens: true` and verifying the affected consumer literals.
+Unitless division does not require this compatibility fallback. Do not divide the
+shared token definition, which may also serve spacing or other properties.
 If definitions still contradict consumer output after accounting for aliases and
 effective modes, narrow the design evidence or ask which state is intended.
 For unavailable or ambiguous facts, follow the token warnings in

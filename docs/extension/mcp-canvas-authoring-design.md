@@ -817,6 +817,14 @@ Structural verification is mandatory. It checks:
 - direct layout grids and frame guides;
 - mask and managed SVG state.
 
+Paint, effect, and layout-grid comparisons preserve the exact declared variable aliases.
+They do not compare fallback literals for fields owned by those bindings: Figma may return
+the resolved variable value instead. This includes SOLID color and opacity, bound gradient
+stop colors, shadow color/radius/spread and each bound offset axis, blur radius, and bound
+grid measurements. Unbound fields, paint/stop counts and geometry, effect types, visibility,
+blend modes, and grid patterns remain checked. Reconciliation and verification use the same
+comparators; a missing or different alias is still a mismatch.
+
 `apply_canvas` returns counts and factual warnings:
 
 ```ts
@@ -850,6 +858,11 @@ is reached; unresolved external aliases are skipped. This warning catches contra
 state without rejecting legitimate multi-mode fallbacks, because matching any authored mode is
 sufficient. Font-weight comparison retains the explicit utility's numeric value, including
 non-hundred weights; it does not infer a weight from native style names or default fonts.
+
+A requested literal that an existing variable or style binding prevents from taking effect
+produces `literal-ignored-by-binding`, identifying the affected node key and fields. Preserve
+the binding when it owns the intended value. To replace it with a literal, explicitly clear
+the corresponding supported variable or style link with `null`; omission retains the link.
 
 A visible component-property reference that can alter Auto Layout flow produces
 `layout-affecting-visibility-property`. It is also non-fatal because optional content may be

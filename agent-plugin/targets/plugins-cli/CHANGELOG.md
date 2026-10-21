@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.5
+
+- Clarified recovery after uncertain canvas writes and browser compatibility for token-based CSS.
+
 ## 0.5.4
 
 - Clarified that unsupported text entity warnings require extension 0.23.5 or later.
