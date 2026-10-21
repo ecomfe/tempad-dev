@@ -246,9 +246,14 @@ export function nativeLayoutGrid(grid: CanvasFigmaLayoutGrid, state: ApplyState)
 }
 
 function comparableLayoutGrid(grid: LayoutGrid, expected: LayoutGrid): Record<string, unknown> {
+  const bindings: RowsColsLayoutGrid['boundVariables'] = expected.boundVariables
   const comparable = Object.fromEntries(
     Object.keys(expected)
-      .filter((field) => !['boundVariables', 'color', 'visible'].includes(field))
+      .filter(
+        (field) =>
+          !['boundVariables', 'color', 'visible'].includes(field) &&
+          !bindings?.[field as VariableBindableLayoutGridField]
+      )
       .map((field) => [field, grid[field as keyof LayoutGrid]])
   )
   return {
@@ -297,6 +302,17 @@ export function comparablePaint(paint: Paint, expected: Paint): unknown {
       ...paintDefaults(paint)
     }
     return boundPaint
+  }
+  if ('gradientStops' in paint && 'gradientStops' in expected) {
+    return {
+      ...paint,
+      ...paintDefaults(paint),
+      gradientStops: paint.gradientStops.map((stop, index) => {
+        if (!expected.gradientStops[index]?.boundVariables?.color) return stop
+        const { color: _color, ...boundStop } = stop
+        return boundStop
+      })
+    }
   }
   if (paint.type === 'IMAGE' && expected.type === 'IMAGE') {
     return {
@@ -380,9 +396,36 @@ function comparableShadow(
 }
 
 function comparableEffect(effect: Effect, expected: Effect): unknown {
-  return isShadowEffect(effect) && isShadowEffect(expected)
-    ? comparableShadow(effect, expected)
-    : effect
+  if (isShadowEffect(effect) && isShadowEffect(expected)) {
+    const bindings = expected.boundVariables
+    const normalized = comparableShadow(effect, expected)
+    // Native readback resolves bound literals; binding identity and every other
+    // field still describe the requested state, including each unbound offset axis.
+    return {
+      ...Object.fromEntries(
+        Object.entries(normalized).filter(
+          ([field]) =>
+            !(
+              ['color', 'radius', 'spread'].includes(field) &&
+              bindings?.[field as 'color' | 'radius' | 'spread']
+            )
+        )
+      ),
+      offset: {
+        ...(bindings?.offsetX ? {} : { x: effect.offset.x }),
+        ...(bindings?.offsetY ? {} : { y: effect.offset.y })
+      }
+    }
+  }
+  if (
+    (effect.type === 'LAYER_BLUR' || effect.type === 'BACKGROUND_BLUR') &&
+    (expected.type === 'LAYER_BLUR' || expected.type === 'BACKGROUND_BLUR') &&
+    expected.boundVariables?.radius
+  ) {
+    const { radius: _radius, ...boundEffect } = effect
+    return boundEffect
+  }
+  return effect
 }
 
 function effectEqual(current: Effect, desired: Effect): boolean {
