@@ -158,7 +158,8 @@ export function resolveBackgroundFillFromPaints(
 
   const resolveGradient = options.resolveGradientPaint ?? resolveGradientPaintCss
   const resolveSolid = options.resolveSolidPaint ?? resolveSolidPaint
-  const sourceLayers = splitByTopLevelComma(options.background ?? '')
+  const background = options.background ?? ''
+  const sourceLayers = matchBackgroundPaintLayers(background, paints)
 
   if (visible.length === 1) {
     const { paint, index } = visible[0]!
@@ -166,6 +167,14 @@ export function resolveBackgroundFillFromPaints(
       const color = resolveSolid(paint, readers, index)
       return color ? { kind: 'color', value: color } : null
     }
+  }
+  if (
+    !sourceLayers &&
+    visible.some(({ paint }) => paint.type === 'GRADIENT_DIAMOND') &&
+    /(?:linear|radial|conic)-gradient\s*\(/i.test(background)
+  ) {
+    // A radial fallback cannot preserve an unrecognized native diamond stack.
+    return { kind: 'layers', value: splitByTopLevelComma(background) }
   }
 
   const layers: string[] = []
@@ -178,32 +187,121 @@ export function resolveBackgroundFillFromPaints(
     }
     if (!isGradientPaint(paint)) return null
 
-    let gradient = resolveGradient(paint, size, readers)
-    if (!gradient) return null
-    if (sourceLayers.length === visible.length) {
-      const source = sourceLayers[layerIndex]!
-      if (/^(?:linear|radial|conic)-gradient\s*\(/i.test(source)) {
-        gradient = preserveGradientGeometry(source, gradient) ?? source
-      }
-    }
+    const resolved = resolveGradient(paint, size, readers)
+    if (!resolved) return null
+    const sources = sourceLayers?.[layerIndex]
+    const gradient = sources?.every((source) =>
+      /^(?:linear|radial|conic)-gradient\s*\(/i.test(source)
+    )
+      ? sources
+          .map((source) => preserveGradientGeometry(source, resolved, paint.type) ?? source)
+          .join(', ')
+      : resolved
     layers.push(gradient)
   }
 
   return { kind: 'layers', value: layers }
 }
 
-export function preserveGradientGeometry(source: string, resolved: string): string | null {
+/** Pair complete native CSS stacks with their paints, including Figma's diamond quadrants. */
+export function matchBackgroundPaintLayers(
+  background: string,
+  paints: ReadonlyArray<Paint>
+): string[][] | null {
+  const layers = splitByTopLevelComma(background)
+  const groups: string[][] = []
+  let offset = 0
+  for (const { paint } of getCssPaintLayers(paints)) {
+    const diamond =
+      paint.type === 'GRADIENT_DIAMOND' && /^linear-gradient\s*\(/i.test(layers[offset] ?? '')
+    const count = diamond ? 4 : 1
+    const group = layers.slice(offset, offset + count)
+    if (group.length !== count) return null
+    if (diamond) {
+      const corners = new Set<string>()
+      for (const layer of group) {
+        const gradient = parseGradient(layer)
+        const corner = /^\s+(top|bottom)\s+(left|right)\s*\/\s*50%\s+50%\s+no-repeat\s*$/i.exec(
+          gradient?.suffix ?? ''
+        )
+        if (gradient?.fn !== 'linear-gradient' || !corner) return null
+        const position = `${corner[1]!.toLowerCase()} ${corner[2]!.toLowerCase()}`
+        if (gradient.geometry?.toLowerCase() !== `to ${position}`) return null
+        corners.add(position)
+      }
+      if (corners.size !== 4) return null
+    }
+    groups.push(group)
+    offset += count
+  }
+  return offset === layers.length ? groups : null
+}
+
+export function preserveGradientGeometry(
+  source: string,
+  resolved: string,
+  paintType?: GradientPaint['type']
+): string | null {
   const original = parseGradient(source)
   const replacement = parseGradient(resolved)
-  if (!original || !replacement || original.fn !== replacement.fn) return null
-  if (original.stops.length !== replacement.stops.length && replacement.stops.length !== 1)
-    return null
+  if (!original || !replacement) return null
+  const diamondQuadrant =
+    paintType === 'GRADIENT_DIAMOND' &&
+    original.fn === 'linear-gradient' &&
+    replacement.fn === 'radial-gradient'
+  if (original.fn !== replacement.fn && !diamondQuadrant) return null
+
+  let first = 0
+  let last = original.stops.length
+  if (original.stops.length !== replacement.stops.length && replacement.stops.length !== 1) {
+    if (original.fn !== 'conic-gradient') return null
+    // Figma closes angular gradients with interpolated 0/360-degree stops when
+    // the authored stops do not reach those endpoints. Their native colors
+    // already include opacity; only the authored stop colors need replacement.
+    const firstPosition = gradientAngle(replacement.stops[0]!.position)
+    const lastPosition = gradientAngle(replacement.stops.at(-1)!.position)
+    if (
+      firstPosition !== null &&
+      firstPosition.value > 0 &&
+      gradientAngle(original.stops[0]!.position)?.value === 0
+    )
+      first++
+    if (
+      lastPosition !== null &&
+      lastPosition.value < 1 &&
+      gradientAngle(original.stops.at(-1)!.position)?.value === 1
+    )
+      last--
+    for (const [index, stop] of replacement.stops.entries()) {
+      const sourcePosition = gradientAngle(original.stops[index + first]?.position ?? '')
+      const targetPosition = gradientAngle(stop.position)
+      if (
+        !sourcePosition ||
+        !targetPosition ||
+        Math.abs(sourcePosition.value - targetPosition.value) >
+          sourcePosition.rounding + targetPosition.rounding
+      )
+        return null
+    }
+  }
+  if (last - first !== replacement.stops.length && replacement.stops.length !== 1) return null
   const stops = original.stops.map((stop, index) => {
-    const replacementStop = replacement.stops[index] ?? replacement.stops[0]!
+    if (index < first || index >= last) return stop.color + stop.position
+    const replacementStop = replacement.stops[index - first] ?? replacement.stops[0]!
     return replacementStop.color + stop.position
   })
   const geometry = original.geometry
   return `${original.fn}(${[...(geometry ? [geometry] : []), ...stops].join(', ')})${original.suffix}`
+}
+
+function gradientAngle(position: string): { value: number; rounding: number } | null {
+  const match = /^\s*([+-]?(?:\d*\.)?\d+)(%|deg)\s*$/.exec(position)
+  if (!match) return null
+  const decimals = match[1]!.split('.')[1]?.length ?? 0
+  // Native CSS uses degrees; generated paint stops use formatPercent's two decimals.
+  return match[2] === 'deg'
+    ? { value: Number(match[1]) / 360, rounding: (0.5 * 10 ** -decimals) / 360 }
+    : { value: Number(match[1]) / 100, rounding: 0.00005 }
 }
 
 function parseGradient(value: string): {

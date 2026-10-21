@@ -15,6 +15,7 @@ import {
 } from '@/utils/figma-paint'
 import {
   formatGradientStopColor as formatPaintGradientStopColor,
+  matchBackgroundPaintLayers,
   preserveGradientGeometry,
   resolveBackgroundFillFromPaints,
   resolveGradientPaintCss
@@ -218,24 +219,26 @@ function resolveGradientWithOpacity(
   if (!fills) return null
 
   const paints = getCssPaintLayers(fills)
-  const layers = splitByTopLevelComma(value)
+  const layers = matchBackgroundPaintLayers(value, fills)
   // Match complete CSS layers, including synthetic solid gradients and images.
   // A partial native CSS stack cannot safely be paired by paint index.
-  if (layers.length !== paints.length) return null
+  if (!layers) return null
   let changed = false
-  const rewritten = layers.map((layer, index) => {
+  const rewritten = layers.flatMap((group, index) => {
     const fill = paints[index]!.paint
-    if (!isGradientPaint(fill)) return layer
+    if (!isGradientPaint(fill)) return group
 
     const fillOpacity = typeof fill.opacity === 'number' ? fill.opacity : 1
     const hasStopAlpha = fill.gradientStops.some((stop) => (stop.color?.a ?? 1) < 1)
-    if (fillOpacity >= 0.99 && !hasStopAlpha) return layer
+    if (fillOpacity >= 0.99 && !hasStopAlpha) return group
 
     const resolved = resolveGradientPaintValue(fill, undefined, readers)
-    const corrected = resolved ? preserveGradientGeometry(layer, resolved) : null
-    if (!corrected) return layer
-    changed = true
-    return corrected
+    return group.map((layer) => {
+      const corrected = resolved ? preserveGradientGeometry(layer, resolved, fill.type) : null
+      if (!corrected) return layer
+      changed = true
+      return corrected
+    })
   })
   return changed ? rewritten.join(', ') : null
 }
