@@ -1,4 +1,8 @@
-import type { CanvasFigmaTextRange, CanvasResolvedApplyParameters } from '@tempad-dev/shared'
+import type {
+  CanvasFigmaTextRange,
+  CanvasResolvedApplyParameters,
+  CanvasVariableBindings
+} from '@tempad-dev/shared'
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -18,12 +22,14 @@ async function createParagraphProbe(
   const fixture = createFixture()
   const request = (
     base: number | undefined,
-    ranges?: Array<ParagraphRange | CanvasFigmaTextRange>
+    ranges?: Array<ParagraphRange | CanvasFigmaTextRange>,
+    variables?: CanvasVariableBindings
   ): CanvasResolvedApplyParameters => ({
     mode: 'create',
     markup: `<div data-key="root" class="flex w-80 h-80"><span data-key="label" class="w-40 h-20 whitespace-pre-wrap">${characters || 'Empty'}</span></div>`,
     bindings: {
       label: {
+        variables,
         figma: {
           text: {
             hangingPunctuation: false,
@@ -121,6 +127,15 @@ async function createParagraphProbe(
     }
   )
   Object.defineProperty(label, 'setRangeBoundVariable', { value: bind })
+  const nodeBind = vi.mocked(label.setBoundVariable).getMockImplementation()!
+  vi.spyOn(label, 'setBoundVariable').mockImplementation((property, variable) => {
+    if (typeof variable === 'string') throw new Error('Deprecated variable IDs are unsupported')
+    if (property !== field) return nodeBind(property, variable)
+    for (const paragraph of paragraphs) {
+      paragraph.alias = variable ? { type: 'VARIABLE_ALIAS', id: variable.id } : undefined
+      if (variable) paragraph.value = variable.resolveForConsumer(label).value as number
+    }
+  })
   const initialBindings = label.boundVariables
   Object.defineProperty(label, 'boundVariables', {
     configurable: true,
@@ -149,9 +164,13 @@ async function createParagraphProbe(
     write,
     writeBase,
     bind,
-    update: (base: number | undefined, ranges?: Array<ParagraphRange | CanvasFigmaTextRange>) =>
+    update: (
+      base: number | undefined,
+      ranges?: Array<ParagraphRange | CanvasFigmaTextRange>,
+      variables?: CanvasVariableBindings
+    ) =>
       applyCanvas({
-        ...request(base, ranges),
+        ...request(base, ranges, variables),
         ...(!characters ? { markup: undefined } : {}),
         mode: 'update',
         targetNodeId: created.rootNodeId!
@@ -160,6 +179,143 @@ async function createParagraphProbe(
 }
 
 describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (field) => {
+  it('binds the whole node when only one paragraph already uses the requested variable', async () => {
+    const probe = await createParagraphProbe(field, [20, 20, 20])
+    const variable = { id: 'variable:spacing' }
+    await probe.update(undefined, [{ start: 0, end: 1, variables: { [field]: variable } }])
+    expect(probe.aliases()).toEqual([variable.id, undefined, undefined])
+
+    await probe.update(undefined, undefined, { [field]: variable })
+    expect(probe.aliases()).toEqual([variable.id, variable.id, variable.id])
+    expect(probe.values()).toEqual([8, 8, 8])
+    await expect(probe.update(undefined, undefined, { [field]: variable })).resolves.toMatchObject({
+      mutationCount: 0
+    })
+  })
+
+  it('clears a node binding while retaining its explicit range override', async () => {
+    const probe = await createParagraphProbe(field, [20, 20, 20])
+    const variable = { id: 'variable:spacing' }
+    await probe.update(undefined, undefined, { [field]: variable })
+    const ranges = [{ start: 6, end: 7, variables: { [field]: variable } }]
+    await probe.update(undefined, ranges, { [field]: null })
+    expect(probe.aliases()).toEqual([undefined, variable.id, undefined])
+    await expect(probe.update(undefined, ranges, { [field]: null })).resolves.toMatchObject({
+      mutationCount: 0
+    })
+  })
+
+  it('does not retain an equal literal alias when the node binding is explicitly cleared', async () => {
+    const probe = await createParagraphProbe(field, [20, 20, 20])
+    await probe.update(undefined, undefined, { [field]: { id: 'variable:spacing' } })
+    const ranges = [{ start: 6, end: 7, value: 8 }]
+    await probe.update(undefined, ranges, { [field]: null })
+    expect(probe.aliases()).toEqual([undefined, undefined, undefined])
+    expect(probe.values()).toEqual([8, 8, 8])
+    await expect(probe.update(undefined, ranges, { [field]: null })).resolves.toMatchObject({
+      mutationCount: 0
+    })
+  })
+
+  it('rejects an ignored node unbinding under a full-text equal literal', async () => {
+    const probe = await createParagraphProbe(field, [20, 20, 20])
+    await probe.update(undefined, undefined, { [field]: { id: 'variable:spacing' } })
+    vi.mocked(probe.label.setBoundVariable).mockImplementation(() => {})
+
+    await expect(
+      probe.update(undefined, [{ start: 0, end: 17, value: 8 }], { [field]: null })
+    ).rejects.toThrow(`variable link "${field}" does not match`)
+  })
+
+  it.each([false, true])(
+    'rejects an ignored node unbinding under a style: pending=%s',
+    async (pending) => {
+      const probe = await createParagraphProbe(field, [20, 20, 20])
+      const style = probe.fixture.styles.get('style:text') as TextStyle
+      Object.assign(style, {
+        hangingPunctuation: false,
+        boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: 'variable:spacing' } }
+      })
+      const styled = { start: 0, end: 17, textStyle: { id: style.id }, [field]: 12 }
+      await probe.update(undefined, [styled])
+      const collection = figma.variables.createVariableCollection('Foreign')
+      const other = figma.variables.createVariable('Foreign', collection, 'FLOAT')
+      other.setValueForMode(collection.defaultModeId, 12)
+      await probe.update(undefined, undefined, { [field]: { id: other.id } })
+      const segments = vi.mocked(probe.label.getStyledTextSegments).getMockImplementation()!
+      vi.mocked(probe.label.getStyledTextSegments).mockImplementation((...args) =>
+        segments(...args).map((segment) => ({
+          ...segment,
+          textStyleOverrides: [{ type: 'SEMANTIC_ITALIC' as const }]
+        }))
+      )
+      vi.mocked(probe.label.setBoundVariable).mockImplementation(() => {})
+      if (pending) {
+        vi.spyOn(probe.label, 'getRangeTextStyleId').mockReturnValue('style:foreign')
+        vi.spyOn(probe.label, 'setRangeTextStyleIdAsync').mockImplementation(async () => {})
+      }
+
+      await expect(probe.update(undefined, [styled], { [field]: null })).rejects.toThrow(
+        `variable link "${field}" does not match`
+      )
+    }
+  )
+
+  it.each(['variable', 'null'] as const)(
+    'preserves a range %s while restating the node binding',
+    async (override) => {
+      const probe = await createParagraphProbe(field, [20, 20, 20])
+      const collection = figma.variables.createVariableCollection('Override')
+      const other = figma.variables.createVariable('Override', collection, 'FLOAT')
+      other.setValueForMode(collection.defaultModeId, 12)
+      const reference = override === 'null' ? null : { id: other.id }
+      const ranges = [{ start: 6, end: 7, variables: { [field]: reference } }]
+      const bindings = { [field]: { id: 'variable:spacing' } }
+      await probe.update(undefined, ranges, bindings)
+      expect(probe.aliases()).toEqual(['variable:spacing', reference?.id, 'variable:spacing'])
+      await expect(probe.update(undefined, ranges, bindings)).resolves.toMatchObject({
+        mutationCount: 0
+      })
+    }
+  )
+
+  it('preserves a later style alias while clearing the node binding', async () => {
+    const probe = await createParagraphProbe(field, [20, 20, 20])
+    const style = probe.fixture.styles.get('style:text') as TextStyle
+    Object.assign(style, {
+      hangingPunctuation: false,
+      boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: 'variable:spacing' } }
+    })
+    const ranges = [{ start: 6, end: 12, textStyle: { id: style.id } }]
+    await probe.update(undefined, ranges, { [field]: null })
+    expect(probe.aliases()).toEqual([undefined, 'variable:spacing', undefined])
+    await expect(probe.update(undefined, ranges, { [field]: null })).resolves.toMatchObject({
+      mutationCount: 0
+    })
+  })
+
+  it('does not retain a foreign alias under a locally overridden style when clearing the node', async () => {
+    const probe = await createParagraphProbe(field, [20, 20, 20])
+    const style = probe.fixture.styles.get('style:text') as TextStyle
+    Object.assign(style, {
+      hangingPunctuation: false,
+      boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: 'variable:spacing' } }
+    })
+    const styled = { start: 6, end: 12, textStyle: { id: style.id }, [field]: 12 }
+    await probe.update(undefined, [styled])
+    const collection = figma.variables.createVariableCollection('Foreign')
+    const other = figma.variables.createVariable('Foreign', collection, 'FLOAT')
+    other.setValueForMode(collection.defaultModeId, 12)
+    await probe.update(undefined, [{ start: 6, end: 7, variables: { [field]: { id: other.id } } }])
+    expect(probe.aliases()).toEqual([undefined, other.id, undefined])
+
+    await probe.update(undefined, [styled], { [field]: null })
+    expect(probe.aliases()).toEqual([undefined, undefined, undefined])
+    await expect(probe.update(undefined, [styled], { [field]: null })).resolves.toMatchObject({
+      mutationCount: 0
+    })
+  })
+
   it.each([false, true])(
     'updates unbound paragraphs while retaining a variable: range redeclared=%s',
     async (redeclare) => {

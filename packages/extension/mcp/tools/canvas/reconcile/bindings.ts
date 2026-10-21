@@ -14,10 +14,13 @@ import {
   styleLinkMatches,
   STYLE_FIELDS,
   DIRECT_VARIABLE_FIELDS,
-  currentBoundVariableId
+  isTextVariableField,
+  rangeHasVariableLiteral,
+  variableLinkMatches
 } from './binding-values'
 import { type SupportedCanvasNode, type ApplyState, markMutation } from './state'
 import { loadVariableFonts } from './text-fonts'
+import { textParagraphRange } from './text-ranges'
 
 async function setStyleLink(
   node: SupportedCanvasNode,
@@ -92,11 +95,53 @@ function applyPaintVariable(
   markMutation(state, node)
 }
 
-export function clearVariables(
+async function retainedTextBindings(
+  node: TextNode,
+  field: VariableBindableTextField,
+  ranges: CanvasFigmaTextRange[] | undefined,
+  state: ApplyState
+): Promise<CanvasFigmaTextRange[]> {
+  const retained: CanvasFigmaTextRange[] = []
+  for (const range of ranges ?? []) {
+    if (range.variables?.[field]) {
+      retained.push(range)
+      continue
+    }
+    if (range.variables?.[field] === null || !range.textStyle) continue
+    const style = await resolveStyle(range.textStyle, state.styles)
+    const expected = style.type === 'TEXT' ? style.boundVariables?.[field] : undefined
+    if (!expected) continue
+    const span =
+      field === 'paragraphIndent' || field === 'paragraphSpacing'
+        ? textParagraphRange(node.characters, range)
+        : range
+    const current = node.getRangeBoundVariable(span.start, span.end, field)
+    // A style can carry local overrides. Only its actual alias supersedes the
+    // base null; this rule also checks the final state after setters have run.
+    if (current !== figma.mixed && current?.id === expected.id) retained.push(range)
+  }
+  return retained
+}
+
+export async function clearedVariableMatches(
+  node: SupportedCanvasNode,
+  field: VariableBindableNodeField | VariableBindableTextField,
+  ranges: CanvasFigmaTextRange[] | undefined,
+  state: ApplyState
+): Promise<boolean> {
+  const retained =
+    node.type === 'TEXT' && isTextVariableField(field)
+      ? await retainedTextBindings(node, field, ranges, state)
+      : undefined
+  return variableLinkMatches(node, field, undefined, retained)
+}
+
+export async function clearVariables(
   node: SupportedCanvasNode,
   bindings: CanvasVariableBindings | undefined,
-  state: ApplyState
-): void {
+  state: ApplyState,
+  ranges?: CanvasFigmaTextRange[]
+): Promise<void> {
   if (!bindings) return
   for (const field of Object.keys(bindings) as Array<keyof CanvasVariableBindings>) {
     if (bindings[field] !== null) continue
@@ -105,7 +150,7 @@ export function clearVariables(
       continue
     }
     const figmaField = DIRECT_VARIABLE_FIELDS[field]
-    if (!currentBoundVariableId(node, figmaField)) continue
+    if (await clearedVariableMatches(node, figmaField, ranges, state)) continue
     node.setBoundVariable(figmaField, null)
     markMutation(state, node)
   }
@@ -114,7 +159,8 @@ export function clearVariables(
 export async function applyVariables(
   node: SupportedCanvasNode,
   bindings: CanvasVariableBindings | undefined,
-  state: ApplyState
+  state: ApplyState,
+  ranges?: CanvasFigmaTextRange[]
 ): Promise<void> {
   if (!bindings) return
   if (node.type === 'TEXT') await loadVariableFonts(node, bindings, state)
@@ -127,7 +173,17 @@ export async function applyVariables(
       continue
     }
     const figmaField = DIRECT_VARIABLE_FIELDS[field]
-    if (currentBoundVariableId(node, figmaField) === variable.id) continue
+    if (variableLinkMatches(node, figmaField, variable.id)) continue
+    // A literal may leave an equal alias untouched. Replay the base binding
+    // before literal-only overrides unless the whole field already matches.
+    const hasLiteral =
+      isTextVariableField(figmaField) &&
+      ranges?.some(
+        (range) =>
+          range.variables?.[figmaField] === undefined && rangeHasVariableLiteral(range, figmaField)
+      )
+    if (ranges?.length && !hasLiteral && variableLinkMatches(node, figmaField, variable.id, ranges))
+      continue
     node.setBoundVariable(figmaField, variable)
     markMutation(state, node)
   }

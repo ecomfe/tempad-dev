@@ -13,8 +13,10 @@ import {
   currentBoundVariableId,
   DIRECT_VARIABLE_FIELDS,
   STYLE_FIELDS,
-  styleLinkMatches
+  styleLinkMatches,
+  variableLinkMatches
 } from './binding-values'
+import { clearedVariableMatches } from './bindings'
 import { GEOMETRY_TOLERANCE, nativeValueEqual } from './comparison'
 import {
   componentDefinitionOwner,
@@ -48,15 +50,31 @@ import {
   resolvedRangeTextStyle
 } from './text-range-style'
 
-function appliedVariableId(
+async function appliedVariableMatches(
   node: SupportedCanvasNode,
-  field: keyof CanvasVariableBindings
-): string | undefined {
+  field: keyof CanvasVariableBindings,
+  expected: string | undefined,
+  spec: CanvasNodeSpec,
+  state: ApplyState
+): Promise<boolean> {
   if (field === 'fill' || field === 'stroke') {
     const paintField = field === 'fill' ? 'fills' : 'strokes'
-    return node.boundVariables?.[paintField]?.[0]?.id
+    return node.boundVariables?.[paintField]?.[0]?.id === expected
   }
-  return currentBoundVariableId(node, DIRECT_VARIABLE_FIELDS[field])
+  if (expected === undefined) {
+    return clearedVariableMatches(
+      node,
+      DIRECT_VARIABLE_FIELDS[field],
+      spec.figma?.text?.ranges,
+      state
+    )
+  }
+  return variableLinkMatches(
+    node,
+    DIRECT_VARIABLE_FIELDS[field],
+    expected,
+    spec.figma?.text?.ranges
+  )
 }
 
 function verifySizingGeometry(
@@ -303,7 +321,7 @@ export async function verifyAppliedNode(
   >) {
     const expected = reference ? resolvedVariable(reference, state.variables).id : undefined
     references += 1
-    if (appliedVariableId(node, field) !== expected) {
+    if (!(await appliedVariableMatches(node, field, expected, spec, state))) {
       applyError(`Verification failed for "${spec.key}": variable link "${field}" does not match.`)
     }
   }

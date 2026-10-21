@@ -1147,7 +1147,14 @@ export function createFixture({
         vi.fn((start: number, end: number) => rangeValue(start, end, field, fallback()))
       const rangeSetter = <T>(field: string) =>
         vi.fn((start: number, end: number, value: T) => setRangeValue(start, end, field, value))
+      const bindNode = vi.mocked(text.setBoundVariable).getMockImplementation()!
       Object.assign(node, {
+        setBoundVariable: vi.fn((field: string, variable: Variable | null) => {
+          bindNode(field as VariableBindableTextField, variable)
+          for (const key of rangeValues.keys()) {
+            if (key.endsWith(`:variable:${field}`)) rangeValues.delete(key)
+          }
+        }),
         fontName: { family: 'Inter', style: 'Regular' },
         fontSize: 12,
         fontWeight: 400,
@@ -1342,7 +1349,12 @@ export function createFixture({
           })
         }),
         getRangeBoundVariable: vi.fn((start: number, end: number, field: string) =>
-          rangeValue<VariableAlias | null>(start, end, `variable:${field}`, null)
+          rangeValue<VariableAlias | null>(
+            start,
+            end,
+            `variable:${field}`,
+            (boundVariables[field] as VariableAlias | undefined) ?? null
+          )
         ),
         setRangeBoundVariable: vi.fn(
           (start: number, end: number, field: string, variable: Variable | null) => {

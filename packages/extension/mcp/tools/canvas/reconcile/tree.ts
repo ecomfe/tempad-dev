@@ -213,7 +213,7 @@ async function applyNodePropertiesUnchecked(
       ? spec.figma?.text?.ranges
       : undefined
   await unlinkStyles(node, spec.styles, state, textRanges)
-  clearVariables(node, spec.variables, state)
+  await clearVariables(node, spec.variables, state, textRanges)
   setValue(
     node,
     node.name,
@@ -260,7 +260,7 @@ async function applyNodePropertiesUnchecked(
   }
   applyEffects(node, spec, state)
   if (node.type === 'TEXT') await applyText(node, spec, state)
-  await applyVariables(node, spec.variables, state)
+  await applyVariables(node, spec.variables, state, spec.figma?.text?.ranges)
   if (node.type === 'TEXT' && !hasDeferredTextRanges(spec)) {
     await applyTextRanges(node, spec.figma?.text?.ranges, state)
   }

@@ -209,6 +209,58 @@ export function currentBoundVariableId(
   return radiusId && aliases.every((alias) => alias?.id === radiusId) ? radiusId : undefined
 }
 
+export function isTextVariableField(
+  field: VariableBindableNodeField | VariableBindableTextField
+): field is VariableBindableTextField {
+  return [
+    'fontFamily',
+    'fontStyle',
+    'fontWeight',
+    'fontSize',
+    'lineHeight',
+    'letterSpacing',
+    'paragraphIndent',
+    'paragraphSpacing'
+  ].includes(field)
+}
+
+export function rangeHasVariableLiteral(
+  range: CanvasFigmaTextRange,
+  field: VariableBindableTextField
+): boolean {
+  return field === 'fontFamily' || field === 'fontStyle' || field === 'fontWeight'
+    ? range.fontName !== undefined
+    : range[field] !== undefined
+}
+
+export function variableLinkMatches(
+  node: SupportedCanvasNode,
+  field: VariableBindableNodeField | VariableBindableTextField,
+  expected: string | undefined,
+  ranges?: CanvasFigmaTextRange[]
+): boolean {
+  if (node.type !== 'TEXT' || !node.characters.length || !isTextVariableField(field)) {
+    return currentBoundVariableId(node, field) === expected
+  }
+  let overrides: TextRange[] = (ranges ?? []).filter(
+    (range) =>
+      range.variables?.[field] !== undefined ||
+      range.textStyle ||
+      rangeHasVariableLiteral(range, field)
+  )
+  if (field === 'paragraphIndent' || field === 'paragraphSpacing') {
+    overrides = textParagraphRanges(node.characters, overrides)
+  }
+  return textRangesMatchOutside(
+    { start: 0, end: node.characters.length },
+    overrides,
+    (start, end) => {
+      const alias = node.getRangeBoundVariable(start, end, field)
+      return alias !== figma.mixed && alias?.id === expected
+    }
+  )
+}
+
 // Undefined permits a whole-node write; an empty list preserves the whole field.
 export function unboundTextMetricRanges(
   node: TextNode,
