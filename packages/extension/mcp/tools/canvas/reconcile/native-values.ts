@@ -286,6 +286,18 @@ const IMAGE_FILTER_FIELDS = [
 ] as const satisfies ReadonlyArray<keyof ImageFilters>
 
 export function comparablePaint(paint: Paint, expected: Paint): unknown {
+  if (paint.type === 'SOLID' && expected.type === 'SOLID' && expected.boundVariables?.color) {
+    // Figma replaces both RGB and opacity with the bound COLOR variable's value.
+    const {
+      color: _color,
+      opacity: _opacity,
+      ...boundPaint
+    } = {
+      ...paint,
+      ...paintDefaults(paint)
+    }
+    return boundPaint
+  }
   if (paint.type === 'IMAGE' && expected.type === 'IMAGE') {
     return {
       type: paint.type,
