@@ -8,7 +8,11 @@ import {
   handleApplyCanvas as applyCanvasFromTool
 } from '@/mcp/tools/canvas'
 import { CANVAS_KEY_NAMESPACE, CANVAS_PAGE_KEY_NAME } from '@/mcp/tools/canvas/identity'
-import { createApplyState, markMutation } from '@/mcp/tools/canvas/reconcile/state'
+import {
+  createApplyState,
+  markMutation,
+  recordCreatedNode
+} from '@/mcp/tools/canvas/reconcile/state'
 import { withUndoBoundary } from '@/mcp/tools/canvas/reconcile/undo'
 
 import { createFixture } from '../../fakes/figma'
@@ -68,9 +72,14 @@ describe('canvas rollback verification', () => {
       const label = figma.createText()
       const before = 12
       label.paragraphSpacing = before
+      const beforeName = label.name
+      fixture.triggerUndo.mockImplementationOnce(() => {
+        label.name = beforeName
+      })
       const state = createApplyState(label, new Set())
       const cause = Object.assign(new Error('Later native operation failed'), { code })
       const error = await withUndoBoundary(async () => {
+        label.name = 'Changed by request'
         label.paragraphSpacing = before + 20
         markMutation(state, label)
         throw cause
@@ -84,6 +93,153 @@ describe('canvas rollback verification', () => {
       expect((error as Error).message).not.toContain('CANVAS_APPLY_ABORTED')
     }
   )
+
+  it.each(['no-op', 'cancelled changes'] as const)(
+    'does not consume a previous successful edit after counted %s',
+    async (kind) => {
+      const fixture = createFixture()
+      const label = figma.createText()
+      label.fontSize = 8
+      const first = createApplyState(label, new Set())
+      await withUndoBoundary(async () => {
+        label.fontSize = 13
+        markMutation(first, label)
+      }, first)
+      fixture.triggerUndo.mockImplementation(() => {
+        label.fontSize = 8
+      })
+      const state = createApplyState(label, new Set())
+      const cause = new Error('Verification failed after a counted setter')
+      const error = await withUndoBoundary(async () => {
+        if (kind === 'cancelled changes') {
+          label.fontSize = 18
+          markMutation(state, label)
+        }
+        label.fontSize = 13
+        markMutation(state, label)
+        throw cause
+      }, state).catch((error: unknown) => error)
+
+      expect(label.fontSize).toBe(13)
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+      expect(error).toMatchObject({
+        code: 'CANVAS_APPLY_FAILED',
+        cause,
+        message: expect.stringContaining('Undo was skipped')
+      })
+    }
+  )
+
+  it('keeps uncaptured changes uncertain without consuming earlier history', async () => {
+    const fixture = createFixture()
+    const label = figma.createText()
+    label.paragraphSpacing = 12
+    const state = createApplyState(label, new Set())
+    const cause = new Error('Later operation failed')
+    const error = await withUndoBoundary(async () => {
+      label.paragraphSpacing = 24
+      markMutation(state, label)
+      throw cause
+    }, state).catch((error: unknown) => error)
+
+    expect(label.paragraphSpacing).toBe(24)
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED', cause })
+    expect((error as Error).message).toContain('Undo was skipped')
+  })
+
+  it('does not use an unrelated user edit as evidence for this attempt', async () => {
+    const fixture = createFixture()
+    const root = figma.createFrame()
+    const unrelated = figma.createFrame()
+    const state = createApplyState(root, new Set())
+    const error = await withUndoBoundary(async () => {
+      unrelated.name = 'User edit'
+      markMutation(state, root)
+      throw new Error('No-op setter failed verification')
+    }, state).catch((error: unknown) => error)
+
+    expect(unrelated.name).toBe('User edit')
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED' })
+  })
+
+  it.each(['node', 'page'] as const)(
+    'does not use a removed newly created %s as evidence for an Undo entry',
+    async (kind) => {
+      const fixture = createFixture()
+      const state = createApplyState(null, new Set())
+      const error = await withUndoBoundary(async () => {
+        if (kind === 'page') {
+          const page = figma.createPage()
+          state.createdPageIds.add(page.id)
+          state.mutations.count += 1
+          page.remove()
+        } else {
+          const node = figma.createFrame()
+          recordCreatedNode(node, state)
+          node.remove()
+        }
+        throw new Error('Creation was already cancelled')
+      }, state).catch((error: unknown) => error)
+
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
+      expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED' })
+    }
+  )
+
+  it('does not attempt Undo when a touched node can no longer be inspected', async () => {
+    const fixture = createFixture()
+    const root = figma.createFrame()
+    const state = createApplyState(root, new Set())
+    const cause = new Error('Later operation failed')
+    const error = await withUndoBoundary(async () => {
+      markMutation(state, root)
+      Object.defineProperty(root, 'name', {
+        get: () => {
+          throw new Error('Native state unavailable')
+        }
+      })
+      throw cause
+    }, state).catch((error: unknown) => error)
+
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED', cause })
+  })
+
+  it('does not interpret an unresolved touched node as a confirmed removal', async () => {
+    const fixture = createFixture()
+    const root = figma.createFrame()
+    const state = createApplyState(root, new Set())
+    const error = await withUndoBoundary(async () => {
+      markMutation(state, root)
+      vi.mocked(figma.getNodeById).mockReturnValue(null)
+      vi.mocked(figma.getNodeByIdAsync).mockResolvedValue(null)
+      throw new Error('Native lookup unavailable')
+    }, state).catch((error: unknown) => error)
+
+    expect(root.removed).toBe(false)
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(error).toMatchObject({ code: 'CANVAS_APPLY_FAILED' })
+  })
+
+  it('attempts Undo for a confirmed removal from this request', async () => {
+    const fixture = createFixture()
+    const root = figma.createFrame()
+    const state = createApplyState(root, new Set())
+    state.removalNodeIds.add(root.id)
+    const error = await withUndoBoundary(async () => {
+      root.remove()
+      state.mutations.count += 1
+      throw new Error('Later operation failed')
+    }, state).catch((error: unknown) => error)
+
+    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    expect(error).toMatchObject({
+      code: 'CANVAS_APPLY_FAILED',
+      message: expect.stringContaining('Rollback did not preserve pre-existing node')
+    })
+  })
 
   it('keeps an uncounted native failure uncertain after the write phase starts', async () => {
     const fixture = createFixture()

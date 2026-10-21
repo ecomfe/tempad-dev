@@ -226,6 +226,35 @@ async function removeRollbackCreatedPages(
   }
 }
 
+async function hasRollbackChange(state: ApplyState): Promise<boolean> {
+  try {
+    let changed = false
+    for (const id of state.createdPageIds) {
+      const page = pageById(id)
+      if (page && !page.removed) changed = true
+    }
+    for (const id of state.createdNodeIds) {
+      if (await lookupNodeById(id)) changed = true
+    }
+    const touched = new Set([...state.updatedNodeIds, ...state.removalNodeIds])
+    for (const id of touched) {
+      if (state.createdNodeIds.has(id) || state.createdPageIds.has(id)) continue
+      const protectedNode = state.protectedNodes.get(id)
+      if (!protectedNode?.snapshot) return false
+      if (protectedNode.node.removed) {
+        changed = true
+        continue
+      }
+      const node = protectedNode.snapshot.type === 'PAGE' ? pageById(id) : await lookupNodeById(id)
+      if (!node) return false
+      if (!nativeValueEqual(snapshotProtectedNode(node), protectedNode.snapshot)) changed = true
+    }
+    return changed
+  } catch {
+    return false
+  }
+}
+
 export async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyState): Promise<T> {
   const previousPage = figma.currentPage
   let applyStarted = false
@@ -258,6 +287,15 @@ export async function withUndoBoundary<T>(apply: () => Promise<T>, state: ApplyS
         : message
     if (state.mutations.count > 0) {
       try {
+        // Counted setters can be no-ops or cancel each other out. Undo would then
+        // consume an earlier edit. Partial snapshots only justify an attempt when
+        // they show a retained change; equality never certifies an unchanged canvas.
+        if (!(await hasRollbackChange(state))) {
+          throw new Error(
+            'A distinct change for this attempt could not be confirmed; Undo was skipped',
+            { cause: error }
+          )
+        }
         // Make this partial attempt the newest history entry before undoing. In a long-lived
         // plugin session, the preceding entry may be an earlier successful apply.
         figma.commitUndo()

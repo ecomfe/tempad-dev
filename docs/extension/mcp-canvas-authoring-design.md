@@ -774,9 +774,14 @@ Figma may normalize Text auto-resize while truncation and maximum-line state cha
 therefore applies truncation state before the declared auto-resize mode, so fixed text boxes remain
 fixed while still supporting native ending truncation.
 
-After a failed mutation, reconciliation commits the partial attempt as the newest history entry
-before triggering Undo. This keeps rollback scoped to that attempt in a long-lived plugin session
-instead of consuming the preceding successful apply. Rollback verifies that the update root remains
+After a failed mutation, reconciliation attempts Undo only when a created node/page still exists or
+a touched pre-existing node has an observable retained change. Counted setters alone do not establish
+a history entry: no-op setters and changes that cancel each other out can otherwise make Undo consume
+the preceding successful apply. Unrelated protected roots do not justify Undo. Unreadable state or no
+observable change skips automatic Undo and retains the uncertain-failure readback requirement;
+partial snapshots cannot certify that uncaptured fields or resources stayed unchanged. When a change
+is observed, reconciliation commits the partial attempt before triggering Undo. This is a conservative
+guard, not a guarantee of isolation from concurrent edits. Rollback verifies that the update root remains
 resolvable. Exact pre-existing node/component references and unrelated top-level roots on the result
 page also retain their type, parent, canvas key, geometry, direct child identities, and common
 content fields (including paints, effects, and whole-node text content/style), local transforms,

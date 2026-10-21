@@ -266,7 +266,7 @@ async function removePage(input: ParsedCanvasPageInput): Promise<ApplyCanvasResu
       protectNode(state, page)
       if (figma.currentPage.id === page.id) await figma.setCurrentPageAsync(fallback)
       page.remove()
-      state.mutations.count += 1
+      markMutation(state, page)
       if (figma.root.children.some((candidate) => candidate.id === page.id)) {
         applyError(`Verification failed: page "${page.id}" is still present.`)
       }

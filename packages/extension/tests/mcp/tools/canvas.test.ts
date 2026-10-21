@@ -1341,7 +1341,9 @@ describe('mcp/tools/canvas', () => {
       code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
       message: expect.stringContaining('fill geometry does not match')
     })
-    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    // The ignored setter left no new change for Undo to distinguish from the prior create.
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(child.width).toBe(0)
   })
 
   it('reports declared and applied sizing modes when Figma rejects a sizing change', async () => {
@@ -1376,7 +1378,8 @@ describe('mcp/tools/canvas', () => {
         'declared horizontal=FILL, vertical=FIXED, grow=false; applied horizontal=FIXED'
       )
     })
-    expect(fixture.triggerUndo).toHaveBeenCalledOnce()
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
+    expect(child.layoutSizingHorizontal).toBe('FIXED')
   })
 
   it('auto-places a transformed root and updates exact native transforms idempotently', async () => {
@@ -5407,8 +5410,12 @@ describe('mcp/tools/canvas', () => {
       applyCanvas({ ...input, mode: 'update', targetNodeId: created.rootNodeId! })
     ).rejects.toMatchObject({
       code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
-      message: 'Verification failed for "root": direct fills do not match.'
+      message: expect.stringContaining('direct fills do not match; automatic rollback'),
+      cause: expect.objectContaining({
+        message: 'Verification failed for "root": direct fills do not match.'
+      })
     })
+    expect(fixture.triggerUndo).not.toHaveBeenCalled()
   })
 
   it('rolls back when Figma does not retain a declared native paint stack', async () => {
@@ -12992,7 +12999,7 @@ describe('mcp/tools/canvas', () => {
         await expect(apply).rejects.toMatchObject({
           code: TEMPAD_MCP_ERROR_CODES.CANVAS_APPLY_FAILED,
           cause: { code: TEMPAD_MCP_ERROR_CODES.INVALID_CANVAS_SPEC },
-          message: expect.stringContaining('is STRING, expected FLOAT')
+          message: expect.stringMatching(/is STRING, expected FLOAT.*Undo was skipped/)
         })
       } else {
         await expect(apply).resolves.toMatchObject({ rootNodeId: expect.any(String) })
@@ -13002,8 +13009,8 @@ describe('mcp/tools/canvas', () => {
         ])
       }
       expect(undoCounts).toEqual([1])
-      if (result === 'mismatch') expect(fixture.triggerUndo).toHaveBeenCalledOnce()
-      else expect(fixture.triggerUndo).not.toHaveBeenCalled()
+      // Resource imports are outside the node snapshots; their rollback remains uncertain.
+      expect(fixture.triggerUndo).not.toHaveBeenCalled()
     }
   )
 
