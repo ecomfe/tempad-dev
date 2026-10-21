@@ -164,15 +164,26 @@ describe('radial gradient geometry', () => {
     })
   })
 
-  it.each(['var(--background)', 'radial-gradient(10% 20%, red, blue), linear-gradient(red, blue)'])(
-    'does not confuse missing or unmatched geometry with native evidence: %s',
-    (background) => {
-      expect(
-        resolveBackgroundFillFromPaints([paint], undefined, undefined, { background })
-      ).toEqual({
-        kind: 'layers',
-        value: [expected]
+  it.each([
+    'radial-gradient(10% 20%, red, blue)',
+    'conic-gradient(from 90deg at 30% 40%, black 0deg, red 90deg, blue 270deg, black 360deg)'
+  ])('retains native layers when their paints cannot be paired: %s', (gradient) => {
+    const layers = [gradient, 'linear-gradient(red, blue)']
+    expect(
+      resolveBackgroundFillFromPaints([paint], undefined, undefined, {
+        background: layers.join(', ')
       })
-    }
-  )
+    ).toEqual({
+      kind: 'layers',
+      value: layers
+    })
+  })
+
+  it('reconstructs paint geometry when the CSS only supplies a placeholder', () => {
+    expect(
+      resolveBackgroundFillFromPaints([paint], undefined, undefined, {
+        background: 'var(--background)'
+      })
+    ).toEqual({ kind: 'layers', value: [expected] })
+  })
 })

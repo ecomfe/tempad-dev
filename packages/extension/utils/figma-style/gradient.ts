@@ -168,12 +168,8 @@ export function resolveBackgroundFillFromPaints(
       return color ? { kind: 'color', value: color } : null
     }
   }
-  if (
-    !sourceLayers &&
-    visible.some(({ paint }) => paint.type === 'GRADIENT_DIAMOND') &&
-    /(?:linear|radial|conic)-gradient\s*\(/i.test(background)
-  ) {
-    // A radial fallback cannot preserve an unrecognized native diamond stack.
+  if (!sourceLayers && /(?:linear|radial|conic)-gradient\s*\(/i.test(background)) {
+    // Reconstructing unmatched paints would discard native layers and geometry.
     return { kind: 'layers', value: splitByTopLevelComma(background) }
   }
 
