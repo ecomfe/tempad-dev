@@ -20,12 +20,18 @@ afterEach(() => vi.unstubAllGlobals())
 
 function createText(
   listTypes: Array<'NONE' | 'ORDERED' | 'UNORDERED'>,
-  indentations: number[] = []
+  indentations: number[] = [],
+  paragraphs: Array<
+    Partial<Pick<StyledTextSegment, 'characters' | 'paragraphIndent' | 'paragraphSpacing'>>
+  > = []
 ): TextNode {
   const fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }]
   let offset = 0
   const segments = listTypes.map((type, index) => {
-    const label = ['First', 'Second', 'Third', 'Fourth'][index] ?? `Item ${index + 1}`
+    const label =
+      paragraphs[index]?.characters ??
+      ['First', 'Second', 'Third', 'Fourth'][index] ??
+      `Item ${index + 1}`
     const characters = `${label}${index < listTypes.length - 1 ? '\n' : ''}`
     const start = offset
     offset += characters.length
@@ -41,7 +47,8 @@ function createText(
       textDecoration: 'NONE',
       listOptions: { type },
       indentation: indentations[index] ?? 1,
-      paragraphSpacing: 0,
+      paragraphIndent: paragraphs[index]?.paragraphIndent ?? 0,
+      paragraphSpacing: paragraphs[index]?.paragraphSpacing ?? 0,
       fills
     }
   })
@@ -65,12 +72,120 @@ function createText(
     strokes: [],
     effects: [],
     getRangeBoundVariable: () => null,
-    getStyledTextSegments: () => segments,
+    getStyledTextSegments: (fields: Array<keyof StyledTextSegment>) =>
+      segments.map(({ characters, start, end, ...values }) => ({
+        characters,
+        start,
+        end,
+        ...Object.fromEntries(fields.map((field) => [field, values[field as keyof typeof values]]))
+      })),
     getCSSAsync: async () => ({ width: '472px', height: '80px' })
   } as unknown as TextNode
 }
 
 describe.each(['jsx', 'vue'] as const)('%s native text blocks', (lang) => {
+  it.each([
+    { paragraphIndent: 12, paragraphSpacing: 0 },
+    { paragraphIndent: 0, paragraphSpacing: 12 },
+    { paragraphIndent: 12, paragraphSpacing: 12 }
+  ])('preserves paragraph metrics $paragraphIndent/$paragraphSpacing', async (metrics) => {
+    const node = createText(
+      ['NONE', 'NONE'],
+      [],
+      [
+        { characters: 'Hello', ...metrics },
+        { characters: 'world', ...metrics }
+      ]
+    )
+    const result = await handleGetCode([node], lang)
+    const paragraphs = [...result.code.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)]
+    expect(paragraphs).toHaveLength(2)
+    expect(result.code).toMatch(/^<div\b/)
+    expect(paragraphs[0]![2]).toContain('Hello')
+    expect(paragraphs[1]![2]).toContain('world')
+    for (const paragraph of paragraphs) {
+      if (metrics.paragraphIndent) expect(paragraph[1]).toContain('indent-[12px]')
+      expect(paragraph[2]).not.toMatch(/<(?:p|br)\b/)
+    }
+    if (metrics.paragraphSpacing) expect(paragraphs[0]![1]).toContain('mb-[12px]')
+    expect(paragraphs[1]![1]).not.toContain('mb-')
+  })
+
+  it('preserves mixed paragraph metrics without applying a trailing gap', async () => {
+    const node = createText(
+      ['NONE', 'NONE', 'NONE'],
+      [],
+      [
+        { paragraphIndent: 12, paragraphSpacing: 8 },
+        { paragraphIndent: 0, paragraphSpacing: 20 },
+        { paragraphIndent: 24, paragraphSpacing: 30 }
+      ]
+    )
+    const result = await handleGetCode([node], lang)
+    const paragraphs = [...result.code.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)]
+    expect(paragraphs).toHaveLength(3)
+    expect(paragraphs[0]![1]).toContain('indent-[12px]')
+    expect(paragraphs[0]![1]).toContain('mb-[8px]')
+    expect(paragraphs[1]![1]).toContain('indent-[0]')
+    expect(paragraphs[1]![1]).toContain('mb-[20px]')
+    expect(paragraphs[2]![1]).toContain('indent-[24px]')
+    expect(paragraphs[2]![1]).not.toContain('mb-')
+  })
+
+  it('keeps a soft break inside an indented paragraph', async () => {
+    const node = createText(
+      ['NONE', 'NONE'],
+      [],
+      [
+        { characters: 'Hello\u2028world', paragraphIndent: 12, paragraphSpacing: 8 },
+        { characters: 'Next', paragraphIndent: 12, paragraphSpacing: 8 }
+      ]
+    )
+    const result = await handleGetCode([node], lang)
+    const paragraphs = [...result.code.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)]
+    expect(paragraphs).toHaveLength(2)
+    expect(paragraphs[0]![2]).toMatch(/Hello[\s\S]*<br\s*\/?>(?:[\s\S]*)world/)
+    expect(paragraphs[0]![1]).toContain('mb-[8px]')
+    expect(paragraphs[1]![1]).not.toContain('mb-')
+    expect(result.code).not.toContain('\u2028')
+  })
+
+  it('keeps paragraph geometry around a list in legal sibling blocks', async () => {
+    const node = createText(
+      ['NONE', 'UNORDERED', 'NONE'],
+      [],
+      [
+        { paragraphIndent: 12, paragraphSpacing: 8 },
+        { characters: 'Item\u2028continuation' },
+        { paragraphIndent: 24 }
+      ]
+    )
+    const result = await handleGetCode([node], lang)
+    expect(result.code).toMatch(/^<div\b/)
+    expect(result.code).toMatch(/<p\b[^>]*mb-\[8px\][\s\S]*First[\s\S]*<\/p>\s*<ul\b/)
+    expect(result.code.match(/<li\b/g)).toHaveLength(1)
+    expect(result.code).toMatch(/Item[\s\S]*<br\s*\/?>(?:[\s\S]*)continuation/)
+    expect(result.code).toMatch(/<\/ul>\s*<p\b[^>]*indent-\[24px\]/)
+  })
+
+  it('retains an empty paragraph between paragraphs with spacing', async () => {
+    const node = createText(
+      ['NONE', 'NONE', 'NONE'],
+      [],
+      [
+        { characters: 'Hello', paragraphSpacing: 12 },
+        { characters: '', paragraphSpacing: 12 },
+        { characters: 'world', paragraphSpacing: 12 }
+      ]
+    )
+    const result = await handleGetCode([node], lang)
+    const paragraphs = [...result.code.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)]
+    expect(paragraphs).toHaveLength(3)
+    expect(paragraphs[1]![2]).toMatch(/^\s*<br\s*\/?>\s*$/)
+    expect(paragraphs[1]![1]).toContain('mb-[12px]')
+    expect(paragraphs[2]![1]).not.toContain('mb-')
+  })
+
   it('keeps a list and ordinary text inside a legal layout container without a plugin', async () => {
     const result = await handleGetCode([createText(['UNORDERED', 'NONE'])], lang)
     expect(result.codegen.plugin).toBe('none')
@@ -143,5 +258,7 @@ describe.each(['jsx', 'vue'] as const)('%s native text blocks', (lang) => {
     expect(result.code.trim()).toMatch(new RegExp(`</${tag}>$`))
     expect(result.code).not.toContain('<div')
     expect(result.code).toContain('First')
+    expect(result.code).not.toContain('indent-[')
+    expect(result.code).not.toContain('mb-[')
   })
 })

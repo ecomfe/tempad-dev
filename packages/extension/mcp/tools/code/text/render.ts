@@ -83,8 +83,15 @@ export async function renderTextSegments(
 
   const outputSegments: Array<DevComponent | string> = []
 
-  for (const block of blocks) {
-    const renderedBlock = renderBlock(block, commonStyle, classProp, ctx, node)
+  for (const [index, block] of blocks.entries()) {
+    const renderedBlock = renderBlock(
+      block,
+      commonStyle,
+      classProp,
+      ctx,
+      node,
+      index < blocks.length - 1
+    )
     if (renderedBlock) {
       optimizeComponentTree(renderedBlock, classProp)
       outputSegments.push(renderedBlock)
@@ -99,10 +106,11 @@ function renderBlock(
   commonStyle: Record<string, string>,
   classProp: 'class' | 'className',
   ctx: RenderContext,
-  node: TextNode
+  node: TextNode,
+  hasFollowingBlock: boolean
 ): DevComponent | null {
   const { type, lines, attrs } = block
-  const { paragraphSpacing } = attrs
+  const { paragraphIndent, paragraphSpacing } = attrs
   const { config } = ctx
 
   const isList = type === 'ordered-list' || type === 'unordered-list'
@@ -114,7 +122,11 @@ function renderBlock(
     blockClasses.push(...styleToClassNames(commonStyle, config))
   }
 
-  if (paragraphSpacing > 0) {
+  if (block.paragraphLayout) {
+    blockClasses.push(...styleToClassNames({ 'text-indent': `${paragraphIndent}px` }, config))
+  }
+
+  if (paragraphSpacing > 0 && (isList || hasFollowingBlock)) {
     const mbStyle = { 'margin-bottom': `${paragraphSpacing}px` }
     blockClasses.push(...styleToClassNames(mbStyle, config))
   }
@@ -123,8 +135,9 @@ function renderBlock(
   if (cls) props[classProp] = cls
 
   if (!isList) {
-    const isMultiline = lines.length > 1
-    const tagName = isMultiline || paragraphSpacing > 0 ? 'p' : 'span'
+    const isMultiline =
+      lines.length > 1 || lines.some((line) => line.runs.some((run) => run.text.includes('\u2028')))
+    const tagName = block.paragraphLayout || isMultiline || paragraphSpacing > 0 ? 'p' : 'span'
     const container: DevComponent = { name: tagName, props, children: [] }
 
     lines.forEach((line, idx) => {
@@ -333,15 +346,20 @@ function buildInlineTree(
     if (style['font-style'] === 'normal') classNames.push('not-italic')
     const cls = joinClassNames(classNames)
     const top = stack.at(-1)?.container ?? root
+    const children: Array<DevComponent | string> = []
+    for (const [index, text] of run.text.split('\u2028').entries()) {
+      if (index) children.push({ name: 'br', props: {}, children: [] })
+      if (text) children.push(text)
+    }
 
     if (cls) {
       top.children.push({
         name: 'span',
         props: { [classProp]: cls },
-        children: [run.text]
+        children
       })
     } else {
-      top.children.push(run.text)
+      top.children.push(...children)
     }
   }
 
