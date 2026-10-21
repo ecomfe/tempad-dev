@@ -179,6 +179,63 @@ async function createParagraphProbe(
 }
 
 describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (field) => {
+  it.each([
+    { start: 0, end: 17, aliases: [undefined, undefined, undefined] },
+    { start: 7, end: 8, aliases: ['variable:spacing', undefined, 'variable:spacing'] }
+  ])(
+    'detaches retained paragraph aliases at $start:$end without flattening values',
+    async ({ start, end, aliases }) => {
+      const probe = await createParagraphProbe(field, [8, 18, 8])
+      await probe.update(
+        undefined,
+        [{ start: 7, end: 8, variables: { [field]: { id: 'variable:range-size' } } }],
+        { [field]: { id: 'variable:spacing' } }
+      )
+      const bind = probe.bind.getMockImplementation()!
+      probe.bind.mockImplementation((start, end, property, variable) => {
+        if (variable) bind(start, end, property, variable)
+      })
+      const ranges = [{ start, end, variables: { [field]: null } }]
+      await probe.update(undefined, ranges)
+      expect(probe.values()).toEqual([8, 18, 8])
+      expect(probe.aliases()).toEqual(aliases)
+      await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+    }
+  )
+
+  it('rejects a paragraph alias retained by both null and literal setters', async () => {
+    const probe = await createParagraphProbe(field)
+    await probe.update(undefined, undefined, { [field]: { id: 'variable:spacing' } })
+    probe.bind.mockImplementation(() => {})
+    probe.write.mockImplementation(() => {})
+    await expect(
+      probe.update(undefined, [{ start: 7, end: 8, variables: { [field]: null } }])
+    ).rejects.toThrow(`range variable link "${field}" was not cleared`)
+  })
+
+  it('keeps a later style-owned paragraph intact during the null fallback', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const variable = { id: 'variable:spacing' }
+    const style = probe.fixture.styles.get('style:text') as TextStyle
+    Object.assign(style, {
+      hangingPunctuation: false,
+      boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: variable.id } }
+    })
+    const styled = { start: 8, end: 9, textStyle: { id: style.id } }
+    await probe.update(undefined, [styled], { [field]: variable })
+    const bind = probe.bind.getMockImplementation()!
+    probe.bind.mockImplementation((start, end, property, value) => {
+      if (value) bind(start, end, property, value)
+    })
+    probe.write.mockClear()
+    const ranges = [{ start: 0, end: 7, variables: { [field]: null } }, styled]
+    await probe.update(undefined, ranges)
+    expect(probe.aliases()).toEqual([undefined, variable.id, variable.id])
+    expect(probe.values()).toEqual([8, 8, 8])
+    expect(probe.write).toHaveBeenCalledExactlyOnceWith(0, 6, 8)
+    await expect(probe.update(undefined, ranges)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
   it('converges a node binding with a literal override for one complete paragraph', async () => {
     const probe = await createParagraphProbe(field, [0, 0, 0])
     const variable = { id: 'variable:spacing' }

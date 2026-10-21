@@ -57,7 +57,7 @@ async function createBindingProbe(field: MetricField, characters = 'ABCDEF') {
   vi.spyOn(node, 'setRangeBoundVariable').mockImplementation((start, end, property, variable) => {
     bind(start, end, property, variable)
     if (property === field) {
-      if (variable && node.characters[end] === '\n') end++
+      if (node.characters[end] === '\n') end++
       aliases.fill(variable ? { type: 'VARIABLE_ALIAS', id: variable.id } : null, start, end)
       if (variable)
         values.fill(Math.fround(variable.resolveForConsumer(node).value as number), start, end)
@@ -110,7 +110,7 @@ describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)('%s node bin
     })
   })
 
-  it.each(['literal', 'variable'] as const)(
+  it.each(['literal', 'variable', 'null'] as const)(
     'includes the native trailing newline in a %s override without losing the base binding',
     async (kind) => {
       const probe = await createBindingProbe(field, 'A\nB\nC')
@@ -120,17 +120,19 @@ describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)('%s node bin
         {
           start: 2,
           end: 3,
-          ...(kind === 'literal' ? { [field]: literal(13) } : { variables: { [field]: override } })
+          ...(kind === 'literal'
+            ? { [field]: literal(13) }
+            : { variables: { [field]: kind === 'null' ? null : override } })
         }
       ]
-      const value = kind === 'literal' ? 13 : 18
+      const value = kind === 'literal' ? 13 : kind === 'null' ? 8 : 18
       await probe.update({ [field]: variable }, ranges)
       expect(probe.values).toEqual([8, 8, value, value, 8])
       expect(probe.aliases.map((alias) => alias?.id)).toEqual([
         variable.id,
         variable.id,
-        kind === 'literal' ? undefined : override.id,
-        kind === 'literal' ? undefined : override.id,
+        kind === 'variable' ? override.id : undefined,
+        kind === 'variable' ? override.id : undefined,
         variable.id
       ])
       await expect(probe.update({ [field]: variable }, ranges)).resolves.toMatchObject({
@@ -138,6 +140,39 @@ describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)('%s node bin
       })
     }
   )
+
+  it('clears a retained newline alias without extending the setter into another newline', async () => {
+    const probe = await createBindingProbe(field, 'A\nB\n\nC')
+    const variable = { id: 'variable:spacing' }
+    await probe.update({ [field]: variable })
+    probe.aliases[2] = null
+    const ranges = [{ start: 2, end: 3, variables: { [field]: null } }]
+    await probe.update({ [field]: variable }, ranges)
+    expect(probe.node.setRangeBoundVariable).toHaveBeenLastCalledWith(2, 3, field, null)
+    expect(probe.aliases.map((alias) => alias?.id)).toEqual([
+      variable.id,
+      variable.id,
+      undefined,
+      undefined,
+      variable.id,
+      variable.id
+    ])
+    await expect(probe.update({ [field]: variable }, ranges)).resolves.toMatchObject({
+      mutationCount: 0
+    })
+  })
+
+  it('rejects a null setter that leaves its trailing newline bound', async () => {
+    const probe = await createBindingProbe(field, 'A\nB\nC')
+    const variable = { id: 'variable:spacing' }
+    await probe.update({ [field]: variable })
+    vi.mocked(probe.node.setRangeBoundVariable).mockImplementation((start, end) => {
+      probe.aliases.fill(null, start, end)
+    })
+    await expect(
+      probe.update({ [field]: variable }, [{ start: 2, end: 3, variables: { [field]: null } }])
+    ).rejects.toThrow(`range variable link "${field}" was not cleared`)
+  })
 
   it('repairs a foreign alias on the newline owned by a literal override', async () => {
     const probe = await createBindingProbe(field, 'A\nB\nC')

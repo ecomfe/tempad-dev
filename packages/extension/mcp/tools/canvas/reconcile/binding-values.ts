@@ -254,7 +254,7 @@ export function variableLinkMatches(
     overrides = textParagraphRanges(node.characters, overrides)
   } else if (field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing') {
     overrides = declared.map((range) =>
-      range.variables?.[field] || rangeHasVariableLiteral(range, field)
+      range.variables?.[field] !== undefined || rangeHasVariableLiteral(range, field)
         ? textRangeWithTrailingNewline(node.characters, range)
         : range
     )
