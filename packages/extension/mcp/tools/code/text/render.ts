@@ -140,7 +140,7 @@ function renderBlock(
         // Separate line boxes inherit text-indent without adding paragraph gaps.
         for (const runs of splitSoftLines(line.runs)) {
           const children = buildInlineTree(runs, commonStyle, classProp, ctx, node)
-          if (!runs.some((run) => /[^\t\n\f\r ]/.test(run.text))) {
+          if (isCollapsibleLine(runs)) {
             children.push({ name: 'br', props: {}, children: [] })
           }
           container.children.push({
@@ -153,7 +153,7 @@ function renderBlock(
         container.children.push(...buildInlineTree(line.runs, commonStyle, classProp, ctx, node))
         if (
           idx === lines.length - 1 &&
-          (line.runs.length === 0 || endsWithEmptySoftLine(line.runs))
+          (isCollapsibleLine(line.runs) || endsWithEmptySoftLine(line.runs))
         ) {
           // A final br alone does not create the trailing empty line box.
           container.children.push({ name: 'br', props: {}, children: [] })
@@ -182,10 +182,8 @@ function renderBlock(
 
   const rootStackItem: ListStackItem = {
     list: rootList,
-    level: lines.reduce(
-      (minimum, line) => Math.min(minimum, line.attrs.indentation),
-      lines[0]?.attrs.indentation ?? 1
-    )
+    // Native lists start at level 1; retain level 0 for existing segment sources.
+    level: lines.reduce((minimum, line) => Math.min(minimum, line.attrs.indentation), 1)
   }
   const stack: ListStackItem[] = [rootStackItem]
 
@@ -203,10 +201,10 @@ function renderBlock(
       stack.pop()
     }
 
-    const parentStackItem = stack.at(-1) ?? rootStackItem
-    if (currentIndent > parentStackItem.level) {
+    let parentStackItem = stack.at(-1) ?? rootStackItem
+    while (currentIndent > parentStackItem.level) {
       if (!parentStackItem.lastLi) {
-        // A leading nested item needs a container, not an extra visible marker or counter.
+        // Skipped levels need containers without extra visible markers or counters.
         const dummyLi: DevComponent = {
           name: 'li',
           props: {
@@ -231,11 +229,12 @@ function renderBlock(
       }
 
       parentStackItem.lastLi.children.push(newList)
-      stack.push({ list: newList, level: currentIndent })
+      parentStackItem = { list: newList, level: parentStackItem.level + 1 }
+      stack.push(parentStackItem)
     }
 
     const lineChildren = buildInlineTree(line.runs, commonStyle, classProp, ctx, node)
-    if (lineChildren.length === 0 || endsWithEmptySoftLine(line.runs)) {
+    if (isCollapsibleLine(line.runs) || endsWithEmptySoftLine(line.runs)) {
       lineChildren.push({ name: 'br', props: {}, children: [] })
     }
 
@@ -247,6 +246,11 @@ function renderBlock(
   }
 
   return rootList
+}
+
+function isCollapsibleLine(runs: TextRun[]): boolean {
+  // NBSP and zero-width spaces already create a line box.
+  return runs.every((run) => !/[^\t\n\f\r ]/.test(run.text))
 }
 
 function endsWithEmptySoftLine(runs: TextRun[]): boolean {

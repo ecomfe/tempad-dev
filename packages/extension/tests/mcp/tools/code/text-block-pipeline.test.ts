@@ -158,6 +158,44 @@ describe.each(['jsx', 'vue'] as const)('%s native text blocks', (lang) => {
     }
   )
 
+  it.each([' ', '\t  '])('retains a whitespace-only paragraph containing %j', async (blank) => {
+    const compact = await handleGetCode(
+      [createText(['NONE'], [], [{ characters: `Hello\n${blank}` }])],
+      lang
+    )
+    expect(compact.code.match(/<br\s*\/?>/g)).toHaveLength(2)
+
+    const spaced = await handleGetCode(
+      [createText(['NONE'], [], [{ characters: `Hello\n${blank}\nworld`, paragraphSpacing: 12 }])],
+      lang
+    )
+    const paragraphs = [...spaced.code.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)]
+    expect(paragraphs).toHaveLength(3)
+    expect(paragraphs[1]![2]).toContain('<br')
+    expect(paragraphs[1]![1]).toContain('mb-[12px]')
+
+    const list = await handleGetCode(
+      [createText(['ORDERED'], [], [{ characters: `Hello\n${blank}` }])],
+      lang
+    )
+    expect(list.code.match(/<li\b[^>]*>/g)).toHaveLength(2)
+    expect(list.code.match(/<br\s*\/?>/g)).toHaveLength(1)
+  })
+
+  it.each(['\u00a0', '\u200b'])(
+    'keeps the existing line box of %j without another break',
+    async (blank) => {
+      for (const listType of ['NONE', 'ORDERED'] as const) {
+        const result = await handleGetCode(
+          [createText([listType], [], [{ characters: `Hello\n${blank}` }])],
+          lang
+        )
+        expect(result.code).toContain(blank)
+        expect(result.code.match(/<br\s*\/?>/g) ?? []).toHaveLength(listType === 'NONE' ? 1 : 0)
+      }
+    }
+  )
+
   it.each(['NONE', 'UNORDERED'] as const)(
     'retains a trailing empty soft line in an unindented %s block',
     async (listType) => {
@@ -403,21 +441,59 @@ describe.each(['jsx', 'vue'] as const)('%s native text blocks', (lang) => {
       types: ['ORDERED', 'ORDERED', 'ORDERED'] as const,
       indents: [2, 1, 2],
       markup: '<ol><li><ol><li>First</li></ol></li><li>Second<ol><li>Third</li></ol></li></ol>'
+    },
+    {
+      types: ['ORDERED', 'ORDERED', 'ORDERED', 'ORDERED'] as const,
+      indents: [3, 2, 1, 2],
+      markup:
+        '<ol><li><ol><li><ol><li>First</li></ol></li><li>Second</li></ol></li><li>Third<ol><li>Fourth</li></ol></li></ol>'
+    },
+    {
+      types: ['ORDERED', 'ORDERED'] as const,
+      indents: [2, 2],
+      markup: '<ol><li><ol><li>First</li><li>Second</li></ol></li></ol>'
+    },
+    {
+      types: ['ORDERED', 'ORDERED', 'ORDERED'] as const,
+      indents: [1, 3, 1],
+      markup: '<ol><li>First<ol><li><ol><li>Second</li></ol></li></ol></li><li>Third</li></ol>'
+    },
+    {
+      types: ['ORDERED', 'UNORDERED'] as const,
+      indents: [2, 1],
+      markup: '<div><ol><li><ol><li>First</li></ol></li></ol><ul><li>Second</li></ul></div>'
     }
   ])('preserves nested list types and indentation $indents', async ({ types, indents, markup }) => {
     const result = await handleGetCode([createText([...types], indents)], lang)
     const structure = result.code
       .replace(/<\/?span\b[^>]*>/g, '')
+      .replace(/<div\b[^>]*>/g, '<div>')
       .replace(/<(ul|ol|li)\b[^>]*>/g, '<$1>')
-      .replace(/\s*(<\/?(?:ul|ol|li)>)\s*/g, '$1')
+      .replace(/\s*(<\/?(?:div|ul|ol|li)>)\s*/g, '$1')
       .trim()
     expect(structure).toBe(markup)
-    if (indents[0]! > Math.min(...indents)) {
+    if (indents[0]! > Math.min(1, ...indents)) {
       expect(result.code.match(/<li\b[^>]*>/)?.[0]).toContain('list-none')
       if (types[0] === 'ORDERED') {
         expect(result.code.match(/<li\b[^>]*>/)?.[0]).toContain('value="0"')
       }
     }
+  })
+
+  it.each([
+    {
+      indents: [3, 2, 1, 2],
+      markers: ['list-decimal', 'list-[lower-alpha]', 'list-[lower-roman]', 'list-[lower-alpha]']
+    },
+    { indents: [2, 2], markers: ['list-decimal', 'list-[lower-alpha]'] }
+  ])('keeps marker styles at their native levels $indents', async ({ indents, markers }) => {
+    const node = createText(
+      indents.map(() => 'ORDERED'),
+      indents
+    )
+    const result = await handleGetCode([node], lang)
+    const classes = [...result.code.matchAll(/<ol\s[^>]*class(?:Name)?="([^"]*)"/g)]
+    expect(classes.map((match) => match[1]!.split(' ')[0])).toEqual(markers)
   })
 
   it.each([

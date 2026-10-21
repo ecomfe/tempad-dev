@@ -99,6 +99,47 @@ it.each([
     height: 48
   },
   {
+    name: 'compact trailing whitespace paragraph',
+    characters: 'Hello\n \t ',
+    paragraphIndent: 0,
+    paragraphSpacing: 0,
+    indents: [0],
+    rows: [0],
+    height: 48
+  },
+  {
+    name: 'spaced trailing whitespace paragraph',
+    characters: 'Hello\n ',
+    indents: [12],
+    rows: [0],
+    height: 60
+  },
+  {
+    name: 'spaced middle whitespace paragraph',
+    characters: 'Hello\n \t \nHello',
+    indents: [12, 12],
+    rows: [0, 72],
+    height: 96
+  },
+  {
+    name: 'trailing non-breaking space paragraph',
+    characters: 'Hello\n\u00a0',
+    paragraphIndent: 0,
+    paragraphSpacing: 0,
+    indents: [0],
+    rows: [0],
+    height: 48
+  },
+  {
+    name: 'trailing zero-width space paragraph',
+    characters: 'Hello\n\u200b',
+    paragraphIndent: 0,
+    paragraphSpacing: 0,
+    indents: [0],
+    rows: [0],
+    height: 48
+  },
+  {
     name: 'compact repeated trailing hard breaks',
     characters: 'Hello\n\n',
     paragraphIndent: 0,
@@ -177,7 +218,32 @@ it.each([
     paragraphSpacing: 0,
     indents: [40, 20, 40],
     rows: [0, 24, 48],
-    height: 72
+    height: 72,
+    markers: ['lower-alpha', 'decimal', 'lower-alpha']
+  },
+  {
+    name: 'leading ordered item more than one level deep',
+    characters: 'Hello\nHello\nHello\nHello',
+    listType: 'ORDERED',
+    indentations: [3, 2, 1, 2],
+    paragraphIndent: 0,
+    paragraphSpacing: 0,
+    indents: [60, 40, 20, 40],
+    rows: [0, 24, 48, 72],
+    height: 96,
+    markers: ['lower-roman', 'lower-alpha', 'decimal', 'lower-alpha']
+  },
+  {
+    name: 'all ordered items nested one level',
+    characters: 'Hello\nHello',
+    listType: 'ORDERED',
+    indentations: [2, 2],
+    paragraphIndent: 0,
+    paragraphSpacing: 0,
+    indents: [40, 40],
+    rows: [0, 24],
+    height: 48,
+    markers: ['lower-alpha', 'lower-alpha']
   }
 ])('renders paragraph geometry with $name', async (scenario) => {
   const {
@@ -188,7 +254,8 @@ it.each([
     paragraphIndent = 12,
     paragraphSpacing = 12,
     listType = 'NONE',
-    indentations
+    indentations,
+    markers
   } = scenario
   vi.stubGlobal('__DEV__', false)
   vi.stubGlobal('figma', {
@@ -260,6 +327,9 @@ it.each([
     p, ol, ul { margin: 0; padding: 0; }
     .block { display: block; }
     .list-none { list-style-type: none; }
+    .list-decimal { list-style-type: decimal; }
+    .${CSS.escape('list-[lower-alpha]')} { list-style-type: lower-alpha; }
+    .${CSS.escape('list-[lower-roman]')} { list-style-type: lower-roman; }
     .${CSS.escape('pl-[1.2em]')} { padding-left: 20px; }
     .${CSS.escape('indent-[12px]')} { text-indent: 12px; }
     .${CSS.escape('mb-[12px]')} { margin-bottom: 12px; }
@@ -296,10 +366,21 @@ it.each([
   expect(positions.map((position) => position.top - origin.top - glyphTop)).toEqual(rows)
   if (height !== undefined) expect(origin.height).toBe(height)
   if (indentations) {
-    const placeholder = host.querySelector('ol > li') as HTMLLIElement
-    expect(getComputedStyle(placeholder).listStyleType).toBe('none')
-    expect(placeholder.value).toBe(0)
-    expect(placeholder.nextElementSibling?.getAttribute('value')).toBeNull()
-    expect(placeholder.querySelector('ol > li')).not.toBeNull()
+    const placeholders = host.querySelectorAll<HTMLLIElement>('li.list-none')
+    expect(placeholders.length).toBeGreaterThan(0)
+    for (const placeholder of placeholders) {
+      expect(getComputedStyle(placeholder).listStyleType).toBe('none')
+      expect(placeholder.value).toBe(0)
+      if (placeholder.nextElementSibling) {
+        expect(placeholder.nextElementSibling.getAttribute('value')).toBeNull()
+      }
+      expect(placeholder.querySelector('ol > li')).not.toBeNull()
+    }
+  }
+  if (markers) {
+    const items = [...host.querySelectorAll('li')].filter(
+      (item) => !item.classList.contains('list-none')
+    )
+    expect(items.map((item) => getComputedStyle(item).listStyleType)).toEqual(markers)
   }
 })
