@@ -12,12 +12,11 @@ import { createFixture } from '../../fakes/figma'
 
 type MetricField = 'fontSize' | 'lineHeight' | 'letterSpacing'
 
-async function createBindingProbe(field: MetricField) {
+async function createBindingProbe(field: MetricField, characters = 'ABCDEF') {
   const fixture = createFixture()
   const input: CanvasResolvedApplyParameters = {
     mode: 'create',
-    markup:
-      '<div data-key="root" class="flex w-80 h-80"><span data-key="label" class="w-40 h-20">ABCDEF</span></div>'
+    markup: `<div data-key="root" class="flex w-80 h-80"><span data-key="label" class="w-40 h-20 whitespace-pre-wrap">${characters}</span></div>`
   }
   const created = await applyCanvas(input)
   const node = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
@@ -30,6 +29,8 @@ async function createBindingProbe(field: MetricField) {
       ? wrap(values[start]!)
       : figma.mixed
   const writeValue = (start: number, end: number, value: number | { value: number }) => {
+    // Native metric setters also update an immediately following paragraph break.
+    if (node.characters[end] === '\n') end++
     values.fill(Math.fround(typeof value === 'number' ? value : value.value), start, end)
     aliases.fill(null, start, end)
   }
@@ -56,6 +57,7 @@ async function createBindingProbe(field: MetricField) {
   vi.spyOn(node, 'setRangeBoundVariable').mockImplementation((start, end, property, variable) => {
     bind(start, end, property, variable)
     if (property === field) {
+      if (variable && node.characters[end] === '\n') end++
       aliases.fill(variable ? { type: 'VARIABLE_ALIAS', id: variable.id } : null, start, end)
       if (variable)
         values.fill(Math.fround(variable.resolveForConsumer(node).value as number), start, end)
@@ -107,6 +109,65 @@ describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)('%s node bin
       mutationCount: 0
     })
   })
+
+  it.each(['literal', 'variable'] as const)(
+    'includes the native trailing newline in a %s override without losing the base binding',
+    async (kind) => {
+      const probe = await createBindingProbe(field, 'A\nB\nC')
+      const variable = { id: 'variable:spacing' }
+      const override = { id: 'variable:range-size' }
+      const ranges = [
+        {
+          start: 2,
+          end: 3,
+          ...(kind === 'literal' ? { [field]: literal(13) } : { variables: { [field]: override } })
+        }
+      ]
+      const value = kind === 'literal' ? 13 : 18
+      await probe.update({ [field]: variable }, ranges)
+      expect(probe.values).toEqual([8, 8, value, value, 8])
+      expect(probe.aliases.map((alias) => alias?.id)).toEqual([
+        variable.id,
+        variable.id,
+        kind === 'literal' ? undefined : override.id,
+        kind === 'literal' ? undefined : override.id,
+        variable.id
+      ])
+      await expect(probe.update({ [field]: variable }, ranges)).resolves.toMatchObject({
+        mutationCount: 0
+      })
+    }
+  )
+
+  it('repairs a foreign alias on the newline owned by a literal override', async () => {
+    const probe = await createBindingProbe(field, 'A\nB\nC')
+    const variable = { id: 'variable:spacing' }
+    const ranges = [{ start: 2, end: 3, [field]: literal(13) }]
+    await probe.update({ [field]: variable }, ranges)
+    probe.aliases[3] = { type: 'VARIABLE_ALIAS', id: 'variable:range-size' }
+    await expect(probe.update({ [field]: variable }, ranges)).resolves.toMatchObject({
+      mutationCount: 2
+    })
+    expect(probe.aliases.slice(2, 4)).toEqual([null, null])
+    await expect(probe.update({ [field]: variable }, ranges)).resolves.toMatchObject({
+      mutationCount: 0
+    })
+  })
+
+  it.each([null, { type: 'VARIABLE_ALIAS', id: 'variable:range-size' }] as const)(
+    'still rejects an incorrect binding after the trailing newline (%s)',
+    async (alias) => {
+      const probe = await createBindingProbe(field, 'A\nB\nC')
+      const variable = { id: 'variable:spacing' }
+      const ranges = [{ start: 2, end: 3, [field]: literal(13) }]
+      await probe.update({ [field]: variable }, ranges)
+      probe.aliases[4] = alias
+      probe.write.mockImplementation(() => {})
+      await expect(probe.update({ [field]: variable }, ranges)).rejects.toThrow(
+        `variable link "${field}" does not match`
+      )
+    }
+  )
 
   it('retains the base alias when an equal literal skips its setter', async () => {
     const probe = await createBindingProbe(field)
@@ -165,25 +226,27 @@ describe.each(['fontSize', 'lineHeight', 'letterSpacing'] as const)('%s node bin
     await expect(probe.update({ [field]: variable })).resolves.toMatchObject({ mutationCount: 0 })
   })
 
-  it('converges node null with a retained range alias', async () => {
-    const probe = await createBindingProbe(field)
-    const ranges = [{ start: 2, end: 4, variables: { [field]: { id: 'variable:spacing' } } }]
-    await probe.update({ [field]: { id: 'variable:spacing' } })
-    await probe.update({ [field]: null }, ranges)
-    expect(probe.aliases.map((alias) => alias?.id)).toEqual([
-      undefined,
-      undefined,
-      'variable:spacing',
-      'variable:spacing',
-      undefined,
-      undefined
-    ])
-    probe.write.mockClear()
-    await expect(probe.update({ [field]: null }, ranges)).resolves.toMatchObject({
-      mutationCount: 0
-    })
-    expect(probe.write).not.toHaveBeenCalled()
-  })
+  it.each(['ABCDEF', 'A\nB\nC'])(
+    'converges node null with a retained range alias in %j',
+    async (characters) => {
+      const probe = await createBindingProbe(field, characters)
+      const end = characters.includes('\n') ? 3 : 4
+      const ranges = [{ start: 2, end, variables: { [field]: { id: 'variable:spacing' } } }]
+      await probe.update({ [field]: { id: 'variable:spacing' } })
+      await probe.update({ [field]: null }, ranges)
+      expect(probe.aliases.map((alias) => alias?.id)).toEqual(
+        [undefined, undefined, 'variable:spacing', 'variable:spacing', undefined, undefined].slice(
+          0,
+          characters.length
+        )
+      )
+      probe.write.mockClear()
+      await expect(probe.update({ [field]: null }, ranges)).resolves.toMatchObject({
+        mutationCount: 0
+      })
+      expect(probe.write).not.toHaveBeenCalled()
+    }
+  )
 
   it('rejects a native setter that binds only the first run', async () => {
     const probe = await createBindingProbe(field)

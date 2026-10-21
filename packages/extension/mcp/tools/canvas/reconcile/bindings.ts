@@ -21,7 +21,7 @@ import {
 import { scalarValuesEqual, textMeasuresEqual } from './comparison'
 import { type SupportedCanvasNode, type ApplyState, markMutation } from './state'
 import { loadVariableFonts } from './text-fonts'
-import { textParagraphRange } from './text-ranges'
+import { textParagraphRange, textRangeWithTrailingNewline } from './text-ranges'
 
 async function setStyleLink(
   node: SupportedCanvasNode,
@@ -220,7 +220,7 @@ function literalOverridesAreUnbound(
     const span =
       field === 'paragraphIndent' || field === 'paragraphSpacing'
         ? textParagraphRange(node.characters, range)
-        : range
+        : textRangeWithTrailingNewline(node.characters, range)
     const alias = node.getRangeBoundVariable(span.start, span.end, field)
     return alias !== figma.mixed && !alias
   })

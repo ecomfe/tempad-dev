@@ -31,6 +31,7 @@ import {
 } from './text-range-style'
 import {
   textParagraphRanges,
+  textRangeWithTrailingNewline,
   textRangesIntersect,
   textRangesMatchOutside,
   textRangesOutside,
@@ -334,15 +335,22 @@ function setBaseTextValue<T>(
   scope = { start: 0, end: node.characters.length }
 ): void {
   if (desired === undefined || equal(current, desired)) return
-  if (
-    ranges?.length &&
-    textRangesMatchOutside(
-      scope,
-      ranges.filter((range) => rangeOwnsTextField(range, field)),
-      (start, end) => equal(readRange(start, end), desired)
+  if (ranges?.length) {
+    const overrides = ranges
+      .filter((range) => rangeOwnsTextField(range, field))
+      .map((range) =>
+        (field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing') &&
+        (range[field] !== undefined || range.variables?.[field])
+          ? textRangeWithTrailingNewline(node.characters, range)
+          : range
+      )
+    if (
+      textRangesMatchOutside(scope, overrides, (start, end) =>
+        equal(readRange(start, end), desired)
+      )
     )
-  )
-    return
+      return
+  }
   // Compare only spans not owned by later overrides. Actual changes retain the
   // existing setter and subsequent range restoration.
   apply(desired)

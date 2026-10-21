@@ -11,6 +11,7 @@ import { specError } from '../errors'
 import { isFrameContainer } from './nodes'
 import {
   textParagraphRanges,
+  textRangeWithTrailingNewline,
   textRangesMatchOutside,
   textRangesOutside,
   type TextRange
@@ -242,14 +243,21 @@ export function variableLinkMatches(
   if (node.type !== 'TEXT' || !node.characters.length || !isTextVariableField(field)) {
     return currentBoundVariableId(node, field) === expected
   }
-  let overrides: TextRange[] = (ranges ?? []).filter(
+  const declared = (ranges ?? []).filter(
     (range) =>
       range.variables?.[field] !== undefined ||
       range.textStyle ||
       rangeHasVariableLiteral(range, field)
   )
+  let overrides: TextRange[] = declared
   if (field === 'paragraphIndent' || field === 'paragraphSpacing') {
     overrides = textParagraphRanges(node.characters, overrides)
+  } else if (field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing') {
+    overrides = declared.map((range) =>
+      range.variables?.[field] || rangeHasVariableLiteral(range, field)
+        ? textRangeWithTrailingNewline(node.characters, range)
+        : range
+    )
   }
   return textRangesMatchOutside(
     { start: 0, end: node.characters.length },

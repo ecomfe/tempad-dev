@@ -38,7 +38,14 @@ function nativeTextField(
   Object.defineProperty(node, `getRange${suffix}`, { configurable: true, value: read })
   Object.defineProperty(node, `setRange${suffix}`, {
     configurable: true,
-    value: (start: number, end: number, value: unknown) => values.fill(value, start, end)
+    value: (start: number, end: number, value: unknown) => {
+      if (
+        (field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing') &&
+        node.characters[end] === '\n'
+      )
+        end++
+      values.fill(value, start, end)
+    }
   })
   return { read, write }
 }
@@ -99,6 +106,40 @@ const cases = [
 ] as const
 
 describe('whole-node text values with range overrides', () => {
+  it.each(
+    cases.filter(
+      ({ field }) => field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing'
+    )
+  )('converges $field when the range also changes its trailing newline', async (test) => {
+    const fixture = createFixture()
+    const request = (changed = false): CanvasResolvedApplyParameters => ({
+      mode: 'create',
+      markup: `<div data-key="root" class="flex w-80 h-80"><span data-key="label" class="w-40 h-20 whitespace-pre-wrap ${changed ? test.changedClasses : test.classes}">A\nB\nC</span></div>`,
+      bindings: {
+        label: { figma: { text: { ranges: [{ start: 2, end: 3, [test.field]: test.override }] } } }
+      }
+    })
+    const created = await applyCanvas(request())
+    const label = fixture.getNode(created.nodeIdsByKey.label!) as unknown as TextNode
+    const base = label[test.field]
+    const field = nativeTextField(label, test.field, [
+      base,
+      base,
+      test.override,
+      test.override,
+      base
+    ])
+    const update = (changed = false) =>
+      applyCanvas({ ...request(changed), mode: 'update', targetNodeId: created.rootNodeId! })
+    await expect(update()).resolves.toMatchObject({ mutationCount: 0 })
+    expect(field.write).not.toHaveBeenCalled()
+    await expect(update(true)).resolves.toMatchObject({ mutationCount: 2 })
+    expect(field.read(0, 2)).toEqual(test.changed)
+    expect(field.read(2, 4)).toEqual(test.override)
+    expect(field.read(4, 5)).toEqual(test.changed)
+    await expect(update(true)).resolves.toMatchObject({ mutationCount: 0 })
+  })
+
   it.each(cases)(
     'converges $field overrides and still applies changes outside them',
     async (test) => {

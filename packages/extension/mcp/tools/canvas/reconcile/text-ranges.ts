@@ -1,5 +1,10 @@
 export type TextRange = { start: number; end: number }
 
+export function textRangeWithTrailingNewline(characters: string, range: TextRange): TextRange {
+  // Native character metrics also apply to an immediately following paragraph break.
+  return characters[range.end] === '\n' ? { start: range.start, end: range.end + 1 } : range
+}
+
 export function textParagraphRange(characters: string, range: TextRange): TextRange {
   // Paragraph setters affect every paragraph touched, including its newline.
   const start = range.start === 0 ? 0 : characters.lastIndexOf('\n', range.start - 1) + 1
