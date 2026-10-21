@@ -159,9 +159,11 @@ export function useSelection() {
         typeof page.off !== 'function'
       )
         continue
+      // A distinct callback keeps removal isolated even if subscriptions are indexed by callback.
+      const onNodeChange = (event?: NodeChangeEvent) => handleNodeChange(event)
       try {
-        page.on('nodechange', handleNodeChange)
-        pageListeners.set(page, () => page.off('nodechange', handleNodeChange))
+        page.on('nodechange', onNodeChange)
+        pageListeners.set(page, () => page.off('nodechange', onNodeChange))
       } catch {
         // Unavailable definition pages remain covered by local edits/focus.
       }

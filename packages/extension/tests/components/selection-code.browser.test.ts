@@ -255,6 +255,65 @@ it('refreshes new and removed descendants of main components without retaining o
   await expect.poll(() => host.textContent).toContain('width: 300px')
 })
 
+it.each(['page-local', 'callback-global'] as const)(
+  'keeps the current page subscribed after removing a definition page with %s cleanup',
+  async (cleanup) => {
+    const { node, api, page } = fixture()
+    const library = { ...events(), id: 'library-page', type: 'PAGE', parent: null }
+    const definition = { id: 'definition', type: 'COMPONENT', parent: library }
+    Object.assign(node, { type: 'INSTANCE', mainComponent: definition, parent: page })
+    if (cleanup === 'callback-global') {
+      // Exercise the stronger removal contract without assuming native Figma uses it.
+      const removers = [page.off.getMockImplementation()!, library.off.getMockImplementation()!]
+      for (const source of [page, library]) {
+        source.off.mockImplementation((type, callback) => {
+          for (const remove of removers) remove(type, callback)
+          return true
+        })
+      }
+    }
+    const host = mount(View)
+    await expect.poll(() => host.textContent).toContain('width: 100px')
+    syncSelection()
+    await nextTick()
+    expect(page.on).toHaveBeenCalledOnce()
+    expect(library.on).toHaveBeenCalledOnce()
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const other = { id: 'other', width: 300, characters: 'Other' }
+    page.selection = [other]
+    api.emit('selectionchange')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(host.textContent).toContain('width: 300px')
+    expect(library.count()).toBe(0)
+    expect(page.count()).toBe(1)
+
+    const generated = vi.mocked(generateCodeBlocksForNode).mock.calls.length
+    other.width = 400
+    const change = {
+      nodeChanges: [{ id: other.id, node: other, type: 'PROPERTY_CHANGE', properties: ['width'] }]
+    }
+    page.emit('nodechange', change)
+    page.emit('nodechange', change)
+    await vi.advanceTimersByTimeAsync(99)
+    expect(generateCodeBlocksForNode).toHaveBeenCalledTimes(generated)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(host.textContent).toContain('width: 400px')
+    expect(generateCodeBlocksForNode).toHaveBeenCalledTimes(generated + 1)
+
+    page.selection = [node]
+    api.emit('selectionchange')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(page.on).toHaveBeenCalledOnce()
+    expect(library.on).toHaveBeenCalledTimes(2)
+    expect(library.count()).toBe(1)
+    unmountAll()
+    expect(api.count()).toBe(0)
+    expect(page.count()).toBe(0)
+    expect(library.count()).toBe(0)
+  }
+)
+
 it('refreshes actual editor input without native node events while ignoring TemPad inputs', async () => {
   const { node } = fixture()
   const host = mount(View)
