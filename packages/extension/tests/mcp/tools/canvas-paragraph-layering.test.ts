@@ -128,9 +128,12 @@ async function createParagraphProbe(
   )
   Object.defineProperty(label, 'setRangeBoundVariable', { value: bind })
   const nodeBind = vi.mocked(label.setBoundVariable).getMockImplementation()!
+  let baseAlias: string | undefined
   vi.spyOn(label, 'setBoundVariable').mockImplementation((property, variable) => {
     if (typeof variable === 'string') throw new Error('Deprecated variable IDs are unsupported')
     if (property !== field) return nodeBind(property, variable)
+    if (variable && baseAlias === variable.id) return
+    baseAlias = variable?.id
     for (const paragraph of paragraphs) {
       paragraph.alias = variable ? { type: 'VARIABLE_ALIAS', id: variable.id } : undefined
       if (variable) paragraph.value = variable.resolveForConsumer(label).value as number
@@ -263,6 +266,98 @@ describe.each(['paragraphIndent', 'paragraphSpacing'] as const)('%s layering', (
     await expect(probe.update(undefined, ranges, { [field]: variable })).resolves.toMatchObject({
       mutationCount: 0
     })
+  })
+
+  it('keeps a retained TextStyle paragraph alias while repairing a separate literal', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const base = { id: 'variable:spacing' }
+    const foreign = { id: 'variable:range-size' }
+    const style = probe.fixture.styles.get('style:text') as TextStyle
+    Object.assign(style, {
+      hangingPunctuation: false,
+      boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: foreign.id } }
+    })
+    const styled = { start: 13, end: 14, textStyle: { id: style.id } }
+    await probe.update(undefined, [{ start: 7, end: 8, variables: { [field]: foreign } }, styled], {
+      [field]: base
+    })
+    const ranges = [{ start: 7, end: 8, [field]: 18 }, styled]
+    await probe.update(undefined, ranges, { [field]: base })
+    expect(probe.aliases()).toEqual([base.id, undefined, foreign.id])
+    expect(probe.values()).toEqual([8, 18, 18])
+    await expect(probe.update(undefined, ranges, { [field]: base })).resolves.toMatchObject({
+      mutationCount: 0
+    })
+  })
+
+  it('retains an alias declared before an equal literal in the same paragraph', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const base = { id: 'variable:spacing' }
+    const foreign = { id: 'variable:range-size' }
+    const ranges = [
+      { start: 0, end: 1, variables: { [field]: foreign } },
+      { start: 2, end: 3, [field]: 18 }
+    ]
+    await probe.update(undefined, ranges, { [field]: base })
+    await probe.update(undefined, ranges, { [field]: base })
+    expect(probe.aliases()).toEqual([foreign.id, base.id, base.id])
+    expect(probe.values()).toEqual([18, 8, 8])
+  })
+
+  it('retains an earlier unchanged TextStyle alias under an equal paragraph literal', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const base = { id: 'variable:spacing' }
+    const foreign = { id: 'variable:range-size' }
+    const style = probe.fixture.styles.get('style:text') as TextStyle
+    Object.assign(style, {
+      hangingPunctuation: false,
+      boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: foreign.id } }
+    })
+    const ranges = [
+      { start: 0, end: 1, textStyle: { id: style.id } },
+      { start: 2, end: 3, [field]: 18 }
+    ]
+    await probe.update(undefined, ranges, { [field]: base })
+    await probe.update(undefined, ranges, { [field]: base })
+    expect(probe.aliases()).toEqual([foreign.id, base.id, base.id])
+    expect(probe.values()).toEqual([18, 8, 8])
+  })
+
+  it('does not let an earlier style unlink protect a foreign literal alias', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const base = { id: 'variable:spacing' }
+    await probe.update(
+      undefined,
+      [{ start: 0, end: 1, variables: { [field]: { id: 'variable:range-size' } } }],
+      { [field]: base }
+    )
+    const ranges = [
+      { start: 0, end: 1, textStyle: null },
+      { start: 2, end: 3, [field]: 18 }
+    ]
+    await probe.update(undefined, ranges, { [field]: base })
+    expect(probe.aliases()).toEqual([undefined, base.id, base.id])
+    expect(probe.values()).toEqual([18, 8, 8])
+  })
+
+  it('skips base rebinding when a later style owns the entire literal paragraph', async () => {
+    const probe = await createParagraphProbe(field, [0, 0, 0])
+    const base = { id: 'variable:spacing' }
+    const foreign = { id: 'variable:range-size' }
+    const style = probe.fixture.styles.get('style:text') as TextStyle
+    Object.assign(style, {
+      hangingPunctuation: false,
+      boundVariables: { [field]: { type: 'VARIABLE_ALIAS', id: foreign.id } }
+    })
+    const ranges = [
+      { start: 0, end: 1, [field]: 18 },
+      { start: 2, end: 3, textStyle: { id: style.id } }
+    ]
+    await probe.update(undefined, ranges, { [field]: base })
+    await expect(probe.update(undefined, ranges, { [field]: base })).resolves.toMatchObject({
+      mutationCount: 0
+    })
+    expect(probe.aliases()).toEqual([foreign.id, base.id, base.id])
   })
 
   it('binds the whole node when only one paragraph already uses the requested variable', async () => {

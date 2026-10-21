@@ -4,7 +4,7 @@ import type {
   CanvasVariableBindings
 } from '@tempad-dev/shared'
 
-import { specError } from '../errors'
+import { applyError, specError } from '../errors'
 import { loadFonts, currentTextFonts } from '../fonts'
 import { resolveStyle } from '../styles'
 import { resolveVariable } from '../variables'
@@ -21,7 +21,9 @@ import {
 import { scalarValuesEqual, textMeasuresEqual } from './comparison'
 import { type SupportedCanvasNode, type ApplyState, markMutation } from './state'
 import { loadVariableFonts } from './text-fonts'
-import { textParagraphRange, textRangeWithTrailingNewline } from './text-ranges'
+import { textParagraphs } from './text-paragraphs'
+import { resolvedRangeTextStyle } from './text-range-style'
+import { textParagraphRange, textRangeWithTrailingNewline, type TextRange } from './text-ranges'
 
 async function setStyleLink(
   node: SupportedCanvasNode,
@@ -185,6 +187,89 @@ export async function applyVariables(
       continue
     node.setBoundVariable(figmaField, variable)
     markMutation(state, node)
+    if (node.type === 'TEXT' && isTextVariableField(figmaField) && ranges?.length) {
+      await repairLiteralBindings(node, figmaField, variable, ranges, state)
+    }
+  }
+}
+
+function literalKeepsVariable(
+  range: CanvasFigmaTextRange,
+  field: VariableBindableTextField,
+  value: number
+): boolean | undefined {
+  const nativeValue = Math.fround(value)
+  if (field === 'lineHeight' || field === 'letterSpacing') {
+    return textMeasuresEqual(field, { unit: 'PIXELS', value: nativeValue }, range[field]!)
+  }
+  if (field === 'fontSize' || field === 'paragraphIndent' || field === 'paragraphSpacing') {
+    return scalarValuesEqual(nativeValue, range[field])
+  }
+}
+
+async function repairLiteralBindings(
+  node: TextNode,
+  field: VariableBindableTextField,
+  variable: Variable,
+  ranges: CanvasFigmaTextRange[],
+  state: ApplyState
+): Promise<void> {
+  const value = variable.resolveForConsumer(node).value
+  if (typeof value !== 'number') return
+  let earlierBindingEnd = 0
+  for (const [index, paragraph] of textParagraphs(node.characters, ranges).entries()) {
+    const range = paragraph.range
+    if (range.textStyle || range.variables?.[field] !== undefined) {
+      if (range.textStyle || range.variables?.[field]) earlierBindingEnd = paragraph.span.end
+      continue
+    }
+    if (!rangeHasVariableLiteral(range, field)) continue
+    const keep = literalKeepsVariable(range, field, value)
+    if (keep === undefined) continue
+    const scope =
+      field === 'paragraphIndent' || field === 'paragraphSpacing'
+        ? {
+            start: Math.max(paragraph.effective[field].start, earlierBindingEnd),
+            end: paragraph.effective[field].end
+          }
+        : textRangeWithTrailingNewline(node.characters, range)
+    if (scope.start >= scope.end) continue
+    const alias = node.getRangeBoundVariable(scope.start, scope.end, field)
+    // A native node rebind may retain local aliases. Repair only plain literal
+    // owners before applying the ordered ranges. Earlier paragraph binding
+    // owners retain their precedence when an equal later literal skips its setter.
+    // A base alias is cleared by a differing literal.
+    if (alias !== figma.mixed && (alias?.id === variable.id || (!keep && !alias))) continue
+    if (field === 'fontSize' || field === 'lineHeight' || field === 'letterSpacing') {
+      const later = ranges[index + 1]
+      if (node.characters[range.end] === '\n' && later?.start === range.end && later.textStyle) {
+        const style = await resolveStyle(later.textStyle, state.styles)
+        const alias = node.getRangeBoundVariable(range.end, range.end + 1, field)
+        const unchanged = alias !== figma.mixed && (keep ? alias?.id === variable.id : !alias)
+        if (
+          !unchanged &&
+          node.getRangeTextStyleId(later.start, later.end) === style.id &&
+          !(await resolvedRangeTextStyle(node, later, state))
+        ) {
+          applyError(
+            `Cannot repair TEXT node "${node.id}" range ${range.start}:${range.end} variable "${field}" without changing the retained TextStyle on its following newline.`
+          )
+        }
+      }
+    }
+    const writable = field === 'paragraphIndent' || field === 'paragraphSpacing' ? scope : range
+    node.setRangeBoundVariable(writable.start, writable.end, field, keep ? variable : null)
+    markMutation(state, node)
+    if (!keep) {
+      ensureTextRangeUnbound(node, scope, field, state)
+    } else {
+      const actual = node.getRangeBoundVariable(scope.start, scope.end, field)
+      if (actual === figma.mixed || actual?.id !== variable.id) {
+        applyError(
+          `Verification failed for TEXT node "${node.id}": range variable link "${field}" does not match.`
+        )
+      }
+    }
   }
 }
 
@@ -194,34 +279,61 @@ function literalOverridesAreUnbound(
   variable: Variable,
   ranges: CanvasFigmaTextRange[]
 ): boolean {
-  const literals = ranges.filter(
-    (range) => range.variables?.[field] === undefined && rangeHasVariableLiteral(range, field)
+  const literals = textParagraphs(node.characters, ranges).filter(
+    ({ range }) => range.variables?.[field] === undefined && rangeHasVariableLiteral(range, field)
   )
   if (!literals.length) return true
   const value = variable.resolveForConsumer(node).value
   if (typeof value !== 'number') return false
-  const nativeValue = Math.fround(value)
-  return literals.every((range) => {
-    if (range.textStyle !== undefined) return false
-    // An equal literal skips its setter and keeps the base alias. Only a
-    // different literal can account for an already unbound override.
-    if (field === 'lineHeight' || field === 'letterSpacing') {
-      if (textMeasuresEqual(field, { unit: 'PIXELS', value: nativeValue }, range[field]!))
-        return false
-    } else if (
-      field === 'fontSize' ||
-      field === 'paragraphIndent' ||
-      field === 'paragraphSpacing'
-    ) {
-      if (scalarValuesEqual(nativeValue, range[field])) return false
-    } else {
-      return false
-    }
+  return literals.every(({ range, effective }) => {
+    if (range.textStyle) return false
     const span =
       field === 'paragraphIndent' || field === 'paragraphSpacing'
-        ? textParagraphRange(node.characters, range)
+        ? effective[field]
         : textRangeWithTrailingNewline(node.characters, range)
+    if (span.start === span.end) return true
+    // An equal literal skips its setter and keeps the base alias. Only a
+    // different literal can account for an already unbound override.
+    if (literalKeepsVariable(range, field, value) !== false) return false
     const alias = node.getRangeBoundVariable(span.start, span.end, field)
     return alias !== figma.mixed && !alias
   })
+}
+
+export function ensureTextRangeUnbound(
+  node: TextNode,
+  range: TextRange,
+  field: VariableBindableTextField,
+  state: ApplyState
+): void {
+  if (field === 'paragraphIndent' || field === 'paragraphSpacing') {
+    // Native null can retain a paragraph alias even for a complete paragraph.
+    // Force its current literal, separately for each paragraph so mixed values
+    // survive, and require the alias to disappear before later owners run.
+    let start = range.start
+    while (start < range.end) {
+      const newline = node.characters.indexOf('\n', start)
+      const end = Math.min(range.end, newline === -1 ? node.characters.length : newline + 1)
+      const alias = node.getRangeBoundVariable(start, end, field)
+      if (alias) {
+        const value =
+          field === 'paragraphIndent'
+            ? node.getRangeParagraphIndent(start, end)
+            : node.getRangeParagraphSpacing(start, end)
+        if (value !== figma.mixed) {
+          if (field === 'paragraphIndent') node.setRangeParagraphIndent(start, end, value)
+          else node.setRangeParagraphSpacing(start, end, value)
+          markMutation(state, node)
+        }
+      }
+      start = end
+    }
+  } else if (field !== 'fontSize' && field !== 'lineHeight' && field !== 'letterSpacing') {
+    return
+  }
+  if (node.getRangeBoundVariable(range.start, range.end, field)) {
+    applyError(
+      `Verification failed for TEXT node "${node.id}": range variable link "${field}" was not cleared.`
+    )
+  }
 }

@@ -7,10 +7,11 @@ import type {
 
 import type { CanvasNodeSpec } from '../model'
 
-import { applyError, specError } from '../errors'
+import { specError } from '../errors'
 import { resolveStyle } from '../styles'
 import { resolvedVariable } from '../variables'
 import { currentBoundVariableId, unboundTextMetricRanges } from './binding-values'
+import { ensureTextRangeUnbound } from './bindings'
 import {
   textMeasuresEqual,
   hyperlinksEqual,
@@ -565,44 +566,6 @@ async function applyTextRangeVariables(
     node.setRangeBoundVariable(bindingRange.start, bindingRange.end, field, variable)
     markMutation(state, node)
     if (!variable) ensureTextRangeUnbound(node, comparisonRange, field, state)
-  }
-}
-
-function ensureTextRangeUnbound(
-  node: TextNode,
-  range: TextRange,
-  field: VariableBindableTextField,
-  state: ApplyState
-): void {
-  if (field === 'paragraphIndent' || field === 'paragraphSpacing') {
-    // Native null can retain a paragraph alias even for a complete paragraph.
-    // Force its current literal, separately for each paragraph so mixed values
-    // survive, and require the alias to disappear before later owners run.
-    let start = range.start
-    while (start < range.end) {
-      const newline = node.characters.indexOf('\n', start)
-      const end = Math.min(range.end, newline === -1 ? node.characters.length : newline + 1)
-      const alias = node.getRangeBoundVariable(start, end, field)
-      if (alias) {
-        const value =
-          field === 'paragraphIndent'
-            ? node.getRangeParagraphIndent(start, end)
-            : node.getRangeParagraphSpacing(start, end)
-        if (value !== figma.mixed) {
-          if (field === 'paragraphIndent') node.setRangeParagraphIndent(start, end, value)
-          else node.setRangeParagraphSpacing(start, end, value)
-          markMutation(state, node)
-        }
-      }
-      start = end
-    }
-  } else if (field !== 'fontSize' && field !== 'lineHeight' && field !== 'letterSpacing') {
-    return
-  }
-  if (node.getRangeBoundVariable(range.start, range.end, field)) {
-    applyError(
-      `Verification failed for TEXT node "${node.id}": range variable link "${field}" was not cleared.`
-    )
   }
 }
 
