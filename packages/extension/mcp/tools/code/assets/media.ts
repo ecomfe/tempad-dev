@@ -244,9 +244,9 @@ async function getTileSize(
 ): Promise<string | undefined> {
   const scale = fill.scalingFactor ?? 1
   if (!Number.isFinite(scale) || scale <= 0) return
-  if (budget.remainingMs <= 0) return
   let promise = cache.get(hash)
   if (!promise) {
+    if (budget.remainingMs <= 0) return
     const read = Promise.resolve()
       .then(() => figma.getImageByHash(hash)?.getSizeAsync?.() ?? null)
       .catch(() => null)
@@ -268,6 +268,8 @@ async function getTileSize(
 }
 
 function withSizeTimeout<T>(read: Promise<T>, timeoutMs: number): Promise<T | null> {
+  // A settled cache entry costs no wait; an exhausted budget never waits for a pending read.
+  if (timeoutMs <= 0) return Promise.race([read, Promise.resolve(null)])
   let timer: ReturnType<typeof setTimeout>
   const timeout = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), timeoutMs)

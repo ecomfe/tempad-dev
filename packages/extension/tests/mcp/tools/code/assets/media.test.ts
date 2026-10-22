@@ -626,6 +626,49 @@ describe('assets/media', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('uses settled cached dimensions after the node wait budget is exhausted', async () => {
+    vi.useFakeTimers()
+    const getSizeAsync = vi.fn(() => new Promise<{ width: number; height: number }>(() => {}))
+    const hashes = ['stalled', 'cached', 'pending', 'unread']
+    setFigmaImages(
+      Object.fromEntries(
+        hashes.map((hash) => [hash, { getBytesAsync: async () => png, getSizeAsync }])
+      )
+    )
+    vi.mocked(ensureAssetUploaded).mockResolvedValue({
+      hash: 'tile',
+      url: 'https://assets.test/tile',
+      mimeType: 'image/png',
+      size: png.length
+    })
+    const cache = createGetCodeCacheContext()
+    cache.imageSizes.set('cached', Promise.resolve({ width: 96, height: 64 }))
+    cache.imageSizes.set('pending', new Promise(() => {}))
+    const pending = replaceMediaUrlsWithAssets(
+      { background: hashes.map((hash) => `url(${hash}) center / 50px 50px repeat`).join(', ') },
+      {
+        fills: [...hashes].reverse().map((hash) => ({
+          ...imagePaint(hash),
+          scaleMode: 'TILE',
+          scalingFactor: 0.5
+        }))
+      } as unknown as SceneNode,
+      config,
+      new Map(),
+      undefined,
+      cache.imageBytes,
+      cache.imageSizes
+    )
+    await vi.advanceTimersByTimeAsync(1000)
+    expect((await pending).background).toBe(
+      ['50px 50px', '48px 32px', '50px 50px', '50px 50px']
+        .map((size) => `url('https://assets.test/tile') center / ${size} repeat`)
+        .join(', ')
+    )
+    expect(getSizeAsync).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it.each(['resolve', 'reject'])(
     'bounds optional dimensions and ignores a late %s',
     async (outcome) => {
