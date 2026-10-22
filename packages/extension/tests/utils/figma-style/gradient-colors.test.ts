@@ -133,8 +133,7 @@ it.each([
   const background = layers.join(', ')
   expect(matchBackgroundPaintLayers(background, [diamond])).toBeNull()
   expect(resolveBackgroundFillFromPaints([diamond], undefined, undefined, { background })).toEqual({
-    kind: 'layers',
-    value: layers
+    kind: 'native'
   })
 })
 

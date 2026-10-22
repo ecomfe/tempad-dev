@@ -55,6 +55,19 @@ afterEach(() => {
 })
 
 describe('figma/style-resolver paint precedence', () => {
+  it('preserves separate native background channels when paint layers cannot be matched', async () => {
+    installFigmaMocks()
+    const style = {
+      background: 'linear-gradient(37deg, #F008 25%, #00F8 75%)',
+      'background-color': '#0F0'
+    }
+    expect(
+      await resolveStylesFromNodeData(style, {
+        fills: [solidPaint({ r: 0, g: 1, b: 0 }), gradientPaint()]
+      })
+    ).toEqual(style)
+  })
+
   it.each<{ style: Record<string, string>; expected: Record<string, string> }>([
     { style: {}, expected: {} },
     { style: { 'background-color': '' }, expected: { 'background-color': '' } },

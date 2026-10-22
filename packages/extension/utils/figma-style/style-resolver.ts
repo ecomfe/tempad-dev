@@ -319,6 +319,7 @@ function applyResolvedBackgroundFill(
   resolved: ResolvedBackgroundFill | null
 ): boolean {
   if (!resolved) return false
+  if (resolved.kind === 'native') return true
 
   if (!style.background && !style['background-color']) {
     return false

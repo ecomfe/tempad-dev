@@ -9,7 +9,10 @@ import type { FigmaLookupReaders, PaintList, PaintResolutionSize } from './types
 
 import { formatHexAlpha, splitByTopLevelComma } from '../css'
 
-type ResolvedBackgroundFill = { kind: 'color'; value: string } | { kind: 'layers'; value: string[] }
+type ResolvedBackgroundFill =
+  | { kind: 'color'; value: string }
+  | { kind: 'layers'; value: string[] }
+  | { kind: 'native' }
 
 type BackgroundFillResolverOptions = {
   background?: string
@@ -169,8 +172,8 @@ export function resolveBackgroundFillFromPaints(
     }
   }
   if (!sourceLayers && /(?:linear|radial|conic)-gradient\s*\(/i.test(background)) {
-    // Reconstructing unmatched paints would discard native layers and geometry.
-    return { kind: 'layers', value: splitByTopLevelComma(background) }
+    // Keep every native channel; returning replacement layers would clear a separate base color.
+    return { kind: 'native' }
   }
 
   const layers: string[] = []
